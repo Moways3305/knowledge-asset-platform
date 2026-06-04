@@ -1,0 +1,604 @@
+# Backend — AI Knowledge Asset Platform
+
+当前已包含 **IMPLEMENT-00 工作台 + IMPLEMENT-01 身份/角色/项目成员 + IMPLEMENT-02 知识资产核心数据模型 + IMPLEMENT-03 权限判断服务**。已有身份模型与 `/api/v1/auth/me` 身份上下文接口、知识资产核心 6 表的 ORM 与迁移，以及集中权限判断服务。**仍不包含** Knowledge API、入库、审核、预览、Agent、审计、生命周期等业务逻辑。
+
+## 技术栈
+
+- **FastAPI**（Web 框架 / API）
+- **PostgreSQL**（数据库）
+- **SQLAlchemy 2.x + Alembic**（ORM 与迁移）
+- **Redis + Celery**（任务队列依赖占位，本阶段不实现任务逻辑）
+- **pytest + httpx**（测试），**ruff**（lint）
+
+## 目录结构
+
+```text
+backend/
+  README.md
+  pyproject.toml          # 依赖与工具配置
+  .env.example            # 环境变量示例（无真实密钥）
+  Dockerfile
+  alembic.ini             # Alembic 配置（URL 由 env.py 从环境读取，保持 ASCII）
+  alembic/
+    env.py                # 读取 DATABASE_URL，target = Base.metadata（已导入 models）
+    script.py.mako
+    versions/
+      0001_create_identity_and_project_membership_tables.py  # 身份/项目成员迁移
+  app/
+    main.py               # FastAPI app 入口（工厂 create_app）
+    api/health.py         # /health
+    api/auth.py           # /api/v1/auth/me（身份上下文）
+    core/config.py        # pydantic-settings 配置
+    core/trace.py         # trace_id 中间件骨架
+    db/base.py            # SQLAlchemy Base
+    db/session.py         # 异步 engine / session（懒加载）
+    models/identity.py    # users / user_company_roles / projects / project_members
+    schemas/enums.py      # 角色 / 状态枚举 + 业务/L5 判定集合
+    schemas/auth.py       # /auth/me 响应 schema
+    services/identity.py  # 开发态 mock identity 解析 + 身份上下文组装
+    seed/dev_seed.py      # 开发态 seed 数据（固定 UUID）
+  tests/
+    conftest.py           # 内存 SQLite + AsyncClient fixtures
+    test_health.py
+    test_auth_me.py
+```
+
+## 本地启动
+
+### 方式一：docker compose（推荐）
+
+在仓库根目录：
+
+```bash
+docker compose up --build
+```
+
+启动 PostgreSQL + Redis + backend。后端默认监听 `8000`。
+
+> compose 中的数据库账号/密码（dev / devpassword）**仅限本地开发**，不得用于任何共享或真实环境。
+
+### 方式二：本地 Python
+
+```bash
+cd backend
+python -m venv .venv
+# Windows: .venv\Scripts\activate    |  *nix: source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env          # 按需调整 DATABASE_URL / REDIS_URL
+uvicorn app.main:app --reload
+```
+
+## 健康检查
+
+- 地址：`GET http://localhost:8001/health`（Docker 本地映射；容器内仍为 8000）
+- 返回：`status` / `service` / `environment` / `trace_id`
+- 仅做存活检查，不连接数据库或外部系统。
+
+## trace_id 行为
+
+- 每个请求携带 `X-Trace-Id`；若未携带则服务端生成一个。
+- trace_id 存放于 `request.state.trace_id`，并在响应头 `X-Trace-Id` 回显。
+- trace_id 用于全链路关联，**不是权限凭证**，不能用于绕过权限（承接 BE-09）。
+
+## Alembic 基线
+
+- 已建立 SQLAlchemy `Base` 与 Alembic 配置基线。
+- `alembic/env.py` 从 `DATABASE_URL` 环境变量读取连接串，target metadata 指向共享 `Base.metadata`（已导入 `app.models`）。
+- 已有迁移：`0001`（身份/项目成员 4 表）→ `0002`（知识资产核心 6 表）。
+- **尚未创建权限 / 入库 / 审核 / 预览 / Agent / 审计 / 生命周期等后续业务表**，这些将在后续 IMPLEMENT 任务中按 `docs/backend/01-数据模型DATA_MODEL.md` 添加。
+
+## 测试
+
+```bash
+cd backend
+python -m pytest
+```
+
+`/health` 测试不依赖数据库。
+
+## IMPLEMENT-01：身份、角色、项目成员
+
+已实现身份上下文底座（不含权限判断服务、知识资产、审计等业务）：
+
+- 模型：`users` / `user_company_roles` / `projects`（最小字段）/ `project_members`
+- 迁移：`alembic/versions/0001_create_identity_and_project_membership_tables.py`
+- 接口：`GET /api/v1/auth/me`
+- 开发态 mock identity：见下
+
+### 开发态 mock identity
+
+- 通过请求头 `X-Dev-User-Id` 指定当前用户；缺省时回退到默认开发用户（顾问A）。
+- **仅在 `APP_ENV ∈ {local, dev, test}` 时启用**；其它环境返回 403。
+- 这是开发态便捷机制，**不是正式鉴权**；正式身份由**企微 OAuth 提供（已在 R6 实现**，见后文 R6 节：`/api/v1/auth/wecom/start` + `/callback`）。`X-Dev-User-Id` 仅在无有效会话且 `APP_ENV ∈ {local, dev, test}` 时回退。
+
+### `/api/v1/auth/me` 契约要点
+
+- 返回 `user_id / name / email / status / company_roles / is_business_user / can_discover_l5 / project_memberships`。
+- `company_roles` 与 `project_memberships` 分离；**admin 出现在 company_roles 不等于业务权限**。
+- `is_business_user`：active 公司角色含 boss / consulting_director / consultant。
+- `can_discover_l5`：active 公司角色含 boss / consulting_director。
+- 公司角色与项目成员关系都只统计 `status=active`。
+
+### seed 与测试
+
+- 开发态 seed：`app/seed/dev_seed.py`（固定 UUID，幂等），覆盖 consultant / project_manager / boss / consulting_director / 纯 admin / consultant+admin 等身份边界。
+- 测试使用内存 SQLite（`sqlite+aiosqlite`，StaticPool）+ pytest-asyncio（auto 模式），不依赖外部系统；正式运行仍以 PostgreSQL 为准。
+- 运行测试：
+
+```bash
+cd backend
+pip install -e ".[dev]"   # 需 sqlalchemy / aiosqlite / pytest-asyncio 等
+python -m pytest
+```
+
+### Alembic 运行说明
+
+- 默认 `DATABASE_URL` 指向 PostgreSQL（asyncpg），需 docker compose 的 postgres 在运行：
+
+```bash
+docker compose up -d postgres
+cd backend && python -m alembic upgrade head
+```
+
+- 迁移已做跨库验证（可临时用 `DATABASE_URL=sqlite+aiosqlite:///./check.sqlite3 python -m alembic upgrade head` 在无 PostgreSQL 时验证建表）。
+- 注意：`alembic.ini` 保持 ASCII，避免 Alembic 以 OS 本地编码（如 Windows GBK）读取配置时报错。
+
+## IMPLEMENT-02：知识资产核心数据模型
+
+已实现 6 张知识资产核心表（仅数据层，无 API / 权限 / 入库 / 审核 / 审计 / 预览 / Agent / 向量化）：
+
+- `knowledge_assets`、`knowledge_asset_versions`、`knowledge_asset_chunks`、`knowledge_asset_file_objects`、`knowledge_asset_summaries`、`knowledge_asset_tags`
+- 模型：`app/models/knowledge.py`；枚举：`app/schemas/enums.py`（知识资产相关）
+- 迁移：`alembic/versions/0002_create_knowledge_asset_core_tables.py`
+- 测试：`tests/test_knowledge_models.py`
+
+### 关键边界说明
+
+- **scope / zone**：`scope=personal/project/company` 是知识库归属；`zone=material/asset` 是【同一知识库内】的资产化状态标签，**不是两个物理库**。
+- **personal owner 业务用户约束**：`scope=personal` 的 owner 必须是业务用户（active 公司角色 boss/consulting_director/consultant）；仅 admin 身份不得作为 personal owner。该跨表约束本阶段**不在 DB 层强制**，留待权限/服务层（后续任务）校验。
+- **archived / deprecated**：归档/废弃资产与 superseded/invalid 版本、chunk 不进入默认检索 / RAG / Agent 上下文（由检索/网关层在后续任务落实）。
+- **`storage_ref` 内部字段**：`knowledge_asset_file_objects.storage_ref` 是服务端内部存储引用，**禁止出现在任何 API / 响应 schema 中**，不向前端明文返回。
+- **current_version_id**：为规避 assets↔versions 循环外键在 SQLite 迁移上的复杂度，`current_version_id` 仅作普通 UUID 列保存（无 DB 级外键），其一致性由服务层维护。
+
+### 与 BE-02 的差异（待 reviewer 确认）
+
+本阶段按 IMPLEMENT-02 任务的精简字段清单落地，与 BE-02 完整 schema 存在以下差异，留待 reviewer 决定是否对齐：
+
+- `Visibility` 取值采用 BE-02 + 前端 mock 的 `public / project_only / confidential`（任务文本枚举小节误写为 private/project/company，未采纳）。
+- `knowledge_asset_summaries` 采用**窄表**（`summary_type` + `content`，每种类型一行）；BE-02 为宽表（one_liner/detailed/... 多列）。
+- 字段名精简/重命名：`version_no`（BE-02: version_number）、`file_size`（size_bytes）、`file_hash`（file 对象侧，BE-02: checksum）、`token_count`（BE-02 无）、`invalid_reason`（invalidation_reason）。
+- 本阶段未落地 BE-02 的部分字段（如 chunk 的 contains_customer_data/vector_id、summaries 的 summary_level、assets 的 confidence/company_source_project_id 等），按"最小落地"留待后续任务补充。
+
+### active version 约束（IMPLEMENT-02_FIX）
+
+- “同一 asset 至多一个 active version”已落地为**部分唯一索引** `uq_asset_one_active_version`（`asset_id` UNIQUE WHERE `version_status = 'active'`）。
+- PostgreSQL 与 SQLite（>=3.8）均支持带 WHERE 的部分唯一索引，因此该约束在单元测试（SQLite）与生产（PostgreSQL）上都生效。
+- 服务层在激活版本时仍应做防御性校验（DB 约束是兜底，不替代业务流程）。
+
+### Alembic（IMPLEMENT-02）
+
+- 迁移链：`0001_identity` → `0002_knowledge`。
+- 已在 SQLite 跨库验证 `alembic upgrade head` 成功建立全部 10 张表（4 身份 + 6 知识）及 `uq_asset_one_active_version` 部分唯一索引。
+- 真实 PostgreSQL 验证需 Docker 守护进程运行（见下）。
+
+## IMPLEMENT-03：权限判断服务
+
+已实现**集中权限判断服务**（仅服务层 + 测试，**无 API、无新表、无 migration**），供后续 IMPLEMENT-04 Knowledge API 调用：
+
+- 服务：`app/services/permission.py`（`build_caller_context` + `decide`）
+- 类型：`app/schemas/permission.py`（AccessLayer / AccessChannel / DeniedReason / EffectiveAccessSource / CallerContext / PermissionDecision / DefaultAccessPolicy）
+- 测试：`tests/test_permission_service.py`（矩阵式覆盖）
+
+### decision 输出字段
+
+`PermissionDecision`：`allowed`、`requested_layer`、`allowed_layer`（可达最高层级）、`denied_reason`、`effective_access_source`、`audit_required`、`strong_audit_required`、`summary_variant`（L3/L4 摘要提示 `redacted_summary`）。
+
+### 关键语义
+
+- **三层递进**：discovery < summary < original；发现层被拒则摘要/原文必拒。
+- **个人知识**：本人业务用户三层全开（source=owner）；他人/仅 admin 身份一律 `personal_asset_not_owned`。
+- **项目知识**：本项目 active 成员三层全开、原文需审计（source=project_member）；非成员 L3/L4 原文 `original_requires_request`、摘要脱敏，L1/L2 业务用户按默认策略可得原文、非业务用户 `no_project_membership`。
+- **公司知识**：发现/摘要面较宽；L1/L2 业务用户默认可得原文（需审计）、非业务用户原文 `original_requires_request`；L3/L4 原文 `original_requires_request`、摘要脱敏。
+- **L5**：仅 boss / consulting_director 可发现/摘要/原文，原文强审计（source=company_role）；其余（含 admin）`l5_not_discoverable`，不泄露存在信息。
+- **A4 边界**：仅 `access_channel=agent` 的原文请求受 A4 限制（`agent_a4_original_denied`）；human 不因 A4 自动拒绝。
+- **读侧状态过滤**：`asset_status` 为 archived/deprecated 默认不可发现（`asset_not_active`）。
+
+### 当前限制与后续替换
+
+- IMPLEMENT-03 当时无 `access_grants` / `original_access_requests` 表，跨项目 / 公司 L3/L4 原文一律按"需要申请"拒绝。**现状（PBC-06 已实现）**：两表已落地；无授权时仍 `original_requires_request`，经申请 → 审批 → 生成 active `access_grant` 后，`decide(has_original_grant=…)` 在运行时放行原文层（source=`access_grant`，需审计），过期 / 撤销立即失效。
+- **L1/L2 原文默认放行策略**集中在 `DefaultAccessPolicy`（`app/schemas/permission.py`）常量对象。PBC-03 落 `permission_rules` 配置中心；PBC-06 已接入 active `access_grant` 的运行时原文放行与 `access_grant_duration_days`（grant 默认有效期来源）。**仍为后续增强**：让 `DefaultAccessPolicy` 从 `permission_rules` 规则化加载（L1/L2 `system_rule` 运行时）、超时自动通过——当前 `DefaultAccessPolicy` 仍是常量对象，不散落写死在多处。
+- 本服务只做读侧判断，不写审计：`audit_required` / `strong_audit_required` 是给后续 IMPLEMENT-09 审计落点使用的标记，本阶段不落 `audit_events`。
+
+## IMPLEMENT-04：基础 Knowledge 读 API 与前端 mock 第一批替换
+
+已实现三类**只读** API（权限判断全部复用 `app/services/permission.py`，不在 router/页面散落权限矩阵）：
+
+- `GET /api/v1/knowledge`：列表，只返回调用人可发现的资产；L5/他人 personal 直接过滤；archived/deprecated 默认不返回。
+- `GET /api/v1/knowledge/{asset_id}`：详情；`l5_not_discoverable` / `personal_asset_not_owned` / archived 表现为 404；不返回原文内容、内部存储引用、token。
+- `GET /api/v1/my/knowledge`：仅本人 `scope=personal` 资产；纯 admin 返回 403 + `admin_business_permission_denied`。
+
+实现文件：`app/api/deps.py`（`get_caller_context` 复用开发态 mock identity + CallerContext）、`app/api/knowledge.py`、`app/schemas/knowledge.py`、`app/services/knowledge.py`、seed 扩展 `app/seed/dev_seed.py::seed_dev_knowledge`、测试 `tests/test_knowledge_api.py`。
+
+### access_info 与摘要口径
+
+- 每个资产返回 `access_info`（discovery/summary/original/effective_source/can_request_original），由权限服务三层决策得到；前端据此生成权限展示。
+- **L3/L4 摘要过渡策略**：summaries 为窄表，L3/L4 列表/详情仅返回 `redacted_summary` / `safe_summary` 行作为安全摘要（无则为 None），不暴露 key_points；这是 IMPLEMENT-04 过渡口径，正式脱敏策略后续细化。
+- `confidence` 未在 knowledge_assets 落地（见 IMPLEMENT-02 差异），API 固定返回 None。
+- `no_project_membership` 仍为权限服务内部返回 key（IMPLEMENT-03 已通过）；本阶段 API 未强制改写为 `project_membership_required` 别名，避免改动已通过的权限服务；统一对外命名留待引入错误码映射层时处理。
+- **include_archived**：当前不额外放行归档资产（权限服务对 archived/deprecated 作 asset_not_active 处理），治理归档视图留 IMPLEMENT-10；前端"包含归档"开关暂无额外效果。
+
+### 前端 mock 替换（第一批）
+
+- `/knowledge`、`/knowledge/:id`、`/my/knowledge` 三页主数据已改为真实 API（`src/api/client.ts` + `src/types/knowledge.ts`），不再依赖前端静态 mock 数据（早期前端静态数据层后续已删除）。
+- `vite.config.ts` 增加 `/api` → `http://localhost:8001` 代理；开发态身份头 `X-Dev-User-Id` 由 client 统一附加（`VITE_DEV_USER_ID` 可覆盖，留空则后端回退默认开发用户）。
+- 保留布局；写动作（提交/申请/预览/重新启用）保持禁用占位；洞察侧栏为本地展示占位。
+
+### 开发态 seed 命令（IMPLEMENT-04_FIX）
+
+本地完成迁移/建表后，可一条命令写入幂等开发态数据（身份 + 知识资产）：
+
+```bash
+# 先建表（PostgreSQL 需 docker compose 的 postgres 在运行）
+docker compose up -d postgres
+cd backend && python -m alembic upgrade head
+# 写入 seed（幂等，可重复执行）
+python -m app.seed.dev_seed
+```
+
+- 入口 `python -m app.seed.dev_seed` 调用 `seed_all`（identity + knowledge），两者均幂等。
+- **仅允许 `APP_ENV ∈ {local, dev, test}`**；其它环境直接拒绝（非生产初始化机制）。
+- 复用 `get_settings()` / `get_engine()` / `get_sessionmaker()`，不复制数据库 URL 默认值。
+- 不含真实客户数据 / 真实路径 / 真实对象存储 URL / 真实 token。
+- 无 PostgreSQL 时可临时用 SQLite 验证：
+  `DATABASE_URL=sqlite+aiosqlite:///./dev.sqlite3 APP_ENV=local python -m alembic upgrade head && DATABASE_URL=sqlite+aiosqlite:///./dev.sqlite3 APP_ENV=local python -m app.seed.dev_seed`
+
+### `/my/knowledge` 读侧状态过滤（IMPLEMENT-04_FIX）
+
+- `/api/v1/my/knowledge` 复用 `decide(caller, asset, discovery)` 过滤，本人 **archived / deprecated** personal 资产默认不返回，与"归档/废弃不进入读侧检索/访问"的权限口径一致（不只写 SQL 状态条件，避免规则分叉）。
+
+## IMPLEMENT-05：入库流水线最小闭环（Path B）
+
+实现 Path B 本地上传 → AI 建议占位 → 人工确认 → 写入 KnowledgeAsset 的最小闭环（不实现真实文件存储/AI/Path A/审核流/审计）：
+
+- 模型：`app/models/ingest.py`（`ingest_tasks` / `ingest_task_ai_results`，仅两表）；迁移 `0003_create_ingest_pipeline_tables`。
+- API（`app/api/ingest.py` + `app/services/ingest.py` + `app/schemas/ingest.py`）：
+  - `POST /api/v1/ingest/upload`：仅业务用户；同步生成确定性 AI 建议占位（基于文件名，不调真实 AI）；`upload_url` 固定 `null`（不返回签名上传地址）；不接收文件二进制（metadata-only）。
+  - `GET /api/v1/ingest/{task_id}/ai-result`：创建人/治理角色看完整建议；**admin 仅运营元数据**（business 正文置 None）；其余 403。
+  - `POST /api/v1/ingest/{task_id}/confirm`：人工确认后创建 KnowledgeAsset（zone=material）+ v1 active version + summaries（L3/L4 含脱敏摘要）+ tags，置 `current_version_id`，任务置 completed 并记 `result_asset_id`；二次确认返回 409。
+  - `GET /api/v1/admin/ingest`：admin/治理只读运营列表（无业务原文 / 内部引用）。
+- 权限边界：纯 admin 不可上传/确认（403 `admin_business_permission_denied`）；project 入库需目标项目 active 成员（否则 `project_membership_required`）；**consultant 直接确认 company 资产被拒**（`company_confirmation_requires_governance`，不假装完成公司级审核），仅 boss/咨询总监可确认 company。
+- 安全：响应绝不含 `source_file_ref` / `storage_ref` / 真实上传下载 URL；`source_file_ref` 是 **server-only 内部存储引用**，当前本地存储格式为 `internal://<uuid>/<safe_name>`（仅供后端解析，非 URL，绝不外泄前端，见 IMPLEMENT-13）。
+- 前端：`/upload` Path B 主流程接真实 API（创建任务 → AI 建议 → 人工校正 → 提交 → "查看新资产"链接）；目标项目下拉来自 `/auth/me` active 成员；Path A 企微 Agent 面板仍为 mock 占位（**现状：PBC-07 已接真实待确认任务 `GET /api/v1/ingest/pending?source=path_a_wecom` + 复用 Path B confirm 链路**）；写动作"保存草稿"等保持禁用。
+- 测试：`tests/test_ingest_api.py`（10 用例），后端 64 passed；前端 `npm run build` 通过；迁移 SQLite `0001→0002→0003` 验证通过。
+- **过渡口径**：新增 `IngestStatus.pending_confirmation`（BE-02 无，已由 reviewer 接受，`waiting_review` 保留给审核流）。
+- **IMPLEMENT-05_FIX**：
+  - confirm 归属校验：仅**任务创建人**或**业务治理角色（boss/咨询总监）**可确认；其他业务用户 403 `ingest_confirm_forbidden`；纯 admin 仍 403。
+  - confirm 现接收并写入 `visibility`，且 `/upload` 人工校正区可编辑 `visibility` / `asset_type` / `confidentiality_level` / `ai_access_level` 并真实提交（中文可见性在前端映射为 enum key，不把中文发给 API）。
+  - `IngestConfirmRequest` 的 `target_scope`/`target_zone`/`asset_type`/`visibility`/`confidentiality_level`/`ai_access_level` 改用 `app.schemas.enums` 的 Enum 做 Pydantic 校验，非法值返回 **422**，不写脏数据；DB 仍 String 存储（写入取 `.value`）。
+
+## IMPLEMENT-06：审核流最小闭环（material → asset）
+
+实现项目 material 资产 → 登记验证证据 → ReviewTask → PM approve → `zone=asset` 的闭环（不实现原文授权/预览/审计表/Agent/生命周期/通知）：
+
+- 模型：`app/models/review.py`（`validation_evidences` / `review_tasks` / `review_task_evidences`，仅三表）；迁移 `0004_create_review_workflow_tables`。
+- API（`app/api/review.py` + `app/services/review.py` + `app/schemas/review.py`）：
+  - `GET /api/v1/reviews`（队列，业务用户；纯 admin 403；治理角色看全部，其余看自己提交/被分配的）+ `review_type`/`status` 过滤
+  - `GET /api/v1/reviews/{id}`（提交人/审核人/治理/项目 PM 可见）
+  - `POST /api/v1/projects/{project_id}/knowledge/{asset_id}/evidence`（项目 active 成员登记证据；自动绑定到非终态 material_to_asset review 并把 pending_evidence → pending_reviewer）
+  - `POST /api/v1/projects/{project_id}/knowledge/{asset_id}/confirm-asset`（创建/复用 material_to_asset review；reviewer = 项目 active PM，无 PM → 422 `reviewer_not_found`；有证据 pending_reviewer 否则 pending_evidence；不直接改 zone）
+  - `POST /api/v1/reviews/{id}/approve`（仅 reviewer；需 ≥1 证据否则 422 `review_evidence_required`；非 pending 终态 409；approve → `zone=asset`）
+  - `POST /api/v1/reviews/{id}/reject`（仅 reviewer；review_comment 必填；终态 409；不改 zone）
+- 权限边界：纯 admin 全部业务动作 403；非项目成员不能登记证据/发起 confirm-asset（`project_membership_required`）；consultant 可登记/发起但不能 approve/reject（非 reviewer → `review_action_forbidden`）；project_manager 仅能处理分配给自己的 review。
+- approve/reject **不写 audit_events / 不通知 / 不调用 Agent / 不发布公司库 / 不创建 access grant**（审计留 IMPLEMENT-09，代码注释已标注）。
+- seed：新增 2 个 Alpha 项目 material 资产；`seed_dev_reviews` 为其一创建证据 + pending_reviewer 审核任务（审核人=经理 B）用于 `/review` 开发态展示；`python -m app.seed.dev_seed` 已含。
+- 前端：`/review` 主队列接 `GET /api/v1/reviews`（真实字段：标题/类型/来源项目/证据数/状态），approve/reject 调真实 API 且仅 reviewer 在 pending_reviewer 时可见；角色职责/治理机制为静态说明。
+- 测试：`tests/test_review_api.py`（10 用例），后端 78 passed；`npm run build` 通过；迁移 SQLite `0001→0004` 验证通过。
+- **过渡口径**：新增 `ReviewTaskStatus`（pending_evidence/pending_reviewer/approved/rejected，区别于 BE-02 ReviewStatus，已由 reviewer 接受）；`validation_evidences` 加 `project_id`、`review_tasks` 加 `submitted_by`/`target_scope`/`target_project_id`（BE-02 无，便于最小闭环）；无 PM 时 422 不自动升级咨询总监。
+- **IMPLEMENT-06_FIX**：
+  - approve / reject 开头显式拦截非业务用户 / 纯 admin（403 `admin_business_permission_denied`），不再依赖"数据不会把 admin 设为 reviewer"。
+  - 证据附件 metadata 校验（`services/review.py::_validate_attachments`）：key 含 url/download_url/file_url/path/storage 内部引用/bucket/object_key/token，或值以 `http(s)/file/s3/oss/internal://` 开头时返回 422 `attachment_metadata_forbidden`，且不创建 evidence；仅允许安全占位 metadata。
+  - 补齐非项目成员 confirm-asset 测试（403 `project_membership_required`）。
+
+## IMPLEMENT-07：原文预览凭证最小闭环
+
+实现"申请受控预览凭证 → 平台受控占位入口"的最小闭环（IMPLEMENT-07 当时不实现真实文件/对象存储/ONLYOFFICE/access_grants/审计）。**现状**：ONLYOFFICE 真预览已由 R7 落地、审计由 IMPLEMENT-09 落地、原文授权由 PBC-06 落地（预览原文层会叠加 active `access_grant`）：
+
+- 模型：`app/models/preview.py`（`preview_credentials`，仅一表）；迁移 `0005_create_preview_credentials`。枚举新增 `PreviewType` / `CredentialStatus`。
+- API（`app/api/preview.py` + `app/services/preview.py` + `app/schemas/preview.py`）：
+  - `POST /api/v1/knowledge/{asset_id}/preview`：复用权限服务，拥有 original 层权限签发 `preview_type=full`；返回 `credential_id`/`preview_type`/`credential_fingerprint`/`preview_entry_url`/`expires_at`/`credential_status`。
+  - `GET /api/v1/preview/{credential_id}`：平台受控占位入口，校验状态/过期/资产 active，更新 used_at/last_used_at，返回占位 metadata（不加载真实文件）。
+- 安全：只存 `token_hash`（sha256），**不返回明文 token**；`credential_fingerprint` = 哈希前 16 位（可对外）；`preview_entry_url` = 平台相对路径 `/api/v1/preview/{id}`（非对象存储签名 URL）；响应不含 storage_ref/source_file_ref/bucket/对象存储 URL。默认有效期 30 分钟（`PREVIEW_TTL_MINUTES`）。
+- 权限边界：纯 admin 403 `admin_business_permission_denied`；无 original 权限（含 L3/L4 denied、仅 summary）一律 403 `original_requires_request`（不签 summary_only，引导到真实原文访问申请；**PBC-06 起预览原文层叠加 active `access_grant`**，授权通过后签发 full）；L5 普通用户 404 不泄露、boss/咨询总监签发 full；archived/deprecated 403 `asset_not_active` 且不创建凭证；A4 仅限制 agent 上下文、不阻 human preview。入口仅凭证申请人可用。
+- 前端：`/knowledge/:id` 原文预览按钮在 `access.original` 时可"申请受控预览"，签发后展示 preview_type/指纹/有效期 + "打开受控预览"链接（平台相对入口，占位 metadata，不加载真实文件、不展示完整 token/对象存储 URL）。
+- 测试：`tests/test_preview_api.py`（9 用例），后端 89 passed；`npm run build` 通过；迁移 SQLite `0001→0005` 验证通过。
+- **过渡口径**：本阶段仅 full 凭证；GET 入口为占位（不渲染真实文件）；过期/状态比较对 SQLite naive 时间做 UTC 归一（`_as_aware`）。
+- **IMPLEMENT-07_FIX**：
+  - 签发时校验 `version_id`：为空用 `current_version_id`；非空必须存在且属于本资产（否则 404 `version_not_found`）且 `version_status=active`（否则 403 `preview_type_not_available`）；不满足不创建凭证。
+  - `GET /api/v1/preview/{id}` 开头显式拦截非业务用户 / 纯 admin（403 `admin_business_permission_denied`），早于 credential 查询。
+
+## IMPLEMENT-08：Agent Gateway 最小闭环（历史；provider 中立网关的早期桩，PBC-01 后为外部 Agent / 工作流网关）
+
+实现"项目 Q&A 进入平台权限网关 → 以真实调用人身份复用集中权限判断 → 记录调用 / 决策 / 候选项 / 引用 → 返回确定性 stub 回答与安全引用"的最小闭环。**不接真实 Dify / LLM / 向量库**，使用 `internal_stub` 桩 provider。
+
+- 模型：`app/models/agent.py`，仅四张表 `agent_calls` / `agent_gateway_decisions` / `agent_gateway_decision_items` / `agent_call_citations`；迁移 `0006_create_agent_gateway_tables`。枚举新增 `AgentProvider`（仅 `internal_stub`）/ `AgentCapability`（本阶段仅 `qa`）/ `AgentCallStatus` / `GatewayDecisionStatus`。**不新增** `agent_whitelist_rules` / `agent_registry` / `permission_rules` / `access_grants` / `original_access_requests` / `audit_events` / 向量索引 / Dify 配置密钥表。
+- API（`app/api/agent.py` + `app/services/agent.py` + `app/schemas/agent.py`）：
+  - `POST /api/v1/projects/{project_id}/qa`：创建 `agent_calls` → 从当前项目 `scope=project & asset_status=active` 资产做关键词/最近创建的**粗召回**（无真实向量库）→ 对每个候选 `permission.decide(..., channel=agent)` 三层判断写 `decision_items` → 按 `returned_layer` 裁剪 → 生成确定性 stub 回答 → 写 `agent_call_citations`。
+  - `GET /api/v1/agent-calls/{call_id}`：调用人本人 / boss / 咨询总监可见；纯 admin 403 `admin_business_permission_denied`；他人业务用户 404。响应含 `query_text` + 人类可读名 `caller_name` / `project_name`（对齐契约 §15，治理展示用；各一次主键查询，无 N+1）。
+  - `GET /api/v1/agent-calls/{call_id}/decision-items`：同一可见性；过滤 `l5_not_discoverable` / `personal_asset_not_owned` 项，避免反查 L5 / 他人个人知识存在性。
+- `provider`：固定 `internal_stub`（平台抽象桩标识，**不是** provider 内部敏感标识）。不引入外部 Agent SDK，不保存 provider 内部标识（如 Dify 适配器的 app_id / workflow_id / dataset_id / api_key）。
+- 权限与安全边界：
+  - 纯 admin / 非业务用户发起 Q&A → 403 `admin_business_permission_denied`；非项目成员 → 403 `project_membership_required`；inactive 用户 → 403 `user_inactive`；非 `qa` 能力 → 403 `agent_capability_denied`。
+  - **A4 资产**在 `channel=agent` 请求 original 被 `decide()` 拒绝 → `original_allowed=false`，`returned_layer` 落到 `summary`，不进原文上下文。
+  - **L5** 对普通 consultant `discovery_allowed=false`，不进引用、不在可见 decision-items 暴露；**archived/deprecated** 被候选 SQL 过滤，不进候选 / 引用。
+  - 全部候选被拒（或无候选）→ 403 `agent_scope_denied`，不编造引用。
+  - citation 必来自 allowed decision_items（`returned_layer ≠ null`），`used_access_layer = returned_layer`，**不超过** returned_layer。引用字段名为 `cited_zone`（对齐契约 §10，值仍 `material / asset`）。
+  - 响应与 schema 不含 storage_ref / source_file_ref / vector_id / api_key / dataset_id / workflow_id / bucket / 对象存储 URL / provider 内部标识（如 Dify）/ chunk 原始主键。
+- 前端：`/project/:id/knowledge` 阶段问答**主流程接真实 API**（`projectQa` → `POST /projects/{id}/qa`），展示回答文本、`model_key`、`decision_status`、`call_id` / `trace_id`、引用列表（标题 / `cited_zone` / `used_access_layer`）；非项目成员 / admin / 无可用上下文时展示后端业务原因。路由 `:id` 在 Demo 导航里是占位串，因此从 `/auth/me` 解析"本次问答实际所在项目"。页面的生命周期阶段、KPI、风险、治理提示、知识卡片网格**仍为静态 mock**。
+- 测试：`tests/test_agent_api.py`（9 用例），后端 **101 passed**；`npm run build` 通过；迁移 SQLite `0001→0006` upgrade / downgrade 验证通过。
+- **本阶段未实现**：真实 Dify / LLM 调用、Dify SDK / Gateway Tool、agent registry / whitelist 配置与管理 API、真实向量检索 / embedding / pgvector、access_grants / original_access_requests、audit_events、Agent 推荐升格 / 更新 / 风险抽取、Agent 治理写动作（审核 / 确认资产 / 登记证据 / 授权原文 / 归档 / 废止 chunk / 替换版本）、流式响应、WeCom / ONLYOFFICE / 对象存储。chunk 级召回留空，故 `is_pending_review` 恒为 false。
+
+## IMPLEMENT-09：审计日志与 trace_id 贯穿（最小闭环 + 回填已实现模块）
+
+新增 `audit_events` 一张表 + 集中审计写入服务，并回填 ingest / review / preview / agent 各写动作的审计埋点与 trace_id 贯穿；新增 Admin Audit 查询 / trace / 标记处理 API，按角色分层脱敏；`/admin/audit` 接真实 API。
+
+- 模型：`app/models/audit.py`（`audit_events`，仅此一表，字段对齐 BE-02 §4.7）；迁移 `0007_create_audit_events`。枚举新增 `AuditLogType` / `AlertSeverity` / `AuditAction` / `AuditRiskLevel`（String 存储 + 应用层校验）。
+- 集中写入服务 `app/services/audit.py`：唯一入口 `record_event`（被拒路径用 `record_denied` 写后即 commit）。
+  - 角色快照：`actor_company_role` 取治理代表角色（boss > consulting_director > consultant > admin），多角色全集存 `extra.actor_company_roles`；`actor_project_role` 在动作涉及 project 时按成员关系记录。
+  - 写入时脱敏（§7.1）：`before/after/extra` 经 `_sanitize` 兜底——既递归剔除 storage_ref / source_file_ref / token / api_key / dataset_id / workflow_id / kb_id / bucket / collection / vector_id / 原文正文等**禁止键**，也对**字符串值**做值级脱敏：值命中对象存储 / 文件 / 内部地址前缀（`s3:// oss:// file:// http:// https:// internal://`）或 `bucket` / `object storage` 等用语时整串替换为 `[redacted]`（递归至 dict / list），避免敏感值经无害键名落库；UUID / trace_id / 枚举值 / denied_reason / access layer / 角色 key 等安全标识不受影响。业务侧本就只应传安全元数据。
+  - 事务边界：审计事件与业务写动作在同一 session / 事务内提交（业务回滚则审计同回滚）。
+  - 不可变：只提供写入与「标记处理」，不提供修改 / 删除原始事实能力。
+- trace_id 贯穿：`get_trace_id(request)` 从 API 层透传进 ingest / review / preview 服务（agent 已有），同一调用链所有事件共享同一 trace_id。
+- 回填的 action：`ingest.task_created` / `ingest.confirmed`；`review.evidence_bound` / `review.created` / `review.approved` + `asset.zone_changed` / `review.rejected`；`preview.issued` / `preview.denied` / `preview.used` / `l5_original_access` / `preview.l5_used`；`agent.called` / `agent.allowed` / `agent.denied` / `agent.a4_original_denied`；跨模块 `admin.business_denied`。**读路径**（knowledge list/detail、my/knowledge）本轮不写审计（避免读放大写），后续可扩展。
+- 强审计（severity + `extra.risk_level`）：`admin.business_denied`、`agent.a4_original_denied`、L5 原文预览签发 / 使用（`l5_original_access` / `preview.l5_used`）。
+- 三视图脱敏：普通业务用户无审计查询权（403）；admin 元数据视图（不回快照、L5 事件隐藏 target_id、extra 仅安全子集）；boss / 咨询总监业务治理视图（可见快照 / title / L5 强审计，技术敏感标识本就不入库）。
+- API（`app/api/audit.py`，契约 §18）：`GET /admin/audit`（过滤 + 分页 + 角色脱敏）、`GET /admin/audit/trace/{trace_id}`（按可见性脱敏，不放大权限）、`POST /admin/audit/{event_id}/mark-processed`（仅 admin；只更新处理三字段 + 追加 `audit.exception_processed`；非 exception 事件 422；幂等）。
+- 前端：`/admin/audit` 三个 tab（操作 / 异常 / 登录）改接真实 `GET /admin/audit`；异常 tab「标记已处理」接 `POST .../mark-processed`；非授权角色显示后端业务原因（默认开发用户为 consultant，会显示 403，可经 `VITE_DEV_USER_ID` 切换 admin/boss/咨询总监查看）。登录 tab 展示真实 `login.*` 审计事件（本地会话登录与 R6 企微 OAuth 写入；本地无登录事件时为空态）；trace_id 说明区为静态说明。
+  - 注：本节为 IMPLEMENT-09 历史实现日志；登录审计已在 IMPLEMENT-12 + R6 落地（见后文），下方「本轮未实现」按当时口径阅读。
+- 测试：`tests/test_audit_api.py`（10 用例），后端 **111 passed**；`npm run build` 通过；迁移 SQLite `0001→0007` upgrade / `0007→0006` downgrade 验证通过。
+- **本轮未实现**：`alert_rules` / `notification_records` 与真实告警 / 通知发送、`asset_lifecycle_events` 与生命周期审计（IMPLEMENT-10）、审计异步导出 / 留存清理、原文授权表与原文访问审计、trace_id 真实跨服务（Celery / 向量库）传播。（登录审计 `login.success` / `login.failed` / `login.logout` 已在 IMPLEMENT-12 + R6 落地，不再属未实现项。）**现状（PBC-06 已实现）**：`original_access_requests` / `access_grants` 两表、申请/审批/拒绝/撤销流、`access.original_requested` / `access.original_approved` / `access.original_rejected` / `access.original_grant_revoked` 审计及 active grant 运行时原文层放行（`decide(has_original_grant=…)`）均已落地，不再属未实现项；本行其余各项（告警 / 通知、生命周期审计、审计导出 / 清理、trace_id 跨服务传播）仍未实现。
+
+## IMPLEMENT-10：生命周期、归档、重新启用与通知（最小闭环）
+
+新增生命周期治理三表 + 生命周期/告警服务，落地归档「发起建议 → 人工确认」与重新启用治理动作、本地告警规则与通知记录；`/admin/alert-settings` 接真实 API，知识详情页补生命周期动作区。
+
+- 模型：`app/models/lifecycle.py`（`asset_lifecycle_events` / `alert_rules` / `notification_records`，仅此三表）；迁移 `0008_create_lifecycle_alert_notification`（down_revision `0007_audit`）。枚举新增 `LifecycleEventType` / `LifecycleTriggeredBy` / `NotificationChannel` / `NotificationStatus`，`AuditAction` 增 `lifecycle.*` / `asset.status_changed` / `config.alert_rule_updated`。
+  - 说明：`asset_lifecycle_events.trace_id` 为满足契约 §14A 事件查询响应必含 `trace_id` 字段并支持同链路串联而新增（BE-02 §4.7 原表未列），属贯穿 trace_id 的实现期补充，留待 reviewer 回写数据模型确认。
+- 生命周期服务 `app/services/lifecycle.py`（治理流程，不是物理删除）：
+  - 权限统一闸门 `_load_governable_asset`：纯 admin → `admin.business_denied`（强审计）+ 403；不可见资产（他人个人 / 无权 L5）→ 404 不泄露；按 scope 治理角色授权（personal 本人 / project maintainer·PM / company boss·咨询总监）→ 否则 `lifecycle_action_not_allowed`。判断收口在集中权限服务 `permission.lifecycle_visibility / lifecycle_actor_allowed / lifecycle_is_strong_audit`（`CallerContext` 增 `active_project_roles`，避免散查 ProjectMember）。
+  - `archive-request`：建 `asset_lifecycle_events`（archive_warning / archive_candidate，有 candidate_source → candidate），**不改 asset_status**，审计 `lifecycle.archive_warning` / `lifecycle.archive_candidate`。
+  - `archive-confirm`：置 `asset_status=archived` + `archived_at` + `archive_reason`，建 archived 事件，审计 `lifecycle.archived`；L5 / A4 / 公司级强审计（severity + risk_level）。
+  - `reenable-request`：建 reenable_requested 事件，**不改状态**，审计 `lifecycle.reenable_requested`。
+  - `reenable-confirm`：要求 `target_status ∈ {active, needs_update}`（否则 422 `lifecycle_invalid_target_status`），置回目标状态，**保留 `archived_at` / `archive_reason`** 供追溯，审计 `lifecycle.reenabled`；L5 / A4 / 公司级强审计。非法流转返回 409 `lifecycle_invalid_transition`。
+  - `events`：按可见性返回事件（含 archived 资产可查；他人个人 / 无权 L5 → 404）。字段 `event_id/event_type/old_status/new_status/reason/actor_display/created_at/trace_id`。
+- 告警 / 通知服务 `app/services/alert.py`（仅本地，**不实现真实发送**）：默认归档阈值规则（730 天未调用 + 30 天预警期）幂等落 `alert_rules`、可配置不硬编码；`GET /admin/alerts/rules`、`PATCH /admin/alerts/rules/{id}`（admin；审计 `config.alert_rule_updated`）、`GET /admin/alerts/notifications`（admin；只回安全元数据）。归档 / 重新启用确认时写一条本地站内通知（recipient = 维护人 / 所有者，安全标题 + 安全摘要内容，`send_status=pending`，可关联 `audit_event_id`）。
+- 写入时值级脱敏（IMPLEMENT-10_FIX，复用审计 `audit.sanitize_text`，与 BE-09 §7 同口径）：用户文本 `reason` 在落 `asset_lifecycle_events.reason` / `knowledge_assets.archive_reason` / 各响应 / 通知前整串脱敏；`record_local_notification` 对 `title` / `content` 再做一道兜底脱敏。命中对象存储 / 文件 / 内部地址（`s3:// oss:// file:// http(s):// internal://`）或 `bucket` / `object storage` 的串整串替换为 `[redacted]`，安全文案 / 枚举 / UUID / trace_id 不受影响。
+- trace_id 贯穿：生命周期事件 / 审计事件 / 通知共享同一入站 trace_id。
+- 既有行为保持：archived 资产仍被知识列表（`include_archived=true` 对普通用户不放大，发现层仍按 `asset_not_active` 排除）、预览签发（`asset_not_active`）、Agent 召回（`asset_status=active` 过滤）排除；IMPLEMENT-09_FIX 审计脱敏不变。
+- 前端：`/admin/alert-settings` 改接真实规则 / 通知 API（阈值 / 启用可编辑写回，审计 `config.alert_rule_updated`；非 admin 显示后端业务原因）；知识详情页生命周期区补「发起归档建议 / 确认归档 / 查看生命周期事件」动作（前端不直连、不绕权限，结果由后端裁定）。
+- 测试：`tests/test_lifecycle_api.py`（13 用例，覆盖任务 1-12），后端 **126 passed**；`npm run build` 通过；迁移 SQLite `0001→0008` upgrade / `0008→0007` downgrade 验证通过。
+- **本轮未实现**：定时扫描 / Celery 归档任务、真实通知发送（邮件 / 企微 / webhook）、对象存储 / 冷存储 / 物理删除、向量索引重建 / 删除、access_grants / original_access_requests、外部 Agent / 工作流执行治理动作、完整 lifecycle_change 审核流扩展（`review_task_id` 仅作可空元数据携带）、审计导出 / 留存清理、新前端路由。
+
+## IMPLEMENT-12：真实会话身份最小闭环
+
+把"开发态 `X-Dev-User-Id`"这一最大演示边界替换为**真实会话身份**，并保留本地开发回退。
+
+- 会话机制：**服务端会话表 `user_sessions` + httpOnly cookie 中的不透明随机 token**。服务端只存 `sha256(token)`，**明文 token 绝不进入任何 JSON 响应**，只经 `Set-Cookie`（httpOnly / SameSite=Lax）下发（沿用 BE-08 预览凭证只存哈希口径）。模型 `app/models/auth_session.py`，迁移 `0009_create_user_sessions`（仅此一表）。
+- 当前用户解析（`app/api/deps.py` + `app/services/auth_session.py::resolve_current_user`）优先级：① 有效会话 cookie → 该用户（任何环境）；② 无有效会话时**仅 local/dev/test** 回退到 `X-Dev-User-Id` / 默认开发用户；③ 否则 401 `not_authenticated`。**不改任何业务权限语义**，仅替换"当前用户从哪来"。
+- API（`app/api/auth.py`）：
+  - `POST /api/v1/auth/login`：本地无凭证登录适配器（**仅开发环境**，按 email 取 active 用户建会话；非开发环境 403 `auth_login_not_available`）→ 下发 cookie + 写 `login.success` 审计；登录失败写 `login.failed`（有已知 actor 时）并 401。
+  - `POST /api/v1/auth/logout`：撤销会话（置 `revoked_at`）+ 清 cookie + 写 `login.logout`。
+  - `GET /api/v1/auth/me`：会话优先、开发态回退；返回身份上下文。
+- 登录审计：`AuditAction` 新增 `login.success` / `login.failed` / `login.logout`（`log_type=login`），经集中 `record_event` / `record_denied` 写入，`extra` 记 `login_result` / `login_method` / `ip_address`（非敏感）。**密码凭证校验仍尚未实现**；登录审计本身**已实现并覆盖两类登录链路** —— 本地无凭证会话登录（dev/test），以及 R6 企微 OAuth（已知用户，见后文 R6 节）。未知 email 登录失败不写审计（无可归属 actor）。
+- 前端：顶栏身份改由 `/auth/me`（会话）驱动，新增邮箱登录 / 登出最小控件（明文 token 由 httpOnly cookie 持有，前端不接触）；所有请求带 `credentials: "include"` 以携带会话 cookie，`X-Dev-User-Id` 仍作开发态回退。
+- 测试：`tests/test_auth_session.py`（10 用例）+ `test_auth_me.py` 更新（prod 无会话 → 401），后端 **137 passed**；`npm run build` 通过；迁移 SQLite `0001→0009` upgrade / `0009→0008` downgrade 验证通过。
+- **本轮未实现**：密码校验 / MFA / SSO、会话续期 / 滑动过期 / 多设备管理、CSRF token、生产 cookie `Secure` 强制（本地 http 置 False）、未知 email 失败登录审计。（企微 OAuth / 授权码流已在 R6 实现，见后文 R6 节，state 校验、按 `users.wecom_user_id` 解析、`login_method=wecom_oauth`、未配置 `WECOM_*` 时 fail-closed。）
+
+## IMPLEMENT-13：文件存储边界最小闭环
+
+把"入库不写真实文件字节"这一边界替换为**受控本地文件存储**，存储引用保持 server-only。
+
+- 存储抽象 `app/services/storage.py`：`LocalFileStorage`（dev/test 本地后端）+ `get_storage()` 依赖。`save(content, original_name)` 把字节写入 `<storage_root>/<uuid4>/<safe_name>`，返回 server-only 引用 `internal://<key>`；`resolve_path` 仅供后端读取。接口与未来 S3/OSS 后端一致，可平替。
+- 安全：
+  - 文件名归一化 `safe_filename`：只取 basename + 清洗为 `[A-Za-z0-9._-]`，**杜绝路径穿越**；实际 key 另含随机 uuid 段。`save`/`resolve_path` 再做 root 归属双校验。
+  - 大小上限 `MAX_UPLOAD_BYTES=25MiB`：上传读取时 `file.read(MAX+1)` 即判，超限 413 `file_too_large`，不全量读入。
+  - 空文件 422 `empty_file`。
+  - 存储引用只写入模型 `ingest_tasks.source_file_ref`（既有禁止外泄列），**不进入任何响应 schema**；引用以 `internal://` 前缀，天然被审计值级脱敏标记覆盖（纵深防御）。
+  - 被拒上传（纯 admin）在业务校验后、落盘前返回 403，**不持久化任何字节**。
+- 上传写字节：`POST /api/v1/ingest/upload` 改为 **multipart/form-data**（`file` + 可选 `target_scope` / `target_project_id`）；服务在业务用户校验通过后经存储服务落盘，`source_file_size` 取真实字节数。AI 建议占位、确认流程、运营列表均不变。
+- 配置：`STORAGE_ROOT`（默认 `./_local_storage`，已加入 `.gitignore`；清理本地上传删除该目录即可）。依赖新增 `python-multipart`。
+- 前端：`/upload` Path B 发送**真实选中文件**（FormData，带 `credentials`），不再只发元数据；不渲染任何存储 URL。Path A 仍 mock（**现状：PBC-07 已收口为真实待确认任务面板**）。
+- 测试：`tests/test_ingest_api.py` 新增用例（真实落盘 + 无泄露、空文件、路径穿越归一化、被拒不落盘，以及 IMPLEMENT-13_FIX 的存储根真实包含校验 `relative_to`、save/resolve_path 防兄弟前缀绕过）；conftest 用 `tmp_path` 覆盖 `get_storage` 保持 hermetic。后端 **143 passed**；`npm run build` 通过；无新表 / 无迁移。
+- **本轮未实现**：S3/OSS 生产对象存储、公网对象 URL、ONLYOFFICE 真实渲染、真实 WeCom 微盘扫描（Path A）、真实文本抽取 / 向量化、预览真实加载文件（仍平台受控占位）。
+
+## IMPLEMENT-14：入库抽取管线最小闭环
+
+把"只读文件名的占位建议"替换为**真实读取文件字节、抽取文本、产出基于内容的草稿元数据**；抽取错误持久化且可审计；人工确认仍是资产创建前置。
+
+- 抽取服务 `app/services/extraction.py`：`extract_text(content, file_name, mime) -> ExtractionResult(text/status/error_type/error_message/char_count)`。按扩展名 / mime 路由——`txt/md/csv/...` 直读（UTF-8，`errors=replace` 稳健回退）、`pdf` 用 `pypdf`、`docx` 用 `python-docx`；其余（xlsx/pptx/图片等）→ `unsupported`（不崩溃、不阻断）；抽不到文本 → `empty`；损坏 / 解析异常 → `failed`（捕获，不抛出）。纯 Python，无系统二进制依赖（新增依赖 `pypdf` / `python-docx`）。
+- 数据模型（窄 ALTER，迁移 `0010_add_ingest_extraction_columns`，down 至 `0009_session`；**不建新表、不动 knowledge 表**）：`ingest_tasks` + `source_file_hash`；`ingest_task_ai_results` + `extracted_text` / `extracted_char_count` / `extraction_status` / `duplicate_of_task_id` / `duplicate_of_asset_id`。**未新增 IngestStatus 枚举值**（复用既有值）。
+- 上传流程（`create_upload`）：业务用户校验通过、落盘成功后 → 计算 `sha256` 内容哈希 → 真实抽取 → 据**抽取文本**生成确定性建议（`_build_ai_result`，仍非真实 LLM：首个非空行作标题、前 ~200 字作摘要、`confidence` 反映抽取成败；失败/unsupported 提示"请人工补全"）。状态机：`extracted`/`unsupported` → `pending_confirmation`；`empty`/`failed` → `failed` + 持久化 `error_type`/`error_message`。**被拒上传（纯 admin）在落盘与抽取之前 403，零落盘、零抽取。**
+- 去重软提示（非阻塞）：按 `source_file_hash` 命中最早任务时，写 `duplicate_of_task_id` / `duplicate_of_asset_id`（均为安全 UUID，**不暴露 storage_ref**），不硬拦截入库。
+- 审计：抽取失败写 `ingest.failed`（exception，复用 BE-09 §5 既有 action；`AuditAction` 补 `ingest_failed`）；`extra` 仅安全元数据（`failure_stage`/`extraction_status`/`error_type`/`source_file_name`/mime），**绝不含抽取全文 / storage_ref / 真实路径**，复用 IMPLEMENT-09_FIX 值级脱敏作兜底。
+- 读侧可见性：`extracted_text` 是业务内容——完整视图（创建人 / 治理角色）可得 `extracted_text_preview`（截断 500 字）+ 建议正文；**admin 元数据视图不返回抽取全文与建议正文**，只回运营元数据（`extraction_status`/字符数/错误/去重提示）。`AdminIngestItem` 增 `extraction_status`，列表查询 `defer(extracted_text)` 避免放大。
+- 前端：`/upload` Path B 展示抽取状态 / 字数 / 截断预览 / 重复软提示 / 失败中文原因（真实 API，不渲染 storage_ref / 路径 / 对象 URL）；`/admin/ingest` mock 提示 `50 MB → 25 MiB` 对齐。
+- 测试：`tests/test_extraction.py`（8 单测，含真实 PDF / docx 抽取、unsupported/empty/failed、非 UTF-8 回退）+ `tests/test_ingest_api.py` 扩展（内容建议、unsupported 待确认、失败持久化 + ingest.failed 审计无泄露、admin 不见全文、哈希去重软提示）。后端 **156 passed**；`npm run build` 通过；SQLite Alembic `0001→0010` upgrade / `0010→0009` downgrade 通过。
+- **本轮未实现**：真实 LLM / 大模型抽取、脱敏管线、`knowledge_asset_chunks` 切块、embedding / 向量化（IMPLEMENT-15）、Celery / 异步 worker（IMPLEMENT-16）、OCR、xlsx/pptx/图片抽取、真实对象存储、预览真实加载文件。
+
+## R1：WeKnora 底座接入（Client + KB 映射 + 原文入库）
+
+把 WeKnora 从桩转为真实集成：确认入库时把**原文字节**推进 WeKnora、建 scope→KB 映射、回写底座 id 并对账解析状态。蓝图 `docs/backend/11-WeKnora集成与检索INTEGRATION_RETRIEVAL.md`（BE-12）。
+
+- `WeKnoraClient`（`app/services/weknora_client.py`）：唯一 WeKnora 访问入口，base `${WEKNORA_BASE_URL}/api/v1`，header `X-API-Key`（校验 `sk-` 前缀）+ `X-Request-ID=trace_id`。方法 `create_kb` / `get_kb` / `upload_file`（multipart）/ `get_knowledge` / `delete_knowledge`。统一解析 `{success,data,error}`，非 success 抛 `WeKnoraError`（只带 code/message，**不含 key**）；HTTP 409 抛 `WeKnoraDuplicateError`（带已存在 doc id）。`httpx.AsyncClient` + `WEKNORA_TIMEOUT`，失败不重试。**dev/降级**：`weknora_enabled()` = base_url + api_key 都配置；未配置 → `NullWeKnoraClient`（调用抛 `weknora_not_configured`），confirm 据此**跳过索引**，app 仍可起；测试经依赖覆盖注入 fake，不打真实网络。
+- scope→KB 映射：新表 `weknora_kb_mappings`（`app/models/weknora.py`，唯一约束 `(scope,owner_user_id,project_id)`）。`resolve_or_create_kb`（`app/services/weknora_kb.py`）懒创建幂等——同 scope 实体只建一个 KB，并发靠唯一冲突重查；**映射行独立提交**（不随 asset 上传失败回滚，KB 可复用）。命名 `personal_{uid}_kb` / `project_{pid}_kb` / `company_kb`。建库用 env `WEKNORA_EMBEDDING_MODEL_ID`（全平台统一、建库后不可改）。
+- 业务库回写：`knowledge_asset_versions` + `weknora_kb_id` / `weknora_doc_id` / `weknora_parse_status`（前两者 server-only，第三个是安全业务状态）。迁移 `0011`（建一表 + 加三列，可逆 downgrade；**无 chunk 列、不动其它表**）。
+  - 说明：迁移加了 `weknora_parse_status` 第三列（蓝图 §5"version 上记 weknora_parse_status"授权该字段），用于持久化异步解析状态，避免每次读都打 WeKnora；已显式列为 Codex 裁决点。
+- confirm 改造（`ingest.confirm`，**推送时机 = 确认入库时**）：建 asset/version 前先 `resolve_or_create_kb` → 建 asset/version/summaries/tags（未提交）→ 经 `storage.resolve_path` 读原文字节 → `weknora.upload_file(kb_id, bytes, file_name, mime, metadata={asset_id,version_id,scope,confidentiality_level}, channel=source)` → 回写 `version.weknora_kb_id/doc_id/parse_status`。**WeKnora 写入失败 → 整事务回滚（无悬挂资产）→ 标记任务 failed + 审计 `ingest.failed`（exception）+ 502 `weknora_upload_failed`**。409 重复 → 复用既有 doc，`parse_status=duplicate`，不算失败、不重复入库（与 IMPLEMENT-14 内容 hash 软提示统一为单一去重口径）。
+- 解析对账：`POST /api/v1/ingest/{task_id}/refresh-parse`（创建人/治理/admin 可触发，按需刷新，**不引 Celery**）→ `weknora.get_knowledge(doc_id)` 读 `parse_status` 回写 version，只回安全业务状态。
+- 审计：成功写 `ingest.weknora_indexed`（operation，extra 仅 `parse_status`/`is_duplicate`/`scope`）；失败写 `ingest.failed`（extra 仅 `failure_stage`/`error_code`）。**审计 extra 绝不含 kb_id/doc_id/api_key/原文/storage_ref。**
+- 安全：`weknora_kb_id`/`weknora_doc_id`/`weknora_chunk_id`/`weknora_api_key`/`knowledge_id`/`file_path` 加入审计 `_FORBIDDEN_KEYS`；值级脱敏标记加 `sk-`。无任何响应 schema 暴露 weknora_*。
+- 配置：`WEKNORA_BASE_URL` / `WEKNORA_API_KEY` / `WEKNORA_EMBEDDING_MODEL_ID` / `WEKNORA_SUMMARY_MODEL_ID` / `WEKNORA_TENANT_ID` / `WEKNORA_TIMEOUT`（见 `.env.example`）。
+- 测试：`tests/test_weknora_r1.py`（10 用例，fake client）覆盖 client 单测、KB 幂等、推送回写、parse 对账、失败回滚无悬挂、409 去重软提示、无泄露、api_key 脱敏、admin 边界不变。后端 **166 passed**；`npm run build` 通过；SQLite Alembic `0001→0011` upgrade / `0011→0010` downgrade 通过。
+- **本轮未实现（R2-R8 边界）**：检索 / 两阶段 / `knowledge-search`（R3）、外部 LLM 内容处理与脱敏引擎（R2）、Dify（R4）、Celery 异步轮询（R5）、OSS/MinIO（继续 LocalFileStorage）、Ollama 脱敏（原文入库）、预览真实加载。
+
+## R2：外部 LLM 内容处理（分类 / 三层摘要 / 标签 / 关键知识点）
+
+把"内容处理"从确定性占位换成真实外部 LLM：上传期对抽取文本调 LLM 出**分类 + 三层摘要（one_liner/detailed/key_points）+ 标签**草稿,供 `/upload` 人工校正;confirm 写资产。
+
+- LLMClient(`app/services/llm_client.py`):一个 **OpenAI 兼容**客户端(`POST {base}/chat/completions`,`Authorization: Bearer {key}`)+ provider 注册表(deepseek/kimi/qwen/glm/minimax/openai/custom 的 base_url + 默认 model)。统一 env 方案:`LLM_PROVIDER` + `LLM_API_KEY`(+ 可选 `LLM_BASE_URL`/`LLM_MODEL` 覆盖)。`response_format=json_object` + 稳健解析。MiniMax 薄 adapter(`_endpoint` 隔离其 GroupId query 差异)。**dev/降级**:`llm_enabled()`=provider+api_key 都配置;否则 `NullLLMClient`(调用抛 `llm_not_configured`),内容处理降级;测试注入 fake。`LLMError` 只带 code/message,**api_key/Bearer 绝不进异常/日志/审计/响应**。
+- 内容处理(`app/services/content_processing.py`,取代 `_build_ai_result`):`process_content` 对 `extracted_text` 调 LLM → 校验 JSON(脏字段回退默认枚举/启发式)→ 写草稿;记录 `llm_provider`/`llm_model`。**LLM 是 advisory**:未配置/调用失败/JSON 解析失败一律**降级到确定性最小草稿 + 标记原因,上传绝不失败**。命名合规仍基于文件名。
+- 草稿列迁移 `0012`(仅 ALTER `ingest_task_ai_results`,可逆):`suggested_one_liner`(Text) / `suggested_key_points`(JSON) / `llm_provider` / `llm_model`;`suggested_summary` 复用为 detailed。**不动其它表、不动 WeKnora 链路。**`key_points` 写资产无需迁移(summaries 为 String 存储)。
+- confirm 三层摘要写穿:`_build_summaries` 扩展为建 `one_liner` + `detailed` + **`key_points`**(+ L3/L4 `redacted_summary`);`IngestConfirmRequest` 增 `one_liner`/`key_points`(可选,向后兼容)。**AI 推荐与人工确认独立存储**(系统设计 §181):suggested_* 在 `ingest_task_ai_results`,人工确认值在 `knowledge_asset_summaries`,互不覆盖。
+- 脱敏引擎(`app/services/desensitization.py`):`DesensitizationEngine` 接口 + `NullDesensitizer` 透传(Ollama 实现挂起)。内容处理在 LLM 调用前过本引擎(路径 B 脱敏前置点,当前 Null 透传——**原文入库 + 输出脱敏,非已脱敏**)。
+- 读侧:`get_ai_result` 完整视图(创建人/治理)返回三层摘要建议正文 + 抽取预览;**admin 元数据视图不返回建议正文/抽取全文**,只回 `llm_provider`/`llm_model`/`content_processing_status`(安全运营元数据,**非密钥**)。
+- 审计:内容处理完成写 `ingest.ai_extracted`(operation;BE-09 §5.3 既有 action),extra 仅 `content_status`/`degrade_reason`/`llm_provider`/`llm_model`——**无 api_key/Bearer/抽取全文**。值级脱敏标记加 `bearer `;`_FORBIDDEN_KEYS` 加 `llm_api_key`/`authorization`。
+- 前端:`/upload` 展示并可校正三层摘要(一句话/详细/关键知识点每行一条)+ LLM 状态徽标(llm/降级);不渲染任何 LLM key/base_url。
+- 测试:`tests/test_r2_llm.py`(12 用例,fake LLM)覆盖 client provider 注册表/MiniMax endpoint、结构化解析、围栏 JSON、三类降级(未配置/失败/脏)、confirm 三层摘要写穿 + AI/人工独立、无泄露、Bearer 脱敏。后端 **178 passed**;`npm run build` 通过;Alembic `0001→0012` upgrade / `0012→0011` downgrade 通过。
+- **本轮未实现(R3-R8 边界)**:检索/两阶段/`knowledge-search`(R3)、Dify(R4)、Celery 异步(R5,上传期同步调 LLM)、真实 Ollama 脱敏(Null 透传)、WeKnora 链路未改(R1)。
+
+## R3：两阶段检索与问答（`POST /knowledge/search`）
+
+WeKnora 检索召回 → 映射回资产 → 集中权限 `decide()` 复核 → 阶段1卡片 / 阶段2脱敏原文 / 问答自拼答案。取代 IMPLEMENT-08 的关键词桩召回与占位答案。
+
+- `WeKnoraClient.search/hybrid_search`、`app/services/retrieval.py`（KB 路由、chunk→资产映射去重、三道过滤）、`app/services/intent.py`（6 类意图，降级默认 search）、`LlmOutputDesensitizer`（外部 LLM 输出脱敏，**no-op / 失败 fail-closed = 不返回原文**）。
+- Agent provider 由 `internal_stub` 改为 **`weknora_llm`**（真实链路）。WeKnora chunk 引用存 server-only 列（`target_weknora_chunk_ref` / `cited_weknora_chunk_ref`，迁移 `0013`），审计 `_FORBIDDEN_KEYS` / 值级标记（`wk-doc`/`wk-kb`）兜底脱敏。
+- 检索审计 action `knowledge.searched`（已回写 BE-09 §5）。
+
+## R4：Dify 外部知识 / HTTP Tool 网关（PBC-01 后为兼容适配器）
+
+把 Dify 作为**上层调用方**接入：Dify 经 Bearer 鉴权调用本平台知识权限网关，**绝不绕过**调用人权限，**不发明 Dify 超级用户**。
+
+> **PBC-01 抽象收口（见下方 PBC-01 节）**：权限 / 检索 / 审计 / 无泄露核心已抽到 provider 中立的 `external_agent_gateway` + `schemas/external_agent`；本节描述的 Dify 端点（`app/api/dify.py` + `schemas/dify.py`）现为**兼容适配器**，只做 Dify 线缆转译，不再持有业务逻辑。
+
+- 端点：`POST /api/v1/dify/external-knowledge/retrieval`（Dify External Knowledge 官方协议，Dify 侧端点填 `/api/v1/dify/external-knowledge`）、`POST /api/v1/dify/tools/knowledge-search`（HTTP Tool，返回 R3 SearchResponse）、`GET/POST/PATCH /api/v1/admin/permissions/agent-whitelist`（接入注册管理，admin-only）。
+- 接入注册表 **`agent_whitelist_rules`**（迁移 `0014`）：沿用数据模型 §4.5 / BE-07 §11.1 表名与语义（**外部 Agent 接入注册与 capability 边界**，provider 中立，非逐 Agent 名单），R4 为 Bearer 鉴权与 provider 抽象补充 `provider` / `capability` / `token_hash` / `allowed_project_id` / `risk_level`（BE-07 §11.1 已预告 provider / capability / external_*）。**绝不存明文 token**（只存 `token_hash` sha256，明文仅创建/重置时一次性返回）；`token_hash` / `external_app_id` / `external_workflow_id` / `agent_identifier` 是 server-only，绝不进任何响应。
+- 调用人身份：必须由 `metadata_condition.caller_user_id` / `X-Platform-User-Id`（External）或 `caller_user_id`（Tool）解析为真实平台用户，否则 **fail closed**（绝不以 admin / system / Dify 身份检索）。检索全程 `AccessChannel.agent`：A4 原文降级、L5 不可发现、无权只给安全摘要、他人个人不可见，全由权限网关收口。records 内容只可能是已脱敏证据 / 安全摘要，`metadata` 恒为安全 dict（asset_id/scope/zone/used_access_layer/citation_order），绝不 weknora kb·doc·chunk id / external_* / dataset·workflow·app id / token。
+- 审计：注册变更 `config.agent_registry_updated`；Dify 检索复用 `knowledge.searched`（extra 记 channel=agent、provider，不记 token）。
+- 测试：`tests/test_r4_dify.py`（fake WeKnora + fake LLM，不接真实 Dify）。
+
+## PBC-01：外部 Agent 网关 provider 抽象
+
+把 R4 的「以 Dify 为核心」的网关重构为 **provider 中立的外部 Agent / 工作流网关**，并把现有 Dify 端点保留为**适配器**。Dify 为临时集成面；长期平台核心可同时支持 Dify、未来 Coze / 自研 HTTP Agent / 内部工作流引擎，而无需重写权限 / 检索 / 审计 / 无泄露逻辑。
+
+- **provider 中立核心**（不依赖任何具体 provider）：
+  - `app/services/external_agent_gateway.py`：`resolve_caller`（fail-closed）、`parse_knowledge_selector`（中立选择器语法 all/company/project:<id>/personal:<id>）、注册行 scope/天花板收口、`run_retrieval`（→ 安全 records）。审计 `target_type=external_agent_retrieval`，extra 记 `provider`（来自注册行）。
+  - `app/schemas/external_agent.py`：`ExternalRetrievalRecord`（content/score/title/metadata，metadata 仅 asset_id/scope/zone/used_access_layer/citation_order）+ 接入注册 schema（`RegistryRuleOut/...`，安全视图不含 token_hash / provider 内部标识 / agent_identifier）。
+- **Dify 适配器**（provider 专属，仅线缆转译）：`app/api/dify.py`（路由不变，handler 改为薄适配，调用中立网关）+ `app/schemas/dify.py`（仅 `DifyExternalRequest` / `DifyToolRequest` 等 Dify wire 形态；注册 / record schema re-export 自 `external_agent`）。`dify_gateway.py` 已删除（逻辑迁入中立核心）。
+- **注册表 provider 中立**：`agent_whitelist_rules` 既有列已支持中立语义（`provider` 列区分 dify/coze/custom；`agent_identifier` / `external_app_id` / `external_workflow_id` 为 server-only provider 内部标识，绝不进响应）。**无需迁移**——无新增 / 改列，仅服务与文档去 Dify 化。
+- 兼容性：`POST /dify/external-knowledge/retrieval`、`POST /dify/tools/knowledge-search`、`GET/POST/PATCH /admin/permissions/agent-whitelist` 行为与响应不变；`tests/test_r4_dify.py` 全绿。
+- 新增测试 `tests/test_pbc01_external_agent_gateway.py`：直接针对中立核心——调用人解析 fail-closed、中立选择器解析、`run_retrieval` 返回 `ExternalRetrievalRecord` 且 metadata 仅安全标识、无 provider 内部标识 / WeKnora id / 未脱敏原文泄露。
+- 安全：响应 / 审计 / 前端绝不含 `api_key` / `token_hash` / `dataset_id` / `workflow_id` / `app_id` / `weknora_*` / `storage_ref` / `source_file_ref`；调用人身份解析失败一律 fail-closed；provider 与 capability 检查保持后端权威。
+
+## R5：Celery 异步治理作业
+
+把重活/周期性后端工作迁到真实 Celery（仅依赖 Redis/Celery，不引入其它外部系统）。
+
+- Celery 应用 `app/worker/celery_app.py`（broker/backend 缺省回退 `REDIS_URL`；`task_always_eager` 来自 `CELERY_TASK_ALWAYS_EAGER`，默认 True 便于无 worker 运行）；任务薄包装 `app/worker/tasks/*`（自建 async 会话，不复用请求会话）；业务逻辑在 `app/services/jobs/*`（async、可直接调用、幂等、可测）。
+- **异步入库**：`POST /ingest/upload` 只持久化字节 + 建 `ingest_tasks(status=processing)` + 入队；作业做抽取/R2 内容处理/写 `ai_result`/推进状态/安全审计。`enqueue`（`app/worker/enqueue.py`）：eager 模式在**当前事件循环内联同步执行**（避免嵌套 `asyncio.run`），非 eager `.delay()` 到 broker。幂等（已处理跳过、ai_result upsert 不重复建行）；瞬时失败递增 `retry_count` 尊重 `max_retries`，失败仅留安全元数据。`empty/invalid file` 与纯 admin 拒绝仍同步。
+- **WeKnora 解析对账** `jobs/parse_reconcile.py`：扫 pending/processing 版本调 `get_knowledge` 回写**安全解析状态**；只更新安全字段、不暴露/审计 kb/doc id、单条失败不中断整批、幂等。手动 `refresh-parse` 端点不变。
+- **生命周期归档扫描** `jobs/lifecycle_scan.py`：按 `alert_rules` 阈值（`ensure_default_rules`，缺失回退 730/30 天）产生 `archive_warning` / `archive_candidate` + 本地通知；**绝不**置 `archived`（归档仍须人工 archive-confirm）；按 asset+event_type+时间窗口去重。
+- **跨项目复用 / 升格推荐** `jobs/reuse_upgrade.py`：从 `agent_call_citations` join `agent_calls.project_id` 算复用信号，回写 `last_called_at`，对被多项目复用/超调用阈值的 **project** 资产推一条**人审升格推荐**（通知 Boss/咨询总监 + `knowledge.upgrade_recommended` 审计）。**绝不**自动升格 scope/zone；按资产去重。采用**通知+审计**而非建 `project_to_company` ReviewTask——现有审核流仅实现 material_to_asset，扩展审批属本票 Non-Scope（后续：在 review 服务补 project_to_company approve 后，把推荐产物换/补为 ReviewTask）。
+- 系统作业审计：新增 `audit.record_system_event`（`actor_user_id=None`，无业务发起人）；新增 action `knowledge.upgrade_recommended`。
+- **无新表/迁移**（幂等用既有状态 + 事件/审计查询覆盖）。docker-compose 加 `worker` / `beat` 服务（`CELERY_TASK_ALWAYS_EAGER=false` 启用真异步）；`.env.example` 加 Celery 配置。
+- 测试 `tests/test_r5_celery.py`（7 用例，直接调用 job + fake WeKnora/LLM，不需真实 Redis）。
+
+## R6：企微 OAuth 身份 + Path A 微盘扫描
+
+把最后的生产身份与 Path A 占位换成真实实现。
+
+- **OAuth**：`GET /auth/wecom/start`（生成 state 写短时 httpOnly cookie + 返回授权 URL，无 secret）、`GET /auth/wecom/callback`（校验 state → 换身份 → 按 `users.wecom_user_id` 解析用户 → 建 `user_sessions`（login_method=wecom_oauth）+ login.success）。fail closed：state 无效/缺 code/换取失败/未知用户/非 active 均拒绝，不自动建用户；code/token/state 绝不持久化或进响应。dev-local 登录仍仅 local/dev/test。
+- **WeCom 客户端** `app/services/wecom_client.py`：`WeComOAuthClient`（gettoken + auth/getuserinfo）+ **真实 `WeComDriveClient`**（`/cgi-bin/wedrive/file_list` 翻页列举 + `/cgi-bin/wedrive/file_download` 两步下载：换临时 URL+cookie → 后端带 cookie 取字节）。access_token / 临时下载 URL / cookie / app_secret / 上游 payload **绝不**外泄/持久化/审计/日志；失败映射为安全 `WeComError(code,...)`。扫描目录用**文档化内部格式** `spaceid:<id>;fatherid:<id>`（`parse_directory_path`，两 id 均 server-only）。测试用 fake 客户端，不打网络。
+- **Path A 扫描**：`/api/v1/admin/wecom-scan/configs[...]`（读=admin/boss/咨询总监；启停+触发=admin，仅运营、不得业务原文）。`run_scan`：列文件 → 按内容 hash 去重 → 后端下载字节 → 经 `LocalFileStorage` 落盘（server-only ref）→ 建 `path_a_wecom` IngestTask(material) → **复用 R5 处理链**（与 Path B 一致）。单文件失败不中断整批；列目录失败整次 failed。
+- **幂等**：手动触发支持 `Idempotency-Key`；DB 级 **部分唯一索引** `(config_id, idempotency_key)`（仅非空，迁移 `0016`，PostgreSQL/SQLite 通用）保证并发同 key 只建一条记录，冲突时回滚重查返回既有记录、不重复建任务。
+- 迁移 `0015`（users.wecom_user_id 唯一索引 + wecom_scan_configs/records）+ `0016`（幂等部分唯一索引）。审计 action：`wecom_scan.config_updated/triggered/completed/failed`；审计禁止键扩展（access_token/auth_code/oauth_state/app_secret/wecom_file_id/download_url）。
+- 测试 `tests/test_r6_wecom.py`（fake WeCom OAuth/Drive，不打网络）。
+
+## R7：ONLYOFFICE 真预览 + 企微真通知
+
+把预览入口占位与本地通知占位换成真实实现（统一配置/部署收口留 R8）。
+
+- **预览**：`GET /api/v1/preview/{credential_id}` 返回真实 **ONLYOFFICE 只读** 配置（`app/services/onlyoffice.py`，view 模式、禁编辑/下载/打印；JWT 可选，secret 绝不入配置）。新增**平台受控取件端点** `GET /api/v1/preview/{credential_id}/file?ft=…`：Document Server 凭短时不透明 `ft`（只存 sha256 哈希 `preview_credentials.fetch_token_hash`，迁移 `0017`）回取字节，经既有 `LocalFileStorage`（按入库回链 `IngestTask.result_asset_id` 解析 server-only ref）流出。仍走集中权限 `issue_preview`（仅 original 权限、仅申请人、active 资产、L5 强审计），admin 不可签发故拿不到取件 token。**不接 WeKnora preview**。未配置/不支持类型/无源 → 安全 message（onlyoffice_not_configured / preview_type_not_available / preview_source_unavailable），绝不回退泄露原文 URL。响应/配置/头部不含 storage_ref/源引用/对象存储 URL/完整凭证 token/jwt 密钥/WeKnora id。
+- **通知**：`notification_records` 仍是唯一事实源；新增可 fake 的 `WeComNotificationSender`（企微应用消息）+ 派发器 `dispatch_pending`（Celery `notifications.dispatch_pending`）。channel=wecom 的待发记录按 `users.wecom_user_id` 解析收件人下发；缺绑定/非 active/上游失败 → 安全失败（`failure_reason` 仅 code），`send_attempts` 计重试，已 sent 不重复下发，失败不回滚治理事实。消息体只含安全元数据（落库时已值级脱敏）。`default_notification_channel()` 在 `WECOM_NOTIFY_ENABLED`+企微配齐时返回 wecom（默认 in_app，不改既有行为/去重）。迁移 `0017` 加 `notification_records.send_attempts/failure_reason`。审计新增 `notification.sent/failed`（系统事件，不含正文/密钥）。
+- 测试 `tests/test_r7_preview_notifications.py`（fake ONLYOFFICE 开关 + fake 发送器，不打网络）。
+
+## R8：部署 / 可观测 / 生产配置
+
+让 Docker 路径可复现、配置集中且不泄密、加就绪/诊断/运营可观测面，保留 R1–R7 全部安全边界。
+
+### Docker 一键启动（PowerShell）
+
+```powershell
+docker compose build
+docker compose up -d          # postgres/redis 起后，migrate 自动跑迁移，backend/worker/beat 随后启动
+docker compose exec backend python -m app.seed.dev_seed   # 可选 seed（仅 dev/test）
+# 冒烟：GET http://localhost:8001/health 、/health/ready 、/health/config
+```
+
+- **端口**：本机 8000 常被占用，backend 宿主端口映射 **8001**（容器内仍 8000）；前端 `vite.config.ts` 代理已对齐 `http://127.0.0.1:8001`。
+- **迁移**：专设一次性 `migrate` 服务跑 `alembic upgrade head`，backend/worker/beat 经 `depends_on: migrate: service_completed_successfully` 等其成功后才启动——**只此一处迁移、不并发**，无需手动 `alembic upgrade`。
+- **环境去重**：compose 用 YAML 锚点 `&backend-env` 让 backend/worker/beat 共享同一份运行时环境；仅本地非密凭证，真实密钥经部署注入、**不入仓库**。
+- **依赖**：`httpx` 等运行时依赖在 `pyproject.toml` 主 `dependencies`（非 dev extras）；`tests/test_r8_deployment_ops.py` 有 import 冒烟防回归。
+
+### ⚠️ `docker compose config` 会展开 `.env` 密钥
+
+backend/worker/beat/migrate 经 `env_file: ./backend/.env` 加载环境（本地联调需要，**勿移除**）。`docker compose config` 会把 `env_file` 的值（`WEKNORA_API_KEY` / `LLM_API_KEY` / `WECOM_APP_SECRET` / `ONLYOFFICE_JWT_SECRET` 等）**明文展开**到输出。
+
+- 含真实密钥时，**不要**把 `docker compose config` 完整输出贴进 issue / 完成报告 / 截图 / 聊天。
+- 验证 compose 结构时，优先用脱敏方式（只检查存储挂载片段，或临时换占位 `.env`）。
+- 安全验证 backend/worker 共享上传存储结构（不展开 `.env`、不打印任何 `*_KEY`/`*_SECRET`/token/连接串）——`STORAGE_ROOT` 与共享卷都写在 `docker-compose.yml`，直接读 compose 文件即可：
+
+  ```powershell
+  # 应命中两行（backend + worker）都挂载共享卷
+  Select-String -Path docker-compose.yml -Pattern 'upload_storage:/data/uploads'
+  # &backend-env 锚点把 STORAGE_ROOT 指向 /data/uploads（backend/worker 共用）
+  Select-String -Path docker-compose.yml -Pattern 'STORAGE_ROOT:\s*/data/uploads'
+  # 只列服务名 / 卷名（不展开 env_file 值）
+  docker compose config --services
+  docker compose config --volumes
+  ```
+
+### 可观测端点
+
+- `GET /health`：活性（不触依赖）。
+- `GET /health/ready`：就绪——DB 连通 +（async 模式）Redis 连通；未就绪 → 503。
+- `GET /health/config`：安全配置诊断——只回 enabled/disabled 布尔 + LLM provider 名 + 缺失项名，**绝不**回值/密钥/连接串/URL/token/内部标识。
+- `GET /admin/ops/summary`（admin）：版本/环境 + 就绪 + Celery 模式 + 入库计数 + 待发 wecom 通知数 + 未处理审计异常数。
+- 请求访问日志（`app.request`）只记 method/path/status/耗时/trace_id——无 body/query/密钥；合规留痕仍以 `audit_events`（值级脱敏）为准。
+
+### 外部集成启用清单（部署注入，勿入仓库）
+
+| 集成 | 关键 env | 启用判定 |
+|---|---|---|
+| WeKnora | `WEKNORA_BASE_URL` / `WEKNORA_API_KEY` / `WEKNORA_EMBEDDING_MODEL_ID` | base_url + api_key 齐 |
+| LLM | `LLM_PROVIDER` / `LLM_API_KEY`（+ `LLM_BASE_URL` / `LLM_MODEL`） | provider + api_key 齐 |
+| WeCom | `WECOM_CORP_ID` / `WECOM_AGENT_ID` / `WECOM_APP_SECRET` / `WECOM_REDIRECT_URI` / `WECOM_DRIVE_BASE_URL` / `WECOM_NOTIFY_ENABLED`；扫描目录 `spaceid:<id>;fatherid:<id>` | corp_id + app_secret 齐 |
+| ONLYOFFICE | `ONLYOFFICE_ENABLED` / `ONLYOFFICE_DOCUMENT_SERVER_URL` / `ONLYOFFICE_INTERNAL_BASE_URL` / `ONLYOFFICE_JWT_SECRET` | enabled + document_server_url 齐 |
+| Celery | `REDIS_URL` / `CELERY_TASK_ALWAYS_EAGER=false` + worker/beat 进程 | eager=false 启用异步 |
+| 前端 | vite 代理 → `127.0.0.1:8001` | — |
+
+`.env.example` 是完整字段清单；`/health/config` 的 `missing_config` 列出已开启但缺值的配置名。
+
+### 仍需的真实基建 / 密钥（部署假设）
+
+真实 WeKnora / 外部 LLM / 企微（OAuth + 微盘 + 应用消息）/ ONLYOFFICE Document Server 的可达地址与密钥须由部署环境提供；本仓库不含真实凭证，真实网络路径（`pragma: no cover`）以 fake 测试覆盖。生产应置 cookie `secure=True`（HTTPS）、按需调 beat 周期、按规模切换对象存储（`StorageBackend` 可插拔）。统一密钥管理 / K8s·Helm / 指标后端接入不在本仓库范围（仅暴露 `/health/*` 与 `/admin/ops/summary` 供接入）。
+
+## PBC-02：人员 / 公司角色 / 项目成员关系后端闭环（`/admin/people`）
+
+把 `/admin/people` 从前端静态 demo 收口为真实后端能力，复用既有 `users` / `user_company_roles` / `projects` / `project_members` 表（不新增 demo-only 字段、不物理删除关系）。
+
+- API（`app/api/people.py` + `app/services/people.py`）：`GET /api/v1/admin/people`（列表 + 过滤）、`GET /{user_id}`（详情）、`POST /{user_id}/company-roles`（公司角色 upsert）、`GET/POST/PATCH /{user_id}/project-memberships`（项目成员关系）。
+- 权限：读为 admin / boss / 咨询总监；管理项目成员关系为 admin / boss / 咨询总监；公司角色中 `admin` 角色仅 admin 可分配/移除，业务角色 admin/boss/咨询总监可管；不允许停掉最后一个可用 admin；consultant 无权。admin 是系统身份，不因此获得任何业务原文权。
+- 安全：响应 / 审计只含安全身份/治理元数据（`wecom_bound: bool`、安全聚合的 `recent_session_at`），绝不含 token / token_hash / OAuth code·state / ip / device_info / wecom_user_id 明文 / 业务原文 / provider 内部标识。写动作写 `config.people_company_role_updated` / `config.people_project_membership_updated` 审计。
+- 测试：`tests/test_pbc02_people.py`。
+
+## PBC-03：权限规则配置中心后端闭环（`/admin/permissions`）
+
+把 `/admin/permissions` 从前端静态 demo 收口为真实 `permission_rules` 配置中心 + 真实 Agent Registry 兼容接口。
+
+- 模型 / 迁移：`app/models/permission_rule.py`（表 `permission_rules`，字段 `rule_key`（唯一）/ `rule_group` / `rule_type`（numeric/toggle/fixed_path）/ `display_name` / `value_bool|value_number|value_text` / `default_*` / `unit` / `description` / `editable` / `enabled` / `updated_by`）；迁移 `0018_permission_rules`（PG/SQLite 兼容，**不存任何 secret**）。
+- 默认 seed：`app/services/permission_rules.py::ensure_default_rules` 幂等创建 16 条默认规则（按 `rule_key` 去重），覆盖个人流转 / 项目升格 / 访问申请 / 资产生命周期四组。
+- API（`app/api/permissions.py`）：`GET /api/v1/admin/permissions/rules`（读：admin / boss / 咨询总监；consultant 403）、`PATCH /api/v1/admin/permissions/rules/{rule_id}`（写：仅 boss / 咨询总监；admin 只读 → 403 `admin_business_permission_denied`；consultant → 403；fixed_path 不可改 → 422；numeric 负值 → 422）。
+- 审计：写动作写 `config.permission_rule_updated`（`target_type=permission_rule`），before/after/extra 只含安全配置值（rule_key / 旧新值 / enabled），不含任何 secret / provider 内部标识 / 业务原文。
+- **运行时边界**：PBC-03 只落配置中心，**不**让 `DefaultAccessPolicy` 从规则运行时加载；L1/L2 原文默认策略、`access_grants`、`original_access_requests` 的运行时联动留 **PBC-06**。**现状（PBC-06 已实现）**：`access_grants` / `original_access_requests` 的运行时联动已落地——active grant 经 `decide(has_original_grant=…)` 放行原文层，`access_grant_duration_days` 为默认有效期来源；仍未规则化的是 L1/L2 默认放行（`DefaultAccessPolicy` 仍为常量）与超时自动通过。归档阈值（`asset_archive_*`）在本表仅作治理配置视图，R5/R8 生命周期归档扫描的运行时阈值来源仍为 `alert_rules`，PBC-03 不改其运行时行为。
+- Agent Registry：`/admin/permissions/agent-whitelist`（PBC-01 既有 provider 中立兼容接口，admin 管理）；PBC-03 不重新实现其后端，响应不含 token_hash / provider 内部标识。
+- 前端：`src/pages/AdminPermissionsPage.tsx` 接真实 API（loading/error/empty 三态、admin 只读 vs 顾问无权区分、fixed_path 只读），删除 `initialRules` / `initialAgents` 等本地 mock；不声称所有规则已驱动运行时。
+- 测试：`tests/test_pbc03_permission_rules.py`。

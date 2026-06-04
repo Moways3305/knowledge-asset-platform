@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "knowledge-asset-platform-backend"
+version = "0.1.0"
+description = "AI Knowledge Asset Platform backend (FastAPI). IMPLEMENT-00 workbench skeleton."
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic-settings>=2.6",
+    "sqlalchemy>=2.0.36",
+    "alembic>=1.14",
+    "asyncpg>=0.30",
+    "httpx>=0.28",
+    "celery>=5.4",
+    "redis>=5.2",
+    # multipart/form-data 文件上传（IMPLEMENT-13 Path B 真实文件入库）。
+    "python-multipart>=0.0.12",
+    # 文本抽取（IMPLEMENT-14 入库抽取管线，纯 Python，无系统二进制依赖）。
+    "pypdf>=5.0",
+    "python-docx>=1.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "aiosqlite>=0.20",
+    "ruff>=0.8",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

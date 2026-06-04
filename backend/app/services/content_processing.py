@@ -1,0 +1,376 @@
+"""内容处理服务（R2 + 命名规范化）——对抽取文本真调外部 LLM 出结构化建议草稿。
+
+取代 IMPLEMENT-14 的确定性 `_build_ai_result`：上传期对 `extracted_text` 调 LLM 输出
+{分类(asset_type/confidentiality/ai_access) + **规范命名组件** + 三层摘要
+(one_liner/detailed/key_points) + tags}，写 `ingest_task_ai_results` 草稿（建议层），
+供 `/upload` 人工校正。
+
+命名规范化（本次任务）：
+- `suggested_title` 不再是"摘要式标题"，而是**平台规范资产标题**：
+  `【一级类-二级类】主题_对象/客户_日期_V版本_L保密级别`。
+- `suggested_one_liner` 仍是一句话自然语言摘要（可为整句），**不抢占标题字段**。
+- LLM 只输出命名**组件**，规范标题由后端确定性拼装（保证格式恒合规）。
+- 缺失字段用安全默认（日期→上传日期、客户→通用、版本→V1、分类→待分类），并在
+  `naming_parsed_fields.inferred_fields` / `.missing_fields` 标注，供前端打"AI 推断 /
+  待人工校正"标记。
+- 原始文件名仅作来源追溯（`naming_parsed_fields.source_file_name`），不强求顾问命名合规。
+
+强约束：
+- LLM 是 **advisory**——未配置 / 调用失败 / JSON 解析失败一律**降级**到确定性最小草稿，
+  **绝不让上传失败**（文件已落盘）。降级原因记审计安全元数据。
+- 路径 B 预留脱敏前置点：LLM 调用前先过 `DesensitizationEngine`（当前 Null 透传）。
+- 输出只写"建议层"；人工确认值独立存储（confirm 写 summaries / tags），不互相覆盖。
+- 标题恒非空；响应/日志/审计绝不含原文全文 / storage_ref / WeKnora id / LLM key/base_url。
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from datetime import datetime, timezone
+
+from app.schemas.enums import AiAccessLevel, AssetType, ConfidentialityLevel
+from app.services.desensitization import DesensitizationEngine
+from app.services.extraction import ExtractionResult
+from app.services.llm_client import LLMClient, LLMError, NullLLMClient, llm_enabled
+
+# 建议草稿安全上限。
+_MAX_KEY_POINTS = 8
+_MAX_TAGS = 8
+_LLM_INPUT_CHARS = 12_000  # 截断送入 LLM 的文本，控成本/时延
+_VALID_TYPES = {t.value for t in AssetType}
+_VALID_LEVELS = {c.value for c in ConfidentialityLevel}
+_VALID_AI = {a.value for a in AiAccessLevel}
+
+# 命名组件安全默认值（无任何信号时使用，并标记为 missing/inferred）。
+_DEFAULT_PRIMARY = "待分类"
+_DEFAULT_SECONDARY = "待分类"
+_DEFAULT_SUBJECT = "通用"
+_DEFAULT_VERSION = "V1"
+_DEFAULT_LEVEL = "L2"
+_DEFAULT_AI = "A2"
+
+# 命名组件字段（用于 inferred/missing 标注与前端展示）。
+_NAMING_COMPONENT_FIELDS = (
+    "primary_category",
+    "secondary_category",
+    "topic",
+    "subject_or_client",
+    "date",
+    "version",
+)
+
+_COMPLIANT_RE = re.compile(r"^【([^-】]+)-([^】]+)】(.+)$")
+_DATE_RE = re.compile(r"20\d{6}")
+_VERSION_RE = re.compile(r"[Vv]\d+")
+_LEVEL_RE = re.compile(r"[Ll][1-5]")
+
+_SYSTEM_PROMPT = (
+    "你是企业知识资产入库助手。阅读文件名与文档正文，输出**严格 JSON**（不要多余文字）。"
+    "目标：为资产生成**规范命名组件**（用于平台资产标题）与**摘要字段**（用于检索/阅读），二者分开。"
+    "字段："
+    "primary_category（一级类，简短词，如 方法论/客户项目/行业研究/内部管理）、"
+    "secondary_category（二级类，简短词，如 模型工具/交付成果/案例研究）、"
+    "topic（主题，<=30字的名词短语，描述这份资产是什么；**不要写成整句摘要**）、"
+    "subject_or_client（对象或客户名；无法确定填 通用 或 专题）、"
+    "date（文档日期，格式 YYYYMMDD；无法从文件名/正文确定则填 null）、"
+    "version（版本，如 V1/V2；无法确定则填 null）、"
+    "confidentiality_level（L1-L5）、ai_access_level（A1-A4）、"
+    "asset_type（methodology/deliverable/case/template/insight 之一）、"
+    "inferred_fields（数组，列出上述哪些命名字段是你推断而非有明确依据的）、"
+    "one_liner（一句话自然语言摘要，<=80字，可为整句）、"
+    "detailed（详细摘要，<=400字）、"
+    "key_points（关键知识点数组，3-6条，每条<=60字）、tags（标签数组，3-6个）。"
+    "再次强调：topic 是名词短语，不是 one_liner；不要把摘要句子当作标题或塞进 topic。"
+)
+
+
+def _today() -> str:
+    """上传日期（UTC，YYYYMMDD）——日期无法推断时的安全默认。"""
+    return datetime.now(timezone.utc).strftime("%Y%m%d")
+
+
+def _clean_component(value: str) -> str:
+    """清洗命名组件：去掉会破坏 `【】_` 格式的字符，压缩空白，限长。"""
+    s = str(value).strip()
+    for ch in "【】_":
+        s = s.replace(ch, "")
+    s = " ".join(s.split())
+    return s[:60]
+
+
+def _stem(file_name: str) -> str:
+    return file_name.rsplit(".", 1)[0] if "." in file_name else file_name
+
+
+def _fallback_topic(file_name: str) -> str:
+    """无主题信号时从文件名兜底（非"摘要式"，仅清洗分隔符）。"""
+    raw = _stem(file_name).replace("——", " ").replace("-", " ").replace("_", " ")
+    return _clean_component(raw) or "未命名资产"
+
+
+def _parse_compliant_filename(file_name: str) -> dict:
+    """文件名已是平台格式时解析出组件作为强信号；否则返回 {}。
+
+    顾问不强求上传前命名合规——这只是"恰好已规范"时的加分信号。
+    """
+    stem = _stem(file_name)
+    m = _COMPLIANT_RE.match(stem)
+    if not m:
+        return {}
+    primary, secondary, rest = m.group(1).strip(), m.group(2).strip(), m.group(3)
+    parts = [p for p in rest.split("_") if p]
+    out: dict = {"primary_category": primary, "secondary_category": secondary}
+    # 第一段通常是主题，第二段通常是对象/客户（若不是日期/版本/级别）。
+    positional = [p for p in parts if not (_DATE_RE.fullmatch(p) or _VERSION_RE.fullmatch(p) or _LEVEL_RE.fullmatch(p))]
+    if positional:
+        out["topic"] = positional[0]
+    if len(positional) >= 2:
+        out["subject_or_client"] = positional[1]
+    for p in parts:
+        if _DATE_RE.fullmatch(p):
+            out["date"] = p
+        elif _VERSION_RE.fullmatch(p):
+            out["version"] = "V" + p.lstrip("Vv")
+        elif _LEVEL_RE.fullmatch(p):
+            out["confidentiality_level"] = "L" + p[1]
+    return out
+
+
+def _is_original_compliant(file_name: str) -> bool:
+    return bool(_parse_compliant_filename(file_name))
+
+
+def _build_naming(file_name: str, components: dict, level: str, ai_access: str) -> dict:
+    """从候选组件（LLM / 文件名解析）确定性拼装规范标题；缺失用安全默认 + 标注。
+
+    返回 naming dict（存入 `naming_parsed_fields`，含 normalized_title /
+    inferred_fields / missing_fields），供前端展示与人工校正。
+    """
+    inferred: set[str] = set(
+        f for f in (components.get("inferred_fields") or []) if f in _NAMING_COMPONENT_FIELDS
+    )
+    missing: set[str] = set()
+
+    def _raw(field: str):
+        v = components.get(field)
+        if v is None:
+            return None
+        sv = str(v).strip()
+        if not sv or sv.lower() == "null":
+            return None
+        return sv
+
+    def _default(field: str, value: str) -> str:
+        """无信号字段：用安全默认并标 inferred + missing。"""
+        inferred.add(field)
+        missing.add(field)
+        return value
+
+    # primary / secondary：无信号 → 待分类（missing + inferred）。
+    rp = _raw("primary_category")
+    primary = _clean_component(rp) if rp else _default("primary_category", _DEFAULT_PRIMARY)
+    rs = _raw("secondary_category")
+    secondary = _clean_component(rs) if rs else _default("secondary_category", _DEFAULT_SECONDARY)
+
+    # topic：有信号则用；否则从文件名兜底（有文件名信号 → 仅 inferred，不算 missing）。
+    rt = _raw("topic")
+    if rt:
+        topic = _clean_component(rt)
+    else:
+        topic = _fallback_topic(file_name)
+        inferred.add("topic")
+
+    # subject/client：无信号 → 通用（missing + inferred）。
+    rsub = _raw("subject_or_client")
+    subject = _clean_component(rsub) if rsub else _default("subject_or_client", _DEFAULT_SUBJECT)
+
+    # date：仅接受 YYYYMMDD；否则用上传日期（missing + inferred）。
+    rd = _raw("date")
+    if rd and _DATE_RE.fullmatch(rd):
+        date = rd
+    else:
+        date = _today()
+        inferred.add("date")
+        missing.add("date")
+
+    # version：仅接受 V\d+；否则 V1（missing + inferred）。
+    rv = _raw("version")
+    if rv and _VERSION_RE.fullmatch(rv):
+        version = "V" + rv.lstrip("Vv")
+    else:
+        version = _DEFAULT_VERSION
+        inferred.add("version")
+        missing.add("version")
+
+    level_v = level if level in _VALID_LEVELS else _DEFAULT_LEVEL
+    ai_v = ai_access if ai_access in _VALID_AI else _DEFAULT_AI
+
+    normalized_title = f"【{primary}-{secondary}】{topic}_{subject}_{date}_{version}_{level_v}"
+    return {
+        "primary_category": primary,
+        "secondary_category": secondary,
+        "topic": topic,
+        "subject_or_client": subject,
+        "date": date,
+        "version": version,
+        "confidentiality_level": level_v,
+        "ai_access_level": ai_v,
+        "normalized_title": normalized_title,
+        # AI 推断字段（含默认）：前端打"AI 推断"；missing 子集额外打"待人工校正"。
+        "inferred_fields": sorted(inferred),
+        "missing_fields": sorted(missing),
+        # 来源追溯：原始文件名 + 是否本就规范（不强求）。
+        "source_file_name": file_name,
+        "original_naming_compliant": _is_original_compliant(file_name),
+    }
+
+
+def _naming_anomalies(naming: dict) -> list[str]:
+    if naming["original_naming_compliant"]:
+        return []
+    return ["原始文件名不符合平台命名格式，已自动生成规范化标题，请人工校正推断字段"]
+
+
+def _degraded_draft(file_name: str, extraction: ExtractionResult) -> dict:
+    """确定性最小草稿（LLM 不可用 / 失败时的降级）。
+
+    仍尽量按文件名生成**规范化标题**（能解析多少字段就解析多少），缺失用安全默认并
+    标低置信度。标题恒非空、恒符合平台格式，且不等于一句话摘要。
+    """
+    # 文件名若已规范则作为强信号；否则空组件 → 全部走默认。
+    components = _parse_compliant_filename(file_name)
+    level = components.get("confidentiality_level") or _DEFAULT_LEVEL
+    naming = _build_naming(file_name, components, level, _DEFAULT_AI)
+
+    if extraction.status == "extracted":
+        lines = [ln.strip() for ln in extraction.text.splitlines() if ln.strip()]
+        one_liner = (lines[0][:80] if lines else naming["topic"]) or naming["topic"]
+        detailed = " ".join(extraction.text.split())[:400] or f"已从「{file_name}」抽取文本。"
+        stem = _stem(file_name)
+        tags = ["待校正", stem[:20]] if stem else ["待校正"]
+        confidence = 0.4
+    else:
+        one_liner = naming["topic"]
+        detailed = (
+            f"未能从文件内容抽取（{extraction.error_type or extraction.status}），请人工补全。"
+        )
+        tags = ["待校正", "待补全"]
+        confidence = 0.2
+
+    return {
+        "suggested_title": naming["normalized_title"],
+        "suggested_one_liner": one_liner,
+        "suggested_summary": detailed,  # detailed
+        "suggested_key_points": [],
+        "suggested_tags": tags,
+        "suggested_asset_type": "methodology",
+        "suggested_confidentiality_level": naming["confidentiality_level"],
+        "suggested_ai_access_level": naming["ai_access_level"],
+        "suggested_phase_key": None,
+        "confidence": confidence,
+        "naming_compliant": naming["original_naming_compliant"],
+        "naming_parsed_fields": naming,
+        "naming_anomalies": _naming_anomalies(naming),
+        "llm_provider": None,
+        "llm_model": None,
+        "extracted_text": extraction.text or None,
+        "extracted_char_count": extraction.char_count,
+        "extraction_status": extraction.status,
+    }
+
+
+def _coerce_list(value, cap: int) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    out = [str(v).strip()[:80] for v in value if str(v).strip()]
+    return out[:cap]
+
+
+def _parse_llm_json(content: str) -> dict:
+    """稳健解析 LLM 输出 JSON（容忍 ```json 包裹 / 前后噪声）。"""
+    text = content.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text[:4].lower() == "json":
+            text = text[4:]
+    # 截取首个 { 到末个 }，容忍少量噪声。
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        text = text[start : end + 1]
+    return json.loads(text)
+
+
+async def process_content(
+    llm: LLMClient | NullLLMClient,
+    desensitizer: DesensitizationEngine,
+    *,
+    extraction: ExtractionResult,
+    file_name: str,
+    trace_id: str | None,
+) -> tuple[dict, dict]:
+    """返回 (ai_result 草稿 dict, meta{status,reason,provider,model})。绝不抛出。"""
+    base = _degraded_draft(file_name, extraction)
+    # 抽取无文本或 LLM 未配置 → 直接降级。
+    if extraction.status != "extracted" or not llm_enabled():
+        reason = (
+            "extraction_not_text" if extraction.status != "extracted" else "llm_not_configured"
+        )
+        return base, {"status": "degraded", "reason": reason, "provider": None, "model": None}
+
+    # 路径 B 脱敏前置点（当前 Null 透传；Ollama 到位后在此实体脱敏）。
+    text = desensitizer.desensitize(extraction.text)[:_LLM_INPUT_CHARS]
+    messages = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": f"文件名：{file_name}\n文档内容：\n{text}"},
+    ]
+    try:
+        raw = await llm.chat_completion(messages, trace_id=trace_id)
+        parsed = _parse_llm_json(raw)
+    except (LLMError, json.JSONDecodeError, ValueError, TypeError) as exc:
+        reason = getattr(exc, "code", None) or "llm_parse_failed"
+        return base, {"status": "degraded", "reason": str(reason), "provider": None, "model": None}
+
+    # 校验 + 落值（脏字段回退默认）。
+    one_liner = str(parsed.get("one_liner") or base["suggested_one_liner"])[:200]
+    detailed = str(parsed.get("detailed") or base["suggested_summary"])[:2000]
+    key_points = _coerce_list(parsed.get("key_points"), _MAX_KEY_POINTS)
+    tags = _coerce_list(parsed.get("tags"), _MAX_TAGS) or base["suggested_tags"]
+    asset_type = parsed.get("asset_type")
+    level = parsed.get("confidentiality_level")
+    ai_access = parsed.get("ai_access_level")
+    level_v = level if level in _VALID_LEVELS else _DEFAULT_LEVEL
+    ai_v = ai_access if ai_access in _VALID_AI else _DEFAULT_AI
+
+    # 命名组件：优先 LLM，其次文件名解析（顾问命名合规时）作为兜底信号。
+    fn_parsed = _parse_compliant_filename(file_name)
+    components: dict = dict(fn_parsed)
+    for field in _NAMING_COMPONENT_FIELDS:
+        v = parsed.get(field)
+        if v is not None and str(v).strip() and str(v).strip().lower() != "null":
+            components[field] = v
+    components["inferred_fields"] = _coerce_list(parsed.get("inferred_fields"), 12)
+    naming = _build_naming(file_name, components, level_v, ai_v)
+
+    draft = dict(base)
+    draft.update(
+        # 标题 = 规范化资产标题（确定性拼装，恒合规）；不再用 one_liner 当标题。
+        suggested_title=naming["normalized_title"],
+        suggested_one_liner=one_liner,
+        suggested_summary=detailed,
+        suggested_key_points=key_points,
+        suggested_tags=tags,
+        suggested_asset_type=asset_type if asset_type in _VALID_TYPES else "methodology",
+        suggested_confidentiality_level=level_v,
+        suggested_ai_access_level=ai_v,
+        naming_compliant=naming["original_naming_compliant"],
+        naming_parsed_fields=naming,
+        naming_anomalies=_naming_anomalies(naming),
+        confidence=0.85,
+        llm_provider=getattr(llm, "provider", None) or None,
+        llm_model=getattr(llm, "model", None) or None,
+    )
+    return draft, {
+        "status": "llm", "reason": None,
+        "provider": draft["llm_provider"], "model": draft["llm_model"],
+    }

@@ -1,0 +1,142 @@
+# 本地开发 / 单机演示编排（R8）。
+# 凭证为 LOCAL DEV ONLY，**绝非生产凭证**；生产请用部署密钥注入（见 backend/README §部署）。
+#
+# 一键启动顺序（PowerShell）：
+#   docker compose build
+#   docker compose up -d            # postgres/redis 起后，migrate 一次性跑迁移，backend/worker/beat 随后启动
+#   # 迁移已由 migrate 服务自动执行（backend/worker/beat 依赖其成功完成），无需手动 alembic
+#   # 可选 seed（仅 dev/test）：docker compose exec backend python -m app.seed.dev_seed
+#   # 冒烟：GET http://localhost:8001/health 与 /health/ready
+#
+# 本机 8000 常被占用，backend 宿主端口映射为 8001（容器内仍 8000）；前端 vite 代理已对齐 8001。
+
+# 共享运行时环境（避免各服务重复 env 块）。worker/beat 与 backend 用同一份环境，
+# 确保 WeKnora / LLM / WeCom / ONLYOFFICE 等外部集成开关一致。
+x-backend-env: &backend-env
+  APP_NAME: knowledge-asset-platform
+  APP_ENV: local
+  LOG_LEVEL: INFO
+  DATABASE_URL: postgresql+asyncpg://dev:devpassword@postgres:5432/knowledge_platform
+  REDIS_URL: redis://redis:6379/0
+  # 启用真正异步（入队到 broker，由 worker 执行）。设为 true 则内联同步执行（无需 worker）。
+  CELERY_TASK_ALWAYS_EAGER: "false"
+  # 受控上传存储根（绝对路径）。backend 写入、worker 异步读取**同一份**字节——靠
+  # 下方共享命名 volume `upload_storage` 挂到此路径。生产可平替为 S3/OSS/MinIO 或共享
+  # 持久卷，但 StorageBackend 边界保持 server-only（ref/路径绝不外泄）。
+  STORAGE_ROOT: /data/uploads
+  # 真实外部集成在此按需注入（默认空=降级/桩）；切勿把真实密钥提交进仓库：
+  # WEKNORA_BASE_URL / WEKNORA_API_KEY / LLM_PROVIDER / LLM_API_KEY /
+  # WECOM_CORP_ID / WECOM_APP_SECRET / WECOM_NOTIFY_ENABLED /
+  # ONLYOFFICE_ENABLED / ONLYOFFICE_DOCUMENT_SERVER_URL / ONLYOFFICE_JWT_SECRET
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB: knowledge_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev -d knowledge_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # R8：一次性迁移服务。只此一处跑 alembic upgrade head，backend/worker/beat 依赖其成功完成，
+  # 避免每个副本并发迁移；它退出即完成（restart=no）。
+  migrate:
+    build: ./backend
+    command: python -m alembic upgrade head
+    env_file:
+      - ./backend/.env
+    environment: *backend-env
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    build: ./backend
+    env_file:
+      - ./backend/.env
+    environment: *backend-env
+    ports:
+      - "8001:8000"
+    # 共享受控上传存储：backend 写入的 source_file_ref 字节，worker 异步处理时读同一份。
+    volumes:
+      - upload_storage:/data/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Celery worker（入库处理 / 解析对账 / 归档扫描 / 升格推荐 / 通知下发）。
+  worker:
+    build: ./backend
+    command: celery -A app.worker.celery_app.celery_app worker --loglevel=INFO
+    env_file:
+      - ./backend/.env
+    environment: *backend-env
+    # 与 backend 共享同一份受控上传存储，异步处理才能读到 backend 写入的字节。
+    volumes:
+      - upload_storage:/data/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # Celery beat（定时调度解析对账 / 归档扫描 / 升格推荐 / 通知下发）。
+  beat:
+    build: ./backend
+    command: celery -A app.worker.celery_app.celery_app beat --loglevel=INFO
+    env_file:
+      - ./backend/.env
+    environment: *backend-env
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # 前端生产托管（R8 / PBC-10G）：nginx 静态托管 Vite dist + 同源反代后端。
+  # **生产用户入口**＝此服务（本地宿主 18080，避免与本机 WeKnora 8080 等常见端口冲突）；backend 的 8001 仅供调试。
+  # 不读 backend/.env、不挂源码、不烙真实后端 URL（同源相对路径 + nginx 反代 backend:8000）。
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "18080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  # 受控上传存储（backend 写 / worker 读同一份）。beat 不处理上传，不挂载。
+  upload_storage:

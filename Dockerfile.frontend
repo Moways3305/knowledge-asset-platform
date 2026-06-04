@@ -1,0 +1,21 @@
+# 前端生产镜像（PBC-10G Residual）：多阶段构建 Vite dist，nginx 同源托管 + 反代后端。
+# 不复制 backend/.env 或任何 secret（见根 .dockerignore）；不烙入真实后端内网 URL——
+# VITE_API_BASE_URL 留空 → 前端走同源相对路径，由 nginx 反代到 backend。
+
+# ---- build stage ----
+FROM node:20-alpine AS build
+WORKDIR /app
+# 先装依赖（利用层缓存）。
+COPY package.json package-lock.json ./
+RUN npm ci
+# 再拷源码（backend/.env/dist/node_modules 已被 .dockerignore 排除）。
+COPY . .
+# 同源默认：不设 VITE_API_BASE_URL，bundle 用相对路径调用 /api/v1 等。
+RUN npm run build
+
+# ---- serve stage ----
+FROM nginx:1.27-alpine
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

@@ -1,0 +1,117 @@
+"""Knowledge 读 API 的响应 schema（IMPLEMENT-04）。
+
+字段以 BE-04 契约为主，使用 snake_case；前端 ViewModel 适配由前端完成。
+**绝不包含文件对象的内部存储引用、原文内容、真实 token/URL 等内部/敏感字段。**
+（内部存储引用字段名见数据模型，禁止进入任何响应 schema。）
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+
+from pydantic import BaseModel
+
+
+class AccessInfoOut(BaseModel):
+    """调用人对某资产的三层权限状态（由权限服务决策得到）。"""
+
+    discovery: bool
+    summary: bool
+    original: bool
+    effective_source: str
+    can_request_original: bool = False
+    # 以下两项由 PBC-06 真实 access_info 驱动：existing_request_status 反映本人 pending 原文申请，
+    # existing_grant_expires_at 反映 active access_grant 过期时间；无申请 / 无授权时为 None。
+    existing_request_status: str | None = None
+    existing_grant_expires_at: datetime | None = None
+    # PBC-10B：调用人是否有权对该资产执行受控删除 / 撤下（后端权威，前端据此显示按钮）。
+    can_delete: bool = False
+
+
+class KnowledgeListItemOut(BaseModel):
+    """知识列表条目。summary_text 已按权限/保密级别过滤（L3/L4 为脱敏/安全摘要）。"""
+
+    id: uuid.UUID
+    title: str
+    scope: str
+    zone: str
+    asset_type: str
+    confidentiality_level: str
+    ai_access_level: str
+    asset_status: str
+    visibility: str
+    tags: list[str]
+    summary_text: str | None
+    project_name: str | None
+    lifecycle_phase: str | None
+    # confidence 当前未在 knowledge_assets 落地（见 IMPLEMENT-02 差异），固定 None。
+    confidence: float | None = None
+    last_called_at: datetime | None
+    updated_at: datetime | None
+    access_info: AccessInfoOut
+
+
+class KnowledgeListResponse(BaseModel):
+    items: list[KnowledgeListItemOut]
+    total: int
+
+
+class MaintainerOut(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
+class SummaryOut(BaseModel):
+    """详情摘要对象（按权限过滤；L3/L4 仅给安全/脱敏文本，不暴露 key_points）。"""
+
+    one_liner: str | None = None
+    detailed: str | None = None
+    key_points: list[str] = []
+
+
+class CurrentVersionOut(BaseModel):
+    id: uuid.UUID
+    version_no: str
+    version_status: str
+
+
+class KnowledgeDetailOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    scope: str
+    zone: str
+    asset_type: str
+    confidentiality_level: str
+    ai_access_level: str
+    asset_status: str
+    visibility: str
+    tags: list[str]
+    project_id: uuid.UUID | None
+    project_name: str | None
+    lifecycle_phase: str | None
+    maintainer: MaintainerOut | None
+    confidence: float | None = None
+    last_called_at: datetime | None
+    updated_at: datetime | None
+    archived_at: datetime | None
+    archive_reason: str | None
+    # summary 仅在 summary 层允许时返回；original 内容不随详情返回（走 Preview API）。
+    summary: SummaryOut | None
+    current_version: CurrentVersionOut | None
+    access_info: AccessInfoOut
+
+
+class KnowledgeDeleteRequest(BaseModel):
+    """受控删除 / 撤下请求（PBC-10B）。reason 为安全删除说明（误上传 / 重复等），非敏感。"""
+
+    reason: str | None = None
+
+
+class KnowledgeDeleteResponse(BaseModel):
+    """删除响应：仅安全状态字段，绝不含原文 / 内部存储引用 / WeKnora id。"""
+
+    asset_id: uuid.UUID
+    asset_status: str
+    deleted_at: datetime | None
+    trace_id: str | None = None

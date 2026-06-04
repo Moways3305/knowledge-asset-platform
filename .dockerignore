@@ -1,0 +1,19 @@
+# 前端生产镜像构建上下文排除项（PBC-10G Residual）。
+# 关键：绝不把任何 .env / secret / 后端运行时 / 构建产物带进镜像层。
+**/.env
+**/.env.*
+# 整个 backend 目录排除出前端构建上下文（backend 镜像用 ./backend 独立上下文，互不影响）。
+backend
+node_modules
+dist
+.git
+.gitignore
+docs
+scripts
+**/__pycache__
+**/*.pyc
+backend/.venv
+backend/alembic/versions/__pycache__
+.vscode
+.idea
+*.log
