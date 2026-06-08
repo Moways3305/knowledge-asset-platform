@@ -1,4 +1,4 @@
-"""Application configuration via environment variables.
+﻿"""Application configuration via environment variables.
 
 Uses pydantic-settings. No secrets are hardcoded; values come from the
 environment or a local `.env` file (see `.env.example`).
@@ -24,6 +24,29 @@ class Settings(BaseSettings):
     app_env: str = "local"
     log_level: str = "INFO"
 
+    # 会话 / OAuth state cookie 的 Secure 标志。
+    # None = 按环境推断：prod 强制 Secure=True（HTTPS-only），非 prod 默认 False（便于
+    # http://localhost 调试）。prod 即使显式置 False 也不在运行时退让（见
+    # `session_cookie_secure()`）；但显式 false 会被 `/health/config` 标记为生产 blocker，
+    # 提示运维改回安全值。
+    session_cookie_secure: bool | None = None
+
+    # 登录失败风控。`auth_attempt_hash_secret` 仅用于对登录标识 / IP 做 HMAC
+    # 不可逆 hash（绝不进响应/审计/前端）；prod 必须配置（缺失 → /health/config blocker），
+    # 非 prod 空值回退稳定常量。阈值/窗口允许 env 调整，服务层对 <1 的非法值钳制。
+    auth_attempt_hash_secret: str = ""
+    auth_failed_window_minutes: int = 15
+    auth_max_failed_attempts: int = 5
+    auth_lockout_minutes: int = 15
+    auth_ip_failed_window_minutes: int = 15
+    auth_ip_max_failed_attempts: int = 30
+
+    # CSRF 防护。`csrf_token_secret` 仅用于对无状态 CSRF token 做 HMAC 签名
+    # （绝不进响应/审计/前端/日志）；prod 必须配置（缺失 → /health/config blocker），
+    # 非 prod 空值回退稳定常量。csrf_token_ttl_minutes 控制签发 token 有效期。
+    csrf_token_secret: str = ""
+    csrf_token_ttl_minutes: int = 720
+
     # PostgreSQL async connection string, e.g.
     # postgresql+asyncpg://dev:devpassword@localhost:5432/knowledge_platform
     database_url: str = (
@@ -41,7 +64,7 @@ class Settings(BaseSettings):
     celery_result_backend: str = ""
     celery_task_always_eager: bool = True
 
-    # 受控本地文件存储根目录（IMPLEMENT-13，仅 dev/test）。上传的文件字节写入此处；
+    # 受控本地文件存储根目录。上传的文件字节写入此处；
     # 内部存储引用（server-only）不进入任何 API 响应。生产应替换为对象存储后端。
     storage_root: str = "./_local_storage"
 
@@ -49,10 +72,23 @@ class Settings(BaseSettings):
     # 索引（dev 无 WeKnora 仍可起 app / confirm）。api_key（sk- 前缀）绝不外泄。
     weknora_base_url: str = ""
     weknora_api_key: str = ""
+    # 建库 + 初始化。embedding 必需（全平台统一、建库后不可改）；chat / rerank /
+    # multimodal 可选，配置则随 KB 初始化（POST /initialization/initialize/:kb_id）写入，
+    # 确保 KB 一建即可用，而非只有空 embedding。模型 id 是 WeKnora 已注册模型的引用，
+    # 非密钥；平台只引用、不在此创建模型（模型 CRUD 由 WeKnora 侧管理）。
     weknora_embedding_model_id: str = ""
+    weknora_chat_model_id: str = ""
+    weknora_rerank_model_id: str = ""
+    weknora_multimodal_model_id: str = ""
+    # 注意：summary 模型当前**不参与**建库 / 初始化（OQ3：摘要走平台外部 LLM 内容处理链，
+    # 不用 WeKnora summary 模型）。保留 env 仅为兼容，建库时不传。
     weknora_summary_model_id: str = ""
     weknora_tenant_id: str = ""
     weknora_timeout: float = 30.0
+    # 模型配置中心把 WeKnora server-only model_id 经单向 HMAC 映射成对前端不可逆的
+    # model_ref。该 secret 仅后端可读、用于 HMAC key；未配置时回退到稳定常量（仍单向，
+    # 因 model_id 本身是 server-only 高熵标识）。不入响应 / 审计 / 前端。
+    weknora_model_ref_secret: str = ""
 
     # 外部 LLM 内容处理（R2）。统一方案：选一个 active provider（`LLM_PROVIDER`）+ 其
     # `LLM_API_KEY`；base_url / model 缺省走 provider 注册表默认值，可由 env 覆盖。
@@ -92,3 +128,27 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return a cached Settings instance."""
     return Settings()
+
+
+def session_cookie_secure(settings: "Settings | None" = None) -> bool:
+    """会话 / OAuth state cookie 的**有效** Secure 标志。
+
+    - `app_env == "prod"`：强制返回 True（HTTPS-only），即使 `SESSION_COOKIE_SECURE=false`
+      被显式注入也不退让——生产 cookie 永远只走 HTTPS。
+    - 非 prod：读 `session_cookie_secure`，未配置（None）默认 False，便于本地 http://localhost。
+    """
+    s = settings or get_settings()
+    if s.app_env == "prod":
+        return True
+    return bool(s.session_cookie_secure) if s.session_cookie_secure is not None else False
+
+
+def session_cookie_secure_misconfigured(settings: "Settings | None" = None) -> bool:
+    """prod 下运维显式把 `SESSION_COOKIE_SECURE=false` → 生产 blocker 信号。
+
+    运行时 cookie 仍被 `session_cookie_secure()` 强制为安全；此函数仅用于 `/health/config`
+    向运维诚实暴露「你的显式配置不安全、已被强制覆盖」，提示改回 true / 删除该项。
+    """
+    s = settings or get_settings()
+    return s.app_env == "prod" and s.session_cookie_secure is False
+

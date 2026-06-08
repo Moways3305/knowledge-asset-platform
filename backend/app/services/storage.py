@@ -1,4 +1,4 @@
-"""文件存储抽象与本地文件系统后端（IMPLEMENT-13 文件存储边界最小闭环）。
+﻿"""文件存储抽象与本地文件系统后端。
 
 边界与安全：
 - 上传的文件字节写入**受控服务端存储**；返回的存储引用（storage ref）是
@@ -9,8 +9,7 @@
   路径穿越输入**；实际存储 key 另含随机段，避免碰撞与可猜测。
 - 大小限制：单文件上限 `MAX_UPLOAD_BYTES`，超限由调用方返回 413。
 
-本阶段只实现 local 后端（dev/test）；S3/OSS 等生产对象存储后端为后续任务，
-接口保持一致即可替换。
+当前实现 local 后端；S3/OSS 等对象存储后端可在保持接口一致的前提下替换。
 """
 
 from __future__ import annotations
@@ -110,3 +109,4 @@ def get_storage() -> LocalFileStorage:
     测试经 `app.dependency_overrides[get_storage]` 覆盖到临时目录，保持 hermetic。
     """
     return LocalFileStorage(get_settings().storage_root)
+

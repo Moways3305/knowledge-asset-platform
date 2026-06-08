@@ -1,4 +1,4 @@
-"""个人知识写动作服务（PBC-05）。
+﻿"""个人知识写动作服务。
 
 三类写动作：
 - confirm_asset：本人个人知识 material → asset（仅 owner 本人；幂等）。
@@ -344,3 +344,4 @@ async def register_validation_candidate(
     )
     await session.commit()
     return await _submission_out(session, sub)
+

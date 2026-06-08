@@ -1,4 +1,4 @@
-"""入库流水线 API（IMPLEMENT-05，Path B 最小闭环）。
+﻿"""入库流水线 API。
 
 只做 upload / ai-result / confirm + 可选 admin 只读列表。权限委托 service，
 不写权限矩阵；不返回内部存储引用 / 真实上传下载 URL。
@@ -83,7 +83,7 @@ async def list_pending(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> PendingIngestListResponse:
-    """业务侧待确认任务列表（PBC-07，`/upload` Path A 面板用）。
+    """业务侧待确认任务列表。
 
     `?source=path_a_wecom` 拉取企微微盘扫描创建的待确认任务。权限与 confirm 一致：
     只返回调用人有权确认的任务（创建人本人或业务治理角色）；纯 admin → 403。
@@ -134,3 +134,4 @@ async def list_admin_ingest(
 ) -> AdminIngestListResponse:
     items = await ingest_service.list_admin_ingest(session, caller)
     return AdminIngestListResponse(items=items, total=len(items))
+

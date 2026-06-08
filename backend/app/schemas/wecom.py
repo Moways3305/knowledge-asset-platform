@@ -1,4 +1,4 @@
-"""企微微盘扫描 API 的请求 / 响应 schema（R6，契约 §17）。
+﻿"""企微微盘扫描 API 的请求 / 响应 schema（R6，契约 §17）。
 
 响应只含安全运营元数据：**绝不**含内部存储引用 / 源文件引用 / 微盘下载 URL /
 微盘 file_id / access_token / WeKnora id / 业务原文。
@@ -12,6 +12,30 @@ from datetime import datetime
 from pydantic import BaseModel
 
 
+# ---- 微盘目录浏览（admin-only 配置 UI 用）----
+# 只承载目录**选择**所需安全字段：space_ref / directory_ref（= 可保存的配置串）/ name。
+# 绝不含普通文件 file_id / download_url / access_token / cookie / 原始 payload。
+class WecomDriveSpaceOut(BaseModel):
+    space_ref: str
+    name: str
+
+
+class WecomDriveSpacesResponse(BaseModel):
+    items: list[WecomDriveSpaceOut]
+
+
+class WecomDriveDirectoryOut(BaseModel):
+    directory_ref: str  # `spaceid:<id>;fatherid:<id>`：可直接存入 directory_path
+    name: str
+    parent_ref: str | None = None
+    has_children: bool | None = None
+
+
+class WecomDriveDirectoriesResponse(BaseModel):
+    space_ref: str
+    items: list[WecomDriveDirectoryOut]
+
+
 class WecomScanConfigOut(BaseModel):
     id: uuid.UUID
     name: str | None
@@ -20,7 +44,7 @@ class WecomScanConfigOut(BaseModel):
     related_project_id: uuid.UUID | None
     related_project_name: str | None = None
     enabled: bool
-    # created_by 即"待确认任务业务归属人"（PBC-10A Residual）：扫描产物的 IngestTask.created_by。
+    # created_by 即"待确认任务业务归属人"：扫描产物的 IngestTask.created_by。
     # 配置操作人是当前 admin（见审计 actor），与此业务归属人不是同一概念。
     created_by: uuid.UUID
     task_owner_name: str | None = None
@@ -36,7 +60,7 @@ class WecomScanConfigsResponse(BaseModel):
 
 
 class WecomScanConfigCreateBody(BaseModel):
-    """创建扫描配置请求（PBC-10A）。
+    """创建扫描配置请求。
 
     directory_path 仍为内部格式 `spaceid:<id>;fatherid:<id>`（server-only 不拆字段外泄）。
     `task_owner_user_id`：扫描产物（path_a_wecom IngestTask）的业务归属人，必须是合法业务
@@ -53,7 +77,7 @@ class WecomScanConfigCreateBody(BaseModel):
 
 
 class WecomScanConfigUpdateBody(BaseModel):
-    """编辑扫描配置请求（PBC-10A）。全部可选；仅传入字段被更新（含启停）。"""
+    """编辑扫描配置请求。全部可选；仅传入字段被更新（含启停）。"""
 
     name: str | None = None
     directory_path: str | None = None
@@ -110,3 +134,4 @@ class WecomScanRecordOut(BaseModel):
 
 class WecomScanRecordsResponse(BaseModel):
     items: list[WecomScanRecordOut]
+

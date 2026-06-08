@@ -1,4 +1,4 @@
-"""身份与项目相关的枚举定义。
+﻿"""身份与项目相关的枚举定义。
 
 枚举值（key）严格沿用 `docs/backend/01-数据模型DATA_MODEL.md` 的英文技术 key，
 不做本地化翻译。仅在注释中用中文解释边界含义。
@@ -61,7 +61,7 @@ L5_DISCOVERY_ROLES: frozenset[str] = frozenset(
 
 
 # ============================================================
-# 知识资产相关枚举（IMPLEMENT-02）
+# 知识资产相关枚举
 # 枚举值（key）沿用英文技术 key；以 String 存储 + 应用层枚举校验，
 # 保持 PostgreSQL / SQLite 测试兼容。
 # ============================================================
@@ -102,7 +102,7 @@ class AssetType(str, Enum):
 class Visibility(str, Enum):
     """可见性。沿用 BE-02 与前端 mock 的取值：public / project_only / confidential。
 
-    注意：IMPLEMENT-02 任务文本的枚举小节误写为 private/project/company，
+    注意：任务文本的枚举小节误写为 private/project/company，
     此处以正式蓝图 `docs/backend/01-数据模型DATA_MODEL.md` 与前端 mock 为准。
     """
 
@@ -137,7 +137,7 @@ class AssetStatus(str, Enum):
     needs_update = "needs_update"
     deprecated = "deprecated"
     archived = "archived"
-    # deleted：误上传 / 撤下的软删除态（PBC-10B）。与 archived（生命周期归档）语义不同：
+    # deleted：误上传 / 撤下的软删除态。与 archived（生命周期归档）语义不同：
     # deleted 立即退出列表 / 检索 / 问答 / 预览 / Agent / 原文授权运行时，仅保留审计追溯。
     deleted = "deleted"
 
@@ -179,10 +179,10 @@ class FileVariant(str, Enum):
 
 
 class SummaryType(str, Enum):
-    """摘要类型（IMPLEMENT-02 采用 summary_type + content 的窄表结构）。
+    """摘要类型。
 
     注意：BE-02 的 knowledge_asset_summaries 为宽表（one_liner/detailed/... 多列）；
-    本阶段按任务要求落地为窄表（每种 summary_type 一行 content），差异留待 reviewer 确认。
+    当前落地为窄表（每种 summary_type 一行 content），与 BE-02 宽表的差异留待确认。
     """
 
     one_liner = "one_liner"
@@ -206,7 +206,7 @@ class EvidenceCategory(str, Enum):
 
 
 class AccessRequestStatus(str, Enum):
-    """原文访问申请状态（PBC-06）。"""
+    """原文访问申请状态。"""
 
     pending = "pending"
     approved = "approved"
@@ -215,7 +215,7 @@ class AccessRequestStatus(str, Enum):
 
 
 class AccessGrantStatus(str, Enum):
-    """原文访问授权状态（PBC-06）。expired 为读时惰性判定 + 落库。"""
+    """原文访问授权状态。expired 为读时惰性判定 + 落库。"""
 
     active = "active"
     revoked = "revoked"
@@ -223,13 +223,13 @@ class AccessGrantStatus(str, Enum):
 
 
 class AccessGrantType(str, Enum):
-    """授权类型（PBC-06 本阶段仅 original_access）。"""
+    """授权类型。"""
 
     original_access = "original_access"
 
 
 class PersonalSubmissionType(str, Enum):
-    """个人知识写动作的提交类型（PBC-05）。
+    """个人知识写动作的提交类型。
 
     submit_to_project：个人知识提交进项目资料区（生成 personal_to_project 审核任务）。
     internal_sharing_candidate / client_validation_candidate：用户登记内部分享 / 客户验证
@@ -242,7 +242,7 @@ class PersonalSubmissionType(str, Enum):
 
 
 class PersonalSubmissionStatus(str, Enum):
-    """个人知识提交记录状态（PBC-05）。"""
+    """个人知识提交记录状态。"""
 
     pending = "pending"
     approved = "approved"
@@ -250,7 +250,7 @@ class PersonalSubmissionStatus(str, Enum):
 
 
 class ReviewType(str, Enum):
-    """审核类型。本阶段（IMPLEMENT-06）仅实现 material_to_asset；其余为前向占位。"""
+    """审核类型。当前仅实现 material_to_asset；其余为前向占位。"""
 
     personal_to_project = "personal_to_project"
     material_to_asset = "material_to_asset"
@@ -262,12 +262,12 @@ class ReviewType(str, Enum):
 
 
 class ReviewTaskStatus(str, Enum):
-    """审核任务状态（IMPLEMENT-06 最小闭环）。
+    """审核任务状态。
 
     注意：BE-02 的 ReviewStatus 为 pending_consultant_confirm / pending_pm_review /
-    pending_boss_review / approved / rejected；本阶段按任务要求采用
+    pending_boss_review / approved / rejected；当前采用
     pending_evidence / pending_reviewer / approved / rejected 的简化状态机，
-    差异留待 reviewer 确认。
+    与 BE-02 的差异留待确认。
     """
 
     pending_evidence = "pending_evidence"
@@ -307,10 +307,10 @@ class AlertSeverity(str, Enum):
 
 
 class AuditAction(str, Enum):
-    """本轮（IMPLEMENT-09）真实会写入的审计 action（点分命名，对齐 BE-09 §5）。
+    """本轮真实会写入的审计 action（点分命名，对齐 BE-09 §5）。
 
     action 在 DB 中是 varchar，不做原生 enum；此枚举用于应用层取值收敛与测试断言，
-    不是穷举 BE-09 全集（未实现模块的 action 留待后续任务）。
+    不是穷举 BE-09 全集（未实现模块的 action 暂不在此枚举内）。
     """
 
     # 入库
@@ -320,6 +320,10 @@ class AuditAction(str, Enum):
     ingest_failed = "ingest.failed"
     # 原文已推进 WeKnora 底座并回写 doc id（R1），operation。
     ingest_weknora_indexed = "ingest.weknora_indexed"
+    # 资产已确认落库，但底座建库/初始化/上传索引失败，exception。
+    # 资产保留 + 人工校正不丢，index_status=index_failed，可重试；区别于 ingest.failed
+    # （后者=人工确认前整单失败）。extra 只放安全 error_code / stage，绝不含 kb/doc id。
+    ingest_index_failed = "ingest.index_failed"
     # 外部 LLM 内容处理完成（R2；BE-09 §5.3 既有 "AI 提取完成"），operation。
     ingest_ai_extracted = "ingest.ai_extracted"
     # 审核
@@ -346,35 +350,52 @@ class AuditAction(str, Enum):
     admin_business_denied = "admin.business_denied"
     # 审计异常处理（追加事件，不改原始事实）
     audit_exception_processed = "audit.exception_processed"
-    # 生命周期治理（IMPLEMENT-10）
+    # 生命周期治理
     lifecycle_archive_warning = "lifecycle.archive_warning"
     lifecycle_archive_candidate = "lifecycle.archive_candidate"
     lifecycle_archived = "lifecycle.archived"
     asset_status_changed = "asset.status_changed"
     lifecycle_reenable_requested = "lifecycle.reenable_requested"
     lifecycle_reenabled = "lifecycle.reenabled"
-    # 知识资产受控删除 / 撤下（PBC-10B，软删除：asset_status=deleted，保留审计追溯）。
+    # 知识资产受控删除 / 撤下。
     knowledge_asset_deleted = "knowledge.asset_deleted"
-    # 项目知识库（项目空间）创建（PBC-10B）。
+    # 底座索引重试。requested=发起（operation）；retried=成功（operation）；
+    # retry_failed=重试后底座仍失败（exception）。区别于 ingest.index_failed（confirm 阶段失败）。
+    knowledge_index_retry_requested = "knowledge.index_retry_requested"
+    knowledge_index_retried = "knowledge.index_retried"
+    knowledge_index_retry_failed = "knowledge.index_retry_failed"
+    # 批量索引运维：批量 retry-index / 显式 reparse 的发起与完成（operation）。
+    # extra 只放安全 job_id / filters / counts / safe code / trace_id，绝不含标题 / 原文 / 内部 id。
+    knowledge_index_batch_retry_requested = "knowledge.index_batch_retry_requested"
+    knowledge_index_batch_retry_completed = "knowledge.index_batch_retry_completed"
+    knowledge_index_reparse_requested = "knowledge.index_reparse_requested"
+    knowledge_index_reparse_completed = "knowledge.index_reparse_completed"
+    # WeKnora 模型配置中心。extra 只放安全字段（provider / type / 名称），
+    # 绝不含 api_key / base_url / 真实 model_id / weknora_kb_id。
+    weknora_model_created = "weknora.model_created"
+    weknora_model_updated = "weknora.model_updated"
+    weknora_model_deleted = "weknora.model_deleted"
+    weknora_kb_config_updated = "weknora.kb_config_updated"
+    # 项目知识库（项目空间）创建。
     project_created = "project.created"
     config_alert_rule_updated = "config.alert_rule_updated"
     # Dify 接入注册变更（R4）：创建 / 启停 / 更新 capability·scope·token（config）。
     config_agent_registry_updated = "config.agent_registry_updated"
-    # 人员治理（PBC-02）：公司角色 / 项目成员关系 upsert（config）。
+    # 人员治理：公司角色 / 项目成员关系 upsert（config）。
     config_people_company_role_updated = "config.people_company_role_updated"
     config_people_project_membership_updated = "config.people_project_membership_updated"
-    # 权限规则配置（PBC-03）：阈值 / 开关规则更新（config）。只记安全配置值，不含 secret。
+    # 权限规则配置：阈值 / 开关规则更新（config）。只记安全配置值，不含 secret。
     config_permission_rule_updated = "config.permission_rule_updated"
-    # 项目设置（PBC-04）：项目设置更新 / 项目成员角色·状态更新（operation）。
+    # 项目设置：项目设置更新 / 项目成员角色·状态更新（operation）。
     # 只记安全配置值与安全枚举/UUID；wecom_group_id 全文绝不入审计（只记 bound）。
     project_settings_updated = "project.settings_updated"
     project_member_updated = "project.member_updated"
-    # 个人知识写动作（PBC-05）：本人资产确认 / 提交到项目 / 证据候选登记（operation）。
+    # 个人知识写动作：本人资产确认 / 提交到项目 / 证据候选登记（operation）。
     # 只记安全枚举/UUID（zone/status/submission_type/evidence_type）；绝不含原文/摘要全文。
     review_personal_asset_confirmed = "review.personal_asset_confirmed"
     submission_created = "submission.created"
     evidence_validation_registered = "evidence.validation_registered"
-    # 原文访问申请与授权（PBC-06）：申请 / 审批通过(建 grant) / 拒绝 / 撤销授权（operation）。
+    # 原文访问申请与授权：申请 / 审批通过(建 grant) / 拒绝 / 撤销授权（operation）。
     # 只记安全枚举/UUID/status/expires_at；绝不含原文 / reason 中的敏感附件 / URL / token。
     access_original_requested = "access.original_requested"
     access_original_approved = "access.original_approved"
@@ -391,10 +412,31 @@ class AuditAction(str, Enum):
     # 通知真实下发（R7）：发送成功 / 失败（安全元数据，不含正文/密钥）。
     notification_sent = "notification.sent"
     notification_failed = "notification.failed"
-    # 会话 / 登录（IMPLEMENT-12）。真实 OAuth 接入前为本地会话最小闭环。
+    # 会话 / 登录。真实 OAuth 接入前为本地会话最小闭环。
     login_success = "login.success"
     login_failed = "login.failed"
     login_logout = "login.logout"
+    # 登录失败风控。锁定 / 限流均为系统事件（actor=None），extra 只含不可逆 hash
+    # 前缀 / reason_code / 计数 / 窗口，绝不含 raw email / password / token / cookie / 原始 IP。
+    login_locked = "login.locked"
+    login_rate_limited = "login.rate_limited"
+    # 登录风控运维：admin 手动解除 identifier 短时锁定。extra 只含 target_user_id /
+    # identifier_hash_prefix / reset_attempt_id / 安全数字，绝不含 raw email / IP / token。
+    auth_lockout_unlocked = "auth.lockout_unlocked"
+    # 会话撤销：账号停用 / 改密 / admin 强制下线时撤销平台会话。extra 只含
+    # target_user_id / revoked_count / trigger / reason / preserved_current_session，绝不含
+    # token / token_hash / cookie / OAuth state / 密码 / 原始 IP。
+    auth_sessions_revoked = "auth.sessions_revoked"
+    # 用户启停：admin 改 users.status（active ↔ inactive）。停用联动撤销会话。
+    config_people_status_updated = "config.people_status_updated"
+    # 企微身份生命周期同步：成员失效时停用平台用户并撤销会话。extra 只含
+    # target_user_id / trigger / wecom_status(归一 code) / previous_status / new_status /
+    # sessions_revoked / dry_run / 批量计数，绝不含 access_token / app_secret / code / state /
+    # raw wecom_user_id / 通讯录档案字段 / 上游 errmsg。
+    identity_wecom_user_synced = "identity.wecom_user_synced"
+    identity_user_deactivated_by_wecom_sync = "identity.user_deactivated_by_wecom_sync"
+    # 管理员设置 / 重置用户密码。extra 只放安全元数据，绝不含 password/hash/salt。
+    auth_password_set = "auth.password_set"
 
 
 # 强审计风险等级（写入 extra.risk_level，供告警系统按等级分发）。
@@ -406,7 +448,7 @@ class AuditRiskLevel(str, Enum):
 class AgentProvider(str, Enum):
     """Agent 上层平台 provider 抽象（Gateway 内部的平台抽象标识，非敏感）。
 
-    - internal_stub：IMPLEMENT-08 的关键词召回 + 确定性占位答案桩（R3 已取代，保留枚举
+    - internal_stub：的关键词召回 + 确定性占位答案桩（R3 已取代，保留枚举
       仅为历史/兼容，不再用于新调用）。
     - weknora_llm：R3 起的真实链路——WeKnora 检索召回 + 外部 LLM 自拼答案。它仍是平台
       抽象标识，**不**暴露 Dify app_id / workflow_id / dataset_id、WeKnora kb/doc id、
@@ -418,9 +460,9 @@ class AgentProvider(str, Enum):
 
 
 class AgentCapability(str, Enum):
-    """Agent 能力边界。本阶段只实现 qa（知识问答）；其余为前向占位，
+    """Agent 能力边界。当前只实现 qa（知识问答）；其余为前向占位，
 
-    在网关被 agent_capability_denied 拒绝（候选生成/总结等留待后续任务）。
+    在网关被 agent_capability_denied 拒绝（候选生成/总结等暂未实现）。
     """
 
     qa = "qa"
@@ -445,7 +487,7 @@ class GatewayDecisionStatus(str, Enum):
 
 
 class LifecycleEventType(str, Enum):
-    """资产生命周期事件类型（IMPLEMENT-10，落 asset_lifecycle_events.event_type）。
+    """资产生命周期事件类型。
 
     archive_warning / archive_candidate 仅是预警/候选，不改 asset_status；
     archived / reenabled 是经人工确认的状态变更事实；status_changed 为通用兜底。
@@ -460,15 +502,15 @@ class LifecycleEventType(str, Enum):
 
 
 class LifecycleTriggeredBy(str, Enum):
-    """生命周期事件触发方。system 为系统预警（本阶段不实现扫描）；user 为人工动作。"""
+    """生命周期事件触发方。system 为系统预警/扫描；user 为人工动作。"""
 
     system = "system"
     user = "user"
 
 
 class NotificationChannel(str, Enum):
-    """通知渠道。本阶段仅站内/控制台通知（in_app）落地；wecom/email 为后续集成渠道，
-    仅作为 alert_rules 配置取值出现，不实现真实发送。"""
+    """通知渠道。in_app（站内/控制台）默认落地；wecom 经部署开关启用真实下发；
+    email 为占位渠道，未实现真实发送。"""
 
     in_app = "in_app"
     wecom = "wecom"
@@ -476,7 +518,7 @@ class NotificationChannel(str, Enum):
 
 
 class NotificationStatus(str, Enum):
-    """通知发送状态。本阶段不真实发送，新建记录恒为 pending。"""
+    """通知发送状态。新建记录为 pending，由通知下发流程更新为 sent / failed。"""
 
     pending = "pending"
     sent = "sent"
@@ -484,7 +526,7 @@ class NotificationStatus(str, Enum):
 
 
 class IngestSource(str, Enum):
-    """入库来源。Path A（企微微盘）本阶段不真实实现。"""
+    """入库来源。path_a_wecom = 企业微信微盘扫描；path_b_upload = 本地上传。"""
 
     path_a_wecom = "path_a_wecom"
     path_b_upload = "path_b_upload"
@@ -494,8 +536,8 @@ class IngestStatus(str, Enum):
     """入库任务状态。
 
     注意：BE-02 的 IngestStatus 为 pending/processing/waiting_review/completed/failed；
-    本阶段为表达"已生成 AI 建议、等待人工确认"额外引入 `pending_confirmation`，
-    与 BE-02 的差异留待 reviewer 确认（waiting_review 仍保留给真正的审核流场景）。
+    为表达"已生成 AI 建议、等待人工确认"额外引入 `pending_confirmation`，
+    与 BE-02 的差异留待确认（waiting_review 保留给审核流场景）。
     """
 
     pending = "pending"
@@ -504,3 +546,4 @@ class IngestStatus(str, Enum):
     waiting_review = "waiting_review"
     completed = "completed"
     failed = "failed"
+

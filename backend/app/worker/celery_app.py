@@ -1,4 +1,4 @@
-"""Celery 应用（R5）。
+﻿"""Celery 应用（R5）。
 
 broker / result backend 缺省回退到 `settings.redis_url`；`task_always_eager` 来自
 `settings.celery_task_always_eager`（默认 True，便于本地/测试无 worker 运行）。
@@ -29,6 +29,8 @@ def _make_celery() -> Celery:
             "app.worker.tasks.upgrade",
             "app.worker.tasks.wecom",
             "app.worker.tasks.notifications",
+            "app.worker.tasks.original_access",
+            "app.worker.tasks.indexing",
         ],
     )
     app.conf.update(
@@ -57,9 +59,14 @@ def _make_celery() -> Celery:
                 "task": "notifications.dispatch_pending",
                 "schedule": 120.0,  # 每 2 分钟下发待发 wecom 通知
             },
+            "original-access-auto-approve": {
+                "task": "access.auto_approve_timed_out",
+                "schedule": 1800.0,  # 每 30 分钟扫描超时 pending 原文申请
+            },
         },
     )
     return app
 
 
 celery_app = _make_celery()
+

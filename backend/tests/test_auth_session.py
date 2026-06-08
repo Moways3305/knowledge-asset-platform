@@ -24,6 +24,12 @@ CONSULTANT_EMAIL = "consultant.a@dev.local"
 ADMIN_EMAIL = "admin.e@dev.local"
 
 
+async def _csrf(client):
+    """取一条绑定当前会话 cookie 的 CSRF token（PBC-19，cookie 会话 unsafe 请求需要）。"""
+    r = await client.get("/api/v1/auth/csrf")
+    return {"X-CSRF-Token": r.json()["csrf_token"]}
+
+
 async def test_login_sets_cookie_and_returns_identity_no_token(client):
     """登录成功：返回身份、下发会话 cookie，且明文 token 不出现在响应体。"""
     resp = await client.post(LOGIN, json={"email": BOSS_EMAIL})
@@ -73,7 +79,7 @@ async def test_login_writes_login_success_audit(client):
 async def test_logout_revokes_session(client):
     """登出撤销会话并写 login.logout；ok=True。"""
     await client.post(LOGIN, json={"email": BOSS_EMAIL})
-    out = await client.post(LOGOUT)
+    out = await client.post(LOGOUT, headers=await _csrf(client))
     assert out.status_code == 200
     assert out.json()["ok"] is True
 
@@ -86,11 +92,11 @@ async def test_invalid_session_rejected_in_prod(client, monkeypatch):
 
 
 async def test_login_disabled_in_prod(client, monkeypatch):
-    """prod 环境本地无凭证登录被禁用（真实 OAuth 未接入）→ 403。"""
+    """PBC-12：prod 环境无凭证（email-only）登录被禁用 → 403 auth_password_required。"""
     monkeypatch.setattr("app.api.auth.get_settings", lambda: Settings(app_env="prod"))
     resp = await client.post(LOGIN, json={"email": BOSS_EMAIL})
     assert resp.status_code == 403
-    assert resp.json()["detail"] == "auth_login_not_available"
+    assert resp.json()["detail"]["denied_reason"] == "auth_password_required"
 
 
 async def test_login_unknown_email_401(client):
@@ -113,6 +119,7 @@ async def test_pure_admin_business_write_boundary_holds_via_session(client):
     resp = await client.post(
         f"/api/v1/knowledge/{KA_PROJECT_ALPHA}/lifecycle/archive-confirm",
         json={"reason": "x"},
+        headers=await _csrf(client),
     )
     assert resp.status_code == 403
     assert resp.json()["detail"]["denied_reason"] == "admin_business_permission_denied"

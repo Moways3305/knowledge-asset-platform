@@ -1,4 +1,4 @@
-"""入库流水线服务（IMPLEMENT-05，Path B 最小闭环）。
+﻿"""入库流水线服务。
 
 create_upload → 确定性 AI 建议占位 → get_ai_result（按权限裁剪）→ confirm（人工确认
 后写入 KnowledgeAsset 全套）。不调用真实 AI / 文件存储 / WeCom / Dify / 审核流 / 审计表。
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -44,16 +45,35 @@ from app.services.desensitization import DesensitizationEngine
 from app.services.llm_client import LLMClient, NullLLMClient
 from app.worker.enqueue import enqueue_ingest_processing
 from app.services.storage import LocalFileStorage, StorageError
+from app.services import error_catalog
+from app.services import indexing
 from app.services.weknora_client import (
     NullWeKnoraClient,
     WeKnoraClient,
-    WeKnoraDuplicateError,
     WeKnoraError,
     weknora_enabled,
 )
-from app.services.weknora_kb import resolve_or_create_kb
 
 _REDACTED_LEVELS = {ConfidentialityLevel.L3.value, ConfidentialityLevel.L4.value}
+
+# 入库前置脱敏状态 → 人读安全文案。准确口径：不夸大为"全部已脱敏"，
+# 不可抽取文本明示"无法做文本级前置脱敏"，失败明示"脱敏失败"。
+_DESENSITIZATION_MESSAGES = {
+    "applied": "内容处理前已对抽取文本做规则实体脱敏（平台侧外部 LLM 仅使用脱敏后文本）",
+    "unchanged": "已运行规则脱敏，未命中可脱敏敏感实体（平台侧外部 LLM 使用该文本）",
+    "skipped": "未抽取到文本，无法做文本级前置脱敏；平台侧外部 LLM 内容建议已降级，不接触原文",
+    "failed": "规则脱敏失败；平台侧外部 LLM 内容建议已降级，不接触原文",
+}
+
+
+def _desensitization_message(status: str | None) -> str | None:
+    if status is None:
+        return None
+    return _DESENSITIZATION_MESSAGES.get(status)
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
@@ -206,6 +226,12 @@ async def get_ai_result(
             "processing" if task.status == IngestStatus.processing.value
             else ("llm" if (ai and ai.llm_provider) else "degraded") if ai else None
         ),
+        # 入库前置脱敏安全元数据（状态 + 类别计数 + 人读文案，两视图均可见）。
+        desensitization_status=ai.desensitization_status if ai else None,
+        desensitization_counts=(ai.desensitization_counts if ai else None) or None,
+        desensitization_message=_desensitization_message(
+            ai.desensitization_status if ai else None
+        ),
     )
     if is_full and ai is not None:
         # 完整视图（创建人 / 治理角色）：补充业务建议正文（三层摘要）+ 抽取全文截断预览。
@@ -258,10 +284,16 @@ async def confirm(
     storage: LocalFileStorage,
     weknora: WeKnoraClient | NullWeKnoraClient,
 ) -> IngestConfirmResponse:
-    """人工确认入库：创建 KnowledgeAsset 全套 + 把原文推进 WeKnora 底座并回写 doc id。
+    """人工确认入库：阶段1 资产落库 + 阶段2 底座索引，两个失败边界解耦。
 
-    WeKnora 写入失败 → **整事务回滚**（不留悬挂资产）+ 标记任务 failed + 审计 + 502。
-    未配置 WeKnora（dev）→ 跳过索引，asset 正常创建（接口先行不破坏既有流程）。
+    - 落库前校验失败仍**拒绝**（无权 / scope·project·confidentiality 非法 / 标题·摘要缺失 /
+      重复确认 / 仍 processing）。
+    - 校验通过后先持久化 KnowledgeAsset 全套（提交点 A，`task.status=completed` 仅表示
+      确认+落库）。此后 WeKnora 建库 / 初始化 / 上传失败**绝不回滚**已落库资产 / 人工校正，
+      而是把 version `index_status=index_failed` + 安全 `index_error_code` + 写 `ingest.index_failed`
+      （exception）审计，可在补配置 / 修复后重试。
+    - 未配置 WeKnora（dev）→ `index_status=skipped`，asset 正常创建。
+    - 409 内容重复 → 复用既有 doc，`index_status=indexed`、`parse_status=duplicate`，不算失败。
     """
     if not caller.is_business_user:
         await audit_service.record_denied(
@@ -311,33 +343,22 @@ async def confirm(
         owner_id = caller.user_id
         project_id = req.target_project_id
     elif scope == KnowledgeScope.company.value:
-        # 本阶段无审核流：仅 boss / consulting_director 可直接确认公司资产；
+        # 公司知识当前无独立审核流：仅 boss / consulting_director 可直接确认公司资产；
         # consultant 直接确认公司资产被拒（不假装完成公司级审核）。
         if not _is_governance(caller):
             raise _denied(
                 403,
                 "company_confirmation_requires_governance",
-                "公司知识需 Boss / 咨询总监确认（审核流待后续任务）",
+                "公司知识需 Boss / 咨询总监确认",
             )
         owner_id = caller.user_id
         project_id = None
     else:
         raise _denied(422, "invalid_target_scope", "非法的 target_scope")
 
-    # WeKnora KB 懒创建（在建 asset 之前；映射行独立提交，不随 asset 回滚）。
-    use_weknora = weknora_enabled()
-    kb_id: str | None = None
-    if use_weknora:
-        from app.core.config import get_settings
-
-        kb_id = await resolve_or_create_kb(
-            session, weknora,
-            scope=scope, owner_user_id=owner_id if scope == KnowledgeScope.personal.value else None,
-            project_id=project_id,
-            embedding_model_id=get_settings().weknora_embedding_model_id,
-            trace_id=trace_id,
-        )
-
+    # ---- 阶段1：人工确认 = 资产落库（必须成功且独立成立，不绑底座）----
+    # 不再在落库前建 KB。底座建库/初始化/上传解耦到阶段2，失败不回滚已落库资产，
+    # 也不丢失人工校正结果（旧"WeKnora 写入失败整单回滚"口径作废，见集成文档 §7）。
     # 已前置校验 detailed/one_liner 至少一非空：detailed 取详细摘要，缺则回退一句话摘要
     # （绝不再静默写入"（无摘要）"占位）。
     summary_text = (req.summary or "").strip() or (req.one_liner or "").strip()
@@ -373,6 +394,7 @@ async def confirm(
 
     asset.current_version_id = version.id
     task.result_asset_id = asset.id
+    # task.status=completed 表示「人工确认 + 资产落库完成」，**不含**底座索引完成。
     task.status = IngestStatus.completed.value
     task.target_scope = scope
     task.target_project_id = project_id
@@ -383,40 +405,9 @@ async def confirm(
         task.ai_result.corrected_summary = req.summary
         task.ai_result.corrected_tags = req.tags
 
-    # ---- 推原文进 WeKnora 底座并回写 doc id（R1）----
-    parse_status: str | None = None
-    weknora_pushed = False
-    weknora_duplicate = False
-    if use_weknora and kb_id is not None:
-        try:
-            file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
-            data = await weknora.upload_file(
-                kb_id=kb_id, content=file_bytes,
-                file_name=task.source_file_name, mime=task.source_file_mime_type,
-                metadata={
-                    "asset_id": str(asset.id), "version_id": str(version.id),
-                    "scope": scope, "confidentiality_level": confidentiality,
-                },
-                channel=task.source, trace_id=trace_id,
-            )
-            version.weknora_kb_id = kb_id
-            version.weknora_doc_id = str(data.get("id") or "") or None
-            parse_status = str(data.get("parse_status") or "processing")
-            version.weknora_parse_status = parse_status
-            weknora_pushed = True
-        except WeKnoraDuplicateError as dup:
-            # 内容已在底座（file_hash 409）：复用既有 doc，不重复入库、不算失败。
-            version.weknora_kb_id = kb_id
-            version.weknora_doc_id = dup.existing_knowledge_id
-            parse_status = "duplicate"
-            version.weknora_parse_status = parse_status
-            weknora_pushed = True
-            weknora_duplicate = True
-        except (WeKnoraError, OSError) as exc:
-            # 底座写入失败：整事务回滚（不留悬挂资产）→ 标记任务 failed + 审计 + 502。
-            await session.rollback()
-            await _mark_weknora_failed(session, caller, task_id, exc, trace_id, project_id)
-            raise _denied(502, "weknora_upload_failed", "知识底座写入失败，入库已回滚")
+    use_weknora = weknora_enabled()
+    # 落库即定索引初值：未启用底座 → skipped（dev/降级，正常）；启用 → indexing（阶段2推进）。
+    version.index_status = "indexing" if use_weknora else "skipped"
 
     # 入库确认审计：安全元数据，不含原文 / source_file_ref / kb_id / doc_id。
     await audit_service.record_event(
@@ -432,51 +423,102 @@ async def confirm(
         },
         project_id=project_id,
     )
-    if weknora_pushed:
-        # 索引埋点：只放安全业务状态，绝不含 kb_id / doc_id。
-        await audit_service.record_event(
-            session, caller=caller, log_type=AuditLogType.operation,
-            action=AuditAction.ingest_weknora_indexed.value, trace_id=trace_id,
-            target_type="knowledge_asset", target_id=asset.id,
-            extra={
-                "parse_status": parse_status,
-                "is_duplicate": weknora_duplicate,
-                "scope": asset.scope,
-            },
-            project_id=project_id,
-        )
+    # 提交点 A：资产 + 人工校正持久化。此后底座失败**绝不**回滚此次落库。
     await session.commit()
+
+    # 捕获响应所需主键（阶段2失败时会 rollback 使 ORM 对象过期，异步 session 不能隐式 IO 刷新）。
+    result_asset_id = asset.id
+    response_task_id = task.id
+    response_status = task.status
+
+    # ---- 阶段2：底座索引（建库 + 初始化 + 上传原文）。失败 → index_failed，可重试 ----
+    parse_status: str | None = None
+    index_status = "indexing" if use_weknora else "skipped"
+    if use_weknora:
+        index_status, parse_status = await _index_asset(
+            session, caller, task, asset, version,
+            scope=scope, owner_id=owner_id, project_id=project_id,
+            confidentiality=confidentiality, weknora=weknora, storage=storage,
+            trace_id=trace_id,
+        )
+
     return IngestConfirmResponse(
-        task_id=task.id, status=task.status, result_asset_id=asset.id,
-        parse_status=parse_status,
+        task_id=response_task_id, status=response_status, result_asset_id=result_asset_id,
+        parse_status=parse_status, index_status=index_status,
     )
 
 
-async def _mark_weknora_failed(
-    session: AsyncSession, caller: CallerContext, task_id: uuid.UUID,
-    exc: Exception, trace_id: str, project_id: uuid.UUID | None,
-) -> None:
-    """WeKnora 写入失败后（事务已回滚）：把任务标记 failed 并写 ingest.failed 审计。
+async def _index_asset(
+    session: AsyncSession,
+    caller: CallerContext,
+    task: IngestTask,
+    asset: KnowledgeAsset,
+    version: KnowledgeAssetVersion,
+    *,
+    scope: str,
+    owner_id: uuid.UUID,
+    project_id: uuid.UUID | None,
+    confidentiality: str,
+    weknora: WeKnoraClient | NullWeKnoraClient,
+    storage: LocalFileStorage,
+    trace_id: str,
+) -> tuple[str, str | None]:
+    """阶段2：把原文推进 WeKnora 底座（共享 `indexing.index_asset_version`）+ 写 ingest 审计。
 
-    审计 extra 只放安全元数据——绝不含 kb_id / doc_id / api_key / 原文 / storage_ref。
+    资产已在阶段1落库；阶段2 **绝不**回滚资产或人工校正。成功写 `ingest.weknora_indexed`，
+    失败写 `ingest.index_failed`（exception）。审计 extra 绝不含 kb_id/doc_id/api_key/storage_ref。
     """
-    task = (
-        await session.execute(select(IngestTask).where(IngestTask.id == task_id))
-    ).scalar_one_or_none()
-    if task is not None:
-        task.status = IngestStatus.failed.value
-        task.error_type = "weknora_upload_failed"
-        task.error_message = "知识底座写入失败，入库已回滚（详见审计）"
-    code = getattr(exc, "code", None) or "weknora_upload_failed"
+    # 先捕获主键 / 来源字段（失败路径 rollback 会使对象过期，异步 session 不能隐式刷新）。
+    asset_id = asset.id
+    version_id = version.id
+    source_file_ref = task.source_file_ref
+
+    # 读原文字节：读盘失败也算索引失败（资产保留、可重试）。
+    try:
+        file_bytes = storage.resolve_path(source_file_ref).read_bytes()
+    except OSError:
+        outcome = await indexing.mark_index_failed(
+            session, version_id=version_id, error_code="source_file_unreadable"
+        )
+        await _audit_ingest_index_failed(session, caller, asset_id, outcome.error_code, trace_id, project_id)
+        return outcome.index_status, outcome.parse_status
+
+    outcome = await indexing.index_asset_version(
+        session, weknora,
+        asset_id=asset_id, version_id=version_id, scope=scope,
+        owner_user_id=owner_id, project_id=project_id, confidentiality=confidentiality,
+        file_bytes=file_bytes, source_file_name=task.source_file_name,
+        source_file_mime=task.source_file_mime_type, channel=task.source, trace_id=trace_id,
+    )
+    if outcome.index_status == "indexed":
+        await audit_service.record_event(
+            session, caller=caller, log_type=AuditLogType.operation,
+            action=AuditAction.ingest_weknora_indexed.value, trace_id=trace_id,
+            target_type="knowledge_asset", target_id=asset_id,
+            extra={
+                "parse_status": outcome.parse_status,
+                "is_duplicate": outcome.is_duplicate, "scope": scope,
+            },
+            project_id=project_id,
+        )
+        await session.commit()
+    else:
+        await _audit_ingest_index_failed(session, caller, asset_id, outcome.error_code, trace_id, project_id)
+    return outcome.index_status, outcome.parse_status
+
+
+async def _audit_ingest_index_failed(
+    session: AsyncSession, caller: CallerContext, asset_id: uuid.UUID,
+    error_code: str | None, trace_id: str, project_id: uuid.UUID | None,
+) -> None:
+    """写 confirm 阶段底座索引失败审计（exception）。extra 只放安全 stage + error_code。"""
     await audit_service.record_event(
         session, caller=caller, log_type=AuditLogType.exception,
-        action=AuditAction.ingest_failed.value, trace_id=trace_id,
-        target_type="ingest_task", target_id=task_id,
+        action=AuditAction.ingest_index_failed.value, trace_id=trace_id,
+        target_type="knowledge_asset", target_id=asset_id,
         severity=AlertSeverity.warning, risk_level=AuditRiskLevel.high.value,
-        extra={
-            "failure_stage": "weknora_upload",
-            "error_code": str(code),
-        },
+        # 审计 extra 只写安全目录 code，不写上游原始 code。
+        extra={"failure_stage": "weknora_index", "error_code": error_catalog.safe_code(error_code)},
         project_id=project_id,
     )
     await session.commit()
@@ -538,7 +580,7 @@ async def list_pending(
     *,
     source: str | None = None,
 ) -> list[PendingIngestItem]:
-    """业务侧待确认任务列表（PBC-07）。
+    """业务侧待确认任务列表。
 
     用于 `/upload` Path A 面板：拉取尚未入库（result_asset_id 为空）的入库任务。
     与 confirm 的归属规则**完全一致**——只返回调用人确实有权确认的任务：
@@ -644,3 +686,4 @@ async def list_admin_ingest(
             )
         )
     return items
+

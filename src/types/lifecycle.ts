@@ -1,4 +1,4 @@
-// 知识生命周期动作 API 的 DTO 类型（IMPLEMENT-10）。
+﻿// 知识生命周期动作 API 的 DTO 类型。
 // 生命周期变更是治理流程；request 仅产生预警/候选，confirm 才人工确认状态变更。
 
 export interface LifecycleActionResponseDTO {
@@ -37,3 +37,4 @@ export interface LifecycleEventDTO {
 export interface LifecycleEventsResponseDTO {
   items: LifecycleEventDTO[];
 }
+

@@ -1,4 +1,4 @@
-"""知识生命周期动作 API 的请求 / 响应 schema（IMPLEMENT-10；契约 §14A）。
+﻿"""知识生命周期动作 API 的请求 / 响应 schema。
 
 生命周期变更是治理流程，不是物理删除；request 类动作只产生预警/候选，confirm
 类动作才人工确认状态变更。响应均为安全元数据，不含业务原文 / 内部存储标识。
@@ -77,3 +77,4 @@ class LifecycleEventOut(BaseModel):
 
 class LifecycleEventsResponse(BaseModel):
     items: list[LifecycleEventOut]
+

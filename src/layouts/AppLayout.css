@@ -1,4 +1,4 @@
-/* ══════════════════════════════════════════
+﻿/* ══════════════════════════════════════════
    Design Tokens
    ══════════════════════════════════════════ */
 
@@ -181,7 +181,7 @@ body {
   white-space: nowrap;
 }
 
-/* 会话身份控件（IMPLEMENT-12） */
+/* 会话身份控件 */
 .topbar-auth {
   margin-left: auto;
   display: flex;
@@ -1751,13 +1751,35 @@ body {
 .up-llm-llm { color: #2e7d32; background: rgba(46, 125, 50, 0.06); }
 .up-llm-degraded { color: #b08900; background: rgba(176, 137, 0, 0.06); }
 
+/* 入库前置规则脱敏状态块 */
+.up-desensitization {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  font-size: 12px;
+  border: 1px solid var(--color-border);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-muted);
+}
+.up-desensitization-applied { border-left-color: #2e7d32; }
+.up-desensitization-unchanged { border-left-color: #5a7184; }
+.up-desensitization-skipped { border-left-color: #b08900; }
+.up-desensitization-failed { border-left-color: #c62828; }
+.up-desensitization-label { font-weight: 600; }
+.up-desensitization-status { color: var(--color-text-secondary); }
+.up-desensitization-counts { color: var(--color-text-tertiary); margin-left: auto; }
+
 .correction-hint {
   font-size: 11px;
   color: var(--color-text-tertiary);
   font-weight: 400;
 }
 
-/* 文本抽取结果块（IMPLEMENT-14） */
+/* 文本抽取结果块 */
 .up-extraction {
   margin-top: 12px;
   border: 1px solid var(--color-border);
@@ -3572,7 +3594,7 @@ body {
   color: var(--color-text-tertiary);
 }
 
-/* Agent Gateway 项目 Q&A（IMPLEMENT-08）：目标项目 / 引用层级 / trace / 错误态 */
+/* Agent Gateway 项目 Q&A：目标项目 / 引用层级 / trace / 错误态 */
 .pj-qa-target {
   font-size: 12px;
   color: var(--color-text-secondary);
@@ -3940,7 +3962,7 @@ body {
   line-height: 1.6;
 }
 
-/* Audit real-API states (IMPLEMENT-09) */
+/* Audit real-API states */
 .au-view-hint {
   font-size: 12px;
   color: var(--color-text-secondary);
@@ -5792,7 +5814,7 @@ body {
   color: var(--color-text-secondary);
 }
 
-/* Create / edit form (PBC-10A) */
+/* Create / edit form */
 .ws-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -6955,7 +6977,7 @@ body {
   font-style: italic;
 }
 
-/* 生命周期治理动作区（IMPLEMENT-10） */
+/* 生命周期治理动作区 */
 .lifecycle-action-area {
   margin-top: 14px;
   padding: 12px var(--space-md);
@@ -7589,7 +7611,7 @@ body {
   margin-top: 6px;
 }
 
-/* ===== PBC-10B：删除 / 项目创建 ===== */
+/* ===== 删除 / 项目创建 ===== */
 .btn-small-danger {
   background: var(--color-danger-bg, #fdecea);
   color: var(--color-danger-fg, #b00020);
@@ -7693,7 +7715,7 @@ body {
   gap: 8px;
 }
 
-/* 审计 action 中文标签下的原始英文枚举小字（PBC-10C，保留排障可读） */
+/* 审计 action 中文标签下的原始英文枚举小字 */
 .au-cell-raw {
   display: block;
   font-size: 10px;
@@ -7702,7 +7724,7 @@ body {
   margin-top: 2px;
 }
 
-/* PBC-10D：知识页系统身份（admin）无业务知识访问的短提示 */
+/* 知识页系统身份（admin）无业务知识访问的短提示 */
 .kl-identity-note {
   margin: 12px 0;
   padding: 10px 14px;
@@ -7715,7 +7737,7 @@ body {
   border-radius: var(--radius-md);
 }
 
-/* PBC-10E：功能页短帮助提示 + 统一使用说明页 */
+/* 功能页短帮助提示 + 统一使用说明页 */
 .page-help-line {
   margin: 12px 0;
   padding: 8px 12px;
@@ -7734,6 +7756,35 @@ body {
   line-height: 1.7;
   color: var(--color-text-secondary);
 }
+
+/* 运营洞察面板 */
+.kl-insight-cards { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.kl-insight-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--color-border);
+  background: var(--color-bg-muted);
+}
+.kl-insight-card .kl-insight-count { font-size: 18px; font-weight: 700; }
+.kl-insight-card .kl-insight-label { font-size: 12px; font-weight: 600; }
+.kl-insight-card .kl-insight-hint { grid-column: 1 / -1; font-size: 11px; color: var(--color-text-tertiary); }
+.kl-insight-info { border-left-color: #5a7184; }
+.kl-insight-warning { border-left-color: #b08900; }
+.kl-insight-error { border-left-color: #c62828; }
+.kl-insight-recos { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.kl-insight-reco { font-size: 12px; line-height: 1.5; padding: 6px 8px; border-left: 3px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg-muted); }
+.kl-insight-reco a { color: var(--color-accent-1); }
+.kl-insight-recent { margin-bottom: 12px; }
+.kl-insight-recent-title { font-size: 12px; font-weight: 600; color: var(--color-text-secondary); margin-bottom: 6px; }
+.kl-insight-recent ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.kl-insight-recent-item { font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
+.kl-insight-recent-item a { color: var(--color-accent-1); }
+.kl-insight-recent-msg { font-size: 11px; color: var(--color-text-tertiary); }
+.kl-insight-hidden { color: var(--color-text-tertiary); font-style: italic; }
 
 .help-page {
   max-width: 920px;
@@ -7776,7 +7827,7 @@ body {
 }
 
 /* ══════════════════════════════════════════
-   PBC-10F：视觉基线统一（保守、附加式；不改布局结构与业务）
+   视觉基线统一（保守、附加式；不改布局结构与业务）
    ══════════════════════════════════════════ */
 
 /* 令牌微调：中性灰阴影（替代偏蓝阴影，读起来更干净）、悬浮面、聚焦环、强边框。 */
@@ -7844,7 +7895,7 @@ body {
   color: var(--color-text-secondary);
 }
 
-/* 功能页短帮助提示与页面分隔：略增可读性（沿用 PBC-10E 的 page-help-line）。 */
+/* 功能页短帮助提示与页面分隔：略增可读性（复用 page-help-line 样式）。 */
 .page-help-line code {
   font-size: 11px;
   padding: 0 4px;
@@ -7854,7 +7905,7 @@ body {
 }
 
 /* ══════════════════════════════════════════
-   PBC-10F Residual：窄屏响应式收口（实测 390px 顶栏溢出 81px 的根因修复）
+   窄屏响应式收口（修复约 390px 宽度下顶栏溢出）
    ══════════════════════════════════════════ */
 
 /* 顶栏在窄屏换行为多行、自适应高度，登录输入框收缩，长徽标隐藏；消除全局横向溢出。 */
@@ -7913,7 +7964,7 @@ body {
   }
 }
 
-/* PBC-10F Residual：搜索栏改为整洁单行（搜索按钮内联，不再换行到第二行）。 */
+/* 搜索栏改为整洁单行（搜索按钮内联，不再换行到第二行）。 */
 .search-bar {
   display: flex;
   gap: 8px;
@@ -7938,7 +7989,7 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
-/* PBC-10F Residual：窄屏侧栏堆叠为顶部横向导航（实测 390px 下侧栏挤压内容致逐字换行的修复）。 */
+/* 窄屏侧栏堆叠为顶部横向导航（避免侧栏挤压主内容导致逐字换行）。 */
 @media (max-width: 640px) {
   .app-body {
     flex-direction: column;
@@ -7983,7 +8034,7 @@ body {
   }
 }
 
-/* PBC-10F Residual：知识页主体 + 卡片在窄屏堆叠，消除内容被侧栏挤压致逐字换行。 */
+/* 知识页主体 + 卡片在窄屏堆叠，消除内容被侧栏挤压致逐字换行。 */
 @media (max-width: 900px) {
   .kl-body {
     flex-direction: column;
@@ -8004,7 +8055,7 @@ body {
   }
 }
 
-/* PBC-10F Residual：检索/浏览模式标签（强化两种模式的视觉区分）。 */
+/* 检索/浏览模式标签（强化两种模式的视觉区分）。 */
 .kl-mode-tag {
   display: inline-block;
   font-size: 11px;
@@ -8030,3 +8081,4 @@ body {
   margin-right: 8px;
   color: var(--color-text-tertiary);
 }
+

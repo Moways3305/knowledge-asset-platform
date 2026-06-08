@@ -34,7 +34,9 @@ const navGroups = [
     items: [
       { to: "/admin/ingest", label: "入库管理" },
       { to: "/admin/wecom-scan", label: "微盘扫描" },
+      { to: "/admin/weknora-models", label: "模型配置" },
       { to: "/admin/audit", label: "审计日志" },
+      { to: "/admin/auth-security", label: "登录风控" },
       { to: "/admin/alert-settings", label: "告警设置" },
       { to: "/admin/permissions", label: "权限规则" },
       { to: "/admin/people", label: "人员权限" },
@@ -52,6 +54,7 @@ export default function AppLayout() {
   const [authMe, setAuthMe] = useState<AuthMeVM | null>(null);
   const [projectIndex, setProjectIndex] = useState(0);
   const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -78,16 +81,20 @@ export default function AppLayout() {
     if (!loginEmail.trim()) return;
     setAuthBusy(true); setAuthError(null);
     try {
-      const me = await login(loginEmail.trim());
+      const me = await login(loginEmail.trim(), loginPassword || undefined);
       setAuthMe(me);
       setProjectIndex(0);
       setLoginEmail("");
+      setLoginPassword("");  // 登录后立即清空密码，绝不回显
     } catch (e) {
-      setAuthError(e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "登录失败");
+      // 统一安全文案，不暴露后端内部 code（密码错/用户不存在不区分）。
+      setAuthError(e instanceof ApiError && e.status === 403 && e.deniedReason === "auth_password_required"
+        ? "请输入密码登录"
+        : (e instanceof ApiError && e.status === 401 ? "邮箱或密码错误" : "登录失败，请稍后重试"));
     } finally {
       setAuthBusy(false);
     }
-  }, [loginEmail]);
+  }, [loginEmail, loginPassword]);
 
   const handleWecomLogin = useCallback(async () => {
     setAuthBusy(true); setAuthError(null);
@@ -150,15 +157,23 @@ export default function AppLayout() {
           <input
             className="topbar-login-input"
             type="email"
-            placeholder="登录邮箱（如 boss.c@dev.local）"
+            placeholder="登录邮箱"
             value={loginEmail}
             onChange={(e) => setLoginEmail(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") void handleLogin(); }}
+          />
+          <input
+            className="topbar-login-input"
+            type="password"
+            placeholder="密码"
+            value={loginPassword}
+            onChange={(e) => setLoginPassword(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") void handleLogin(); }}
           />
           <button className="btn-small btn-small-primary" onClick={() => void handleLogin()} disabled={authBusy}>登录</button>
           <button className="btn-small" onClick={() => void handleWecomLogin()} disabled={authBusy}>企微登录</button>
           <button className="btn-small" onClick={() => void handleLogout()} disabled={authBusy}>登出</button>
-          <span className="topbar-badge">会话身份 · 本地登录 / 企微 OAuth（需配置 WECOM_*）</span>
+          <span className="topbar-badge">密码登录 / 企微 OAuth（需配置 WECOM_*）。开发环境可不填密码用邮箱便捷登录。</span>
         </div>
         {authError && <div className="topbar-auth-error">{authError}</div>}
       </header>

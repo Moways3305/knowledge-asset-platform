@@ -1,7 +1,6 @@
-"""预览凭证 ORM 模型（IMPLEMENT-07 最小闭环）。
+﻿"""预览凭证 ORM 模型。
 
-仅一张表 preview_credentials。本阶段只签发 full 类型凭证；不实现真实文件加载、
-对象存储、ONLYOFFICE、access_grants、summary_only 凭证、HMAC URL 完整签名。
+仅一张表 preview_credentials，承载预览凭证签发记录。
 
 安全：只存 token_hash（不可逆哈希），不存明文 token；credential_fingerprint 是
 可对外的短指纹；preview_entry_url 是平台受控相对路径，不是对象存储签名 URL。
@@ -63,3 +62,4 @@ class PreviewCredential(Base):
     )
     trace_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+

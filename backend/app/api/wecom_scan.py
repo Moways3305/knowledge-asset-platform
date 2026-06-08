@@ -1,4 +1,4 @@
-"""企微微盘扫描 API（R6 Path A，契约 §17）。
+﻿"""企微微盘扫描 API（R6 Path A，契约 §17）。
 
 - GET   /api/v1/admin/wecom-scan/configs                         （admin / boss / 咨询总监）
 - PATCH /api/v1/admin/wecom-scan/configs/{config_id}            （admin；启停）
@@ -20,6 +20,8 @@ from app.core.trace import get_trace_id
 from app.db.session import get_db
 from app.schemas.permission import CallerContext
 from app.schemas.wecom import (
+    WecomDriveDirectoriesResponse,
+    WecomDriveSpacesResponse,
     WecomOwnerOptionsResponse,
     WecomProjectOptionsResponse,
     WecomScanConfigCreateBody,
@@ -62,6 +64,28 @@ async def list_owner_options(
 ) -> WecomOwnerOptionsResponse:
     """业务归属人候选（active 业务用户，排除纯 admin）。读权限同配置读。"""
     return await scan_service.list_owner_options(session, caller)
+
+
+@router.get("/drive/spaces", response_model=WecomDriveSpacesResponse)
+async def list_drive_spaces(
+    caller: CallerContext = Depends(get_caller_context),
+    drive=Depends(get_wecom_drive_client),
+) -> WecomDriveSpacesResponse:
+    """微盘空间列表。只回安全选择元数据，未配置 → 安全 503。"""
+    return await scan_service.list_drive_spaces(caller, drive)
+
+
+@router.get("/drive/directories", response_model=WecomDriveDirectoriesResponse)
+async def list_drive_directories(
+    space_ref: str,
+    parent_ref: str | None = None,
+    caller: CallerContext = Depends(get_caller_context),
+    drive=Depends(get_wecom_drive_client),
+) -> WecomDriveDirectoriesResponse:
+    """微盘子目录列表。只列目录、不列普通文件；directory_ref 可直接保存。"""
+    return await scan_service.list_drive_directories(
+        caller, drive, space_ref=space_ref, parent_ref=parent_ref
+    )
 
 
 @router.post("/configs", response_model=WecomScanConfigOut, status_code=201)
@@ -115,3 +139,4 @@ async def list_records(
     session: AsyncSession = Depends(get_db),
 ) -> WecomScanRecordsResponse:
     return await scan_service.list_records(session, caller, config_id)
+

@@ -1,7 +1,7 @@
-"""审计日志 ORM 模型（IMPLEMENT-09 最小闭环）。
+﻿"""审计日志 ORM 模型。
 
-仅一张表 `audit_events`，字段严格对齐 BE-02 §4.7 / BE-09 §3。本阶段不实现
-`asset_lifecycle_events` / `alert_rules` / `notification_records`。
+仅一张表 `audit_events`，字段严格对齐 BE-02 §4.7 / BE-09 §3。
+（`asset_lifecycle_events` / `alert_rules` / `notification_records` 由各自模块定义。）
 
 不可变原则（BE-09 §3.1）：写入即定稿，不提供 update/delete 原始事实的能力；
 唯一允许的后续变化是异常处理三字段（is_processed / processed_by / processed_at）
@@ -75,3 +75,4 @@ class AuditEvent(Base):
     trace_id: Mapped[str] = mapped_column(String(100), nullable=False)
     extra: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+

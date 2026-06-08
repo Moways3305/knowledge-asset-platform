@@ -1,11 +1,11 @@
-"""权限规则配置 ORM 模型（PBC-03）。
+﻿"""权限规则配置 ORM 模型。
 
-一张表 `permission_rules`，对齐数据模型 §4.5（字段命名以 PBC-03 任务 + 前端展示为准，
+一张表 `permission_rules`，对齐数据模型 §4.5（字段命名以 任务 + 前端展示为准，
 已回写蓝图）。语义为 **权限治理规则配置中心**：阈值 / 开关 / 固定路径三类配置项，
 由业务治理角色（boss / consulting_director）维护，admin 只读。
 
 边界提醒：
-- 本表只存**配置值**，不是 access_grants / original_access_requests（属 PBC-06）。
+- 本表只存**配置值**，不是 access_grants / original_access_requests。
 - **绝不存任何 secret**（token / api_key / provider 内部标识 / 存储引用）。规则值只是
   数字阈值 / 布尔开关 / 安全文本（如验证路径名）。
 - `rule_key` 唯一；`rule_type` 决定哪一个 value_* 字段有效。
@@ -74,3 +74,4 @@ class PermissionRule(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
     )
+

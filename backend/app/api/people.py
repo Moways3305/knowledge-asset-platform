@@ -1,4 +1,4 @@
-"""人员 / 公司角色 / 项目成员关系管理 API（PBC-02）。
+﻿"""人员 / 公司角色 / 项目成员关系管理 API。
 
 - GET   /api/v1/admin/people                                         （admin / boss / 咨询总监）
 - GET   /api/v1/admin/people/{user_id}                               （同上）
@@ -27,6 +27,9 @@ from app.schemas.people import (
     PersonProjectMembershipOut,
     ProjectMembershipCreateRequest,
     ProjectMembershipPatchRequest,
+    SetPasswordRequest,
+    SetPasswordResponse,
+    UserStatusUpdateRequest,
 )
 from app.schemas.permission import CallerContext
 from app.services import people as people_service
@@ -71,6 +74,32 @@ async def set_company_role(
     return await people_service.set_company_role(session, caller, user_id, req, get_trace_id(request))
 
 
+@router.post("/{user_id}/password", response_model=SetPasswordResponse)
+async def set_password(
+    user_id: uuid.UUID,
+    req: SetPasswordRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> SetPasswordResponse:
+    """管理员设置 / 重置用户密码。password 仅入站、绝不回显。
+    改密成功后撤销该用户全部活动平台会话（强制重登）。"""
+    return await people_service.set_password(session, caller, user_id, req, get_trace_id(request))
+
+
+@router.post("/{user_id}/status", response_model=PersonOut)
+async def set_user_status(
+    user_id: uuid.UUID,
+    req: UserStatusUpdateRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> PersonOut:
+    """启用 / 停用用户。active→inactive 联动撤销其平台会话；
+    不能停用自己 / 最后一个可用 admin。"""
+    return await people_service.set_user_status(session, caller, user_id, req, get_trace_id(request))
+
+
 @router.get("/{user_id}/project-memberships", response_model=list[PersonProjectMembershipOut])
 async def list_project_memberships(
     user_id: uuid.UUID,
@@ -106,3 +135,4 @@ async def patch_project_membership(
     return await people_service.patch_project_membership(
         session, caller, user_id, membership_id, req, get_trace_id(request)
     )
+

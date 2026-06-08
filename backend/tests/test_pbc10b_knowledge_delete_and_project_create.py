@@ -382,6 +382,98 @@ async def test_duplicate_active_name_conflict_422(client):
     assert dup.json()["detail"]["denied_reason"] == "project_name_conflict"
 
 
+# ===== PBC-11B：项目创建预建并初始化 project KB（best-effort，不阻断） =====
+class _FakeProjectKb:
+    """记录建库 / 初始化；可模拟建库失败。"""
+
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+        self.created: list[str] = []
+        self.initialized: list[str] = []
+        self._n = 0
+
+    async def create_kb(self, *, name, embedding_model_id, trace_id=None, **_):
+        if self.fail:
+            from app.services.weknora_client import WeKnoraError
+
+            raise WeKnoraError("weknora_down", "底座不可用")
+        self._n += 1
+        kb_id = f"kb-proj-{self._n}"
+        self.created.append(kb_id)
+        return kb_id
+
+    async def initialize_kb(self, kb_id, **_):
+        self.initialized.append(kb_id)
+
+
+async def test_create_project_precreates_kb(client, db_session, monkeypatch):
+    from app.core.config import get_settings
+    from app.models.weknora import WeknoraKbMapping
+
+    fake = _FakeProjectKb()
+    monkeypatch.setattr("app.services.weknora_client.weknora_enabled", lambda: True)
+    monkeypatch.setattr(get_settings(), "weknora_embedding_model_id", "test-embed")
+    app.dependency_overrides[get_weknora_client] = lambda: fake
+    try:
+        r = await client.post(PROJECTS, headers=_hdr(USER_BOSS), json=_project_body(name="预建KB项目"))
+        assert r.status_code == 201, r.text
+        pid = uuid.UUID(r.json()["id"])
+        # 项目创建后 WeKnora 侧立即有对应 KB + 已初始化 + 映射 active。
+        assert len(fake.created) == 1 and len(fake.initialized) == 1
+        mapping = (await db_session.execute(
+            select(WeknoraKbMapping).where(WeknoraKbMapping.project_id == pid)
+        )).scalar_one()
+        assert mapping.status == "active"
+        _assert_no_leak(r.text)  # 响应不外泄 kb_id
+    finally:
+        app.dependency_overrides.pop(get_weknora_client, None)
+
+
+async def test_create_project_survives_kb_failure(client, db_session, monkeypatch):
+    from app.core.config import get_settings
+
+    fake = _FakeProjectKb(fail=True)
+    monkeypatch.setattr("app.services.weknora_client.weknora_enabled", lambda: True)
+    monkeypatch.setattr(get_settings(), "weknora_embedding_model_id", "test-embed")
+    app.dependency_overrides[get_weknora_client] = lambda: fake
+    try:
+        r = await client.post(PROJECTS, headers=_hdr(USER_BOSS), json=_project_body(name="底座失败仍建项目"))
+        # 底座失败不阻断项目创建。
+        assert r.status_code == 201, r.text
+        pid = uuid.UUID(r.json()["id"])
+        proj = await db_session.get(Project, pid)
+        assert proj is not None and proj.status == "active"
+        _assert_no_leak(r.text)
+    finally:
+        app.dependency_overrides.pop(get_weknora_client, None)
+
+
+async def test_create_project_no_active_kb_when_embedding_missing(client, db_session, monkeypatch):
+    """PBC-11B residual：底座启用但 embedding 未配 → 项目仍创建，但不写 active 假映射。"""
+    from app.core.config import get_settings
+    from app.models.weknora import WeknoraKbMapping
+
+    fake = _FakeProjectKb()  # 不会被调用到（embedding 守卫在建库前 fail-closed）
+    monkeypatch.setattr("app.services.weknora_client.weknora_enabled", lambda: True)
+    monkeypatch.setattr(get_settings(), "weknora_embedding_model_id", "")
+    app.dependency_overrides[get_weknora_client] = lambda: fake
+    try:
+        r = await client.post(PROJECTS, headers=_hdr(USER_BOSS), json=_project_body(name="缺embedding仍建项目"))
+        assert r.status_code == 201, r.text
+        pid = uuid.UUID(r.json()["id"])
+        proj = await db_session.get(Project, pid)
+        assert proj is not None and proj.status == "active"
+        # 未建 KB、未写任何 project 映射（不产生 active 假成功）。
+        assert fake.created == []
+        mapping = (await db_session.execute(
+            select(WeknoraKbMapping).where(WeknoraKbMapping.project_id == pid)
+        )).scalar_one_or_none()
+        assert mapping is None
+        _assert_no_leak(r.text)
+    finally:
+        app.dependency_overrides.pop(get_weknora_client, None)
+
+
 async def test_created_project_visible_in_lists(client):
     created = (await client.post(PROJECTS, headers=_hdr(USER_BOSS), json=_project_body(
         name="可见性项目", project_manager_user_id=str(USER_PROJECT_MANAGER)

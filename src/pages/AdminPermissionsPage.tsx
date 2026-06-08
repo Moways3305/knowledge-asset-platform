@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+﻿import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   ApiError,
@@ -33,7 +33,7 @@ const scopeLabel: Record<string, string> = {
   "project:": "项目级",
 };
 
-// 用户可见时间统一北京时间（PBC-10C）。
+// 用户可见时间统一北京时间。
 const fmtTime = (iso: string | null): string => formatBeijingTime(iso);
 
 // 规则「当前值」展示（按 rule_type）。
@@ -351,3 +351,4 @@ export default function AdminPermissionsPage() {
     </div>
   );
 }
+

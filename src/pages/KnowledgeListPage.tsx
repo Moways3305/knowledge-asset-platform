@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+﻿import { useState, useMemo, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ApiError,
@@ -6,10 +6,12 @@ import {
   deleteKnowledgeAsset,
   fetchAuthMe,
   fetchKnowledgeList,
+  fetchKnowledgeOpsInsights,
   fetchWecomScanOwnerOptions,
   searchKnowledge,
   type AuthMeVM,
 } from "../api/client";
+import type { KnowledgeOpsInsightsDTO } from "../types/insights";
 import type {
   AssetStatus,
   FrontVisibility,
@@ -82,6 +84,20 @@ const accessLayerLabel: Record<string, string> = {
 
 const zoneLabel = (zone: string) => (zone === "asset" ? "资产区" : zone === "material" ? "资料区" : zone);
 
+// 平台级底座索引状态（小角标）。indexed 为常态，不展示角标。
+const indexStatusLabel: Record<string, string> = {
+  indexing: "索引中",
+  index_failed: "索引失败",
+  skipped: "未索引底座",
+  not_indexed: "待索引",
+};
+const indexStatusCls: Record<string, string> = {
+  indexing: "kl-index-indexing",
+  index_failed: "kl-index-failed",
+  skipped: "kl-index-skipped",
+  not_indexed: "kl-index-pending",
+};
+
 const confidenceText = (c: number | null) => {
   if (c == null) return "—";
   const pct = Math.round(c * 100);
@@ -112,7 +128,7 @@ export default function KnowledgeListPage() {
   const [searchError, setSearchError] = useState<string | null>(null);
 
   const navigate = useNavigate();
-  // 创建项目知识库（PBC-10B）：仅 boss / 咨询总监可见入口。
+  // 创建项目知识库：仅 boss / 咨询总监可见入口。
   const [authMe, setAuthMe] = useState<AuthMeVM | null>(null);
   const [ownerOptions, setOwnerOptions] = useState<WecomOwnerOptionDTO[]>([]);
   const [projFormOpen, setProjFormOpen] = useState(false);
@@ -122,9 +138,12 @@ export default function KnowledgeListPage() {
   const [pfCoach, setPfCoach] = useState("");
   const [pfBusy, setPfBusy] = useState(false);
   const [pfError, setPfError] = useState<string | null>(null);
-  // 浏览卡片删除（PBC-10B）：两步内联确认。
+  // 浏览卡片删除：两步内联确认。
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
+  // 右侧运营洞察（真实后端安全聚合，替换本地规则提示）。
+  const [insights, setInsights] = useState<KnowledgeOpsInsightsDTO | null>(null);
+  const [insightsErr, setInsightsErr] = useState(false);
 
   const searchMode = committedQuery.trim().length > 0;
 
@@ -150,6 +169,16 @@ export default function KnowledgeListPage() {
   useEffect(() => {
     fetchAuthMe().then(setAuthMe).catch(() => setAuthMe(null));
   }, []);
+
+  // 按当前 scope 拉取真实运营洞察。失败 → 安全错误态，不回退假数据。
+  useEffect(() => {
+    let cancelled = false;
+    setInsightsErr(false);
+    fetchKnowledgeOpsInsights({ scope: activeScope })
+      .then((d) => { if (!cancelled) setInsights(d); })
+      .catch(() => { if (!cancelled) { setInsights(null); setInsightsErr(true); } });
+    return () => { cancelled = true; };
+  }, [activeScope]);
 
   const canCreateProject = useMemo(
     () => !!authMe && authMe.companyRoles.some((r) => r === "boss" || r === "consulting_director"),
@@ -328,7 +357,7 @@ export default function KnowledgeListPage() {
         </div>
       </div>
 
-      {/* PBC-10D：纯系统管理身份（admin）非业务身份，后端不放行任何业务知识；短句说明，不展示业务列表。 */}
+      {/* 纯系统管理身份（admin）非业务身份，后端不放行任何业务知识；短句说明，不展示业务列表。 */}
       {authMe && !authMe.isBusinessUser && (
         <div className="kl-identity-note">
           当前为系统管理身份（admin），不具备业务知识访问权；业务知识仅对业务用户（顾问 / 项目经理 / Boss / 咨询总监）开放。运营元数据请使用管理后台（入库管理 / 微盘扫描 / 审计）。
@@ -551,6 +580,14 @@ export default function KnowledgeListPage() {
                       {asset.lifecyclePhase && <span>{asset.lifecyclePhase}</span>}
                       {asset.confidence != null && <span>置信度 {confidenceText(asset.confidence)}</span>}
                       {asset.updatedAt && <span>{formatBeijingTime(asset.updatedAt)}</span>}
+                      {asset.indexStatus && asset.indexStatus !== "indexed" && (
+                        <span
+                          className={`kl-index-badge ${indexStatusCls[asset.indexStatus] ?? ""}`}
+                          title={asset.indexErrorMessage ?? "知识底座索引状态"}
+                        >
+                          {indexStatusLabel[asset.indexStatus] ?? asset.indexStatus}
+                        </span>
+                      )}
                     </div>
                     {asset.access.canDelete && asset.assetStatus !== "archived" && (
                       <div className="card-delete-row">
@@ -588,14 +625,79 @@ export default function KnowledgeListPage() {
         </div>
 
         <aside className="kl-aside">
-          <h4 className="kl-aside-title">提示</h4>
-          <p className="kl-aside-note">
-            运营洞察接口为后续增强，当前不展示自动洞察。知识可见性、搜索与原文权限说明见 <Link to="/help#knowledge" className="page-help-link">使用说明 →</Link>
-          </p>
+          <h4 className="kl-aside-title">运营洞察</h4>
+          {insightsErr ? (
+            <p className="kl-aside-note">运营洞察加载失败（请确认后端已启动）。知识可见性与权限说明见 <Link to="/help#knowledge" className="page-help-link">使用说明 →</Link></p>
+          ) : !insights ? (
+            <p className="kl-aside-note">加载运营洞察中…</p>
+          ) : (
+            <>
+              {/* 真实后端安全聚合。颜色按 severity 派生，仅 UI 渲染，非业务事实来源。 */}
+              {insights.cards.length === 0 && insights.recommendations.length === 0 ? (
+                <p className="kl-aside-note">暂无需要处理的运营项。</p>
+              ) : (
+                <>
+                  {insights.cards.length > 0 && (
+                    <div className="kl-insight-cards">
+                      {insights.cards.map((c) => (
+                        <div key={c.key} className={`kl-insight-card kl-insight-${c.severity}`}>
+                          <span className="kl-insight-count">{c.count}</span>
+                          <span className="kl-insight-label">{c.label}</span>
+                          {c.action_hint && <span className="kl-insight-hint">{c.action_hint}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {insights.recommendations.length > 0 && (
+                    <ul className="kl-insight-recos">
+                      {insights.recommendations.map((r) => (
+                        <li key={r.key} className={`kl-insight-reco kl-insight-${r.severity}`}>
+                          {r.target ? <Link to={r.target}>{r.message}</Link> : <span>{r.message}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+              {insights.recent_items.length > 0 && (
+                <div className="kl-insight-recent">
+                  <div className="kl-insight-recent-title">最近索引失败</div>
+                  <ul>
+                    {insights.recent_items.map((it) => (
+                      <li key={it.asset_id} className="kl-insight-recent-item">
+                        {insights.title_visible && it.title ? (
+                          <Link to={`/knowledge/${it.asset_id}`}>{it.title}</Link>
+                        ) : (
+                          <span className="kl-insight-hidden">（业务标题已隐藏）</span>
+                        )}
+                        {it.message && <span className="kl-insight-recent-msg">{it.message}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {insights.indexing.recent_jobs.length > 0 && (
+                <div className="kl-insight-recent">
+                  <div className="kl-insight-recent-title">最近运维作业</div>
+                  <ul>
+                    {insights.indexing.recent_jobs.map((j) => (
+                      <li key={j.job_id} className="kl-insight-recent-item">
+                        <span>{j.operation_type === "reparse" ? "重新解析" : "批量重试"} · {j.status}</span>
+                        <span className="kl-insight-recent-msg">共 {j.total_count} / 成 {j.success_count} / 败 {j.failed_count}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <p className="kl-aside-note">
+                统计来自真实后端（{insights.window_days} 天窗口）{!insights.title_visible && "·系统运维视图（业务标题隐藏）"}。说明见 <Link to="/help#knowledge" className="page-help-link">使用说明 →</Link>
+              </p>
+            </>
+          )}
         </aside>
       </div>
 
-      {/* 新建项目知识库（PBC-10B）：仅 boss / 咨询总监；创建真实 projects + active project_manager。 */}
+      {/* 新建项目知识库：仅 boss / 咨询总监；创建真实 projects + active project_manager。 */}
       {projFormOpen && (
         <div className="kl-modal-overlay" onClick={() => !pfBusy && setProjFormOpen(false)}>
           <div className="kl-modal" onClick={(e) => e.stopPropagation()}>
@@ -641,3 +743,4 @@ export default function KnowledgeListPage() {
     </div>
   );
 }
+

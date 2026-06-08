@@ -1,4 +1,4 @@
-"""Knowledge 读 API 的响应 schema（IMPLEMENT-04）。
+﻿"""Knowledge 读 API 的响应 schema。
 
 字段以 BE-04 契约为主，使用 snake_case；前端 ViewModel 适配由前端完成。
 **绝不包含文件对象的内部存储引用、原文内容、真实 token/URL 等内部/敏感字段。**
@@ -21,12 +21,14 @@ class AccessInfoOut(BaseModel):
     original: bool
     effective_source: str
     can_request_original: bool = False
-    # 以下两项由 PBC-06 真实 access_info 驱动：existing_request_status 反映本人 pending 原文申请，
+    # 以下两项由 真实 access_info 驱动：existing_request_status 反映本人 pending 原文申请，
     # existing_grant_expires_at 反映 active access_grant 过期时间；无申请 / 无授权时为 None。
     existing_request_status: str | None = None
     existing_grant_expires_at: datetime | None = None
-    # PBC-10B：调用人是否有权对该资产执行受控删除 / 撤下（后端权威，前端据此显示按钮）。
+    # 调用人是否有权对该资产执行受控删除 / 撤下（后端权威，前端据此显示按钮）。
     can_delete: bool = False
+    # 调用人是否有权对该资产重试底座索引（仅在可重试状态 + 有业务管理权时为 True）。
+    can_retry_index: bool = False
 
 
 class KnowledgeListItemOut(BaseModel):
@@ -45,11 +47,17 @@ class KnowledgeListItemOut(BaseModel):
     summary_text: str | None
     project_name: str | None
     lifecycle_phase: str | None
-    # confidence 当前未在 knowledge_assets 落地（见 IMPLEMENT-02 差异），固定 None。
+    # confidence 当前未在 knowledge_assets 落地（见 差异），固定 None。
     confidence: float | None = None
     last_called_at: datetime | None
     updated_at: datetime | None
     access_info: AccessInfoOut
+    # 平台级底座索引安全状态（不含任何 kb_id / doc_id / 内部存储引用）。
+    # index_status: not_indexed | indexing | indexed | index_failed | skipped。
+    index_status: str | None = None
+    weknora_parse_status: str | None = None
+    index_error_message: str | None = None
+    indexed_at: datetime | None = None
 
 
 class KnowledgeListResponse(BaseModel):
@@ -100,10 +108,16 @@ class KnowledgeDetailOut(BaseModel):
     summary: SummaryOut | None
     current_version: CurrentVersionOut | None
     access_info: AccessInfoOut
+    # 平台级底座索引安全状态（无 kb_id / doc_id / 内部存储引用）。
+    index_status: str | None = None
+    weknora_parse_status: str | None = None
+    index_error_code: str | None = None
+    index_error_message: str | None = None
+    indexed_at: datetime | None = None
 
 
 class KnowledgeDeleteRequest(BaseModel):
-    """受控删除 / 撤下请求（PBC-10B）。reason 为安全删除说明（误上传 / 重复等），非敏感。"""
+    """受控删除 / 撤下请求。reason 为安全删除说明（误上传 / 重复等），非敏感。"""
 
     reason: str | None = None
 
@@ -115,3 +129,15 @@ class KnowledgeDeleteResponse(BaseModel):
     asset_status: str
     deleted_at: datetime | None
     trace_id: str | None = None
+
+
+class RetryIndexResponse(BaseModel):
+    """底座索引重试响应：仅安全索引状态，绝不含 kb_id / doc_id / 内部存储引用。"""
+
+    asset_id: uuid.UUID
+    index_status: str  # indexed | index_failed | skipped
+    weknora_parse_status: str | None = None
+    index_error_code: str | None = None
+    index_error_message: str | None = None
+    trace_id: str | None = None
+

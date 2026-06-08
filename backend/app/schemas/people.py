@@ -1,4 +1,4 @@
-"""人员 / 公司角色 / 项目成员关系管理 API 的请求 / 响应 schema（PBC-02）。
+﻿"""人员 / 公司角色 / 项目成员关系管理 API 的请求 / 响应 schema。
 
 只暴露**安全身份/治理元数据**：绝不含 session token / token_hash / OAuth code·state /
 ip / device_info / WeCom secret / provider 内部标识 / 内部存储引用 / 业务原文。
@@ -12,9 +12,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from app.schemas.enums import CompanyRole, MemberStatus, ProjectRole, RoleStatus
+from app.schemas.enums import CompanyRole, MemberStatus, ProjectRole, RoleStatus, UserStatus
 
 
 class CompanyRoleOut(BaseModel):
@@ -48,11 +48,38 @@ class PersonOut(BaseModel):
     project_memberships: list[PersonProjectMembershipOut] = []
     # 安全聚合的最近会话时间（last_seen_at / created_at 的最大值），无会话时为 None。
     recent_session_at: datetime | None = None
+    # 活动平台会话数（安全计数；**绝不**返回 token / hash / cookie / ip / device）。
+    active_session_count: int = 0
+    # 是否已设置密码（仅安全布尔；**绝不**返回 password_hash / salt / digest）+ 设置时间。
+    password_set: bool = False
+    password_set_at: datetime | None = None
 
 
 class PeopleListResponse(BaseModel):
     items: list[PersonOut]
     total: int
+
+
+class SetPasswordRequest(BaseModel):
+    """管理员设置 / 重置用户密码。password 仅入站、绝不回显。"""
+
+    password: str
+
+
+class SetPasswordResponse(BaseModel):
+    """设置密码结果：仅安全状态，**绝不**含 password / hash / salt。"""
+
+    ok: bool = True
+    user_id: uuid.UUID
+    password_set: bool = True
+    password_set_at: datetime | None = None
+
+
+class UserStatusUpdateRequest(BaseModel):
+    """启用 / 停用用户。停用联动撤销其平台会话。"""
+
+    status: UserStatus
+    reason: str | None = Field(default=None, max_length=200)
 
 
 class CompanyRoleUpdateRequest(BaseModel):
@@ -75,3 +102,4 @@ class ProjectMembershipPatchRequest(BaseModel):
 
     project_role: ProjectRole | None = None
     status: MemberStatus | None = None
+

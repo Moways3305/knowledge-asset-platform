@@ -1,4 +1,4 @@
-"""企微微盘扫描服务（R6 Path A）。
+﻿"""企微微盘扫描服务（R6 Path A）。
 
 把"扫描配置目录 → 列文件 → 下载字节 → 经平台存储落盘 → 建 path_a_wecom IngestTask →
 复用 R5 处理链"收口到这里。文件仍走既有 `/upload` 确认流后才成为知识资产（不变）。
@@ -179,7 +179,7 @@ async def _validate_task_owner(
     scope_type: str,
     related_project_id: uuid.UUID | None,
 ) -> User:
-    """校验扫描产物的业务归属人合法性（PBC-10A Residual）。
+    """校验扫描产物的业务归属人合法性。
 
     归属人将写入 `WecomScanConfig.created_by`，并成为扫描生成的 path_a_wecom
     IngestTask.created_by；必须能完成后续 `/upload` Path A 确认。规则：
@@ -497,6 +497,83 @@ async def update_config(session: AsyncSession, caller: CallerContext, config_id:
     return _config_out(config, await _project_name(session, config.related_project_id), owner_name, owner_role)
 
 
+# ---------------------------------------------------------------------------
+# 微盘目录浏览
+# ---------------------------------------------------------------------------
+def _wrap_wecom(exc: WeComError) -> HTTPException:
+    """企微目录浏览错误 → 安全 HTTP：未配置 → 503（只回缺失项名）；其余 → 502 固定安全文案。
+
+    **绝不**回显上游 errmsg / payload / token / url（WeComError.message 本就安全，但仍统一固定）。
+    """
+    if exc.code == "wecom_not_configured":
+        from app.core.config import get_settings
+
+        s = get_settings()
+        miss = [n for n, v in (("WECOM_CORP_ID", s.wecom_corp_id), ("WECOM_APP_SECRET", s.wecom_app_secret)) if not v]
+        return HTTPException(503, detail={
+            "denied_reason": "wecom_not_configured", "message": "企业微信未配置",
+            "missing_config": miss or ["WECOM_CORP_ID", "WECOM_APP_SECRET"],
+        })
+    return HTTPException(502, detail={
+        "denied_reason": "wecom_drive_browse_failed",
+        "message": "企业微信微盘访问失败，请检查配置或稍后重试",
+    })
+
+
+async def list_drive_spaces(caller: CallerContext, drive):
+    """列微盘空间（仅 admin）。返回安全选择元数据（space_ref/name），不含 token/url/file_id。"""
+    _require_admin(caller)
+    try:
+        spaces = await drive.list_spaces()
+    except WeComError as exc:
+        raise _wrap_wecom(exc)
+    from app.schemas.wecom import WecomDriveSpaceOut, WecomDriveSpacesResponse
+
+    return WecomDriveSpacesResponse(
+        items=[WecomDriveSpaceOut(space_ref=s.space_ref, name=s.name) for s in spaces]
+    )
+
+
+async def list_drive_directories(caller: CallerContext, drive, *, space_ref: str, parent_ref: str | None):
+    """列某空间/父目录下的子目录（仅 admin）。
+
+    `space_ref`=空间选择引用（spaceid）；`parent_ref`=父目录的 directory_ref（`spaceid:<id>;fatherid:<id>`，
+    钻取用）或空（根）。后端把 directory_ref 解析为 fatherid 后调用底层 client。
+    """
+    from app.services.wecom_client import parse_directory_path
+
+    _require_admin(caller)
+    space = (space_ref or "").strip()
+    if not space or ":" in space or ";" in space:
+        # space_ref 必须是裸 spaceid（不接受 directory_path 整串）。
+        raise _denied(422, "wecom_invalid_space", "微盘空间标识非法")
+    fatherid: str | None = None
+    if parent_ref:
+        try:
+            sp, fid = parse_directory_path(parent_ref)
+        except WeComError:
+            raise _denied(422, "wecom_invalid_directory_ref", "目录标识格式非法")
+        if sp != space:
+            raise _denied(422, "wecom_directory_space_mismatch", "目录与所选空间不一致")
+        fatherid = fid or None
+    try:
+        dirs = await drive.list_directories(space, fatherid)
+    except WeComError as exc:
+        raise _wrap_wecom(exc)
+    from app.schemas.wecom import WecomDriveDirectoriesResponse, WecomDriveDirectoryOut
+
+    return WecomDriveDirectoriesResponse(
+        space_ref=space,
+        items=[
+            WecomDriveDirectoryOut(
+                directory_ref=d.directory_ref, name=d.name,
+                parent_ref=parent_ref, has_children=d.has_children,
+            )
+            for d in dirs
+        ],
+    )
+
+
 async def list_records(session: AsyncSession, caller: CallerContext, config_id: uuid.UUID):
     from app.schemas.wecom import WecomScanRecordsResponse
 
@@ -755,3 +832,4 @@ async def scan_config_by_id(
         drive=drive, storage=storage, llm=llm, desensitizer=desensitizer,
         trace_id=trace_id, actor_caller=None,
     )
+

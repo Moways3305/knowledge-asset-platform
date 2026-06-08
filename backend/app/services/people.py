@@ -1,4 +1,4 @@
-"""人员 / 公司角色 / 项目成员关系治理服务（PBC-02）。
+﻿"""人员 / 公司角色 / 项目成员关系治理服务。
 
 复用既有表 `users` / `user_company_roles` / `projects` / `project_members` /
 `user_sessions`（仅安全聚合最近会话时间）。不新增 demo-only 字段、不物理删除关系。
@@ -42,9 +42,14 @@ from app.schemas.people import (
     PersonProjectMembershipOut,
     ProjectMembershipCreateRequest,
     ProjectMembershipPatchRequest,
+    SetPasswordRequest,
+    SetPasswordResponse,
+    UserStatusUpdateRequest,
 )
 from app.schemas.permission import CallerContext
+from app.services import passwords as password_service
 from app.services import audit as audit_service
+from app.services import session_revocation
 
 _MAX_LIMIT = 100
 
@@ -117,7 +122,9 @@ async def _recent_session_map(
     return out
 
 
-def _person_out(user: User, recent_session_at: datetime | None) -> PersonOut:
+def _person_out(
+    user: User, recent_session_at: datetime | None, active_session_count: int = 0
+) -> PersonOut:
     return PersonOut(
         user_id=user.id,
         name=user.name,
@@ -143,6 +150,9 @@ def _person_out(user: User, recent_session_at: datetime | None) -> PersonOut:
             for m in user.project_members
         ],
         recent_session_at=recent_session_at,
+        active_session_count=active_session_count,
+        password_set=bool(user.password_hash),
+        password_set_at=user.password_set_at,
     )
 
 
@@ -230,7 +240,8 @@ async def get_person(session: AsyncSession, caller: CallerContext, user_id: uuid
     _require_read(caller)
     user = await _load_person(session, user_id)
     recent = await _recent_session_map(session, [user.id])
-    return _person_out(user, recent.get(user.id))
+    active = await session_revocation.active_session_count(session, user.id)
+    return _person_out(user, recent.get(user.id), active)
 
 
 async def set_company_role(
@@ -422,3 +433,122 @@ async def patch_project_membership(
         membership_id=member.id, project_id=member.project_id, project_name=project_name,
         project_role=member.project_role, status=member.status, joined_at=member.joined_at,
     )
+
+
+# ---------------------------------------------------------------------------
+# 密码设置 / 重置
+# ---------------------------------------------------------------------------
+def _require_admin_only(caller: CallerContext) -> None:
+    """仅 active 系统 admin 可设置 / 重置密码（boss / 咨询总监 / consultant 一律不可）。"""
+    if not (caller.is_active and _is_admin(caller)):
+        raise _denied(403, "password_set_admin_required", "仅系统管理员可设置 / 重置用户密码")
+
+
+async def set_password(
+    session: AsyncSession, caller: CallerContext, user_id: uuid.UUID,
+    req: SetPasswordRequest, trace_id: str,
+) -> SetPasswordResponse:
+    """管理员为用户设置 / 重置密码。
+
+    仅 admin；不存在用户 → 404；弱密码 → 422。允许给 inactive 用户设密码（admin 维护），
+    但 inactive 用户登录仍失败（`login_with_password` 校验 status）。审计只记安全元数据，
+    **绝不**含 password / hash / salt / digest。
+    """
+    _require_admin_only(caller)
+    user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if user is None:
+        raise _denied(404, "user_not_found", "用户不存在")
+    err = password_service.validate_password_strength(req.password)
+    if err is not None:
+        raise _denied(422, "weak_password", err)
+
+    user.password_hash = password_service.hash_password(req.password)
+    user.password_set_at = datetime.now(timezone.utc)
+    await audit_service.record_event(
+        session, caller=caller, log_type=AuditLogType.operation,
+        action=AuditAction.auth_password_set.value, trace_id=trace_id,
+        target_type="user", target_id=user.id,
+        extra={
+            "password_set": True,
+            "target_user_status": user.status,
+            "actor_is_admin": True,
+        },
+    )
+    # 改密后撤销目标用户全部活动平台会话（含其本人若 admin 改自己密码——强制重登）。
+    revoked, _ = await session_revocation.revoke_user_sessions(session, user.id)
+    if revoked:
+        await audit_service.record_event(
+            session, caller=caller, log_type=AuditLogType.operation,
+            action=AuditAction.auth_sessions_revoked.value, trace_id=trace_id,
+            target_type="user", target_id=user.id,
+            extra={"target_user_id": str(user.id), "revoked_count": revoked,
+                   "trigger": "password_reset", "preserved_current_session": False},
+        )
+    await session.commit()
+    return SetPasswordResponse(
+        user_id=user.id, password_set=True, password_set_at=user.password_set_at
+    )
+
+
+async def set_user_status(
+    session: AsyncSession, caller: CallerContext, user_id: uuid.UUID,
+    req: "UserStatusUpdateRequest", trace_id: str,
+) -> PersonOut:
+    """启用 / 停用用户。active→inactive 联动撤销其全部活动平台会话。
+
+    fail-closed：不能停用自己（避免 admin 自锁）；不能停用最后一个可用 admin。停用后该用户
+    立即下线（会话撤销）且登录校验 status 失败。审计只记安全元数据。"""
+    _require_admin_only(caller)
+    new_status = req.status.value
+    user = await _load_person(session, user_id)  # 预加载 company_roles（避免异步惰性加载）
+    if new_status == UserStatus.inactive.value and user.id == caller.user_id:
+        raise _denied(409, "cannot_deactivate_self", "不能停用当前登录的自己")
+
+    old_status = user.status
+    deactivating = (
+        old_status == UserStatus.active.value and new_status == UserStatus.inactive.value
+    )
+    # 不允许停用最后一个可用 admin（与公司角色停用同口径）。
+    if deactivating:
+        is_admin_user = any(
+            r.company_role == CompanyRole.admin.value and r.status == RoleStatus.active.value
+            for r in user.company_roles
+        )
+        if is_admin_user:
+            usable_admins = (
+                await session.execute(
+                    select(func.count())
+                    .select_from(UserCompanyRole)
+                    .join(User, User.id == UserCompanyRole.user_id)
+                    .where(
+                        UserCompanyRole.company_role == CompanyRole.admin.value,
+                        UserCompanyRole.status == RoleStatus.active.value,
+                        User.status == UserStatus.active.value,
+                    )
+                )
+            ).scalar_one()
+            if int(usable_admins) <= 1:
+                raise _denied(409, "last_active_admin_protected", "不能停用最后一个可用 admin")
+
+    user.status = new_status
+    await session.flush()
+    await audit_service.record_event(
+        session, caller=caller, log_type=AuditLogType.operation,
+        action=AuditAction.config_people_status_updated.value, trace_id=trace_id,
+        target_type="user", target_id=user.id,
+        extra={"target_user_id": str(user.id), "old_status": old_status, "new_status": new_status},
+    )
+    # 停用 → 撤销目标用户全部活动平台会话（强制下线）。
+    if deactivating:
+        revoked, _ = await session_revocation.revoke_user_sessions(session, user.id)
+        if revoked:
+            await audit_service.record_event(
+                session, caller=caller, log_type=AuditLogType.operation,
+                action=AuditAction.auth_sessions_revoked.value, trace_id=trace_id,
+                target_type="user", target_id=user.id,
+                extra={"target_user_id": str(user.id), "revoked_count": revoked,
+                       "trigger": "user_deactivated", "preserved_current_session": False},
+            )
+    await session.commit()
+    return await get_person(session, caller, user_id)
+

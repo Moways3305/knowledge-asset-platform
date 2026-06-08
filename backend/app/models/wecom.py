@@ -1,4 +1,4 @@
-"""企业微信微盘扫描 ORM 模型（R6 Path A）。
+﻿"""企业微信微盘扫描 ORM 模型（R6 Path A）。
 
 两张表（对齐数据模型 §4.4 wecom_scan_configs / wecom_scan_records）：
 - wecom_scan_configs：扫描目录配置（目录、scope、关联项目、启用、归属人）。
@@ -42,7 +42,7 @@ class WecomScanConfig(Base):
     __tablename__ = "wecom_scan_configs"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    # 人类可读配置名（PBC-10A 新增；历史行可能为 NULL，读侧回退展示）。
+    # 人类可读配置名。
     name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     directory_path: Mapped[str] = mapped_column(String(1000), nullable=False)
     # company / project（不引入新 scope 语义）。
@@ -101,3 +101,4 @@ class WecomScanRecord(Base):
     error_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+

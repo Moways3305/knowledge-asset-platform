@@ -1,4 +1,4 @@
-"""个人知识写动作 API（PBC-05）。
+﻿"""个人知识写动作 API。
 
 - POST /api/v1/my/knowledge/{asset_id}/confirm-asset          （本人 material → asset，幂等）
 - POST /api/v1/my/knowledge/{asset_id}/submit-to-project      （提交进项目资料区 + 审核任务）
@@ -66,3 +66,4 @@ async def register_validation_candidate(
     return await my_knowledge_service.register_validation_candidate(
         session, caller, asset_id, req, get_trace_id(request), idempotency_key
     )
+

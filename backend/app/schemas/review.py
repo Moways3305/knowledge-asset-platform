@@ -1,4 +1,4 @@
-"""审核流 API 的请求 / 响应 schema（IMPLEMENT-06）。
+﻿"""审核流 API 的请求 / 响应 schema。
 
 枚举字段用 `app.schemas.enums` 的 Enum 做 Pydantic 校验，非法值 422；DB 仍 String 存储。
 响应不含任何服务端内部存储引用或真实附件下载 URL。
@@ -72,3 +72,4 @@ class ReviewActionResponse(BaseModel):
     status: str
     target_asset_id: uuid.UUID
     asset_zone: str
+

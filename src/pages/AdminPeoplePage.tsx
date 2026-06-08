@@ -1,12 +1,16 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+﻿import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   ApiError,
   fetchPeople,
   fetchPerson,
   setCompanyRole,
+  setUserPassword,
   upsertProjectMembership,
   patchProjectMembership,
+  revokeUserSessions,
+  setUserStatus,
+  reconcileWecomIdentity,
 } from "../api/client";
 import type { PersonDTO } from "../types/people";
 import { formatBeijingTime } from "../utils/time";
@@ -35,7 +39,7 @@ const COMPANY_ROLE_OPTIONS = ["boss", "consulting_director", "consultant", "admi
 const PROJECT_ROLE_OPTIONS = ["consultant", "project_manager", "coach"];
 
 
-// 用户可见时间统一北京时间（PBC-10C）。
+// 用户可见时间统一北京时间。
 const fmtTime = (iso: string | null): string => formatBeijingTime(iso);
 
 export default function AdminPeoplePage() {
@@ -173,7 +177,81 @@ export default function AdminPeoplePage() {
               <div className="pp-detail-item"><span className="pp-detail-label">企微绑定</span><span className="pp-detail-value">{detail.wecom_bound ? "已绑定" : "未绑定"}</span></div>
               <div className="pp-detail-item"><span className="pp-detail-label">状态</span><span className="pp-detail-value"><span className={`pp-status-pill ${statusCls[detail.status] ?? ""}`}>{statusLabel[detail.status] ?? detail.status}</span></span></div>
               <div className="pp-detail-item"><span className="pp-detail-label">最近会话</span><span className="pp-detail-value">{fmtTime(detail.recent_session_at)}</span></div>
+              <div className="pp-detail-item"><span className="pp-detail-label">密码</span><span className="pp-detail-value">{detail.password_set ? `已设置（${fmtTime(detail.password_set_at)}）` : "未设置"}</span></div>
+              <div className="pp-detail-item"><span className="pp-detail-label">活动会话</span><span className="pp-detail-value">{detail.active_session_count ?? 0} 个</span></div>
             </div>
+
+            {/* 登录会话与账号安全 */}
+            <h4 style={{ marginTop: 14 }}>登录会话与账号安全（仅系统管理员）</h4>
+            <div className="pp-actions-row" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                disabled={(detail.active_session_count ?? 0) === 0}
+                onClick={async () => {
+                  setActionError(null); setActionNote(null);
+                  try {
+                    const r = await revokeUserSessions(detail.user_id, { reason: "admin force offline" });
+                    setActionNote(`已撤销 ${r.revoked_count} 个平台会话`);
+                    await refreshAfterWrite(detail.user_id);
+                  } catch (e) {
+                    setActionError(describeError(e, "撤销会话失败"));
+                  }
+                }}
+              >
+                撤销全部会话
+              </button>
+              <button
+                onClick={async () => {
+                  setActionError(null); setActionNote(null);
+                  const next = detail.status === "active" ? "inactive" : "active";
+                  try {
+                    await setUserStatus(detail.user_id, next);
+                    setActionNote(next === "inactive" ? "已停用账号并撤销其会话" : "已启用账号");
+                    await refreshAfterWrite(detail.user_id);
+                  } catch (e) {
+                    setActionError(describeError(e, "更新账号状态失败"));
+                  }
+                }}
+              >
+                {detail.status === "active" ? "停用账号" : "启用账号"}
+              </button>
+              {detail.wecom_bound && (
+                <button
+                  onClick={async () => {
+                    setActionError(null); setActionNote(null);
+                    try {
+                      const r = await reconcileWecomIdentity({ user_id: detail.user_id });
+                      setActionNote(
+                        r.deactivated > 0
+                          ? `企微对账：成员失效，已停用并撤销 ${r.items[0]?.sessions_revoked ?? 0} 个会话`
+                          : r.failed > 0
+                            ? "企微对账：状态核验失败，请稍后重试"
+                            : "企微对账：成员仍有效"
+                      );
+                      await refreshAfterWrite(detail.user_id);
+                    } catch (e) {
+                      setActionError(describeError(e, "企微身份对账失败"));
+                    }
+                  }}
+                >
+                  企微身份对账
+                </button>
+              )}
+            </div>
+
+            {/* 密码设置 / 重置 */}
+            <h4 style={{ marginTop: 14 }}>登录密码（仅系统管理员）</h4>
+            <SetPasswordForm
+              onSubmit={async (password) => {
+                setActionError(null); setActionNote(null);
+                try {
+                  await setUserPassword(detail.user_id, password);
+                  setActionNote("密码已设置 / 重置");
+                  await refreshAfterWrite(detail.user_id);
+                } catch (e) {
+                  setActionError(describeError(e, "设置密码失败"));
+                }
+              }}
+            />
 
             {/* 公司角色管理 */}
             <h4 style={{ marginTop: 14 }}>公司角色</h4>
@@ -328,6 +406,37 @@ function CompanyRoleForm({ onSubmit }: { onSubmit: (role: string, status: string
   );
 }
 
+// 设置 / 重置密码表单。密码 type=password、提交后立即清空、绝不回显。
+function SetPasswordForm({ onSubmit }: { onSubmit: (password: string) => Promise<void> }) {
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!pw || busy) return;
+    setBusy(true);
+    try {
+      await onSubmit(pw);
+      setPw("");  // 保存后立即清空，不回显
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+      <input
+        className="up-edit-input"
+        type="password"
+        placeholder="新密码（至少 8 位）"
+        value={pw}
+        onChange={(e) => setPw(e.target.value)}
+        autoComplete="new-password"
+      />
+      <button className="btn-small btn-small-primary" disabled={busy || !pw} onClick={() => void submit()}>
+        {busy ? "设置中…" : "设置 / 重置密码"}
+      </button>
+    </div>
+  );
+}
+
 function AddMembershipForm({
   projects,
   onSubmit,
@@ -355,3 +464,4 @@ function AddMembershipForm({
     </div>
   );
 }
+

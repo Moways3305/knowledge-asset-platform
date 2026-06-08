@@ -1,4 +1,4 @@
-// 人员 / 公司角色 / 项目成员关系 API 的 DTO 类型（PBC-02）。
+﻿// 人员 / 公司角色 / 项目成员关系 API 的 DTO 类型。
 // 仅安全身份/治理元数据：无 token / session / OAuth code·state / 企微内部标识 / 业务原文。
 
 export interface CompanyRoleDTO {
@@ -28,9 +28,15 @@ export interface PersonDTO {
   company_roles: CompanyRoleDTO[];
   project_memberships: PersonProjectMembershipDTO[];
   recent_session_at: string | null;
+  // 活动平台会话数（安全计数；详情接口返回，列表为 0）。
+  active_session_count?: number;
+  // 仅安全布尔 + 时间（绝不含 password_hash / salt / digest）。
+  password_set: boolean;
+  password_set_at: string | null;
 }
 
 export interface PeopleListResponseDTO {
   items: PersonDTO[];
   total: number;
 }
+

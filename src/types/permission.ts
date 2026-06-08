@@ -1,4 +1,4 @@
-// Admin Permissions API 的 DTO 类型（PBC-03）。
+﻿// Admin Permissions API 的 DTO 类型。
 // 权限规则只含安全治理元数据；外部 Agent 接入注册（Agent Registry）来自 provider 中立后端
 // 兼容接口。前端不构造、不展示任何 token / provider 内部标识（后端本就不返回）。
 
@@ -61,3 +61,4 @@ export interface AgentRegistryUpdateResponseDTO {
   rule: AgentRegistryRuleDTO;
   token: string | null;
 }
+

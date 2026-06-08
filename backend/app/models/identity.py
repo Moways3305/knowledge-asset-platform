@@ -1,4 +1,4 @@
-"""身份与项目成员 ORM 模型（IMPLEMENT-01）。
+﻿"""身份与项目成员 ORM 模型。
 
 按 `docs/backend/01-数据模型DATA_MODEL.md` 实现最小必需字段：
 users / user_company_roles / projects / project_members。
@@ -48,6 +48,10 @@ class User(Base):
     wecom_user_id: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
     # status：active / inactive。inactive 用户不应被视为有效业务身份。
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    # 密码凭证。password_hash 为 server-only PBKDF2 编码哈希（pbkdf2_sha256$...），
+    # **绝不**进任何响应 schema / 审计 / 日志；对外只暴露安全布尔 password_set（=hash 非空）。
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    password_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
@@ -88,9 +92,9 @@ class UserCompanyRole(Base):
 
 
 class Project(Base):
-    """项目：项目基础信息 + 项目设置（PBC-04 扩展）。
+    """项目：项目基础信息 + 项目设置。
 
-    PBC-04 新增最小必要项目设置字段（生命周期路线 / 阶段、入库强制审核开关、企微群配置）。
+    新增最小必要项目设置字段（生命周期路线 / 阶段、入库强制审核开关、企微群配置）。
     辅导老师（coach）不加列，由 active `project_members.project_role=coach` 推导。
     `wecom_group_id` 是配置值（非 secret），但响应只回脱敏 label + bound，不外泄全文。
     """
@@ -153,3 +157,4 @@ class ProjectMember(Base):
 
     user: Mapped[User] = relationship(back_populates="project_members")
     project: Mapped[Project] = relationship(back_populates="members")
+

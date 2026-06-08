@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+﻿import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
   ApiError,
@@ -22,7 +22,7 @@ const statusCls: Record<string, string> = {
   cancelled: "oa-st-cancelled",
 };
 
-// 用户可见时间统一北京时间（PBC-10C）。
+// 用户可见时间统一北京时间。
 const fmt = (iso: string | null): string => formatBeijingTime(iso);
 
 export default function OriginalAccessPage() {
@@ -145,3 +145,4 @@ export default function OriginalAccessPage() {
     </div>
   );
 }
+

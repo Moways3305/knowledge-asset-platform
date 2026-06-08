@@ -1,7 +1,7 @@
-"""审核流服务（IMPLEMENT-06，material_to_asset 最小闭环）。
+﻿"""审核流服务。
 
 闭环：项目 material 资产 → 登记验证证据 → 创建/进入 ReviewTask → PM approve →
-KnowledgeAsset.zone = asset。approve/reject 不写 audit_events（IMPLEMENT-09 补审计）、
+KnowledgeAsset.zone = asset。approve/reject 不写 audit_events、
 不通知、不调用 Agent、不发布公司库、不创建 access grant。
 """
 
@@ -380,7 +380,7 @@ async def create_or_get_confirm_asset(
 
     reviewer_id = await _active_pm_of(session, project_id)
     if reviewer_id is None:
-        # 不自动升级到咨询总监，升级策略留后续任务。
+        # 不自动升级到咨询总监；升级策略暂未实现。
         raise _denied(422, "reviewer_not_found", "目标项目无 active 项目经理可作为审核人")
 
     # 已有证据 → pending_reviewer 并绑定；否则 pending_evidence。
@@ -532,3 +532,4 @@ async def reject(
     return ReviewActionResponse(
         review_id=task.id, status=task.status, target_asset_id=task.target_asset_id, asset_zone=asset
     )
+

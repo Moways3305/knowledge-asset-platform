@@ -1,4 +1,4 @@
-// 审核流 API 的 DTO 类型（IMPLEMENT-06）。
+﻿// 审核流 API 的 DTO 类型。
 
 export interface ReviewItemDTO {
   id: string;
@@ -22,3 +22,4 @@ export interface ReviewListResponseDTO {
   items: ReviewItemDTO[];
   total: number;
 }
+

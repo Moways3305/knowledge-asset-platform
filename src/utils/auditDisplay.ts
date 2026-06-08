@@ -1,4 +1,4 @@
-// 审计展示中文化（PBC-10C，仅展示层）。
+﻿// 审计展示中文化。
 //
 // 后端审计事实保持机器可读（action / target_type / log_type / snapshot 原始英文枚举不变，
 // 用于筛选、契约、排障）。此处只把高频枚举翻译为中文供展示；未映射的值一律回退原值，
@@ -67,6 +67,8 @@ const ACTION_LABELS: Record<string, string> = {
   "login.success": "登录成功",
   "login.failed": "登录失败",
   "login.logout": "登出",
+  "login.locked": "登录暂时锁定",
+  "login.rate_limited": "登录限流",
   // 审计处理
   "audit.exception_processed": "标记异常已处理",
 };
@@ -219,3 +221,4 @@ export function auditLoginSummary(event: AuditEventDTO): string {
   if (event.denied_reason) return `原因：${auditValueLabel("denied_reason", event.denied_reason)}`;
   return auditSnapshotSummary(event);
 }
+

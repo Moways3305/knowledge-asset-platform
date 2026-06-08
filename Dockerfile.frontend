@@ -1,16 +1,22 @@
-# 前端生产镜像（PBC-10G Residual）：多阶段构建 Vite dist，nginx 同源托管 + 反代后端。
-# 不复制 backend/.env 或任何 secret（见根 .dockerignore）；不烙入真实后端内网 URL——
-# VITE_API_BASE_URL 留空 → 前端走同源相对路径，由 nginx 反代到 backend。
+# Frontend production image:
+# Build the Vite static bundle, then serve it with nginx.
+# The frontend uses same-origin relative API paths; nginx proxies API requests to the backend service.
+# Do not copy backend/.env or any runtime secrets into this image.
 
 # ---- build stage ----
 FROM node:20-alpine AS build
 WORKDIR /app
-# 先装依赖（利用层缓存）。
+
+# Install dependencies first to improve Docker layer caching.
 COPY package.json package-lock.json ./
 RUN npm ci
-# 再拷源码（backend/.env/dist/node_modules 已被 .dockerignore 排除）。
+
+# Copy source after dependencies. Runtime env files, backend code, build output,
+# and local caches are excluded by .dockerignore.
 COPY . .
-# 同源默认：不设 VITE_API_BASE_URL，bundle 用相对路径调用 /api/v1 等。
+
+# Leave VITE_API_BASE_URL unset by default so the bundle calls same-origin
+# /api/v1 paths; nginx is responsible for routing those requests.
 RUN npm run build
 
 # ---- serve stage ----

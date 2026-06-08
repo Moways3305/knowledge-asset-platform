@@ -1,4 +1,4 @@
-"""原文访问申请与授权 API（PBC-06）。
+﻿"""原文访问申请与授权 API。
 
 - POST /api/v1/knowledge/{asset_id}/original-access/request   发起申请（业务用户，可发现该资产）
 - GET  /api/v1/original-access/requests?box=mine|inbox        本人申请 / 可审批 pending 收件箱
@@ -85,3 +85,4 @@ async def revoke_grant(
     session: AsyncSession = Depends(get_db),
 ) -> AccessGrantOut:
     return await oa_service.revoke_grant(session, caller, grant_id, body.reason, get_trace_id(request))
+

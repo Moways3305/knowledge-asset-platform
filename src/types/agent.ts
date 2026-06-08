@@ -1,4 +1,4 @@
-// Agent / Dify Gateway API 的 DTO 类型（IMPLEMENT-08）。
+﻿// Agent / Dify Gateway API 的 DTO 类型。
 // 引用只含安全展示字段，不含对象存储 / 向量库 / Dify 内部标识。
 
 export interface AgentCitationDTO {
@@ -24,3 +24,4 @@ export interface ProjectQaResponseDTO {
   trace_id: string | null;
   created_at: string;
 }
+

@@ -1,7 +1,7 @@
-"""Agent / Dify Gateway 服务（R3：真实检索 + 外部 LLM 自拼答案）。
+﻿"""Agent / Dify Gateway 服务（R3：真实检索 + 外部 LLM 自拼答案）。
 
 跑通：项目 Q&A → 以真实调用人身份复用集中权限判断 → **WeKnora chunk 级召回**（取代
-IMPLEMENT-08 的关键词粗召回）→ 记录调用 / 决策 / 候选项 / 引用 → **放行+脱敏 chunk 喂
+的关键词粗召回）→ 记录调用 / 决策 / 候选项 / 引用 → **放行+脱敏 chunk 喂
 外部 LLM 自拼答案**（取代确定性占位答案）+ 真实片段引用。
 
 R3 取代并删除了 internal_stub 的关键词召回与确定性占位答案，但**复用** agent_calls /
@@ -166,7 +166,7 @@ async def run_project_qa(
         )
         raise _denied(403, "project_membership_required", "需为该项目的有效成员")
     if req.capability != AgentCapability.qa:
-        # 本阶段只实现 qa；其余能力被网关能力边界拒绝。
+        # 当前只实现 qa；其余能力被网关能力边界拒绝。
         await audit_service.record_denied(
             session, caller=caller, log_type=AuditLogType.operation,
             action=AuditAction.agent_denied.value, trace_id=trace_id,
@@ -174,7 +174,7 @@ async def run_project_qa(
             extra={"denied_reason": "agent_capability_denied", "capability": req.capability.value},
             project_id=project_id,
         )
-        raise _denied(403, "agent_capability_denied", "本阶段仅支持 qa 能力")
+        raise _denied(403, "agent_capability_denied", "当前仅支持 qa 能力")
 
     query = req.query.strip()
     if not query:
@@ -336,7 +336,7 @@ async def run_project_qa(
                 scope=asset.scope,
                 cited_zone=asset.zone,
                 used_access_layer=e.used_layer,
-                # WeKnora 不回传我们的 chunk_review 状态，本阶段保持 False。
+                # WeKnora 不回传我们的 chunk_review 状态，当前保持 False。
                 is_pending_review=False,
                 is_asset_zone=asset.zone == KnowledgeZone.asset.value,
                 citation_order=order,
@@ -385,7 +385,7 @@ async def _load_call_for_view(
 ) -> AgentCall:
     """加载调用记录并做可见性校验。
 
-    - 纯 admin / 非业务用户：403 admin_business_permission_denied（本阶段不返回
+    - 纯 admin / 非业务用户：403 admin_business_permission_denied（当前不返回
       系统元数据，口径见 README）。
     - 本人 / boss / 咨询总监：可见。
     - 其他业务用户：404（避免泄露不该见的调用记录）。
@@ -524,3 +524,4 @@ async def get_decision_items(
     return DecisionItemsResponse(
         call_id=call.id, decision_status=decision_status, items=items
     )
+

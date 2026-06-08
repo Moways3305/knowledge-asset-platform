@@ -1,4 +1,4 @@
-"""文本抽取服务（IMPLEMENT-14 入库抽取管线最小闭环）。
+﻿"""文本抽取服务。
 
 输入文件字节 + 文件名 / mime，输出抽取全文草稿 + 状态。纯 Python 抽取库
 （txt/md 直读、pdf 用 pypdf、docx 用 python-docx），Windows 无原生二进制依赖。
@@ -106,3 +106,4 @@ def extract_text(
         text=text, status="extracted", error_type=None, error_message=None,
         char_count=len(text),
     )
+

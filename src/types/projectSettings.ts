@@ -1,4 +1,4 @@
-// 项目设置 / 项目成员 API 的 DTO 类型（PBC-04）。
+﻿// 项目设置 / 项目成员 API 的 DTO 类型。
 // 只含安全治理元数据；企微群只回 bound + 脱敏 label，绝不回全文。前端不构造/展示任何
 // token / wecom_user_id / provider 内部标识（后端本就不返回）。
 
@@ -47,3 +47,4 @@ export interface ProjectMemberPatchDTO {
   project_role?: string;
   status?: string;
 }
+

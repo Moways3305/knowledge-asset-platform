@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+﻿import { useState, useMemo, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
   ApiError,
@@ -9,7 +9,7 @@ import {
 } from "../api/client";
 import type { ReviewItemDTO } from "../types/review";
 
-// 审核状态展示（IMPLEMENT-06 状态机：pending_evidence / pending_reviewer / approved / rejected）
+// 审核状态展示
 const statusLabel: Record<string, string> = {
   pending_evidence: "待补充证据",
   pending_reviewer: "待审核人确认",
@@ -209,3 +209,4 @@ export default function ReviewPage() {
     </div>
   );
 }
+

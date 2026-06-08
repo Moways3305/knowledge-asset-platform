@@ -1,4 +1,4 @@
-"""原文访问申请与授权服务（PBC-06）。
+﻿"""原文访问申请与授权服务。
 
 闭环：可发现但无原文权的业务用户发起申请 → 项目 PM/coach 或治理角色审批 → 生成
 active access_grant（可过期、可撤销）→ 运行时 `decide()` 原文层统一读取 active grant 放行。
@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.identity import Project, User
 from app.models.knowledge import KnowledgeAsset
@@ -40,9 +41,11 @@ from app.schemas.original_access import (
     OriginalAccessRequestOut,
     RequestsListResponse,
 )
+from app.schemas.enums import AssetStatus, ConfidentialityLevel
 from app.schemas.permission import AccessChannel, AccessLayer, CallerContext
 from app.services import audit as audit_service
-from app.services.permission import decide
+from app.services.permission import build_caller_context, decide
+from app.services.permission_rules import access_request_timeout_hours, load_access_policy
 
 _MANAGEMENT_ROLES = {ProjectRole.project_manager.value, ProjectRole.coach.value}
 _DEFAULT_GRANT_DAYS = 7
@@ -160,6 +163,56 @@ async def _grant_duration_days(session: AsyncSession) -> int:
     return days if days > 0 else _DEFAULT_GRANT_DAYS
 
 
+async def _ensure_active_grant_for_request(
+    session: AsyncSession,
+    *,
+    req: OriginalAccessRequest,
+    asset: KnowledgeAsset,
+    granted_by_user_id: uuid.UUID,
+    now: datetime,
+    days: int,
+) -> AccessGrant:
+    """确保 grantee+asset 有一条 live active 原文授权（人工审批 / 超时自动审批共用）。
+
+    部分唯一索引 `uq_grant_one_active(grantee,asset,type) WHERE status='active'` 要求同一
+    主体至多一条 active。处理已有授权：
+    - **live active** → 直接复用（不新建，request 仍 finalize）。
+    - **active 但已过期**（status=active 且 expires_at<=now）→ 先把旧行落 `expired` 并 flush
+      （腾出唯一约束位），再建新 active；避免新建撞约束 / 卡住 pending（残留修复）。
+    - **无 active** → 新建。
+
+    新 grant 的 `source_request_id` 指向当前 request，`expires_at` 按 `access_grant_duration_days`。
+    """
+    existing = (
+        await session.execute(
+            select(AccessGrant).where(
+                AccessGrant.grantee_user_id == req.requester_user_id,
+                AccessGrant.asset_id == asset.id,
+                AccessGrant.grant_type == AccessGrantType.original_access.value,
+                AccessGrant.status == AccessGrantStatus.active.value,
+            )
+        )
+    ).scalars().first()
+    if existing is not None:
+        if _grant_is_live(existing):
+            return existing
+        # 过期但仍 active：落 expired 腾出唯一约束位（读时惰性 expired 的落库口径）。
+        existing.status = AccessGrantStatus.expired.value
+        await session.flush()
+    grant = AccessGrant(
+        asset_id=asset.id,
+        grantee_user_id=req.requester_user_id,
+        grant_type=AccessGrantType.original_access.value,
+        source_request_id=req.id,
+        granted_by_user_id=granted_by_user_id,
+        status=AccessGrantStatus.active.value,
+        expires_at=now + timedelta(days=days),
+    )
+    session.add(grant)
+    await session.flush()
+    return grant
+
+
 # ---------------------------------------------------------------------------
 # 授权 / 审批权限
 # ---------------------------------------------------------------------------
@@ -253,12 +306,13 @@ async def create_request(
     if asset is None:
         raise not_found
     # 至少要能发现该资产，否则不泄露存在。
-    if not decide(caller, asset, AccessLayer.discovery).allowed:
+    policy = await load_access_policy(session)
+    if not decide(caller, asset, AccessLayer.discovery, policy=policy).allowed:
         raise not_found
 
     # 已有原文权（成员 / L1-L2 默认 / 已有 grant）→ 不重复建 pending。
     granted = await has_active_grant(session, caller.user_id, asset.id)
-    if decide(caller, asset, AccessLayer.original, has_original_grant=granted).allowed:
+    if decide(caller, asset, AccessLayer.original, has_original_grant=granted, policy=policy).allowed:
         return CreateRequestResponse(
             status="already_granted", request=None,
             message="你已拥有该资产的原文访问权，无需申请",
@@ -363,37 +417,17 @@ async def approve_request(
     if req.status != AccessRequestStatus.pending.value:
         raise _denied(409, "request_already_finalized", "申请已处理，不能重复审批")
 
+    now = _now()
     req.status = AccessRequestStatus.approved.value
     req.reviewer_user_id = caller.user_id
-    req.reviewed_at = _now()
+    req.reviewed_at = now
     req.review_note = audit_service.sanitize_text(note)
 
-    # 复用 / 新建 active grant（同 grantee+asset+type 至多一个 active）。
-    existing_grant = (
-        await session.execute(
-            select(AccessGrant).where(
-                AccessGrant.grantee_user_id == req.requester_user_id,
-                AccessGrant.asset_id == asset.id,
-                AccessGrant.grant_type == AccessGrantType.original_access.value,
-                AccessGrant.status == AccessGrantStatus.active.value,
-            )
-        )
-    ).scalars().first()
+    # 复用 live / 续期过期 / 新建 active grant（共享 helper，避免 expired-active 撞唯一约束）。
     days = await _grant_duration_days(session)
-    if existing_grant is not None and _grant_is_live(existing_grant):
-        grant = existing_grant
-    else:
-        grant = AccessGrant(
-            asset_id=asset.id,
-            grantee_user_id=req.requester_user_id,
-            grant_type=AccessGrantType.original_access.value,
-            source_request_id=req.id,
-            granted_by_user_id=caller.user_id,
-            status=AccessGrantStatus.active.value,
-            expires_at=_now() + timedelta(days=days),
-        )
-        session.add(grant)
-    await session.flush()
+    grant = await _ensure_active_grant_for_request(
+        session, req=req, asset=asset, granted_by_user_id=caller.user_id, now=now, days=days,
+    )
 
     await audit_service.record_event(
         session, caller=caller, log_type=AuditLogType.operation,
@@ -483,3 +517,119 @@ async def revoke_grant(
     )
     await session.commit()
     return _grant_out(grant)
+
+
+# ---------------------------------------------------------------------------
+# 原文访问申请超时自动审批
+# ---------------------------------------------------------------------------
+_L1_L2_LEVELS = {ConfidentialityLevel.L1.value, ConfidentialityLevel.L2.value}
+
+
+async def _load_requester_ctx(session: AsyncSession, user_id: uuid.UUID) -> CallerContext | None:
+    user = (
+        await session.execute(
+            select(User).where(User.id == user_id).options(
+                selectinload(User.company_roles), selectinload(User.project_members),
+            )
+        )
+    ).scalar_one_or_none()
+    return build_caller_context(user) if user is not None else None
+
+
+async def _auto_approve_one(
+    session: AsyncSession, req: OriginalAccessRequest, *,
+    now: datetime, days: int, timeout_hours: float, policy, trace_id: str,
+) -> str:
+    """对一条超时 pending 申请尝试自动审批。返回统计桶名。
+
+    保守跳过：机密资产（非 L1/L2）/ 资产不存在/已删除/归档/废弃 / 申请人 inactive 或非业务用户 /
+    资产对申请人不可发现 / 即使授权也拿不到 original（L5、他人 personal 等硬边界）。
+    """
+    asset = (
+        await session.execute(select(KnowledgeAsset).where(KnowledgeAsset.id == req.asset_id))
+    ).scalar_one_or_none()
+    if asset is None or asset.asset_status != AssetStatus.active.value:
+        return "skipped_invalid"
+    # 机密资产除外：仅 L1/L2 自动审批，L3/L4/L5 一律跳过。
+    if asset.confidentiality_level not in _L1_L2_LEVELS:
+        return "skipped_confidential"
+    ctx = await _load_requester_ctx(session, req.requester_user_id)
+    if ctx is None or not ctx.is_active or not ctx.is_business_user:
+        return "skipped_invalid"
+    # 资产仍可被申请人发现（移出项目 / 不再可见则不放行）。
+    if not decide(ctx, asset, AccessLayer.discovery, policy=policy).allowed:
+        return "skipped_invalid"
+    # 仅当「授予 grant 后能正常拿到 original」才自动审批——天然排除 L5 / 他人 personal /
+    # inactive 资产等硬边界（这些 grant 也放大不了）。
+    if not decide(ctx, asset, AccessLayer.original, has_original_grant=True, policy=policy).allowed:
+        return "skipped_invalid"
+
+    # ---- 自动审批：finalize request + 确保 active grant ----
+    req.status = AccessRequestStatus.approved.value
+    req.reviewer_user_id = None  # 系统自动审批，无人工审批人（reviewer 可空）
+    req.reviewed_at = now
+    req.review_note = "系统按访问申请超时规则自动审批（机密资产除外）"
+
+    # 复用 live / 续期过期（expired-active 不再撞唯一约束、不计 errors）/ 新建 active。
+    # granted_by_user_id 为非空 FK 且无系统用户行：记为申请人本人。自动审批的真实审批人是
+    # 系统——以 reviewer_user_id=None + 审计 auto=True + review_note 明确标识；不引入 migration。
+    grant = await _ensure_active_grant_for_request(
+        session, req=req, asset=asset, granted_by_user_id=req.requester_user_id, now=now, days=days,
+    )
+    await audit_service.record_system_event(
+        session, log_type=AuditLogType.operation,
+        action=AuditAction.access_original_approved.value, trace_id=trace_id,
+        target_type="access_grant", target_id=grant.id,
+        after={"request_status": req.status, "grant_status": grant.status},
+        extra={
+            "asset_id": str(asset.id), "grantee_user_id": str(req.requester_user_id),
+            "source_request_id": str(req.id), "rule_key": "access_request_timeout_hours",
+            "timeout_hours": timeout_hours, "auto": True,
+            "project_id": str(asset.project_id) if asset.project_id else None,
+        },
+    )
+    await session.commit()
+    return "approved"
+
+
+async def auto_approve_timed_out_original_access_requests(
+    session: AsyncSession, *, trace_id: str, now: datetime | None = None, limit: int = 100,
+) -> dict:
+    """超时自动审批 L1/L2 pending 原文申请。返回安全统计，不含原文/refs/secret。
+
+    仅当 `access_request_timeout_hours` 规则 enabled、numeric、>0 时启用；否则不处理。
+    只处理创建时间早于 now-timeout 的 pending 申请；逐条独立提交，单条失败不阻断整批。
+    """
+    stats = {"checked": 0, "approved": 0, "skipped_confidential": 0, "skipped_invalid": 0, "errors": 0}
+    now = now or _now()
+    timeout_hours = await access_request_timeout_hours(session)
+    if timeout_hours is None:
+        return {**stats, "enabled": False}
+
+    cutoff = now - timedelta(hours=timeout_hours)
+    reqs = list(
+        (
+            await session.execute(
+                select(OriginalAccessRequest)
+                .where(OriginalAccessRequest.status == AccessRequestStatus.pending.value)
+                .where(OriginalAccessRequest.created_at < cutoff)
+                .order_by(OriginalAccessRequest.created_at)
+                .limit(limit)
+            )
+        ).scalars().all()
+    )
+    days = await _grant_duration_days(session)
+    policy = await load_access_policy(session)
+    for req in reqs:
+        stats["checked"] += 1
+        try:
+            outcome = await _auto_approve_one(
+                session, req, now=now, days=days, timeout_hours=timeout_hours,
+                policy=policy, trace_id=trace_id,
+            )
+            stats[outcome] += 1
+        except Exception:  # noqa: BLE001  # 单条失败不阻断整批；不泄露业务原文
+            await session.rollback()
+            stats["errors"] += 1
+    return {**stats, "enabled": True, "timeout_hours": timeout_hours}
+

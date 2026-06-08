@@ -1,4 +1,4 @@
-"""预览凭证 API 的请求 / 响应 schema（IMPLEMENT-07）。
+﻿"""预览凭证 API 的请求 / 响应 schema。
 
 **绝不返回**完整 token 明文、对象存储真实路径 / 签名 URL、文件内部存储引用、bucket。
 preview_entry_url 是平台受控相对路径。
@@ -42,3 +42,4 @@ class PreviewEntryResponse(BaseModel):
     credential_status: str
     onlyoffice_config: dict | None = None
     message: str | None = None
+

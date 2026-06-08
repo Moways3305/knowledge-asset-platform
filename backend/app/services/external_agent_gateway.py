@@ -1,4 +1,4 @@
-"""外部 Agent / 工作流网关编排（PBC-01，provider 中立核心）。
+﻿"""外部 Agent / 工作流网关编排。
 
 把任意外部知识 / 工作流调用映射到 R3 检索原语（`AccessChannel.agent`）：
 解析知识选择器 → scope/project → 解析真实平台调用人 → 同一套权限网关召回 →
@@ -214,3 +214,4 @@ async def run_retrieval(
     )
     await session.commit()
     return records
+

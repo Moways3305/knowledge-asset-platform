@@ -1,4 +1,4 @@
-"""开发态 seed 数据。
+﻿"""开发态 seed 数据。
 
 用于本地开发与测试的确定性身份数据。所有 UUID 固定，便于通过
 `X-Dev-User-Id` 复现，也便于测试断言。仅用于 local/dev/test，不含真实信息。
@@ -37,6 +37,8 @@ USER_BOSS = uuid.UUID("00000000-0000-0000-0000-0000000000a3")
 USER_DIRECTOR = uuid.UUID("00000000-0000-0000-0000-0000000000a4")
 USER_ADMIN_ONLY = uuid.UUID("00000000-0000-0000-0000-0000000000a5")
 USER_CONSULTANT_ADMIN = uuid.UUID("00000000-0000-0000-0000-0000000000a6")
+# 开发态统一密码（仅 seed / 测试用；生产由 admin 设置，绝不写入 .env.example）。
+DEV_PASSWORD = "dev-password-123"
 
 PROJECT_ALPHA = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
 PROJECT_BETA = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
@@ -116,6 +118,18 @@ async def seed_dev_identities(session: AsyncSession) -> None:
     dual_f.company_roles.append(UserCompanyRole(company_role="consultant", status="active"))
     dual_f.company_roles.append(UserCompanyRole(company_role="admin", status="active"))
 
+    # 给开发态用户设置统一开发密码（仅 seed/测试可见，不写入 .env.example）。
+    # 真实部署由 admin 经 /admin/people/{id}/password 设置，不依赖此开发密码。
+    from datetime import datetime, timezone
+
+    from app.services.passwords import hash_password
+
+    _dev_hash = hash_password(DEV_PASSWORD)
+    _set_at = datetime.now(timezone.utc)
+    for _u in (consultant_a, manager_b, boss_c, director_d, admin_e, dual_f):
+        _u.password_hash = _dev_hash
+        _u.password_set_at = _set_at
+
     session.add_all([consultant_a, manager_b, boss_c, director_d, admin_e, dual_f])
     await session.commit()
 
@@ -126,7 +140,7 @@ async def is_seeded(session: AsyncSession) -> bool:
     return result.scalar_one_or_none() is not None
 
 
-# ---- 知识资产固定 UUID（IMPLEMENT-04 开发态 seed）----
+# ---- 知识资产固定 UUID----
 KA_COMPANY_L2 = uuid.UUID("00000000-0000-0000-0000-0000000000e0")
 KA_COMPANY_L4 = uuid.UUID("00000000-0000-0000-0000-0000000000c4")
 KA_COMPANY_L5 = uuid.UUID("00000000-0000-0000-0000-0000000000c5")
@@ -134,10 +148,10 @@ KA_PROJECT_ALPHA = uuid.UUID("00000000-0000-0000-0000-0000000000e1")
 KA_PROJECT_BETA_L3 = uuid.UUID("00000000-0000-0000-0000-0000000000e2")
 KA_PERSONAL = uuid.UUID("00000000-0000-0000-0000-0000000000f1")
 KA_COMPANY_ARCHIVED = uuid.UUID("00000000-0000-0000-0000-0000000000fa")
-# 项目 material 资产（IMPLEMENT-06 审核流用）
+# 项目 material 资产
 KA_PROJECT_ALPHA_MATERIAL = uuid.UUID("00000000-0000-0000-0000-0000000000e3")
 KA_PROJECT_ALPHA_REVIEWABLE = uuid.UUID("00000000-0000-0000-0000-0000000000e4")
-# 项目侧 Agent Gateway 边界资产（IMPLEMENT-08）
+# 项目侧 Agent Gateway 边界资产
 KA_PROJECT_ALPHA_A4 = uuid.UUID("00000000-0000-0000-0000-0000000000e8")
 KA_PROJECT_ALPHA_L5 = uuid.UUID("00000000-0000-0000-0000-0000000000e9")
 KA_PROJECT_ALPHA_ARCHIVED = uuid.UUID("00000000-0000-0000-0000-0000000000ea")
@@ -265,6 +279,11 @@ async def seed_dev_knowledge(session: AsyncSession) -> None:
         version.weknora_kb_id = _kb_for(asset)
         version.weknora_doc_id = f"wk-doc-{asset.id}"
         version.weknora_parse_status = "completed"
+        # seed 资产已有底座 doc + 解析完成 → 平台索引状态标 indexed。
+        from datetime import datetime, timezone
+
+        version.index_status = "indexed"
+        version.indexed_at = datetime.now(timezone.utc)
         asset.current_version_id = version.id
         asset.versions.append(version)
         for stype, content in summaries.items():
@@ -383,3 +402,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

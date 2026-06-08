@@ -1,4 +1,4 @@
-"""权限判断相关的结构化类型（IMPLEMENT-03）。
+﻿"""权限判断相关的结构化类型。
 
 集中定义三层访问的枚举、调用人上下文（CallerContext）、权限决策结果
 （PermissionDecision），以及 L1/L2 原文默认策略对象（DefaultAccessPolicy）。
@@ -59,7 +59,7 @@ class DeniedReason(str, Enum):
     original_requires_request = "original_requires_request"
     agent_a4_original_denied = "agent_a4_original_denied"
     asset_not_active = "asset_not_active"  # 读侧默认过滤：archived/deprecated
-    # 纯系统身份（非业务用户，如仅 admin）不浏览任何业务知识内容（PBC-10D）。
+    # 纯系统身份（非业务用户，如仅 admin）不浏览任何业务知识内容。
     business_identity_required = "business_identity_required"
 
 
@@ -70,7 +70,7 @@ class EffectiveAccessSource(str, Enum):
     project_member = "project_member"  # 所在项目成员
     company_role = "company_role"  # 公司角色（如 L5 → boss/consulting_director）
     system_rule = "system_rule"  # 由默认/平台规则放行（L1/L2、公司发现/摘要等）
-    access_grant = "access_grant"  # 由有效 access_grants 原文授权放行（PBC-06）
+    access_grant = "access_grant"  # 由有效 access_grants 原文授权放行
     none = "none"  # 未放行
 
 
@@ -118,7 +118,7 @@ class PermissionDecision(BaseModel):
 class DefaultAccessPolicy:
     """L1/L2 原文默认放行策略（集中表达，便于后续被 permission_rules 替换）。
 
-    L3/L4 跨项目/公司原文默认按"需要申请"（original_requires_request）；PBC-06 起，
+    L3/L4 跨项目/公司原文默认按"需要申请"（original_requires_request）；起，
     审批通过的 active access_grant 会在运行时把原文层放行（见 permission.decide 的
     has_original_grant）。本对象只承载 L1/L2 默认放行开关；其规则化（permission_rules
     驱动运行时）仍属后续治理接入，不散落写死在多处。
@@ -132,3 +132,4 @@ class DefaultAccessPolicy:
 
 # 平台默认策略实例。后续可由 permission_rules 加载结果替换。
 DEFAULT_POLICY = DefaultAccessPolicy()
+

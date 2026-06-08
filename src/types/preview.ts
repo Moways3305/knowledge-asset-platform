@@ -1,4 +1,4 @@
-// 预览凭证 API 的 DTO 类型（IMPLEMENT-07）。
+﻿// 预览凭证 API 的 DTO 类型。
 
 export interface PreviewIssueResponseDTO {
   credential_id: string;
@@ -8,3 +8,4 @@ export interface PreviewIssueResponseDTO {
   expires_at: string;
   credential_status: string;
 }
+

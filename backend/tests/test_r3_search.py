@@ -142,6 +142,8 @@ async def _insert_alpha_l4(db_session):
     version = KnowledgeAssetVersion(
         asset_id=KA_ALPHA_L4, version_no="v1", version_status="active", created_by=USER_CONSULTANT,
         weknora_kb_id=_ALPHA_KB, weknora_doc_id=f"wk-doc-{KA_ALPHA_L4}", weknora_parse_status="completed",
+        # 该 fixture 表示一个已成功索引的资产（PBC-15 residual：召回/原文取件只接受 indexed）。
+        index_status="indexed",
     )
     asset.versions.append(version)
     asset.current_version_id = version.id

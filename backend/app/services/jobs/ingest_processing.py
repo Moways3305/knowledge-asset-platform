@@ -1,4 +1,4 @@
-"""异步入库处理作业（R5）。
+﻿"""异步入库处理作业（R5）。
 
 把"抽取 + R2 内容处理 + 写 ai_result + 推进状态"从请求路径迁出。`create_upload`
 只持久化字节 + 建 `ingest_tasks`（status=processing）+ 入队；本作业完成重活。
@@ -189,6 +189,9 @@ async def process_upload_task(
                 "degrade_reason": content_meta.get("reason"),
                 "llm_provider": content_meta.get("provider"),
                 "llm_model": content_meta.get("model"),
+                # 入库前置脱敏安全元数据——只记状态与类别计数，**绝不**记脱敏文本/原值。
+                "desensitization_status": content_meta.get("desensitization_status"),
+                "desensitization_counts": content_meta.get("desensitization_counts"),
             },
             project_id=task.target_project_id,
         )
@@ -209,3 +212,4 @@ async def process_upload_task(
         )
     await session.commit()
     return task.status
+

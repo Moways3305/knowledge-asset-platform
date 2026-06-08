@@ -1,4 +1,4 @@
-# 本地开发 / 单机演示编排（R8）。
+﻿# 本地开发 / 单机部署编排。
 # 凭证为 LOCAL DEV ONLY，**绝非生产凭证**；生产请用部署密钥注入（见 backend/README §部署）。
 #
 # 一键启动顺序（PowerShell）：
@@ -56,7 +56,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # R8：一次性迁移服务。只此一处跑 alembic upgrade head，backend/worker/beat 依赖其成功完成，
+  # 一次性迁移服务。只此一处跑 alembic upgrade head，backend/worker/beat 依赖其成功完成，
   # 避免每个副本并发迁移；它退出即完成（restart=no）。
   migrate:
     build: ./backend
@@ -123,7 +123,7 @@ services:
       migrate:
         condition: service_completed_successfully
 
-  # 前端生产托管（R8 / PBC-10G）：nginx 静态托管 Vite dist + 同源反代后端。
+  # 前端生产托管：nginx 静态托管 Vite dist + 同源反代后端。
   # **生产用户入口**＝此服务（本地宿主 18080，避免与本机 WeKnora 8080 等常见端口冲突）；backend 的 8001 仅供调试。
   # 不读 backend/.env、不挂源码、不烙真实后端 URL（同源相对路径 + nginx 反代 backend:8000）。
   frontend:
@@ -140,3 +140,4 @@ volumes:
   pgdata:
   # 受控上传存储（backend 写 / worker 读同一份）。beat 不处理上传，不挂载。
   upload_storage:
+

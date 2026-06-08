@@ -206,7 +206,7 @@ cd backend && python -m alembic upgrade head
 ### 当前限制与后续替换
 
 - IMPLEMENT-03 当时无 `access_grants` / `original_access_requests` 表，跨项目 / 公司 L3/L4 原文一律按"需要申请"拒绝。**现状（PBC-06 已实现）**：两表已落地；无授权时仍 `original_requires_request`，经申请 → 审批 → 生成 active `access_grant` 后，`decide(has_original_grant=…)` 在运行时放行原文层（source=`access_grant`，需审计），过期 / 撤销立即失效。
-- **L1/L2 原文默认放行策略**集中在 `DefaultAccessPolicy`（`app/schemas/permission.py`）常量对象。PBC-03 落 `permission_rules` 配置中心；PBC-06 已接入 active `access_grant` 的运行时原文放行与 `access_grant_duration_days`（grant 默认有效期来源）。**仍为后续增强**：让 `DefaultAccessPolicy` 从 `permission_rules` 规则化加载（L1/L2 `system_rule` 运行时）、超时自动通过——当前 `DefaultAccessPolicy` 仍是常量对象，不散落写死在多处。
+- **L1/L2 原文默认放行策略**：`DefaultAccessPolicy`（`app/schemas/permission.py`）现作为出厂回退常量（`DEFAULT_POLICY`）。PBC-03 落 `permission_rules` 配置中心；PBC-06 已接入 active `access_grant` 的运行时原文放行与 `access_grant_duration_days`（grant 默认有效期来源）。**PBC-11E 已规则化接入运行时**：`permission_rules.load_access_policy()` 按 `cross_project_l1_l2_original_for_business_user` / `company_l1_l2_original_for_business_user` 两开关构建运行时 `DefaultAccessPolicy` 注入 `decide()`（规则缺失回退 `DEFAULT_POLICY`、禁用/非法 fail-closed），`access_request_timeout_hours` 驱动原文申请超时自动通过（仅 L1/L2）。后续增强仅余：其余 `permission_rules`（个人流转 / 升格阈值 / 生命周期）尚未规则化运行时，仍为治理配置视图。
 - 本服务只做读侧判断，不写审计：`audit_required` / `strong_audit_required` 是给后续 IMPLEMENT-09 审计落点使用的标记，本阶段不落 `audit_events`。
 
 ## IMPLEMENT-04：基础 Knowledge 读 API 与前端 mock 第一批替换
@@ -385,13 +385,25 @@ python -m app.seed.dev_seed
 - 会话机制：**服务端会话表 `user_sessions` + httpOnly cookie 中的不透明随机 token**。服务端只存 `sha256(token)`，**明文 token 绝不进入任何 JSON 响应**，只经 `Set-Cookie`（httpOnly / SameSite=Lax）下发（沿用 BE-08 预览凭证只存哈希口径）。模型 `app/models/auth_session.py`，迁移 `0009_create_user_sessions`（仅此一表）。
 - 当前用户解析（`app/api/deps.py` + `app/services/auth_session.py::resolve_current_user`）优先级：① 有效会话 cookie → 该用户（任何环境）；② 无有效会话时**仅 local/dev/test** 回退到 `X-Dev-User-Id` / 默认开发用户；③ 否则 401 `not_authenticated`。**不改任何业务权限语义**，仅替换"当前用户从哪来"。
 - API（`app/api/auth.py`）：
-  - `POST /api/v1/auth/login`：本地无凭证登录适配器（**仅开发环境**，按 email 取 active 用户建会话；非开发环境 403 `auth_login_not_available`）→ 下发 cookie + 写 `login.success` 审计；登录失败写 `login.failed`（有已知 actor 时）并 401。
+  - `POST /api/v1/auth/login`（**PBC-12 密码登录**）：提供 `password` → **所有环境**按 email+密码校验（`login_method=password`）；不提供 `password` → 仅 local/dev/test 走无凭证开发适配器（`login_method=dev_local`），prod 返回 403 `auth_password_required`。用户不存在 / 密码错 / 未设密码 / inactive 统一 401 `invalid_credentials`（不区分原因）。成功下发 cookie + 写 `login.success`；已知用户失败写 `login.failed`，未知 email 不写（无可归属 actor）。
   - `POST /api/v1/auth/logout`：撤销会话（置 `revoked_at`）+ 清 cookie + 写 `login.logout`。
   - `GET /api/v1/auth/me`：会话优先、开发态回退；返回身份上下文。
-- 登录审计：`AuditAction` 新增 `login.success` / `login.failed` / `login.logout`（`log_type=login`），经集中 `record_event` / `record_denied` 写入，`extra` 记 `login_result` / `login_method` / `ip_address`（非敏感）。**密码凭证校验仍尚未实现**；登录审计本身**已实现并覆盖两类登录链路** —— 本地无凭证会话登录（dev/test），以及 R6 企微 OAuth（已知用户，见后文 R6 节）。未知 email 登录失败不写审计（无可归属 actor）。
+- 登录审计：`AuditAction` 新增 `login.success` / `login.failed` / `login.logout`（`log_type=login`），经集中 `record_event` / `record_denied` 写入，`extra` 记 `login_result` / `login_method` / `ip_address`（非敏感）。`login_method` 三种：`password`（PBC-12 密码登录）/ `wecom_oauth`（R6 企微）/ `dev_local`（开发无凭证）。**密码凭证校验已实现（PBC-12，见下）**。未知 email 登录失败不写审计（无可归属 actor）。
+
+## PBC-12：密码凭证登录
+
+把"本地便利登录"升级为可生产使用的密码凭证登录，保留开发便利入口与企微 OAuth。
+
+- **模型/迁移**：`users` 增 `password_hash`（server-only PBKDF2 编码，绝不进响应/审计/日志）+ `password_set_at`；迁移 `0025`（仅 add_column，可逆）。dev_seed 给开发用户设统一开发密码 `DEV_PASSWORD`（仅 seed/测试，不入 `.env.example`）。
+- **哈希服务** `app/services/passwords.py`：标准库 PBKDF2-HMAC-SHA256（260000 迭代、16B salt、`secrets`/`hmac.compare_digest`），格式 `pbkdf2_sha256$iter$salt_b64$digest_b64`；空/格式非法/未知算法 → 校验失败（不抛）；`validate_password_strength`（≥8、非全空白）；`dummy_verify` 均衡用户不存在时的时间侧信道。
+- **登录** `auth_session.login_with_password`（所有环境）+ `login_local`（仅 dev）；`/auth/login` 按 password 是否提供 + env 分流（见上）。明文 session token 只经 Set-Cookie，不进 JSON；`/auth/me` 会话优先；dev `X-Dev-User-Id` 回退仍仅 local/dev/test；企微 OAuth 不改。
+- **admin 设置/重置密码**：`POST /api/v1/admin/people/{user_id}/password`（**仅 active admin**；boss/咨询总监/consultant → 403 `password_set_admin_required`；纯 admin 设密码不授予任何业务原文权）。弱密码 422，未知用户 404，允许给 inactive 用户设密码但其登录仍失败。审计 `auth.password_set`（`target_type=user`，extra 仅 `password_set`/`target_user_status`/`actor_is_admin`，**绝不**含 password/hash/salt）。people 视图新增安全布尔 `password_set` + `password_set_at`（**不**返回 hash）。
+- **前端**：顶栏登录加密码输入框（提交后清空、type=password）；`/admin/people` 详情加"设置/重置密码"（type=password、保存后清空、不回显）；`/help` 移除"密码登录尚未实现"，改为已接入 + login_method 说明。
+- 测试：`tests/test_pbc12_password_login.py`（哈希单元；prod 密码成功/email-only 拒/错密码·未知·未设密码·inactive 统一 401；审计 login_method=password、已知失败有审计、未知 email 无 actor 审计；dev_local 仍可用；admin 设密码+重置后旧失效、非 admin 403、弱密码 422、404；审计安全；people 只回安全字段）。
+- **未做（非目标）**：MFA/OTP、忘记密码/邮件找回、密码过期/轮换、账户锁定/风控限流、多设备会话 UI、CSRF 全站改造、OAuth 自动建用户。
 - 前端：顶栏身份改由 `/auth/me`（会话）驱动，新增邮箱登录 / 登出最小控件（明文 token 由 httpOnly cookie 持有，前端不接触）；所有请求带 `credentials: "include"` 以携带会话 cookie，`X-Dev-User-Id` 仍作开发态回退。
 - 测试：`tests/test_auth_session.py`（10 用例）+ `test_auth_me.py` 更新（prod 无会话 → 401），后端 **137 passed**；`npm run build` 通过；迁移 SQLite `0001→0009` upgrade / `0009→0008` downgrade 验证通过。
-- **本轮未实现**：密码校验 / MFA / SSO、会话续期 / 滑动过期 / 多设备管理、CSRF token、生产 cookie `Secure` 强制（本地 http 置 False）、未知 email 失败登录审计。（企微 OAuth / 授权码流已在 R6 实现，见后文 R6 节，state 校验、按 `users.wecom_user_id` 解析、`login_method=wecom_oauth`、未配置 `WECOM_*` 时 fail-closed。）
+- **历史边界（IMPLEMENT-12 当时）**：当时未实现密码校验；该项**现已由 PBC-12 关闭**（所有环境 `email + password` 真实校验，`login_method=password`，见上文 PBC-12 节）。仍为后续增强：MFA / SSO、会话续期 / 滑动过期 / 多设备管理、CSRF token 全站改造、生产 cookie `Secure=True` 强制（本地 http 置 False）、未知 email 失败登录审计。（企微 OAuth / 授权码流已在 R6 实现，见后文 R6 节，state 校验、按 `users.wecom_user_id` 解析、`login_method=wecom_oauth`、未配置 `WECOM_*` 时 fail-closed。）
 
 ## IMPLEMENT-13：文件存储边界最小闭环
 
@@ -432,13 +444,219 @@ python -m app.seed.dev_seed
 - scope→KB 映射：新表 `weknora_kb_mappings`（`app/models/weknora.py`，唯一约束 `(scope,owner_user_id,project_id)`）。`resolve_or_create_kb`（`app/services/weknora_kb.py`）懒创建幂等——同 scope 实体只建一个 KB，并发靠唯一冲突重查；**映射行独立提交**（不随 asset 上传失败回滚，KB 可复用）。命名 `personal_{uid}_kb` / `project_{pid}_kb` / `company_kb`。建库用 env `WEKNORA_EMBEDDING_MODEL_ID`（全平台统一、建库后不可改）。
 - 业务库回写：`knowledge_asset_versions` + `weknora_kb_id` / `weknora_doc_id` / `weknora_parse_status`（前两者 server-only，第三个是安全业务状态）。迁移 `0011`（建一表 + 加三列，可逆 downgrade；**无 chunk 列、不动其它表**）。
   - 说明：迁移加了 `weknora_parse_status` 第三列（蓝图 §5"version 上记 weknora_parse_status"授权该字段），用于持久化异步解析状态，避免每次读都打 WeKnora；已显式列为 Codex 裁决点。
-- confirm 改造（`ingest.confirm`，**推送时机 = 确认入库时**）：建 asset/version 前先 `resolve_or_create_kb` → 建 asset/version/summaries/tags（未提交）→ 经 `storage.resolve_path` 读原文字节 → `weknora.upload_file(kb_id, bytes, file_name, mime, metadata={asset_id,version_id,scope,confidentiality_level}, channel=source)` → 回写 `version.weknora_kb_id/doc_id/parse_status`。**WeKnora 写入失败 → 整事务回滚（无悬挂资产）→ 标记任务 failed + 审计 `ingest.failed`（exception）+ 502 `weknora_upload_failed`**。409 重复 → 复用既有 doc，`parse_status=duplicate`，不算失败、不重复入库（与 IMPLEMENT-14 内容 hash 软提示统一为单一去重口径）。
+- confirm 改造（`ingest.confirm`）：**~~建 asset 前先 resolve KB；WeKnora 写入失败整单回滚 + 502~~（旧口径，PBC-11B 作废）**。现行（PBC-11B，见下）：阶段1 先落库资产，阶段2 解耦索引，底座失败不回滚。409 重复 → 复用既有 doc，`parse_status=duplicate`，不算失败、不重复入库（与 IMPLEMENT-14 内容 hash 软提示统一为单一去重口径）。
 - 解析对账：`POST /api/v1/ingest/{task_id}/refresh-parse`（创建人/治理/admin 可触发，按需刷新，**不引 Celery**）→ `weknora.get_knowledge(doc_id)` 读 `parse_status` 回写 version，只回安全业务状态。
 - 审计：成功写 `ingest.weknora_indexed`（operation，extra 仅 `parse_status`/`is_duplicate`/`scope`）；失败写 `ingest.failed`（extra 仅 `failure_stage`/`error_code`）。**审计 extra 绝不含 kb_id/doc_id/api_key/原文/storage_ref。**
 - 安全：`weknora_kb_id`/`weknora_doc_id`/`weknora_chunk_id`/`weknora_api_key`/`knowledge_id`/`file_path` 加入审计 `_FORBIDDEN_KEYS`；值级脱敏标记加 `sk-`。无任何响应 schema 暴露 weknora_*。
 - 配置：`WEKNORA_BASE_URL` / `WEKNORA_API_KEY` / `WEKNORA_EMBEDDING_MODEL_ID` / `WEKNORA_SUMMARY_MODEL_ID` / `WEKNORA_TENANT_ID` / `WEKNORA_TIMEOUT`（见 `.env.example`）。
 - 测试：`tests/test_weknora_r1.py`（10 用例，fake client）覆盖 client 单测、KB 幂等、推送回写、parse 对账、失败回滚无悬挂、409 去重软提示、无泄露、api_key 脱敏、admin 边界不变。后端 **166 passed**；`npm run build` 通过；SQLite Alembic `0001→0011` upgrade / `0011→0010` downgrade 通过。
 - **本轮未实现（R2-R8 边界）**：检索 / 两阶段 / `knowledge-search`（R3）、外部 LLM 内容处理与脱敏引擎（R2）、Dify（R4）、Celery 异步轮询（R5）、OSS/MinIO（继续 LocalFileStorage）、Ollama 脱敏（原文入库）、预览真实加载。
+
+## PBC-11B：KB 预创建/初始化 + 索引失败可恢复（取代 R1 的"WeKnora 写入失败整单回滚"）
+
+把知识底座生命周期接管进平台：建库即初始化模型配置、项目创建即预建 KB、入库确认与底座索引解耦。蓝图 `docs/backend/11-...INTEGRATION_RETRIEVAL.md` §7（已修订）。
+
+- **client 初始化 wrapper**：`WeKnoraClient.initialize_kb`（`POST /initialization/initialize/:kb_id`，只发非空 chat/embedding/rerank/multimodal id）+ `get_initialization_config`（`GET /initialization/config/:kb_id`）。`NullWeKnoraClient` 补齐同名方法（抛 `weknora_not_configured`）。失败经 `_unwrap` 抛 `WeKnoraError`（只带 code/message，不含 key）。
+- **建库即初始化**：`resolve_or_create_kb` 建 KB 后立即 `initialize_kb`。初始化失败**不写 active 假成功**——映射置 `init_failed` + raise；下次 resolve 命中 `init_failed` 映射会 ensure-initialized 重试，成功翻 `active`（避免孤儿 KB）。模型 id 源自 env `WEKNORA_EMBEDDING_MODEL_ID`（必需）/ `WEKNORA_CHAT_MODEL_ID` / `WEKNORA_RERANK_MODEL_ID` / `WEKNORA_MULTIMODAL_MODEL_ID`（可选）；`WEKNORA_SUMMARY_MODEL_ID` **不参与**（OQ3）。
+- **项目预建 KB**：`ensure_project_kb`（`app/services/weknora_kb.py`）在 `create_project` 主事务提交后 best-effort 预建并初始化 project KB；底座未配置/失败**不阻断项目创建**（返回安全状态串，不外泄 kb_id）。API 经 `Depends(get_weknora_client)` 注入（测试可注 fake）。
+- **入库状态机解耦**：`knowledge_asset_versions` 新增 `index_status`（`not_indexed|indexing|indexed|index_failed|skipped`）/ `index_error_code` / `index_error_message`（安全文案）/ `indexed_at`；迁移 `0024`（仅加四列，可逆）。`ingest.confirm` 阶段1 落库资产（`status=completed` 仅表示确认+落库）→ 提交点 A → 阶段2 `_index_asset`（resolve+upload）：成功标 `indexed`、409 标 `indexed`+`duplicate`、失败标 `index_failed`+安全 `index_error_code` + 写 `ingest.index_failed`（exception）审计，**绝不回滚已落库资产/人工校正**。未配置底座 → `skipped`。响应 `IngestConfirmResponse` 增 `index_status`；前端 `/upload` 据此提示"已提交、索引暂未完成可重试"。
+- **安全/不变量**：权限判断与 `index_status` 解耦；未索引/index_failed 资产 WeKnora 召不回、不进语义检索结果，不构成越权泄露；原文预览仍走受控预览凭证链路。审计/响应/回写**绝不**含 kb_id/doc_id/api_key/原文/storage_ref/模型内部 id。
+- 新枚举 `AuditAction.ingest_index_failed = "ingest.index_failed"`。
+- 测试：`tests/test_weknora_r1.py`（新增 init wrapper 单测、建库即初始化、初始化失败置 init_failed 不假成功、init_failed 重试恢复、上传失败保资产标 index_failed）；`tests/test_pbc10b_...`（项目创建预建 KB、底座失败仍建项目）。
+- **留给后续**：模型 CRUD/配置中心页面（PBC-11A）、索引失败批量重试/运维面板（PBC-11C）、错误提示分层（PBC-11F）。
+
+## PBC-11C：索引状态可见性 + 失败重试 + 运维面板
+
+把 PBC-11B 的索引状态字段变成可见、可操作的恢复闭环。蓝图 `docs/backend/11-...INTEGRATION_RETRIEVAL.md` §7.1。
+
+- **共享索引机制**：`app/services/indexing.py::index_asset_version`（建库+初始化+上传+回写 version 索引状态 + `mark_index_failed`）。confirm（`ingest._index_asset`）与 retry（`knowledge.retry_index`）共用，与 `IngestTask` 解耦（调用方传 `file_bytes` + 安全文件元数据）。**绝不**回滚业务资产、绝不外泄 kb/doc/key。
+- **状态可见**：`KnowledgeListItemOut` / `KnowledgeDetailOut` 增安全 `index_status` / `weknora_parse_status` / `index_error_message` / `indexed_at`（详情另含 `index_error_code`）；`AccessInfoOut.can_retry_index`（后端权威）。列表批量加载 current_version 索引字段（`_version_index_map`，避免 N+1）。dev_seed 已索引资产标 `index_status=indexed`。
+- **单条重试**：`POST /api/v1/knowledge/{asset_id}/retry-index`（`app/api/knowledge.py`）。仅 `index_failed | not_indexed | skipped` 的 active 版本；`indexed` → 409 `knowledge_index_already_indexed`。权限 `_can_retry_index`：个人 owner / 项目 active project_manager·coach / 公司治理，治理跨项目；纯 admin → 403（不可发现 → 404）。底座未配置 → 标 `skipped` 返回；底座仍失败 → `index_failed` + 安全 error_code。审计 `knowledge.index_retry_requested|retried|retry_failed`（新枚举），区别于 confirm 的 `ingest.index_failed`。
+- **运维面板**：`GET /admin/ops/indexing`（admin 或业务治理角色，`_require_ops_viewer`）。安全计数（index_failed/indexing/not_indexed/skipped/parse_pending/parse_processing/kb_init_failed）+ 最近 20 条失败资产安全摘要。**标题边界（PBC-10D）**：治理角色见真实标题；纯 admin 标题隐藏、owner 名隐藏（`title_visible=False`）。响应**绝不**含 kb_id/doc_id/api_key/内部存储引用/原文。
+- **refresh-parse vs retry-index 边界**：`refresh-parse` 只读对账 `weknora_parse_status`，不重传、不改 `index_status`；`retry-index` 是「重新推进底座」唯一入口。（批量化 / reparse 见 PBC-15。）
+- 前端：`/knowledge` 列表索引小角标；`/knowledge/:id` 详情「知识底座索引」区 + 重试按钮（仅 `can_retry_index`）；`/admin/ingest` 增「知识底座索引运维」面板。
+- 测试：`tests/test_pbc11c_index_status_retry.py`（列表/详情安全字段无泄露、owner/PM/治理重试、非 owner/纯 admin 拒绝、重试仍失败、indexed 409、ops 面板安全 + 标题边界 + 非治理 403）。
+- **留给后续**：错误提示分层（PBC-11F）、模型配置中心（PBC-11A）、微盘目录浏览（PBC-11D）、批量重试 / 后台队列 / reparse（PBC-15）。
+
+## PBC-15：索引批量重试 / 显式 reparse / 后台队列
+
+把 PBC-11C 留下的「批量重试 + 后台队列 + reparse 封装」补齐。运维可对筛选出的资产发起批量底座运维，进入后台作业异步执行，不在 HTTP 请求里逐条阻塞。
+
+- **运维任务表**：`indexing_operation_jobs`（迁移 `0027`，create_table，PG/SQLite 兼容、可逆）。字段 `operation_type`(retry_index|reparse) / `status`(queued|running|completed|completed_with_errors|failed) / 安全 `scope_filter`(JSON) / `requested_by_user_id` / 时间戳 / `total/success/failed/skipped_count` / 安全 `error_code`(经 `error_catalog.safe_code`)+`error_message` / `trace_id`。**绝不**存原文 / 文件名 / storage·source ref / WeKnora kb·doc id / 上游原始 message。
+- **批量 retry-index**：`POST /admin/ops/indexing/retry`（`app/api/ops.py`）。仅 ops viewer（admin 或业务治理角色，`_require_ops_viewer`）；请求体 `{scope, project_id?, statuses, limit}`，`statuses` 白名单过滤（仅 `index_failed|skipped|not_indexed`，**绝不**含 indexed），`limit` 上限 200；返回 `202` + 安全 job 摘要。
+- **显式 reparse**：`POST /admin/ops/indexing/reparse`。请求体 `{scope, project_id?, parse_statuses, limit}`，选已 `indexed` 且 `weknora_parse_status ∈ {failed,pending,processing}` 且有 doc 的资产。**WeKnora 无独立 reparse 端点**，封装为「受控重传」`WeKnoraClient.reparse_knowledge`（先删旧 doc + 重新上传原文触发底座重新解析，**会更新 `weknora_doc_id` 为新 doc**）；`indexing.reparse_asset_version` 写最终 `index_status`(保持 indexed)/`weknora_parse_status`(新解析态)，失败 → `index_failed`（可再试）。与 retry-index 差异：retry 用于尚未进底座的资产（建库+首次上传），reparse 用于已进底座但解析异常的资产。
+- **后台作业**：`indexing.run_operation_job` Celery 任务（`app/worker/tasks/indexing.py`，loop-local engine）+ `enqueue_indexing_operation`（eager 内联跑完 / 非 eager 排队返回 queued）。核心 `app/services/jobs/indexing_operations.py`：按安全筛选选 active 资产**标量快照**（避免循环内 `rollback()` 过期 ORM 触发 MissingGreenlet）、逐条复用 `index_asset_version`/`reparse_asset_version`，**单条失败不终止整个 job**；`failed==0 → completed`，否则 `completed_with_errors`；job 级异常 → `failed` + 安全 code/message。
+- **作业查询**：`GET /admin/ops/indexing/jobs`（最近 20）。仅安全统计 + 安全筛选条件 + 安全错误文案 + 发起人姓名；**不返回**所处理资产标题 / 原文 / 文件名 / WeKnora id / 存储引用。
+- **审计**：`knowledge.index_batch_retry_requested|completed`、`knowledge.index_reparse_requested|completed`（operation，新枚举）。extra 只放 `job_id` / `operation_type` / 安全 `filters` / `counts` / `trace_id`，**绝不**含标题 / 原文 / 内部 id。
+- **前端**：`/admin/ingest`「知识底座索引运维」面板增批量「重试索引」（默认 index_failed，可勾选含 skipped/not_indexed，limit 20/50/100/200）、「重新解析（底座）」按钮（文案明确这是底座解析运维、不改权限放行）、最近作业列表（类型/状态/计数/发起人/时间/安全诊断）。不渲染任何 kb/doc id / 存储引用 / token。
+- 测试：`tests/test_pbc15_indexing_operations.py`（入队权限 admin/治理可·普通业务用户拒、批量执行多条 index_failed→indexed、单条失败不影响其他条 completed_with_errors、indexed 不被选中、reparse 受控重传刷新解析、refresh-parse 仍只读不重传、job list/审计无标题·原文·WeKnora id·storage/source ref 泄露、纯 admin 无标题泄露）。
+- **仍未实现（非目标）**：OCR / 扫描件识别、结构保持式文件重写、Ollama/LLM 脱敏、历史资产全量重索引策略系统。
+
+## PBC-16：Knowledge 运营洞察 API
+
+把 `/knowledge` 右侧的本地规则洞察升级为**真实后端安全聚合**。
+
+- **API**：`GET /api/v1/knowledge/ops-insights`（`app/api/knowledge.py`，注册在 `/knowledge/{asset_id}` 之前避免 UUID 误匹配）。参数 `scope`(personal|project|company|all) / `project_id` / `days`(默认30,≤180) / `limit`(默认10,≤50)。响应：`title_visible` / `cards` / `indexing` / `access` / `lifecycle` / `recommendations` / `recent_items`。
+- **权限矩阵**（`knowledge_insights._require_access` + `_asset_visibility_conditions`）：未登录/inactive/非业务非 admin → 403 `insights_forbidden`；纯 admin（系统运维）→ 系统聚合但 `title_visible=false`、recent_items 标题隐藏、可见 ops 作业摘要；boss/咨询总监 → 公司/跨项目治理聚合 + title-visible drilldown（排除他人个人知识）；项目经理/coach/普通业务用户 → 限本人资产 + 所在项目资产聚合。**不绕过 `/knowledge` 发现权限**：他人个人知识不计入、不下钻。
+- **真实信号来源**：indexing 来自 `knowledge_asset_versions.index_status`/`weknora_parse_status` + `weknora_kb_mappings.status==init_failed` + `indexing_operation_jobs`（仅 ops viewer 见作业摘要，沿用 PBC-15 边界）；access 来自 `original_access_requests`（pending / 自动审批=`reviewer_user_id IS NULL`+`status=approved` / overdue=按 `access_request_timeout_hours` cutoff 的旧 pending）；lifecycle 来自 `asset_lifecycle_events`(archive_candidate/warning)、`knowledge_assets.asset_status==needs_update`、`audit_events.action==knowledge.upgrade_recommended`。cards / recommendations 由真实计数派生（仅非零信号，空则前端显示「暂无需要处理的运营项」），**不用假数字**。
+- **安全**：drilldown item 仅 `asset_id`/safe scope/index_status/safe message(`error_catalog`)/updated_at；标题按 `title_visible` 边界。响应 / 服务**绝不**含 weknora kb/doc id、storage/source ref、download URL、token/cookie/api_key、provider 内部 id、文件名、原文——这些只作 server-only 查询条件。
+- **前端**：`/knowledge` 右侧 `kl-aside` 由 `fetchKnowledgeOpsInsights` 驱动，展示真实 cards / recommendations / recent 失败项 / 最近作业；空态诚实、失败显示安全错误态不回退假数据；颜色按 severity 派生（仅 UI，非业务事实来源）。删除原「运营洞察接口为后续增强」本地提示。
+- 测试：`tests/test_pbc16_knowledge_ops_insights.py`（非业务非 admin 403、普通业务用户限本人/项目范围且跨项目不下钻、纯 admin title 隐藏但计数在、治理 title 可见 + 公司范围、indexing/access 真实统计、overdue 依赖 timeout 规则、空态诚实、days/limit clamp、无 WeKnora id/存储引用/文件名泄露）。
+- **仍未实现（非目标）**：OCR、结构保持式文件重写、Ollama/LLM 脱敏、历史资产全量重索引、登录安全进阶。
+
+## PBC-17：生产部署守卫与安全烟测
+
+把"上线前可验证的安全/运行守卫"做成代码可测、脚本可跑、文档可执行的闭环（**无新 API 形状、无新 migration**）。
+
+- **Cookie Secure 生产守卫**（`app/core/config.py` + `app/api/auth.py`）：新增 `SESSION_COOKIE_SECURE`（默认 None=按环境推断）。`session_cookie_secure(settings)` 统一决定有效 Secure：**`APP_ENV=prod` 强制 True**（即使显式注入 `false` 运行时也不退让），非 prod 读配置、默认 False（便于 http://localhost）。login / OAuth `wecom/start` state / OAuth `wecom/callback` 三处会话/state cookie 经统一 helper（`_set_session_cookie` / `_set_oauth_state_cookie`）下发，不再各自硬编码 `secure=False`。`session_cookie_secure_misconfigured()`：prod 下显式 `false` → `/health/config` 报 blocker（运行时仍被强制安全，但向运维诚实暴露错误配置）。
+- **`/health/config` 生产就绪诊断**（`app/api/ops.py`）：在 `integrations` / `missing_config` 之外新增 `production_ready` / `production_blockers` / `production_warnings`（**只回安全项名 / 布尔，绝不回值/密钥/URL/连接串/内部 id**）。blockers **仅 prod 评估**（非 prod 恒空，避免误判本地 eager 开发为失败）：`CELERY_TASK_ALWAYS_EAGER`（prod 必须接真实 worker）、`SESSION_COOKIE_SECURE`（显式 false）、WeKnora 启用缺 `WEKNORA_EMBEDDING_MODEL_ID` / `WEKNORA_MODEL_REF_SECRET`、ONLYOFFICE 启用缺 `ONLYOFFICE_DOCUMENT_SERVER_URL` / `ONLYOFFICE_JWT_SECRET`、企微通知启用缺 `WECOM_CORP_ID/WECOM_APP_SECRET`。`production_ready = APP_ENV==prod and not blockers`（非 prod 恒 False——按定义不是生产部署）。warnings（不阻断）：`LLM_NOT_CONFIGURED` / `WEKNORA_NOT_CONFIGURED`。
+  - **为什么 ONLYOFFICE_JWT_SECRET 是 blocker**：代码 `build_view_config` 仅在配了 secret 时签 JWT；生产 Document Server 通常**强制 JWT**，未签名 config 会被拒/不安全，故 prod 启用 ONLYOFFICE 时把缺 JWT secret 视为硬阻断（与"生产安全签名"对齐）。
+- **安全烟测脚本**（`scripts/production_smoke.py`，**纯标准库**，不读 `.env`、不调 `docker compose config`）：参数 `--base-url`（默认 `$KAP_BASE_URL` 或 `http://localhost:18080`）/ `--fail-on-production-blockers` / `--json`。探活 `/health`、`/health/ready`、`/health/config`（只摘白名单安全字段）、前端入口 `/`（HTML+200）、未登录 `/admin/ops/summary`（401/403=鉴权生效）。**输出只打印端点名 / HTTP status / 安全字段摘要**，绝不打印响应正文 / Authorization / cookie / api_key / 连接串。退出码：health 或 ready 不通过 → 非 0；`--fail-on-production-blockers` 且存在 blockers → 非 0；admin 401/403 → 0。
+- **trace_id 跨链路回归**（已存在的传递经测试锁定，本轮无功能改动）：HTTP `X-Trace-Id` → enqueue → worker service（`ingest.ai_extracted`/`ingest.failed` 审计）/ 索引作业（`indexing_operation_jobs.trace_id` 落库 + WeKnora upload/reparse 收到同一 trace_id + 完成审计沿用）均沿用同一 trace_id；trace_id 仅作链路关联，**不是鉴权凭证、不放大数据访问**。
+- 测试：`tests/test_pbc17_production_guards.py`（cookie secure 规则 + prod login/start/callback Set-Cookie 含 Secure + 本地不强制；`/health/config` 各 blocker / production_ready；trace_id 跨 HTTP→worker→WeKnora→审计）、`tests/test_pbc17_production_smoke.py`（脚本 redaction / 安全摘要 / HTML 判定 / 退出码 / 无密钥输出，用 fake opener，不启动 Docker）。`tests/conftest.py` 测试 client 改用 `https://test` 基址，使 prod 守卫下发的 Secure cookie 在 cookie jar 中正常回送。
+- **仍需真实运维执行（PBC-17 不替代）**：真实域名、HTTPS/TLS 证书与反代、WeCom trusted callback domain、真实 secret 注入（WeKnora/LLM/企微/ONLYOFFICE）、镜像重建、DNS、对象存储、指标/告警后端接入。**不做** K8s/Helm/云密钥管理/真实公网部署，**不建议**运行会展开 `.env` 密钥的 `docker compose config` 完整输出。
+
+## PBC-18：登录失败守卫与安全审计
+
+最小登录失败风控闭环：记录失败尝试、按不可逆标识短时锁定 / IP 限流、保持统一用户态错误、给审计/运营留不可逆安全线索。**不做** MFA / 找回密码 / 密码轮换 / 多设备会话 / 全站 CSRF。
+
+- **新表 / migration**：`auth_login_attempts`（`app/models/auth_security.py` + 迁移 `0028_auth_login_attempts`，PG/SQLite 兼容、可逆）。字段全为 server-only 安全统计：`identifier_hash`(HMAC-SHA256，不可逆) / `identifier_hint`(hash 前缀) / `user_id`(已知用户，未知 email=null) / `ip_hash`(HMAC，无原始 IP) / `login_method` / `result`(failed/success/locked/rate_limited) / `reason_code` / `trace_id` / `created_at`。索引 `(identifier_hash,created_at)`/`(ip_hash,created_at)`/`(user_id,created_at)`。**绝不**存 raw email / password / hash / salt / digest / session token / OAuth state / cookie / token_hash / 原始 IP。
+- **配置**（`config.py`）：`AUTH_ATTEMPT_HASH_SECRET`（仅 HMAC key，绝不外泄；prod 必须配置——缺失 → `/health/config.production_blockers` 含 `AUTH_ATTEMPT_HASH_SECRET`；非 prod 空值回退稳定常量）+ `AUTH_FAILED_WINDOW_MINUTES`(15) / `AUTH_MAX_FAILED_ATTEMPTS`(5) / `AUTH_LOCKOUT_MINUTES`(15) / `AUTH_IP_FAILED_WINDOW_MINUTES`(15) / `AUTH_IP_MAX_FAILED_ATTEMPTS`(30)。服务层对 `<1` 的非法阈值钳制为安全默认（绝不无限放行）。
+- **服务**（`auth_security.py`）：`normalize_login_identifier`(去空白+小写) / `hash_login_identifier(value, purpose)`(HMAC，purpose 命名空间隔离 identifier vs ip) / `check_login_guard` / `record_login_attempt` / `record_login_success`。锁定语义：identifier 维度自**最近一次成功之后**、窗口内失败类计数达阈值且距最近失败不足 `lockout_minutes` → locked；IP 维度窗口内失败达阈值 → rate_limited；成功写 success 后 identifier 失败计数从此重置。
+- **`/auth/login` 集成**（`auth.py` + `auth_session.py`）：password 登录先 `check_login_guard`；命中则**不做真实 PBKDF2**（也不 dummy_verify）直接安全拒绝——这是有意为之的资源保护：锁定的目标就是停止在暴力尝试下消耗 PBKDF2，而统一 401 + 已知/未知 identifier 同样处理已消除账号枚举，残留的计时差异只暴露"该 identifier/IP 当前被限流"（非账号存在性）。正常路径：成功写 success attempt + `login.success`；失败写 failed attempt，已知用户保留归属 `login.failed`，未知 email 改写 `record_system_event(actor=None)` 的 `login.failed`。
+- **统一错误**：未知用户 / 密码错 / 未设密码 / inactive / locked / rate_limited 一律 401 `invalid_credentials` + 同一文案「邮箱或密码错误，请稍后再试」，**不区分**、不返回 429（避免限流状态成为枚举信号）。前端只显示该安全文案，不显示阈值 / 锁定原因。
+- **审计**：新增 action `login.locked` / `login.rate_limited`（系统事件，actor=None）；未知 email 失败用系统 `login.failed`。extra 只含 `login_result` / `login_method` / `reason_code` / `identifier_hash_prefix` / `ip_hash_prefix` / `failed_count` / `window_minutes` / `lockout_minutes`——**绝不**含 raw email / email 域名 / password / hash / salt / digest / raw IP（系统事件）/ token / cookie / OAuth state。已知用户 `login.failed` 沿用既有口径（含 `ip_address`）+ 补安全 `reason_code` / `identifier_hash_prefix`。
+- **前端**：`/admin/audit` 登录 tab 为 `login.locked` / `login.rate_limited` 补安全中文 label（`auditDisplay.ts`）；不展示内部阈值 / hash 全量。
+- **测试**：`tests/test_pbc18_auth_failed_login_guards.py`（known/unknown 失败记录、锁定后跳过真实 verify、统一 401 不泄露锁定态、成功重置预算、IP 限流服务层、阈值钳制、hash 不可逆+purpose 隔离、prod 缺 secret blocker、非 prod 不阻断、attempts/审计/响应无泄露）。
+- **后续（本任务明确不做）**：MFA/OTP、找回密码/邮件找回、密码轮换/强制过期、多设备会话 UI、admin 手动解锁 API、查看用户锁定状态页（如需 admin-only 解锁留作后续）。
+
+## PBC-19：Cookie 会话 CSRF 防护
+
+为浏览器 cookie 会话下的有副作用请求提供统一 CSRF 校验（**无新业务表 / 无 migration**）。**不做** MFA / 找回密码 / 密码轮换 / 多设备会话 / OAuth 自动建用户。
+
+- **token 机制**（`app/services/csrf.py`）：无状态签名 token `"{expiry}.{nonce}.{sig}"`，`sig=HMAC-SHA256(key=CSRF_TOKEN_SECRET, msg=f"{expiry}.{nonce}.{session_binding}")`，`session_binding=sha256(raw kap_session)`（无会话=`"anon"`）。绑定 session → 一个会话签发的 token 不能跨会话重放；带过期；synchronizer-token 形态（JSON 下发 + `X-CSRF-Token` 头回送，**不**下发可读 CSRF cookie）。`CSRF_TOKEN_SECRET` 仅 HMAC key，prod 必须配置（缺失 → `/health/config.production_blockers` 含 `CSRF_TOKEN_SECRET`），非 prod 回退稳定常量。
+- **发放端点**：`GET /api/v1/auth/csrf`（安全方法，自身免校验）→ `{csrf_token, expires_at}`，绑定当前 `kap_session`（或 anon）；**不返回** session token / cookie 值 / secret。
+- **中间件**（`app/core/csrf.py::CsrfMiddleware`，注册在 `TraceIdMiddleware` 内层 → 403 仍带 `X-Trace-Id`）：仅当 `method∈{POST,PUT,PATCH,DELETE}` **且** 带 `kap_session` cookie **且** 无 `Authorization` 头 **且** path 非豁免时校验；在业务 handler 前 fail-closed → 失败请求无业务写入 / 无业务审计。校验无状态（HMAC + cookie 派生绑定，**不触 DB**）。
+- **三类请求**：①cookie 会话 unsafe → 必须带有效 `X-CSRF-Token`，否则 403；②dev `X-Dev-User-Id`（无 cookie）→ 跳过；③`Authorization: Bearer`（外部 Agent / Dify）→ 跳过（Bearer 鉴权不依赖 ambient cookie，不在 CSRF 面）。
+- **登录 / 登出 / OAuth 边界**：`/api/v1/auth/login` 豁免（新用户登录前不可能持 token，登录成功前端随后取新 token）；`/auth/logout` 受 CSRF 保护（unsafe + cookie）；WeCom OAuth `start`/`callback` 为 GET（安全方法）天然不校验，OAuth state 校验语义不变（不把 OAuth state 当全站 CSRF token）。
+- **失败响应**：统一 403 + 安全 reason_code（`csrf_token_missing` / `csrf_token_invalid` / `csrf_token_expired`）+ 固定用户文案「请求校验失败，请刷新页面后重试」，**不回显** token / cookie / header 值。
+- **CSRF 失败不写审计**：避免攻击流量放大审计；依赖 HTTP 访问日志 / metrics（`TraceIdMiddleware` 已记 method/path/status/trace_id）。测试证明失败请求不产生业务写入 / 业务审计。
+- **前端**（`src/api/client.ts`）：CSRF token 仅**内存缓存**（绝不入 localStorage/sessionStorage）；`ensureCsrfToken()` 取并缓存，所有 unsafe API 自动带 `X-CSRF-Token`；CSRF 403 时刷新一次 token 重试（仅一次，不循环）；登录成功后清旧 token 并预取绑定新会话的 token，登出后清理。
+- **配置**：`CSRF_TOKEN_SECRET`（prod 必配）+ `CSRF_TOKEN_TTL_MINUTES`(720)。
+- **测试**：`tests/test_pbc19_csrf_guard.py`（缺/无效/过期 403、有效成功、session 绑定、login 豁免、dev/Bearer 不误伤、OAuth callback GET 不受影响、CSRF 失败无业务写入/审计、prod blocker、service 单元）；`tests/test_auth_session.py` / `tests/test_pbc12_password_login.py` 的 cookie 会话 mutation 用例改为先取 `/auth/csrf` 再带 `X-CSRF-Token`。
+- **未做**：MFA / 找回密码 / 密码轮换 / 多设备会话 UI / OAuth 自动建用户 / WebAuthn / WAF。
+
+## PBC-20：登录风控运维 + 手动解锁
+
+admin-only 登录风控运营闭环：安全聚合面板 + 手动解除 identifier 短时锁定（**无新表 / 无 migration**）。**不做** MFA / 找回密码 / 多设备会话 / WAF / IP 黑名单 / 删历史 attempt。
+
+- **API**（`app/api/ops.py` + `app/services/auth_security_ops.py`，复用既有 `/admin/ops/*` 风格 + `_require_admin`）：
+  - `GET /admin/ops/auth-security`：参数 `window_minutes`(默认60,≤7d) / `limit`(默认20,≤100) / `result`(failed|locked|rate_limited|success|unlocked 可选过滤)。响应 `window_minutes` + `counts`(failed/locked/rate_limited/success/unlocked/unique_identifier_count/unique_ip_count) + `recent_events`（`attempt_id` / `identifier_hash_prefix`(≤12) / `ip_hash_prefix` / `user_id` / `user_name`(仅已知用户) / `user_status` / `login_method` / `result` / `reason_code` / `created_at`）。**只读、不写审计**（避免读放大）。
+  - `POST /admin/ops/auth-security/unlock`：二选一 `user_id`（推荐，后端从 `users.email` server-only 算 identifier_hash）或 `identifier_hash_prefix`（≥8 位且近期唯一）；可选 `reason`(≤200)。响应 `{ok, unlocked, user_id, identifier_hash_prefix, reset_at}`。cookie-auth unsafe → 受 **PBC-19 CSRF** 保护。
+- **reset anchor**（PBC-18 复用）：`auth_login_attempts` 新增 `result="unlocked"` 语义（**无 enum 表 / 无 migration**，result 本就是 String）。`check_login_guard` 的 `_FAILED_RESULTS` **不含** unlocked；`_last_reset_anchor_at` 把 reset anchor 从「仅 success」扩展为 `("success","unlocked")`——unlocked 锚点（最新）使 identifier 失败计数从其之后重算 → 解除锁定。
+- **手动解锁语义**：只写一条 `result="unlocked"`（`ip_hash=None`、`login_method="manual_unlock"`、`reason_code="manual_unlock"`）reset anchor + `auth.lockout_unlocked` 审计；**不**删历史 attempt、**不**绕过密码校验、**不**建会话、**不**改密码、**不**重置 IP rate limit（anchor 不带 ip_hash，IP 维度照常统计）。
+- **prefix 唯一性 + 字面 hex**（含 PBC-20-Residual）：`identifier_hash_prefix` 先 `strip().lower()`；长度 <8 → 422 `unlock_prefix_too_short`；非十六进制（`[0-9a-f]+` 之外，含 SQL `LIKE` 通配符 `%`/`_`、空白、`-`）→ 422 `unlock_prefix_invalid`（identifier_hash 是 sha256 hex，强制 hex 后 `LIKE prefix+"%"` 不含任何用户可控通配符，按字面前缀匹配）；近期无匹配 → 404 `unlock_identifier_not_found`；匹配到多个 distinct identifier_hash → 409 `unlock_identifier_ambiguous`；唯一 → 解锁。不接受 raw email。
+- **权限矩阵**：仅 active admin（`_require_admin`，缺权 403 `ops_admin_required`）；boss / 咨询总监 / consultant / project_manager / coach 全部 403。纯 admin 访问登录风控**不**获得任何业务知识原文 / 标题 / 文件名权限（端点只返回风控数据）。
+- **审计**：`auth.lockout_unlocked`（log_type=`operation`，actor=admin）。extra 仅 `target_user_id`(如有) / `identifier_hash_prefix` / `reset_attempt_id` / `matched_attempt_count` / `window_minutes` / `unlock_reason`(可选,截断)。**绝不**含 raw email / raw IP / 完整 identifier_hash·ip_hash / password·hash·salt·digest / session token / token_hash / cookie / OAuth state。
+- **前端**：`/admin/auth-security`（导航「登录风控」）。计数卡 + 最近事件表（安全显示名 / hash 前缀 / 原因 / 时间）+ 对可定位锁定事件的「解锁」按钮（用 `user_id` 或 hash 前缀）；解锁成功刷新；失败显示安全文案；CSRF 由统一 client 自动附带；不在 localStorage/sessionStorage 存任何 token/hash。
+- **测试**：`tests/test_pbc20_auth_lockout_ops.py`（admin 可看；boss/director/consultant/pm 403；无泄露；user_id 解锁后正确密码可登录；解锁不重置 IP；prefix 唯一/不存在 404/多匹配 409/过短 422；审计安全；无 CSRF 解锁 403 且无审计；有 CSRF 成功）。
+
+## PBC-21：账号安全变更时撤销平台会话
+
+最小生产级会话撤销闭环：账号停用 / 改密 / admin 强制下线时撤销目标用户的平台会话（**复用既有 `user_sessions.revoked_at`，无新表、无 migration**）。**不做** MFA / 找回密码 / 设备指纹 / 风险评分 / 多设备管理产品。
+
+- **撤销服务**（`app/services/session_revocation.py`）：`revoke_user_sessions(session, user_id, *, exclude_token_hash=None)` 把目标用户「未撤销且未过期」的会话标记 `revoked_at`（**不删行**），可排除当前会话；`list_sessions` / `active_session_count` 返回安全元数据。`token_hash` 仅作 server-only 比对（标记 / 排除当前会话），**绝不**外泄。
+- **API**（`app/api/ops.py`，admin-only `_require_admin`）：
+  - `GET /admin/ops/sessions/users/{user_id}` → `{user_id, active_count, sessions[{session_id, login_method, created_at, last_seen_at, expires_at, revoked_at, active, is_current_actor_session}]}`。`session_id` 是 `UserSession.id`（安全行标识，**非** token hash）。**绝不**返回 token / token_hash / cookie / ip / device_info / user-agent。
+  - `POST /admin/ops/sessions/users/{user_id}/revoke`（body `{reason?, preserve_current_session?}`）→ `{ok, user_id, revoked_count, revoked_at, preserved_current_session}`。cookie-auth unsafe → 受 **PBC-19 CSRF** 保护。`preserve_current_session` 仅当目标==当前 admin 自己时生效。
+- **自动撤销 hook**：
+  - **改密**（`people.set_password`，已有路径）：改密成功后撤销目标用户**全部**活动会话（含 admin 改自己密码——强制重登，无保留），写 `auth.sessions_revoked` trigger=`password_reset`。
+  - **停用**（新增 `POST /api/v1/admin/people/{user_id}/status`，body `{status, reason?}`，admin-only）：active→inactive 撤销目标全部活动会话，trigger=`user_deactivated`。fail-closed：不能停用自己（409 `cannot_deactivate_self`）、不能停用最后一个可用 admin（409 `last_active_admin_protected`）。inactive→active 不撤销。
+  - **角色 / 项目成员变更**：**不**联动撤销——授权每请求实时从 DB 读角色 / 成员关系，无陈旧会话风险，故不加撤销。
+- **权限矩阵**：admin → 全部会话运维 + 停用；boss / 咨询总监 / consultant / project_manager / coach / 普通业务用户 → 会话运维 403 `ops_admin_required`、停用 403（people admin-only）。纯 admin 仅获会话安全运维，**不**因此获得业务知识标题 / 原文 / 文件名权限。`/auth/logout` 仍是用户自助登出路径。
+- **审计**：`auth.sessions_revoked`（log_type=operation，actor=admin）extra 仅 `target_user_id` / `revoked_count` / `trigger`(admin_manual/password_reset/user_deactivated) / `preserved_current_session` / `reason`(可选截断)；`config.people_status_updated`（停用/启用）extra 仅 `target_user_id` / `old_status` / `new_status`。**绝不**含 token / token_hash / cookie / OAuth state / password·hash·salt·digest / raw IP / user-agent。
+- **前端**：`/admin/people` 用户详情新增「活动会话」计数 + 「撤销全部会话」「停用/启用账号」按钮（仅安全计数与状态；CSRF 由统一 client 自动附带）；`PersonOut.active_session_count` 仅详情接口返回。
+- **测试**：`tests/test_pbc21_session_revocation.py`（admin 可列会话；boss/director/consultant/pm 403；无泄露；手动撤销使会话失效；停用 / 改密联动撤销；不能停用自己；无 CSRF 撤销 403 且无审计；有 CSRF 成功；preserve_current_session 保留当前 admin 会话）。
+
+## PBC-22：企微身份生命周期同步
+
+把平台用户生命周期对齐其绑定的企微成员有效性（**复用既有 WeCom OAuth 凭证，无新 config、无 migration、无 /health blocker**）。**不做** 自动建用户 / 组织树同步 / 部门角色映射 / 通讯录档案展示 / Celery 定时同步。
+
+- **成员状态 wrapper**（`wecom_client.py`）：`WeComOAuthClient.get_member_status(wecom_user_id) -> WeComMemberStatus`（调官方 `GET /cgi-bin/user/get`，只读 `errcode`/`status`，**不读** name/mobile/email/department/avatar）。`normalize_member_status` 归一：`status==1`→`active`(active=True)；`2`→`disabled`、`4`→`not_activated`、`5`→`deleted`、errcode 60111/60121/46004→`deleted`、其余→`unknown`（均 active=False，**fail-closed**）。`WeComMemberStatus{wecom_user_id(server-only), active, status_code, status_message(安全中文)}`——`wecom_user_id` 不进 API 响应，`status_message` 非上游 errmsg。`NullWeComOAuthClient.get_member_status` 抛 `wecom_not_configured`。
+- **OAuth 回调**（`GET /api/v1/auth/wecom/callback`）：state 校验 → 换 `wecom_user_id` → 载平台用户 → **建会话前核验成员状态**：
+  - 上游/未配置错误 → fail-closed，不建会话、**不改**平台状态（避免瞬时故障误停用），写 `login.failed`(reason_code=`wecom_status_check_failed`)，401 `wecom_status_check_failed`；
+  - 成员失效（disabled/deleted/not_activated/unknown）→ 停用平台用户（若 active）+ 撤销活动会话（PBC-21）+ 系统审计 `identity.user_deactivated_by_wecom_sync`(trigger=`oauth_callback`)，401 `wecom_user_inactive`；
+  - 成员有效但平台用户已被 admin 停用 → 维持既有 401 `user_inactive`；
+  - 未绑定平台用户 → 维持既有 403 `user_not_provisioned`（不自动建用户）；
+  - 成员有效 + 平台 active → 建会话（既有 `login.success`）。绝不存/返 code/access_token/state。
+- **admin 对账 API**（`app/api/ops.py` + `app/services/wecom_identity.py`，admin-only `_require_admin`，cookie-auth unsafe → PBC-19 CSRF）：`POST /admin/ops/wecom-identity/reconcile` body `{user_id?, limit=100, dry_run=false}`（`limit` clamp ≤200）。`user_id` 给定则仅对账该绑定用户（未绑定→422 `user_not_wecom_bound`，不存在→404）；否则对账 `wecom_user_id` 非空用户前 N 个。响应 `{ok, checked, deactivated, already_inactive, failed, dry_run, items[{user_id, user_name(平台显示名), previous_status, new_status, wecom_status, sessions_revoked, error_code}]}`。失效成员 → 停用 + 撤销会话；`dry_run` 只预演 `new_status` 不变更/不审计；上游错误 → 该项 `error_code`（安全 code）+failed++，**不改**状态。**不返回** raw wecom_user_id / 档案 / token / errmsg。
+- **停用条件**：仅当企微成员**非 active** 且平台用户当前 active → `users.status=inactive` + 撤销活动会话。已 inactive 仅撤销残留活动会话；上游错误不停用；**不删用户、不动公司角色 / 项目成员关系 / 资产权限**。
+- **权限矩阵**：reconcile → 仅 active admin；boss / 咨询总监 / consultant / project_manager / coach / 普通业务用户 → 403 `ops_admin_required`。纯 admin 仅获身份运维，**不**因此获业务标题 / 原文 / 文件名权限。回调仍是公开 OAuth 回调但 fail-closed。
+- **审计**：`identity.user_deactivated_by_wecom_sync`（回调=系统事件 actor=None / 对账=actor admin）extra 仅 `target_user_id`/`trigger`(oauth_callback|admin_reconcile)/`wecom_status`(归一 code)/`previous_status`/`new_status`/`sessions_revoked`；`identity.wecom_user_synced`（对账批量摘要）extra 仅 `trigger`/`checked`/`deactivated`/`already_inactive`/`failed`/`dry_run`。**绝不**含 access_token / app_secret / OAuth code·state / raw wecom_user_id / 上游 payload·errmsg / 手机·邮箱·部门·头像等档案 / session token·hash·cookie。
+- **前端**：`/admin/people` 用户详情对**已绑定企微**用户新增「企微身份对账」按钮（仅显示安全结果：成员是否失效 / 撤销会话数 / 安全文案；不显示 wecom_user_id / 档案 / token）。CSRF 由统一 client 自动附带。
+- **测试**：`tests/test_pbc22_wecom_identity_lifecycle.py`（回调有效建会话 / 禁用 fail-closed 停用+撤销+审计 / 上游错误 fail-closed 不改状态 / 未绑定不自动建用户；对账单用户停用 / dry_run 不变更 / clamp limit / 未绑定 422 / 不存在 404 / 非 admin 403 / 上游错误计 failed；全程无泄露）；`tests/test_r6_wecom.py` 的 FakeOAuth 补 `get_member_status` 默认有效。
+
+## PBC-23：生产部署 Runbook + Live Smoke
+
+把「如何安全部署、如何不泄露密钥地检查、如何做最小 live smoke、失败后如何回滚/排障」收敛为 **repo 内可执行交付**（**无新业务功能、无新 API / migration、无真实公网部署**）。本任务是部署交付，不是业务功能。
+
+- **新增部署文档**（`docs/deployment/`）：
+  - `PRODUCTION_DEPLOYMENT_RUNBOOK.md`：阶段顺序 = ①上线前准备（git commit / 镜像 tag / migration head 一致；`backend`/`worker`/`beat`/`migrate`/`frontend` 同代码版本；`CELERY_TASK_ALWAYS_EAGER=false`；worker+beat 真实运行；共享上传存储；外部依赖连通）→ ②部署顺序（拉/建镜像 → 备份 DB → 迁移 → 起 backend/worker/beat/frontend → health/ready/config → live smoke → 观察日志与审计）→ ③域名与 TLS（前端 nginx 同源反代、TLS 终止位置、`APP_ENV=prod` 强制 Secure cookie 的 HTTPS 依赖、`X-Forwarded-*`/trace header 透传、企微可信回调域名/`WECOM_REDIRECT_URI`）→ ④验证 → ⑤回滚与排障矩阵（migration / backend / worker·beat / blocker / CSRF 403 / HTTP 下 Secure cookie / WeCom callback / WeKnora 索引 / ONLYOFFICE / nginx 404·502）。
+  - `PRODUCTION_SECRET_CHECKLIST.md`：按类别（app/session/csrf/auth · db/redis/celery · WeKnora · LLM · WeCom · ONLYOFFICE · storage · frontend/反代）**只列配置项名**，标注 required/conditional/optional + 对应 `/health/config` blocker/warning/missing_config + 缺失症状 + 安全验证方式。**绝无任何值**；显式写「不要运行/粘贴完整 `docker compose config`（会展开 `env_file` secrets）」。
+  - `LIVE_SMOKE_CHECKLIST.md`：自动脚本（`production_smoke.py`，含 exit code 与「为何输出不含 secrets」）+ 手工 B1–B12（未登录 admin 401/403、密码登录+登出 CSRF、企微 OAuth 配置检查、admin 可达/业务用户不可达 ops、上传 Path B upload→ai-result→confirm、索引状态可见、search 召回 indexed、index_failed/skipped 不召回、原文权限有/无授权边界、WeCom scan 配置页安全显示、ONLYOFFICE 预览、`/health/config` 无 blocker），每步注明操作人角色 / 预期 / 可观察审计 / 不应出现的敏感字段。
+- **脚本增强（最小、安全）**（`scripts/production_smoke.py`）：新增 `--expect-prod-ready`，作为 `--fail-on-production-blockers` 的**别名**（`fail_on_blockers_from_args()` 把二者 OR 合并），给 runbook 更清晰入口；**未新增任何输出面**——仍只打印端点名 / HTTP status / `/health/config` 白名单安全字段，仍不读 `.env`、不调 `docker compose config`、不需 admin cookie。退出码语义不变（health/ready 不通过或 blockers 存在且要求阻断 → 非 0）。`build_parser()` 抽为独立函数便于单测。
+- **测试**：`tests/test_pbc17_production_smoke.py` 新增 `test_expect_prod_ready_is_alias_of_fail_on_blockers`（`--expect-prod-ready` 与 `--fail-on-production-blockers` 解析等价、都不传为 False），不触网络、复用 fake-opener 风格。
+- **边界（PBC-23 不替代真实运维）**：真实公网域名、TLS 证书申请/续期、云密钥注入、DNS、对象存储、云监控、镜像推送仍需实际运维执行；**本仓库不声称已完成真实公网部署**。**未做** K8s/Helm/Terraform/云密钥平台、OCR、MFA/OTP/短信、找回密码/邮件重置、密码轮换、完整多设备会话 UI、结构保持式文件重写、Ollama/LLM 脱敏、历史资产全量重索引。
+
+## PBC-11A：WeKnora 模型配置中心
+
+让 admin 不登 WeKnora 控制台即可管理底座模型与 KB 初始化配置。蓝图 `docs/backend/11-...INTEGRATION_RETRIEVAL.md` §7.2。
+
+- **路由**：`/api/v1/admin/weknora/*`（`app/api/weknora_admin.py`），**admin-only**（company role=admin；业务角色/治理 403）。`providers` / `models`（GET/POST/PUT/DELETE）/ `models/check` / `kb-configs`（GET）/ `kb-configs/{mapping_id}/initialization`（PUT）。
+- **client wrapper**（`weknora_client.py`）：`list_model_providers` / `list_models` / `get_model` / `create_model` / `update_model` / `delete_model`（`/models*`）、`update_initialization_config`（`PUT /initialization/config/:kb_id`）、`check_remote_model` / `test_embedding_model` / `check_rerank_model` / `test_multimodal_model`（`/initialization/*`）。Null client 全部抛 `weknora_not_configured`。
+- **service**（`weknora_models.py`）：把底座原始结果脱敏为安全形态；前端别名 ↔ WeKnora ModelType 映射。
+- **model_ref（server-only id 不外泄）**：`model_id` → 单向 HMAC-SHA256（key=`WEKNORA_MODEL_REF_SECRET`，缺省稳定常量仅 dev 兜底，**生产必须配置**——启用 WeKnora 但缺失时 `/health/config` 的 `missing_config` 会列出），对前端不可逆；`_model_ref` 对空/`"None"` id fail-closed；解析靠「实时列举 + 重算 ref 匹配」，无需 DB 表、无 migration。
+- **错误兜底（PBC-11A residual）**：`/admin/weknora/*` 的所有 `WeKnoraError` 经 `_wrap_weknora` 转固定安全文案（502「底座模型配置调用失败…」/ 503 未配置），**绝不**回显上游 message（可能含 api_key/base_url/model_id/kb_id）；denied_reason 仅在 code 为简单安全标识符时透传。`create_model` 缺上游 id → 502 `weknora_model_create_no_id` fail-closed，不写成功审计、不返回 model_ref。
+- **secret**：模型 `api_key`/`base_url` 仅上送、代理写底座；平台 DB 不存、响应/审计/错误不回显（审计只记 provider/type/名称，新枚举 `weknora.model_created|updated|deleted|kb_config_updated`）。连通性测试只回 success+安全文案（兜底剔除 key/url）。
+- **KB 初始化配置**：用平台 `weknora_kb_mappings.id` 定位（绝不回 `weknora_kb_id`）；更新解析 `model_ref`→真实 id 调底座，成功后 `init_failed`→`active`；不改资产级 `index_status`（仍按 PBC-11C 重试）。
+- **未配置**：安全 503，detail 只回 `missing_config` 项名；权限闸先于配置闸。
+- **前端**：`/admin/weknora-models`（admin 导航「模型配置」）：provider/模型列表、模型创建/编辑/删除（保存后清空、绝不回显密钥）、连通性测试、KB 初始化配置选择与保存（init_failed 醒目）；未配置时只显示缺失项名。新增 `apiPut`/`apiDelete` + `ApiError.detail`。
+- 测试：`tests/test_pbc11a_weknora_model_config.py`（权限、secret 只上送不回显/不入审计、model_ref 不可逆且无真实 id、kb-configs 无 kb_id、ref→server id 解析、未配置 503、连通性测试无泄露）。
+- **不做**：未改 PBC-11B confirm 两段式 / PBC-11C retry-index·ops 语义；未把 `WEKNORA_SUMMARY_MODEL_ID` 接回业务摘要（OQ3）；未做批量重试 / 微盘浏览 / 错误分层。
+
+## PBC-11F：错误提示与诊断分层
+
+同一底座/扫描失败按受众分三层显示，但**都不**泄露密钥/真实 model id/kb id/doc id/内部存储引用/上游原始 message/payload/URL 值。蓝图 `docs/backend/11-...INTEGRATION_RETRIEVAL.md` §7.3。
+
+- **中央目录** `app/services/error_catalog.py`：allowlist `code → {user_message, operator_message, remediation_hint, severity}`；未知 code 降级 `unknown`；别名（`weknora_down`/`http_*`→`weknora_call_failed`，`wecom_*`→`wecom_scan_failed`）。绝不把上游 message/payload/id 拼进文案。
+- **用户态**（`index_error_message`）：`indexing.mark_index_failed` 写入按 code 派生；**响应层（知识列表/详情、retry-index）始终按 `index_error_code` 重新派生**（`knowledge._index_user_message`），历史脏文案永不外显，无需清洗写回。
+- **运营态**：`GET /admin/ops/indexing` 的 `recent_failed[]` 新增 `operator_error_message` / `remediation_hint` / `severity`（可含配置项名，不含值/id/secret）；沿用 PBC-11C 标题边界。前端 `/admin/ingest` 面板展示运营态诊断，`/knowledge/:id` 展示用户态。
+- **系统/审计**：`error_code` + `severity` + `trace` 稳定；审计 extra 不写上游 message。
+- **WeKnora admin**：`_wrap_weknora` 维持固定安全文案（PBC-11A residual，不回退）。**WeCom 扫描**：既有 `error_type`(code)+固定安全 `error_message` 已合规，新增目录条目 `wecom_scan_failed`。
+- 测试：`tests/test_pbc11f_error_layering.py`（目录单元；详情/retry 用户态按 code 重派生、脏文案不外显；ops 运营态三字段+标题边界；上游 leaky 错误用户态/运营态/审计均不泄露；wecom 目录安全）。
+- **留给后续**：批量 retry-index/后台队列、显式 reparse —— 由 PBC-15 实现（见后文）。
+
+## PBC-11D：WeCom 微盘目录浏览与选择
+
+让 admin 在平台内从微盘空间/目录树选择扫描目录，不再手填 `spaceid:<id>;fatherid:<id>`。
+
+- **client**（`wecom_client.py`）：`list_spaces` / `list_directories`（`/cgi-bin/wedrive/space_list` · `file_list`，`# pragma: no cover`）；归一抽成静态 `_to_spaces` / `_to_directories`（仅目录、丢弃普通文件）；`WeComDriveSpace(space_ref,name)` / `WeComDriveDirectory(directory_ref,name,parent_ref,has_children)`，`directory_ref` 即可保存的 `directory_path`。NullClient 补方法抛 `wecom_not_configured`。
+- **API**：`GET /api/v1/admin/wecom-scan/drive/spaces` · `…/drive/directories?space_ref=&parent_ref=`，**admin-only**（`_require_admin`）。响应只回安全选择元数据；未配置 → 安全 503（仅缺失项名）；上游失败 → 502 固定安全文案；非法 ref → 422。
+- **保存兼容**：选择器回填 `directory_ref` → 现有 `create/update config` + `parse_directory_path()` 校验，**无 migration**；旧手填串仍可用。
+- 前端 `/admin/wecom-scan`：`WecomDirectoryPicker`（列空间 → 面包屑钻取 → 使用当前目录）+ `<details>` 高级手动输入 fallback。
+- 测试：`tests/test_pbc11d_wecom_directory_browser.py`。
+
+## PBC-11E：运行时权限规则化
+
+把既有 `permission_rules` 接入真实权限运行时（不重写权限体系）。蓝图 `docs/backend/02-权限模型` + 审计 PBC-11E。
+
+- **运行时 loader**（`permission_rules.py`）：`load_access_policy(session) -> DefaultAccessPolicy` 读 `cross_project_l1_l2_original_for_business_user` / `company_l1_l2_original_for_business_user` 两个 toggle。**fail-closed**：缺失→出厂默认（True，未 seed 不全锁）；**禁用/非 toggle/value 空→False**（治理端禁用即生效，绝不回 True）。`access_request_timeout_hours(session) -> float|None`：仅 enabled+numeric+>0 才返回，否则 None。
+- **decide() 接入**：`decide()` 仍纯函数（默认 `DEFAULT_POLICY`）；所有业务读路径在调用前注入 runtime policy——`knowledge`（列表/详情/我的：`_build_access_info`/`_to_list_item` + discovery 过滤）、`original_access.create_request`、`preview.issue`、`retrieval`（召回逐资产 + 单资产原文取件）。关闭开关后非成员业务用户对跨项目/公司 L1/L2 最多到摘要层，原文 denied；**active access_grant 仍放大到 original**；项目成员/owner/L5 治理/grant 边界与 PBC-10D admin 边界不变。
+- **超时自动审批**（`original_access.auto_approve_timed_out_original_access_requests`）：仅处理早于 `now-timeout` 的 **L1/L2** pending（L3/L4/L5 → `skipped_confidential`）；申请人须 active 业务用户、资产 active 且仍可发现、且「授予 grant 后能拿到 original」（天然排除 L5/他人 personal 硬边界）。finalize 时 `reviewer_user_id=None`（系统审批）、`review_note` 固定安全文案、按 `access_grant_duration_days` 建 active grant（已有 live grant 不重复建）。`granted_by_user_id` 非空 FK 且无系统用户行 → 记为申请人本人（自动性质以 `reviewer=None` + 审计 `auto=True` 标识，不引入 migration/假系统用户）。审计走 `record_system_event`（actor=None）`access.original_approved`，extra 仅 `asset_id/grantee/source_request_id/rule_key/timeout_hours/auto`，无原文/refs/secret。
+- **Celery**：`app/worker/tasks/original_access.py`（`access.auto_approve_timed_out`）+ beat 每 30 分钟；只返回安全统计 `checked/approved/skipped_confidential/skipped_invalid/errors/enabled`。
+- 前端/文档：`/help` roadmap 移除「未接入运行时」旧条目；`权限规则`/`原文访问授权` 说明改为已运行时生效；`permission_rules` 默认描述更新。
+- 测试：`tests/test_pbc11e_runtime_permission_rules.py`（loader 缺失/禁用/非法 fail-closed；toggle 关闭 API `can_view_original` 变化 + grant 仍放大；自动审批各放行/跳过条件、不重复 grant、审计安全、celery wrapper）。
+- **不做**：L1/L2 以外自动审批、把所有规则接运行时、改 PBC-03/06 语义、改 A4/L5 边界。
 
 ## R2：外部 LLM 内容处理（分类 / 三层摘要 / 标签 / 关键知识点）
 
@@ -448,10 +666,10 @@ python -m app.seed.dev_seed
 - 内容处理(`app/services/content_processing.py`,取代 `_build_ai_result`):`process_content` 对 `extracted_text` 调 LLM → 校验 JSON(脏字段回退默认枚举/启发式)→ 写草稿;记录 `llm_provider`/`llm_model`。**LLM 是 advisory**:未配置/调用失败/JSON 解析失败一律**降级到确定性最小草稿 + 标记原因,上传绝不失败**。命名合规仍基于文件名。
 - 草稿列迁移 `0012`(仅 ALTER `ingest_task_ai_results`,可逆):`suggested_one_liner`(Text) / `suggested_key_points`(JSON) / `llm_provider` / `llm_model`;`suggested_summary` 复用为 detailed。**不动其它表、不动 WeKnora 链路。**`key_points` 写资产无需迁移(summaries 为 String 存储)。
 - confirm 三层摘要写穿:`_build_summaries` 扩展为建 `one_liner` + `detailed` + **`key_points`**(+ L3/L4 `redacted_summary`);`IngestConfirmRequest` 增 `one_liner`/`key_points`(可选,向后兼容)。**AI 推荐与人工确认独立存储**(系统设计 §181):suggested_* 在 `ingest_task_ai_results`,人工确认值在 `knowledge_asset_summaries`,互不覆盖。
-- 脱敏引擎(`app/services/desensitization.py`):`DesensitizationEngine` 接口 + `NullDesensitizer` 透传(Ollama 实现挂起)。内容处理在 LLM 调用前过本引擎(路径 B 脱敏前置点,当前 Null 透传——**原文入库 + 输出脱敏,非已脱敏**)。
+- 脱敏引擎(`app/services/desensitization.py`,PBC-13):入库前置接口升级为返回结构化 `DesensitizationResult`(text/status/counts/error_code);`get_desensitizer()` 默认返回 **`RuleBasedDesensitizer`**(本地正则,无外部网络/新依赖),`NullDesensitizer` 仅供测试/显式禁用。覆盖邮箱/中国大陆手机号/固话/身份证号/银行卡号/长数字账号/金额表达/联系人字段/客户公司字段,占位符如 `【邮箱】【手机号】【金额】【联系人】【客户】`;规则**有序**(长/结构化标识先于泛数字),counts 只记类别与数量、**绝不记原值**。`content_processing.process_content` 抽取成功后**先脱敏**,平台侧外部 LLM 内容建议仅吃**脱敏后文本**;脱敏失败 → 平台侧 LLM 不接触原文、降级。**WeKnora 底座及其 LLM 是老板确认的受信任底座处理方**,其索引链路按该信任边界仍可接收原始文件/原文,不在本层阻断;原始文件保留在平台受控存储供授权预览/溯源。**不长期保存脱敏全文**——retry-index 重新从原始文件索引,不依赖脱敏文本。新增列迁移 `0026`(仅 ALTER `ingest_task_ai_results`,可逆):`desensitization_status`/`desensitization_counts`(JSON)/`desensitization_error_code`,均为安全元数据(非脱敏/原文)。
 - 读侧:`get_ai_result` 完整视图(创建人/治理)返回三层摘要建议正文 + 抽取预览;**admin 元数据视图不返回建议正文/抽取全文**,只回 `llm_provider`/`llm_model`/`content_processing_status`(安全运营元数据,**非密钥**)。
-- 审计:内容处理完成写 `ingest.ai_extracted`(operation;BE-09 §5.3 既有 action),extra 仅 `content_status`/`degrade_reason`/`llm_provider`/`llm_model`——**无 api_key/Bearer/抽取全文**。值级脱敏标记加 `bearer `;`_FORBIDDEN_KEYS` 加 `llm_api_key`/`authorization`。
-- 前端:`/upload` 展示并可校正三层摘要(一句话/详细/关键知识点每行一条)+ LLM 状态徽标(llm/降级);不渲染任何 LLM key/base_url。
+- 审计:内容处理完成写 `ingest.ai_extracted`(operation;BE-09 §5.3 既有 action),extra 仅 `content_status`/`degrade_reason`/`llm_provider`/`llm_model` + PBC-13 `desensitization_status`/`desensitization_counts`(类别计数)——**无 api_key/Bearer/抽取全文/脱敏全文/原值**。值级脱敏标记加 `bearer `;`_FORBIDDEN_KEYS` 加 `llm_api_key`/`authorization`。
+- 前端:`/upload` 展示并可校正三层摘要(一句话/详细/关键知识点每行一条)+ LLM 状态徽标(llm/降级)+ PBC-13 前置脱敏状态(已规则脱敏/未抽取无法脱敏/失败)与类别计数;不渲染任何 LLM key/base_url、不展示脱敏前后正文对比。
 - 测试:`tests/test_r2_llm.py`(12 用例,fake LLM)覆盖 client provider 注册表/MiniMax endpoint、结构化解析、围栏 JSON、三类降级(未配置/失败/脏)、confirm 三层摘要写穿 + AI/人工独立、无泄露、Bearer 脱敏。后端 **178 passed**;`npm run build` 通过;Alembic `0001→0012` upgrade / `0012→0011` downgrade 通过。
 - **本轮未实现(R3-R8 边界)**:检索/两阶段/`knowledge-search`(R3)、Dify(R4)、Celery 异步(R5,上传期同步调 LLM)、真实 Ollama 脱敏(Null 透传)、WeKnora 链路未改(R1)。
 
@@ -598,7 +816,7 @@ backend/worker/beat/migrate 经 `env_file: ./backend/.env` 加载环境（本地
 - 默认 seed：`app/services/permission_rules.py::ensure_default_rules` 幂等创建 16 条默认规则（按 `rule_key` 去重），覆盖个人流转 / 项目升格 / 访问申请 / 资产生命周期四组。
 - API（`app/api/permissions.py`）：`GET /api/v1/admin/permissions/rules`（读：admin / boss / 咨询总监；consultant 403）、`PATCH /api/v1/admin/permissions/rules/{rule_id}`（写：仅 boss / 咨询总监；admin 只读 → 403 `admin_business_permission_denied`；consultant → 403；fixed_path 不可改 → 422；numeric 负值 → 422）。
 - 审计：写动作写 `config.permission_rule_updated`（`target_type=permission_rule`），before/after/extra 只含安全配置值（rule_key / 旧新值 / enabled），不含任何 secret / provider 内部标识 / 业务原文。
-- **运行时边界**：PBC-03 只落配置中心，**不**让 `DefaultAccessPolicy` 从规则运行时加载；L1/L2 原文默认策略、`access_grants`、`original_access_requests` 的运行时联动留 **PBC-06**。**现状（PBC-06 已实现）**：`access_grants` / `original_access_requests` 的运行时联动已落地——active grant 经 `decide(has_original_grant=…)` 放行原文层，`access_grant_duration_days` 为默认有效期来源；仍未规则化的是 L1/L2 默认放行（`DefaultAccessPolicy` 仍为常量）与超时自动通过。归档阈值（`asset_archive_*`）在本表仅作治理配置视图，R5/R8 生命周期归档扫描的运行时阈值来源仍为 `alert_rules`，PBC-03 不改其运行时行为。
+- **运行时边界**：PBC-03（历史）只落配置中心，当时不让 `DefaultAccessPolicy` 从规则运行时加载，运行时联动留后续任务。**现状（PBC-06 + PBC-11E 已实现）**：`access_grants` / `original_access_requests` 运行时联动已落地——active grant 经 `decide(has_original_grant=…)` 放行原文层，`access_grant_duration_days` 为默认有效期来源；**PBC-11E 已把 L1/L2 原文默认放行开关与超时自动通过接入运行时**（`load_access_policy()` 构建运行时 `DefaultAccessPolicy`、`access_request_timeout_hours` 驱动 L1/L2 超时自动通过，`DEFAULT_POLICY` 仅作规则缺失回退）。仍未规则化运行时的是其余 `permission_rules`（个人流转 / 升格阈值 / 生命周期），仅作治理配置视图。归档阈值（`asset_archive_*`）在本表仅作治理配置视图，R5/R8 生命周期归档扫描的运行时阈值来源仍为 `alert_rules`。
 - Agent Registry：`/admin/permissions/agent-whitelist`（PBC-01 既有 provider 中立兼容接口，admin 管理）；PBC-03 不重新实现其后端，响应不含 token_hash / provider 内部标识。
 - 前端：`src/pages/AdminPermissionsPage.tsx` 接真实 API（loading/error/empty 三态、admin 只读 vs 顾问无权区分、fixed_path 只读），删除 `initialRules` / `initialAgents` 等本地 mock；不声称所有规则已驱动运行时。
 - 测试：`tests/test_pbc03_permission_rules.py`。

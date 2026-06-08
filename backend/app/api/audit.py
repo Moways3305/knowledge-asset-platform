@@ -1,4 +1,4 @@
-"""Admin Audit API（IMPLEMENT-09；契约 §18）。
+﻿"""Admin Audit API。
 
 - GET  /api/v1/admin/audit：审计查询（admin / boss / 咨询总监；按角色脱敏）。
 - GET  /api/v1/admin/audit/trace/{trace_id}：trace 链路查询（同权限；按可见性脱敏）。
@@ -81,3 +81,4 @@ async def mark_processed(
     session: AsyncSession = Depends(get_db),
 ) -> MarkProcessedResponse:
     return await audit_service.mark_processed(session, caller, event_id)
+

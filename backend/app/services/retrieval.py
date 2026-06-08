@@ -1,4 +1,4 @@
-"""两阶段检索编排服务（R3）。
+﻿"""两阶段检索编排服务（R3）。
 
 蓝图 `11-WeKnora集成与检索` §6。统一把"查询 → WeKnora 召回 → 映射回业务资产 →
 集中权限 `decide()` 复核 → 阶段1卡片 / 阶段2脱敏原文 / 问答证据"收口到这里。
@@ -40,6 +40,7 @@ from app.schemas.permission import (
 from app.services.desensitization import OutputDesensitizer
 from app.services.llm_client import LLMClient, LLMError, NullLLMClient
 from app.services.permission import decide
+from app.services.permission_rules import load_access_policy
 from app.services import original_access
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
 
@@ -52,6 +53,10 @@ _DESENSITIZE_LEVELS = {
 _REDACTED_LEVELS = {ConfidentialityLevel.L3.value, ConfidentialityLevel.L4.value}
 _ACTIVE_ASSET = AssetStatus.active.value
 _ACTIVE_VERSION = VersionStatus.active.value
+# 只有底座索引成功（index_status=indexed）的 version 才可参与语义召回 / 原文 chunk 取件
+#：index_failed/not_indexed/skipped 即使残留 server-only
+# weknora_doc_id（如 reparse 删旧 doc 失败 + 重传失败），其底座旧 doc 也不得被平台当作有效索引使用。
+_INDEXED_STATUS = "indexed"
 
 # 召回与证据规模上限（控成本/时延；R5 再异步）。
 _RECALL_TOP_K = 20
@@ -173,6 +178,8 @@ async def recall_assets(
                 select(KnowledgeAssetVersion)
                 .where(KnowledgeAssetVersion.weknora_doc_id.in_(doc_ids))
                 .where(KnowledgeAssetVersion.version_status == _ACTIVE_VERSION)
+                # residual：仅索引成功的 version 可被召回映射；index_failed 等残留旧 doc 丢弃。
+                .where(KnowledgeAssetVersion.index_status == _INDEXED_STATUS)
             )
         ).scalars().all()
     )
@@ -212,19 +219,21 @@ async def recall_assets(
         entry.matched_chunks.append(c)
         entry.score = max(entry.score, score)
 
-    # PBC-06：批量取调用人对召回资产的 active 原文授权，原文层判断统一叠加。
+    # 批量取调用人对召回资产的 active 原文授权，原文层判断统一叠加。
     granted_ids = await original_access.active_grant_asset_ids(session, caller, recalled.keys())
+    # L1/L2 原文默认放行由运行时 policy 决定。
+    policy = await load_access_policy(session)
 
     # 逐资产三层判断（discovery 被拒的资产连卡片都不出）。
     out: list[RecalledAsset] = []
     for entry in recalled.values():
-        d = decide(caller, entry.asset, AccessLayer.discovery, channel=channel)
+        d = decide(caller, entry.asset, AccessLayer.discovery, channel=channel, policy=policy)
         if not d.allowed:
             continue
         has_grant = entry.asset.id in granted_ids
         entry.discovery = d
-        entry.summary = decide(caller, entry.asset, AccessLayer.summary, channel=channel, has_original_grant=has_grant)
-        entry.original = decide(caller, entry.asset, AccessLayer.original, channel=channel, has_original_grant=has_grant)
+        entry.summary = decide(caller, entry.asset, AccessLayer.summary, channel=channel, has_original_grant=has_grant, policy=policy)
+        entry.original = decide(caller, entry.asset, AccessLayer.original, channel=channel, has_original_grant=has_grant, policy=policy)
         out.append(entry)
 
     out.sort(key=lambda r: r.score, reverse=True)
@@ -445,13 +454,15 @@ async def fetch_stage2_original(
         return OriginalResult(asset=None, available=False, chunks=[], degraded_reason="not_found")
 
     # 发现层先判：不可发现的（他人个人 / 无权 L5 / archived）一律按不存在处理，不泄露。
-    if not decide(caller, asset, AccessLayer.discovery, channel=channel).allowed:
+    # L1/L2 原文默认放行由运行时 policy 决定。
+    policy = await load_access_policy(session)
+    if not decide(caller, asset, AccessLayer.discovery, channel=channel, policy=policy).allowed:
         return OriginalResult(asset=None, available=False, chunks=[], degraded_reason="not_found")
 
     # 第②道：逐 chunk 复核的资产级前置——原文权限判断（无权 → 只给卡片+联系人）。
-    # PBC-06：叠加 active access_grant（外部 Agent / 问答 / 检索原文取件统一口径）。
+    # 叠加 active access_grant（外部 Agent / 问答 / 检索原文取件统一口径）。
     has_grant = await original_access.has_active_grant(session, caller.user_id, asset.id)
-    o = decide(caller, asset, AccessLayer.original, channel=channel, has_original_grant=has_grant)
+    o = decide(caller, asset, AccessLayer.original, channel=channel, has_original_grant=has_grant, policy=policy)
     _projects, users = await load_card_aux(session, [asset])
     owner_name = users.get(asset.owner_user_id) if asset.owner_user_id else None
     maintainer_name = users.get(asset.maintainer_user_id) if asset.maintainer_user_id else None
@@ -469,7 +480,14 @@ async def fetch_stage2_original(
             .where(KnowledgeAssetVersion.version_status == _ACTIVE_VERSION)
         )
     ).scalar_one_or_none()
-    if version is None or not version.weknora_doc_id or not version.weknora_kb_id:
+    # residual：index_status 非 indexed（index_failed/not_indexed/skipped）即使残留
+    # server-only weknora_doc_id，也按未索引处理——不读取底座旧 doc（降级 original_unindexed）。
+    if (
+        version is None
+        or not version.weknora_doc_id
+        or not version.weknora_kb_id
+        or version.index_status != _INDEXED_STATUS
+    ):
         return OriginalResult(
             asset=asset, available=False, chunks=[], degraded_reason="original_unindexed",
             owner_name=owner_name, maintainer_name=maintainer_name,
@@ -506,3 +524,4 @@ async def fetch_stage2_original(
         asset=asset, available=True, chunks=out_chunks,
         owner_name=owner_name, maintainer_name=maintainer_name,
     )
+

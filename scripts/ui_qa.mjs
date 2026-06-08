@@ -1,4 +1,4 @@
-// PBC-10F Residual 视觉 QA：渲染核心页面，截图 + 横向溢出/重叠检测。
+﻿// 视觉 QA：渲染核心页面，截图 + 横向溢出/重叠检测。
 // 用法：node scripts/ui_qa.mjs <label>   （label 用于区分 baseline / after）
 import { chromium } from "playwright";
 import fs from "node:fs";
@@ -77,3 +77,4 @@ for (const r of results) {
 }
 fs.writeFileSync(`${outDir}/report.txt`, report);
 console.log(report);
+

@@ -1,4 +1,4 @@
-// 个人知识写动作 API 的 DTO 类型（PBC-05）。
+﻿// 个人知识写动作 API 的 DTO 类型。
 // 只含安全治理元数据；不含原文 / 摘要全文 / 附件真实 URL / 内部存储引用（后端本就不返回）。
 
 export interface ConfirmAssetResponseDTO {
@@ -34,3 +34,4 @@ export interface PersonalKnowledgeSubmissionDTO {
   message: string;
   next_action: string;
 }
+

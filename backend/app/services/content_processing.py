@@ -1,6 +1,6 @@
-"""内容处理服务（R2 + 命名规范化）——对抽取文本真调外部 LLM 出结构化建议草稿。
+﻿"""内容处理服务（R2 + 命名规范化）——对抽取文本真调外部 LLM 出结构化建议草稿。
 
-取代 IMPLEMENT-14 的确定性 `_build_ai_result`：上传期对 `extracted_text` 调 LLM 输出
+取代 的确定性 `_build_ai_result`：上传期对 `extracted_text` 调 LLM 输出
 {分类(asset_type/confidentiality/ai_access) + **规范命名组件** + 三层摘要
 (one_liner/detailed/key_points) + tags}，写 `ingest_task_ai_results` 草稿（建议层），
 供 `/upload` 人工校正。
@@ -18,9 +18,13 @@
 强约束：
 - LLM 是 **advisory**——未配置 / 调用失败 / JSON 解析失败一律**降级**到确定性最小草稿，
   **绝不让上传失败**（文件已落盘）。降级原因记审计安全元数据。
-- 路径 B 预留脱敏前置点：LLM 调用前先过 `DesensitizationEngine`（当前 Null 透传）。
+- 路径 B/A 入库前置脱敏：抽取成功后**先过规则脱敏 `DesensitizationEngine`**，
+  平台侧外部 LLM 内容建议只吃**脱敏后文本**；脱敏失败（status=failed）则不喂 LLM、降级，
+  绝不让平台侧 LLM 接触未脱敏原文。脱敏只擦洗送往平台侧 LLM 的这一份文本——
+  **WeKnora 底座按老板确认的信任边界仍可接触原始文件/原文**（其索引链路不在此处阻断）。
 - 输出只写"建议层"；人工确认值独立存储（confirm 写 summaries / tags），不互相覆盖。
-- 标题恒非空；响应/日志/审计绝不含原文全文 / storage_ref / WeKnora id / LLM key/base_url。
+- 标题恒非空；响应/日志/审计绝不含原文全文 / 脱敏全文 / storage_ref / WeKnora id /
+  LLM key/base_url；只记脱敏状态与类别计数（不含原值）。
 """
 
 from __future__ import annotations
@@ -30,7 +34,7 @@ import re
 from datetime import datetime, timezone
 
 from app.schemas.enums import AiAccessLevel, AssetType, ConfidentialityLevel
-from app.services.desensitization import DesensitizationEngine
+from app.services.desensitization import DesensitizationEngine, DesensitizationResult
 from app.services.extraction import ExtractionResult
 from app.services.llm_client import LLMClient, LLMError, NullLLMClient, llm_enabled
 
@@ -277,6 +281,11 @@ def _degraded_draft(file_name: str, extraction: ExtractionResult) -> dict:
         "extracted_text": extraction.text or None,
         "extracted_char_count": extraction.char_count,
         "extraction_status": extraction.status,
+        # 入库前置脱敏安全元数据：默认 skipped（无可脱敏文本时的安全状态）；
+        # process_content 抽取成功后会用真实脱敏结果覆盖。绝不含脱敏文本或原值。
+        "desensitization_status": "skipped",
+        "desensitization_counts": None,
+        "desensitization_error_code": None,
     }
 
 
@@ -311,15 +320,47 @@ async def process_content(
 ) -> tuple[dict, dict]:
     """返回 (ai_result 草稿 dict, meta{status,reason,provider,model})。绝不抛出。"""
     base = _degraded_draft(file_name, extraction)
-    # 抽取无文本或 LLM 未配置 → 直接降级。
-    if extraction.status != "extracted" or not llm_enabled():
-        reason = (
-            "extraction_not_text" if extraction.status != "extracted" else "llm_not_configured"
-        )
-        return base, {"status": "degraded", "reason": reason, "provider": None, "model": None}
 
-    # 路径 B 脱敏前置点（当前 Null 透传；Ollama 到位后在此实体脱敏）。
-    text = desensitizer.desensitize(extraction.text)[:_LLM_INPUT_CHARS]
+    # 无可抽取文本 → 无法做文本级前置脱敏，状态保持 skipped，平台侧 LLM 不接触原文（降级）。
+    # （WeKnora 底座按已确认信任边界仍可索引原始文件，不在此处理。）
+    if extraction.status != "extracted":
+        return base, {
+            "status": "degraded", "reason": "extraction_not_text",
+            "provider": None, "model": None,
+            "desensitization_status": "skipped", "desensitization_counts": None,
+        }
+
+    # 入库前置规则脱敏：抽取成功后先脱敏，平台侧 LLM 只吃脱敏后文本。
+    # 脱敏本身异常 → failed，绝不把未脱敏原文喂给平台侧外部 LLM。
+    try:
+        des = desensitizer.desensitize(extraction.text)
+    except Exception:  # noqa: BLE001  # 脱敏失败保守降级，不外泄原文、不让上传失败
+        des = DesensitizationResult(
+            text="", status="failed", counts={}, error_code="desensitization_error"
+        )
+    base["desensitization_status"] = des.status
+    base["desensitization_counts"] = dict(des.counts) if des.counts else None
+    base["desensitization_error_code"] = des.error_code
+
+    # 脱敏失败：平台侧 LLM 不接触原文（降级）；脱敏状态仍记录，不丢失安全元数据。
+    if des.status == "failed":
+        return base, {
+            "status": "degraded", "reason": "desensitization_failed",
+            "provider": None, "model": None,
+            "desensitization_status": des.status, "desensitization_counts": None,
+        }
+
+    # LLM 未配置 → 降级，但脱敏状态/计数已记录（不因 LLM 降级而丢失脱敏元数据）。
+    if not llm_enabled():
+        return base, {
+            "status": "degraded", "reason": "llm_not_configured",
+            "provider": None, "model": None,
+            "desensitization_status": des.status,
+            "desensitization_counts": dict(des.counts) if des.counts else None,
+        }
+
+    # 平台侧外部 LLM 只接收脱敏后文本（截断控成本/时延）。
+    text = des.text[:_LLM_INPUT_CHARS]
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
         {"role": "user", "content": f"文件名：{file_name}\n文档内容：\n{text}"},
@@ -329,7 +370,11 @@ async def process_content(
         parsed = _parse_llm_json(raw)
     except (LLMError, json.JSONDecodeError, ValueError, TypeError) as exc:
         reason = getattr(exc, "code", None) or "llm_parse_failed"
-        return base, {"status": "degraded", "reason": str(reason), "provider": None, "model": None}
+        return base, {
+            "status": "degraded", "reason": str(reason), "provider": None, "model": None,
+            "desensitization_status": des.status,
+            "desensitization_counts": dict(des.counts) if des.counts else None,
+        }
 
     # 校验 + 落值（脏字段回退默认）。
     one_liner = str(parsed.get("one_liner") or base["suggested_one_liner"])[:200]
@@ -373,4 +418,7 @@ async def process_content(
     return draft, {
         "status": "llm", "reason": None,
         "provider": draft["llm_provider"], "model": draft["llm_model"],
+        "desensitization_status": des.status,
+        "desensitization_counts": dict(des.counts) if des.counts else None,
     }
+

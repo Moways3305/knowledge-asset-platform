@@ -1,4 +1,4 @@
-"""部署 / 可观测端点（R8）。
+﻿"""部署 / 可观测端点（R8）。
 
 - GET /health/ready：就绪探针（DB 连通；async 模式下 Redis 连通）。
 - GET /health/config：**安全**配置诊断（只回 enabled/disabled 布尔 + provider 名 + 缺失项名，
@@ -11,28 +11,65 @@ WeKnora·Dify id / WeCom secret / ONLYOFFICE jwt / 预览取件 token / 业务�
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Response
+import uuid
+
+from fastapi import APIRouter, Cookie, Depends, Request, Response
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_caller_context
-from app.core.config import get_settings
+from app.core.config import (
+    get_settings,
+    session_cookie_secure_misconfigured,
+)
+from app.core.trace import get_trace_id
 from app.db.session import get_db
 from app.models.audit import AuditEvent
+from app.models.identity import Project, User
 from app.models.ingest import IngestTask
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.lifecycle import NotificationRecord
+from app.models.weknora import WeknoraKbMapping
 from app.schemas.enums import (
+    AssetStatus,
+    AuditAction,
     AuditLogType,
     CompanyRole,
     IngestStatus,
     NotificationChannel,
     NotificationStatus,
 )
+from app.schemas.indexing_ops import (
+    IndexingJobListResponse,
+    IndexingJobSummary,
+    IndexingReparseRequest,
+    IndexingRetryRequest,
+)
+from app.schemas.auth_security import (
+    AuthSecurityOverviewResponse,
+    AuthUnlockRequest,
+    AuthUnlockResponse,
+)
 from app.schemas.permission import CallerContext
+from app.schemas.session_ops import (
+    SessionRevokeRequest,
+    SessionRevokeResponse,
+    UserSessionsResponse,
+)
+from app.schemas.wecom_identity import ReconcileRequest, ReconcileResponse
+from app.services import audit as audit_service
+from app.services import auth_security_ops
+from app.services import error_catalog
+from app.services import indexing_ops as indexing_ops_service
+from app.services import session_revocation
+from app.services import wecom_identity
+from app.services.auth_session import SESSION_COOKIE_NAME
+from app.services.wecom_client import get_wecom_oauth_client
 from app.services.llm_client import llm_enabled
 from app.services.onlyoffice import onlyoffice_enabled
+from app.services.storage import LocalFileStorage, get_storage
 from app.services.wecom_client import wecom_enabled
-from app.services.weknora_client import weknora_enabled
+from app.services.weknora_client import get_weknora_client, weknora_enabled
 
 router = APIRouter(tags=["ops"])
 
@@ -84,6 +121,12 @@ async def health_ready(response: Response, session: AsyncSession = Depends(get_d
 def _missing_config(s) -> list[str]:
     """已开启但缺关键值的配置项**名称**（仅名称，绝不含值）。"""
     missing: list[str] = []
+    # WeKnora 已启用（base_url + api_key）但缺 embedding 模型 → KB 初始化不完整。
+    if weknora_enabled() and not (s.weknora_embedding_model_id or "").strip():
+        missing.append("WEKNORA_EMBEDDING_MODEL_ID")
+    # 模型配置中心的 model_ref HMAC key 缺失 → 生产应显式配置（dev 回退稳定常量）。
+    if weknora_enabled() and not (s.weknora_model_ref_secret or "").strip():
+        missing.append("WEKNORA_MODEL_REF_SECRET")
     if s.onlyoffice_enabled and not s.onlyoffice_document_server_url:
         missing.append("ONLYOFFICE_DOCUMENT_SERVER_URL")
     if s.wecom_notify_enabled and not (s.wecom_corp_id and s.wecom_app_secret):
@@ -91,10 +134,60 @@ def _missing_config(s) -> list[str]:
     return missing
 
 
+def _production_blockers(s) -> list[str]:
+    """生产**硬阻断**项名：必须修复才能安全上线。仅 prod 评估，否则空——
+    本地/测试默认 eager 等不视为失败。只回安全项名，绝不回值/密钥/URL/内部 id。"""
+    if s.app_env != "prod":
+        return []
+    blockers: list[str] = []
+    # 1) 生产必须接真实 worker：eager 同步执行会让长作业阻塞请求、丢异步语义。
+    if s.celery_task_always_eager:
+        blockers.append("CELERY_TASK_ALWAYS_EAGER")
+    # 2) 会话 cookie 在 prod 运行时已被强制 Secure；若运维仍显式注入 false，诚实报阻断。
+    if session_cookie_secure_misconfigured(s):
+        blockers.append("SESSION_COOKIE_SECURE")
+    # 2b) 登录失败风控 HMAC secret：prod 必须显式配置（否则回退常量可被预测）。
+    if not (s.auth_attempt_hash_secret or "").strip():
+        blockers.append("AUTH_ATTEMPT_HASH_SECRET")
+    # 2c) CSRF token HMAC secret：prod 必须显式配置（否则签名 key 可预测）。
+    if not (s.csrf_token_secret or "").strip():
+        blockers.append("CSRF_TOKEN_SECRET")
+    # 3) WeKnora 启用但建库 / model_ref 关键项缺失 → KB 不可用 / model_ref 不稳定。
+    if weknora_enabled():
+        if not (s.weknora_embedding_model_id or "").strip():
+            blockers.append("WEKNORA_EMBEDDING_MODEL_ID")
+        if not (s.weknora_model_ref_secret or "").strip():
+            blockers.append("WEKNORA_MODEL_REF_SECRET")
+    # 4) ONLYOFFICE 启用：缺 Document Server URL → 预览不可用；缺 JWT secret → 生产
+    #    Document Server 通常强制 JWT，未签名 config 会被拒/不安全，故 prod 视为阻断。
+    if s.onlyoffice_enabled:
+        if not (s.onlyoffice_document_server_url or "").strip():
+            blockers.append("ONLYOFFICE_DOCUMENT_SERVER_URL")
+        if not (s.onlyoffice_jwt_secret or "").strip():
+            blockers.append("ONLYOFFICE_JWT_SECRET")
+    # 5) 企微通知启用但缺 corp/app secret 项 → 通知无法真实下发。
+    if s.wecom_notify_enabled and not (s.wecom_corp_id and s.wecom_app_secret):
+        blockers.append("WECOM_CORP_ID/WECOM_APP_SECRET")
+    return blockers
+
+
+def _production_warnings(s) -> list[str]:
+    """生产**软提醒**项名：不阻断上线但建议运维确认。仅安全项名。"""
+    warnings: list[str] = []
+    # LLM 未配置 → 内容处理降级为确定性草稿（功能仍可用，但非真实 LLM 质量）。
+    if not llm_enabled():
+        warnings.append("LLM_NOT_CONFIGURED")
+    # WeKnora 未配置 → 检索 / 索引降级（dev 可接受，生产一般应接真实底座）。
+    if not weknora_enabled():
+        warnings.append("WEKNORA_NOT_CONFIGURED")
+    return warnings
+
+
 @router.get("/health/config")
 async def health_config() -> dict:
-    """安全配置诊断：只回布尔 + provider 名 + 缺失项名，绝不回值/密钥/URL。"""
+    """安全配置诊断：只回布尔 + provider 名 + 缺失项名 + 生产就绪信号，绝不回值/密钥/URL。"""
     s = get_settings()
+    blockers = _production_blockers(s)
     return {
         "app_env": s.app_env,
         "version": _VERSION,
@@ -108,6 +201,11 @@ async def health_config() -> dict:
             "celery_eager": bool(s.celery_task_always_eager),
         },
         "missing_config": _missing_config(s),
+        # 生产就绪：当前实例为 prod 部署且无硬阻断项。非 prod 恒为 False（按定义不是生产
+        # 部署），但仍返回 warnings 供运维预览；blockers 仅 prod 评估，避免误判本地开发。
+        "production_ready": s.app_env == "prod" and not blockers,
+        "production_blockers": blockers,
+        "production_warnings": _production_warnings(s),
     }
 
 
@@ -158,3 +256,263 @@ async def ops_summary(
         "notifications": {"pending_wecom": pending_wecom},
         "audit": {"unprocessed_exceptions": unprocessed_exc},
     }
+
+
+def _require_ops_viewer(caller: CallerContext) -> None:
+    """索引运维视图：admin（系统运维）或业务治理角色（boss / 咨询总监）可看。"""
+    from fastapi import HTTPException
+
+    if CompanyRole.admin.value in caller.active_company_roles or caller.can_discover_l5:
+        return
+    raise HTTPException(403, detail={"denied_reason": "ops_viewer_required", "message": "无权查看索引运维视图"})
+
+
+@router.get("/admin/ops/indexing")
+async def ops_indexing(
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """索引运维面板：安全索引计数 + 最近失败列表。
+
+    安全：**绝不**返回 kb_id / doc_id / api_key / storage_ref / source_file_ref / 原文。
+    标题边界：业务治理角色可见真实 title；纯 admin（无业务发现权）→ 标题隐藏。
+    """
+    _require_ops_viewer(caller)
+    show_title = caller.can_discover_l5  # 仅业务治理角色看真实标题；纯 admin 隐藏。
+
+    active_non_deleted = (
+        KnowledgeAssetVersion.version_status == "active",
+        KnowledgeAsset.asset_status != AssetStatus.deleted.value,
+    )
+
+    async def _count(stmt) -> int:
+        return int((await session.execute(stmt)).scalar() or 0)
+
+    def _version_count(*conds):
+        return (
+            select(func.count())
+            .select_from(KnowledgeAssetVersion)
+            .join(KnowledgeAsset, KnowledgeAssetVersion.asset_id == KnowledgeAsset.id)
+            .where(*active_non_deleted, *conds)
+        )
+
+    counts = {
+        "index_failed": await _count(_version_count(KnowledgeAssetVersion.index_status == "index_failed")),
+        "indexing": await _count(_version_count(KnowledgeAssetVersion.index_status == "indexing")),
+        "not_indexed": await _count(_version_count(KnowledgeAssetVersion.index_status == "not_indexed")),
+        "skipped": await _count(_version_count(KnowledgeAssetVersion.index_status == "skipped")),
+        "parse_pending": await _count(_version_count(KnowledgeAssetVersion.weknora_parse_status == "pending")),
+        "parse_processing": await _count(_version_count(KnowledgeAssetVersion.weknora_parse_status == "processing")),
+        "kb_init_failed": await _count(
+            select(func.count()).select_from(WeknoraKbMapping).where(WeknoraKbMapping.status == "init_failed")
+        ),
+    }
+
+    # 最近失败资产（安全摘要，最多 20 条）。
+    rows = (
+        await session.execute(
+            select(KnowledgeAsset, KnowledgeAssetVersion)
+            .join(KnowledgeAssetVersion, KnowledgeAssetVersion.asset_id == KnowledgeAsset.id)
+            .where(*active_non_deleted, KnowledgeAssetVersion.index_status == "index_failed")
+            .order_by(KnowledgeAsset.updated_at.desc())
+            .limit(20)
+        )
+    ).all()
+    project_ids = {a.project_id for a, _v in rows if a.project_id}
+    owner_ids = {a.owner_user_id for a, _v in rows if a.owner_user_id}
+    pmap: dict = {}
+    omap: dict = {}
+    if project_ids:
+        for pid, pname in (
+            await session.execute(select(Project.id, Project.name).where(Project.id.in_(project_ids)))
+        ).all():
+            pmap[pid] = pname
+    if owner_ids:
+        for uid, uname in (
+            await session.execute(select(User.id, User.name).where(User.id.in_(owner_ids)))
+        ).all():
+            omap[uid] = uname
+
+    recent_failed = []
+    for a, v in rows:
+        # 安全目录 code：历史脏 code 也归一，不外显原始上游 code。
+        scode = error_catalog.safe_code(v.index_error_code)
+        info = error_catalog.get_error(scode)
+        recent_failed.append({
+            "asset_id": str(a.id),
+            "title": a.title if show_title else "（业务资产标题已隐藏）",
+            "scope": a.scope,
+            "project_name": pmap.get(a.project_id) if a.project_id else None,
+            "owner_name": (omap.get(a.owner_user_id) if show_title else None),
+            "index_status": v.index_status,
+            "index_error_code": scode,
+            # 用户态文案（与详情页一致，按目录派生，不外显旧/上游脏文案）。
+            "index_error_message": info.user_message,
+            # 运营态诊断（admin/运营可见；含配置项名，绝不含值/内部 id/secret）。
+            "operator_error_message": info.operator_message,
+            "remediation_hint": info.remediation_hint,
+            "severity": info.severity,
+            "updated_at": a.updated_at.isoformat() if a.updated_at else None,
+        })
+
+    return {"counts": counts, "recent_failed": recent_failed, "title_visible": show_title}
+
+
+@router.post("/admin/ops/indexing/retry", response_model=IndexingJobSummary, status_code=202)
+async def ops_indexing_retry(
+    req: IndexingRetryRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    weknora=Depends(get_weknora_client),
+) -> IndexingJobSummary:
+    """批量 retry-index：对筛选出的 index_failed / skipped / not_indexed 资产入队
+    后台重试。仅 admin / 业务治理角色；202 + 安全 job 摘要，不在请求内逐条跑完（eager 例外）。
+    绝不外泄 kb_id / doc_id / storage_ref / 原文。"""
+    return await indexing_ops_service.create_retry_job(
+        session, caller, req, weknora=weknora, storage=storage, trace_id=get_trace_id(request),
+    )
+
+
+@router.post("/admin/ops/indexing/reparse", response_model=IndexingJobSummary, status_code=202)
+async def ops_indexing_reparse(
+    req: IndexingReparseRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    weknora=Depends(get_weknora_client),
+) -> IndexingJobSummary:
+    """显式 reparse：对已进底座但解析异常（failed / pending / processing）的资产入队
+    重新解析（受控重传刷新底座解析）。仅 admin / 业务治理角色；202 + 安全 job 摘要。"""
+    return await indexing_ops_service.create_reparse_job(
+        session, caller, req, weknora=weknora, storage=storage, trace_id=get_trace_id(request),
+    )
+
+
+@router.get("/admin/ops/indexing/jobs", response_model=IndexingJobListResponse)
+async def ops_indexing_jobs(
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> IndexingJobListResponse:
+    """最近索引运维作业列表：仅安全统计 + 安全筛选条件 + 安全错误文案；
+    绝不返回所处理资产的标题 / 原文 / 文件名 / WeKnora id / 存储引用。"""
+    return await indexing_ops_service.list_jobs(session, caller)
+
+
+# ---------------------------------------------------------------------------
+# 登录风控运维：admin-only 风控面板 + 手动解除 identifier 短时锁定
+# ---------------------------------------------------------------------------
+@router.get("/admin/ops/auth-security", response_model=AuthSecurityOverviewResponse)
+async def ops_auth_security(
+    window_minutes: int | None = None,
+    limit: int | None = None,
+    result: str | None = None,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> AuthSecurityOverviewResponse:
+    """登录风控运维聚合。
+
+    返回近期 failed/locked/rate_limited/success/unlocked 计数 + 最近事件安全视图（不可逆
+    hash 前缀 / 安全用户元数据）。**绝不**返回 raw email / raw IP / 完整 hash / password /
+    token / cookie。只读，不写审计（避免读放大）。"""
+    _require_admin(caller)
+    return await auth_security_ops.get_overview(
+        session, window_minutes=window_minutes, limit=limit, result=result
+    )
+
+
+@router.post("/admin/ops/auth-security/unlock", response_model=AuthUnlockResponse)
+async def ops_auth_security_unlock(
+    body: AuthUnlockRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> AuthUnlockResponse:
+    """手动解除 identifier 短时锁定。写 `result="unlocked"` reset anchor + `auth.lockout_unlocked` 审计；
+    不绕过密码校验、不建会话、不改密码、不重置 IP rate limit。"""
+    _require_admin(caller)
+    return await auth_security_ops.unlock_identifier(
+        session, caller, body=body, trace_id=get_trace_id(request)
+    )
+
+
+# ---------------------------------------------------------------------------
+# 平台会话运维：admin-only 安全会话查看 + 强制撤销
+# ---------------------------------------------------------------------------
+@router.get("/admin/ops/sessions/users/{user_id}", response_model=UserSessionsResponse)
+async def ops_user_sessions(
+    user_id: uuid.UUID,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    kap_session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+) -> UserSessionsResponse:
+    """查看某用户的平台会话安全元数据。
+
+    只返回安全 `session_id`（非 token hash）+ login_method + 时间 + 撤销状态 +
+    is_current_actor_session；**绝不**返回 token / token_hash / cookie / ip / device_info。"""
+    _require_admin(caller)
+    return await session_revocation.list_sessions(
+        session, user_id, current_hash=session_revocation.current_token_hash(kap_session)
+    )
+
+
+@router.post("/admin/ops/sessions/users/{user_id}/revoke", response_model=SessionRevokeResponse)
+async def ops_revoke_user_sessions(
+    user_id: uuid.UUID,
+    body: SessionRevokeRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    kap_session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+) -> SessionRevokeResponse:
+    """强制撤销某用户的活动平台会话。可选 `preserve_current_session`（仅当目标==当前 admin 自己时保留
+    本会话）。写 `auth.sessions_revoked` 审计。**不**返回 / 记录 token / cookie 值。"""
+    _require_admin(caller)
+    exclude = None
+    if body.preserve_current_session and user_id == caller.user_id:
+        exclude = session_revocation.current_token_hash(kap_session)
+    revoked, revoked_at = await session_revocation.revoke_user_sessions(
+        session, user_id, exclude_token_hash=exclude
+    )
+    await audit_service.record_event(
+        session, caller=caller, log_type=AuditLogType.operation,
+        action=AuditAction.auth_sessions_revoked.value, trace_id=get_trace_id(request),
+        target_type="user", target_id=user_id,
+        extra={
+            "target_user_id": str(user_id),
+            "revoked_count": revoked,
+            "trigger": "admin_manual",
+            "preserved_current_session": exclude is not None,
+            **({"reason": body.reason[:200]} if body.reason else {}),
+        },
+    )
+    await session.commit()
+    return SessionRevokeResponse(
+        ok=True, user_id=user_id, revoked_count=revoked, revoked_at=revoked_at,
+        preserved_current_session=exclude is not None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 企微身份生命周期对账：admin-only。失效成员 → 停用平台用户 + 撤销会话
+# ---------------------------------------------------------------------------
+@router.post("/admin/ops/wecom-identity/reconcile", response_model=ReconcileResponse)
+async def ops_wecom_identity_reconcile(
+    body: ReconcileRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    oauth=Depends(get_wecom_oauth_client),
+) -> ReconcileResponse:
+    """对账绑定企微的平台用户。
+
+    失效（禁用/删除/未激活/未知）成员 → 停用平台用户 + 撤销活动会话 + 安全审计。`dry_run` 只预演。
+    响应只含安全聚合 + 安全 item（**不**含 raw wecom_user_id / 通讯录档案 / token / 上游 errmsg）。"""
+    _require_admin(caller)
+    return await wecom_identity.reconcile(
+        session, caller, oauth,
+        user_id=body.user_id, limit=body.limit, dry_run=body.dry_run, trace_id=get_trace_id(request),
+    )
+

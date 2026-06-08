@@ -1,4 +1,4 @@
-"""项目设置 / 项目成员管理 API 的请求 / 响应 schema（PBC-04）。
+﻿"""项目设置 / 项目成员管理 API 的请求 / 响应 schema。
 
 只暴露**安全治理元数据**。`wecom_group_id` 是配置值，响应**绝不**回全文——只回
 `wecom_group_bound: bool` + `wecom_group_label`（脱敏后缀）；PATCH 可接收全文并只存 DB。
@@ -77,7 +77,7 @@ class ProjectMemberPatchRequest(BaseModel):
     status: MemberStatus | None = None
 
 
-# ----- 项目列表 / 创建（PBC-10B） -----
+# ----- 项目列表 / 创建 -----
 class ProjectListItemOut(BaseModel):
     """项目列表条目（安全治理元数据）。"""
 
@@ -97,7 +97,7 @@ class ProjectListResponse(BaseModel):
 
 
 class ProjectCreateRequest(BaseModel):
-    """创建项目知识空间（PBC-10B）。必须指定 active business user 作为 project_manager。"""
+    """创建项目知识空间。必须指定 active business user 作为 project_manager。"""
 
     name: str
     client_name: str | None = None
@@ -119,3 +119,4 @@ class ProjectCreateResponse(BaseModel):
     project_manager_user_id: uuid.UUID
     coach_user_id: uuid.UUID | None = None
     created_at: datetime
+

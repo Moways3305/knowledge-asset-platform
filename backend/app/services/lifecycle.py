@@ -1,4 +1,4 @@
-"""知识资产生命周期治理服务（IMPLEMENT-10 最小闭环）。
+﻿"""知识资产生命周期治理服务。
 
 落实 BE-10 / 契约 §14A：
 - 系统/人只产生预警/候选（request），归档与重新启用必须人工确认（confirm）。
@@ -445,3 +445,4 @@ async def list_events(
             for e in rows
         ]
     )
+

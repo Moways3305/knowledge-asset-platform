@@ -37,12 +37,16 @@ def _hdr(user_id, trace=None):
 
 
 class FakeWeKnora:
-    """测试用 fake：可模拟成功 / 重复(409) / 失败；记录建库与上传。"""
+    """测试用 fake：可模拟成功 / 重复(409) / 上传失败 / 初始化失败；记录建库、初始化与上传。"""
 
-    def __init__(self, *, fail: bool = False, duplicate: bool = False) -> None:
+    def __init__(
+        self, *, fail: bool = False, duplicate: bool = False, init_fail: bool = False
+    ) -> None:
         self.fail = fail
         self.duplicate = duplicate
+        self.init_fail = init_fail
         self.kbs: dict[str, dict] = {}
+        self.initialized: list[dict] = []  # PBC-11B：记录初始化调用
         self.uploads: list[dict] = []
         self.parse_status: dict[str, str] = {}
         self._kb = 0
@@ -56,6 +60,16 @@ class FakeWeKnora:
 
     async def get_kb(self, kb_id, *, trace_id=None):
         return self.kbs.get(kb_id, {})
+
+    async def initialize_kb(self, kb_id, *, chat_model_id=None, embedding_model_id=None,
+                            rerank_model_id=None, multimodal_id=None, trace_id=None):
+        if self.init_fail:
+            raise WeKnoraError("weknora_init_failed", "初始化失败")
+        self.initialized.append({"kb_id": kb_id, "embedding_model_id": embedding_model_id,
+                                 "chat_model_id": chat_model_id})
+
+    async def get_initialization_config(self, kb_id, *, trace_id=None):
+        return {"embedding_model_id": self.kbs.get(kb_id, {}).get("embedding_model_id")}
 
     async def upload_file(self, *, kb_id, content, file_name, mime, metadata=None, channel=None, trace_id=None):
         if self.fail:
@@ -76,18 +90,26 @@ class FakeWeKnora:
         return None
 
 
+def _enable_weknora(monkeypatch, *, embedding: str = "test-embed"):
+    """启用 WeKnora 路径并配置 embedding 模型（PBC-11B 守卫：缺 embedding 会 fail-closed）。"""
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(ingest_module, "weknora_enabled", lambda: True)
+    monkeypatch.setattr(get_settings(), "weknora_embedding_model_id", embedding)
+
+
 @pytest.fixture
 def weknora(monkeypatch):
     """启用 WeKnora 路径并注入 fake client。"""
     fake = FakeWeKnora()
-    monkeypatch.setattr(ingest_module, "weknora_enabled", lambda: True)
+    _enable_weknora(monkeypatch)
     app.dependency_overrides[get_weknora_client] = lambda: fake
     yield fake
     app.dependency_overrides.pop(get_weknora_client, None)
 
 
-def _install(fake, monkeypatch):
-    monkeypatch.setattr(ingest_module, "weknora_enabled", lambda: True)
+def _install(fake, monkeypatch, *, embedding: str = "test-embed"):
+    _enable_weknora(monkeypatch, embedding=embedding)
     app.dependency_overrides[get_weknora_client] = lambda: fake
 
 
@@ -133,6 +155,21 @@ def test_client_unwrap_success_error_and_409():
     assert ed.value.existing_knowledge_id == "doc-x"
 
 
+async def test_initialize_kb_skips_when_no_models():
+    # PBC-11B：无任何模型 id → 不发网络、不抛（KB 依赖 WeKnora 租户默认）。
+    c = WeKnoraClient(base_url="http://x", api_key="sk-test")
+    assert await c.initialize_kb("kb-1") is None
+
+
+def test_initialize_unwrap_error_redacts():
+    # 初始化失败经 _unwrap 抛结构化 WeKnoraError（只带 code/message，不含 api_key）。
+    err = httpx.Response(400, json={"success": False, "error": {"code": "weknora_init_failed", "message": "no model"}})
+    with pytest.raises(WeKnoraError) as ei:
+        WeKnoraClient._unwrap(err)
+    assert ei.value.code == "weknora_init_failed"
+    assert "sk-" not in str(ei.value)
+
+
 # ---- confirm 推送 + 回写 ----
 async def test_confirm_pushes_and_writes_back(client, weknora, db_session):
     task_id = await _upload(client, USER_CONSULTANT)
@@ -155,6 +192,10 @@ async def test_confirm_pushes_and_writes_back(client, weknora, db_session):
     assert ver.weknora_doc_id == up["doc_id"]
     assert ver.weknora_kb_id == up["kb_id"]
     assert ver.weknora_parse_status == "processing"
+    # PBC-11B：索引成功标 indexed；建库后执行了初始化。
+    assert r.json()["index_status"] == "indexed"
+    assert ver.index_status == "indexed"
+    assert len(weknora.initialized) == 1
 
 
 async def test_kb_mapping_idempotent(client, weknora):
@@ -166,24 +207,132 @@ async def test_kb_mapping_idempotent(client, weknora):
     assert len(weknora.kbs) == 1  # 懒创建幂等
 
 
-async def test_weknora_failure_rolls_back_no_hanging_asset(client, monkeypatch):
+async def test_weknora_upload_failure_keeps_asset_index_failed(client, db_session, monkeypatch):
+    """PBC-11B：底座上传失败不再整单回滚——资产保留、人工校正不丢、标 index_failed 可重试。"""
     fake = FakeWeKnora(fail=True)
     _install(fake, monkeypatch)
     try:
         task_id = await _upload(client, USER_CONSULTANT)
         r = await _confirm(client, USER_CONSULTANT, task_id, trace="trc-wk-fail")
-        assert r.status_code == 502
-        assert r.json()["detail"]["denied_reason"] == "weknora_upload_failed"
-        # 无悬挂资产：个人知识列表不出现该标题。
+        # 不再 502：人工确认成功，资产落库。
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["status"] == "completed"
+        assert body["index_status"] == "index_failed"
+        asset_id = body["result_asset_id"]
+        # 资产仍可见（落库未回滚）：个人知识列表出现该标题。
         my = (await client.get(MY, headers=_hdr(USER_CONSULTANT))).json()
-        assert all(i["title"] != "WeKnora 资产" for i in my["items"])
-        # 任务标记 failed + 审计 ingest.failed。
-        trace = await client.get("/api/v1/admin/audit/trace/trc-wk-fail", headers=_hdr(USER_CONSULTANT))
-        # consultant 无审计查询权 → 用治理身份查
+        assert any(i["title"] == "WeKnora 资产" for i in my["items"])
+        # 版本标 index_failed + 安全 error_code；无悬挂上传。
+        ver = (await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id)
+            )
+        )).scalar_one()
+        assert ver.index_status == "index_failed"
+        assert ver.index_error_code == "weknora_call_failed"  # PBC-11F：上游 code 目录化
+        assert fake.uploads == []
+        # 审计：ingest.confirmed（落库成功）+ ingest.index_failed（索引失败，exception）。
         from app.seed.dev_seed import USER_BOSS
         trace = await client.get("/api/v1/admin/audit/trace/trc-wk-fail", headers=_hdr(USER_BOSS))
         actions = {e["action"] for e in trace.json()["items"]}
-        assert "ingest.failed" in actions
+        assert "ingest.confirmed" in actions
+        assert "ingest.index_failed" in actions
+        assert "ingest.failed" not in actions  # 旧"整单失败"语义不再出现
+        # 不泄露 kb/doc/key。
+        for token in ["kb-fake", "doc-fake", "file_path", "sk-"]:
+            assert token not in trace.text
+    finally:
+        app.dependency_overrides.pop(get_weknora_client, None)
+
+
+async def test_embedding_model_missing_keeps_asset_index_failed(client, db_session, monkeypatch):
+    """PBC-11B residual：底座启用但 embedding 未配 → 不建 KB / 不写 active，资产保留标 index_failed。"""
+    from app.models.weknora import WeknoraKbMapping
+
+    fake = FakeWeKnora()
+    _install(fake, monkeypatch, embedding="")  # 启用底座但 embedding 为空
+    try:
+        task_id = await _upload(client, USER_CONSULTANT)
+        r = await _confirm(client, USER_CONSULTANT, task_id)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["status"] == "completed"
+        assert body["index_status"] == "index_failed"
+        # 未建 KB、未上传、未写任何 personal 映射（不产生 active 假成功）。
+        assert fake.kbs == {} and fake.uploads == []
+        ver = (await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == uuid.UUID(body["result_asset_id"])
+            )
+        )).scalar_one()
+        assert ver.index_status == "index_failed"
+        assert ver.index_error_code == "weknora_embedding_model_missing"
+        mapping = (await db_session.execute(
+            select(WeknoraKbMapping).where(
+                WeknoraKbMapping.scope == "personal",
+                WeknoraKbMapping.owner_user_id == USER_CONSULTANT,
+            )
+        )).scalar_one_or_none()
+        assert mapping is None
+    finally:
+        app.dependency_overrides.pop(get_weknora_client, None)
+
+
+async def test_weknora_init_failure_keeps_asset_index_failed(client, db_session, monkeypatch):
+    """建库成功但初始化失败：不写 active 假成功——资产保留、index_failed，映射置 init_failed。"""
+    from app.models.weknora import WeknoraKbMapping
+
+    fake = FakeWeKnora(init_fail=True)
+    _install(fake, monkeypatch)
+    try:
+        task_id = await _upload(client, USER_CONSULTANT)
+        r = await _confirm(client, USER_CONSULTANT, task_id)
+        assert r.status_code == 200, r.text
+        assert r.json()["index_status"] == "index_failed"
+        # KB 已建，但映射不是 active（init_failed），未上传原文。
+        assert len(fake.kbs) == 1
+        assert fake.uploads == []
+        mapping = (await db_session.execute(
+            select(WeknoraKbMapping).where(
+                WeknoraKbMapping.scope == "personal",
+                WeknoraKbMapping.owner_user_id == USER_CONSULTANT,
+            )
+        )).scalar_one()
+        assert mapping.status == "init_failed"
+    finally:
+        app.dependency_overrides.pop(get_weknora_client, None)
+
+
+async def test_weknora_init_retry_recovers(client, db_session, monkeypatch):
+    """init_failed 后重试入库：ensure-initialized 重新初始化既有 KB，成功翻 active 并索引。"""
+    from app.models.weknora import WeknoraKbMapping
+
+    fail_fake = FakeWeKnora(init_fail=True)
+    _install(fail_fake, monkeypatch)
+    try:
+        t1 = await _upload(client, USER_CONSULTANT, file_name="a.txt")
+        r1 = await _confirm(client, USER_CONSULTANT, t1)
+        assert r1.json()["index_status"] == "index_failed"
+    finally:
+        app.dependency_overrides.pop(get_weknora_client, None)
+
+    ok_fake = FakeWeKnora()
+    _install(ok_fake, monkeypatch)
+    try:
+        t2 = await _upload(client, USER_CONSULTANT, file_name="b.txt", content=b"second content body")
+        r2 = await _confirm(client, USER_CONSULTANT, t2, title="第二份")
+        assert r2.json()["index_status"] == "indexed"
+        # 复用既有 KB（未再建新库），映射翻 active。
+        assert ok_fake.kbs == {}  # 未新建 KB（命中既有 init_failed 映射）
+        assert len(ok_fake.initialized) == 1  # 仅做了一次 ensure-initialized
+        mapping = (await db_session.execute(
+            select(WeknoraKbMapping).where(
+                WeknoraKbMapping.scope == "personal",
+                WeknoraKbMapping.owner_user_id == USER_CONSULTANT,
+            )
+        )).scalar_one()
+        assert mapping.status == "active"
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)
 

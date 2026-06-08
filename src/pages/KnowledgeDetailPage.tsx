@@ -1,4 +1,4 @@
-import { useParams, Link, useNavigate } from "react-router-dom";
+﻿import { useParams, Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import {
   ApiError,
@@ -10,6 +10,7 @@ import {
   lifecycleArchiveRequest,
   previewEntryHref,
   requestOriginalAccess,
+  retryKnowledgeIndex,
 } from "../api/client";
 import type { PreviewIssueResponseDTO } from "../types/preview";
 import type { LifecycleEventDTO } from "../types/lifecycle";
@@ -95,13 +96,22 @@ const assetTypeLabel: Record<string, string> = {
 
 const confidenceText = (c: number | null) => (c == null ? "—" : `${Math.round(c * 100)}%`);
 
+// 平台级底座索引状态展示。
+const indexStatusLabel: Record<string, string> = {
+  indexed: "已索引",
+  indexing: "索引中",
+  index_failed: "索引失败",
+  skipped: "未索引（底座未启用 / 已跳过）",
+  not_indexed: "待索引",
+};
+
 export default function KnowledgeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [asset, setAsset] = useState<KnowledgeDetailVM | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 预览凭证（IMPLEMENT-07）
+  // 预览凭证
   const [preview, setPreview] = useState<PreviewIssueResponseDTO | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -119,7 +129,7 @@ export default function KnowledgeDetailPage() {
     }
   }
 
-  // 原文访问申请（PBC-06）
+  // 原文访问申请
   const [oaBusy, setOaBusy] = useState(false);
   const [oaError, setOaError] = useState<string | null>(null);
   const [oaNote, setOaNote] = useState<string | null>(null);
@@ -148,14 +158,14 @@ export default function KnowledgeDetailPage() {
     }
   }
 
-  // 生命周期治理动作（IMPLEMENT-10）。归档是治理流程：先发起建议，再人工确认。
+  // 生命周期治理动作。归档是治理流程：先发起建议，再人工确认。
   const [lcEvents, setLcEvents] = useState<LifecycleEventDTO[] | null>(null);
   const [lcReason, setLcReason] = useState("");
   const [lcMsg, setLcMsg] = useState<string | null>(null);
   const [lcErr, setLcErr] = useState<string | null>(null);
   const [lcBusy, setLcBusy] = useState(false);
 
-  // 受控删除 / 撤下（PBC-10B）。仅在后端 access.canDelete 时展示；二次确认后调真实接口。
+  // 受控删除 / 撤下。仅在后端 access.canDelete 时展示；二次确认后调真实接口。
   const navigate = useNavigate();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteReason, setDeleteReason] = useState("");
@@ -172,6 +182,27 @@ export default function KnowledgeDetailPage() {
     } catch (e) {
       setDeleteErr(e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "删除失败");
       setDeleteBusy(false);
+    }
+  }
+
+  // 底座索引重试。仅在后端 access.canRetryIndex 时展示按钮；成功后刷新详情。
+  const [retryBusy, setRetryBusy] = useState(false);
+  const [retryNote, setRetryNote] = useState<string | null>(null);
+  const [retryErr, setRetryErr] = useState<string | null>(null);
+
+  async function handleRetryIndex() {
+    if (!id) return;
+    setRetryBusy(true); setRetryNote(null); setRetryErr(null);
+    try {
+      const r = await retryKnowledgeIndex(id);
+      if (r.index_status === "indexed") setRetryNote("已重新索引到知识底座。");
+      else if (r.index_status === "skipped") setRetryNote("知识底座未启用，已标记为跳过索引。");
+      else setRetryNote(r.index_error_message ?? "重试后底座仍失败，可稍后再试或联系管理员。");
+      await reloadAsset();
+    } catch (e) {
+      setRetryErr(e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "重试索引失败");
+    } finally {
+      setRetryBusy(false);
     }
   }
 
@@ -436,7 +467,7 @@ export default function KnowledgeDetailPage() {
           </div>
         )}
 
-        {/* 生命周期治理动作（IMPLEMENT-10）。归档需「发起建议 → 人工确认」两步；
+        {/* 生命周期治理动作。归档需「发起建议 → 人工确认」两步；
             权限由后端按 scope 治理角色裁定（personal 本人 / project maintainer·PM /
             company 治理角色），纯 admin 无业务治理权。Agent 不执行治理动作。 */}
         <div className="lifecycle-action-area">
@@ -505,7 +536,47 @@ export default function KnowledgeDetailPage() {
         </div>
       </section>
 
-      {/* 原文预览：有 original 权限时可申请受控预览凭证（IMPLEMENT-07） */}
+      {/* 知识底座索引状态。未索引资产不会被语义检索召回；可重试者可重新推进底座。 */}
+      <section className="detail-section">
+        <h3>知识底座索引</h3>
+        <div className="lifecycle-status-grid">
+          <div className="lifecycle-status-card">
+            <div className="lifecycle-status-label">索引状态</div>
+            <div className="lifecycle-status-value">
+              <span className={`asset-status-badge kl-index-badge ${asset.indexStatus ? `kl-index-${asset.indexStatus}` : ""}`}>
+                {asset.indexStatus ? indexStatusLabel[asset.indexStatus] ?? asset.indexStatus : "—"}
+              </span>
+            </div>
+          </div>
+          <div className="lifecycle-status-card">
+            <div className="lifecycle-status-label">底座解析状态</div>
+            <div className="lifecycle-status-value">{asset.parseStatus ?? "—"}</div>
+          </div>
+          <div className="lifecycle-status-card">
+            <div className="lifecycle-status-label">最近索引时间</div>
+            <div className="lifecycle-status-value">{asset.indexedAt ? formatBeijingTime(asset.indexedAt) : "—"}</div>
+          </div>
+        </div>
+        {asset.indexStatus === "index_failed" && (
+          <div className="lifecycle-status-hint" style={{ color: "var(--color-warning-fg, #8a6d00)" }}>
+            {asset.indexErrorMessage ?? "知识底座索引失败：资产已保留，但暂不会被语义检索召回，可重试。"}
+          </div>
+        )}
+        {asset.indexStatus === "skipped" && (
+          <div className="lifecycle-status-hint">知识底座未启用，已跳过索引；该资产暂不会被语义检索召回。</div>
+        )}
+        {asset.access.canRetryIndex && (
+          <div className="lifecycle-action-row" style={{ marginTop: 10 }}>
+            <button className="btn-small btn-small-primary" onClick={handleRetryIndex} disabled={retryBusy}>
+              {retryBusy ? "重试中…" : "重试索引"}
+            </button>
+          </div>
+        )}
+        {retryNote && <div className="lifecycle-action-msg">{retryNote}</div>}
+        {retryErr && <div className="lifecycle-action-err">{retryErr}</div>}
+      </section>
+
+      {/* 原文预览：有 original 权限时可申请受控预览凭证 */}
       <section className="detail-section">
         <h3>原文预览</h3>
         <div className="doc-preview-panel">
@@ -583,3 +654,4 @@ export default function KnowledgeDetailPage() {
     </div>
   );
 }
+

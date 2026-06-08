@@ -1,15 +1,15 @@
-"""知识资产核心 ORM 模型（IMPLEMENT-02）。
+﻿"""知识资产核心 ORM 模型。
 
 落地 6 张表：knowledge_assets / knowledge_asset_versions / knowledge_asset_chunks /
 knowledge_asset_file_objects / knowledge_asset_summaries / knowledge_asset_tags。
 
-本阶段只做数据层（模型 + 约束 + relationship），不实现 API、权限判断、入库、
-审核、审计、预览、Agent、向量化或文件真实存储。枚举值以 String 存储，取值约束
+本模块只定义数据层（模型 + 约束 + relationship）；API、权限判断、入库、审核、审计、
+预览、Agent、检索与文件存储由各自的服务模块实现。枚举值以 String 存储，取值约束
 由应用层 `app.schemas.enums` 保证。
 
-字段命名说明：本阶段按 IMPLEMENT-02 任务的精简字段清单落地，部分名称是 BE-02 的
-精简/重命名（如 version_no / file_size / file_hash / token_count / invalid_reason，
-以及窄表 summaries），与 BE-02 完整 schema 的差异留待 reviewer 确认。
+字段命名说明：部分字段是 BE-02 的精简/重命名（如 version_no / file_size /
+file_hash / token_count / invalid_reason，以及窄表 summaries），与 BE-02 完整
+schema 的差异留待确认。
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ class KnowledgeAsset(Base):
     - scope=personal：个人知识库，归属业务用户本人，project_id 为空，默认私密、
       不参与他人检索。**owner 必须是业务用户**（拥有 active 公司角色
       boss/consulting_director/consultant）；仅 admin 身份不得作为 personal owner。
-      该跨表业务约束在本阶段不通过 DB 强制，留待权限/服务层（后续任务）校验。
+      该跨表业务约束不在 DB 层强制，由权限/服务层校验。
     - scope=project：项目知识库，project_id 标识所属项目。
     - scope=company：公司知识库（跨项目复用）。
     - zone=material/asset 是同一知识库内的状态标签，不是两个物理库。
@@ -98,7 +98,7 @@ class KnowledgeAsset(Base):
         DateTime(timezone=True), nullable=True
     )
     archive_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # 受控删除 / 撤下追溯（PBC-10B；软删除，不物理删行）。
+    # 受控删除 / 撤下追溯。
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -189,6 +189,19 @@ class KnowledgeAssetVersion(Base):
     weknora_kb_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     weknora_doc_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     weknora_parse_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # 平台级索引状态。把「人工确认=资产落库」与「底座索引」解耦：confirm 成功
+    # 即落库，底座建库/初始化/上传失败不回滚资产，而是在此标失败并可重试。
+    # index_status: not_indexed | indexing | indexed | index_failed | skipped（安全业务状态，可对外）。
+    # index_error_code 为安全错误码（如 weknora_upload_failed / weknora_init_failed）；
+    # index_error_message 为安全中文文案——**绝不**写 kb_id / doc_id / api_key / 原始 payload。
+    index_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="not_indexed", server_default="not_indexed"
+    )
+    index_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    index_error_message: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    indexed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     activated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -222,7 +235,7 @@ class KnowledgeAssetChunk(Base):
     - invalid / superseded 默认不进入 RAG / Agent 上下文。
     - 局部 chunk 失效不等于整个资产归档。
     - 业务约束：chunk_status=invalid 时应有 invalidated_by / invalidated_at，
-      本阶段以测试与注释表达，不做 DB 级 check。
+      由测试与注释表达，不做 DB 级 check。
     """
 
     __tablename__ = "knowledge_asset_chunks"
@@ -351,3 +364,4 @@ class KnowledgeAssetTag(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     asset: Mapped[KnowledgeAsset] = relationship(back_populates="tags")
+

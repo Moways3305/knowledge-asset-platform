@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+﻿import { useState, useRef, useCallback, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   ApiError,
@@ -40,6 +40,19 @@ const extractionLabel: Record<string, string> = {
   unsupported: "暂不支持该格式（已落盘，请人工补全）",
   empty: "未抽取到文本（可能为扫描件/纯图片）",
   failed: "抽取失败（文件可能损坏）",
+};
+
+// 入库前置脱敏类别 → 中文标签（仅展示类别计数，不含原值）。
+const desensCategoryLabel: Record<string, string> = {
+  email: "邮箱",
+  phone: "手机号",
+  landline: "固话",
+  id_card: "身份证号",
+  bank_card: "银行卡号",
+  account: "账号",
+  amount: "金额",
+  contact: "联系人",
+  customer: "客户",
 };
 
 const visibilityOptions = ["公开", "项目内", "机密"];
@@ -85,9 +98,9 @@ export default function UploadPage() {
   const [fileName, setFileName] = useState("");
   const [fileSize, setFileSize] = useState(0);
   const [fileType, setFileType] = useState("");
-  // IMPLEMENT-13：保留选中的真实 File 对象，用于以 multipart 发送字节。
+  // 保留选中的真实 File 对象，用于以 multipart 发送字节。
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  // IMPLEMENT-14：抽取结果展示（状态 / 预览 / 重复软提示 / 错误）。
+  // 抽取结果展示（状态 / 预览 / 重复软提示 / 错误）。
   const [extraction, setExtraction] = useState<{
     status: string | null;
     preview: string | null;
@@ -101,7 +114,7 @@ export default function UploadPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Path A：企微微盘待确认任务（PBC-07，真实后端 /ingest/pending?source=path_a_wecom）。
+  // Path A：企微微盘待确认任务。
   const [pendingTasks, setPendingTasks] = useState<PendingIngestItemDTO[]>([]);
   const [pendingLoading, setPendingLoading] = useState(false);
   const [pendingError, setPendingError] = useState<string | null>(null);
@@ -114,15 +127,24 @@ export default function UploadPage() {
   const [editSummary, setEditSummary] = useState("");
   const [editKeyPoints, setEditKeyPoints] = useState("");
   const [llmStatus, setLlmStatus] = useState<{ status: string | null; provider: string | null } | null>(null);
+  // 入库前置规则脱敏安全元数据（状态 + 类别计数 + 人读文案）。
+  const [desensitization, setDesensitization] = useState<{
+    status: string | null;
+    counts: Record<string, number> | null;
+    message: string | null;
+  } | null>(null);
   const [editTags, setEditTags] = useState("");
   const [editVisibility, setEditVisibility] = useState("项目内");
   const [editBizStage, setEditBizStage] = useState("行动辅导");
   const [targetLibrary, setTargetLibrary] = useState<TargetLibrary>("personal");
   const [confirmConfidence, setConfirmConfidence] = useState("—");
 
-  // IMPLEMENT-05：真实入库任务状态
+  // 真实入库任务状态
   const [taskId, setTaskId] = useState<string | null>(null);
   const [resultAssetId, setResultAssetId] = useState<string | null>(null);
+  // confirm 返回的平台级索引状态（indexed | index_failed | skipped）。
+  // index_failed = 资产已落库但底座索引失败，前端如实提示而非伪装完全成功。
+  const [submitIndexStatus, setSubmitIndexStatus] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   // R8_FIX：处理中/超时/失败的安全提示（不含内部引用）。
   const [processingNote, setProcessingNote] = useState<string | null>(null);
@@ -205,6 +227,11 @@ export default function UploadPage() {
         attempts += 1;
       }
       setLlmStatus({ status: ai.content_processing_status, provider: ai.llm_provider });
+      setDesensitization({
+        status: ai.desensitization_status,
+        counts: ai.desensitization_counts,
+        message: ai.desensitization_message,
+      });
       setEditTitle(ai.suggested_title ?? t.source_file_name);
       setEditOneLiner(ai.suggested_one_liner ?? "");
       setEditSummary(ai.suggested_summary ?? "");
@@ -278,6 +305,11 @@ export default function UploadPage() {
       }
       // 填入（无论 pending_confirmation 还是 failed，都把已有建议填入，便于人工补全/判断）。
       setLlmStatus({ status: ai.content_processing_status, provider: ai.llm_provider });
+      setDesensitization({
+        status: ai.desensitization_status,
+        counts: ai.desensitization_counts,
+        message: ai.desensitization_message,
+      });
       setEditTitle(ai.suggested_title ?? fileName);
       setEditOneLiner(ai.suggested_one_liner ?? "");
       setEditSummary(ai.suggested_summary ?? "");
@@ -337,6 +369,7 @@ export default function UploadPage() {
         lifecycle_phase_key: editBizStage,
       });
       setResultAssetId(res.result_asset_id);
+      setSubmitIndexStatus(res.index_status ?? null);
       setFlowState("submitted");
       // Path A：已确认任务的 result_asset_id 已填，会退出待确认列表，刷新以反映。
       if (activePath === "a") void loadPending();
@@ -352,6 +385,7 @@ export default function UploadPage() {
     setApiError(null);
     setProcessingNote(null);
     setLlmStatus(null);
+    setDesensitization(null);
     setSelectedFile(null);
     setExtraction(null);
     setNaming(null);
@@ -378,6 +412,7 @@ export default function UploadPage() {
     // Reset ingest task state
     setTaskId(null);
     setResultAssetId(null);
+    setSubmitIndexStatus(null);
     setApiError(null);
   }, []);
 
@@ -631,8 +666,23 @@ export default function UploadPage() {
         <section className="upload-section">
           <h3>安全与脱敏</h3>
           <p className="page-help-line">
-            文本抽取与外部 LLM 内容处理<strong>已真实接入</strong>（不可用时 fail-closed 降级）；<strong>入库前实体级自动脱敏管线仍为规划/待接入</strong>，当前不代表已执行脱敏。资产化流程与脱敏规划见 <Link to="/help#ingest" className="page-help-link">使用说明 →</Link>
+            文本抽取与外部 LLM 内容处理<strong>已真实接入</strong>（不可用时 fail-closed 降级）；抽取成功后<strong>入库前已做规则实体脱敏</strong>，平台侧外部 LLM 内容建议仅使用脱敏后文本；不可抽取文本则无法做文本级前置脱敏。WeKnora 底座按已确认信任边界仍可接触原文做索引。未实现：OCR、结构保持式文件重写、Ollama/LLM 脱敏、历史资产全量重索引。详见 <Link to="/help#ingest" className="page-help-link">使用说明 →</Link>
           </p>
+          {desensitization && desensitization.status && (
+            <div className={`up-desensitization up-desensitization-${desensitization.status}`}>
+              <span className="up-desensitization-label">前置脱敏</span>
+              <span className="up-desensitization-status">
+                {desensitization.message ?? desensitization.status}
+              </span>
+              {desensitization.counts && Object.keys(desensitization.counts).length > 0 && (
+                <span className="up-desensitization-counts">
+                  {Object.entries(desensitization.counts)
+                    .map(([cat, n]) => `${desensCategoryLabel[cat] ?? cat}×${n}`)
+                    .join("，")}
+                </span>
+              )}
+            </div>
+          )}
         </section>
       </>}
 
@@ -888,10 +938,17 @@ export default function UploadPage() {
             <button className="btn-secondary" onClick={handleReset}>{confirmSubmitted ? "再入库一条" : "取消"}</button>
           </div>
           {confirmSubmitted && resultAssetId && (
-            <div className="up-submit-notice">
-              已真实入库（zone = material）。
-              <Link to={`/knowledge/${resultAssetId}`}>查看新资产 →</Link>
-            </div>
+            submitIndexStatus === "index_failed" ? (
+              <div className="up-submit-notice" style={{ color: "var(--color-warning-fg, #8a6d00)" }}>
+                已确认入库并保存校正内容（zone = material），但知识底座索引暂未完成，稍后可重试或联系管理员；在此之前该资产可能暂不可被语义检索召回。
+                <Link to={`/knowledge/${resultAssetId}`}>查看新资产 →</Link>
+              </div>
+            ) : (
+              <div className="up-submit-notice">
+                已真实入库（zone = material）{submitIndexStatus === "skipped" ? "；知识底座未启用，已跳过索引" : ""}。
+                <Link to={`/knowledge/${resultAssetId}`}>查看新资产 →</Link>
+              </div>
+            )
           )}
         </section>
       </>}
@@ -915,3 +972,4 @@ export default function UploadPage() {
     </div>
   );
 }
+

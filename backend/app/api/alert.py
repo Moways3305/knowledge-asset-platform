@@ -1,4 +1,4 @@
-"""Admin 告警设置 API（IMPLEMENT-10；契约 §21）。
+﻿"""Admin 告警设置 API。
 
 - GET   /api/v1/admin/alerts/rules：告警规则列表（admin）。
 - PATCH /api/v1/admin/alerts/rules/{rule_id}：更新规则（admin；审计 config.alert_rule_updated）。
@@ -56,3 +56,4 @@ async def list_notifications(
     session: AsyncSession = Depends(get_db),
 ) -> NotificationsResponse:
     return await alert_service.list_notifications(session, caller)
+

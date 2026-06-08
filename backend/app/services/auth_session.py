@@ -1,4 +1,4 @@
-"""会话身份服务（IMPLEMENT-12 真实会话身份最小闭环）。
+﻿"""会话身份服务。
 
 提供登录 / 登出 / 当前会话解析与「会话 → 当前用户」的统一口径：
 
@@ -6,8 +6,8 @@
   服务端只存 sha256(token)，**明文 token 绝不进入任何 JSON 响应**，只经 Set-Cookie 下发。
 - 当前用户解析优先级：先会话 cookie；无有效会话时，仅在 local/dev/test 回退到
   `X-Dev-User-Id`（或默认开发用户）；非开发环境且无有效会话 → 401。
-- 登录凭证校验（密码 / OAuth）本阶段不实现：本地无凭证登录适配器（按 email 取
-  active 用户建会话）只在开发环境开放；真实 WeCom OAuth 为后续任务（见 README）。
+- 登录凭证校验：密码登录校验 PBKDF2 后建会话；本地无凭证登录适配器（按 email 取
+  active 用户建会话）仅在开发环境开放；企业微信 OAuth 经回调端点建会话（见 README）。
 """
 
 from __future__ import annotations
@@ -100,6 +100,22 @@ async def resolve_session_user(
     return user
 
 
+async def session_login_method(session: AsyncSession, raw_token: str | None) -> str | None:
+    """读取 cookie 对应会话行的真实 `login_method`（password / dev_local / wecom_oauth）。
+
+    纯读，供登出审计还原真实登录方式。**绝不**返回 / 暴露明文 token / token_hash / cookie 值。
+    找不到会话行 → None（调用方据此不伪造 login_method）。
+    """
+    if not raw_token:
+        return None
+    row = (
+        await session.execute(
+            select(UserSession).where(UserSession.token_hash == _hash_token(raw_token))
+        )
+    ).scalar_one_or_none()
+    return row.login_method if row is not None else None
+
+
 async def revoke_session(session: AsyncSession, raw_token: str | None) -> bool:
     """撤销 cookie 对应会话（登出）。返回是否实际撤销了一条会话。"""
     if not raw_token:
@@ -138,15 +154,38 @@ async def resolve_current_user(
     raise HTTPException(status_code=401, detail="not_authenticated")
 
 
+async def login_with_password(
+    session: AsyncSession, *, email: str, password: str
+) -> User:
+    """密码凭证登录（所有环境）：按 email 取用户并校验密码。
+
+    统一失败语义（不区分原因，调用方一律 401 invalid_credentials）：用户不存在 / 非 active /
+    未设置密码 / 密码错误。已知用户（exc.user_id 非空）由调用方写 login.failed；未知 email
+    （user_id=None）不写可归属审计。对不存在用户也跑一次 PBKDF2 均衡时间侧信道。
+    """
+    from app.services.passwords import dummy_verify, verify_password
+
+    user = await load_user_with_roles(session, email=email)
+    if user is None:
+        dummy_verify(password)
+        raise _InvalidCredentials(user_id=None)
+    # 校验密码（无 hash / 非 active 也统一失败；先校验密码再看状态，避免泄露"已设密码"信号）。
+    if not verify_password(password, user.password_hash):
+        raise _InvalidCredentials(user_id=user.id)
+    if user.status != "active":
+        raise _InvalidCredentials(user_id=user.id)
+    return user
+
+
 async def login_local(
     session: AsyncSession, *, app_env: str, email: str
 ) -> User:
     """本地无凭证登录适配器（仅开发环境）：按 email 取 active 用户。
 
-    - 非开发环境 → 403 auth_login_not_available（真实 OAuth 未接入）。
+    - 非开发环境 → 403 auth_login_not_available（开发适配器仅限非生产环境）。
     - 用户不存在 / 非 active → 抛出，由调用方写 login.failed 审计后返回 401。
 
-    注意：本阶段不校验密码 / OAuth 令牌；凭证校验是后续 WeCom OAuth 任务的范围。
+    注意：此开发适配器不校验密码 / OAuth 令牌；密码与企业微信 OAuth 凭证校验由各自的登录路径负责。
     """
     if app_env not in LOGIN_ALLOWED_ENVS:
         raise HTTPException(status_code=403, detail="auth_login_not_available")
@@ -162,3 +201,4 @@ class _InvalidCredentials(Exception):
     def __init__(self, user_id: uuid.UUID | None) -> None:
         self.user_id = user_id
         super().__init__("invalid_credentials")
+

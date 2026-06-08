@@ -1,4 +1,4 @@
-"""`/api/v1/auth/me` 响应 schema。
+﻿"""`/api/v1/auth/me` 响应 schema。
 
 字段名严格对齐 BE-04 第 5 章身份上下文契约。
 """
@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel
 
@@ -20,13 +21,27 @@ class ProjectMembershipOut(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    """本地登录请求（开发环境无凭证适配器）。真实 OAuth 接入后由授权码流替换。"""
+    """登录请求。提供 password → 所有环境走真实密码校验；
+    不提供 password → 仅 local/dev/test 走无凭证开发适配器，prod 拒绝。
+    password 仅入站校验、绝不回显。"""
 
     email: str
+    password: str | None = None
 
 
 class LogoutResponse(BaseModel):
     ok: bool
+
+
+class CsrfTokenOut(BaseModel):
+    """CSRF token 下发响应。
+
+    csrf_token 是签名 + 过期 + 绑定 session 的不透明串（非认证凭证、不含 session token /
+    cookie 值）；前端内存缓存并经 `X-CSRF-Token` 头回送 unsafe 请求。
+    """
+
+    csrf_token: str
+    expires_at: datetime
 
 
 class WecomAuthorizeOut(BaseModel):
@@ -53,3 +68,4 @@ class AuthMeOut(BaseModel):
     is_business_user: bool
     can_discover_l5: bool
     project_memberships: list[ProjectMembershipOut]
+

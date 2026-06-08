@@ -1,10 +1,10 @@
-"""审核域 ORM 模型。
+﻿"""审核域 ORM 模型。
 
 包含：validation_evidences（验证证据）/ review_tasks（审核任务）/
 review_task_evidences（任务-证据关联）/ personal_knowledge_submissions（个人知识提交记录）。
-`personal_knowledge_submissions` 已由 PBC-05 实现，承载个人知识 → 项目的提交、
+`personal_knowledge_submissions` 承载个人知识 → 项目的提交、
 内部分享候选与客户验证候选；审核任务支持 material_to_asset 与 personal_to_project。
-原文授权（access_grants / original_access_requests）不在本文件，留 PBC-06。
+原文授权（access_grants / original_access_requests）不在本文件。
 
 attachments 仅存占位 metadata（不含真实文件路径/下载 URL）。
 """
@@ -64,7 +64,7 @@ class ValidationEvidence(Base):
 
 
 class ReviewTask(Base):
-    """审核任务（IMPLEMENT-06：仅 material_to_asset）。"""
+    """审核任务。"""
 
     __tablename__ = "review_tasks"
     __table_args__ = (
@@ -104,7 +104,7 @@ class ReviewTask(Base):
 
 
 class PersonalKnowledgeSubmission(Base):
-    """个人知识写动作的提交记录（PBC-05）。
+    """个人知识写动作的提交记录。
 
     记录"个人知识 → 项目"的提交 / 内部分享候选 / 客户验证候选。系统只登记用户声明的
     提交意图与证据线索，**不**自动证明分享 / 客户验证真实发生；审核仍由项目经理人工确认。
@@ -176,3 +176,4 @@ class ReviewTaskEvidence(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     review_task: Mapped[ReviewTask] = relationship(back_populates="evidence_links")
+

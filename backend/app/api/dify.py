@@ -1,4 +1,4 @@
-"""Dify **兼容适配器** 路由（PBC-01）。
+﻿"""Dify **兼容适配器** 路由。
 
 平台核心是 provider 中立的外部 Agent / 工作流网关
 （`app/services/external_agent_gateway.py`）。本文件只做 **Dify 专属的线缆转译**：
@@ -205,3 +205,4 @@ async def update_agent_whitelist(
     session: AsyncSession = Depends(get_db),
 ) -> RegistryCreateResponse:
     return await agent_registry.update_rule(session, caller, rule_id, req, get_trace_id(request))
+

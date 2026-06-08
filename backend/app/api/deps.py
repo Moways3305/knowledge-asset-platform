@@ -1,11 +1,11 @@
-"""API 依赖（dependencies）。
+﻿"""API 依赖（dependencies）。
 
-集中提供"当前调用人上下文"依赖。身份来源优先级（IMPLEMENT-12）：
+集中提供"当前调用人上下文"依赖。身份来源优先级：
 1. 有效会话 cookie（`kap_session`）→ 会话用户（任何环境）。
 2. 否则仅 local/dev/test 回退到开发态 mock identity（`X-Dev-User-Id` / 默认开发用户）。
 3. 否则 → 401。
 
-权限上下文（CallerContext）仍由 IMPLEMENT-03 的 `build_caller_context` 构建，
+权限上下文（CallerContext）仍由 的 `build_caller_context` 构建，
 本依赖只负责"当前用户从哪来"，不改任何业务权限语义。
 """
 
@@ -38,3 +38,4 @@ async def get_caller_context(
         dev_user_id=x_dev_user_id,
     )
     return build_caller_context(user)
+

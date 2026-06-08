@@ -1,4 +1,4 @@
-"""Dify **适配器** 的 wire-protocol schema（PBC-01）。
+﻿"""Dify **适配器** 的 wire-protocol schema。
 
 平台核心是 provider 中立的外部 Agent / 工作流网关（见 `app/schemas/external_agent.py`
 与 `app/services/external_agent_gateway.py`）。本模块只承载 **Dify 专属的请求线缆形态**：
@@ -81,3 +81,4 @@ class DifyToolRequest(BaseModel):
     filters: DifyToolFilters = DifyToolFilters()
     want_original: bool = False
     asset_id: uuid.UUID | None = None
+

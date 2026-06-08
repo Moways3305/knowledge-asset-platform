@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+﻿import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   ApiError,
@@ -27,7 +27,7 @@ const statusLabel: Record<string, string> = {
   failed: "发送失败",
 };
 
-// 用户可见时间统一北京时间（PBC-10C）。
+// 用户可见时间统一北京时间。
 const fmtTime = (iso: string): string => formatBeijingTime(iso);
 
 export default function AdminAlertSettingsPage() {
@@ -243,7 +243,7 @@ export default function AdminAlertSettingsPage() {
             </tbody>
           </table>
         </div>
-        <p className="au-note">本阶段为本地通知记录，<strong>不实现真实发送</strong>（无邮件 / 企微 / webhook）；记录仅含安全元数据，新建状态恒为「待发送」。</p>
+        <p className="au-note">当前环境仅记录站内通知，<strong>未配置外部通知通道</strong>（邮件 / 企微 / webhook）；记录仅含安全元数据，新建状态恒为「待发送」。</p>
       </section>
 
       <p className="page-help-line">
@@ -252,3 +252,4 @@ export default function AdminAlertSettingsPage() {
     </div>
   );
 }
+

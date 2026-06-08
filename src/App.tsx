@@ -7,10 +7,12 @@ import AdminIngestPage from "./pages/AdminIngestPage";
 import ReviewPage from "./pages/ReviewPage";
 import ProjectKnowledgePage from "./pages/ProjectKnowledgePage";
 import AdminAuditPage from "./pages/AdminAuditPage";
+import AdminAuthSecurityPage from "./pages/AdminAuthSecurityPage";
 import AdminAlertSettingsPage from "./pages/AdminAlertSettingsPage";
 import AdminPeoplePage from "./pages/AdminPeoplePage";
 import AdminPermissionsPage from "./pages/AdminPermissionsPage";
 import AdminWecomScanPage from "./pages/AdminWecomScanPage";
+import AdminWeKnoraModelsPage from "./pages/AdminWeKnoraModelsPage";
 import ProjectSettingsPage from "./pages/ProjectSettingsPage";
 import MyKnowledgePage from "./pages/MyKnowledgePage";
 import OriginalAccessPage from "./pages/OriginalAccessPage";
@@ -28,7 +30,9 @@ export default function App() {
           <Route path="upload" element={<UploadPage />} />
           <Route path="admin/ingest" element={<AdminIngestPage />} />
           <Route path="admin/wecom-scan" element={<AdminWecomScanPage />} />
+          <Route path="admin/weknora-models" element={<AdminWeKnoraModelsPage />} />
           <Route path="admin/audit" element={<AdminAuditPage />} />
+          <Route path="admin/auth-security" element={<AdminAuthSecurityPage />} />
           <Route path="admin/alert-settings" element={<AdminAlertSettingsPage />} />
           <Route path="admin/people" element={<AdminPeoplePage />} />
           <Route path="admin/permissions" element={<AdminPermissionsPage />} />

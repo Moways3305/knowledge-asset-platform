@@ -1,4 +1,4 @@
-"""外部 Agent 接入注册服务（PBC-01，provider 中立）。
+﻿"""外部 Agent 接入注册服务。
 
 负责 `agent_whitelist_rules` 的 token 哈希 / 鉴权查询 / 管理 CRUD。注册行 provider 中立
 （`provider` 列区分 dify / coze / 自研等），管理与鉴权逻辑不绑定任何具体 provider。
@@ -180,3 +180,4 @@ async def update_rule(session: AsyncSession, caller: CallerContext, rule_id: uui
     )
     await session.commit()
     return RegistryCreateResponse(rule=_to_out(rule), token=new_token)
+

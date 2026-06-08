@@ -1,4 +1,4 @@
-// Admin Audit API 的 DTO 类型（IMPLEMENT-09）。
+﻿// Admin Audit API 的 DTO 类型。
 // 字段按后端视图档位（admin_metadata / governance）选择性填充；
 // 前端不展示 storage_ref / token / Dify 内部标识（后端本就不返回）。
 
@@ -45,3 +45,4 @@ export interface MarkProcessedResponseDTO {
   processed_by: string | null;
   processed_at: string | null;
 }
+

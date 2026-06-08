@@ -1,4 +1,4 @@
-"""告警规则 / 本地通知服务（IMPLEMENT-10 最小闭环）。
+﻿"""告警规则 / 本地通知服务。
 
 职责（BE-10 §10）：
 - alert_rules：归档阈值等规则的本地配置与查询；阈值默认建议值（730 天未调用 +
@@ -241,3 +241,4 @@ async def record_local_notification(
     )
     session.add(rec)
     return rec
+

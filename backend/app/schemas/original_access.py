@@ -1,4 +1,4 @@
-"""原文访问申请与授权 API 的请求 / 响应 schema（PBC-06）。
+﻿"""原文访问申请与授权 API 的请求 / 响应 schema。
 
 只暴露安全治理元数据：request/grant id、asset id/title/scope/project、安全显示名、
 status/时间/expires_at、reason/review_note。绝不返回原文 / 对象存储引用 / 外部系统内部 id /
@@ -67,3 +67,4 @@ class CreateRequestResponse(BaseModel):
 class RequestsListResponse(BaseModel):
     items: list[OriginalAccessRequestOut]
     total: int
+

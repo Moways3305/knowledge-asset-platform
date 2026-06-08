@@ -81,7 +81,7 @@ npm run preview
 
 路径B — 本地上传资产化（真实链路）：
 - 本地文件选择 → 上传至平台受控存储 → worker 异步抽取文本 → 外部 LLM 生成命名规范化标题、三层摘要、标签、分类草稿（LLM 不可用时 fail-closed 降级为确定性建议并提示人工校正）→ 人工校正 → 提交入库
-- 文件存储边界：Path B 将选中文件的字节上传至平台受控本地开发存储；后端只返回安全元数据，不返回存储路径 / `source_file_ref` / 对象 URL / 内部引用；文本抽取与外部 LLM 内容处理已真实接入，**入库前的实体级自动脱敏管线仍为延后项**
+- 文件存储边界：Path B 将选中文件的字节上传至平台受控本地开发存储；后端只返回安全元数据，不返回存储路径 / `source_file_ref` / 对象 URL / 内部引用；文本抽取与外部 LLM 内容处理已真实接入。**入库前实体级规则脱敏已实现（PBC-13）**：抽取成功后先做确定性规则脱敏（邮箱 / 手机号 / 固话 / 身份证 / 银行卡 / 长账号 / 金额 / 联系人 / 客户字段），平台侧外部 LLM 内容建议仅使用脱敏后文本；不可抽取文本则无法做文本级前置脱敏、平台侧 LLM 降级不接触原文。**WeKnora 底座及其 LLM 是老板确认的受信任底座处理方，按该信任边界仍可接触原始文件/原文做索引**，索引链路不因规则脱敏缺失而阻断。未实现：OCR / 扫描件识别、结构保持式文件重写、Ollama/LLM 脱敏、历史资产全量重索引
 - 来源渠道标记为"本地上传"
 
 命名规范与保密分级区：
@@ -239,7 +239,7 @@ npm run preview
 - AI/Agent 边界：AI 或 Agent 不得自动将资料标记为资产区，不自动认定内部分享或客户验证完成
 - 规则影响预览：修改规则会影响哪些下游页面
 - 可修改角色限定（Boss / 咨询总监），admin 只读；修改写入审计日志（`config.permission_rule_updated`）
-- 运行时边界：PBC-03 落配置中心；PBC-06 已接入原文申请 / 审批 / 授权 / 撤销与 active `access_grant` 运行时放行（`access_grant_duration_days` 为默认有效期来源）。`DefaultAccessPolicy` 仍为常量、L1/L2 规则化 `system_rule` 运行时与超时自动通过仍为后续增强；归档扫描运行时阈值仍以 `alert_rules` 为准
+- 运行时边界：PBC-03 落配置中心；PBC-06 已接入原文申请 / 审批 / 授权 / 撤销与 active `access_grant` 运行时放行（`access_grant_duration_days` 为默认有效期来源）。**PBC-11E 已把指定规则接入真实权限运行时**：L1/L2 原文默认放行开关（`cross_project_l1_l2_original_for_business_user` / `company_l1_l2_original_for_business_user`，经 `load_access_policy()` 注入 `decide()`）与原文访问申请超时自动通过（`access_request_timeout_hours`，仅 L1/L2 生效、L3-L5 不自动通过）。`DEFAULT_POLICY` 仅作规则缺失时的出厂回退（禁用/取值非法 fail-closed）。其余 `permission_rules`（个人流转、升格阈值、`review_timeout_hours`、生命周期 / 归档阈值等）仍只是治理配置视图，不驱动运行时；归档扫描运行时阈值仍以 `alert_rules` 为准
 
 ### 13. 人员权限 `/admin/people`
 
@@ -268,18 +268,22 @@ npm run preview
   - 原文访问申请 / 授权（PBC-06）：`/knowledge/:id` 可发起原文访问申请，`/original-access` 提供审批 / 拒绝 / 撤销；审批通过生成 active `access_grant`，运行时原文层（知识详情 / 预览 / 原文取件 / 外部 Agent 检索）统一叠加 active grant 放行，过期 / 撤销立即失效。
   - `/upload` Path A（PBC-07）：企微微盘扫描创建的 `path_a_wecom` 待确认任务接 `GET /api/v1/ingest/pending`，按权限只显示可确认任务，复用 Path B `confirm` 链路入库；不再是静态 `agentFiles` 演示列表。
   - `/knowledge` 语义检索（PBC-08）：搜索框接 `POST /api/v1/knowledge/search`（WeKnora 召回 + 意图路由 + 权限裁剪 + 脱敏），展示后端 cards / answer / citations / 原文层状态与 trace_id；不再是本地列表过滤。
-- **仍为后续治理增强 / 规划（非 mock，后端尚无该能力）**：原文访问的超时自动通过、L1/L2 规则化 `system_rule` 运行时（`permission_rules` 驱动，`DefaultAccessPolicy` 仍为常量）、入库前实体级自动脱敏管线、`/knowledge` 运营洞察 API（侧栏当前为本地规则提示）、密码登录 / 密码凭证校验
+- **已实现（PBC-13）**：入库前实体级**规则脱敏**——抽取成功后确定性规则擦洗常见敏感实体，平台侧外部 LLM 内容建议仅用脱敏文本；WeKnora 底座按老板确认信任边界仍可接触原文索引。未实现：OCR、结构保持式文件重写、Ollama/LLM 脱敏、历史资产全量重索引
+- **已接入运行时（PBC-11E）**：原文访问申请超时自动通过（`access_request_timeout_hours`，仅 L1/L2）、L1/L2 原文默认放行开关规则化（`cross_project_l1_l2_original_for_business_user` / `company_l1_l2_original_for_business_user` 经 `load_access_policy()` 驱动 `decide()`，`DEFAULT_POLICY` 仅作规则缺失回退）
+- **已实现（PBC-15）**：索引**批量 retry-index** + **显式 reparse** + **后台队列化运维**——`/admin/ingest` 运维面板可对筛选出的失败 / 跳过 / 未索引资产发起批量重试，对已进底座但解析异常的资产发起受控重传式 reparse；批量动作进入后台作业（`indexing_operation_jobs`），面板展示作业安全统计与最近作业列表；`refresh-parse` 仍是只读对账。响应 / 审计 / 前端不泄露 WeKnora kb·doc id / 存储引用 / 原文
+- **已实现（PBC-16）**：`/knowledge` **运营洞察 API**（`GET /api/v1/knowledge/ops-insights`）——右侧洞察面板改由真实后端安全聚合驱动（索引失败/解析异常/KB 初始化失败、最近索引运维作业、原文申请待处理/超时/自动通过、归档候选/升格推荐），按角色范围裁剪：纯 admin 系统运维聚合且 `title_visible=false`、业务治理角色公司/跨项目治理摘要、项目角色/普通业务用户限本人+所在项目；不绕过发现权限、不泄露 WeKnora id/存储引用/原文/文件名
+- **仍为后续治理增强 / 规划（非 mock，后端尚无该能力）**：OCR / 扫描件识别、结构保持式文件重写、Ollama/LLM 脱敏、历史资产全量重索引
 - 注：上述区分依据 `docs/reviews/PRODUCT_MOCK_DEMO_STUB_AUDIT.md`（历史审计报告，非当前口径）；「真实能力已实现但前端未接」不等于「后端是 mock」。
-- 身份：**真实会话**（服务端会话表 + httpOnly cookie）+ **企微 OAuth（R6）**（`/api/v1/auth/wecom/start`+`/callback`，state 校验、按 `users.wecom_user_id` 解析、`login_method=wecom_oauth`，不自动建用户）；明文 token 只在 httpOnly cookie。本地无凭证登录适配器仅 dev/test；无会话时仅 local/dev/test 回退 `X-Dev-User-Id`
+- 身份：**真实会话**（服务端会话表 + httpOnly cookie）+ **密码凭证登录（PBC-12）**（`POST /api/v1/auth/login` 提供 `email + password` → 所有环境真实校验密码 PBKDF2，`login_method=password`）+ **企微 OAuth（R6）**（`/api/v1/auth/wecom/start`+`/callback`，state 校验、按 `users.wecom_user_id` 解析、`login_method=wecom_oauth`，不自动建用户）；明文 token 只在 httpOnly cookie。不提供密码时，仅 local/dev/test 走 email-only 无凭证开发适配器（`login_method=dev_local`），prod 拒绝（`auth_password_required`）；无会话时仅 local/dev/test 回退 `X-Dev-User-Id`
 - **企微微盘 Path A 扫描（R6）**已实现：`/api/v1/admin/wecom-scan/*` 配置/触发/记录，扫描经平台后端下载字节落受控存储 → 建 `path_a_wecom` 入库任务 → 复用入库处理链；需人工 `/upload` 确认才成资产
 - 检索 / 问答经 **WeKnora（R1）+ 外部 LLM（R2/R3）** 真实链路 + 集中权限网关 + 输出脱敏（`POST /api/v1/knowledge/search`）。**外部 Agent / 工作流网关为 provider 中立核心（PBC-01）**：权限 / 检索 / 审计 / 无泄露逻辑与具体 provider 无关；**Dify 外部知识库 / HTTP Tool（R4）是其兼容适配器**（临时集成面，未来可加 Coze / 自研适配器），复用同一权限网关；底层 kb_id/doc_id/chunk_id/dataset_id/workflow_id/app_id/api_key 绝不外泄。真实 WeKnora / LLM 端点经 env 启用，未配置则降级
 - `/upload` Path B 写真实字节到受控存储（server-only ref，不入响应）；生产对象存储（S3/OSS）经可插拔 `StorageBackend` 平替（本仓库默认本地存储）
 - **Celery 异步（R5）**：入库处理 / 解析对账 / 归档扫描 / 复用推荐 / 通知下发经 worker+beat（`CELERY_TASK_ALWAYS_EAGER=false`）；归档与重新启用仍需人工确认
 - **ONLYOFFICE 只读预览（R7）**已实现：`GET /api/v1/preview/{id}` 返回真实只读编辑器配置 + 平台受控取件 URL（Document Server 凭短时 token 经平台存储回取字节）；走集中权限 + 预览凭证 + 审计 + L5 强审计，不暴露 storage_ref/对象存储 URL/完整 token/jwt 密钥/WeKnora id；生产需配置 `ONLYOFFICE_*`，未配置则安全降级不泄露原文 URL
 - **企微通知真实下发（R7）**：受 `WECOM_NOTIFY_ENABLED` fail-closed 总开关控制（默认关=仅本地 in_app）
-- 页面主数据均经真实后端权限判断执行（集中权限服务）；上方列出的后续治理增强 / 规划项（脱敏管线、运营洞察、超时自动通过、L1/L2 规则化、密码登录）后端尚无该能力，前端按准确边界展示（明确标注「规划 / 待接入」），不伪装成功、不放可点击的假写按钮、不用本地静态数据冒充后端
-- **原文授权（PBC-06）已落地**：`access_grants` / `original_access_requests` 真实表；跨项目 / 公司 L3/L4 原文无授权时按"需申请"拒绝（`original_requires_request`），经申请→审批→生成 active `access_grant` 后运行时放行原文层（`decide(has_original_grant=…)`，source=`access_grant`，需审计），过期 / 撤销立即失效；`access_grant_duration_days`（权限规则）为 grant 默认有效期运行时来源。仍为后续增强：超时自动通过、L1/L2 规则化 `system_rule` 运行时（`DefaultAccessPolicy` 仍为常量，不读 `permission_rules`）
-- 已集成的后端流程会持久化到本地开发数据库（含会话表）；仅 mock 的前端页面 / 本地 UI 交互不落为真实后端业务数据。凭证校验现状：**密码登录 / 密码凭证校验尚未实现**；**企微 OAuth 已实现**（`/api/v1/auth/wecom/start` + 后端 `/callback` 建会话，顶栏「企微登录」入口已接入），真实可用性取决于 `WECOM_*` env 配置，未配置时后端 fail-closed 返回安全错误
+- 页面主数据均经真实后端权限判断执行（集中权限服务）；上方列出的后续治理增强 / 规划项（OCR / 文件重写 / LLM 脱敏 / 历史全量重索引等）后端尚无该能力，前端按准确边界展示（明确标注「规划 / 待接入」），不伪装成功、不放可点击的假写按钮、不用本地静态数据冒充后端
+- **原文授权（PBC-06）已落地**：`access_grants` / `original_access_requests` 真实表；跨项目 / 公司 L3/L4 原文无授权时按"需申请"拒绝（`original_requires_request`），经申请→审批→生成 active `access_grant` 后运行时放行原文层（`decide(has_original_grant=…)`，source=`access_grant`，需审计），过期 / 撤销立即失效；`access_grant_duration_days`（权限规则）为 grant 默认有效期运行时来源。**PBC-11E 后**：原文申请超时自动通过（`access_request_timeout_hours`，仅 L1/L2）与 L1/L2 原文默认放行开关均已接入运行时（经 `load_access_policy()`，`DEFAULT_POLICY` 仅作规则缺失回退）
+- 已集成的后端流程会持久化到本地开发数据库（含会话表）；仅 mock 的前端页面 / 本地 UI 交互不落为真实后端业务数据。凭证校验现状：**密码登录已实现（PBC-12）**——所有环境按 `email + password` 真实校验（PBKDF2），`local/dev/test` 保留 email-only 便利登录（`login_method=dev_local`）、`prod` 必须提供密码；**企微 OAuth 已实现**（`/api/v1/auth/wecom/start` + 后端 `/callback` 建会话，顶栏「企微登录」入口已接入），真实可用性取决于 `WECOM_*` env 配置，未配置时后端 fail-closed 返回安全错误。仍为后续增强：MFA、找回密码、账户锁定、CSRF 全站改造、多设备会话管理
 - 顶部栏项目下拉为用户**真实项目成员关系**（来自 `/auth/me`）：切换仅改变顶栏显示的项目内角色 / 视角提示，权限拦截始终以后端会话身份为准（前端选择器不参与鉴权）
 - 顾问、项目经理和辅导老师不是全局互斥身份，同一人可在不同项目中担任不同项目内角色（coach / project_manager / consultant）
 
@@ -300,7 +304,20 @@ docker compose exec backend python -m app.seed.dev_seed   # 可选 seed（仅 de
 - 前端镜像（`Dockerfile.frontend` + `deploy/nginx.conf`）多阶段构建：Node 阶段 `npm ci && npm run build`，nginx 阶段托管 `dist/`；**不复制 `backend/.env`、不烙任何密钥**（见根 `.dockerignore`，已整目录排除 `backend/` 与所有 `.env`）。
 - 迁移由专设 `migrate` 服务执行，backend/worker/beat 依赖其成功完成后启动——无需手动 `alembic upgrade`、不并发迁移。
 - 冒烟：`GET /health`（活性）、`GET /health/ready`（DB/Redis 就绪）、`GET /health/config`（安全配置诊断，无密钥）、`GET /admin/ops/summary`（admin 运营计数）。
-- 真实外部集成（WeKnora / LLM / 企微 / ONLYOFFICE）经 env 注入启用，**真实密钥不入仓库**；字段清单见 `backend/.env.example` 与 `backend/README.md` §R8。
+- **安全烟测脚本（PBC-17）**：`python scripts/production_smoke.py --base-url http://<host>:<port> [--fail-on-production-blockers] [--json]`。纯标准库、**不读 `.env`、不调 `docker compose config`**；只打印端点名 / HTTP status / `/health/config` 白名单安全字段（`production_ready` / `production_blockers` / `missing_config` 项名），绝不打印响应正文 / cookie / 密钥 / 连接串。`/health/config` 的 `production_ready` 为 true 仅表示「`APP_ENV=prod` 且无代码级硬阻断项（如 eager worker、insecure cookie、缺关键配置项名）」。
+- **生产 cookie（PBC-17）**：`APP_ENV=prod` 时会话 / OAuth state cookie 强制 `Secure`（HTTPS-only）；故必须经真实 HTTPS/TLS 反代访问，纯 http 入口下 cookie 不回送。
+- **登录失败风控（PBC-18）**：密码登录失败按不可逆 `identifier_hash` / `ip_hash` 短时锁定 / 限流，达阈值后不再消耗 PBKDF2；用户态错误统一为「邮箱或密码错误」，不区分账号是否存在 / 锁定。`APP_ENV=prod` 必须配置 `AUTH_ATTEMPT_HASH_SECRET`（缺失 → `/health/config` blocker）；阈值见 `backend/.env.example`。审计 / attempts 只含不可逆 hash 前缀 + 计数 + 原因码，**不含 raw email / password / token / 原始 IP**。
+- **企微身份生命周期同步（PBC-22）**：企微 OAuth 登录在建平台会话前核验企微成员有效性——成员被禁用 / 删除 / 未激活时 fail-closed（不建会话、停用平台用户、撤销会话、安全审计）；上游故障 fail-closed 但不误改状态。admin-only `POST /admin/ops/wecom-identity/reconcile`（CSRF 保护）可对账绑定用户并停用失效成员；`/admin/people` 详情提供「企微身份对账」按钮。仅安全计数 / 归一状态，不暴露 wecom_user_id / 通讯录档案 / token / 上游 errmsg。复用现有企微凭证，无新配置。**未做** 自动建用户 / 组织树同步 / 通讯录展示。
+- **会话撤销（PBC-21）**：账号停用、改密、或 admin 强制下线时，平台会话（`kap_session`）会被撤销（标记 `user_sessions.revoked_at`，不删行）。admin-only `GET/POST /admin/ops/sessions/users/{id}[/revoke]` 可查看安全会话元数据（仅 `session_id`/login_method/时间/撤销态，无 token/cookie/IP/device）并强制下线；`POST /admin/people/{id}/status` 停用用户联动撤销其会话。撤销 POST 受 PBC-19 CSRF 保护。**未做** MFA / 找回密码 / 设备管理 UI / 多设备会话产品。
+- **登录风控运维（PBC-20）**：admin-only `/admin/auth-security` 面板（`GET/POST /admin/ops/auth-security[/unlock]`）展示近期 failed/locked/rate_limited/success 安全聚合（仅不可逆 hash 前缀 + 安全用户元数据,无 raw email/IP/hash/token）,并可手动解除某账号的 identifier 短时锁定（写 `unlocked` reset anchor + `auth.lockout_unlocked` 审计,不绕过密码、不建会话、不重置 IP 限流）。解锁 POST 受 PBC-19 CSRF 保护。boss/director/consultant/pm 一律 403。
+- **CSRF 防护（PBC-19）**：cookie 会话下的 unsafe 请求（POST/PUT/PATCH/DELETE）须带 `X-CSRF-Token`（经 `GET /api/v1/auth/csrf` 获取，签名+过期+绑定 session 的无状态 token）；缺/无效/过期 → 安全 403，在业务 handler 前 fail-closed。dev `X-Dev-User-Id`、`Authorization: Bearer`（外部 Agent/Dify）、OAuth callback（GET）不受影响；`/auth/login` 豁免、`/auth/logout` 受保护。`APP_ENV=prod` 必须配置 `CSRF_TOKEN_SECRET`（缺失 → `/health/config` blocker）。前端自动获取/缓存（仅内存）/附带/失败重试一次。CSRF 失败不写审计（依赖 HTTP logs/metrics）。**未做** MFA / 找回密码 / 密码轮换 / 多设备会话。
+- 真实外部集成（WeKnora / LLM / 企微 / ONLYOFFICE）经 env 注入启用，**真实密钥不入仓库**；字段清单见 `backend/.env.example` 与 `backend/README.md` §R8 / §PBC-17。
+- **PBC-17 仅关闭代码级守卫 / 烟测 / trace 回归**；真实域名、HTTPS/TLS 证书、WeCom trusted callback domain、真实 secret 注入、镜像重建、DNS/反代、对象存储 / 指标系统等仍需运维实际执行。**未做** K8s/Helm/云密钥管理/真实公网部署。
+- **部署执行文档（PBC-23）**：上线前的可执行手册 / 安全配置清单 / live smoke 清单见 `docs/deployment/`：
+  - [`PRODUCTION_DEPLOYMENT_RUNBOOK.md`](docs/deployment/PRODUCTION_DEPLOYMENT_RUNBOOK.md) — 上线前准备 → 部署顺序 → 域名/TLS → 验证 → 回滚排障；
+  - [`PRODUCTION_SECRET_CHECKLIST.md`](docs/deployment/PRODUCTION_SECRET_CHECKLIST.md) — **只列配置项名 + blocker/warning 归类**，无任何值；
+  - [`LIVE_SMOKE_CHECKLIST.md`](docs/deployment/LIVE_SMOKE_CHECKLIST.md) — 健康/鉴权/CSRF/上传/索引/搜索/权限/WeCom/ONLYOFFICE 最小验证。
+  - **边界**：PBC-23 交付的是 **repo 内的部署文档 + live smoke 清单 + 安全配置清单**；真实公网域名、TLS 证书、云密钥注入、DNS、对象存储、云监控、镜像推送仍是实际运维动作，**本仓库不声称已完成真实公网部署**。
 
 ### ⚠️ `docker compose config` 会展开 `.env` 密钥——勿贴完整输出
 

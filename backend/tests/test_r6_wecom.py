@@ -76,6 +76,12 @@ class FakeOAuth:
             raise WeComError("wecom_missing_code", "缺少 code")
         return WeComIdentity(wecom_user_id=self.wecom_user_id)
 
+    async def get_member_status(self, wecom_user_id):
+        # PBC-22：默认 fake 成员有效（保持既有回调成功用例语义）。
+        from app.services.wecom_client import WeComMemberStatus
+
+        return WeComMemberStatus(wecom_user_id, True, "active", "企微成员有效")
+
 
 class FakeDrive:
     """fake 微盘：list_files 返回元数据；download_file 返回字节；可模拟单文件失败。"""

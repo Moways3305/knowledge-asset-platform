@@ -1,14 +1,16 @@
-"""集中权限判断服务（IMPLEMENT-03）。
+﻿"""集中权限判断服务。
 
 把 BE-03 权限模型中知识资产的三层访问判断收口到这里，供后续 API 复用。
 **所有权限业务判断只能放在本模块**，不得在 API / 测试 / 其它模块散落。
 
-原文授权运行时联动（PBC-06 已实现）：
+原文授权运行时联动：
 - 跨项目 / 公司 L3/L4 原文默认按"需要申请"（original_requires_request）；审批通过的
   active access_grant 经 `decide(..., has_original_grant=True)` 在运行时放行原文层
   （source=access_grant，需审计），过期 / 撤销立即失效。
-- L1/L2 原文默认策略集中在 `DefaultAccessPolicy`（schemas.permission）；其规则化
-  （permission_rules 驱动运行时）属后续治理接入。
+- L1/L2 原文默认策略集中在 `DefaultAccessPolicy`（schemas.permission）。**已规则化**
+  ——业务读路径调 `permission_rules.load_access_policy(session)` 把 `permission_rules` 的
+  `cross_project_l1_l2_original_for_business_user` / `company_l1_l2_original_for_business_user`
+  开关注入 `decide(policy=...)`；`decide()` 仍是纯函数（默认 `DEFAULT_POLICY`，便于单测）。
 - A4 的原文边界仅对 access_channel=agent 生效（human 不因 A4 自动拒绝），授权不绕过 A4。
 - archived / deprecated 资产读侧默认不可发现（asset_not_active）。
 """
@@ -45,7 +47,7 @@ from app.schemas.permission import (
 _INACTIVE_ASSET_STATUSES = {
     AssetStatus.archived.value,
     AssetStatus.deprecated.value,
-    # deleted（PBC-10B）：软删除态全程不可发现 / 摘要 / 原文（含 access_grant 也不放行）。
+    # deleted：软删除态全程不可发现 / 摘要 / 原文（含 access_grant 也不放行）。
     AssetStatus.deleted.value,
 }
 # 需要脱敏摘要的保密级别。
@@ -116,7 +118,7 @@ def _base_profile(
     if not caller.is_active:
         return _profile_none(DeniedReason.user_inactive)
 
-    # PBC-10D：纯系统身份（admin 等非业务用户）不是业务身份，不经知识发现路径浏览任何
+    # 纯系统身份（admin 等非业务用户）不是业务身份，不经知识发现路径浏览任何
     # 业务知识（个人/项目/公司，含发现/摘要/原文）。admin 的运营可见性走专门的 admin
     # 元数据接口（入库/扫描/审计），那些接口只回安全运营元数据、不含业务正文/摘要全文。
     # fail-closed：连资产是否存在都不泄露（detail 统一 404）。
@@ -232,7 +234,7 @@ def _build_profile(
     policy: DefaultAccessPolicy,
     has_original_grant: bool = False,
 ) -> _AccessProfile:
-    """在基础画像上叠加 PBC-06 的 access_grant 原文放大。
+    """在基础画像上叠加 access_grant 原文放大。
 
     `has_original_grant`（调用人对本资产有 active access_grant 原文授权）只在画像
     「可发现但原文受限」（max_layer=summary，即跨项目/公司 L3/L4、L1/L2 默认未放行等
@@ -266,7 +268,7 @@ def decide(
 
     三层递进：请求层级 <= 可达最高层级才允许；发现层被拒则摘要/原文必拒。
     A4 边界：access_channel=agent 请求 original 且资产 ai_access_level=A4 时拒绝。
-    PBC-06：`has_original_grant` 由调用方按 active access_grants 查得后传入（运行时联动）。
+    `has_original_grant` 由调用方按 active access_grants 查得后传入（运行时联动）。
     """
     profile = _build_profile(caller, asset, policy, has_original_grant)
     max_rank = layer_rank(profile.max_layer)
@@ -323,7 +325,7 @@ def decide(
 
 
 # ============================================================
-# 生命周期治理动作的权限判断（IMPLEMENT-10；BE-10 §5.1 / §6 / 契约 §14A）
+# 生命周期治理动作的权限判断
 # 这些判断同样收口在本模块，服务层不得另写权限矩阵。
 # 注意：生命周期动作要在 archived 资产上也成立（重新启用），因此【不复用】
 # decide()（其对 archived 作 asset_not_active 发现层拒绝），而是给出独立的
@@ -384,3 +386,4 @@ def lifecycle_is_strong_audit(asset: KnowledgeAsset) -> bool:
         or asset.ai_access_level == AiAccessLevel.A4.value
         or asset.scope == KnowledgeScope.company.value
     )
+

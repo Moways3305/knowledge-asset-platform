@@ -1,4 +1,4 @@
-"""外部 Agent / 工作流网关的 **provider 中立** 请求 / 响应 schema（PBC-01）。
+﻿"""外部 Agent / 工作流网关的 **provider 中立** 请求 / 响应 schema。
 
 平台核心是 provider 中立的「外部 Agent / 工作流网关」；Dify 只是其中一个兼容适配器
 （见 `app/api/dify.py`）。本模块定义与具体 provider 无关的安全数据形态：
@@ -91,3 +91,4 @@ class RegistryCreateResponse(BaseModel):
     rule: RegistryRuleOut
     # 仅创建或重置 token 时非空（明文一次性）。
     token: str | None = None
+

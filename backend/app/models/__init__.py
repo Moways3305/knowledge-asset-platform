@@ -1,7 +1,7 @@
-"""ORM 模型聚合导入。
+﻿"""ORM 模型聚合导入。
 
 集中导入所有模型，确保 `Base.metadata` 在 Alembic / 测试建表时完整。
-当前已集中导入：身份与项目成员模型（IMPLEMENT-01）、知识资产核心模型（IMPLEMENT-02）。
+当前已集中导入：身份与项目成员模型、知识资产核心模型。
 """
 
 from app.models.agent import (
@@ -12,6 +12,7 @@ from app.models.agent import (
 )
 from app.models.agent_registry import AgentWhitelistRule
 from app.models.audit import AuditEvent
+from app.models.auth_security import AuthLoginAttempt
 from app.models.auth_session import UserSession
 from app.models.identity import (
     Project,
@@ -19,6 +20,7 @@ from app.models.identity import (
     User,
     UserCompanyRole,
 )
+from app.models.indexing_job import IndexingOperationJob
 from app.models.ingest import IngestTask, IngestTaskAiResult
 from app.models.lifecycle import (
     AlertRule,
@@ -58,6 +60,7 @@ __all__ = [
     "KnowledgeAssetTag",
     "IngestTask",
     "IngestTaskAiResult",
+    "IndexingOperationJob",
     "ValidationEvidence",
     "ReviewTask",
     "ReviewTaskEvidence",
@@ -76,7 +79,9 @@ __all__ = [
     "AlertRule",
     "NotificationRecord",
     "UserSession",
+    "AuthLoginAttempt",
     "WeknoraKbMapping",
     "WecomScanConfig",
     "WecomScanRecord",
 ]
+

@@ -1,4 +1,4 @@
-"""权限规则配置中心服务（PBC-03）。
+﻿"""权限规则配置中心服务。
 
 `permission_rules` 的幂等默认 seed、读取、更新。权限治理规则是**配置中心**：
 阈值 / 开关 / 固定路径三类配置项落库、可读写、写操作审计。
@@ -12,7 +12,7 @@
 - fixed_path 规则不可修改（422）。
 
 边界提醒：
-- 本服务**不**实现 access_grants / original_access_requests / 原文授权撤销（属 PBC-06）。
+- 本服务**不**实现 access_grants / original_access_requests / 原文授权撤销。
 - 本服务**不**改 R5/R8 生命周期扫描运行时来源（归档阈值的运行时来源仍是 alert_rules）；
   permission_rules 中的归档相关项只作治理配置视图，不驱动 lifecycle scan，避免回归。
 - 响应 / 审计**绝不**含 token / secret / provider 内部标识 / 存储引用 / 业务原文。
@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.identity import User
 from app.models.permission_rule import PermissionRule
 from app.schemas.enums import AuditAction, AuditLogType, CompanyRole
-from app.schemas.permission import CallerContext
+from app.schemas.permission import CallerContext, DEFAULT_POLICY, DefaultAccessPolicy
 from app.schemas.permission_rule import (
     PermissionRuleOut,
     PermissionRulesResponse,
@@ -75,7 +75,7 @@ def _fixed(key, group, name, text, unit, desc):
 
 # 默认规则（幂等 seed；覆盖前端与 README 展示的全部 rule_key）。
 # 说明：归档相关阈值（asset_archive_*）此处仅作治理配置视图，运行时来源仍为 alert_rules
-# （R5/R8 lifecycle scan 不读本表），PBC-03 不改其运行时行为。
+# （R5/R8 lifecycle scan 不读本表），不改其运行时行为。
 DEFAULT_RULES: list[dict] = [
     # ---- 个人知识流转 ----
     _toggle("personal_knowledge_default_private", GROUP_PERSONAL, "个人知识默认私密", True,
@@ -97,16 +97,19 @@ DEFAULT_RULES: list[dict] = [
          "升格审核提交后超过此时间未处理，系统发送催审通知"),
     # ---- 访问申请 ----
     _num("access_request_timeout_hours", GROUP_ACCESS, "访问申请自动通过时限", 24, "小时",
-         "访问申请超过此时间未审批，自动通过（机密资产除外）"),
+         "访问申请超过此时间未审批，由后台任务自动通过并生成授权。"
+         "仅对 L1/L2 资产生效，L3/L4/L5 机密资产不自动通过；禁用 / 值 ≤0 则不自动通过"),
     _num("access_grant_duration_days", GROUP_ACCESS, "授权有效期", 7, "天",
          "访问授权到期后需重新申请，防止无限期访问"),
-    # L1/L2 默认原文放行（治理配置；PBC-03 不驱动运行时，PBC-06 接入原文授权时再生效）。
+    # L1/L2 默认原文放行。
     _toggle("cross_project_l1_l2_original_for_business_user", GROUP_ACCESS,
             "跨项目 L1/L2 原文默认放行业务用户", True,
-            "业务用户访问其它项目 L1/L2 原文是否默认放行。当前为治理配置，原文授权运行时接入见后续 PBC-06"),
+            "业务用户访问其它项目 L1/L2 原文是否默认放行。"
+            "关闭后非本项目成员对其它项目 L1/L2 最多到摘要层，原文需申请授权"),
     _toggle("company_l1_l2_original_for_business_user", GROUP_ACCESS,
             "公司 L1/L2 原文默认放行业务用户", True,
-            "业务用户访问公司库 L1/L2 原文是否默认放行。当前为治理配置，原文授权运行时接入见后续 PBC-06"),
+            "业务用户访问公司库 L1/L2 原文是否默认放行。"
+            "关闭后普通业务用户对公司 L1/L2 最多到摘要层，原文需申请授权"),
     # ---- 资产生命周期 ----
     _num("asset_modify_rate_threshold", GROUP_LIFECYCLE, "高修改率预警阈值", 30, "%",
          "资产入库后修改率超过此值，触发质量复核建议"),
@@ -123,6 +126,74 @@ DEFAULT_RULES: list[dict] = [
 # 分组显示顺序（与前端一致）。
 GROUP_ORDER = [GROUP_PERSONAL, GROUP_UPGRADE, GROUP_ACCESS, GROUP_LIFECYCLE]
 _GROUP_RANK = {g: i for i, g in enumerate(GROUP_ORDER)}
+
+
+# ---------------------------------------------------------------------------
+# 运行时读取：把已有 permission_rules 接入真实权限运行时。
+# 收口在本服务，业务读路径只调 load_access_policy()，不散落读规则。
+# ---------------------------------------------------------------------------
+_RUNTIME_TOGGLE_KEYS = (
+    "cross_project_l1_l2_original_for_business_user",
+    "company_l1_l2_original_for_business_user",
+)
+_TIMEOUT_RULE_KEY = "access_request_timeout_hours"
+
+
+def _runtime_toggle(rule: PermissionRule | None, *, default: bool) -> bool:
+    """运行时取 toggle 值：
+
+    - 缺失 → `default`（出厂默认；规则尚未 seed 时不全锁死，保持当前行为）。
+    - 禁用 / 非 toggle 类型 / value_bool 为空 → **False**（治理端禁用 / 取值非法即视为关闭，
+      绝不回到 True 默认——否则禁用规则没有效果）。
+    """
+    if rule is None:
+        return default
+    if not rule.enabled or rule.rule_type != RULE_TOGGLE or rule.value_bool is None:
+        return False
+    return bool(rule.value_bool)
+
+
+async def load_access_policy(session: AsyncSession) -> DefaultAccessPolicy:
+    """从 permission_rules 读取 L1/L2 原文默认放行开关，构建运行时 DefaultAccessPolicy。
+
+    供所有业务读路径在调用 `decide()` 前注入；规则缺失回退出厂默认，禁用/非法 fail-closed。
+    """
+    rows = (
+        await session.execute(
+            select(PermissionRule).where(PermissionRule.rule_key.in_(_RUNTIME_TOGGLE_KEYS))
+        )
+    ).scalars().all()
+    by_key = {r.rule_key: r for r in rows}
+    return DefaultAccessPolicy(
+        cross_project_l1_l2_original_for_business_user=_runtime_toggle(
+            by_key.get("cross_project_l1_l2_original_for_business_user"),
+            default=DEFAULT_POLICY.cross_project_l1_l2_original_for_business_user,
+        ),
+        company_l1_l2_original_for_business_user=_runtime_toggle(
+            by_key.get("company_l1_l2_original_for_business_user"),
+            default=DEFAULT_POLICY.company_l1_l2_original_for_business_user,
+        ),
+    )
+
+
+async def access_request_timeout_hours(session: AsyncSession) -> float | None:
+    """原文访问申请自动审批的超时小时数。
+
+    仅当规则存在、enabled、numeric、value_number > 0 时返回该值；否则 → None（不自动审批）。
+    缺失 / 禁用 / 非 numeric / 值非法 / <=0 一律 None，保守不自动放行。
+    """
+    rule = (
+        await session.execute(
+            select(PermissionRule).where(PermissionRule.rule_key == _TIMEOUT_RULE_KEY)
+        )
+    ).scalar_one_or_none()
+    if rule is None or not rule.enabled or rule.rule_type != RULE_NUMERIC:
+        return None
+    try:
+        hours = float(rule.value_number) if rule.value_number is not None else 0.0
+    except (TypeError, ValueError):
+        return None
+    return hours if hours > 0 else None
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
@@ -300,3 +371,4 @@ async def update_rule(
     await session.commit()
     names = await _resolve_names(session, [rule])
     return _to_out(rule, names)
+

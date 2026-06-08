@@ -1,4 +1,4 @@
-"""作业入队工具（R5）。
+﻿"""作业入队工具（R5）。
 
 把"入队"与"执行"解耦，便于：
 - eager 模式（默认/本地/测试，无 worker）：在**当前事件循环/会话内联同步执行**，
@@ -42,3 +42,25 @@ async def enqueue_ingest_processing(
 
     process_ingest_upload.delay(str(task_id), trace_id)
     return "processing"
+
+
+async def enqueue_indexing_operation(
+    session: AsyncSession,
+    job_id: uuid.UUID,
+    *,
+    weknora,
+    storage: LocalFileStorage,
+    trace_id: str | None,
+) -> str:
+    """入队索引运维作业。eager → 内联执行并返回最终 status；非 eager → 排队返回 queued。"""
+    if get_settings().celery_task_always_eager:
+        from app.services.jobs import indexing_operations
+
+        return await indexing_operations.run_operation_job(
+            session, job_id, weknora=weknora, storage=storage, trace_id=trace_id
+        )
+    from app.worker.tasks.indexing import run_indexing_operation
+
+    run_indexing_operation.delay(str(job_id), trace_id)
+    return "queued"
+

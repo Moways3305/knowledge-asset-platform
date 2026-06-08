@@ -1,4 +1,4 @@
-// Admin 告警设置 API 的 DTO 类型（IMPLEMENT-10）。
+﻿// Admin 告警设置 API 的 DTO 类型。
 // 通知记录只含安全元数据；前端不构造、不展示任何内部标识（后端本就不返回）。
 
 export interface AlertRuleDTO {
@@ -40,3 +40,4 @@ export interface NotificationDTO {
 export interface NotificationsResponseDTO {
   items: NotificationDTO[];
 }
+

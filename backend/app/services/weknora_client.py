@@ -1,4 +1,4 @@
-"""WeKnora 底座 HTTP 客户端（R1）。
+﻿"""WeKnora 底座 HTTP 客户端（R1）。
 
 封装对 WeKnora REST 的唯一访问入口（base `${WEKNORA_BASE_URL}/api/v1`，header
 `X-API-Key` + `X-Request-ID=trace_id`）。业务代码**不得**直接发 HTTP 到 WeKnora。
@@ -108,6 +108,55 @@ class WeKnoraClient:
             )
         return self._unwrap(resp)
 
+    async def get_initialization_config(
+        self, kb_id: str, *, trace_id: str | None = None
+    ) -> dict[str, Any]:
+        """读 KB 当前模型初始化配置（`GET /initialization/config/:kb_id`）。
+
+        返回 chat/embedding/rerank/multimodal 模型 id（WeKnora 内部 id，server-only，
+        绝不外泄前端 / 审计）。供运维诊断「KB 是否已配齐模型」。
+        """
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.get(
+                f"{self._base}/initialization/config/{kb_id}", headers=self._headers(trace_id)
+            )
+        return self._unwrap(resp)
+
+    async def initialize_kb(
+        self,
+        kb_id: str,
+        *,
+        chat_model_id: str | None = None,
+        embedding_model_id: str | None = None,
+        rerank_model_id: str | None = None,
+        multimodal_id: str | None = None,
+        trace_id: str | None = None,
+    ) -> None:
+        """初始化 KB 的模型配置（`POST /initialization/initialize/:kb_id`）。
+
+        只发送非空模型 id（部分配置也写入，确保至少有 embedding）。失败抛 `WeKnoraError`
+        （结构化 code/message，不含 api_key / 模型内部 id 调试 payload），由调用方据此进入
+        可诊断的 index_failed / init_failed 状态——**绝不**静默假成功。
+        """
+        payload: dict[str, Any] = {}
+        if chat_model_id:
+            payload["chat_model_id"] = chat_model_id
+        if embedding_model_id:
+            payload["embedding_model_id"] = embedding_model_id
+        if rerank_model_id:
+            payload["rerank_model_id"] = rerank_model_id
+        if multimodal_id:
+            payload["multimodal_id"] = multimodal_id
+        if not payload:
+            # 无任何模型 id 可写：跳过初始化（KB 依赖 WeKnora 租户默认）。不报错，但也不假装已配。
+            return
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(
+                f"{self._base}/initialization/initialize/{kb_id}",
+                json=payload, headers=self._headers(trace_id),
+            )
+        self._unwrap(resp)
+
     async def upload_file(
         self, *, kb_id: str, content: bytes, file_name: str, mime: str | None,
         metadata: dict[str, Any] | None = None, channel: str | None = None,
@@ -133,6 +182,30 @@ class WeKnoraClient:
                 f"{self._base}/knowledge/{knowledge_id}", headers=self._headers(trace_id)
             )
         return self._unwrap(resp)
+
+    async def reparse_knowledge(
+        self, *, kb_id: str, knowledge_id: str | None, content: bytes,
+        file_name: str, mime: str | None, metadata: dict[str, Any] | None = None,
+        channel: str | None = None, trace_id: str | None = None,
+    ) -> dict[str, Any]:
+        """显式 reparse：WeKnora **无独立 reparse 端点**，本方法封装为「受控重传」——
+        先删除已有 doc（若有），再重新上传同一原文触发底座重新解析，返回**新 doc** data
+        （含 id=新 knowledge id、parse_status、file_hash）。
+
+        与 retry-index 的差异：retry-index 用于尚未进底座的资产（建库 + 首次上传）；reparse
+        用于**已进底座但解析状态异常**的资产，强制刷新解析（会更新 weknora_doc_id 为新 doc）。
+        删除失败（doc 可能已不存在）不阻断重传。异常经 `_unwrap` 不带 api_key / 内部 id。
+        """
+        if knowledge_id:
+            try:
+                await self.delete_knowledge(knowledge_id, trace_id=trace_id)
+            except WeKnoraError:
+                # doc 可能已不存在 / 底座删除失败：不阻断重传，继续上传新 doc。
+                pass
+        return await self.upload_file(
+            kb_id=kb_id, content=content, file_name=file_name, mime=mime,
+            metadata=metadata, channel=channel, trace_id=trace_id,
+        )
 
     @staticmethod
     def _normalize_chunks(data: Any) -> list[dict[str, Any]]:
@@ -227,6 +300,80 @@ class WeKnoraClient:
             )
         self._unwrap(resp)
 
+    # ---- 模型与初始化配置管理（管理面）----
+    # 这些方法返回 WeKnora 原始 dict（含 server-only id / 已脱敏 key），**上层 service 负责
+    # 再脱敏 / 映射 model_ref 后才出 API**——本层只保证错误经 `_unwrap` 不带 api_key。
+    async def _call(
+        self, method: str, path: str, *, json: dict[str, Any] | None = None,
+        trace_id: str | None = None,
+    ) -> Any:
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.request(
+                method, f"{self._base}{path}", json=json, headers=self._headers(trace_id)
+            )
+        return self._unwrap(resp)
+
+    async def list_model_providers(
+        self, model_type: str | None = None, *, trace_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        path = "/models/providers"
+        if model_type:
+            path += f"?model_type={model_type}"
+        data = await self._call("GET", path, trace_id=trace_id)
+        return data if isinstance(data, list) else (data.get("items") if isinstance(data, dict) else []) or []
+
+    async def list_models(self, *, trace_id: str | None = None) -> list[dict[str, Any]]:
+        data = await self._call("GET", "/models", trace_id=trace_id)
+        return data if isinstance(data, list) else (data.get("items") if isinstance(data, dict) else []) or []
+
+    async def get_model(self, model_id: str, *, trace_id: str | None = None) -> dict[str, Any]:
+        return await self._call("GET", f"/models/{model_id}", trace_id=trace_id)
+
+    async def create_model(self, payload: dict[str, Any], *, trace_id: str | None = None) -> dict[str, Any]:
+        return await self._call("POST", "/models", json=payload, trace_id=trace_id)
+
+    async def update_model(
+        self, model_id: str, payload: dict[str, Any], *, trace_id: str | None = None
+    ) -> dict[str, Any]:
+        return await self._call("PUT", f"/models/{model_id}", json=payload, trace_id=trace_id)
+
+    async def delete_model(self, model_id: str, *, trace_id: str | None = None) -> None:
+        await self._call("DELETE", f"/models/{model_id}", trace_id=trace_id)
+
+    async def update_initialization_config(
+        self, kb_id: str, *, chat_model_id: str | None = None, embedding_model_id: str | None = None,
+        rerank_model_id: str | None = None, multimodal_id: str | None = None, trace_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """更新 KB 模型初始化配置（`PUT /initialization/config/:kb_id`）。只发非空字段。"""
+        payload: dict[str, Any] = {}
+        if chat_model_id:
+            payload["chat_model_id"] = chat_model_id
+        if embedding_model_id:
+            payload["embedding_model_id"] = embedding_model_id
+        if rerank_model_id:
+            payload["rerank_model_id"] = rerank_model_id
+        if multimodal_id:
+            payload["multimodal_id"] = multimodal_id
+        if not payload:
+            return None
+        return await self._call("PUT", f"/initialization/config/{kb_id}", json=payload, trace_id=trace_id)
+
+    async def _model_check(self, path: str, *, api_url: str, api_key: str, model: str, trace_id: str | None) -> dict[str, Any]:
+        body = {"api_url": api_url, "api_key": api_key, "model": model}
+        return await self._call("POST", path, json=body, trace_id=trace_id)
+
+    async def check_remote_model(self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None) -> dict[str, Any]:
+        return await self._model_check("/initialization/remote/check", api_url=api_url, api_key=api_key, model=model, trace_id=trace_id)
+
+    async def test_embedding_model(self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None) -> dict[str, Any]:
+        return await self._model_check("/initialization/embedding/test", api_url=api_url, api_key=api_key, model=model, trace_id=trace_id)
+
+    async def check_rerank_model(self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None) -> dict[str, Any]:
+        return await self._model_check("/initialization/rerank/check", api_url=api_url, api_key=api_key, model=model, trace_id=trace_id)
+
+    async def test_multimodal_model(self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None) -> dict[str, Any]:
+        return await self._model_check("/initialization/multimodal/test", api_url=api_url, api_key=api_key, model=model, trace_id=trace_id)
+
 
 class NullWeKnoraClient:
     """未配置 WeKnora 时的占位客户端：任何调用抛 not_configured（confirm 据此跳过索引）。"""
@@ -237,10 +384,19 @@ class NullWeKnoraClient:
     async def get_kb(self, *_: Any, **__: Any) -> dict[str, Any]:
         raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
 
+    async def get_initialization_config(self, *_: Any, **__: Any) -> dict[str, Any]:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
+    async def initialize_kb(self, *_: Any, **__: Any) -> None:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
     async def upload_file(self, **_: Any) -> dict[str, Any]:
         raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
 
     async def get_knowledge(self, *_: Any, **__: Any) -> dict[str, Any]:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
+    async def reparse_knowledge(self, **_: Any) -> dict[str, Any]:
         raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
 
     async def delete_knowledge(self, *_: Any, **__: Any) -> None:
@@ -252,6 +408,40 @@ class NullWeKnoraClient:
 
     async def hybrid_search(self, **_: Any) -> list[dict[str, Any]]:
         return []
+
+    # 管理面：未配置时一律 not_configured（API 层转安全 503 / missing config）。
+    async def list_model_providers(self, *_: Any, **__: Any) -> list[dict[str, Any]]:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
+    async def list_models(self, *_: Any, **__: Any) -> list[dict[str, Any]]:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
+    async def get_model(self, *_: Any, **__: Any) -> dict[str, Any]:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
+    async def create_model(self, *_: Any, **__: Any) -> dict[str, Any]:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
+    async def update_model(self, *_: Any, **__: Any) -> dict[str, Any]:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
+    async def delete_model(self, *_: Any, **__: Any) -> None:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
+    async def update_initialization_config(self, *_: Any, **__: Any) -> dict[str, Any] | None:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
+    async def check_remote_model(self, *_: Any, **__: Any) -> dict[str, Any]:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
+    async def test_embedding_model(self, *_: Any, **__: Any) -> dict[str, Any]:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
+    async def check_rerank_model(self, *_: Any, **__: Any) -> dict[str, Any]:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
+    async def test_multimodal_model(self, *_: Any, **__: Any) -> dict[str, Any]:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
 
 
 def weknora_enabled() -> bool:
@@ -271,3 +461,4 @@ def get_weknora_client() -> WeKnoraClient | NullWeKnoraClient:
     return WeKnoraClient(
         base_url=s.weknora_base_url, api_key=s.weknora_api_key, timeout=s.weknora_timeout
     )
+

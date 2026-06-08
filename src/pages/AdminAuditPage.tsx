@@ -293,9 +293,9 @@ export default function AdminAuditPage() {
             <span className="au-toolbar-hint">共 {loginLogs.length} 条登录记录</span>
           </div>
           <p className="au-note">
-            企微 OAuth 登录 / 登出审计（<code>login.success</code> / <code>login.failed</code> / <code>login.logout</code>）已接入，后端记录时即在此展示。
-            本地开发使用无凭证登录适配器或尚无登录事件时，本表可能为空。
-            <strong>密码凭证校验尚未实现</strong>，本表不代表密码登录。
+            登录 / 登出审计（<code>login.success</code> / <code>login.failed</code> / <code>login.logout</code>）已接入，后端记录时即在此展示，
+            <code>login_method</code> 区分 <code>password</code>（密码登录）/ <code>wecom_oauth</code>（企微）/ <code>dev_local</code>（本地开发免密适配器）。
+            <strong>密码凭证登录已实现</strong>（所有环境按 email + password 校验）；本地开发使用免密适配器或尚无登录事件时，本表可能为空。
           </p>
           {loginLogs.length === 0 ? (
             <div className="au-empty-state">

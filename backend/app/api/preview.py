@@ -1,4 +1,4 @@
-"""预览凭证 API（IMPLEMENT-07 最小闭环）。
+﻿"""预览凭证 API。
 
 - POST /api/v1/knowledge/{asset_id}/preview：签发受控预览凭证。
 - GET  /api/v1/preview/{credential_id}：平台受控占位预览入口。
@@ -72,3 +72,4 @@ async def serve_preview_file(
     # inline 展示安全文件名；不暴露任何内部引用。
     headers = {"Content-Disposition": f'inline; filename="{filename}"', "Cache-Control": "no-store"}
     return Response(content=data, media_type=media_type, headers=headers)
+

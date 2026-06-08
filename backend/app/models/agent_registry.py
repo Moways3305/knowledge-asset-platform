@@ -1,4 +1,4 @@
-"""外部 Agent 接入注册 ORM 模型（provider 中立；R4 起，PBC-01 抽象收口）。
+﻿"""外部 Agent 接入注册 ORM 模型（provider 中立；R4 起，抽象收口）。
 
 一张表 `agent_whitelist_rules`（对齐数据模型 §4.5 / BE-07 §11.1，语义为
 **外部 Agent 接入注册与 capability 边界**，非"逐 Agent 手工名单"）。`provider` 列区分
@@ -40,7 +40,7 @@ class AgentWhitelistRule(Base):
     # Gateway 内部标识（不暴露给 Dify 响应 / 前端）。
     agent_identifier: Mapped[str] = mapped_column(String(200), nullable=False)
     agent_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    # 允许的能力（qa 本阶段启用；其余值即便存在也按 capability 边界拒绝）。
+    # 允许的能力（当前启用 qa；其余值即便存在也按 capability 边界拒绝）。
     capability: Mapped[str] = mapped_column(String(30), nullable=False, default="qa")
     # 安全限制（None = 不额外约束 scope；具体仍由每调用人 decide() 收口）。
     allowed_scope: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -61,3 +61,4 @@ class AgentWhitelistRule(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
     )
+

@@ -1,4 +1,4 @@
-"""知识生命周期动作 API（IMPLEMENT-10；契约 §14A）。
+﻿"""知识生命周期动作 API。
 
 5 个端点：archive-request / archive-confirm / reenable-request / reenable-confirm /
 events。权限与状态机判断全部委托 `app.services.lifecycle`（其内部复用集中权限服务）。
@@ -92,3 +92,4 @@ async def list_events(
     session: AsyncSession = Depends(get_db),
 ) -> LifecycleEventsResponse:
     return await lifecycle_service.list_events(session, caller, asset_id)
+

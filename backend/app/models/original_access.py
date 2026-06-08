@@ -1,4 +1,4 @@
-"""原文访问申请与授权 ORM 模型（PBC-06）。
+﻿"""原文访问申请与授权 ORM 模型。
 
 两张表：
 - original_access_requests：原文访问申请（pending/approved/rejected/cancelled）。
@@ -108,3 +108,4 @@ class AccessGrant(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
     )
+

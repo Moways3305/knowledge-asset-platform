@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+﻿import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ApiError,
@@ -53,7 +53,7 @@ const routeLabel: Record<string, string> = {
 const PROJECT_ROLE_OPTIONS = ["coach", "project_manager", "consultant"];
 
 
-// 用户可见时间统一北京时间（PBC-10C）。
+// 用户可见时间统一北京时间。
 const fmtTime = (iso: string | null): string => formatBeijingTime(iso);
 
 export default function ProjectSettingsPage() {
@@ -435,3 +435,4 @@ function PhaseEditor({ value, saving, onSave }: { value: string; saving: boolean
     </span>
   );
 }
+

@@ -1,4 +1,4 @@
-"""生命周期 / 告警 / 通知 ORM 模型（IMPLEMENT-10 最小闭环）。
+﻿"""生命周期 / 告警 / 通知 ORM 模型。
 
 落地三张治理表（对齐 BE-02 §4.7 / BE-10）：
 - asset_lifecycle_events：资产生命周期事件事实（预警/候选/归档/重新启用）。
@@ -59,13 +59,13 @@ class AssetLifecycleEvent(Base):
     event_type: Mapped[str] = mapped_column(String(50), nullable=False)
     old_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     new_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    # system / user。本阶段 API 动作均为人工触发（user）；系统扫描留待实现阶段。
+    # system / user。人工动作记为 user；系统预警/扫描记为 system。
     triggered_by: Mapped[str] = mapped_column(String(30), nullable=False)
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id"), nullable=True
     )
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # 关联审核任务（lifecycle_change）；本阶段仅作为可空元数据携带，不扩展 BE-06。
+    # 关联审核任务（lifecycle_change）；仅作为可空元数据携带，不扩展 BE-06。
     review_task_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     # 同链路串联用（预警→确认→状态变更→后续 Agent/preview 拒绝）。
     trace_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -120,3 +120,4 @@ class NotificationRecord(Base):
     send_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     failure_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+

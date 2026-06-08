@@ -1,4 +1,4 @@
-// 后端 Knowledge 读 API 的 DTO 类型（snake_case，对齐后端响应）。
+﻿// 后端 Knowledge 读 API 的 DTO 类型（snake_case，对齐后端响应）。
 // 以及前端使用的 ViewModel 类型（camelCase / 前端枚举口径）。
 
 export type BackendVisibility = "public" | "project_only" | "confidential";
@@ -18,6 +18,19 @@ export interface AccessInfoDTO {
   existing_request_status: string | null;
   existing_grant_expires_at: string | null;
   can_delete: boolean;
+  can_retry_index?: boolean;
+}
+
+// 平台级底座索引安全状态（无 kb/doc id / 内部存储引用）。
+export type IndexStatus = "not_indexed" | "indexing" | "indexed" | "index_failed" | "skipped";
+
+export interface RetryIndexResponseDTO {
+  asset_id: string;
+  index_status: string;
+  weknora_parse_status: string | null;
+  index_error_code: string | null;
+  index_error_message: string | null;
+  trace_id: string | null;
 }
 
 export interface KnowledgeDeleteResponseDTO {
@@ -45,6 +58,10 @@ export interface KnowledgeListItemDTO {
   last_called_at: string | null;
   updated_at: string | null;
   access_info: AccessInfoDTO;
+  index_status?: string | null;
+  weknora_parse_status?: string | null;
+  index_error_message?: string | null;
+  indexed_at?: string | null;
 }
 
 export interface KnowledgeListResponseDTO {
@@ -75,6 +92,11 @@ export interface KnowledgeDetailDTO {
   summary: { one_liner: string | null; detailed: string | null; key_points: string[] } | null;
   current_version: { id: string; version_no: string; version_status: string } | null;
   access_info: AccessInfoDTO;
+  index_status?: string | null;
+  weknora_parse_status?: string | null;
+  index_error_code?: string | null;
+  index_error_message?: string | null;
+  indexed_at?: string | null;
 }
 
 // ---- 前端 ViewModel ----
@@ -87,6 +109,7 @@ export interface AccessInfoVM {
   existingRequestStatus: string | null;
   existingGrantExpiresAt: string | null;
   canDelete: boolean;
+  canRetryIndex: boolean;
 }
 
 export interface KnowledgeCardVM {
@@ -107,6 +130,10 @@ export interface KnowledgeCardVM {
   lastCalledAt: string;
   updatedAt: string;
   access: AccessInfoVM;
+  indexStatus: string | null;
+  parseStatus: string | null;
+  indexErrorMessage: string | null;
+  indexedAt: string | null;
 }
 
 export interface KnowledgeDetailVM extends KnowledgeCardVM {
@@ -118,4 +145,6 @@ export interface KnowledgeDetailVM extends KnowledgeCardVM {
   detailed: string;
   keyPoints: string[];
   currentVersionNo: string | null;
+  indexErrorCode: string | null;
 }
+

@@ -1,4 +1,4 @@
-"""Admin 告警设置 API 的请求 / 响应 schema（IMPLEMENT-10；契约 §21）。
+﻿"""Admin 告警设置 API 的请求 / 响应 schema。
 
 alert_rules 承载归档阈值等可配置规则；notification_records 为本地通知记录，
 只回安全元数据（标题 / 安全摘要内容），不回业务原文与内部敏感标识。
@@ -50,3 +50,4 @@ class NotificationOut(BaseModel):
 
 class NotificationsResponse(BaseModel):
     items: list[NotificationOut]
+

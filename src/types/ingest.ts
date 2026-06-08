@@ -1,4 +1,4 @@
-// 入库流水线 API 的 DTO 类型（IMPLEMENT-05，Path B）。
+﻿// 入库流水线 API 的 DTO 类型。
 
 export interface IngestUploadResponseDTO {
   ingest_task_id: string;
@@ -37,6 +37,12 @@ export interface IngestAiResultDTO {
   llm_provider: string | null;
   llm_model: string | null;
   content_processing_status: string | null;
+  // 入库前置规则脱敏安全元数据（仅状态 + 类别计数 + 人读文案；
+  // 不含脱敏前/后正文、脱敏文本 ref、原始文件 ref）。
+  // status: applied | unchanged | skipped | failed。
+  desensitization_status: string | null;
+  desensitization_counts: Record<string, number> | null;
+  desensitization_message: string | null;
   suggested_asset_type: string | null;
   suggested_confidentiality_level: string | null;
   suggested_ai_access_level: string | null;
@@ -45,7 +51,7 @@ export interface IngestAiResultDTO {
   naming_compliant: boolean | null;
   naming_parsed_fields: NamingFields | null;
   naming_anomalies: unknown[] | null;
-  // 抽取与去重（IMPLEMENT-14）。extracted_text_preview 仅完整视图返回。
+  // 抽取与去重。extracted_text_preview 仅完整视图返回。
   extraction_status: string | null;
   extracted_char_count: number | null;
   error_type: string | null;
@@ -76,6 +82,11 @@ export interface IngestConfirmResponseDTO {
   task_id: string;
   status: string;
   result_asset_id: string;
+  // WeKnora 解析安全业务状态（processing/completed/failed/duplicate）；未启用底座时 null。
+  parse_status?: string | null;
+  // 平台级索引状态：indexed | index_failed | skipped。
+  // index_failed = 资产已确认落库但底座索引失败、可重试；前端据此提示而非表现为完全成功。
+  index_status?: string | null;
 }
 
 // 运营视图（admin / 治理角色）：仅安全运营元数据，无业务原文 / 抽取全文 / 存储引用 / 外部系统内部 id。
@@ -101,7 +112,7 @@ export interface AdminIngestListResponseDTO {
   total: number;
 }
 
-// 业务侧待确认任务（PBC-07，/upload Path A 面板）。仅安全元数据；
+// 业务侧待确认任务。仅安全元数据；
 // 无 source_file_ref / storage_ref / WeCom file_id / 下载 URL / token / WeKnora id。
 export interface PendingIngestItemDTO {
   id: string;
@@ -126,3 +137,4 @@ export interface PendingIngestListResponseDTO {
   items: PendingIngestItemDTO[];
   total: number;
 }
+

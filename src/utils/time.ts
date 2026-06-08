@@ -1,4 +1,4 @@
-// 统一时间展示工具（PBC-10C）。后端始终存 UTC；前端所有用户可见时间固定按
+﻿// 统一时间展示工具。后端始终存 UTC；前端所有用户可见时间固定按
 // 北京时间（Asia/Shanghai）展示，不依赖浏览器本地时区，输出稳定的 YYYY-MM-DD HH:mm:ss。
 
 const _dateTimeFmt = new Intl.DateTimeFormat("zh-CN", {
@@ -50,3 +50,4 @@ export function formatBeijingDate(value?: string | null): string {
   }
   return `${out.year}-${out.month}-${out.day}`;
 }
+

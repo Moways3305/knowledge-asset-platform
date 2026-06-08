@@ -1,12 +1,11 @@
-"""预览凭证服务（IMPLEMENT-07 最小闭环）。
+﻿"""预览凭证服务。
 
 签发逻辑复用集中权限服务 `app.services.permission`，不重写权限矩阵。
-只签发 full（拥有 original 层权限时）；原文层判断会叠加 PBC-06 的 active access_grant
+只签发 full（拥有 original 层权限时）；原文层判断会叠加 active access_grant
 （审批通过的原文授权运行时放行），无授权时拒绝 `original_requires_request`（不签 summary_only）。
 
 安全：只存 token_hash（sha256），不返回明文 token；preview_entry_url 为平台
-受控相对路径；不触碰对象存储 / 文件流 / ONLYOFFICE。approve/issue 不写 audit_events
-（审计留 IMPLEMENT-09）。
+受控相对路径；不触碰对象存储 / 文件流 / ONLYOFFICE。approve/issue 不写 audit_events。
 """
 
 from __future__ import annotations
@@ -42,11 +41,12 @@ from app.services import audit as audit_service
 from app.services import original_access
 from app.services.onlyoffice import OnlyOfficeError, build_view_config, onlyoffice_enabled, resolve_doc_type
 from app.services.permission import decide
+from app.services.permission_rules import load_access_policy
 from app.services.storage import LocalFileStorage, safe_filename
 
 # 默认预览凭证有效期。
 PREVIEW_TTL_MINUTES = 30
-_INACTIVE_STATUSES = {"archived", "deprecated", "deleted"}  # deleted（PBC-10B）：预览拒签
+_INACTIVE_STATUSES = {"archived", "deprecated", "deleted"}  # deleted：预览拒签
 
 
 def _hash(raw: str) -> str:
@@ -120,22 +120,24 @@ async def issue_preview(
         raise not_found
 
     # 发现层判断：不可发现的资产不泄露存在（L5 / 他人 personal / archived）。
-    d = decide(caller, asset, AccessLayer.discovery)
+    # L1/L2 原文默认放行由运行时 policy 决定。
+    policy = await load_access_policy(session)
+    d = decide(caller, asset, AccessLayer.discovery, policy=policy)
     if not d.allowed:
         if d.denied_reason == DeniedReason.user_inactive:
             raise _denied(403, DeniedReason.user_inactive.value, "用户已停用")
         if d.denied_reason == DeniedReason.asset_not_active:
-            # archived / deprecated：本阶段直接拒绝（不实现归档受控预览）。
+            # archived / deprecated：直接拒绝（未实现归档受控预览）。
             raise _denied(403, "asset_not_active", "资产已归档/废弃，不可预览")
         # l5_not_discoverable / personal_asset_not_owned → 表现为不存在
         raise not_found
 
     # 原文层判断：human 渠道（A4 仅限制 agent，不阻 human preview）。
-    # PBC-06：叠加 active access_grant（审批通过的原文授权）后再判，运行时统一口径。
+    # 叠加 active access_grant（审批通过的原文授权）后再判，运行时统一口径。
     has_grant = await original_access.has_active_grant(session, caller.user_id, asset.id)
-    o = decide(caller, asset, AccessLayer.original, channel=AccessChannel.human, has_original_grant=has_grant)
+    o = decide(caller, asset, AccessLayer.original, channel=AccessChannel.human, has_original_grant=has_grant, policy=policy)
     if not o.allowed:
-        # 无 original 权限：不签 summary_only，统一引导到原文访问申请（PBC-06，已实现）。
+        # 无 original 权限：不签 summary_only，统一引导到原文访问申请。
         await audit_service.record_denied(
             session, caller=caller, log_type=AuditLogType.operation,
             action=AuditAction.preview_denied.value, trace_id=trace_id,
@@ -401,3 +403,4 @@ async def serve_preview_file(
         # 不回显 storage_ref / 真实路径。
         raise _denied(404, "preview_source_unavailable", "原文读取失败")
     return data, (mime or "application/octet-stream"), safe_filename(file_name)
+

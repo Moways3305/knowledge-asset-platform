@@ -1,4 +1,4 @@
-// 原文访问申请与授权 API 的 DTO 类型（PBC-06）。
+﻿// 原文访问申请与授权 API 的 DTO 类型。
 // 只含安全治理元数据；不含原文 / 对象存储引用 / 外部系统内部 id / token / URL。
 
 export interface OriginalAccessRequestDTO {
@@ -42,3 +42,4 @@ export interface RequestsListResponseDTO {
   items: OriginalAccessRequestDTO[];
   total: number;
 }
+

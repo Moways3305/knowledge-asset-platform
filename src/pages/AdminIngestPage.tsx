@@ -1,8 +1,29 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+﻿import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { ApiError, fetchAdminIngest } from "../api/client";
+import {
+  ApiError,
+  fetchAdminIngest,
+  fetchOpsIndexing,
+  fetchIndexingJobs,
+  triggerIndexingRetry,
+  triggerIndexingReparse,
+} from "../api/client";
 import type { AdminIngestItemDTO } from "../types/ingest";
+import type { OpsIndexingDTO, IndexingJobSummaryDTO } from "../types/ops";
 import { formatBeijingTime } from "../utils/time";
+
+// 索引运维作业状态 / 类型的安全中文标签。
+const jobOpLabel: Record<string, string> = {
+  retry_index: "批量重试索引",
+  reparse: "重新解析",
+};
+const jobStatusLabel: Record<string, string> = {
+  queued: "已入队",
+  running: "执行中",
+  completed: "已完成",
+  completed_with_errors: "完成（部分失败）",
+  failed: "作业失败",
+};
 
 // 状态 / 来源 / 目标库 / 抽取状态的安全标签（运营元数据，非业务原文）。
 const statusLabel: Record<string, string> = {
@@ -62,7 +83,7 @@ const aiAccessLabel: Record<string, string> = {
 const exceptionGuide = [
   { title: "AI 内容提取失败", desc: "不支持的格式或损坏文件会标记 failed（可在 /upload 人工补全后确认）。单文件上限为 25 MiB。", severity: "high" as const },
   { title: "脱敏失败", desc: "标记 failed，通知上传人和 Admin。检查文件是否加密或受保护；尝试另存为无保护格式后重新上传。", severity: "high" as const },
-  { title: "WeKnora 写入失败", desc: "知识底座写入失败时回滚业务数据库写入，标记任务 failed 并触发告警。需检查底座可用性后由业务侧重新确认入库。", severity: "high" as const },
+  { title: "WeKnora 索引失败", desc: "/C：人工确认后资产先落库；底座建库/初始化/上传失败不回滚资产，仅标 index_failed。资产保留、人工校正不丢，但未索引前不会被语义检索召回。可在详情页单条重试，或在下方运维面板发起批量重试 / 重新解析。", severity: "high" as const },
   { title: "哈希重复", desc: "系统按文件内容哈希做去重软提示，命中时不阻断入库，仅提示已存在相同内容的任务。", severity: "low" as const },
   { title: "AI 置信度低", desc: "AI 建议置信度偏低时仍可入库，但建议人工校正摘要与标签。低置信度不视为系统错误。", severity: "medium" as const },
 ];
@@ -72,7 +93,7 @@ const severityCls: Record<string, string> = {
   low: "ig-severity-low",
 };
 
-const fmtTime = (iso: string | null) => formatBeijingTime(iso); // 北京时间（PBC-10C）
+const fmtTime = (iso: string | null) => formatBeijingTime(iso); // 北京时间
 const fmtConfidence = (c: number | null) => (c == null ? "—" : `${Math.round(c * 100)}%`);
 const fmtNaming = (n: boolean | null) => (n == null ? "—" : n ? "合规" : "命名异常");
 
@@ -83,6 +104,67 @@ export default function AdminIngestPage() {
   const [filterStatus, setFilterStatus] = useState("");
   const [filterSource, setFilterSource] = useState("");
   const [viewingId, setViewingId] = useState<string | null>(null);
+  // 索引运维面板数据（安全计数 + 最近失败列表）。
+  const [opsIndex, setOpsIndex] = useState<OpsIndexingDTO | null>(null);
+  // 批量运维控件状态 + 最近作业列表。
+  const [opsJobs, setOpsJobs] = useState<IndexingJobSummaryDTO[]>([]);
+  const [retryIncludeSkipped, setRetryIncludeSkipped] = useState(false);
+  const [retryIncludeNotIndexed, setRetryIncludeNotIndexed] = useState(false);
+  const [opsLimit, setOpsLimit] = useState(50);
+  const [opsBusy, setOpsBusy] = useState(false);
+  const [opsNote, setOpsNote] = useState<string | null>(null);
+
+  const loadOpsJobs = useCallback(async () => {
+    try {
+      setOpsJobs((await fetchIndexingJobs()).items);
+    } catch {
+      setOpsJobs([]); // 无权 / 未就绪：静默。
+    }
+  }, []);
+
+  const loadOpsIndex = useCallback(async () => {
+    try {
+      setOpsIndex(await fetchOpsIndexing());
+    } catch {
+      setOpsIndex(null); // 无权 / 后端未就绪：面板静默隐藏，不阻断入库列表。
+    }
+    void loadOpsJobs();
+  }, [loadOpsJobs]);
+
+  const handleBatchRetry = useCallback(async () => {
+    setOpsBusy(true);
+    setOpsNote(null);
+    try {
+      const statuses = ["index_failed"];
+      if (retryIncludeSkipped) statuses.push("skipped");
+      if (retryIncludeNotIndexed) statuses.push("not_indexed");
+      const job = await triggerIndexingRetry({ scope: "all", statuses, limit: opsLimit });
+      setOpsNote(
+        `已入队批量重试（作业 ${jobStatusLabel[job.status] ?? job.status}）：共 ${job.total_count}，成功 ${job.success_count}，失败 ${job.failed_count}，跳过 ${job.skipped_count}。`
+      );
+      await loadOpsIndex();
+    } catch (e) {
+      setOpsNote(e instanceof ApiError ? `发起失败：${e.message}` : "发起批量重试失败");
+    } finally {
+      setOpsBusy(false);
+    }
+  }, [retryIncludeSkipped, retryIncludeNotIndexed, opsLimit, loadOpsIndex]);
+
+  const handleReparse = useCallback(async () => {
+    setOpsBusy(true);
+    setOpsNote(null);
+    try {
+      const job = await triggerIndexingReparse({ scope: "all", parse_statuses: ["failed", "pending"], limit: opsLimit });
+      setOpsNote(
+        `已入队重新解析（作业 ${jobStatusLabel[job.status] ?? job.status}）：共 ${job.total_count}，成功 ${job.success_count}，失败 ${job.failed_count}。这是底座解析运维，不改变任何权限放行。`
+      );
+      await loadOpsIndex();
+    } catch (e) {
+      setOpsNote(e instanceof ApiError ? `发起失败：${e.message}` : "发起重新解析失败");
+    } finally {
+      setOpsBusy(false);
+    }
+  }, [opsLimit, loadOpsIndex]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -104,7 +186,8 @@ export default function AdminIngestPage() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadOpsIndex();
+  }, [load, loadOpsIndex]);
 
   const countByStatus = useCallback(
     (s: string) => items.filter((t) => t.status === s).length,
@@ -157,6 +240,104 @@ export default function AdminIngestPage() {
           </span>
         </div>
       </section>
+
+      {/* 知识底座索引运维面板（安全计数 + 最近失败列表 + 重试入口在详情页） */}
+      {opsIndex && (
+        <section className="ingest-section">
+          <div className="ig-detail-panel">
+            <div className="ig-detail-head">
+              <span className="ig-detail-title">知识底座索引运维</span>
+              <button className="btn-small" onClick={() => void loadOpsIndex()}>刷新</button>
+            </div>
+            <div className="kl-kpis" style={{ marginTop: 8 }}>
+              <div className="kl-kpi"><div className="kl-kpi-value kl-kpi-warning">{opsIndex.counts.index_failed}</div><div className="kl-kpi-label">索引失败</div></div>
+              <div className="kl-kpi"><div className="kl-kpi-value">{opsIndex.counts.indexing}</div><div className="kl-kpi-label">索引中</div></div>
+              <div className="kl-kpi"><div className="kl-kpi-value">{opsIndex.counts.not_indexed}</div><div className="kl-kpi-label">待索引</div></div>
+              <div className="kl-kpi"><div className="kl-kpi-value">{opsIndex.counts.skipped}</div><div className="kl-kpi-label">已跳过</div></div>
+              <div className="kl-kpi"><div className="kl-kpi-value">{opsIndex.counts.parse_pending + opsIndex.counts.parse_processing}</div><div className="kl-kpi-label">解析滞留</div></div>
+              <div className="kl-kpi"><div className="kl-kpi-value kl-kpi-warning">{opsIndex.counts.kb_init_failed}</div><div className="kl-kpi-label">KB 初始化失败</div></div>
+            </div>
+            {/* 批量运维控件（批量重试 / 重新解析）。 */}
+            <div className="ig-ops-actions" style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+              <label className="ig-ops-check">
+                <input type="checkbox" checked={retryIncludeSkipped} onChange={(e) => setRetryIncludeSkipped(e.target.checked)} /> 含已跳过
+              </label>
+              <label className="ig-ops-check">
+                <input type="checkbox" checked={retryIncludeNotIndexed} onChange={(e) => setRetryIncludeNotIndexed(e.target.checked)} /> 含待索引
+              </label>
+              <label className="ig-ops-check">
+                上限
+                <select value={opsLimit} onChange={(e) => setOpsLimit(Number(e.target.value))} style={{ marginLeft: 4 }}>
+                  {[20, 50, 100, 200].map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+              <button className="btn-small" onClick={() => void handleBatchRetry()} disabled={opsBusy}>
+                {opsBusy ? "处理中…" : "批量重试索引"}
+              </button>
+              <button className="btn-small" onClick={() => void handleReparse()} disabled={opsBusy}>
+                {opsBusy ? "处理中…" : "重新解析（底座）"}
+              </button>
+            </div>
+            <p className="au-note" style={{ marginTop: 6 }}>
+              批量重试：默认处理「索引失败」，可勾选含「已跳过 / 待索引」。重新解析：对已进底座但解析失败 / 滞留的资产，受控重传刷新底座解析——这是底座解析运维，<strong>不改变任何权限放行</strong>，不让未授权用户读到原文。批量动作进入后台作业，不在请求内逐条阻塞。
+            </p>
+            {opsNote && <p className="au-note" style={{ marginTop: 6 }}>{opsNote}</p>}
+            {!opsIndex.title_visible && (
+              <p className="au-note" style={{ marginTop: 8 }}>
+                当前为系统管理身份，业务资产标题已隐藏；批量重试 / 重新解析为底座运维动作，只回安全统计，不展示业务原文 / 标题。
+              </p>
+            )}
+            {/* 最近运维作业列表（安全统计；无标题 / 原文 / WeKnora id / 存储引用）。 */}
+            {opsJobs.length > 0 && (
+              <div className="ws-table-wrap" style={{ marginTop: 8 }}>
+                <table className="ws-table">
+                  <thead>
+                    <tr><th>类型</th><th>状态</th><th>共/成/败/跳</th><th>发起人</th><th>发起时间</th><th>诊断</th></tr>
+                  </thead>
+                  <tbody>
+                    {opsJobs.map((j) => (
+                      <tr key={j.job_id}>
+                        <td>{jobOpLabel[j.operation_type] ?? j.operation_type}</td>
+                        <td><span className={`ws-status-pill ${j.status === "failed" ? "ws-status-off" : "ws-status-on"}`}>{jobStatusLabel[j.status] ?? j.status}</span></td>
+                        <td>{j.total_count} / {j.success_count} / {j.failed_count} / {j.skipped_count}</td>
+                        <td>{j.requested_by_name ?? "—"}</td>
+                        <td className="ws-cell-time">{fmtTime(j.requested_at)}</td>
+                        <td className="ws-cell-suggestion">{j.error_message ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {opsIndex.recent_failed.length > 0 ? (
+              <div className="ws-table-wrap" style={{ marginTop: 8 }}>
+                <table className="ws-table">
+                  <thead>
+                    <tr><th>资产</th><th>范围 / 项目</th><th>负责人</th><th>诊断（运营态）</th><th>处理建议</th><th>级别</th><th>更新时间</th><th></th></tr>
+                  </thead>
+                  <tbody>
+                    {opsIndex.recent_failed.map((it) => (
+                      <tr key={it.asset_id}>
+                        <td>{it.title}</td>
+                        <td>{scopeLabel[it.scope] ?? it.scope}{it.project_name ? ` · ${it.project_name}` : ""}</td>
+                        <td>{it.owner_name ?? "—"}</td>
+                        <td className="ws-cell-suggestion">{it.operator_error_message || it.index_error_code || "—"}</td>
+                        <td className="ws-cell-suggestion">{it.remediation_hint ?? "—"}</td>
+                        <td><span className={`ws-status-pill ${it.severity === "critical" || it.severity === "error" ? "ws-status-off" : "ws-status-on"}`}>{it.severity ?? "—"}</span></td>
+                        <td className="ws-cell-time">{fmtTime(it.updated_at)}</td>
+                        <td>{opsIndex.title_visible && <Link className="btn-small" to={`/knowledge/${it.asset_id}`}>详情 / 重试</Link>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="au-note" style={{ marginTop: 8 }}>诊断为安全运营态文案（含配置项名，不含配置值 / 密钥 / 底座内部 id）。业务用户在资产详情页只看到「资产已保存、可重试」的用户态提示。</p>
+              </div>
+            ) : (
+              <p className="au-note" style={{ marginTop: 8 }}>当前无索引失败资产。</p>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* Queue toolbar */}
       <section className="ingest-section">
@@ -419,3 +600,4 @@ export default function AdminIngestPage() {
     </div>
   );
 }
+

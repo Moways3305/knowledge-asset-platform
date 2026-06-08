@@ -1,8 +1,8 @@
-"""外部 Agent / 工作流网关调用记录 ORM 模型。
+﻿"""外部 Agent / 工作流网关调用记录 ORM 模型。
 
 仅四张表：agent_calls / agent_gateway_decisions / agent_gateway_decision_items /
 agent_call_citations，记录网关调用与逐候选决策。原文授权（access_grants /
-original_access_requests，PBC-06）、接入注册（agent_whitelist_rules）、审计
+original_access_requests，）、接入注册（agent_whitelist_rules）、审计
 （audit_events）等由各自模块的表承载，不在本文件。
 
 枚举值以 String 存储 + 应用层 enum 校验，不使用 DB 原生 enum。
@@ -179,3 +179,4 @@ class AgentCallCitation(Base):
     cited_zone: Mapped[str] = mapped_column(String(20), nullable=False)
     citation_order: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+

@@ -1,4 +1,4 @@
-// 项目知识库列表 / 创建 API 的 DTO 类型（PBC-10B）。
+﻿// 项目知识库列表 / 创建 API 的 DTO 类型。
 // 仅安全治理元数据：绝不含 WeKnora id / 企微群全文 / token / URL。
 
 export interface ProjectListItemDTO {
@@ -36,3 +36,4 @@ export interface ProjectCreateResponseDTO {
   coach_user_id: string | null;
   created_at: string;
 }
+

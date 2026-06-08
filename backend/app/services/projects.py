@@ -1,4 +1,4 @@
-"""项目设置 / 项目成员治理服务（PBC-04）。
+﻿"""项目设置 / 项目成员治理服务。
 
 复用既有 `projects` / `project_members` / `users` / `user_company_roles` 表。项目角色只来自
 active `project_members`（与 build_caller_context 一致）；公司治理角色（boss / 咨询总监）可跨项目读写；
@@ -323,7 +323,7 @@ async def patch_member(
     )
 
 
-# ----- 项目列表 / 创建（PBC-10B） -----
+# ----- 项目列表 / 创建 -----
 from app.services.permission import build_caller_context  # noqa: E402
 
 
@@ -388,12 +388,18 @@ async def list_projects(session: AsyncSession, caller: CallerContext):
     )
 
 
-async def create_project(session: AsyncSession, caller: CallerContext, req, trace_id: str):
+async def create_project(
+    session: AsyncSession, caller: CallerContext, req, trace_id: str, *, weknora=None,
+):
     """创建项目知识空间（仅 boss / 咨询总监）。
 
     写入真实 `projects` 行 + 至少一条 active project_manager `project_members`（可选 coach）。
-    纯 admin 不可创建业务项目。WeKnora KB 不在此预建——scope→KB 映射仍按现有
-    `resolve_or_create_kb` 在首次入库时懒创建（项目创建不因 WeKnora 未配置而失败）。
+    纯 admin 不可创建业务项目。
+
+    项目主事务提交后，**尝试预创建并初始化** project WeKnora KB（`ensure_project_kb`，
+    best-effort）。底座未配置 / 建库 / 初始化失败**绝不**导致项目创建失败——项目正常创建，
+    只在底座侧留 init_failed 映射，首次入库会自动重试。`weknora` 由 API 层注入（测试可注 fake），
+    缺省 None 时跳过预建（仍保留入库时懒创建兜底）。
     """
     if not _is_governance(caller):
         if _is_admin(caller):
@@ -465,7 +471,8 @@ async def create_project(session: AsyncSession, caller: CallerContext, req, trac
 
     from app.schemas.project_settings import ProjectCreateResponse
 
-    return ProjectCreateResponse(
+    # 先固化响应（best-effort 预建 KB 失败时会 rollback 使 project 过期，异步 session 不能隐式刷新）。
+    response = ProjectCreateResponse(
         id=project.id, name=project.name, client_name=project.client_name,
         status=project.status, lifecycle_route_key=project.lifecycle_route_key,
         lifecycle_phase_key=project.lifecycle_phase_key,
@@ -473,3 +480,12 @@ async def create_project(session: AsyncSession, caller: CallerContext, req, trac
         coach_user_id=coach.id if coach is not None else None,
         created_at=project.created_at,
     )
+
+    # 项目已落库，预创建并初始化 project KB（best-effort，不阻断、不外泄底座标识）。
+    if weknora is not None:
+        from app.services.weknora_kb import ensure_project_kb
+
+        await ensure_project_kb(session, weknora, project_id=response.id, trace_id=trace_id)
+
+    return response
+

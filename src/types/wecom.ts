@@ -1,4 +1,4 @@
-// 企微微盘扫描 API 的 DTO 类型（R6，契约 §17）。
+﻿// 企微微盘扫描 API 的 DTO 类型（R6，契约 §17）。
 // 响应只含安全运营元数据：绝不含微盘 file_id / 下载 URL / access_token / cookie /
 // 存储引用 / WeKnora id / 业务原文。
 
@@ -24,7 +24,7 @@ export interface WecomScanConfigsResponseDTO {
   items: WecomScanConfigDTO[];
 }
 
-// 创建扫描配置请求（PBC-10A）。directory_path 为内部格式 spaceid:<id>;fatherid:<id>。
+// 创建扫描配置请求。directory_path 为内部格式 spaceid:<id>;fatherid:<id>。
 // task_owner_user_id：扫描产物（path_a_wecom 任务）的业务归属人，由后端校验合法性。
 export interface WecomScanConfigCreateBody {
   name: string;
@@ -90,3 +90,23 @@ export interface WecomScanRecordsResponseDTO {
 export interface WecomAuthorizeDTO {
   authorize_url: string;
 }
+
+// 目录浏览。directory_ref 即可保存的 directory_path；不含文件 file_id / 下载 URL / token。
+export interface WecomDriveSpaceDTO {
+  space_ref: string;
+  name: string;
+}
+export interface WecomDriveSpacesResponseDTO {
+  items: WecomDriveSpaceDTO[];
+}
+export interface WecomDriveDirectoryDTO {
+  directory_ref: string;
+  name: string;
+  parent_ref: string | null;
+  has_children: boolean | null;
+}
+export interface WecomDriveDirectoriesResponseDTO {
+  space_ref: string;
+  items: WecomDriveDirectoryDTO[];
+}
+

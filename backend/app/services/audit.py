@@ -1,4 +1,4 @@
-"""集中审计写入服务（IMPLEMENT-09）。
+﻿"""集中审计写入服务。
 
 **所有模块写审计只能经本模块唯一入口 `record_event`**，不得各自散写。
 本模块负责：角色快照、写入时脱敏（BE-09 §7.1）、severity / risk_level 标记。
@@ -542,3 +542,4 @@ async def mark_processed(
         processed_by=event.processed_by,
         processed_at=event.processed_at,
     )
+

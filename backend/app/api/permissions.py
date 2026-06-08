@@ -1,4 +1,4 @@
-"""权限规则配置中心 API（PBC-03）。
+﻿"""权限规则配置中心 API。
 
 - GET   /api/v1/admin/permissions/rules           （admin / boss / 咨询总监 可读）
 - PATCH /api/v1/admin/permissions/rules/{rule_id}  （仅 boss / 咨询总监；admin 只读 → 403）
@@ -46,3 +46,4 @@ async def update_permission_rule(
     session: AsyncSession = Depends(get_db),
 ) -> PermissionRuleOut:
     return await rules_service.update_rule(session, caller, rule_id, req, get_trace_id(request))
+

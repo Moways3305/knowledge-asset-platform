@@ -1,0 +1,356 @@
+"""PBC-17 生产部署守卫与安全烟测测试。
+
+覆盖：
+- 会话 / OAuth state cookie 的 Secure 生产守卫（prod 强制 Secure，本地不强制）；
+- `/health/config` 生产就绪诊断（blocker / warning 只回安全项名）；
+- trace_id 跨 HTTP → 后台作业 → WeKnora / 审计的链路连续性；
+- 响应 / 审计 / 脚本输出不泄露明文 token / state / secret / 内部 id。
+"""
+
+from __future__ import annotations
+
+import uuid
+
+import pytest
+from sqlalchemy import select
+
+from app.core.config import Settings, session_cookie_secure, session_cookie_secure_misconfigured
+from app.main import app
+from app.models.audit import AuditEvent
+from app.models.indexing_job import IndexingOperationJob
+
+from app.seed.dev_seed import (
+    DEV_PASSWORD,
+    USER_ADMIN_ONLY,
+    USER_CONSULTANT,
+)
+
+LOGIN = "/api/v1/auth/login"
+WECOM_START = "/api/v1/auth/wecom/start"
+WECOM_CALLBACK = "/api/v1/auth/wecom/callback"
+CONFIG = "/health/config"
+UPLOAD = "/api/v1/ingest/upload"
+RETRY = "/admin/ops/indexing/retry"
+
+BOSS_EMAIL = "boss.c@dev.local"
+
+
+def _hdr(user_id):
+    return {"X-Dev-User-Id": str(user_id)}
+
+
+def _set_cookies(resp):
+    return resp.headers.get_list("set-cookie")
+
+
+def _cookie_for(resp, name):
+    for c in _set_cookies(resp):
+        if c.startswith(name + "="):
+            return c
+    return None
+
+
+# ---------------------------------------------------------------------------
+# 1. Cookie Secure 生产守卫
+# ---------------------------------------------------------------------------
+def test_session_cookie_secure_helper_rules():
+    """prod 强制 True（即使显式 false）；非 prod 读配置，未配置默认 False。"""
+    assert session_cookie_secure(Settings(app_env="prod")) is True
+    assert session_cookie_secure(Settings(app_env="prod", session_cookie_secure=False)) is True
+    assert session_cookie_secure(Settings(app_env="local")) is False
+    assert session_cookie_secure(Settings(app_env="local", session_cookie_secure=True)) is True
+    # 显式 prod + false → 配置诊断标记 misconfigured（运行时仍被强制安全）。
+    assert session_cookie_secure_misconfigured(Settings(app_env="prod", session_cookie_secure=False)) is True
+    assert session_cookie_secure_misconfigured(Settings(app_env="prod")) is False
+    assert session_cookie_secure_misconfigured(Settings(app_env="local", session_cookie_secure=False)) is False
+
+
+async def test_login_cookie_not_secure_in_local(client):
+    """本地登录 Set-Cookie 不强制 Secure（便于 http://localhost）。"""
+    resp = await client.post(LOGIN, json={"email": BOSS_EMAIL})
+    assert resp.status_code == 200, resp.text
+    cookie = _cookie_for(resp, "kap_session")
+    assert cookie is not None
+    assert "secure" not in cookie.lower()
+    # 明文 token 不进 JSON 响应体。
+    assert "kap_session" not in resp.text
+
+
+async def test_login_cookie_secure_in_prod(client, monkeypatch):
+    """prod 密码登录 Set-Cookie 必含 Secure。"""
+    monkeypatch.setattr("app.api.auth.get_settings", lambda: Settings(app_env="prod"))
+    resp = await client.post(LOGIN, json={"email": BOSS_EMAIL, "password": DEV_PASSWORD})
+    assert resp.status_code == 200, resp.text
+    cookie = _cookie_for(resp, "kap_session")
+    assert cookie is not None
+    assert "secure" in cookie.lower()
+    # 明文 token / 密码不进 JSON 响应体。
+    assert DEV_PASSWORD not in resp.text
+
+
+class _FakeOAuth:
+    """fake 企微 OAuth 客户端：生成安全 URL（不含 secret），按 code 换取已绑定身份。"""
+
+    def build_authorize_url(self, *, state: str) -> str:
+        # 真实实现含 corp_id/redirect/state，但**绝不含 app_secret**。
+        return f"https://open.weixin.qq.com/connect/oauth2/authorize?state={state}"
+
+    async def exchange_code(self, code: str):
+        from app.services.wecom_client import WeComIdentity
+
+        return WeComIdentity(wecom_user_id="ww_consultant_a")
+
+    async def get_member_status(self, wecom_user_id: str):
+        from app.services.wecom_client import WeComMemberStatus
+
+        return WeComMemberStatus(wecom_user_id, True, "active", "企微成员有效")
+
+
+@pytest.fixture
+def _fake_oauth():
+    from app.services.wecom_client import get_wecom_oauth_client
+
+    app.dependency_overrides[get_wecom_oauth_client] = lambda: _FakeOAuth()
+    yield
+    app.dependency_overrides.pop(get_wecom_oauth_client, None)
+
+
+async def test_wecom_start_state_cookie_secure_in_prod(client, monkeypatch, _fake_oauth):
+    """prod 下 OAuth start 的 kap_oauth_state cookie 必含 Secure，且 state 不进 JSON。"""
+    monkeypatch.setattr("app.api.auth.get_settings", lambda: Settings(app_env="prod"))
+    resp = await client.get(WECOM_START)
+    assert resp.status_code == 200, resp.text
+    cookie = _cookie_for(resp, "kap_oauth_state")
+    assert cookie is not None
+    assert "secure" in cookie.lower()
+    # CSRF 防护的 state 副本走 httpOnly cookie（authorize_url 里按 OAuth 协议带 state 属正常）。
+    assert "httponly" in cookie.lower()
+
+
+async def test_wecom_callback_session_cookie_secure_in_prod(client, monkeypatch, _fake_oauth):
+    """prod 下 OAuth callback 成功换取后下发的会话 cookie 必含 Secure。"""
+    monkeypatch.setattr("app.api.auth.get_settings", lambda: Settings(app_env="prod"))
+    state = "st-prod-123"
+    resp = await client.get(
+        WECOM_CALLBACK + f"?code=code-xyz&state={state}",
+        headers={"Cookie": f"kap_oauth_state={state}"},
+    )
+    assert resp.status_code == 200, resp.text
+    cookie = _cookie_for(resp, "kap_session")
+    assert cookie is not None
+    assert "secure" in cookie.lower()
+    # code / state 绝不进 JSON 响应体。
+    assert "code-xyz" not in resp.text
+    assert state not in resp.text
+
+
+# ---------------------------------------------------------------------------
+# 2. /health/config 生产就绪诊断
+# ---------------------------------------------------------------------------
+_SECRET_TOKENS = [
+    "devpassword", "postgresql+asyncpg", "redis://", "sk-", "Bearer",
+    "api_key", "jwt_secret", "token_hash", "storage_ref",
+]
+
+
+def _assert_no_secret(text):
+    for t in _SECRET_TOKENS:
+        assert t not in text, f"config 响应不应泄露 {t}"
+
+
+async def test_config_non_prod_not_production_ready_but_no_blockers(client):
+    """非 prod：production_ready=False，blockers 为空（本地 eager 不算失败）。"""
+    r = await client.get(CONFIG)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["production_ready"] is False
+    assert body["production_blockers"] == []
+    assert "production_warnings" in body
+    _assert_no_secret(r.text)
+
+
+async def test_config_prod_eager_is_blocker(client, monkeypatch):
+    """prod + eager=true → blocker 含 CELERY_TASK_ALWAYS_EAGER，production_ready=False。"""
+    monkeypatch.setattr(
+        "app.api.ops.get_settings",
+        lambda: Settings(app_env="prod", celery_task_always_eager=True),
+    )
+    r = await client.get(CONFIG)
+    assert r.status_code == 200
+    body = r.json()
+    assert "CELERY_TASK_ALWAYS_EAGER" in body["production_blockers"]
+    assert body["production_ready"] is False
+    _assert_no_secret(r.text)
+
+
+async def test_config_prod_insecure_cookie_is_blocker(client, monkeypatch):
+    """prod + 显式 SESSION_COOKIE_SECURE=false → blocker 含 SESSION_COOKIE_SECURE。"""
+    monkeypatch.setattr(
+        "app.api.ops.get_settings",
+        lambda: Settings(app_env="prod", celery_task_always_eager=False, session_cookie_secure=False),
+    )
+    r = await client.get(CONFIG)
+    body = r.json()
+    assert "SESSION_COOKIE_SECURE" in body["production_blockers"]
+    _assert_no_secret(r.text)
+
+
+async def test_config_prod_weknora_missing_embedding_blocker(client, monkeypatch):
+    """prod + WeKnora 启用但缺 embedding/ref → blocker 只列项名（不含值）。"""
+    monkeypatch.setattr("app.api.ops.weknora_enabled", lambda: True)
+    monkeypatch.setattr(
+        "app.api.ops.get_settings",
+        lambda: Settings(
+            app_env="prod", celery_task_always_eager=False, session_cookie_secure=True,
+            weknora_embedding_model_id="", weknora_model_ref_secret="",
+        ),
+    )
+    r = await client.get(CONFIG)
+    body = r.json()
+    assert "WEKNORA_EMBEDDING_MODEL_ID" in body["production_blockers"]
+    assert "WEKNORA_MODEL_REF_SECRET" in body["production_blockers"]
+    assert body["production_ready"] is False
+    _assert_no_secret(r.text)
+
+
+async def test_config_prod_ready_when_clean(client, monkeypatch):
+    """prod + 无阻断项（worker 真实、cookie secure、外部集成关闭）→ production_ready=True。"""
+    monkeypatch.setattr("app.api.ops.weknora_enabled", lambda: False)
+    monkeypatch.setattr(
+        "app.api.ops.get_settings",
+        lambda: Settings(app_env="prod", celery_task_always_eager=False, session_cookie_secure=True,
+                         auth_attempt_hash_secret="real-secret", csrf_token_secret="real-csrf"),
+    )
+    r = await client.get(CONFIG)
+    body = r.json()
+    assert body["production_blockers"] == []
+    assert body["production_ready"] is True
+    _assert_no_secret(r.text)
+
+
+# ---------------------------------------------------------------------------
+# 3. trace_id 跨 HTTP → 后台作业 → WeKnora / 审计
+# ---------------------------------------------------------------------------
+async def test_trace_id_flows_http_to_worker_audit_on_upload(client, db_session):
+    """上传带 X-Trace-Id → 入库处理（eager worker）写审计沿用同一 trace_id。"""
+    trace = "trc-prod-smoke"
+    r = await client.post(
+        UPLOAD, headers={**_hdr(USER_CONSULTANT), "X-Trace-Id": trace},
+        files={"file": ("doc.txt", b"PBC-17 trace upload body", "text/plain")},
+    )
+    assert r.status_code == 200, r.text
+    # 回声头沿用同一 trace_id。
+    assert r.headers.get("X-Trace-Id") == trace
+    # worker service 入库处理审计（ingest.ai_extracted / ingest.failed）使用同一 trace_id。
+    events = (
+        await db_session.execute(select(AuditEvent).where(AuditEvent.trace_id == trace))
+    ).scalars().all()
+    actions = {e.action for e in events}
+    assert any(a and a.startswith("ingest.") for a in actions), actions
+    # 至少含入库处理产物之一（证明 HTTP → enqueue → worker → audit 同链路）。
+    assert ("ingest.ai_extracted" in actions) or ("ingest.failed" in actions)
+
+
+class _TraceWK:
+    """记录每次 WeKnora 调用收到的 trace_id 的 fake（用于断言后台作业传递 trace）。"""
+
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+        self.upload_traces: list[str | None] = []
+        self._kb = 0
+        self._doc = 0
+
+    async def create_kb(self, *, name, embedding_model_id, trace_id=None, **_):
+        self._kb += 1
+        return f"kb-{self._kb}"
+
+    async def initialize_kb(self, kb_id, **_):
+        return None
+
+    async def get_initialization_config(self, kb_id, *, trace_id=None):
+        return {}
+
+    async def upload_file(self, *, kb_id, content, file_name, mime, metadata=None, channel=None, trace_id=None):
+        self.upload_traces.append(trace_id)
+        if self.fail:
+            from app.services.weknora_client import WeKnoraError
+
+            raise WeKnoraError("weknora_down", "底座不可用")
+        self._doc += 1
+        return {"id": f"doc-{self._doc}", "parse_status": "processing", "file_hash": "h"}
+
+    async def get_knowledge(self, knowledge_id, *, trace_id=None):
+        return {"id": knowledge_id, "parse_status": "completed"}
+
+    async def delete_knowledge(self, knowledge_id, *, trace_id=None):
+        return None
+
+    async def reparse_knowledge(self, *, kb_id, knowledge_id, content, file_name, mime, metadata=None, channel=None, trace_id=None):
+        return await self.upload_file(kb_id=kb_id, content=content, file_name=file_name, mime=mime, trace_id=trace_id)
+
+    async def search(self, **_):
+        return []
+
+    async def hybrid_search(self, **_):
+        return []
+
+
+def _enable_wk(monkeypatch, fake):
+    from app.core.config import get_settings
+    from app.services.weknora_client import get_weknora_client
+
+    monkeypatch.setattr("app.services.ingest.weknora_enabled", lambda: True)
+    monkeypatch.setattr("app.services.knowledge.weknora_enabled", lambda: True)
+    monkeypatch.setattr("app.services.jobs.indexing_operations.weknora_enabled", lambda: True)
+    monkeypatch.setattr(get_settings(), "weknora_embedding_model_id", "test-embed")
+    app.dependency_overrides[get_weknora_client] = lambda: fake
+
+
+@pytest.fixture(autouse=True)
+def _wk_cleanup():
+    yield
+    from app.services.weknora_client import get_weknora_client
+
+    app.dependency_overrides.pop(get_weknora_client, None)
+
+
+async def _make_index_failed(client, monkeypatch, user):
+    """走 confirm（失败底座）生成一个 index_failed 资产，返回 asset_id。"""
+    _enable_wk(monkeypatch, _TraceWK(fail=True))
+    up = await client.post(UPLOAD, headers=_hdr(user), files={"file": ("d.txt", b"trace idx body", "text/plain")})
+    task_id = up.json()["ingest_task_id"]
+    payload = {
+        "title": "trace 索引资产", "summary": "摘要", "tags": ["t"],
+        "target_scope": "personal", "asset_type": "methodology",
+        "confidentiality_level": "L2", "ai_access_level": "A2",
+    }
+    r = await client.post(f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(user), json=payload)
+    assert r.status_code == 200, r.text
+    assert r.json()["index_status"] == "index_failed"
+    return r.json()["result_asset_id"]
+
+
+async def test_trace_id_flows_to_indexing_job_and_weknora(client, db_session, monkeypatch):
+    """retry 带 X-Trace-Id → job.trace_id 保存该值 + fake WeKnora upload 收到同一 trace_id +
+    完成审计沿用该 trace_id。"""
+    await _make_index_failed(client, monkeypatch, USER_CONSULTANT)
+    trace = "trc-idx-0017"
+    rec = _TraceWK()
+    _enable_wk(monkeypatch, rec)
+    r = await client.post(
+        RETRY, headers={**_hdr(USER_ADMIN_ONLY), "X-Trace-Id": trace},
+        json={"scope": "all", "statuses": ["index_failed"], "limit": 50},
+    )
+    assert r.status_code == 202, r.text
+    # job.trace_id 保存请求 trace。
+    jobs = (
+        await db_session.execute(select(IndexingOperationJob).where(IndexingOperationJob.trace_id == trace))
+    ).scalars().all()
+    assert jobs, "indexing_operation_job 应保存请求 trace_id"
+    # fake WeKnora 重传收到同一 trace_id（HTTP → job → 底座调用同链路）。
+    assert trace in rec.upload_traces
+    # 完成审计沿用该 trace_id。
+    audits = (
+        await db_session.execute(select(AuditEvent).where(AuditEvent.trace_id == trace))
+    ).scalars().all()
+    assert any(a.action and a.action.startswith("knowledge.index_batch_retry") for a in audits)

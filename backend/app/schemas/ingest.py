@@ -1,4 +1,4 @@
-"""入库流水线 API 的请求 / 响应 schema（IMPLEMENT-05）。
+﻿"""入库流水线 API 的请求 / 响应 schema。
 
 **绝不包含 source_file_ref / 文件对象内部存储引用 / 真实上传或下载 URL。**
 """
@@ -31,7 +31,7 @@ class IngestUploadRequest(BaseModel):
 class IngestUploadResponse(BaseModel):
     ingest_task_id: uuid.UUID
     status: str
-    # 本阶段不返回真实签名上传地址：固定为 None（平台中转/占位策略，见 README）。
+    # 不返回签名上传地址：固定为 None（上传走平台中转，见 README）。
     upload_url: None = None
 
 
@@ -58,7 +58,7 @@ class IngestAiResultResponse(BaseModel):
     naming_compliant: bool | None = None
     naming_parsed_fields: dict | None = None
     naming_anomalies: list | None = None
-    # 抽取与去重（IMPLEMENT-14）。extraction_status / 错误为运营元数据（两视图均可见）；
+    # 抽取与去重。extraction_status / 错误为运营元数据（两视图均可见）；
     # extracted_text_preview 是业务内容**仅完整视图**返回，admin 元数据视图为 None。
     extraction_status: str | None = None
     extracted_char_count: int | None = None
@@ -72,6 +72,12 @@ class IngestAiResultResponse(BaseModel):
     llm_provider: str | None = None
     llm_model: str | None = None
     content_processing_status: str | None = None
+    # 入库前置规则脱敏安全元数据（两视图均可见；仅状态 + 类别计数 + 人读文案，
+    # **绝不**返回脱敏前/后正文、脱敏文本 ref、原始文件 ref）。
+    # status: applied | unchanged | skipped | failed。counts: 类别 → 替换数量。
+    desensitization_status: str | None = None
+    desensitization_counts: dict | None = None
+    desensitization_message: str | None = None
 
 
 class IngestConfirmRequest(BaseModel):
@@ -104,6 +110,10 @@ class IngestConfirmResponse(BaseModel):
     # WeKnora 解析的安全业务状态（pending/processing/completed/failed/duplicate）；
     # 未启用 WeKnora 时为 None。不暴露任何 kb_id / doc_id。
     parse_status: str | None = None
+    # 平台级索引状态：indexed | index_failed | skipped。
+    # 资产已确认落库（status=completed），index_failed 表示底座索引失败但资产保留、可重试，
+    # 前端据此提示"已提交、索引暂未完成"，不得表现为完全成功且可检索。安全业务状态，无 kb/doc id。
+    index_status: str | None = None
 
 
 class IngestParseRefreshResponse(BaseModel):
@@ -140,7 +150,7 @@ class AdminIngestListResponse(BaseModel):
 
 
 class PendingIngestItem(BaseModel):
-    """业务侧待确认任务视图（PBC-07）：仅校正 / 运营所需安全元数据。
+    """业务侧待确认任务视图：仅校正 / 运营所需安全元数据。
 
     **绝不包含**任何内部存储引用 / WeCom 文件标识 / 下载地址 / 凭证 token /
     WeKnora 内部 id / 原文全文 / 抽取全文。
@@ -169,3 +179,4 @@ class PendingIngestItem(BaseModel):
 class PendingIngestListResponse(BaseModel):
     items: list[PendingIngestItem]
     total: int
+
