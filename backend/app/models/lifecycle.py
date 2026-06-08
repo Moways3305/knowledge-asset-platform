@@ -8,8 +8,7 @@
 字段说明：
 - 归档不删除：生命周期事件是追加事实，不覆盖、不物理删除既有审计/业务数据。
 - trace_id（asset_lifecycle_events）：为满足 API 契约 §14A 生命周期事件查询响应
-  必含 `trace_id` 字段、并支持「预警→确认→状态变更」同链路串联而新增（BE-02 §4.7
-  原表未列该列，属为贯穿 trace_id 的实现期补充，留待 reviewer 回写数据模型确认）。
+  必含 `trace_id` 字段、并支持「预警→确认→状态变更」同链路串联而新增。
 - notification_records 只存安全元数据（标题 / 安全摘要内容），绝不存业务原文、
   storage_ref、对象存储 URL、完整 preview token、Dify api_key/workflow_id/dataset_id、
   向量库内部 ID 等（沿用 BE-09 §7 脱敏约束）。

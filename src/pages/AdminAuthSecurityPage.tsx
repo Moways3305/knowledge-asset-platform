@@ -1,4 +1,5 @@
-﻿import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { RefreshCw, Unlock } from "lucide-react";
 import { ApiError, fetchAuthSecurityOverview, unlockAuthLockout } from "../api/client";
 import type { AuthSecurityEventDTO, AuthSecurityOverviewDTO } from "../types/authSecurity";
 import { formatBeijingTime } from "../utils/time";
@@ -6,22 +7,17 @@ import { formatBeijingTime } from "../utils/time";
 // 登录风控运维。仅 admin 可见；展示安全聚合 + 最近事件 + 手动解锁入口。
 // 全部为不可逆 hash 前缀 / 安全用户元数据；不展示 raw email / raw IP / 完整 hash / token。
 const resultLabel: Record<string, string> = {
-  failed: "失败",
-  locked: "已锁定",
-  rate_limited: "IP 限流",
-  success: "成功",
-  unlocked: "已解锁",
+  failed: "失败", locked: "已锁定", rate_limited: "IP 限流", success: "成功", unlocked: "已解锁",
 };
 const reasonLabel: Record<string, string> = {
-  invalid_credentials: "凭证错误",
-  identifier_locked: "账号短时锁定",
-  ip_rate_limited: "IP 限流",
-  manual_unlock: "人工解锁",
-  success: "成功",
+  invalid_credentials: "凭证错误", identifier_locked: "账号短时锁定", ip_rate_limited: "IP 限流",
+  manual_unlock: "人工解锁", success: "成功",
 };
 
 // 可唯一定位、可解锁的事件（账号短时锁定 / 失败累积）。
 const UNLOCKABLE = new Set(["locked", "failed", "rate_limited"]);
+
+type Sev = "danger" | "warning" | "success" | "info";
 
 export default function AdminAuthSecurityPage() {
   const [data, setData] = useState<AuthSecurityOverviewDTO | null>(null);
@@ -42,18 +38,14 @@ export default function AdminAuthSecurityPage() {
     }
   }, [windowMinutes]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const onUnlock = useCallback(
     async (ev: AuthSecurityEventDTO) => {
       setNotice(null);
       setError(null);
       try {
-        const body = ev.user_id
-          ? { user_id: ev.user_id }
-          : { identifier_hash_prefix: ev.identifier_hash_prefix ?? "" };
+        const body = ev.user_id ? { user_id: ev.user_id } : { identifier_hash_prefix: ev.identifier_hash_prefix ?? "" };
         const res = await unlockAuthLockout(body);
         setNotice(res.unlocked ? "已解除该账号的短时锁定。" : "未发生解锁。");
         await load();
@@ -65,87 +57,80 @@ export default function AdminAuthSecurityPage() {
   );
 
   const c = data?.counts;
+  const risks: { label: string; value: number; sev: Sev }[] = c ? [
+    { label: "失败", value: c.failed, sev: "warning" },
+    { label: "锁定", value: c.locked, sev: "danger" },
+    { label: "IP 限流", value: c.rate_limited, sev: "danger" },
+    { label: "成功", value: c.success, sev: "success" },
+    { label: "人工解锁", value: c.unlocked, sev: "info" },
+    { label: "独立账号", value: c.unique_identifier_count, sev: "info" },
+    { label: "独立 IP", value: c.unique_ip_count, sev: "info" },
+  ] : [];
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <h2>登录风控</h2>
-        <p className="page-sub">
-          近 {data?.window_minutes ?? windowMinutes} 分钟登录尝试的安全聚合与手动解锁。仅显示不可逆
-          标识前缀与安全用户元数据，不含邮箱 / IP / 密码 / 令牌。
-        </p>
+    <div className="cockpit">
+      <div className="kb-masthead">
+        <div>
+          <div className="kb-eyebrow">Auth Security · 登录风控</div>
+          <h2 className="kb-title">登录风控运营台</h2>
+          <p className="kb-lead">
+            近 {data?.window_minutes ?? windowMinutes} 分钟登录尝试的安全聚合与手动解锁。仅显示不可逆标识前缀与安全用户元数据，不含邮箱 / IP / 密码 / 令牌。
+          </p>
+        </div>
       </div>
 
-      <div className="toolbar">
+      <div className="cockpit-bar">
         <label>
-          时间窗口（分钟）：
+          时间窗口（分钟）
           <input
-            type="number"
-            min={1}
-            max={10080}
-            value={windowMinutes}
+            type="number" min={1} max={10080} value={windowMinutes}
             onChange={(e) => setWindowMinutes(Math.max(1, Number(e.target.value) || 60))}
-            style={{ width: 96, marginLeft: 6 }}
           />
         </label>
-        <button onClick={() => void load()} disabled={loading} style={{ marginLeft: 12 }}>
-          {loading ? "刷新中…" : "刷新"}
+        <span className="cockpit-bar-spacer" />
+        <button className="btn-small" onClick={() => void load()} disabled={loading}>
+          <RefreshCw size={13} /> {loading ? "刷新中…" : "刷新"}
         </button>
       </div>
 
-      {error && <div className="banner banner-error">{error}</div>}
-      {notice && <div className="banner banner-ok">{notice}</div>}
+      {error && <div className="adminx-banner is-error">{error}</div>}
+      {notice && <div className="adminx-banner is-ok">{notice}</div>}
 
-      {c && (
-        <div className="stat-cards">
-          <div className="stat-card"><div className="stat-num">{c.failed}</div><div>失败</div></div>
-          <div className="stat-card"><div className="stat-num">{c.locked}</div><div>锁定</div></div>
-          <div className="stat-card"><div className="stat-num">{c.rate_limited}</div><div>IP 限流</div></div>
-          <div className="stat-card"><div className="stat-num">{c.success}</div><div>成功</div></div>
-          <div className="stat-card"><div className="stat-num">{c.unlocked}</div><div>人工解锁</div></div>
-          <div className="stat-card"><div className="stat-num">{c.unique_identifier_count}</div><div>独立账号</div></div>
-          <div className="stat-card"><div className="stat-num">{c.unique_ip_count}</div><div>独立 IP</div></div>
+      {risks.length > 0 && (
+        <div className="cockpit-risks">
+          {risks.map((r) => (
+            <div key={r.label} className={`cockpit-risk sev-${r.sev}`}>
+              <div className="cockpit-risk-value">{r.value}</div>
+              <div className="cockpit-risk-label">{r.label}</div>
+            </div>
+          ))}
         </div>
       )}
 
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>时间</th>
-            <th>结果</th>
-            <th>原因</th>
-            <th>用户</th>
-            <th>账号标识前缀</th>
-            <th>IP 前缀</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(data?.recent_events ?? []).map((ev) => (
-            <tr key={ev.attempt_id}>
-              <td>{formatBeijingTime(ev.created_at)}</td>
-              <td>{resultLabel[ev.result] ?? ev.result}</td>
-              <td>{ev.reason_code ? reasonLabel[ev.reason_code] ?? ev.reason_code : "—"}</td>
-              <td>{ev.user_name ? `${ev.user_name}（${ev.user_status ?? ""}）` : "未知账号"}</td>
-              <td><code>{ev.identifier_hash_prefix ?? "—"}</code></td>
-              <td><code>{ev.ip_hash_prefix ?? "—"}</code></td>
-              <td>
-                {UNLOCKABLE.has(ev.result) && (ev.user_id || ev.identifier_hash_prefix) ? (
-                  <button onClick={() => void onUnlock(ev)}>解锁</button>
-                ) : (
-                  "—"
-                )}
-              </td>
-            </tr>
-          ))}
-          {data && data.recent_events.length === 0 && (
-            <tr>
-              <td colSpan={7}>该时间窗口内暂无登录尝试。</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      <div className="cockpit-events">
+        <div className="cockpit-events-head">最近登录尝试</div>
+        {(data?.recent_events ?? []).map((ev) => (
+          <div key={ev.attempt_id} className="cockpit-event">
+            <span className="cockpit-event-time">{formatBeijingTime(ev.created_at)}</span>
+            <span className={`authres authres-${ev.result}`}>{resultLabel[ev.result] ?? ev.result}</span>
+            <span className="cockpit-event-user">
+              {ev.user_name ? `${ev.user_name}（${ev.user_status ?? ""}）` : "未知账号"}
+              <span className="cockpit-event-reason"> · {ev.reason_code ? reasonLabel[ev.reason_code] ?? ev.reason_code : "—"}</span>
+            </span>
+            <span className="cockpit-event-hash" title="账号标识前缀（不可逆）">{ev.identifier_hash_prefix ?? "—"}</span>
+            <span className="cockpit-event-hash" title="IP 前缀（不可逆）">{ev.ip_hash_prefix ?? "—"}</span>
+            <span>
+              {UNLOCKABLE.has(ev.result) && (ev.user_id || ev.identifier_hash_prefix) ? (
+                <button className="cockpit-unlock" onClick={() => void onUnlock(ev)}><Unlock size={12} /> 解锁</button>
+              ) : null}
+            </span>
+          </div>
+        ))}
+        {data && data.recent_events.length === 0 && (
+          <div className="cockpit-empty">该时间窗口内暂无登录尝试。</div>
+        )}
+        {!data && loading && <div className="cockpit-empty">加载中…</div>}
+      </div>
     </div>
   );
 }
-

@@ -30,7 +30,7 @@ Thumbs.db
 .claude_tmp/
 
 # python / backend
-# 本地受控文件存储（IMPLEMENT-13，dev/test 上传字节落盘处，不入库）
+# 本地受控文件存储（dev/test 上传字节落盘处，不入库）
 _local_storage/
 __pycache__/
 *.py[cod]
@@ -50,14 +50,10 @@ pgdata/
 # claude code
 .claude/
 
-# docs
-docs/claude_tasks
-docs/reviews
-docs/CODEX_MEMORY.md
-docs/DEMO_ROADMAP.md
-docs/FRONTEND_ACCEPTANCE_CRITERIA.md 
-docs/FRONTEND_IA_VISUAL_UPGRADE_PLAN.md 
-docs
+# docs — internal collaboration docs stay private; only published guides under
+# docs/deployment/ are tracked. To publish another docs subdir, add its own "!docs/<dir>/".
+docs/*
+!docs/deployment/
 
 #claude
 CLAUDE.md

@@ -5,48 +5,80 @@
 :root {
   /* Brand palette */
   --color-primary: #1F2D75;
+  --color-primary-deep: #182250;
   --color-accent-1: #4A6FA5;
   --color-accent-2: #A8B8CC;
   --color-gold: #C9A962;
+  --color-gold-deep: #A8893F;
 
-  /* Backgrounds */
-  --color-bg-body: #F0F2F5;
+  /* Backgrounds — cool paper on a desk: greyer canvas, pure-white surfaces */
+  --color-bg-body: #EEF0F4;
   --color-bg-surface: #FFFFFF;
-  --color-bg-sidebar: #F4F5F9;
-  --color-bg-muted: #FAFBFC;
-  --color-bg-table-head: #F4F5F9;
+  --color-bg-sidebar: #FBFCFD;
+  --color-bg-muted: #F6F7FA;
+  --color-bg-table-head: #F5F6F9;
 
-  /* Borders */
-  --color-border: #DFE2E8;
-  --color-border-light: #ECEEF2;
+  /* Borders — hairlines */
+  --color-border: #DCDFE6;
+  --color-border-light: #E9EBF0;
 
   /* Text */
-  --color-text-heading: #1C1E2D;
-  --color-text-body: #333742;
-  --color-text-secondary: #5A5F72;
-  --color-text-tertiary: #8E93A4;
+  --color-text-heading: #1A1F36;
+  --color-text-body: #2E3340;
+  --color-text-secondary: #595F70;
+  --color-text-tertiary: #8B90A0;
   --color-text-inverse: #FFFFFF;
 
-  /* Status */
+  /* Status — muted, readable on light surfaces */
   --color-success: #1A7A42;
-  --color-success-bg: #E6F7EE;
-  --color-warning: #C9A962;
-  --color-warning-bg: #FFF8E6;
-  --color-danger: #B33A3A;
-  --color-danger-bg: #FDECEA;
-  --color-info: #4A6FA5;
+  --color-success-bg: #E8F5EE;
+  --color-warning: #C9A962;          /* gold accent (borders / dots) */
+  --color-warning-text: #8A6D1F;     /* readable warning text on light */
+  --color-warning-bg: #FBF3DF;
+  --color-danger: #B3322F;
+  --color-danger-bg: #FBEAE8;
+  --color-info: #3D5E94;
   --color-info-bg: #EAF0F9;
 
-  /* Radius */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-pill: 12px;
+  /* Typography — self-hosted, Latin renders in the webfont, CJK falls back to system.
+     sans  = Hanken Grotesk (humanist UI) · serif = Fraunces (editorial masthead +
+     metric numerals) · mono = IBM Plex Mono (identifiers / timestamps / figures). */
+  --font-sans: "Hanken Grotesk", "PingFang SC", "Microsoft YaHei", -apple-system,
+    BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-serif: "Fraunces", "Source Han Serif SC", "Songti SC", Georgia, "Times New Roman", serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Consolas, "Courier New", monospace;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 3px rgba(31, 45, 117, 0.06);
-  --shadow-md: 0 2px 8px rgba(31, 45, 117, 0.08);
-  --shadow-sidebar: 1px 0 4px rgba(31, 45, 117, 0.05);
+  /* Command rail (deep navy) + paper workspace — the structural signature. */
+  --rail-bg-top: #21306E;
+  --rail-bg-bottom: #161F45;
+  --rail-text: #C7D0E6;
+  --rail-text-dim: #8C97BE;
+  --rail-hover: rgba(255, 255, 255, 0.06);
+  --rail-active: rgba(201, 169, 98, 0.10);
+  --rail-divider: rgba(255, 255, 255, 0.08);
+  --paper: #F7F8FB;
+
+  /* Confidentiality spine colors (L1 open → L5 top-secret). UI cue only. */
+  --conf-l1: #4A8F6B;
+  --conf-l2: #4A6FA5;
+  --conf-l3: #C9A962;
+  --conf-l4: #C77A38;
+  --conf-l5: #B3322F;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur: 0.45s;
+
+  /* Radius — crisp, institutional */
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+  --radius-pill: 999px;
+
+  /* Elevation — hairline-first; shadows stay whisper-quiet */
+  --shadow-sm: 0 1px 2px rgba(26, 31, 54, 0.04);
+  --shadow-md: 0 6px 20px rgba(26, 31, 54, 0.07);
+  --shadow-sidebar: none;
 
   /* Spacing */
   --space-xs: 4px;
@@ -54,6 +86,7 @@
   --space-md: 16px;
   --space-lg: 24px;
   --space-xl: 32px;
+  --space-2xl: 48px;
 }
 
 /* ══════════════════════════════════════════
@@ -62,10 +95,33 @@
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.55;
   background: var(--color-bg-body);
   color: var(--color-text-body);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Shared typographic utilities ----------------------------------------------
+   .eyebrow  — small-caps section label (editorial / consulting cadence)
+   .u-mono   — identifiers, trace ids, instrument figures
+   .u-num    — tabular figures so columns of numbers align and don't jitter */
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+.u-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.u-num {
+  font-variant-numeric: tabular-nums;
 }
 
 /* ══════════════════════════════════════════
@@ -79,23 +135,25 @@ body {
 }
 
 .app-topbar {
-  background: var(--color-primary);
+  background: linear-gradient(180deg, var(--color-primary) 0%, var(--color-primary-deep) 100%);
   color: var(--color-text-inverse);
   padding: 0 var(--space-lg);
-  height: 54px;
+  height: 56px;
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  box-shadow: var(--shadow-md);
+  /* gold hairline signature under the navy bar (no layout shift) */
+  box-shadow: inset 0 -2px 0 var(--color-gold);
   position: relative;
   z-index: 10;
 }
 
 .app-topbar h1 {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   margin: 0;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
 }
 
 /* Topbar context */
@@ -107,6 +165,13 @@ body {
   font-size: 12px;
   color: var(--color-accent-2);
   min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+}
+
+.topbar-platform-roles {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .topbar-user {
@@ -196,12 +261,18 @@ body {
 
 .topbar-login-input {
   font-size: 12px;
-  padding: 4px 8px;
+  padding: 5px 9px;
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
   color: #fff;
-  width: 220px;
+  width: 150px;
+}
+
+.topbar-login-input:focus {
+  outline: none;
+  border-color: var(--color-gold);
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .topbar-login-input::placeholder {
@@ -231,11 +302,36 @@ body {
 }
 
 .sidebar-brand {
-  padding: 20px var(--space-lg) 12px;
-  font-size: 20px;
-  font-weight: 700;
+  padding: 20px var(--space-lg) 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border-bottom: 1px solid var(--color-border-light);
+  margin-bottom: 8px;
+}
+
+.sidebar-brand .brand-mark {
+  font-family: var(--font-serif);
+  font-size: 23px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   color: var(--color-primary);
-  letter-spacing: 2px;
+  line-height: 1;
+}
+
+.sidebar-brand .brand-mark::after {
+  content: "";
+  display: block;
+  width: 22px;
+  height: 2px;
+  margin-top: 7px;
+  background: var(--color-gold);
+}
+
+.sidebar-brand .brand-sub {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--color-text-tertiary);
 }
 
 .sidebar-nav-group + .sidebar-nav-group {
@@ -369,9 +465,14 @@ body {
 .asset-card {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  padding: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
   background: var(--color-bg-surface);
-  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+.asset-card:hover {
+  border-color: var(--color-accent-2);
+  box-shadow: var(--shadow-md);
 }
 
 .card-header {
@@ -407,10 +508,11 @@ body {
 
 .tag {
   font-size: 12px;
-  background: var(--color-bg-sidebar);
+  background: var(--color-bg-muted);
   color: var(--color-text-secondary);
-  padding: 2px 10px;
-  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border-light);
+  padding: 1px 9px;
+  border-radius: var(--radius-sm);
 }
 
 .card-meta {
@@ -425,7 +527,8 @@ body {
 .btn-secondary {
   padding: 8px 18px;
   border-radius: var(--radius-sm);
-  font-size: 14px;
+  font-size: 13px;
+  letter-spacing: 0.02em;
   cursor: pointer;
   border: 1px solid transparent;
 }
@@ -438,7 +541,7 @@ body {
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--color-accent-1);
+  background: var(--color-primary-deep);
   box-shadow: var(--shadow-sm);
 }
 
@@ -488,7 +591,8 @@ body {
 }
 
 .btn-small-primary:hover:not(:disabled) {
-  background: var(--color-accent-1);
+  background: var(--color-primary-deep);
+  border-color: var(--color-primary-deep);
 }
 
 .btn-small-danger {
@@ -529,15 +633,18 @@ body {
 }
 
 .kl-header-text h2 {
-  font-size: 22px;
-  margin: 0 0 4px;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0 0 5px;
   color: var(--color-text-heading);
 }
 
 .kl-header-text p {
-  font-size: 14px;
+  font-size: 13px;
   margin: 0;
   color: var(--color-text-secondary);
+  max-width: 60ch;
 }
 
 .kl-kpis {
@@ -547,18 +654,20 @@ body {
 }
 
 .kl-kpi {
-  min-width: 84px;
-  text-align: center;
-  padding: 12px 16px;
+  min-width: 88px;
+  text-align: left;
+  padding: 12px 18px;
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
 }
 
 .kl-kpi-value {
-  font-size: 22px;
-  font-weight: 700;
+  font-family: var(--font-serif);
+  font-size: 26px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
   color: var(--color-primary);
 }
 
@@ -567,13 +676,16 @@ body {
 }
 
 .kl-kpi-warning {
-  color: var(--color-warning);
+  color: var(--color-warning-text);
 }
 
 .kl-kpi-label {
   font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--color-text-tertiary);
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
 /* Scope tabs */
@@ -594,6 +706,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
 }
 
 .scope-tab.active {
@@ -614,6 +727,25 @@ body {
 .scope-tab.active .scope-tab-count {
   background: rgba(255, 255, 255, 0.2);
   color: var(--color-text-inverse);
+}
+
+/* Narrow screens: keep all three scope tabs on one line (no CJK word-breaking).
+   Compact padding fits them at ~390px; the row scrolls as a safety net rather
+   than wrapping "公司知识" onto two lines. */
+@media (max-width: 640px) {
+  .scope-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .scope-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .scope-tab {
+    flex: 0 0 auto;
+    padding: 7px 12px;
+    font-size: 13px;
+  }
 }
 
 /* Search + filters */
@@ -718,14 +850,14 @@ body {
 /* Empty state */
 .kl-empty-state {
   text-align: center;
-  padding: var(--space-xl) var(--space-lg);
+  padding: var(--space-2xl) var(--space-lg);
   background: var(--color-bg-muted);
-  border: 1px dashed var(--color-border);
+  border: 1px solid var(--color-border-light);
   border-radius: var(--radius-md);
 }
 
 .kl-empty-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--color-text-heading);
   margin-bottom: var(--space-sm);
@@ -941,7 +1073,7 @@ body {
 }
 
 .detail-prov-mono {
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   word-break: break-all;
 }
@@ -1017,7 +1149,7 @@ body {
 }
 
 .governance-rule {
-  font-style: italic;
+  font-style: normal;
   color: var(--color-text-tertiary);
 }
 
@@ -1265,7 +1397,7 @@ body {
   font-size: 12px;
   color: var(--color-text-tertiary);
   margin: 0 0 var(--space-lg);
-  font-style: italic;
+  font-style: normal;
 }
 
 @media (max-width: 600px) {
@@ -1317,7 +1449,7 @@ body {
 .up-agent-file-name {
   font-size: 13px;
   font-weight: 600;
-  font-family: monospace;
+  font-family: var(--font-mono);
   color: var(--color-text-heading);
   word-break: break-all;
 }
@@ -1354,7 +1486,7 @@ body {
 
 .up-source-file {
   font-size: 13px;
-  font-family: monospace;
+  font-family: var(--font-mono);
   color: var(--color-text-body);
   word-break: break-all;
 }
@@ -1462,7 +1594,7 @@ body {
 
 .desen-action {
   color: var(--color-text-tertiary);
-  font-style: italic;
+  font-style: normal;
 }
 
 /* Pipeline track (vertical-aware) */
@@ -1537,7 +1669,7 @@ body {
   font-size: 10px;
   color: var(--color-accent-1);
   margin-top: 4px;
-  font-style: italic;
+  font-style: normal;
 }
 
 /* Preview card */
@@ -1554,7 +1686,7 @@ body {
   font-size: 12px;
   color: var(--color-accent-2);
   margin: 10px 0 0;
-  font-style: italic;
+  font-style: normal;
 }
 
 /* Human correction */
@@ -1647,7 +1779,7 @@ body {
   margin-left: auto;
   font-size: 11px;
   color: var(--color-text-tertiary);
-  font-style: italic;
+  font-style: normal;
 }
 
 .up-flow-bar.flow-idle {
@@ -1847,7 +1979,7 @@ body {
   font-size: 14px;
   font-weight: 600;
   color: var(--color-text-heading);
-  font-family: monospace;
+  font-family: var(--font-mono);
   word-break: break-all;
 }
 
@@ -1943,7 +2075,7 @@ body {
 .up-target-adjust-hint {
   font-size: 12px;
   color: var(--color-text-tertiary);
-  font-style: italic;
+  font-style: normal;
 }
 
 /* AI recommendation reason panel */
@@ -1974,7 +2106,7 @@ body {
 .up-ai-reason-note {
   font-size: 11px;
   color: var(--color-text-tertiary);
-  font-style: italic;
+  font-style: normal;
   margin-top: 6px;
 }
 
@@ -2018,7 +2150,7 @@ body {
 }
 .up-zone-na {
   color: var(--color-text-tertiary);
-  font-style: italic;
+  font-style: normal;
 }
 .up-zone-hint {
   color: var(--color-text-secondary);
@@ -2027,7 +2159,7 @@ body {
 .up-zone-followup {
   color: var(--color-text-secondary);
   font-size: 12px;
-  font-style: italic;
+  font-style: normal;
 }
 
 /* Branching hint */
@@ -2230,7 +2362,7 @@ body {
 }
 
 .cell-filename {
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   word-break: break-all;
   max-width: 240px;
@@ -2462,7 +2594,7 @@ body {
 }
 
 .ig-detail-mono {
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   word-break: break-all;
 }
@@ -2552,7 +2684,7 @@ body {
 
 .ig-agent-folder {
   font-size: 12px;
-  font-family: monospace;
+  font-family: var(--font-mono);
   color: var(--color-text-secondary);
   background: var(--color-bg-muted);
   padding: 2px 8px;
@@ -2606,7 +2738,7 @@ body {
   font-size: 10px;
   color: var(--color-text-tertiary);
   margin-left: 6px;
-  font-style: italic;
+  font-style: normal;
 }
 
 @media (max-width: 700px) {
@@ -3590,7 +3722,7 @@ body {
 
 .pj-qa-source-file {
   font-size: 12px;
-  font-family: monospace;
+  font-family: var(--font-mono);
   color: var(--color-text-tertiary);
 }
 
@@ -3615,7 +3747,7 @@ body {
 }
 
 .pj-qa-trace code {
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 .pj-qa-source-layer {
@@ -3865,7 +3997,7 @@ body {
 }
 
 .au-cell-trace {
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--color-text-tertiary);
   white-space: nowrap;
@@ -3873,7 +4005,7 @@ body {
 
 .au-cell-service {
   font-size: 12px;
-  font-family: monospace;
+  font-family: var(--font-mono);
   color: var(--color-text-secondary);
 }
 
@@ -4582,7 +4714,7 @@ body {
 .pp-note-hint {
   font-size: 12px;
   color: var(--color-text-tertiary);
-  font-style: italic;
+  font-style: normal;
   text-align: center;
   padding: 14px var(--space-md);
   background: var(--color-bg-muted);
@@ -5029,7 +5161,7 @@ body {
 .mk-vis-note {
   font-size: 12px;
   color: var(--color-text-tertiary);
-  font-style: italic;
+  font-style: normal;
 }
 
 /* Upgrade status */
@@ -5060,7 +5192,7 @@ body {
 .mk-action-note {
   font-size: 12px;
   color: var(--color-text-tertiary);
-  font-style: italic;
+  font-style: normal;
   text-align: center;
   padding: 14px var(--space-md);
   background: var(--color-bg-muted);
@@ -5292,7 +5424,7 @@ body {
 .perm-readonly-hint {
   font-size: 11px;
   color: var(--color-text-tertiary);
-  font-style: italic;
+  font-style: normal;
 }
 
 .perm-rule-type {
@@ -6037,7 +6169,7 @@ body {
 .ws-zone-rule-note {
   font-size: 12px;
   color: var(--color-text-tertiary);
-  font-style: italic;
+  font-style: normal;
   margin-top: 4px;
 }
 
@@ -6299,7 +6431,7 @@ body {
 .doc-preview-container-file {
   font-size: 12px;
   color: var(--color-text-tertiary);
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 /* Denied area */
@@ -6362,7 +6494,7 @@ body {
   margin-top: 14px;
   font-size: 12px;
   color: var(--color-text-tertiary);
-  font-style: italic;
+  font-style: normal;
   padding: 8px var(--space-md);
   background: var(--color-bg-muted);
   border: 1px dashed var(--color-border);
@@ -6887,7 +7019,7 @@ body {
 }
 
 .card-archive-reason {
-  font-style: italic;
+  font-style: normal;
 }
 
 /* Archive toggle in toolbar */
@@ -6974,7 +7106,7 @@ body {
 .lifecycle-reenable-note {
   font-size: 12px;
   color: var(--color-text-tertiary);
-  font-style: italic;
+  font-style: normal;
 }
 
 /* 生命周期治理动作区 */
@@ -7198,7 +7330,7 @@ body {
   margin-top: 8px;
   font-size: 11px;
   color: var(--color-text-tertiary);
-  font-style: italic;
+  font-style: normal;
 }
 
 /* Naming status badges */
@@ -7425,7 +7557,7 @@ body {
 .confidentiality-derivation-note {
   font-size: 11px;
   color: var(--color-text-tertiary);
-  font-style: italic;
+  font-style: normal;
   margin-top: 6px;
 }
 
@@ -7537,7 +7669,7 @@ body {
 .lifecycle-route-ref-id {
   font-size: 11px;
   font-weight: 600;
-  font-family: monospace;
+  font-family: var(--font-mono);
   min-width: 56px;
   flex-shrink: 0;
 }
@@ -7607,7 +7739,7 @@ body {
 .phase-tag-suggestion-note {
   font-size: 11px;
   color: var(--color-text-tertiary);
-  font-style: italic;
+  font-style: normal;
   margin-top: 6px;
 }
 
@@ -7784,7 +7916,7 @@ body {
 .kl-insight-recent-item { font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
 .kl-insight-recent-item a { color: var(--color-accent-1); }
 .kl-insight-recent-msg { font-size: 11px; color: var(--color-text-tertiary); }
-.kl-insight-hidden { color: var(--color-text-tertiary); font-style: italic; }
+.kl-insight-hidden { color: var(--color-text-tertiary); font-style: normal; }
 
 .help-page {
   max-width: 920px;
@@ -7827,14 +7959,10 @@ body {
 }
 
 /* ══════════════════════════════════════════
-   视觉基线统一（保守、附加式；不改布局结构与业务）
+   视觉基线补充令牌（悬浮面、强边框、聚焦环）
    ══════════════════════════════════════════ */
 
-/* 令牌微调：中性灰阴影（替代偏蓝阴影，读起来更干净）、悬浮面、聚焦环、强边框。 */
 :root {
-  --shadow-sm: 0 1px 2px rgba(22, 26, 40, 0.06);
-  --shadow-md: 0 2px 10px rgba(22, 26, 40, 0.07);
-  --shadow-sidebar: 1px 0 3px rgba(22, 26, 40, 0.05);
   --color-bg-hover: #F2F4F8;
   --color-border-strong: #CFD4DD;
   --focus-ring: 0 0 0 3px rgba(74, 111, 165, 0.30);
@@ -8080,5 +8208,30 @@ body {
   content: "·";
   margin-right: 8px;
   color: var(--color-text-tertiary);
+}
+
+/* ══════════════════════════════════════════
+   统一表头与卡片悬浮（最后定稿，确保跨页一致）
+   ══════════════════════════════════════════ */
+
+/* 表头统一为「眉标」语言：克制字距、三级灰、底部发丝线。
+   覆盖各后台表格各自的 th，避免每页散调。 */
+.ingest-table th,
+.pp-table th,
+.mk-table th,
+.perm-table th,
+.ws-table th,
+.ps-table th,
+.desen-table th {
+  color: var(--color-text-tertiary);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* 卡片悬浮：发丝边描出品牌冷蓝 + 轻浮起，安静但可感知。 */
+.asset-card:hover {
+  border-color: var(--color-accent-2);
+  box-shadow: var(--shadow-md);
 }
 

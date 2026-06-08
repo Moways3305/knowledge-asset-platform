@@ -1,5 +1,6 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import AppLayout from "./layouts/AppLayout";
+import HomeDashboardPage from "./pages/HomeDashboardPage";
 import KnowledgeListPage from "./pages/KnowledgeListPage";
 import KnowledgeDetailPage from "./pages/KnowledgeDetailPage";
 import UploadPage from "./pages/UploadPage";
@@ -23,7 +24,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route element={<AppLayout />}>
-          <Route index element={<Navigate to="/knowledge" replace />} />
+          <Route index element={<HomeDashboardPage />} />
           <Route path="knowledge" element={<KnowledgeListPage />} />
           <Route path="knowledge/:id" element={<KnowledgeDetailPage />} />
           <Route path="my/knowledge" element={<MyKnowledgePage />} />
