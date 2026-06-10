@@ -1,9 +1,9 @@
 ﻿"""FastAPI 应用入口。
 
-已注册：`/health`、`/api/v1/auth/me`、Knowledge 读 API（`/api/v1/knowledge`、
-`/api/v1/knowledge/{asset_id}`、`/api/v1/my/knowledge`），并挂载 trace_id 中间件。
-覆盖 ~04（工作台 / 身份 / 知识资产模型 / 权限服务 / 知识读 API）。
-尚不包含入库、审核、原文预览、Agent、审计表、生命周期动作等写侧业务模块。
+注册全部业务路由：健康检查与运维、身份会话、知识读写与检索问答、个人知识、
+原文访问授权、入库、审核、预览、外部 Agent 网关（含 Dify 兼容适配器）、审计、
+生命周期、告警、微盘扫描、人员 / 权限 / 项目管理、WeKnora 管理，
+并挂载 CSRF 与 trace_id 中间件。
 """
 
 from __future__ import annotations

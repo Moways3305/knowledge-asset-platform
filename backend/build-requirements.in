@@ -1,0 +1,4 @@
+# PEP 517 build backend（与 pyproject [build-system].requires 对齐）。
+# uv pip compile 只解析项目依赖、不解析 build-system.requires，故在此显式锁定，
+# 使 Dockerfile 能以 --no-build-isolation 安装应用而不触发未锁定下载。
+hatchling

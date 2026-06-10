@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "knowledge-asset-platform-backend"
 version = "0.1.0"
-description = "AI Knowledge Asset Platform backend (FastAPI). IMPLEMENT-00 workbench skeleton."
+description = "AI Knowledge Asset Platform backend (FastAPI)."
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115",
@@ -17,9 +17,9 @@ dependencies = [
     "httpx>=0.28",
     "celery>=5.4",
     "redis>=5.2",
-    # multipart/form-data 文件上传（IMPLEMENT-13 Path B 真实文件入库）。
+    # multipart/form-data 文件上传（本地上传通道）。
     "python-multipart>=0.0.12",
-    # 文本抽取（IMPLEMENT-14 入库抽取管线，纯 Python，无系统二进制依赖）。
+    # 文本抽取（入库抽取管线，纯 Python，无系统二进制依赖）。
     "pypdf>=5.0",
     "python-docx>=1.1",
 ]
