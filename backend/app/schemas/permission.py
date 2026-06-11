@@ -49,7 +49,7 @@ class AccessChannel(str, Enum):
 
 
 class DeniedReason(str, Enum):
-    """权限拒绝原因（与 BE-03 §12.1 对齐的子集 + 读侧状态过滤）。"""
+    """权限拒绝原因（三层访问判断的拒绝原因子集 + 读侧状态过滤）。"""
 
     allowed = "allowed"  # 未拒绝（allowed=True 时使用）
     user_inactive = "user_inactive"

@@ -1,6 +1,6 @@
-﻿"""两阶段检索编排服务（R3）。
+﻿"""两阶段检索编排服务。
 
-蓝图 `11-WeKnora集成与检索` §6。统一把"查询 → WeKnora 召回 → 映射回业务资产 →
+统一把"查询 → WeKnora 召回 → 映射回业务资产 →
 集中权限 `decide()` 复核 → 阶段1卡片 / 阶段2脱敏原文 / 问答证据"收口到这里。
 
 强约束（头号安全闸）：
@@ -58,7 +58,7 @@ _ACTIVE_VERSION = VersionStatus.active.value
 # weknora_doc_id（如 reparse 删旧 doc 失败 + 重传失败），其底座旧 doc 也不得被平台当作有效索引使用。
 _INDEXED_STATUS = "indexed"
 
-# 召回与证据规模上限（控成本/时延；R5 再异步）。
+# 召回与证据规模上限（控成本/时延）。
 _RECALL_TOP_K = 20
 _MAX_EVIDENCE_ASSETS = 6
 _MAX_CHUNKS_PER_ASSET = 2

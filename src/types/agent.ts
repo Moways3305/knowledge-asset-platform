@@ -10,7 +10,7 @@ export interface AgentCitationDTO {
   is_pending_review: boolean;
   is_asset_zone: boolean;
   citation_order: number;
-  // R3：引用来源安全序号 + 脱敏片段（可空；不含任何 WeKnora 内部标识）。
+  // 引用来源安全序号 + 脱敏片段（可空；不含任何 WeKnora 内部标识）。
   seq?: number | null;
   snippet?: string | null;
 }

@@ -1,15 +1,15 @@
-﻿"""Agent / Dify Gateway 服务（R3：真实检索 + 外部 LLM 自拼答案）。
+﻿"""Agent / Dify Gateway 服务（真实检索 + 外部 LLM 自拼答案）。
 
 跑通：项目 Q&A → 以真实调用人身份复用集中权限判断 → **WeKnora chunk 级召回**（取代
 的关键词粗召回）→ 记录调用 / 决策 / 候选项 / 引用 → **放行+脱敏 chunk 喂
 外部 LLM 自拼答案**（取代确定性占位答案）+ 真实片段引用。
 
-R3 取代并删除了 internal_stub 的关键词召回与确定性占位答案，但**复用** agent_calls /
+本服务取代并删除了 internal_stub 的关键词召回与确定性占位答案，但**复用** agent_calls /
 agent_gateway_decisions / decision_items / citations 权限-审计骨架与全部边界。
 
-边界（仍不在本票实现）：
-- 不接真实 Dify（R4）；不引入 Dify SDK；不保存 Dify app_id / workflow_id / dataset_id / api_key。
-- 不做 Celery 异步（R5）：召回 / 脱敏 / 答案同步调用。
+当前边界：
+- 不接真实 Dify；不引入 Dify SDK；不保存 Dify app_id / workflow_id / dataset_id / api_key。
+- 召回 / 脱敏 / 答案为同步调用（不在本服务内做 Celery 异步）。
 - Agent 不拥有独立权限，完全跟随 caller：能力、范围、原文层都由
   `app.services.permission.decide(..., channel=agent)` 决定。
 
@@ -70,9 +70,9 @@ from app.services.desensitization import LlmOutputDesensitizer
 from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
 
-# provider：平台抽象标识。R3 已接真实 WeKnora 检索 + 外部 LLM，故 provider 为
+# provider：平台抽象标识。已接真实 WeKnora 检索 + 外部 LLM，故 provider 为
 # weknora_llm（非 internal_stub 桩）。仍是平台内部抽象，不暴露 Dify / WeKnora / LLM
-# 内部敏感标识。Dify 适配在 R4。
+# 内部敏感标识。
 PROVIDER = AgentProvider.weknora_llm.value
 
 # 对外 decision-items / 审计响应中应隐藏的"不可发现"拒绝原因：
@@ -134,7 +134,7 @@ async def run_project_qa(
     weknora: "WeKnoraClient | NullWeKnoraClient",
     llm: "LLMClient | NullLLMClient",
 ) -> ProjectQaResponse:
-    """项目 Q&A（R3：WeKnora 召回 + 外部 LLM 自拼答案 + 真实片段引用）。"""
+    """项目 Q&A（WeKnora 召回 + 外部 LLM 自拼答案 + 真实片段引用）。"""
     # ---- 1. 身份与边界校验（Agent 完全跟随 caller）----
     if not caller.is_active:
         await audit_service.record_denied(
@@ -452,7 +452,7 @@ async def get_agent_call(
     """获取 Agent 调用记录（本人 / boss / 咨询总监）。不返回 Dify 内部标识。"""
     call = await _load_call_for_view(session, caller, call_id)
     citations = await _citations_of(session, call_id)
-    # 契约 §15：提供人类可读名（治理展示用）。各一次主键查询，避免 N+1。
+    # 提供人类可读名（治理展示用）。各一次主键查询，避免 N+1。
     caller_name = (
         await session.execute(select(User.name).where(User.id == call.caller_user_id))
     ).scalar_one_or_none() or ""

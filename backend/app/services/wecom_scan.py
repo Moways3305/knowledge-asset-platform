@@ -1,7 +1,7 @@
-﻿"""企微微盘扫描服务（R6 Path A）。
+﻿"""企微微盘扫描服务（Path A）。
 
 把"扫描配置目录 → 列文件 → 下载字节 → 经平台存储落盘 → 建 path_a_wecom IngestTask →
-复用 R5 处理链"收口到这里。文件仍走既有 `/upload` 确认流后才成为知识资产（不变）。
+复用统一处理链"收口到这里。文件仍走既有 `/upload` 确认流后才成为知识资产（不变）。
 
 强约束：
 - 字节**只经平台后端**抓取并落 `LocalFileStorage`；source_file_ref 是 server-only。
@@ -60,13 +60,13 @@ def _is_governance(caller: CallerContext) -> bool:
 
 
 def _require_reader(caller: CallerContext) -> None:
-    """读配置/记录：admin 或 boss / 咨询总监（契约 §17）。"""
+    """读配置/记录：admin 或 boss / 咨询总监。"""
     if not (_is_admin(caller) or _is_governance(caller)):
         raise _denied(403, "wecom_scan_forbidden", "无权查看微盘扫描配置/记录")
 
 
 def _require_admin(caller: CallerContext) -> None:
-    """启停/触发扫描：admin（契约 §17 PATCH/scan 要求 admin；admin 仅运营，不得业务原文）。"""
+    """启停/触发扫描：admin（PATCH/scan 要求 admin；admin 仅运营，不得业务原文）。"""
     if not _is_admin(caller):
         raise _denied(403, "wecom_scan_admin_required", "仅 admin 可配置/触发微盘扫描")
 
@@ -746,7 +746,7 @@ async def run_scan(
             failed += 1
             continue
 
-        # 阶段2：建 path_a_wecom 任务 + 审计 + 复用 R5 处理链（提交后 enqueue 不阻断）。
+        # 阶段2：建 path_a_wecom 任务 + 审计 + 复用统一处理链（提交后 enqueue 不阻断）。
         task = IngestTask(
             source=IngestSource.path_a_wecom.value,
             source_file_ref=storage_ref,
@@ -770,7 +770,7 @@ async def run_scan(
             project_id=project_id,
         )
         await session.commit()
-        # 复用 R5 处理链（与 Path B 完全一致）：eager 内联 / 非 eager 入队。
+        # 复用统一处理链（与 Path B 完全一致）：eager 内联 / 非 eager 入队。
         # 任务已提交；enqueue 失败也只是处理待重试，不丢任务、不破坏批次。
         await enqueue_ingest_processing(
             session, task.id, storage=storage, llm=llm, desensitizer=desensitizer, trace_id=trace_id

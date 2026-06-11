@@ -1,6 +1,6 @@
 ﻿"""`/api/v1/auth/me` 响应 schema。
 
-字段名严格对齐 BE-04 第 5 章身份上下文契约。
+字段为身份上下文（`/auth/me`）响应。
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ class CsrfTokenOut(BaseModel):
 
 
 class WecomAuthorizeOut(BaseModel):
-    """企微 OAuth 授权 URL（R6）。state 在 httpOnly cookie 里校验，不进本响应。
+    """企微 OAuth 授权 URL。state 在 httpOnly cookie 里校验，不进本响应。
 
     authorize_url 含 corp_id/redirect/state，但**绝不**含 app_secret / access_token。
     """

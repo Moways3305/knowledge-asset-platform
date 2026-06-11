@@ -1,4 +1,4 @@
-﻿"""企微微盘扫描 API 的请求 / 响应 schema（R6，契约 §17）。
+﻿"""企微微盘扫描 API 的请求 / 响应 schema（Path A）。
 
 响应只含安全运营元数据：**绝不**含内部存储引用 / 源文件引用 / 微盘下载 URL /
 微盘 file_id / access_token / WeKnora id / 业务原文。

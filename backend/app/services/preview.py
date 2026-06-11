@@ -308,7 +308,7 @@ async def use_preview_entry(
             },
             project_id=asset.project_id,
         )
-    # ---- R7：构建真实 ONLYOFFICE 只读预览配置（含平台受控取件 URL）----
+    # ---- 构建真实 ONLYOFFICE 只读预览配置（含平台受控取件 URL）----
     original = await _resolve_original(session, asset.id)
     document_title = safe_filename(original[1]) if original else asset.title
     onlyoffice_config: dict | None = None

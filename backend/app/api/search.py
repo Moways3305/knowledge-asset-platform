@@ -1,10 +1,10 @@
-"""统一检索 / 问答 API（R3）。
+"""统一检索 / 问答 API。
 
 - POST /api/v1/knowledge/search：两阶段检索 + 意图路由 + 问答自拼答案。
 
-权限/脱敏/审计全部委托 `app.services.search`（其复用集中权限服务与 R3 检索编排）。
-响应不含任何 weknora kb/doc/chunk id、storage_ref、api_key、未脱敏原文。
-该接口是 R4 Dify 外部知识库协议适配的底层（本票不接 Dify）。
+权限/脱敏/审计全部委托 `app.services.search`（其复用集中权限服务与检索编排）。
+响应不含任何 weknora kb/doc/chunk id、内部存储引用、api_key、未脱敏原文。
+该接口是 Dify 外部知识库协议适配的底层。
 """
 
 from __future__ import annotations

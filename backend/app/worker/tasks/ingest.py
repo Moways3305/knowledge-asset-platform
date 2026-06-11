@@ -1,4 +1,4 @@
-"""入库处理 Celery 任务（R5 薄包装；R8_FIX：loop-local engine）。"""
+"""入库处理 Celery 任务（薄包装，loop-local engine）。"""
 
 from __future__ import annotations
 

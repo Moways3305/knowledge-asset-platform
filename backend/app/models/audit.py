@@ -1,13 +1,13 @@
 ﻿"""审计日志 ORM 模型。
 
-仅一张表 `audit_events`，字段严格对齐 BE-02 §4.7 / BE-09 §3。
+仅一张表 `audit_events`。
 （`asset_lifecycle_events` / `alert_rules` / `notification_records` 由各自模块定义。）
 
-不可变原则（BE-09 §3.1）：写入即定稿，不提供 update/delete 原始事实的能力；
+不可变原则：写入即定稿，不提供 update/delete 原始事实的能力；
 唯一允许的后续变化是异常处理三字段（is_processed / processed_by / processed_at）
 或追加一条 `audit.exception_processed` 处理事件。
 
-写入时脱敏（BE-09 §7.1）：snapshot / extra 根本不写入业务原文、客户数据、未脱敏
+写入时脱敏：snapshot / extra 根本不写入业务原文、客户数据、未脱敏
 AI 正文、storage_ref、对象存储 URL/bucket、完整 preview token、Dify
 api_key/workflow_id/dataset_id/kb_id/collection、向量库内部 ID 等。集中写入服务
 `app.services.audit` 负责保证只放安全元数据。

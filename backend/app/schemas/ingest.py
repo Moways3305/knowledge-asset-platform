@@ -45,7 +45,7 @@ class IngestAiResultResponse(BaseModel):
     ingest_task_id: uuid.UUID
     status: str
     suggested_title: str | None = None
-    # R2 三层摘要建议（仅完整视图返回；admin 元数据视图为 None）。
+    # 三层摘要建议（仅完整视图返回；admin 元数据视图为 None）。
     suggested_one_liner: str | None = None
     suggested_summary: str | None = None  # detailed
     suggested_key_points: list[str] | None = None
@@ -68,7 +68,7 @@ class IngestAiResultResponse(BaseModel):
     duplicate_of_task_id: uuid.UUID | None = None
     duplicate_of_asset_id: uuid.UUID | None = None
     extracted_text_preview: str | None = None
-    # R2：内容处理所用 provider/model（安全运营元数据，非密钥）+ 状态（llm/degraded）。
+    # 内容处理所用 provider/model（安全运营元数据，非密钥）+ 状态（llm/degraded）。
     llm_provider: str | None = None
     llm_model: str | None = None
     content_processing_status: str | None = None
@@ -88,7 +88,7 @@ class IngestConfirmRequest(BaseModel):
     """
 
     title: str
-    # R2 三层摘要（人工校正后）：summary 复用为 detailed；one_liner / key_points 可选。
+    # 三层摘要（人工校正后）：summary 复用为 detailed；one_liner / key_points 可选。
     one_liner: str | None = None
     summary: str | None = None
     key_points: list[str] = []

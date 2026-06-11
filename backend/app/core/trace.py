@@ -1,6 +1,6 @@
 """trace_id middleware skeleton.
 
-Per the API contract (BE-04 §2), every request carries or is assigned a
+Per the API contract, every request carries or is assigned a
 trace_id, surfaced via the `X-Trace-Id` header and stored on request.state.
 This is the cross-module correlation id; it is NOT an authorization token.
 """

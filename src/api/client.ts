@@ -485,7 +485,7 @@ export async function fetchMyKnowledge(): Promise<KnowledgeCardVM[]> {
   return data.items.map(mapCard);
 }
 
-// 统一语义检索 / 问答（R3）。后端经权限网关裁剪、脱敏与审计，响应只含安全字段
+// 统一语义检索 / 问答。后端经权限网关裁剪、脱敏与审计，响应只含安全字段
 // （业务标识 + 安全摘要 + 相关度 + 脱敏引用），不含任何 WeKnora id / storage_ref / 原文全文。
 export async function searchKnowledge(input: SearchRequestDTO): Promise<SearchResponseDTO> {
   return apiPost<SearchResponseDTO>(`/api/v1/knowledge/search`, input);
@@ -709,7 +709,7 @@ export async function markAuditProcessed(eventId: string): Promise<MarkProcessed
   return apiPostNoBody<MarkProcessedResponseDTO>(`/api/v1/admin/audit/${eventId}/mark-processed`);
 }
 
-// ---- 知识生命周期动作（归档 / 重新启用；契约 §14A） ----
+// ---- 知识生命周期动作（归档 / 重新启用） ----
 // 治理流程：request 仅产生预警/候选，confirm 才人工确认状态变更；Agent 不执行治理动作。
 export async function lifecycleArchiveRequest(
   assetId: string,
@@ -759,7 +759,7 @@ export async function fetchLifecycleEvents(
   );
 }
 
-// ---- Admin Alert Settings（告警规则 / 本地通知；契约 §21） ----
+// ---- Admin Alert Settings（告警规则 / 本地通知） ----
 // 权限：admin。响应只含安全元数据，前端不构造、不展示任何内部标识。
 export async function fetchAlertRules(): Promise<AlertRulesResponseDTO> {
   return apiGet<AlertRulesResponseDTO>(`/api/v1/admin/alerts/rules`);
@@ -795,7 +795,7 @@ export async function fetchAdminIngest(): Promise<AdminIngestListResponseDTO> {
   return apiGet<AdminIngestListResponseDTO>(`/api/v1/admin/ingest`);
 }
 
-// ---- 企微微盘扫描（R6 Path A）。响应只含安全运营元数据，前端不构造/展示任何内部 id。 ----
+// ---- 企微微盘扫描（Path A）。响应只含安全运营元数据，前端不构造/展示任何内部 id。 ----
 // 读 configs/records：admin / boss / 咨询总监；启停 + 触发：admin。前端不复制后端权限逻辑，403 由 UI 提示。
 export async function fetchWecomScanConfigs(): Promise<WecomScanConfigsResponseDTO> {
   return apiGet<WecomScanConfigsResponseDTO>(`/api/v1/admin/wecom-scan/configs`);
@@ -866,7 +866,7 @@ export async function fetchWecomScanRecords(configId: string): Promise<WecomScan
   return apiGet<WecomScanRecordsResponseDTO>(`/api/v1/admin/wecom-scan/configs/${configId}/records`);
 }
 
-// ---- 企微 OAuth 启动（R6）。后端生成 state 写短时 httpOnly cookie；前端只拿 authorize_url 跳转。
+// ---- 企微 OAuth 启动。后端生成 state 写短时 httpOnly cookie；前端只拿 authorize_url 跳转。
 // 前端绝不接触/存储 code / state / token；会话由后端 httpOnly cookie 控制。
 export async function startWecomOAuth(): Promise<WecomAuthorizeDTO> {
   return apiGet<WecomAuthorizeDTO>(`/api/v1/auth/wecom/start`);

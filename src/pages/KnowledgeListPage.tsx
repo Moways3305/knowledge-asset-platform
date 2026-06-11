@@ -62,7 +62,7 @@ const sortLabels: Record<SortKey, string> = {
   confidence: "置信度优先",
 };
 
-// 检索意图（后端 R3 分类结果）中文标签。
+// 检索意图（后端分类结果）中文标签。
 const intentLabel: Record<string, string> = {
   search: "查找",
   qa: "问答",

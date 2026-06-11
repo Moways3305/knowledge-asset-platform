@@ -4,7 +4,7 @@
 1. 开发态 mock identity 解析（resolve_dev_user）——仅限 local/dev/test，
    绝非正式鉴权，不实现 OAuth / JWT / Session。
 2. 身份上下文组装（build_auth_me）——把 User + 其 active 公司角色 / 项目成员
-   关系转换为 BE-04 契约的 `/auth/me` 响应。
+   关系转换为 `/auth/me` 响应。
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ async def load_user_with_roles(
 ) -> User | None:
     """按 id / email / wecom_user_id 加载用户，并预加载公司角色与项目成员（含项目）。
 
-    供身份解析（dev 回退）、会话解析、本地登录与 R6 WeCom OAuth 共用，确保
+    供身份解析（dev 回退）、会话解析、本地登录与 WeCom OAuth 共用，确保
     build_caller_context / build_auth_me 能读取到 active 角色与成员关系。
     """
     stmt = select(User).options(

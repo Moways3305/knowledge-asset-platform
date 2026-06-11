@@ -100,11 +100,7 @@ class AssetType(str, Enum):
 
 
 class Visibility(str, Enum):
-    """可见性。沿用 BE-02 与前端 mock 的取值：public / project_only / confidential。
-
-    注意：任务文本的枚举小节误写为 private/project/company，
-    此处以正式蓝图 `docs/backend/01-数据模型DATA_MODEL.md` 与前端 mock 为准。
-    """
+    """可见性：public / project_only / confidential。"""
 
     public = "public"
     project_only = "project_only"
@@ -181,8 +177,7 @@ class FileVariant(str, Enum):
 class SummaryType(str, Enum):
     """摘要类型。
 
-    注意：BE-02 的 knowledge_asset_summaries 为宽表（one_liner/detailed/... 多列）；
-    当前落地为窄表（每种 summary_type 一行 content），与 BE-02 宽表的差异留待确认。
+    摘要以窄表存储：每种 summary_type 对应一行 content。
     """
 
     one_liner = "one_liner"
@@ -264,10 +259,8 @@ class ReviewType(str, Enum):
 class ReviewTaskStatus(str, Enum):
     """审核任务状态。
 
-    注意：BE-02 的 ReviewStatus 为 pending_consultant_confirm / pending_pm_review /
-    pending_boss_review / approved / rejected；当前采用
-    pending_evidence / pending_reviewer / approved / rejected 的简化状态机，
-    与 BE-02 的差异留待确认。
+    采用 pending_evidence / pending_reviewer / approved / rejected 的状态机：
+    先收集证据，再交由审核人裁决。
     """
 
     pending_evidence = "pending_evidence"
@@ -291,7 +284,7 @@ class CredentialStatus(str, Enum):
 
 
 class AuditLogType(str, Enum):
-    """审计日志大类（BE-09 §4）。"""
+    """审计日志大类。"""
 
     operation = "operation"
     exception = "exception"
@@ -299,7 +292,7 @@ class AuditLogType(str, Enum):
 
 
 class AlertSeverity(str, Enum):
-    """严重级别（BE-09 §6 强审计标记）。"""
+    """严重级别（强审计标记）。"""
 
     critical = "critical"
     error = "error"
@@ -307,24 +300,24 @@ class AlertSeverity(str, Enum):
 
 
 class AuditAction(str, Enum):
-    """本轮真实会写入的审计 action（点分命名，对齐 BE-09 §5）。
+    """会写入的审计 action（点分命名）。
 
     action 在 DB 中是 varchar，不做原生 enum；此枚举用于应用层取值收敛与测试断言，
-    不是穷举 BE-09 全集（未实现模块的 action 暂不在此枚举内）。
+    仅覆盖已实现模块的 action（未实现模块的 action 暂不在此枚举内）。
     """
 
     # 入库
     ingest_task_created = "ingest.task_created"
     ingest_confirmed = "ingest.confirmed"
-    # 入库失败（含抽取失败/空文件/WeKnora 写入失败），exception（对齐 BE-09 §5 `ingest.failed`）。
+    # 入库失败（含抽取失败/空文件/WeKnora 写入失败），exception。
     ingest_failed = "ingest.failed"
-    # 原文已推进 WeKnora 底座并回写 doc id（R1），operation。
+    # 原文已推进 WeKnora 底座并回写 doc id，operation。
     ingest_weknora_indexed = "ingest.weknora_indexed"
     # 资产已确认落库，但底座建库/初始化/上传索引失败，exception。
     # 资产保留 + 人工校正不丢，index_status=index_failed，可重试；区别于 ingest.failed
     # （后者=人工确认前整单失败）。extra 只放安全 error_code / stage，绝不含 kb/doc id。
     ingest_index_failed = "ingest.index_failed"
-    # 外部 LLM 内容处理完成（R2；BE-09 §5.3 既有 "AI 提取完成"），operation。
+    # 外部 LLM 内容处理完成（AI 提取完成），operation。
     ingest_ai_extracted = "ingest.ai_extracted"
     # 审核
     review_evidence_bound = "review.evidence_bound"
@@ -339,7 +332,7 @@ class AuditAction(str, Enum):
     preview_used = "preview.used"
     preview_l5_used = "preview.l5_used"
     l5_original_access = "l5_original_access"
-    # 检索（R3 两阶段检索；BE-09 §5 检索读路径。新增 action，已回写说明见报告）
+    # 检索（两阶段检索读路径）。
     knowledge_searched = "knowledge.searched"
     # Agent
     agent_called = "agent.called"
@@ -379,7 +372,7 @@ class AuditAction(str, Enum):
     # 项目知识库（项目空间）创建。
     project_created = "project.created"
     config_alert_rule_updated = "config.alert_rule_updated"
-    # Dify 接入注册变更（R4）：创建 / 启停 / 更新 capability·scope·token（config）。
+    # Dify 接入注册变更：创建 / 启停 / 更新 capability·scope·token（config）。
     config_agent_registry_updated = "config.agent_registry_updated"
     # 人员治理：公司角色 / 项目成员关系 upsert（config）。
     config_people_company_role_updated = "config.people_company_role_updated"
@@ -401,15 +394,15 @@ class AuditAction(str, Enum):
     access_original_approved = "access.original_approved"
     access_original_rejected = "access.original_rejected"
     access_original_grant_revoked = "access.original_grant_revoked"
-    # 跨项目复用升格推荐（R5 异步扫描，仅产生人审候选信号，不自动升格）。
+    # 跨项目复用升格推荐（异步扫描，仅产生人审候选信号，不自动升格）。
     knowledge_upgrade_recommended = "knowledge.upgrade_recommended"
-    # 企微微盘扫描（R6 Path A）：配置创建 / 变更 / 触发 / 完成 / 失败。
+    # 企微微盘扫描（Path A）：配置创建 / 变更 / 触发 / 完成 / 失败。
     wecom_scan_config_created = "wecom_scan.config_created"
     wecom_scan_config_updated = "wecom_scan.config_updated"
     wecom_scan_triggered = "wecom_scan.triggered"
     wecom_scan_completed = "wecom_scan.completed"
     wecom_scan_failed = "wecom_scan.failed"
-    # 通知真实下发（R7）：发送成功 / 失败（安全元数据，不含正文/密钥）。
+    # 通知真实下发：发送成功 / 失败（安全元数据，不含正文/密钥）。
     notification_sent = "notification.sent"
     notification_failed = "notification.failed"
     # 会话 / 登录。真实 OAuth 接入前为本地会话最小闭环。
@@ -448,9 +441,9 @@ class AuditRiskLevel(str, Enum):
 class AgentProvider(str, Enum):
     """Agent 上层平台 provider 抽象（Gateway 内部的平台抽象标识，非敏感）。
 
-    - internal_stub：的关键词召回 + 确定性占位答案桩（R3 已取代，保留枚举
+    - internal_stub：早期关键词召回 + 确定性占位答案桩（已被 weknora_llm 取代，保留枚举
       仅为历史/兼容，不再用于新调用）。
-    - weknora_llm：R3 起的真实链路——WeKnora 检索召回 + 外部 LLM 自拼答案。它仍是平台
+    - weknora_llm：真实链路——WeKnora 检索召回 + 外部 LLM 自拼答案。它仍是平台
       抽象标识，**不**暴露 Dify app_id / workflow_id / dataset_id、WeKnora kb/doc id、
       LLM api_key 等任何内部敏感标识。
     """
@@ -535,9 +528,8 @@ class IngestSource(str, Enum):
 class IngestStatus(str, Enum):
     """入库任务状态。
 
-    注意：BE-02 的 IngestStatus 为 pending/processing/waiting_review/completed/failed；
-    为表达"已生成 AI 建议、等待人工确认"额外引入 `pending_confirmation`，
-    与 BE-02 的差异留待确认（waiting_review 保留给审核流场景）。
+    `pending_confirmation` 表示"已生成 AI 建议、等待人工确认"；
+    waiting_review 保留给审核流场景。
     """
 
     pending = "pending"

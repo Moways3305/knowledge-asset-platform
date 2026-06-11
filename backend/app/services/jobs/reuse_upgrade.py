@@ -1,4 +1,4 @@
-﻿"""跨项目复用统计 + 升格推荐作业（R5）。
+﻿"""跨项目复用统计 + 升格推荐作业。
 
 从既有后端事实（`agent_call_citations` join `agent_calls.project_id`）计算安全复用信号：
 - 回写 `knowledge_assets.last_called_at`（被引用/使用即更新）。
@@ -9,9 +9,9 @@
 - **绝不**自动升格 scope/zone——只产生候选信号，升格仍须 Boss / 咨询总监审核。
 - 去重：同一资产已推过（存在 knowledge.upgrade_recommended 审计事件）则不再重复推。
 
-设计取舍（见报告）：本作业**只发本地通知 + 审计推荐事件**，不创建 `project_to_company`
-ReviewTask——现有审核流approve/reject 仅实现 material_to_asset 语义，
-新建 project_to_company 任务需扩展审批流（属本票 Non-Scope）。后续接审批流的明确步骤：
+设计取舍：本作业**只发本地通知 + 审计推荐事件**，不创建 `project_to_company`
+ReviewTask——现有审核流 approve/reject 仅实现 material_to_asset 语义，
+新建 project_to_company 任务需扩展审批流（当前不包含）。接审批流时的明确步骤：
 在 review 服务补 project_to_company 的 approve 处理（material→asset 之外的 scope 升格），
 再把本作业的推荐产物从"通知+审计"替换/补充为 ReviewTask 创建。
 """

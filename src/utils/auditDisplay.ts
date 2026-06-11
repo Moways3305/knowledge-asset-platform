@@ -1,7 +1,7 @@
 ﻿// 审计展示中文化。
 //
 // 后端审计事实保持机器可读（action / target_type / log_type / snapshot 原始英文枚举不变，
-// 用于筛选、契约、排障）。此处只把高频枚举翻译为中文供展示；未映射的值一律回退原值，
+// 用于筛选、接口稳定、排障）。此处只把高频枚举翻译为中文供展示；未映射的值一律回退原值，
 // 绝不丢弃、绝不臆造错误中文。原始 action / trace_id 仍由页面以小字 / tooltip 保留可排障。
 
 import type { AuditEventDTO } from "../types/audit";

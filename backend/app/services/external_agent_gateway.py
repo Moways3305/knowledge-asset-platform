@@ -1,6 +1,6 @@
 ﻿"""外部 Agent / 工作流网关编排。
 
-把任意外部知识 / 工作流调用映射到 R3 检索原语（`AccessChannel.agent`）：
+把任意外部知识 / 工作流调用映射到检索原语（`AccessChannel.agent`）：
 解析知识选择器 → scope/project → 解析真实平台调用人 → 同一套权限网关召回 →
 裁剪为安全的 provider 中立 records（已脱敏证据 / 安全摘要，绝不原始 chunk）。
 
@@ -89,7 +89,7 @@ def _within_ceiling(asset, max_conf: str, max_ai: str) -> bool:
 
 
 def _registry_allows(rule, scope, project_id, personal_owner) -> bool:
-    """注册行 scope / project 天花板（在 R3 权限网关之上的额外收口，fail closed）。
+    """注册行 scope / project 天花板（在权限网关之上的额外收口，fail closed）。
 
     - allowed_scope=None/"all" → 不额外约束 scope；其余必须与请求 scope 匹配
       （company→company 请求，project→project 请求，personal→personal 请求）。
@@ -138,7 +138,7 @@ async def _kb_ids_for_request(
         if personal_owner != caller.user_id:
             return []
         return await retrieval.resolve_searchable_kbs(session, caller, "personal")
-    # company / all：交给 R3 KB 路由（其内部按调用人范围收口）。
+    # company / all：交给 KB 路由（其内部按调用人范围收口）。
     return await retrieval.resolve_searchable_kbs(session, caller, scope)
 
 

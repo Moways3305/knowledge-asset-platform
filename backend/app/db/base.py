@@ -1,8 +1,6 @@
-﻿"""SQLAlchemy declarative base.
+﻿"""SQLAlchemy 声明式基类。
 
-establishes the Base only. No business tables are defined here.
-Business models arrive in later IMPLEMENT tasks and must follow the data model
-design in `docs/backend/01-数据模型DATA_MODEL.md`.
+定义所有 ORM 模型共用的 Base。
 """
 
 from __future__ import annotations

@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     # Redis URL for Celery broker / result backend.
     redis_url: str = "redis://localhost:6379/0"
 
-    # Celery 异步治理作业（R5）。broker / backend 缺省回退到 redis_url。
+    # Celery 异步治理作业。broker / backend 缺省回退到 redis_url。
     # celery_task_always_eager：默认 True——无 worker 也能跑（入库处理内联同步执行，
     # API 开箱即用）；生产接 worker 时设为 false 启用真正异步（work 排队到 broker，
     # 无 worker 时任务保持 processing/pending）。
@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     # 内部存储引用（server-only）不进入任何 API 响应。生产应替换为对象存储后端。
     storage_root: str = "./_local_storage"
 
-    # WeKnora 知识底座（R1）。base_url + api_key 都配置时启用真实集成；否则降级跳过
+    # WeKnora 知识底座。base_url + api_key 都配置时启用真实集成；否则降级跳过
     # 索引（dev 无 WeKnora 仍可起 app / confirm）。api_key（sk- 前缀）绝不外泄。
     weknora_base_url: str = ""
     weknora_api_key: str = ""
@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     weknora_chat_model_id: str = ""
     weknora_rerank_model_id: str = ""
     weknora_multimodal_model_id: str = ""
-    # 注意：summary 模型当前**不参与**建库 / 初始化（OQ3：摘要走平台外部 LLM 内容处理链，
+    # 注意：summary 模型当前**不参与**建库 / 初始化（摘要走平台外部 LLM 内容处理链，
     # 不用 WeKnora summary 模型）。保留 env 仅为兼容，建库时不传。
     weknora_summary_model_id: str = ""
     weknora_tenant_id: str = ""
@@ -90,7 +90,7 @@ class Settings(BaseSettings):
     # 因 model_id 本身是 server-only 高熵标识）。不入响应 / 审计 / 前端。
     weknora_model_ref_secret: str = ""
 
-    # 外部 LLM 内容处理（R2）。统一方案：选一个 active provider（`LLM_PROVIDER`）+ 其
+    # 外部 LLM 内容处理。统一方案：选一个 active provider（`LLM_PROVIDER`）+ 其
     # `LLM_API_KEY`；base_url / model 缺省走 provider 注册表默认值，可由 env 覆盖。
     # provider + api_key 都配置才启用，否则内容处理降级到确定性草稿。api_key 绝不外泄。
     llm_provider: str = ""  # deepseek / kimi / qwen / glm / minimax / openai / custom
@@ -101,7 +101,7 @@ class Settings(BaseSettings):
     # MiniMax OpenAI 兼容通道的 GroupId（仅 minimax 需要，其余忽略）。
     llm_minimax_group_id: str = ""
 
-    # 企业微信 OAuth 真身份 + 微盘扫描（R6）。corp_id + app_secret 配齐才启用真实集成；
+    # 企业微信 OAuth 真身份 + 微盘扫描。corp_id + app_secret 配齐才启用真实集成；
     # 否则降级（OAuth 端点返回未配置，扫描走注入的 fake/Null）。**secret 绝不外泄**。
     wecom_corp_id: str = ""
     wecom_agent_id: str = ""
@@ -110,10 +110,10 @@ class Settings(BaseSettings):
     wecom_drive_base_url: str = "https://qyapi.weixin.qq.com"
     wecom_scan_page_size: int = 100
     wecom_timeout: float = 30.0
-    # R7：开启后生命周期/复用通知按 wecom 渠道落库并由 worker 真实下发；默认关（仅 in_app）。
+    # 开启后生命周期/复用通知按 wecom 渠道落库并由 worker 真实下发；默认关（仅 in_app）。
     wecom_notify_enabled: bool = False
 
-    # ONLYOFFICE 真预览（R7）。enabled + document_server_url 配齐才出真实预览配置；
+    # ONLYOFFICE 真预览。enabled + document_server_url 配齐才出真实预览配置；
     # 否则预览入口返回 onlyoffice_not_configured（绝不回退泄露原文 URL）。jwt_secret 绝不外泄。
     onlyoffice_enabled: bool = False
     onlyoffice_document_server_url: str = ""

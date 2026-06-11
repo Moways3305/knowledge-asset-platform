@@ -319,7 +319,7 @@ async def wecom_callback(
 
     user = await load_user_with_roles(session, wecom_user_id=identity.wecom_user_id)
     if user is None:
-        # 未绑定平台用户：fail closed，不自动建用户（R6 不做 auto-provision）。
+        # 未绑定平台用户：fail closed，不自动建用户（不做 auto-provision）。
         raise HTTPException(status_code=403, detail={"denied_reason": "user_not_provisioned", "message": "企微用户未绑定平台账号"})
 
     # 建会话前先核验企微成员有效性。fail-closed。

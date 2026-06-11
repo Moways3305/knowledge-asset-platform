@@ -1,6 +1,6 @@
-﻿"""异步入库处理作业（R5）。
+﻿"""异步入库处理作业。
 
-把"抽取 + R2 内容处理 + 写 ai_result + 推进状态"从请求路径迁出。`create_upload`
+把"抽取 + 内容处理 + 写 ai_result + 推进状态"从请求路径迁出。`create_upload`
 只持久化字节 + 建 `ingest_tasks`（status=processing）+ 入队；本作业完成重活。
 
 幂等与重试：

@@ -1,4 +1,4 @@
-﻿"""部署 / 可观测端点（R8）。
+﻿"""部署 / 可观测端点。
 
 - GET /health/ready：就绪探针（DB 连通；async 模式下 Redis 连通）。
 - GET /health/config：**安全**配置诊断（只回 enabled/disabled 布尔 + provider 名 + 缺失项名，

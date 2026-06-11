@@ -4,7 +4,7 @@
 与 `app/services/external_agent_gateway.py`）。本模块只承载 **Dify 专属的请求线缆形态**：
 
 1. Dify External Knowledge API（`/dify/external-knowledge/retrieval`）——官方协议形态。
-2. Dify HTTP Tool（`/dify/tools/knowledge-search`）——复用 R3 SearchResponse。
+2. Dify HTTP Tool（`/dify/tools/knowledge-search`）——复用统一 SearchResponse。
 
 接入注册（registry）schema 与网关检索记录已迁到 provider 中立的 `external_agent` 模块；
 此处仅 **re-export** 以保持向后兼容的导入路径。

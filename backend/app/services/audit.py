@@ -1,7 +1,7 @@
 ﻿"""集中审计写入服务。
 
 **所有模块写审计只能经本模块唯一入口 `record_event`**，不得各自散写。
-本模块负责：角色快照、写入时脱敏（BE-09 §7.1）、severity / risk_level 标记。
+本模块负责：角色快照、写入时脱敏、severity / risk_level 标记。
 
 事务边界：`record_event` 只把事件 add 进调用方的 session（不 commit），由触发它的
 业务写动作在同一事务里一起 commit——业务回滚则审计同回滚，保证原子且不漏记。
@@ -45,7 +45,7 @@ _COMPANY_ROLE_PRIORITY = [
     CompanyRole.admin.value,
 ]
 
-# 写入时脱敏：snapshot / extra 中绝不允许出现的键（BE-09 §7.1，防御性二次过滤）。
+# 写入时脱敏：snapshot / extra 中绝不允许出现的键（防御性二次过滤）。
 # 业务侧本就只应传安全元数据；这里再兜底剔除技术敏感标识与原文载体。
 _FORBIDDEN_KEYS = {
     "storage_ref",
@@ -68,7 +68,7 @@ _FORBIDDEN_KEYS = {
     "content",
     "file_content",
     "raw_text",
-    # WeKnora 底座内部标识（R1）：一律视同 storage_ref，绝不入审计。
+    # WeKnora 底座内部标识：一律视同 storage_ref，绝不入审计。
     "weknora_kb_id",
     "weknora_doc_id",
     "weknora_chunk_id",
@@ -77,11 +77,11 @@ _FORBIDDEN_KEYS = {
     "file_path",
     "llm_api_key",
     "authorization",
-    # R3 server-only chunk 引用：视同 storage_ref，绝不入审计（防御性二次过滤）。
+    # server-only chunk 引用：视同 storage_ref，绝不入审计（防御性二次过滤）。
     "target_weknora_chunk_ref",
     "cited_weknora_chunk_ref",
     "weknora_chunk_ref",
-    # R6 企微 OAuth / 微盘：token / 授权码 / secret / 临时下载 URL / file_id 绝不入审计。
+    # 企微 OAuth / 微盘：token / 授权码 / secret / 临时下载 URL / file_id 绝不入审计。
     "wecom_access_token",
     "access_token",
     "auth_code",
@@ -94,7 +94,7 @@ _FORBIDDEN_KEYS = {
 }
 
 # 值级脱敏占位符与敏感标记。即便键名无害，字符串值若是对象存储 / 文件 / 内部地址
-# 或明显的内部存储用语，也整串替换为占位符，避免敏感载体经无害键名落库（BE-09 §7.1）。
+# 或明显的内部存储用语，也整串替换为占位符，避免敏感载体经无害键名落库。
 # 仅整串替换；UUID / trace_id / asset_id / 枚举值 / denied_reason / access layer /
 # 角色 key 等安全标识不含这些标记，不受影响。
 _VALUE_REDACTED = "[redacted]"
@@ -107,10 +107,10 @@ _FORBIDDEN_VALUE_MARKERS = (
     "internal://",
     "object storage",
     "bucket",
-    "sk-",  # WeKnora / 外部 API key 前缀（R1），命中整串脱敏
-    "bearer ",  # Authorization: Bearer <key>（R2），命中整串脱敏
-    "wk-doc",  # R3 WeKnora doc 引用形态（如 wk-doc-...#0），命中整串脱敏
-    "wk-kb",  # R3 WeKnora KB 引用形态，命中整串脱敏
+    "sk-",  # WeKnora / 外部 API key 前缀，命中整串脱敏
+    "bearer ",  # Authorization: Bearer <key>，命中整串脱敏
+    "wk-doc",  # WeKnora doc 引用形态（如 wk-doc-...#0），命中整串脱敏
+    "wk-kb",  # WeKnora KB 引用形态，命中整串脱敏
 )
 
 
@@ -200,7 +200,7 @@ async def record_event(
     - 角色快照：actor_company_role 取治理代表角色；多角色全集存 extra.actor_company_roles；
       actor_project_role 在 project_id 涉及时按成员关系记录。
     - 脱敏：before/after/extra 经 `_sanitize` 兜底剔除禁止键。
-    - 强审计：severity + extra.risk_level 两层标记（BE-09 §6）。
+    - 强审计：severity + extra.risk_level 两层标记。
     """
     all_roles = sorted(caller.active_company_roles)
     merged_extra: dict = dict(extra or {})
@@ -242,7 +242,7 @@ async def record_system_event(
     risk_level: str | None = None,
     extra: dict | None = None,
 ) -> AuditEvent:
-    """系统触发作业（R5 Celery 扫描）专用审计写入：actor_user_id=None（无业务发起人）。
+    """系统触发作业（Celery 扫描）专用审计写入：actor_user_id=None（无业务发起人）。
 
     只 add 进 session，不 commit（由作业事务统一提交）。脱敏 / 强审计标记口径与
     `record_event` 一致；snapshot / extra 同样兜底剔除禁止键与值级脱敏。
@@ -304,7 +304,7 @@ async def record_denied(
 
 
 # ============================================================
-# 读取 / 查询（Admin Audit API；BE-09 §8 角色分层 + §7.3 视图二次脱敏）
+# 读取 / 查询（Admin Audit API；角色分层 + 视图二次脱敏）
 # ============================================================
 
 # admin 元数据视图允许从 extra 透出的安全子集（denied_reason / risk_level 等）。

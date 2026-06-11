@@ -1,6 +1,6 @@
-﻿"""外部 Agent 接入注册 ORM 模型（provider 中立；R4 起，抽象收口）。
+﻿"""外部 Agent 接入注册 ORM 模型（provider 中立，抽象收口）。
 
-一张表 `agent_whitelist_rules`（对齐数据模型 §4.5 / BE-07 §11.1，语义为
+一张表 `agent_whitelist_rules`（语义为
 **外部 Agent 接入注册与 capability 边界**，非"逐 Agent 手工名单"）。`provider` 列区分
 具体上层平台（dify / coze / 自研 / custom），其余字段（agent_identifier / agent_name /
 capability / allowed_scope / allowed_project_id / max_*level / enabled / risk_*）均 provider 中立。

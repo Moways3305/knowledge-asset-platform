@@ -1,4 +1,4 @@
-﻿"""Celery 应用（R5）。
+﻿"""Celery 应用。
 
 broker / result backend 缺省回退到 `settings.redis_url`；`task_always_eager` 来自
 `settings.celery_task_always_eager`（默认 True，便于本地/测试无 worker 运行）。

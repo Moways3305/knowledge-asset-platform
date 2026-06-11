@@ -7,9 +7,8 @@ knowledge_asset_file_objects / knowledge_asset_summaries / knowledge_asset_tags�
 预览、Agent、检索与文件存储由各自的服务模块实现。枚举值以 String 存储，取值约束
 由应用层 `app.schemas.enums` 保证。
 
-字段命名说明：部分字段是 BE-02 的精简/重命名（如 version_no / file_size /
-file_hash / token_count / invalid_reason，以及窄表 summaries），与 BE-02 完整
-schema 的差异留待确认。
+字段命名说明：部分字段为精简/重命名（如 version_no / file_size /
+file_hash / token_count / invalid_reason）；摘要采用窄表 summaries 存储。
 """
 
 from __future__ import annotations
@@ -182,10 +181,10 @@ class KnowledgeAssetVersion(Base):
     supersedes_version_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("knowledge_asset_versions.id"), nullable=True
     )
-    # WeKnora 底座回写（R1）。三者均为 server-only 内部标识 / 状态：
+    # WeKnora 底座回写。三者均为 server-only 内部标识 / 状态：
     # weknora_kb_id / weknora_doc_id 视同 storage_ref，**绝不进任何响应 / 审计 / 日志**；
     # weknora_parse_status 是安全业务状态（pending/processing/completed/failed），可对外。
-    # chunk 级标识留 R3，本表不加 weknora_chunk_id。
+    # chunk 级标识由 WeKnora 维护，本表不加 weknora_chunk_id。
     weknora_kb_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     weknora_doc_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     weknora_parse_status: Mapped[str | None] = mapped_column(String(20), nullable=True)

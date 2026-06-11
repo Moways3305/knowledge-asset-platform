@@ -43,8 +43,8 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    # 企微用户标识（R6 WeCom OAuth 身份解析键；BE-01/BE-02 §users）。唯一、可空——
-    # 仅已绑定企微的用户有值；不自动从企微建用户（不在 R6 范围）。
+    # 企微用户标识（WeCom OAuth 身份解析键）。唯一、可空——
+    # 仅已绑定企微的用户有值；不自动从企微建用户。
     wecom_user_id: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
     # status：active / inactive。inactive 用户不应被视为有效业务身份。
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")

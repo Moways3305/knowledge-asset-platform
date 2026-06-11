@@ -48,7 +48,7 @@ class PreviewCredential(Base):
     credential_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     # 平台受控相对路径，如 /api/v1/preview/{id}；非对象存储签名 URL。
     preview_entry_url: Mapped[str] = mapped_column(String(500), nullable=False)
-    # R7：ONLYOFFICE 受控取件 token 的 sha256（明文仅一次性放进 Document Server 取件 URL，
+    # ONLYOFFICE 受控取件 token 的 sha256（明文仅一次性放进 Document Server 取件 URL，
     # 服务端只存哈希；过期随凭证 expires_at；**绝不**存明文 / 进响应 / 进审计）。
     fetch_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

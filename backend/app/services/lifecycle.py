@@ -1,6 +1,6 @@
 ﻿"""知识资产生命周期治理服务。
 
-落实 BE-10 / 契约 §14A：
+生命周期治理职责：
 - 系统/人只产生预警/候选（request），归档与重新启用必须人工确认（confirm）。
 - 归档不删除：只改治理状态 + 追加 asset_lifecycle_events 事实 + 审计 + 本地通知。
 - 权限：纯 admin 一律拒绝并强审计 admin.business_denied；按 scope 治理角色授权
@@ -10,7 +10,7 @@
 - L5 / A4 / 公司级的确认动作强审计（severity + extra.risk_level）。
 - trace_id 贯穿：生命周期事件 / 审计事件 / 通知共享同一 trace_id。
 
-边界：不实现定时扫描、审批流引擎、真实通知发送、向量过滤、物理清理（见 BE-10 §14）。
+边界：不实现定时扫描、审批流引擎、真实通知发送（仅写通知记录，由 worker 下发）、向量过滤、物理清理。
 """
 
 from __future__ import annotations
@@ -343,7 +343,7 @@ async def reenable_confirm(
     reason = audit_service.sanitize_text(body.reason)
     old_status = asset.asset_status
     asset.asset_status = body.target_status
-    # 保留 archived_at / archive_reason 作为历史追溯（不清空，BE-10 §6.3）。
+    # 保留 archived_at / archive_reason 作为历史追溯（不清空）。
 
     event = AssetLifecycleEvent(
         asset_id=asset.id, event_type=LifecycleEventType.reenabled.value,

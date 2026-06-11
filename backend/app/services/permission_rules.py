@@ -13,7 +13,7 @@
 
 边界提醒：
 - 本服务**不**实现 access_grants / original_access_requests / 原文授权撤销。
-- 本服务**不**改 R5/R8 生命周期扫描运行时来源（归档阈值的运行时来源仍是 alert_rules）；
+- 本服务**不**改生命周期扫描运行时来源（归档阈值的运行时来源仍是 alert_rules）；
   permission_rules 中的归档相关项只作治理配置视图，不驱动 lifecycle scan，避免回归。
 - 响应 / 审计**绝不**含 token / secret / provider 内部标识 / 存储引用 / 业务原文。
 """
@@ -75,7 +75,7 @@ def _fixed(key, group, name, text, unit, desc):
 
 # 默认规则（幂等 seed；覆盖前端与 README 展示的全部 rule_key）。
 # 说明：归档相关阈值（asset_archive_*）此处仅作治理配置视图，运行时来源仍为 alert_rules
-# （R5/R8 lifecycle scan 不读本表），不改其运行时行为。
+# （lifecycle scan 不读本表），不改其运行时行为。
 DEFAULT_RULES: list[dict] = [
     # ---- 个人知识流转 ----
     _toggle("personal_knowledge_default_private", GROUP_PERSONAL, "个人知识默认私密", True,
@@ -220,7 +220,7 @@ def _require_write(caller: CallerContext) -> None:
     if _is_governance(caller):
         return
     if _is_admin(caller):
-        # admin 是系统身份，不因此获得业务权限规则修改权（与 BE-03 边界一致）。
+        # admin 是系统身份，不因此获得业务权限规则修改权（与权限模型边界一致）。
         raise _denied(403, "admin_business_permission_denied", "admin 不可修改业务权限规则（仅 boss / 咨询总监）")
     raise _denied(403, "permission_rules_forbidden", "无权限规则修改权（仅 boss / 咨询总监）")
 

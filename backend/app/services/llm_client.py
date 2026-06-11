@@ -1,4 +1,4 @@
-"""外部 LLM 客户端（R2）——一个 OpenAI 兼容客户端 + provider 注册表。
+"""外部 LLM 客户端——一个 OpenAI 兼容客户端 + provider 注册表。
 
 不写多套 SDK：所有 provider 都走 OpenAI 兼容 `POST {base_url}/chat/completions`，
 `Authorization: Bearer {api_key}`。provider 注册表给出各家 base_url / 默认 model，

@@ -1,4 +1,4 @@
-﻿"""WeKnora 底座 HTTP 客户端（R1）。
+﻿"""WeKnora 底座 HTTP 客户端。
 
 封装对 WeKnora REST 的唯一访问入口（base `${WEKNORA_BASE_URL}/api/v1`，header
 `X-API-Key` + `X-Request-ID=trace_id`）。业务代码**不得**直接发 HTTP 到 WeKnora。

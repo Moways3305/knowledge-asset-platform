@@ -61,7 +61,7 @@ async def seed_dev_identities(session: AsyncSession) -> None:
         name="顾问A",
         email="consultant.a@dev.local",
         status="active",
-        # R6：绑定企微身份（OAuth 回调按 wecom_user_id 解析平台用户）。
+        # 绑定企微身份（OAuth 回调按 wecom_user_id 解析平台用户）。
         wecom_user_id="ww_consultant_a",
     )
     consultant_a.company_roles.append(
@@ -198,7 +198,7 @@ async def seed_dev_knowledge(session: AsyncSession) -> None:
         )
 
     def _kb_for(asset: KnowledgeAsset) -> str:
-        """R3 检索 seed：按 scope 给每个资产版本回写一个确定性 weknora_kb_id（server-only）。"""
+        """检索 seed：按 scope 给每个资产版本回写一个确定性 weknora_kb_id（server-only）。"""
         if asset.scope == "company":
             return "wk-kb-company"
         if asset.scope == "project":
@@ -274,7 +274,7 @@ async def seed_dev_knowledge(session: AsyncSession) -> None:
 
     for asset, summaries, tags in specs:
         version = _version(asset.id)
-        # R3：回写 WeKnora 底座引用（server-only，绝不外泄）。doc id 用资产 id 派生，
+        # 回写 WeKnora 底座引用（server-only，绝不外泄）。doc id 用资产 id 派生，
         # 供 fake WeKnoraClient 在测试中把召回 chunk 的 knowledge_id 映射回该资产。
         version.weknora_kb_id = _kb_for(asset)
         version.weknora_doc_id = f"wk-doc-{asset.id}"
@@ -294,7 +294,7 @@ async def seed_dev_knowledge(session: AsyncSession) -> None:
             asset.tags.append(KnowledgeAssetTag(tag_name=tag))
         session.add(asset)
 
-    # R3：scope→KB 映射（供 retrieval.resolve_searchable_kbs 路由）。每个 scope 实体一条，
+    # scope→KB 映射（供 retrieval.resolve_searchable_kbs 路由）。每个 scope 实体一条，
     # weknora_kb_id 与上面 _kb_for 一致。embedding_model_id 仅占位（测试用 fake，不需真值）。
     session.add_all([
         WeknoraKbMapping(

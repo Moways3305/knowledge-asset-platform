@@ -1,4 +1,4 @@
-"""WeKnora scope→KB 映射 ORM 模型（R1 WeKnora 底座接入）。
+"""WeKnora scope→KB 映射 ORM 模型（WeKnora 底座接入）。
 
 一张表 `weknora_kb_mappings`：把业务 scope 实体（personal 用户 / project 项目 /
 company 全局）映射到 WeKnora 的知识库 id。

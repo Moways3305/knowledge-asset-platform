@@ -1872,7 +1872,7 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
-/* LLM 内容处理状态（R2） */
+/* LLM 内容处理状态 */
 .up-llm-status {
   margin: 0 0 12px;
   padding: 8px 12px;

@@ -1,6 +1,6 @@
 ﻿"""Admin Audit API 的请求 / 响应 schema。
 
-响应按角色做视图级二次脱敏（BE-09 §7.3 / §8）：
+响应按角色做视图级二次脱敏：
 - admin 视图只回系统元数据，不回 before/after 快照、不回 L5 资产存在信息（title / 被
   L5 标记时连 target_id 也隐藏），extra 仅保留安全子集。
 - boss / 咨询总监视图可回业务治理字段（含快照、title、L5 强审计），但技术敏感标识本就

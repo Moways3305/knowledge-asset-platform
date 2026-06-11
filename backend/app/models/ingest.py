@@ -79,12 +79,12 @@ class IngestTaskAiResult(Base):
         Uuid, ForeignKey("ingest_tasks.id"), nullable=False
     )
     suggested_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    # R2：三层摘要建议。suggested_summary 复用为 detailed；one_liner / key_points 新增。
+    # 三层摘要建议。suggested_summary 复用为 detailed；one_liner / key_points 新增。
     suggested_one_liner: Mapped[str | None] = mapped_column(Text, nullable=True)
     suggested_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     suggested_key_points: Mapped[list | None] = mapped_column(JSON, nullable=True)
     suggested_tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
-    # R2：内容处理所用 LLM provider / model（安全运营元数据，非密钥）。
+    # 内容处理所用 LLM provider / model（安全运营元数据，非密钥）。
     llm_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
     llm_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     suggested_asset_type: Mapped[str | None] = mapped_column(String(30), nullable=True)

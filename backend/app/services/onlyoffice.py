@@ -1,4 +1,4 @@
-"""ONLYOFFICE 只读预览适配器（R7）。
+"""ONLYOFFICE 只读预览适配器。
 
 把"平台受控预览元数据 → Document Server 编辑器配置"的拼装隔离在此。只生成**只读**
 （view 模式、禁编辑/下载/打印）配置；Document Server 通过我们下发的**受控取件 URL**

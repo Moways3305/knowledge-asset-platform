@@ -9,7 +9,7 @@ original_access_requests，）、接入注册（agent_whitelist_rules）、审�
 
 安全：这些表**不保存且不返回** storage_ref / vector_id / Dify 内部 ID
 （app_id / workflow_id / dataset_id / api_key）/ 对象存储 URL / 完整原文文件内容。
-provider 字段保存的是平台抽象标识（R3 起为 weknora_llm；internal_stub 为已取代的旧桩），
+provider 字段保存的是平台抽象标识（weknora_llm；internal_stub 为已取代的旧桩），
 不是 Dify / WeKnora / LLM 内部敏感标识。
 """
 
@@ -59,7 +59,7 @@ class AgentCall(Base):
     query_text: Mapped[str] = mapped_column(Text, nullable=False)
     response_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_key: Mapped[str] = mapped_column(String(50), nullable=False)
-    # provider：平台抽象标识（R3 为 weknora_llm；internal_stub 为旧桩）。不保存 Dify 敏感标识。
+    # provider：平台抽象标识（weknora_llm；internal_stub 为旧桩）。不保存 Dify 敏感标识。
     provider: Mapped[str] = mapped_column(String(30), nullable=False)
     capability: Mapped[str] = mapped_column(String(30), nullable=False)
     call_status: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -121,13 +121,13 @@ class AgentGatewayDecisionItem(Base):
     target_asset_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("knowledge_assets.id"), nullable=False
     )
-    # target_chunk_id 是到本系统 knowledge_asset_chunks 的 FK；R1/R2 不落地我们自己的
-    # chunk 行（切块在 WeKnora 黑盒内），故恒 NULL。R3 真实 chunk 级召回来自 WeKnora，
+    # target_chunk_id 是到本系统 knowledge_asset_chunks 的 FK；本平台不落地自己的
+    # chunk 行（切块在 WeKnora 黑盒内），故恒 NULL。真实 chunk 级召回来自 WeKnora，
     # 其引用存于下方 server-only 的 target_weknora_chunk_ref。
     target_chunk_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("knowledge_asset_chunks.id"), nullable=True
     )
-    # R3：WeKnora chunk 引用（doc_id#chunk_index 形态），**server-only**，视同 storage_ref，
+    # WeKnora chunk 引用（doc_id#chunk_index 形态），**server-only**，视同存储引用，
     # 绝不进任何响应 / 审计 / 日志；仅供后端审计追溯命中片段来源。
     target_weknora_chunk_ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
     target_project_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -170,9 +170,9 @@ class AgentCallCitation(Base):
     cited_chunk_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("knowledge_asset_chunks.id"), nullable=True
     )
-    # R3：WeKnora chunk 引用，**server-only**（同 target_weknora_chunk_ref），绝不外泄。
+    # WeKnora chunk 引用，**server-only**（同 target_weknora_chunk_ref），绝不外泄。
     cited_weknora_chunk_ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    # R3：脱敏后的引用片段（安全，可对外）+ 安全序号 seq（非内部 id，可对外）。
+    # 脱敏后的引用片段（安全，可对外）+ 安全序号 seq（非内部 id，可对外）。
     cited_snippet: Mapped[str | None] = mapped_column(Text, nullable=True)
     cited_seq: Mapped[int | None] = mapped_column(Integer, nullable=True)
     used_access_layer: Mapped[str] = mapped_column(String(20), nullable=False)

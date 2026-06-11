@@ -1,4 +1,4 @@
-"""Celery worker 的 async 运行时（R8_FIX）。
+"""Celery worker 的 async 运行时。
 
 问题：Celery 任务用 `asyncio.run()` 每次新建事件循环，但全局 `get_engine()` 是
 `@lru_cache` 的单例——其 asyncpg 连接池绑定在**首个**事件循环上。第二个任务的新循环

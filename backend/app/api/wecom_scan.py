@@ -1,4 +1,4 @@
-﻿"""企微微盘扫描 API（R6 Path A，契约 §17）。
+﻿"""企微微盘扫描 API（Path A）。
 
 - GET   /api/v1/admin/wecom-scan/configs                         （admin / boss / 咨询总监）
 - PATCH /api/v1/admin/wecom-scan/configs/{config_id}            （admin；启停）

@@ -3,13 +3,13 @@
 组织列表 / 详情 / 个人知识三类只读能力。所有 discovery / summary / original
 判断**必须**调用 `app.services.permission`，不在此重写权限矩阵。
 
-过渡策略说明：
-- 当前 summaries 为窄表（summary_type + content）。L3/L4 摘要使用
+摘要与字段口径说明：
+- summaries 为窄表（summary_type + content）。L3/L4 摘要使用
   `redacted_summary` / `safe_summary` 行作为安全摘要；若 seed 未提供，则回退
-  为 None（不暴露普通摘要）。这是 的过渡口径。
-- `confidence` 未在 knowledge_assets 落地（见 差异），统一返回 None。
+  为 None（不暴露普通摘要）。
+- `confidence` 未在 knowledge_assets 落地，统一返回 None。
 - include_archived=true 当前不额外放行归档资产：权限服务对 archived/deprecated
-  作 asset_not_active 处理（发现层拒绝），治理归档视图留待 。
+  作 asset_not_active 处理（发现层拒绝），治理归档视图当前不包含。
 """
 
 from __future__ import annotations

@@ -14,7 +14,7 @@ import { formatBeijingTime } from "../utils/time";
 type PathBranch = "a" | "b";
 type FlowState = "idle" | "file_selected" | "processing" | "ready" | "failed" | "submitted";
 
-// R8_FIX：异步 worker 处理时，上传后轮询 ai-result 直至处理完成/失败/超时。
+// 异步 worker 处理时，上传后轮询 ai-result 直至处理完成/失败/超时。
 const POLL_INTERVAL_MS = 2000;
 const POLL_MAX_ATTEMPTS = 30; // 约 60s 上限
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -122,7 +122,7 @@ export default function UploadPage() {
 
   // Shared confirmation fields
   const [editTitle, setEditTitle] = useState("");
-  // R2 三层摘要：一句话 / 详细 / 关键知识点（每行一条）。
+  // 三层摘要：一句话 / 详细 / 关键知识点（每行一条）。
   const [editOneLiner, setEditOneLiner] = useState("");
   const [editSummary, setEditSummary] = useState("");
   const [editKeyPoints, setEditKeyPoints] = useState("");
@@ -146,7 +146,7 @@ export default function UploadPage() {
   // index_failed = 资产已落库但底座索引失败，前端如实提示而非伪装完全成功。
   const [submitIndexStatus, setSubmitIndexStatus] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
-  // R8_FIX：处理中/超时/失败的安全提示（不含内部引用）。
+  // 处理中/超时/失败的安全提示（不含内部引用）。
   const [processingNote, setProcessingNote] = useState<string | null>(null);
   // 人工校正：资产类型 / 保密级别 / AI 调用级别（初值取 AI 建议，可编辑并提交）
   const [editAssetType, setEditAssetType] = useState("methodology");
@@ -191,7 +191,7 @@ export default function UploadPage() {
   // confirmReady / confirmSubmitted 现在两条路径统一由 flowState 驱动（Path A 选中真实
   // 任务并拉取到 AI 建议后置 ready；提交成功置 submitted；处理中/失败不可编辑）。
   const confirmReady = flowState === "ready";
-  // R8_FIX：提交闸——仅在可编辑 + 必填字段满足时可提交（禁止空标题/空摘要/缺项目；
+  // 提交闸——仅在可编辑 + 必填字段满足时可提交（禁止空标题/空摘要/缺项目；
   // failed/processing 态 confirmReady=false 即不可提交，避免把空结果当人工确认）。
   const requiredFieldsOk =
     editTitle.trim().length > 0 &&
@@ -289,7 +289,7 @@ export default function UploadPage() {
     try {
       const up = await createIngestUpload({ file: selectedFile });
       setTaskId(up.ingest_task_id);
-      // R8_FIX：异步 worker 模式下不能只拉一次——轮询直到 pending_confirmation / failed / 超时。
+      // 异步 worker 模式下不能只拉一次——轮询直到 pending_confirmation / failed / 超时。
       let ai = await fetchIngestAiResult(up.ingest_task_id);
       let attempts = 0;
       while (ai.status === "processing" && attempts < POLL_MAX_ATTEMPTS) {

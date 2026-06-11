@@ -1,4 +1,4 @@
-"""企业微信微盘扫描 Celery 任务（R6 薄包装；R8_FIX：loop-local engine）。
+"""企业微信微盘扫描 Celery 任务（薄包装，loop-local engine）。
 
 - `drive_scan(config_id, record_id=None, trace_id=None)`：worker 模式执行扫描。
   record_id 给定 → 跑既有 running 记录（手动触发的非 eager 分支）；否则按 config 新建记录

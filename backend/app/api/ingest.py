@@ -50,7 +50,7 @@ async def create_upload(
     desensitizer: DesensitizationEngine = Depends(get_desensitizer),
 ) -> IngestUploadResponse:
     """Path B 本地上传：接收真实文件字节（multipart/form-data）并经存储服务持久化，
-    随后对抽取文本调外部 LLM 出内容处理草稿（R2，失败降级，上传不失败）。
+    随后对抽取文本调外部 LLM 出内容处理草稿（失败降级，上传不失败）。
 
     读取时即做大小上限保护（超限 413），避免把超大文件全部读入内存。
     """

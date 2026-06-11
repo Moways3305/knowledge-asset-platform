@@ -1,12 +1,12 @@
 ﻿"""告警规则 / 本地通知服务。
 
-职责（BE-10 §10）：
+职责：
 - alert_rules：归档阈值等规则的本地配置与查询；阈值默认建议值（730 天未调用 +
   30 天预警期）作为可配置规则落库，不写死在生命周期业务逻辑里。
 - notification_records：本地通知记录的写入与查询。**不实现真实发送**（无邮件 /
   企微 / webhook / 外部 API），新建记录恒为 pending，内容仅安全元数据。
 
-权限：三个 Admin Alert API 均要求 admin（契约 §21）。审计：规则更新写
+权限：三个 Admin Alert API 均要求 admin。审计：规则更新写
 config.alert_rule_updated（经集中审计服务）。
 """
 
@@ -39,7 +39,7 @@ from app.schemas.enums import (
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 
-# 默认归档阈值规则（BE-10 §4.2；与 BE-06 lifecycle_change 口径一致）。
+# 默认归档阈值规则（与 lifecycle_change 审核口径一致）。
 # 单条规则单阈值，故拆为两条：未调用天数阈值 + 预警期天数。
 DEFAULT_ARCHIVE_RULES = [
     {
@@ -70,7 +70,7 @@ def _now() -> datetime:
 
 
 def _require_admin(caller: CallerContext) -> None:
-    """Admin Alert API 仅 admin（契约 §21）。"""
+    """Admin Alert API 仅 admin。"""
     if CompanyRole.admin.value not in caller.active_company_roles:
         raise _denied(403, "alert_admin_required", "仅 admin 可访问告警设置")
 

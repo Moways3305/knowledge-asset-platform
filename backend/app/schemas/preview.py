@@ -26,7 +26,7 @@ class PreviewIssueResponse(BaseModel):
 
 
 class PreviewEntryResponse(BaseModel):
-    """平台受控预览入口返回（R7：真实 ONLYOFFICE 只读预览配置）。
+    """平台受控预览入口返回（真实 ONLYOFFICE 只读预览配置）。
 
     onlyoffice_config 含 Document Server 编辑器配置 + 平台受控取件 URL（含短时 token）；
     **绝不**含内部存储引用 / 源文件引用 / 对象存储 URL / 完整凭证 token / jwt 密钥 /

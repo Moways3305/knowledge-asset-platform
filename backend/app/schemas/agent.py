@@ -31,7 +31,7 @@ class ProjectQaRequest(BaseModel):
 class CitationOut(BaseModel):
     """安全引用结构（不暴露内部标识）。
 
-    R3：新增 seq（安全序号，非 WeKnora 内部 id）+ snippet（已脱敏的引用片段）。
+    seq（安全序号，非 WeKnora 内部 id）+ snippet（已脱敏的引用片段）。
     WeKnora chunk 引用是 server-only（存 cited_weknora_chunk_ref），**绝不**进本响应。
     """
 
@@ -39,13 +39,13 @@ class CitationOut(BaseModel):
     asset_id: uuid.UUID
     asset_title: str
     scope: str
-    # 契约 §10：引用字段名为 cited_zone（值仍是 material / asset）。
+    # 引用字段名为 cited_zone（值仍是 material / asset）。
     cited_zone: str
     used_access_layer: str
     is_pending_review: bool
     is_asset_zone: bool
     citation_order: int
-    # R3：引用来源片段（脱敏后，可空）+ 安全序号（chunk 序，非内部 id）。
+    # 引用来源片段（脱敏后，可空）+ 安全序号（chunk 序，非内部 id）。
     seq: int | None = None
     snippet: str | None = None
 
@@ -68,7 +68,7 @@ class AgentCallDetailResponse(BaseModel):
     call_id: uuid.UUID
     caller_user_id: uuid.UUID
     project_id: uuid.UUID
-    # 契约 §15：query_text + 人类可读名（用于 /admin/audit 等治理展示）。
+    # query_text + 人类可读名（用于 /admin/audit 等治理展示）。
     query_text: str
     caller_name: str
     project_name: str

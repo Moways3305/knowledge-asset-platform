@@ -1,4 +1,4 @@
-﻿// 企微微盘扫描 API 的 DTO 类型（R6，契约 §17）。
+﻿// 企微微盘扫描 API 的 DTO 类型（Path A）。
 // 响应只含安全运营元数据：绝不含微盘 file_id / 下载 URL / access_token / cookie /
 // 存储引用 / WeKnora id / 业务原文。
 

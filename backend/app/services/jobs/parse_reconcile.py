@@ -1,4 +1,4 @@
-"""WeKnora 解析状态对账作业（R5）。
+"""WeKnora 解析状态对账作业。
 
 扫描 active 版本中 weknora_parse_status 仍处于 pending/processing 的文档，调
 `WeKnoraClient.get_knowledge` 回写**安全业务解析状态**。

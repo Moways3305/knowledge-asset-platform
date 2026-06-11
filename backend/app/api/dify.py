@@ -7,7 +7,7 @@
 
 - POST /api/v1/dify/external-knowledge/retrieval：Dify External Knowledge API（官方协议）。
   Dify 侧配置端点填 `/api/v1/dify/external-knowledge`，Dify 自动追加 `/retrieval`。
-- POST /api/v1/dify/tools/knowledge-search：Dify workflow HTTP Tool（返回 R3 SearchResponse）。
+- POST /api/v1/dify/tools/knowledge-search：Dify workflow HTTP Tool（返回统一 SearchResponse）。
 - GET/POST/PATCH /api/v1/admin/permissions/agent-whitelist：接入注册管理（admin，provider 中立）。
 
 鉴权：Bearer token（注册行 token_hash 校验 + capability=qa）。调用人身份必须解析出真实平台
@@ -118,7 +118,7 @@ async def dify_external_retrieval(
 
 
 # ---------------------------------------------------------------------------
-# 2) Dify HTTP Tool（返回 R3 SearchResponse）
+# 2) Dify HTTP Tool（返回统一 SearchResponse）
 # ---------------------------------------------------------------------------
 async def require_qa_registry(
     authorization: str | None = Header(default=None),
@@ -149,8 +149,8 @@ async def dify_tool_search(
 ) -> SearchResponse:
     from fastapi import HTTPException
 
-    # 调用人身份必须解析为真实平台业务用户，否则 fail closed（BE-07 §3.3：
-    # Agent 调用只能由有效业务用户发起；绝不以 admin / system / provider 身份检索）。
+    # 调用人身份必须解析为真实平台业务用户，否则 fail closed：
+    # Agent 调用只能由有效业务用户发起；绝不以 admin / system / provider 身份检索。
     caller = await gateway.resolve_caller(session, req.caller_user_id)
     if caller is None or not caller.is_business_user:
         raise HTTPException(403, detail={"denied_reason": "caller_unresolved", "message": "调用人身份无法解析或非业务用户"})
@@ -158,7 +158,7 @@ async def dify_tool_search(
     # 注册行 scope 天花板：请求 scope 与 allowed_scope 冲突 → 拒绝（绝不落回 all）。
     if not gateway.tool_scope_allowed(rule, req.scope):
         raise HTTPException(403, detail={"denied_reason": "agent_scope_denied", "message": "请求范围超出该接入允许的 scope"})
-    # 项目锁定的注册行：R3 search 无法安全收口到单一项目（project scope 跨全部所在项目），
+    # 项目锁定的注册行：统一 search 无法安全收口到单一项目（project scope 跨全部所在项目），
     # 故 fail closed，绝不跑更宽的 project/all 检索。
     if rule.allowed_project_id is not None:
         raise HTTPException(403, detail={"denied_reason": "agent_scope_denied", "message": "项目锁定接入请改用 external-knowledge 端点（project:<id>）"})
@@ -176,7 +176,7 @@ async def dify_tool_search(
 
 
 # ---------------------------------------------------------------------------
-# 3) 接入注册管理（admin-only）——契约 §15.2 /admin/permissions/agent-whitelist
+# 3) 接入注册管理（admin-only）——/admin/permissions/agent-whitelist
 # ---------------------------------------------------------------------------
 @router.get("/admin/permissions/agent-whitelist", response_model=RegistryListResponse)
 async def list_agent_whitelist(

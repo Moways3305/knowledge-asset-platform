@@ -1,4 +1,4 @@
-"""通知真实下发 Celery 任务（R7 薄包装；R8_FIX：loop-local engine）。"""
+"""通知真实下发 Celery 任务（薄包装，loop-local engine）。"""
 
 from __future__ import annotations
 

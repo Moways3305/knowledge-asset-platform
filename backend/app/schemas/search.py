@@ -1,11 +1,11 @@
-"""统一检索 / 问答接口 `POST /knowledge/search` 的请求 / 响应 schema（R3）。
+"""统一检索 / 问答接口 `POST /knowledge/search` 的请求 / 响应 schema。
 
 响应**绝不包含** weknora kb/doc/chunk id、内部存储引用、api_key、未脱敏原文 chunk。
 卡片只暴露业务标识（asset_id 是平台业务主键）+ 安全摘要；原文片段只在有权 + 脱敏后给出。
 
-该接口被设计为 R4 Dify 外部知识库协议适配的**底层**：`cards` 的"业务标识 + 安全摘要 +
-relevance_score"形态可被 R4 直接映射为 Dify external-knowledge 的 records（content=安全
-摘要、score=relevance_score、metadata=业务标识），无需暴露任何内部标识；本票不接 Dify。
+该接口被设计为 Dify 外部知识库协议适配的**底层**：`cards` 的"业务标识 + 安全摘要 +
+relevance_score"形态可被直接映射为 Dify external-knowledge 的 records（content=安全
+摘要、score=relevance_score、metadata=业务标识），无需暴露任何内部标识。
 """
 
 from __future__ import annotations

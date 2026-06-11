@@ -1,4 +1,4 @@
-﻿"""scope→KB 映射服务（R1 + 初始化）。
+﻿"""scope→KB 映射服务（含初始化）。
 
 把业务 scope 实体映射到 WeKnora 知识库 id；懒创建幂等（同 scope 实体只建一个 KB，
 并发靠唯一约束冲突重查）。映射行**独立提交**（不随后续 asset 上传失败回滚——KB 可复用，
@@ -42,7 +42,7 @@ def _kb_name(scope: str, owner_user_id: uuid.UUID | None, project_id: uuid.UUID 
 def _init_kwargs() -> dict[str, str | None]:
     """从 settings 取 KB 初始化模型 id（仅非空才会被 client 发送）。
 
-    embedding 必需；chat/rerank/multimodal 可选。summary 模型**不参与**（OQ3：摘要走平台
+    embedding 必需；chat/rerank/multimodal 可选。summary 模型**不参与**（摘要走平台
     外部 LLM）。模型 id 是 WeKnora 已注册模型的引用，非密钥，但仍 server-only。
     """
     s = get_settings()

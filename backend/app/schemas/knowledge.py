@@ -1,6 +1,6 @@
 ﻿"""Knowledge 读 API 的响应 schema。
 
-字段以 BE-04 契约为主，使用 snake_case；前端 ViewModel 适配由前端完成。
+字段使用 snake_case；前端 ViewModel 适配由前端完成。
 **绝不包含文件对象的内部存储引用、原文内容、真实 token/URL 等内部/敏感字段。**
 （内部存储引用字段名见数据模型，禁止进入任何响应 schema。）
 """

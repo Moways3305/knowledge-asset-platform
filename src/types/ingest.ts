@@ -29,7 +29,7 @@ export interface IngestAiResultDTO {
   ingest_task_id: string;
   status: string;
   suggested_title: string | null;
-  // R2 三层摘要建议 + 内容处理元数据。
+  // 三层摘要建议 + 内容处理元数据。
   suggested_one_liner: string | null;
   suggested_summary: string | null;
   suggested_key_points: string[] | null;

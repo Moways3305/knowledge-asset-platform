@@ -2,7 +2,7 @@
 
 仅一张表 `user_sessions`，承载服务端会话：浏览器只持有 httpOnly cookie 中的不透明
 随机 token，服务端只保存其 sha256 哈希（`token_hash`），**绝不返回明文 token**，也
-不把 token 放进任何 JSON 响应（沿用 BE-08 预览凭证只存哈希的口径）。
+不把 token 放进任何 JSON 响应（沿用预览凭证只存哈希的口径）。
 
 `login_method` 标识会话来源：`password`（密码登录）、`wecom_oauth`（企业微信 OAuth）、
 `dev_local`（开发环境无凭证登录适配器）；不同来源不改变会话机制本身。

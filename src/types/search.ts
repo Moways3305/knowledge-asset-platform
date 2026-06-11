@@ -1,4 +1,4 @@
-// 统一检索 / 问答 API（POST /api/v1/knowledge/search，R3）的 DTO 类型。
+// 统一检索 / 问答 API（POST /api/v1/knowledge/search）的 DTO 类型。
 //
 // 安全字段边界：后端响应**绝不包含** WeKnora kb/doc/chunk id、storage_ref、
 // source_file_ref、api_key、provider 内部标识、未脱敏原文 chunk。前端类型同样**不定义**

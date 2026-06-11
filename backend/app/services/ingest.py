@@ -137,7 +137,7 @@ async def create_upload(
     # 内容哈希（去重软提示，存任务上，作业按它做 dup 检测）。
     content_hash = hashlib.sha256(content).hexdigest()
 
-    # R5：请求路径只持久化字节 + 建任务（status=processing），重活（抽取 / R2 内容处理 /
+    # 请求路径只持久化字节 + 建任务（status=processing），重活（抽取 / 内容处理 /
     # 写 ai_result / 推进状态 / ai_extracted·failed 审计）迁到异步作业。
     task = IngestTask(
         source=IngestSource.path_b_upload.value,
@@ -218,10 +218,10 @@ async def get_ai_result(
         is_possible_duplicate=bool(ai and ai.duplicate_of_task_id is not None),
         duplicate_of_task_id=ai.duplicate_of_task_id if ai else None,
         duplicate_of_asset_id=ai.duplicate_of_asset_id if ai else None,
-        # R2 运营元数据（两视图均可见；provider/model 非密钥）。
+        # 运营元数据（两视图均可见；provider/model 非密钥）。
         llm_provider=ai.llm_provider if ai else None,
         llm_model=ai.llm_model if ai else None,
-        # R5：异步处理中（job 未完成）安全地表示为 processing；完成后按 llm/降级。
+        # 异步处理中（job 未完成）安全地表示为 processing；完成后按 llm/降级。
         content_processing_status=(
             "processing" if task.status == IngestStatus.processing.value
             else ("llm" if (ai and ai.llm_provider) else "degraded") if ai else None
@@ -249,7 +249,7 @@ async def get_ai_result(
 def _build_summaries(
     level: str, *, one_liner: str | None, detailed: str, key_points: list[str],
 ) -> list[KnowledgeAssetSummary]:
-    """构建三层摘要行（R2）：one_liner + detailed + key_points（+ L3/L4 脱敏摘要）。
+    """构建三层摘要行：one_liner + detailed + key_points（+ L3/L4 脱敏摘要）。
 
     人工确认值——独立存储于 knowledge_asset_summaries，与 ai_result.suggested_* 分离
     （AI 推荐不被人工确认覆盖，系统设计 §181）。
@@ -316,11 +316,11 @@ async def confirm(
     if task.result_asset_id is not None or task.status == IngestStatus.completed.value:
         raise _denied(409, "ingest_already_confirmed", "该入库任务已确认，不可重复确认")
 
-    # R8_FIX：异步处理未完成（仍 processing）不允许确认——避免把空 AI 结果当人工确认提交。
+    # 异步处理未完成（仍 processing）不允许确认——避免把空 AI 结果当人工确认提交。
     if task.status == IngestStatus.processing.value:
         raise _denied(409, "ingest_processing_not_ready", "后台仍在处理该上传，请稍后再确认")
 
-    # R8_FIX：必填字段前置校验——标题 + 至少一个非空摘要（详细或一句话）。
+    # 必填字段前置校验——标题 + 至少一个非空摘要（详细或一句话）。
     # 即使 AI 处理失败（status=failed），只要人工补全了这些字段也可确认；否则拒绝空摘要。
     if not (req.title or "").strip():
         raise _denied(422, "ingest_title_required", "标题不能为空")
@@ -358,7 +358,7 @@ async def confirm(
 
     # ---- 阶段1：人工确认 = 资产落库（必须成功且独立成立，不绑底座）----
     # 不再在落库前建 KB。底座建库/初始化/上传解耦到阶段2，失败不回滚已落库资产，
-    # 也不丢失人工校正结果（旧"WeKnora 写入失败整单回滚"口径作废，见集成文档 §7）。
+    # 也不丢失人工校正结果（WeKnora 写入失败不再触发整单回滚）。
     # 已前置校验 detailed/one_liner 至少一非空：detailed 取详细摘要，缺则回退一句话摘要
     # （绝不再静默写入"（无摘要）"占位）。
     summary_text = (req.summary or "").strip() or (req.one_liner or "").strip()
@@ -531,7 +531,7 @@ async def refresh_parse(
     *,
     weknora: WeKnoraClient | NullWeKnoraClient,
 ) -> "IngestParseRefreshResponse":
-    """解析状态对账（R1 按需刷新，不引 Celery）。
+    """解析状态对账（按需刷新，不引 Celery）。
 
     可见性沿用 get_ai_result：创建人 / 治理角色 / admin 可触发。读 WeKnora
     `get_knowledge(doc_id)` 的 `parse_status` 回写 version，只返回安全业务状态。

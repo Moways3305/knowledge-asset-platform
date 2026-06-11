@@ -1,4 +1,4 @@
-"""统一检索 / 问答编排（R3）—— `POST /knowledge/search` 的业务层。
+"""统一检索 / 问答编排—— `POST /knowledge/search` 的业务层。
 
 把意图识别 + 阶段1卡片 + 阶段2脱敏原文 + 问答自拼答案串起来，全部复用
 `app.services.retrieval`（KB 路由、映射、`decide()` 复核、脱敏）与集中权限服务。
@@ -57,7 +57,7 @@ async def run_search(
 ) -> SearchResponse:
     """统一检索 / 问答主流程。
 
-    channel 决定访问渠道：控制台/人工默认 human；R4 Dify HTTP Tool 传 agent，使
+    channel 决定访问渠道：控制台/人工默认 human；Dify HTTP Tool 传 agent，使
     A4 原文降级等 Agent 渠道边界生效。权限矩阵仍全由 `decide()` 收口，不在此重写。
     """
     if not caller.is_active:

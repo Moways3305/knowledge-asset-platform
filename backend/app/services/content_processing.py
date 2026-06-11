@@ -1,4 +1,4 @@
-﻿"""内容处理服务（R2 + 命名规范化）——对抽取文本真调外部 LLM 出结构化建议草稿。
+﻿"""内容处理服务（含命名规范化）——对抽取文本真调外部 LLM 出结构化建议草稿。
 
 取代 的确定性 `_build_ai_result`：上传期对 `extracted_text` 调 LLM 输出
 {分类(asset_type/confidentiality/ai_access) + **规范命名组件** + 三层摘要

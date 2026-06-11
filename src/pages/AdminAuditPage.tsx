@@ -76,7 +76,7 @@ export default function AdminAuditPage() {
   const loginLogs = useMemo(() => events.filter((e) => e.log_type === "login"), [events]);
 
   const unresolvedCount = useMemo(() => exceptionLogs.filter((e) => !e.is_processed).length, [exceptionLogs]);
-  // 登录失败计数取自真实 login.failed 审计事件（R6 企微 OAuth 会写入）。
+  // 登录失败计数取自真实 login.failed 审计事件（企微 OAuth 会写入）。
   const loginFailedCount = useMemo(
     () => loginLogs.filter((e) => e.action === "login.failed").length,
     [loginLogs]
