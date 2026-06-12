@@ -1,11 +1,16 @@
 ﻿// 视觉 QA：渲染核心页面，截图 + 横向溢出/重叠检测。
 // 用法：node scripts/ui_qa.mjs <label>   （label 用于区分 baseline / after）
+// 可选环境变量（默认值与原本地用法一致）：
+//   UI_QA_BASE     前端基址（默认 http://localhost:5179）
+//   UI_QA_OUT_DIR  输出根目录（默认 /tmp/ui_qa）
+// 退出码：任一路由横向溢出（overflowX 超过检测阈值）时以非零退出，供 CI 判失败。
 import { chromium } from "playwright";
 import fs from "node:fs";
 
-const BASE = "http://localhost:5179";
+const BASE = process.env.UI_QA_BASE || "http://localhost:5179";
 const label = process.argv[2] || "run";
-const outDir = `/tmp/ui_qa/${label}`;
+const outRoot = process.env.UI_QA_OUT_DIR || "/tmp/ui_qa";
+const outDir = `${outRoot}/${label}`;
 fs.mkdirSync(outDir, { recursive: true });
 
 const ROUTES = [
@@ -77,4 +82,12 @@ for (const r of results) {
 }
 fs.writeFileSync(`${outDir}/report.txt`, report);
 console.log(report);
+
+// 与上方 HORIZONTAL OVERFLOW 标记同一阈值（>2px，容忍亚像素取整抖动）；
+// 任一路由命中即非零退出，供 CI 判失败。
+const overflowed = results.filter((r) => r.overflowX > 2);
+if (overflowed.length) {
+  console.error(`UI QA failed: ${overflowed.length} route/viewport combination(s) with horizontal overflow.`);
+  process.exit(1);
+}
 

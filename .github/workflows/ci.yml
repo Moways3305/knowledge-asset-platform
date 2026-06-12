@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   backend:
-    name: Backend (pytest)
+    name: Backend (lint + pytest)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -23,12 +23,61 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install
-        run: python -m pip install .[dev]
+          cache-dependency-path: backend/requirements-dev.lock
+      - name: Install (locked deps; dev lock is constrained to the image lock)
+        # requirements-dev.lock 由 requirements.lock 约束生成（见文件头命令），
+        # 运行时依赖版本与生产镜像逐一相同；应用本体按 Dockerfile 同方式安装。
+        run: |
+          python -m pip install --require-hashes -r requirements-dev.lock
+          python -m pip install --no-deps --no-build-isolation .
+      - name: Lint (ruff)
+        run: python -m ruff check app tests
       - name: Compile check
         run: python -m compileall app
       - name: Tests
         run: python -m pytest
+
+  backend-migrations:
+    name: Backend (alembic migrations on PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          # CI 一次性临时凭证，仅存在于本 job 的临时容器内，与任何真实环境无关。
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci_throwaway_only
+          POSTGRES_DB: ci_migrations
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d ci_migrations"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://ci:ci_throwaway_only@localhost:5432/ci_migrations
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.lock
+      - name: Install (production lock, identical to backend image)
+        run: |
+          python -m pip install --require-hashes -r requirements.lock
+          python -m pip install --no-deps --no-build-isolation .
+      - name: Alembic upgrade head
+        run: python -m alembic upgrade head
+      - name: Alembic downgrade -1 (latest migration must be reversible)
+        run: python -m alembic downgrade -1
+      - name: Alembic re-upgrade head (replay after rollback)
+        run: python -m alembic upgrade head
 
   backend-image:
     name: Backend (docker build)
@@ -53,3 +102,53 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
+
+  frontend-image:
+    name: Frontend (docker build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build frontend image
+        run: docker build -f Dockerfile.frontend -t kap-frontend-ci .
+
+  frontend-ui-qa:
+    name: Frontend (UI layout smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UI_QA_BASE: http://localhost:4173
+      UI_QA_OUT_DIR: ${{ runner.temp }}/ui_qa
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+      - name: Build
+        run: npm run build
+      - name: Start preview server
+        # CI 无后端，页面呈现空态/错误态；脚本只验证布局（横向溢出），
+        # 空/错误态同样可验证（见 scripts/ui_qa.mjs 注释）。
+        run: |
+          nohup npm run preview -- --port 4173 --strictPort > preview.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS "$UI_QA_BASE" > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "preview server did not start" >&2
+          cat preview.log >&2
+          exit 1
+      - name: UI QA (horizontal overflow smoke)
+        run: node scripts/ui_qa.mjs ci
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-qa-screenshots
+          path: ${{ runner.temp }}/ui_qa
+          retention-days: 7
