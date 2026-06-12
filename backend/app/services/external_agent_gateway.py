@@ -151,8 +151,8 @@ async def run_retrieval(
     query: str,
     top_k: int,
     score_threshold: float,
-    weknora: "WeKnoraClient | NullWeKnoraClient",
-    llm: "LLMClient | NullLLMClient",
+    weknora: WeKnoraClient | NullWeKnoraClient,
+    llm: LLMClient | NullLLMClient,
     trace_id: str | None,
 ) -> list[ExternalRetrievalRecord] | None:
     """外部知识检索 → 安全 records（provider 中立）。

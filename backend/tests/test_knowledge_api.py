@@ -11,7 +11,6 @@ from app.models.knowledge import KnowledgeAsset
 from app.seed.dev_seed import (
     KA_COMPANY_L4,
     KA_COMPANY_L5,
-    KA_PERSONAL,
     KA_PROJECT_BETA_L3,
     USER_ADMIN_ONLY,
     USER_BOSS,

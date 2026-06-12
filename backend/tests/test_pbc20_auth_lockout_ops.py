@@ -20,15 +20,15 @@ from sqlalchemy import select
 from app.core.config import Settings
 from app.models.audit import AuditEvent
 from app.models.auth_security import AuthLoginAttempt
-from app.services import auth_security
 from app.seed.dev_seed import (
     DEV_PASSWORD,
+    USER_ADMIN_ONLY,
     USER_BOSS,
     USER_CONSULTANT,
     USER_DIRECTOR,
     USER_PROJECT_MANAGER,
-    USER_ADMIN_ONLY,
 )
+from app.services import auth_security
 
 LOGIN = "/api/v1/auth/login"
 OVERVIEW = "/admin/ops/auth-security"

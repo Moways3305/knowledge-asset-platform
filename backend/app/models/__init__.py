@@ -22,22 +22,6 @@ from app.models.identity import (
 )
 from app.models.indexing_job import IndexingOperationJob
 from app.models.ingest import IngestTask, IngestTaskAiResult
-from app.models.lifecycle import (
-    AlertRule,
-    AssetLifecycleEvent,
-    NotificationRecord,
-)
-from app.models.original_access import AccessGrant, OriginalAccessRequest
-from app.models.permission_rule import PermissionRule
-from app.models.preview import PreviewCredential
-from app.models.wecom import WecomScanConfig, WecomScanRecord
-from app.models.weknora import WeknoraKbMapping
-from app.models.review import (
-    PersonalKnowledgeSubmission,
-    ReviewTask,
-    ReviewTaskEvidence,
-    ValidationEvidence,
-)
 from app.models.knowledge import (
     KnowledgeAsset,
     KnowledgeAssetChunk,
@@ -46,6 +30,22 @@ from app.models.knowledge import (
     KnowledgeAssetTag,
     KnowledgeAssetVersion,
 )
+from app.models.lifecycle import (
+    AlertRule,
+    AssetLifecycleEvent,
+    NotificationRecord,
+)
+from app.models.original_access import AccessGrant, OriginalAccessRequest
+from app.models.permission_rule import PermissionRule
+from app.models.preview import PreviewCredential
+from app.models.review import (
+    PersonalKnowledgeSubmission,
+    ReviewTask,
+    ReviewTaskEvidence,
+    ValidationEvidence,
+)
+from app.models.wecom import WecomScanConfig, WecomScanRecord
+from app.models.weknora import WeknoraKbMapping
 
 __all__ = [
     "User",

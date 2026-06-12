@@ -6,7 +6,6 @@ import re
 
 import pytest
 
-from app.services.storage import LocalFileStorage, StorageError
 from app.seed.dev_seed import (
     PROJECT_ALPHA,
     PROJECT_BETA,
@@ -15,6 +14,7 @@ from app.seed.dev_seed import (
     USER_CONSULTANT,
     USER_PROJECT_MANAGER,
 )
+from app.services.storage import LocalFileStorage, StorageError
 
 UPLOAD = "/api/v1/ingest/upload"
 KN = "/api/v1/knowledge"
@@ -29,7 +29,7 @@ _TXT_BYTES = (
     "零售数字化转型方案\n"
     "第一章 背景\n"
     "本文介绍零售企业数字化转型的五维度成熟度评估方法论与落地路径。"
-).encode("utf-8")
+).encode()
 
 
 async def _create_task(client, user_id, file_name="retail-strategy-v2.txt"):

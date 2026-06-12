@@ -12,8 +12,6 @@ import uuid
 from sqlalchemy import select
 
 from app.models.audit import AuditEvent
-from app.services.identity import load_user_with_roles
-from app.services.permission import build_caller_context
 from app.seed.dev_seed import (
     PROJECT_ALPHA,
     PROJECT_BETA,
@@ -23,6 +21,8 @@ from app.seed.dev_seed import (
     USER_DIRECTOR,
     USER_PROJECT_MANAGER,
 )
+from app.services.identity import load_user_with_roles
+from app.services.permission import build_caller_context
 
 
 def _hdr(user_id):

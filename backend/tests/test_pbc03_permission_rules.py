@@ -13,13 +13,13 @@ from sqlalchemy import select
 
 from app.models.audit import AuditEvent
 from app.models.permission_rule import PermissionRule
-from app.services import permission_rules as rules_service
 from app.seed.dev_seed import (
     USER_ADMIN_ONLY,
     USER_BOSS,
     USER_CONSULTANT,
     USER_DIRECTOR,
 )
+from app.services import permission_rules as rules_service
 
 RULES = "/api/v1/admin/permissions/rules"
 

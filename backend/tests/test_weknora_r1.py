@@ -10,10 +10,12 @@ import uuid
 
 import httpx
 import pytest
+from sqlalchemy import select
 
 import app.services.ingest as ingest_module
 from app.main import app
 from app.models.knowledge import KnowledgeAssetVersion
+from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT
 from app.services import audit as audit_service
 from app.services.weknora_client import (
     WeKnoraClient,
@@ -21,12 +23,10 @@ from app.services.weknora_client import (
     WeKnoraError,
     get_weknora_client,
 )
-from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT
-from sqlalchemy import select
 
 UPLOAD = "/api/v1/ingest/upload"
 MY = "/api/v1/my/knowledge"
-_TXT = "WeKnora 接入测试\n第一行标题\n正文内容若干。".encode("utf-8")
+_TXT = "WeKnora 接入测试\n第一行标题\n正文内容若干。".encode()
 
 
 def _hdr(user_id, trace=None):

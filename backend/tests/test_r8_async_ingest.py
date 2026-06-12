@@ -11,14 +11,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import select, text
+from sqlalchemy import text
 
-from app.models.ingest import IngestTask
 from app.seed.dev_seed import USER_CONSULTANT
 
 UPLOAD = "/api/v1/ingest/upload"
-_TXT = "R8 异步入库测试\n标题行\n正文若干。".encode("utf-8")
-_BLANK = "   \n  \t ".encode("utf-8")  # 抽取为空 → status failed
+_TXT = "R8 异步入库测试\n标题行\n正文若干。".encode()
+_BLANK = b"   \n  \t "  # 抽取为空 → status failed
 
 
 def _hdr(user_id):

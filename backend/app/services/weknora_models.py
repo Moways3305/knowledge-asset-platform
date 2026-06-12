@@ -32,7 +32,7 @@ from app.schemas.weknora_admin import (
     ModelSlotOut,
     ProviderOut,
 )
-from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient, WeKnoraError
+from app.services.weknora_client import WeKnoraError
 
 # 前端别名 ↔ WeKnora ModelType。
 _ALIAS_TO_WK = {"chat": "KnowledgeQA", "embedding": "Embedding", "rerank": "Rerank", "vllm": "VLLM", "asr": "ASR"}
@@ -76,7 +76,7 @@ def _to_model_out(raw: dict) -> ModelOut:
     )
 
 
-async def list_providers(client: "_CheckClient", *, model_type: str | None, trace_id: str | None) -> list[ProviderOut]:
+async def list_providers(client: _CheckClient, *, model_type: str | None, trace_id: str | None) -> list[ProviderOut]:
     raw = await client.list_model_providers(model_type, trace_id=trace_id)
     out: list[ProviderOut] = []
     for p in raw:
@@ -92,7 +92,7 @@ async def list_providers(client: "_CheckClient", *, model_type: str | None, trac
     return out
 
 
-async def list_models(client: "_CheckClient", *, model_type: str | None, trace_id: str | None) -> list[ModelOut]:
+async def list_models(client: _CheckClient, *, model_type: str | None, trace_id: str | None) -> list[ModelOut]:
     raw = await client.list_models(trace_id=trace_id)
     out: list[ModelOut] = []
     for m in raw:
@@ -105,13 +105,13 @@ async def list_models(client: "_CheckClient", *, model_type: str | None, trace_i
     return out
 
 
-async def _ref_to_id_map(client: "_CheckClient", trace_id: str | None) -> dict[str, str]:
+async def _ref_to_id_map(client: _CheckClient, trace_id: str | None) -> dict[str, str]:
     """单向 model_ref → server-only model_id 的解析表（每次实时从 WeKnora 列举重建）。"""
     raw = await client.list_models(trace_id=trace_id)
     return {_model_ref(str(m["id"])): str(m["id"]) for m in raw if isinstance(m, dict) and m.get("id")}
 
 
-async def _resolve_ref(client: "_CheckClient", ref: str, trace_id: str | None) -> str | None:
+async def _resolve_ref(client: _CheckClient, ref: str, trace_id: str | None) -> str | None:
     return (await _ref_to_id_map(client, trace_id)).get(ref)
 
 
@@ -134,7 +134,7 @@ def _build_model_payload(req: ModelMutateRequest) -> dict:
     }
 
 
-async def create_model(client: "_CheckClient", req: ModelMutateRequest, *, trace_id: str | None) -> ModelMutateResponse:
+async def create_model(client: _CheckClient, req: ModelMutateRequest, *, trace_id: str | None) -> ModelMutateResponse:
     created = await client.create_model(_build_model_payload(req), trace_id=trace_id)
     mid = created.get("id") if isinstance(created, dict) else None
     if not mid:
@@ -146,7 +146,7 @@ async def create_model(client: "_CheckClient", req: ModelMutateRequest, *, trace
     )
 
 
-async def update_model(client: "_CheckClient", model_ref: str, req: ModelMutateRequest, *, trace_id: str | None) -> ModelMutateResponse:
+async def update_model(client: _CheckClient, model_ref: str, req: ModelMutateRequest, *, trace_id: str | None) -> ModelMutateResponse:
     model_id = await _resolve_ref(client, model_ref, trace_id)
     if model_id is None:
         raise _denied(404, "weknora_model_not_found", "模型不存在")
@@ -156,7 +156,7 @@ async def update_model(client: "_CheckClient", model_ref: str, req: ModelMutateR
     )
 
 
-async def delete_model(client: "_CheckClient", model_ref: str, *, trace_id: str | None) -> None:
+async def delete_model(client: _CheckClient, model_ref: str, *, trace_id: str | None) -> None:
     model_id = await _resolve_ref(client, model_ref, trace_id)
     if model_id is None:
         raise _denied(404, "weknora_model_not_found", "模型不存在")
@@ -172,7 +172,7 @@ def _safe_check_message(message: str, req: ModelCheckRequest) -> str:
     return msg
 
 
-async def check_model(client: "_CheckClient", req: ModelCheckRequest, *, trace_id: str | None) -> ModelCheckResponse:
+async def check_model(client: _CheckClient, req: ModelCheckRequest, *, trace_id: str | None) -> ModelCheckResponse:
     fn = {
         "chat": client.check_remote_model,
         "embedding": client.test_embedding_model,
@@ -199,7 +199,7 @@ def _slot(model_id: str | None, id_meta: dict[str, ModelOut]) -> ModelSlotOut | 
     )
 
 
-async def list_kb_configs(session: AsyncSession, client: "_CheckClient", *, trace_id: str | None) -> list[KbConfigOut]:
+async def list_kb_configs(session: AsyncSession, client: _CheckClient, *, trace_id: str | None) -> list[KbConfigOut]:
     mappings = list((await session.execute(select(WeknoraKbMapping).order_by(WeknoraKbMapping.scope))).scalars().all())
     # id → 安全模型元数据（用于把底座初始化配置里的 server-only id 映射成安全名称）。
     raw_models = await client.list_models(trace_id=trace_id)
@@ -242,7 +242,7 @@ async def list_kb_configs(session: AsyncSession, client: "_CheckClient", *, trac
 
 
 async def update_kb_init(
-    session: AsyncSession, client: "_CheckClient", mapping_id: uuid.UUID,
+    session: AsyncSession, client: _CheckClient, mapping_id: uuid.UUID,
     req: KbInitUpdateRequest, *, trace_id: str | None,
 ) -> WeknoraKbMapping:
     mp = await session.get(WeknoraKbMapping, mapping_id)

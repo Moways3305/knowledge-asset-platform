@@ -125,7 +125,7 @@ async def _do_ingest_confirm(client, trace):
     up = await client.post(
         "/api/v1/ingest/upload",
         headers=_hdr(USER_CONSULTANT, trace),
-        files={"file": ("demo.txt", "审计测试文本内容\n第一行标题".encode("utf-8"), "text/plain")},
+        files={"file": ("demo.txt", "审计测试文本内容\n第一行标题".encode(), "text/plain")},
     )
     task_id = up.json()["ingest_task_id"]
     await client.post(

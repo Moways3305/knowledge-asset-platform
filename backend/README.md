@@ -73,6 +73,7 @@
 - **编排**：`docker-compose.yml`（postgres / redis / migrate / backend / worker / beat / frontend）。`migrate` 服务一次性执行 `alembic upgrade head`，backend/worker/beat 依赖其成功后启动。
 - **本地启动**：`docker compose build && docker compose up -d`；可选 `docker compose exec backend python -m app.seed.dev_seed`。后端调试端口 `8001`，前端入口 `18080`。
 - **本地 Python**（可选）：创建虚拟环境、`pip install -r requirements.txt`、`alembic upgrade head`、`uvicorn app.main:app --reload`。
+- **依赖锁定**：生产镜像按带哈希的 `requirements.lock` 安装（再生成命令见该文件头注释）。CI 的 lint / 测试 job 用 `requirements-dev.lock`——以 `-c requirements.lock` 约束、在运行时依赖之上增加 pytest / pytest-asyncio / aiosqlite / ruff，故共享依赖版本与镜像逐一相同。再生成：`uv pip compile pyproject.toml build-requirements.in --extra dev -o requirements-dev.lock --python-version 3.12 --python-platform linux --generate-hashes -c requirements.lock`（也写在文件头注释）。升级运行时依赖时先重生成 `requirements.lock`，再重生成 `requirements-dev.lock`。
 - **生产前提**：真实域名、HTTPS/TLS 与反向代理、企业微信可信回调域名、外部系统密钥注入、对象存储与监控接入需运维实际执行。仓库内提供部署 runbook 与无密钥 smoke 脚本（见根 README 与 `docs/deployment/`）。
 - **安全验证**：不要运行或粘贴完整 `docker compose config`（会展开 `env_file` 密钥）；用 `docker compose config --services` / `--volumes` 或对 `docker-compose.yml` 定向检索验证编排结构。
 

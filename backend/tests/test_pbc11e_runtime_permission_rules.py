@@ -7,25 +7,16 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from sqlalchemy import select
 
 from app.models.audit import AuditEvent
+from app.models.identity import User
 from app.models.knowledge import KnowledgeAsset
 from app.models.original_access import AccessGrant, OriginalAccessRequest
 from app.models.permission_rule import PermissionRule
 from app.schemas.permission import AccessLayer
-from app.services import original_access
-from app.services.permission import build_caller_context, decide
-from app.services.permission_rules import (
-    access_request_timeout_hours,
-    ensure_default_rules,
-    load_access_policy,
-)
-from app.models.identity import User
 from app.seed.dev_seed import (
     KA_COMPANY_L2,
     KA_PROJECT_ALPHA,
@@ -33,6 +24,13 @@ from app.seed.dev_seed import (
     USER_ADMIN_ONLY,
     USER_BOSS,
     USER_CONSULTANT,
+)
+from app.services import original_access
+from app.services.permission import build_caller_context, decide
+from app.services.permission_rules import (
+    access_request_timeout_hours,
+    ensure_default_rules,
+    load_access_policy,
 )
 
 KN = "/api/v1/knowledge"

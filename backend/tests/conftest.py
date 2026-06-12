@@ -36,7 +36,11 @@ from app.core.config import get_settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
 from app.db.session import get_db  # noqa: E402
 from app.main import app  # noqa: E402
-from app.seed.dev_seed import seed_dev_identities, seed_dev_knowledge, seed_dev_reviews  # noqa: E402
+from app.seed.dev_seed import (  # noqa: E402
+    seed_dev_identities,
+    seed_dev_knowledge,
+    seed_dev_reviews,
+)
 from app.services.storage import LocalFileStorage, get_storage  # noqa: E402
 
 # 若 Settings 已被其它早期 import 缓存，清缓存确保读到上面的测试环境。

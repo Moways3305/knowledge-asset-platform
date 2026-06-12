@@ -15,13 +15,12 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-
-from datetime import datetime, timezone
 
 from app.models.identity import Project, User
 from app.models.ingest import IngestTask
@@ -47,9 +46,23 @@ from app.schemas.knowledge import (
     RetryIndexResponse,
     SummaryOut,
 )
-from app.services import error_catalog
-from app.services import indexing
+from app.schemas.permission import (
+    DEFAULT_POLICY,
+    AccessLayer,
+    CallerContext,
+    DefaultAccessPolicy,
+    DeniedReason,
+)
+from app.services import audit as audit_service
+from app.services import error_catalog, indexing, original_access
+from app.services.permission import decide
+from app.services.permission_rules import load_access_policy
 from app.services.storage import LocalFileStorage
+from app.services.weknora_client import (
+    NullWeKnoraClient,
+    WeKnoraClient,
+    weknora_enabled,
+)
 
 
 def _index_user_message(ver) -> str | None:
@@ -58,22 +71,6 @@ def _index_user_message(ver) -> str | None:
     if ver is None or ver.index_status != "index_failed":
         return None
     return error_catalog.user_message(ver.index_error_code)
-from app.schemas.permission import (
-    AccessLayer,
-    CallerContext,
-    DEFAULT_POLICY,
-    DefaultAccessPolicy,
-    DeniedReason,
-)
-from app.services.permission import decide
-from app.services.permission_rules import load_access_policy
-from app.services import audit as audit_service
-from app.services import original_access
-from app.services.weknora_client import (
-    NullWeKnoraClient,
-    WeKnoraClient,
-    weknora_enabled,
-)
 
 _INACTIVE_STATUSES = [AssetStatus.archived.value, AssetStatus.deprecated.value]
 _DELETED_STATUS = AssetStatus.deleted.value
@@ -471,7 +468,7 @@ async def delete_asset(
     asset_id: uuid.UUID,
     *,
     reason: str | None,
-    weknora: "WeKnoraClient | NullWeKnoraClient",
+    weknora: WeKnoraClient | NullWeKnoraClient,
     trace_id: str,
 ) -> KnowledgeDeleteResponse:
     """受控删除 / 撤下。
@@ -616,7 +613,7 @@ async def retry_index(
     caller: CallerContext,
     asset_id: uuid.UUID,
     *,
-    weknora: "WeKnoraClient | NullWeKnoraClient",
+    weknora: WeKnoraClient | NullWeKnoraClient,
     storage: LocalFileStorage,
     trace_id: str,
 ) -> RetryIndexResponse:
@@ -747,7 +744,7 @@ async def retry_index(
 
 async def _retry_response(
     session: AsyncSession, asset_id: uuid.UUID, version_id: uuid.UUID,
-    outcome: "indexing.IndexOutcome", trace_id: str,
+    outcome: indexing.IndexOutcome, trace_id: str,
 ) -> RetryIndexResponse:
     """从 outcome + 最新 version 状态构建安全重试响应（不含 kb/doc id）。"""
     v = (

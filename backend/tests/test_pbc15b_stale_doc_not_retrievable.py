@@ -25,9 +25,9 @@ from app.models.knowledge import (
     KnowledgeAssetTag,
     KnowledgeAssetVersion,
 )
+from app.seed.dev_seed import PROJECT_ALPHA, USER_ADMIN_ONLY, USER_CONSULTANT
 from app.services.llm_client import get_llm_client
 from app.services.weknora_client import WeKnoraError, get_weknora_client
-from app.seed.dev_seed import PROJECT_ALPHA, USER_ADMIN_ONLY, USER_CONSULTANT
 
 SEARCH = "/api/v1/knowledge/search"
 UPLOAD = "/api/v1/ingest/upload"

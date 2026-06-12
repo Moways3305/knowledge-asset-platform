@@ -18,24 +18,23 @@ import uuid
 
 from sqlalchemy import select
 
+from app.main import app
 from app.models.audit import AuditEvent
 from app.models.identity import ProjectMember, User, UserCompanyRole
-from app.models.wecom import WecomScanRecord
-from app.services import wecom_scan as scan_service
 from app.models.ingest import IngestTask
-from app.models.wecom import WecomScanConfig
-from app.services.wecom_client import (
-    WeComDriveClient,
-    WeComDriveFile,
-    get_wecom_drive_client,
-)
-from app.main import app
+from app.models.wecom import WecomScanConfig, WecomScanRecord
 from app.seed.dev_seed import (
     PROJECT_ALPHA,
     USER_ADMIN_ONLY,
     USER_BOSS,
     USER_CONSULTANT,
     USER_DIRECTOR,
+)
+from app.services import wecom_scan as scan_service
+from app.services.wecom_client import (
+    WeComDriveClient,
+    WeComDriveFile,
+    get_wecom_drive_client,
 )
 
 CONFIGS = "/api/v1/admin/wecom-scan/configs"
@@ -240,7 +239,7 @@ class _FakeDrive(WeComDriveClient):
         ]
 
     async def download_file(self, file_id):
-        return f"内容-{file_id}".encode("utf-8")
+        return f"内容-{file_id}".encode()
 
 
 async def test_created_config_can_trigger_scan(client):
@@ -401,7 +400,7 @@ async def test_scan_task_owned_by_business_owner_end_to_end(client, db_session):
     顾问在 Path A pending 看到并 confirm 成功；纯 admin 看不到 AI 正文、confirm 403。"""
     cid = (await client.post(CONFIGS, headers=_hdr(USER_ADMIN_ONLY), json=_body())).json()["id"]
     app.dependency_overrides[get_wecom_drive_client] = lambda: _FakeDrive2(
-        [("f1", "Alpha 渠道方案.txt", "h1", "渠道融合落地方案正文若干。".encode("utf-8"))]
+        [("f1", "Alpha 渠道方案.txt", "h1", "渠道融合落地方案正文若干。".encode())]
     )
     try:
         scan = await client.post(f"{CONFIGS}/{cid}/scan", headers=_hdr(USER_ADMIN_ONLY))
@@ -458,7 +457,7 @@ async def _count_path_a_tasks(db_session):
 
 def _install_drive():
     app.dependency_overrides[get_wecom_drive_client] = lambda: _FakeDrive2(
-        [("f1", "文件.txt", "h1", "正文内容若干。".encode("utf-8"))]
+        [("f1", "文件.txt", "h1", "正文内容若干。".encode())]
     )
 
 
@@ -507,7 +506,7 @@ async def test_scan_blocked_when_company_owner_loses_governance(client, db_sessi
         json=_body(target_scope="company", target_project_id=None, task_owner_user_id=str(USER_BOSS)),
     )).json()["id"]
     # boss 的治理 company role 被停用（失去 boss 角色）。
-    boss = (await db_session.execute(
+    (await db_session.execute(
         select(User).where(User.id == USER_BOSS).options()
     )).scalars().first()
     for role in (await db_session.execute(

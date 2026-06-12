@@ -30,6 +30,11 @@ from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.lifecycle import NotificationRecord
 from app.models.weknora import WeknoraKbMapping
+from app.schemas.auth_security import (
+    AuthSecurityOverviewResponse,
+    AuthUnlockRequest,
+    AuthUnlockResponse,
+)
 from app.schemas.enums import (
     AssetStatus,
     AuditAction,
@@ -45,11 +50,6 @@ from app.schemas.indexing_ops import (
     IndexingReparseRequest,
     IndexingRetryRequest,
 )
-from app.schemas.auth_security import (
-    AuthSecurityOverviewResponse,
-    AuthUnlockRequest,
-    AuthUnlockResponse,
-)
 from app.schemas.permission import CallerContext
 from app.schemas.session_ops import (
     SessionRevokeRequest,
@@ -58,17 +58,13 @@ from app.schemas.session_ops import (
 )
 from app.schemas.wecom_identity import ReconcileRequest, ReconcileResponse
 from app.services import audit as audit_service
-from app.services import auth_security_ops
-from app.services import error_catalog
+from app.services import auth_security_ops, error_catalog, session_revocation, wecom_identity
 from app.services import indexing_ops as indexing_ops_service
-from app.services import session_revocation
-from app.services import wecom_identity
 from app.services.auth_session import SESSION_COOKIE_NAME
-from app.services.wecom_client import get_wecom_oauth_client
 from app.services.llm_client import llm_enabled
 from app.services.onlyoffice import onlyoffice_enabled
 from app.services.storage import LocalFileStorage, get_storage
-from app.services.wecom_client import wecom_enabled
+from app.services.wecom_client import get_wecom_oauth_client, wecom_enabled
 from app.services.weknora_client import get_weknora_client, weknora_enabled
 
 router = APIRouter(tags=["ops"])

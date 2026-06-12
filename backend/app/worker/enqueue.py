@@ -26,7 +26,7 @@ async def enqueue_ingest_processing(
     task_id: uuid.UUID,
     *,
     storage: LocalFileStorage,
-    llm: "LLMClient | NullLLMClient",
+    llm: LLMClient | NullLLMClient,
     desensitizer: DesensitizationEngine,
     trace_id: str | None,
 ) -> str:

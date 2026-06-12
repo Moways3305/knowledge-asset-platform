@@ -11,7 +11,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-
 # 批量 retry-index 允许处理的 index_status（绝不含 indexed）。
 RETRYABLE_STATUSES = ("index_failed", "skipped", "not_indexed")
 # reparse 允许处理的 weknora_parse_status。

@@ -17,7 +17,7 @@ import pytest
 
 import app.services.content_processing as cp_module
 from app.main import app
-from app.models.ingest import IngestTaskAiResult
+from app.seed.dev_seed import USER_CONSULTANT
 from app.services.content_processing import process_content
 from app.services.desensitization import (
     NullDesensitizer,
@@ -27,7 +27,6 @@ from app.services.desensitization import (
 from app.services.extraction import ExtractionResult
 from app.services.llm_client import LLMError, get_llm_client
 from app.services.weknora_client import WeKnoraError, get_weknora_client
-from app.seed.dev_seed import USER_CONSULTANT
 
 UPLOAD = "/api/v1/ingest/upload"
 KN = "/api/v1/knowledge"
@@ -41,7 +40,7 @@ _SENSITIVE = (
     "客户：华润万家\n"
     "合同金额 ¥1,234,567.89，预算 80万元\n"
     "固话 010-12345678\n"
-).encode("utf-8")
+).encode()
 
 # 用于断言"平台侧 LLM 收不到原值"的原始敏感片段。
 _RAW_TOKENS = [
@@ -354,11 +353,12 @@ async def test_retry_index_not_blocked_by_missing_desensitized_text(client, db_s
 # 审计 no-leak：只记状态 + counts，不记脱敏文本 / 原值
 # ---------------------------------------------------------------------------
 async def test_audit_records_status_and_counts_no_raw(client, db_session, monkeypatch):
-    from app.models.audit import AuditEvent
     from sqlalchemy import select
 
+    from app.models.audit import AuditEvent
+
     _enable_llm(monkeypatch, CapturingLLM())
-    task_id = await _upload(client)
+    await _upload(client)
     # ai_extracted 审计应含 desensitization_status / counts，不含原值。
     logs = (await db_session.execute(select(AuditEvent))).scalars().all()
     extracted = [lg for lg in logs if lg.action == "ingest.ai_extracted"]

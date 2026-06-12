@@ -11,8 +11,6 @@
 
 from __future__ import annotations
 
-import uuid
-
 from app.models.ingest import IngestTask, IngestTaskAiResult
 from app.schemas.enums import IngestSource, IngestStatus
 from app.seed.dev_seed import (

@@ -131,8 +131,8 @@ async def run_project_qa(
     req: ProjectQaRequest,
     trace_id: str | None,
     *,
-    weknora: "WeKnoraClient | NullWeKnoraClient",
-    llm: "LLMClient | NullLLMClient",
+    weknora: WeKnoraClient | NullWeKnoraClient,
+    llm: LLMClient | NullLLMClient,
 ) -> ProjectQaResponse:
     """项目 Q&A（WeKnora 召回 + 外部 LLM 自拼答案 + 真实片段引用）。"""
     # ---- 1. 身份与边界校验（Agent 完全跟随 caller）----

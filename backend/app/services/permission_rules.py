@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.identity import User
 from app.models.permission_rule import PermissionRule
 from app.schemas.enums import AuditAction, AuditLogType, CompanyRole
-from app.schemas.permission import CallerContext, DEFAULT_POLICY, DefaultAccessPolicy
+from app.schemas.permission import DEFAULT_POLICY, CallerContext, DefaultAccessPolicy
 from app.schemas.permission_rule import (
     PermissionRuleOut,
     PermissionRulesResponse,

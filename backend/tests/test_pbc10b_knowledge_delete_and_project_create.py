@@ -19,8 +19,6 @@ from app.models.audit import AuditEvent
 from app.models.identity import Project, ProjectMember
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.original_access import AccessGrant, OriginalAccessRequest
-from app.services.llm_client import get_llm_client
-from app.services.weknora_client import get_weknora_client
 from app.seed.dev_seed import (
     KA_COMPANY_L2,
     KA_PERSONAL,
@@ -32,6 +30,8 @@ from app.seed.dev_seed import (
     USER_DIRECTOR,
     USER_PROJECT_MANAGER,
 )
+from app.services.llm_client import get_llm_client
+from app.services.weknora_client import get_weknora_client
 
 KN = "/api/v1/knowledge"
 SEARCH = "/api/v1/knowledge/search"

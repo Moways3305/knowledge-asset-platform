@@ -50,8 +50,8 @@ async def run_search(
     caller: CallerContext,
     req: SearchRequest,
     *,
-    weknora: "WeKnoraClient | NullWeKnoraClient",
-    llm: "LLMClient | NullLLMClient",
+    weknora: WeKnoraClient | NullWeKnoraClient,
+    llm: LLMClient | NullLLMClient,
     trace_id: str | None,
     channel: AccessChannel = AccessChannel.human,
 ) -> SearchResponse:

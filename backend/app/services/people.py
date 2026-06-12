@@ -47,8 +47,8 @@ from app.schemas.people import (
     UserStatusUpdateRequest,
 )
 from app.schemas.permission import CallerContext
-from app.services import passwords as password_service
 from app.services import audit as audit_service
+from app.services import passwords as password_service
 from app.services import session_revocation
 
 _MAX_LIMIT = 100
@@ -492,7 +492,7 @@ async def set_password(
 
 async def set_user_status(
     session: AsyncSession, caller: CallerContext, user_id: uuid.UUID,
-    req: "UserStatusUpdateRequest", trace_id: str,
+    req: UserStatusUpdateRequest, trace_id: str,
 ) -> PersonOut:
     """启用 / 停用用户。active→inactive 联动撤销其全部活动平台会话。
 

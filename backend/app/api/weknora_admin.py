@@ -11,9 +11,10 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_caller_context
@@ -63,8 +64,6 @@ def _require_enabled() -> None:
             detail={"denied_reason": "weknora_not_configured", "message": "WeKnora 未配置", "missing_config": miss or missing},
         )
 
-
-import re
 
 # 安全 code 形态：短小标识符（字母/数字/下划线）。上游 message **一律不回显**——它可能回显
 # 请求里的 api_key / base_url / model_id / kb_id / 原始 payload，不符合 安全边界。

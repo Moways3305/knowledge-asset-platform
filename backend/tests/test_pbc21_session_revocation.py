@@ -15,13 +15,12 @@ import pytest
 from sqlalchemy import select
 
 from app.models.audit import AuditEvent
-from app.models.identity import User
 from app.seed.dev_seed import (
+    USER_ADMIN_ONLY,
     USER_BOSS,
     USER_CONSULTANT,
     USER_DIRECTOR,
     USER_PROJECT_MANAGER,
-    USER_ADMIN_ONLY,
 )
 
 LOGIN = "/api/v1/auth/login"

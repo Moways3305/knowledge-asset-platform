@@ -12,7 +12,7 @@ import asyncio
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import pool
+from sqlalchemy import pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
@@ -46,7 +46,31 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def _ensure_version_table_width(connection: Connection) -> None:
+    """先把 alembic_version.version_num 建宽 / 改宽到 VARCHAR(64)（幂等）。
+
+    alembic 默认版本表列为 VARCHAR(32)，而本仓库存在长度 >32 的 revision id
+    （0026_ingest_desensitization_metadata，36 字符）：PostgreSQL 下 upgrade 经过
+    该版本时写版本表会因截断失败，且任何已有库都无法越过 0025。此处只动 alembic
+    的簿记表，不改任何迁移内容；已是 64 宽时 ALTER 为空操作。
+    """
+    if connection.dialect.name != "postgresql":
+        return
+    connection.execute(text(
+        "CREATE TABLE IF NOT EXISTS alembic_version ("
+        "version_num VARCHAR(64) NOT NULL, "
+        "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
+    ))
+    connection.execute(text(
+        "ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(64)"
+    ))
+    # 立即提交：SQLAlchemy 2.0 下上面的 execute 会在连接上自动开启事务；若不提交，
+    # alembic 随后的迁移事务会嵌在这个外层事务里、连接关闭时整体回滚（迁移白跑）。
+    connection.commit()
+
+
 def do_run_migrations(connection: Connection) -> None:
+    _ensure_version_table_width(connection)
     context.configure(connection=connection, target_metadata=target_metadata)
     with context.begin_transaction():
         context.run_migrations()

@@ -90,7 +90,6 @@ _FORBIDDEN_KEYS = {
     "wecom_app_secret",
     "wecom_secret",
     "wecom_file_id",
-    "download_url",
 }
 
 # 值级脱敏占位符与敏感标记。即便键名无害，字符串值若是对象存储 / 文件 / 内部地址

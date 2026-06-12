@@ -13,9 +13,9 @@ import uuid
 
 from app.models.agent_registry import AgentWhitelistRule
 from app.schemas.external_agent import ExternalRetrievalRecord
+from app.seed.dev_seed import KA_PROJECT_ALPHA, PROJECT_ALPHA, USER_CONSULTANT
 from app.services import external_agent_gateway as gateway
 from app.services.agent_registry import hash_token
-from app.seed.dev_seed import KA_PROJECT_ALPHA, PROJECT_ALPHA, USER_CONSULTANT
 
 _ALPHA_KB = f"wk-kb-proj-{PROJECT_ALPHA}"
 
