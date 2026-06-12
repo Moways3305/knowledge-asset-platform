@@ -55,7 +55,7 @@ def _session_binding(session_token: str | None) -> str:
 
 
 def _sign(expiry: int, nonce: str, binding: str, settings: Settings | None = None) -> str:
-    msg = f"{expiry}.{nonce}.{binding}".encode("utf-8")
+    msg = f"{expiry}.{nonce}.{binding}".encode()
     return hmac.new(_secret(settings).encode("utf-8"), msg, hashlib.sha256).hexdigest()
 
 

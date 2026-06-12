@@ -19,8 +19,8 @@ from sqlalchemy import select
 
 from app.core.config import Settings
 from app.models.audit import AuditEvent
-from app.services import csrf as csrf_svc
 from app.seed.dev_seed import USER_ADMIN_ONLY
+from app.services import csrf as csrf_svc
 
 LOGIN = "/api/v1/auth/login"
 LOGOUT = "/api/v1/auth/logout"

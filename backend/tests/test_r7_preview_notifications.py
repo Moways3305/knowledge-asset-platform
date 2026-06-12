@@ -15,19 +15,17 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
 
-import pytest
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 import app.services.onlyoffice as oo_mod
 import app.services.preview as pv_mod
 from app.models.audit import AuditEvent
 from app.models.identity import User
-from app.models.lifecycle import NotificationRecord
 from app.models.preview import PreviewCredential
+from app.seed.dev_seed import USER_ADMIN_ONLY, USER_BOSS, USER_CONSULTANT
 from app.services import alert as alert_service
 from app.services import wecom_notification
 from app.services.wecom_client import WeComError
-from app.seed.dev_seed import USER_ADMIN_ONLY, USER_BOSS, USER_CONSULTANT
 
 UPLOAD = "/api/v1/ingest/upload"
 
@@ -134,7 +132,7 @@ async def _entry_fetch_token(client, cred_id):
 
 async def test_controlled_file_serves_bytes(client, monkeypatch):
     _enable_onlyoffice(monkeypatch)
-    content = "受控取件正文内容。".encode("utf-8")
+    content = "受控取件正文内容。".encode()
     asset_id = await _upload_confirm_personal(client, content=content)
     cred_id = (await _issue(client, asset_id)).json()["credential_id"]
     ft = await _entry_fetch_token(client, cred_id)

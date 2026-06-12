@@ -48,7 +48,7 @@ def _make_docx(text: str) -> bytes:
 
 
 def test_extract_txt():
-    r = extract_text("第一行标题\n正文内容".encode("utf-8"), file_name="a.txt", mime="text/plain")
+    r = extract_text("第一行标题\n正文内容".encode(), file_name="a.txt", mime="text/plain")
     assert r.status == "extracted"
     assert "第一行标题" in r.text
     assert r.char_count > 0

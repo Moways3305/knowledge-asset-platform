@@ -14,8 +14,8 @@ from sqlalchemy import select
 from app.main import app
 from app.models.audit import AuditEvent
 from app.models.weknora import WeknoraKbMapping
-from app.services.weknora_client import WeKnoraError, get_weknora_client
 from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT
+from app.services.weknora_client import WeKnoraError, get_weknora_client
 
 BASE = "/api/v1/admin/weknora"
 _SECRET = "sk-secret-xyz-123"

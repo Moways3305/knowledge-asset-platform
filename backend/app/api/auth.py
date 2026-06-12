@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings, session_cookie_secure
 from app.core.trace import get_trace_id
+from app.db.session import get_db
 from app.schemas.auth import (
     AuthMeOut,
     CsrfTokenOut,
@@ -26,7 +27,6 @@ from app.schemas.auth import (
     WecomAuthorizeOut,
 )
 from app.schemas.enums import AuditAction, AuditLogType
-from app.db.session import get_db
 from app.services import audit as audit_service
 from app.services import auth_security as auth_security
 from app.services import auth_session as session_service
@@ -313,7 +313,7 @@ async def wecom_callback(
 
     try:
         identity = await oauth.exchange_code(code)
-    except WeComError as exc:
+    except WeComError:
         # 上游换取失败：只暴露安全 code，不回显原始 payload。
         raise HTTPException(status_code=401, detail={"denied_reason": "oauth_exchange_failed", "message": "企微身份换取失败"})
 

@@ -449,7 +449,7 @@ def wecom_enabled() -> bool:
     return bool(s.wecom_corp_id and s.wecom_app_secret)
 
 
-def get_wecom_oauth_client() -> "WeComOAuthClient | NullWeComOAuthClient":
+def get_wecom_oauth_client() -> WeComOAuthClient | NullWeComOAuthClient:
     """FastAPI 依赖：配置齐全 → 真实 OAuth 客户端；否则 Null。测试经依赖覆盖注入 fake。"""
     if not wecom_enabled():
         return NullWeComOAuthClient()
@@ -460,7 +460,7 @@ def get_wecom_oauth_client() -> "WeComOAuthClient | NullWeComOAuthClient":
     )
 
 
-def get_wecom_drive_client() -> "WeComDriveClient | NullWeComDriveClient":
+def get_wecom_drive_client() -> WeComDriveClient | NullWeComDriveClient:
     if not wecom_enabled():
         return NullWeComDriveClient()
     s = get_settings()

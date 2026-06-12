@@ -29,6 +29,7 @@ from app.schemas.enums import (
     ReviewTaskStatus,
     ReviewType,
 )
+from app.schemas.permission import CallerContext
 from app.schemas.review import (
     EvidenceCreateRequest,
     EvidenceOut,
@@ -36,7 +37,6 @@ from app.schemas.review import (
     ReviewDetail,
     ReviewListItem,
 )
-from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 
 _TERMINAL = {ReviewTaskStatus.approved.value, ReviewTaskStatus.rejected.value}

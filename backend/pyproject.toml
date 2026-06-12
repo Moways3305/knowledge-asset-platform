@@ -46,3 +46,16 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+ignore = [
+    # E501：存量超长行绝大多数是中文注释/用户态文案，逐行折行是纯排版大 diff，
+    # 与"不为过 lint 改动业务代码"的边界冲突；显式豁免，新代码仍建议守 100 列。
+    "E501",
+    # B904：raise ... from err 改异常链需逐处评审语义（区分 from err / from None），
+    # 属于行为相邻改动，不在 lint 接入任务内批量处理；留待单独任务逐个评审。
+    "B904",
+]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI 在参数默认值里调用 Depends/Query/File/Form 是框架惯用法，非 B008 想抓的
+# "可变默认值"问题；按 ruff 官方建议登记为 immutable calls，保留 B008 抓真实缺陷。
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.File", "fastapi.Form"]

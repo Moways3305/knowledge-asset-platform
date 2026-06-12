@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from app.main import app
+from app.seed.dev_seed import USER_ADMIN_ONLY, USER_BOSS, USER_CONSULTANT, USER_DIRECTOR
 from app.services.wecom_client import (
     WeComDriveClient,
     WeComDriveDirectory,
@@ -17,7 +18,6 @@ from app.services.wecom_client import (
     WeComError,
     get_wecom_drive_client,
 )
-from app.seed.dev_seed import USER_ADMIN_ONLY, USER_BOSS, USER_CONSULTANT, USER_DIRECTOR
 
 SPACES = "/api/v1/admin/wecom-scan/drive/spaces"
 DIRS = "/api/v1/admin/wecom-scan/drive/directories"

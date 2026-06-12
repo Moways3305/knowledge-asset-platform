@@ -23,6 +23,13 @@ from app.models.audit import AuditEvent
 from app.models.identity import User
 from app.models.ingest import IngestTask
 from app.models.wecom import WecomScanConfig, WecomScanRecord
+from app.seed.dev_seed import (
+    PROJECT_ALPHA,
+    USER_ADMIN_ONLY,
+    USER_BOSS,
+    USER_CONSULTANT,
+    USER_DIRECTOR,
+)
 from app.services.wecom_client import (
     WeComDriveClient,
     WeComDriveFile,
@@ -31,13 +38,6 @@ from app.services.wecom_client import (
     get_wecom_drive_client,
     get_wecom_oauth_client,
     parse_directory_path,
-)
-from app.seed.dev_seed import (
-    PROJECT_ALPHA,
-    USER_ADMIN_ONLY,
-    USER_BOSS,
-    USER_CONSULTANT,
-    USER_DIRECTOR,
 )
 
 START = "/api/v1/auth/wecom/start"
@@ -234,8 +234,8 @@ async def test_scan_config_update_admin_only(client, db_session):
 async def test_manual_scan_creates_tasks_and_reuses_processing(client, db_session):
     config = await _new_config(db_session)
     drive = FakeDrive([
-        ("f1", "Alpha 交付报告.txt", "wh1", "供应链优化交付报告正文若干。".encode("utf-8")),
-        ("f2", "Alpha 方法论.txt", "wh2", "项目方法论正文内容。".encode("utf-8")),
+        ("f1", "Alpha 交付报告.txt", "wh1", "供应链优化交付报告正文若干。".encode()),
+        ("f2", "Alpha 方法论.txt", "wh2", "项目方法论正文内容。".encode()),
     ])
     _install_drive(drive)
     resp = await client.post(f"{CONFIGS}/{config.id}/scan", headers=_hdr(USER_ADMIN_ONLY))
@@ -258,7 +258,7 @@ async def test_manual_scan_creates_tasks_and_reuses_processing(client, db_sessio
 
 async def test_rescan_dedups_no_duplicate_tasks(client, db_session):
     config = await _new_config(db_session)
-    files = [("f1", "a.txt", "dh1", "内容A 正文若干。".encode("utf-8"))]
+    files = [("f1", "a.txt", "dh1", "内容A 正文若干。".encode())]
     _install_drive(FakeDrive(files))
     r1 = await client.post(f"{CONFIGS}/{config.id}/scan", headers=_hdr(USER_ADMIN_ONLY))
     assert r1.json()["new_count"] == 1
@@ -276,7 +276,7 @@ async def test_rescan_dedups_no_duplicate_tasks(client, db_session):
 async def test_scan_per_file_failure_not_abort(client, db_session):
     config = await _new_config(db_session)
     drive = FakeDrive(
-        [("f1", "ok.txt", "fh1", "正文内容。".encode("utf-8")),
+        [("f1", "ok.txt", "fh1", "正文内容。".encode()),
          ("f2", "bad.txt", "fh2", b"x")],
         fail_ids={"f2"},
     )
@@ -289,7 +289,7 @@ async def test_scan_per_file_failure_not_abort(client, db_session):
 
 async def test_scan_records_listed_no_leak(client, db_session):
     config = await _new_config(db_session)
-    _install_drive(FakeDrive([("f1", "a.txt", "rh1", "正文。".encode("utf-8"))]))
+    _install_drive(FakeDrive([("f1", "a.txt", "rh1", "正文。".encode())]))
     await client.post(f"{CONFIGS}/{config.id}/scan", headers=_hdr(USER_ADMIN_ONLY))
     recs = await client.get(f"{CONFIGS}/{config.id}/records", headers=_hdr(USER_BOSS))
     assert recs.status_code == 200
@@ -322,7 +322,7 @@ def test_drive_check_errcode():
 # ---------------- 幂等（DB 级 + API 行为） ----------------
 async def test_scan_idempotency_same_key_returns_same_record(client, db_session):
     config = await _new_config(db_session)
-    files = [("f1", "idem.txt", "ih1", "正文内容若干。".encode("utf-8"))]
+    files = [("f1", "idem.txt", "ih1", "正文内容若干。".encode())]
     _install_drive(FakeDrive(files))
     r1b = await client.post(
         f"{CONFIGS}/{config.id}/scan",
@@ -354,7 +354,7 @@ async def test_scan_idempotency_same_key_returns_same_record(client, db_session)
 
 async def test_scan_idempotency_different_key_and_config(client, db_session):
     config = await _new_config(db_session)
-    files = [("f1", "a.txt", "dk1", "正文。".encode("utf-8"))]
+    files = [("f1", "a.txt", "dk1", "正文。".encode())]
     _install_drive(FakeDrive(files))
     await client.post(f"{CONFIGS}/{config.id}/scan",
                       headers={**_hdr(USER_ADMIN_ONLY), "Idempotency-Key": "A"})
@@ -404,7 +404,7 @@ async def test_scan_idempotency_db_index_exists(db_session):
 
 async def test_admin_cannot_read_scan_task_business_content(client, db_session):
     config = await _new_config(db_session)
-    _install_drive(FakeDrive([("f1", "secret.txt", "ah1", "客户机密正文内容若干。".encode("utf-8"))]))
+    _install_drive(FakeDrive([("f1", "secret.txt", "ah1", "客户机密正文内容若干。".encode())]))
     await client.post(f"{CONFIGS}/{config.id}/scan", headers=_hdr(USER_ADMIN_ONLY))
     task = (await db_session.execute(
         select(IngestTask).where(IngestTask.source == "path_a_wecom")

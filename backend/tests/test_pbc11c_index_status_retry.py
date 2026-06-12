@@ -9,12 +9,10 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
 from sqlalchemy import select
 
 from app.main import app
 from app.models.knowledge import KnowledgeAssetVersion
-from app.services.weknora_client import WeKnoraError, get_weknora_client
 from app.seed.dev_seed import (
     PROJECT_ALPHA,
     USER_ADMIN_ONLY,
@@ -22,9 +20,10 @@ from app.seed.dev_seed import (
     USER_CONSULTANT,
     USER_PROJECT_MANAGER,
 )
+from app.services.weknora_client import WeKnoraError, get_weknora_client
 
 UPLOAD = "/api/v1/ingest/upload"
-_TXT = "PBC-11C 索引重试测试\n标题\n正文内容。".encode("utf-8")
+_TXT = "PBC-11C 索引重试测试\n标题\n正文内容。".encode()
 
 
 def _hdr(user_id):

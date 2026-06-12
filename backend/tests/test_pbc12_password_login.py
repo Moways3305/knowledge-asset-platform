@@ -11,15 +11,14 @@ import pytest
 from sqlalchemy import select
 
 from app.core.config import Settings
-from app.main import app
 from app.models.audit import AuditEvent
-from app.services import passwords
 from app.seed.dev_seed import (
     DEV_PASSWORD,
     USER_ADMIN_ONLY,
     USER_BOSS,
     USER_CONSULTANT,
 )
+from app.services import passwords
 
 LOGIN = "/api/v1/auth/login"
 PEOPLE = "/api/v1/admin/people"

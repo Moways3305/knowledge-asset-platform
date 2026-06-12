@@ -13,16 +13,15 @@ import re
 import pytest
 
 import app.services.content_processing as cp_module
-import app.services.ingest as ingest_module
 from app.main import app
+from app.schemas.enums import AssetType, ConfidentialityLevel
+from app.seed.dev_seed import USER_CONSULTANT
 from app.services import audit as audit_service
 from app.services.llm_client import LLMClient, LLMError, get_llm_client
-from app.seed.dev_seed import USER_CONSULTANT
-from app.schemas.enums import AssetType, ConfidentialityLevel
 
 UPLOAD = "/api/v1/ingest/upload"
 KN = "/api/v1/knowledge"
-_TXT = "零售数字化转型方案正文，包含五维度成熟度评估与落地路径若干段。".encode("utf-8")
+_TXT = "零售数字化转型方案正文，包含五维度成熟度评估与落地路径若干段。".encode()
 
 
 def _hdr(user_id, trace=None):

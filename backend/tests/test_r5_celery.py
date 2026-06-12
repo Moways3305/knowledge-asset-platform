@@ -15,7 +15,6 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from sqlalchemy import func, select
 
 from app.models.agent import (
@@ -29,14 +28,8 @@ from app.models.ingest import IngestTask, IngestTaskAiResult
 from app.models.knowledge import (
     KnowledgeAsset,
     KnowledgeAssetVersion,
-    KnowledgeAssetSummary,
 )
 from app.models.lifecycle import AssetLifecycleEvent, NotificationRecord
-from app.services.desensitization import NullDesensitizer
-from app.services.jobs import ingest_processing, lifecycle_scan, parse_reconcile, reuse_upgrade
-from app.services.llm_client import NullLLMClient
-from app.services.storage import LocalFileStorage
-from app.services.weknora_client import WeKnoraError
 from app.seed.dev_seed import (
     KA_PROJECT_ALPHA,
     PROJECT_ALPHA,
@@ -44,9 +37,14 @@ from app.seed.dev_seed import (
     USER_CONSULTANT,
     USER_DIRECTOR,
 )
+from app.services.desensitization import NullDesensitizer
+from app.services.jobs import ingest_processing, lifecycle_scan, parse_reconcile, reuse_upgrade
+from app.services.llm_client import NullLLMClient
+from app.services.storage import LocalFileStorage
+from app.services.weknora_client import WeKnoraError
 
 UPLOAD = "/api/v1/ingest/upload"
-_TXT = "R5 异步处理测试\n第一行标题\n正文内容若干段。".encode("utf-8")
+_TXT = "R5 异步处理测试\n第一行标题\n正文内容若干段。".encode()
 
 
 def _hdr(user_id):
@@ -279,7 +277,7 @@ async def test_archive_scan_warns_without_archiving_and_dedup(db_session):
     )
     assert notif >= 1
     # 重复扫描去重：不再新增 warning。
-    r2 = await lifecycle_scan.scan_archive_candidates(db_session, trace_id="trc-arch", now=_now())
+    await lifecycle_scan.scan_archive_candidates(db_session, trace_id="trc-arch", now=_now())
     warn_cnt2 = await db_session.scalar(
         select(func.count()).select_from(AssetLifecycleEvent)
         .where(AssetLifecycleEvent.asset_id == asset.id)

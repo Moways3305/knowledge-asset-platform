@@ -39,7 +39,12 @@ from app.schemas.preview import (
 )
 from app.services import audit as audit_service
 from app.services import original_access
-from app.services.onlyoffice import OnlyOfficeError, build_view_config, onlyoffice_enabled, resolve_doc_type
+from app.services.onlyoffice import (
+    OnlyOfficeError,
+    build_view_config,
+    onlyoffice_enabled,
+    resolve_doc_type,
+)
 from app.services.permission import decide
 from app.services.permission_rules import load_access_policy
 from app.services.storage import LocalFileStorage, safe_filename

@@ -19,6 +19,7 @@ from sqlalchemy import select
 from app.main import app
 from app.models.audit import AuditEvent
 from app.models.identity import User
+from app.seed.dev_seed import USER_ADMIN_ONLY, USER_BOSS, USER_CONSULTANT
 from app.services import session_revocation
 from app.services.wecom_client import (
     WeComError,
@@ -27,7 +28,6 @@ from app.services.wecom_client import (
     get_wecom_oauth_client,
     normalize_member_status,
 )
-from app.seed.dev_seed import USER_BOSS, USER_CONSULTANT, USER_ADMIN_ONLY
 
 START = "/api/v1/auth/wecom/start"
 CALLBACK = "/api/v1/auth/wecom/callback"

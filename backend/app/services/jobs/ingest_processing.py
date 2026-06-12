@@ -102,7 +102,7 @@ async def process_upload_task(
     task_id: uuid.UUID,
     *,
     storage: LocalFileStorage,
-    llm: "LLMClient | NullLLMClient",
+    llm: LLMClient | NullLLMClient,
     desensitizer: DesensitizationEngine,
     trace_id: str | None,
 ) -> str:

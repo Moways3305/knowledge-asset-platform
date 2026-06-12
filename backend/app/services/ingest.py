@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -41,18 +42,21 @@ from app.schemas.ingest import (
 )
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
+from app.services import error_catalog, indexing
 from app.services.desensitization import DesensitizationEngine
 from app.services.llm_client import LLMClient, NullLLMClient
-from app.worker.enqueue import enqueue_ingest_processing
 from app.services.storage import LocalFileStorage, StorageError
-from app.services import error_catalog
-from app.services import indexing
 from app.services.weknora_client import (
     NullWeKnoraClient,
     WeKnoraClient,
     WeKnoraError,
     weknora_enabled,
 )
+from app.worker.enqueue import enqueue_ingest_processing
+
+if TYPE_CHECKING:
+    # 运行时延迟到函数体内导入（避免与 schemas.ingest 的环依赖），此处仅供类型标注。
+    from app.schemas.ingest import IngestParseRefreshResponse
 
 _REDACTED_LEVELS = {ConfidentialityLevel.L3.value, ConfidentialityLevel.L4.value}
 
@@ -101,8 +105,8 @@ async def create_upload(
     target_scope: str | None,
     target_project_id: uuid.UUID | None,
     storage: LocalFileStorage,
-    llm: "LLMClient | NullLLMClient",
-    desensitizer: "DesensitizationEngine",
+    llm: LLMClient | NullLLMClient,
+    desensitizer: DesensitizationEngine,
     trace_id: str,
 ) -> IngestUploadResponse:
     """创建 Path B 上传任务：把文件字节写入受控存储 + 生成 AI 建议占位。仅业务用户可创建。
@@ -530,7 +534,7 @@ async def refresh_parse(
     task_id: uuid.UUID,
     *,
     weknora: WeKnoraClient | NullWeKnoraClient,
-) -> "IngestParseRefreshResponse":
+) -> IngestParseRefreshResponse:
     """解析状态对账（按需刷新，不引 Celery）。
 
     可见性沿用 get_ai_result：创建人 / 治理角色 / admin 可触发。读 WeKnora
@@ -648,7 +652,7 @@ async def list_admin_ingest(
     if not (_is_admin(caller) or _is_governance(caller)):
         raise _denied(403, "ingest_admin_forbidden", "无权查看入库运营列表")
 
-    from sqlalchemy.orm import defer, selectinload
+    from sqlalchemy.orm import selectinload
 
     tasks = list(
         (

@@ -29,8 +29,7 @@ from app.schemas.enums import (
 )
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
-from app.services import error_catalog
-from app.services import indexing
+from app.services import error_catalog, indexing
 from app.services.permission import build_caller_context
 from app.services.storage import LocalFileStorage
 from app.services.weknora_client import (

@@ -187,7 +187,7 @@ class LlmOutputDesensitizer:
     据此不返回原文）。
     """
 
-    def __init__(self, llm: "LLMClient | NullLLMClient") -> None:
+    def __init__(self, llm: LLMClient | NullLLMClient) -> None:
         self._llm = llm
 
     async def scrub(self, text: str, *, trace_id: str | None = None) -> str | None:
@@ -216,7 +216,7 @@ class LlmOutputDesensitizer:
         return out
 
 
-def get_output_desensitizer(llm: "LLMClient | NullLLMClient") -> LlmOutputDesensitizer:
+def get_output_desensitizer(llm: LLMClient | NullLLMClient) -> LlmOutputDesensitizer:
     """构建检索输出脱敏器（包裹注入的 LLM 客户端；未配置时其 scrub 恒降级为 None）。"""
     return LlmOutputDesensitizer(llm)
 

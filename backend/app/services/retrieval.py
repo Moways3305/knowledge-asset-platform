@@ -37,11 +37,11 @@ from app.schemas.permission import (
     CallerContext,
     PermissionDecision,
 )
+from app.services import original_access
 from app.services.desensitization import OutputDesensitizer
 from app.services.llm_client import LLMClient, LLMError, NullLLMClient
 from app.services.permission import decide
 from app.services.permission_rules import load_access_policy
-from app.services import original_access
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
 
 # 需要输出脱敏的保密级别（返回原文/片段前必须实体脱敏）。
@@ -146,7 +146,7 @@ async def resolve_project_kbs(session: AsyncSession, project_id: uuid.UUID) -> l
 async def recall_assets(
     session: AsyncSession,
     caller: CallerContext,
-    weknora: "WeKnoraClient | NullWeKnoraClient",
+    weknora: WeKnoraClient | NullWeKnoraClient,
     *,
     query: str,
     kb_ids: list[str],
@@ -388,7 +388,7 @@ _ANSWER_SYSTEM_PROMPT = (
 
 
 async def synthesize_answer(
-    llm: "LLMClient | NullLLMClient",
+    llm: LLMClient | NullLLMClient,
     query: str,
     evidences: list[Evidence],
     *,
@@ -434,7 +434,7 @@ class OriginalResult:
 async def fetch_stage2_original(
     session: AsyncSession,
     caller: CallerContext,
-    weknora: "WeKnoraClient | NullWeKnoraClient",
+    weknora: WeKnoraClient | NullWeKnoraClient,
     desens: OutputDesensitizer,
     *,
     asset_id: uuid.UUID,

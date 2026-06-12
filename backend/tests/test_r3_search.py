@@ -25,9 +25,6 @@ from app.models.knowledge import (
     KnowledgeAssetTag,
     KnowledgeAssetVersion,
 )
-from app.services.intent import SearchIntent, classify_intent, wants_answer
-from app.services.llm_client import get_llm_client
-from app.services.weknora_client import WeKnoraClient, get_weknora_client
 from app.seed.dev_seed import (
     KA_COMPANY_L2,
     KA_COMPANY_L4,
@@ -37,6 +34,9 @@ from app.seed.dev_seed import (
     USER_CONSULTANT,
     USER_DIRECTOR,
 )
+from app.services.intent import SearchIntent, classify_intent, wants_answer
+from app.services.llm_client import get_llm_client
+from app.services.weknora_client import WeKnoraClient, get_weknora_client
 
 SEARCH = "/api/v1/knowledge/search"
 _ALPHA_KB = f"wk-kb-proj-{PROJECT_ALPHA}"

@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.identity import Project, User
+from app.models.identity import User
 from app.models.knowledge import KnowledgeAsset
 from app.models.original_access import AccessGrant, OriginalAccessRequest
 from app.models.permission_rule import PermissionRule
@@ -29,10 +29,11 @@ from app.schemas.enums import (
     AccessGrantStatus,
     AccessGrantType,
     AccessRequestStatus,
+    AssetStatus,
     AuditAction,
     AuditLogType,
     CompanyRole,
-    MemberStatus,
+    ConfidentialityLevel,
     ProjectRole,
 )
 from app.schemas.original_access import (
@@ -41,8 +42,7 @@ from app.schemas.original_access import (
     OriginalAccessRequestOut,
     RequestsListResponse,
 )
-from app.schemas.enums import AssetStatus, ConfidentialityLevel
-from app.schemas.permission import AccessChannel, AccessLayer, CallerContext
+from app.schemas.permission import AccessLayer, CallerContext
 from app.services import audit as audit_service
 from app.services.permission import build_caller_context, decide
 from app.services.permission_rules import access_request_timeout_hours, load_access_policy

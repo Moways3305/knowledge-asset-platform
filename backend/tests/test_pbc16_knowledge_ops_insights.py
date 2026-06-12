@@ -14,10 +14,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-import pytest
-from sqlalchemy import select
-
-from app.models.identity import User, UserCompanyRole
+from app.models.identity import User
 from app.models.indexing_job import IndexingOperationJob
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.lifecycle import AssetLifecycleEvent

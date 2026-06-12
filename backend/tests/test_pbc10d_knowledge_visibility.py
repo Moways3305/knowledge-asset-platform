@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from app.models.knowledge import KnowledgeAsset
 from app.schemas.permission import AccessLayer, DeniedReason
-from app.services.permission import build_caller_context, decide
 from app.seed.dev_seed import (
     KA_COMPANY_L2,
     KA_COMPANY_L4,
@@ -23,6 +22,7 @@ from app.seed.dev_seed import (
     USER_CONSULTANT,
     USER_PROJECT_MANAGER,
 )
+from app.services.permission import build_caller_context, decide
 
 KN = "/api/v1/knowledge"
 SEARCH = "/api/v1/knowledge/search"
@@ -61,9 +61,10 @@ async def test_admin_preview_denied(client):
 
 async def test_admin_decide_all_layers_denied(db_session):
     """权限内核层面：admin 对各类资产连发现层都不可达，原因 business_identity_required。"""
-    from app.models.identity import User
-    from sqlalchemy.orm import selectinload
     from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.models.identity import User
 
     admin = (await db_session.execute(
         select(User).where(User.id == USER_ADMIN_ONLY).options(
@@ -109,9 +110,10 @@ async def test_inactive_project_member_no_member_original(db_session):
 
     （Beta L1/L2 的跨项目业务用户可见性为既有 DefaultAccessPolicy 设计，非项目越权——见报告。）
     """
-    from app.models.identity import User
-    from sqlalchemy.orm import selectinload
     from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.models.identity import User
 
     consultant = (await db_session.execute(
         select(User).where(User.id == USER_CONSULTANT).options(

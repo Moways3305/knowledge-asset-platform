@@ -13,7 +13,6 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
 
 import httpx
@@ -100,7 +99,7 @@ class NullWeComNotificationSender:
         raise WeComError("wecom_not_configured", "企微通知未配置")
 
 
-def get_wecom_notification_sender() -> "WeComNotificationSender | NullWeComNotificationSender":
+def get_wecom_notification_sender() -> WeComNotificationSender | NullWeComNotificationSender:
     """FastAPI / worker 依赖：**WECOM_NOTIFY_ENABLED 且企微配齐**才给真实发送器；否则 Null。
 
     特性开关 fail closed：默认关时 worker 拿到的是 Null 发送器，派发器据此不外发（见

@@ -12,8 +12,6 @@ import json
 import urllib.error
 from pathlib import Path
 
-import pytest
-
 # 从仓库根加载脚本模块（脚本不是包）。
 _SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "production_smoke.py"
 _spec = importlib.util.spec_from_file_location("production_smoke", _SCRIPT)

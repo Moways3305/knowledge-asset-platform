@@ -17,22 +17,20 @@ import pytest
 
 from app.main import app
 from app.models.agent_registry import AgentWhitelistRule
-from app.services.agent_registry import hash_token
-from app.services.llm_client import get_llm_client
-from app.services.weknora_client import get_weknora_client
 from app.seed.dev_seed import (
     KA_COMPANY_L2,
     KA_COMPANY_L4,
     KA_COMPANY_L5,
     KA_PROJECT_ALPHA,
     KA_PROJECT_ALPHA_A4,
-    KA_PROJECT_ALPHA_L5,
     PROJECT_ALPHA,
     PROJECT_BETA,
     USER_ADMIN_ONLY,
     USER_CONSULTANT,
-    USER_DIRECTOR,
 )
+from app.services.agent_registry import hash_token
+from app.services.llm_client import get_llm_client
+from app.services.weknora_client import get_weknora_client
 
 RETRIEVAL = "/api/v1/dify/external-knowledge/retrieval"
 TOOL = "/api/v1/dify/tools/knowledge-search"

@@ -82,7 +82,7 @@ def hash_login_identifier(value: str | None, *, purpose: str, settings: Settings
     `purpose` 隔离 identifier 与 ip 两类哈希空间，避免交叉碰撞 / 反推。空值仍产生稳定 hash。
     """
     key = _secret(settings).encode("utf-8")
-    msg = f"{purpose}:{value or ''}".encode("utf-8")
+    msg = f"{purpose}:{value or ''}".encode()
     return hmac.new(key, msg, hashlib.sha256).hexdigest()
 
 

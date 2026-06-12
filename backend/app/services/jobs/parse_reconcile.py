@@ -30,7 +30,7 @@ _TERMINAL = {"completed", "failed", "duplicate"}
 
 async def reconcile_parse_statuses(
     session: AsyncSession,
-    weknora: "WeKnoraClient | NullWeKnoraClient",
+    weknora: WeKnoraClient | NullWeKnoraClient,
     *,
     trace_id: str | None = None,
     limit: int = 200,

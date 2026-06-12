@@ -9,8 +9,6 @@
 
 from __future__ import annotations
 
-import uuid
-
 import pytest
 from sqlalchemy import select
 
@@ -18,7 +16,6 @@ from app.core.config import Settings, session_cookie_secure, session_cookie_secu
 from app.main import app
 from app.models.audit import AuditEvent
 from app.models.indexing_job import IndexingOperationJob
-
 from app.seed.dev_seed import (
     DEV_PASSWORD,
     USER_ADMIN_ONLY,

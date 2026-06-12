@@ -8,15 +8,14 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
 from sqlalchemy import select
 
 from app.main import app
 from app.models.audit import AuditEvent
 from app.models.knowledge import KnowledgeAssetVersion
+from app.seed.dev_seed import KA_PERSONAL, USER_ADMIN_ONLY, USER_BOSS, USER_CONSULTANT
 from app.services import error_catalog
 from app.services.weknora_client import WeKnoraError, get_weknora_client
-from app.seed.dev_seed import KA_PERSONAL, USER_ADMIN_ONLY, USER_BOSS, USER_CONSULTANT
 
 KN = "/api/v1/knowledge"
 OPS = "/admin/ops/indexing"

@@ -130,7 +130,7 @@ def get_settings() -> Settings:
     return Settings()
 
 
-def session_cookie_secure(settings: "Settings | None" = None) -> bool:
+def session_cookie_secure(settings: Settings | None = None) -> bool:
     """会话 / OAuth state cookie 的**有效** Secure 标志。
 
     - `app_env == "prod"`：强制返回 True（HTTPS-only），即使 `SESSION_COOKIE_SECURE=false`
@@ -143,7 +143,7 @@ def session_cookie_secure(settings: "Settings | None" = None) -> bool:
     return bool(s.session_cookie_secure) if s.session_cookie_secure is not None else False
 
 
-def session_cookie_secure_misconfigured(settings: "Settings | None" = None) -> bool:
+def session_cookie_secure_misconfigured(settings: Settings | None = None) -> bool:
     """prod 下运维显式把 `SESSION_COOKIE_SECURE=false` → 生产 blocker 信号。
 
     运行时 cookie 仍被 `session_cookie_secure()` 强制为安全；此函数仅用于 `/health/config`

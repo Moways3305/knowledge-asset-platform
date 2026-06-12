@@ -15,9 +15,6 @@ from sqlalchemy import func, select
 from app.models.audit import AuditEvent
 from app.models.knowledge import KnowledgeAsset
 from app.models.original_access import AccessGrant, OriginalAccessRequest
-from app.services.identity import load_user_with_roles
-from app.services.permission import build_caller_context
-from app.services import original_access as oa
 from app.seed.dev_seed import (
     PROJECT_BETA,
     USER_ADMIN_ONLY,
@@ -26,6 +23,9 @@ from app.seed.dev_seed import (
     USER_DIRECTOR,
     USER_PROJECT_MANAGER,
 )
+from app.services import original_access as oa
+from app.services.identity import load_user_with_roles
+from app.services.permission import build_caller_context
 
 _LEAK = ["storage_ref", "source_file_ref", "weknora", "access_token", "download_url", "token_hash", "app_secret"]
 
