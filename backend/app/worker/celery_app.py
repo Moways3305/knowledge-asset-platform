@@ -31,6 +31,7 @@ def _make_celery() -> Celery:
             "app.worker.tasks.notifications",
             "app.worker.tasks.original_access",
             "app.worker.tasks.indexing",
+            "app.worker.tasks.ops_alerts",
         ],
     )
     app.conf.update(
@@ -62,6 +63,10 @@ def _make_celery() -> Celery:
             "original-access-auto-approve": {
                 "task": "access.auto_approve_timed_out",
                 "schedule": 1800.0,  # 每 30 分钟扫描超时 pending 原文申请
+            },
+            "ops-alerts-scan": {
+                "task": "ops.alerts_scan",
+                "schedule": 600.0,  # 每 10 分钟检查运维告警信号（超阈值经通知链路告警）
             },
         },
     )

@@ -99,7 +99,7 @@ export default function AdminAlertSettingsPage() {
       <div className="al-header">
         <div className="al-header-text">
           <h2>告警设置</h2>
-          <p>配置归档阈值等告警规则与通知渠道 · 经平台权限网关按 admin 角色返回（本地通知，不实现真实发送）</p>
+          <p>配置归档阈值与运维信号（索引失败/解析停滞/登录安全）告警规则、通知渠道 · 经平台权限网关按 admin 角色返回</p>
         </div>
         <div className="kl-kpis">
           <div className="kl-kpi">
@@ -238,7 +238,7 @@ export default function AdminAlertSettingsPage() {
                 </tr>
               ))}
               {notifications.length === 0 && !loading && (
-                <tr><td colSpan={5} className="au-empty-cell">暂无通知记录（生命周期归档 / 重新启用确认会生成本地通知）</td></tr>
+                <tr><td colSpan={5} className="au-empty-cell">暂无通知记录（生命周期归档 / 重新启用确认 / 运维告警信号会生成本地通知）</td></tr>
               )}
             </tbody>
           </table>

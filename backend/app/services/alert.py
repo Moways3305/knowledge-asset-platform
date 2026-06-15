@@ -58,6 +58,54 @@ DEFAULT_ARCHIVE_RULES = [
     },
 ]
 
+# PBC-28 运维告警信号规则。前三条是计数阈值（停用即关闭对应信号）；后三条是参数
+# 规则（threshold 即分钟数，停用/缺失回退默认值，不关闭信号本身）。检查逻辑在
+# `app.services.jobs.ops_alerts`，此处只落可配置默认值，不写死业务逻辑。
+DEFAULT_OPS_ALERT_RULES = [
+    {
+        "rule_name": "索引失败堆积告警",
+        "severity": AlertSeverity.warning.value,
+        "threshold": 5,
+        "threshold_unit": "versions",
+        "dedup_strategy": "signal+cooldown",
+    },
+    {
+        "rule_name": "解析停滞堆积告警",
+        "severity": AlertSeverity.warning.value,
+        "threshold": 5,
+        "threshold_unit": "versions",
+        "dedup_strategy": "signal+cooldown",
+    },
+    {
+        "rule_name": "登录安全异常告警",
+        "severity": AlertSeverity.critical.value,
+        "threshold": 10,
+        "threshold_unit": "events",
+        "dedup_strategy": "signal+cooldown",
+    },
+    {
+        "rule_name": "解析停滞判定时长",
+        "severity": AlertSeverity.warning.value,
+        "threshold": 120,
+        "threshold_unit": "minutes",
+        "dedup_strategy": None,
+    },
+    {
+        "rule_name": "登录安全统计时间窗",
+        "severity": AlertSeverity.critical.value,
+        "threshold": 15,
+        "threshold_unit": "minutes",
+        "dedup_strategy": None,
+    },
+    {
+        "rule_name": "运维告警冷却期",
+        "severity": AlertSeverity.warning.value,
+        "threshold": 360,
+        "threshold_unit": "minutes",
+        "dedup_strategy": None,
+    },
+]
+
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
     return HTTPException(
@@ -76,8 +124,8 @@ def _require_admin(caller: CallerContext) -> None:
 
 
 async def ensure_default_rules(session: AsyncSession) -> None:
-    """幂等创建默认归档阈值规则（按 rule_name 去重）。"""
-    for spec in DEFAULT_ARCHIVE_RULES:
+    """幂等创建默认告警规则（归档阈值 + 运维信号；按 rule_name 去重）。"""
+    for spec in DEFAULT_ARCHIVE_RULES + DEFAULT_OPS_ALERT_RULES:
         exists = (
             await session.execute(
                 select(AlertRule.id).where(AlertRule.rule_name == spec["rule_name"])
@@ -223,6 +271,7 @@ async def record_local_notification(
     content: str,
     audit_event_id: uuid.UUID | None = None,
     channel: str = NotificationChannel.in_app.value,
+    alert_rule_id: uuid.UUID | None = None,
 ) -> NotificationRecord:
     """新建一条本地站内通知记录（不发送）。只 add，不 commit（随业务事务提交）。
 
@@ -234,6 +283,7 @@ async def record_local_notification(
     rec = NotificationRecord(
         recipient_user_id=recipient_user_id,
         audit_event_id=audit_event_id,
+        alert_rule_id=alert_rule_id,
         channel=channel,
         title=audit_service.sanitize_text(title) or "",
         content=audit_service.sanitize_text(content) or "",
