@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { RefreshCw, Unlock } from "lucide-react";
-import { ApiError, fetchAuthSecurityOverview, unlockAuthLockout } from "../api/client";
+import { ApiError } from "../api/http";
+import { fetchAuthSecurityOverview, unlockAuthLockout } from "../api/admin";
 import type { AuthSecurityEventDTO, AuthSecurityOverviewDTO } from "../types/authSecurity";
 import { formatBeijingTime } from "../utils/time";
 

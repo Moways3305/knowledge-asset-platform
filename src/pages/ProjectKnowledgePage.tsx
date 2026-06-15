@@ -1,6 +1,9 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
-import { projectQa, fetchAuthMe, fetchKnowledgeList, ApiError, type AuthMeVM } from "../api/client";
+import { ApiError } from "../api/http";
+import { fetchAuthMe, type AuthMeVM } from "../api/auth";
+import { fetchKnowledgeList } from "../api/knowledge";
+import { projectQa } from "../api/project";
 import type { ProjectQaResponseDTO } from "../types/agent";
 import type { KnowledgeCardVM } from "../types/knowledge";
 
@@ -120,7 +123,7 @@ export default function ProjectKnowledgePage() {
     return () => { cancelled = true; };
   }, [effectiveProject]);
 
-  const cards = projectCards ?? [];
+  const cards = useMemo(() => projectCards ?? [], [projectCards]);
   const cardPhase = useCallback((c: KnowledgeCardVM) => c.lifecyclePhase || UNLABELED_PHASE, []);
 
   // 真实聚合：阶段列表（仅出现在数据中的阶段，按规范顺序）+ 各阶段资料/资产计数。

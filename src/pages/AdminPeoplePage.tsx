@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { ApiError } from "../api/http";
 import {
-  ApiError,
   fetchPeople,
   fetchPerson,
   setCompanyRole,
@@ -11,7 +11,7 @@ import {
   revokeUserSessions,
   setUserStatus,
   reconcileWecomIdentity,
-} from "../api/client";
+} from "../api/admin";
 import type { PersonDTO } from "../types/people";
 import { formatBeijingTime } from "../utils/time";
 

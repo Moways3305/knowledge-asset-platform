@@ -633,3 +633,36 @@
   .kb-scope-btn { flex: 0 0 auto; }
   .idm-panel { width: min(320px, calc(100vw - 32px)); }
 }
+
+/* ══════════════════════════════════════════
+   共享组件默认样式（PBC-30 提取）
+   仅用既有 CSS 变量；页面适配既有状态容器时可传入自有类名覆盖。
+   ══════════════════════════════════════════ */
+
+/* LoadingError 默认三态容器 */
+.state-box {
+  padding: 32px 20px;
+  text-align: center;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+}
+.state-title {
+  font-weight: 600;
+  color: var(--color-text-heading);
+  margin-bottom: 6px;
+}
+.state-desc {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+/* FormField 行内提示 / 错误 */
+.form-field-hint {
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+}
+.form-field-error {
+  color: var(--color-danger);
+  font-size: 12px;
+}

@@ -1,11 +1,11 @@
 ﻿import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
+import { ApiError } from "../api/http";
 import {
-  ApiError,
   fetchOriginalAccessRequests,
   approveOriginalAccess,
   rejectOriginalAccess,
-} from "../api/client";
+} from "../api/knowledge";
 import type { OriginalAccessRequestDTO } from "../types/originalAccess";
 import { formatBeijingTime } from "../utils/time";
 

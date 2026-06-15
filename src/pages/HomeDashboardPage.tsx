@@ -5,10 +5,11 @@ import {
   Gauge, Rocket, LibraryBig, UploadCloud, FolderKanban, UserRound, ScrollText,
   ShieldAlert, Users, Inbox, ChevronRight, Building2, Lightbulb,
 } from "lucide-react";
-import {
-  fetchAuthMe, fetchKnowledgeOpsInsights, fetchReviews, fetchPendingIngestTasks,
-  fetchOriginalAccessRequests, fetchProjects, type AuthMeVM,
-} from "../api/client";
+import { fetchAuthMe, type AuthMeVM } from "../api/auth";
+import { fetchKnowledgeOpsInsights, fetchOriginalAccessRequests } from "../api/knowledge";
+import { fetchReviews } from "../api/review";
+import { fetchPendingIngestTasks } from "../api/ingest";
+import { fetchProjects } from "../api/project";
 import type { KnowledgeOpsInsightsDTO } from "../types/insights";
 import type { ProjectListItemDTO } from "../types/project";
 

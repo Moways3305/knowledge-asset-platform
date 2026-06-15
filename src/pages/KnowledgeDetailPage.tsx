@@ -1,7 +1,7 @@
 ﻿import { useParams, Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
+import { ApiError } from "../api/http";
 import {
-  ApiError,
   deleteKnowledgeAsset,
   fetchKnowledgeDetail,
   fetchLifecycleEvents,
@@ -11,7 +11,7 @@ import {
   previewEntryHref,
   requestOriginalAccess,
   retryKnowledgeIndex,
-} from "../api/client";
+} from "../api/knowledge";
 import type { PreviewIssueResponseDTO } from "../types/preview";
 import type { LifecycleEventDTO } from "../types/lifecycle";
 import type {

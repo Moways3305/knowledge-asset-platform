@@ -1,9 +1,11 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { ApiError } from "../api/http";
+import { fetchAuthMe } from "../api/auth";
 import {
-  ApiError, fetchAuthMe, fetchPermissionRules, updatePermissionRule,
+  fetchPermissionRules, updatePermissionRule,
   fetchAgentRegistry, setAgentRegistryEnabled,
-} from "../api/client";
+} from "../api/admin";
 import type { PermissionRuleDTO, AgentRegistryRuleDTO } from "../types/permission";
 import { formatBeijingTime } from "../utils/time";
 

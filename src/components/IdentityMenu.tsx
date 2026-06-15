@@ -1,13 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { ChevronDown, LogOut, UserRound, Building2 } from "lucide-react";
-import {
-  ApiError,
-  fetchAuthMe,
-  login,
-  logout,
-  startWecomOAuth,
-  type AuthMeVM,
-} from "../api/client";
+import { ApiError } from "../api/http";
+import { fetchAuthMe, login, logout, type AuthMeVM } from "../api/auth";
+import { startWecomOAuth } from "../api/admin";
 
 const roleLabel: Record<string, string> = {
   boss: "Boss",
