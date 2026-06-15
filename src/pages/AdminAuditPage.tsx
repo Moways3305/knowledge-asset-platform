@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { ApiError, fetchAudit, markAuditProcessed } from "../api/client";
+import { ApiError } from "../api/http";
+import { fetchAudit, markAuditProcessed } from "../api/admin";
 import type { AuditEventDTO } from "../types/audit";
 import { formatBeijingTime } from "../utils/time";
 import {

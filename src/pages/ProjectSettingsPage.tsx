@@ -1,14 +1,13 @@
 ﻿import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
+import { ApiError } from "../api/http";
+import { fetchAuthMe, type AuthMeVM } from "../api/auth";
 import {
-  ApiError,
-  fetchAuthMe,
   fetchProjectSettings,
   updateProjectSettings,
   fetchProjectMembers,
   patchProjectMember,
-  type AuthMeVM,
-} from "../api/client";
+} from "../api/project";
 import type { ProjectSettingsDTO, ProjectMemberDTO } from "../types/projectSettings";
 import { formatBeijingTime } from "../utils/time";
 

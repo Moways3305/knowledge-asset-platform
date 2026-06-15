@@ -1,13 +1,13 @@
-﻿import { useState, useMemo, useEffect, useCallback } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  ApiError,
-  approveReview,
-  fetchAuthMe,
-  fetchReviews,
-  rejectReview,
-} from "../api/client";
+import { fetchAuthMe } from "../api/auth";
+import { approveReview, fetchReviews, rejectReview } from "../api/review";
 import type { ReviewItemDTO } from "../types/review";
+import { useAsyncData } from "../hooks/useAsyncData";
+import { useActionFeedback } from "../hooks/useActionFeedback";
+import DataTable, { type Column } from "../components/DataTable";
+import StatusBadge from "../components/StatusBadge";
+import LoadingError from "../components/LoadingError";
 
 // 审核状态展示
 const statusLabel: Record<string, string> = {
@@ -30,36 +30,18 @@ const reviewTypeLabel: Record<string, string> = {
   lifecycle_change: "生命周期变更",
 };
 
-
 export default function ReviewPage() {
-  const [items, setItems] = useState<ReviewItemDTO[]>([]);
-  const [currentUserId, setCurrentUserId] = useState<string>("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [forbidden, setForbidden] = useState(false);
+  const { data, loading, error, forbidden, reload } = useAsyncData(
+    () => Promise.all([fetchAuthMe(), fetchReviews()]).then(([me, reviews]) => ({
+      currentUserId: me.userId,
+      items: reviews,
+    }))
+  );
+  const items = useMemo(() => data?.items ?? [], [data]);
+  const currentUserId = data?.currentUserId ?? "";
+
   const [filterStatus, setFilterStatus] = useState("");
-  const [actionError, setActionError] = useState<string | null>(null);
-
-  const load = useCallback(() => {
-    setLoading(true);
-    setError(null);
-    setForbidden(false);
-    Promise.all([fetchAuthMe(), fetchReviews()])
-      .then(([me, reviews]) => {
-        setCurrentUserId(me.userId);
-        setItems(reviews);
-        setLoading(false);
-      })
-      .catch((e) => {
-        if (e instanceof ApiError && e.status === 403) setForbidden(true);
-        else setError(e?.message ?? "加载失败");
-        setLoading(false);
-      });
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const action = useActionFeedback();
 
   const filtered = useMemo(
     () => (filterStatus ? items.filter((i) => i.status === filterStatus) : items),
@@ -71,25 +53,32 @@ export default function ReviewPage() {
   const canAct = (it: ReviewItemDTO) =>
     it.status === "pending_reviewer" && it.reviewer_user_id === currentUserId;
 
-  const handleApprove = useCallback(async (id: string) => {
-    setActionError(null);
-    try {
-      await approveReview(id, "确认通过");
-      load();
-    } catch (e) {
-      setActionError(e instanceof ApiError ? e.message : "操作失败");
-    }
-  }, [load]);
+  const handleApprove = (id: string) =>
+    void action.run(async () => { await approveReview(id, "确认通过"); reload(); });
 
-  const handleReject = useCallback(async (id: string) => {
-    setActionError(null);
-    try {
-      await rejectReview(id, "审核未通过：需补充材料");
-      load();
-    } catch (e) {
-      setActionError(e instanceof ApiError ? e.message : "操作失败");
-    }
-  }, [load]);
+  const handleReject = (id: string) =>
+    void action.run(async () => { await rejectReview(id, "审核未通过：需补充材料"); reload(); });
+
+  const columns: Column<ReviewItemDTO>[] = [
+    { key: "title", header: "知识标题", className: "cell-review-title", render: (c) => c.asset_title ?? c.target_asset_id },
+    { key: "type", header: "审核类型", render: (c) => <span className="path-badge">{reviewTypeLabel[c.review_type] ?? c.review_type}</span> },
+    { key: "project", header: "来源项目", className: "cell-source", render: (c) => c.project_name ?? "—" },
+    { key: "evidence", header: "证据数", className: "cell-center", render: (c) => c.evidence_count },
+    { key: "status", header: "状态", render: (c) => <StatusBadge variant={statusCls[c.status]} label={statusLabel[c.status] ?? c.status} /> },
+    {
+      key: "actions", header: "操作", className: "cell-actions", render: (c) =>
+        canAct(c) ? (
+          <>
+            <button className="btn-small btn-small-primary" onClick={() => handleApprove(c.id)}>通过</button>
+            <button className="btn-small btn-small-danger" onClick={() => handleReject(c.id)}>拒绝</button>
+          </>
+        ) : (
+          <span className="rv-evidence-summary">
+            {c.status === "pending_evidence" ? "待补充证据" : c.status === "pending_reviewer" ? "待指定审核人处理" : "—"}
+          </span>
+        ),
+    },
+  ];
 
   return (
     <div className="review-page">
@@ -137,69 +126,30 @@ export default function ReviewPage() {
           </div>
           <div className="rv-toolbar-actions">
             <span className="rv-toolbar-hint">共 {filtered.length} 条</span>
-            <button className="btn-small" onClick={load}>刷新</button>
+            <button className="btn-small" onClick={reload}>刷新</button>
           </div>
         </div>
-        {actionError && <div className="rv-empty-desc" style={{ color: "var(--color-danger-fg, #b00)" }}>{actionError}</div>}
+        {action.error && <div className="rv-empty-desc" style={{ color: "var(--color-danger-fg, #b00)" }}>{action.error}</div>}
       </section>
 
       <section className="review-section">
         <h3>审核队列</h3>
-        {loading ? (
-          <div className="rv-empty-state"><div className="rv-empty-title">加载中…</div></div>
-        ) : forbidden ? (
-          <div className="rv-empty-state">
-            <div className="rv-empty-title">无审核权限</div>
-            <p className="rv-empty-desc">当前身份（纯 admin）不是业务用户，无法查看业务审核队列。</p>
-          </div>
-        ) : error ? (
-          <div className="rv-empty-state">
-            <div className="rv-empty-title">加载失败</div>
-            <p className="rv-empty-desc">{error}（请确认后端服务已启动）</p>
-          </div>
-        ) : filtered.length > 0 ? (
-          <div className="ingest-table-wrap">
-            <table className="ingest-table">
-              <thead>
-                <tr>
-                  <th>知识标题</th>
-                  <th>审核类型</th>
-                  <th>来源项目</th>
-                  <th>证据数</th>
-                  <th>状态</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((c) => (
-                  <tr key={c.id}>
-                    <td className="cell-review-title">{c.asset_title ?? c.target_asset_id}</td>
-                    <td><span className="path-badge">{reviewTypeLabel[c.review_type] ?? c.review_type}</span></td>
-                    <td className="cell-source">{c.project_name ?? "—"}</td>
-                    <td className="cell-center">{c.evidence_count}</td>
-                    <td><span className={`status-pill ${statusCls[c.status] ?? ""}`}>{statusLabel[c.status] ?? c.status}</span></td>
-                    <td className="cell-actions">
-                      {canAct(c) ? (
-                        <>
-                          <button className="btn-small btn-small-primary" onClick={() => handleApprove(c.id)}>通过</button>
-                          <button className="btn-small btn-small-danger" onClick={() => handleReject(c.id)}>拒绝</button>
-                        </>
-                      ) : (
-                        <span className="rv-evidence-summary">
-                          {c.status === "pending_evidence" ? "待补充证据" : c.status === "pending_reviewer" ? "待指定审核人处理" : "—"}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="rv-empty-state">
-            <div className="rv-empty-title">无审核任务</div>
-            <p className="rv-empty-desc">当前没有与你相关的审核任务。</p>
-          </div>
+        <LoadingError
+          loading={loading}
+          forbidden={forbidden}
+          error={error ? `${error}（请确认后端服务已启动）` : null}
+          empty={filtered.length === 0}
+          loadingTitle="加载中…"
+          forbiddenTitle="无审核权限"
+          forbiddenDesc="当前身份（纯 admin）不是业务用户，无法查看业务审核队列。"
+          emptyTitle="无审核任务"
+          emptyDesc="当前没有与你相关的审核任务。"
+          wrapperClassName="rv-empty-state"
+          titleClassName="rv-empty-title"
+          descClassName="rv-empty-desc"
+        />
+        {!loading && !forbidden && !error && filtered.length > 0 && (
+          <DataTable columns={columns} rows={filtered} rowKey={(c) => c.id} />
         )}
       </section>
 
@@ -209,4 +159,3 @@ export default function ReviewPage() {
     </div>
   );
 }
-

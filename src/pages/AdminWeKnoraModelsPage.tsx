@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
+import { ApiError } from "../api/http";
 import {
-  ApiError,
   checkWeknoraModel,
   createWeknoraModel,
   deleteWeknoraModel,
@@ -10,7 +10,7 @@ import {
   fetchWeknoraProviders,
   updateWeknoraKbInit,
   updateWeknoraModel,
-} from "../api/client";
+} from "../api/admin";
 import type {
   KbConfigDTO,
   ModelDTO,

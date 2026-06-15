@@ -1,17 +1,16 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
+import { ApiError } from "../api/http";
+import { fetchAuthMe, type AuthMeVM } from "../api/auth";
 import {
-  ApiError,
   fetchMyKnowledge,
-  fetchAuthMe,
   confirmPersonalAsset,
   submitPersonalKnowledge,
   registerPersonalKnowledgeEvidence,
   fetchMyKnowledgeBase,
   createMyKnowledgeBase,
   renameMyKnowledgeBase,
-  type AuthMeVM,
   type PersonalKbDTO,
-} from "../api/client";
+} from "../api/personal";
 import type { KnowledgeCardVM } from "../types/knowledge";
 
 const kbStatusLabel: Record<string, string> = {

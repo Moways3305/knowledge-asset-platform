@@ -1,11 +1,11 @@
 ﻿import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { ApiError } from "../api/http";
 import {
-  ApiError,
   fetchAlertNotifications,
   fetchAlertRules,
   updateAlertRule,
-} from "../api/client";
+} from "../api/admin";
 import type { AlertRuleDTO, NotificationDTO } from "../types/alert";
 import { formatBeijingTime } from "../utils/time";
 

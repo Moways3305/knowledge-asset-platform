@@ -1,0 +1,69 @@
+// 项目领域：项目列表 / 创建、项目设置与成员、项目 Q&A。响应只含安全治理元数据；
+// 前端绝不直连外部 Agent / provider，也不拼接任何 provider 内部标识，一律经平台权限网关。
+import { apiGet, apiPost, apiPatch } from "./http";
+import type {
+  ProjectCreateRequestDTO,
+  ProjectCreateResponseDTO,
+  ProjectListResponseDTO,
+} from "../types/project";
+import type {
+  ProjectMemberDTO,
+  ProjectMemberPatchDTO,
+  ProjectMembersResponseDTO,
+  ProjectSettingsDTO,
+  ProjectSettingsUpdateDTO,
+} from "../types/projectSettings";
+import type { ProjectQaResponseDTO } from "../types/agent";
+
+// 项目列表（治理角色 / admin 看全部 active；业务用户看本人 active 项目）。
+export async function fetchProjects(): Promise<ProjectListResponseDTO> {
+  return apiGet<ProjectListResponseDTO>(`/api/v1/projects`);
+}
+
+// 创建项目知识空间（仅 Boss / 咨询总监）。写真实 projects + active project_manager 成员。
+export async function createProject(
+  body: ProjectCreateRequestDTO
+): Promise<ProjectCreateResponseDTO> {
+  return apiPost<ProjectCreateResponseDTO>(`/api/v1/projects`, body);
+}
+
+// 项目问答。引用层级与可见性由后端按调用人权限裁定；前端只发查询与 capability。
+export async function projectQa(
+  projectId: string,
+  input: { query: string; modelKey?: string }
+): Promise<ProjectQaResponseDTO> {
+  return apiPost<ProjectQaResponseDTO>(`/api/v1/projects/${projectId}/qa`, {
+    query: input.query,
+    model_key: input.modelKey ?? "system_default",
+    capability: "qa",
+  });
+}
+
+// ---- 项目设置 / 项目成员 ----
+// 读：admin / 治理角色 / 本项目成员；写：项目经理 / 治理角色。
+// 响应只含安全治理元数据；企微群只回 bound + 脱敏 label（不回全文）；前端不展示任何内部标识。
+export async function fetchProjectSettings(projectId: string): Promise<ProjectSettingsDTO> {
+  return apiGet<ProjectSettingsDTO>(`/api/v1/projects/${projectId}/settings`);
+}
+
+export async function updateProjectSettings(
+  projectId: string,
+  body: ProjectSettingsUpdateDTO
+): Promise<ProjectSettingsDTO> {
+  return apiPatch<ProjectSettingsDTO>(`/api/v1/projects/${projectId}/settings`, body);
+}
+
+export async function fetchProjectMembers(projectId: string): Promise<ProjectMembersResponseDTO> {
+  return apiGet<ProjectMembersResponseDTO>(`/api/v1/projects/${projectId}/members`);
+}
+
+export async function patchProjectMember(
+  projectId: string,
+  memberId: string,
+  body: ProjectMemberPatchDTO
+): Promise<ProjectMemberDTO> {
+  return apiPatch<ProjectMemberDTO>(
+    `/api/v1/projects/${projectId}/members/${memberId}`,
+    body
+  );
+}

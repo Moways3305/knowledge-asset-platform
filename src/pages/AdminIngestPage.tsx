@@ -1,16 +1,17 @@
 ﻿import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { ApiError } from "../api/http";
+import { fetchAdminIngest } from "../api/ingest";
 import {
-  ApiError,
-  fetchAdminIngest,
   fetchOpsIndexing,
   fetchIndexingJobs,
   triggerIndexingRetry,
   triggerIndexingReparse,
-} from "../api/client";
+} from "../api/admin";
 import type { AdminIngestItemDTO } from "../types/ingest";
 import type { OpsIndexingDTO, IndexingJobSummaryDTO } from "../types/ops";
 import { formatBeijingTime } from "../utils/time";
+import IndexDistribution from "../components/IndexDistribution";
 
 // 索引运维作业状态 / 类型的安全中文标签。
 const jobOpLabel: Record<string, string> = {
@@ -249,13 +250,8 @@ export default function AdminIngestPage() {
               <span className="ig-detail-title">知识底座索引运维</span>
               <button className="btn-small" onClick={() => void loadOpsIndex()}>刷新</button>
             </div>
-            <div className="kl-kpis" style={{ marginTop: 8 }}>
-              <div className="kl-kpi"><div className="kl-kpi-value kl-kpi-warning">{opsIndex.counts.index_failed}</div><div className="kl-kpi-label">索引失败</div></div>
-              <div className="kl-kpi"><div className="kl-kpi-value">{opsIndex.counts.indexing}</div><div className="kl-kpi-label">索引中</div></div>
-              <div className="kl-kpi"><div className="kl-kpi-value">{opsIndex.counts.not_indexed}</div><div className="kl-kpi-label">待索引</div></div>
-              <div className="kl-kpi"><div className="kl-kpi-value">{opsIndex.counts.skipped}</div><div className="kl-kpi-label">已跳过</div></div>
-              <div className="kl-kpi"><div className="kl-kpi-value">{opsIndex.counts.parse_pending + opsIndex.counts.parse_processing}</div><div className="kl-kpi-label">解析滞留</div></div>
-              <div className="kl-kpi"><div className="kl-kpi-value kl-kpi-warning">{opsIndex.counts.kb_init_failed}</div><div className="kl-kpi-label">KB 初始化失败</div></div>
+            <div style={{ marginTop: 8 }}>
+              <IndexDistribution counts={opsIndex.counts} />
             </div>
             {/* 批量运维控件（批量重试 / 重新解析）。 */}
             <div className="ig-ops-actions" style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
