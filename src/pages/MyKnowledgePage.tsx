@@ -6,9 +6,26 @@ import {
   confirmPersonalAsset,
   submitPersonalKnowledge,
   registerPersonalKnowledgeEvidence,
+  fetchMyKnowledgeBase,
+  createMyKnowledgeBase,
+  renameMyKnowledgeBase,
   type AuthMeVM,
+  type PersonalKbDTO,
 } from "../api/client";
 import type { KnowledgeCardVM } from "../types/knowledge";
+
+const kbStatusLabel: Record<string, string> = {
+  active: "正常",
+  init_failed: "初始化失败",
+};
+
+const indexStatusLabel: Record<string, string> = {
+  indexed: "已索引",
+  index_failed: "索引失败",
+  not_indexed: "未索引",
+  indexing: "索引中",
+  skipped: "已跳过",
+};
 
 const typeLabel: Record<string, string> = {
   methodology: "方法论",
@@ -51,8 +68,55 @@ export default function MyKnowledgePage() {
   const [evidenceCategory, setEvidenceCategory] = useState(EVIDENCE_CATEGORIES[0]);
   const [evidenceDesc, setEvidenceDesc] = useState("");
 
+  // 个人知识库管理（PBC-29）
+  const [kb, setKb] = useState<PersonalKbDTO | null>(null);
+  const [kbBusy, setKbBusy] = useState(false);
+  const [kbError, setKbError] = useState<string | null>(null);
+  const [kbNameDraft, setKbNameDraft] = useState("");
+  const [kbEditing, setKbEditing] = useState(false);
+
   const describeError = (e: unknown, fallback: string) =>
     e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : fallback;
+
+  const loadKb = useCallback(async () => {
+    try {
+      const data = await fetchMyKnowledgeBase();
+      setKb(data);
+    } catch (e) {
+      // 非业务用户（admin）等 → 隐藏管理卡，不打断知识列表展示。
+      if (e instanceof ApiError && e.status === 403) setKb(null);
+      else setKb(null);
+    }
+  }, []);
+
+  const doCreateKb = useCallback(async () => {
+    setKbBusy(true); setKbError(null);
+    try {
+      const data = await createMyKnowledgeBase(kbNameDraft.trim() || undefined);
+      setKb(data);
+      setKbNameDraft("");
+    } catch (e) {
+      setKbError(describeError(e, "创建知识库失败"));
+    } finally {
+      setKbBusy(false);
+    }
+  }, [kbNameDraft]);
+
+  const doRenameKb = useCallback(async () => {
+    const name = kbNameDraft.trim();
+    if (!name) { setKbError("名称不能为空"); return; }
+    setKbBusy(true); setKbError(null);
+    try {
+      const data = await renameMyKnowledgeBase(name);
+      setKb(data);
+      setKbEditing(false);
+      if (data.weknora_sync_failed) setKbError("名称已保存，底座同步稍后重试");
+    } catch (e) {
+      setKbError(describeError(e, "改名失败"));
+    } finally {
+      setKbBusy(false);
+    }
+  }, [kbNameDraft]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,6 +135,7 @@ export default function MyKnowledgePage() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void loadKb(); }, [loadKb]);
 
   const stats = useMemo(() => {
     const drafts = items.filter((i) => i.zone !== "asset").length;
@@ -161,6 +226,91 @@ export default function MyKnowledgePage() {
           <div className="mk-principle-card"><div className="mk-principle-icon">📋</div><div className="mk-principle-text">提交到项目资料区不等于项目资产，资产需验证</div></div>
         </div>
       </section>
+
+      {/* 个人知识库管理（PBC-29）：创建 / 改名 / 状态 */}
+      {!forbidden && (
+        <section className="mk-section">
+          <h3>我的知识库</h3>
+          {kbError && (
+            <div className="up-submit-notice" style={{ color: "var(--color-danger-fg, #b00)" }}>{kbError}</div>
+          )}
+          {kb === null ? (
+            <div className="mk-action-note">个人知识库状态加载中…（仅业务用户可管理；admin 无个人知识库）</div>
+          ) : !kb.exists ? (
+            <div className="mk-kb-card mk-kb-empty">
+              <p className="kl-empty-desc">你还没有个人知识库，创建后可以开始上传和管理个人知识资产。</p>
+              <div className="mk-vis-controls">
+                <input
+                  className="up-edit-input"
+                  placeholder="知识库名称（可选，默认「我的知识库」）"
+                  value={kbNameDraft}
+                  maxLength={100}
+                  onChange={(e) => setKbNameDraft(e.target.value)}
+                />
+                <button className="btn-small-primary" disabled={kbBusy} onClick={() => void doCreateKb()}>
+                  {kbBusy ? "创建中…" : "创建我的知识库"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="mk-kb-card">
+              <div className="mk-kb-row">
+                <span className="mk-detail-label">名称</span>
+                {kbEditing ? (
+                  <span className="mk-vis-controls">
+                    <input
+                      className="up-edit-input"
+                      value={kbNameDraft}
+                      maxLength={100}
+                      onChange={(e) => setKbNameDraft(e.target.value)}
+                    />
+                    <button className="btn-small-primary" disabled={kbBusy} onClick={() => void doRenameKb()}>保存</button>
+                    <button className="btn-small" disabled={kbBusy} onClick={() => setKbEditing(false)}>取消</button>
+                  </span>
+                ) : (
+                  <span className="mk-vis-controls">
+                    <strong>{kb.display_name}</strong>
+                    <button
+                      className="btn-small"
+                      onClick={() => { setKbNameDraft(kb.display_name ?? ""); setKbEditing(true); setKbError(null); }}
+                    >
+                      编辑名称
+                    </button>
+                  </span>
+                )}
+              </div>
+              <div className="mk-kb-row">
+                <span className="mk-detail-label">状态</span>
+                <span className={`mk-vis-pill ${kb.status === "active" ? "mk-vis-asset" : "mk-vis-private"}`}>
+                  {kbStatusLabel[kb.status ?? ""] ?? kb.status}
+                </span>
+                {kb.status === "init_failed" && (
+                  <button className="btn-small-primary" disabled={kbBusy} onClick={() => void doCreateKb()}>
+                    {kbBusy ? "重试中…" : "初始化失败，点击重试"}
+                  </button>
+                )}
+              </div>
+              <div className="mk-kb-row">
+                <span className="mk-detail-label">资产数</span>
+                <span>{kb.knowledge_count ?? 0}</span>
+              </div>
+              <div className="mk-kb-row">
+                <span className="mk-detail-label">索引分布</span>
+                <span className="mk-vis-controls">
+                  {Object.entries(kb.index_distribution ?? {}).length === 0 ? (
+                    <span className="mk-vis-note">—</span>
+                  ) : (
+                    Object.entries(kb.index_distribution ?? {}).map(([st, n]) => (
+                      <span key={st} className="al-channel-tag">{(indexStatusLabel[st] ?? st)}: {n}</span>
+                    ))
+                  )}
+                </span>
+              </div>
+              <p className="mk-vis-note">嵌入模型在知识库创建时绑定，事后更换需全量重索引，此处不开放修改。</p>
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="mk-section">
         {forbidden ? (

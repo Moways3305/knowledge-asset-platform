@@ -108,6 +108,27 @@ class WeKnoraClient:
             )
         return self._unwrap(resp)
 
+    async def update_kb(
+        self, kb_id: str, *, name: str | None = None, description: str | None = None,
+        trace_id: str | None = None,
+    ) -> dict[str, Any]:
+        """改 KB 名称 / 描述（`PUT /knowledge-bases/:id`）。
+
+        只发送 name / description；**不**开放 chunking_config / storage_config 等底层配置
+        （风险高，留给 admin 后续任务）。错误经 `_unwrap` 抛结构化 `WeKnoraError`，不含 api_key。
+        """
+        payload: dict[str, Any] = {}
+        if name is not None:
+            payload["name"] = name
+        if description is not None:
+            payload["description"] = description
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.put(
+                f"{self._base}/knowledge-bases/{kb_id}",
+                json=payload, headers=self._headers(trace_id),
+            )
+        return self._unwrap(resp)
+
     async def get_initialization_config(
         self, kb_id: str, *, trace_id: str | None = None
     ) -> dict[str, Any]:
@@ -382,6 +403,9 @@ class NullWeKnoraClient:
         raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
 
     async def get_kb(self, *_: Any, **__: Any) -> dict[str, Any]:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
+    async def update_kb(self, *_: Any, **__: Any) -> dict[str, Any]:
         raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
 
     async def get_initialization_config(self, *_: Any, **__: Any) -> dict[str, Any]:

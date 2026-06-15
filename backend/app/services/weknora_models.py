@@ -232,6 +232,7 @@ async def list_kb_configs(session: AsyncSession, client: _CheckClient, *, trace_
             multimodal = _slot(cfg.get("multimodal_id"), id_meta)
         items.append(KbConfigOut(
             mapping_id=mp.id, scope=mp.scope, kb_name=mp.kb_name,
+            display_name=mp.display_name,
             project_name=pmap.get(mp.project_id) if mp.project_id else None,
             owner_name=omap.get(mp.owner_user_id) if mp.owner_user_id else None,
             mapping_status=mp.status,

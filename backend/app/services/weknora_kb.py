@@ -30,6 +30,10 @@ from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient, WeKnor
 _STATUS_ACTIVE = "active"
 _STATUS_INIT_FAILED = "init_failed"
 
+# 个人 KB 的用户可读默认名（PBC-29）。懒创建路径（用户先上传、未显式建库）也用它，
+# 与迁移 0029 对既有 personal 映射的回填一致，保证个人 KB 始终有可读名称。
+DEFAULT_PERSONAL_KB_NAME = "我的知识库"
+
 
 def _kb_name(scope: str, owner_user_id: uuid.UUID | None, project_id: uuid.UUID | None) -> str:
     if scope == KnowledgeScope.personal.value:
@@ -80,8 +84,13 @@ async def resolve_or_create_kb(
     project_id: uuid.UUID | None,
     embedding_model_id: str,
     trace_id: str | None,
+    display_name: str | None = None,
 ) -> str:
     """取得（或懒创建 + 初始化）该 scope 实体的 weknora_kb_id。幂等；映射行独立提交。
+
+    `display_name`（PBC-29）：建库时作为 WeKnora `name`（让底座端也可读）并存入映射
+    `display_name` 列。为空时：personal scope 回退默认「我的知识库」；project / company
+    回退 slug（display_name 列留空，可读名另有来源）。命中既有映射不改名（改名走显式 API）。
 
     - 命中 active 映射：直接返回（不重复初始化）。
     - 命中 init_failed 映射：重试初始化（ensure-initialized），成功翻 active 后返回；失败 raise。
@@ -110,9 +119,15 @@ async def resolve_or_create_kb(
         await session.commit()
         return existing.weknora_kb_id
 
-    name = _kb_name(scope, owner_user_id, project_id)
+    slug = _kb_name(scope, owner_user_id, project_id)
+    # display_name：personal 必有（给定或默认）；project/company 留空。
+    effective_display = (display_name or "").strip() or None
+    if effective_display is None and scope == KnowledgeScope.personal.value:
+        effective_display = DEFAULT_PERSONAL_KB_NAME
+    # 底座 KB name 用可读名（有则用），否则用 slug（项目/公司懒创建路径）。
+    wk_name = effective_display or slug
     kb_id = await client.create_kb(
-        name=name, embedding_model_id=embedding_model_id, trace_id=trace_id
+        name=wk_name, embedding_model_id=embedding_model_id, trace_id=trace_id
     )
     # 建库后初始化模型配置；失败时不写成 active 假成功，而是持久化 init_failed 供重试。
     init_error: WeKnoraError | None = None
@@ -123,7 +138,8 @@ async def resolve_or_create_kb(
 
     mapping = WeknoraKbMapping(
         scope=scope, owner_user_id=owner_user_id, project_id=project_id,
-        weknora_kb_id=kb_id, embedding_model_id=embedding_model_id, kb_name=name,
+        weknora_kb_id=kb_id, embedding_model_id=embedding_model_id, kb_name=slug,
+        display_name=effective_display,
         status=_STATUS_ACTIVE if init_error is None else _STATUS_INIT_FAILED,
     )
     session.add(mapping)
