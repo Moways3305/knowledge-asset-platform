@@ -485,6 +485,32 @@ export async function fetchMyKnowledge(): Promise<KnowledgeCardVM[]> {
   return data.items.map(mapCard);
 }
 
+// ---- 个人知识库管理（PBC-29；owner-only，仅安全元数据，不含 weknora kb id / raw model id）----
+export interface PersonalKbDTO {
+  exists: boolean;
+  display_name?: string | null;
+  status?: string | null; // active / init_failed
+  knowledge_count?: number;
+  index_distribution?: Record<string, number>;
+  embedding_model_ref?: string | null;
+  created_at?: string | null;
+  weknora_sync_failed?: boolean;
+}
+
+const MYKB = "/api/v1/my/knowledge-base";
+
+export async function fetchMyKnowledgeBase(): Promise<PersonalKbDTO> {
+  return apiGet<PersonalKbDTO>(MYKB);
+}
+
+export async function createMyKnowledgeBase(displayName?: string): Promise<PersonalKbDTO> {
+  return apiPost<PersonalKbDTO>(MYKB, { display_name: displayName ?? null });
+}
+
+export async function renameMyKnowledgeBase(displayName: string): Promise<PersonalKbDTO> {
+  return apiPut<PersonalKbDTO>(MYKB, { display_name: displayName });
+}
+
 // 统一语义检索 / 问答。后端经权限网关裁剪、脱敏与审计，响应只含安全字段
 // （业务标识 + 安全摘要 + 相关度 + 脱敏引用），不含任何 WeKnora id / storage_ref / 原文全文。
 export async function searchKnowledge(input: SearchRequestDTO): Promise<SearchResponseDTO> {

@@ -47,6 +47,10 @@ class WeknoraKbMapping(Base):
     # 建库时固定的 embedding 模型 id（全平台统一；事后不可改）。
     embedding_model_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     kb_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # 用户可读名称（PBC-29）。personal KB 必有（创建时给定或回填「我的知识库」）；
+    # project / company KB 可空（项目名来自 projects 表，公司 KB 用固定文案）。
+    # 与 kb_name（slug 技术标识）解耦：改名只动 display_name，不动 slug。
+    display_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(

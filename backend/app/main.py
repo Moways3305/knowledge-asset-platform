@@ -25,6 +25,7 @@ from app.api import (
     original_access,
     people,
     permissions,
+    personal_kb,
     preview,
     projects,
     review,
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(knowledge.router)
     app.include_router(my_knowledge.router)
+    app.include_router(personal_kb.router)
     app.include_router(original_access.router)
     app.include_router(ingest.router)
     app.include_router(review.router)

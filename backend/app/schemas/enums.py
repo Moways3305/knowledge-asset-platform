@@ -369,6 +369,9 @@ class AuditAction(str, Enum):
     weknora_model_updated = "weknora.model_updated"
     weknora_model_deleted = "weknora.model_deleted"
     weknora_kb_config_updated = "weknora.kb_config_updated"
+    # 个人知识库管理（PBC-29）：显式创建 / 改名（仅安全元数据：可读名 + sync_ok，无 kb_id）。
+    config_personal_kb_created = "config.personal_kb_created"
+    config_personal_kb_updated = "config.personal_kb_updated"
     # 项目知识库（项目空间）创建。
     project_created = "project.created"
     config_alert_rule_updated = "config.alert_rule_updated"

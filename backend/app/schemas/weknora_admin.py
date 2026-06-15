@@ -100,6 +100,7 @@ class KbConfigOut(BaseModel):
     mapping_id: uuid.UUID
     scope: str
     kb_name: str
+    display_name: str | None = None  # 用户可读名称（PBC-29；personal KB 必有）
     project_name: str | None = None
     owner_name: str | None = None
     mapping_status: str
