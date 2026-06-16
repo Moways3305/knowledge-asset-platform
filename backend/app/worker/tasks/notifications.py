@@ -15,4 +15,8 @@ async def _run(maker, trace_id: str | None) -> None:
 
 @celery_app.task(name="notifications.dispatch_pending", bind=True)
 def dispatch_pending(self, trace_id: str | None = None) -> None:
-    run_task(lambda maker: _run(maker, trace_id))
+    run_task(
+        lambda maker: _run(maker, trace_id),
+        label="notifications.dispatch_pending",
+        trace_id=trace_id,
+    )

@@ -15,4 +15,4 @@ async def _run(maker, trace_id: str | None) -> None:
 
 @celery_app.task(name="lifecycle.archive_scan", bind=True)
 def archive_scan(self, trace_id: str | None = None) -> None:
-    run_task(lambda maker: _run(maker, trace_id))
+    run_task(lambda maker: _run(maker, trace_id), label="lifecycle.archive_scan", trace_id=trace_id)

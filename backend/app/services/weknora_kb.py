@@ -15,6 +15,7 @@ upload，**绝不**写进响应 / 审计 / 日志。模型 id 同为 server-only
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from sqlalchemy import select
@@ -30,9 +31,11 @@ from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient, WeKnor
 _STATUS_ACTIVE = "active"
 _STATUS_INIT_FAILED = "init_failed"
 
-# 个人 KB 的用户可读默认名（PBC-29）。懒创建路径（用户先上传、未显式建库）也用它，
+# 个人 KB 的用户可读默认名（个人知识库能力）。懒创建路径（用户先上传、未显式建库）也用它，
 # 与迁移 0029 对既有 personal 映射的回填一致，保证个人 KB 始终有可读名称。
 DEFAULT_PERSONAL_KB_NAME = "我的知识库"
+
+_logger = logging.getLogger(__name__)
 
 
 def _kb_name(scope: str, owner_user_id: uuid.UUID | None, project_id: uuid.UUID | None) -> str:
@@ -90,7 +93,7 @@ async def resolve_or_create_kb(
 ) -> str:
     """取得（或懒创建 + 初始化）该 scope 实体的 weknora_kb_id。幂等；映射行独立提交。
 
-    `display_name`（PBC-29）：建库时作为 WeKnora `name`（让底座端也可读）并存入映射
+    `display_name`（个人知识库能力）：建库时作为 WeKnora `name`（让底座端也可读）并存入映射
     `display_name` 列。为空时：personal scope 回退默认「我的知识库」；project / company
     回退 slug（display_name 列留空，可读名另有来源）。命中既有映射不改名（改名走显式 API）。
 
@@ -161,6 +164,11 @@ async def resolve_or_create_kb(
             # 既有映射仍 init_failed：让本次按失败处理（调用方可重试 ensure-initialized）。
             raise WeKnoraError("weknora_init_failed", "知识库模型初始化未完成") from init_error
         raise
+    # 仅记 scope + 初始化结果；**绝不**记 weknora_kb_id（server-only）。
+    _logger.info(
+        "kb_created",
+        extra={"scope": scope, "status": "active" if init_error is None else "init_failed"},
+    )
     if init_error is not None:
         # 映射已落库为 init_failed，抛出让调用方标 index_failed（资产不回滚）。
         raise init_error

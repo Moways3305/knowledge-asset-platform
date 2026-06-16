@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, replace
 
 from app.models.identity import User
@@ -52,6 +53,8 @@ _INACTIVE_ASSET_STATUSES = {
 }
 # 需要脱敏摘要的保密级别。
 _REDACTED_SUMMARY_LEVELS = {ConfidentialityLevel.L3.value, ConfidentialityLevel.L4.value}
+
+_logger = logging.getLogger(__name__)
 
 
 def build_caller_context(user: User) -> CallerContext:
@@ -291,6 +294,16 @@ def decide(
                 summary_variant=None,
             )
         is_original = layer == AccessLayer.original
+        # DEBUG：仅记 layer / source 等枚举（无业务正文 / 标题）。
+        _logger.debug(
+            "permission_decision",
+            extra={
+                "allowed": True,
+                "requested_layer": layer.value,
+                "allowed_layer": profile.max_layer.value if profile.max_layer else None,
+                "source": profile.source.value,
+            },
+        )
         return PermissionDecision(
             allowed=True,
             requested_layer=layer,
@@ -306,6 +319,14 @@ def decide(
         )
 
     # 被拒：allowed_layer 表示可达最高层级（便于调用方理解差距）。
+    _logger.debug(
+        "permission_decision",
+        extra={
+            "allowed": False,
+            "requested_layer": layer.value,
+            "denied_reason": profile.exceed_reason.value,
+        },
+    )
     return PermissionDecision(
         allowed=False,
         requested_layer=layer,

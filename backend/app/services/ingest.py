@@ -7,6 +7,7 @@ create_upload → 确定性 AI 建议占位 → get_ai_result（按权限裁剪�
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -57,6 +58,8 @@ from app.worker.enqueue import enqueue_ingest_processing
 if TYPE_CHECKING:
     # 运行时延迟到函数体内导入（避免与 schemas.ingest 的环依赖），此处仅供类型标注。
     from app.schemas.ingest import IngestParseRefreshResponse
+
+_logger = logging.getLogger(__name__)
 
 _REDACTED_LEVELS = {ConfidentialityLevel.L3.value, ConfidentialityLevel.L4.value}
 
@@ -483,6 +486,14 @@ async def confirm(
             trace_id=trace_id,
         )
 
+    # 仅记 asset_id（UUID）+ 安全索引状态；绝不记原文 / extracted_text / kb·doc id。
+    _logger.info(
+        "ingest_confirmed",
+        extra={
+            "asset_id": str(result_asset_id) if result_asset_id else None,
+            "index_status": index_status,
+        },
+    )
     return IngestConfirmResponse(
         task_id=response_task_id,
         status=response_status,

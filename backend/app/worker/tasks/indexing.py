@@ -26,4 +26,8 @@ async def _run(maker, job_id_str: str, trace_id: str | None) -> None:
 @celery_app.task(name="indexing.run_operation_job", bind=True)
 def run_indexing_operation(self, job_id_str: str, trace_id: str | None = None) -> None:
     """异步执行一个索引运维作业（worker 进程内自建 loop-local 会话/客户端）。"""
-    run_task(lambda maker: _run(maker, job_id_str, trace_id))
+    run_task(
+        lambda maker: _run(maker, job_id_str, trace_id),
+        label="indexing.run_operation_job",
+        trace_id=trace_id,
+    )

@@ -12,6 +12,7 @@ storage_ref / source_file_ref / URL / token / WeKnora id / provider 内部标识
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
@@ -46,6 +47,8 @@ from app.schemas.permission import AccessLayer, CallerContext
 from app.services import audit as audit_service
 from app.services.permission import build_caller_context, decide
 from app.services.permission_rules import access_request_timeout_hours, load_access_policy
+
+_logger = logging.getLogger(__name__)
 
 _MANAGEMENT_ROLES = {ProjectRole.project_manager.value, ProjectRole.coach.value}
 _DEFAULT_GRANT_DAYS = 7
@@ -516,6 +519,14 @@ async def approve_request(
         },
         project_id=asset.project_id,
     )
+    _logger.info(
+        "original_access_approved",
+        extra={
+            "asset_id": str(asset.id),
+            "request_id": str(req.id),
+            "grantee_user_id": str(req.requester_user_id),
+        },
+    )
     await session.commit()
     return CreateRequestResponse(
         status="approved",
@@ -554,6 +565,10 @@ async def reject_request(
         after={"status": req.status},
         extra={"asset_id": str(asset.id), "requester_user_id": str(req.requester_user_id)},
         project_id=asset.project_id,
+    )
+    _logger.info(
+        "original_access_rejected",
+        extra={"asset_id": str(asset.id), "request_id": str(req.id)},
     )
     await session.commit()
     return CreateRequestResponse(
@@ -617,6 +632,10 @@ async def revoke_grant(
             "self_revoke": self_revoke,
         },
         project_id=asset.project_id,
+    )
+    _logger.info(
+        "original_access_grant_revoked",
+        extra={"asset_id": str(asset.id), "grant_id": str(grant.id), "self_revoke": self_revoke},
     )
     await session.commit()
     return _grant_out(grant)

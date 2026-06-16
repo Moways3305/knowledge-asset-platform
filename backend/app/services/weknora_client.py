@@ -17,11 +17,23 @@ dev/降级：`WEKNORA_BASE_URL` 或 `WEKNORA_API_KEY` 未配置 → `weknora_ena
 from __future__ import annotations
 
 import json
+import logging
+import time
 from typing import Any
 
 import httpx
 
 from app.core.config import get_settings
+
+_logger = logging.getLogger(__name__)
+
+
+def _resource_of(path: str) -> str:
+    """仅取 URL 的**首层资源名**（REST 中首段恒为资源、绝不是 id），其余段（可能含
+    weknora_kb_id / knowledge_id 等 server-only 标识）一律不入日志。例如
+    `/knowledge-bases/wk-kb-x/files` → `/knowledge-bases`、`/models/uuid` → `/models`。"""
+    segs = [s for s in path.split("/") if s]
+    return "/" + segs[0] if segs else "/"
 
 
 class WeKnoraError(Exception):
@@ -98,10 +110,20 @@ class WeKnoraClient:
             payload["embedding_model_id"] = embedding_model_id
         if summary_model_id:
             payload["summary_model_id"] = summary_model_id
+        start = time.perf_counter()
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(
                 f"{self._base}/knowledge-bases", json=payload, headers=self._headers(trace_id)
             )
+        _logger.info(
+            "weknora_call",
+            extra={
+                "method": "POST",
+                "resource": "/knowledge-bases",
+                "status": resp.status_code,
+                "latency_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
         data = self._unwrap(resp)
         kb_id = data.get("id")
         if not kb_id:
@@ -126,7 +148,7 @@ class WeKnoraClient:
         """改 KB 名称 / 描述（`PUT /knowledge-bases/:id`）。
 
         只发送 name / description；**不**开放 chunking_config / storage_config 等底层配置
-        （风险高，留给 admin 后续任务）。错误经 `_unwrap` 抛结构化 `WeKnoraError`，不含 api_key。
+        （风险高，由专门的底座配置入口管理）。错误经 `_unwrap` 抛结构化 `WeKnoraError`，不含 api_key。
         """
         payload: dict[str, Any] = {}
         if name is not None:
@@ -209,6 +231,7 @@ class WeKnoraClient:
             form["metadata"] = json.dumps(metadata, ensure_ascii=False)
         if channel:
             form["channel"] = channel
+        start = time.perf_counter()
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(
                 f"{self._base}/knowledge-bases/{kb_id}/knowledge/file",
@@ -216,6 +239,15 @@ class WeKnoraClient:
                 data=form,
                 headers=self._headers(trace_id),
             )
+        _logger.info(
+            "weknora_call",
+            extra={
+                "method": "POST",
+                "resource": "/knowledge-bases/{kb_id}/knowledge/file",  # 静态模板，无真实 id
+                "status": resp.status_code,
+                "latency_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
         return self._unwrap(resp)
 
     async def get_knowledge(
@@ -369,10 +401,20 @@ class WeKnoraClient:
         json: dict[str, Any] | None = None,
         trace_id: str | None = None,
     ) -> Any:
+        start = time.perf_counter()
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.request(
                 method, f"{self._base}{path}", json=json, headers=self._headers(trace_id)
             )
+        _logger.info(
+            "weknora_call",
+            extra={
+                "method": method,
+                "resource": _resource_of(path),  # 仅资源名，绝不含 kb/doc id
+                "status": resp.status_code,
+                "latency_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
         return self._unwrap(resp)
 
     async def list_model_providers(

@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -33,6 +34,8 @@ SESSION_COOKIE_NAME = "kap_session"
 SESSION_TTL_HOURS = 12
 # 本地无凭证登录适配器仅在开发环境开放（真实 OAuth 接入前的占位）。
 LOGIN_ALLOWED_ENVS = DEV_IDENTITY_ALLOWED_ENVS
+
+_logger = logging.getLogger(__name__)
 
 
 def _now() -> datetime:
@@ -72,6 +75,8 @@ async def create_session(
     )
     session.add(sess)
     await session.flush()
+    # 仅记 user_id（UUID）+ 登录方式；绝不记 token / token_hash / raw IP / device。
+    _logger.info("session_created", extra={"user_id": str(user.id), "login_method": login_method})
     return raw_token
 
 
@@ -126,6 +131,7 @@ async def revoke_session(session: AsyncSession, raw_token: str | None) -> bool:
     if row is None or row.revoked_at is not None:
         return False
     row.revoked_at = _now()
+    _logger.info("session_revoked", extra={"user_id": str(row.user_id)})
     return True
 
 
@@ -168,6 +174,8 @@ async def login_with_password(session: AsyncSession, *, email: str, password: st
         raise _InvalidCredentials(user_id=user.id)
     if user.status != "active":
         raise _InvalidCredentials(user_id=user.id)
+    # 仅记 user_id（UUID）；绝不记 email / password / hash。
+    _logger.info("login_password_success", extra={"user_id": str(user.id)})
     return user
 
 
