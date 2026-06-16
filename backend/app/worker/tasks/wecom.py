@@ -31,16 +31,30 @@ async def _run(maker, config_id: str, record_id: str | None, trace_id: str | Non
             record = await session.get(WecomScanRecord, uuid.UUID(record_id))
             if config is not None and record is not None:
                 await wecom_scan.run_scan(
-                    session, config, record, drive=drive, storage=storage, llm=llm,
-                    desensitizer=desensitizer, trace_id=trace_id, actor_caller=None,
+                    session,
+                    config,
+                    record,
+                    drive=drive,
+                    storage=storage,
+                    llm=llm,
+                    desensitizer=desensitizer,
+                    trace_id=trace_id,
+                    actor_caller=None,
                 )
         else:
             await wecom_scan.scan_config_by_id(
-                session, uuid.UUID(config_id), drive=drive, storage=storage, llm=llm,
-                desensitizer=desensitizer, trace_id=trace_id,
+                session,
+                uuid.UUID(config_id),
+                drive=drive,
+                storage=storage,
+                llm=llm,
+                desensitizer=desensitizer,
+                trace_id=trace_id,
             )
 
 
 @celery_app.task(name="wecom.drive_scan", bind=True)
-def drive_scan(self, config_id: str, record_id: str | None = None, trace_id: str | None = None) -> None:
+def drive_scan(
+    self, config_id: str, record_id: str | None = None, trace_id: str | None = None
+) -> None:
     run_task(lambda maker: _run(maker, config_id, record_id, trace_id))

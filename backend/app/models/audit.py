@@ -1,4 +1,4 @@
-﻿"""审计日志 ORM 模型。
+"""审计日志 ORM 模型。
 
 仅一张表 `audit_events`。
 （`asset_lifecycle_events` / `alert_rules` / `notification_records` 由各自模块定义。）
@@ -66,13 +66,10 @@ class AuditEvent(Base):
     processed_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id"), nullable=True
     )
-    processed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(50), nullable=True)
     device_info: Mapped[str | None] = mapped_column(String(500), nullable=True)
     login_result: Mapped[str | None] = mapped_column(String(20), nullable=True)
     trace_id: Mapped[str] = mapped_column(String(100), nullable=False)
     extra: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-

@@ -1,4 +1,4 @@
-﻿"""索引批量运维服务：批量 retry-index / 显式 reparse 作业的创建、入队与查询。
+"""索引批量运维服务：批量 retry-index / 显式 reparse 作业的创建、入队与查询。
 
 权限沿用 ops viewer 边界：系统 admin 或业务治理角色（boss / 咨询总监）可发起。
 纯 admin 可做底座运维但**绝不**因此获得业务原文 / 标题读取权——作业只读 server-side 字节
@@ -35,7 +35,9 @@ _RECENT_JOBS_LIMIT = 20
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(status_code=status_code, detail={"denied_reason": reason, "message": message})
+    return HTTPException(
+        status_code=status_code, detail={"denied_reason": reason, "message": message}
+    )
 
 
 def _require_ops_viewer(caller: CallerContext) -> None:
@@ -88,9 +90,13 @@ async def _create_and_run(
     job_id = job.id
 
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=requested_action.value, trace_id=trace_id,
-        target_type="indexing_operation_job", target_id=job_id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=requested_action.value,
+        trace_id=trace_id,
+        target_type="indexing_operation_job",
+        target_id=job_id,
         extra={"job_id": str(job_id), "operation_type": operation_type, "filters": scope_filter},
     )
     await session.commit()
@@ -101,9 +107,7 @@ async def _create_and_run(
     )
     # 重新载入 job 拿最终（或 queued）状态构建安全摘要。
     job = (
-        await session.execute(
-            select(IndexingOperationJob).where(IndexingOperationJob.id == job_id)
-        )
+        await session.execute(select(IndexingOperationJob).where(IndexingOperationJob.id == job_id))
     ).scalar_one()
     name = await _requester_name(session, job.requested_by_user_id)
     return _job_summary(job, name)
@@ -131,10 +135,14 @@ async def create_retry_job(
         "limit": _clamp_limit(req.limit),
     }
     return await _create_and_run(
-        session, caller,
-        operation_type="retry_index", scope_filter=scope_filter,
+        session,
+        caller,
+        operation_type="retry_index",
+        scope_filter=scope_filter,
         requested_action=AuditAction.knowledge_index_batch_retry_requested,
-        weknora=weknora, storage=storage, trace_id=trace_id,
+        weknora=weknora,
+        storage=storage,
+        trace_id=trace_id,
     )
 
 
@@ -151,9 +159,10 @@ async def create_reparse_job(
     _require_ops_viewer(caller)
     scope = _safe_scope(req.scope)
     project_id = _resolve_project_id(scope, req.project_id)
-    parse_statuses = [
-        s for s in req.parse_statuses if s in REPARSABLE_PARSE_STATUSES
-    ] or ["failed", "pending"]
+    parse_statuses = [s for s in req.parse_statuses if s in REPARSABLE_PARSE_STATUSES] or [
+        "failed",
+        "pending",
+    ]
     scope_filter = {
         "scope": scope,
         "project_id": str(project_id) if project_id else None,
@@ -161,10 +170,14 @@ async def create_reparse_job(
         "limit": _clamp_limit(req.limit),
     }
     return await _create_and_run(
-        session, caller,
-        operation_type="reparse", scope_filter=scope_filter,
+        session,
+        caller,
+        operation_type="reparse",
+        scope_filter=scope_filter,
         requested_action=AuditAction.knowledge_index_reparse_requested,
-        weknora=weknora, storage=storage, trace_id=trace_id,
+        weknora=weknora,
+        storage=storage,
+        trace_id=trace_id,
     )
 
 
@@ -178,7 +191,9 @@ async def list_jobs(session: AsyncSession, caller: CallerContext) -> IndexingJob
                 .order_by(IndexingOperationJob.requested_at.desc())
                 .limit(_RECENT_JOBS_LIMIT)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     ids = {j.requested_by_user_id for j in jobs if j.requested_by_user_id}
     names: dict[uuid.UUID, str] = {}
@@ -187,16 +202,17 @@ async def list_jobs(session: AsyncSession, caller: CallerContext) -> IndexingJob
             await session.execute(select(User.id, User.name).where(User.id.in_(ids)))
         ).all():
             names[uid] = uname
-    items = [_job_summary(j, names.get(j.requested_by_user_id) if j.requested_by_user_id else None) for j in jobs]
+    items = [
+        _job_summary(j, names.get(j.requested_by_user_id) if j.requested_by_user_id else None)
+        for j in jobs
+    ]
     return IndexingJobListResponse(items=items, total=len(items))
 
 
 async def _requester_name(session: AsyncSession, user_id: uuid.UUID | None) -> str | None:
     if user_id is None:
         return None
-    return (
-        await session.execute(select(User.name).where(User.id == user_id))
-    ).scalar_one_or_none()
+    return (await session.execute(select(User.name).where(User.id == user_id))).scalar_one_or_none()
 
 
 def _job_summary(job: IndexingOperationJob, name: str | None) -> IndexingJobSummary:
@@ -217,4 +233,3 @@ def _job_summary(job: IndexingOperationJob, name: str | None) -> IndexingJobSumm
         error_message=job.error_message,
         trace_id=job.trace_id,
     )
-

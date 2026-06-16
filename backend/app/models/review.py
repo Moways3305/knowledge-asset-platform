@@ -1,4 +1,4 @@
-﻿"""审核域 ORM 模型。
+"""审核域 ORM 模型。
 
 包含：validation_evidences（验证证据）/ review_tasks（审核任务）/
 review_task_evidences（任务-证据关联）/ personal_knowledge_submissions（个人知识提交记录）。
@@ -48,12 +48,8 @@ class ValidationEvidence(Base):
     related_asset_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("knowledge_assets.id"), nullable=False
     )
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("projects.id"), nullable=False
-    )
-    submitted_by: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id"), nullable=False
-    )
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("projects.id"), nullable=False)
+    submitted_by: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 占位 metadata 列表，不含真实文件路径/下载 URL。
     attachments: Mapped[list | None] = mapped_column(JSON, nullable=True)
@@ -90,9 +86,7 @@ class ReviewTask(Base):
         Uuid, ForeignKey("users.id"), nullable=True
     )
     review_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
-    reviewed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
@@ -120,13 +114,18 @@ class PersonalKnowledgeSubmission(Base):
     __table_args__ = (
         Index(
             "uq_pks_idempotency",
-            "submitter_user_id", "source_asset_id", "submission_type",
-            "target_project_id", "idempotency_key",
+            "submitter_user_id",
+            "source_asset_id",
+            "submission_type",
+            "target_project_id",
+            "idempotency_key",
             unique=True,
             sqlite_where=text("idempotency_key IS NOT NULL"),
             postgresql_where=text("idempotency_key IS NOT NULL"),
         ),
-        Index("ix_pks_asset_project_type", "source_asset_id", "target_project_id", "submission_type"),
+        Index(
+            "ix_pks_asset_project_type", "source_asset_id", "target_project_id", "submission_type"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -162,9 +161,7 @@ class ReviewTaskEvidence(Base):
     """审核任务与证据的关联（N:N）。"""
 
     __tablename__ = "review_task_evidences"
-    __table_args__ = (
-        UniqueConstraint("review_task_id", "evidence_id", name="uq_review_evidence"),
-    )
+    __table_args__ = (UniqueConstraint("review_task_id", "evidence_id", name="uq_review_evidence"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     review_task_id: Mapped[uuid.UUID] = mapped_column(
@@ -176,4 +173,3 @@ class ReviewTaskEvidence(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     review_task: Mapped[ReviewTask] = relationship(back_populates="evidence_links")
-

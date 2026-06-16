@@ -1,4 +1,4 @@
-﻿"""`/api/v1/auth/me` 响应 schema。
+"""`/api/v1/auth/me` 响应 schema。
 
 字段为身份上下文（`/auth/me`）响应。
 """
@@ -68,4 +68,3 @@ class AuthMeOut(BaseModel):
     is_business_user: bool
     can_discover_l5: bool
     project_memberships: list[ProjectMembershipOut]
-

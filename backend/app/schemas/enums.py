@@ -1,4 +1,4 @@
-﻿"""身份与项目相关的枚举定义。
+"""身份与项目相关的枚举定义。
 
 枚举值（key）严格沿用 `docs/backend/01-数据模型DATA_MODEL.md` 的英文技术 key，
 不做本地化翻译。仅在注释中用中文解释边界含义。
@@ -543,4 +543,3 @@ class IngestStatus(str, Enum):
     waiting_review = "waiting_review"
     completed = "completed"
     failed = "failed"
-

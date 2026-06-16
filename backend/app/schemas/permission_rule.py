@@ -1,4 +1,4 @@
-﻿"""权限规则配置中心的请求 / 响应 schema。
+"""权限规则配置中心的请求 / 响应 schema。
 
 只暴露**安全治理元数据**：规则 key / 分组 / 类型 / 取值 / 默认值 / 单位 / 说明 /
 是否可编辑 / 最后修改人（仅 id + 安全显示名）。**绝不**含任何 secret /
@@ -55,4 +55,3 @@ class PermissionRuleUpdateRequest(BaseModel):
     value_number: float | None = None
     value_text: str | None = None
     enabled: bool | None = None
-

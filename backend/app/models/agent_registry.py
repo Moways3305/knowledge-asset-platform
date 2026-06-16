@@ -1,4 +1,4 @@
-﻿"""外部 Agent 接入注册 ORM 模型（provider 中立，抽象收口）。
+"""外部 Agent 接入注册 ORM 模型（provider 中立，抽象收口）。
 
 一张表 `agent_whitelist_rules`（语义为
 **外部 Agent 接入注册与 capability 边界**，非"逐 Agent 手工名单"）。`provider` 列区分
@@ -61,4 +61,3 @@ class AgentWhitelistRule(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
     )
-

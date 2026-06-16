@@ -1,4 +1,4 @@
-﻿"""知识资产核心 ORM 模型。
+"""知识资产核心 ORM 模型。
 
 落地 6 张表：knowledge_assets / knowledge_asset_versions / knowledge_asset_chunks /
 knowledge_asset_file_objects / knowledge_asset_summaries / knowledge_asset_tags。
@@ -59,9 +59,7 @@ class KnowledgeAsset(Base):
     zone: Mapped[str] = mapped_column(String(20), nullable=False, default="material")
     asset_type: Mapped[str] = mapped_column(String(30), nullable=False)
 
-    owner_user_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id"), nullable=False
-    )
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
     maintainer_user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id"), nullable=True
     )
@@ -76,31 +74,19 @@ class KnowledgeAsset(Base):
     # UUID 列保存（不建 DB 级外键），其一致性由服务层维护。
     current_version_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
 
-    visibility: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="project_only"
-    )
-    confidentiality_level: Mapped[str] = mapped_column(
-        String(2), nullable=False, default="L1"
-    )
+    visibility: Mapped[str] = mapped_column(String(20), nullable=False, default="project_only")
+    confidentiality_level: Mapped[str] = mapped_column(String(2), nullable=False, default="L1")
     ai_access_level: Mapped[str] = mapped_column(String(2), nullable=False, default="A1")
-    asset_status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="active"
-    )
+    asset_status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
 
     lifecycle_route_key: Mapped[str | None] = mapped_column(String(20), nullable=True)
     lifecycle_phase_key: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
-    last_called_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    archived_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    last_called_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archive_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 受控删除 / 撤下追溯。
-    deleted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id"), nullable=True
     )
@@ -167,17 +153,13 @@ class KnowledgeAssetVersion(Base):
         Uuid, ForeignKey("knowledge_assets.id"), nullable=False
     )
     version_no: Mapped[str] = mapped_column(String(20), nullable=False)
-    version_status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="draft"
-    )
+    version_status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
     # 内容指纹：哈希仅用于重复识别/变化检测，不能据此自动判定政策失效。
     file_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     version_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     source_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     change_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_by: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id"), nullable=False
-    )
+    created_by: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
     supersedes_version_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("knowledge_asset_versions.id"), nullable=True
     )
@@ -198,17 +180,11 @@ class KnowledgeAssetVersion(Base):
     )
     index_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     index_error_message: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    indexed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-    activated_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    asset: Mapped[KnowledgeAsset] = relationship(
-        back_populates="versions", foreign_keys=[asset_id]
-    )
+    asset: Mapped[KnowledgeAsset] = relationship(back_populates="versions", foreign_keys=[asset_id])
     chunks: Mapped[list[KnowledgeAssetChunk]] = relationship(
         back_populates="version",
         foreign_keys="KnowledgeAssetChunk.version_id",
@@ -255,24 +231,18 @@ class KnowledgeAssetChunk(Base):
     content_text: Mapped[str] = mapped_column(Text, nullable=False)
     token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     chunk_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    chunk_status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="active"
-    )
+    chunk_status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     invalid_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     invalidated_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id"), nullable=True
     )
-    invalidated_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    invalidated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     replaced_by_chunk_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("knowledge_asset_chunks.id"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
-    asset: Mapped[KnowledgeAsset] = relationship(
-        back_populates="chunks", foreign_keys=[asset_id]
-    )
+    asset: Mapped[KnowledgeAsset] = relationship(back_populates="chunks", foreign_keys=[asset_id])
     version: Mapped[KnowledgeAssetVersion] = relationship(
         back_populates="chunks", foreign_keys=[version_id]
     )
@@ -351,9 +321,7 @@ class KnowledgeAssetTag(Base):
     """知识资产标签。"""
 
     __tablename__ = "knowledge_asset_tags"
-    __table_args__ = (
-        UniqueConstraint("asset_id", "tag_name", name="uq_asset_tag_name"),
-    )
+    __table_args__ = (UniqueConstraint("asset_id", "tag_name", name="uq_asset_tag_name"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     asset_id: Mapped[uuid.UUID] = mapped_column(
@@ -363,4 +331,3 @@ class KnowledgeAssetTag(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     asset: Mapped[KnowledgeAsset] = relationship(back_populates="tags")
-

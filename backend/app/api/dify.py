@@ -1,4 +1,4 @@
-﻿"""Dify **兼容适配器** 路由。
+"""Dify **兼容适配器** 路由。
 
 平台核心是 provider 中立的外部 Agent / 工作流网关
 （`app/services/external_agent_gateway.py`）。本文件只做 **Dify 专属的线缆转译**：
@@ -60,7 +60,9 @@ def _bearer(authorization: str | None) -> str | None:
 
 def _dify_err(status_code: int, error_code: int, error_msg: str) -> JSONResponse:
     """Dify External Knowledge API 错误格式（顶层 error_code / error_msg）。"""
-    return JSONResponse(status_code=status_code, content={"error_code": error_code, "error_msg": error_msg})
+    return JSONResponse(
+        status_code=status_code, content={"error_code": error_code, "error_msg": error_msg}
+    )
 
 
 def _caller_id_from(req: DifyExternalRequest, header_user_id: str | None) -> uuid.UUID | None:
@@ -94,7 +96,9 @@ async def dify_external_retrieval(
     # 鉴权：Bearer 格式 → 启用注册行 → capability。失败绝不记录 token。
     token = _bearer(authorization)
     if token is None:
-        return _dify_err(403, 1001, "Invalid Authorization header format. Expected 'Bearer <api-key>' format.")
+        return _dify_err(
+            403, 1001, "Invalid Authorization header format. Expected 'Bearer <api-key>' format."
+        )
     rule = await agent_registry.lookup_enabled_rule(session, token)
     if rule is None or rule.capability != _REQUIRED_CAPABILITY:
         return _dify_err(403, 1002, "Authorization failed")
@@ -106,10 +110,16 @@ async def dify_external_retrieval(
 
     # Dify 适配：knowledge_id → 中立知识选择器；网关返回中立 records。
     records = await gateway.run_retrieval(
-        session, caller, rule,
-        knowledge_selector=req.knowledge_id, query=req.query,
-        top_k=req.retrieval_setting.top_k, score_threshold=req.retrieval_setting.score_threshold,
-        weknora=weknora, llm=llm, trace_id=trace_id,
+        session,
+        caller,
+        rule,
+        knowledge_selector=req.knowledge_id,
+        query=req.query,
+        top_k=req.retrieval_setting.top_k,
+        score_threshold=req.retrieval_setting.score_threshold,
+        weknora=weknora,
+        llm=llm,
+        trace_id=trace_id,
     )
     if records is None:
         return _dify_err(404, 2001, "The knowledge does not exist")
@@ -129,12 +139,20 @@ async def require_qa_registry(
 
     token = _bearer(authorization)
     if token is None:
-        raise HTTPException(401, detail={"denied_reason": "agent_unauthenticated", "message": "缺少或非法 Bearer token"})
+        raise HTTPException(
+            401,
+            detail={"denied_reason": "agent_unauthenticated", "message": "缺少或非法 Bearer token"},
+        )
     rule = await agent_registry.lookup_enabled_rule(session, token)
     if rule is None:
-        raise HTTPException(403, detail={"denied_reason": "agent_not_whitelisted", "message": "接入未注册或未启用"})
+        raise HTTPException(
+            403, detail={"denied_reason": "agent_not_whitelisted", "message": "接入未注册或未启用"}
+        )
     if rule.capability != _REQUIRED_CAPABILITY:
-        raise HTTPException(403, detail={"denied_reason": "agent_capability_denied", "message": "该接入未启用 qa 能力"})
+        raise HTTPException(
+            403,
+            detail={"denied_reason": "agent_capability_denied", "message": "该接入未启用 qa 能力"},
+        )
     return rule
 
 
@@ -153,25 +171,51 @@ async def dify_tool_search(
     # Agent 调用只能由有效业务用户发起；绝不以 admin / system / provider 身份检索。
     caller = await gateway.resolve_caller(session, req.caller_user_id)
     if caller is None or not caller.is_business_user:
-        raise HTTPException(403, detail={"denied_reason": "caller_unresolved", "message": "调用人身份无法解析或非业务用户"})
+        raise HTTPException(
+            403,
+            detail={
+                "denied_reason": "caller_unresolved",
+                "message": "调用人身份无法解析或非业务用户",
+            },
+        )
 
     # 注册行 scope 天花板：请求 scope 与 allowed_scope 冲突 → 拒绝（绝不落回 all）。
     if not gateway.tool_scope_allowed(rule, req.scope):
-        raise HTTPException(403, detail={"denied_reason": "agent_scope_denied", "message": "请求范围超出该接入允许的 scope"})
+        raise HTTPException(
+            403,
+            detail={
+                "denied_reason": "agent_scope_denied",
+                "message": "请求范围超出该接入允许的 scope",
+            },
+        )
     # 项目锁定的注册行：统一 search 无法安全收口到单一项目（project scope 跨全部所在项目），
     # 故 fail closed，绝不跑更宽的 project/all 检索。
     if rule.allowed_project_id is not None:
-        raise HTTPException(403, detail={"denied_reason": "agent_scope_denied", "message": "项目锁定接入请改用 external-knowledge 端点（project:<id>）"})
+        raise HTTPException(
+            403,
+            detail={
+                "denied_reason": "agent_scope_denied",
+                "message": "项目锁定接入请改用 external-knowledge 端点（project:<id>）",
+            },
+        )
 
     search_req = SearchRequest(
-        query=req.query, scope=req.scope, intent=req.intent,
+        query=req.query,
+        scope=req.scope,
+        intent=req.intent,
         filters=SearchFilters(**req.filters.model_dump()),
-        want_original=req.want_original, asset_id=req.asset_id,
+        want_original=req.want_original,
+        asset_id=req.asset_id,
     )
     # channel=agent：Agent 渠道边界（A4 原文降级等）生效。
     return await search_service.run_search(
-        session, caller, search_req,
-        weknora=weknora, llm=llm, trace_id=get_trace_id(request), channel=AccessChannel.agent,
+        session,
+        caller,
+        search_req,
+        weknora=weknora,
+        llm=llm,
+        trace_id=get_trace_id(request),
+        channel=AccessChannel.agent,
     )
 
 
@@ -194,7 +238,9 @@ async def create_agent_whitelist(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> RegistryCreateResponse:
-    result: RegistryCreateResponse = await agent_registry.create_rule(session, caller, req, get_trace_id(request))
+    result: RegistryCreateResponse = await agent_registry.create_rule(
+        session, caller, req, get_trace_id(request)
+    )
     return result
 
 
@@ -206,6 +252,7 @@ async def update_agent_whitelist(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> RegistryCreateResponse:
-    result: RegistryCreateResponse = await agent_registry.update_rule(session, caller, rule_id, req, get_trace_id(request))
+    result: RegistryCreateResponse = await agent_registry.update_rule(
+        session, caller, rule_id, req, get_trace_id(request)
+    )
     return result
-

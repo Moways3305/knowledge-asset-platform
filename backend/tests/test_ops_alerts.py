@@ -30,7 +30,9 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-async def _set_rule(session, name: str, *, threshold: float | None = None, enabled: bool | None = None):
+async def _set_rule(
+    session, name: str, *, threshold: float | None = None, enabled: bool | None = None
+):
     """调整某条告警规则（测试前先确保默认规则已落库）。"""
     await alert_service.ensure_default_rules(session)
     rule = (
@@ -53,7 +55,9 @@ async def _mark_index_failed(session, n: int, *, code: str = "weknora_upload_fai
                 .where(KnowledgeAssetVersion.version_status == "active")
                 .limit(n)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     assert len(versions) >= n, "seed 活跃版本不足"
     for v in versions:
@@ -71,7 +75,9 @@ async def _active_versions(session, n: int) -> list[KnowledgeAssetVersion]:
                 .where(KnowledgeAssetVersion.version_status == "active")
                 .limit(n)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     assert len(rows) >= n, "seed 活跃版本不足"
     return rows
@@ -86,7 +92,9 @@ async def _notifications(session, title: str, recipient=None) -> list[Notificati
 
 async def _audit_events(session, action: str = AUDIT_ACTION) -> list[AuditEvent]:
     return list(
-        (await session.execute(select(AuditEvent).where(AuditEvent.action == action))).scalars().all()
+        (await session.execute(select(AuditEvent).where(AuditEvent.action == action)))
+        .scalars()
+        .all()
     )
 
 
@@ -223,9 +231,7 @@ async def test_resend_after_cooldown_expiry(db_session):
 
     await ops_alerts.scan_ops_alerts(db_session, trace_id="t-1")
     # 冷却期默认 360 分钟；7 小时后再扫 → 重发。
-    await ops_alerts.scan_ops_alerts(
-        db_session, trace_id="t-2", now=_now() + timedelta(hours=7)
-    )
+    await ops_alerts.scan_ops_alerts(db_session, trace_id="t-2", now=_now() + timedelta(hours=7))
 
     notifs = await _notifications(db_session, ops_alerts.TITLE_INDEX_FAILED, USER_ADMIN_ONLY)
     assert len(notifs) == 2
@@ -284,7 +290,9 @@ async def test_notification_and_audit_no_leak(db_session):
                     )
                 )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     assert notifs
     events = await _audit_events(db_session)
@@ -293,13 +301,13 @@ async def test_notification_and_audit_no_leak(db_session):
     blobs = [f"{n.title}\n{n.content}" for n in notifs]
     blobs += [str(e.extra) for e in events]
     forbidden = [
-        "哨兵",            # 资产标题
-        "@dev.local",      # email
-        "a" * 12,          # identifier_hash 及其前缀
-        "b" * 12,          # ip_hash 及其前缀
-        "wk-kb",           # weknora kb id（seed 形态）
-        "wk-doc",          # weknora doc id
-        "storage",         # storage ref 类
+        "哨兵",  # 资产标题
+        "@dev.local",  # email
+        "a" * 12,  # identifier_hash 及其前缀
+        "b" * 12,  # ip_hash 及其前缀
+        "wk-kb",  # weknora kb id（seed 形态）
+        "wk-doc",  # weknora doc id
+        "storage",  # storage ref 类
         "download_url",
     ]
     for blob in blobs:
@@ -368,6 +376,8 @@ async def test_scan_without_signals_is_quiet(db_session):
             await db_session.execute(
                 select(NotificationRecord).where(NotificationRecord.title.in_(all_ops_titles))
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     assert rows == []

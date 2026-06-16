@@ -1,4 +1,4 @@
-﻿"""作业入队工具。
+"""作业入队工具。
 
 把"入队"与"执行"解耦，便于：
 - eager 模式（默认/本地/测试，无 worker）：在**当前事件循环/会话内联同步执行**，
@@ -63,4 +63,3 @@ async def enqueue_indexing_operation(
 
     run_indexing_operation.delay(str(job_id), trace_id)
     return "queued"
-

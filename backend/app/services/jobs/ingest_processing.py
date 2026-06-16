@@ -1,4 +1,4 @@
-﻿"""异步入库处理作业。
+"""异步入库处理作业。
 
 把"抽取 + 内容处理 + 写 ai_result + 推进状态"从请求路径迁出。`create_upload`
 只持久化字节 + 建 `ingest_tasks`（status=processing）+ 入队；本作业完成重活。
@@ -64,7 +64,9 @@ async def _build_actor(session: AsyncSession, task: IngestTask) -> CallerContext
     # 兜底：无创建人（不应发生）→ 最小 system actor。
     return CallerContext(
         user_id=task.created_by or uuid.UUID(int=0),
-        is_active=True, active_company_roles=set(), active_project_ids=set(),
+        is_active=True,
+        active_company_roles=set(),
+        active_project_ids=set(),
     )
 
 
@@ -140,22 +142,28 @@ async def process_upload_task(
         content_hash = task.source_file_hash or hashlib.sha256(file_bytes).hexdigest()
         dup = await _find_duplicate(session, content_hash, task.id)
         ai, content_meta = await content_processing.process_content(
-            llm, desensitizer, extraction=extraction,
-            file_name=task.source_file_name, trace_id=trace_id,
+            llm,
+            desensitizer,
+            extraction=extraction,
+            file_name=task.source_file_name,
+            trace_id=trace_id,
         )
     except Exception as exc:  # noqa: BLE001  # 瞬时处理失败 → 可重试
         task.retry_count += 1
         task.error_type = "processing_error"
         task.error_message = "入库处理失败（详见审计）"  # 安全文案，无内部引用
         exhausted = task.retry_count >= task.max_retries
-        task.status = (
-            IngestStatus.failed.value if exhausted else IngestStatus.processing.value
-        )
+        task.status = IngestStatus.failed.value if exhausted else IngestStatus.processing.value
         await audit_service.record_event(
-            session, caller=actor, log_type=AuditLogType.exception,
-            action=AuditAction.ingest_failed.value, trace_id=trace_id,
-            target_type="ingest_task", target_id=task.id,
-            severity=AlertSeverity.warning, risk_level=AuditRiskLevel.high.value,
+            session,
+            caller=actor,
+            log_type=AuditLogType.exception,
+            action=AuditAction.ingest_failed.value,
+            trace_id=trace_id,
+            target_type="ingest_task",
+            target_id=task.id,
+            severity=AlertSeverity.warning,
+            risk_level=AuditRiskLevel.high.value,
             extra={
                 "failure_stage": "processing",
                 "error_code": getattr(exc, "code", None) or type(exc).__name__,
@@ -181,9 +189,13 @@ async def process_upload_task(
 
     if extraction.status == "extracted":
         await audit_service.record_event(
-            session, caller=actor, log_type=AuditLogType.operation,
-            action=AuditAction.ingest_ai_extracted.value, trace_id=trace_id,
-            target_type="ingest_task", target_id=task.id,
+            session,
+            caller=actor,
+            log_type=AuditLogType.operation,
+            action=AuditAction.ingest_ai_extracted.value,
+            trace_id=trace_id,
+            target_type="ingest_task",
+            target_id=task.id,
             extra={
                 "content_status": content_meta["status"],
                 "degrade_reason": content_meta.get("reason"),
@@ -197,10 +209,15 @@ async def process_upload_task(
         )
     if failed:
         await audit_service.record_event(
-            session, caller=actor, log_type=AuditLogType.exception,
-            action=AuditAction.ingest_failed.value, trace_id=trace_id,
-            target_type="ingest_task", target_id=task.id,
-            severity=AlertSeverity.warning, risk_level=AuditRiskLevel.high.value,
+            session,
+            caller=actor,
+            log_type=AuditLogType.exception,
+            action=AuditAction.ingest_failed.value,
+            trace_id=trace_id,
+            target_type="ingest_task",
+            target_id=task.id,
+            severity=AlertSeverity.warning,
+            risk_level=AuditRiskLevel.high.value,
             extra={
                 "failure_stage": "extraction",
                 "extraction_status": extraction.status,
@@ -212,4 +229,3 @@ async def process_upload_task(
         )
     await session.commit()
     return task.status
-

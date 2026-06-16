@@ -1,4 +1,4 @@
-﻿"""Auth / 会话身份 API。
+"""Auth / 会话身份 API。
 
 - POST /api/v1/auth/login：本地登录（开发环境无凭证适配器）→ 建会话、下发 httpOnly
   cookie、写 login.success 审计；失败写 login.failed（有已知用户时）并 401。
@@ -59,16 +59,26 @@ def _set_session_cookie(response: Response, raw_token: str, settings) -> None:
     Secure 由 `session_cookie_secure(settings)` 统一决定（prod 强制 True），避免三处入口
     各自硬编码 secure=False 再次分叉。明文 token 只经 Set-Cookie，绝不进 JSON。"""
     response.set_cookie(
-        key=SESSION_COOKIE_NAME, value=raw_token, max_age=_COOKIE_MAX_AGE,
-        httponly=True, samesite="lax", secure=session_cookie_secure(settings), path="/",
+        key=SESSION_COOKIE_NAME,
+        value=raw_token,
+        max_age=_COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=session_cookie_secure(settings),
+        path="/",
     )
 
 
 def _set_oauth_state_cookie(response: Response, state: str, settings) -> None:
     """统一下发 OAuth state 短时 cookie，Secure 口径与会话 cookie 一致。"""
     response.set_cookie(
-        key=_OAUTH_STATE_COOKIE, value=state, max_age=_OAUTH_STATE_MAX_AGE,
-        httponly=True, samesite="lax", secure=session_cookie_secure(settings), path="/",
+        key=_OAUTH_STATE_COOKIE,
+        value=state,
+        max_age=_OAUTH_STATE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=session_cookie_secure(settings),
+        path="/",
     )
 
 
@@ -82,11 +92,16 @@ async def _record_login_failed(
     failed_user = await session_service.load_user_with_roles(session, user_id=user_id)
     if failed_user is not None:
         await audit_service.record_denied(
-            session, caller=build_caller_context(failed_user), log_type=AuditLogType.login,
-            action=AuditAction.login_failed.value, trace_id=trace_id,
+            session,
+            caller=build_caller_context(failed_user),
+            log_type=AuditLogType.login,
+            action=AuditAction.login_failed.value,
+            trace_id=trace_id,
             # 已知用户沿用既有归属审计口径（含 ip_address）；补安全 reason_code + hash 前缀。
             extra={
-                "login_result": "failed", "login_method": login_method, "ip_address": ip,
+                "login_result": "failed",
+                "login_method": login_method,
+                "ip_address": ip,
                 "reason_code": reason_code,
                 "identifier_hash_prefix": auth_security.hash_prefix(identifier_hash),
             },
@@ -95,8 +110,17 @@ async def _record_login_failed(
 
 
 async def _record_system_login_event(
-    session, *, action, login_method, trace_id, reason_code,
-    identifier_hash, ip_hash, failed_count, window_minutes=None, lockout_minutes=None,
+    session,
+    *,
+    action,
+    login_method,
+    trace_id,
+    reason_code,
+    identifier_hash,
+    ip_hash,
+    failed_count,
+    window_minutes=None,
+    lockout_minutes=None,
 ) -> None:
     """未知 email / 锁定 / 限流的系统级安全审计（actor=None）。
 
@@ -115,7 +139,11 @@ async def _record_system_login_event(
     if lockout_minutes is not None:
         extra["lockout_minutes"] = lockout_minutes
     await audit_service.record_system_event(
-        session, log_type=AuditLogType.login, action=action, trace_id=trace_id, extra=extra,
+        session,
+        log_type=AuditLogType.login,
+        action=action,
+        trace_id=trace_id,
+        extra=extra,
     )
 
 
@@ -164,8 +192,13 @@ async def login(
             # blocked 分支下 guard.result 必为具体状态（locked / rate_limited）。
             assert guard.result is not None
             await auth_security.record_login_attempt(
-                session, identifier_hash=identifier_hash, ip_hash=ip_hash, user_id=None,
-                login_method=login_method, result=guard.result, reason_code=guard.reason_code,
+                session,
+                identifier_hash=identifier_hash,
+                ip_hash=ip_hash,
+                user_id=None,
+                login_method=login_method,
+                result=guard.result,
+                reason_code=guard.reason_code,
                 trace_id=trace_id,
             )
             action = (
@@ -174,9 +207,15 @@ async def login(
                 else AuditAction.login_rate_limited.value
             )
             await _record_system_login_event(
-                session, action=action, login_method=login_method, trace_id=trace_id,
-                reason_code=guard.reason_code, identifier_hash=identifier_hash, ip_hash=ip_hash,
-                failed_count=guard.failed_count, window_minutes=guard.window_minutes,
+                session,
+                action=action,
+                login_method=login_method,
+                trace_id=trace_id,
+                reason_code=guard.reason_code,
+                identifier_hash=identifier_hash,
+                ip_hash=ip_hash,
+                failed_count=guard.failed_count,
+                window_minutes=guard.window_minutes,
                 lockout_minutes=guard.lockout_minutes,
             )
             await session.commit()
@@ -196,21 +235,36 @@ async def login(
     except session_service._InvalidCredentials as exc:
         # 记录失败尝试（不可逆统计驱动锁定）；已知用户走归属审计，未知 email 走系统审计。
         await auth_security.record_login_attempt(
-            session, identifier_hash=identifier_hash, ip_hash=ip_hash, user_id=exc.user_id,
-            login_method=login_method, result="failed", reason_code="invalid_credentials",
+            session,
+            identifier_hash=identifier_hash,
+            ip_hash=ip_hash,
+            user_id=exc.user_id,
+            login_method=login_method,
+            result="failed",
+            reason_code="invalid_credentials",
             trace_id=trace_id,
         )
         if exc.user_id is not None:
             await _record_login_failed(
-                session, user_id=exc.user_id, login_method=login_method, trace_id=trace_id,
-                ip=ip, reason_code="invalid_credentials", identifier_hash=identifier_hash,
+                session,
+                user_id=exc.user_id,
+                login_method=login_method,
+                trace_id=trace_id,
+                ip=ip,
+                reason_code="invalid_credentials",
+                identifier_hash=identifier_hash,
             )
         else:
             # 未知 email：不写可归属 actor，改记不可逆系统安全线索（无 raw email / IP）。
             await _record_system_login_event(
-                session, action=AuditAction.login_failed.value, login_method=login_method,
-                trace_id=trace_id, reason_code="invalid_credentials",
-                identifier_hash=identifier_hash, ip_hash=ip_hash, failed_count=0,
+                session,
+                action=AuditAction.login_failed.value,
+                login_method=login_method,
+                trace_id=trace_id,
+                reason_code="invalid_credentials",
+                identifier_hash=identifier_hash,
+                ip_hash=ip_hash,
+                failed_count=0,
             )
             await session.commit()
         raise _unified_401
@@ -220,12 +274,19 @@ async def login(
     )
     # 成功登录 → success attempt（后续 identifier 失败计数从此重置）。
     await auth_security.record_login_success(
-        session, identifier_hash=identifier_hash, ip_hash=ip_hash, user_id=user.id,
-        login_method=login_method, trace_id=trace_id,
+        session,
+        identifier_hash=identifier_hash,
+        ip_hash=ip_hash,
+        user_id=user.id,
+        login_method=login_method,
+        trace_id=trace_id,
     )
     await audit_service.record_event(
-        session, caller=build_caller_context(user), log_type=AuditLogType.login,
-        action=AuditAction.login_success.value, trace_id=trace_id,
+        session,
+        caller=build_caller_context(user),
+        log_type=AuditLogType.login,
+        action=AuditAction.login_success.value,
+        trace_id=trace_id,
         extra={"login_result": "success", "login_method": login_method, "ip_address": ip},
     )
     await session.commit()
@@ -286,7 +347,9 @@ async def wecom_start(
     try:
         url = oauth.build_authorize_url(state=state)
     except WeComError as exc:
-        raise HTTPException(status_code=503, detail={"denied_reason": exc.code, "message": "企微未配置"})
+        raise HTTPException(
+            status_code=503, detail={"denied_reason": exc.code, "message": "企微未配置"}
+        )
     _set_oauth_state_cookie(response, state, get_settings())
     # 授权 URL 含 corp_id/redirect/state，但**不含 app_secret**；state 同时在 cookie 里校验。
     return WecomAuthorizeOut(authorize_url=url)
@@ -311,20 +374,31 @@ async def wecom_callback(
     # state 校验（CSRF）：query state 必须存在且与 cookie 一致。
     response.delete_cookie(key=_OAUTH_STATE_COOKIE, path="/")
     if not state or not kap_oauth_state or not secrets.compare_digest(state, kap_oauth_state):
-        raise HTTPException(status_code=400, detail={"denied_reason": "oauth_state_invalid", "message": "state 校验失败"})
+        raise HTTPException(
+            status_code=400,
+            detail={"denied_reason": "oauth_state_invalid", "message": "state 校验失败"},
+        )
     if not code:
-        raise HTTPException(status_code=400, detail={"denied_reason": "oauth_code_missing", "message": "缺少 code"})
+        raise HTTPException(
+            status_code=400, detail={"denied_reason": "oauth_code_missing", "message": "缺少 code"}
+        )
 
     try:
         identity = await oauth.exchange_code(code)
     except WeComError:
         # 上游换取失败：只暴露安全 code，不回显原始 payload。
-        raise HTTPException(status_code=401, detail={"denied_reason": "oauth_exchange_failed", "message": "企微身份换取失败"})
+        raise HTTPException(
+            status_code=401,
+            detail={"denied_reason": "oauth_exchange_failed", "message": "企微身份换取失败"},
+        )
 
     user = await load_user_with_roles(session, wecom_user_id=identity.wecom_user_id)
     if user is None:
         # 未绑定平台用户：fail closed，不自动建用户（不做 auto-provision）。
-        raise HTTPException(status_code=403, detail={"denied_reason": "user_not_provisioned", "message": "企微用户未绑定平台账号"})
+        raise HTTPException(
+            status_code=403,
+            detail={"denied_reason": "user_not_provisioned", "message": "企微用户未绑定平台账号"},
+        )
 
     # 建会话前先核验企微成员有效性。fail-closed。
     try:
@@ -332,38 +406,76 @@ async def wecom_callback(
     except WeComError:
         # 上游 / 未配置失败：不建会话、**不**改平台状态（避免瞬时上游故障误停用），写安全 login.failed。
         await audit_service.record_denied(
-            session, caller=build_caller_context(user), log_type=AuditLogType.login,
-            action=AuditAction.login_failed.value, trace_id=trace_id,
-            extra={"login_result": "failed", "login_method": "wecom_oauth",
-                   "reason_code": "wecom_status_check_failed", "wecom_status": "unknown", "ip_address": ip},
+            session,
+            caller=build_caller_context(user),
+            log_type=AuditLogType.login,
+            action=AuditAction.login_failed.value,
+            trace_id=trace_id,
+            extra={
+                "login_result": "failed",
+                "login_method": "wecom_oauth",
+                "reason_code": "wecom_status_check_failed",
+                "wecom_status": "unknown",
+                "ip_address": ip,
+            },
         )
-        raise HTTPException(status_code=401, detail={"denied_reason": "wecom_status_check_failed", "message": "企微成员状态核验失败，请稍后重试"})
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "denied_reason": "wecom_status_check_failed",
+                "message": "企微成员状态核验失败，请稍后重试",
+            },
+        )
     if not member.active:
         # 企微成员失效 → 停用平台用户（若 active）+ 撤销活动会话 + 安全审计（系统触发），fail closed。
         await wecom_identity.apply_member_status(
-            session, user, member, trigger="oauth_callback", dry_run=False,
-            actor_caller=None, trace_id=trace_id,
+            session,
+            user,
+            member,
+            trigger="oauth_callback",
+            dry_run=False,
+            actor_caller=None,
+            trace_id=trace_id,
         )
         await session.commit()
-        raise HTTPException(status_code=401, detail={"denied_reason": "wecom_user_inactive", "message": "企微成员已失效，账号已停用"})
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "denied_reason": "wecom_user_inactive",
+                "message": "企微成员已失效，账号已停用",
+            },
+        )
 
     if user.status != "active":
         # 已知用户但非 active → 写 login.failed（可安全归属）后 401。
         await audit_service.record_denied(
-            session, caller=build_caller_context(user), log_type=AuditLogType.login,
-            action=AuditAction.login_failed.value, trace_id=trace_id,
+            session,
+            caller=build_caller_context(user),
+            log_type=AuditLogType.login,
+            action=AuditAction.login_failed.value,
+            trace_id=trace_id,
             extra={"login_result": "failed", "login_method": "wecom_oauth", "ip_address": ip},
         )
-        raise HTTPException(status_code=401, detail={"denied_reason": "user_inactive", "message": "用户已停用"})
+        raise HTTPException(
+            status_code=401, detail={"denied_reason": "user_inactive", "message": "用户已停用"}
+        )
 
     raw_token = await session_service.create_session(
         session, user, ip_address=ip, device_info=device, login_method="wecom_oauth"
     )
     await audit_service.record_event(
-        session, caller=build_caller_context(user), log_type=AuditLogType.login,
-        action=AuditAction.login_success.value, trace_id=trace_id,
+        session,
+        caller=build_caller_context(user),
+        log_type=AuditLogType.login,
+        action=AuditAction.login_success.value,
+        trace_id=trace_id,
         # 只记安全元数据：登录方式 + 安全 provider 标记 + ip；**绝不**记 code/token/state。
-        extra={"login_result": "success", "login_method": "wecom_oauth", "provider": "wecom", "ip_address": ip},
+        extra={
+            "login_result": "success",
+            "login_method": "wecom_oauth",
+            "provider": "wecom",
+            "ip_address": ip,
+        },
     )
     await session.commit()
     _set_session_cookie(response, raw_token, get_settings())
@@ -385,4 +497,3 @@ async def auth_me(
         dev_user_id=x_dev_user_id,
     )
     return build_auth_me(user)
-

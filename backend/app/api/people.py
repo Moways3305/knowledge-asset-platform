@@ -1,4 +1,4 @@
-﻿"""人员 / 公司角色 / 项目成员关系管理 API。
+"""人员 / 公司角色 / 项目成员关系管理 API。
 
 - GET   /api/v1/admin/people                                         （admin / boss / 咨询总监）
 - GET   /api/v1/admin/people/{user_id}                               （同上）
@@ -49,8 +49,14 @@ async def list_people(
     session: AsyncSession = Depends(get_db),
 ) -> PeopleListResponse:
     return await people_service.list_people(
-        session, caller, role=role, status=status, q=q,
-        project_id=project_id, limit=limit, offset=offset,
+        session,
+        caller,
+        role=role,
+        status=status,
+        q=q,
+        project_id=project_id,
+        limit=limit,
+        offset=offset,
     )
 
 
@@ -71,7 +77,9 @@ async def set_company_role(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> PersonOut:
-    return await people_service.set_company_role(session, caller, user_id, req, get_trace_id(request))
+    return await people_service.set_company_role(
+        session, caller, user_id, req, get_trace_id(request)
+    )
 
 
 @router.post("/{user_id}/password", response_model=SetPasswordResponse)
@@ -97,7 +105,9 @@ async def set_user_status(
 ) -> PersonOut:
     """启用 / 停用用户。active→inactive 联动撤销其平台会话；
     不能停用自己 / 最后一个可用 admin。"""
-    return await people_service.set_user_status(session, caller, user_id, req, get_trace_id(request))
+    return await people_service.set_user_status(
+        session, caller, user_id, req, get_trace_id(request)
+    )
 
 
 @router.get("/{user_id}/project-memberships", response_model=list[PersonProjectMembershipOut])
@@ -117,7 +127,9 @@ async def upsert_project_membership(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> PersonProjectMembershipOut:
-    return await people_service.upsert_project_membership(session, caller, user_id, req, get_trace_id(request))
+    return await people_service.upsert_project_membership(
+        session, caller, user_id, req, get_trace_id(request)
+    )
 
 
 @router.patch(
@@ -135,4 +147,3 @@ async def patch_project_membership(
     return await people_service.patch_project_membership(
         session, caller, user_id, membership_id, req, get_trace_id(request)
     )
-

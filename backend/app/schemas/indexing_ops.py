@@ -1,4 +1,4 @@
-﻿"""索引批量运维 API 的请求 / 响应 schema。
+"""索引批量运维 API 的请求 / 响应 schema。
 
 **绝不包含** WeKnora kb/doc id、storage/source ref、下载 URL、token/cookie/api_key、
 模型 id、原文或文件名、上游原始错误 message。只承载安全筛选条件与作业统计。
@@ -62,4 +62,3 @@ class IndexingJobSummary(BaseModel):
 class IndexingJobListResponse(BaseModel):
     items: list[IndexingJobSummary]
     total: int
-

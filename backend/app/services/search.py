@@ -29,7 +29,9 @@ from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(status_code=status_code, detail={"denied_reason": reason, "message": message})
+    return HTTPException(
+        status_code=status_code, detail={"denied_reason": reason, "message": message}
+    )
 
 
 def _passes_filters(asset, filters) -> bool:
@@ -73,8 +75,14 @@ async def run_search(
     original_out: OriginalOut | None = None
     if req.want_original and req.asset_id is not None:
         res = await retrieval.fetch_stage2_original(
-            session, caller, weknora, desens,
-            asset_id=req.asset_id, query=query, channel=channel, trace_id=trace_id,
+            session,
+            caller,
+            weknora,
+            desens,
+            asset_id=req.asset_id,
+            query=query,
+            channel=channel,
+            trace_id=trace_id,
         )
         original_out = OriginalOut(
             asset_id=res.asset.id if res.asset is not None else None,
@@ -88,7 +96,13 @@ async def run_search(
     # ---- 阶段1：召回 + 卡片 ----
     kb_ids = await retrieval.resolve_searchable_kbs(session, caller, req.scope)
     recalled = await retrieval.recall_assets(
-        session, caller, weknora, query=query, kb_ids=kb_ids, channel=channel, trace_id=trace_id,
+        session,
+        caller,
+        weknora,
+        query=query,
+        kb_ids=kb_ids,
+        channel=channel,
+        trace_id=trace_id,
     )
     recalled = [r for r in recalled if _passes_filters(r.asset, req.filters)]
     projects, users = await retrieval.load_card_aux(session, [r.asset for r in recalled])
@@ -116,8 +130,11 @@ async def run_search(
 
     # ---- 检索审计（operation；只记安全元数据，不记原始 query / kb/doc id）----
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.knowledge_searched.value, trace_id=trace_id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.knowledge_searched.value,
+        trace_id=trace_id,
         target_type="knowledge_search",
         extra={
             "intent": intent.value,
@@ -130,6 +147,10 @@ async def run_search(
     await session.commit()
 
     return SearchResponse(
-        intent=intent.value, cards=cards, answer=answer,
-        citations=citations, original=original_out, trace_id=trace_id,
+        intent=intent.value,
+        cards=cards,
+        answer=answer,
+        citations=citations,
+        original=original_out,
+        trace_id=trace_id,
     )

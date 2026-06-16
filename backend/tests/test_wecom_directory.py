@@ -24,7 +24,16 @@ DIRS = "/api/v1/admin/wecom-scan/drive/directories"
 CONFIGS = "/api/v1/admin/wecom-scan/configs"
 
 # 任何响应都不得出现的敏感 token。
-_FORBIDDEN = ["access_token", "app_secret", "cookie", "download_url", "fileid", "file_id", "raw_payload", "sk-"]
+_FORBIDDEN = [
+    "access_token",
+    "app_secret",
+    "cookie",
+    "download_url",
+    "fileid",
+    "file_id",
+    "raw_payload",
+    "sk-",
+]
 
 
 def _hdr(u):
@@ -39,16 +48,25 @@ class FakeDrive:
 
     async def list_spaces(self):
         if self.leaky:
-            raise WeComError("wecom_api_40058", "errmsg access_token=XYZ download_url=http://x cookie=c fileid=F")
-        return [WeComDriveSpace(space_ref="sp-1", name="交付空间"), WeComDriveSpace(space_ref="sp-2", name="售前空间")]
+            raise WeComError(
+                "wecom_api_40058", "errmsg access_token=XYZ download_url=http://x cookie=c fileid=F"
+            )
+        return [
+            WeComDriveSpace(space_ref="sp-1", name="交付空间"),
+            WeComDriveSpace(space_ref="sp-2", name="售前空间"),
+        ]
 
     async def list_directories(self, space_ref, parent_ref=None):
         if self.leaky:
             raise WeComError("wecom_api_40058", "errmsg access_token=XYZ download_url=http://x")
         base = f"spaceid:{space_ref};fatherid:"
         return [
-            WeComDriveDirectory(directory_ref=base + "d10", name="客户A", parent_ref=parent_ref, has_children=True),
-            WeComDriveDirectory(directory_ref=base + "d11", name="客户B", parent_ref=parent_ref, has_children=False),
+            WeComDriveDirectory(
+                directory_ref=base + "d10", name="客户A", parent_ref=parent_ref, has_children=True
+            ),
+            WeComDriveDirectory(
+                directory_ref=base + "d11", name="客户B", parent_ref=parent_ref, has_children=False
+            ),
         ]
 
 
@@ -71,9 +89,15 @@ def test_to_spaces_safe():
 
 def test_to_directories_filters_files_only_folders():
     raw = [
-        {"fileid": "d1", "file_name": "目录1", "file_type": 1},   # 文件夹
-        {"fileid": "f1", "file_name": "报告.pdf", "file_type": 2, "download_url": "http://x", "cookie_value": "c"},  # 普通文件 → 丢弃
-        {"fileid": "d2", "file_name": "目录2", "is_dir": True},   # 文件夹（兼容 is_dir）
+        {"fileid": "d1", "file_name": "目录1", "file_type": 1},  # 文件夹
+        {
+            "fileid": "f1",
+            "file_name": "报告.pdf",
+            "file_type": 2,
+            "download_url": "http://x",
+            "cookie_value": "c",
+        },  # 普通文件 → 丢弃
+        {"fileid": "d2", "file_name": "目录2", "is_dir": True},  # 文件夹（兼容 is_dir）
     ]
     dirs = WeComDriveClient._to_directories("sp-1", raw)
     names = [d.name for d in dirs]
@@ -133,7 +157,9 @@ async def test_invalid_space_ref_422(client):
     _install(FakeDrive())
     try:
         # 传入整串 directory_path 当 space_ref → 422（space_ref 必须裸 spaceid）。
-        r = await client.get(f"{DIRS}?space_ref=spaceid:sp-1;fatherid:d1", headers=_hdr(USER_ADMIN_ONLY))
+        r = await client.get(
+            f"{DIRS}?space_ref=spaceid:sp-1;fatherid:d1", headers=_hdr(USER_ADMIN_ONLY)
+        )
         assert r.status_code == 422
         assert r.json()["detail"]["denied_reason"] == "wecom_invalid_space"
     finally:
@@ -143,7 +169,9 @@ async def test_invalid_space_ref_422(client):
 async def test_invalid_parent_ref_422(client):
     _install(FakeDrive())
     try:
-        r = await client.get(f"{DIRS}?space_ref=sp-1&parent_ref=not-a-valid-ref", headers=_hdr(USER_ADMIN_ONLY))
+        r = await client.get(
+            f"{DIRS}?space_ref=sp-1&parent_ref=not-a-valid-ref", headers=_hdr(USER_ADMIN_ONLY)
+        )
         assert r.status_code == 422
         assert r.json()["detail"]["denied_reason"] == "wecom_invalid_directory_ref"
     finally:
@@ -153,7 +181,10 @@ async def test_invalid_parent_ref_422(client):
 async def test_drill_with_parent_ref(client):
     _install(FakeDrive())
     try:
-        r = await client.get(f"{DIRS}?space_ref=sp-1&parent_ref=spaceid:sp-1;fatherid:d10", headers=_hdr(USER_ADMIN_ONLY))
+        r = await client.get(
+            f"{DIRS}?space_ref=sp-1&parent_ref=spaceid:sp-1;fatherid:d10",
+            headers=_hdr(USER_ADMIN_ONLY),
+        )
         assert r.status_code == 200
         assert r.json()["items"][0]["directory_ref"].startswith("spaceid:sp-1;fatherid:")
     finally:
@@ -183,8 +214,11 @@ async def test_directory_ref_usable_in_create_config(client, db_session):
     from app.seed.dev_seed import USER_CONSULTANT as OWNER
 
     body = {
-        "name": "选择器配置", "directory_path": "spaceid:sp-1;fatherid:d10",
-        "target_scope": "personal", "task_owner_user_id": str(OWNER), "enabled": True,
+        "name": "选择器配置",
+        "directory_path": "spaceid:sp-1;fatherid:d10",
+        "target_scope": "personal",
+        "task_owner_user_id": str(OWNER),
+        "enabled": True,
     }
     r = await client.post(CONFIGS, headers=_hdr(USER_ADMIN_ONLY), json=body)
     assert r.status_code == 201, r.text
@@ -194,8 +228,11 @@ async def test_directory_ref_usable_in_create_config(client, db_session):
 async def test_legacy_directory_path_still_valid(client):
     # 旧手填串（无 fatherid）仍可保存。
     body = {
-        "name": "旧配置", "directory_path": "spaceid:legacy-space;fatherid:",
-        "target_scope": "personal", "task_owner_user_id": str(USER_CONSULTANT), "enabled": True,
+        "name": "旧配置",
+        "directory_path": "spaceid:legacy-space;fatherid:",
+        "target_scope": "personal",
+        "task_owner_user_id": str(USER_CONSULTANT),
+        "enabled": True,
     }
     r = await client.post(CONFIGS, headers=_hdr(USER_ADMIN_ONLY), json=body)
     assert r.status_code == 201, r.text

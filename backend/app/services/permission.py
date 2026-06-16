@@ -1,4 +1,4 @@
-﻿"""集中权限判断服务。
+"""集中权限判断服务。
 
 把权限模型中知识资产的三层访问判断收口到这里，供各 API 复用。
 **所有权限业务判断只能放在本模块**，不得在 API / 测试 / 其它模块散落。
@@ -62,9 +62,7 @@ def build_caller_context(user: User) -> CallerContext:
     active_roles = {
         r.company_role for r in user.company_roles if r.status == RoleStatus.active.value
     }
-    active_members = [
-        m for m in user.project_members if m.status == MemberStatus.active.value
-    ]
+    active_members = [m for m in user.project_members if m.status == MemberStatus.active.value]
     active_projects = {m.project_id for m in active_members}
     active_project_roles = {m.project_id: m.project_role for m in active_members}
     return CallerContext(
@@ -97,9 +95,7 @@ class _AccessProfile:
 
 def _profile_none(reason: DeniedReason) -> _AccessProfile:
     """构造"连发现层都不可"的画像。"""
-    return _AccessProfile(
-        max_layer=None, exceed_reason=reason, source=EffectiveAccessSource.none
-    )
+    return _AccessProfile(max_layer=None, exceed_reason=reason, source=EffectiveAccessSource.none)
 
 
 def _base_profile(
@@ -130,9 +126,7 @@ def _base_profile(
 
     # ---- personal：个人知识库 ----
     if scope == KnowledgeScope.personal.value:
-        is_owner_business = (
-            asset.owner_user_id == caller.user_id and caller.is_business_user
-        )
+        is_owner_business = asset.owner_user_id == caller.user_id and caller.is_business_user
         if not is_owner_business:
             # 他人个人知识、或仅 admin 身份"拥有"的个人知识，都不可发现。
             return _profile_none(DeniedReason.personal_asset_not_owned)
@@ -343,14 +337,9 @@ def lifecycle_visibility(caller: CallerContext, asset: KnowledgeAsset) -> Denied
     if not caller.is_active:
         return DeniedReason.user_inactive
     if asset.scope == KnowledgeScope.personal.value:
-        is_owner_business = (
-            asset.owner_user_id == caller.user_id and caller.is_business_user
-        )
+        is_owner_business = asset.owner_user_id == caller.user_id and caller.is_business_user
         return None if is_owner_business else DeniedReason.personal_asset_not_owned
-    if (
-        asset.confidentiality_level == ConfidentialityLevel.L5.value
-        and not caller.can_discover_l5
-    ):
+    if asset.confidentiality_level == ConfidentialityLevel.L5.value and not caller.can_discover_l5:
         return DeniedReason.l5_not_discoverable
     return None
 
@@ -387,4 +376,3 @@ def lifecycle_is_strong_audit(asset: KnowledgeAsset) -> bool:
         or asset.ai_access_level == AiAccessLevel.A4.value
         or asset.scope == KnowledgeScope.company.value
     )
-

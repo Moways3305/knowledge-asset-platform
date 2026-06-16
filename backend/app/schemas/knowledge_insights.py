@@ -1,4 +1,4 @@
-﻿"""Knowledge 运营洞察 API 的响应 schema。
+"""Knowledge 运营洞察 API 的响应 schema。
 
 只承载**安全聚合统计 + 安全提示**：绝不含 WeKnora kb/doc id、storage/source ref、
 下载 URL、token/cookie/api_key、provider 内部 id、文件名、原文 / chunk 原文。
@@ -91,4 +91,3 @@ class KnowledgeOpsInsightsResponse(BaseModel):
     lifecycle: LifecycleInsights
     recommendations: list[Recommendation] = []
     recent_items: list[InsightRecentItem] = []
-

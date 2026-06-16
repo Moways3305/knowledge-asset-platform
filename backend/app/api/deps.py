@@ -1,4 +1,4 @@
-﻿"""API 依赖（dependencies）。
+"""API 依赖（dependencies）。
 
 集中提供"当前调用人上下文"依赖。身份来源优先级：
 1. 有效会话 cookie（`kap_session`）→ 会话用户（任何环境）。
@@ -38,4 +38,3 @@ async def get_caller_context(
         dev_user_id=x_dev_user_id,
     )
     return build_caller_context(user)
-

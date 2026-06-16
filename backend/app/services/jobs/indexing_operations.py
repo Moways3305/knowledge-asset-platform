@@ -1,4 +1,4 @@
-﻿"""索引批量运维后台作业。
+"""索引批量运维后台作业。
 
 执行运维发起的**批量 retry-index** / **显式 reparse** 作业：按 job 的安全筛选条件选出
 active 资产版本，逐条复用 `indexing.index_asset_version` /
@@ -94,8 +94,11 @@ async def _select_targets(session: AsyncSession, job: IndexingOperationJob) -> l
     rows = (
         await session.execute(
             select(
-                KnowledgeAsset.id, KnowledgeAssetVersion.id, KnowledgeAsset.scope,
-                KnowledgeAsset.owner_user_id, KnowledgeAsset.project_id,
+                KnowledgeAsset.id,
+                KnowledgeAssetVersion.id,
+                KnowledgeAsset.scope,
+                KnowledgeAsset.owner_user_id,
+                KnowledgeAsset.project_id,
                 KnowledgeAsset.confidentiality_level,
             )
             .join(KnowledgeAssetVersion, KnowledgeAssetVersion.asset_id == KnowledgeAsset.id)
@@ -104,7 +107,9 @@ async def _select_targets(session: AsyncSession, job: IndexingOperationJob) -> l
             .limit(limit)
         )
     ).all()
-    return [_Target(aid, vid, scope_, owner, pid, conf) for aid, vid, scope_, owner, pid, conf in rows]
+    return [
+        _Target(aid, vid, scope_, owner, pid, conf) for aid, vid, scope_, owner, pid, conf in rows
+    ]
 
 
 async def _build_actor(session: AsyncSession, job: IndexingOperationJob) -> CallerContext:
@@ -126,18 +131,24 @@ async def _build_actor(session: AsyncSession, job: IndexingOperationJob) -> Call
             return build_caller_context(user)
     return CallerContext(
         user_id=job.requested_by_user_id or uuid.UUID(int=0),
-        is_active=True, active_company_roles=set(), active_project_ids=set(),
+        is_active=True,
+        active_company_roles=set(),
+        active_project_ids=set(),
     )
 
 
 async def _source_for_asset(session: AsyncSession, asset_id: uuid.UUID) -> IngestTask | None:
     return (
-        await session.execute(
-            select(IngestTask)
-            .where(IngestTask.result_asset_id == asset_id)
-            .order_by(IngestTask.created_at.desc())
+        (
+            await session.execute(
+                select(IngestTask)
+                .where(IngestTask.result_asset_id == asset_id)
+                .order_by(IngestTask.created_at.desc())
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
 
 
 async def _process_one(
@@ -189,19 +200,35 @@ async def _process_one(
 
     if operation_type == "reparse":
         outcome = await indexing.reparse_asset_version(
-            session, weknora,
-            asset_id=asset_id, version_id=version_id, scope=scope,
-            owner_user_id=owner_user_id, project_id=project_id, confidentiality=confidentiality,
-            file_bytes=file_bytes, source_file_name=task.source_file_name,
-            source_file_mime=task.source_file_mime_type, channel=task.source, trace_id=trace_id,
+            session,
+            weknora,
+            asset_id=asset_id,
+            version_id=version_id,
+            scope=scope,
+            owner_user_id=owner_user_id,
+            project_id=project_id,
+            confidentiality=confidentiality,
+            file_bytes=file_bytes,
+            source_file_name=task.source_file_name,
+            source_file_mime=task.source_file_mime_type,
+            channel=task.source,
+            trace_id=trace_id,
         )
     else:
         outcome = await indexing.index_asset_version(
-            session, weknora,
-            asset_id=asset_id, version_id=version_id, scope=scope,
-            owner_user_id=owner_user_id, project_id=project_id, confidentiality=confidentiality,
-            file_bytes=file_bytes, source_file_name=task.source_file_name,
-            source_file_mime=task.source_file_mime_type, channel=task.source, trace_id=trace_id,
+            session,
+            weknora,
+            asset_id=asset_id,
+            version_id=version_id,
+            scope=scope,
+            owner_user_id=owner_user_id,
+            project_id=project_id,
+            confidentiality=confidentiality,
+            file_bytes=file_bytes,
+            source_file_name=task.source_file_name,
+            source_file_mime=task.source_file_mime_type,
+            channel=task.source,
+            trace_id=trace_id,
         )
     if outcome.index_status == "indexed":
         return "indexed"
@@ -223,9 +250,7 @@ async def run_operation_job(
     单条失败不终止整个 job；job 级异常 → failed + 安全 code/message。完成写安全统计 + 审计。
     """
     job = (
-        await session.execute(
-            select(IndexingOperationJob).where(IndexingOperationJob.id == job_id)
-        )
+        await session.execute(select(IndexingOperationJob).where(IndexingOperationJob.id == job_id))
     ).scalar_one_or_none()
     if job is None:
         return "not_found"
@@ -249,8 +274,12 @@ async def run_operation_job(
         for target in targets:
             try:
                 result = await _process_one(
-                    session, weknora, storage,
-                    operation_type=operation_type, target=target, trace_id=job_trace,
+                    session,
+                    weknora,
+                    storage,
+                    operation_type=operation_type,
+                    target=target,
+                    trace_id=job_trace,
                 )
             except Exception:  # noqa: BLE001  # 单条异常不终止整个 job
                 await session.rollback()
@@ -279,9 +308,7 @@ async def run_operation_job(
 
     # 重新载入 job（循环内多次 commit/rollback 后以最新状态回写统计）。
     job = (
-        await session.execute(
-            select(IndexingOperationJob).where(IndexingOperationJob.id == job_id)
-        )
+        await session.execute(select(IndexingOperationJob).where(IndexingOperationJob.id == job_id))
     ).scalar_one_or_none()
     if job is None:
         return "not_found"
@@ -299,17 +326,23 @@ async def run_operation_job(
         else AuditAction.knowledge_index_batch_retry_completed
     )
     await audit_service.record_event(
-        session, caller=actor, log_type=AuditLogType.operation,
-        action=completed_action.value, trace_id=job_trace,
-        target_type="indexing_operation_job", target_id=job.id,
+        session,
+        caller=actor,
+        log_type=AuditLogType.operation,
+        action=completed_action.value,
+        trace_id=job_trace,
+        target_type="indexing_operation_job",
+        target_id=job.id,
         extra={
             "job_id": str(job.id),
             "operation_type": job.operation_type,
             "filters": job.scope_filter,
-            "total": total, "success": success, "failed": failed, "skipped": skipped,
+            "total": total,
+            "success": success,
+            "failed": failed,
+            "skipped": skipped,
             "status": job.status,
         },
     )
     await session.commit()
     return job.status
-

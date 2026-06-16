@@ -1,4 +1,4 @@
-﻿"""会话身份服务。
+"""会话身份服务。
 
 提供登录 / 登出 / 当前会话解析与「会话 → 当前用户」的统一口径：
 
@@ -75,9 +75,7 @@ async def create_session(
     return raw_token
 
 
-async def resolve_session_user(
-    session: AsyncSession, raw_token: str | None
-) -> User | None:
+async def resolve_session_user(session: AsyncSession, raw_token: str | None) -> User | None:
     """按会话 cookie 明文 token 解析当前用户；无效 / 过期 / 撤销 → None。
 
     命中时更新 last_seen_at（尽力而为）。返回的 User 已预加载角色 / 成员关系。
@@ -148,15 +146,11 @@ async def resolve_current_user(
     if user is not None:
         return user
     if app_env in DEV_IDENTITY_ALLOWED_ENVS:
-        return await resolve_dev_user(
-            session, app_env=app_env, dev_user_id=dev_user_id
-        )
+        return await resolve_dev_user(session, app_env=app_env, dev_user_id=dev_user_id)
     raise HTTPException(status_code=401, detail="not_authenticated")
 
 
-async def login_with_password(
-    session: AsyncSession, *, email: str, password: str
-) -> User:
+async def login_with_password(session: AsyncSession, *, email: str, password: str) -> User:
     """密码凭证登录（所有环境）：按 email 取用户并校验密码。
 
     统一失败语义（不区分原因，调用方一律 401 invalid_credentials）：用户不存在 / 非 active /
@@ -177,9 +171,7 @@ async def login_with_password(
     return user
 
 
-async def login_local(
-    session: AsyncSession, *, app_env: str, email: str
-) -> User:
+async def login_local(session: AsyncSession, *, app_env: str, email: str) -> User:
     """本地无凭证登录适配器（仅开发环境）：按 email 取 active 用户。
 
     - 非开发环境 → 403 auth_login_not_available（开发适配器仅限非生产环境）。
@@ -201,4 +193,3 @@ class _InvalidCredentials(Exception):
     def __init__(self, user_id: uuid.UUID | None) -> None:
         self.user_id = user_id
         super().__init__("invalid_credentials")
-

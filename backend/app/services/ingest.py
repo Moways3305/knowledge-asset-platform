@@ -1,4 +1,4 @@
-﻿"""入库流水线服务。
+"""入库流水线服务。
 
 create_upload → 确定性 AI 建议占位 → get_ai_result（按权限裁剪）→ confirm（人工确认
 后写入 KnowledgeAsset 全套）。不调用真实 AI / 文件存储 / WeCom / Dify / 审核流 / 审计表。
@@ -117,11 +117,18 @@ async def create_upload(
     if not caller.is_business_user:
         # 纯 admin / 非业务用户发起入库被拒（强审计）。不落盘任何字节。
         await audit_service.record_denied(
-            session, caller=caller, log_type=AuditLogType.exception,
-            action=AuditAction.admin_business_denied.value, trace_id=trace_id,
+            session,
+            caller=caller,
+            log_type=AuditLogType.exception,
+            action=AuditAction.admin_business_denied.value,
+            trace_id=trace_id,
             target_type="ingest_task",
-            severity=AlertSeverity.warning, risk_level=AuditRiskLevel.high.value,
-            extra={"denied_reason": "admin_business_permission_denied", "attempted": "ingest.upload"},
+            severity=AlertSeverity.warning,
+            risk_level=AuditRiskLevel.high.value,
+            extra={
+                "denied_reason": "admin_business_permission_denied",
+                "attempted": "ingest.upload",
+            },
         )
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可发起入库")
 
@@ -160,9 +167,13 @@ async def create_upload(
     await session.flush()  # 取得 task.id 供审计 target_id
 
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.ingest_task_created.value, trace_id=trace_id,
-        target_type="ingest_task", target_id=task.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.ingest_task_created.value,
+        trace_id=trace_id,
+        target_type="ingest_task",
+        target_id=task.id,
         after={"status": task.status, "source": task.source, "target_scope": task.target_scope},
         project_id=target_project_id,
     )
@@ -227,15 +238,16 @@ async def get_ai_result(
         llm_model=ai.llm_model if ai else None,
         # 异步处理中（job 未完成）安全地表示为 processing；完成后按 llm/降级。
         content_processing_status=(
-            "processing" if task.status == IngestStatus.processing.value
-            else ("llm" if (ai and ai.llm_provider) else "degraded") if ai else None
+            "processing"
+            if task.status == IngestStatus.processing.value
+            else ("llm" if (ai and ai.llm_provider) else "degraded")
+            if ai
+            else None
         ),
         # 入库前置脱敏安全元数据（状态 + 类别计数 + 人读文案，两视图均可见）。
         desensitization_status=ai.desensitization_status if ai else None,
         desensitization_counts=(ai.desensitization_counts if ai else None) or None,
-        desensitization_message=_desensitization_message(
-            ai.desensitization_status if ai else None
-        ),
+        desensitization_message=_desensitization_message(ai.desensitization_status if ai else None),
     )
     if is_full and ai is not None:
         # 完整视图（创建人 / 治理角色）：补充业务建议正文（三层摘要）+ 抽取全文截断预览。
@@ -251,7 +263,11 @@ async def get_ai_result(
 
 
 def _build_summaries(
-    level: str, *, one_liner: str | None, detailed: str, key_points: list[str],
+    level: str,
+    *,
+    one_liner: str | None,
+    detailed: str,
+    key_points: list[str],
 ) -> list[KnowledgeAssetSummary]:
     """构建三层摘要行：one_liner + detailed + key_points（+ L3/L4 脱敏摘要）。
 
@@ -266,13 +282,12 @@ def _build_summaries(
     pts = [p.strip() for p in key_points if p and p.strip()]
     if pts:
         # key_points 每条一行存于同一 summary 行（读侧按行拆分，沿用既有口径）。
-        rows.append(
-            KnowledgeAssetSummary(summary_type="key_points", content="\n".join(pts))
-        )
+        rows.append(KnowledgeAssetSummary(summary_type="key_points", content="\n".join(pts)))
     if level in _REDACTED_LEVELS:
         rows.append(
             KnowledgeAssetSummary(
-                summary_type="redacted_summary", content="（脱敏）" + detailed[:200],
+                summary_type="redacted_summary",
+                content="（脱敏）" + detailed[:200],
             )
         )
     return rows
@@ -301,11 +316,19 @@ async def confirm(
     """
     if not caller.is_business_user:
         await audit_service.record_denied(
-            session, caller=caller, log_type=AuditLogType.exception,
-            action=AuditAction.admin_business_denied.value, trace_id=trace_id,
-            target_type="ingest_task", target_id=task_id,
-            severity=AlertSeverity.warning, risk_level=AuditRiskLevel.high.value,
-            extra={"denied_reason": "admin_business_permission_denied", "attempted": "ingest.confirm"},
+            session,
+            caller=caller,
+            log_type=AuditLogType.exception,
+            action=AuditAction.admin_business_denied.value,
+            trace_id=trace_id,
+            target_type="ingest_task",
+            target_id=task_id,
+            severity=AlertSeverity.warning,
+            risk_level=AuditRiskLevel.high.value,
+            extra={
+                "denied_reason": "admin_business_permission_denied",
+                "attempted": "ingest.confirm",
+            },
         )
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可确认入库")
 
@@ -387,7 +410,9 @@ async def confirm(
     asset.versions.append(version)
     for s in _build_summaries(
         confidentiality,
-        one_liner=req.one_liner, detailed=summary_text, key_points=req.key_points,
+        one_liner=req.one_liner,
+        detailed=summary_text,
+        key_points=req.key_points,
     ):
         s.version = version
         asset.summaries.append(s)
@@ -415,9 +440,13 @@ async def confirm(
 
     # 入库确认审计：安全元数据，不含原文 / source_file_ref / kb_id / doc_id。
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.ingest_confirmed.value, trace_id=trace_id,
-        target_type="knowledge_asset", target_id=asset.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.ingest_confirmed.value,
+        trace_id=trace_id,
+        target_type="knowledge_asset",
+        target_id=asset.id,
         after={
             "scope": asset.scope,
             "zone": asset.zone,
@@ -440,15 +469,26 @@ async def confirm(
     index_status = "indexing" if use_weknora else "skipped"
     if use_weknora:
         index_status, parse_status = await _index_asset(
-            session, caller, task, asset, version,
-            scope=scope, owner_id=owner_id, project_id=project_id,
-            confidentiality=confidentiality, weknora=weknora, storage=storage,
+            session,
+            caller,
+            task,
+            asset,
+            version,
+            scope=scope,
+            owner_id=owner_id,
+            project_id=project_id,
+            confidentiality=confidentiality,
+            weknora=weknora,
+            storage=storage,
             trace_id=trace_id,
         )
 
     return IngestConfirmResponse(
-        task_id=response_task_id, status=response_status, result_asset_id=result_asset_id,
-        parse_status=parse_status, index_status=index_status,
+        task_id=response_task_id,
+        status=response_status,
+        result_asset_id=result_asset_id,
+        parse_status=parse_status,
+        index_status=index_status,
     )
 
 
@@ -484,43 +524,69 @@ async def _index_asset(
         outcome = await indexing.mark_index_failed(
             session, version_id=version_id, error_code="source_file_unreadable"
         )
-        await _audit_ingest_index_failed(session, caller, asset_id, outcome.error_code, trace_id, project_id)
+        await _audit_ingest_index_failed(
+            session, caller, asset_id, outcome.error_code, trace_id, project_id
+        )
         return outcome.index_status, outcome.parse_status
 
     outcome = await indexing.index_asset_version(
-        session, weknora,
-        asset_id=asset_id, version_id=version_id, scope=scope,
-        owner_user_id=owner_id, project_id=project_id, confidentiality=confidentiality,
-        file_bytes=file_bytes, source_file_name=task.source_file_name,
-        source_file_mime=task.source_file_mime_type, channel=task.source, trace_id=trace_id,
+        session,
+        weknora,
+        asset_id=asset_id,
+        version_id=version_id,
+        scope=scope,
+        owner_user_id=owner_id,
+        project_id=project_id,
+        confidentiality=confidentiality,
+        file_bytes=file_bytes,
+        source_file_name=task.source_file_name,
+        source_file_mime=task.source_file_mime_type,
+        channel=task.source,
+        trace_id=trace_id,
     )
     if outcome.index_status == "indexed":
         await audit_service.record_event(
-            session, caller=caller, log_type=AuditLogType.operation,
-            action=AuditAction.ingest_weknora_indexed.value, trace_id=trace_id,
-            target_type="knowledge_asset", target_id=asset_id,
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.ingest_weknora_indexed.value,
+            trace_id=trace_id,
+            target_type="knowledge_asset",
+            target_id=asset_id,
             extra={
                 "parse_status": outcome.parse_status,
-                "is_duplicate": outcome.is_duplicate, "scope": scope,
+                "is_duplicate": outcome.is_duplicate,
+                "scope": scope,
             },
             project_id=project_id,
         )
         await session.commit()
     else:
-        await _audit_ingest_index_failed(session, caller, asset_id, outcome.error_code, trace_id, project_id)
+        await _audit_ingest_index_failed(
+            session, caller, asset_id, outcome.error_code, trace_id, project_id
+        )
     return outcome.index_status, outcome.parse_status
 
 
 async def _audit_ingest_index_failed(
-    session: AsyncSession, caller: CallerContext, asset_id: uuid.UUID,
-    error_code: str | None, trace_id: str, project_id: uuid.UUID | None,
+    session: AsyncSession,
+    caller: CallerContext,
+    asset_id: uuid.UUID,
+    error_code: str | None,
+    trace_id: str,
+    project_id: uuid.UUID | None,
 ) -> None:
     """写 confirm 阶段底座索引失败审计（exception）。extra 只放安全 stage + error_code。"""
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.exception,
-        action=AuditAction.ingest_index_failed.value, trace_id=trace_id,
-        target_type="knowledge_asset", target_id=asset_id,
-        severity=AlertSeverity.warning, risk_level=AuditRiskLevel.high.value,
+        session,
+        caller=caller,
+        log_type=AuditLogType.exception,
+        action=AuditAction.ingest_index_failed.value,
+        trace_id=trace_id,
+        target_type="knowledge_asset",
+        target_id=asset_id,
+        severity=AlertSeverity.warning,
+        risk_level=AuditRiskLevel.high.value,
         # 审计 extra 只写安全目录 code，不写上游原始 code。
         extra={"failure_stage": "weknora_index", "error_code": error_catalog.safe_code(error_code)},
         project_id=project_id,
@@ -605,9 +671,7 @@ async def list_pending(
         .where(IngestTask.result_asset_id.is_(None))
         .options(
             # 列表不返回抽取全文：defer extracted_text 避免查询放大与内容外泄。
-            selectinload(IngestTask.ai_result).options(
-                defer(IngestTaskAiResult.extracted_text)
-            )
+            selectinload(IngestTask.ai_result).options(defer(IngestTaskAiResult.extracted_text))
         )
         .order_by(IngestTask.created_at.desc())
     )
@@ -645,9 +709,7 @@ async def list_pending(
     return items
 
 
-async def list_admin_ingest(
-    session: AsyncSession, caller: CallerContext
-) -> list[AdminIngestItem]:
+async def list_admin_ingest(session: AsyncSession, caller: CallerContext) -> list[AdminIngestItem]:
     """运营只读列表：admin 或治理角色可看运营元数据（无业务原文 / 内部引用）。"""
     if not (_is_admin(caller) or _is_governance(caller)):
         raise _denied(403, "ingest_admin_forbidden", "无权查看入库运营列表")
@@ -659,9 +721,7 @@ async def list_admin_ingest(
             await session.execute(
                 select(IngestTask).options(
                     # 列表不返回抽取全文：defer extracted_text 避免查询放大。
-                    selectinload(IngestTask.ai_result).defer(
-                        IngestTaskAiResult.extracted_text
-                    )
+                    selectinload(IngestTask.ai_result).defer(IngestTaskAiResult.extracted_text)
                 )
             )
         )
@@ -690,4 +750,3 @@ async def list_admin_ingest(
             )
         )
     return items
-

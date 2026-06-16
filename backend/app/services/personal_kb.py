@@ -42,7 +42,9 @@ _CheckClient = "WeKnoraClient | NullWeKnoraClient"
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(status_code=status_code, detail={"denied_reason": reason, "message": message})
+    return HTTPException(
+        status_code=status_code, detail={"denied_reason": reason, "message": message}
+    )
 
 
 def _require_business_user(caller: CallerContext) -> None:
@@ -170,16 +172,32 @@ async def create_personal_kb(
                 503, "personal_kb_unavailable", "知识库底座暂不可用，请稍后重试或联系管理员"
             ) from exc
         # 映射已落 init_failed：记录创建审计并返回状态（前端可引导重试）。
-        await _audit(session, caller, mapping, AuditAction.config_personal_kb_created.value,
-                     trace_id, sync_ok=False, name_before=None, name_after=mapping.display_name)
+        await _audit(
+            session,
+            caller,
+            mapping,
+            AuditAction.config_personal_kb_created.value,
+            trace_id,
+            sync_ok=False,
+            name_before=None,
+            name_after=mapping.display_name,
+        )
         await session.commit()
         return await _status_out(session, mapping, caller.user_id)
 
     mapping = await _find_personal_mapping(session, caller.user_id)
     # 紧接上面的创建路径，映射必已存在。
     assert mapping is not None
-    await _audit(session, caller, mapping, AuditAction.config_personal_kb_created.value,
-                 trace_id, sync_ok=True, name_before=None, name_after=mapping.display_name)
+    await _audit(
+        session,
+        caller,
+        mapping,
+        AuditAction.config_personal_kb_created.value,
+        trace_id,
+        sync_ok=True,
+        name_before=None,
+        name_after=mapping.display_name,
+    )
     await session.commit()
     return await _status_out(session, mapping, caller.user_id)
 
@@ -213,8 +231,16 @@ async def rename_personal_kb(
         # 底座同步失败（含未配置）：平台侧已改名、不回滚，标记待重试。
         sync_ok = False
 
-    await _audit(session, caller, mapping, AuditAction.config_personal_kb_updated.value,
-                 trace_id, sync_ok=sync_ok, name_before=name_before, name_after=name)
+    await _audit(
+        session,
+        caller,
+        mapping,
+        AuditAction.config_personal_kb_updated.value,
+        trace_id,
+        sync_ok=sync_ok,
+        name_before=name_before,
+        name_after=name,
+    )
     await session.commit()
     return await _status_out(session, mapping, caller.user_id, weknora_sync_failed=not sync_ok)
 

@@ -138,10 +138,7 @@ async def _count_parse_stalled(session: AsyncSession, now: datetime, stall_minut
     cutoff = now - timedelta(minutes=stall_minutes)
     stmt = _version_count_stmt(
         KnowledgeAssetVersion.weknora_parse_status.in_(_STALLED_PARSE_STATUSES),
-        func.coalesce(
-            KnowledgeAssetVersion.indexed_at, KnowledgeAssetVersion.created_at
-        )
-        <= cutoff,
+        func.coalesce(KnowledgeAssetVersion.indexed_at, KnowledgeAssetVersion.created_at) <= cutoff,
     )
     return int((await session.execute(stmt)).scalar() or 0)
 
@@ -293,9 +290,7 @@ async def scan_ops_alerts(
     rule = rules.get(RULE_PARSE_STALLED)
     if rule is not None and rule.enabled and rule.threshold is not None:
         threshold = int(rule.threshold)
-        stall_minutes = _param_minutes(
-            rules, RULE_PARSE_STALL_MINUTES, DEFAULT_PARSE_STALL_MINUTES
-        )
+        stall_minutes = _param_minutes(rules, RULE_PARSE_STALL_MINUTES, DEFAULT_PARSE_STALL_MINUTES)
         count = await _count_parse_stalled(session, now, stall_minutes)
         counts[SIGNAL_PARSE_STALLED] = count
         if count >= threshold and not await _in_cooldown(
@@ -331,9 +326,7 @@ async def scan_ops_alerts(
         )
         count = await _count_login_guard_events(session, now, window_minutes)
         counts[SIGNAL_LOGIN_GUARD] = count
-        if count >= threshold and not await _in_cooldown(
-            session, TITLE_LOGIN_GUARD, now, cooldown
-        ):
+        if count >= threshold and not await _in_cooldown(session, TITLE_LOGIN_GUARD, now, cooldown):
             await _emit(
                 session,
                 rule=rule,

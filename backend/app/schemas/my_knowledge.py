@@ -1,4 +1,4 @@
-﻿"""个人知识写动作 API 的请求 / 响应 schema。
+"""个人知识写动作 API 的请求 / 响应 schema。
 
 只暴露**安全治理元数据**：submission/asset/project/review/evidence id + 安全枚举 + 文案。
 绝不返回：原文 chunk / 摘要全文 / 文件对象内部引用 / 真实附件 URL / WeKnora id /
@@ -62,4 +62,3 @@ class PersonalKnowledgeSubmissionOut(BaseModel):
     # 诚实文案：提交=待审核 / 候选=用户登记线索，系统不自动证明真实发生。
     message: str
     next_action: str
-

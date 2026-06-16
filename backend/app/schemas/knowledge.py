@@ -1,4 +1,4 @@
-﻿"""Knowledge 读 API 的响应 schema。
+"""Knowledge 读 API 的响应 schema。
 
 字段使用 snake_case；前端 ViewModel 适配由前端完成。
 **绝不包含文件对象的内部存储引用、原文内容、真实 token/URL 等内部/敏感字段。**
@@ -140,4 +140,3 @@ class RetryIndexResponse(BaseModel):
     index_error_code: str | None = None
     index_error_message: str | None = None
     trace_id: str | None = None
-

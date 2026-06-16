@@ -61,30 +61,56 @@ class FakeWeKnora:
     async def get_kb(self, kb_id, *, trace_id=None):
         return self.kbs.get(kb_id, {})
 
-    async def initialize_kb(self, kb_id, *, chat_model_id=None, embedding_model_id=None,
-                            rerank_model_id=None, multimodal_id=None, trace_id=None):
+    async def initialize_kb(
+        self,
+        kb_id,
+        *,
+        chat_model_id=None,
+        embedding_model_id=None,
+        rerank_model_id=None,
+        multimodal_id=None,
+        trace_id=None,
+    ):
         if self.init_fail:
             raise WeKnoraError("weknora_init_failed", "初始化失败")
-        self.initialized.append({"kb_id": kb_id, "embedding_model_id": embedding_model_id,
-                                 "chat_model_id": chat_model_id})
+        self.initialized.append(
+            {
+                "kb_id": kb_id,
+                "embedding_model_id": embedding_model_id,
+                "chat_model_id": chat_model_id,
+            }
+        )
 
     async def get_initialization_config(self, kb_id, *, trace_id=None):
         return {"embedding_model_id": self.kbs.get(kb_id, {}).get("embedding_model_id")}
 
-    async def upload_file(self, *, kb_id, content, file_name, mime, metadata=None, channel=None, trace_id=None):
+    async def upload_file(
+        self, *, kb_id, content, file_name, mime, metadata=None, channel=None, trace_id=None
+    ):
         if self.fail:
             raise WeKnoraError("weknora_down", "底座不可用")
         if self.duplicate:
             raise WeKnoraDuplicateError("doc-existing-1")
         self._doc += 1
         doc_id = f"doc-fake-{self._doc}"
-        self.uploads.append({"kb_id": kb_id, "doc_id": doc_id, "file_name": file_name,
-                             "content": content, "metadata": metadata, "channel": channel})
+        self.uploads.append(
+            {
+                "kb_id": kb_id,
+                "doc_id": doc_id,
+                "file_name": file_name,
+                "content": content,
+                "metadata": metadata,
+                "channel": channel,
+            }
+        )
         self.parse_status[doc_id] = "processing"
         return {"id": doc_id, "parse_status": "processing", "file_hash": "h"}
 
     async def get_knowledge(self, knowledge_id, *, trace_id=None):
-        return {"id": knowledge_id, "parse_status": self.parse_status.get(knowledge_id, "completed")}
+        return {
+            "id": knowledge_id,
+            "parse_status": self.parse_status.get(knowledge_id, "completed"),
+        }
 
     async def delete_knowledge(self, knowledge_id, *, trace_id=None):
         return None
@@ -120,9 +146,13 @@ async def _upload(client, user, file_name="doc.txt", content=_TXT, mime="text/pl
 
 def _confirm_payload(**over):
     base = {
-        "title": "WeKnora 资产", "summary": "摘要", "tags": ["t"],
-        "target_scope": "personal", "asset_type": "methodology",
-        "confidentiality_level": "L2", "ai_access_level": "A2",
+        "title": "WeKnora 资产",
+        "summary": "摘要",
+        "tags": ["t"],
+        "target_scope": "personal",
+        "asset_type": "methodology",
+        "confidentiality_level": "L2",
+        "ai_access_level": "A2",
     }
     base.update(over)
     return base
@@ -130,7 +160,9 @@ def _confirm_payload(**over):
 
 async def _confirm(client, user, task_id, trace=None, **over):
     return await client.post(
-        f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(user, trace), json=_confirm_payload(**over)
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(user, trace),
+        json=_confirm_payload(**over),
     )
 
 
@@ -163,7 +195,10 @@ async def test_initialize_kb_skips_when_no_models():
 
 def test_initialize_unwrap_error_redacts():
     # 初始化失败经 _unwrap 抛结构化 WeKnoraError（只带 code/message，不含 api_key）。
-    err = httpx.Response(400, json={"success": False, "error": {"code": "weknora_init_failed", "message": "no model"}})
+    err = httpx.Response(
+        400,
+        json={"success": False, "error": {"code": "weknora_init_failed", "message": "no model"}},
+    )
     with pytest.raises(WeKnoraError) as ei:
         WeKnoraClient._unwrap(err)
     assert ei.value.code == "weknora_init_failed"
@@ -184,11 +219,13 @@ async def test_confirm_pushes_and_writes_back(client, weknora, db_session):
     assert "confidentiality_level" in up["metadata"]
     # 业务库回写 doc/kb（server-only）。
     asset_id = r.json()["result_asset_id"]
-    ver = (await db_session.execute(
-        select(KnowledgeAssetVersion).where(
-            KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id)
+    ver = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id)
+            )
         )
-    )).scalar_one()
+    ).scalar_one()
     assert ver.weknora_doc_id == up["doc_id"]
     assert ver.weknora_kb_id == up["kb_id"]
     assert ver.weknora_parse_status == "processing"
@@ -202,7 +239,9 @@ async def test_kb_mapping_idempotent(client, weknora):
     # 同一用户两次 personal 入库 → 只建一个 KB。
     t1 = await _upload(client, USER_CONSULTANT, file_name="a.txt")
     await _confirm(client, USER_CONSULTANT, t1)
-    t2 = await _upload(client, USER_CONSULTANT, file_name="b.txt", content=b"different content here")
+    t2 = await _upload(
+        client, USER_CONSULTANT, file_name="b.txt", content=b"different content here"
+    )
     await _confirm(client, USER_CONSULTANT, t2, title="第二份")
     assert len(weknora.kbs) == 1  # 懒创建幂等
 
@@ -224,16 +263,19 @@ async def test_weknora_upload_failure_keeps_asset_index_failed(client, db_sessio
         my = (await client.get(MY, headers=_hdr(USER_CONSULTANT))).json()
         assert any(i["title"] == "WeKnora 资产" for i in my["items"])
         # 版本标 index_failed + 安全 error_code；无悬挂上传。
-        ver = (await db_session.execute(
-            select(KnowledgeAssetVersion).where(
-                KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id)
+        ver = (
+            await db_session.execute(
+                select(KnowledgeAssetVersion).where(
+                    KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id)
+                )
             )
-        )).scalar_one()
+        ).scalar_one()
         assert ver.index_status == "index_failed"
         assert ver.index_error_code == "weknora_call_failed"  # 上游 code 目录化
         assert fake.uploads == []
         # 审计：ingest.confirmed（落库成功）+ ingest.index_failed（索引失败，exception）。
         from app.seed.dev_seed import USER_BOSS
+
         trace = await client.get("/api/v1/admin/audit/trace/trc-wk-fail", headers=_hdr(USER_BOSS))
         actions = {e["action"] for e in trace.json()["items"]}
         assert "ingest.confirmed" in actions
@@ -261,19 +303,23 @@ async def test_embedding_model_missing_keeps_asset_index_failed(client, db_sessi
         assert body["index_status"] == "index_failed"
         # 未建 KB、未上传、未写任何 personal 映射（不产生 active 假成功）。
         assert fake.kbs == {} and fake.uploads == []
-        ver = (await db_session.execute(
-            select(KnowledgeAssetVersion).where(
-                KnowledgeAssetVersion.asset_id == uuid.UUID(body["result_asset_id"])
+        ver = (
+            await db_session.execute(
+                select(KnowledgeAssetVersion).where(
+                    KnowledgeAssetVersion.asset_id == uuid.UUID(body["result_asset_id"])
+                )
             )
-        )).scalar_one()
+        ).scalar_one()
         assert ver.index_status == "index_failed"
         assert ver.index_error_code == "weknora_embedding_model_missing"
-        mapping = (await db_session.execute(
-            select(WeknoraKbMapping).where(
-                WeknoraKbMapping.scope == "personal",
-                WeknoraKbMapping.owner_user_id == USER_CONSULTANT,
+        mapping = (
+            await db_session.execute(
+                select(WeknoraKbMapping).where(
+                    WeknoraKbMapping.scope == "personal",
+                    WeknoraKbMapping.owner_user_id == USER_CONSULTANT,
+                )
             )
-        )).scalar_one_or_none()
+        ).scalar_one_or_none()
         assert mapping is None
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)
@@ -293,12 +339,14 @@ async def test_weknora_init_failure_keeps_asset_index_failed(client, db_session,
         # KB 已建，但映射不是 active（init_failed），未上传原文。
         assert len(fake.kbs) == 1
         assert fake.uploads == []
-        mapping = (await db_session.execute(
-            select(WeknoraKbMapping).where(
-                WeknoraKbMapping.scope == "personal",
-                WeknoraKbMapping.owner_user_id == USER_CONSULTANT,
+        mapping = (
+            await db_session.execute(
+                select(WeknoraKbMapping).where(
+                    WeknoraKbMapping.scope == "personal",
+                    WeknoraKbMapping.owner_user_id == USER_CONSULTANT,
+                )
             )
-        )).scalar_one()
+        ).scalar_one()
         assert mapping.status == "init_failed"
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)
@@ -320,18 +368,22 @@ async def test_weknora_init_retry_recovers(client, db_session, monkeypatch):
     ok_fake = FakeWeKnora()
     _install(ok_fake, monkeypatch)
     try:
-        t2 = await _upload(client, USER_CONSULTANT, file_name="b.txt", content=b"second content body")
+        t2 = await _upload(
+            client, USER_CONSULTANT, file_name="b.txt", content=b"second content body"
+        )
         r2 = await _confirm(client, USER_CONSULTANT, t2, title="第二份")
         assert r2.json()["index_status"] == "indexed"
         # 复用既有 KB（未再建新库），映射翻 active。
         assert ok_fake.kbs == {}  # 未新建 KB（命中既有 init_failed 映射）
         assert len(ok_fake.initialized) == 1  # 仅做了一次 ensure-initialized
-        mapping = (await db_session.execute(
-            select(WeknoraKbMapping).where(
-                WeknoraKbMapping.scope == "personal",
-                WeknoraKbMapping.owner_user_id == USER_CONSULTANT,
+        mapping = (
+            await db_session.execute(
+                select(WeknoraKbMapping).where(
+                    WeknoraKbMapping.scope == "personal",
+                    WeknoraKbMapping.owner_user_id == USER_CONSULTANT,
+                )
             )
-        )).scalar_one()
+        ).scalar_one()
         assert mapping.status == "active"
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)
@@ -370,6 +422,7 @@ async def test_no_weknora_leak_in_response_and_audit(client, weknora):
         assert token not in r.text
     # 审计 trace（治理视图）也不含。
     from app.seed.dev_seed import USER_BOSS
+
     trace = await client.get("/api/v1/admin/audit/trace/trc-wk-leak", headers=_hdr(USER_BOSS))
     actions = {e["action"] for e in trace.json()["items"]}
     assert "ingest.weknora_indexed" in actions
@@ -387,6 +440,7 @@ async def test_admin_business_boundary_unchanged(client, weknora):
     r = await _confirm(client, USER_ADMIN_ONLY, task_id)
     assert r.status_code == 403
     assert r.json()["detail"]["denied_reason"] in {
-        "admin_business_permission_denied", "ingest_confirm_forbidden",
+        "admin_business_permission_denied",
+        "ingest_confirm_forbidden",
     }
     assert weknora.uploads == []

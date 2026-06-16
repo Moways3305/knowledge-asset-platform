@@ -20,9 +20,20 @@ from app.services.agent_registry import hash_token
 _ALPHA_KB = f"wk-kb-proj-{PROJECT_ALPHA}"
 
 _LEAK_TOKENS = [
-    "wk-kb", "wk-doc", "weknora", "kb_id", "doc_id", "chunk_id",
-    "dataset_id", "workflow_id", "external_app_id", "external_workflow_id",
-    "api_key", "token_hash", "storage_ref", "dify-secret",
+    "wk-kb",
+    "wk-doc",
+    "weknora",
+    "kb_id",
+    "doc_id",
+    "chunk_id",
+    "dataset_id",
+    "workflow_id",
+    "external_app_id",
+    "external_workflow_id",
+    "api_key",
+    "token_hash",
+    "storage_ref",
+    "dify-secret",
 ]
 
 
@@ -35,8 +46,15 @@ class FakeSearchWeKnora:
         for i, d in enumerate(self.docs):
             if d["kb_id"] not in kb_ids:
                 continue
-            out.append({"content": d["content"], "knowledge_id": d["knowledge_id"],
-                        "chunk_index": 0, "score": round(1.0 - i * 0.01, 4), "seq": 0})
+            out.append(
+                {
+                    "content": d["content"],
+                    "knowledge_id": d["knowledge_id"],
+                    "chunk_index": 0,
+                    "score": round(1.0 - i * 0.01, 4),
+                    "seq": 0,
+                }
+            )
         return out
 
     async def hybrid_search(self, **_):
@@ -47,18 +65,26 @@ class FakeLLM:
     provider = "deepseek"
     model = "deepseek-chat"
 
-    async def chat_completion(self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None):
+    async def chat_completion(
+        self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None
+    ):
         return "【答案】"
 
 
 def _rule():
     return AgentWhitelistRule(
-        provider="dify", agent_identifier=f"agent-{uuid.uuid4().hex[:8]}",
-        agent_name="中立网关测试接入", capability="qa",
-        allowed_scope=None, allowed_project_id=None,
-        max_confidentiality_level="L5", max_ai_access_level="A4",
-        token_hash=hash_token("kgw_neutral_test"), enabled=True,
-        external_app_id="provider-secret-app", external_workflow_id="provider-secret-wf",
+        provider="dify",
+        agent_identifier=f"agent-{uuid.uuid4().hex[:8]}",
+        agent_name="中立网关测试接入",
+        capability="qa",
+        allowed_scope=None,
+        allowed_project_id=None,
+        max_confidentiality_level="L5",
+        max_ai_access_level="A4",
+        token_hash=hash_token("kgw_neutral_test"),
+        enabled=True,
+        external_app_id="provider-secret-app",
+        external_workflow_id="provider-secret-wf",
     )
 
 
@@ -84,15 +110,27 @@ def test_parse_knowledge_selector_forms():
 
 # ---------------- 中立检索：安全 record 形态 + 无泄露 ----------------
 async def test_run_retrieval_returns_neutral_records(db_session):
-    weknora = FakeSearchWeKnora([
-        {"knowledge_id": f"wk-doc-{KA_PROJECT_ALPHA}", "kb_id": _ALPHA_KB,
-         "content": "Alpha 供应链优化：采购、仓储、物流要点。"}
-    ])
+    weknora = FakeSearchWeKnora(
+        [
+            {
+                "knowledge_id": f"wk-doc-{KA_PROJECT_ALPHA}",
+                "kb_id": _ALPHA_KB,
+                "content": "Alpha 供应链优化：采购、仓储、物流要点。",
+            }
+        ]
+    )
     caller = await gateway.resolve_caller(db_session, USER_CONSULTANT)
     records = await gateway.run_retrieval(
-        db_session, caller, _rule(),
-        knowledge_selector=f"project:{PROJECT_ALPHA}", query="供应链优化",
-        top_k=3, score_threshold=0.0, weknora=weknora, llm=FakeLLM(), trace_id="trc-agent-gateway",
+        db_session,
+        caller,
+        _rule(),
+        knowledge_selector=f"project:{PROJECT_ALPHA}",
+        query="供应链优化",
+        top_k=3,
+        score_threshold=0.0,
+        weknora=weknora,
+        llm=FakeLLM(),
+        trace_id="trc-agent-gateway",
     )
     assert records is not None and len(records) >= 1
     rec = records[0]
@@ -100,7 +138,13 @@ async def test_run_retrieval_returns_neutral_records(db_session):
     assert isinstance(rec, ExternalRetrievalRecord)
     assert rec.content and rec.title
     # metadata 仅安全业务标识，绝不含 provider 内部标识 / WeKnora id。
-    assert set(rec.metadata.keys()) == {"asset_id", "scope", "zone", "used_access_layer", "citation_order"}
+    assert set(rec.metadata.keys()) == {
+        "asset_id",
+        "scope",
+        "zone",
+        "used_access_layer",
+        "citation_order",
+    }
     assert rec.metadata["scope"] == "project"
     blob = " ".join(str(r.model_dump()) for r in records)
     for t in _LEAK_TOKENS:
@@ -110,8 +154,15 @@ async def test_run_retrieval_returns_neutral_records(db_session):
 async def test_run_retrieval_invalid_selector_returns_none(db_session):
     caller = await gateway.resolve_caller(db_session, USER_CONSULTANT)
     out = await gateway.run_retrieval(
-        db_session, caller, _rule(),
-        knowledge_selector="not-a-valid-selector", query="q",
-        top_k=3, score_threshold=0.0, weknora=FakeSearchWeKnora([]), llm=FakeLLM(), trace_id=None,
+        db_session,
+        caller,
+        _rule(),
+        knowledge_selector="not-a-valid-selector",
+        query="q",
+        top_k=3,
+        score_threshold=0.0,
+        weknora=FakeSearchWeKnora([]),
+        llm=FakeLLM(),
+        trace_id=None,
     )
     assert out is None

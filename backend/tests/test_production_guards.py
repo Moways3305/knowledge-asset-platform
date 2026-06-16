@@ -57,9 +57,15 @@ def test_session_cookie_secure_helper_rules():
     assert session_cookie_secure(Settings(app_env="local")) is False
     assert session_cookie_secure(Settings(app_env="local", session_cookie_secure=True)) is True
     # 显式 prod + false → 配置诊断标记 misconfigured（运行时仍被强制安全）。
-    assert session_cookie_secure_misconfigured(Settings(app_env="prod", session_cookie_secure=False)) is True
+    assert (
+        session_cookie_secure_misconfigured(Settings(app_env="prod", session_cookie_secure=False))
+        is True
+    )
     assert session_cookie_secure_misconfigured(Settings(app_env="prod")) is False
-    assert session_cookie_secure_misconfigured(Settings(app_env="local", session_cookie_secure=False)) is False
+    assert (
+        session_cookie_secure_misconfigured(Settings(app_env="local", session_cookie_secure=False))
+        is False
+    )
 
 
 async def test_login_cookie_not_secure_in_local(client):
@@ -145,8 +151,15 @@ async def test_wecom_callback_session_cookie_secure_in_prod(client, monkeypatch,
 # 2. /health/config 生产就绪诊断
 # ---------------------------------------------------------------------------
 _SECRET_TOKENS = [
-    "devpassword", "postgresql+asyncpg", "redis://", "sk-", "Bearer",
-    "api_key", "jwt_secret", "token_hash", "storage_ref",
+    "devpassword",
+    "postgresql+asyncpg",
+    "redis://",
+    "sk-",
+    "Bearer",
+    "api_key",
+    "jwt_secret",
+    "token_hash",
+    "storage_ref",
 ]
 
 
@@ -184,7 +197,9 @@ async def test_config_prod_insecure_cookie_is_blocker(client, monkeypatch):
     """prod + 显式 SESSION_COOKIE_SECURE=false → blocker 含 SESSION_COOKIE_SECURE。"""
     monkeypatch.setattr(
         "app.api.ops.get_settings",
-        lambda: Settings(app_env="prod", celery_task_always_eager=False, session_cookie_secure=False),
+        lambda: Settings(
+            app_env="prod", celery_task_always_eager=False, session_cookie_secure=False
+        ),
     )
     r = await client.get(CONFIG)
     body = r.json()
@@ -198,8 +213,11 @@ async def test_config_prod_weknora_missing_embedding_blocker(client, monkeypatch
     monkeypatch.setattr(
         "app.api.ops.get_settings",
         lambda: Settings(
-            app_env="prod", celery_task_always_eager=False, session_cookie_secure=True,
-            weknora_embedding_model_id="", weknora_model_ref_secret="",
+            app_env="prod",
+            celery_task_always_eager=False,
+            session_cookie_secure=True,
+            weknora_embedding_model_id="",
+            weknora_model_ref_secret="",
         ),
     )
     r = await client.get(CONFIG)
@@ -215,8 +233,13 @@ async def test_config_prod_ready_when_clean(client, monkeypatch):
     monkeypatch.setattr("app.api.ops.weknora_enabled", lambda: False)
     monkeypatch.setattr(
         "app.api.ops.get_settings",
-        lambda: Settings(app_env="prod", celery_task_always_eager=False, session_cookie_secure=True,
-                         auth_attempt_hash_secret="real-secret", csrf_token_secret="real-csrf"),
+        lambda: Settings(
+            app_env="prod",
+            celery_task_always_eager=False,
+            session_cookie_secure=True,
+            auth_attempt_hash_secret="real-secret",
+            csrf_token_secret="real-csrf",
+        ),
     )
     r = await client.get(CONFIG)
     body = r.json()
@@ -232,7 +255,8 @@ async def test_trace_id_flows_http_to_worker_audit_on_upload(client, db_session)
     """上传带 X-Trace-Id → 入库处理（eager worker）写审计沿用同一 trace_id。"""
     trace = "trc-prod-smoke"
     r = await client.post(
-        UPLOAD, headers={**_hdr(USER_CONSULTANT), "X-Trace-Id": trace},
+        UPLOAD,
+        headers={**_hdr(USER_CONSULTANT), "X-Trace-Id": trace},
         files={"file": ("doc.txt", b"trace upload body", "text/plain")},
     )
     assert r.status_code == 200, r.text
@@ -240,8 +264,10 @@ async def test_trace_id_flows_http_to_worker_audit_on_upload(client, db_session)
     assert r.headers.get("X-Trace-Id") == trace
     # worker service 入库处理审计（ingest.ai_extracted / ingest.failed）使用同一 trace_id。
     events = (
-        await db_session.execute(select(AuditEvent).where(AuditEvent.trace_id == trace))
-    ).scalars().all()
+        (await db_session.execute(select(AuditEvent).where(AuditEvent.trace_id == trace)))
+        .scalars()
+        .all()
+    )
     actions = {e.action for e in events}
     assert any(a and a.startswith("ingest.") for a in actions), actions
     # 至少含入库处理产物之一（证明 HTTP → enqueue → worker → audit 同链路）。
@@ -267,7 +293,9 @@ class _TraceWK:
     async def get_initialization_config(self, kb_id, *, trace_id=None):
         return {}
 
-    async def upload_file(self, *, kb_id, content, file_name, mime, metadata=None, channel=None, trace_id=None):
+    async def upload_file(
+        self, *, kb_id, content, file_name, mime, metadata=None, channel=None, trace_id=None
+    ):
         self.upload_traces.append(trace_id)
         if self.fail:
             from app.services.weknora_client import WeKnoraError
@@ -282,8 +310,21 @@ class _TraceWK:
     async def delete_knowledge(self, knowledge_id, *, trace_id=None):
         return None
 
-    async def reparse_knowledge(self, *, kb_id, knowledge_id, content, file_name, mime, metadata=None, channel=None, trace_id=None):
-        return await self.upload_file(kb_id=kb_id, content=content, file_name=file_name, mime=mime, trace_id=trace_id)
+    async def reparse_knowledge(
+        self,
+        *,
+        kb_id,
+        knowledge_id,
+        content,
+        file_name,
+        mime,
+        metadata=None,
+        channel=None,
+        trace_id=None,
+    ):
+        return await self.upload_file(
+            kb_id=kb_id, content=content, file_name=file_name, mime=mime, trace_id=trace_id
+        )
 
     async def search(self, **_):
         return []
@@ -314,12 +355,18 @@ def _wk_cleanup():
 async def _make_index_failed(client, monkeypatch, user):
     """走 confirm（失败底座）生成一个 index_failed 资产，返回 asset_id。"""
     _enable_wk(monkeypatch, _TraceWK(fail=True))
-    up = await client.post(UPLOAD, headers=_hdr(user), files={"file": ("d.txt", b"trace idx body", "text/plain")})
+    up = await client.post(
+        UPLOAD, headers=_hdr(user), files={"file": ("d.txt", b"trace idx body", "text/plain")}
+    )
     task_id = up.json()["ingest_task_id"]
     payload = {
-        "title": "trace 索引资产", "summary": "摘要", "tags": ["t"],
-        "target_scope": "personal", "asset_type": "methodology",
-        "confidentiality_level": "L2", "ai_access_level": "A2",
+        "title": "trace 索引资产",
+        "summary": "摘要",
+        "tags": ["t"],
+        "target_scope": "personal",
+        "asset_type": "methodology",
+        "confidentiality_level": "L2",
+        "ai_access_level": "A2",
     }
     r = await client.post(f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(user), json=payload)
     assert r.status_code == 200, r.text
@@ -335,19 +382,28 @@ async def test_trace_id_flows_to_indexing_job_and_weknora(client, db_session, mo
     rec = _TraceWK()
     _enable_wk(monkeypatch, rec)
     r = await client.post(
-        RETRY, headers={**_hdr(USER_ADMIN_ONLY), "X-Trace-Id": trace},
+        RETRY,
+        headers={**_hdr(USER_ADMIN_ONLY), "X-Trace-Id": trace},
         json={"scope": "all", "statuses": ["index_failed"], "limit": 50},
     )
     assert r.status_code == 202, r.text
     # job.trace_id 保存请求 trace。
     jobs = (
-        await db_session.execute(select(IndexingOperationJob).where(IndexingOperationJob.trace_id == trace))
-    ).scalars().all()
+        (
+            await db_session.execute(
+                select(IndexingOperationJob).where(IndexingOperationJob.trace_id == trace)
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert jobs, "indexing_operation_job 应保存请求 trace_id"
     # fake WeKnora 重传收到同一 trace_id（HTTP → job → 底座调用同链路）。
     assert trace in rec.upload_traces
     # 完成审计沿用该 trace_id。
     audits = (
-        await db_session.execute(select(AuditEvent).where(AuditEvent.trace_id == trace))
-    ).scalars().all()
+        (await db_session.execute(select(AuditEvent).where(AuditEvent.trace_id == trace)))
+        .scalars()
+        .all()
+    )
     assert any(a.action and a.action.startswith("knowledge.index_batch_retry") for a in audits)

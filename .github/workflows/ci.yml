@@ -32,6 +32,9 @@ jobs:
           python -m pip install --no-deps --no-build-isolation .
       - name: Lint (ruff)
         run: python -m ruff check app tests
+      - name: Format check (ruff format)
+        # 阻断未格式化代码（配置见 pyproject [tool.ruff.format]）。本地用 `ruff format app tests` 修复。
+        run: python -m ruff format --check app tests
       - name: Type check (mypy)
         # 类型检查基线（宽松模式，配置见 pyproject [tool.mypy]）。首阶段目标零 error；
         # 后续按模块逐步收紧到 --strict 子集。

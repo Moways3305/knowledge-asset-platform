@@ -1,4 +1,4 @@
-﻿"""企微身份生命周期同步 API schema。
+"""企微身份生命周期同步 API schema。
 
 只承载**安全**字段：平台 user_id / 安全显示名 / 平台状态 / 归一 wecom_status code / 计数。
 **绝不**含 raw wecom_user_id / access_token / app_secret / OAuth code·state / 上游 payload·errmsg /
@@ -40,4 +40,3 @@ class ReconcileResponse(BaseModel):
     failed: int
     dry_run: bool
     items: list[ReconcileItem]
-

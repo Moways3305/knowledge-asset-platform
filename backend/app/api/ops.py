@@ -1,4 +1,4 @@
-﻿"""部署 / 可观测端点。
+"""部署 / 可观测端点。
 
 - GET /health/ready：就绪探针（DB 连通；async 模式下 Redis 连通）。
 - GET /health/config：**安全**配置诊断（只回 enabled/disabled 布尔 + provider 名 + 缺失项名，
@@ -213,7 +213,10 @@ def _require_admin(caller: CallerContext) -> None:
     from fastapi import HTTPException
 
     if CompanyRole.admin.value not in caller.active_company_roles:
-        raise HTTPException(403, detail={"denied_reason": "ops_admin_required", "message": "仅 admin 可查看运营摘要"})
+        raise HTTPException(
+            403,
+            detail={"denied_reason": "ops_admin_required", "message": "仅 admin 可查看运营摘要"},
+        )
 
 
 @router.get("/admin/ops/summary")
@@ -230,19 +233,23 @@ async def ops_summary(
 
     ingest_counts = {}
     for status in (
-        IngestStatus.processing, IngestStatus.pending_confirmation,
-        IngestStatus.failed, IngestStatus.completed,
+        IngestStatus.processing,
+        IngestStatus.pending_confirmation,
+        IngestStatus.failed,
+        IngestStatus.completed,
     ):
         ingest_counts[status.value] = await _count(
             select(func.count()).select_from(IngestTask).where(IngestTask.status == status.value)
         )
     pending_wecom = await _count(
-        select(func.count()).select_from(NotificationRecord)
+        select(func.count())
+        .select_from(NotificationRecord)
         .where(NotificationRecord.channel == NotificationChannel.wecom.value)
         .where(NotificationRecord.send_status == NotificationStatus.pending.value)
     )
     unprocessed_exc = await _count(
-        select(func.count()).select_from(AuditEvent)
+        select(func.count())
+        .select_from(AuditEvent)
         .where(AuditEvent.log_type == AuditLogType.exception.value)
         .where(AuditEvent.is_processed.is_(False))
     )
@@ -264,7 +271,9 @@ def _require_ops_viewer(caller: CallerContext) -> None:
 
     if CompanyRole.admin.value in caller.active_company_roles or caller.can_discover_l5:
         return
-    raise HTTPException(403, detail={"denied_reason": "ops_viewer_required", "message": "无权查看索引运维视图"})
+    raise HTTPException(
+        403, detail={"denied_reason": "ops_viewer_required", "message": "无权查看索引运维视图"}
+    )
 
 
 @router.get("/admin/ops/indexing")
@@ -297,14 +306,24 @@ async def ops_indexing(
         )
 
     counts = {
-        "index_failed": await _count(_version_count(KnowledgeAssetVersion.index_status == "index_failed")),
+        "index_failed": await _count(
+            _version_count(KnowledgeAssetVersion.index_status == "index_failed")
+        ),
         "indexing": await _count(_version_count(KnowledgeAssetVersion.index_status == "indexing")),
-        "not_indexed": await _count(_version_count(KnowledgeAssetVersion.index_status == "not_indexed")),
+        "not_indexed": await _count(
+            _version_count(KnowledgeAssetVersion.index_status == "not_indexed")
+        ),
         "skipped": await _count(_version_count(KnowledgeAssetVersion.index_status == "skipped")),
-        "parse_pending": await _count(_version_count(KnowledgeAssetVersion.weknora_parse_status == "pending")),
-        "parse_processing": await _count(_version_count(KnowledgeAssetVersion.weknora_parse_status == "processing")),
+        "parse_pending": await _count(
+            _version_count(KnowledgeAssetVersion.weknora_parse_status == "pending")
+        ),
+        "parse_processing": await _count(
+            _version_count(KnowledgeAssetVersion.weknora_parse_status == "processing")
+        ),
         "kb_init_failed": await _count(
-            select(func.count()).select_from(WeknoraKbMapping).where(WeknoraKbMapping.status == "init_failed")
+            select(func.count())
+            .select_from(WeknoraKbMapping)
+            .where(WeknoraKbMapping.status == "init_failed")
         ),
     }
 
@@ -324,7 +343,9 @@ async def ops_indexing(
     omap: dict = {}
     if project_ids:
         for pid, pname in (
-            await session.execute(select(Project.id, Project.name).where(Project.id.in_(project_ids)))
+            await session.execute(
+                select(Project.id, Project.name).where(Project.id.in_(project_ids))
+            )
         ).all():
             pmap[pid] = pname
     if owner_ids:
@@ -338,22 +359,24 @@ async def ops_indexing(
         # 安全目录 code：历史脏 code 也归一，不外显原始上游 code。
         scode = error_catalog.safe_code(v.index_error_code)
         info = error_catalog.get_error(scode)
-        recent_failed.append({
-            "asset_id": str(a.id),
-            "title": a.title if show_title else "（业务资产标题已隐藏）",
-            "scope": a.scope,
-            "project_name": pmap.get(a.project_id) if a.project_id else None,
-            "owner_name": (omap.get(a.owner_user_id) if show_title else None),
-            "index_status": v.index_status,
-            "index_error_code": scode,
-            # 用户态文案（与详情页一致，按目录派生，不外显旧/上游脏文案）。
-            "index_error_message": info.user_message,
-            # 运营态诊断（admin/运营可见；含配置项名，绝不含值/内部 id/secret）。
-            "operator_error_message": info.operator_message,
-            "remediation_hint": info.remediation_hint,
-            "severity": info.severity,
-            "updated_at": a.updated_at.isoformat() if a.updated_at else None,
-        })
+        recent_failed.append(
+            {
+                "asset_id": str(a.id),
+                "title": a.title if show_title else "（业务资产标题已隐藏）",
+                "scope": a.scope,
+                "project_name": pmap.get(a.project_id) if a.project_id else None,
+                "owner_name": (omap.get(a.owner_user_id) if show_title else None),
+                "index_status": v.index_status,
+                "index_error_code": scode,
+                # 用户态文案（与详情页一致，按目录派生，不外显旧/上游脏文案）。
+                "index_error_message": info.user_message,
+                # 运营态诊断（admin/运营可见；含配置项名，绝不含值/内部 id/secret）。
+                "operator_error_message": info.operator_message,
+                "remediation_hint": info.remediation_hint,
+                "severity": info.severity,
+                "updated_at": a.updated_at.isoformat() if a.updated_at else None,
+            }
+        )
 
     return {"counts": counts, "recent_failed": recent_failed, "title_visible": show_title}
 
@@ -371,7 +394,12 @@ async def ops_indexing_retry(
     后台重试。仅 admin / 业务治理角色；202 + 安全 job 摘要，不在请求内逐条跑完（eager 例外）。
     绝不外泄 kb_id / doc_id / storage_ref / 原文。"""
     return await indexing_ops_service.create_retry_job(
-        session, caller, req, weknora=weknora, storage=storage, trace_id=get_trace_id(request),
+        session,
+        caller,
+        req,
+        weknora=weknora,
+        storage=storage,
+        trace_id=get_trace_id(request),
     )
 
 
@@ -387,7 +415,12 @@ async def ops_indexing_reparse(
     """显式 reparse：对已进底座但解析异常（failed / pending / processing）的资产入队
     重新解析（受控重传刷新底座解析）。仅 admin / 业务治理角色；202 + 安全 job 摘要。"""
     return await indexing_ops_service.create_reparse_job(
-        session, caller, req, weknora=weknora, storage=storage, trace_id=get_trace_id(request),
+        session,
+        caller,
+        req,
+        weknora=weknora,
+        storage=storage,
+        trace_id=get_trace_id(request),
     )
 
 
@@ -477,9 +510,13 @@ async def ops_revoke_user_sessions(
         session, user_id, exclude_token_hash=exclude
     )
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.auth_sessions_revoked.value, trace_id=get_trace_id(request),
-        target_type="user", target_id=user_id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.auth_sessions_revoked.value,
+        trace_id=get_trace_id(request),
+        target_type="user",
+        target_id=user_id,
         extra={
             "target_user_id": str(user_id),
             "revoked_count": revoked,
@@ -490,7 +527,10 @@ async def ops_revoke_user_sessions(
     )
     await session.commit()
     return SessionRevokeResponse(
-        ok=True, user_id=user_id, revoked_count=revoked, revoked_at=revoked_at,
+        ok=True,
+        user_id=user_id,
+        revoked_count=revoked,
+        revoked_at=revoked_at,
         preserved_current_session=exclude is not None,
     )
 
@@ -512,7 +552,11 @@ async def ops_wecom_identity_reconcile(
     响应只含安全聚合 + 安全 item（**不**含 raw wecom_user_id / 通讯录档案 / token / 上游 errmsg）。"""
     _require_admin(caller)
     return await wecom_identity.reconcile(
-        session, caller, oauth,
-        user_id=body.user_id, limit=body.limit, dry_run=body.dry_run, trace_id=get_trace_id(request),
+        session,
+        caller,
+        oauth,
+        user_id=body.user_id,
+        limit=body.limit,
+        dry_run=body.dry_run,
+        trace_id=get_trace_id(request),
     )
-

@@ -1,4 +1,4 @@
-﻿"""CSRF token 服务。
+"""CSRF token 服务。
 
 **无状态、签名（HMAC-SHA256）、带过期、绑定 session** 的 CSRF token，用于保护 cookie 会话
 下的有副作用请求（synchronizer-token 形态：token 经 JSON 下发、前端内存缓存、unsafe 请求经
@@ -97,4 +97,3 @@ def verify_csrf_token(
     if int(_now().timestamp()) > expiry:
         return "csrf_token_expired"
     return None
-

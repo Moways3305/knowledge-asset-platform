@@ -1,4 +1,4 @@
-﻿"""身份与项目成员 ORM 模型。
+"""身份与项目成员 ORM 模型。
 
 按 `docs/backend/01-数据模型DATA_MODEL.md` 实现最小必需字段：
 users / user_company_roles / projects / project_members。
@@ -74,14 +74,10 @@ class UserCompanyRole(Base):
     """
 
     __tablename__ = "user_company_roles"
-    __table_args__ = (
-        UniqueConstraint("user_id", "company_role", name="uq_user_company_role"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "company_role", name="uq_user_company_role"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id"), nullable=False
-    )
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
     # company_role：boss / consulting_director / consultant / admin
     company_role: Mapped[str] = mapped_column(String(30), nullable=False)
     # status：active / inactive。只有 active 角色参与身份判定。
@@ -114,9 +110,7 @@ class Project(Base):
     # 当前生命周期阶段标签（可空）。
     lifecycle_phase_key: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # 项目入库是否强制进入审核（true 时不允许 direct_ingest）。
-    force_review_on_ingest: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False
-    )
+    force_review_on_ingest: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # 企微群配置值（非 secret；响应只回脱敏 label + bound，绝不外泄全文）。
     wecom_group_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
@@ -138,17 +132,11 @@ class ProjectMember(Base):
     """
 
     __tablename__ = "project_members"
-    __table_args__ = (
-        UniqueConstraint("user_id", "project_id", name="uq_user_project_member"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "project_id", name="uq_user_project_member"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id"), nullable=False
-    )
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("projects.id"), nullable=False
-    )
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("projects.id"), nullable=False)
     # project_role：consultant / project_manager / coach
     project_role: Mapped[str] = mapped_column(String(30), nullable=False)
     # status：active / inactive
@@ -157,4 +145,3 @@ class ProjectMember(Base):
 
     user: Mapped[User] = relationship(back_populates="project_members")
     project: Mapped[Project] = relationship(back_populates="members")
-

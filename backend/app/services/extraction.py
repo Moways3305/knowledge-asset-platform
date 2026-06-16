@@ -1,4 +1,4 @@
-﻿"""文本抽取服务。
+"""文本抽取服务。
 
 输入文件字节 + 文件名 / mime，输出抽取全文草稿 + 状态。纯 Python 抽取库
 （txt/md 直读、pdf 用 pypdf、docx 用 python-docx），Windows 无原生二进制依赖。
@@ -57,9 +57,7 @@ def _extract_docx(content: bytes) -> str:
     return "\n".join(p.text for p in doc.paragraphs)
 
 
-def extract_text(
-    content: bytes, *, file_name: str | None, mime: str | None
-) -> ExtractionResult:
+def extract_text(content: bytes, *, file_name: str | None, mime: str | None) -> ExtractionResult:
     """按扩展名 / mime 路由抽取文本，返回结构化结果（绝不抛出到调用方）。"""
     ext = _ext(file_name)
     mime = (mime or "").lower()
@@ -103,7 +101,9 @@ def extract_text(
     if len(text) > MAX_EXTRACT_CHARS:
         text = text[:MAX_EXTRACT_CHARS]
     return ExtractionResult(
-        text=text, status="extracted", error_type=None, error_message=None,
+        text=text,
+        status="extracted",
+        error_type=None,
+        error_message=None,
         char_count=len(text),
     )
-

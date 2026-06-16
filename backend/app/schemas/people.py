@@ -1,4 +1,4 @@
-﻿"""人员 / 公司角色 / 项目成员关系管理 API 的请求 / 响应 schema。
+"""人员 / 公司角色 / 项目成员关系管理 API 的请求 / 响应 schema。
 
 只暴露**安全身份/治理元数据**：绝不含 session token / token_hash / OAuth code·state /
 ip / device_info / WeCom secret / provider 内部标识 / 内部存储引用 / 业务原文。
@@ -102,4 +102,3 @@ class ProjectMembershipPatchRequest(BaseModel):
 
     project_role: ProjectRole | None = None
     status: MemberStatus | None = None
-

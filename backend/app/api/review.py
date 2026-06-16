@@ -1,4 +1,4 @@
-﻿"""审核流 API。
+"""审核流 API。
 
 权限/状态判断全部委托 `app.services.review`。不写审计、不通知、不调用 Agent。
 """
@@ -51,9 +51,7 @@ async def get_review(
     return await review_service.get_review(session, caller, review_id)
 
 
-@router.post(
-    "/projects/{project_id}/knowledge/{asset_id}/evidence", response_model=EvidenceOut
-)
+@router.post("/projects/{project_id}/knowledge/{asset_id}/evidence", response_model=EvidenceOut)
 async def register_evidence(
     project_id: uuid.UUID,
     asset_id: uuid.UUID,
@@ -92,9 +90,7 @@ async def approve_review(
     session: AsyncSession = Depends(get_db),
 ) -> ReviewActionResponse:
     comment = req.review_comment if req else None
-    return await review_service.approve(
-        session, caller, review_id, comment, get_trace_id(request)
-    )
+    return await review_service.approve(session, caller, review_id, comment, get_trace_id(request))
 
 
 @router.post("/reviews/{review_id}/reject", response_model=ReviewActionResponse)
@@ -108,4 +104,3 @@ async def reject_review(
     return await review_service.reject(
         session, caller, review_id, req.review_comment, get_trace_id(request)
     )
-

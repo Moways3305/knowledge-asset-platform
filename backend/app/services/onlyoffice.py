@@ -34,11 +34,18 @@ class OnlyOfficeError(Exception):
 
 # 扩展名 → (ONLYOFFICE fileType, documentType)。仅常见办公文档；未知 → 不支持。
 _DOC_TYPES = {
-    "docx": ("docx", "word"), "doc": ("doc", "word"), "txt": ("txt", "word"),
-    "md": ("txt", "word"), "rtf": ("rtf", "word"), "odt": ("odt", "word"),
+    "docx": ("docx", "word"),
+    "doc": ("doc", "word"),
+    "txt": ("txt", "word"),
+    "md": ("txt", "word"),
+    "rtf": ("rtf", "word"),
+    "odt": ("odt", "word"),
     "pdf": ("pdf", "word"),
-    "xlsx": ("xlsx", "cell"), "xls": ("xls", "cell"), "csv": ("csv", "cell"),
-    "pptx": ("pptx", "slide"), "ppt": ("ppt", "slide"),
+    "xlsx": ("xlsx", "cell"),
+    "xls": ("xls", "cell"),
+    "csv": ("csv", "cell"),
+    "pptx": ("pptx", "slide"),
+    "ppt": ("ppt", "slide"),
 }
 
 
@@ -55,6 +62,7 @@ def resolve_doc_type(file_name: str) -> tuple[str, str] | None:
 
 def _sign_hs256(payload: dict, secret: str) -> str:
     """最小 HS256 JWT 签名（不引第三方依赖）。secret 不出现在返回值里（仅签名）。"""
+
     def _b64(raw: bytes) -> str:
         return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
@@ -95,8 +103,11 @@ def build_view_config(
             "key": document_key,  # 文档版本 key（同内容稳定，安全派生，非 storage_ref）
             "url": fetch_url,
             "permissions": {  # 只读：禁编辑/下载/打印/复制
-                "edit": False, "download": False, "print": False,
-                "copy": False, "review": False,
+                "edit": False,
+                "download": False,
+                "print": False,
+                "copy": False,
+                "review": False,
             },
         },
         "editorConfig": {

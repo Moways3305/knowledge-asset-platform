@@ -1,4 +1,4 @@
-﻿"""登录风控运维 API schema。
+"""登录风控运维 API schema。
 
 只承载**安全**字段：不可逆 hash 前缀、计数、安全用户元数据、时间、原因码。**绝不**含
 raw email / raw IP / 完整 identifier_hash·ip_hash / password·hash·salt·digest /
@@ -60,4 +60,3 @@ class AuthUnlockResponse(BaseModel):
     user_id: uuid.UUID | None
     identifier_hash_prefix: str | None
     reset_at: datetime | None
-

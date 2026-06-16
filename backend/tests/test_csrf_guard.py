@@ -118,7 +118,9 @@ async def test_login_not_csrf_protected(client):
 # ---------------------------------------------------------------------------
 async def test_dev_header_mutation_not_csrf_blocked(client):
     # X-Dev-User-Id（无 cookie 会话）→ CSRF 跳过；admin 批量 retry 入队成功。
-    r = await client.post(RETRY, headers={"X-Dev-User-Id": str(USER_ADMIN_ONLY)}, json={"scope": "all"})
+    r = await client.post(
+        RETRY, headers={"X-Dev-User-Id": str(USER_ADMIN_ONLY)}, json={"scope": "all"}
+    )
     assert r.status_code == 202, r.text
 
 
@@ -150,9 +152,11 @@ async def test_csrf_failure_no_business_effect_or_audit(client, db_session):
     me = await client.get(ME)
     assert me.status_code == 200 and me.json()["email"] == BOSS_EMAIL
     # 无 login.logout 业务审计。
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "login.logout")
-    )).scalars().all()
+    ev = (
+        (await db_session.execute(select(AuditEvent).where(AuditEvent.action == "login.logout")))
+        .scalars()
+        .all()
+    )
     assert ev == []
 
 
@@ -162,8 +166,13 @@ async def test_csrf_failure_no_business_effect_or_audit(client, db_session):
 async def test_prod_missing_csrf_secret_is_blocker(client, monkeypatch):
     monkeypatch.setattr(
         "app.api.ops.get_settings",
-        lambda: Settings(app_env="prod", celery_task_always_eager=False, session_cookie_secure=True,
-                         auth_attempt_hash_secret="a", csrf_token_secret=""),
+        lambda: Settings(
+            app_env="prod",
+            celery_task_always_eager=False,
+            session_cookie_secure=True,
+            auth_attempt_hash_secret="a",
+            csrf_token_secret="",
+        ),
     )
     monkeypatch.setattr("app.api.ops.weknora_enabled", lambda: False)
     r = await client.get(CONFIG)
@@ -176,8 +185,13 @@ async def test_prod_missing_csrf_secret_is_blocker(client, monkeypatch):
 async def test_prod_with_csrf_secret_not_blocker(client, monkeypatch):
     monkeypatch.setattr(
         "app.api.ops.get_settings",
-        lambda: Settings(app_env="prod", celery_task_always_eager=False, session_cookie_secure=True,
-                         auth_attempt_hash_secret="a", csrf_token_secret="real-csrf"),
+        lambda: Settings(
+            app_env="prod",
+            celery_task_always_eager=False,
+            session_cookie_secure=True,
+            auth_attempt_hash_secret="a",
+            csrf_token_secret="real-csrf",
+        ),
     )
     monkeypatch.setattr("app.api.ops.weknora_enabled", lambda: False)
     r = await client.get(CONFIG)

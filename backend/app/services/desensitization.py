@@ -1,4 +1,4 @@
-﻿"""脱敏引擎。
+"""脱敏引擎。
 
 两类脱敏，定位不同，不要混淆：
 
@@ -84,7 +84,9 @@ _PLACEHOLDER = {
 
 # 金额：带货币标记（¥/￥/人民币/RMB）或数字 + 中文金额单位（万/亿/元）。普通数字不替换。
 _AMOUNT_RES = (
-    re.compile(r"(?:人民币|RMB)\s*\d[\d,]*(?:\.\d+)?\s*(?:亿元|万元|千元|亿|万|元)?", re.IGNORECASE),
+    re.compile(
+        r"(?:人民币|RMB)\s*\d[\d,]*(?:\.\d+)?\s*(?:亿元|万元|千元|亿|万|元)?", re.IGNORECASE
+    ),
     re.compile(r"[¥￥]\s?\d[\d,]*(?:\.\d+)?\s*(?:亿元|万元|千元|亿|万|元)?"),
     re.compile(r"\d[\d,]*(?:\.\d+)?\s*(?:亿元|万元|千元|亿元|万|亿|元)"),
 )
@@ -167,7 +169,9 @@ def get_desensitizer() -> DesensitizationEngine:
 
 
 class OutputDesensitizer(Protocol):
-    async def scrub(self, text: str, *, trace_id: str | None = None) -> str | None:  # pragma: no cover - 接口
+    async def scrub(
+        self, text: str, *, trace_id: str | None = None
+    ) -> str | None:  # pragma: no cover - 接口
         ...
 
 
@@ -219,4 +223,3 @@ class LlmOutputDesensitizer:
 def get_output_desensitizer(llm: LLMClient | NullLLMClient) -> LlmOutputDesensitizer:
     """构建检索输出脱敏器（包裹注入的 LLM 客户端；未配置时其 scrub 恒降级为 None）。"""
     return LlmOutputDesensitizer(llm)
-

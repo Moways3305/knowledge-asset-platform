@@ -130,7 +130,8 @@ async def test_confirm_project_non_member_rejected_member_ok(client):
         f"/api/v1/ingest/{task2}/confirm",
         headers=_hdr(USER_CONSULTANT),
         json=_confirm_payload(
-            title="Alpha 入库项目资产", target_scope="project",
+            title="Alpha 入库项目资产",
+            target_scope="project",
             target_project_id=str(PROJECT_ALPHA),
         ),
     )
@@ -167,7 +168,9 @@ async def test_confirm_l4_redacted_summary_no_key_points(client):
         f"/api/v1/ingest/{task_id}/confirm",
         headers=_hdr(USER_CONSULTANT),
         json=_confirm_payload(
-            title="个人 L4 资产", target_scope="personal", confidentiality_level="L4",
+            title="个人 L4 资产",
+            target_scope="personal",
+            confidentiality_level="L4",
             ai_access_level="A4",
         ),
     )
@@ -182,9 +185,13 @@ async def test_second_confirm_returns_409(client):
     """二次 confirm 同一任务返回 409，不重复创建资产。"""
     task_id = (await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"]
     p = _confirm_payload(target_scope="personal")
-    r1 = await client.post(f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(USER_CONSULTANT), json=p)
+    r1 = await client.post(
+        f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(USER_CONSULTANT), json=p
+    )
     assert r1.status_code == 200
-    r2 = await client.post(f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(USER_CONSULTANT), json=p)
+    r2 = await client.post(
+        f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(USER_CONSULTANT), json=p
+    )
     assert r2.status_code == 409
     assert r2.json()["detail"]["denied_reason"] == "ingest_already_confirmed"
 
@@ -252,8 +259,15 @@ async def test_upload_persists_real_file_and_no_leak(client):
     text = resp.text
     # 响应只含安全元数据，绝不含内部引用 / 路径 / URL。
     for token in [
-        "source_file_ref", "storage_ref", "internal://", "file://", "s3://", "oss://",
-        "http://", "https://", str(client._kap_storage.root),
+        "source_file_ref",
+        "storage_ref",
+        "internal://",
+        "file://",
+        "s3://",
+        "oss://",
+        "http://",
+        "https://",
+        str(client._kap_storage.root),
     ]:
         assert token not in text, f"响应不应泄露 {token}"
 
@@ -340,7 +354,9 @@ async def test_upload_extraction_success_content_based(client):
     body = r.json()
     assert body["extraction_status"] == "extracted"
     # 标题为平台规范命名（非"摘要式标题"/非抽取首行）。
-    assert re.match(r"^【[^-】]+-[^】]+】.+_.+_\d{8}_V\d+_L[1-5]$", body["suggested_title"]), body["suggested_title"]
+    assert re.match(r"^【[^-】]+-[^】]+】.+_.+_\d{8}_V\d+_L[1-5]$", body["suggested_title"]), body[
+        "suggested_title"
+    ]
     # 抽取首行进入一句话摘要字段，不抢占标题。
     assert body["suggested_one_liner"] == "零售数字化转型方案"
     assert body["suggested_title"] != body["suggested_one_liner"]
@@ -358,7 +374,9 @@ async def test_upload_unsupported_still_pending(client):
     assert resp.status_code == 200
     assert resp.json()["status"] == "pending_confirmation"
     task_id = resp.json()["ingest_task_id"]
-    ai = (await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))).json()
+    ai = (
+        await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
+    ).json()
     assert ai["extraction_status"] == "unsupported"
     assert "人工补全" in ai["suggested_summary"]
 
@@ -373,7 +391,9 @@ async def test_upload_failed_extraction_persists_and_audits_no_leak(client):
     assert resp.status_code == 200
     assert resp.json()["status"] == "failed"
     task_id = resp.json()["ingest_task_id"]
-    ai = (await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))).json()
+    ai = (
+        await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
+    ).json()
     assert ai["extraction_status"] == "failed"
     assert ai["error_type"] == "extraction_failed"
     assert ai["error_message"]
@@ -406,7 +426,9 @@ async def test_duplicate_content_soft_hint_non_blocking(client):
     assert second_resp.status_code == 200
     assert second_resp.json()["status"] == "pending_confirmation"  # 不阻断
     second = second_resp.json()["ingest_task_id"]
-    ai = (await client.get(f"/api/v1/ingest/{second}/ai-result", headers=_hdr(USER_CONSULTANT))).json()
+    ai = (
+        await client.get(f"/api/v1/ingest/{second}/ai-result", headers=_hdr(USER_CONSULTANT))
+    ).json()
     assert ai["is_possible_duplicate"] is True
     assert ai["duplicate_of_task_id"] == first
 

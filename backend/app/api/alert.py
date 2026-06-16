@@ -1,4 +1,4 @@
-﻿"""Admin 告警设置 API。
+"""Admin 告警设置 API。
 
 - GET   /api/v1/admin/alerts/rules：告警规则列表（admin）。
 - PATCH /api/v1/admin/alerts/rules/{rule_id}：更新规则（admin；审计 config.alert_rule_updated）。
@@ -45,9 +45,7 @@ async def update_rule(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> AlertRuleOut:
-    return await alert_service.update_rule(
-        session, caller, rule_id, body, get_trace_id(request)
-    )
+    return await alert_service.update_rule(session, caller, rule_id, body, get_trace_id(request))
 
 
 @router.get("/admin/alerts/notifications", response_model=NotificationsResponse)
@@ -56,4 +54,3 @@ async def list_notifications(
     session: AsyncSession = Depends(get_db),
 ) -> NotificationsResponse:
     return await alert_service.list_notifications(session, caller)
-

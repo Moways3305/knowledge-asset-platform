@@ -1,4 +1,4 @@
-﻿"""入库流水线 ORM 模型。
+"""入库流水线 ORM 模型。
 
 仅两张表：ingest_tasks / ingest_task_ai_results（文件存储、AI 抽取、Path A 扫描、
 审核流、审计等由各自模块实现）。
@@ -119,4 +119,3 @@ class IngestTaskAiResult(Base):
     )
 
     task: Mapped[IngestTask] = relationship(back_populates="ai_result")
-

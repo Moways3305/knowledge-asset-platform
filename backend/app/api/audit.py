@@ -1,4 +1,4 @@
-﻿"""Admin Audit API。
+"""Admin Audit API。
 
 - GET  /api/v1/admin/audit：审计查询（admin / boss / 咨询总监；按角色脱敏）。
 - GET  /api/v1/admin/audit/trace/{trace_id}：trace 链路查询（同权限；按可见性脱敏）。
@@ -72,13 +72,10 @@ async def get_trace(
     return await audit_service.get_trace(session, caller, trace_id)
 
 
-@router.post(
-    "/admin/audit/{event_id}/mark-processed", response_model=MarkProcessedResponse
-)
+@router.post("/admin/audit/{event_id}/mark-processed", response_model=MarkProcessedResponse)
 async def mark_processed(
     event_id: uuid.UUID,
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> MarkProcessedResponse:
     return await audit_service.mark_processed(session, caller, event_id)
-

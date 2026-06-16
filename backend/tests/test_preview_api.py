@@ -97,7 +97,9 @@ async def test_archived_preview_rejected_no_credential(client, db_session):
 
 async def test_preview_entry_active_returns_placeholder(client, db_session):
     """对 active credential 访问入口返回占位 metadata，并更新 used_at / last_used_at。"""
-    cred_id = (await client.post(_preview_url(KA_PERSONAL), headers=_hdr(USER_CONSULTANT))).json()["credential_id"]
+    cred_id = (await client.post(_preview_url(KA_PERSONAL), headers=_hdr(USER_CONSULTANT))).json()[
+        "credential_id"
+    ]
     resp = await client.get(f"/api/v1/preview/{cred_id}", headers=_hdr(USER_CONSULTANT))
     assert resp.status_code == 200
     body = resp.json()
@@ -139,7 +141,9 @@ async def test_preview_other_asset_version_404(client, db_session):
 
 async def test_preview_entry_admin_403(client):
     """纯 admin 访问已有 preview entry 返回 403 admin_business_permission_denied。"""
-    cred_id = (await client.post(_preview_url(KA_PERSONAL), headers=_hdr(USER_CONSULTANT))).json()["credential_id"]
+    cred_id = (await client.post(_preview_url(KA_PERSONAL), headers=_hdr(USER_CONSULTANT))).json()[
+        "credential_id"
+    ]
     resp = await client.get(f"/api/v1/preview/{cred_id}", headers=_hdr(USER_ADMIN_ONLY))
     assert resp.status_code == 403
     assert resp.json()["detail"]["denied_reason"] == "admin_business_permission_denied"

@@ -1,4 +1,4 @@
-﻿"""索引运维任务 ORM 模型。
+"""索引运维任务 ORM 模型。
 
 一张轻量运维任务表 `indexing_operation_jobs`：记录运维发起的**批量 retry-index** /
 **显式 reparse** 后台作业的安全状态与统计，供 ops 面板查询。
@@ -53,4 +53,3 @@ class IndexingOperationJob(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
     )
-

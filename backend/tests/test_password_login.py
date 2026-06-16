@@ -132,9 +132,11 @@ async def test_prod_inactive_user_401(client, db_session, monkeypatch):
 async def test_login_success_audit_method_password(client, db_session, monkeypatch):
     _prod(monkeypatch)
     await client.post(LOGIN, json={"email": BOSS_EMAIL, "password": DEV_PASSWORD})
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "login.success")
-    )).scalars().all()
+    ev = (
+        (await db_session.execute(select(AuditEvent).where(AuditEvent.action == "login.success")))
+        .scalars()
+        .all()
+    )
     assert any((e.extra or {}).get("login_method") == "password" for e in ev)
     blob = str([(e.extra, e.actor_user_id) for e in ev])
     # 注：login_method 值即 "password"（安全字段名值）；只校验真实凭证不泄露。
@@ -145,9 +147,11 @@ async def test_login_success_audit_method_password(client, db_session, monkeypat
 async def test_known_user_failure_audited_no_leak(client, db_session, monkeypatch):
     _prod(monkeypatch)
     await client.post(LOGIN, json={"email": BOSS_EMAIL, "password": "wrong-one"})
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "login.failed")
-    )).scalars().all()
+    ev = (
+        (await db_session.execute(select(AuditEvent).where(AuditEvent.action == "login.failed")))
+        .scalars()
+        .all()
+    )
     assert len(ev) >= 1
     blob = str([(e.extra, e.before_snapshot, e.after_snapshot) for e in ev])
     for token in ["wrong-one", "password_hash", "salt", "digest", "kap_session"]:
@@ -157,9 +161,11 @@ async def test_known_user_failure_audited_no_leak(client, db_session, monkeypatc
 async def test_unknown_email_failure_not_audited_as_actor(client, db_session, monkeypatch):
     _prod(monkeypatch)
     await client.post(LOGIN, json={"email": "ghost@dev.local", "password": "whatever"})
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "login.failed")
-    )).scalars().all()
+    ev = (
+        (await db_session.execute(select(AuditEvent).where(AuditEvent.action == "login.failed")))
+        .scalars()
+        .all()
+    )
     # 未知 email 不写**可归属** login.failed；改记 actor=None 的系统安全事件
     # （仅不可逆 hash 前缀 + reason_code，无 raw email）。
     assert all(e.actor_user_id is None for e in ev)
@@ -173,9 +179,11 @@ LOGOUT = "/api/v1/auth/logout"
 
 
 async def _logout_method(db_session):
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "login.logout")
-    )).scalars().all()
+    ev = (
+        (await db_session.execute(select(AuditEvent).where(AuditEvent.action == "login.logout")))
+        .scalars()
+        .all()
+    )
     return ev
 
 
@@ -183,7 +191,9 @@ async def test_logout_audit_login_method_password(client, db_session, monkeypatc
     _prod(monkeypatch)
     li = await client.post(LOGIN, json={"email": BOSS_EMAIL, "password": DEV_PASSWORD})
     assert li.status_code == 200
-    lo = await client.post(LOGOUT, headers=await _csrf(client))  # 同一 client 携带 kap_session cookie
+    lo = await client.post(
+        LOGOUT, headers=await _csrf(client)
+    )  # 同一 client 携带 kap_session cookie
     assert lo.status_code == 200 and lo.json()["ok"] is True
     ev = await _logout_method(db_session)
     assert any((e.extra or {}).get("login_method") == "password" for e in ev)
@@ -216,8 +226,11 @@ async def test_dev_local_email_only_still_works(client):
 # admin 设置 / 重置密码
 # ---------------------------------------------------------------------------
 async def test_admin_sets_password_then_login(client, monkeypatch):
-    r = await client.post(f"{PEOPLE}/{USER_CONSULTANT}/password",
-                          headers=_hdr(USER_ADMIN_ONLY), json={"password": "newpass1234"})
+    r = await client.post(
+        f"{PEOPLE}/{USER_CONSULTANT}/password",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"password": "newpass1234"},
+    )
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["ok"] is True and body["password_set"] is True
@@ -233,15 +246,19 @@ async def test_admin_sets_password_then_login(client, monkeypatch):
 
 @pytest.mark.parametrize("user", [USER_BOSS, USER_CONSULTANT])
 async def test_non_admin_cannot_set_password(client, user):
-    r = await client.post(f"{PEOPLE}/{USER_CONSULTANT}/password",
-                          headers=_hdr(user), json={"password": "newpass1234"})
+    r = await client.post(
+        f"{PEOPLE}/{USER_CONSULTANT}/password", headers=_hdr(user), json={"password": "newpass1234"}
+    )
     assert r.status_code == 403
     assert r.json()["detail"]["denied_reason"] == "password_set_admin_required"
 
 
 async def test_set_weak_password_422(client):
-    r = await client.post(f"{PEOPLE}/{USER_CONSULTANT}/password",
-                          headers=_hdr(USER_ADMIN_ONLY), json={"password": "short"})
+    r = await client.post(
+        f"{PEOPLE}/{USER_CONSULTANT}/password",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"password": "short"},
+    )
     assert r.status_code == 422
     assert r.json()["detail"]["denied_reason"] == "weak_password"
 
@@ -249,17 +266,29 @@ async def test_set_weak_password_422(client):
 async def test_set_password_unknown_user_404(client):
     import uuid as _uuid
 
-    r = await client.post(f"{PEOPLE}/{_uuid.uuid4()}/password",
-                          headers=_hdr(USER_ADMIN_ONLY), json={"password": "newpass1234"})
+    r = await client.post(
+        f"{PEOPLE}/{_uuid.uuid4()}/password",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"password": "newpass1234"},
+    )
     assert r.status_code == 404
 
 
 async def test_password_set_audit_safe(client, db_session):
-    await client.post(f"{PEOPLE}/{USER_CONSULTANT}/password",
-                      headers=_hdr(USER_ADMIN_ONLY), json={"password": "auditpass123"})
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "auth.password_set")
-    )).scalars().all()
+    await client.post(
+        f"{PEOPLE}/{USER_CONSULTANT}/password",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"password": "auditpass123"},
+    )
+    ev = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.action == "auth.password_set")
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert len(ev) >= 1
     assert any((e.extra or {}).get("password_set") is True for e in ev)
     blob = str([(e.extra, e.before_snapshot, e.after_snapshot) for e in ev])

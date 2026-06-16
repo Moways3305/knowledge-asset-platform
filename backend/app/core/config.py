@@ -1,4 +1,4 @@
-﻿"""Application configuration via environment variables.
+"""Application configuration via environment variables.
 
 Uses pydantic-settings. No secrets are hardcoded; values come from the
 environment or a local `.env` file (see `.env.example`).
@@ -49,9 +49,7 @@ class Settings(BaseSettings):
 
     # PostgreSQL async connection string, e.g.
     # postgresql+asyncpg://dev:devpassword@localhost:5432/knowledge_platform
-    database_url: str = (
-        "postgresql+asyncpg://dev:devpassword@localhost:5432/knowledge_platform"
-    )
+    database_url: str = "postgresql+asyncpg://dev:devpassword@localhost:5432/knowledge_platform"
 
     # Redis URL for Celery broker / result backend.
     redis_url: str = "redis://localhost:6379/0"
@@ -151,4 +149,3 @@ def session_cookie_secure_misconfigured(settings: Settings | None = None) -> boo
     """
     s = settings or get_settings()
     return s.app_env == "prod" and s.session_cookie_secure is False
-

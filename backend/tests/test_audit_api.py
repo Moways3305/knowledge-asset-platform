@@ -40,7 +40,10 @@ AUDIT = "/api/v1/admin/audit"
 # Agent QA 现走真实 WeKnora 召回 + LLM；审计用例需注入 fake（不打网络）。
 _ALPHA_KB = f"wk-kb-proj-{PROJECT_ALPHA}"
 _ALPHA_ASSETS = [
-    KA_PROJECT_ALPHA, KA_PROJECT_ALPHA_A4, KA_PROJECT_ALPHA_MATERIAL, KA_PROJECT_ALPHA_REVIEWABLE,
+    KA_PROJECT_ALPHA,
+    KA_PROJECT_ALPHA_A4,
+    KA_PROJECT_ALPHA_MATERIAL,
+    KA_PROJECT_ALPHA_REVIEWABLE,
 ]
 
 
@@ -55,8 +58,15 @@ class _FakeWeKnora:
                 continue
             if knowledge_ids and d["knowledge_id"] not in knowledge_ids:
                 continue
-            out.append({"content": d["content"], "knowledge_id": d["knowledge_id"],
-                        "chunk_index": 0, "score": round(1.0 - i * 0.01, 4), "seq": 0})
+            out.append(
+                {
+                    "content": d["content"],
+                    "knowledge_id": d["knowledge_id"],
+                    "chunk_index": 0,
+                    "score": round(1.0 - i * 0.01, 4),
+                    "seq": 0,
+                }
+            )
         return out
 
     async def hybrid_search(self, **_):
@@ -67,7 +77,9 @@ class _FakeLLM:
     provider = "deepseek"
     model = "deepseek-chat"
 
-    async def chat_completion(self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None):
+    async def chat_completion(
+        self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None
+    ):
         return "【LLM 答案】基于本项目知识的综合回答。[1]"
 
 
@@ -82,6 +94,7 @@ def _agent_clients():
     yield
     app.dependency_overrides.pop(get_weknora_client, None)
     app.dependency_overrides.pop(get_llm_client, None)
+
 
 _LEAK_TOKENS = [
     "storage_ref",

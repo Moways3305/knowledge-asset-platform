@@ -1,4 +1,4 @@
-﻿"""外部 Agent / 工作流网关编排。
+"""外部 Agent / 工作流网关编排。
 
 把任意外部知识 / 工作流调用映射到检索原语（`AccessChannel.agent`）：
 解析知识选择器 → scope/project → 解析真实平台调用人 → 同一套权限网关召回 →
@@ -169,12 +169,18 @@ async def run_retrieval(
     kb_ids = await _kb_ids_for_request(session, caller, rule, scope, project_id, personal_owner)
     desens = LlmOutputDesensitizer(llm)
     recalled = await retrieval.recall_assets(
-        session, caller, weknora,
-        query=query, kb_ids=kb_ids, channel=AccessChannel.agent, trace_id=trace_id,
+        session,
+        caller,
+        weknora,
+        query=query,
+        kb_ids=kb_ids,
+        channel=AccessChannel.agent,
+        trace_id=trace_id,
     )
     # 注册行天花板裁剪 + score 阈值（资产级 score）。
     recalled = [
-        r for r in recalled
+        r
+        for r in recalled
         if _within_ceiling(r.asset, rule.max_confidentiality_level, rule.max_ai_access_level)
         and r.score >= score_threshold
     ]
@@ -202,8 +208,11 @@ async def run_retrieval(
 
     # 检索审计（operation；channel=agent，provider 来自注册行；只记安全元数据）。
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.knowledge_searched.value, trace_id=trace_id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.knowledge_searched.value,
+        trace_id=trace_id,
         target_type="external_agent_retrieval",
         extra={
             "channel": AccessChannel.agent.value,
@@ -215,4 +224,3 @@ async def run_retrieval(
     )
     await session.commit()
     return records
-

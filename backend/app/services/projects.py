@@ -1,4 +1,4 @@
-﻿"""项目设置 / 项目成员治理服务。
+"""项目设置 / 项目成员治理服务。
 
 复用既有 `projects` / `project_members` / `users` / `user_company_roles` 表。项目角色只来自
 active `project_members`（与 build_caller_context 一致）；公司治理角色（boss / 咨询总监）可跨项目读写；
@@ -42,7 +42,9 @@ _MANAGEMENT_ROLES = {ProjectRole.project_manager.value, ProjectRole.coach.value}
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(status_code=status_code, detail={"denied_reason": reason, "message": message})
+    return HTTPException(
+        status_code=status_code, detail={"denied_reason": reason, "message": message}
+    )
 
 
 def _is_admin(caller: CallerContext) -> bool:
@@ -109,17 +111,21 @@ def _require_write(caller: CallerContext, project_id: uuid.UUID) -> None:
 async def _coach_name(session: AsyncSession, project: Project) -> str | None:
     """由 active project_members.project_role=coach 推导辅导老师姓名（多名取首个）。"""
     row = (
-        await session.execute(
-            select(User.name)
-            .join(ProjectMember, ProjectMember.user_id == User.id)
-            .where(
-                ProjectMember.project_id == project.id,
-                ProjectMember.project_role == ProjectRole.coach.value,
-                ProjectMember.status == MemberStatus.active.value,
+        (
+            await session.execute(
+                select(User.name)
+                .join(ProjectMember, ProjectMember.user_id == User.id)
+                .where(
+                    ProjectMember.project_id == project.id,
+                    ProjectMember.project_role == ProjectRole.coach.value,
+                    ProjectMember.status == MemberStatus.active.value,
+                )
+                .order_by(ProjectMember.joined_at)
             )
-            .order_by(ProjectMember.joined_at)
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     return row
 
 
@@ -163,17 +169,26 @@ async def update_settings(
     after: dict = {}
     changed_fields: list[str] = []
 
-    if req.lifecycle_route_key is not None and req.lifecycle_route_key != project.lifecycle_route_key:
+    if (
+        req.lifecycle_route_key is not None
+        and req.lifecycle_route_key != project.lifecycle_route_key
+    ):
         before["lifecycle_route_key"] = project.lifecycle_route_key
         project.lifecycle_route_key = req.lifecycle_route_key
         after["lifecycle_route_key"] = project.lifecycle_route_key
         changed_fields.append("lifecycle_route_key")
-    if req.lifecycle_phase_key is not None and req.lifecycle_phase_key != project.lifecycle_phase_key:
+    if (
+        req.lifecycle_phase_key is not None
+        and req.lifecycle_phase_key != project.lifecycle_phase_key
+    ):
         before["lifecycle_phase_key"] = project.lifecycle_phase_key
         project.lifecycle_phase_key = req.lifecycle_phase_key
         after["lifecycle_phase_key"] = project.lifecycle_phase_key
         changed_fields.append("lifecycle_phase_key")
-    if req.force_review_on_ingest is not None and req.force_review_on_ingest != project.force_review_on_ingest:
+    if (
+        req.force_review_on_ingest is not None
+        and req.force_review_on_ingest != project.force_review_on_ingest
+    ):
         before["force_review_on_ingest"] = project.force_review_on_ingest
         project.force_review_on_ingest = bool(req.force_review_on_ingest)
         after["force_review_on_ingest"] = project.force_review_on_ingest
@@ -194,10 +209,15 @@ async def update_settings(
 
     await session.flush()
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.project_settings_updated.value, trace_id=trace_id,
-        target_type="project", target_id=project.id,
-        before=before, after=after,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.project_settings_updated.value,
+        trace_id=trace_id,
+        target_type="project",
+        target_id=project.id,
+        before=before,
+        after=after,
         # extra 只含安全字段名；绝不含 wecom_group_id 全文。
         extra={"changed_fields": changed_fields},
         project_id=project.id,
@@ -221,7 +241,9 @@ async def list_members(
                 .options(selectinload(ProjectMember.user).selectinload(User.company_roles))
                 .order_by(ProjectMember.joined_at)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     items = [
         ProjectMemberOut(
@@ -279,18 +301,23 @@ async def patch_member(
         new_role in _MANAGEMENT_ROLES and new_status == MemberStatus.active.value
     ):
         remaining = (
-            await session.execute(
-                select(ProjectMember.id).where(
-                    ProjectMember.project_id == project_id,
-                    ProjectMember.id != member_id,
-                    ProjectMember.project_role.in_(_MANAGEMENT_ROLES),
-                    ProjectMember.status == MemberStatus.active.value,
+            (
+                await session.execute(
+                    select(ProjectMember.id).where(
+                        ProjectMember.project_id == project_id,
+                        ProjectMember.id != member_id,
+                        ProjectMember.project_role.in_(_MANAGEMENT_ROLES),
+                        ProjectMember.status == MemberStatus.active.value,
+                    )
                 )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         if remaining is None:
             raise _denied(
-                409, "last_project_manager_protected",
+                409,
+                "last_project_manager_protected",
                 "不能停用 / 降级项目最后一个管理角色（project_manager / coach）",
             )
 
@@ -299,9 +326,13 @@ async def patch_member(
     await session.flush()
 
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.project_member_updated.value, trace_id=trace_id,
-        target_type="project_member", target_id=member.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.project_member_updated.value,
+        trace_id=trace_id,
+        target_type="project_member",
+        target_id=member.id,
         before={"project_role": old_role, "status": old_status},
         after={"project_role": new_role, "status": new_status},
         extra={"target_user_id": str(member.user_id)},
@@ -331,7 +362,9 @@ async def _load_active_business_user(session: AsyncSession, user_id: uuid.UUID, 
     """加载并校验一个 active 业务用户（含 active 业务公司角色，非纯 admin）。"""
     user = (
         await session.execute(
-            select(User).where(User.id == user_id).options(
+            select(User)
+            .where(User.id == user_id)
+            .options(
                 selectinload(User.company_roles),
                 selectinload(User.project_members),
             )
@@ -351,9 +384,13 @@ def _list_item_out(project: Project, can_manage: bool):
     from app.schemas.project_settings import ProjectListItemOut
 
     return ProjectListItemOut(
-        id=project.id, name=project.name, client_name=project.client_name,
-        status=project.status, lifecycle_route_key=project.lifecycle_route_key,
-        lifecycle_phase_key=project.lifecycle_phase_key, created_at=project.created_at,
+        id=project.id,
+        name=project.name,
+        client_name=project.client_name,
+        status=project.status,
+        lifecycle_route_key=project.lifecycle_route_key,
+        lifecycle_phase_key=project.lifecycle_phase_key,
+        created_at=project.created_at,
         can_manage=can_manage,
     )
 
@@ -368,7 +405,9 @@ async def list_projects(session: AsyncSession, caller: CallerContext):
                 await session.execute(
                     select(Project).where(Project.status == "active").order_by(Project.name)
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
     else:
         pids = caller.active_project_ids
@@ -381,15 +420,20 @@ async def list_projects(session: AsyncSession, caller: CallerContext):
                     .where(Project.status == "active", Project.id.in_(pids))
                     .order_by(Project.name)
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
-    return ProjectListResponse(
-        items=[_list_item_out(p, _can_write(caller, p.id)) for p in rows]
-    )
+    return ProjectListResponse(items=[_list_item_out(p, _can_write(caller, p.id)) for p in rows])
 
 
 async def create_project(
-    session: AsyncSession, caller: CallerContext, req, trace_id: str, *, weknora=None,
+    session: AsyncSession,
+    caller: CallerContext,
+    req,
+    trace_id: str,
+    *,
+    weknora=None,
 ):
     """创建项目知识空间（仅 boss / 咨询总监）。
 
@@ -425,9 +469,7 @@ async def create_project(
     )
     coach = None
     if req.coach_user_id is not None:
-        coach = await _load_active_business_user(
-            session, req.coach_user_id, role_field="coach"
-        )
+        coach = await _load_active_business_user(session, req.coach_user_id, role_field="coach")
 
     project = Project(
         name=name,
@@ -441,7 +483,8 @@ async def create_project(
 
     session.add(
         ProjectMember(
-            user_id=pm.id, project_id=project.id,
+            user_id=pm.id,
+            project_id=project.id,
             project_role=ProjectRole.project_manager.value,
             status=MemberStatus.active.value,
         )
@@ -449,19 +492,26 @@ async def create_project(
     if coach is not None and coach.id != pm.id:
         session.add(
             ProjectMember(
-                user_id=coach.id, project_id=project.id,
+                user_id=coach.id,
+                project_id=project.id,
                 project_role=ProjectRole.coach.value,
                 status=MemberStatus.active.value,
             )
         )
 
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.project_created.value, trace_id=trace_id,
-        target_type="project", target_id=project.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.project_created.value,
+        trace_id=trace_id,
+        target_type="project",
+        target_id=project.id,
         after={
-            "name": project.name, "client_name": project.client_name,
-            "status": project.status, "lifecycle_route_key": project.lifecycle_route_key,
+            "name": project.name,
+            "client_name": project.client_name,
+            "status": project.status,
+            "lifecycle_route_key": project.lifecycle_route_key,
             "project_manager_user_id": str(pm.id),
             "coach_user_id": str(coach.id) if coach is not None else None,
         },
@@ -473,8 +523,11 @@ async def create_project(
 
     # 先固化响应（best-effort 预建 KB 失败时会 rollback 使 project 过期，异步 session 不能隐式刷新）。
     response = ProjectCreateResponse(
-        id=project.id, name=project.name, client_name=project.client_name,
-        status=project.status, lifecycle_route_key=project.lifecycle_route_key,
+        id=project.id,
+        name=project.name,
+        client_name=project.client_name,
+        status=project.status,
+        lifecycle_route_key=project.lifecycle_route_key,
         lifecycle_phase_key=project.lifecycle_phase_key,
         project_manager_user_id=pm.id,
         coach_user_id=coach.id if coach is not None else None,
@@ -488,4 +541,3 @@ async def create_project(
         await ensure_project_kb(session, weknora, project_id=response.id, trace_id=trace_id)
 
     return response
-

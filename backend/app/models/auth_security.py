@@ -1,4 +1,4 @@
-﻿"""登录失败风控 ORM 模型。
+"""登录失败风控 ORM 模型。
 
 仅一张表 `auth_login_attempts`，承载登录失败守卫所需的**不可逆**安全统计：
 
@@ -41,9 +41,7 @@ class AuthLoginAttempt(Base):
     identifier_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     # 安全短 hint（identifier_hash 前缀），仅运营粗略关联用；不存 email/域名。
     identifier_hint: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    user_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("users.id"), nullable=True
-    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
     # HMAC-SHA256(client IP) 十六进制；原始 IP 绝不入库。
     ip_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     login_method: Mapped[str] = mapped_column(String(30), nullable=False, default="password")
@@ -53,4 +51,3 @@ class AuthLoginAttempt(Base):
     reason_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-

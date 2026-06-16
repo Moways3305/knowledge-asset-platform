@@ -1,4 +1,4 @@
-﻿"""个人知识写动作服务。
+"""个人知识写动作服务。
 
 三类写动作：
 - confirm_asset：本人个人知识 material → asset（仅 owner 本人；幂等）。
@@ -53,7 +53,9 @@ from app.services import review as review_service
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(status_code=status_code, detail={"denied_reason": reason, "message": message})
+    return HTTPException(
+        status_code=status_code, detail={"denied_reason": reason, "message": message}
+    )
 
 
 async def _load_owned_personal_asset(
@@ -115,14 +117,28 @@ async def _find_existing_submission(
     )
     if idempotency_key:
         row = (
-            await session.execute(base.where(PersonalKnowledgeSubmission.idempotency_key == idempotency_key))
-        ).scalars().first()
+            (
+                await session.execute(
+                    base.where(PersonalKnowledgeSubmission.idempotency_key == idempotency_key)
+                )
+            )
+            .scalars()
+            .first()
+        )
         if row is not None:
             return row
     # 无论是否带 key：同组已有 pending 则复用，避免刷出多个待审任务。
     return (
-        await session.execute(base.where(PersonalKnowledgeSubmission.status == PersonalSubmissionStatus.pending.value))
-    ).scalars().first()
+        (
+            await session.execute(
+                base.where(
+                    PersonalKnowledgeSubmission.status == PersonalSubmissionStatus.pending.value
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
 
 
 async def _submission_out(
@@ -131,8 +147,10 @@ async def _submission_out(
     project_name = None
     if sub.target_project_id is not None:
         project_name = (
-            await session.execute(select(Project.name).where(Project.id == sub.target_project_id))
-        ).scalars().first()
+            (await session.execute(select(Project.name).where(Project.id == sub.target_project_id)))
+            .scalars()
+            .first()
+        )
     if sub.submission_type == PersonalSubmissionType.submit_to_project.value:
         message = "已提交项目审核，待项目经理确认进入项目资料区"
     elif sub.submission_type == PersonalSubmissionType.internal_sharing_candidate.value:
@@ -165,7 +183,9 @@ async def confirm_asset(
     # 幂等：已是 asset → 原样返回，不报错、无副作用。
     if asset.zone == "asset":
         return ConfirmAssetResponse(
-            asset_id=asset.id, zone="asset", status="already_asset",
+            asset_id=asset.id,
+            zone="asset",
+            status="already_asset",
             message="个人知识已是本人确认资产",
         )
     if asset.asset_status != "active":
@@ -175,14 +195,21 @@ async def confirm_asset(
     asset.zone = "asset"
     await session.flush()
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.review_personal_asset_confirmed.value, trace_id=trace_id,
-        target_type="knowledge_asset", target_id=asset.id,
-        before={"zone": before_zone}, after={"zone": asset.zone},
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.review_personal_asset_confirmed.value,
+        trace_id=trace_id,
+        target_type="knowledge_asset",
+        target_id=asset.id,
+        before={"zone": before_zone},
+        after={"zone": asset.zone},
     )
     await session.commit()
     return ConfirmAssetResponse(
-        asset_id=asset.id, zone="asset", status="confirmed",
+        asset_id=asset.id,
+        zone="asset",
+        status="confirmed",
         message="已确认为本人个人知识资产（仅本人可见，不自动进入项目或公司）",
     )
 
@@ -237,9 +264,13 @@ async def submit_to_project(
     await session.flush()
 
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.submission_created.value, trace_id=trace_id,
-        target_type="personal_knowledge_submission", target_id=sub.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.submission_created.value,
+        trace_id=trace_id,
+        target_type="personal_knowledge_submission",
+        target_id=sub.id,
         after={"submission_type": stype, "status": sub.status},
         extra={
             "target_project_id": str(project.id),
@@ -322,10 +353,17 @@ async def register_validation_candidate(
     await session.flush()
 
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.evidence_validation_registered.value, trace_id=trace_id,
-        target_type="validation_evidence", target_id=evidence.id,
-        after={"evidence_type": evidence.evidence_type, "evidence_category": evidence.evidence_category},
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.evidence_validation_registered.value,
+        trace_id=trace_id,
+        target_type="validation_evidence",
+        target_id=evidence.id,
+        after={
+            "evidence_type": evidence.evidence_type,
+            "evidence_category": evidence.evidence_category,
+        },
         extra={
             "target_project_id": str(project.id),
             "submission_type": stype,
@@ -335,13 +373,16 @@ async def register_validation_candidate(
         project_id=project.id,
     )
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.submission_created.value, trace_id=trace_id,
-        target_type="personal_knowledge_submission", target_id=sub.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.submission_created.value,
+        trace_id=trace_id,
+        target_type="personal_knowledge_submission",
+        target_id=sub.id,
         after={"submission_type": stype, "status": sub.status},
         extra={"target_project_id": str(project.id), "evidence_id": str(evidence.id)},
         project_id=project.id,
     )
     await session.commit()
     return await _submission_out(session, sub)
-

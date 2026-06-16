@@ -1,4 +1,4 @@
-﻿"""预览凭证 ORM 模型。
+"""预览凭证 ORM 模型。
 
 仅一张表 preview_credentials，承载预览凭证签发记录。
 
@@ -39,9 +39,7 @@ class PreviewCredential(Base):
         Uuid, ForeignKey("users.id"), nullable=False
     )
     preview_type: Mapped[str] = mapped_column(String(20), nullable=False)
-    credential_status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="active"
-    )
+    credential_status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     # 只存不可逆哈希，绝不存明文 token。
     token_hash: Mapped[str] = mapped_column(String(256), nullable=False)
     # 可对外的短指纹（非 token、不可逆）。
@@ -54,12 +52,7 @@ class PreviewCredential(Base):
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_used_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    revoked_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     trace_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-

@@ -16,8 +16,11 @@ async def _run(maker, task_id_str: str, trace_id: str | None) -> None:
 
     async with maker() as session:
         await ingest_processing.process_upload_task(
-            session, uuid.UUID(task_id_str),
-            storage=get_storage(), llm=get_llm_client(), desensitizer=get_desensitizer(),
+            session,
+            uuid.UUID(task_id_str),
+            storage=get_storage(),
+            llm=get_llm_client(),
+            desensitizer=get_desensitizer(),
             trace_id=trace_id,
         )
 

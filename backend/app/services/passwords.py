@@ -1,4 +1,4 @@
-﻿"""密码哈希服务。
+"""密码哈希服务。
 
 标准库 PBKDF2-HMAC-SHA256，无新依赖。编码格式（server-only，绝不外泄）：
 
@@ -75,4 +75,3 @@ _DUMMY_HASH = hash_password(secrets.token_urlsafe(16))
 def dummy_verify(password: str) -> None:
     """对不存在用户也跑一次 PBKDF2，均衡时间侧信道（结果丢弃）。"""
     verify_password(password or "x", _DUMMY_HASH)
-

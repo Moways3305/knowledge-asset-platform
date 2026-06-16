@@ -1,4 +1,4 @@
-﻿"""企微微盘扫描服务（Path A）。
+"""企微微盘扫描服务（Path A）。
 
 把"扫描配置目录 → 列文件 → 下载字节 → 经平台存储落盘 → 建 path_a_wecom IngestTask →
 复用统一处理链"收口到这里。文件仍走既有 `/upload` 确认流后才成为知识资产（不变）。
@@ -44,7 +44,9 @@ from app.worker.enqueue import enqueue_ingest_processing
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(status_code=status_code, detail={"denied_reason": reason, "message": message})
+    return HTTPException(
+        status_code=status_code, detail={"denied_reason": reason, "message": message}
+    )
 
 
 def _now() -> datetime:
@@ -75,7 +77,9 @@ async def _owner_actor(session: AsyncSession, config: WecomScanConfig) -> Caller
     """以配置归属业务用户身份做 ingest.task_created 审计（后续由该用户确认）。"""
     user = (
         await session.execute(
-            select(User).where(User.id == config.created_by).options(
+            select(User)
+            .where(User.id == config.created_by)
+            .options(
                 selectinload(User.company_roles),
                 selectinload(User.project_members).selectinload(ProjectMember.project),
             )
@@ -84,8 +88,10 @@ async def _owner_actor(session: AsyncSession, config: WecomScanConfig) -> Caller
     if user is not None:
         return build_caller_context(user)
     return CallerContext(
-        user_id=config.created_by, is_active=True,
-        active_company_roles=set(), active_project_ids=set(),
+        user_id=config.created_by,
+        is_active=True,
+        active_company_roles=set(),
+        active_project_ids=set(),
     )
 
 
@@ -122,12 +128,20 @@ def _config_out(
     from app.schemas.wecom import WecomScanConfigOut
 
     return WecomScanConfigOut(
-        id=c.id, name=c.name, directory_path=c.directory_path, scope_type=c.scope_type,
-        related_project_id=c.related_project_id, related_project_name=project_name,
-        enabled=c.enabled, created_by=c.created_by,
-        task_owner_name=owner_name, task_owner_role_label=owner_role_label,
-        scan_frequency=c.scan_frequency, last_scan_at=c.last_scan_at,
-        created_at=c.created_at, updated_at=c.updated_at,
+        id=c.id,
+        name=c.name,
+        directory_path=c.directory_path,
+        scope_type=c.scope_type,
+        related_project_id=c.related_project_id,
+        related_project_name=project_name,
+        enabled=c.enabled,
+        created_by=c.created_by,
+        task_owner_name=owner_name,
+        task_owner_role_label=owner_role_label,
+        scan_frequency=c.scan_frequency,
+        last_scan_at=c.last_scan_at,
+        created_at=c.created_at,
+        updated_at=c.updated_at,
     )
 
 
@@ -154,7 +168,9 @@ async def _load_user_with_context(session: AsyncSession, user_id: uuid.UUID):
     """加载 User（含 active 角色/成员）并构建 CallerContext，返回 (user, ctx) 或 (None, None)。"""
     user = (
         await session.execute(
-            select(User).where(User.id == user_id).options(
+            select(User)
+            .where(User.id == user_id)
+            .options(
                 selectinload(User.company_roles),
                 selectinload(User.project_members),
             )
@@ -198,13 +214,15 @@ async def _validate_task_owner(
     if scope_type == KnowledgeScope.project.value:
         if related_project_id not in ctx.active_project_ids:
             raise _denied(
-                422, "task_owner_not_project_member",
+                422,
+                "task_owner_not_project_member",
                 "业务归属人必须是目标项目的有效成员，否则无法确认项目级任务",
             )
     elif scope_type == KnowledgeScope.company.value:
         if not ctx.can_discover_l5:
             raise _denied(
-                422, "task_owner_not_governance",
+                422,
+                "task_owner_not_governance",
                 "公司级配置的业务归属人必须是 Boss / 咨询总监",
             )
     result: User = user
@@ -219,8 +237,10 @@ async def _owner_still_valid(session: AsyncSession, config: WecomScanConfig) -> 
     """
     try:
         await _validate_task_owner(
-            session, owner_user_id=config.created_by,
-            scope_type=config.scope_type, related_project_id=config.related_project_id,
+            session,
+            owner_user_id=config.created_by,
+            scope_type=config.scope_type,
+            related_project_id=config.related_project_id,
         )
         return True
     except HTTPException:
@@ -262,7 +282,8 @@ async def _validate_config_fields(
         parse_directory_path(clean_dir)
     except WeComError:
         raise _denied(
-            422, "wecom_invalid_directory",
+            422,
+            "wecom_invalid_directory",
             "扫描目录格式应为 'spaceid:<id>;fatherid:<id>'",
         )
 
@@ -280,7 +301,8 @@ async def _validate_config_fields(
     else:
         if related_project_id is not None:
             raise _denied(
-                422, "target_project_not_allowed",
+                422,
+                "target_project_not_allowed",
                 "个人 / 公司级配置不应指定目标项目",
             )
 
@@ -297,27 +319,41 @@ async def create_config(session: AsyncSession, caller: CallerContext, body, trac
     _require_admin(caller)
     name, directory_path, scope_type, project_id = await _validate_config_fields(
         session,
-        name=body.name, directory_path=body.directory_path,
-        scope_type=body.target_scope, related_project_id=body.target_project_id,
+        name=body.name,
+        directory_path=body.directory_path,
+        scope_type=body.target_scope,
+        related_project_id=body.target_project_id,
     )
     owner = await _validate_task_owner(
-        session, owner_user_id=body.task_owner_user_id,
-        scope_type=scope_type, related_project_id=project_id,
+        session,
+        owner_user_id=body.task_owner_user_id,
+        scope_type=scope_type,
+        related_project_id=project_id,
     )
     config = WecomScanConfig(
-        name=name, directory_path=directory_path, scope_type=scope_type,
-        related_project_id=project_id, enabled=body.enabled, created_by=owner.id,
+        name=name,
+        directory_path=directory_path,
+        scope_type=scope_type,
+        related_project_id=project_id,
+        enabled=body.enabled,
+        created_by=owner.id,
     )
     session.add(config)
     await session.flush()
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.wecom_scan_config_created.value, trace_id=trace_id,
-        target_type="wecom_scan_config", target_id=config.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.wecom_scan_config_created.value,
+        trace_id=trace_id,
+        target_type="wecom_scan_config",
+        target_id=config.id,
         # 安全配置元数据。task_owner_user_id 记录业务归属人；审计 actor 仍是当前 admin
         # （两者不混淆）。directory_path 只记"已设置"标记，不写原值/上游标识。
         after={
-            "name": name, "enabled": config.enabled, "scope_type": scope_type,
+            "name": name,
+            "enabled": config.enabled,
+            "scope_type": scope_type,
             "target_project_id": str(project_id) if project_id else None,
             "task_owner_user_id": str(owner.id),
             "directory_path_set": True,
@@ -356,13 +392,20 @@ async def list_owner_options(session: AsyncSession, caller: CallerContext):
 
     _require_reader(caller)
     users = (
-        await session.execute(
-            select(User).where(User.status == "active").options(
-                selectinload(User.company_roles),
-                selectinload(User.project_members),
-            ).order_by(User.name)
+        (
+            await session.execute(
+                select(User)
+                .where(User.status == "active")
+                .options(
+                    selectinload(User.company_roles),
+                    selectinload(User.project_members),
+                )
+                .order_by(User.name)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     items = []
     for u in users:
         ctx = build_caller_context(u)
@@ -370,7 +413,8 @@ async def list_owner_options(session: AsyncSession, caller: CallerContext):
             continue
         items.append(
             WecomOwnerOptionOut(
-                user_id=u.id, name=u.name,
+                user_id=u.id,
+                name=u.name,
                 role_label=_role_label(ctx.active_company_roles),
                 project_ids=sorted(ctx.active_project_ids),
                 is_governance=ctx.can_discover_l5,
@@ -383,11 +427,18 @@ def _record_out(r: WecomScanRecord):
     from app.schemas.wecom import WecomScanRecordOut
 
     return WecomScanRecordOut(
-        id=r.id, config_id=r.config_id, trace_id=r.trace_id,
-        scan_started_at=r.scan_started_at, scan_completed_at=r.scan_completed_at,
-        discovered_count=r.discovered_count, new_count=r.new_count,
-        duplicate_count=r.duplicate_count, failed_count=r.failed_count,
-        scan_status=r.scan_status, error_type=r.error_type, error_message=r.error_message,
+        id=r.id,
+        config_id=r.config_id,
+        trace_id=r.trace_id,
+        scan_started_at=r.scan_started_at,
+        scan_completed_at=r.scan_completed_at,
+        discovered_count=r.discovered_count,
+        new_count=r.new_count,
+        duplicate_count=r.duplicate_count,
+        failed_count=r.failed_count,
+        scan_status=r.scan_status,
+        error_type=r.error_type,
+        error_message=r.error_message,
         created_at=r.created_at,
     )
 
@@ -398,7 +449,8 @@ async def list_configs(session: AsyncSession, caller: CallerContext):
     _require_reader(caller)
     rows = list(
         (await session.execute(select(WecomScanConfig).order_by(WecomScanConfig.created_at)))
-        .scalars().all()
+        .scalars()
+        .all()
     )
     # 批量解析关联项目名（仅安全字段）。
     pids = {c.related_project_id for c in rows if c.related_project_id is not None}
@@ -413,19 +465,26 @@ async def list_configs(session: AsyncSession, caller: CallerContext):
     owner_map: dict[uuid.UUID, tuple[str | None, str | None]] = {}
     if owner_ids:
         users = (
-            await session.execute(
-                select(User).where(User.id.in_(owner_ids)).options(
-                    selectinload(User.company_roles),
+            (
+                await session.execute(
+                    select(User)
+                    .where(User.id.in_(owner_ids))
+                    .options(
+                        selectinload(User.company_roles),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for u in users:
             roles = {r.company_role for r in u.company_roles if r.status == "active"}
             owner_map[u.id] = (u.name, _role_label(roles))
     return WecomScanConfigsResponse(
         items=[
             _config_out(
-                c, name_map.get(c.related_project_id) if c.related_project_id else None,
+                c,
+                name_map.get(c.related_project_id) if c.related_project_id else None,
                 *owner_map.get(c.created_by, (None, None)),
             )
             for c in rows
@@ -433,7 +492,9 @@ async def list_configs(session: AsyncSession, caller: CallerContext):
     )
 
 
-async def update_config(session: AsyncSession, caller: CallerContext, config_id: uuid.UUID, body, trace_id: str):
+async def update_config(
+    session: AsyncSession, caller: CallerContext, config_id: uuid.UUID, body, trace_id: str
+):
     """编辑扫描配置（仅 admin）。支持 name / directory_path / target_scope /
     target_project_id / enabled 局部更新；仅启停时不触发字段重校验。"""
     _require_admin(caller)
@@ -451,24 +512,38 @@ async def update_config(session: AsyncSession, caller: CallerContext, config_id:
         new_project = None
     else:
         new_project = config.related_project_id
-    new_owner = body.task_owner_user_id if body.task_owner_user_id is not None else config.created_by
+    new_owner = (
+        body.task_owner_user_id if body.task_owner_user_id is not None else config.created_by
+    )
 
     # 涉及 name/dir/scope/project 任一变更时做字段组合校验（纯启停 / 仅改归属人时跳过字段校验）。
-    if any(v is not None for v in (body.name, body.directory_path, body.target_scope, body.target_project_id)):
+    if any(
+        v is not None
+        for v in (body.name, body.directory_path, body.target_scope, body.target_project_id)
+    ):
         new_name, new_dir, new_scope, new_project = await _validate_config_fields(
-            session, name=new_name, directory_path=new_dir,
-            scope_type=new_scope, related_project_id=new_project,
+            session,
+            name=new_name,
+            directory_path=new_dir,
+            scope_type=new_scope,
+            related_project_id=new_project,
         )
     # 当归属人 / scope / project 任一变更时，重新校验业务归属人与（新）scope 的一致性，
     # 避免改 scope 后旧归属人无法确认新口径任务。
-    if any(v is not None for v in (body.task_owner_user_id, body.target_scope, body.target_project_id)):
+    if any(
+        v is not None for v in (body.task_owner_user_id, body.target_scope, body.target_project_id)
+    ):
         await _validate_task_owner(
-            session, owner_user_id=new_owner,
-            scope_type=new_scope, related_project_id=new_project,
+            session,
+            owner_user_id=new_owner,
+            scope_type=new_scope,
+            related_project_id=new_project,
         )
 
     before = {
-        "name": config.name, "enabled": config.enabled, "scope_type": config.scope_type,
+        "name": config.name,
+        "enabled": config.enabled,
+        "scope_type": config.scope_type,
         "target_project_id": str(config.related_project_id) if config.related_project_id else None,
         "task_owner_user_id": str(config.created_by),
     }
@@ -481,13 +556,21 @@ async def update_config(session: AsyncSession, caller: CallerContext, config_id:
         config.enabled = body.enabled
 
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.wecom_scan_config_updated.value, trace_id=trace_id,
-        target_type="wecom_scan_config", target_id=config.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.wecom_scan_config_updated.value,
+        trace_id=trace_id,
+        target_type="wecom_scan_config",
+        target_id=config.id,
         before=before,
         after={
-            "name": config.name, "enabled": config.enabled, "scope_type": config.scope_type,
-            "target_project_id": str(config.related_project_id) if config.related_project_id else None,
+            "name": config.name,
+            "enabled": config.enabled,
+            "scope_type": config.scope_type,
+            "target_project_id": str(config.related_project_id)
+            if config.related_project_id
+            else None,
             "task_owner_user_id": str(config.created_by),
             "directory_path_changed": body.directory_path is not None,
         },
@@ -495,7 +578,9 @@ async def update_config(session: AsyncSession, caller: CallerContext, config_id:
     )
     await session.commit()
     owner_name, owner_role = await _owner_meta(session, config.created_by)
-    return _config_out(config, await _project_name(session, config.related_project_id), owner_name, owner_role)
+    return _config_out(
+        config, await _project_name(session, config.related_project_id), owner_name, owner_role
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -510,15 +595,29 @@ def _wrap_wecom(exc: WeComError) -> HTTPException:
         from app.core.config import get_settings
 
         s = get_settings()
-        miss = [n for n, v in (("WECOM_CORP_ID", s.wecom_corp_id), ("WECOM_APP_SECRET", s.wecom_app_secret)) if not v]
-        return HTTPException(503, detail={
-            "denied_reason": "wecom_not_configured", "message": "企业微信未配置",
-            "missing_config": miss or ["WECOM_CORP_ID", "WECOM_APP_SECRET"],
-        })
-    return HTTPException(502, detail={
-        "denied_reason": "wecom_drive_browse_failed",
-        "message": "企业微信微盘访问失败，请检查配置或稍后重试",
-    })
+        miss = [
+            n
+            for n, v in (
+                ("WECOM_CORP_ID", s.wecom_corp_id),
+                ("WECOM_APP_SECRET", s.wecom_app_secret),
+            )
+            if not v
+        ]
+        return HTTPException(
+            503,
+            detail={
+                "denied_reason": "wecom_not_configured",
+                "message": "企业微信未配置",
+                "missing_config": miss or ["WECOM_CORP_ID", "WECOM_APP_SECRET"],
+            },
+        )
+    return HTTPException(
+        502,
+        detail={
+            "denied_reason": "wecom_drive_browse_failed",
+            "message": "企业微信微盘访问失败，请检查配置或稍后重试",
+        },
+    )
 
 
 async def list_drive_spaces(caller: CallerContext, drive):
@@ -535,7 +634,9 @@ async def list_drive_spaces(caller: CallerContext, drive):
     )
 
 
-async def list_drive_directories(caller: CallerContext, drive, *, space_ref: str, parent_ref: str | None):
+async def list_drive_directories(
+    caller: CallerContext, drive, *, space_ref: str, parent_ref: str | None
+):
     """列某空间/父目录下的子目录（仅 admin）。
 
     `space_ref`=空间选择引用（spaceid）；`parent_ref`=父目录的 directory_ref（`spaceid:<id>;fatherid:<id>`，
@@ -567,8 +668,10 @@ async def list_drive_directories(caller: CallerContext, drive, *, space_ref: str
         space_ref=space,
         items=[
             WecomDriveDirectoryOut(
-                directory_ref=d.directory_ref, name=d.name,
-                parent_ref=parent_ref, has_children=d.has_children,
+                directory_ref=d.directory_ref,
+                name=d.name,
+                parent_ref=parent_ref,
+                has_children=d.has_children,
             )
             for d in dirs
         ],
@@ -589,7 +692,9 @@ async def list_records(session: AsyncSession, caller: CallerContext, config_id: 
                 .where(WecomScanRecord.config_id == config_id)
                 .order_by(WecomScanRecord.created_at.desc())
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     return WecomScanRecordsResponse(items=[_record_out(r) for r in rows])
 
@@ -619,7 +724,8 @@ async def trigger_scan(
     # 运行时复核业务归属人仍合法（停用 / 移出项目 / 失去治理角色 → fail-closed，不建任何任务/记录）。
     if not await _owner_still_valid(session, config):
         raise _denied(
-            409, "wecom_scan_owner_invalid",
+            409,
+            "wecom_scan_owner_invalid",
             "扫描业务归属人当前不合法（已停用 / 移出目标项目 / 失去治理角色），已阻止扫描",
         )
 
@@ -630,8 +736,11 @@ async def trigger_scan(
             return _record_out(existing)
 
     record = WecomScanRecord(
-        config_id=config.id, trace_id=trace_id, idempotency_key=idempotency_key,
-        scan_started_at=_now(), scan_status="running",
+        config_id=config.id,
+        trace_id=trace_id,
+        idempotency_key=idempotency_key,
+        scan_started_at=_now(),
+        scan_status="running",
     )
     session.add(record)
     try:
@@ -641,14 +750,20 @@ async def trigger_scan(
         # 不重复扫描 / 不重复建任务；不向调用方泄露 SQL 错误或内部标识。
         await session.rollback()
         config = await session.get(WecomScanConfig, config_id)
-        existing = await _find_by_key(session, config_id, idempotency_key) if idempotency_key else None
+        existing = (
+            await _find_by_key(session, config_id, idempotency_key) if idempotency_key else None
+        )
         if existing is not None:
             return _record_out(existing)
         raise _denied(409, "wecom_scan_conflict", "扫描触发冲突，请稍后重试")
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.wecom_scan_triggered.value, trace_id=trace_id,
-        target_type="wecom_scan_config", target_id=config.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.wecom_scan_triggered.value,
+        trace_id=trace_id,
+        target_type="wecom_scan_config",
+        target_id=config.id,
         extra={"scan_record_id": str(record.id), "scope_type": config.scope_type},
     )
     await session.commit()
@@ -658,9 +773,15 @@ async def trigger_scan(
 
     if get_settings().celery_task_always_eager:
         await run_scan(
-            session, config, record,
-            drive=drive, storage=storage, llm=llm, desensitizer=desensitizer,
-            trace_id=trace_id, actor_caller=caller,
+            session,
+            config,
+            record,
+            drive=drive,
+            storage=storage,
+            llm=llm,
+            desensitizer=desensitizer,
+            trace_id=trace_id,
+            actor_caller=caller,
         )
         await session.refresh(record)
     else:
@@ -694,8 +815,13 @@ async def run_scan(
         record.error_message = "扫描业务归属人当前不合法，已 fail-closed 阻止扫描（详见审计）"
         record.scan_completed_at = _now()
         await _scan_terminal_audit(
-            session, actor_caller, AuditAction.wecom_scan_failed.value, config, record,
-            trace_id, extra={"error_code": "wecom_scan_owner_invalid", "stage": "owner_check"},
+            session,
+            actor_caller,
+            AuditAction.wecom_scan_failed.value,
+            config,
+            record,
+            trace_id,
+            extra={"error_code": "wecom_scan_owner_invalid", "stage": "owner_check"},
         )
         await session.commit()
         return record
@@ -712,8 +838,13 @@ async def run_scan(
         record.error_message = "微盘目录列举失败（详见审计）"
         record.scan_completed_at = _now()
         await _scan_terminal_audit(
-            session, actor_caller, AuditAction.wecom_scan_failed.value, config, record,
-            trace_id, extra={"error_code": exc.code, "stage": "list"},
+            session,
+            actor_caller,
+            AuditAction.wecom_scan_failed.value,
+            config,
+            record,
+            trace_id,
+            extra={"error_code": exc.code, "stage": "list"},
         )
         await session.commit()
         return record
@@ -721,8 +852,7 @@ async def run_scan(
     discovered = len(files)
     new = dup = failed = 0
     project_id = (
-        config.related_project_id
-        if config.scope_type == KnowledgeScope.project.value else None
+        config.related_project_id if config.scope_type == KnowledgeScope.project.value else None
     )
     for f in files:
         # 阶段1：抓取/落盘（**无 DB 写**）。失败 → 计数后 continue，无需 rollback。
@@ -764,9 +894,13 @@ async def run_scan(
         session.add(task)
         await session.flush()
         await audit_service.record_event(
-            session, caller=owner_actor, log_type=AuditLogType.operation,
-            action=AuditAction.ingest_task_created.value, trace_id=trace_id or "",
-            target_type="ingest_task", target_id=task.id,
+            session,
+            caller=owner_actor,
+            log_type=AuditLogType.operation,
+            action=AuditAction.ingest_task_created.value,
+            trace_id=trace_id or "",
+            target_type="ingest_task",
+            target_id=task.id,
             after={"status": task.status, "source": task.source, "target_scope": task.target_scope},
             project_id=project_id,
         )
@@ -786,8 +920,13 @@ async def run_scan(
     record.scan_completed_at = _now()
     config.last_scan_at = _now()
     await _scan_terminal_audit(
-        session, actor_caller, AuditAction.wecom_scan_completed.value, config, record,
-        trace_id, extra={"discovered": discovered, "new": new, "duplicate": dup, "failed": failed},
+        session,
+        actor_caller,
+        AuditAction.wecom_scan_completed.value,
+        config,
+        record,
+        trace_id,
+        extra={"discovered": discovered, "new": new, "duplicate": dup, "failed": failed},
     )
     await session.commit()
     return record
@@ -798,14 +937,24 @@ async def _scan_terminal_audit(session, actor_caller, action, config, record, tr
     safe_extra = {"scan_record_id": str(record.id), "scope_type": config.scope_type, **extra}
     if actor_caller is not None:
         await audit_service.record_event(
-            session, caller=actor_caller, log_type=AuditLogType.operation,
-            action=action, trace_id=trace_id or "",
-            target_type="wecom_scan_config", target_id=config.id, extra=safe_extra,
+            session,
+            caller=actor_caller,
+            log_type=AuditLogType.operation,
+            action=action,
+            trace_id=trace_id or "",
+            target_type="wecom_scan_config",
+            target_id=config.id,
+            extra=safe_extra,
         )
     else:
         await audit_service.record_system_event(
-            session, log_type=AuditLogType.operation, action=action, trace_id=trace_id or "",
-            target_type="wecom_scan_config", target_id=config.id, extra=safe_extra,
+            session,
+            log_type=AuditLogType.operation,
+            action=action,
+            trace_id=trace_id or "",
+            target_type="wecom_scan_config",
+            target_id=config.id,
+            extra=safe_extra,
         )
 
 
@@ -824,13 +973,21 @@ async def scan_config_by_id(
     if config is None or not config.enabled:
         return
     record = WecomScanRecord(
-        config_id=config.id, trace_id=trace_id, scan_started_at=_now(), scan_status="running",
+        config_id=config.id,
+        trace_id=trace_id,
+        scan_started_at=_now(),
+        scan_status="running",
     )
     session.add(record)
     await session.flush()
     await run_scan(
-        session, config, record,
-        drive=drive, storage=storage, llm=llm, desensitizer=desensitizer,
-        trace_id=trace_id, actor_caller=None,
+        session,
+        config,
+        record,
+        drive=drive,
+        storage=storage,
+        llm=llm,
+        desensitizer=desensitizer,
+        trace_id=trace_id,
+        actor_caller=None,
     )
-

@@ -37,8 +37,20 @@ CSRF = "/api/v1/auth/csrf"
 ADMIN_EMAIL = "admin.e@dev.local"
 CONSULTANT_WECOM = "ww_consultant_a"  # seed USER_CONSULTANT 绑定
 
-_LEAK = ["access_token", "app_secret", "corpsecret", "oauth_code", "oauth_state",
-         CONSULTANT_WECOM, "mobile", "avatar", "department", "token_hash", "kap_session", "errmsg"]
+_LEAK = [
+    "access_token",
+    "app_secret",
+    "corpsecret",
+    "oauth_code",
+    "oauth_state",
+    CONSULTANT_WECOM,
+    "mobile",
+    "avatar",
+    "department",
+    "token_hash",
+    "kap_session",
+    "errmsg",
+]
 
 
 def _hdr(uid):
@@ -118,9 +130,17 @@ async def test_callback_disabled_member_fails_closed_and_deactivates(client, db_
     # 活动会话已撤销。
     assert await session_revocation.active_session_count(db_session, USER_CONSULTANT) == 0
     # 安全审计：identity.user_deactivated_by_wecom_sync（系统事件 actor=None）。
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "identity.user_deactivated_by_wecom_sync")
-    )).scalars().all()
+    ev = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(
+                    AuditEvent.action == "identity.user_deactivated_by_wecom_sync"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert ev and ev[0].actor_user_id is None
     extra = ev[0].extra or {}
     assert extra.get("trigger") == "oauth_callback"
@@ -140,9 +160,11 @@ async def test_callback_upstream_error_fails_closed_no_status_change(client, db_
     u = (await db_session.execute(select(User).where(User.id == USER_CONSULTANT))).scalar_one()
     assert u.status == "active"
     # login.failed 审计含安全 reason_code，不泄露。
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "login.failed")
-    )).scalars().all()
+    ev = (
+        (await db_session.execute(select(AuditEvent).where(AuditEvent.action == "login.failed")))
+        .scalars()
+        .all()
+    )
     assert any((e.extra or {}).get("reason_code") == "wecom_status_check_failed" for e in ev)
     _assert_no_leak(r.text)
 
@@ -163,8 +185,9 @@ async def test_reconcile_single_deactivates_invalid(client, db_session):
     await _oauth_login_active(client)
     client.cookies.clear()  # 后续以 admin dev 头操作（无 cookie → 不走 CSRF）
     _install(FakeOAuth(member=_disabled()))
-    r = await client.post(RECONCILE, headers=_hdr(USER_ADMIN_ONLY),
-                          json={"user_id": str(USER_CONSULTANT)})
+    r = await client.post(
+        RECONCILE, headers=_hdr(USER_ADMIN_ONLY), json={"user_id": str(USER_CONSULTANT)}
+    )
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["checked"] == 1 and body["deactivated"] == 1 and body["dry_run"] is False
@@ -181,8 +204,11 @@ async def test_reconcile_dry_run_no_mutation(client, db_session):
     await _oauth_login_active(client)
     client.cookies.clear()
     _install(FakeOAuth(member=_disabled()))
-    r = await client.post(RECONCILE, headers=_hdr(USER_ADMIN_ONLY),
-                          json={"user_id": str(USER_CONSULTANT), "dry_run": True})
+    r = await client.post(
+        RECONCILE,
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"user_id": str(USER_CONSULTANT), "dry_run": True},
+    )
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["dry_run"] is True
@@ -190,11 +216,21 @@ async def test_reconcile_dry_run_no_mutation(client, db_session):
     assert body["items"][0]["new_status"] == "inactive"
     u = (await db_session.execute(select(User).where(User.id == USER_CONSULTANT))).scalar_one()
     assert u.status == "active"  # 未变更
-    assert await session_revocation.active_session_count(db_session, USER_CONSULTANT) >= 1  # 会话保留
+    assert (
+        await session_revocation.active_session_count(db_session, USER_CONSULTANT) >= 1
+    )  # 会话保留
     # dry_run 不写停用审计。
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "identity.user_deactivated_by_wecom_sync")
-    )).scalars().all()
+    ev = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(
+                    AuditEvent.action == "identity.user_deactivated_by_wecom_sync"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert ev == []
 
 
@@ -210,14 +246,18 @@ async def test_reconcile_batch_clamps_limit(client):
 async def test_reconcile_user_not_bound_422(client):
     _install(FakeOAuth())
     # USER_BOSS 未绑定企微（seed 只有 consultant 绑定）。
-    r = await client.post(RECONCILE, headers=_hdr(USER_ADMIN_ONLY), json={"user_id": str(USER_BOSS)})
+    r = await client.post(
+        RECONCILE, headers=_hdr(USER_ADMIN_ONLY), json={"user_id": str(USER_BOSS)}
+    )
     assert r.status_code == 422
     assert r.json()["detail"]["denied_reason"] == "user_not_wecom_bound"
 
 
 async def test_reconcile_unknown_user_404(client):
     _install(FakeOAuth())
-    r = await client.post(RECONCILE, headers=_hdr(USER_ADMIN_ONLY), json={"user_id": str(uuid.uuid4())})
+    r = await client.post(
+        RECONCILE, headers=_hdr(USER_ADMIN_ONLY), json={"user_id": str(uuid.uuid4())}
+    )
     assert r.status_code == 404
 
 
@@ -230,8 +270,9 @@ async def test_reconcile_forbidden_non_admin(client):
 
 async def test_reconcile_upstream_error_counts_failed_no_status_change(client, db_session):
     _install(FakeOAuth(error=WeComError("wecom_network_error", "网络错误")))
-    r = await client.post(RECONCILE, headers=_hdr(USER_ADMIN_ONLY),
-                          json={"user_id": str(USER_CONSULTANT)})
+    r = await client.post(
+        RECONCILE, headers=_hdr(USER_ADMIN_ONLY), json={"user_id": str(USER_CONSULTANT)}
+    )
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["failed"] == 1 and body["deactivated"] == 0
@@ -267,16 +308,27 @@ def test_normalize_member_status_matrix():
 def test_normalize_member_status_ignores_raw_profile_fields():
     """上游档案字段（name/mobile/email/department/avatar/errmsg）不进入归一结果。"""
     payload = {
-        "errcode": 0, "status": 1,
-        "name": "张三", "mobile": "13800000000", "email": "z@corp.com",
-        "department": [1, 2, 3], "avatar": "https://wework/avatar.png",
+        "errcode": 0,
+        "status": 1,
+        "name": "张三",
+        "mobile": "13800000000",
+        "email": "z@corp.com",
+        "department": [1, 2, 3],
+        "avatar": "https://wework/avatar.png",
         "errmsg": "ok-raw-upstream-errmsg",
     }
     m = normalize_member_status("ww_x", payload)
     assert m.status_code == "active" and m.active is True
     # 归一结果只含安全 code + 安全中文文案；绝不含任何上游档案 / errmsg 原文。
     blob = f"{m.wecom_user_id}|{m.status_code}|{m.status_message}|{m.active}"
-    for raw in ["张三", "13800000000", "z@corp.com", "avatar", "ok-raw-upstream-errmsg", "department"]:
+    for raw in [
+        "张三",
+        "13800000000",
+        "z@corp.com",
+        "avatar",
+        "ok-raw-upstream-errmsg",
+        "department",
+    ]:
         assert raw not in blob, raw
     assert m.status_message == "企微成员有效"  # 安全文案，非上游 errmsg
 
@@ -284,10 +336,13 @@ def test_normalize_member_status_ignores_raw_profile_fields():
 # ---------------------------------------------------------------------------
 # OAuth 回调：非 disabled 的失效状态 end-to-end（not_activated / deleted）
 # ---------------------------------------------------------------------------
-@pytest.mark.parametrize("code,msg", [
-    ("not_activated", "企微成员未激活"),
-    ("deleted", "企微成员已退出企业"),
-])
+@pytest.mark.parametrize(
+    "code,msg",
+    [
+        ("not_activated", "企微成员未激活"),
+        ("deleted", "企微成员已退出企业"),
+    ],
+)
 async def test_callback_invalid_state_deactivates(client, db_session, code, msg):
     await _oauth_login_active(client)  # 先有一条 consultant 会话
     _install(FakeOAuth(member=WeComMemberStatus(CONSULTANT_WECOM, False, code, msg)))
@@ -299,9 +354,17 @@ async def test_callback_invalid_state_deactivates(client, db_session, code, msg)
     u = (await db_session.execute(select(User).where(User.id == USER_CONSULTANT))).scalar_one()
     assert u.status == "inactive"
     assert await session_revocation.active_session_count(db_session, USER_CONSULTANT) == 0
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "identity.user_deactivated_by_wecom_sync")
-    )).scalars().all()
+    ev = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(
+                    AuditEvent.action == "identity.user_deactivated_by_wecom_sync"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert ev and (ev[0].extra or {}).get("wecom_status") == code
     assert (ev[0].extra or {}).get("trigger") == "oauth_callback"
     _assert_no_leak(r.text)
@@ -320,11 +383,19 @@ async def test_reconcile_cookie_auth_without_csrf_forbidden_no_mutation(client, 
     # 业务未执行：状态未变、无对账 / 停用审计。
     u = (await db_session.execute(select(User).where(User.id == USER_CONSULTANT))).scalar_one()
     assert u.status == "active"
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action.in_(
-            ["identity.wecom_user_synced", "identity.user_deactivated_by_wecom_sync"]
-        ))
-    )).scalars().all()
+    ev = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(
+                    AuditEvent.action.in_(
+                        ["identity.wecom_user_synced", "identity.user_deactivated_by_wecom_sync"]
+                    )
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert ev == []
 
 

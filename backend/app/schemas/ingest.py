@@ -1,4 +1,4 @@
-﻿"""入库流水线 API 的请求 / 响应 schema。
+"""入库流水线 API 的请求 / 响应 schema。
 
 **绝不包含 source_file_ref / 文件对象内部存储引用 / 真实上传或下载 URL。**
 """
@@ -179,4 +179,3 @@ class PendingIngestItem(BaseModel):
 class PendingIngestListResponse(BaseModel):
     items: list[PendingIngestItem]
     total: int
-

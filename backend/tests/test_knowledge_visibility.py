@@ -49,7 +49,9 @@ async def test_admin_knowledge_detail_404(client):
 
 
 async def test_admin_search_returns_no_cards(client):
-    resp = await client.post(SEARCH, headers=_hdr(USER_ADMIN_ONLY), json={"query": "数字化", "scope": "all"})
+    resp = await client.post(
+        SEARCH, headers=_hdr(USER_ADMIN_ONLY), json={"query": "数字化", "scope": "all"}
+    )
     assert resp.status_code == 200
     assert resp.json()["cards"] == []
 
@@ -66,11 +68,13 @@ async def test_admin_decide_all_layers_denied(db_session):
 
     from app.models.identity import User
 
-    admin = (await db_session.execute(
-        select(User).where(User.id == USER_ADMIN_ONLY).options(
-            selectinload(User.company_roles), selectinload(User.project_members)
+    admin = (
+        await db_session.execute(
+            select(User)
+            .where(User.id == USER_ADMIN_ONLY)
+            .options(selectinload(User.company_roles), selectinload(User.project_members))
         )
-    )).scalar_one()
+    ).scalar_one()
     ctx = build_caller_context(admin)
     assert ctx.is_business_user is False
     for aid in (KA_COMPANY_L2, KA_PROJECT_ALPHA, KA_PERSONAL):
@@ -93,8 +97,12 @@ async def test_project_active_member_sees_own_project_asset(client):
 
 async def test_personal_owner_sees_own_others_404(client):
     # owner 可见个人知识；他人（经理 B）404 不泄露。
-    assert (await client.get(f"{KN}/{KA_PERSONAL}", headers=_hdr(USER_CONSULTANT))).status_code == 200
-    assert (await client.get(f"{KN}/{KA_PERSONAL}", headers=_hdr(USER_PROJECT_MANAGER))).status_code == 404
+    assert (
+        await client.get(f"{KN}/{KA_PERSONAL}", headers=_hdr(USER_CONSULTANT))
+    ).status_code == 200
+    assert (
+        await client.get(f"{KN}/{KA_PERSONAL}", headers=_hdr(USER_PROJECT_MANAGER))
+    ).status_code == 404
 
 
 async def test_governance_company_visibility_preserved(client):
@@ -115,11 +123,13 @@ async def test_inactive_project_member_no_member_original(db_session):
 
     from app.models.identity import User
 
-    consultant = (await db_session.execute(
-        select(User).where(User.id == USER_CONSULTANT).options(
-            selectinload(User.company_roles), selectinload(User.project_members)
+    consultant = (
+        await db_session.execute(
+            select(User)
+            .where(User.id == USER_CONSULTANT)
+            .options(selectinload(User.company_roles), selectinload(User.project_members))
         )
-    )).scalar_one()
+    ).scalar_one()
     ctx = build_caller_context(consultant)
     assert PROJECT_ALPHA in ctx.active_project_ids  # Alpha active
     # Beta 不在 active 集合（inactive 成员关系不计入）。

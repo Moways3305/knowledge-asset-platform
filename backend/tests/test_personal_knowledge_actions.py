@@ -24,8 +24,15 @@ from app.seed.dev_seed import (
 )
 
 _LEAK_TOKENS = [
-    "storage_ref", "source_file_ref", "weknora", "access_token", "oauth_state",
-    "download_url", "token_hash", "app_secret", "content_text",
+    "storage_ref",
+    "source_file_ref",
+    "weknora",
+    "access_token",
+    "oauth_state",
+    "download_url",
+    "token_hash",
+    "app_secret",
+    "content_text",
 ]
 
 
@@ -44,8 +51,13 @@ async def _mk_personal(db_session, *, owner, zone="material", status="active") -
     aid = uuid.uuid4()
     db_session.add(
         KnowledgeAsset(
-            id=aid, title="个人知识草稿", scope="personal", zone=zone,
-            asset_type="methodology", owner_user_id=owner, asset_status=status,
+            id=aid,
+            title="个人知识草稿",
+            scope="personal",
+            zone=zone,
+            asset_type="methodology",
+            owner_user_id=owner,
+            asset_status=status,
             confidentiality_level="L2",
         )
     )
@@ -68,14 +80,20 @@ def _evidence(aid):
 # ---------------- 本人资产确认 ----------------
 async def test_owner_confirm_material_to_asset(client, db_session):
     aid = await _mk_personal(db_session, owner=USER_CONSULTANT, zone="material")
-    r = await client.post(_confirm(aid), headers=_hdr(USER_CONSULTANT, **{"X-Trace-Id": "trc-personal-confirm"}))
+    r = await client.post(
+        _confirm(aid), headers=_hdr(USER_CONSULTANT, **{"X-Trace-Id": "trc-personal-confirm"})
+    )
     assert r.status_code == 200, r.text
     assert r.json()["zone"] == "asset" and r.json()["status"] == "confirmed"
     rows = (
-        await db_session.execute(
-            select(AuditEvent).where(AuditEvent.action == "review.personal_asset_confirmed")
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.action == "review.personal_asset_confirmed")
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert rows and (rows[-1].after_snapshot or {}).get("zone") == "asset"
 
 
@@ -106,7 +124,8 @@ async def test_admin_cannot_operate_personal(client, db_session):
 async def test_submit_to_member_project_creates_submission_and_review(client, db_session):
     aid = await _mk_personal(db_session, owner=USER_CONSULTANT)
     r = await client.post(
-        _submit(aid), headers=_hdr(USER_CONSULTANT),
+        _submit(aid),
+        headers=_hdr(USER_CONSULTANT),
         json={"target_project_id": str(PROJECT_ALPHA)},
     )
     assert r.status_code == 200, r.text
@@ -128,7 +147,8 @@ async def test_non_member_submit_forbidden(client, db_session):
     aid = await _mk_personal(db_session, owner=USER_CONSULTANT)
     # USER_CONSULTANT 在 BETA 为 inactive 成员 → 非 active 成员。
     r = await client.post(
-        _submit(aid), headers=_hdr(USER_CONSULTANT),
+        _submit(aid),
+        headers=_hdr(USER_CONSULTANT),
         json={"target_project_id": str(PROJECT_BETA)},
     )
     assert r.status_code == 403
@@ -139,7 +159,8 @@ async def test_governance_can_submit_own_personal(client, db_session):
     # 治理角色（boss）提交本人个人知识到项目，即使非该项目成员。
     aid = await _mk_personal(db_session, owner=USER_BOSS)
     r = await client.post(
-        _submit(aid), headers=_hdr(USER_BOSS),
+        _submit(aid),
+        headers=_hdr(USER_BOSS),
         json={"target_project_id": str(PROJECT_ALPHA)},
     )
     assert r.status_code == 200, r.text
@@ -151,20 +172,22 @@ async def test_idempotency_key_returns_same_submission(client, db_session):
     aid = await _mk_personal(db_session, owner=USER_CONSULTANT)
     key = "idem-personal-1"
     r1 = await client.post(
-        _submit(aid), headers=_hdr(USER_CONSULTANT, **{"Idempotency-Key": key}),
+        _submit(aid),
+        headers=_hdr(USER_CONSULTANT, **{"Idempotency-Key": key}),
         json={"target_project_id": str(PROJECT_ALPHA)},
     )
     r2 = await client.post(
-        _submit(aid), headers=_hdr(USER_CONSULTANT, **{"Idempotency-Key": key}),
+        _submit(aid),
+        headers=_hdr(USER_CONSULTANT, **{"Idempotency-Key": key}),
         json={"target_project_id": str(PROJECT_ALPHA)},
     )
     assert r1.status_code == 200 and r2.status_code == 200
     assert r1.json()["submission_id"] == r2.json()["submission_id"]
     count = (
         await db_session.execute(
-            select(func.count()).select_from(PersonalKnowledgeSubmission).where(
-                PersonalKnowledgeSubmission.source_asset_id == aid
-            )
+            select(func.count())
+            .select_from(PersonalKnowledgeSubmission)
+            .where(PersonalKnowledgeSubmission.source_asset_id == aid)
         )
     ).scalar_one()
     assert count == 1
@@ -172,12 +195,18 @@ async def test_idempotency_key_returns_same_submission(client, db_session):
 
 async def test_no_key_pending_dedup(client, db_session):
     aid = await _mk_personal(db_session, owner=USER_CONSULTANT)
-    r1 = await client.post(_submit(aid), headers=_hdr(USER_CONSULTANT), json={"target_project_id": str(PROJECT_ALPHA)})
-    r2 = await client.post(_submit(aid), headers=_hdr(USER_CONSULTANT), json={"target_project_id": str(PROJECT_ALPHA)})
+    r1 = await client.post(
+        _submit(aid), headers=_hdr(USER_CONSULTANT), json={"target_project_id": str(PROJECT_ALPHA)}
+    )
+    r2 = await client.post(
+        _submit(aid), headers=_hdr(USER_CONSULTANT), json={"target_project_id": str(PROJECT_ALPHA)}
+    )
     assert r1.json()["submission_id"] == r2.json()["submission_id"]
     tasks = (
         await db_session.execute(
-            select(func.count()).select_from(ReviewTask).where(
+            select(func.count())
+            .select_from(ReviewTask)
+            .where(
                 ReviewTask.target_asset_id == aid,
                 ReviewTask.review_type == "personal_to_project",
             )
@@ -190,7 +219,8 @@ async def test_no_key_pending_dedup(client, db_session):
 async def test_internal_sharing_candidate(client, db_session):
     aid = await _mk_personal(db_session, owner=USER_CONSULTANT)
     r = await client.post(
-        _evidence(aid), headers=_hdr(USER_CONSULTANT),
+        _evidence(aid),
+        headers=_hdr(USER_CONSULTANT),
         json={
             "target_project_id": str(PROJECT_ALPHA),
             "evidence_type": "internal_sharing",
@@ -210,7 +240,8 @@ async def test_internal_sharing_candidate(client, db_session):
 async def test_client_validation_candidate(client, db_session):
     aid = await _mk_personal(db_session, owner=USER_CONSULTANT)
     r = await client.post(
-        _evidence(aid), headers=_hdr(USER_CONSULTANT),
+        _evidence(aid),
+        headers=_hdr(USER_CONSULTANT),
         json={
             "target_project_id": str(PROJECT_ALPHA),
             "evidence_type": "client_validation",
@@ -226,7 +257,8 @@ async def test_client_validation_candidate(client, db_session):
 async def test_candidate_rejects_unsafe_attachment(client, db_session):
     aid = await _mk_personal(db_session, owner=USER_CONSULTANT)
     r = await client.post(
-        _evidence(aid), headers=_hdr(USER_CONSULTANT),
+        _evidence(aid),
+        headers=_hdr(USER_CONSULTANT),
         json={
             "target_project_id": str(PROJECT_ALPHA),
             "evidence_type": "internal_sharing",
@@ -242,7 +274,8 @@ async def test_candidate_rejects_unsafe_attachment(client, db_session):
 async def test_audit_no_leak(client, db_session):
     aid = await _mk_personal(db_session, owner=USER_CONSULTANT)
     await client.post(
-        _evidence(aid), headers=_hdr(USER_CONSULTANT, **{"X-Trace-Id": "trc-personal-audit"}),
+        _evidence(aid),
+        headers=_hdr(USER_CONSULTANT, **{"X-Trace-Id": "trc-personal-audit"}),
         json={
             "target_project_id": str(PROJECT_ALPHA),
             "evidence_type": "internal_sharing",
@@ -251,10 +284,16 @@ async def test_audit_no_leak(client, db_session):
         },
     )
     rows = (
-        await db_session.execute(
-            select(AuditEvent).where(AuditEvent.action.in_(["submission.created", "evidence.validation_registered"]))
+        (
+            await db_session.execute(
+                select(AuditEvent).where(
+                    AuditEvent.action.in_(["submission.created", "evidence.validation_registered"])
+                )
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert rows
     blob = ""
     for ev in rows:

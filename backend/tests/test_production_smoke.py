@@ -41,9 +41,13 @@ def _opener_from_map(mapping):
             raise urllib.error.URLError("connection refused")
         status, body, ctype = entry
         if status >= 400:
-            raise urllib.error.HTTPError(url, status, "err", {"Content-Type": ctype}, io.BytesIO(
-                body.encode("utf-8") if isinstance(body, str) else body
-            ))
+            raise urllib.error.HTTPError(
+                url,
+                status,
+                "err",
+                {"Content-Type": ctype},
+                io.BytesIO(body.encode("utf-8") if isinstance(body, str) else body),
+            )
         return _FakeResp(status, body, ctype)
 
     return _opener
@@ -53,7 +57,12 @@ def _healthy_config_body(**over):
     base = {
         "app_env": "prod",
         "version": "0.1.0",
-        "integrations": {"weknora_enabled": True, "llm_enabled": True, "llm_provider": "deepseek", "celery_eager": False},
+        "integrations": {
+            "weknora_enabled": True,
+            "llm_enabled": True,
+            "llm_provider": "deepseek",
+            "celery_eager": False,
+        },
         "missing_config": [],
         "production_ready": True,
         "production_blockers": [],
@@ -69,10 +78,18 @@ def _healthy_config_body(**over):
 def _default_map(config_body):
     return {
         "/health": (200, json.dumps({"status": "ok"}), "application/json"),
-        "/health/ready": (200, json.dumps({"status": "ready", "checks": {"database": True, "redis": None}}), "application/json"),
+        "/health/ready": (
+            200,
+            json.dumps({"status": "ready", "checks": {"database": True, "redis": None}}),
+            "application/json",
+        ),
         "/health/config": (200, json.dumps(config_body), "application/json"),
         "/": (200, "<!doctype html><html><body>app</body></html>", "text/html"),
-        "/admin/ops/summary": (401, json.dumps({"detail": "not_authenticated"}), "application/json"),
+        "/admin/ops/summary": (
+            401,
+            json.dumps({"detail": "not_authenticated"}),
+            "application/json",
+        ),
     }
 
 
@@ -134,7 +151,9 @@ def test_run_checks_unreachable_exit_nonzero():
 
 
 def test_run_checks_blockers_fail_only_when_flagged():
-    body = _healthy_config_body(production_ready=False, production_blockers=["CELERY_TASK_ALWAYS_EAGER"])
+    body = _healthy_config_body(
+        production_ready=False, production_blockers=["CELERY_TASK_ALWAYS_EAGER"]
+    )
     m = _default_map(body)
     # 未传 --fail-on-production-blockers → 退出 0。
     assert smoke.run_checks("http://x:18080", opener=_opener_from_map(m))["exit_code"] == 0
@@ -183,6 +202,9 @@ def test_expect_prod_ready_is_alias_of_fail_on_blockers():
     parser = smoke.build_parser()
     # 两个入口分别置位时都应解析为 fail_on=True。
     assert smoke.fail_on_blockers_from_args(parser.parse_args(["--expect-prod-ready"])) is True
-    assert smoke.fail_on_blockers_from_args(parser.parse_args(["--fail-on-production-blockers"])) is True
+    assert (
+        smoke.fail_on_blockers_from_args(parser.parse_args(["--fail-on-production-blockers"]))
+        is True
+    )
     # 都不传 → False（默认不因 blockers 失败）。
     assert smoke.fail_on_blockers_from_args(parser.parse_args([])) is False

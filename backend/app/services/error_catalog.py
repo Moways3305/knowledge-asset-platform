@@ -1,4 +1,4 @@
-﻿"""中央错误目录：把安全 error_code 映射为三层安全文案。
+"""中央错误目录：把安全 error_code 映射为三层安全文案。
 
 同一个底座/扫描失败，在不同人面前显示不同粒度，但**都不**泄露密钥 / 真实 model id /
 kb id / doc id / 内部存储引用 / 上游原始 message / payload / URL 值：
@@ -86,6 +86,7 @@ _ALIASES: dict[str, str] = {
     "create_kb_no_id": "weknora_init_failed",
 }
 
+
 def _resolve_key(code: str | None) -> str:
     raw = (code or "").strip() or "unknown"
     if raw in _CATALOG:
@@ -116,4 +117,3 @@ def safe_code(code: str | None) -> str:
     一律映射为目录分类 code：已知→自身、别名→目录 code、未知/不可信→`unknown`。幂等。
     """
     return _resolve_key(code)
-

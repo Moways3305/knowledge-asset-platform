@@ -26,9 +26,13 @@ def _hdr(user_id):
 
 def _confirm_body(**over):
     base = {
-        "title": "异步资产", "summary": "确认摘要", "tags": ["t"],
-        "target_scope": "personal", "asset_type": "methodology",
-        "confidentiality_level": "L2", "ai_access_level": "A2",
+        "title": "异步资产",
+        "summary": "确认摘要",
+        "tags": ["t"],
+        "target_scope": "personal",
+        "asset_type": "methodology",
+        "confidentiality_level": "L2",
+        "ai_access_level": "A2",
     }
     base.update(over)
     return base
@@ -42,11 +46,15 @@ async def test_confirm_processing_not_ready(client, db_session, monkeypatch):
         return "processing"  # 模拟异步：保持 processing，不内联处理
 
     monkeypatch.setattr(ingest_mod, "enqueue_ingest_processing", fake_enqueue)
-    up = await client.post(UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": ("d.txt", _TXT, "text/plain")})
+    up = await client.post(
+        UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": ("d.txt", _TXT, "text/plain")}
+    )
     task_id = up.json()["ingest_task_id"]
     assert up.json()["status"] == "processing"
     # 仍 processing 时 confirm → 409。
-    r = await client.post(f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(USER_CONSULTANT), json=_confirm_body())
+    r = await client.post(
+        f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(USER_CONSULTANT), json=_confirm_body()
+    )
     assert r.status_code == 409
     assert r.json()["detail"]["denied_reason"] == "ingest_processing_not_ready"
     # 不泄露内部引用。
@@ -55,11 +63,14 @@ async def test_confirm_processing_not_ready(client, db_session, monkeypatch):
 
 
 async def test_confirm_empty_summary_rejected(client):
-    up = await client.post(UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": ("d.txt", _TXT, "text/plain")})
+    up = await client.post(
+        UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": ("d.txt", _TXT, "text/plain")}
+    )
     task_id = up.json()["ingest_task_id"]
     # 空摘要 + 空一句话 → 422 ingest_summary_required。
     r = await client.post(
-        f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(USER_CONSULTANT),
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(USER_CONSULTANT),
         json=_confirm_body(summary="", one_liner=""),
     )
     assert r.status_code == 422
@@ -67,10 +78,13 @@ async def test_confirm_empty_summary_rejected(client):
 
 
 async def test_confirm_empty_title_rejected(client):
-    up = await client.post(UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": ("d.txt", _TXT, "text/plain")})
+    up = await client.post(
+        UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": ("d.txt", _TXT, "text/plain")}
+    )
     task_id = up.json()["ingest_task_id"]
     r = await client.post(
-        f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(USER_CONSULTANT),
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(USER_CONSULTANT),
         json=_confirm_body(title="   "),
     )
     assert r.status_code == 422
@@ -78,11 +92,14 @@ async def test_confirm_empty_title_rejected(client):
 
 
 async def test_confirm_one_liner_only_ok(client):
-    up = await client.post(UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": ("d.txt", _TXT, "text/plain")})
+    up = await client.post(
+        UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": ("d.txt", _TXT, "text/plain")}
+    )
     task_id = up.json()["ingest_task_id"]
     # 仅一句话摘要（无详细摘要）也可确认（不再静默写"（无摘要）"）。
     r = await client.post(
-        f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(USER_CONSULTANT),
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(USER_CONSULTANT),
         json=_confirm_body(summary="", one_liner="一句话摘要即可"),
     )
     assert r.status_code == 200, r.text
@@ -90,18 +107,23 @@ async def test_confirm_one_liner_only_ok(client):
 
 async def test_failed_task_with_manual_summary_can_confirm(client, db_session):
     # 空白文件 → 抽取为空 → status failed。
-    up = await client.post(UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": ("blank.txt", _BLANK, "text/plain")})
+    up = await client.post(
+        UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": ("blank.txt", _BLANK, "text/plain")}
+    )
     task_id = up.json()["ingest_task_id"]
     assert up.json()["status"] == "failed"
     # AI 失败但人工补全标题 + 摘要 → 允许确认。
     r = await client.post(
-        f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(USER_CONSULTANT),
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(USER_CONSULTANT),
         json=_confirm_body(title="人工补全标题", summary="人工补全的详细摘要"),
     )
     assert r.status_code == 200, r.text
     # 资产摘要为人工值，绝不是"（无摘要）"。
     asset_id = r.json()["result_asset_id"]
-    detail = (await client.get(f"/api/v1/knowledge/{asset_id}", headers=_hdr(USER_CONSULTANT))).json()
+    detail = (
+        await client.get(f"/api/v1/knowledge/{asset_id}", headers=_hdr(USER_CONSULTANT))
+    ).json()
     assert "（无摘要）" not in str(detail["summary"])
 
 
@@ -128,7 +150,9 @@ def test_run_task_loop_local_engine_reentrant(monkeypatch, tmp_path):
 
 # ---------------- 共享存储编排 ----------------
 def test_compose_backend_worker_share_upload_storage():
-    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(encoding="utf-8")
+    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
     # backend 与 worker 都挂载同一命名卷到同一路径。
     assert compose.count("upload_storage:/data/uploads") >= 2
     assert "STORAGE_ROOT: /data/uploads" in compose
@@ -144,7 +168,9 @@ async def test_no_leak_ai_result_processing_state(client, db_session, monkeypatc
         return "processing"
 
     monkeypatch.setattr(ingest_mod, "enqueue_ingest_processing", fake_enqueue)
-    up = await client.post(UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": ("d.txt", _TXT, "text/plain")})
+    up = await client.post(
+        UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": ("d.txt", _TXT, "text/plain")}
+    )
     task_id = up.json()["ingest_task_id"]
     ai = await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
     body = ai.json()

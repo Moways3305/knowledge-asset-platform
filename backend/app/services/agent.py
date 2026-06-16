@@ -1,4 +1,4 @@
-﻿"""Agent / Dify Gateway 服务（真实检索 + 外部 LLM 自拼答案）。
+"""Agent / Dify Gateway 服务（真实检索 + 外部 LLM 自拼答案）。
 
 跑通：项目 Q&A → 以真实调用人身份复用集中权限判断 → **WeKnora chunk 级召回**（取代
 的关键词粗召回）→ 记录调用 / 决策 / 候选项 / 引用 → **放行+脱敏 chunk 喂
@@ -140,9 +140,13 @@ async def run_project_qa(
     # ---- 1. 身份与边界校验（Agent 完全跟随 caller）----
     if not caller.is_active:
         await audit_service.record_denied(
-            session, caller=caller, log_type=AuditLogType.exception,
-            action=AuditAction.agent_denied.value, trace_id=trace_id,
-            target_type="project", target_id=project_id,
+            session,
+            caller=caller,
+            log_type=AuditLogType.exception,
+            action=AuditAction.agent_denied.value,
+            trace_id=trace_id,
+            target_type="project",
+            target_id=project_id,
             extra={"denied_reason": DeniedReason.user_inactive.value},
             project_id=project_id,
         )
@@ -150,10 +154,15 @@ async def run_project_qa(
     if not caller.is_business_user:
         # 纯 admin / 非业务用户不能发起 Agent 业务问答（强审计）。
         await audit_service.record_denied(
-            session, caller=caller, log_type=AuditLogType.exception,
-            action=AuditAction.admin_business_denied.value, trace_id=trace_id,
-            target_type="project", target_id=project_id,
-            severity=AlertSeverity.warning, risk_level=AuditRiskLevel.high.value,
+            session,
+            caller=caller,
+            log_type=AuditLogType.exception,
+            action=AuditAction.admin_business_denied.value,
+            trace_id=trace_id,
+            target_type="project",
+            target_id=project_id,
+            severity=AlertSeverity.warning,
+            risk_level=AuditRiskLevel.high.value,
             extra={"denied_reason": "admin_business_permission_denied", "attempted": "agent.qa"},
             project_id=project_id,
         )
@@ -161,18 +170,26 @@ async def run_project_qa(
     if project_id not in caller.active_project_ids:
         # 无该项目有效成员关系（含项目不存在）一律按需要项目身份处理，不泄露。
         await audit_service.record_denied(
-            session, caller=caller, log_type=AuditLogType.operation,
-            action=AuditAction.agent_denied.value, trace_id=trace_id,
-            target_type="project", target_id=project_id,
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.agent_denied.value,
+            trace_id=trace_id,
+            target_type="project",
+            target_id=project_id,
             extra={"denied_reason": "project_membership_required"},
         )
         raise _denied(403, "project_membership_required", "需为该项目的有效成员")
     if req.capability != AgentCapability.qa:
         # 当前只实现 qa；其余能力被网关能力边界拒绝。
         await audit_service.record_denied(
-            session, caller=caller, log_type=AuditLogType.operation,
-            action=AuditAction.agent_denied.value, trace_id=trace_id,
-            target_type="project", target_id=project_id,
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.agent_denied.value,
+            trace_id=trace_id,
+            target_type="project",
+            target_id=project_id,
             extra={"denied_reason": "agent_capability_denied", "capability": req.capability.value},
             project_id=project_id,
         )
@@ -201,8 +218,13 @@ async def run_project_qa(
     # ---- 3. WeKnora chunk 级召回（限定到本项目 KB；映射回资产、去重、逐资产 decide）----
     kb_ids = await retrieval.resolve_project_kbs(session, project_id)
     recalled = await retrieval.recall_assets(
-        session, caller, weknora,
-        query=query, kb_ids=kb_ids, channel=AccessChannel.agent, trace_id=trace_id,
+        session,
+        caller,
+        weknora,
+        query=query,
+        kb_ids=kb_ids,
+        channel=AccessChannel.agent,
+        trace_id=trace_id,
     )
 
     # ---- 4. 写调用级决策主记录（先占位，逐项判断后回填聚合值）----
@@ -259,10 +281,15 @@ async def run_project_qa(
     async def _emit_a4_denied() -> None:
         for asset in a4_downgraded:
             await audit_service.record_event(
-                session, caller=caller, log_type=AuditLogType.exception,
-                action=AuditAction.agent_a4_original_denied.value, trace_id=trace_id,
-                target_type="knowledge_asset", target_id=asset.id,
-                severity=AlertSeverity.warning, risk_level=AuditRiskLevel.high.value,
+                session,
+                caller=caller,
+                log_type=AuditLogType.exception,
+                action=AuditAction.agent_a4_original_denied.value,
+                trace_id=trace_id,
+                target_type="knowledge_asset",
+                target_id=asset.id,
+                severity=AlertSeverity.warning,
+                risk_level=AuditRiskLevel.high.value,
                 extra={
                     "ai_access_level": asset.ai_access_level,
                     "confidentiality_level": asset.confidentiality_level,
@@ -273,9 +300,13 @@ async def run_project_qa(
 
     # 调用发起审计（无论放行/拒绝都先记 agent.called）。
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.agent_called.value, trace_id=trace_id,
-        target_type="agent_call", target_id=call.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.agent_called.value,
+        trace_id=trace_id,
+        target_type="agent_call",
+        target_id=call.id,
         extra={"capability": req.capability.value, "candidate_count": len(recalled)},
         project_id=project_id,
     )
@@ -295,9 +326,13 @@ async def run_project_qa(
         call.denied_reason = "agent_scope_denied"
         await _emit_a4_denied()
         await audit_service.record_event(
-            session, caller=caller, log_type=AuditLogType.operation,
-            action=AuditAction.agent_denied.value, trace_id=trace_id,
-            target_type="agent_call", target_id=call.id,
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.agent_denied.value,
+            trace_id=trace_id,
+            target_type="agent_call",
+            target_id=call.id,
             extra={"denied_reason": "agent_scope_denied"},
             project_id=project_id,
         )
@@ -360,9 +395,13 @@ async def run_project_qa(
     # 调用整体放行审计（A4 降级若有也在此前一并记录）。
     await _emit_a4_denied()
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.agent_allowed.value, trace_id=trace_id,
-        target_type="agent_call", target_id=call.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.agent_allowed.value,
+        trace_id=trace_id,
+        target_type="agent_call",
+        target_id=call.id,
         extra={
             "citation_count": len(citations_out),
             "effective_access_source": primary_source,
@@ -423,9 +462,9 @@ async def _citations_of(session: AsyncSession, call_id: uuid.UUID) -> list[Citat
     asset_ids = {r.cited_asset_id for r in rows}
     asset_rows = (
         await session.execute(
-            select(
-                KnowledgeAsset.id, KnowledgeAsset.title, KnowledgeAsset.scope
-            ).where(KnowledgeAsset.id.in_(asset_ids))
+            select(KnowledgeAsset.id, KnowledgeAsset.title, KnowledgeAsset.scope).where(
+                KnowledgeAsset.id.in_(asset_ids)
+            )
         )
     ).all()
     titles = {r[0]: r[1] for r in asset_rows}
@@ -523,7 +562,4 @@ async def get_decision_items(
         for r in rows
         if r.denied_reason not in _LEAKY_DENIED_REASONS
     ]
-    return DecisionItemsResponse(
-        call_id=call.id, decision_status=decision_status, items=items
-    )
-
+    return DecisionItemsResponse(call_id=call.id, decision_status=decision_status, items=items)

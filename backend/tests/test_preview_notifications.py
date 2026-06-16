@@ -38,8 +38,16 @@ def _hdr(user_id, trace=None):
 
 
 _PREVIEW_LEAK = [
-    "storage_ref", "source_file_ref", "internal://", "s3://", "oss://",
-    "weknora", "kb_id", "doc_id", "jwt_secret", "onlyoffice_jwt",
+    "storage_ref",
+    "source_file_ref",
+    "internal://",
+    "s3://",
+    "oss://",
+    "weknora",
+    "kb_id",
+    "doc_id",
+    "jwt_secret",
+    "onlyoffice_jwt",
 ]
 
 
@@ -53,14 +61,26 @@ def _enable_onlyoffice(monkeypatch):
     monkeypatch.setattr(pv_mod, "onlyoffice_enabled", lambda: True)
 
 
-async def _upload_confirm_personal(client, *, name="doc.txt", content=b"preview content body.", mime="text/plain"):
+async def _upload_confirm_personal(
+    client, *, name="doc.txt", content=b"preview content body.", mime="text/plain"
+):
     """Path B 上传 + 确认为个人资产（consultant 对本人个人库有 original）。返回 asset_id。"""
-    up = await client.post(UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": (name, content, mime)})
+    up = await client.post(
+        UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": (name, content, mime)}
+    )
     task_id = up.json()["ingest_task_id"]
     conf = await client.post(
-        f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(USER_CONSULTANT),
-        json={"title": "预览资产", "summary": "摘要", "tags": ["t"], "target_scope": "personal",
-              "asset_type": "methodology", "confidentiality_level": "L2", "ai_access_level": "A2"},
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "title": "预览资产",
+            "summary": "摘要",
+            "tags": ["t"],
+            "target_scope": "personal",
+            "asset_type": "methodology",
+            "confidentiality_level": "L2",
+            "ai_access_level": "A2",
+        },
     )
     assert conf.status_code == 200, conf.text
     return conf.json()["result_asset_id"]
@@ -116,7 +136,9 @@ async def test_preview_not_configured_safe_message(client):
 
 async def test_preview_unsupported_type(client, monkeypatch):
     _enable_onlyoffice(monkeypatch)
-    asset_id = await _upload_confirm_personal(client, name="image.png", content=b"\x89PNG fake bytes", mime="image/png")
+    asset_id = await _upload_confirm_personal(
+        client, name="image.png", content=b"\x89PNG fake bytes", mime="image/png"
+    )
     cred_id = (await _issue(client, asset_id)).json()["credential_id"]
     entry = await client.get(f"/api/v1/preview/{cred_id}", headers=_hdr(USER_CONSULTANT))
     assert entry.json()["onlyoffice_config"] is None
@@ -163,14 +185,20 @@ async def test_controlled_file_expired_and_revoked(client, monkeypatch, db_sessi
     cred.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
     await db_session.commit()
     r_exp = await client.get(f"/api/v1/preview/{cred_id}/file", params={"ft": ft})
-    assert r_exp.status_code == 403 and r_exp.json()["detail"]["denied_reason"] == "preview_credential_expired"
+    assert (
+        r_exp.status_code == 403
+        and r_exp.json()["detail"]["denied_reason"] == "preview_credential_expired"
+    )
     # 撤销 → 403。
     cred = await db_session.get(PreviewCredential, uuid.UUID(cred_id))
     cred.expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
     cred.credential_status = "revoked"
     await db_session.commit()
     r_rev = await client.get(f"/api/v1/preview/{cred_id}/file", params={"ft": ft})
-    assert r_rev.status_code == 403 and r_rev.json()["detail"]["denied_reason"] == "preview_credential_revoked"
+    assert (
+        r_rev.status_code == 403
+        and r_rev.json()["detail"]["denied_reason"] == "preview_credential_revoked"
+    )
 
 
 # ---------------- WeCom 通知派发 ----------------
@@ -187,7 +215,10 @@ class FakeSender:
 
 async def _wecom_record(db_session, recipient, *, title="归档预警：X", content="安全摘要内容。"):
     rec = await alert_service.record_local_notification(
-        db_session, recipient_user_id=recipient, title=title, content=content,
+        db_session,
+        recipient_user_id=recipient,
+        title=title,
+        content=content,
         channel="wecom",
     )
     await db_session.commit()
@@ -204,10 +235,13 @@ async def test_dispatch_sends_bound_recipient(db_session):
     assert rec.send_status == "sent" and rec.sent_at is not None
     assert len(sender.calls) == 1
     # 审计 notification.sent 不含正文。
-    audit = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "notification.sent")
-        .where(AuditEvent.target_id == rec.id)
-    )).scalar_one()
+    audit = (
+        await db_session.execute(
+            select(AuditEvent)
+            .where(AuditEvent.action == "notification.sent")
+            .where(AuditEvent.target_id == rec.id)
+        )
+    ).scalar_one()
     assert "安全摘要内容" not in str(audit.extra)
 
 
@@ -221,8 +255,9 @@ async def test_dispatch_missing_binding_fails_safe(db_session):
 
 
 async def test_dispatch_inactive_recipient_fails_safe(db_session):
-    inactive = User(id=uuid.uuid4(), name="离职Y", email="y@dev.local",
-                    status="inactive", wecom_user_id="ww_y")
+    inactive = User(
+        id=uuid.uuid4(), name="离职Y", email="y@dev.local", status="inactive", wecom_user_id="ww_y"
+    )
     db_session.add(inactive)
     await db_session.commit()
     rec = await _wecom_record(db_session, inactive.id)
@@ -258,7 +293,9 @@ async def test_disabled_flag_fails_closed_no_send(db_session, monkeypatch):
     assert isinstance(sender, wecom_notification.NullWeComNotificationSender)
     rec = await _wecom_record(db_session, USER_CONSULTANT)
     res = await wecom_notification.dispatch_pending(db_session, sender=sender)
-    assert res["sent"] == 0 and res["processed"] == 0 and res.get("skipped") == "wecom_notify_disabled"
+    assert (
+        res["sent"] == 0 and res["processed"] == 0 and res.get("skipped") == "wecom_notify_disabled"
+    )
     await db_session.refresh(rec)
     # 未尝试外发：仍 pending、attempts 未增。
     assert rec.send_status == "pending" and rec.send_attempts == 0
@@ -277,14 +314,16 @@ async def test_alert_rule_channel_validation(client):
     rule_id = rules.json()["items"][0]["id"]
     # 非法渠道 → 422 invalid_notification_channel。
     bad = await client.patch(
-        f"/api/v1/admin/alerts/rules/{rule_id}", headers=_hdr(USER_ADMIN_ONLY),
+        f"/api/v1/admin/alerts/rules/{rule_id}",
+        headers=_hdr(USER_ADMIN_ONLY),
         json={"notification_channels": ["bogus_channel"]},
     )
     assert bad.status_code == 422
     assert bad.json()["detail"]["denied_reason"] == "invalid_notification_channel"
     # 合法 wecom + in_app → 200。
     ok = await client.patch(
-        f"/api/v1/admin/alerts/rules/{rule_id}", headers=_hdr(USER_ADMIN_ONLY),
+        f"/api/v1/admin/alerts/rules/{rule_id}",
+        headers=_hdr(USER_ADMIN_ONLY),
         json={"notification_channels": ["wecom", "in_app"]},
     )
     assert ok.status_code == 200
@@ -294,8 +333,11 @@ async def test_alert_rule_channel_validation(client):
 async def test_notification_content_value_sanitized(db_session):
     # 内含对象存储 URL 的内容在落库时被值级脱敏。
     rec = await alert_service.record_local_notification(
-        db_session, recipient_user_id=USER_CONSULTANT,
-        title="通知", content="s3://secret-bucket/path/original.docx", channel="wecom",
+        db_session,
+        recipient_user_id=USER_CONSULTANT,
+        title="通知",
+        content="s3://secret-bucket/path/original.docx",
+        channel="wecom",
     )
     await db_session.commit()
     assert "s3://" not in rec.content and rec.content == "[redacted]"

@@ -45,9 +45,20 @@ CALLBACK = "/api/v1/auth/wecom/callback"
 CONFIGS = "/api/v1/admin/wecom-scan/configs"
 
 _LEAK = [
-    "source_file_ref", "storage_ref", "internal://", "download_url", "access_token",
-    "app_secret", "wecom_secret", "auth_code", "ww_consultant_a", "weknora", "kb_id",
-    "doc_id", "sk-", "Bearer",
+    "source_file_ref",
+    "storage_ref",
+    "internal://",
+    "download_url",
+    "access_token",
+    "app_secret",
+    "wecom_secret",
+    "auth_code",
+    "ww_consultant_a",
+    "weknora",
+    "kb_id",
+    "doc_id",
+    "sk-",
+    "Bearer",
 ]
 
 
@@ -99,7 +110,7 @@ class FakeDrive:
     async def download_file(self, file_id):
         if file_id in self._fail:
             raise WeComError("wecom_download_failed", "下载失败")
-        for (fid, _name, _h, b) in self._files:
+        for fid, _name, _h, b in self._files:
             if fid == file_id:
                 return b
         raise WeComError("wecom_not_found", "文件不存在")
@@ -136,8 +147,11 @@ async def test_oauth_callback_success_creates_session(client):
     _install_oauth(FakeOAuth("ww_consultant_a"))
     await client.get(START)
     state = client.cookies.get("kap_oauth_state")
-    resp = await client.get(CALLBACK, params={"code": "valid-code", "state": state},
-                            headers={"X-Trace-Id": "trc-oauth-ok"})
+    resp = await client.get(
+        CALLBACK,
+        params={"code": "valid-code", "state": state},
+        headers={"X-Trace-Id": "trc-oauth-ok"},
+    )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["user_id"] == str(USER_CONSULTANT)
@@ -158,15 +172,21 @@ async def test_oauth_callback_unknown_user_fails_closed(client):
 
 
 async def test_oauth_callback_inactive_user_fails_closed(client, db_session):
-    inactive = User(id=uuid.uuid4(), name="离职X", email="left@dev.local",
-                    status="inactive", wecom_user_id="ww_inactive")
+    inactive = User(
+        id=uuid.uuid4(),
+        name="离职X",
+        email="left@dev.local",
+        status="inactive",
+        wecom_user_id="ww_inactive",
+    )
     db_session.add(inactive)
     await db_session.commit()
     _install_oauth(FakeOAuth("ww_inactive"))
     await client.get(START)
     state = client.cookies.get("kap_oauth_state")
-    resp = await client.get(CALLBACK, params={"code": "c", "state": state},
-                            headers={"X-Trace-Id": "trc-oauth-inactive"})
+    resp = await client.get(
+        CALLBACK, params={"code": "c", "state": state}, headers={"X-Trace-Id": "trc-oauth-inactive"}
+    )
     assert resp.status_code == 401
     assert resp.json()["detail"]["denied_reason"] == "user_inactive"
 
@@ -184,11 +204,15 @@ async def test_oauth_audit_has_no_code_or_token(client, db_session):
     _install_oauth(FakeOAuth("ww_consultant_a"))
     await client.get(START)
     state = client.cookies.get("kap_oauth_state")
-    await client.get(CALLBACK, params={"code": "secret-code-xyz", "state": state},
-                     headers={"X-Trace-Id": "trc-oauth-audit"})
+    await client.get(
+        CALLBACK,
+        params={"code": "secret-code-xyz", "state": state},
+        headers={"X-Trace-Id": "trc-oauth-audit"},
+    )
     row = (
         await db_session.execute(
-            select(AuditEvent).where(AuditEvent.trace_id == "trc-oauth-audit")
+            select(AuditEvent)
+            .where(AuditEvent.trace_id == "trc-oauth-audit")
             .where(AuditEvent.action == "login.success")
         )
     ).scalar_one()
@@ -201,9 +225,11 @@ async def test_oauth_audit_has_no_code_or_token(client, db_session):
 # ---------------- 扫描配置 / 记录 API ----------------
 async def _new_config(db_session, *, scope_type="project", project_id=PROJECT_ALPHA, enabled=True):
     config = WecomScanConfig(
-        directory_path="/微盘/Alpha 交付", scope_type=scope_type,
+        directory_path="/微盘/Alpha 交付",
+        scope_type=scope_type,
         related_project_id=project_id if scope_type == "project" else None,
-        enabled=enabled, created_by=USER_CONSULTANT,
+        enabled=enabled,
+        created_by=USER_CONSULTANT,
     )
     db_session.add(config)
     await db_session.commit()
@@ -224,7 +250,9 @@ async def test_scan_config_update_admin_only(client, db_session):
     config = await _new_config(db_session)
     url = f"{CONFIGS}/{config.id}"
     # 治理角色（非 admin）不能启停。
-    assert (await client.patch(url, headers=_hdr(USER_DIRECTOR), json={"enabled": False})).status_code == 403
+    assert (
+        await client.patch(url, headers=_hdr(USER_DIRECTOR), json={"enabled": False})
+    ).status_code == 403
     ok = await client.patch(url, headers=_hdr(USER_ADMIN_ONLY), json={"enabled": False})
     assert ok.status_code == 200
     assert ok.json()["enabled"] is False
@@ -233,10 +261,12 @@ async def test_scan_config_update_admin_only(client, db_session):
 # ---------------- Path A 扫描 ----------------
 async def test_manual_scan_creates_tasks_and_reuses_processing(client, db_session):
     config = await _new_config(db_session)
-    drive = FakeDrive([
-        ("f1", "Alpha 交付报告.txt", "wh1", "供应链优化交付报告正文若干。".encode()),
-        ("f2", "Alpha 方法论.txt", "wh2", "项目方法论正文内容。".encode()),
-    ])
+    drive = FakeDrive(
+        [
+            ("f1", "Alpha 交付报告.txt", "wh1", "供应链优化交付报告正文若干。".encode()),
+            ("f2", "Alpha 方法论.txt", "wh2", "项目方法论正文内容。".encode()),
+        ]
+    )
     _install_drive(drive)
     resp = await client.post(f"{CONFIGS}/{config.id}/scan", headers=_hdr(USER_ADMIN_ONLY))
     assert resp.status_code == 200, resp.text
@@ -246,9 +276,11 @@ async def test_manual_scan_creates_tasks_and_reuses_processing(client, db_sessio
     _assert_no_leak(resp.text)
 
     # 建了 path_a_wecom 任务，且复用既有异步处理到 pending_confirmation。
-    tasks = list((await db_session.execute(
-        select(IngestTask).where(IngestTask.source == "path_a_wecom")
-    )).scalars().all())
+    tasks = list(
+        (await db_session.execute(select(IngestTask).where(IngestTask.source == "path_a_wecom")))
+        .scalars()
+        .all()
+    )
     assert len(tasks) == 2
     for t in tasks:
         assert t.status in ("pending_confirmation", "failed")
@@ -267,7 +299,9 @@ async def test_rescan_dedups_no_duplicate_tasks(client, db_session):
     r2 = await client.post(f"{CONFIGS}/{config.id}/scan", headers=_hdr(USER_ADMIN_ONLY))
     assert r2.json()["new_count"] == 0 and r2.json()["duplicate_count"] == 1
     total = await db_session.scalar(
-        select(func.count()).select_from(IngestTask).where(IngestTask.source == "path_a_wecom")
+        select(func.count())
+        .select_from(IngestTask)
+        .where(IngestTask.source == "path_a_wecom")
         .where(IngestTask.source_file_hash == "dh1")
     )
     assert total == 1
@@ -276,8 +310,7 @@ async def test_rescan_dedups_no_duplicate_tasks(client, db_session):
 async def test_scan_per_file_failure_not_abort(client, db_session):
     config = await _new_config(db_session)
     drive = FakeDrive(
-        [("f1", "ok.txt", "fh1", "正文内容。".encode()),
-         ("f2", "bad.txt", "fh2", b"x")],
+        [("f1", "ok.txt", "fh1", "正文内容。".encode()), ("f2", "bad.txt", "fh2", b"x")],
         fail_ids={"f2"},
     )
     _install_drive(drive)
@@ -304,6 +337,7 @@ def test_parse_directory_path_valid_and_invalid():
     assert parse_directory_path("spaceid:sp1") == ("sp1", "")
     # 缺 spaceid → 拒绝（不静默用 admin/系统）。
     import pytest as _pytest
+
     with _pytest.raises(WeComError):
         parse_directory_path("/微盘/Alpha")
 
@@ -312,6 +346,7 @@ def test_drive_check_errcode():
     c = WeComDriveClient(corp_id="x", app_secret="s", base_url="https://q")
     assert c._check({"errcode": 0, "file_list": []})["file_list"] == []
     import pytest as _pytest
+
     with _pytest.raises(WeComError) as ei:
         c._check({"errcode": 40058, "errmsg": "raw upstream msg"})
     # 只暴露 errcode，不回显上游 errmsg 原文。
@@ -338,14 +373,16 @@ async def test_scan_idempotency_same_key_returns_same_record(client, db_session)
     assert r1b.json()["id"] == r2.json()["id"]
     # 该 key 只建一条记录。
     key_recs = await db_session.scalar(
-        select(func.count()).select_from(WecomScanRecord)
+        select(func.count())
+        .select_from(WecomScanRecord)
         .where(WecomScanRecord.config_id == config.id)
         .where(WecomScanRecord.idempotency_key == "K1")
     )
     assert key_recs == 1
     # 同内容 hash 不重复建任务。
     task_cnt = await db_session.scalar(
-        select(func.count()).select_from(IngestTask)
+        select(func.count())
+        .select_from(IngestTask)
         .where(IngestTask.source == "path_a_wecom")
         .where(IngestTask.source_file_hash == "ih1")
     )
@@ -356,14 +393,17 @@ async def test_scan_idempotency_different_key_and_config(client, db_session):
     config = await _new_config(db_session)
     files = [("f1", "a.txt", "dk1", "正文。".encode())]
     _install_drive(FakeDrive(files))
-    await client.post(f"{CONFIGS}/{config.id}/scan",
-                      headers={**_hdr(USER_ADMIN_ONLY), "Idempotency-Key": "A"})
+    await client.post(
+        f"{CONFIGS}/{config.id}/scan", headers={**_hdr(USER_ADMIN_ONLY), "Idempotency-Key": "A"}
+    )
     _install_drive(FakeDrive(files))
-    await client.post(f"{CONFIGS}/{config.id}/scan",
-                      headers={**_hdr(USER_ADMIN_ONLY), "Idempotency-Key": "B"})
+    await client.post(
+        f"{CONFIGS}/{config.id}/scan", headers={**_hdr(USER_ADMIN_ONLY), "Idempotency-Key": "B"}
+    )
     # 同 config 不同 key → 两条记录。
     cnt = await db_session.scalar(
-        select(func.count()).select_from(WecomScanRecord)
+        select(func.count())
+        .select_from(WecomScanRecord)
         .where(WecomScanRecord.config_id == config.id)
     )
     assert cnt == 2
@@ -371,11 +411,13 @@ async def test_scan_idempotency_different_key_and_config(client, db_session):
     # 不同 config 同 key → 允许（部分唯一是 config+key 维度）。
     config2 = await _new_config(db_session)
     _install_drive(FakeDrive(files))
-    r = await client.post(f"{CONFIGS}/{config2.id}/scan",
-                          headers={**_hdr(USER_ADMIN_ONLY), "Idempotency-Key": "A"})
+    r = await client.post(
+        f"{CONFIGS}/{config2.id}/scan", headers={**_hdr(USER_ADMIN_ONLY), "Idempotency-Key": "A"}
+    )
     assert r.status_code == 200
     cnt2 = await db_session.scalar(
-        select(func.count()).select_from(WecomScanRecord)
+        select(func.count())
+        .select_from(WecomScanRecord)
         .where(WecomScanRecord.config_id == config2.id)
         .where(WecomScanRecord.idempotency_key == "A")
     )
@@ -406,15 +448,21 @@ async def test_admin_cannot_read_scan_task_business_content(client, db_session):
     config = await _new_config(db_session)
     _install_drive(FakeDrive([("f1", "secret.txt", "ah1", "客户机密正文内容若干。".encode())]))
     await client.post(f"{CONFIGS}/{config.id}/scan", headers=_hdr(USER_ADMIN_ONLY))
-    task = (await db_session.execute(
-        select(IngestTask).where(IngestTask.source == "path_a_wecom")
-    )).scalars().first()
+    task = (
+        (await db_session.execute(select(IngestTask).where(IngestTask.source == "path_a_wecom")))
+        .scalars()
+        .first()
+    )
     # 纯 admin 读 ai-result → 仅运营元数据，无业务正文（suggested_title/抽取预览为 None）。
-    admin_view = await client.get(f"/api/v1/ingest/{task.id}/ai-result", headers=_hdr(USER_ADMIN_ONLY))
+    admin_view = await client.get(
+        f"/api/v1/ingest/{task.id}/ai-result", headers=_hdr(USER_ADMIN_ONLY)
+    )
     assert admin_view.status_code == 200
     assert admin_view.json().get("suggested_title") is None
     assert admin_view.json().get("extracted_text_preview") is None
     # 创建人（顾问A）可见业务建议正文。
-    owner_view = await client.get(f"/api/v1/ingest/{task.id}/ai-result", headers=_hdr(USER_CONSULTANT))
+    owner_view = await client.get(
+        f"/api/v1/ingest/{task.id}/ai-result", headers=_hdr(USER_CONSULTANT)
+    )
     assert owner_view.status_code == 200
     _assert_no_leak(admin_view.text)

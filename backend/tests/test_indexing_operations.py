@@ -55,7 +55,9 @@ class FakeWK:
     async def get_initialization_config(self, kb_id, *, trace_id=None):
         return {}
 
-    async def upload_file(self, *, kb_id, content, file_name, mime, metadata=None, channel=None, trace_id=None):
+    async def upload_file(
+        self, *, kb_id, content, file_name, mime, metadata=None, channel=None, trace_id=None
+    ):
         if self.fail or (self.fail_marker is not None and self.fail_marker in content):
             raise WeKnoraError("weknora_down", "底座不可用")
         self._doc += 1
@@ -69,12 +71,28 @@ class FakeWK:
         self.deleted.append(knowledge_id)
         return None
 
-    async def reparse_knowledge(self, *, kb_id, knowledge_id, content, file_name, mime, metadata=None, channel=None, trace_id=None):
+    async def reparse_knowledge(
+        self,
+        *,
+        kb_id,
+        knowledge_id,
+        content,
+        file_name,
+        mime,
+        metadata=None,
+        channel=None,
+        trace_id=None,
+    ):
         if knowledge_id:
             await self.delete_knowledge(knowledge_id, trace_id=trace_id)
         return await self.upload_file(
-            kb_id=kb_id, content=content, file_name=file_name, mime=mime,
-            metadata=metadata, channel=channel, trace_id=trace_id,
+            kb_id=kb_id,
+            content=content,
+            file_name=file_name,
+            mime=mime,
+            metadata=metadata,
+            channel=channel,
+            trace_id=trace_id,
         )
 
     async def search(self, **_):
@@ -105,15 +123,21 @@ def _cleanup():
 
 
 async def _upload(client, user, *, content=_TXT, file_name="doc.txt"):
-    r = await client.post(UPLOAD, headers=_hdr(user), files={"file": (file_name, content, "text/plain")})
+    r = await client.post(
+        UPLOAD, headers=_hdr(user), files={"file": (file_name, content, "text/plain")}
+    )
     return r.json()["ingest_task_id"]
 
 
 def _payload(scope, project_id, **over):
     base = {
-        "title": "批量索引资产", "summary": "摘要", "tags": ["t"],
-        "target_scope": scope, "asset_type": "methodology",
-        "confidentiality_level": "L2", "ai_access_level": "A2",
+        "title": "批量索引资产",
+        "summary": "摘要",
+        "tags": ["t"],
+        "target_scope": scope,
+        "asset_type": "methodology",
+        "confidentiality_level": "L2",
+        "ai_access_level": "A2",
     }
     if project_id is not None:
         base["target_project_id"] = str(project_id)
@@ -123,12 +147,22 @@ def _payload(scope, project_id, **over):
 
 async def _confirm(client, user, task_id, *, scope="personal", project_id=None, **over):
     return await client.post(
-        f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(user),
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(user),
         json=_payload(scope, project_id, **over),
     )
 
 
-async def _make_index_failed(client, monkeypatch, user, *, scope="personal", project_id=None, content=_TXT, title="批量索引资产"):
+async def _make_index_failed(
+    client,
+    monkeypatch,
+    user,
+    *,
+    scope="personal",
+    project_id=None,
+    content=_TXT,
+    title="批量索引资产",
+):
     """用失败 fake 走 confirm，生成一个已落库但 index_failed 的资产，返回 asset_id。"""
     _enable(monkeypatch, FakeWK(fail=True))
     task_id = await _upload(client, user, content=content)
@@ -179,12 +213,20 @@ async def test_batch_retry_governance_allowed(client, monkeypatch):
 # 批量 retry 执行
 # ---------------------------------------------------------------------------
 async def test_batch_retry_indexes_failed_assets(client, db_session, monkeypatch):
-    a1 = await _make_index_failed(client, monkeypatch, USER_CONSULTANT, content=b"alpha body one", title="失败资产1")
-    a2 = await _make_index_failed(client, monkeypatch, USER_CONSULTANT, content=b"beta body two", title="失败资产2")
+    a1 = await _make_index_failed(
+        client, monkeypatch, USER_CONSULTANT, content=b"alpha body one", title="失败资产1"
+    )
+    a2 = await _make_index_failed(
+        client, monkeypatch, USER_CONSULTANT, content=b"beta body two", title="失败资产2"
+    )
     # 切换为成功底座，发起批量 retry（eager 内联跑完）。
     ok = FakeWK()
     _enable(monkeypatch, ok)
-    r = await client.post(RETRY, headers=_hdr(USER_ADMIN_ONLY), json={"scope": "all", "statuses": ["index_failed"], "limit": 50})
+    r = await client.post(
+        RETRY,
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"scope": "all", "statuses": ["index_failed"], "limit": 50},
+    )
     assert r.status_code == 202, r.text
     body = r.json()
     assert body["operation_type"] == "retry_index"
@@ -194,9 +236,13 @@ async def test_batch_retry_indexes_failed_assets(client, db_session, monkeypatch
     assert body["failed_count"] == 0
     # 两条资产现在均 indexed。
     for aid in (a1, a2):
-        v = (await db_session.execute(
-            select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.asset_id == uuid.UUID(aid))
-        )).scalar_one()
+        v = (
+            await db_session.execute(
+                select(KnowledgeAssetVersion).where(
+                    KnowledgeAssetVersion.asset_id == uuid.UUID(aid)
+                )
+            )
+        ).scalar_one()
         assert v.index_status == "indexed"
 
 
@@ -207,8 +253,12 @@ async def test_batch_retry_partial_failure_completed_with_errors(client, monkeyp
     开放事务会与 job 内 `rollback()` 互相干扰（仅测试态）；改由 job 返回的安全计数与
     单条 retry-index 的 409 / 200 复核最终状态。
     """
-    a_ok = await _make_index_failed(client, monkeypatch, USER_CONSULTANT, content=b"recoverable body", title="可恢复")
-    a_bad = await _make_index_failed(client, monkeypatch, USER_CONSULTANT, content=b"FAILME lost body", title="仍失败")
+    a_ok = await _make_index_failed(
+        client, monkeypatch, USER_CONSULTANT, content=b"recoverable body", title="可恢复"
+    )
+    a_bad = await _make_index_failed(
+        client, monkeypatch, USER_CONSULTANT, content=b"FAILME lost body", title="仍失败"
+    )
 
     # 选择性失败 fake：只有含 FAILME 标记的内容上传失败（a_bad），a_ok 正常索引。
     sel = FakeWK(fail_marker=b"FAILME")
@@ -226,28 +276,44 @@ async def test_batch_retry_partial_failure_completed_with_errors(client, monkeyp
     assert r_ok.json()["detail"]["denied_reason"] == "knowledge_index_already_indexed"
     # a_bad 仍 index_failed（未被 batch 误标）→ 换成功 fake 单条重试可恢复为 indexed。
     _set_client(FakeWK())
-    r_bad = await client.post(f"/api/v1/knowledge/{a_bad}/retry-index", headers=_hdr(USER_CONSULTANT))
+    r_bad = await client.post(
+        f"/api/v1/knowledge/{a_bad}/retry-index", headers=_hdr(USER_CONSULTANT)
+    )
     assert r_bad.status_code == 200
     assert r_bad.json()["index_status"] == "indexed"
 
 
 async def test_batch_retry_does_not_select_indexed(client, db_session, monkeypatch):
-    indexed = await _make_indexed(client, monkeypatch, USER_CONSULTANT, content=b"already indexed body")
+    indexed = await _make_indexed(
+        client, monkeypatch, USER_CONSULTANT, content=b"already indexed body"
+    )
     # 记录其 doc_id，确认批量 retry 不会动它。
-    v0 = (await db_session.execute(
-        select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.asset_id == uuid.UUID(indexed))
-    )).scalar_one()
+    v0 = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == uuid.UUID(indexed)
+            )
+        )
+    ).scalar_one()
     doc0 = v0.weknora_doc_id
     db_session.expunge(v0)
 
     ok = FakeWK()
     _enable(monkeypatch, ok)
-    r = await client.post(RETRY, headers=_hdr(USER_ADMIN_ONLY), json={"scope": "all", "statuses": ["index_failed", "skipped", "not_indexed"], "limit": 50})
+    r = await client.post(
+        RETRY,
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"scope": "all", "statuses": ["index_failed", "skipped", "not_indexed"], "limit": 50},
+    )
     assert r.status_code == 202, r.text
     # indexed 资产未被重传（doc_id 不变，无新上传命中它）。
-    v = (await db_session.execute(
-        select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.asset_id == uuid.UUID(indexed))
-    )).scalar_one()
+    v = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == uuid.UUID(indexed)
+            )
+        )
+    ).scalar_one()
     assert v.index_status == "indexed"
     assert v.weknora_doc_id == doc0
 
@@ -256,11 +322,17 @@ async def test_batch_retry_does_not_select_indexed(client, db_session, monkeypat
 # 显式 reparse
 # ---------------------------------------------------------------------------
 async def test_reparse_refreshes_parse_status(client, db_session, monkeypatch):
-    indexed = await _make_indexed(client, monkeypatch, USER_CONSULTANT, content=b"reparse target body")
+    indexed = await _make_indexed(
+        client, monkeypatch, USER_CONSULTANT, content=b"reparse target body"
+    )
     # 人为把解析状态置为 failed（模拟解析异常），doc 仍在底座。
-    v = (await db_session.execute(
-        select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.asset_id == uuid.UUID(indexed))
-    )).scalar_one()
+    v = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == uuid.UUID(indexed)
+            )
+        )
+    ).scalar_one()
     old_doc = v.weknora_doc_id
     v.weknora_parse_status = "failed"
     await db_session.commit()
@@ -268,7 +340,11 @@ async def test_reparse_refreshes_parse_status(client, db_session, monkeypatch):
 
     ok = FakeWK()
     _enable(monkeypatch, ok)
-    r = await client.post(REPARSE, headers=_hdr(USER_ADMIN_ONLY), json={"scope": "all", "parse_statuses": ["failed", "pending"], "limit": 50})
+    r = await client.post(
+        REPARSE,
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"scope": "all", "parse_statuses": ["failed", "pending"], "limit": 50},
+    )
     assert r.status_code == 202, r.text
     body = r.json()
     assert body["operation_type"] == "reparse"
@@ -277,9 +353,13 @@ async def test_reparse_refreshes_parse_status(client, db_session, monkeypatch):
     # reparse 受控重传：旧 doc 被删、重新上传原文触发解析刷新。
     assert old_doc in ok.deleted
     assert len(ok.uploads) >= 1  # 确实重传了原文
-    v2 = (await db_session.execute(
-        select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.asset_id == uuid.UUID(indexed))
-    )).scalar_one()
+    v2 = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == uuid.UUID(indexed)
+            )
+        )
+    ).scalar_one()
     assert v2.index_status == "indexed"
     # 解析状态已由 failed 刷新为底座新返回的 processing。
     assert v2.weknora_parse_status == "processing"
@@ -300,14 +380,22 @@ async def test_refresh_parse_stays_readonly(client, db_session, monkeypatch):
     """refresh-parse 只读对账底座解析状态，绝不触发删除 / 重传。"""
     from app.models.ingest import IngestTask
 
-    indexed = await _make_indexed(client, monkeypatch, USER_CONSULTANT, content=b"refresh parse body")
-    task_id = (await db_session.execute(
-        select(IngestTask.id).where(IngestTask.result_asset_id == uuid.UUID(indexed))
-    )).scalar_one()
+    indexed = await _make_indexed(
+        client, monkeypatch, USER_CONSULTANT, content=b"refresh parse body"
+    )
+    task_id = (
+        await db_session.execute(
+            select(IngestTask.id).where(IngestTask.result_asset_id == uuid.UUID(indexed))
+        )
+    ).scalar_one()
     # 把解析状态置为 processing（refresh 会去读底座对账）。
-    v = (await db_session.execute(
-        select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.asset_id == uuid.UUID(indexed))
-    )).scalar_one()
+    v = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == uuid.UUID(indexed)
+            )
+        )
+    ).scalar_one()
     old_doc = v.weknora_doc_id
     v.weknora_parse_status = "processing"
     await db_session.commit()
@@ -320,9 +408,13 @@ async def test_refresh_parse_stays_readonly(client, db_session, monkeypatch):
     # refresh 只读：未触发删除 / 重传。
     assert ok.deleted == []
     assert ok.uploads == []
-    v2 = (await db_session.execute(
-        select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.asset_id == uuid.UUID(indexed))
-    )).scalar_one()
+    v2 = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == uuid.UUID(indexed)
+            )
+        )
+    ).scalar_one()
     assert v2.weknora_doc_id == old_doc
 
 
@@ -343,8 +435,18 @@ async def test_jobs_list_no_leak(client, monkeypatch):
     assert "status" in job and "total_count" in job
     # 安全：无标题 / 原文 / WeKnora id / 存储引用 / 文件名 / token。
     for token in [
-        "机密标题不应出现", "weknora_kb_id", "weknora_doc_id", "kb-", "doc-",
-        "storage_ref", "source_file_ref", "download_url", "api_key", "sk-", "cookie", "doc.txt",
+        "机密标题不应出现",
+        "weknora_kb_id",
+        "weknora_doc_id",
+        "kb-",
+        "doc-",
+        "storage_ref",
+        "source_file_ref",
+        "download_url",
+        "api_key",
+        "sk-",
+        "cookie",
+        "doc.txt",
     ]:
         assert token not in r.text, token
 
@@ -378,8 +480,18 @@ async def test_audit_extra_is_safe(client, db_session, monkeypatch):
     batch = [lg for lg in logs if lg.action and lg.action.startswith("knowledge.index_batch")]
     assert batch, "应有批量 retry 审计"
     import json as _json
+
     blob = _json.dumps([lg.extra for lg in batch], ensure_ascii=False)
-    for token in ["审计标题不应出现", "weknora_kb_id", "weknora_doc_id", "kb-", "doc-", "storage_ref", "source_file_ref", "sk-"]:
+    for token in [
+        "审计标题不应出现",
+        "weknora_kb_id",
+        "weknora_doc_id",
+        "kb-",
+        "doc-",
+        "storage_ref",
+        "source_file_ref",
+        "sk-",
+    ]:
         assert token not in blob, token
     # extra 含安全 job_id / counts。
     completed = [lg for lg in batch if lg.action == "knowledge.index_batch_retry_completed"]

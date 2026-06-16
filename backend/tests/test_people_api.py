@@ -28,9 +28,17 @@ from app.services.permission import build_caller_context
 PEOPLE = "/api/v1/admin/people"
 
 _LEAK_TOKENS = [
-    "token_hash", "kap_session", "device_info", "ip_address",
-    "oauth_state", "auth_code", "app_secret", "storage_ref", "source_file_ref",
-    "api_key", "wecom_user_id",
+    "token_hash",
+    "kap_session",
+    "device_info",
+    "ip_address",
+    "oauth_state",
+    "auth_code",
+    "app_secret",
+    "storage_ref",
+    "source_file_ref",
+    "api_key",
+    "wecom_user_id",
 ]
 
 
@@ -50,7 +58,15 @@ async def test_admin_can_list_people_no_leak(client):
     body = r.json()
     assert body["total"] >= 5 and len(body["items"]) >= 5
     person = body["items"][0]
-    for k in ("user_id", "name", "email", "status", "company_roles", "project_memberships", "wecom_bound"):
+    for k in (
+        "user_id",
+        "name",
+        "email",
+        "status",
+        "company_roles",
+        "project_memberships",
+        "wecom_bound",
+    ):
         assert k in person
     # 安全视图不含敏感字段。
     _assert_no_leak(r.text)
@@ -141,7 +157,9 @@ async def test_admin_can_grant_admin_role(client):
         json={"company_role": "admin", "status": "active"},
     )
     assert r.status_code == 200
-    assert any(c["company_role"] == "admin" and c["status"] == "active" for c in r.json()["company_roles"])
+    assert any(
+        c["company_role"] == "admin" and c["status"] == "active" for c in r.json()["company_roles"]
+    )
 
 
 async def test_last_active_admin_protected(client):
@@ -204,7 +222,11 @@ async def test_membership_upsert_no_duplicate(client):
     r2 = await client.post(
         f"{PEOPLE}/{USER_BOSS}/project-memberships",
         headers=_hdr(USER_BOSS),
-        json={"project_id": str(PROJECT_ALPHA), "project_role": "project_manager", "status": "active"},
+        json={
+            "project_id": str(PROJECT_ALPHA),
+            "project_role": "project_manager",
+            "status": "active",
+        },
     )
     assert r2.status_code == 200
     assert r2.json()["membership_id"] == mid  # 同一行，未重复创建
@@ -223,7 +245,9 @@ async def test_membership_create_unknown_project_404(client):
 
 async def test_patch_membership_wrong_user_404(client):
     # 取 USER_PROJECT_MANAGER 的 ALPHA membership_id。
-    lst = await client.get(f"{PEOPLE}/{USER_PROJECT_MANAGER}/project-memberships", headers=_hdr(USER_BOSS))
+    lst = await client.get(
+        f"{PEOPLE}/{USER_PROJECT_MANAGER}/project-memberships", headers=_hdr(USER_BOSS)
+    )
     mid = next(m["membership_id"] for m in lst.json() if m["project_id"] == str(PROJECT_ALPHA))
     # 在 USER_BOSS 名下 PATCH 别人的 membership_id → 404，不泄露他人关系。
     r = await client.patch(
@@ -273,10 +297,14 @@ async def test_write_audits_with_safe_extra(client, db_session):
         json={"company_role": "consultant", "status": "inactive"},
     )
     rows = (
-        await db_session.execute(
-            select(AuditEvent).where(AuditEvent.action == "config.people_company_role_updated")
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.action == "config.people_company_role_updated")
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert rows, "应写入 config.people_company_role_updated 审计事件"
     ev = rows[-1]
     extra = ev.extra or {}

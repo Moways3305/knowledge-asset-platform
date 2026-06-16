@@ -1,4 +1,4 @@
-﻿"""外部 Agent / 工作流网关调用记录 ORM 模型。
+"""外部 Agent / 工作流网关调用记录 ORM 模型。
 
 仅四张表：agent_calls / agent_gateway_decisions / agent_gateway_decision_items /
 agent_call_citations，记录网关调用与逐候选决策。原文授权（access_grants /
@@ -50,12 +50,8 @@ class AgentCall(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    caller_user_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id"), nullable=False
-    )
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("projects.id"), nullable=False
-    )
+    caller_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("projects.id"), nullable=False)
     query_text: Mapped[str] = mapped_column(Text, nullable=False)
     response_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_key: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -78,12 +74,8 @@ class AgentGatewayDecision(Base):
     __table_args__ = (Index("ix_agent_decisions_call", "call_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    call_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("agent_calls.id"), nullable=False
-    )
-    caller_user_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id"), nullable=False
-    )
+    call_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("agent_calls.id"), nullable=False)
+    caller_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
     decision_status: Mapped[str] = mapped_column(String(20), nullable=False)
     discovery_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     summary_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -112,12 +104,8 @@ class AgentGatewayDecisionItem(Base):
     decision_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("agent_gateway_decisions.id"), nullable=False
     )
-    call_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("agent_calls.id"), nullable=False
-    )
-    caller_user_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id"), nullable=False
-    )
+    call_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("agent_calls.id"), nullable=False)
+    caller_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
     target_asset_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("knowledge_assets.id"), nullable=False
     )
@@ -158,9 +146,7 @@ class AgentCallCitation(Base):
     __table_args__ = (Index("ix_agent_citations_call", "call_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    call_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("agent_calls.id"), nullable=False
-    )
+    call_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("agent_calls.id"), nullable=False)
     decision_item_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("agent_gateway_decision_items.id"), nullable=False
     )
@@ -179,4 +165,3 @@ class AgentCallCitation(Base):
     cited_zone: Mapped[str] = mapped_column(String(20), nullable=False)
     citation_order: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-
