@@ -183,7 +183,8 @@ async def list_agent_whitelist(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> RegistryListResponse:
-    return await agent_registry.list_rules(session, caller)
+    result: RegistryListResponse = await agent_registry.list_rules(session, caller)
+    return result
 
 
 @router.post("/admin/permissions/agent-whitelist", response_model=RegistryCreateResponse)
@@ -193,7 +194,8 @@ async def create_agent_whitelist(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> RegistryCreateResponse:
-    return await agent_registry.create_rule(session, caller, req, get_trace_id(request))
+    result: RegistryCreateResponse = await agent_registry.create_rule(session, caller, req, get_trace_id(request))
+    return result
 
 
 @router.patch("/admin/permissions/agent-whitelist/{rule_id}", response_model=RegistryCreateResponse)
@@ -204,5 +206,6 @@ async def update_agent_whitelist(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> RegistryCreateResponse:
-    return await agent_registry.update_rule(session, caller, rule_id, req, get_trace_id(request))
+    result: RegistryCreateResponse = await agent_registry.update_rule(session, caller, rule_id, req, get_trace_id(request))
+    return result
 

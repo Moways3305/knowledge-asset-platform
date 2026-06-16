@@ -46,7 +46,8 @@ async def list_projects(
     session: AsyncSession = Depends(get_db),
 ) -> ProjectListResponse:
     """项目列表：治理角色 / admin 看全部 active 项目；业务用户看本人 active 项目。"""
-    return await projects_service.list_projects(session, caller)
+    result: ProjectListResponse = await projects_service.list_projects(session, caller)
+    return result
 
 
 @router.post("", response_model=ProjectCreateResponse, status_code=201)
@@ -59,9 +60,10 @@ async def create_project(
 ) -> ProjectCreateResponse:
     """创建项目知识空间（仅 Boss / 咨询总监）。写入真实 projects + active project_manager 成员；
     随后 best-effort 预创建并初始化 project WeKnora KB。"""
-    return await projects_service.create_project(
+    result: ProjectCreateResponse = await projects_service.create_project(
         session, caller, req, get_trace_id(request), weknora=weknora
     )
+    return result
 
 
 @router.get("/{project_id}/settings", response_model=ProjectSettingsOut)

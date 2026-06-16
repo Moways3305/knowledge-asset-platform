@@ -31,6 +31,7 @@ dev = [
     "pytest-cov>=6.0",
     "aiosqlite>=0.20",
     "ruff>=0.8",
+    "mypy>=1.13",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -51,6 +52,15 @@ omit = ["app/seed/*"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
+
+# 类型检查基线（首阶段宽松模式：只抓明显的类型错误，不强制全量注解）。
+# 后续按模块用 per-module overrides 逐步收紧到 --strict 子集。
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+# 首阶段：第三方库缺 stub 不报错（celery / asyncpg 等无完整类型）。
+ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 100

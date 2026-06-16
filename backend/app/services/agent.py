@@ -105,6 +105,8 @@ def _layer_and_source(r: retrieval.RecalledAsset) -> tuple[str, str]:
         return AccessLayer.original.value, r.original.effective_access_source.value
     if r.summary is not None and r.summary.allowed:
         return AccessLayer.summary.value, r.summary.effective_access_source.value
+    # recall 已保证发现层放行（见 docstring），discovery 必非 None。
+    assert r.discovery is not None
     return AccessLayer.discovery.value, r.discovery.effective_access_source.value
 
 
@@ -314,11 +316,11 @@ async def run_project_qa(
     citations_out: list[CitationOut] = []
     for order, e in enumerate(evidences, start=1):
         asset = e.asset
-        item = item_by_asset.get(asset.id)
+        cited_item = item_by_asset.get(asset.id)
         session.add(
             AgentCallCitation(
                 call_id=call.id,
-                decision_item_id=item.id if item is not None else None,
+                decision_item_id=cited_item.id if cited_item is not None else None,
                 cited_asset_id=asset.id,
                 cited_chunk_id=None,
                 cited_weknora_chunk_ref=e.weknora_chunk_ref,  # server-only，绝不外泄

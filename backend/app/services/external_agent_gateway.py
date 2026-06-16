@@ -118,7 +118,8 @@ def tool_scope_allowed(rule, req_scope: str | None) -> bool:
     allowed_scope = rule.allowed_scope
     if allowed_scope in (None, "all"):
         return True
-    return (req_scope or "all") == allowed_scope
+    result: bool = (req_scope or "all") == allowed_scope
+    return result
 
 
 async def _kb_ids_for_request(

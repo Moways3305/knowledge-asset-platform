@@ -187,7 +187,7 @@ async def list_jobs(session: AsyncSession, caller: CallerContext) -> IndexingJob
             await session.execute(select(User.id, User.name).where(User.id.in_(ids)))
         ).all():
             names[uid] = uname
-    items = [_job_summary(j, names.get(j.requested_by_user_id)) for j in jobs]
+    items = [_job_summary(j, names.get(j.requested_by_user_id) if j.requested_by_user_id else None) for j in jobs]
     return IndexingJobListResponse(items=items, total=len(items))
 
 

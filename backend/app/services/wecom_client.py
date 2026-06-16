@@ -199,7 +199,8 @@ class WeComOAuthClient:
     @staticmethod
     def _safe_json(resp: httpx.Response) -> dict[str, Any]:
         try:
-            return resp.json()
+            result: dict[str, Any] = resp.json()
+            return result
         except Exception as exc:  # noqa: BLE001
             raise WeComError("wecom_bad_response", "企微响应解析失败") from exc
 

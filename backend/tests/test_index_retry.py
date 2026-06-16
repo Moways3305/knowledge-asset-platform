@@ -193,6 +193,45 @@ async def test_retry_still_failing_keeps_index_failed(client, db_session, monkey
         app.dependency_overrides.pop(get_weknora_client, None)
 
 
+async def test_retry_source_file_unreadable_returns_safe_json_not_coroutine(client, db_session, monkeypatch):
+    """原文不可读时重试：必须返回正常 JSON（index_failed），不得 500、不得返回未 await 的协程。
+
+    回归锁定：retry 的 source_file_unreadable 分支曾漏写 `await _retry_response(...)`，
+    会把协程对象当响应返回（FastAPI 序列化失败 → 500 / 脏数据）。本用例钉住该错误路径。
+    """
+    from app.models.ingest import IngestTask
+
+    asset_id = await _make_index_failed(client, monkeypatch, USER_CONSULTANT)
+    try:
+        # 把入库任务的 server-only 原文引用改成"格式合法但文件缺失"，令 read_bytes 抛 OSError。
+        task = (await db_session.execute(
+            select(IngestTask).where(IngestTask.result_asset_id == uuid.UUID(asset_id))
+        )).scalars().first()
+        task.source_file_ref = "internal://does-not-exist.bin"
+        await db_session.commit()
+
+        _set_client(FakeWK())  # OSError 发生在触达底座之前，fake 不会被用到
+        r = await client.post(f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT))
+
+        # 不是 500，是正常 JSON。
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["index_status"] == "index_failed"
+        assert body["index_error_code"] == "source_file_unreadable"  # 目录化安全 code
+        # 不泄露协程对象 / 内部存储引用 / 原文路径 / WeKnora server-only 标识。
+        for token in ["coroutine", "internal://", "does-not-exist", "storage_ref", "source_file_ref", "kb-", "doc-"]:
+            assert token not in r.text
+
+        # DB 落库为 index_failed + 安全错误码（资产保留、可再试）。
+        ver = (await db_session.execute(
+            select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id))
+        )).scalar_one()
+        assert ver.index_status == "index_failed"
+        assert ver.index_error_code == "source_file_unreadable"
+    finally:
+        app.dependency_overrides.pop(get_weknora_client, None)
+
+
 async def test_retry_skipped_clears_stale_index_error(client, db_session, monkeypatch):
     """底座未启用时重试：标 skipped 并清理上一轮失败残留（error_code/message/parse_status）。"""
     asset_id = await _make_index_failed(client, monkeypatch, USER_CONSULTANT)

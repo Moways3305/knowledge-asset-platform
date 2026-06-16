@@ -45,7 +45,8 @@ async def list_configs(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> WecomScanConfigsResponse:
-    return await scan_service.list_configs(session, caller)
+    result: WecomScanConfigsResponse = await scan_service.list_configs(session, caller)
+    return result
 
 
 @router.get("/project-options", response_model=WecomProjectOptionsResponse)
@@ -54,7 +55,8 @@ async def list_project_options(
     session: AsyncSession = Depends(get_db),
 ) -> WecomProjectOptionsResponse:
     """目标项目候选（active 项目 id + 名称），供创建/编辑配置选择。读权限同配置读。"""
-    return await scan_service.list_project_options(session, caller)
+    result: WecomProjectOptionsResponse = await scan_service.list_project_options(session, caller)
+    return result
 
 
 @router.get("/owner-options", response_model=WecomOwnerOptionsResponse)
@@ -63,7 +65,8 @@ async def list_owner_options(
     session: AsyncSession = Depends(get_db),
 ) -> WecomOwnerOptionsResponse:
     """业务归属人候选（active 业务用户，排除纯 admin）。读权限同配置读。"""
-    return await scan_service.list_owner_options(session, caller)
+    result: WecomOwnerOptionsResponse = await scan_service.list_owner_options(session, caller)
+    return result
 
 
 @router.get("/drive/spaces", response_model=WecomDriveSpacesResponse)
@@ -72,7 +75,8 @@ async def list_drive_spaces(
     drive=Depends(get_wecom_drive_client),
 ) -> WecomDriveSpacesResponse:
     """微盘空间列表。只回安全选择元数据，未配置 → 安全 503。"""
-    return await scan_service.list_drive_spaces(caller, drive)
+    result: WecomDriveSpacesResponse = await scan_service.list_drive_spaces(caller, drive)
+    return result
 
 
 @router.get("/drive/directories", response_model=WecomDriveDirectoriesResponse)
@@ -83,9 +87,10 @@ async def list_drive_directories(
     drive=Depends(get_wecom_drive_client),
 ) -> WecomDriveDirectoriesResponse:
     """微盘子目录列表。只列目录、不列普通文件；directory_ref 可直接保存。"""
-    return await scan_service.list_drive_directories(
+    result: WecomDriveDirectoriesResponse = await scan_service.list_drive_directories(
         caller, drive, space_ref=space_ref, parent_ref=parent_ref
     )
+    return result
 
 
 @router.post("/configs", response_model=WecomScanConfigOut, status_code=201)
@@ -97,7 +102,8 @@ async def create_config(
 ) -> WecomScanConfigOut:
     """创建扫描目录配置（仅 admin，配置操作人 = 审计 actor）。`created_by` 写入校验通过的
     业务归属人（task_owner_user_id），即扫描产物 path_a_wecom 任务的归属人。"""
-    return await scan_service.create_config(session, caller, body, get_trace_id(request))
+    result: WecomScanConfigOut = await scan_service.create_config(session, caller, body, get_trace_id(request))
+    return result
 
 
 @router.patch("/configs/{config_id}", response_model=WecomScanConfigOut)
@@ -108,9 +114,10 @@ async def update_config(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> WecomScanConfigOut:
-    return await scan_service.update_config(
+    result: WecomScanConfigOut = await scan_service.update_config(
         session, caller, config_id, body, get_trace_id(request)
     )
+    return result
 
 
 @router.post("/configs/{config_id}/scan", response_model=WecomScanRecordOut)
@@ -125,11 +132,12 @@ async def trigger_scan(
     llm=Depends(get_llm_client),
     desensitizer=Depends(get_desensitizer),
 ) -> WecomScanRecordOut:
-    return await scan_service.trigger_scan(
+    result: WecomScanRecordOut = await scan_service.trigger_scan(
         session, caller, config_id,
         drive=drive, storage=storage, llm=llm, desensitizer=desensitizer,
         trace_id=get_trace_id(request), idempotency_key=idempotency_key,
     )
+    return result
 
 
 @router.get("/configs/{config_id}/records", response_model=WecomScanRecordsResponse)
@@ -138,5 +146,6 @@ async def list_records(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> WecomScanRecordsResponse:
-    return await scan_service.list_records(session, caller, config_id)
+    result: WecomScanRecordsResponse = await scan_service.list_records(session, caller, config_id)
+    return result
 

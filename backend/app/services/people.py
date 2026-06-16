@@ -228,7 +228,7 @@ async def list_people(
 
 
 async def _load_person(session: AsyncSession, user_id: uuid.UUID) -> User:
-    user = (
+    user: User | None = (
         await session.execute(_with_relations(select(User).where(User.id == user_id)))
     ).scalar_one_or_none()
     if user is None:
