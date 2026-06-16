@@ -47,4 +47,3 @@ export interface ProjectMemberPatchDTO {
   project_role?: string;
   status?: string;
 }
-

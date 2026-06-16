@@ -1,13 +1,6 @@
 // 入库流水线：Path B 真实文件上传、AI 处理结果轮询、Path A（企微微盘）待确认任务、
 // 统一确认入库，以及 admin 入库运营列表。响应只含安全元数据（不含任何存储引用 / 路径 / URL）。
-import {
-  apiGet,
-  apiPost,
-  csrfHeaders,
-  handleResponse,
-  withCsrfRetry,
-  BASE_URL,
-} from "./http";
+import { apiGet, apiPost, csrfHeaders, handleResponse, withCsrfRetry, BASE_URL } from "./http";
 import type {
   AdminIngestListResponseDTO,
   IngestAiResultDTO,
@@ -45,18 +38,18 @@ export async function fetchIngestAiResult(taskId: string): Promise<IngestAiResul
 // Path A（企微微盘）待确认任务列表。后端按权限只返回调用人可确认的任务，
 // 仅安全元数据；纯 admin 403。前端不复制权限逻辑，只展示接口结果。
 export async function fetchPendingIngestTasks(
-  source = "path_a_wecom"
+  source = "path_a_wecom",
 ): Promise<PendingIngestItemDTO[]> {
   const qs = new URLSearchParams({ source });
   const data = await apiGet<PendingIngestListResponseDTO>(
-    `/api/v1/ingest/pending?${qs.toString()}`
+    `/api/v1/ingest/pending?${qs.toString()}`,
   );
   return data.items;
 }
 
 export async function confirmIngest(
   taskId: string,
-  payload: IngestConfirmRequestDTO
+  payload: IngestConfirmRequestDTO,
 ): Promise<IngestConfirmResponseDTO> {
   return apiPost<IngestConfirmResponseDTO>(`/api/v1/ingest/${taskId}/confirm`, payload);
 }

@@ -35,7 +35,12 @@ export default function ConfirmDialog({
   if (!open) return null;
   return (
     <div className="kl-modal-overlay" onClick={() => !busy && onCancel()}>
-      <div className="kl-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="kl-modal"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+      >
         <h3 className="kl-modal-title">{title}</h3>
         {description && <p className="kl-modal-desc">{description}</p>}
         {children}

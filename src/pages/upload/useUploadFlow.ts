@@ -53,7 +53,10 @@ export function useUploadFlow() {
   const [editOneLiner, setEditOneLiner] = useState("");
   const [editSummary, setEditSummary] = useState("");
   const [editKeyPoints, setEditKeyPoints] = useState("");
-  const [llmStatus, setLlmStatus] = useState<{ status: string | null; provider: string | null } | null>(null);
+  const [llmStatus, setLlmStatus] = useState<{
+    status: string | null;
+    provider: string | null;
+  } | null>(null);
   const [desensitization, setDesensitization] = useState<{
     status: string | null;
     counts: Record<string, number> | null;
@@ -78,13 +81,17 @@ export function useUploadFlow() {
   const [targetProjectId, setTargetProjectId] = useState("");
 
   useEffect(() => {
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
   }, []);
 
   useEffect(() => {
     fetchAuthMe()
       .then((me) => {
-        setProjects(me.projects.map((p) => ({ projectId: p.projectId, projectName: p.projectName })));
+        setProjects(
+          me.projects.map((p) => ({ projectId: p.projectId, projectName: p.projectName })),
+        );
         if (me.projects.length > 0) setTargetProjectId(me.projects[0].projectId);
       })
       .catch(() => setProjects([]));
@@ -98,7 +105,7 @@ export function useUploadFlow() {
       setPendingTasks(await fetchPendingIngestTasks("path_a_wecom"));
     } catch (e) {
       setPendingError(
-        e instanceof ApiError ? e.message : "加载企微微盘待确认任务失败（请确认后端已启动）"
+        e instanceof ApiError ? e.message : "加载企微微盘待确认任务失败（请确认后端已启动）",
       );
     } finally {
       setPendingLoading(false);
@@ -151,36 +158,47 @@ export function useUploadFlow() {
 
   // Path A：点击真实待确认任务 → 拉取 AI 建议（与 Path B 同一 ai-result 接口）→ 填入
   // 人工校正区。处理中则轮询；失败/超时给安全提示且不可确认。
-  const handleSelectPendingTask = useCallback(async (t: PendingIngestItemDTO) => {
-    setSelectedTaskName(t.source_file_name);
-    setTaskId(t.id);
-    setApiError(null);
-    setProcessingNote(null);
-    setResultAssetId(null);
-    if (t.target_scope === "personal" || t.target_scope === "project" || t.target_scope === "company") {
-      setTargetLibrary(t.target_scope);
-    }
-    if (t.target_project_id) setTargetProjectId(t.target_project_id);
-    setFlowState("processing");
-    try {
-      const ai = await pollAiResult(t.id);
-      applyAiResult(ai, t.source_file_name);
-      if (ai.status === "processing") {
-        setProcessingNote("后台仍在处理该企微微盘文件（抽取 / LLM 内容处理），请稍后刷新重试，暂不可确认。");
-        setFlowState("processing");
-        return;
+  const handleSelectPendingTask = useCallback(
+    async (t: PendingIngestItemDTO) => {
+      setSelectedTaskName(t.source_file_name);
+      setTaskId(t.id);
+      setApiError(null);
+      setProcessingNote(null);
+      setResultAssetId(null);
+      if (
+        t.target_scope === "personal" ||
+        t.target_scope === "project" ||
+        t.target_scope === "company"
+      ) {
+        setTargetLibrary(t.target_scope);
       }
-      if (ai.status === "failed") {
-        setProcessingNote(`文件处理失败：${ai.error_message ?? "无法从该文件抽取内容"}。请检查文件后重试，当前不可确认入库。`);
-        setFlowState("failed");
-        return;
+      if (t.target_project_id) setTargetProjectId(t.target_project_id);
+      setFlowState("processing");
+      try {
+        const ai = await pollAiResult(t.id);
+        applyAiResult(ai, t.source_file_name);
+        if (ai.status === "processing") {
+          setProcessingNote(
+            "后台仍在处理该企微微盘文件（抽取 / LLM 内容处理），请稍后刷新重试，暂不可确认。",
+          );
+          setFlowState("processing");
+          return;
+        }
+        if (ai.status === "failed") {
+          setProcessingNote(
+            `文件处理失败：${ai.error_message ?? "无法从该文件抽取内容"}。请检查文件后重试，当前不可确认入库。`,
+          );
+          setFlowState("failed");
+          return;
+        }
+        setFlowState("ready");
+      } catch (e) {
+        setApiError(e instanceof ApiError ? e.message : "加载该任务的 AI 建议失败");
+        setFlowState("idle");
       }
-      setFlowState("ready");
-    } catch (e) {
-      setApiError(e instanceof ApiError ? e.message : "加载该任务的 AI 建议失败");
-      setFlowState("idle");
-    }
-  }, [applyAiResult, pollAiResult]);
+    },
+    [applyAiResult, pollAiResult],
+  );
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -206,13 +224,17 @@ export function useUploadFlow() {
       setTaskId(up.ingest_task_id);
       const ai = await pollAiResult(up.ingest_task_id);
       if (ai.status === "processing") {
-        setProcessingNote("后台仍在处理该上传（抽取 / LLM 内容处理），请稍后刷新重试，暂不可提交。");
+        setProcessingNote(
+          "后台仍在处理该上传（抽取 / LLM 内容处理），请稍后刷新重试，暂不可提交。",
+        );
         setFlowState("processing");
         return;
       }
       applyAiResult(ai, fileName);
       if (ai.status === "failed") {
-        setProcessingNote(`文件处理失败：${ai.error_message ?? "无法从该文件抽取内容"}。请检查文件后重新上传，当前不可提交入库。`);
+        setProcessingNote(
+          `文件处理失败：${ai.error_message ?? "无法从该文件抽取内容"}。请检查文件后重新上传，当前不可提交入库。`,
+        );
         setFlowState("failed");
         return;
       }
@@ -233,8 +255,14 @@ export function useUploadFlow() {
       return;
     }
     try {
-      const tags = editTags.split(/[·,，、\s]+/).map((t) => t.trim()).filter(Boolean);
-      const keyPoints = editKeyPoints.split("\n").map((t) => t.trim()).filter(Boolean);
+      const tags = editTags
+        .split(/[·,，、\s]+/)
+        .map((t) => t.trim())
+        .filter(Boolean);
+      const keyPoints = editKeyPoints
+        .split("\n")
+        .map((t) => t.trim())
+        .filter(Boolean);
       const res = await confirmIngest(taskId, {
         title: editTitle,
         one_liner: editOneLiner || undefined,
@@ -257,10 +285,29 @@ export function useUploadFlow() {
     } catch (e) {
       setApiError(e instanceof ApiError ? e.message : "提交入库失败");
     }
-  }, [activePath, taskId, targetLibrary, targetProjectId, editTags, editTitle, editOneLiner, editSummary, editKeyPoints, editBizStage, editAssetType, editVisibility, editConfidentiality, editAiAccess, loadPending]);
+  }, [
+    activePath,
+    taskId,
+    targetLibrary,
+    targetProjectId,
+    editTags,
+    editTitle,
+    editOneLiner,
+    editSummary,
+    editKeyPoints,
+    editBizStage,
+    editAssetType,
+    editVisibility,
+    editConfidentiality,
+    editAiAccess,
+    loadPending,
+  ]);
 
   const handleReset = useCallback(() => {
-    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
     setFlowState("idle");
     setApiError(null);
     setProcessingNote(null);
@@ -294,11 +341,14 @@ export function useUploadFlow() {
   }, []);
 
   // 切换路径时清空当前流程 / 选中态，避免一条路径的校正数据残留到另一条。
-  const switchPath = useCallback((p: PathBranch) => {
-    if (p === activePath) return;
-    handleReset();
-    setActivePath(p);
-  }, [activePath, handleReset]);
+  const switchPath = useCallback(
+    (p: PathBranch) => {
+      if (p === activePath) return;
+      handleReset();
+      setActivePath(p);
+    },
+    [activePath, handleReset],
+  );
 
   const confirmReady = flowState === "ready";
   const requiredFieldsOk =
@@ -308,24 +358,68 @@ export function useUploadFlow() {
   const canSubmit = confirmReady && requiredFieldsOk;
   const confirmSubmitted = flowState === "submitted";
   const sourceLabel = activePath === "a" ? "企微微盘" : "本地上传";
-  const sourceFile = activePath === "a"
-    ? selectedTaskName
-    : (fileName || "retail-channel-transformation.pptx");
+  const sourceFile =
+    activePath === "a" ? selectedTaskName : fileName || "retail-channel-transformation.pptx";
   const hasFile = flowState !== "idle";
 
   return {
-    activePath, switchPath,
-    flowState, fileName, fileSize, fileType, hasFile, extraction, desensitization,
-    naming, fileRef, handleFileSelect, handleStart, handleReset,
-    pendingTasks, pendingLoading, pendingError, loadPending, handleSelectPendingTask, taskId,
-    editTitle, setEditTitle, editOneLiner, setEditOneLiner, editSummary, setEditSummary,
-    editKeyPoints, setEditKeyPoints, editTags, setEditTags, editVisibility, setEditVisibility,
-    editBizStage, setEditBizStage, editAssetType, setEditAssetType,
-    editConfidentiality, setEditConfidentiality, editAiAccess, setEditAiAccess,
-    targetLibrary, setTargetLibrary, targetProjectId, setTargetProjectId, projects,
-    confirmConfidence, llmStatus, apiError, processingNote,
-    confirmReady, confirmSubmitted, canSubmit, sourceLabel, sourceFile,
-    resultAssetId, submitIndexStatus, handleSubmit,
+    activePath,
+    switchPath,
+    flowState,
+    fileName,
+    fileSize,
+    fileType,
+    hasFile,
+    extraction,
+    desensitization,
+    naming,
+    fileRef,
+    handleFileSelect,
+    handleStart,
+    handleReset,
+    pendingTasks,
+    pendingLoading,
+    pendingError,
+    loadPending,
+    handleSelectPendingTask,
+    taskId,
+    editTitle,
+    setEditTitle,
+    editOneLiner,
+    setEditOneLiner,
+    editSummary,
+    setEditSummary,
+    editKeyPoints,
+    setEditKeyPoints,
+    editTags,
+    setEditTags,
+    editVisibility,
+    setEditVisibility,
+    editBizStage,
+    setEditBizStage,
+    editAssetType,
+    setEditAssetType,
+    editConfidentiality,
+    setEditConfidentiality,
+    editAiAccess,
+    setEditAiAccess,
+    targetLibrary,
+    setTargetLibrary,
+    targetProjectId,
+    setTargetProjectId,
+    projects,
+    confirmConfidence,
+    llmStatus,
+    apiError,
+    processingNote,
+    confirmReady,
+    confirmSubmitted,
+    canSubmit,
+    sourceLabel,
+    sourceFile,
+    resultAssetId,
+    submitIndexStatus,
+    handleSubmit,
   };
 }
 

@@ -1,11 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { ApiError } from "../api/http";
-import {
-  fetchAlertNotifications,
-  fetchAlertRules,
-  updateAlertRule,
-} from "../api/admin";
+import { fetchAlertNotifications, fetchAlertRules, updateAlertRule } from "../api/admin";
 import type { AlertRuleDTO, NotificationDTO } from "../types/alert";
 import { formatBeijingTime } from "../utils/time";
 
@@ -66,10 +62,13 @@ export default function AdminAlertSettingsPage() {
   }, [load]);
 
   const enabledCount = useMemo(() => rules.filter((r) => r.enabled).length, [rules]);
-  const criticalCount = useMemo(() => rules.filter((r) => r.severity === "critical").length, [rules]);
+  const criticalCount = useMemo(
+    () => rules.filter((r) => r.severity === "critical").length,
+    [rules],
+  );
   const pendingNotif = useMemo(
     () => notifications.filter((n) => n.send_status === "pending").length,
-    [notifications]
+    [notifications],
   );
 
   const filtered = useMemo(() => {
@@ -86,11 +85,12 @@ export default function AdminAlertSettingsPage() {
         const updated = await updateAlertRule(id, patch);
         setRules((prev) => prev.map((r) => (r.id === id ? updated : r)));
       } catch (e) {
-        const msg = e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "更新失败";
+        const msg =
+          e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "更新失败";
         setError(msg);
       }
     },
-    []
+    [],
   );
 
   return (
@@ -99,7 +99,10 @@ export default function AdminAlertSettingsPage() {
       <div className="al-header">
         <div className="al-header-text">
           <h2>告警设置</h2>
-          <p>配置归档阈值与运维信号（索引失败/解析停滞/登录安全）告警规则、通知渠道 · 经平台权限网关按 admin 角色返回</p>
+          <p>
+            配置归档阈值与运维信号（索引失败/解析停滞/登录安全）告警规则、通知渠道 ·
+            经平台权限网关按 admin 角色返回
+          </p>
         </div>
         <div className="kl-kpis">
           <div className="kl-kpi">
@@ -126,7 +129,9 @@ export default function AdminAlertSettingsPage() {
         <div className="au-error-banner">
           <strong>无法加载告警设置</strong>
           <p>{error}</p>
-          <p className="au-error-hint">告警设置仅对 admin 开放。可通过 <code>VITE_DEV_USER_ID</code> 切换为 admin 身份查看。</p>
+          <p className="au-error-hint">
+            告警设置仅对 admin 开放。可通过 <code>VITE_DEV_USER_ID</code> 切换为 admin 身份查看。
+          </p>
         </div>
       )}
 
@@ -190,7 +195,9 @@ export default function AdminAlertSettingsPage() {
                   </td>
                   <td className="al-cell-channels">
                     {r.notification_channels.map((ch) => (
-                      <span key={ch} className="al-channel-tag">{ch}</span>
+                      <span key={ch} className="al-channel-tag">
+                        {ch}
+                      </span>
                     ))}
                   </td>
                   <td className="al-cell-cooldown">{r.dedup_strategy ?? "—"}</td>
@@ -206,7 +213,11 @@ export default function AdminAlertSettingsPage() {
                 </tr>
               ))}
               {filtered.length === 0 && !loading && (
-                <tr><td colSpan={7} className="au-empty-cell">暂无告警规则</td></tr>
+                <tr>
+                  <td colSpan={7} className="au-empty-cell">
+                    暂无告警规则
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
@@ -232,24 +243,36 @@ export default function AdminAlertSettingsPage() {
                 <tr key={n.id}>
                   <td className="al-cell-metric">{n.title}</td>
                   <td>{n.recipient_name ?? "—"}</td>
-                  <td><span className="al-channel-tag">{n.channel}</span></td>
+                  <td>
+                    <span className="al-channel-tag">{n.channel}</span>
+                  </td>
                   <td>{statusLabel[n.send_status] ?? n.send_status}</td>
                   <td className="cell-time">{fmtTime(n.created_at)}</td>
                 </tr>
               ))}
               {notifications.length === 0 && !loading && (
-                <tr><td colSpan={5} className="au-empty-cell">暂无通知记录（生命周期归档 / 重新启用确认 / 运维告警信号会生成本地通知）</td></tr>
+                <tr>
+                  <td colSpan={5} className="au-empty-cell">
+                    暂无通知记录（生命周期归档 / 重新启用确认 / 运维告警信号会生成本地通知）
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
         </div>
-        <p className="au-note">当前环境仅记录站内通知，<strong>未配置外部通知通道</strong>（邮件 / 企微 / webhook）；记录仅含安全元数据，新建状态恒为「待发送」。</p>
+        <p className="au-note">
+          当前环境仅记录站内通知，<strong>未配置外部通知通道</strong>（邮件 / 企微 /
+          webhook）；记录仅含安全元数据，新建状态恒为「待发送」。
+        </p>
       </section>
 
       <p className="page-help-line">
-        归档阈值与去重策略可调；企微通知真实下发受 <code>WECOM_NOTIFY_ENABLED</code> 控制（默认仅本地 in_app）。详见 <Link to="/help#admin" className="page-help-link">使用说明 →</Link>
+        归档阈值与去重策略可调；企微通知真实下发受 <code>WECOM_NOTIFY_ENABLED</code>{" "}
+        控制（默认仅本地 in_app）。详见{" "}
+        <Link to="/help#admin" className="page-help-link">
+          使用说明 →
+        </Link>
       </p>
     </div>
   );
 }
-

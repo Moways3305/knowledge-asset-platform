@@ -82,11 +82,31 @@ const aiAccessLabel: Record<string, string> = {
 };
 
 const exceptionGuide = [
-  { title: "AI 内容提取失败", desc: "不支持的格式或损坏文件会标记 failed（可在 /upload 人工补全后确认）。单文件上限为 25 MiB。", severity: "high" as const },
-  { title: "脱敏失败", desc: "标记 failed，通知上传人和 Admin。检查文件是否加密或受保护；尝试另存为无保护格式后重新上传。", severity: "high" as const },
-  { title: "WeKnora 索引失败", desc: "/C：人工确认后资产先落库；底座建库/初始化/上传失败不回滚资产，仅标 index_failed。资产保留、人工校正不丢，但未索引前不会被语义检索召回。可在详情页单条重试，或在下方运维面板发起批量重试 / 重新解析。", severity: "high" as const },
-  { title: "哈希重复", desc: "系统按文件内容哈希做去重软提示，命中时不阻断入库，仅提示已存在相同内容的任务。", severity: "low" as const },
-  { title: "AI 置信度低", desc: "AI 建议置信度偏低时仍可入库，但建议人工校正摘要与标签。低置信度不视为系统错误。", severity: "medium" as const },
+  {
+    title: "AI 内容提取失败",
+    desc: "不支持的格式或损坏文件会标记 failed（可在 /upload 人工补全后确认）。单文件上限为 25 MiB。",
+    severity: "high" as const,
+  },
+  {
+    title: "脱敏失败",
+    desc: "标记 failed，通知上传人和 Admin。检查文件是否加密或受保护；尝试另存为无保护格式后重新上传。",
+    severity: "high" as const,
+  },
+  {
+    title: "WeKnora 索引失败",
+    desc: "/C：人工确认后资产先落库；底座建库/初始化/上传失败不回滚资产，仅标 index_failed。资产保留、人工校正不丢，但未索引前不会被语义检索召回。可在详情页单条重试，或在下方运维面板发起批量重试 / 重新解析。",
+    severity: "high" as const,
+  },
+  {
+    title: "哈希重复",
+    desc: "系统按文件内容哈希做去重软提示，命中时不阻断入库，仅提示已存在相同内容的任务。",
+    severity: "low" as const,
+  },
+  {
+    title: "AI 置信度低",
+    desc: "AI 建议置信度偏低时仍可入库，但建议人工校正摘要与标签。低置信度不视为系统错误。",
+    severity: "medium" as const,
+  },
 ];
 const severityCls: Record<string, string> = {
   high: "ig-severity-high",
@@ -141,7 +161,7 @@ export default function AdminIngestPage() {
       if (retryIncludeNotIndexed) statuses.push("not_indexed");
       const job = await triggerIndexingRetry({ scope: "all", statuses, limit: opsLimit });
       setOpsNote(
-        `已入队批量重试（作业 ${jobStatusLabel[job.status] ?? job.status}）：共 ${job.total_count}，成功 ${job.success_count}，失败 ${job.failed_count}，跳过 ${job.skipped_count}。`
+        `已入队批量重试（作业 ${jobStatusLabel[job.status] ?? job.status}）：共 ${job.total_count}，成功 ${job.success_count}，失败 ${job.failed_count}，跳过 ${job.skipped_count}。`,
       );
       await loadOpsIndex();
     } catch (e) {
@@ -155,9 +175,13 @@ export default function AdminIngestPage() {
     setOpsBusy(true);
     setOpsNote(null);
     try {
-      const job = await triggerIndexingReparse({ scope: "all", parse_statuses: ["failed", "pending"], limit: opsLimit });
+      const job = await triggerIndexingReparse({
+        scope: "all",
+        parse_statuses: ["failed", "pending"],
+        limit: opsLimit,
+      });
       setOpsNote(
-        `已入队重新解析（作业 ${jobStatusLabel[job.status] ?? job.status}）：共 ${job.total_count}，成功 ${job.success_count}，失败 ${job.failed_count}。这是底座解析运维，不改变任何权限放行。`
+        `已入队重新解析（作业 ${jobStatusLabel[job.status] ?? job.status}）：共 ${job.total_count}，成功 ${job.success_count}，失败 ${job.failed_count}。这是底座解析运维，不改变任何权限放行。`,
       );
       await loadOpsIndex();
     } catch (e) {
@@ -177,7 +201,7 @@ export default function AdminIngestPage() {
       setError(
         e instanceof ApiError
           ? `${e.message}（${e.deniedReason ?? e.status}）`
-          : "加载入库运营列表失败（请确认后端已启动）"
+          : "加载入库运营列表失败（请确认后端已启动）",
       );
       setItems([]);
     } finally {
@@ -202,7 +226,7 @@ export default function AdminIngestPage() {
     return result;
   }, [items, filterStatus, filterSource]);
 
-  const viewingTask = viewingId ? items.find((t) => t.id === viewingId) ?? null : null;
+  const viewingTask = viewingId ? (items.find((t) => t.id === viewingId) ?? null) : null;
 
   return (
     <div className="ingest-page">
@@ -210,7 +234,11 @@ export default function AdminIngestPage() {
       <div className="ig-header">
         <div className="ig-header-text">
           <h2>知识入库管理</h2>
-          <p>路径A（企微微盘 Agent）与路径B（本地上传）的资产化任务统一在此监控。本页展示后端安全运营元数据，不展示业务原文、抽取全文、存储引用或外部系统内部 id。</p>
+          <p>
+            路径A（企微微盘
+            Agent）与路径B（本地上传）的资产化任务统一在此监控。本页展示后端安全运营元数据，不展示业务原文、抽取全文、存储引用或外部系统内部
+            id。
+          </p>
         </div>
         <div className="kl-kpis">
           <div className="kl-kpi">
@@ -218,7 +246,9 @@ export default function AdminIngestPage() {
             <div className="kl-kpi-label">处理中</div>
           </div>
           <div className="kl-kpi">
-            <div className="kl-kpi-value ig-kpi-pending">{countByStatus("pending_confirmation")}</div>
+            <div className="kl-kpi-value ig-kpi-pending">
+              {countByStatus("pending_confirmation")}
+            </div>
             <div className="kl-kpi-label">待确认</div>
           </div>
           <div className="kl-kpi">
@@ -237,7 +267,10 @@ export default function AdminIngestPage() {
         <div className="ig-alert ig-alert-info">
           <span className="ig-alert-indicator" />
           <span className="ig-alert-text">
-            <strong>路径A（企微微盘）</strong> — 扫描目录配置、启停与运行记录见 <Link to="/admin/wecom-scan">微盘扫描</Link>。Path A 产生的入库任务（来源 = 企微微盘 Agent）与本地上传任务一并在下方队列展示；需经 <Link to="/upload">资产化确认工作台</Link> 人工确认才成资产。
+            <strong>路径A（企微微盘）</strong> — 扫描目录配置、启停与运行记录见{" "}
+            <Link to="/admin/wecom-scan">微盘扫描</Link>。Path A 产生的入库任务（来源 = 企微微盘
+            Agent）与本地上传任务一并在下方队列展示；需经 <Link to="/upload">资产化确认工作台</Link>{" "}
+            人工确认才成资产。
           </span>
         </div>
       </section>
@@ -248,26 +281,59 @@ export default function AdminIngestPage() {
           <div className="ig-detail-panel">
             <div className="ig-detail-head">
               <span className="ig-detail-title">知识底座索引运维</span>
-              <button className="btn-small" onClick={() => void loadOpsIndex()}>刷新</button>
+              <button className="btn-small" onClick={() => void loadOpsIndex()}>
+                刷新
+              </button>
             </div>
             <div style={{ marginTop: 8 }}>
               <IndexDistribution counts={opsIndex.counts} />
             </div>
             {/* 批量运维控件（批量重试 / 重新解析）。 */}
-            <div className="ig-ops-actions" style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+            <div
+              className="ig-ops-actions"
+              style={{
+                marginTop: 12,
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 12,
+                alignItems: "center",
+              }}
+            >
               <label className="ig-ops-check">
-                <input type="checkbox" checked={retryIncludeSkipped} onChange={(e) => setRetryIncludeSkipped(e.target.checked)} /> 含已跳过
+                <input
+                  type="checkbox"
+                  checked={retryIncludeSkipped}
+                  onChange={(e) => setRetryIncludeSkipped(e.target.checked)}
+                />{" "}
+                含已跳过
               </label>
               <label className="ig-ops-check">
-                <input type="checkbox" checked={retryIncludeNotIndexed} onChange={(e) => setRetryIncludeNotIndexed(e.target.checked)} /> 含待索引
+                <input
+                  type="checkbox"
+                  checked={retryIncludeNotIndexed}
+                  onChange={(e) => setRetryIncludeNotIndexed(e.target.checked)}
+                />{" "}
+                含待索引
               </label>
               <label className="ig-ops-check">
                 上限
-                <select value={opsLimit} onChange={(e) => setOpsLimit(Number(e.target.value))} style={{ marginLeft: 4 }}>
-                  {[20, 50, 100, 200].map((n) => <option key={n} value={n}>{n}</option>)}
+                <select
+                  value={opsLimit}
+                  onChange={(e) => setOpsLimit(Number(e.target.value))}
+                  style={{ marginLeft: 4 }}
+                >
+                  {[20, 50, 100, 200].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
                 </select>
               </label>
-              <button className="btn-small" onClick={() => void handleBatchRetry()} disabled={opsBusy}>
+              <button
+                className="btn-small"
+                onClick={() => void handleBatchRetry()}
+                disabled={opsBusy}
+              >
                 {opsBusy ? "处理中…" : "批量重试索引"}
               </button>
               <button className="btn-small" onClick={() => void handleReparse()} disabled={opsBusy}>
@@ -275,12 +341,21 @@ export default function AdminIngestPage() {
               </button>
             </div>
             <p className="au-note" style={{ marginTop: 6 }}>
-              批量重试：默认处理「索引失败」，可勾选含「已跳过 / 待索引」。重新解析：对已进底座但解析失败 / 滞留的资产，受控重传刷新底座解析——这是底座解析运维，<strong>不改变任何权限放行</strong>，不让未授权用户读到原文。批量动作进入后台作业，不在请求内逐条阻塞。
+              批量重试：默认处理「索引失败」，可勾选含「已跳过 /
+              待索引」。重新解析：对已进底座但解析失败 /
+              滞留的资产，受控重传刷新底座解析——这是底座解析运维，
+              <strong>不改变任何权限放行</strong>
+              ，不让未授权用户读到原文。批量动作进入后台作业，不在请求内逐条阻塞。
             </p>
-            {opsNote && <p className="au-note" style={{ marginTop: 6 }}>{opsNote}</p>}
+            {opsNote && (
+              <p className="au-note" style={{ marginTop: 6 }}>
+                {opsNote}
+              </p>
+            )}
             {!opsIndex.title_visible && (
               <p className="au-note" style={{ marginTop: 8 }}>
-                当前为系统管理身份，业务资产标题已隐藏；批量重试 / 重新解析为底座运维动作，只回安全统计，不展示业务原文 / 标题。
+                当前为系统管理身份，业务资产标题已隐藏；批量重试 /
+                重新解析为底座运维动作，只回安全统计，不展示业务原文 / 标题。
               </p>
             )}
             {/* 最近运维作业列表（安全统计；无标题 / 原文 / WeKnora id / 存储引用）。 */}
@@ -288,14 +363,29 @@ export default function AdminIngestPage() {
               <div className="ws-table-wrap" style={{ marginTop: 8 }}>
                 <table className="ws-table">
                   <thead>
-                    <tr><th>类型</th><th>状态</th><th>共/成/败/跳</th><th>发起人</th><th>发起时间</th><th>诊断</th></tr>
+                    <tr>
+                      <th>类型</th>
+                      <th>状态</th>
+                      <th>共/成/败/跳</th>
+                      <th>发起人</th>
+                      <th>发起时间</th>
+                      <th>诊断</th>
+                    </tr>
                   </thead>
                   <tbody>
                     {opsJobs.map((j) => (
                       <tr key={j.job_id}>
                         <td>{jobOpLabel[j.operation_type] ?? j.operation_type}</td>
-                        <td><span className={`ws-status-pill ${j.status === "failed" ? "ws-status-off" : "ws-status-on"}`}>{jobStatusLabel[j.status] ?? j.status}</span></td>
-                        <td>{j.total_count} / {j.success_count} / {j.failed_count} / {j.skipped_count}</td>
+                        <td>
+                          <span
+                            className={`ws-status-pill ${j.status === "failed" ? "ws-status-off" : "ws-status-on"}`}
+                          >
+                            {jobStatusLabel[j.status] ?? j.status}
+                          </span>
+                        </td>
+                        <td>
+                          {j.total_count} / {j.success_count} / {j.failed_count} / {j.skipped_count}
+                        </td>
                         <td>{j.requested_by_name ?? "—"}</td>
                         <td className="ws-cell-time">{fmtTime(j.requested_at)}</td>
                         <td className="ws-cell-suggestion">{j.error_message ?? "—"}</td>
@@ -309,27 +399,58 @@ export default function AdminIngestPage() {
               <div className="ws-table-wrap" style={{ marginTop: 8 }}>
                 <table className="ws-table">
                   <thead>
-                    <tr><th>资产</th><th>范围 / 项目</th><th>负责人</th><th>诊断（运营态）</th><th>处理建议</th><th>级别</th><th>更新时间</th><th></th></tr>
+                    <tr>
+                      <th>资产</th>
+                      <th>范围 / 项目</th>
+                      <th>负责人</th>
+                      <th>诊断（运营态）</th>
+                      <th>处理建议</th>
+                      <th>级别</th>
+                      <th>更新时间</th>
+                      <th></th>
+                    </tr>
                   </thead>
                   <tbody>
                     {opsIndex.recent_failed.map((it) => (
                       <tr key={it.asset_id}>
                         <td>{it.title}</td>
-                        <td>{scopeLabel[it.scope] ?? it.scope}{it.project_name ? ` · ${it.project_name}` : ""}</td>
+                        <td>
+                          {scopeLabel[it.scope] ?? it.scope}
+                          {it.project_name ? ` · ${it.project_name}` : ""}
+                        </td>
                         <td>{it.owner_name ?? "—"}</td>
-                        <td className="ws-cell-suggestion">{it.operator_error_message || it.index_error_code || "—"}</td>
+                        <td className="ws-cell-suggestion">
+                          {it.operator_error_message || it.index_error_code || "—"}
+                        </td>
                         <td className="ws-cell-suggestion">{it.remediation_hint ?? "—"}</td>
-                        <td><span className={`ws-status-pill ${it.severity === "critical" || it.severity === "error" ? "ws-status-off" : "ws-status-on"}`}>{it.severity ?? "—"}</span></td>
+                        <td>
+                          <span
+                            className={`ws-status-pill ${it.severity === "critical" || it.severity === "error" ? "ws-status-off" : "ws-status-on"}`}
+                          >
+                            {it.severity ?? "—"}
+                          </span>
+                        </td>
                         <td className="ws-cell-time">{fmtTime(it.updated_at)}</td>
-                        <td>{opsIndex.title_visible && <Link className="btn-small" to={`/knowledge/${it.asset_id}`}>详情 / 重试</Link>}</td>
+                        <td>
+                          {opsIndex.title_visible && (
+                            <Link className="btn-small" to={`/knowledge/${it.asset_id}`}>
+                              详情 / 重试
+                            </Link>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <p className="au-note" style={{ marginTop: 8 }}>诊断为安全运营态文案（含配置项名，不含配置值 / 密钥 / 底座内部 id）。业务用户在资产详情页只看到「资产已保存、可重试」的用户态提示。</p>
+                <p className="au-note" style={{ marginTop: 8 }}>
+                  诊断为安全运营态文案（含配置项名，不含配置值 / 密钥 / 底座内部
+                  id）。业务用户在资产详情页只看到「资产已保存、可重试」的用户态提示。
+                </p>
               </div>
             ) : (
-              <p className="au-note" style={{ marginTop: 8 }}>当前无索引失败资产。</p>
+              <p className="au-note" style={{ marginTop: 8 }}>
+                当前无索引失败资产。
+              </p>
             )}
           </div>
         </section>
@@ -368,12 +489,16 @@ export default function AdminIngestPage() {
           <div className="ig-detail-panel">
             <div className="ig-detail-head">
               <span className="ig-detail-title">任务详情（运营元数据）</span>
-              <button className="btn-small" onClick={() => setViewingId(null)}>关闭</button>
+              <button className="btn-small" onClick={() => setViewingId(null)}>
+                关闭
+              </button>
             </div>
             <div className="ig-detail-grid">
               <div className="ig-detail-item">
                 <span className="ig-detail-label">文件名</span>
-                <span className="ig-detail-value ig-detail-mono">{viewingTask.source_file_name}</span>
+                <span className="ig-detail-value ig-detail-mono">
+                  {viewingTask.source_file_name}
+                </span>
               </div>
               <div className="ig-detail-item">
                 <span className="ig-detail-label">来源渠道</span>
@@ -396,12 +521,18 @@ export default function AdminIngestPage() {
                 <span className="ig-detail-value">
                   {viewingTask.target_scope ? (
                     <>
-                      <span className={`ig-target-badge ${scopeCls[viewingTask.target_scope] ?? ""}`}>
+                      <span
+                        className={`ig-target-badge ${scopeCls[viewingTask.target_scope] ?? ""}`}
+                      >
                         {scopeLabel[viewingTask.target_scope] ?? viewingTask.target_scope}
                       </span>
-                      {viewingTask.target_scope === "project" && <span className="ig-zone-hint">zone = material</span>}
+                      {viewingTask.target_scope === "project" && (
+                        <span className="ig-zone-hint">zone = material</span>
+                      )}
                     </>
-                  ) : "—"}
+                  ) : (
+                    "—"
+                  )}
                 </span>
               </div>
               <div className="ig-detail-item">
@@ -412,7 +543,8 @@ export default function AdminIngestPage() {
                 <span className="ig-detail-label">抽取状态</span>
                 <span className="ig-detail-value">
                   {viewingTask.extraction_status
-                    ? (extractionLabel[viewingTask.extraction_status] ?? viewingTask.extraction_status)
+                    ? (extractionLabel[viewingTask.extraction_status] ??
+                      viewingTask.extraction_status)
                     : "—"}
                 </span>
               </div>
@@ -420,10 +552,15 @@ export default function AdminIngestPage() {
                 <span className="ig-detail-label">保密级别</span>
                 <span className="ig-detail-value">
                   {viewingTask.confidentiality_level ? (
-                    <span className={`confidentiality-badge confidentiality-${viewingTask.confidentiality_level}`}>
-                      {confidentialityLabel[viewingTask.confidentiality_level] ?? viewingTask.confidentiality_level}
+                    <span
+                      className={`confidentiality-badge confidentiality-${viewingTask.confidentiality_level}`}
+                    >
+                      {confidentialityLabel[viewingTask.confidentiality_level] ??
+                        viewingTask.confidentiality_level}
                     </span>
-                  ) : "—"}
+                  ) : (
+                    "—"
+                  )}
                 </span>
               </div>
               <div className="ig-detail-item">
@@ -433,7 +570,9 @@ export default function AdminIngestPage() {
                     <span className={`ai-access-badge ai-access-${viewingTask.ai_access_level}`}>
                       {aiAccessLabel[viewingTask.ai_access_level] ?? viewingTask.ai_access_level}
                     </span>
-                  ) : "—"}
+                  ) : (
+                    "—"
+                  )}
                 </span>
               </div>
               <div className="ig-detail-item">
@@ -447,21 +586,28 @@ export default function AdminIngestPage() {
               <div className="ig-detail-item">
                 <span className="ig-detail-label">入库资产</span>
                 <span className="ig-detail-value">
-                  {viewingTask.result_asset_id
-                    ? <Link to={`/knowledge/${viewingTask.result_asset_id}`}>查看资产 →</Link>
-                    : "—"}
+                  {viewingTask.result_asset_id ? (
+                    <Link to={`/knowledge/${viewingTask.result_asset_id}`}>查看资产 →</Link>
+                  ) : (
+                    "—"
+                  )}
                 </span>
               </div>
-              {(viewingTask.confidentiality_level === "L4" || viewingTask.confidentiality_level === "L5") && (
+              {(viewingTask.confidentiality_level === "L4" ||
+                viewingTask.confidentiality_level === "L5") && (
                 <div className="ig-detail-item ig-detail-full">
                   <span className="ig-detail-label">保密边界提示</span>
-                  <span className="ig-detail-value confidentiality-l45-detail">L4/L5 文件不得进入开放式 AI 调用；仅可按脱敏/摘要策略处理。</span>
+                  <span className="ig-detail-value confidentiality-l45-detail">
+                    L4/L5 文件不得进入开放式 AI 调用；仅可按脱敏/摘要策略处理。
+                  </span>
                 </div>
               )}
               {(viewingTask.error_type || viewingTask.error_message) && (
                 <div className="ig-detail-item ig-detail-full">
                   <span className="ig-detail-label">错误</span>
-                  <span className="ig-detail-value">{viewingTask.error_type ?? ""} {viewingTask.error_message ?? ""}</span>
+                  <span className="ig-detail-value">
+                    {viewingTask.error_type ?? ""} {viewingTask.error_message ?? ""}
+                  </span>
                 </div>
               )}
             </div>
@@ -476,7 +622,9 @@ export default function AdminIngestPage() {
           <div className="ig-empty-state">
             <div className="ig-empty-title">加载失败</div>
             <p className="ig-empty-desc">{error}</p>
-            <button className="btn-small" onClick={() => void load()}>重试</button>
+            <button className="btn-small" onClick={() => void load()}>
+              重试
+            </button>
           </div>
         ) : loading ? (
           <div className="ig-empty-state">
@@ -517,24 +665,34 @@ export default function AdminIngestPage() {
                           <span className={`ig-target-badge ${scopeCls[t.target_scope] ?? ""}`}>
                             {scopeLabel[t.target_scope] ?? t.target_scope}
                           </span>
-                          {t.target_scope === "project" && <span className="ig-zone-hint">zone = material</span>}
+                          {t.target_scope === "project" && (
+                            <span className="ig-zone-hint">zone = material</span>
+                          )}
                         </>
-                      ) : "—"}
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td>{fmtNaming(t.naming_compliant)}</td>
                     <td>
                       {t.confidentiality_level ? (
-                        <span className={`confidentiality-badge confidentiality-${t.confidentiality_level}`}>
+                        <span
+                          className={`confidentiality-badge confidentiality-${t.confidentiality_level}`}
+                        >
                           {t.confidentiality_level}
                         </span>
-                      ) : "—"}
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td>
                       {t.ai_access_level ? (
                         <span className={`ai-access-badge ai-access-${t.ai_access_level}`}>
                           {t.ai_access_level}
                         </span>
-                      ) : "—"}
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td>
                       {t.extraction_status
@@ -550,9 +708,13 @@ export default function AdminIngestPage() {
                     <td className="cell-time">{fmtTime(t.created_at)}</td>
                     <td className="cell-reason">{t.error_message || t.error_type || "—"}</td>
                     <td className="cell-actions">
-                      <button className="btn-small" onClick={() => setViewingId(t.id)}>查看</button>
+                      <button className="btn-small" onClick={() => setViewingId(t.id)}>
+                        查看
+                      </button>
                       {t.result_asset_id && (
-                        <Link className="btn-small" to={`/knowledge/${t.result_asset_id}`}>资产</Link>
+                        <Link className="btn-small" to={`/knowledge/${t.result_asset_id}`}>
+                          资产
+                        </Link>
                       )}
                     </td>
                   </tr>
@@ -591,9 +753,12 @@ export default function AdminIngestPage() {
       </section>
 
       <p className="page-help-line">
-        本页仅运营队列监控，不承担业务确认（业务确认在资产化确认工作台完成），仅展示安全运营元数据。目标库 / 分区规则与职责边界见 <Link to="/help#ingest" className="page-help-link">使用说明 →</Link>
+        本页仅运营队列监控，不承担业务确认（业务确认在资产化确认工作台完成），仅展示安全运营元数据。目标库
+        / 分区规则与职责边界见{" "}
+        <Link to="/help#ingest" className="page-help-link">
+          使用说明 →
+        </Link>
       </p>
     </div>
   );
 }
-

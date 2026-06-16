@@ -13,7 +13,7 @@ export interface ActionFeedback {
   setNote: (v: string | null) => void;
   run: <T>(
     fn: () => Promise<T>,
-    opts?: { successNote?: string; errorMessage?: string }
+    opts?: { successNote?: string; errorMessage?: string },
   ) => Promise<T | undefined>;
 }
 
@@ -25,7 +25,7 @@ export function useActionFeedback(): ActionFeedback {
   const run = useCallback(
     async <T>(
       fn: () => Promise<T>,
-      opts: { successNote?: string; errorMessage?: string } = {}
+      opts: { successNote?: string; errorMessage?: string } = {},
     ): Promise<T | undefined> => {
       setBusy(true);
       setError(null);
@@ -35,13 +35,13 @@ export function useActionFeedback(): ActionFeedback {
         if (opts.successNote) setNote(opts.successNote);
         return result;
       } catch (e) {
-        setError(e instanceof ApiError ? e.message : opts.errorMessage ?? "操作失败");
+        setError(e instanceof ApiError ? e.message : (opts.errorMessage ?? "操作失败"));
         return undefined;
       } finally {
         setBusy(false);
       }
     },
-    []
+    [],
   );
 
   return { busy, error, note, setError, setNote, run };

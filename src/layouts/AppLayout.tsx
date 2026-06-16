@@ -1,9 +1,24 @@
 import { Suspense } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import {
-  LayoutDashboard, LibraryBig, UserRound, FileCheck2, ShieldCheck, KeyRound, FolderKanban,
-  SlidersHorizontal, Inbox, ScanLine, Cpu, ScrollText, ShieldAlert, BellRing,
-  KeySquare, Users, LifeBuoy, type LucideIcon,
+  LayoutDashboard,
+  LibraryBig,
+  UserRound,
+  FileCheck2,
+  ShieldCheck,
+  KeyRound,
+  FolderKanban,
+  SlidersHorizontal,
+  Inbox,
+  ScanLine,
+  Cpu,
+  ScrollText,
+  ShieldAlert,
+  BellRing,
+  KeySquare,
+  Users,
+  LifeBuoy,
+  type LucideIcon,
 } from "lucide-react";
 import IdentityMenu from "../components/IdentityMenu";
 import ErrorBoundary from "../components/ErrorBoundary";
@@ -75,7 +90,9 @@ export default function AppLayout() {
         </div>
         <nav className="rail-nav">
           <div className="rail-group rail-group-lead">
-            <ul><RailLink item={homeItem} /></ul>
+            <ul>
+              <RailLink item={homeItem} />
+            </ul>
           </div>
           {navGroups.map((group) => (
             <div key={group.label} className="rail-group">
@@ -84,7 +101,9 @@ export default function AppLayout() {
                 {group.label}
               </div>
               <ul>
-                {group.items.map((item) => <RailLink key={item.to} item={item} />)}
+                {group.items.map((item) => (
+                  <RailLink key={item.to} item={item} />
+                ))}
               </ul>
             </div>
           ))}

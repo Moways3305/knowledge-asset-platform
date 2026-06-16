@@ -71,4 +71,3 @@ export interface IndexingJobListResponseDTO {
   items: IndexingJobSummaryDTO[];
   total: number;
 }
-

@@ -41,11 +41,7 @@ import type {
   AlertRuleUpdateDTO,
   NotificationsResponseDTO,
 } from "../types/alert";
-import type {
-  PeopleListResponseDTO,
-  PersonDTO,
-  PersonProjectMembershipDTO,
-} from "../types/people";
+import type { PeopleListResponseDTO, PersonDTO, PersonProjectMembershipDTO } from "../types/people";
 import type {
   AgentRegistryListResponseDTO,
   AgentRegistryRuleDTO,
@@ -77,14 +73,14 @@ export async function fetchOpsIndexing(): Promise<OpsIndexingDTO> {
 
 // 批量 retry-index。仅 admin / 业务治理角色；返回入队后的安全 job 摘要。
 export async function triggerIndexingRetry(
-  body: IndexingRetryRequestDTO
+  body: IndexingRetryRequestDTO,
 ): Promise<IndexingJobSummaryDTO> {
   return apiPost<IndexingJobSummaryDTO>(`/admin/ops/indexing/retry`, body);
 }
 
 // 显式 reparse。对已进底座但解析异常的资产入队重新解析。
 export async function triggerIndexingReparse(
-  body: IndexingReparseRequestDTO
+  body: IndexingReparseRequestDTO,
 ): Promise<IndexingJobSummaryDTO> {
   return apiPost<IndexingJobSummaryDTO>(`/admin/ops/indexing/reparse`, body);
 }
@@ -110,9 +106,11 @@ export async function fetchAuthSecurityOverview(params?: {
   return apiGet<AuthSecurityOverviewDTO>(`/admin/ops/auth-security${qs ? `?${qs}` : ""}`);
 }
 
-export async function unlockAuthLockout(
-  body: { user_id?: string; identifier_hash_prefix?: string; reason?: string }
-): Promise<AuthUnlockResponseDTO> {
+export async function unlockAuthLockout(body: {
+  user_id?: string;
+  identifier_hash_prefix?: string;
+  reason?: string;
+}): Promise<AuthUnlockResponseDTO> {
   return apiPost<AuthUnlockResponseDTO>(`/admin/ops/auth-security/unlock`, body);
 }
 
@@ -125,16 +123,20 @@ export async function fetchUserSessions(userId: string): Promise<UserSessionsRes
 
 export async function revokeUserSessions(
   userId: string,
-  body?: { reason?: string; preserve_current_session?: boolean }
+  body?: { reason?: string; preserve_current_session?: boolean },
 ): Promise<SessionRevokeResponseDTO> {
-  return apiPost<SessionRevokeResponseDTO>(`/admin/ops/sessions/users/${userId}/revoke`, body ?? {});
+  return apiPost<SessionRevokeResponseDTO>(
+    `/admin/ops/sessions/users/${userId}/revoke`,
+    body ?? {},
+  );
 }
 
 // ---- 企微身份对账 ----
 // admin-only：失效企微成员 → 停用平台用户 + 撤销会话。仅安全计数 + 安全状态；CSRF 自动附带。
-export async function reconcileWecomIdentity(
-  body: { user_id?: string; dry_run?: boolean }
-): Promise<WecomReconcileResponseDTO> {
+export async function reconcileWecomIdentity(body: {
+  user_id?: string;
+  dry_run?: boolean;
+}): Promise<WecomReconcileResponseDTO> {
   return apiPost<WecomReconcileResponseDTO>(`/admin/ops/wecom-identity/reconcile`, body);
 }
 
@@ -152,11 +154,16 @@ export async function fetchWeknoraModels(type?: string): Promise<ModelDTO[]> {
   return (await apiGet<{ items: ModelDTO[] }>(`${WK}/models${qs}`)).items;
 }
 
-export async function createWeknoraModel(body: ModelMutateRequestDTO): Promise<ModelMutateResponseDTO> {
+export async function createWeknoraModel(
+  body: ModelMutateRequestDTO,
+): Promise<ModelMutateResponseDTO> {
   return apiPost<ModelMutateResponseDTO>(`${WK}/models`, body);
 }
 
-export async function updateWeknoraModel(modelRef: string, body: ModelMutateRequestDTO): Promise<ModelMutateResponseDTO> {
+export async function updateWeknoraModel(
+  modelRef: string,
+  body: ModelMutateRequestDTO,
+): Promise<ModelMutateResponseDTO> {
   return apiPut<ModelMutateResponseDTO>(`${WK}/models/${modelRef}`, body);
 }
 
@@ -164,7 +171,9 @@ export async function deleteWeknoraModel(modelRef: string): Promise<{ deleted: b
   return apiDelete<{ deleted: boolean }>(`${WK}/models/${modelRef}`);
 }
 
-export async function checkWeknoraModel(body: ModelCheckRequestDTO): Promise<ModelCheckResponseDTO> {
+export async function checkWeknoraModel(
+  body: ModelCheckRequestDTO,
+): Promise<ModelCheckResponseDTO> {
   return apiPost<ModelCheckResponseDTO>(`${WK}/models/check`, body);
 }
 
@@ -172,20 +181,25 @@ export async function fetchWeknoraKbConfigs(): Promise<KbConfigDTO[]> {
   return (await apiGet<{ items: KbConfigDTO[] }>(`${WK}/kb-configs`)).items;
 }
 
-export async function updateWeknoraKbInit(mappingId: string, body: KbInitUpdateRequestDTO): Promise<{ mapping_id: string; mapping_status: string; updated: boolean }> {
+export async function updateWeknoraKbInit(
+  mappingId: string,
+  body: KbInitUpdateRequestDTO,
+): Promise<{ mapping_id: string; mapping_status: string; updated: boolean }> {
   return apiPut(`${WK}/kb-configs/${mappingId}/initialization`, body);
 }
 
 // ---- 审计日志查询 / trace / 标记处理 ----
 // 权限：admin 或 boss / 咨询总监；普通业务用户 403。响应按角色脱敏。
-export async function fetchAudit(params: {
-  logType?: string;
-  action?: string;
-  severity?: string;
-  isProcessed?: boolean;
-  traceId?: string;
-  pageSize?: number;
-} = {}): Promise<AuditListResponseDTO> {
+export async function fetchAudit(
+  params: {
+    logType?: string;
+    action?: string;
+    severity?: string;
+    isProcessed?: boolean;
+    traceId?: string;
+    pageSize?: number;
+  } = {},
+): Promise<AuditListResponseDTO> {
   const qs = new URLSearchParams();
   if (params.logType) qs.set("log_type", params.logType);
   if (params.action) qs.set("action", params.action);
@@ -212,7 +226,7 @@ export async function fetchAlertRules(): Promise<AlertRulesResponseDTO> {
 
 export async function updateAlertRule(
   ruleId: string,
-  patch: AlertRuleUpdateDTO
+  patch: AlertRuleUpdateDTO,
 ): Promise<AlertRuleDTO> {
   return apiPatch<AlertRuleDTO>(`/api/v1/admin/alerts/rules/${ruleId}`, patch);
 }
@@ -223,12 +237,14 @@ export async function fetchAlertNotifications(): Promise<NotificationsResponseDT
 
 // ---- 人员 / 公司角色 / 项目成员关系治理 ----
 // 读：admin / boss / 咨询总监；管理写动作：见后端权限。响应只含安全身份/治理元数据。
-export async function fetchPeople(params: {
-  role?: string;
-  status?: string;
-  q?: string;
-  projectId?: string;
-} = {}): Promise<PeopleListResponseDTO> {
+export async function fetchPeople(
+  params: {
+    role?: string;
+    status?: string;
+    q?: string;
+    projectId?: string;
+  } = {},
+): Promise<PeopleListResponseDTO> {
   const qs = new URLSearchParams();
   if (params.role) qs.set("role", params.role);
   if (params.status) qs.set("status", params.status);
@@ -243,7 +259,7 @@ export async function fetchPerson(userId: string): Promise<PersonDTO> {
 
 export async function setCompanyRole(
   userId: string,
-  body: { company_role: string; status: string }
+  body: { company_role: string; status: string },
 ): Promise<PersonDTO> {
   return apiPost<PersonDTO>(`/api/v1/admin/people/${userId}/company-roles`, body);
 }
@@ -251,8 +267,13 @@ export async function setCompanyRole(
 // admin 设置 / 重置用户密码。password 仅上送，响应不回显。
 export async function setUserPassword(
   userId: string,
-  password: string
-): Promise<{ ok: boolean; user_id: string; password_set: boolean; password_set_at: string | null }> {
+  password: string,
+): Promise<{
+  ok: boolean;
+  user_id: string;
+  password_set: boolean;
+  password_set_at: string | null;
+}> {
   return apiPost(`/api/v1/admin/people/${userId}/password`, { password });
 }
 
@@ -260,29 +281,29 @@ export async function setUserPassword(
 export async function setUserStatus(
   userId: string,
   status: "active" | "inactive",
-  reason?: string
+  reason?: string,
 ): Promise<PersonDTO> {
   return apiPost<PersonDTO>(`/api/v1/admin/people/${userId}/status`, { status, reason });
 }
 
 export async function upsertProjectMembership(
   userId: string,
-  body: { project_id: string; project_role: string; status: string }
+  body: { project_id: string; project_role: string; status: string },
 ): Promise<PersonProjectMembershipDTO> {
   return apiPost<PersonProjectMembershipDTO>(
     `/api/v1/admin/people/${userId}/project-memberships`,
-    body
+    body,
   );
 }
 
 export async function patchProjectMembership(
   userId: string,
   membershipId: string,
-  body: { project_role?: string; status?: string }
+  body: { project_role?: string; status?: string },
 ): Promise<PersonProjectMembershipDTO> {
   return apiPatch<PersonProjectMembershipDTO>(
     `/api/v1/admin/people/${userId}/project-memberships/${membershipId}`,
-    body
+    body,
   );
 }
 
@@ -295,7 +316,7 @@ export async function fetchPermissionRules(): Promise<PermissionRulesResponseDTO
 
 export async function updatePermissionRule(
   ruleId: string,
-  patch: PermissionRuleUpdateDTO
+  patch: PermissionRuleUpdateDTO,
 ): Promise<PermissionRuleDTO> {
   return apiPatch<PermissionRuleDTO>(`/api/v1/admin/permissions/rules/${ruleId}`, patch);
 }
@@ -308,11 +329,11 @@ export async function fetchAgentRegistry(): Promise<AgentRegistryListResponseDTO
 
 export async function setAgentRegistryEnabled(
   ruleId: string,
-  enabled: boolean
+  enabled: boolean,
 ): Promise<AgentRegistryRuleDTO> {
   const resp = await apiPatch<AgentRegistryUpdateResponseDTO>(
     `/api/v1/admin/permissions/agent-whitelist/${ruleId}`,
-    { enabled }
+    { enabled },
   );
   return resp.rule;
 }
@@ -329,10 +350,15 @@ export async function fetchWecomDriveSpaces(): Promise<WecomDriveSpacesResponseD
   return apiGet<WecomDriveSpacesResponseDTO>(`/api/v1/admin/wecom-scan/drive/spaces`);
 }
 
-export async function fetchWecomDriveDirectories(spaceRef: string, parentRef?: string): Promise<WecomDriveDirectoriesResponseDTO> {
+export async function fetchWecomDriveDirectories(
+  spaceRef: string,
+  parentRef?: string,
+): Promise<WecomDriveDirectoriesResponseDTO> {
   const qs = new URLSearchParams({ space_ref: spaceRef });
   if (parentRef) qs.set("parent_ref", parentRef);
-  return apiGet<WecomDriveDirectoriesResponseDTO>(`/api/v1/admin/wecom-scan/drive/directories?${qs.toString()}`);
+  return apiGet<WecomDriveDirectoriesResponseDTO>(
+    `/api/v1/admin/wecom-scan/drive/directories?${qs.toString()}`,
+  );
 }
 
 // 目标项目候选（active 项目 id + 名称）。读权限同配置读（admin / boss / 咨询总监）。
@@ -348,7 +374,7 @@ export async function fetchWecomScanOwnerOptions(): Promise<WecomOwnerOptionsRes
 // 创建扫描配置（仅 admin，配置操作人 = 审计 actor）。created_by = 业务归属人
 // （task_owner_user_id，后端校验合法性写入），扫描产物任务归属该业务归属人。
 export async function createWecomScanConfig(
-  body: WecomScanConfigCreateBody
+  body: WecomScanConfigCreateBody,
 ): Promise<WecomScanConfigDTO> {
   return apiPost<WecomScanConfigDTO>(`/api/v1/admin/wecom-scan/configs`, body);
 }
@@ -356,21 +382,24 @@ export async function createWecomScanConfig(
 // 编辑配置（仅 admin）：局部更新 name / directory_path / target_scope / target_project_id / enabled。
 export async function updateWecomScanConfig(
   configId: string,
-  body: WecomScanConfigUpdateBody
+  body: WecomScanConfigUpdateBody,
 ): Promise<WecomScanConfigDTO> {
   return apiPatch<WecomScanConfigDTO>(`/api/v1/admin/wecom-scan/configs/${configId}`, body);
 }
 
 export async function triggerWecomScan(configId: string): Promise<WecomScanRecordDTO> {
   // 浏览器侧生成幂等 key（非敏感），并发同 key 由后端去重；不发送任何业务负载。
-  return apiPostNoBody<WecomScanRecordDTO>(
-    `/api/v1/admin/wecom-scan/configs/${configId}/scan`,
-    { "Idempotency-Key": createIdempotencyKey() }
-  );
+  return apiPostNoBody<WecomScanRecordDTO>(`/api/v1/admin/wecom-scan/configs/${configId}/scan`, {
+    "Idempotency-Key": createIdempotencyKey(),
+  });
 }
 
-export async function fetchWecomScanRecords(configId: string): Promise<WecomScanRecordsResponseDTO> {
-  return apiGet<WecomScanRecordsResponseDTO>(`/api/v1/admin/wecom-scan/configs/${configId}/records`);
+export async function fetchWecomScanRecords(
+  configId: string,
+): Promise<WecomScanRecordsResponseDTO> {
+  return apiGet<WecomScanRecordsResponseDTO>(
+    `/api/v1/admin/wecom-scan/configs/${configId}/records`,
+  );
 }
 
 // ---- 企微 OAuth 启动 ----

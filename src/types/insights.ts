@@ -73,4 +73,3 @@ export interface KnowledgeOpsInsightsDTO {
   recommendations: RecommendationDTO[];
   recent_items: InsightRecentItemDTO[];
 }
-

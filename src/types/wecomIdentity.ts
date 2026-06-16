@@ -21,4 +21,3 @@ export interface WecomReconcileResponseDTO {
   dry_run: boolean;
   items: WecomReconcileItemDTO[];
 }
-

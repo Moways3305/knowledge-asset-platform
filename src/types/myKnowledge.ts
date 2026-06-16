@@ -34,4 +34,3 @@ export interface PersonalKnowledgeSubmissionDTO {
   message: string;
   next_action: string;
 }
-

@@ -109,4 +109,3 @@ export interface WecomDriveDirectoriesResponseDTO {
   space_ref: string;
   items: WecomDriveDirectoryDTO[];
 }
-

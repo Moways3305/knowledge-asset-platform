@@ -37,4 +37,3 @@ export interface AuthUnlockResponseDTO {
   identifier_hash_prefix: string | null;
   reset_at: string | null;
 }
-

@@ -37,26 +37,43 @@ export default function KnowledgeCard({
       <div className={`dossier-spine ${spineByVisibility(asset.visibility)}`} />
       <div className="dossier-body">
         <div className="dossier-head">
-          <Link to={`/knowledge/${asset.id}`} className="dossier-title">{asset.title}</Link>
+          <Link to={`/knowledge/${asset.id}`} className="dossier-title">
+            {asset.title}
+          </Link>
           <div className="dossier-badges">
-            <span className="dchip dchip-type">{assetTypeLabel[asset.assetType] ?? asset.assetType}</span>
-            <span className={`dchip dchip-vis-${asset.visibility}`}>{visibilityLabel[asset.visibility]}</span>
+            <span className="dchip dchip-type">
+              {assetTypeLabel[asset.assetType] ?? asset.assetType}
+            </span>
+            <span className={`dchip dchip-vis-${asset.visibility}`}>
+              {visibilityLabel[asset.visibility]}
+            </span>
             {asset.assetStatus !== "active" && (
               <span className="dchip dchip-status">{assetStatusLabel[asset.assetStatus]}</span>
             )}
           </div>
         </div>
-        <p className="dossier-summary">{asset.summary || (asset.access.summary ? "" : "（无摘要权限）")}</p>
+        <p className="dossier-summary">
+          {asset.summary || (asset.access.summary ? "" : "（无摘要权限）")}
+        </p>
         <div className="dossier-tags">
-          {asset.tags.map((t) => <span key={t} className="tag">{t}</span>)}
+          {asset.tags.map((t) => (
+            <span key={t} className="tag">
+              {t}
+            </span>
+          ))}
         </div>
         <div className="dossier-meta">
           {asset.projectName && <span>{asset.projectName}</span>}
           {asset.lifecyclePhase && <span>{asset.lifecyclePhase}</span>}
-          {asset.confidence != null && <span className="u-num">置信度 {confidenceText(asset.confidence)}</span>}
+          {asset.confidence != null && (
+            <span className="u-num">置信度 {confidenceText(asset.confidence)}</span>
+          )}
           {asset.updatedAt && <span>{formatBeijingTime(asset.updatedAt)}</span>}
           {asset.indexStatus && asset.indexStatus !== "indexed" && (
-            <span className={`dossier-index ${idxCls}`} title={asset.indexErrorMessage ?? "知识底座索引状态"}>
+            <span
+              className={`dossier-index ${idxCls}`}
+              title={asset.indexErrorMessage ?? "知识底座索引状态"}
+            >
               {indexStatusLabel[asset.indexStatus] ?? asset.indexStatus}
             </span>
           )}
@@ -66,13 +83,21 @@ export default function KnowledgeCard({
             {confirmDeleteId === asset.id ? (
               <>
                 <span className="dossier-warn">删除后退出检索 / 问答 / 预览，保留审计。确认？</span>
-                <button className="btn-small btn-small-danger" disabled={deleteBusyId === asset.id} onClick={() => onConfirmDelete(asset.id)}>
+                <button
+                  className="btn-small btn-small-danger"
+                  disabled={deleteBusyId === asset.id}
+                  onClick={() => onConfirmDelete(asset.id)}
+                >
                   {deleteBusyId === asset.id ? "删除中…" : "确认删除"}
                 </button>
-                <button className="btn-small" onClick={onCancelDelete}>取消</button>
+                <button className="btn-small" onClick={onCancelDelete}>
+                  取消
+                </button>
               </>
             ) : (
-              <button className="btn-small btn-small-danger" onClick={() => onAskDelete(asset.id)}><Trash2 size={13} /> 删除 / 撤下</button>
+              <button className="btn-small btn-small-danger" onClick={() => onAskDelete(asset.id)}>
+                <Trash2 size={13} /> 删除 / 撤下
+              </button>
             )}
           </div>
         )}

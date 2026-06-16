@@ -137,4 +137,3 @@ export interface PendingIngestListResponseDTO {
   items: PendingIngestItemDTO[];
   total: number;
 }
-

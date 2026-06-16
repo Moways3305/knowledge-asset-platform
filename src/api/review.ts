@@ -2,10 +2,12 @@
 import { apiGet, apiPost } from "./http";
 import type { ReviewItemDTO, ReviewListResponseDTO } from "../types/review";
 
-export async function fetchReviews(params: {
-  reviewType?: string;
-  status?: string;
-} = {}): Promise<ReviewItemDTO[]> {
+export async function fetchReviews(
+  params: {
+    reviewType?: string;
+    status?: string;
+  } = {},
+): Promise<ReviewItemDTO[]> {
   const qs = new URLSearchParams();
   if (params.reviewType) qs.set("review_type", params.reviewType);
   if (params.status) qs.set("status", params.status);

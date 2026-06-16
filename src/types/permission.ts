@@ -61,4 +61,3 @@ export interface AgentRegistryUpdateResponseDTO {
   rule: AgentRegistryRuleDTO;
   token: string | null;
 }
-

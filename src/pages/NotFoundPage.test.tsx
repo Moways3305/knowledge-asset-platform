@@ -15,7 +15,7 @@ describe("NotFoundPage", () => {
     expect(home).toHaveAttribute("href", "/");
   });
 
-  it("未知路由经 path=\"*\" 命中 NotFound", () => {
+  it('未知路由经 path="*" 命中 NotFound', () => {
     render(
       <MemoryRouter initialEntries={["/no-such-route"]}>
         <Routes>

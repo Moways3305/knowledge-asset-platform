@@ -40,4 +40,3 @@ export interface NotificationDTO {
 export interface NotificationsResponseDTO {
   items: NotificationDTO[];
 }
-

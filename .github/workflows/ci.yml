@@ -119,6 +119,9 @@ jobs:
         run: npm ci
       - name: Lint
         run: npm run lint
+      - name: Format check (prettier)
+        # 阻断未格式化前端代码（配置见 .prettierrc）。本地用 `npm run format` 修复。
+        run: npx prettier --check src
       - name: Test (with coverage)
         # npm run test = vitest run；这里用 --coverage 一次跑测试 + 覆盖率（首阶段无阈值，只观测）。
         run: npx vitest run --coverage

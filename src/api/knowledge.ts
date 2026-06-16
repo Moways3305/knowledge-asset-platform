@@ -114,7 +114,7 @@ export async function fetchKnowledgeDetail(id: string): Promise<KnowledgeDetailV
 // 受控删除 / 撤下知识资产。后端按 scope 权威校验删除权。
 export async function deleteKnowledgeAsset(
   id: string,
-  reason?: string
+  reason?: string,
 ): Promise<KnowledgeDeleteResponseDTO> {
   return apiPost<KnowledgeDeleteResponseDTO>(`/api/v1/knowledge/${id}/delete`, {
     reason: reason ?? null,
@@ -127,9 +127,11 @@ export async function retryKnowledgeIndex(id: string): Promise<RetryIndexRespons
 }
 
 // Knowledge 运营洞察。真实表安全聚合；纯 admin title_visible=false。
-export async function fetchKnowledgeOpsInsights(
-  params?: { scope?: string; days?: number; limit?: number }
-): Promise<KnowledgeOpsInsightsDTO> {
+export async function fetchKnowledgeOpsInsights(params?: {
+  scope?: string;
+  days?: number;
+  limit?: number;
+}): Promise<KnowledgeOpsInsightsDTO> {
   const q = new URLSearchParams();
   if (params?.scope) q.set("scope", params.scope);
   if (params?.days != null) q.set("days", String(params.days));
@@ -158,96 +160,89 @@ export function previewEntryHref(entryUrl: string): string {
 // 治理流程：request 仅产生预警/候选，confirm 才人工确认状态变更；Agent 不执行治理动作。
 export async function lifecycleArchiveRequest(
   assetId: string,
-  body: { reason: string; candidate_source?: string }
+  body: { reason: string; candidate_source?: string },
 ): Promise<LifecycleActionResponseDTO> {
   return apiPost<LifecycleActionResponseDTO>(
     `/api/v1/knowledge/${assetId}/lifecycle/archive-request`,
-    body
+    body,
   );
 }
 
 export async function lifecycleArchiveConfirm(
   assetId: string,
-  body: { reason: string }
+  body: { reason: string },
 ): Promise<ArchiveConfirmResponseDTO> {
   return apiPost<ArchiveConfirmResponseDTO>(
     `/api/v1/knowledge/${assetId}/lifecycle/archive-confirm`,
-    body
+    body,
   );
 }
 
 export async function lifecycleReenableRequest(
   assetId: string,
-  body: { reason: string; target_status?: string }
+  body: { reason: string; target_status?: string },
 ): Promise<LifecycleActionResponseDTO> {
   return apiPost<LifecycleActionResponseDTO>(
     `/api/v1/knowledge/${assetId}/lifecycle/reenable-request`,
-    body
+    body,
   );
 }
 
 export async function lifecycleReenableConfirm(
   assetId: string,
-  body: { reason: string; target_status: string }
+  body: { reason: string; target_status: string },
 ): Promise<ReenableConfirmResponseDTO> {
   return apiPost<ReenableConfirmResponseDTO>(
     `/api/v1/knowledge/${assetId}/lifecycle/reenable-confirm`,
-    body
+    body,
   );
 }
 
-export async function fetchLifecycleEvents(
-  assetId: string
-): Promise<LifecycleEventsResponseDTO> {
-  return apiGet<LifecycleEventsResponseDTO>(
-    `/api/v1/knowledge/${assetId}/lifecycle/events`
-  );
+export async function fetchLifecycleEvents(assetId: string): Promise<LifecycleEventsResponseDTO> {
+  return apiGet<LifecycleEventsResponseDTO>(`/api/v1/knowledge/${assetId}/lifecycle/events`);
 }
 
 // ---- 原文访问申请与授权 ----
 // 申请=业务用户且可发现该资产；审批/拒绝/撤销=项目经理 / 治理角色。响应只含安全元数据。
 export async function requestOriginalAccess(
   assetId: string,
-  reason?: string
+  reason?: string,
 ): Promise<CreateRequestResponseDTO> {
-  return apiPost<CreateRequestResponseDTO>(
-    `/api/v1/knowledge/${assetId}/original-access/request`,
-    { reason: reason ?? null }
-  );
+  return apiPost<CreateRequestResponseDTO>(`/api/v1/knowledge/${assetId}/original-access/request`, {
+    reason: reason ?? null,
+  });
 }
 
 export async function fetchOriginalAccessRequests(
-  box: "mine" | "inbox" = "mine"
+  box: "mine" | "inbox" = "mine",
 ): Promise<RequestsListResponseDTO> {
   return apiGet<RequestsListResponseDTO>(`/api/v1/original-access/requests?box=${box}`);
 }
 
 export async function approveOriginalAccess(
   requestId: string,
-  note?: string
+  note?: string,
 ): Promise<CreateRequestResponseDTO> {
   return apiPost<CreateRequestResponseDTO>(
     `/api/v1/original-access/requests/${requestId}/approve`,
-    { note: note ?? null }
+    { note: note ?? null },
   );
 }
 
 export async function rejectOriginalAccess(
   requestId: string,
-  note?: string
+  note?: string,
 ): Promise<CreateRequestResponseDTO> {
-  return apiPost<CreateRequestResponseDTO>(
-    `/api/v1/original-access/requests/${requestId}/reject`,
-    { note: note ?? null }
-  );
+  return apiPost<CreateRequestResponseDTO>(`/api/v1/original-access/requests/${requestId}/reject`, {
+    note: note ?? null,
+  });
 }
 
 export async function revokeOriginalAccessGrant(
   grantId: string,
-  reason?: string
+  reason?: string,
 ): Promise<AccessGrantDTO> {
-  return apiPost<AccessGrantDTO>(
-    `/api/v1/original-access/grants/${grantId}/revoke`,
-    { reason: reason ?? null }
-  );
+  return apiPost<AccessGrantDTO>(`/api/v1/original-access/grants/${grantId}/revoke`, {
+    reason: reason ?? null,
+  });
 }

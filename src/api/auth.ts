@@ -29,7 +29,12 @@ interface AuthMeDTO {
   company_roles: string[];
   is_business_user: boolean;
   can_discover_l5: boolean;
-  project_memberships: { project_id: string; project_name: string; project_role: string; status: string }[];
+  project_memberships: {
+    project_id: string;
+    project_name: string;
+    project_role: string;
+    status: string;
+  }[];
 }
 
 function mapAuthMe(data: AuthMeDTO): AuthMeVM {
@@ -42,7 +47,11 @@ function mapAuthMe(data: AuthMeDTO): AuthMeVM {
     canDiscoverL5: data.can_discover_l5,
     projects: data.project_memberships
       .filter((m) => m.status === "active")
-      .map((m) => ({ projectId: m.project_id, projectName: m.project_name, projectRole: m.project_role })),
+      .map((m) => ({
+        projectId: m.project_id,
+        projectName: m.project_name,
+        projectRole: m.project_role,
+      })),
   };
 }
 

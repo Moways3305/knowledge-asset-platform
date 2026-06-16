@@ -25,4 +25,3 @@ export interface SessionRevokeResponseDTO {
   revoked_at: string | null;
   preserved_current_session: boolean;
 }
-

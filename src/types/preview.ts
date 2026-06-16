@@ -8,4 +8,3 @@ export interface PreviewIssueResponseDTO {
   expires_at: string;
   credential_status: string;
 }
-
