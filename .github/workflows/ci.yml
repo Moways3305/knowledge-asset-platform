@@ -36,6 +36,14 @@ jobs:
         run: python -m compileall app
       - name: Tests
         run: python -m pytest
+      - name: Export OpenAPI contract & check drift
+        # 重新导出 spec（含 no-leak 扫描）；若与已提交的 docs/api/openapi.json 不一致，
+        # 说明后端 schema 改了但契约没更新 → diff 非空 → CI 失败。
+        # 脚本基于自身路径定位仓库根，故在 backend 工作目录下用相对路径调用上一级。
+        working-directory: ${{ github.workspace }}
+        run: |
+          python scripts/export_openapi.py
+          git diff --exit-code docs/api/openapi.json
 
   backend-migrations:
     name: Backend (alembic migrations on PostgreSQL)
