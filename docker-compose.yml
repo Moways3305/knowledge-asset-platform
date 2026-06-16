@@ -1,14 +1,20 @@
-﻿# 本地开发 / 单机部署编排。
+# 本地开发 / 单机部署编排。
 # 凭证为 LOCAL DEV ONLY，**绝非生产凭证**；生产请用部署密钥注入（见 backend/README §部署）。
 #
 # 一键启动顺序（PowerShell）：
+#   cp .env.example .env            # 至少设置 REDIS_PASSWORD（compose 变量插值从 ./.env 读取）
 #   docker compose build
 #   docker compose up -d            # postgres/redis 起后，migrate 一次性跑迁移，backend/worker/beat 随后启动
 #   # 迁移已由 migrate 服务自动执行（backend/worker/beat 依赖其成功完成），无需手动 alembic
 #   # 可选 seed（仅 dev/test）：docker compose exec backend python -m app.seed.dev_seed
 #   # 冒烟：GET http://localhost:8001/health 与 /health/ready
 #
-# 本机 8000 常被占用，backend 宿主端口映射为 8001（容器内仍 8000）；前端 vite 代理已对齐 8001。
+# 本机 8000 常被占用，backend 宿主端口映射为 127.0.0.1:8001（容器内仍 8000，仅绑回环供调试）；
+# 前端 vite 代理已对齐 8001。生产用户入口＝ frontend（宿主 18080）。
+#
+# 资源限制（deploy.resources.limits）为起始建议值，同机还跑 WeKnora + ONLYOFFICE，
+# 不宜过保守；首次上线后按 `docker stats` 实测调整（直接改本文件，或用 prod overlay
+# `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d` 覆盖）。
 
 # 共享运行时环境（避免各服务重复 env 块）。worker/beat 与 backend 用同一份环境，
 # 确保 WeKnora / LLM / WeCom / ONLYOFFICE 等外部集成开关一致。
@@ -17,7 +23,10 @@ x-backend-env: &backend-env
   APP_ENV: local
   LOG_LEVEL: INFO
   DATABASE_URL: postgresql+asyncpg://dev:devpassword@postgres:5432/knowledge_platform
-  REDIS_URL: redis://redis:6379/0
+  # Redis 密码经 compose 变量插值（从 ./.env 读 REDIS_PASSWORD），不在此硬编码密码值。
+  # backend/worker/beat/migrate 共用本变量连接同一带密码的 Redis。
+  # :? 缺失即 fail-fast（compose 直接报错退出），不静默降级为空密码。
+  REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required (set it in ./.env)}@redis:6379/0
   # 启用真正异步（入队到 broker，由 worker 执行）。设为 true 则内联同步执行（无需 worker）。
   CELERY_TASK_ALWAYS_EAGER: "false"
   # 受控上传存储根（绝对路径）。backend 写入、worker 异步读取**同一份**字节——靠
@@ -32,6 +41,7 @@ x-backend-env: &backend-env
 services:
   postgres:
     image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: dev
       POSTGRES_PASSWORD: devpassword
@@ -41,22 +51,41 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks:
+      - internal
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dev -d knowledge_platform"]
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 1G
 
   redis:
     image: redis:7
+    restart: unless-stopped
+    # 启用密码（--requirepass）。REDIS_PASSWORD 经 compose 从 ./.env 插值，不硬编码；
+    # :? 缺失即 fail-fast，避免无密码 Redis 误上线。
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD is required (set it in ./.env)}"]
     # 仅绑回环，理由同 postgres。
     ports:
       - "127.0.0.1:6379:6379"
+    networks:
+      - internal
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # 带密码探活；变量在 compose 解析期插值为具体值（:? 缺失即 fail-fast）。
+      test: ["CMD-SHELL", "redis-cli -a \"${REDIS_PASSWORD:?REDIS_PASSWORD is required (set it in ./.env)}\" ping | grep -q PONG"]
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
 
   # 一次性迁移服务。只此一处跑 alembic upgrade head，backend/worker/beat 依赖其成功完成，
   # 避免每个副本并发迁移；它退出即完成（restart=no）。
@@ -67,20 +96,28 @@ services:
       - ./backend/.env
     environment: *backend-env
     restart: "no"
+    networks:
+      - internal
     depends_on:
       postgres:
         condition: service_healthy
 
   backend:
     build: ./backend
+    restart: unless-stopped
     env_file:
       - ./backend/.env
     environment: *backend-env
+    # 仅绑回环，宿主 8001 → 容器 8000，供调试；生产用户入口是 frontend，不直接暴露 backend。
     ports:
-      - "8001:8000"
+      - "127.0.0.1:8001:8000"
     # 共享受控上传存储：backend 写入的 source_file_ref 字节，worker 异步处理时读同一份。
     volumes:
       - upload_storage:/data/uploads
+    # internal 连 postgres/redis；web 供 frontend 反代到 backend。
+    networks:
+      - internal
+      - web
     depends_on:
       postgres:
         condition: service_healthy
@@ -93,10 +130,16 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 1G
 
   # Celery worker（入库处理 / 解析对账 / 归档扫描 / 升格推荐 / 通知下发）。
   worker:
     build: ./backend
+    restart: unless-stopped
     command: celery -A app.worker.celery_app.celery_app worker --loglevel=INFO
     env_file:
       - ./backend/.env
@@ -104,6 +147,8 @@ services:
     # 与 backend 共享同一份受控上传存储，异步处理才能读到 backend 写入的字节。
     volumes:
       - upload_storage:/data/uploads
+    networks:
+      - internal
     depends_on:
       postgres:
         condition: service_healthy
@@ -111,35 +156,93 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      # inspect ping 经 broker 广播，自身 worker 回 pong 即视为健康。
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app.celery_app inspect ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
 
   # Celery beat（定时调度解析对账 / 归档扫描 / 升格推荐 / 通知下发）。
   beat:
     build: ./backend
+    restart: unless-stopped
     command: celery -A app.worker.celery_app.celery_app beat --loglevel=INFO
     env_file:
       - ./backend/.env
     environment: *backend-env
+    networks:
+      - internal
     depends_on:
       redis:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      # beat 无 inspect ping，按进程存活判断（pgrep 由 procps 提供），
+      # 不依赖 celerybeat-schedule 文件（dbm 后端下该文件可能不存在或更新不规律）。
+      # bracket trick '[c]elery'：正则不匹配 pgrep 自身命令行（其文本含 '[c]elery' 而非 'celery'），
+      # 避免「beat 已挂但 pgrep 命中自己」的假健康。
+      test: ["CMD-SHELL", "pgrep -f '[c]elery.*beat' > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
 
-  # 前端生产托管：nginx 静态托管 Vite dist + 同源反代后端。
+  # 前端生产托管：nginx 静态托管 Vite dist + 同源反代后端，以非 root nginx 用户监听 8080。
   # **生产用户入口**＝此服务（本地宿主 18080，避免与本机 WeKnora 8080 等常见端口冲突）；backend 的 8001 仅供调试。
   # 不读 backend/.env、不挂源码、不烙真实后端 URL（同源相对路径 + nginx 反代 backend:8000）。
   frontend:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+    restart: unless-stopped
+    # CSP frame-src/connect-src 预留 ONLYOFFICE 来源；默认空（仅 'self'）。
+    # 填**浏览器**可达的 Document Server origin（非容器内 Docker DNS），
+    # 配 ONLYOFFICE 时在 ./.env 设 ONLYOFFICE_ORIGIN=https://onlyoffice.example.com。
+    environment:
+      ONLYOFFICE_ORIGIN: ${ONLYOFFICE_ORIGIN:-}
     ports:
-      - "18080:80"
+      - "18080:8080"
+    # 仅在 web 网络：可反代到 backend，但访问不到 postgres/redis（隔离）。
+    networks:
+      - web
+    healthcheck:
+      # nginx:alpine 自带 busybox wget；探静态首页即可反映 nginx 存活。
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     depends_on:
       backend:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+# 网络隔离：
+#   internal —— 数据/任务面（postgres + redis + backend + worker + beat + migrate）。
+#   web      —— 反代面（frontend + backend）。
+# postgres/redis 不入 web；frontend 不入 internal，故前端容器无法直连库/缓存。
+networks:
+  internal:
+  web:
 
 volumes:
   pgdata:
   # 受控上传存储（backend 写 / worker 读同一份）。beat 不处理上传，不挂载。
   upload_storage:
-
