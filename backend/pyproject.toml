@@ -28,6 +28,7 @@ dependencies = [
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
     "aiosqlite>=0.20",
     "ruff>=0.8",
 ]
@@ -39,6 +40,17 @@ packages = ["app"]
 testpaths = ["tests"]
 addopts = "-q"
 asyncio_mode = "auto"
+
+# 覆盖率基线（首阶段只观测、不设硬性阈值 fail_under）。
+[tool.coverage.run]
+source = ["app"]
+branch = true
+# 仅 dev/test 用的种子脚本不计入业务覆盖率，避免稀释。
+omit = ["app/seed/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
 
 [tool.ruff]
 line-length = 100
