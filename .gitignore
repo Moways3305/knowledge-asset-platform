@@ -43,6 +43,9 @@ venv/
 .mypy_cache/
 .coverage
 htmlcov/
+coverage.xml
+# 前端 vitest v8 覆盖率输出目录（lcov / text）。
+coverage/
 *.sqlite3
 postgres-data/
 pgdata/
