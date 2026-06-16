@@ -161,6 +161,8 @@ async def login(
             session, identifier_hash=identifier_hash, ip_hash=ip_hash, settings=settings
         )
         if guard.blocked:
+            # blocked 分支下 guard.result 必为具体状态（locked / rate_limited）。
+            assert guard.result is not None
             await auth_security.record_login_attempt(
                 session, identifier_hash=identifier_hash, ip_hash=ip_hash, user_id=None,
                 login_method=login_method, result=guard.result, reason_code=guard.reason_code,
@@ -182,6 +184,8 @@ async def login(
 
     try:
         if has_password:
+            # has_password = bool(body.password) ⟹ 此分支内 password 必非 None。
+            assert body.password is not None
             user = await session_service.login_with_password(
                 session, email=body.email, password=body.password
             )

@@ -348,15 +348,18 @@ class WeKnoraClient:
         return data if isinstance(data, list) else (data.get("items") if isinstance(data, dict) else []) or []
 
     async def get_model(self, model_id: str, *, trace_id: str | None = None) -> dict[str, Any]:
-        return await self._call("GET", f"/models/{model_id}", trace_id=trace_id)
+        result: dict[str, Any] = await self._call("GET", f"/models/{model_id}", trace_id=trace_id)
+        return result
 
     async def create_model(self, payload: dict[str, Any], *, trace_id: str | None = None) -> dict[str, Any]:
-        return await self._call("POST", "/models", json=payload, trace_id=trace_id)
+        result: dict[str, Any] = await self._call("POST", "/models", json=payload, trace_id=trace_id)
+        return result
 
     async def update_model(
         self, model_id: str, payload: dict[str, Any], *, trace_id: str | None = None
     ) -> dict[str, Any]:
-        return await self._call("PUT", f"/models/{model_id}", json=payload, trace_id=trace_id)
+        result: dict[str, Any] = await self._call("PUT", f"/models/{model_id}", json=payload, trace_id=trace_id)
+        return result
 
     async def delete_model(self, model_id: str, *, trace_id: str | None = None) -> None:
         await self._call("DELETE", f"/models/{model_id}", trace_id=trace_id)
@@ -377,11 +380,13 @@ class WeKnoraClient:
             payload["multimodal_id"] = multimodal_id
         if not payload:
             return None
-        return await self._call("PUT", f"/initialization/config/{kb_id}", json=payload, trace_id=trace_id)
+        result: dict[str, Any] = await self._call("PUT", f"/initialization/config/{kb_id}", json=payload, trace_id=trace_id)
+        return result
 
     async def _model_check(self, path: str, *, api_url: str, api_key: str, model: str, trace_id: str | None) -> dict[str, Any]:
         body = {"api_url": api_url, "api_key": api_key, "model": model}
-        return await self._call("POST", path, json=body, trace_id=trace_id)
+        result: dict[str, Any] = await self._call("POST", path, json=body, trace_id=trace_id)
+        return result
 
     async def check_remote_model(self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None) -> dict[str, Any]:
         return await self._model_check("/initialization/remote/check", api_url=api_url, api_key=api_key, model=model, trace_id=trace_id)

@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import uuid
+from typing import TYPE_CHECKING, TypeAlias
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -34,11 +35,15 @@ from app.schemas.weknora_admin import (
 )
 from app.services.weknora_client import WeKnoraError
 
+if TYPE_CHECKING:
+    from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
+
 # 前端别名 ↔ WeKnora ModelType。
 _ALIAS_TO_WK = {"chat": "KnowledgeQA", "embedding": "Embedding", "rerank": "Rerank", "vllm": "VLLM", "asr": "ASR"}
 _WK_TO_ALIAS = {v: k for k, v in _ALIAS_TO_WK.items()}
 
-_CheckClient = "WeKnoraClient | NullWeKnoraClient"
+# 类型别名：仅供静态检查。运行时值仍是同一字符串（future annotations 下注解不求值），无行为变化。
+_CheckClient: TypeAlias = "WeKnoraClient | NullWeKnoraClient"
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:

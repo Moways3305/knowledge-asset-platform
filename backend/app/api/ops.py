@@ -12,6 +12,8 @@ WeKnora·Dify id / WeCom secret / ONLYOFFICE jwt / 预览取件 token / 业务�
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable
+from typing import cast
 
 from fastapi import APIRouter, Cookie, Depends, Request, Response
 from sqlalchemy import func, select, text
@@ -92,7 +94,9 @@ async def _redis_ready() -> bool | None:
             s.celery_broker_url or s.redis_url, socket_connect_timeout=2, socket_timeout=2
         )
         try:
-            await client.ping()
+            # redis-py 的 ping() 类型为 Awaitable[bool] | bool（sync/async 共用签名）；
+            # async 客户端下实为 awaitable，cast 收敛类型，运行时无变化。
+            await cast("Awaitable[bool]", client.ping())
             return True
         finally:
             await client.aclose()

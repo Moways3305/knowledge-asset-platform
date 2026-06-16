@@ -546,7 +546,8 @@ async def delete_asset(
             )
         ).scalar_one_or_none()
         doc_id = version.weknora_doc_id if version is not None else None
-        if doc_id:
+        # doc_id 非空 ⟹ version 非 None（上一行由其推导）；显式并入条件以收敛类型且行为不变。
+        if version is not None and doc_id:
             weknora_attempted = True
             try:
                 await weknora.delete_knowledge(doc_id, trace_id=trace_id)
@@ -716,7 +717,7 @@ async def retry_index(
             session, version_id=version_id, error_code="source_file_unreadable"
         )
         await _audit_retry_failed(session, caller, asset_id, outcome.error_code, trace_id, project_id)
-        return _retry_response(session, asset_id, version_id, outcome, trace_id)
+        return await _retry_response(session, asset_id, version_id, outcome, trace_id)
 
     outcome = await indexing.index_asset_version(
         session, weknora,

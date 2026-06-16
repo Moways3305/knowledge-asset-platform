@@ -307,7 +307,8 @@ def _parse_llm_json(content: str) -> dict:
     start, end = text.find("{"), text.rfind("}")
     if start != -1 and end != -1 and end > start:
         text = text[start : end + 1]
-    return json.loads(text)
+    result: dict = json.loads(text)
+    return result
 
 
 async def process_content(

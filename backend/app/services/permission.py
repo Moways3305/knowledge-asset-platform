@@ -371,7 +371,8 @@ def lifecycle_actor_allowed(caller: CallerContext, asset: KnowledgeAsset) -> boo
         if asset.maintainer_user_id == caller.user_id:
             return True
         return (
-            caller.active_project_roles.get(asset.project_id)
+            asset.project_id is not None
+            and caller.active_project_roles.get(asset.project_id)
             == ProjectRole.project_manager.value
         )
     if scope == KnowledgeScope.company.value:

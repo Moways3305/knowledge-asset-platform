@@ -207,7 +207,8 @@ async def _validate_task_owner(
                 422, "task_owner_not_governance",
                 "公司级配置的业务归属人必须是 Boss / 咨询总监",
             )
-    return user
+    result: User = user
+    return result
 
 
 async def _owner_still_valid(session: AsyncSession, config: WecomScanConfig) -> bool:
@@ -424,7 +425,7 @@ async def list_configs(session: AsyncSession, caller: CallerContext):
     return WecomScanConfigsResponse(
         items=[
             _config_out(
-                c, name_map.get(c.related_project_id),
+                c, name_map.get(c.related_project_id) if c.related_project_id else None,
                 *owner_map.get(c.created_by, (None, None)),
             )
             for c in rows

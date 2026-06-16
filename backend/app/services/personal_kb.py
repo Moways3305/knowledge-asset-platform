@@ -176,6 +176,8 @@ async def create_personal_kb(
         return await _status_out(session, mapping, caller.user_id)
 
     mapping = await _find_personal_mapping(session, caller.user_id)
+    # 紧接上面的创建路径，映射必已存在。
+    assert mapping is not None
     await _audit(session, caller, mapping, AuditAction.config_personal_kb_created.value,
                  trace_id, sync_ok=True, name_before=None, name_after=mapping.display_name)
     await session.commit()
