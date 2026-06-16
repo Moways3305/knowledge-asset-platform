@@ -28,7 +28,7 @@ export function usePagination<T>(items: T[], pageSize = 20): Pagination<T> {
 
   const pageItems = useMemo(
     () => items.slice((current - 1) * pageSize, current * pageSize),
-    [items, current, pageSize]
+    [items, current, pageSize],
   );
 
   return {

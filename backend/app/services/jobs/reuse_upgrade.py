@@ -1,4 +1,4 @@
-﻿"""跨项目复用统计 + 升格推荐作业。
+"""跨项目复用统计 + 升格推荐作业。
 
 从既有后端事实（`agent_call_citations` join `agent_calls.project_id`）计算安全复用信号：
 - 回写 `knowledge_assets.last_called_at`（被引用/使用即更新）。
@@ -121,9 +121,12 @@ async def scan_reuse_and_recommend(
             and not await _already_recommended(session, asset.id)
         ):
             audit_event = await audit_service.record_system_event(
-                session, log_type=AuditLogType.operation,
-                action=AuditAction.knowledge_upgrade_recommended.value, trace_id=trace_id or "",
-                target_type="knowledge_asset", target_id=asset.id,
+                session,
+                log_type=AuditLogType.operation,
+                action=AuditAction.knowledge_upgrade_recommended.value,
+                trace_id=trace_id or "",
+                target_type="knowledge_asset",
+                target_id=asset.id,
                 extra={
                     "scope": asset.scope,
                     "reuse_project_count": int(project_count),
@@ -152,4 +155,3 @@ async def scan_reuse_and_recommend(
 
     await session.commit()
     return {"usage_updated": updated, "recommended": recommended, "assets": len(rows)}
-

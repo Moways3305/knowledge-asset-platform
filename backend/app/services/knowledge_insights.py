@@ -1,4 +1,4 @@
-﻿"""Knowledge 运营洞察服务。
+"""Knowledge 运营洞察服务。
 
 把 `/knowledge` 右侧的本地规则洞察升级为**真实后端安全聚合**。统计全部来自真实表
 （knowledge_asset_versions / indexing_operation_jobs / weknora_kb_mappings /
@@ -77,7 +77,9 @@ def _now() -> datetime:
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(status_code=status_code, detail={"denied_reason": reason, "message": message})
+    return HTTPException(
+        status_code=status_code, detail={"denied_reason": reason, "message": message}
+    )
 
 
 def _is_admin(caller: CallerContext) -> bool:
@@ -165,27 +167,42 @@ async def get_ops_insights(
             .where(
                 KnowledgeAssetVersion.version_status == _ACTIVE_VERSION,
                 _discoverable_asset_cond(),
-                *vis, *scope_conds, *extra,
+                *vis,
+                *scope_conds,
+                *extra,
             )
         )
 
     indexing = IndexingInsights(
-        index_failed=await _count(_version_count(KnowledgeAssetVersion.index_status == "index_failed")),
+        index_failed=await _count(
+            _version_count(KnowledgeAssetVersion.index_status == "index_failed")
+        ),
         skipped=await _count(_version_count(KnowledgeAssetVersion.index_status == "skipped")),
-        not_indexed=await _count(_version_count(KnowledgeAssetVersion.index_status == "not_indexed")),
-        parse_failed=await _count(_version_count(KnowledgeAssetVersion.weknora_parse_status == "failed")),
-        parse_pending=await _count(_version_count(KnowledgeAssetVersion.weknora_parse_status == "pending")),
-        parse_processing=await _count(_version_count(KnowledgeAssetVersion.weknora_parse_status == "processing")),
+        not_indexed=await _count(
+            _version_count(KnowledgeAssetVersion.index_status == "not_indexed")
+        ),
+        parse_failed=await _count(
+            _version_count(KnowledgeAssetVersion.weknora_parse_status == "failed")
+        ),
+        parse_pending=await _count(
+            _version_count(KnowledgeAssetVersion.weknora_parse_status == "pending")
+        ),
+        parse_processing=await _count(
+            _version_count(KnowledgeAssetVersion.weknora_parse_status == "processing")
+        ),
         kb_init_failed=await _count(_kb_init_failed_stmt(caller, scope_v, project_id)),
         recent_jobs=(await _recent_jobs(session) if ops_viewer else []),
     )
 
     # ---- Access：原文申请 / 授权（可见资产）----
     timeout_hours = await access_request_timeout_hours(session)
-    pending = await _count(_request_count(vis, scope_conds, OriginalAccessRequest.status == "pending"))
+    pending = await _count(
+        _request_count(vis, scope_conds, OriginalAccessRequest.status == "pending")
+    )
     auto_approved = await _count(
         _request_count(
-            vis, scope_conds,
+            vis,
+            scope_conds,
             OriginalAccessRequest.status == "approved",
             OriginalAccessRequest.reviewer_user_id.is_(None),
             OriginalAccessRequest.reviewed_at >= window_start,
@@ -195,7 +212,8 @@ async def get_ops_insights(
         cutoff = _now() - timedelta(hours=timeout_hours)
         overdue = await _count(
             _request_count(
-                vis, scope_conds,
+                vis,
+                scope_conds,
                 OriginalAccessRequest.status == "pending",
                 OriginalAccessRequest.created_at < cutoff,
             )
@@ -212,15 +230,21 @@ async def get_ops_insights(
     # ---- Lifecycle / Governance ----
     lifecycle = LifecycleInsights(
         archive_candidates=await _count(
-            _lifecycle_event_count(vis, scope_conds, LifecycleEventType.archive_candidate.value, window_start)
+            _lifecycle_event_count(
+                vis, scope_conds, LifecycleEventType.archive_candidate.value, window_start
+            )
         ),
         archive_warnings=await _count(
-            _lifecycle_event_count(vis, scope_conds, LifecycleEventType.archive_warning.value, window_start)
+            _lifecycle_event_count(
+                vis, scope_conds, LifecycleEventType.archive_warning.value, window_start
+            )
         ),
         needs_update=await _count(
             select(func.count())
             .select_from(KnowledgeAsset)
-            .where(KnowledgeAsset.asset_status == AssetStatus.needs_update.value, *vis, *scope_conds)
+            .where(
+                KnowledgeAsset.asset_status == AssetStatus.needs_update.value, *vis, *scope_conds
+            )
         ),
         reuse_upgrade_candidates=await _count(_upgrade_reco_count(vis, scope_conds, window_start)),
     )
@@ -291,7 +315,8 @@ def _lifecycle_event_count(vis: list, scope_conds: list, event_type: str, window
             AssetLifecycleEvent.event_type == event_type,
             AssetLifecycleEvent.created_at >= window_start,
             _discoverable_asset_cond(),
-            *vis, *scope_conds,
+            *vis,
+            *scope_conds,
         )
     )
 
@@ -306,7 +331,8 @@ def _upgrade_reco_count(vis: list, scope_conds: list, window_start: datetime):
             AuditEvent.action == AuditAction.knowledge_upgrade_recommended.value,
             AuditEvent.created_at >= window_start,
             _discoverable_asset_cond(),
-            *vis, *scope_conds,
+            *vis,
+            *scope_conds,
         )
     )
 
@@ -319,14 +345,21 @@ async def _recent_jobs(session: AsyncSession) -> list[InsightJobItem]:
                 .order_by(IndexingOperationJob.requested_at.desc())
                 .limit(_RECENT_JOBS)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     return [
         InsightJobItem(
-            job_id=j.id, operation_type=j.operation_type, status=j.status,
-            total_count=j.total_count, success_count=j.success_count,
-            failed_count=j.failed_count, skipped_count=j.skipped_count,
-            requested_at=j.requested_at, finished_at=j.finished_at,
+            job_id=j.id,
+            operation_type=j.operation_type,
+            status=j.status,
+            total_count=j.total_count,
+            success_count=j.success_count,
+            failed_count=j.failed_count,
+            skipped_count=j.skipped_count,
+            requested_at=j.requested_at,
+            finished_at=j.finished_at,
         )
         for j in rows
     ]
@@ -339,8 +372,11 @@ async def _recent_index_failed_items(
     rows = (
         await session.execute(
             select(
-                KnowledgeAsset.id, KnowledgeAsset.title, KnowledgeAsset.scope,
-                KnowledgeAssetVersion.index_status, KnowledgeAssetVersion.index_error_code,
+                KnowledgeAsset.id,
+                KnowledgeAsset.title,
+                KnowledgeAsset.scope,
+                KnowledgeAssetVersion.index_status,
+                KnowledgeAssetVersion.index_error_code,
                 KnowledgeAsset.updated_at,
             )
             .join(KnowledgeAssetVersion, KnowledgeAssetVersion.asset_id == KnowledgeAsset.id)
@@ -348,7 +384,8 @@ async def _recent_index_failed_items(
                 KnowledgeAssetVersion.version_status == _ACTIVE_VERSION,
                 _discoverable_asset_cond(),
                 KnowledgeAssetVersion.index_status == "index_failed",
-                *vis, *scope_conds,
+                *vis,
+                *scope_conds,
             )
             .order_by(KnowledgeAsset.updated_at.desc())
             .limit(limit)
@@ -376,12 +413,48 @@ def _build_cards(
     """从真实计数构建概要卡片（仅非零信号，空则前端显示「暂无需要处理的运营项」）。"""
     specs = [
         ("index_failed", "索引失败", indexing.index_failed, "warning", "进入索引运维面板批量重试"),
-        ("parse_failed", "解析失败", indexing.parse_failed, "warning", "可在索引运维面板发起重新解析"),
-        ("kb_init_failed", "知识库初始化失败", indexing.kb_init_failed, "error", "检查底座模型配置后重试"),
-        ("pending_original_requests", "原文申请待处理", access.pending_original_requests, "info", "前往原文访问审批"),
-        ("overdue_original_requests", "原文申请超时", access.overdue_original_requests, "warning", "尽快审批或检查自动通过规则"),
-        ("archive_candidates", "归档候选", lifecycle.archive_candidates, "info", "复核生命周期归档候选"),
-        ("reuse_upgrade_candidates", "升格推荐", lifecycle.reuse_upgrade_candidates, "info", "评估项目资产升格为公司资产"),
+        (
+            "parse_failed",
+            "解析失败",
+            indexing.parse_failed,
+            "warning",
+            "可在索引运维面板发起重新解析",
+        ),
+        (
+            "kb_init_failed",
+            "知识库初始化失败",
+            indexing.kb_init_failed,
+            "error",
+            "检查底座模型配置后重试",
+        ),
+        (
+            "pending_original_requests",
+            "原文申请待处理",
+            access.pending_original_requests,
+            "info",
+            "前往原文访问审批",
+        ),
+        (
+            "overdue_original_requests",
+            "原文申请超时",
+            access.overdue_original_requests,
+            "warning",
+            "尽快审批或检查自动通过规则",
+        ),
+        (
+            "archive_candidates",
+            "归档候选",
+            lifecycle.archive_candidates,
+            "info",
+            "复核生命周期归档候选",
+        ),
+        (
+            "reuse_upgrade_candidates",
+            "升格推荐",
+            lifecycle.reuse_upgrade_candidates,
+            "info",
+            "评估项目资产升格为公司资产",
+        ),
     ]
     return [
         InsightCard(key=k, label=label, count=count, severity=sev, action_hint=hint)
@@ -391,39 +464,57 @@ def _build_cards(
 
 
 def _build_recommendations(
-    indexing: IndexingInsights, access: AccessInsights, lifecycle: LifecycleInsights, *, ops_viewer: bool
+    indexing: IndexingInsights,
+    access: AccessInsights,
+    lifecycle: LifecycleInsights,
+    *,
+    ops_viewer: bool,
 ) -> list[Recommendation]:
     recs: list[Recommendation] = []
     if indexing.index_failed > 0:
         if ops_viewer:
-            recs.append(Recommendation(
-                key="retry_index_failed", severity="warning",
-                message=f"有 {indexing.index_failed} 个资产索引失败，建议进入索引运维面板批量重试。",
-                target="/admin/ingest",
-            ))
+            recs.append(
+                Recommendation(
+                    key="retry_index_failed",
+                    severity="warning",
+                    message=f"有 {indexing.index_failed} 个资产索引失败，建议进入索引运维面板批量重试。",
+                    target="/admin/ingest",
+                )
+            )
         else:
-            recs.append(Recommendation(
-                key="retry_index_failed", severity="warning",
-                message=f"你可见范围内有 {indexing.index_failed} 个资产索引失败，可在资产详情页重试索引。",
-                target=None,
-            ))
+            recs.append(
+                Recommendation(
+                    key="retry_index_failed",
+                    severity="warning",
+                    message=f"你可见范围内有 {indexing.index_failed} 个资产索引失败，可在资产详情页重试索引。",
+                    target=None,
+                )
+            )
     if ops_viewer and indexing.parse_failed > 0:
-        recs.append(Recommendation(
-            key="reparse_failed", severity="warning",
-            message=f"有 {indexing.parse_failed} 个资产底座解析异常，可在索引运维面板发起重新解析。",
-            target="/admin/ingest",
-        ))
+        recs.append(
+            Recommendation(
+                key="reparse_failed",
+                severity="warning",
+                message=f"有 {indexing.parse_failed} 个资产底座解析异常，可在索引运维面板发起重新解析。",
+                target="/admin/ingest",
+            )
+        )
     if access.overdue_original_requests > 0:
-        recs.append(Recommendation(
-            key="review_overdue_requests", severity="warning",
-            message=f"有 {access.overdue_original_requests} 条原文访问申请已超时待处理，建议尽快审批。",
-            target="/original-access",
-        ))
+        recs.append(
+            Recommendation(
+                key="review_overdue_requests",
+                severity="warning",
+                message=f"有 {access.overdue_original_requests} 条原文访问申请已超时待处理，建议尽快审批。",
+                target="/original-access",
+            )
+        )
     if ops_viewer and lifecycle.reuse_upgrade_candidates > 0:
-        recs.append(Recommendation(
-            key="review_upgrade_candidates", severity="info",
-            message=f"有 {lifecycle.reuse_upgrade_candidates} 个项目资产被跨项目复用，建议评估升格。",
-            target="/review",
-        ))
+        recs.append(
+            Recommendation(
+                key="review_upgrade_candidates",
+                severity="info",
+                message=f"有 {lifecycle.reuse_upgrade_candidates} 个项目资产被跨项目复用，建议评估升格。",
+                target="/review",
+            )
+        )
     return recs
-

@@ -1,4 +1,4 @@
-﻿"""WeKnora 底座 HTTP 客户端。
+"""WeKnora 底座 HTTP 客户端。
 
 封装对 WeKnora REST 的唯一访问入口（base `${WEKNORA_BASE_URL}/api/v1`，header
 `X-API-Key` + `X-Request-ID=trace_id`）。业务代码**不得**直接发 HTTP 到 WeKnora。
@@ -72,7 +72,9 @@ class WeKnoraClient:
         try:
             body = resp.json()
         except Exception as exc:  # noqa: BLE001
-            raise WeKnoraError("invalid_response", f"WeKnora 响应非 JSON（HTTP {resp.status_code}）") from exc
+            raise WeKnoraError(
+                "invalid_response", f"WeKnora 响应非 JSON（HTTP {resp.status_code}）"
+            ) from exc
         if resp.status_code >= 400 or not body.get("success", resp.status_code < 400):
             err = body.get("error") or {}
             raise WeKnoraError(
@@ -82,8 +84,13 @@ class WeKnoraClient:
         return body.get("data") or {}
 
     async def create_kb(
-        self, *, name: str, embedding_model_id: str | None, trace_id: str | None = None,
-        description: str = "", summary_model_id: str | None = None,
+        self,
+        *,
+        name: str,
+        embedding_model_id: str | None,
+        trace_id: str | None = None,
+        description: str = "",
+        summary_model_id: str | None = None,
     ) -> str:
         """建知识库，返回 weknora_kb_id。embedding_model_id 全平台统一、建库后不可改。"""
         payload: dict[str, Any] = {"name": name, "description": description, "type": "document"}
@@ -109,7 +116,11 @@ class WeKnoraClient:
         return self._unwrap(resp)
 
     async def update_kb(
-        self, kb_id: str, *, name: str | None = None, description: str | None = None,
+        self,
+        kb_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
         trace_id: str | None = None,
     ) -> dict[str, Any]:
         """改 KB 名称 / 描述（`PUT /knowledge-bases/:id`）。
@@ -125,7 +136,8 @@ class WeKnoraClient:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.put(
                 f"{self._base}/knowledge-bases/{kb_id}",
-                json=payload, headers=self._headers(trace_id),
+                json=payload,
+                headers=self._headers(trace_id),
             )
         return self._unwrap(resp)
 
@@ -174,13 +186,20 @@ class WeKnoraClient:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(
                 f"{self._base}/initialization/initialize/{kb_id}",
-                json=payload, headers=self._headers(trace_id),
+                json=payload,
+                headers=self._headers(trace_id),
             )
         self._unwrap(resp)
 
     async def upload_file(
-        self, *, kb_id: str, content: bytes, file_name: str, mime: str | None,
-        metadata: dict[str, Any] | None = None, channel: str | None = None,
+        self,
+        *,
+        kb_id: str,
+        content: bytes,
+        file_name: str,
+        mime: str | None,
+        metadata: dict[str, Any] | None = None,
+        channel: str | None = None,
         trace_id: str | None = None,
     ) -> dict[str, Any]:
         """上传文件创建知识，返回 data（含 id=knowledge id、parse_status、file_hash）。"""
@@ -193,11 +212,15 @@ class WeKnoraClient:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(
                 f"{self._base}/knowledge-bases/{kb_id}/knowledge/file",
-                files=files, data=form, headers=self._headers(trace_id),
+                files=files,
+                data=form,
+                headers=self._headers(trace_id),
             )
         return self._unwrap(resp)
 
-    async def get_knowledge(self, knowledge_id: str, *, trace_id: str | None = None) -> dict[str, Any]:
+    async def get_knowledge(
+        self, knowledge_id: str, *, trace_id: str | None = None
+    ) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.get(
                 f"{self._base}/knowledge/{knowledge_id}", headers=self._headers(trace_id)
@@ -205,9 +228,16 @@ class WeKnoraClient:
         return self._unwrap(resp)
 
     async def reparse_knowledge(
-        self, *, kb_id: str, knowledge_id: str | None, content: bytes,
-        file_name: str, mime: str | None, metadata: dict[str, Any] | None = None,
-        channel: str | None = None, trace_id: str | None = None,
+        self,
+        *,
+        kb_id: str,
+        knowledge_id: str | None,
+        content: bytes,
+        file_name: str,
+        mime: str | None,
+        metadata: dict[str, Any] | None = None,
+        channel: str | None = None,
+        trace_id: str | None = None,
     ) -> dict[str, Any]:
         """显式 reparse：WeKnora **无独立 reparse 端点**，本方法封装为「受控重传」——
         先删除已有 doc（若有），再重新上传同一原文触发底座重新解析，返回**新 doc** data
@@ -224,8 +254,13 @@ class WeKnoraClient:
                 # doc 可能已不存在 / 底座删除失败：不阻断重传，继续上传新 doc。
                 pass
         return await self.upload_file(
-            kb_id=kb_id, content=content, file_name=file_name, mime=mime,
-            metadata=metadata, channel=channel, trace_id=trace_id,
+            kb_id=kb_id,
+            content=content,
+            file_name=file_name,
+            mime=mime,
+            metadata=metadata,
+            channel=channel,
+            trace_id=trace_id,
         )
 
     @staticmethod
@@ -259,7 +294,9 @@ class WeKnoraClient:
                     "chunk_index": it.get("chunk_index"),
                     "score": float(it.get("score") or it.get("relevance_score") or 0.0),
                     "seq": it.get("seq") if it.get("seq") is not None else it.get("chunk_index"),
-                    "start": it.get("start") if it.get("start") is not None else it.get("start_offset"),
+                    "start": it.get("start")
+                    if it.get("start") is not None
+                    else it.get("start_offset"),
                     "end": it.get("end") if it.get("end") is not None else it.get("end_offset"),
                 }
             )
@@ -325,7 +362,11 @@ class WeKnoraClient:
     # 这些方法返回 WeKnora 原始 dict（含 server-only id / 已脱敏 key），**上层 service 负责
     # 再脱敏 / 映射 model_ref 后才出 API**——本层只保证错误经 `_unwrap` 不带 api_key。
     async def _call(
-        self, method: str, path: str, *, json: dict[str, Any] | None = None,
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
         trace_id: str | None = None,
     ) -> Any:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
@@ -341,32 +382,52 @@ class WeKnoraClient:
         if model_type:
             path += f"?model_type={model_type}"
         data = await self._call("GET", path, trace_id=trace_id)
-        return data if isinstance(data, list) else (data.get("items") if isinstance(data, dict) else []) or []
+        return (
+            data
+            if isinstance(data, list)
+            else (data.get("items") if isinstance(data, dict) else []) or []
+        )
 
     async def list_models(self, *, trace_id: str | None = None) -> list[dict[str, Any]]:
         data = await self._call("GET", "/models", trace_id=trace_id)
-        return data if isinstance(data, list) else (data.get("items") if isinstance(data, dict) else []) or []
+        return (
+            data
+            if isinstance(data, list)
+            else (data.get("items") if isinstance(data, dict) else []) or []
+        )
 
     async def get_model(self, model_id: str, *, trace_id: str | None = None) -> dict[str, Any]:
         result: dict[str, Any] = await self._call("GET", f"/models/{model_id}", trace_id=trace_id)
         return result
 
-    async def create_model(self, payload: dict[str, Any], *, trace_id: str | None = None) -> dict[str, Any]:
-        result: dict[str, Any] = await self._call("POST", "/models", json=payload, trace_id=trace_id)
+    async def create_model(
+        self, payload: dict[str, Any], *, trace_id: str | None = None
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = await self._call(
+            "POST", "/models", json=payload, trace_id=trace_id
+        )
         return result
 
     async def update_model(
         self, model_id: str, payload: dict[str, Any], *, trace_id: str | None = None
     ) -> dict[str, Any]:
-        result: dict[str, Any] = await self._call("PUT", f"/models/{model_id}", json=payload, trace_id=trace_id)
+        result: dict[str, Any] = await self._call(
+            "PUT", f"/models/{model_id}", json=payload, trace_id=trace_id
+        )
         return result
 
     async def delete_model(self, model_id: str, *, trace_id: str | None = None) -> None:
         await self._call("DELETE", f"/models/{model_id}", trace_id=trace_id)
 
     async def update_initialization_config(
-        self, kb_id: str, *, chat_model_id: str | None = None, embedding_model_id: str | None = None,
-        rerank_model_id: str | None = None, multimodal_id: str | None = None, trace_id: str | None = None,
+        self,
+        kb_id: str,
+        *,
+        chat_model_id: str | None = None,
+        embedding_model_id: str | None = None,
+        rerank_model_id: str | None = None,
+        multimodal_id: str | None = None,
+        trace_id: str | None = None,
     ) -> dict[str, Any] | None:
         """更新 KB 模型初始化配置（`PUT /initialization/config/:kb_id`）。只发非空字段。"""
         payload: dict[str, Any] = {}
@@ -380,25 +441,61 @@ class WeKnoraClient:
             payload["multimodal_id"] = multimodal_id
         if not payload:
             return None
-        result: dict[str, Any] = await self._call("PUT", f"/initialization/config/{kb_id}", json=payload, trace_id=trace_id)
+        result: dict[str, Any] = await self._call(
+            "PUT", f"/initialization/config/{kb_id}", json=payload, trace_id=trace_id
+        )
         return result
 
-    async def _model_check(self, path: str, *, api_url: str, api_key: str, model: str, trace_id: str | None) -> dict[str, Any]:
+    async def _model_check(
+        self, path: str, *, api_url: str, api_key: str, model: str, trace_id: str | None
+    ) -> dict[str, Any]:
         body = {"api_url": api_url, "api_key": api_key, "model": model}
         result: dict[str, Any] = await self._call("POST", path, json=body, trace_id=trace_id)
         return result
 
-    async def check_remote_model(self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None) -> dict[str, Any]:
-        return await self._model_check("/initialization/remote/check", api_url=api_url, api_key=api_key, model=model, trace_id=trace_id)
+    async def check_remote_model(
+        self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None
+    ) -> dict[str, Any]:
+        return await self._model_check(
+            "/initialization/remote/check",
+            api_url=api_url,
+            api_key=api_key,
+            model=model,
+            trace_id=trace_id,
+        )
 
-    async def test_embedding_model(self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None) -> dict[str, Any]:
-        return await self._model_check("/initialization/embedding/test", api_url=api_url, api_key=api_key, model=model, trace_id=trace_id)
+    async def test_embedding_model(
+        self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None
+    ) -> dict[str, Any]:
+        return await self._model_check(
+            "/initialization/embedding/test",
+            api_url=api_url,
+            api_key=api_key,
+            model=model,
+            trace_id=trace_id,
+        )
 
-    async def check_rerank_model(self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None) -> dict[str, Any]:
-        return await self._model_check("/initialization/rerank/check", api_url=api_url, api_key=api_key, model=model, trace_id=trace_id)
+    async def check_rerank_model(
+        self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None
+    ) -> dict[str, Any]:
+        return await self._model_check(
+            "/initialization/rerank/check",
+            api_url=api_url,
+            api_key=api_key,
+            model=model,
+            trace_id=trace_id,
+        )
 
-    async def test_multimodal_model(self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None) -> dict[str, Any]:
-        return await self._model_check("/initialization/multimodal/test", api_url=api_url, api_key=api_key, model=model, trace_id=trace_id)
+    async def test_multimodal_model(
+        self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None
+    ) -> dict[str, Any]:
+        return await self._model_check(
+            "/initialization/multimodal/test",
+            api_url=api_url,
+            api_key=api_key,
+            model=model,
+            trace_id=trace_id,
+        )
 
 
 class NullWeKnoraClient:
@@ -490,4 +587,3 @@ def get_weknora_client() -> WeKnoraClient | NullWeKnoraClient:
     return WeKnoraClient(
         base_url=s.weknora_base_url, api_key=s.weknora_api_key, timeout=s.weknora_timeout
     )
-

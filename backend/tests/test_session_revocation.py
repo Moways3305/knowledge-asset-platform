@@ -28,8 +28,18 @@ CSRF = "/api/v1/auth/csrf"
 CONSULTANT_EMAIL = "consultant.a@dev.local"
 ADMIN_EMAIL = "admin.e@dev.local"
 
-_LEAK = ["token_hash", "kap_session", "kap_oauth_state", "password_hash", "salt",
-         "digest", "pbkdf2", "device_info", "user-agent", "127.0.0.1"]
+_LEAK = [
+    "token_hash",
+    "kap_session",
+    "kap_oauth_state",
+    "password_hash",
+    "salt",
+    "digest",
+    "pbkdf2",
+    "device_info",
+    "user-agent",
+    "127.0.0.1",
+]
 
 
 def _hdr(uid):
@@ -93,8 +103,11 @@ async def test_sessions_response_no_leak(client):
 # ---------------------------------------------------------------------------
 async def test_admin_manual_revoke_invalidates_sessions(client, db_session):
     await _login_target_then_drop_cookie(client, CONSULTANT_EMAIL)
-    r = await client.post(_revoke_url(USER_CONSULTANT), headers=_hdr(USER_ADMIN_ONLY),
-                          json={"reason": "force offline"})
+    r = await client.post(
+        _revoke_url(USER_CONSULTANT),
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"reason": "force offline"},
+    )
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["ok"] is True and body["revoked_count"] >= 1 and body["revoked_at"]
@@ -102,9 +115,15 @@ async def test_admin_manual_revoke_invalidates_sessions(client, db_session):
     after = await client.get(_sessions_url(USER_CONSULTANT), headers=_hdr(USER_ADMIN_ONLY))
     assert after.json()["active_count"] == 0
     # 审计安全。
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "auth.sessions_revoked")
-    )).scalars().all()
+    ev = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.action == "auth.sessions_revoked")
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert ev
     extra = ev[0].extra or {}
     assert extra.get("trigger") == "admin_manual"
@@ -120,28 +139,43 @@ async def test_admin_manual_revoke_invalidates_sessions(client, db_session):
 # ---------------------------------------------------------------------------
 async def test_deactivation_revokes_sessions(client, db_session):
     await _login_target_then_drop_cookie(client, CONSULTANT_EMAIL)
-    r = await client.post(f"/api/v1/admin/people/{USER_CONSULTANT}/status",
-                          headers=_hdr(USER_ADMIN_ONLY), json={"status": "inactive"})
+    r = await client.post(
+        f"/api/v1/admin/people/{USER_CONSULTANT}/status",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"status": "inactive"},
+    )
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "inactive"
     assert r.json()["active_session_count"] == 0
     # 联动审计 trigger=user_deactivated。
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "auth.sessions_revoked")
-    )).scalars().all()
+    ev = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.action == "auth.sessions_revoked")
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert any((e.extra or {}).get("trigger") == "user_deactivated" for e in ev)
 
 
 async def test_cannot_deactivate_self(client):
-    r = await client.post(f"/api/v1/admin/people/{USER_ADMIN_ONLY}/status",
-                          headers=_hdr(USER_ADMIN_ONLY), json={"status": "inactive"})
+    r = await client.post(
+        f"/api/v1/admin/people/{USER_ADMIN_ONLY}/status",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"status": "inactive"},
+    )
     assert r.status_code == 409
     assert r.json()["detail"]["denied_reason"] == "cannot_deactivate_self"
 
 
 async def test_status_endpoint_admin_only(client):
-    r = await client.post(f"/api/v1/admin/people/{USER_CONSULTANT}/status",
-                          headers=_hdr(USER_BOSS), json={"status": "inactive"})
+    r = await client.post(
+        f"/api/v1/admin/people/{USER_CONSULTANT}/status",
+        headers=_hdr(USER_BOSS),
+        json={"status": "inactive"},
+    )
     assert r.status_code == 403
 
 
@@ -150,14 +184,23 @@ async def test_status_endpoint_admin_only(client):
 # ---------------------------------------------------------------------------
 async def test_password_reset_revokes_sessions(client, db_session):
     await _login_target_then_drop_cookie(client, CONSULTANT_EMAIL)
-    r = await client.post(f"/api/v1/admin/people/{USER_CONSULTANT}/password",
-                          headers=_hdr(USER_ADMIN_ONLY), json={"password": "newpass1234"})
+    r = await client.post(
+        f"/api/v1/admin/people/{USER_CONSULTANT}/password",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"password": "newpass1234"},
+    )
     assert r.status_code == 200, r.text
     after = await client.get(_sessions_url(USER_CONSULTANT), headers=_hdr(USER_ADMIN_ONLY))
     assert after.json()["active_count"] == 0
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "auth.sessions_revoked")
-    )).scalars().all()
+    ev = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.action == "auth.sessions_revoked")
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert any((e.extra or {}).get("trigger") == "password_reset" for e in ev)
 
 
@@ -169,9 +212,15 @@ async def test_revoke_without_csrf_forbidden_no_audit(client, db_session):
     r = await client.post(_revoke_url(USER_CONSULTANT), json={})  # 无 X-CSRF-Token
     assert r.status_code == 403
     assert r.json()["detail"]["denied_reason"] == "csrf_token_missing"
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "auth.sessions_revoked")
-    )).scalars().all()
+    ev = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.action == "auth.sessions_revoked")
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert ev == []
 
 
@@ -190,8 +239,11 @@ async def test_preserve_current_session_keeps_admin_logged_in(client):
     await client.post(LOGIN, json={"email": ADMIN_EMAIL})  # admin 会话 A
     csrf = (await client.get(CSRF)).json()["csrf_token"]
     # admin 撤销自己的会话但保留当前 → 当前会话仍可用（active_count 不为 0）。
-    r = await client.post(_revoke_url(USER_ADMIN_ONLY), headers={"X-CSRF-Token": csrf},
-                          json={"preserve_current_session": True})
+    r = await client.post(
+        _revoke_url(USER_ADMIN_ONLY),
+        headers={"X-CSRF-Token": csrf},
+        json={"preserve_current_session": True},
+    )
     assert r.status_code == 200, r.text
     assert r.json()["preserved_current_session"] is True
     me = await client.get("/api/v1/auth/me")

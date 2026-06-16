@@ -1,4 +1,4 @@
-﻿"""原文访问申请与授权 ORM 模型。
+"""原文访问申请与授权 ORM 模型。
 
 两张表：
 - original_access_requests：原文访问申请（pending/approved/rejected/cancelled）。
@@ -34,7 +34,8 @@ class OriginalAccessRequest(Base):
     __table_args__ = (
         Index(
             "uq_oar_one_pending",
-            "requester_user_id", "asset_id",
+            "requester_user_id",
+            "asset_id",
             unique=True,
             sqlite_where=text("status = 'pending'"),
             postgresql_where=text("status = 'pending'"),
@@ -54,7 +55,9 @@ class OriginalAccessRequest(Base):
         Uuid, ForeignKey("projects.id"), nullable=True
     )
     # 本任务固定 raw/original 层（不为摘要层制造流程）。
-    requested_access_layer: Mapped[str] = mapped_column(String(20), nullable=False, default="original")
+    requested_access_layer: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="original"
+    )
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     # pending / approved / rejected / cancelled
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
@@ -74,7 +77,9 @@ class AccessGrant(Base):
     __table_args__ = (
         Index(
             "uq_grant_one_active",
-            "grantee_user_id", "asset_id", "grant_type",
+            "grantee_user_id",
+            "asset_id",
+            "grant_type",
             unique=True,
             sqlite_where=text("status = 'active'"),
             postgresql_where=text("status = 'active'"),
@@ -86,9 +91,7 @@ class AccessGrant(Base):
     asset_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("knowledge_assets.id"), nullable=False
     )
-    grantee_user_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id"), nullable=False
-    )
+    grantee_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
     grant_type: Mapped[str] = mapped_column(String(30), nullable=False, default="original_access")
     source_request_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("original_access_requests.id"), nullable=True
@@ -108,4 +111,3 @@ class AccessGrant(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
     )
-

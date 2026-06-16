@@ -22,4 +22,3 @@ export interface ReviewListResponseDTO {
   items: ReviewItemDTO[];
   total: number;
 }
-

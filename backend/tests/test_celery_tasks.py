@@ -67,8 +67,9 @@ async def test_upload_processing_then_job_persists(client, db_session, monkeypat
 
     monkeypatch.setattr(ingest_mod, "enqueue_ingest_processing", fake_enqueue)
 
-    resp = await client.post(UPLOAD, headers=_hdr(USER_CONSULTANT),
-                             files={"file": ("doc.txt", _TXT, "text/plain")})
+    resp = await client.post(
+        UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": ("doc.txt", _TXT, "text/plain")}
+    )
     assert resp.status_code == 200
     assert resp.json()["status"] == "processing"
     task_id = uuid.UUID(resp.json()["ingest_task_id"])
@@ -80,8 +81,12 @@ async def test_upload_processing_then_job_persists(client, db_session, monkeypat
 
     # 直接跑作业（用同一受控存储读字节）。
     status = await ingest_processing.process_upload_task(
-        db_session, task_id, storage=client._kap_storage,
-        llm=NullLLMClient(), desensitizer=NullDesensitizer(), trace_id="trc-celery",
+        db_session,
+        task_id,
+        storage=client._kap_storage,
+        llm=NullLLMClient(),
+        desensitizer=NullDesensitizer(),
+        trace_id="trc-celery",
     )
     assert status == "pending_confirmation"
     ai2 = await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
@@ -100,24 +105,31 @@ async def test_processing_job_idempotent(client, db_session, monkeypatch):
         return "processing"
 
     monkeypatch.setattr(ingest_mod, "enqueue_ingest_processing", fake_enqueue)
-    resp = await client.post(UPLOAD, headers=_hdr(USER_CONSULTANT),
-                             files={"file": ("a.txt", _TXT, "text/plain")})
+    resp = await client.post(
+        UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": ("a.txt", _TXT, "text/plain")}
+    )
     task_id = uuid.UUID(resp.json()["ingest_task_id"])
 
-    kw = dict(storage=client._kap_storage, llm=NullLLMClient(),
-              desensitizer=NullDesensitizer(), trace_id="trc-idem")
+    kw = dict(
+        storage=client._kap_storage,
+        llm=NullLLMClient(),
+        desensitizer=NullDesensitizer(),
+        trace_id="trc-idem",
+    )
     s1 = await ingest_processing.process_upload_task(db_session, task_id, **kw)
     s2 = await ingest_processing.process_upload_task(db_session, task_id, **kw)
     assert s1 == s2 == "pending_confirmation"
     # 重跑不重复建 ai_result。
     cnt = await db_session.scalar(
-        select(func.count()).select_from(IngestTaskAiResult)
+        select(func.count())
+        .select_from(IngestTaskAiResult)
         .where(IngestTaskAiResult.ingest_task_id == task_id)
     )
     assert cnt == 1
     # 不重复终态审计（ingest.ai_extracted 仅一条）。
     audits = await db_session.scalar(
-        select(func.count()).select_from(AuditEvent)
+        select(func.count())
+        .select_from(AuditEvent)
         .where(AuditEvent.action == "ingest.ai_extracted")
         .where(AuditEvent.target_id == task_id)
     )
@@ -128,16 +140,24 @@ async def test_processing_failure_retry_then_failed(db_session, tmp_path):
     storage = LocalFileStorage(tmp_path / "store")
     ref = storage.save(b"some bytes", original_name="x.txt")
     task = IngestTask(
-        source="path_b_upload", source_file_ref=ref, source_file_name="x.txt",
-        source_file_mime_type="text/plain", source_file_size=10, source_file_hash="h",
-        status="processing", created_by=USER_CONSULTANT, max_retries=2,
+        source="path_b_upload",
+        source_file_ref=ref,
+        source_file_name="x.txt",
+        source_file_mime_type="text/plain",
+        source_file_size=10,
+        source_file_hash="h",
+        status="processing",
+        created_by=USER_CONSULTANT,
+        max_retries=2,
     )
     db_session.add(task)
     await db_session.commit()
     # 删除文件 → 作业读盘抛错（瞬时失败）。
     storage.resolve_path(ref).unlink()
 
-    kw = dict(storage=storage, llm=NullLLMClient(), desensitizer=NullDesensitizer(), trace_id="trc-fail")
+    kw = dict(
+        storage=storage, llm=NullLLMClient(), desensitizer=NullDesensitizer(), trace_id="trc-fail"
+    )
     s1 = await ingest_processing.process_upload_task(db_session, task.id, **kw)
     assert s1 == "processing" and task.retry_count == 1
     s2 = await ingest_processing.process_upload_task(db_session, task.id, **kw)
@@ -147,7 +167,8 @@ async def test_processing_failure_retry_then_failed(db_session, tmp_path):
     assert s3 == "failed" and task.retry_count == 2
     # 未建 ai_result；失败信息安全（无内部引用）。
     cnt = await db_session.scalar(
-        select(func.count()).select_from(IngestTaskAiResult)
+        select(func.count())
+        .select_from(IngestTaskAiResult)
         .where(IngestTaskAiResult.ingest_task_id == task.id)
     )
     assert cnt == 0
@@ -160,14 +181,22 @@ async def test_content_terminal_failure_is_idempotent(db_session, tmp_path):
     # 仅空白的 .txt → 抽取 status=empty → 内容性终态 failed（不耗尽重试）。
     ref = storage.save(b"   \n  \t  ", original_name="blank.txt")
     task = IngestTask(
-        source="path_b_upload", source_file_ref=ref, source_file_name="blank.txt",
-        source_file_mime_type="text/plain", source_file_size=9, source_file_hash="hblank",
-        status="processing", created_by=USER_CONSULTANT, max_retries=3,
+        source="path_b_upload",
+        source_file_ref=ref,
+        source_file_name="blank.txt",
+        source_file_mime_type="text/plain",
+        source_file_size=9,
+        source_file_hash="hblank",
+        status="processing",
+        created_by=USER_CONSULTANT,
+        max_retries=3,
     )
     db_session.add(task)
     await db_session.commit()
 
-    kw = dict(storage=storage, llm=NullLLMClient(), desensitizer=NullDesensitizer(), trace_id="trc-term")
+    kw = dict(
+        storage=storage, llm=NullLLMClient(), desensitizer=NullDesensitizer(), trace_id="trc-term"
+    )
     s1 = await ingest_processing.process_upload_task(db_session, task.id, **kw)
     assert s1 == "failed"
     assert task.retry_count == 0  # 内容性终态，非瞬时重试
@@ -178,13 +207,15 @@ async def test_content_terminal_failure_is_idempotent(db_session, tmp_path):
 
     # 至多一行 ai_result。
     ai_cnt = await db_session.scalar(
-        select(func.count()).select_from(IngestTaskAiResult)
+        select(func.count())
+        .select_from(IngestTaskAiResult)
         .where(IngestTaskAiResult.ingest_task_id == task.id)
     )
     assert ai_cnt == 1
     # 恰好一条终态 ingest.failed 审计（不因重跑重复）。
     failed_cnt = await db_session.scalar(
-        select(func.count()).select_from(AuditEvent)
+        select(func.count())
+        .select_from(AuditEvent)
         .where(AuditEvent.action == "ingest.failed")
         .where(AuditEvent.target_id == task.id)
     )
@@ -194,12 +225,15 @@ async def test_content_terminal_failure_is_idempotent(db_session, tmp_path):
     assert ref not in (task.error_message or "")
     audit_row = (
         await db_session.execute(
-            select(AuditEvent).where(AuditEvent.action == "ingest.failed")
+            select(AuditEvent)
+            .where(AuditEvent.action == "ingest.failed")
             .where(AuditEvent.target_id == task.id)
         )
     ).scalar_one()
     extra_text = str(audit_row.extra or {})
-    assert "store2" not in extra_text and ref not in extra_text and "source_file_ref" not in extra_text
+    assert (
+        "store2" not in extra_text and ref not in extra_text and "source_file_ref" not in extra_text
+    )
 
 
 # ---------------- WeKnora 解析对账 ----------------
@@ -216,13 +250,25 @@ class FakeParseWeKnora:
 
 async def _new_version(db_session, *, doc_id, parse_status):
     asset = KnowledgeAsset(
-        title=f"异步资产 {doc_id}", scope="company", zone="material", asset_type="methodology",
-        owner_user_id=USER_CONSULTANT, maintainer_user_id=USER_CONSULTANT,
-        visibility="public", confidentiality_level="L2", ai_access_level="A1", asset_status="active",
+        title=f"异步资产 {doc_id}",
+        scope="company",
+        zone="material",
+        asset_type="methodology",
+        owner_user_id=USER_CONSULTANT,
+        maintainer_user_id=USER_CONSULTANT,
+        visibility="public",
+        confidentiality_level="L2",
+        ai_access_level="A1",
+        asset_status="active",
     )
     version = KnowledgeAssetVersion(
-        asset_id=asset.id, version_no="v1", version_status="active", created_by=USER_CONSULTANT,
-        weknora_kb_id="wk-kb-company", weknora_doc_id=doc_id, weknora_parse_status=parse_status,
+        asset_id=asset.id,
+        version_no="v1",
+        version_status="active",
+        created_by=USER_CONSULTANT,
+        weknora_kb_id="wk-kb-company",
+        weknora_doc_id=doc_id,
+        weknora_parse_status=parse_status,
     )
     asset.versions.append(version)
     asset.current_version_id = version.id
@@ -247,9 +293,16 @@ async def test_parse_reconcile_updates_and_tolerates_failure(db_session, monkeyp
 # ---------------- 生命周期归档扫描 ----------------
 async def _insert_inactive_asset(db_session, *, title, last_called_days_ago):
     asset = KnowledgeAsset(
-        title=title, scope="company", zone="asset", asset_type="methodology",
-        owner_user_id=USER_CONSULTANT, maintainer_user_id=USER_CONSULTANT,
-        visibility="public", confidentiality_level="L2", ai_access_level="A1", asset_status="active",
+        title=title,
+        scope="company",
+        zone="asset",
+        asset_type="methodology",
+        owner_user_id=USER_CONSULTANT,
+        maintainer_user_id=USER_CONSULTANT,
+        visibility="public",
+        confidentiality_level="L2",
+        ai_access_level="A1",
+        asset_status="active",
         last_called_at=_now() - timedelta(days=last_called_days_ago),
     )
     db_session.add(asset)
@@ -258,7 +311,9 @@ async def _insert_inactive_asset(db_session, *, title, last_called_days_ago):
 
 
 async def test_archive_scan_warns_without_archiving_and_dedup(db_session):
-    asset = await _insert_inactive_asset(db_session, title="长期未调用资产", last_called_days_ago=800)
+    asset = await _insert_inactive_asset(
+        db_session, title="长期未调用资产", last_called_days_ago=800
+    )
     r1 = await lifecycle_scan.scan_archive_candidates(db_session, trace_id="trc-arch", now=_now())
     assert r1["warnings"] >= 1
     await db_session.refresh(asset)
@@ -266,20 +321,23 @@ async def test_archive_scan_warns_without_archiving_and_dedup(db_session):
     assert asset.asset_status == "active"
     # 产生 archive_warning 事件 + 本地通知。
     warn_cnt = await db_session.scalar(
-        select(func.count()).select_from(AssetLifecycleEvent)
+        select(func.count())
+        .select_from(AssetLifecycleEvent)
         .where(AssetLifecycleEvent.asset_id == asset.id)
         .where(AssetLifecycleEvent.event_type == "archive_warning")
     )
     assert warn_cnt == 1
     notif = await db_session.scalar(
-        select(func.count()).select_from(NotificationRecord)
+        select(func.count())
+        .select_from(NotificationRecord)
         .where(NotificationRecord.recipient_user_id == USER_CONSULTANT)
     )
     assert notif >= 1
     # 重复扫描去重：不再新增 warning。
     await lifecycle_scan.scan_archive_candidates(db_session, trace_id="trc-arch", now=_now())
     warn_cnt2 = await db_session.scalar(
-        select(func.count()).select_from(AssetLifecycleEvent)
+        select(func.count())
+        .select_from(AssetLifecycleEvent)
         .where(AssetLifecycleEvent.asset_id == asset.id)
         .where(AssetLifecycleEvent.event_type == "archive_warning")
     )
@@ -287,11 +345,17 @@ async def test_archive_scan_warns_without_archiving_and_dedup(db_session):
 
 
 async def test_archive_scan_promotes_to_candidate_after_warning_period(db_session):
-    asset = await _insert_inactive_asset(db_session, title="预警期已过资产", last_called_days_ago=800)
+    asset = await _insert_inactive_asset(
+        db_session, title="预警期已过资产", last_called_days_ago=800
+    )
     # 预置一条 40 天前的 archive_warning（预警期 30 天已过）。
     old_warning = AssetLifecycleEvent(
-        asset_id=asset.id, event_type="archive_warning", old_status="active",
-        triggered_by="system", reason="历史预警", trace_id="seed",
+        asset_id=asset.id,
+        event_type="archive_warning",
+        old_status="active",
+        triggered_by="system",
+        reason="历史预警",
+        trace_id="seed",
         created_at=_now() - timedelta(days=40),
     )
     db_session.add(old_warning)
@@ -300,7 +364,8 @@ async def test_archive_scan_promotes_to_candidate_after_warning_period(db_sessio
     r = await lifecycle_scan.scan_archive_candidates(db_session, trace_id="trc-cand", now=_now())
     assert r["candidates"] == 1
     cand_cnt = await db_session.scalar(
-        select(func.count()).select_from(AssetLifecycleEvent)
+        select(func.count())
+        .select_from(AssetLifecycleEvent)
         .where(AssetLifecycleEvent.asset_id == asset.id)
         .where(AssetLifecycleEvent.event_type == "archive_candidate")
     )
@@ -315,28 +380,49 @@ async def test_archive_scan_promotes_to_candidate_after_warning_period(db_sessio
 # ---------------- 跨项目复用 / 升格推荐 ----------------
 async def _cite_asset(db_session, *, asset_id, project_id):
     call = AgentCall(
-        caller_user_id=USER_CONSULTANT, project_id=project_id, query_text="q", model_key="m",
-        provider="weknora_llm", capability="qa", call_status="allowed", trace_id="t",
+        caller_user_id=USER_CONSULTANT,
+        project_id=project_id,
+        query_text="q",
+        model_key="m",
+        provider="weknora_llm",
+        capability="qa",
+        call_status="allowed",
+        trace_id="t",
     )
     db_session.add(call)
     await db_session.flush()
     decision = AgentGatewayDecision(
-        call_id=call.id, caller_user_id=USER_CONSULTANT, decision_status="allowed",
+        call_id=call.id,
+        caller_user_id=USER_CONSULTANT,
+        decision_status="allowed",
     )
     db_session.add(decision)
     await db_session.flush()
     item = AgentGatewayDecisionItem(
-        decision_id=decision.id, call_id=call.id, caller_user_id=USER_CONSULTANT,
-        target_asset_id=asset_id, target_scope="project",
-        target_confidentiality_level="L2", target_ai_access_level="A1",
-        discovery_allowed=True, summary_allowed=True, original_allowed=True, returned_layer="original",
+        decision_id=decision.id,
+        call_id=call.id,
+        caller_user_id=USER_CONSULTANT,
+        target_asset_id=asset_id,
+        target_scope="project",
+        target_confidentiality_level="L2",
+        target_ai_access_level="A1",
+        discovery_allowed=True,
+        summary_allowed=True,
+        original_allowed=True,
+        returned_layer="original",
     )
     db_session.add(item)
     await db_session.flush()
-    db_session.add(AgentCallCitation(
-        call_id=call.id, decision_item_id=item.id, cited_asset_id=asset_id,
-        used_access_layer="original", cited_zone="asset", citation_order=1,
-    ))
+    db_session.add(
+        AgentCallCitation(
+            call_id=call.id,
+            decision_item_id=item.id,
+            cited_asset_id=asset_id,
+            used_access_layer="original",
+            cited_zone="asset",
+            citation_order=1,
+        )
+    )
     await db_session.commit()
 
 
@@ -350,14 +436,16 @@ async def test_reuse_scan_updates_usage_and_recommends_once(db_session):
     assert asset.last_called_at is not None
     # 审计恰好一条升格推荐事件。
     rec_cnt = await db_session.scalar(
-        select(func.count()).select_from(AuditEvent)
+        select(func.count())
+        .select_from(AuditEvent)
         .where(AuditEvent.action == "knowledge.upgrade_recommended")
         .where(AuditEvent.target_id == KA_PROJECT_ALPHA)
     )
     assert rec_cnt == 1
     # 通知发给 Boss / 咨询总监。
     gov_notif = await db_session.scalar(
-        select(func.count()).select_from(NotificationRecord)
+        select(func.count())
+        .select_from(NotificationRecord)
         .where(NotificationRecord.recipient_user_id.in_([USER_BOSS, USER_DIRECTOR]))
     )
     assert gov_notif >= 1

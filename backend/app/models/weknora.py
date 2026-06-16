@@ -28,9 +28,7 @@ def _now() -> datetime:
 class WeknoraKbMapping(Base):
     __tablename__ = "weknora_kb_mappings"
     __table_args__ = (
-        UniqueConstraint(
-            "scope", "owner_user_id", "project_id", name="uq_weknora_kb_scope_entity"
-        ),
+        UniqueConstraint("scope", "owner_user_id", "project_id", name="uq_weknora_kb_scope_entity"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)

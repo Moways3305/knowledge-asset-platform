@@ -65,7 +65,16 @@ def test_rule_desensitizer_covers_all_entity_types():
     res = RuleBasedDesensitizer().desensitize(_SENSITIVE.decode("utf-8"))
     assert res.status == "applied"
     # 各实体类别均命中并计数。
-    for cat in ("email", "phone", "id_card", "bank_card", "amount", "contact", "customer", "landline"):
+    for cat in (
+        "email",
+        "phone",
+        "id_card",
+        "bank_card",
+        "amount",
+        "contact",
+        "customer",
+        "landline",
+    ):
         assert res.counts.get(cat, 0) >= 1, (cat, res.counts)
     # 金额两处（¥... 与 80万元）。
     assert res.counts["amount"] >= 2
@@ -126,28 +135,44 @@ class CapturingLLM:
         self.calls = 0
         self.last_user = None
 
-    async def chat_completion(self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None):
+    async def chat_completion(
+        self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None
+    ):
         self.calls += 1
         self.last_user = "\n".join(m["content"] for m in messages if m["role"] == "user")
         if self.mode == "fail":
             raise LLMError("http_500", "boom")
-        return json.dumps({
-            "one_liner": "一句话", "detailed": "详细摘要", "key_points": ["a"], "tags": ["t"],
-            "asset_type": "case", "confidentiality_level": "L3", "ai_access_level": "A3",
-            "topic": "脱敏样本", "subject_or_client": "通用",
-        }, ensure_ascii=False)
+        return json.dumps(
+            {
+                "one_liner": "一句话",
+                "detailed": "详细摘要",
+                "key_points": ["a"],
+                "tags": ["t"],
+                "asset_type": "case",
+                "confidentiality_level": "L3",
+                "ai_access_level": "A3",
+                "topic": "脱敏样本",
+                "subject_or_client": "通用",
+            },
+            ensure_ascii=False,
+        )
 
 
 def _extraction(text: str) -> ExtractionResult:
-    return ExtractionResult(text=text, status="extracted", error_type=None, error_message=None, char_count=len(text))
+    return ExtractionResult(
+        text=text, status="extracted", error_type=None, error_message=None, char_count=len(text)
+    )
 
 
 async def test_platform_llm_receives_desensitized_text(monkeypatch):
     monkeypatch.setattr(cp_module, "llm_enabled", lambda: True)
     fake = CapturingLLM()
     draft, meta = await process_content(
-        fake, RuleBasedDesensitizer(),
-        extraction=_extraction(_SENSITIVE.decode("utf-8")), file_name="s.txt", trace_id="t",
+        fake,
+        RuleBasedDesensitizer(),
+        extraction=_extraction(_SENSITIVE.decode("utf-8")),
+        file_name="s.txt",
+        trace_id="t",
     )
     assert fake.calls == 1
     assert meta["status"] == "llm"
@@ -163,8 +188,11 @@ async def test_llm_not_configured_still_records_desensitization(monkeypatch):
     monkeypatch.setattr(cp_module, "llm_enabled", lambda: False)
     fake = CapturingLLM()
     draft, meta = await process_content(
-        fake, RuleBasedDesensitizer(),
-        extraction=_extraction(_SENSITIVE.decode("utf-8")), file_name="s.txt", trace_id="t",
+        fake,
+        RuleBasedDesensitizer(),
+        extraction=_extraction(_SENSITIVE.decode("utf-8")),
+        file_name="s.txt",
+        trace_id="t",
     )
     # 未配置 LLM → 不调用，但脱敏状态/计数仍记录。
     assert fake.calls == 0
@@ -184,8 +212,11 @@ async def test_desensitization_failure_skips_platform_llm(monkeypatch):
 
     fake = CapturingLLM()
     draft, meta = await process_content(
-        fake, BoomDesensitizer(),
-        extraction=_extraction(_SENSITIVE.decode("utf-8")), file_name="s.txt", trace_id="t",
+        fake,
+        BoomDesensitizer(),
+        extraction=_extraction(_SENSITIVE.decode("utf-8")),
+        file_name="s.txt",
+        trace_id="t",
     )
     assert fake.calls == 0  # 平台侧 LLM 未接触原文
     assert meta["status"] == "degraded"
@@ -197,8 +228,12 @@ async def test_desensitization_failure_skips_platform_llm(monkeypatch):
 async def test_non_text_extraction_skips_desensitization(monkeypatch):
     monkeypatch.setattr(cp_module, "llm_enabled", lambda: True)
     fake = CapturingLLM()
-    ext = ExtractionResult(text="", status="empty", error_type="empty", error_message="无文本", char_count=0)
-    draft, meta = await process_content(fake, RuleBasedDesensitizer(), extraction=ext, file_name="x.pdf", trace_id="t")
+    ext = ExtractionResult(
+        text="", status="empty", error_type="empty", error_message="无文本", char_count=0
+    )
+    draft, meta = await process_content(
+        fake, RuleBasedDesensitizer(), extraction=ext, file_name="x.pdf", trace_id="t"
+    )
     assert fake.calls == 0
     assert meta["status"] == "degraded"
     assert draft["desensitization_status"] == "skipped"
@@ -220,7 +255,9 @@ def _cleanup():
 
 
 async def _upload(client, content=_SENSITIVE, file_name="s.txt"):
-    r = await client.post(UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": (file_name, content, "text/plain")})
+    r = await client.post(
+        UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": (file_name, content, "text/plain")}
+    )
     return r.json()["ingest_task_id"]
 
 
@@ -234,8 +271,14 @@ async def test_ai_result_exposes_safe_desensitization_metadata_only(client, monk
     assert b["desensitization_message"]
     # 安全：不返回脱敏文本 ref、原始文件存储 ref、脱敏全文。
     # 注：extracted_text_preview 是 IMPLEMENT-14 既有"创建人查看自己上传的原文预览"
-    #（原文层授权，仅完整视图返回），不属于本任务新增泄露，故单独从计数/文案维度断言。
-    for token in ["desensitized_text_ref", "source_file_ref", "storage_ref", "weknora_kb_id", "weknora_doc_id"]:
+    # （原文层授权，仅完整视图返回），不属于本任务新增泄露，故单独从计数/文案维度断言。
+    for token in [
+        "desensitized_text_ref",
+        "source_file_ref",
+        "storage_ref",
+        "weknora_kb_id",
+        "weknora_doc_id",
+    ]:
         assert token not in r.text, token
     # 脱敏元数据本身（状态 + 计数 + 文案）不含任何原值。
     meta_blob = json.dumps(
@@ -254,7 +297,9 @@ async def test_l2_ingest_still_works_with_desensitization(client, monkeypatch):
     """L1/L2 兼容：含敏感实体也能正常走到 pending_confirmation。"""
     _enable_llm(monkeypatch, CapturingLLM())
     task_id = await _upload(client)
-    b = (await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))).json()
+    b = (
+        await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
+    ).json()
     assert b["status"] == "pending_confirmation"
     assert b["desensitization_status"] == "applied"
 
@@ -279,7 +324,9 @@ class FakeWK:
     async def get_initialization_config(self, kb_id, *, trace_id=None):
         return {}
 
-    async def upload_file(self, *, kb_id, content, file_name, mime, metadata=None, channel=None, trace_id=None):
+    async def upload_file(
+        self, *, kb_id, content, file_name, mime, metadata=None, channel=None, trace_id=None
+    ):
         if self.fail:
             raise WeKnoraError("weknora_down", "底座不可用")
         self.uploaded_content = content
@@ -310,12 +357,18 @@ def _enable_weknora(monkeypatch, fake, *, embedding="test-embed"):
 
 async def _confirm(client, task_id, **over):
     payload = {
-        "title": "脱敏边界资产", "summary": "摘要", "tags": ["t"],
-        "target_scope": "personal", "asset_type": "methodology",
-        "confidentiality_level": "L2", "ai_access_level": "A2",
+        "title": "脱敏边界资产",
+        "summary": "摘要",
+        "tags": ["t"],
+        "target_scope": "personal",
+        "asset_type": "methodology",
+        "confidentiality_level": "L2",
+        "ai_access_level": "A2",
     }
     payload.update(over)
-    return await client.post(f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(USER_CONSULTANT), json=payload)
+    return await client.post(
+        f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(USER_CONSULTANT), json=payload
+    )
 
 
 async def test_weknora_receives_original_and_no_leak(client, monkeypatch):
@@ -328,11 +381,20 @@ async def test_weknora_receives_original_and_no_leak(client, monkeypatch):
     # WeKnora 底座按信任边界收到**原始**文件内容（未脱敏），证明原文链路未被改写。
     assert ok.uploaded_content == _SENSITIVE
     # 但响应不泄露 WeKnora 内部 id / 存储 ref。
-    for token in ["weknora_kb_id", "weknora_doc_id", "kb-", "doc-", "source_file_ref", "storage_ref"]:
+    for token in [
+        "weknora_kb_id",
+        "weknora_doc_id",
+        "kb-",
+        "doc-",
+        "source_file_ref",
+        "storage_ref",
+    ]:
         assert token not in r.text, token
 
 
-async def test_retry_index_not_blocked_by_missing_desensitized_text(client, db_session, monkeypatch):
+async def test_retry_index_not_blocked_by_missing_desensitized_text(
+    client, db_session, monkeypatch
+):
     """retry-index 重新从原始文件索引，不依赖脱敏文本（索引重试语义不回归）。"""
     _enable_weknora(monkeypatch, FakeWK(fail=True))
     task_id = await _upload(client)

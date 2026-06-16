@@ -1,4 +1,4 @@
-﻿"""scope→KB 映射服务（含初始化）。
+"""scope→KB 映射服务（含初始化）。
 
 把业务 scope 实体映射到 WeKnora 知识库 id；懒创建幂等（同 scope 实体只建一个 KB，
 并发靠唯一约束冲突重查）。映射行**独立提交**（不随后续 asset 上传失败回滚——KB 可复用，
@@ -59,7 +59,9 @@ def _init_kwargs() -> dict[str, str | None]:
 
 
 async def _find(
-    session: AsyncSession, scope: str, owner_user_id: uuid.UUID | None,
+    session: AsyncSession,
+    scope: str,
+    owner_user_id: uuid.UUID | None,
     project_id: uuid.UUID | None,
 ) -> WeknoraKbMapping | None:
     stmt = select(WeknoraKbMapping).where(WeknoraKbMapping.scope == scope)
@@ -137,8 +139,12 @@ async def resolve_or_create_kb(
         init_error = exc
 
     mapping = WeknoraKbMapping(
-        scope=scope, owner_user_id=owner_user_id, project_id=project_id,
-        weknora_kb_id=kb_id, embedding_model_id=embedding_model_id, kb_name=slug,
+        scope=scope,
+        owner_user_id=owner_user_id,
+        project_id=project_id,
+        weknora_kb_id=kb_id,
+        embedding_model_id=embedding_model_id,
+        kb_name=slug,
         display_name=effective_display,
         status=_STATUS_ACTIVE if init_error is None else _STATUS_INIT_FAILED,
     )
@@ -180,9 +186,11 @@ async def ensure_project_kb(
         return "skipped"
     try:
         await resolve_or_create_kb(
-            session, client,
+            session,
+            client,
             scope=KnowledgeScope.project.value,
-            owner_user_id=None, project_id=project_id,
+            owner_user_id=None,
+            project_id=project_id,
             embedding_model_id=get_settings().weknora_embedding_model_id,
             trace_id=trace_id,
         )
@@ -190,4 +198,3 @@ async def ensure_project_kb(
     except Exception:  # noqa: BLE001  # 任意底座异常都不阻断项目创建
         await session.rollback()
         return "index_failed"
-

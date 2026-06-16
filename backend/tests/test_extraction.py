@@ -20,7 +20,9 @@ def _make_pdf(text: str) -> bytes:
         b"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
     ]
     stream = b"BT /F1 24 Tf 72 720 Td (" + text.encode("latin-1") + b") Tj ET"
-    objs.append(b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream")
+    objs.append(
+        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream"
+    )
     objs.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
 
     out = bytearray(b"%PDF-1.4\n")

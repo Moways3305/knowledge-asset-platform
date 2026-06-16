@@ -1,4 +1,4 @@
-﻿"""外部 Agent 接入注册服务。
+"""外部 Agent 接入注册服务。
 
 负责 `agent_whitelist_rules` 的 token 哈希 / 鉴权查询 / 管理 CRUD。注册行 provider 中立
 （`provider` 列区分 dify / coze / 自研等），管理与鉴权逻辑不绑定任何具体 provider。
@@ -38,7 +38,9 @@ def generate_token() -> str:
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(status_code=status_code, detail={"denied_reason": reason, "message": message})
+    return HTTPException(
+        status_code=status_code, detail={"denied_reason": reason, "message": message}
+    )
 
 
 def _require_admin(caller: CallerContext) -> None:
@@ -66,9 +68,7 @@ def _to_out(rule: AgentWhitelistRule) -> RegistryRuleOut:
     )
 
 
-async def lookup_enabled_rule(
-    session: AsyncSession, token: str
-) -> AgentWhitelistRule | None:
+async def lookup_enabled_rule(session: AsyncSession, token: str) -> AgentWhitelistRule | None:
     """按明文 token 的哈希查启用中的注册行。无匹配 / 未启用 → None。"""
     if not token:
         return None
@@ -92,7 +92,9 @@ async def list_rules(session: AsyncSession, caller: CallerContext):
 
     _require_admin(caller)
     rows = list(
-        (await session.execute(select(AgentWhitelistRule).order_by(AgentWhitelistRule.created_at))).scalars().all()
+        (await session.execute(select(AgentWhitelistRule).order_by(AgentWhitelistRule.created_at)))
+        .scalars()
+        .all()
     )
     return RegistryListResponse(items=[_to_out(r) for r in rows])
 
@@ -122,18 +124,28 @@ async def create_rule(session: AsyncSession, caller: CallerContext, req, trace_i
     session.add(rule)
     await session.flush()
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.config_agent_registry_updated.value, trace_id=trace_id,
-        target_type="agent_whitelist_rule", target_id=rule.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.config_agent_registry_updated.value,
+        trace_id=trace_id,
+        target_type="agent_whitelist_rule",
+        target_id=rule.id,
         # 只记安全元数据；绝不记 token / token_hash / external_*。
-        extra={"op": "create", "provider": rule.provider, "capability": rule.capability,
-               "enabled": rule.enabled},
+        extra={
+            "op": "create",
+            "provider": rule.provider,
+            "capability": rule.capability,
+            "enabled": rule.enabled,
+        },
     )
     await session.commit()
     return RegistryCreateResponse(rule=_to_out(rule), token=token)
 
 
-async def update_rule(session: AsyncSession, caller: CallerContext, rule_id: uuid.UUID, req, trace_id: str | None):
+async def update_rule(
+    session: AsyncSession, caller: CallerContext, rule_id: uuid.UUID, req, trace_id: str | None
+):
     """更新启停 / capability / scope / 风险；可选重置 token（明文一次性返回）。"""
     from app.schemas.external_agent import RegistryCreateResponse
 
@@ -173,11 +185,14 @@ async def update_rule(session: AsyncSession, caller: CallerContext, rule_id: uui
         changed["token"] = "regenerated"
 
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.config_agent_registry_updated.value, trace_id=trace_id,
-        target_type="agent_whitelist_rule", target_id=rule.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.config_agent_registry_updated.value,
+        trace_id=trace_id,
+        target_type="agent_whitelist_rule",
+        target_id=rule.id,
         extra={"op": "update", **changed},  # 不含 token 明文 / token_hash
     )
     await session.commit()
     return RegistryCreateResponse(rule=_to_out(rule), token=new_token)
-

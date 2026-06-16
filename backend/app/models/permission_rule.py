@@ -1,4 +1,4 @@
-﻿"""权限规则配置 ORM 模型。
+"""权限规则配置 ORM 模型。
 
 一张表 `permission_rules`（字段命名以前端展示为准）。语义为 **权限治理规则配置中心**：
 阈值 / 开关 / 固定路径三类配置项，
@@ -74,4 +74,3 @@ class PermissionRule(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
     )
-

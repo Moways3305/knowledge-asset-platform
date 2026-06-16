@@ -14,9 +14,20 @@ from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT
 
 # 任何 ops 响应都不得出现的敏感子串。
 _SECRET_TOKENS = [
-    "devpassword", "postgresql+asyncpg", "redis://", "sk-", "Bearer",
-    "api_key", "app_secret", "jwt_secret", "token_hash", "storage_ref",
-    "weknora_kb_id", "weknora_doc_id", "dataset_id", "workflow_id",
+    "devpassword",
+    "postgresql+asyncpg",
+    "redis://",
+    "sk-",
+    "Bearer",
+    "api_key",
+    "app_secret",
+    "jwt_secret",
+    "token_hash",
+    "storage_ref",
+    "weknora_kb_id",
+    "weknora_doc_id",
+    "dataset_id",
+    "workflow_id",
 ]
 
 
@@ -105,5 +116,14 @@ def test_runtime_dependency_import_smoke():
     # 运行时关键依赖必须可导入（防 httpx 等被误降级为 dev-only 而镜像缺包回归）。
     import importlib
 
-    for mod in ("httpx", "celery", "redis", "redis.asyncio", "pypdf", "docx", "fastapi", "sqlalchemy"):
+    for mod in (
+        "httpx",
+        "celery",
+        "redis",
+        "redis.asyncio",
+        "pypdf",
+        "docx",
+        "fastapi",
+        "sqlalchemy",
+    ):
         assert importlib.import_module(mod) is not None

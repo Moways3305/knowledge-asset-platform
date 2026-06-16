@@ -12,9 +12,16 @@ interface OpsInsightsPanelProps {
 export default function OpsInsightsPanel({ insights, insightsErr }: OpsInsightsPanelProps) {
   return (
     <aside className="intel">
-      <h4 className="intel-title"><Radar size={13} /> 运营洞察</h4>
+      <h4 className="intel-title">
+        <Radar size={13} /> 运营洞察
+      </h4>
       {insightsErr ? (
-        <p className="intel-note">运营洞察加载失败（请确认后端已启动）。知识可见性与权限说明见 <Link to="/help#knowledge" className="page-help-link">使用说明 →</Link></p>
+        <p className="intel-note">
+          运营洞察加载失败（请确认后端已启动）。知识可见性与权限说明见{" "}
+          <Link to="/help#knowledge" className="page-help-link">
+            使用说明 →
+          </Link>
+        </p>
       ) : !insights ? (
         <p className="intel-note">加载运营洞察中…</p>
       ) : (
@@ -68,15 +75,23 @@ export default function OpsInsightsPanel({ insights, insightsErr }: OpsInsightsP
               <ul>
                 {insights.indexing.recent_jobs.map((j) => (
                   <li key={j.job_id} className="intel-item">
-                    <span>{j.operation_type === "reparse" ? "重新解析" : "批量重试"} · {j.status}</span>
-                    <span className="intel-item-msg">共 {j.total_count} / 成 {j.success_count} / 败 {j.failed_count}</span>
+                    <span>
+                      {j.operation_type === "reparse" ? "重新解析" : "批量重试"} · {j.status}
+                    </span>
+                    <span className="intel-item-msg">
+                      共 {j.total_count} / 成 {j.success_count} / 败 {j.failed_count}
+                    </span>
                   </li>
                 ))}
               </ul>
             </div>
           )}
           <p className="intel-foot">
-            统计来自真实后端（{insights.window_days} 天窗口）{!insights.title_visible && "·系统运维视图（业务标题隐藏）"}。说明见 <Link to="/help#knowledge" className="page-help-link">使用说明 →</Link>
+            统计来自真实后端（{insights.window_days} 天窗口）
+            {!insights.title_visible && "·系统运维视图（业务标题隐藏）"}。说明见{" "}
+            <Link to="/help#knowledge" className="page-help-link">
+              使用说明 →
+            </Link>
           </p>
         </>
       )}

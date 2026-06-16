@@ -1,4 +1,4 @@
-﻿"""权限判断相关的结构化类型。
+"""权限判断相关的结构化类型。
 
 集中定义三层访问的枚举、调用人上下文（CallerContext）、权限决策结果
 （PermissionDecision），以及 L1/L2 原文默认策略对象（DefaultAccessPolicy）。
@@ -132,4 +132,3 @@ class DefaultAccessPolicy:
 
 # 平台默认策略实例。后续可由 permission_rules 加载结果替换。
 DEFAULT_POLICY = DefaultAccessPolicy()
-

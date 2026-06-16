@@ -28,8 +28,15 @@ _SECRET_KB_ID = "wk-secret-personal-kb-001"
 _RAW_EMBED = "raw-embed-model-xyz"
 
 _LEAK = [
-    _SECRET_KB_ID, _RAW_EMBED, "weknora_kb_id", "kb_id", "api_key",
-    "sk-", "storage", "chunking", "embedding_model_id",
+    _SECRET_KB_ID,
+    _RAW_EMBED,
+    "weknora_kb_id",
+    "kb_id",
+    "api_key",
+    "sk-",
+    "storage",
+    "chunking",
+    "embedding_model_id",
 ]
 
 
@@ -102,7 +109,9 @@ async def test_create_personal_kb_happy(client, db_session, monkeypatch):
     fake = _FakeWeKnora()
     _enable_weknora(monkeypatch, fake)
     try:
-        r = await client.post(MYKB, headers=_hdr(USER_CONSULTANT), json={"display_name": "我的研究库"})
+        r = await client.post(
+            MYKB, headers=_hdr(USER_CONSULTANT), json={"display_name": "我的研究库"}
+        )
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["exists"] is True
@@ -144,7 +153,9 @@ async def test_create_is_idempotent(client, db_session, monkeypatch):
                     .where(WeknoraKbMapping.scope == "personal")
                     .where(WeknoraKbMapping.owner_user_id == USER_CONSULTANT)
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
         assert len(mappings) == 1
     finally:
@@ -196,7 +207,9 @@ async def test_get_returns_status_counts_and_safe_ref(client, db_session, monkey
                     .where(KnowledgeAsset.owner_user_id == USER_CONSULTANT)
                     .where(KnowledgeAssetVersion.version_status == "active")
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
         assert versions, "顾问应有个人资产版本"
         versions[0].index_status = "index_failed"
@@ -241,7 +254,9 @@ async def test_rename_syncs_weknora(client, db_session, monkeypatch):
                 await db_session.execute(
                     select(AuditEvent).where(AuditEvent.action == "config.personal_kb_updated")
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
         assert events
         extra = events[-1].extra or {}
@@ -270,7 +285,9 @@ async def test_rename_weknora_failure_degrades(client, db_session, monkeypatch):
                 await db_session.execute(
                     select(AuditEvent).where(AuditEvent.action == "config.personal_kb_updated")
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
         assert (events[-1].extra or {}).get("weknora_sync_ok") is False
     finally:

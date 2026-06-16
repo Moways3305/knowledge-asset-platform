@@ -1,4 +1,4 @@
-﻿"""项目设置 / 项目成员管理 API 的请求 / 响应 schema。
+"""项目设置 / 项目成员管理 API 的请求 / 响应 schema。
 
 只暴露**安全治理元数据**。`wecom_group_id` 是配置值，响应**绝不**回全文——只回
 `wecom_group_bound: bool` + `wecom_group_label`（脱敏后缀）；PATCH 可接收全文并只存 DB。
@@ -119,4 +119,3 @@ class ProjectCreateResponse(BaseModel):
     project_manager_user_id: uuid.UUID
     coach_user_id: uuid.UUID | None = None
     created_at: datetime
-

@@ -1,4 +1,4 @@
-﻿"""模型配置中心 API（admin-only）。
+"""模型配置中心 API（admin-only）。
 
 让 admin 不登 WeKnora 控制台即可管理 provider / 模型 / KB 初始化配置 + 连通性测试。
 
@@ -50,7 +50,13 @@ router = APIRouter(prefix="/api/v1/admin/weknora", tags=["weknora-admin"])
 
 def _require_admin(caller: CallerContext) -> None:
     if CompanyRole.admin.value not in caller.active_company_roles:
-        raise HTTPException(403, detail={"denied_reason": "weknora_admin_required", "message": "仅系统管理员可管理模型配置"})
+        raise HTTPException(
+            403,
+            detail={
+                "denied_reason": "weknora_admin_required",
+                "message": "仅系统管理员可管理模型配置",
+            },
+        )
 
 
 def _require_enabled() -> None:
@@ -58,10 +64,21 @@ def _require_enabled() -> None:
     if not weknora_enabled():
         missing = ["WEKNORA_BASE_URL", "WEKNORA_API_KEY"]
         s = get_settings()
-        miss = [m for m, v in (("WEKNORA_BASE_URL", s.weknora_base_url), ("WEKNORA_API_KEY", s.weknora_api_key)) if not v]
+        miss = [
+            m
+            for m, v in (
+                ("WEKNORA_BASE_URL", s.weknora_base_url),
+                ("WEKNORA_API_KEY", s.weknora_api_key),
+            )
+            if not v
+        ]
         raise HTTPException(
             503,
-            detail={"denied_reason": "weknora_not_configured", "message": "WeKnora 未配置", "missing_config": miss or missing},
+            detail={
+                "denied_reason": "weknora_not_configured",
+                "message": "WeKnora 未配置",
+                "missing_config": miss or missing,
+            },
         )
 
 
@@ -78,7 +95,9 @@ def _wrap_weknora(exc: WeKnoraError) -> HTTPException:
     denied_reason 仅在 code 为简单安全标识符时透传，否则归一为 weknora_call_failed。
     """
     if exc.code == "weknora_not_configured":
-        return HTTPException(503, detail={"denied_reason": "weknora_not_configured", "message": "WeKnora 未配置"})
+        return HTTPException(
+            503, detail={"denied_reason": "weknora_not_configured", "message": "WeKnora 未配置"}
+        )
     safe_code = exc.code if _SAFE_CODE_RE.match(str(exc.code or "")) else "weknora_call_failed"
     return HTTPException(502, detail={"denied_reason": safe_code, "message": _WEKNORA_SAFE_MESSAGE})
 
@@ -93,7 +112,9 @@ async def list_providers(
     _require_admin(caller)
     _require_enabled()
     try:
-        items = await weknora_models.list_providers(weknora, model_type=model_type, trace_id=get_trace_id(request))
+        items = await weknora_models.list_providers(
+            weknora, model_type=model_type, trace_id=get_trace_id(request)
+        )
     except WeKnoraError as exc:
         raise _wrap_weknora(exc)
     return ProviderListResponse(items=items)
@@ -109,7 +130,9 @@ async def list_models(
     _require_admin(caller)
     _require_enabled()
     try:
-        items = await weknora_models.list_models(weknora, model_type=type, trace_id=get_trace_id(request))
+        items = await weknora_models.list_models(
+            weknora, model_type=type, trace_id=get_trace_id(request)
+        )
     except WeKnoraError as exc:
         raise _wrap_weknora(exc)
     return ModelListResponse(items=items)
@@ -132,8 +155,11 @@ async def create_model(
         raise _wrap_weknora(exc)
     # 审计只放安全字段（名称 / 类型 / provider），绝不含 api_key / base_url / 真实 id。
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.weknora_model_created.value, trace_id=trace_id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.weknora_model_created.value,
+        trace_id=trace_id,
         target_type="weknora_model",
         extra={"name": res.name, "type": res.type, "provider": res.provider},
     )
@@ -158,8 +184,11 @@ async def update_model(
     except WeKnoraError as exc:
         raise _wrap_weknora(exc)
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.weknora_model_updated.value, trace_id=trace_id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.weknora_model_updated.value,
+        trace_id=trace_id,
         target_type="weknora_model",
         extra={"name": res.name, "type": res.type, "provider": res.provider},
     )
@@ -183,8 +212,11 @@ async def delete_model(
     except WeKnoraError as exc:
         raise _wrap_weknora(exc)
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.weknora_model_deleted.value, trace_id=trace_id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.weknora_model_deleted.value,
+        trace_id=trace_id,
         target_type="weknora_model",
     )
     await session.commit()
@@ -216,7 +248,9 @@ async def list_kb_configs(
     _require_admin(caller)
     _require_enabled()
     try:
-        items = await weknora_models.list_kb_configs(session, weknora, trace_id=get_trace_id(request))
+        items = await weknora_models.list_kb_configs(
+            session, weknora, trace_id=get_trace_id(request)
+        )
     except WeKnoraError as exc:
         raise _wrap_weknora(exc)
     return KbConfigListResponse(items=items)
@@ -235,17 +269,22 @@ async def update_kb_init(
     _require_enabled()
     trace_id = get_trace_id(request)
     try:
-        mp = await weknora_models.update_kb_init(session, weknora, mapping_id, req, trace_id=trace_id)
+        mp = await weknora_models.update_kb_init(
+            session, weknora, mapping_id, req, trace_id=trace_id
+        )
     except WeKnoraError as exc:
         raise _wrap_weknora(exc)
     # 审计只放安全字段（mapping id / scope / 状态），绝不含 weknora_kb_id / 真实 model_id。
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.weknora_kb_config_updated.value, trace_id=trace_id,
-        target_type="weknora_kb_mapping", target_id=mp.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.weknora_kb_config_updated.value,
+        trace_id=trace_id,
+        target_type="weknora_kb_mapping",
+        target_id=mp.id,
         extra={"scope": mp.scope, "mapping_status": mp.status},
         project_id=mp.project_id,
     )
     await session.commit()
     return KbInitUpdateResponse(mapping_id=mp.id, mapping_status=mp.status, updated=True)
-

@@ -1,4 +1,4 @@
-﻿"""模型配置中心服务。
+"""模型配置中心服务。
 
 把 WeKnora `/models*` 与 `/initialization/*` 的原始结果**脱敏 + 映射**为对前端安全的形态：
 - WeKnora server-only `model_id` → 单向 `model_ref`（HMAC-SHA256，前端不可逆推 id）；
@@ -39,7 +39,13 @@ if TYPE_CHECKING:
     from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
 
 # 前端别名 ↔ WeKnora ModelType。
-_ALIAS_TO_WK = {"chat": "KnowledgeQA", "embedding": "Embedding", "rerank": "Rerank", "vllm": "VLLM", "asr": "ASR"}
+_ALIAS_TO_WK = {
+    "chat": "KnowledgeQA",
+    "embedding": "Embedding",
+    "rerank": "Rerank",
+    "vllm": "VLLM",
+    "asr": "ASR",
+}
 _WK_TO_ALIAS = {v: k for k, v in _ALIAS_TO_WK.items()}
 
 # 类型别名：仅供静态检查。运行时值仍是同一字符串（future annotations 下注解不求值），无行为变化。
@@ -47,7 +53,9 @@ _CheckClient: TypeAlias = "WeKnoraClient | NullWeKnoraClient"
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(status_code=status_code, detail={"denied_reason": reason, "message": message})
+    return HTTPException(
+        status_code=status_code, detail={"denied_reason": reason, "message": message}
+    )
 
 
 def _model_ref(model_id: str) -> str:
@@ -81,23 +89,29 @@ def _to_model_out(raw: dict) -> ModelOut:
     )
 
 
-async def list_providers(client: _CheckClient, *, model_type: str | None, trace_id: str | None) -> list[ProviderOut]:
+async def list_providers(
+    client: _CheckClient, *, model_type: str | None, trace_id: str | None
+) -> list[ProviderOut]:
     raw = await client.list_model_providers(model_type, trace_id=trace_id)
     out: list[ProviderOut] = []
     for p in raw:
         if not isinstance(p, dict):
             continue
         # 只取安全字段：value/label/description/modelTypes。**不**透传 defaultUrls（含 provider host）。
-        out.append(ProviderOut(
-            value=str(p.get("value") or ""),
-            label=str(p.get("label") or p.get("value") or ""),
-            description=p.get("description"),
-            model_types=[str(t) for t in (p.get("modelTypes") or p.get("model_types") or [])],
-        ))
+        out.append(
+            ProviderOut(
+                value=str(p.get("value") or ""),
+                label=str(p.get("label") or p.get("value") or ""),
+                description=p.get("description"),
+                model_types=[str(t) for t in (p.get("modelTypes") or p.get("model_types") or [])],
+            )
+        )
     return out
 
 
-async def list_models(client: _CheckClient, *, model_type: str | None, trace_id: str | None) -> list[ModelOut]:
+async def list_models(
+    client: _CheckClient, *, model_type: str | None, trace_id: str | None
+) -> list[ModelOut]:
     raw = await client.list_models(trace_id=trace_id)
     out: list[ModelOut] = []
     for m in raw:
@@ -113,7 +127,9 @@ async def list_models(client: _CheckClient, *, model_type: str | None, trace_id:
 async def _ref_to_id_map(client: _CheckClient, trace_id: str | None) -> dict[str, str]:
     """单向 model_ref → server-only model_id 的解析表（每次实时从 WeKnora 列举重建）。"""
     raw = await client.list_models(trace_id=trace_id)
-    return {_model_ref(str(m["id"])): str(m["id"]) for m in raw if isinstance(m, dict) and m.get("id")}
+    return {
+        _model_ref(str(m["id"])): str(m["id"]) for m in raw if isinstance(m, dict) and m.get("id")
+    }
 
 
 async def _resolve_ref(client: _CheckClient, ref: str, trace_id: str | None) -> str | None:
@@ -134,30 +150,44 @@ def _build_model_payload(req: ModelMutateRequest) -> dict:
     if req.type == "embedding" and req.dimension:
         params["embedding_parameters"] = {"dimension": req.dimension, "truncate_prompt_tokens": 0}
     return {
-        "name": req.name, "type": wk_type, "source": req.source,
-        "description": req.description or "", "parameters": params,
+        "name": req.name,
+        "type": wk_type,
+        "source": req.source,
+        "description": req.description or "",
+        "parameters": params,
     }
 
 
-async def create_model(client: _CheckClient, req: ModelMutateRequest, *, trace_id: str | None) -> ModelMutateResponse:
+async def create_model(
+    client: _CheckClient, req: ModelMutateRequest, *, trace_id: str | None
+) -> ModelMutateResponse:
     created = await client.create_model(_build_model_payload(req), trace_id=trace_id)
     mid = created.get("id") if isinstance(created, dict) else None
     if not mid:
         # 底座未返回有效 id → fail-closed：不生成 model_ref 假成功（调用方据此不写成功审计）。
-        raise _denied(502, "weknora_model_create_no_id", "底座创建模型未返回有效标识，模型未确认创建成功")
+        raise _denied(
+            502, "weknora_model_create_no_id", "底座创建模型未返回有效标识，模型未确认创建成功"
+        )
     return ModelMutateResponse(
         model_ref=_model_ref(str(mid)),
-        name=str(created.get("name") or req.name), type=req.type, provider=req.provider,
+        name=str(created.get("name") or req.name),
+        type=req.type,
+        provider=req.provider,
     )
 
 
-async def update_model(client: _CheckClient, model_ref: str, req: ModelMutateRequest, *, trace_id: str | None) -> ModelMutateResponse:
+async def update_model(
+    client: _CheckClient, model_ref: str, req: ModelMutateRequest, *, trace_id: str | None
+) -> ModelMutateResponse:
     model_id = await _resolve_ref(client, model_ref, trace_id)
     if model_id is None:
         raise _denied(404, "weknora_model_not_found", "模型不存在")
     await client.update_model(model_id, _build_model_payload(req), trace_id=trace_id)
     return ModelMutateResponse(
-        model_ref=_model_ref(model_id), name=req.name, type=req.type, provider=req.provider,
+        model_ref=_model_ref(model_id),
+        name=req.name,
+        type=req.type,
+        provider=req.provider,
     )
 
 
@@ -177,7 +207,9 @@ def _safe_check_message(message: str, req: ModelCheckRequest) -> str:
     return msg
 
 
-async def check_model(client: _CheckClient, req: ModelCheckRequest, *, trace_id: str | None) -> ModelCheckResponse:
+async def check_model(
+    client: _CheckClient, req: ModelCheckRequest, *, trace_id: str | None
+) -> ModelCheckResponse:
     fn = {
         "chat": client.check_remote_model,
         "embedding": client.test_embedding_model,
@@ -204,21 +236,35 @@ def _slot(model_id: str | None, id_meta: dict[str, ModelOut]) -> ModelSlotOut | 
     )
 
 
-async def list_kb_configs(session: AsyncSession, client: _CheckClient, *, trace_id: str | None) -> list[KbConfigOut]:
-    mappings = list((await session.execute(select(WeknoraKbMapping).order_by(WeknoraKbMapping.scope))).scalars().all())
+async def list_kb_configs(
+    session: AsyncSession, client: _CheckClient, *, trace_id: str | None
+) -> list[KbConfigOut]:
+    mappings = list(
+        (await session.execute(select(WeknoraKbMapping).order_by(WeknoraKbMapping.scope)))
+        .scalars()
+        .all()
+    )
     # id → 安全模型元数据（用于把底座初始化配置里的 server-only id 映射成安全名称）。
     raw_models = await client.list_models(trace_id=trace_id)
-    id_meta = {str(m["id"]): _to_model_out(m) for m in raw_models if isinstance(m, dict) and m.get("id")}
+    id_meta = {
+        str(m["id"]): _to_model_out(m) for m in raw_models if isinstance(m, dict) and m.get("id")
+    }
 
     project_ids = {m.project_id for m in mappings if m.project_id}
     owner_ids = {m.owner_user_id for m in mappings if m.owner_user_id}
     pmap: dict = {}
     omap: dict = {}
     if project_ids:
-        for pid, pname in (await session.execute(select(Project.id, Project.name).where(Project.id.in_(project_ids)))).all():
+        for pid, pname in (
+            await session.execute(
+                select(Project.id, Project.name).where(Project.id.in_(project_ids))
+            )
+        ).all():
             pmap[pid] = pname
     if owner_ids:
-        for uid, uname in (await session.execute(select(User.id, User.name).where(User.id.in_(owner_ids)))).all():
+        for uid, uname in (
+            await session.execute(select(User.id, User.name).where(User.id.in_(owner_ids)))
+        ).all():
             omap[uid] = uname
 
     items: list[KbConfigOut] = []
@@ -235,21 +281,32 @@ async def list_kb_configs(session: AsyncSession, client: _CheckClient, *, trace_
             embedding = _slot(cfg.get("embedding_model_id"), id_meta)
             rerank = _slot(cfg.get("rerank_model_id"), id_meta)
             multimodal = _slot(cfg.get("multimodal_id"), id_meta)
-        items.append(KbConfigOut(
-            mapping_id=mp.id, scope=mp.scope, kb_name=mp.kb_name,
-            display_name=mp.display_name,
-            project_name=pmap.get(mp.project_id) if mp.project_id else None,
-            owner_name=omap.get(mp.owner_user_id) if mp.owner_user_id else None,
-            mapping_status=mp.status,
-            chat=chat, embedding=embedding, rerank=rerank, multimodal=multimodal,
-            config_error=config_error,
-        ))
+        items.append(
+            KbConfigOut(
+                mapping_id=mp.id,
+                scope=mp.scope,
+                kb_name=mp.kb_name,
+                display_name=mp.display_name,
+                project_name=pmap.get(mp.project_id) if mp.project_id else None,
+                owner_name=omap.get(mp.owner_user_id) if mp.owner_user_id else None,
+                mapping_status=mp.status,
+                chat=chat,
+                embedding=embedding,
+                rerank=rerank,
+                multimodal=multimodal,
+                config_error=config_error,
+            )
+        )
     return items
 
 
 async def update_kb_init(
-    session: AsyncSession, client: _CheckClient, mapping_id: uuid.UUID,
-    req: KbInitUpdateRequest, *, trace_id: str | None,
+    session: AsyncSession,
+    client: _CheckClient,
+    mapping_id: uuid.UUID,
+    req: KbInitUpdateRequest,
+    *,
+    trace_id: str | None,
 ) -> WeknoraKbMapping:
     mp = await session.get(WeknoraKbMapping, mapping_id)
     if mp is None:
@@ -277,4 +334,3 @@ async def update_kb_init(
         mp.status = "active"
     await session.commit()
     return mp
-

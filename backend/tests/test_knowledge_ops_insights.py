@@ -31,8 +31,19 @@ from app.seed.dev_seed import (
 )
 
 INSIGHTS = "/api/v1/knowledge/ops-insights"
-_LEAK_TOKENS = ["wk-kb", "wk-doc", "weknora_kb_id", "weknora_doc_id", "storage_ref",
-                "source_file_ref", "download_url", "api_key", "sk-", "cookie", "secret.txt"]
+_LEAK_TOKENS = [
+    "wk-kb",
+    "wk-doc",
+    "weknora_kb_id",
+    "weknora_doc_id",
+    "storage_ref",
+    "source_file_ref",
+    "download_url",
+    "api_key",
+    "sk-",
+    "cookie",
+    "secret.txt",
+]
 
 
 def _hdr(user_id):
@@ -48,20 +59,43 @@ def _assert_no_leak(text):
         assert t not in text, f"响应不应泄露 {t}"
 
 
-async def _insert_index_failed_asset(db_session, *, scope="project", project_id=PROJECT_ALPHA, owner=USER_CONSULTANT, title="索引失败资产", doc="wk-doc-stale", asset_status="active"):
+async def _insert_index_failed_asset(
+    db_session,
+    *,
+    scope="project",
+    project_id=PROJECT_ALPHA,
+    owner=USER_CONSULTANT,
+    title="索引失败资产",
+    doc="wk-doc-stale",
+    asset_status="active",
+):
     asset_id = uuid.uuid4()
     asset = KnowledgeAsset(
-        id=asset_id, title=title, scope=scope, zone="material", asset_type="deliverable",
-        owner_user_id=owner, maintainer_user_id=owner,
+        id=asset_id,
+        title=title,
+        scope=scope,
+        zone="material",
+        asset_type="deliverable",
+        owner_user_id=owner,
+        maintainer_user_id=owner,
         project_id=project_id if scope == "project" else None,
-        visibility="project_only", confidentiality_level="L2", ai_access_level="A2",
-        asset_status=asset_status, lifecycle_phase_key="交付",
+        visibility="project_only",
+        confidentiality_level="L2",
+        ai_access_level="A2",
+        asset_status=asset_status,
+        lifecycle_phase_key="交付",
     )
     version = KnowledgeAssetVersion(
-        asset_id=asset_id, version_no="v1", version_status="active", created_by=owner,
+        asset_id=asset_id,
+        version_no="v1",
+        version_status="active",
+        created_by=owner,
         # server-only 内部标识（用于无泄露断言）。
-        weknora_kb_id="wk-kb-secret", weknora_doc_id=doc, weknora_parse_status="failed",
-        index_status="index_failed", index_error_code="weknora_call_failed",
+        weknora_kb_id="wk-kb-secret",
+        weknora_doc_id=doc,
+        weknora_parse_status="failed",
+        index_status="index_failed",
+        index_error_code="weknora_call_failed",
     )
     asset.versions.append(version)
     asset.current_version_id = version.id
@@ -70,10 +104,15 @@ async def _insert_index_failed_asset(db_session, *, scope="project", project_id=
     return str(asset_id)
 
 
-async def _insert_request(db_session, *, asset_id, requester, status, reviewer=None, created_at=None, reviewed_at=None):
+async def _insert_request(
+    db_session, *, asset_id, requester, status, reviewer=None, created_at=None, reviewed_at=None
+):
     req = OriginalAccessRequest(
-        asset_id=asset_id, requester_user_id=requester, status=status,
-        requested_access_layer="original", reviewer_user_id=reviewer,
+        asset_id=asset_id,
+        requester_user_id=requester,
+        status=status,
+        requested_access_layer="original",
+        reviewer_user_id=reviewer,
         reviewed_at=reviewed_at,
     )
     if created_at is not None:
@@ -97,9 +136,18 @@ async def test_non_business_non_admin_forbidden(client, db_session):
 
 
 async def test_consultant_sees_own_project_scope_only(client, db_session):
-    mine = await _insert_index_failed_asset(db_session, scope="project", project_id=PROJECT_ALPHA, title="我项目的失败资产")
+    mine = await _insert_index_failed_asset(
+        db_session, scope="project", project_id=PROJECT_ALPHA, title="我项目的失败资产"
+    )
     # 另一个项目（consultant 非成员）的失败资产 → 不计入 consultant 视图。
-    other = await _insert_index_failed_asset(db_session, scope="project", project_id=PROJECT_BETA, owner=USER_BOSS, title="他项目失败资产", doc="wk-doc-other")
+    other = await _insert_index_failed_asset(
+        db_session,
+        scope="project",
+        project_id=PROJECT_BETA,
+        owner=USER_BOSS,
+        title="他项目失败资产",
+        doc="wk-doc-other",
+    )
     r = await client.get(INSIGHTS, headers=_hdr(USER_CONSULTANT))
     assert r.status_code == 200, r.text
     body = r.json()
@@ -114,11 +162,26 @@ async def test_consultant_sees_own_project_scope_only(client, db_session):
 
 
 async def test_pure_admin_title_hidden_but_counts_present(client, db_session):
-    await _insert_index_failed_asset(db_session, scope="company", project_id=None, owner=USER_BOSS, title="公司机密标题不可见", doc="wk-doc-co")
+    await _insert_index_failed_asset(
+        db_session,
+        scope="company",
+        project_id=None,
+        owner=USER_BOSS,
+        title="公司机密标题不可见",
+        doc="wk-doc-co",
+    )
     # 入一条 ops 作业，admin 可见安全摘要。
-    db_session.add(IndexingOperationJob(operation_type="retry_index", status="completed_with_errors",
-                                        scope_filter={"scope": "all"}, requested_by_user_id=USER_ADMIN_ONLY,
-                                        total_count=2, success_count=1, failed_count=1))
+    db_session.add(
+        IndexingOperationJob(
+            operation_type="retry_index",
+            status="completed_with_errors",
+            scope_filter={"scope": "all"},
+            requested_by_user_id=USER_ADMIN_ONLY,
+            total_count=2,
+            success_count=1,
+            failed_count=1,
+        )
+    )
     await db_session.commit()
     r = await client.get(INSIGHTS, headers=_hdr(USER_ADMIN_ONLY))
     assert r.status_code == 200, r.text
@@ -137,7 +200,14 @@ async def test_pure_admin_title_hidden_but_counts_present(client, db_session):
 
 
 async def test_governance_title_visible_and_company_scope(client, db_session):
-    cid = await _insert_index_failed_asset(db_session, scope="company", project_id=None, owner=USER_BOSS, title="公司失败资产", doc="wk-doc-gov")
+    cid = await _insert_index_failed_asset(
+        db_session,
+        scope="company",
+        project_id=None,
+        owner=USER_BOSS,
+        title="公司失败资产",
+        doc="wk-doc-gov",
+    )
     r = await client.get(INSIGHTS, headers=_hdr(USER_BOSS))
     assert r.status_code == 200, r.text
     body = r.json()
@@ -153,8 +223,12 @@ async def test_governance_title_visible_and_company_scope(client, db_session):
 # 真实统计来源
 # ---------------------------------------------------------------------------
 async def test_indexing_counts_from_real_versions(client, db_session):
-    await _insert_index_failed_asset(db_session, scope="project", project_id=PROJECT_ALPHA, title="失败1", doc="wk-doc-1")
-    await _insert_index_failed_asset(db_session, scope="project", project_id=PROJECT_ALPHA, title="失败2", doc="wk-doc-2")
+    await _insert_index_failed_asset(
+        db_session, scope="project", project_id=PROJECT_ALPHA, title="失败1", doc="wk-doc-1"
+    )
+    await _insert_index_failed_asset(
+        db_session, scope="project", project_id=PROJECT_ALPHA, title="失败2", doc="wk-doc-2"
+    )
     r = await client.get(INSIGHTS, headers=_hdr(USER_PROJECT_MANAGER))
     body = r.json()
     assert body["indexing"]["index_failed"] >= 2
@@ -166,9 +240,17 @@ async def test_indexing_counts_from_real_versions(client, db_session):
 
 async def test_access_stats_pending_and_auto_approved(client, db_session):
     # 在公司资产上构造 pending + 自动审批（reviewer=None）申请，治理可见。
-    await _insert_request(db_session, asset_id=KA_COMPANY_L2, requester=USER_CONSULTANT, status="pending")
-    await _insert_request(db_session, asset_id=KA_COMPANY_L2, requester=USER_PROJECT_MANAGER, status="approved",
-                          reviewer=None, reviewed_at=_now())
+    await _insert_request(
+        db_session, asset_id=KA_COMPANY_L2, requester=USER_CONSULTANT, status="pending"
+    )
+    await _insert_request(
+        db_session,
+        asset_id=KA_COMPANY_L2,
+        requester=USER_PROJECT_MANAGER,
+        status="approved",
+        reviewer=None,
+        reviewed_at=_now(),
+    )
     r = await client.get(INSIGHTS, headers=_hdr(USER_BOSS))
     body = r.json()
     assert body["access"]["pending_original_requests"] >= 1
@@ -177,13 +259,26 @@ async def test_access_stats_pending_and_auto_approved(client, db_session):
 
 async def test_overdue_requires_timeout_rule(client, db_session):
     # 启用 access_request_timeout_hours=24 规则 + 一条 25h 前的 pending 申请 → overdue 计入。
-    db_session.add(PermissionRule(
-        rule_key="access_request_timeout_hours", rule_group="access_request", rule_type="numeric",
-        display_name="访问申请自动通过时限", value_number=24, default_number=24, unit="小时", enabled=True,
-    ))
+    db_session.add(
+        PermissionRule(
+            rule_key="access_request_timeout_hours",
+            rule_group="access_request",
+            rule_type="numeric",
+            display_name="访问申请自动通过时限",
+            value_number=24,
+            default_number=24,
+            unit="小时",
+            enabled=True,
+        )
+    )
     await db_session.commit()
-    await _insert_request(db_session, asset_id=KA_COMPANY_L2, requester=USER_CONSULTANT, status="pending",
-                          created_at=_now() - timedelta(hours=25))
+    await _insert_request(
+        db_session,
+        asset_id=KA_COMPANY_L2,
+        requester=USER_CONSULTANT,
+        status="pending",
+        created_at=_now() - timedelta(hours=25),
+    )
     r = await client.get(INSIGHTS, headers=_hdr(USER_BOSS))
     body = r.json()
     assert body["access"]["timeout_enabled"] is True
@@ -218,7 +313,8 @@ async def test_days_and_limit_clamped(client, db_session):
 async def _insert_lifecycle_event(db_session, *, asset_id, event_type, created_at=None):
     ev = AssetLifecycleEvent(
         asset_id=uuid.UUID(asset_id) if isinstance(asset_id, str) else asset_id,
-        event_type=event_type, triggered_by="user",
+        event_type=event_type,
+        triggered_by="user",
     )
     if created_at is not None:
         ev.created_at = created_at
@@ -229,16 +325,31 @@ async def _insert_lifecycle_event(db_session, *, asset_id, event_type, created_a
 async def test_archived_deprecated_excluded_from_indexing(client, db_session):
     """archived / deprecated 的 index_failed 资产不计入索引统计 / drilldown，只剩 active。"""
     active = await _insert_index_failed_asset(
-        db_session, scope="company", project_id=None, owner=USER_BOSS,
-        title="活跃失败资产", doc="wk-doc-active", asset_status="active",
+        db_session,
+        scope="company",
+        project_id=None,
+        owner=USER_BOSS,
+        title="活跃失败资产",
+        doc="wk-doc-active",
+        asset_status="active",
     )
     await _insert_index_failed_asset(
-        db_session, scope="company", project_id=None, owner=USER_BOSS,
-        title="归档失败资产不可发现", doc="wk-doc-arch", asset_status="archived",
+        db_session,
+        scope="company",
+        project_id=None,
+        owner=USER_BOSS,
+        title="归档失败资产不可发现",
+        doc="wk-doc-arch",
+        asset_status="archived",
     )
     await _insert_index_failed_asset(
-        db_session, scope="company", project_id=None, owner=USER_BOSS,
-        title="弃用失败资产不可发现", doc="wk-doc-dep", asset_status="deprecated",
+        db_session,
+        scope="company",
+        project_id=None,
+        owner=USER_BOSS,
+        title="弃用失败资产不可发现",
+        doc="wk-doc-dep",
+        asset_status="deprecated",
     )
     r = await client.get(INSIGHTS, headers=_hdr(USER_BOSS))
     assert r.status_code == 200, r.text
@@ -255,24 +366,52 @@ async def test_archived_deprecated_excluded_from_indexing(client, db_session):
 async def test_original_access_stats_skip_undiscoverable_assets(client, db_session):
     """archived / deprecated 资产上的 pending 申请不计入 pending / overdue。"""
     # 启用超时规则，使 overdue 可计算。
-    db_session.add(PermissionRule(
-        rule_key="access_request_timeout_hours", rule_group="access_request", rule_type="numeric",
-        display_name="访问申请自动通过时限", value_number=24, default_number=24, unit="小时", enabled=True,
-    ))
+    db_session.add(
+        PermissionRule(
+            rule_key="access_request_timeout_hours",
+            rule_group="access_request",
+            rule_type="numeric",
+            display_name="访问申请自动通过时限",
+            value_number=24,
+            default_number=24,
+            unit="小时",
+            enabled=True,
+        )
+    )
     await db_session.commit()
     arch = await _insert_index_failed_asset(
-        db_session, scope="company", project_id=None, owner=USER_BOSS,
-        title="归档资产待审申请", doc="wk-doc-arch-req", asset_status="archived",
+        db_session,
+        scope="company",
+        project_id=None,
+        owner=USER_BOSS,
+        title="归档资产待审申请",
+        doc="wk-doc-arch-req",
+        asset_status="archived",
     )
     dep = await _insert_index_failed_asset(
-        db_session, scope="company", project_id=None, owner=USER_BOSS,
-        title="弃用资产待审申请", doc="wk-doc-dep-req", asset_status="deprecated",
+        db_session,
+        scope="company",
+        project_id=None,
+        owner=USER_BOSS,
+        title="弃用资产待审申请",
+        doc="wk-doc-dep-req",
+        asset_status="deprecated",
     )
     # 两条都是 25h 前的 pending：若未过滤会进入 pending 且 overdue。
-    await _insert_request(db_session, asset_id=uuid.UUID(arch), requester=USER_CONSULTANT, status="pending",
-                          created_at=_now() - timedelta(hours=25))
-    await _insert_request(db_session, asset_id=uuid.UUID(dep), requester=USER_CONSULTANT, status="pending",
-                          created_at=_now() - timedelta(hours=25))
+    await _insert_request(
+        db_session,
+        asset_id=uuid.UUID(arch),
+        requester=USER_CONSULTANT,
+        status="pending",
+        created_at=_now() - timedelta(hours=25),
+    )
+    await _insert_request(
+        db_session,
+        asset_id=uuid.UUID(dep),
+        requester=USER_CONSULTANT,
+        status="pending",
+        created_at=_now() - timedelta(hours=25),
+    )
     r = await client.get(INSIGHTS, headers=_hdr(USER_BOSS))
     assert r.status_code == 200, r.text
     body = r.json()
@@ -287,15 +426,25 @@ async def test_original_access_stats_skip_undiscoverable_assets(client, db_sessi
 async def test_lifecycle_events_skip_undiscoverable_assets(client, db_session):
     """archived 资产上的旧 archive_candidate/warning 事件不污染当前洞察；active 资产仍统计。"""
     arch = await _insert_index_failed_asset(
-        db_session, scope="company", project_id=None, owner=USER_BOSS,
-        title="已归档资产旧事件", doc="wk-doc-arch-ev", asset_status="archived",
+        db_session,
+        scope="company",
+        project_id=None,
+        owner=USER_BOSS,
+        title="已归档资产旧事件",
+        doc="wk-doc-arch-ev",
+        asset_status="archived",
     )
     await _insert_lifecycle_event(db_session, asset_id=arch, event_type="archive_candidate")
     await _insert_lifecycle_event(db_session, asset_id=arch, event_type="archive_warning")
 
     active = await _insert_index_failed_asset(
-        db_session, scope="company", project_id=None, owner=USER_BOSS,
-        title="活跃资产候选事件", doc="wk-doc-active-ev", asset_status="active",
+        db_session,
+        scope="company",
+        project_id=None,
+        owner=USER_BOSS,
+        title="活跃资产候选事件",
+        doc="wk-doc-active-ev",
+        asset_status="active",
     )
     await _insert_lifecycle_event(db_session, asset_id=active, event_type="archive_candidate")
     await _insert_lifecycle_event(db_session, asset_id=active, event_type="archive_warning")
@@ -313,8 +462,13 @@ async def test_lifecycle_events_skip_undiscoverable_assets(client, db_session):
 async def test_needs_update_still_counted_and_discoverable(client, db_session):
     """needs_update 是 active-like 治理状态：lifecycle.needs_update 计数，且 index_failed 仍下钻。"""
     nu = await _insert_index_failed_asset(
-        db_session, scope="company", project_id=None, owner=USER_BOSS,
-        title="待更新失败资产", doc="wk-doc-nu", asset_status="needs_update",
+        db_session,
+        scope="company",
+        project_id=None,
+        owner=USER_BOSS,
+        title="待更新失败资产",
+        doc="wk-doc-nu",
+        asset_status="needs_update",
     )
     r = await client.get(INSIGHTS, headers=_hdr(USER_BOSS))
     assert r.status_code == 200, r.text

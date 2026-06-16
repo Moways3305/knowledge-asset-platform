@@ -103,14 +103,18 @@ async def test_version_no_unique_per_asset(db_session):
     asset = await _make_asset(db_session, scope="company")
     db_session.add(
         KnowledgeAssetVersion(
-            asset_id=asset.id, version_no="v1", version_status="active",
+            asset_id=asset.id,
+            version_no="v1",
+            version_status="active",
             created_by=USER_CONSULTANT,
         )
     )
     await db_session.commit()
     db_session.add(
         KnowledgeAssetVersion(
-            asset_id=asset.id, version_no="v1", version_status="draft",
+            asset_id=asset.id,
+            version_no="v1",
+            version_status="draft",
             created_by=USER_CONSULTANT,
         )
     )
@@ -127,7 +131,9 @@ async def test_only_one_active_version_per_asset(db_session):
 
     db_session.add(
         KnowledgeAssetVersion(
-            asset_id=asset_id, version_no="v1", version_status="active",
+            asset_id=asset_id,
+            version_no="v1",
+            version_status="active",
             created_by=USER_CONSULTANT,
         )
     )
@@ -135,7 +141,9 @@ async def test_only_one_active_version_per_asset(db_session):
     # 第二个 active 版本应触发部分唯一索引冲突。
     db_session.add(
         KnowledgeAssetVersion(
-            asset_id=asset_id, version_no="v2", version_status="active",
+            asset_id=asset_id,
+            version_no="v2",
+            version_status="active",
             created_by=USER_CONSULTANT,
         )
     )
@@ -146,7 +154,9 @@ async def test_only_one_active_version_per_asset(db_session):
     # 但 active + 非 active（如 draft）应被允许。
     db_session.add(
         KnowledgeAssetVersion(
-            asset_id=asset_id, version_no="v3", version_status="draft",
+            asset_id=asset_id,
+            version_no="v3",
+            version_status="draft",
             created_by=USER_CONSULTANT,
         )
     )
@@ -163,7 +173,9 @@ async def test_chunk_index_unique_per_version(db_session):
     """同一 version 下 chunk_index 唯一约束生效。"""
     asset = await _make_asset(db_session, scope="company")
     version = KnowledgeAssetVersion(
-        asset_id=asset.id, version_no="v1", version_status="active",
+        asset_id=asset.id,
+        version_no="v1",
+        version_status="active",
         created_by=USER_CONSULTANT,
     )
     db_session.add(version)
@@ -171,15 +183,23 @@ async def test_chunk_index_unique_per_version(db_session):
 
     db_session.add(
         KnowledgeAssetChunk(
-            asset_id=asset.id, version_id=version.id, chunk_index=0,
-            chunk_type="paragraph", content_text="第一段", chunk_status="active",
+            asset_id=asset.id,
+            version_id=version.id,
+            chunk_index=0,
+            chunk_type="paragraph",
+            content_text="第一段",
+            chunk_status="active",
         )
     )
     await db_session.commit()
     db_session.add(
         KnowledgeAssetChunk(
-            asset_id=asset.id, version_id=version.id, chunk_index=0,
-            chunk_type="paragraph", content_text="重复 index", chunk_status="active",
+            asset_id=asset.id,
+            version_id=version.id,
+            chunk_index=0,
+            chunk_type="paragraph",
+            content_text="重复 index",
+            chunk_status="active",
         )
     )
     with pytest.raises(IntegrityError):
@@ -190,7 +210,9 @@ async def test_file_variant_unique_per_asset_version(db_session):
     """同一 asset/version/file_variant 唯一约束生效。"""
     asset = await _make_asset(db_session, scope="company")
     version = KnowledgeAssetVersion(
-        asset_id=asset.id, version_no="v1", version_status="active",
+        asset_id=asset.id,
+        version_no="v1",
+        version_status="active",
         created_by=USER_CONSULTANT,
     )
     db_session.add(version)
@@ -198,17 +220,25 @@ async def test_file_variant_unique_per_asset_version(db_session):
 
     db_session.add(
         KnowledgeAssetFileObject(
-            asset_id=asset.id, version_id=version.id, file_variant="original",
-            file_name="a.pdf", file_mime_type="application/pdf",
-            storage_ref="internal://obj/a", confidentiality_level="L2",
+            asset_id=asset.id,
+            version_id=version.id,
+            file_variant="original",
+            file_name="a.pdf",
+            file_mime_type="application/pdf",
+            storage_ref="internal://obj/a",
+            confidentiality_level="L2",
         )
     )
     await db_session.commit()
     db_session.add(
         KnowledgeAssetFileObject(
-            asset_id=asset.id, version_id=version.id, file_variant="original",
-            file_name="dup.pdf", file_mime_type="application/pdf",
-            storage_ref="internal://obj/dup", confidentiality_level="L2",
+            asset_id=asset.id,
+            version_id=version.id,
+            file_variant="original",
+            file_name="dup.pdf",
+            file_mime_type="application/pdf",
+            storage_ref="internal://obj/dup",
+            confidentiality_level="L2",
         )
     )
     with pytest.raises(IntegrityError):
@@ -248,14 +278,19 @@ async def test_self_references(db_session):
 
     # supersedes_version_id：新版本替代旧版本。
     v_old = KnowledgeAssetVersion(
-        asset_id=derived.id, version_no="v1", version_status="superseded",
+        asset_id=derived.id,
+        version_no="v1",
+        version_status="superseded",
         created_by=USER_CONSULTANT,
     )
     db_session.add(v_old)
     await db_session.commit()
     v_new = KnowledgeAssetVersion(
-        asset_id=derived.id, version_no="v2", version_status="active",
-        created_by=USER_CONSULTANT, supersedes_version_id=v_old.id,
+        asset_id=derived.id,
+        version_no="v2",
+        version_status="active",
+        created_by=USER_CONSULTANT,
+        supersedes_version_id=v_old.id,
     )
     db_session.add(v_new)
     await db_session.commit()
@@ -263,14 +298,22 @@ async def test_self_references(db_session):
 
     # replaced_by_chunk_id：旧 chunk 被新 chunk 替代。
     c_new = KnowledgeAssetChunk(
-        asset_id=derived.id, version_id=v_new.id, chunk_index=0,
-        chunk_type="paragraph", content_text="新内容", chunk_status="active",
+        asset_id=derived.id,
+        version_id=v_new.id,
+        chunk_index=0,
+        chunk_type="paragraph",
+        content_text="新内容",
+        chunk_status="active",
     )
     db_session.add(c_new)
     await db_session.commit()
     c_old = KnowledgeAssetChunk(
-        asset_id=derived.id, version_id=v_new.id, chunk_index=1,
-        chunk_type="paragraph", content_text="旧内容", chunk_status="superseded",
+        asset_id=derived.id,
+        version_id=v_new.id,
+        chunk_index=1,
+        chunk_type="paragraph",
+        content_text="旧内容",
+        chunk_status="superseded",
         replaced_by_chunk_id=c_new.id,
     )
     db_session.add(c_old)
@@ -284,17 +327,24 @@ async def test_invalid_chunk_carries_invalidation_metadata(db_session):
 
     asset = await _make_asset(db_session, scope="company")
     version = KnowledgeAssetVersion(
-        asset_id=asset.id, version_no="v1", version_status="active",
+        asset_id=asset.id,
+        version_no="v1",
+        version_status="active",
         created_by=USER_CONSULTANT,
     )
     db_session.add(version)
     await db_session.commit()
 
     chunk = KnowledgeAssetChunk(
-        asset_id=asset.id, version_id=version.id, chunk_index=0,
-        chunk_type="policy_article", content_text="旧政策条款",
-        chunk_status="invalid", invalid_reason="政策已更新",
-        invalidated_by=USER_BOSS, invalidated_at=datetime.now(timezone.utc),
+        asset_id=asset.id,
+        version_id=version.id,
+        chunk_index=0,
+        chunk_type="policy_article",
+        content_text="旧政策条款",
+        chunk_status="invalid",
+        invalid_reason="政策已更新",
+        invalidated_by=USER_BOSS,
+        invalidated_at=datetime.now(timezone.utc),
     )
     db_session.add(chunk)
     await db_session.commit()

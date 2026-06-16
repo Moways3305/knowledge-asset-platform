@@ -1,4 +1,4 @@
-﻿"""Knowledge 读 API+ 受控删除。
+"""Knowledge 读 API+ 受控删除。
 
 读：列表 / 详情 / 个人知识。删除：受控软删除 / 撤下。权限判断全部委托
 `app.services.knowledge`（其内部调用集中权限服务），本层不写权限矩阵。
@@ -59,7 +59,12 @@ async def knowledge_ops_insights(
     权限：业务用户按其可见范围、纯 admin 系统运维聚合（title_visible=false）、inactive/非业务非 admin → 403。
     不绕过 `/knowledge` 发现权限；响应绝不含 WeKnora id / 存储引用 / 原文 / 文件名 / token。"""
     return await insights_service.get_ops_insights(
-        session, caller, scope=scope, project_id=project_id, days=days, limit=limit,
+        session,
+        caller,
+        scope=scope,
+        project_id=project_id,
+        days=days,
+        limit=limit,
     )
 
 
@@ -96,8 +101,12 @@ async def delete_knowledge_asset(
     project_manager / 公司 boss·咨询总监；纯 admin 不可。删除后资产立即退出
     列表 / 检索 / 问答 / 预览 / Agent / 原文授权运行时。"""
     return await knowledge_service.delete_asset(
-        session, caller, asset_id, reason=body.reason,
-        weknora=weknora, trace_id=get_trace_id(request),
+        session,
+        caller,
+        asset_id,
+        reason=body.reason,
+        weknora=weknora,
+        trace_id=get_trace_id(request),
     )
 
 
@@ -114,7 +123,10 @@ async def retry_index(
     且调用人有业务管理权（个人 owner / 项目 PM·coach / 公司治理）。纯 admin 不可。
     复用 confirm 的安全索引机制；响应只回安全索引状态，绝不含 kb_id / doc_id / storage_ref。"""
     return await knowledge_service.retry_index(
-        session, caller, asset_id,
-        weknora=weknora, storage=storage, trace_id=get_trace_id(request),
+        session,
+        caller,
+        asset_id,
+        weknora=weknora,
+        storage=storage,
+        trace_id=get_trace_id(request),
     )
-

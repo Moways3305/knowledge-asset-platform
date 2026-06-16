@@ -1,4 +1,4 @@
-﻿"""平台会话撤销服务。
+"""平台会话撤销服务。
 
 围绕 `user_sessions` 提供安全、可审计的会话撤销：账号安全变更（停用 / 改密）或 admin 强制
 下线时，把目标用户的活动平台会话标记为已撤销（`revoked_at`）。**不物理删除**历史会话行，
@@ -48,7 +48,9 @@ async def _user_sessions(session: AsyncSession, user_id: uuid.UUID) -> list[User
                 .where(UserSession.user_id == user_id)
                 .order_by(UserSession.created_at.desc())
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
 
@@ -107,4 +109,3 @@ async def revoke_user_sessions(
         revoked += 1
     await session.flush()
     return revoked, now
-

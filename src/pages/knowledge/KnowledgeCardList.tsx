@@ -1,5 +1,13 @@
 import { Link } from "react-router-dom";
-import { Search, AlertTriangle, FileSearch, CheckCircle2, KeyRound, Radar, Sparkles } from "lucide-react";
+import {
+  Search,
+  AlertTriangle,
+  FileSearch,
+  CheckCircle2,
+  KeyRound,
+  Radar,
+  Sparkles,
+} from "lucide-react";
 import type { KnowledgeCardVM, KnowledgeScope } from "../../types/knowledge";
 import type { SearchResponseDTO } from "../../types/search";
 import {
@@ -40,10 +48,24 @@ interface KnowledgeCardListProps {
 
 export default function KnowledgeCardList(props: KnowledgeCardListProps) {
   const {
-    searchMode, searchLoading, searchError, searchResult, runSearch,
-    loading, error, filtered, activeScope, canCreateProject, openProjectForm,
-    resetFilters, hasActiveFilters,
-    confirmDeleteId, deleteBusyId, onAskDelete, onCancelDelete, onConfirmDelete,
+    searchMode,
+    searchLoading,
+    searchError,
+    searchResult,
+    runSearch,
+    loading,
+    error,
+    filtered,
+    activeScope,
+    canCreateProject,
+    openProjectForm,
+    resetFilters,
+    hasActiveFilters,
+    confirmDeleteId,
+    deleteBusyId,
+    onAskDelete,
+    onCancelDelete,
+    onConfirmDelete,
   } = props;
 
   const cards = searchResult?.cards ?? [];
@@ -51,15 +73,26 @@ export default function KnowledgeCardList(props: KnowledgeCardListProps) {
 
   if (searchMode) {
     if (searchLoading) {
-      return <div className="kb-state"><div className="kb-state-icon"><Search size={20} /></div><div className="kb-state-title">检索中…</div></div>;
+      return (
+        <div className="kb-state">
+          <div className="kb-state-icon">
+            <Search size={20} />
+          </div>
+          <div className="kb-state-title">检索中…</div>
+        </div>
+      );
     }
     if (searchError) {
       return (
         <div className="kb-state">
-          <div className="kb-state-icon is-error"><AlertTriangle size={20} /></div>
+          <div className="kb-state-icon is-error">
+            <AlertTriangle size={20} />
+          </div>
           <div className="kb-state-title">检索失败</div>
           <p className="kb-state-desc">{searchError}</p>
-          <button className="btn-secondary" onClick={runSearch}>重试</button>
+          <button className="btn-secondary" onClick={runSearch}>
+            重试
+          </button>
         </div>
       );
     }
@@ -69,7 +102,9 @@ export default function KnowledgeCardList(props: KnowledgeCardListProps) {
           <div className="kb-answer">
             <div className="kb-answer-head">
               <Sparkles size={13} />
-              <span className="kb-intent">{intentLabel[searchResult.intent] ?? searchResult.intent}</span>
+              <span className="kb-intent">
+                {intentLabel[searchResult.intent] ?? searchResult.intent}
+              </span>
               <span>AI 答案 / 检索摘要</span>
             </div>
             <p className="kb-answer-text">{searchResult.answer}</p>
@@ -83,7 +118,8 @@ export default function KnowledgeCardList(props: KnowledgeCardListProps) {
                         [{c.citation_order}] {c.asset_title}
                       </Link>
                       <span className="kb-citation-meta">
-                        {accessLayerLabel[c.used_access_layer] ?? c.used_access_layer} · {zoneLabel(c.cited_zone)}
+                        {accessLayerLabel[c.used_access_layer] ?? c.used_access_layer} ·{" "}
+                        {zoneLabel(c.cited_zone)}
                       </span>
                       {c.snippet && <p className="kb-citation-snippet">{c.snippet}</p>}
                     </li>
@@ -101,16 +137,26 @@ export default function KnowledgeCardList(props: KnowledgeCardListProps) {
                 <div className={`dossier-spine ${spineByLevel(card.confidentiality_level)}`} />
                 <div className="dossier-body">
                   <div className="dossier-head">
-                    <Link to={`/knowledge/${card.asset_id}`} className="dossier-title">{card.title}</Link>
+                    <Link to={`/knowledge/${card.asset_id}`} className="dossier-title">
+                      {card.title}
+                    </Link>
                     <div className="dossier-badges">
-                      <span className="dchip dchip-type">{assetTypeLabel[card.asset_type] ?? card.asset_type}</span>
+                      <span className="dchip dchip-type">
+                        {assetTypeLabel[card.asset_type] ?? card.asset_type}
+                      </span>
                       <span className="dchip dchip-conf">{card.confidentiality_level}</span>
                       <span className="dchip dchip-zone">{zoneLabel(card.zone)}</span>
                     </div>
                   </div>
-                  <p className="dossier-summary">{card.one_liner || card.detailed || "（无摘要权限）"}</p>
+                  <p className="dossier-summary">
+                    {card.one_liner || card.detailed || "（无摘要权限）"}
+                  </p>
                   <div className="dossier-tags">
-                    {card.tags.map((t) => <span key={t} className="tag">{t}</span>)}
+                    {card.tags.map((t) => (
+                      <span key={t} className="tag">
+                        {t}
+                      </span>
+                    ))}
                   </div>
                   <div className="dossier-meta">
                     {card.project_name && <span>{card.project_name}</span>}
@@ -120,9 +166,13 @@ export default function KnowledgeCardList(props: KnowledgeCardListProps) {
                   </div>
                   <div className="dossier-orig">
                     {card.can_view_original ? (
-                      <span className="ok"><CheckCircle2 size={13} /> 可访问原文（经授权 / 项目权限）</span>
+                      <span className="ok">
+                        <CheckCircle2 size={13} /> 可访问原文（经授权 / 项目权限）
+                      </span>
                     ) : (
-                      <Link to={`/knowledge/${card.asset_id}`} className="need"><KeyRound size={13} /> 摘要层结果 · 原文需申请</Link>
+                      <Link to={`/knowledge/${card.asset_id}`} className="need">
+                        <KeyRound size={13} /> 摘要层结果 · 原文需申请
+                      </Link>
                     )}
                   </div>
                 </div>
@@ -131,9 +181,13 @@ export default function KnowledgeCardList(props: KnowledgeCardListProps) {
           </div>
         ) : (
           <div className="kb-state">
-            <div className="kb-state-icon"><FileSearch size={20} /></div>
+            <div className="kb-state-icon">
+              <FileSearch size={20} />
+            </div>
             <div className="kb-state-title">未检索到相关知识资产</div>
-            <p className="kb-state-desc">换个问法或关键词，切换知识库范围，或调整业务阶段过滤后重试。无结果也可能是你对相关知识没有发现权限。</p>
+            <p className="kb-state-desc">
+              换个问法或关键词，切换知识库范围，或调整业务阶段过滤后重试。无结果也可能是你对相关知识没有发现权限。
+            </p>
           </div>
         )}
 
@@ -146,12 +200,21 @@ export default function KnowledgeCardList(props: KnowledgeCardListProps) {
 
   // ════════ 浏览模式列表 ════════
   if (loading) {
-    return <div className="kb-state"><div className="kb-state-icon"><Radar size={20} /></div><div className="kb-state-title">加载中…</div></div>;
+    return (
+      <div className="kb-state">
+        <div className="kb-state-icon">
+          <Radar size={20} />
+        </div>
+        <div className="kb-state-title">加载中…</div>
+      </div>
+    );
   }
   if (error) {
     return (
       <div className="kb-state">
-        <div className="kb-state-icon is-error"><AlertTriangle size={20} /></div>
+        <div className="kb-state-icon is-error">
+          <AlertTriangle size={20} />
+        </div>
         <div className="kb-state-title">加载失败</div>
         <p className="kb-state-desc">{error}（请确认后端服务已启动）</p>
       </div>
@@ -176,16 +239,24 @@ export default function KnowledgeCardList(props: KnowledgeCardListProps) {
   }
   return (
     <div className="kb-state">
-      <div className="kb-state-icon"><FileSearch size={20} /></div>
+      <div className="kb-state-icon">
+        <FileSearch size={20} />
+      </div>
       <div className="kb-state-title">
         {activeScope === "project" ? "该范围暂无项目知识资产" : "未找到匹配的知识资产"}
       </div>
-      <p className="kb-state-desc">当前筛选条件下没有结果。尝试切换知识库范围或清除筛选条件，或在上方输入问题进行语义检索。</p>
+      <p className="kb-state-desc">
+        当前筛选条件下没有结果。尝试切换知识库范围或清除筛选条件，或在上方输入问题进行语义检索。
+      </p>
       {activeScope === "project" && canCreateProject && (
-        <button className="btn-secondary" onClick={openProjectForm}>新建项目知识库</button>
+        <button className="btn-secondary" onClick={openProjectForm}>
+          新建项目知识库
+        </button>
       )}
       {hasActiveFilters && (
-        <button className="btn-secondary" onClick={resetFilters}>清除所有筛选</button>
+        <button className="btn-secondary" onClick={resetFilters}>
+          清除所有筛选
+        </button>
       )}
     </div>
   );

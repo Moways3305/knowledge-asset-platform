@@ -27,9 +27,20 @@ from app.services.weknora_client import get_weknora_client
 PROJECTS = "/api/v1/projects"
 
 _LEAK = [
-    "storage_ref", "source_file_ref", "internal://", "wk-kb", "wk-doc", "kb_id",
-    "doc_id", "chunk_id", "access_token", "download_url", "cookie",
-    "ww_consultant", "sk-", "Bearer",
+    "storage_ref",
+    "source_file_ref",
+    "internal://",
+    "wk-kb",
+    "wk-doc",
+    "kb_id",
+    "doc_id",
+    "chunk_id",
+    "access_token",
+    "download_url",
+    "cookie",
+    "ww_consultant",
+    "sk-",
+    "Bearer",
 ]
 
 
@@ -68,27 +79,45 @@ async def test_boss_creates_project(client, db_session):
     pid = uuid.UUID(body["id"])
     proj = await db_session.get(Project, pid)
     assert proj is not None and proj.status == "active"
-    pm = (await db_session.execute(
-        select(ProjectMember).where(
-            ProjectMember.project_id == pid,
-            ProjectMember.project_role == "project_manager",
-            ProjectMember.status == "active",
+    pm = (
+        (
+            await db_session.execute(
+                select(ProjectMember).where(
+                    ProjectMember.project_id == pid,
+                    ProjectMember.project_role == "project_manager",
+                    ProjectMember.status == "active",
+                )
+            )
         )
-    )).scalars().first()
+        .scalars()
+        .first()
+    )
     assert pm is not None and pm.user_id == USER_CONSULTANT
 
 
 async def test_director_creates_with_coach(client, db_session):
-    r = await client.post(PROJECTS, headers=_hdr(USER_DIRECTOR), json=_project_body(
-        name="带辅导老师项目", project_manager_user_id=str(USER_PROJECT_MANAGER),
-        coach_user_id=str(USER_CONSULTANT),
-    ))
+    r = await client.post(
+        PROJECTS,
+        headers=_hdr(USER_DIRECTOR),
+        json=_project_body(
+            name="带辅导老师项目",
+            project_manager_user_id=str(USER_PROJECT_MANAGER),
+            coach_user_id=str(USER_CONSULTANT),
+        ),
+    )
     assert r.status_code == 201, r.text
     pid = uuid.UUID(r.json()["id"])
     roles = {
-        m.project_role for m in (await db_session.execute(
-            select(ProjectMember).where(ProjectMember.project_id == pid, ProjectMember.status == "active")
-        )).scalars().all()
+        m.project_role
+        for m in (
+            await db_session.execute(
+                select(ProjectMember).where(
+                    ProjectMember.project_id == pid, ProjectMember.status == "active"
+                )
+            )
+        )
+        .scalars()
+        .all()
     }
     assert roles == {"project_manager", "coach"}
 
@@ -106,23 +135,29 @@ async def test_admin_cannot_create(client):
 
 
 async def test_pm_not_business_422(client):
-    r = await client.post(PROJECTS, headers=_hdr(USER_BOSS), json=_project_body(
-        project_manager_user_id=str(USER_ADMIN_ONLY)
-    ))
+    r = await client.post(
+        PROJECTS,
+        headers=_hdr(USER_BOSS),
+        json=_project_body(project_manager_user_id=str(USER_ADMIN_ONLY)),
+    )
     assert r.status_code == 422
     assert r.json()["detail"]["denied_reason"] == "project_manager_not_business"
 
 
 async def test_pm_not_found_422(client):
-    r = await client.post(PROJECTS, headers=_hdr(USER_BOSS), json=_project_body(
-        project_manager_user_id=str(uuid.uuid4())
-    ))
+    r = await client.post(
+        PROJECTS,
+        headers=_hdr(USER_BOSS),
+        json=_project_body(project_manager_user_id=str(uuid.uuid4())),
+    )
     assert r.status_code == 422
     assert r.json()["detail"]["denied_reason"] == "project_manager_not_found"
 
 
 async def test_duplicate_active_name_conflict_422(client):
-    assert (await client.post(PROJECTS, headers=_hdr(USER_BOSS), json=_project_body(name="唯一名"))).status_code == 201
+    assert (
+        await client.post(PROJECTS, headers=_hdr(USER_BOSS), json=_project_body(name="唯一名"))
+    ).status_code == 201
     dup = await client.post(PROJECTS, headers=_hdr(USER_BOSS), json=_project_body(name="唯一名"))
     assert dup.status_code == 422
     assert dup.json()["detail"]["denied_reason"] == "project_name_conflict"
@@ -161,14 +196,18 @@ async def test_create_project_precreates_kb(client, db_session, monkeypatch):
     monkeypatch.setattr(get_settings(), "weknora_embedding_model_id", "test-embed")
     app.dependency_overrides[get_weknora_client] = lambda: fake
     try:
-        r = await client.post(PROJECTS, headers=_hdr(USER_BOSS), json=_project_body(name="预建KB项目"))
+        r = await client.post(
+            PROJECTS, headers=_hdr(USER_BOSS), json=_project_body(name="预建KB项目")
+        )
         assert r.status_code == 201, r.text
         pid = uuid.UUID(r.json()["id"])
         # 项目创建后 WeKnora 侧立即有对应 KB + 已初始化 + 映射 active。
         assert len(fake.created) == 1 and len(fake.initialized) == 1
-        mapping = (await db_session.execute(
-            select(WeknoraKbMapping).where(WeknoraKbMapping.project_id == pid)
-        )).scalar_one()
+        mapping = (
+            await db_session.execute(
+                select(WeknoraKbMapping).where(WeknoraKbMapping.project_id == pid)
+            )
+        ).scalar_one()
         assert mapping.status == "active"
         _assert_no_leak(r.text)  # 响应不外泄 kb_id
     finally:
@@ -183,7 +222,9 @@ async def test_create_project_survives_kb_failure(client, db_session, monkeypatc
     monkeypatch.setattr(get_settings(), "weknora_embedding_model_id", "test-embed")
     app.dependency_overrides[get_weknora_client] = lambda: fake
     try:
-        r = await client.post(PROJECTS, headers=_hdr(USER_BOSS), json=_project_body(name="底座失败仍建项目"))
+        r = await client.post(
+            PROJECTS, headers=_hdr(USER_BOSS), json=_project_body(name="底座失败仍建项目")
+        )
         # 底座失败不阻断项目创建。
         assert r.status_code == 201, r.text
         pid = uuid.UUID(r.json()["id"])
@@ -204,16 +245,20 @@ async def test_create_project_no_active_kb_when_embedding_missing(client, db_ses
     monkeypatch.setattr(get_settings(), "weknora_embedding_model_id", "")
     app.dependency_overrides[get_weknora_client] = lambda: fake
     try:
-        r = await client.post(PROJECTS, headers=_hdr(USER_BOSS), json=_project_body(name="缺embedding仍建项目"))
+        r = await client.post(
+            PROJECTS, headers=_hdr(USER_BOSS), json=_project_body(name="缺embedding仍建项目")
+        )
         assert r.status_code == 201, r.text
         pid = uuid.UUID(r.json()["id"])
         proj = await db_session.get(Project, pid)
         assert proj is not None and proj.status == "active"
         # 未建 KB、未写任何 project 映射（不产生 active 假成功）。
         assert fake.created == []
-        mapping = (await db_session.execute(
-            select(WeknoraKbMapping).where(WeknoraKbMapping.project_id == pid)
-        )).scalar_one_or_none()
+        mapping = (
+            await db_session.execute(
+                select(WeknoraKbMapping).where(WeknoraKbMapping.project_id == pid)
+            )
+        ).scalar_one_or_none()
         assert mapping is None
         _assert_no_leak(r.text)
     finally:
@@ -221,9 +266,15 @@ async def test_create_project_no_active_kb_when_embedding_missing(client, db_ses
 
 
 async def test_created_project_visible_in_lists(client):
-    created = (await client.post(PROJECTS, headers=_hdr(USER_BOSS), json=_project_body(
-        name="可见性项目", project_manager_user_id=str(USER_PROJECT_MANAGER)
-    ))).json()
+    created = (
+        await client.post(
+            PROJECTS,
+            headers=_hdr(USER_BOSS),
+            json=_project_body(
+                name="可见性项目", project_manager_user_id=str(USER_PROJECT_MANAGER)
+            ),
+        )
+    ).json()
     pid = created["id"]
     # boss 全量列表可见。
     boss_list = (await client.get(PROJECTS, headers=_hdr(USER_BOSS))).json()["items"]
@@ -231,14 +282,22 @@ async def test_created_project_visible_in_lists(client):
     # PM 在自己的项目列表可见，且对项目设置可读。
     pm_list = (await client.get(PROJECTS, headers=_hdr(USER_PROJECT_MANAGER))).json()["items"]
     assert any(p["id"] == pid for p in pm_list)
-    assert (await client.get(f"{PROJECTS}/{pid}/settings", headers=_hdr(USER_PROJECT_MANAGER))).status_code == 200
+    assert (
+        await client.get(f"{PROJECTS}/{pid}/settings", headers=_hdr(USER_PROJECT_MANAGER))
+    ).status_code == 200
 
 
 async def test_project_create_audit_no_leak(client, db_session):
-    await client.post(PROJECTS, headers={**_hdr(USER_BOSS), "X-Trace-Id": "trc-proj"}, json=_project_body(name="审计项目"))
-    evt = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "project.created")
-    )).scalars().first()
+    await client.post(
+        PROJECTS,
+        headers={**_hdr(USER_BOSS), "X-Trace-Id": "trc-proj"},
+        json=_project_body(name="审计项目"),
+    )
+    evt = (
+        (await db_session.execute(select(AuditEvent).where(AuditEvent.action == "project.created")))
+        .scalars()
+        .first()
+    )
     assert evt is not None and evt.actor_user_id == USER_BOSS
     assert evt.after_snapshot["name"] == "审计项目"
     _assert_no_leak(f"{evt.before_snapshot}{evt.after_snapshot}{evt.extra}")

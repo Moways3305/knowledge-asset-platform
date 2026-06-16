@@ -1,4 +1,4 @@
-﻿"""企业微信客户端抽象。
+"""企业微信客户端抽象。
 
 两个窄客户端，把企微细节隔离在此，业务层只消费**规范化结果**：
 - `WeComOAuthClient`：构造授权 URL、用 code 换取规范化身份 `{wecom_user_id}`。
@@ -124,8 +124,16 @@ class WeComDriveDirectory:
 class WeComOAuthClient:
     """企微 OAuth 真实客户端（httpx）。失败只抛安全 WeComError。"""
 
-    def __init__(self, *, corp_id: str, agent_id: str, app_secret: str, redirect_uri: str,
-                 base_url: str, timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        *,
+        corp_id: str,
+        agent_id: str,
+        app_secret: str,
+        redirect_uri: str,
+        base_url: str,
+        timeout: float = 30.0,
+    ) -> None:
         self._corp_id = corp_id
         self._agent_id = agent_id
         self._app_secret = app_secret
@@ -174,13 +182,17 @@ class WeComOAuthClient:
                 )
                 data = self._safe_json(resp)
         except httpx.HTTPError as exc:
-            raise WeComError("wecom_network_error", f"企微网络错误（{type(exc).__name__}）") from exc
+            raise WeComError(
+                "wecom_network_error", f"企微网络错误（{type(exc).__name__}）"
+            ) from exc
         user_id = data.get("userid") or data.get("UserId")
         if not user_id:
             raise WeComError("wecom_userinfo_failed", "企微身份解析失败（非企业成员或无 userid）")
         return WeComIdentity(wecom_user_id=str(user_id))
 
-    async def get_member_status(self, wecom_user_id: str) -> WeComMemberStatus:  # pragma: no cover - 真实网络
+    async def get_member_status(
+        self, wecom_user_id: str
+    ) -> WeComMemberStatus:  # pragma: no cover - 真实网络
         """查企微成员生命周期状态。失败只抛安全 WeComError；只读 status，不读档案。"""
         if not wecom_user_id:
             raise WeComError("wecom_missing_userid", "缺少企微成员标识")
@@ -193,7 +205,9 @@ class WeComOAuthClient:
                 )
                 data = self._safe_json(resp)
         except httpx.HTTPError as exc:
-            raise WeComError("wecom_network_error", f"企微网络错误（{type(exc).__name__}）") from exc
+            raise WeComError(
+                "wecom_network_error", f"企微网络错误（{type(exc).__name__}）"
+            ) from exc
         return normalize_member_status(wecom_user_id, data)
 
     @staticmethod
@@ -207,7 +221,9 @@ class WeComOAuthClient:
 
 # 常见扩展名 → mime（list 仅给元数据，下载前据此标注；未知 → None）。
 _EXT_MIME = {
-    "txt": "text/plain", "md": "text/markdown", "csv": "text/csv",
+    "txt": "text/plain",
+    "md": "text/markdown",
+    "csv": "text/csv",
     "pdf": "application/pdf",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "doc": "application/msword",
@@ -225,9 +241,7 @@ def parse_directory_path(directory_path: str) -> tuple[str, str]:
     **文档化内部格式**：`spaceid:<id>;fatherid:<id>`（两个均为企微微盘内部标识，server-only，
     绝不外泄）。fatherid 省略时为根目录（空串）。格式非法 → WeComError，不静默用 admin/系统。
     """
-    parts = dict(
-        kv.split(":", 1) for kv in (directory_path or "").split(";") if ":" in kv
-    )
+    parts = dict(kv.split(":", 1) for kv in (directory_path or "").split(";") if ":" in kv)
     spaceid = (parts.get("spaceid") or "").strip()
     fatherid = (parts.get("fatherid") or "").strip()
     if not spaceid:
@@ -248,8 +262,15 @@ class WeComDriveClient:
       全程仅在本客户端内部使用，**绝不**返回/持久化/审计/日志。
     """
 
-    def __init__(self, *, corp_id: str, app_secret: str, base_url: str,
-                 page_size: int = 100, timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        *,
+        corp_id: str,
+        app_secret: str,
+        base_url: str,
+        page_size: int = 100,
+        timeout: float = 30.0,
+    ) -> None:
         self._corp_id = corp_id
         self._app_secret = app_secret
         self._base = base_url.rstrip("/")
@@ -275,7 +296,9 @@ class WeComDriveClient:
             raise WeComError("wecom_token_failed", "企微 access_token 获取失败")
         return str(token)
 
-    async def list_files(self, directory_path: str) -> list[WeComDriveFile]:  # pragma: no cover - 真实网络
+    async def list_files(
+        self, directory_path: str
+    ) -> list[WeComDriveFile]:  # pragma: no cover - 真实网络
         """翻页列举目录文件，规范化为 WeComDriveFile（仅安全元数据）。"""
         spaceid, fatherid = parse_directory_path(directory_path)
         out: list[WeComDriveFile] = []
@@ -288,8 +311,11 @@ class WeComDriveClient:
                         f"{self._base}/cgi-bin/wedrive/file_list",
                         params={"access_token": token},
                         json={
-                            "spaceid": spaceid, "fatherid": fatherid,
-                            "sort_type": 1, "start": start, "limit": self._page_size,
+                            "spaceid": spaceid,
+                            "fatherid": fatherid,
+                            "sort_type": 1,
+                            "start": start,
+                            "limit": self._page_size,
                         },
                     )
                     data = self._check(WeComOAuthClient._safe_json(resp))
@@ -313,7 +339,9 @@ class WeComDriveClient:
                         break
                     start = int(data.get("next_start") or (start + self._page_size))
         except httpx.HTTPError as exc:
-            raise WeComError("wecom_network_error", f"企微网络错误（{type(exc).__name__}）") from exc
+            raise WeComError(
+                "wecom_network_error", f"企微网络错误（{type(exc).__name__}）"
+            ) from exc
         return out
 
     # ---- 目录浏览（只列空间 / 目录，不列普通文件，不下载）----
@@ -350,10 +378,14 @@ class WeComDriveClient:
             name = it.get("file_name") or it.get("name") or ""
             if not fid or not name:
                 continue
-            out.append(WeComDriveDirectory(
-                directory_ref=f"spaceid:{spaceid};fatherid:{fid}",
-                name=str(name), parent_ref=None, has_children=None,
-            ))
+            out.append(
+                WeComDriveDirectory(
+                    directory_ref=f"spaceid:{spaceid};fatherid:{fid}",
+                    name=str(name),
+                    parent_ref=None,
+                    has_children=None,
+                )
+            )
         return out
 
     async def list_spaces(self) -> list[WeComDriveSpace]:  # pragma: no cover - 真实网络
@@ -363,11 +395,14 @@ class WeComDriveClient:
                 token = await self._access_token(client)
                 resp = await client.post(
                     f"{self._base}/cgi-bin/wedrive/space_list",
-                    params={"access_token": token}, json={},
+                    params={"access_token": token},
+                    json={},
                 )
                 data = self._check(WeComOAuthClient._safe_json(resp))
         except httpx.HTTPError as exc:
-            raise WeComError("wecom_network_error", f"企微网络错误（{type(exc).__name__}）") from exc
+            raise WeComError(
+                "wecom_network_error", f"企微网络错误（{type(exc).__name__}）"
+            ) from exc
         return self._to_spaces(data.get("space_list") or data.get("spaces"))
 
     async def list_directories(  # pragma: no cover - 真实网络
@@ -384,11 +419,19 @@ class WeComDriveClient:
                 resp = await client.post(
                     f"{self._base}/cgi-bin/wedrive/file_list",
                     params={"access_token": token},
-                    json={"spaceid": spaceid, "fatherid": fatherid, "sort_type": 1, "start": 0, "limit": self._page_size},
+                    json={
+                        "spaceid": spaceid,
+                        "fatherid": fatherid,
+                        "sort_type": 1,
+                        "start": 0,
+                        "limit": self._page_size,
+                    },
                 )
                 data = self._check(WeComOAuthClient._safe_json(resp))
         except httpx.HTTPError as exc:
-            raise WeComError("wecom_network_error", f"企微网络错误（{type(exc).__name__}）") from exc
+            raise WeComError(
+                "wecom_network_error", f"企微网络错误（{type(exc).__name__}）"
+            ) from exc
         return self._to_directories(spaceid, data.get("file_list"))
 
     async def download_file(self, file_id: str) -> bytes:  # pragma: no cover - 真实网络
@@ -400,7 +443,8 @@ class WeComDriveClient:
                 token = await self._access_token(client)
                 resp = await client.post(
                     f"{self._base}/cgi-bin/wedrive/file_download",
-                    params={"access_token": token}, json={"fileid": file_id},
+                    params={"access_token": token},
+                    json={"fileid": file_id},
                 )
                 data = self._check(WeComOAuthClient._safe_json(resp))
                 download_url = data.get("download_url")
@@ -417,7 +461,9 @@ class WeComDriveClient:
                     raise WeComError("wecom_download_failed", "企微微盘文件下载失败")
                 return file_resp.content
         except httpx.HTTPError as exc:
-            raise WeComError("wecom_network_error", f"企微网络错误（{type(exc).__name__}）") from exc
+            raise WeComError(
+                "wecom_network_error", f"企微网络错误（{type(exc).__name__}）"
+            ) from exc
 
 
 class NullWeComOAuthClient:
@@ -441,7 +487,9 @@ class NullWeComDriveClient:
     async def list_spaces(self) -> list[WeComDriveSpace]:
         raise WeComError("wecom_not_configured", "企微微盘未配置")
 
-    async def list_directories(self, space_ref: str, parent_ref: str | None = None) -> list[WeComDriveDirectory]:
+    async def list_directories(
+        self, space_ref: str, parent_ref: str | None = None
+    ) -> list[WeComDriveDirectory]:
         raise WeComError("wecom_not_configured", "企微微盘未配置")
 
 
@@ -456,8 +504,12 @@ def get_wecom_oauth_client() -> WeComOAuthClient | NullWeComOAuthClient:
         return NullWeComOAuthClient()
     s = get_settings()
     return WeComOAuthClient(
-        corp_id=s.wecom_corp_id, agent_id=s.wecom_agent_id, app_secret=s.wecom_app_secret,
-        redirect_uri=s.wecom_redirect_uri, base_url=s.wecom_drive_base_url, timeout=s.wecom_timeout,
+        corp_id=s.wecom_corp_id,
+        agent_id=s.wecom_agent_id,
+        app_secret=s.wecom_app_secret,
+        redirect_uri=s.wecom_redirect_uri,
+        base_url=s.wecom_drive_base_url,
+        timeout=s.wecom_timeout,
     )
 
 
@@ -466,7 +518,9 @@ def get_wecom_drive_client() -> WeComDriveClient | NullWeComDriveClient:
         return NullWeComDriveClient()
     s = get_settings()
     return WeComDriveClient(
-        corp_id=s.wecom_corp_id, app_secret=s.wecom_app_secret,
-        base_url=s.wecom_drive_base_url, page_size=s.wecom_scan_page_size, timeout=s.wecom_timeout,
+        corp_id=s.wecom_corp_id,
+        app_secret=s.wecom_app_secret,
+        base_url=s.wecom_drive_base_url,
+        page_size=s.wecom_scan_page_size,
+        timeout=s.wecom_timeout,
     )
-

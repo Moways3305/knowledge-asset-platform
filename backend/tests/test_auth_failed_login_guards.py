@@ -76,9 +76,17 @@ async def test_unknown_email_records_attempt_user_null_no_raw_email(client, db_s
     assert rows[0].user_id is None
     assert rows[0].result == "failed"
     # 未知 email 写系统级安全审计（actor=None），extra 只含不可逆 hash 前缀，无 raw email。
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "login.failed", AuditEvent.actor_user_id.is_(None))
-    )).scalars().all()
+    ev = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(
+                    AuditEvent.action == "login.failed", AuditEvent.actor_user_id.is_(None)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert ev, "未知 email 失败应写系统审计"
     blob = str([(e.extra, e.before_snapshot, e.after_snapshot) for e in ev])
     assert UNKNOWN_EMAIL not in blob
@@ -119,9 +127,11 @@ async def test_lockout_after_threshold_skips_verify(client, db_session, monkeypa
     assert [a.result for a in rows] == ["failed", "failed", "failed", "locked"]
     assert rows[-1].reason_code == "identifier_locked"
     # 锁定审计为系统事件（actor=None），不泄露账号存在性 / raw email。
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "login.locked")
-    )).scalars().all()
+    ev = (
+        (await db_session.execute(select(AuditEvent).where(AuditEvent.action == "login.locked")))
+        .scalars()
+        .all()
+    )
     assert ev and ev[0].actor_user_id is None
     assert BOSS_EMAIL not in str([e.extra for e in ev])
 
@@ -167,9 +177,14 @@ async def test_ip_rate_limit_service_level(db_session, monkeypatch):
     # 同 IP、不同 identifier 的两条失败（identifier 维度不会先锁）。
     for i in range(2):
         await auth_security.record_login_attempt(
-            db_session, identifier_hash=_id_hash(f"u{i}@dev.local"), ip_hash=ip_hash,
-            user_id=None, login_method="password", result="failed",
-            reason_code="invalid_credentials", trace_id="t",
+            db_session,
+            identifier_hash=_id_hash(f"u{i}@dev.local"),
+            ip_hash=ip_hash,
+            user_id=None,
+            login_method="password",
+            result="failed",
+            reason_code="invalid_credentials",
+            trace_id="t",
         )
     await db_session.commit()
     guard = await auth_security.check_login_guard(
@@ -181,22 +196,43 @@ async def test_ip_rate_limit_service_level(db_session, monkeypatch):
 
 
 async def test_identifier_lock_service_resets_after_success(db_session):
-    s = _settings(auth_max_failed_attempts=2, auth_lockout_minutes=15, auth_failed_window_minutes=15)
+    s = _settings(
+        auth_max_failed_attempts=2, auth_lockout_minutes=15, auth_failed_window_minutes=15
+    )
     idh = _id_hash("svc@dev.local")
     iph = auth_security.hash_login_identifier("198.51.100.9", purpose="ip", settings=s)
     for _ in range(2):
         await auth_security.record_login_attempt(
-            db_session, identifier_hash=idh, ip_hash=iph, user_id=None,
-            login_method="password", result="failed", reason_code="invalid_credentials", trace_id="t",
+            db_session,
+            identifier_hash=idh,
+            ip_hash=iph,
+            user_id=None,
+            login_method="password",
+            result="failed",
+            reason_code="invalid_credentials",
+            trace_id="t",
         )
     await db_session.commit()
-    assert (await auth_security.check_login_guard(db_session, identifier_hash=idh, ip_hash=iph, settings=s)).blocked
+    assert (
+        await auth_security.check_login_guard(
+            db_session, identifier_hash=idh, ip_hash=iph, settings=s
+        )
+    ).blocked
     # 成功后重置：再判定不应锁定。
     await auth_security.record_login_success(
-        db_session, identifier_hash=idh, ip_hash=iph, user_id=None, login_method="password", trace_id="t"
+        db_session,
+        identifier_hash=idh,
+        ip_hash=iph,
+        user_id=None,
+        login_method="password",
+        trace_id="t",
     )
     await db_session.commit()
-    assert (await auth_security.check_login_guard(db_session, identifier_hash=idh, ip_hash=iph, settings=s)).blocked is False
+    assert (
+        await auth_security.check_login_guard(
+            db_session, identifier_hash=idh, ip_hash=iph, settings=s
+        )
+    ).blocked is False
 
 
 def test_threshold_clamps_illegal_values():
@@ -226,8 +262,12 @@ def test_hash_is_irreversible_and_purpose_namespaced():
 async def test_prod_missing_auth_secret_is_blocker(client, monkeypatch):
     monkeypatch.setattr(
         "app.api.ops.get_settings",
-        lambda: Settings(app_env="prod", celery_task_always_eager=False,
-                         session_cookie_secure=True, auth_attempt_hash_secret=""),
+        lambda: Settings(
+            app_env="prod",
+            celery_task_always_eager=False,
+            session_cookie_secure=True,
+            auth_attempt_hash_secret="",
+        ),
     )
     monkeypatch.setattr("app.api.ops.weknora_enabled", lambda: False)
     r = await client.get(CONFIG)
@@ -237,8 +277,12 @@ async def test_prod_missing_auth_secret_is_blocker(client, monkeypatch):
 async def test_prod_with_auth_secret_not_blocker(client, monkeypatch):
     monkeypatch.setattr(
         "app.api.ops.get_settings",
-        lambda: Settings(app_env="prod", celery_task_always_eager=False,
-                         session_cookie_secure=True, auth_attempt_hash_secret="real-secret"),
+        lambda: Settings(
+            app_env="prod",
+            celery_task_always_eager=False,
+            session_cookie_secure=True,
+            auth_attempt_hash_secret="real-secret",
+        ),
     )
     monkeypatch.setattr("app.api.ops.weknora_enabled", lambda: False)
     r = await client.get(CONFIG)
@@ -260,9 +304,23 @@ async def test_no_leak_in_attempts_audit_response(client, db_session, monkeypatc
     # attempts + 审计聚合 blob。
     attempts = await _attempts(db_session)
     audits = (await db_session.execute(select(AuditEvent))).scalars().all()
-    blob = str([(a.identifier_hash, a.identifier_hint, a.ip_hash, a.result, a.reason_code) for a in attempts])
+    blob = str(
+        [
+            (a.identifier_hash, a.identifier_hint, a.ip_hash, a.result, a.reason_code)
+            for a in attempts
+        ]
+    )
     blob += str([(e.extra, e.before_snapshot, e.after_snapshot) for e in audits])
     blob += r.text
-    for token in [BOSS_EMAIL, "secretpw-123", "password_hash", "salt", "digest", "pbkdf2",
-                  "kap_session", "kap_oauth_state", "token_hash"]:
+    for token in [
+        BOSS_EMAIL,
+        "secretpw-123",
+        "password_hash",
+        "salt",
+        "digest",
+        "pbkdf2",
+        "kap_session",
+        "kap_oauth_state",
+        "token_hash",
+    ]:
         assert token not in blob, token

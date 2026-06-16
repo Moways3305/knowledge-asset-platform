@@ -67,7 +67,7 @@ export default function KnowledgeListPage() {
     setError(null);
     try {
       const [company, project, personal] = await Promise.all(
-        scopes.map((s) => fetchKnowledgeList({ scope: s, includeArchived }))
+        scopes.map((s) => fetchKnowledgeList({ scope: s, includeArchived })),
       );
       setByScope({ company, project, personal });
     } catch (e) {
@@ -82,7 +82,9 @@ export default function KnowledgeListPage() {
   }, [loadList]);
 
   useEffect(() => {
-    fetchAuthMe().then(setAuthMe).catch(() => setAuthMe(null));
+    fetchAuthMe()
+      .then(setAuthMe)
+      .catch(() => setAuthMe(null));
   }, []);
 
   // 按当前 scope 拉取真实运营洞察。失败 → 安全错误态，不回退假数据。
@@ -90,30 +92,42 @@ export default function KnowledgeListPage() {
     let cancelled = false;
     setInsightsErr(false);
     fetchKnowledgeOpsInsights({ scope: activeScope })
-      .then((d) => { if (!cancelled) setInsights(d); })
-      .catch(() => { if (!cancelled) { setInsights(null); setInsightsErr(true); } });
-    return () => { cancelled = true; };
+      .then((d) => {
+        if (!cancelled) setInsights(d);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setInsights(null);
+          setInsightsErr(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [activeScope]);
 
   const canCreateProject = useMemo(
     () => !!authMe && authMe.companyRoles.some((r) => r === "boss" || r === "consulting_director"),
-    [authMe]
+    [authMe],
   );
 
   const openProjectForm = useCallback(() => setProjFormOpen(true), []);
 
-  const handleDeleteCard = useCallback(async (assetId: string) => {
-    setDeleteBusyId(assetId);
-    try {
-      await deleteKnowledgeAsset(assetId);
-      setConfirmDeleteId(null);
-      await loadList();
-    } catch {
-      // 失败保持卡片，错误在确认区提示（保守：仅清 busy）。
-    } finally {
-      setDeleteBusyId(null);
-    }
-  }, [loadList]);
+  const handleDeleteCard = useCallback(
+    async (assetId: string) => {
+      setDeleteBusyId(assetId);
+      try {
+        await deleteKnowledgeAsset(assetId);
+        setConfirmDeleteId(null);
+        await loadList();
+      } catch {
+        // 失败保持卡片，错误在确认区提示（保守：仅清 busy）。
+      } finally {
+        setDeleteBusyId(null);
+      }
+    },
+    [loadList],
+  );
 
   // 语义搜索：committedQuery 非空时调用后端，scope/业务阶段/归档随之重检索。
   // 后端驱动的过滤项：scope（tab）、phase（业务阶段）、include_archived。
@@ -143,7 +157,9 @@ export default function KnowledgeListPage() {
       })
       .catch((e) => {
         if (cancelled) return;
-        setSearchError(e instanceof ApiError ? e.message : "搜索失败，请稍后重试（请确认后端服务已启动）");
+        setSearchError(
+          e instanceof ApiError ? e.message : "搜索失败，请稍后重试（请确认后端服务已启动）",
+        );
         setSearchLoading(false);
       });
     return () => {
@@ -153,28 +169,33 @@ export default function KnowledgeListPage() {
 
   const allAssets = useMemo(
     () => (byScope ? [...byScope.company, ...byScope.project, ...byScope.personal] : []),
-    [byScope]
+    [byScope],
   );
 
   const projectOptions = useMemo(
     () => Array.from(new Set(allAssets.map((a) => a.projectName).filter(Boolean))).sort(),
-    [allAssets]
+    [allAssets],
   );
   const bizStageOptions = useMemo(
     () => Array.from(new Set(allAssets.map((a) => a.lifecyclePhase).filter(Boolean))).sort(),
-    [allAssets]
+    [allAssets],
   );
   const assetTypeOptions = useMemo(
     () => Array.from(new Set(allAssets.map((a) => a.assetType))).sort(),
-    [allAssets]
+    [allAssets],
   );
   const visibilityOptions = useMemo(
     () => Array.from(new Set(allAssets.map((a) => a.visibility))).sort() as FrontVisibility[],
-    [allAssets]
+    [allAssets],
   );
 
   // 浏览模式筛选（项目 / 资料类型 / 可见性）。语义搜索模式下这些不由后端搜索驱动。
-  const hasActiveFilters = !!(filterProject || filterBizStage || filterAssetType || filterVisibility);
+  const hasActiveFilters = !!(
+    filterProject ||
+    filterBizStage ||
+    filterAssetType ||
+    filterVisibility
+  );
 
   const resetFilters = useCallback(() => {
     setFilterProject("");
@@ -205,7 +226,15 @@ export default function KnowledgeListPage() {
       return b.updatedAt.localeCompare(a.updatedAt);
     });
     return result;
-  }, [byScope, activeScope, filterProject, filterBizStage, filterAssetType, filterVisibility, sortKey]);
+  }, [
+    byScope,
+    activeScope,
+    filterProject,
+    filterBizStage,
+    filterAssetType,
+    filterVisibility,
+    sortKey,
+  ]);
 
   const activeAssets = allAssets.filter((a) => a.assetStatus !== "archived");
   const totalAssets = activeAssets.length;
@@ -224,10 +253,22 @@ export default function KnowledgeListPage() {
           <p className="kb-lead">浏览、语义检索与复用组织沉淀的知识资产</p>
         </div>
         <div className="kb-metrics">
-          <div className="kb-metric"><div className="kb-metric-value">{totalAssets}</div><div className="kb-metric-label">总资产</div></div>
-          <div className="kb-metric"><div className="kb-metric-value is-success">{reusableCount}</div><div className="kb-metric-label">可复用</div></div>
-          <div className="kb-metric"><div className="kb-metric-value is-warning">{attentionCount}</div><div className="kb-metric-label">需关注</div></div>
-          <div className="kb-metric"><div className="kb-metric-value is-muted">{archivedCount}</div><div className="kb-metric-label">已归档</div></div>
+          <div className="kb-metric">
+            <div className="kb-metric-value">{totalAssets}</div>
+            <div className="kb-metric-label">总资产</div>
+          </div>
+          <div className="kb-metric">
+            <div className="kb-metric-value is-success">{reusableCount}</div>
+            <div className="kb-metric-label">可复用</div>
+          </div>
+          <div className="kb-metric">
+            <div className="kb-metric-value is-warning">{attentionCount}</div>
+            <div className="kb-metric-label">需关注</div>
+          </div>
+          <div className="kb-metric">
+            <div className="kb-metric-value is-muted">{archivedCount}</div>
+            <div className="kb-metric-label">已归档</div>
+          </div>
         </div>
       </div>
 
@@ -235,13 +276,20 @@ export default function KnowledgeListPage() {
       {authMe && !authMe.isBusinessUser && (
         <div className="kb-identity-note">
           <ShieldAlert size={16} />
-          <span>当前为系统管理身份（admin），不具备业务知识访问权；业务知识仅对业务用户（顾问 / 项目经理 / Boss / 咨询总监）开放。运营元数据请使用管理后台（入库管理 / 微盘扫描 / 审计）。</span>
+          <span>
+            当前为系统管理身份（admin），不具备业务知识访问权；业务知识仅对业务用户（顾问 / 项目经理
+            / Boss / 咨询总监）开放。运营元数据请使用管理后台（入库管理 / 微盘扫描 / 审计）。
+          </span>
         </div>
       )}
 
       <div className="kb-scope">
         {scopes.map((s) => (
-          <button key={s} className={`kb-scope-btn ${activeScope === s ? "active" : ""}`} onClick={() => setActiveScope(s)}>
+          <button
+            key={s}
+            className={`kb-scope-btn ${activeScope === s ? "active" : ""}`}
+            onClick={() => setActiveScope(s)}
+          >
             {scopeLabels[s]}
             <span className="kb-scope-count">{byScope ? byScope[s].length : 0}</span>
           </button>
@@ -277,20 +325,36 @@ export default function KnowledgeListPage() {
               <span className={`kb-mode-tag ${searchMode ? "kb-mode-search" : "kb-mode-browse"}`}>
                 {searchMode ? "语义检索" : "浏览"}
               </span>
-              {searchMode ? `检索到 ${cards.length} 条结果` : `共 ${filtered.length} 条${scopeLabels[activeScope]}资产`}
+              {searchMode
+                ? `检索到 ${cards.length} 条结果`
+                : `共 ${filtered.length} 条${scopeLabels[activeScope]}资产`}
             </span>
             <div className="kb-toolbar-right">
               {activeScope === "project" && !searchMode && canCreateProject && (
-                <button className="btn-small btn-small-primary" onClick={openProjectForm}>新建项目知识库</button>
+                <button className="btn-small btn-small-primary" onClick={openProjectForm}>
+                  新建项目知识库
+                </button>
               )}
               <label className="kb-archive-toggle">
-                <input type="checkbox" checked={includeArchived} onChange={(e) => setIncludeArchived(e.target.checked)} />
+                <input
+                  type="checkbox"
+                  checked={includeArchived}
+                  onChange={(e) => setIncludeArchived(e.target.checked)}
+                />
                 <span>包含归档</span>
               </label>
-              <select className="kb-sort" value={sortKey} disabled={searchMode}
+              <select
+                className="kb-sort"
+                value={sortKey}
+                disabled={searchMode}
                 title={searchMode ? "语义搜索按相关度排序" : undefined}
-                onChange={(e) => setSortKey(e.target.value as SortKey)}>
-                {(Object.keys(sortLabels) as SortKey[]).map((k) => (<option key={k} value={k}>{sortLabels[k]}</option>))}
+                onChange={(e) => setSortKey(e.target.value as SortKey)}
+              >
+                {(Object.keys(sortLabels) as SortKey[]).map((k) => (
+                  <option key={k} value={k}>
+                    {sortLabels[k]}
+                  </option>
+                ))}
               </select>
             </div>
           </div>

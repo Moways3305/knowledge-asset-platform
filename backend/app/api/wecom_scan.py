@@ -1,4 +1,4 @@
-﻿"""企微微盘扫描 API（Path A）。
+"""企微微盘扫描 API（Path A）。
 
 - GET   /api/v1/admin/wecom-scan/configs                         （admin / boss / 咨询总监）
 - PATCH /api/v1/admin/wecom-scan/configs/{config_id}            （admin；启停）
@@ -102,7 +102,9 @@ async def create_config(
 ) -> WecomScanConfigOut:
     """创建扫描目录配置（仅 admin，配置操作人 = 审计 actor）。`created_by` 写入校验通过的
     业务归属人（task_owner_user_id），即扫描产物 path_a_wecom 任务的归属人。"""
-    result: WecomScanConfigOut = await scan_service.create_config(session, caller, body, get_trace_id(request))
+    result: WecomScanConfigOut = await scan_service.create_config(
+        session, caller, body, get_trace_id(request)
+    )
     return result
 
 
@@ -133,9 +135,15 @@ async def trigger_scan(
     desensitizer=Depends(get_desensitizer),
 ) -> WecomScanRecordOut:
     result: WecomScanRecordOut = await scan_service.trigger_scan(
-        session, caller, config_id,
-        drive=drive, storage=storage, llm=llm, desensitizer=desensitizer,
-        trace_id=get_trace_id(request), idempotency_key=idempotency_key,
+        session,
+        caller,
+        config_id,
+        drive=drive,
+        storage=storage,
+        llm=llm,
+        desensitizer=desensitizer,
+        trace_id=get_trace_id(request),
+        idempotency_key=idempotency_key,
     )
     return result
 
@@ -148,4 +156,3 @@ async def list_records(
 ) -> WecomScanRecordsResponse:
     result: WecomScanRecordsResponse = await scan_service.list_records(session, caller, config_id)
     return result
-

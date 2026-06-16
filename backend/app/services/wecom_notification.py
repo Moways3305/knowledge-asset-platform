@@ -54,16 +54,18 @@ def default_notification_channel() -> str:
 class WeComNotificationSender:
     """企微应用消息发送器（真实 httpx）。失败抛安全 WeComError。"""
 
-    def __init__(self, *, corp_id: str, agent_id: str, app_secret: str,
-                 base_url: str, timeout: float = 30.0) -> None:
+    def __init__(
+        self, *, corp_id: str, agent_id: str, app_secret: str, base_url: str, timeout: float = 30.0
+    ) -> None:
         self._corp_id = corp_id
         self._agent_id = agent_id
         self._app_secret = app_secret
         self._base = base_url.rstrip("/")
         self._timeout = timeout
 
-    async def send(self, *, wecom_user_id: str, title: str, content: str,
-                   trace_id: str | None = None) -> None:  # pragma: no cover - 真实网络
+    async def send(
+        self, *, wecom_user_id: str, title: str, content: str, trace_id: str | None = None
+    ) -> None:  # pragma: no cover - 真实网络
         if not self._agent_id:
             raise WeComError("wecom_no_agent_id", "企微 agentid 未配置")
         try:
@@ -81,13 +83,17 @@ class WeComNotificationSender:
                     json={
                         "touser": wecom_user_id,
                         "msgtype": "text",
-                        "agentid": int(self._agent_id) if str(self._agent_id).isdigit() else self._agent_id,
+                        "agentid": int(self._agent_id)
+                        if str(self._agent_id).isdigit()
+                        else self._agent_id,
                         "text": {"content": f"{title}\n{content}"},
                     },
                 )
                 data = resp.json() or {}
         except httpx.HTTPError as exc:
-            raise WeComError("wecom_network_error", f"企微网络错误（{type(exc).__name__}）") from exc
+            raise WeComError(
+                "wecom_network_error", f"企微网络错误（{type(exc).__name__}）"
+            ) from exc
         errcode = data.get("errcode", 0)
         if errcode and int(errcode) != 0:
             # 不回显上游 errmsg（可能含敏感串）。
@@ -109,8 +115,11 @@ def get_wecom_notification_sender() -> WeComNotificationSender | NullWeComNotifi
         return NullWeComNotificationSender()
     s = get_settings()
     return WeComNotificationSender(
-        corp_id=s.wecom_corp_id, agent_id=s.wecom_agent_id, app_secret=s.wecom_app_secret,
-        base_url=s.wecom_drive_base_url, timeout=s.wecom_timeout,
+        corp_id=s.wecom_corp_id,
+        agent_id=s.wecom_agent_id,
+        app_secret=s.wecom_app_secret,
+        base_url=s.wecom_drive_base_url,
+        timeout=s.wecom_timeout,
     )
 
 
@@ -143,7 +152,9 @@ async def dispatch_pending(
                 .order_by(NotificationRecord.created_at)
                 .limit(limit)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     sent = failed = 0
     for rec in rows:
@@ -157,7 +168,9 @@ async def dispatch_pending(
             continue
         try:
             await sender.send(
-                wecom_user_id=user.wecom_user_id, title=rec.title, content=rec.content,
+                wecom_user_id=user.wecom_user_id,
+                title=rec.title,
+                content=rec.content,
                 trace_id=trace_id,
             )
         except WeComError as exc:
@@ -175,11 +188,17 @@ async def dispatch_pending(
     return {"sent": sent, "failed": failed, "processed": len(rows)}
 
 
-async def _audit(session: AsyncSession, action: str, rec: NotificationRecord, trace_id: str | None) -> None:
+async def _audit(
+    session: AsyncSession, action: str, rec: NotificationRecord, trace_id: str | None
+) -> None:
     """系统下发审计：只记安全元数据（通知 id / 收件人 / 渠道 / 失败 code），不记 title/content。"""
     await audit_service.record_system_event(
-        session, log_type=AuditLogType.operation, action=action, trace_id=trace_id or "",
-        target_type="notification_record", target_id=rec.id,
+        session,
+        log_type=AuditLogType.operation,
+        action=action,
+        trace_id=trace_id or "",
+        target_type="notification_record",
+        target_id=rec.id,
         extra={
             "channel": rec.channel,
             "recipient_user_id": str(rec.recipient_user_id),

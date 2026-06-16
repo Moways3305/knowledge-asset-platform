@@ -59,7 +59,17 @@ export const assetTypeOptions: { value: string; label: string }[] = [
 ];
 export const confidentialityOptions = ["L1", "L2", "L3", "L4", "L5"];
 export const aiAccessOptions = ["A1", "A2", "A3", "A4"];
-export const bizStageOptions = ["售前", "诊断", "启动共识", "定题", "目标计划", "行动辅导", "阶段评估", "年度复盘", "专项诊断"];
+export const bizStageOptions = [
+  "售前",
+  "诊断",
+  "启动共识",
+  "定题",
+  "目标计划",
+  "行动辅导",
+  "阶段评估",
+  "年度复盘",
+  "专项诊断",
+];
 
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -69,11 +79,17 @@ export function formatFileSize(bytes: number): string {
 
 export function flowLabel(state: FlowState): { text: string; cls: string } {
   switch (state) {
-    case "idle": return { text: "等待选择文件", cls: "flow-idle" };
-    case "file_selected": return { text: "文件已选择，待处理", cls: "flow-selected" };
-    case "processing": return { text: "处理中…", cls: "flow-processing" };
-    case "ready": return { text: "待人工校正", cls: "flow-ready" };
-    case "failed": return { text: "处理失败", cls: "flow-failed" };
-    case "submitted": return { text: "已提交", cls: "flow-submitted" };
+    case "idle":
+      return { text: "等待选择文件", cls: "flow-idle" };
+    case "file_selected":
+      return { text: "文件已选择，待处理", cls: "flow-selected" };
+    case "processing":
+      return { text: "处理中…", cls: "flow-processing" };
+    case "ready":
+      return { text: "待人工校正", cls: "flow-ready" };
+    case "failed":
+      return { text: "处理失败", cls: "flow-failed" };
+    case "submitted":
+      return { text: "已提交", cls: "flow-submitted" };
   }
 }

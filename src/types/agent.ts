@@ -24,4 +24,3 @@ export interface ProjectQaResponseDTO {
   trace_id: string | null;
   created_at: string;
 }
-

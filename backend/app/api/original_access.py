@@ -1,4 +1,4 @@
-﻿"""原文访问申请与授权 API。
+"""原文访问申请与授权 API。
 
 - POST /api/v1/knowledge/{asset_id}/original-access/request   发起申请（业务用户，可发现该资产）
 - GET  /api/v1/original-access/requests?box=mine|inbox        本人申请 / 可审批 pending 收件箱
@@ -41,7 +41,9 @@ async def create_request(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> CreateRequestResponse:
-    return await oa_service.create_request(session, caller, asset_id, body.reason, get_trace_id(request))
+    return await oa_service.create_request(
+        session, caller, asset_id, body.reason, get_trace_id(request)
+    )
 
 
 @router.get("/original-access/requests", response_model=RequestsListResponse)
@@ -62,7 +64,9 @@ async def approve_request(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> CreateRequestResponse:
-    return await oa_service.approve_request(session, caller, request_id, body.note, get_trace_id(request))
+    return await oa_service.approve_request(
+        session, caller, request_id, body.note, get_trace_id(request)
+    )
 
 
 @router.post("/original-access/requests/{request_id}/reject", response_model=CreateRequestResponse)
@@ -73,7 +77,9 @@ async def reject_request(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> CreateRequestResponse:
-    return await oa_service.reject_request(session, caller, request_id, body.note, get_trace_id(request))
+    return await oa_service.reject_request(
+        session, caller, request_id, body.note, get_trace_id(request)
+    )
 
 
 @router.post("/original-access/grants/{grant_id}/revoke", response_model=AccessGrantOut)
@@ -84,5 +90,6 @@ async def revoke_grant(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> AccessGrantOut:
-    return await oa_service.revoke_grant(session, caller, grant_id, body.reason, get_trace_id(request))
-
+    return await oa_service.revoke_grant(
+        session, caller, grant_id, body.reason, get_trace_id(request)
+    )

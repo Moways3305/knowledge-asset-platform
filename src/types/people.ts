@@ -39,4 +39,3 @@ export interface PeopleListResponseDTO {
   items: PersonDTO[];
   total: number;
 }
-

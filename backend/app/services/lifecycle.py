@@ -1,4 +1,4 @@
-﻿"""知识资产生命周期治理服务。
+"""知识资产生命周期治理服务。
 
 生命周期治理职责：
 - 系统/人只产生预警/候选（request），归档与重新启用必须人工确认（confirm）。
@@ -92,10 +92,15 @@ async def _load_governable_asset(
     """
     if not caller.is_business_user:
         await audit_service.record_denied(
-            session, caller=caller, log_type=AuditLogType.exception,
-            action=AuditAction.admin_business_denied.value, trace_id=trace_id,
-            target_type="knowledge_asset", target_id=asset_id,
-            severity=AlertSeverity.warning, risk_level=AuditRiskLevel.high.value,
+            session,
+            caller=caller,
+            log_type=AuditLogType.exception,
+            action=AuditAction.admin_business_denied.value,
+            trace_id=trace_id,
+            target_type="knowledge_asset",
+            target_id=asset_id,
+            severity=AlertSeverity.warning,
+            risk_level=AuditRiskLevel.high.value,
             extra={"denied_reason": "admin_business_permission_denied", "attempted": attempted},
         )
         raise _denied(403, "admin_business_permission_denied", "admin 不拥有业务生命周期治理权")
@@ -115,9 +120,7 @@ async def _load_governable_asset(
         raise not_found
 
     if require_actor and not lifecycle_actor_allowed(caller, asset):
-        raise _denied(
-            403, "lifecycle_action_not_allowed", "当前身份无该资产的生命周期治理动作权"
-        )
+        raise _denied(403, "lifecycle_action_not_allowed", "当前身份无该资产的生命周期治理动作权")
     return asset
 
 
@@ -156,8 +159,12 @@ async def archive_request(
     trace_id: str,
 ) -> LifecycleActionResponse:
     asset = await _load_governable_asset(
-        session, caller, asset_id, trace_id=trace_id,
-        attempted="lifecycle.archive_request", require_actor=True,
+        session,
+        caller,
+        asset_id,
+        trace_id=trace_id,
+        attempted="lifecycle.archive_request",
+        require_actor=True,
     )
     if asset.asset_status == AssetStatus.archived.value:
         raise _denied(409, "lifecycle_invalid_transition", "资产已归档，无需再次发起归档")
@@ -174,18 +181,26 @@ async def archive_request(
         action = AuditAction.lifecycle_archive_warning.value
 
     event = AssetLifecycleEvent(
-        asset_id=asset.id, event_type=event_type,
-        old_status=asset.asset_status, new_status=None,
-        triggered_by=LifecycleTriggeredBy.user.value, actor_user_id=caller.user_id,
-        reason=reason, trace_id=trace_id,
+        asset_id=asset.id,
+        event_type=event_type,
+        old_status=asset.asset_status,
+        new_status=None,
+        triggered_by=LifecycleTriggeredBy.user.value,
+        actor_user_id=caller.user_id,
+        reason=reason,
+        trace_id=trace_id,
     )
     session.add(event)
     await session.flush()
 
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=action, trace_id=trace_id,
-        target_type="knowledge_asset", target_id=asset.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=action,
+        trace_id=trace_id,
+        target_type="knowledge_asset",
+        target_id=asset.id,
         extra={
             "event_type": event_type,
             "candidate_source": body.candidate_source,
@@ -210,12 +225,17 @@ async def archive_confirm(
     trace_id: str,
 ) -> ArchiveConfirmResponse:
     asset = await _load_governable_asset(
-        session, caller, asset_id, trace_id=trace_id,
-        attempted="lifecycle.archive_confirm", require_actor=True,
+        session,
+        caller,
+        asset_id,
+        trace_id=trace_id,
+        attempted="lifecycle.archive_confirm",
+        require_actor=True,
     )
     if asset.asset_status not in _ARCHIVABLE_FROM:
         raise _denied(
-            409, "lifecycle_invalid_transition",
+            409,
+            "lifecycle_invalid_transition",
             f"当前状态 {asset.asset_status} 不可确认归档",
         )
 
@@ -226,19 +246,28 @@ async def archive_confirm(
     asset.archive_reason = reason
 
     event = AssetLifecycleEvent(
-        asset_id=asset.id, event_type=LifecycleEventType.archived.value,
-        old_status=old_status, new_status=AssetStatus.archived.value,
-        triggered_by=LifecycleTriggeredBy.user.value, actor_user_id=caller.user_id,
-        reason=reason, review_task_id=body.review_task_id, trace_id=trace_id,
+        asset_id=asset.id,
+        event_type=LifecycleEventType.archived.value,
+        old_status=old_status,
+        new_status=AssetStatus.archived.value,
+        triggered_by=LifecycleTriggeredBy.user.value,
+        actor_user_id=caller.user_id,
+        reason=reason,
+        review_task_id=body.review_task_id,
+        trace_id=trace_id,
     )
     session.add(event)
     await session.flush()
 
     strong = lifecycle_is_strong_audit(asset)
     audit_event = await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.lifecycle_archived.value, trace_id=trace_id,
-        target_type="knowledge_asset", target_id=asset.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.lifecycle_archived.value,
+        trace_id=trace_id,
+        target_type="knowledge_asset",
+        target_id=asset.id,
         before={"asset_status": old_status},
         after={"asset_status": asset.asset_status},
         severity=AlertSeverity.warning if strong else None,
@@ -253,7 +282,8 @@ async def archive_confirm(
     )
     await session.flush()
     await _notify(
-        session, asset,
+        session,
+        asset,
         title=f"知识资产已归档：{asset.title}",
         content=(
             f"资产「{asset.title}」（{asset.scope}/{asset.confidentiality_level}）"
@@ -282,27 +312,37 @@ async def reenable_request(
     trace_id: str,
 ) -> LifecycleActionResponse:
     asset = await _load_governable_asset(
-        session, caller, asset_id, trace_id=trace_id,
-        attempted="lifecycle.reenable_request", require_actor=True,
+        session,
+        caller,
+        asset_id,
+        trace_id=trace_id,
+        attempted="lifecycle.reenable_request",
+        require_actor=True,
     )
     if asset.asset_status != AssetStatus.archived.value:
-        raise _denied(
-            409, "lifecycle_invalid_transition", "仅已归档资产可发起重新启用"
-        )
+        raise _denied(409, "lifecycle_invalid_transition", "仅已归档资产可发起重新启用")
 
     event = AssetLifecycleEvent(
-        asset_id=asset.id, event_type=LifecycleEventType.reenable_requested.value,
-        old_status=asset.asset_status, new_status=None,
-        triggered_by=LifecycleTriggeredBy.user.value, actor_user_id=caller.user_id,
-        reason=audit_service.sanitize_text(body.reason), trace_id=trace_id,
+        asset_id=asset.id,
+        event_type=LifecycleEventType.reenable_requested.value,
+        old_status=asset.asset_status,
+        new_status=None,
+        triggered_by=LifecycleTriggeredBy.user.value,
+        actor_user_id=caller.user_id,
+        reason=audit_service.sanitize_text(body.reason),
+        trace_id=trace_id,
     )
     session.add(event)
     await session.flush()
 
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.lifecycle_reenable_requested.value, trace_id=trace_id,
-        target_type="knowledge_asset", target_id=asset.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.lifecycle_reenable_requested.value,
+        trace_id=trace_id,
+        target_type="knowledge_asset",
+        target_id=asset.id,
         extra={
             "target_status": body.target_status,
             "lifecycle_event_id": str(event.id),
@@ -311,8 +351,10 @@ async def reenable_request(
     )
     await session.commit()
     return LifecycleActionResponse(
-        lifecycle_event_id=event.id, review_task_id=None,
-        status=LifecycleEventType.reenable_requested.value, trace_id=trace_id,
+        lifecycle_event_id=event.id,
+        review_task_id=None,
+        status=LifecycleEventType.reenable_requested.value,
+        trace_id=trace_id,
     )
 
 
@@ -328,17 +370,20 @@ async def reenable_confirm(
 ) -> ReenableConfirmResponse:
     if body.target_status not in _REENABLE_TARGETS:
         raise _denied(
-            422, "lifecycle_invalid_target_status",
+            422,
+            "lifecycle_invalid_target_status",
             "target_status 仅允许 active 或 needs_update",
         )
     asset = await _load_governable_asset(
-        session, caller, asset_id, trace_id=trace_id,
-        attempted="lifecycle.reenable_confirm", require_actor=True,
+        session,
+        caller,
+        asset_id,
+        trace_id=trace_id,
+        attempted="lifecycle.reenable_confirm",
+        require_actor=True,
     )
     if asset.asset_status != AssetStatus.archived.value:
-        raise _denied(
-            409, "lifecycle_invalid_transition", "仅已归档资产可确认重新启用"
-        )
+        raise _denied(409, "lifecycle_invalid_transition", "仅已归档资产可确认重新启用")
 
     reason = audit_service.sanitize_text(body.reason)
     old_status = asset.asset_status
@@ -346,19 +391,28 @@ async def reenable_confirm(
     # 保留 archived_at / archive_reason 作为历史追溯（不清空）。
 
     event = AssetLifecycleEvent(
-        asset_id=asset.id, event_type=LifecycleEventType.reenabled.value,
-        old_status=old_status, new_status=body.target_status,
-        triggered_by=LifecycleTriggeredBy.user.value, actor_user_id=caller.user_id,
-        reason=reason, review_task_id=body.review_task_id, trace_id=trace_id,
+        asset_id=asset.id,
+        event_type=LifecycleEventType.reenabled.value,
+        old_status=old_status,
+        new_status=body.target_status,
+        triggered_by=LifecycleTriggeredBy.user.value,
+        actor_user_id=caller.user_id,
+        reason=reason,
+        review_task_id=body.review_task_id,
+        trace_id=trace_id,
     )
     session.add(event)
     await session.flush()
 
     strong = lifecycle_is_strong_audit(asset)
     audit_event = await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.lifecycle_reenabled.value, trace_id=trace_id,
-        target_type="knowledge_asset", target_id=asset.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.lifecycle_reenabled.value,
+        trace_id=trace_id,
+        target_type="knowledge_asset",
+        target_id=asset.id,
         before={"asset_status": old_status},
         after={"asset_status": asset.asset_status},
         severity=AlertSeverity.warning if strong else None,
@@ -374,7 +428,8 @@ async def reenable_confirm(
     )
     await session.flush()
     await _notify(
-        session, asset,
+        session,
+        asset,
         title=f"知识资产已重新启用：{asset.title}",
         content=(
             f"资产「{asset.title}」已重新启用为 {body.target_status}（曾归档，"
@@ -445,4 +500,3 @@ async def list_events(
             for e in rows
         ]
     )
-

@@ -16,7 +16,10 @@ export default function UploadPage() {
       <div className="up-header">
         <div className="up-header-text">
           <h2>资产化确认工作台</h2>
-          <p>路径 A 企微微盘待确认任务与路径 B 本地上传，在此统一进行 AI 预览、人工校正、目标库确认和提交入库</p>
+          <p>
+            路径 A 企微微盘待确认任务与路径 B 本地上传，在此统一进行 AI
+            预览、人工校正、目标库确认和提交入库
+          </p>
         </div>
       </div>
 
@@ -27,17 +30,24 @@ export default function UploadPage() {
           onClick={() => switchPath("a")}
         >
           <div className="up-path-card-title">路径A：企微微盘自动检测</div>
-          <div className="up-path-card-desc">企微微盘扫描项目目录，检测新增文件并落入待确认队列，在此完成人工校正与确认入库</div>
+          <div className="up-path-card-desc">
+            企微微盘扫描项目目录，检测新增文件并落入待确认队列，在此完成人工校正与确认入库
+          </div>
         </button>
         <button
           className={`up-path-card ${activePath === "b" ? "active" : ""}`}
           onClick={() => switchPath("b")}
         >
           <div className="up-path-card-title">路径B：本地上传资产化</div>
-          <div className="up-path-card-desc">手动选择本地文件，上传至平台受控存储后由 worker 异步抽取 + 外部 LLM 生成建议，人工校正后提交入库</div>
+          <div className="up-path-card-desc">
+            手动选择本地文件，上传至平台受控存储后由 worker 异步抽取 + 外部 LLM
+            生成建议，人工校正后提交入库
+          </div>
         </button>
       </div>
-      <p className="up-path-shared-note">两条路径共享相同的 AI 提取 → 人工校正 → 入库/审核分流 模型</p>
+      <p className="up-path-shared-note">
+        两条路径共享相同的 AI 提取 → 人工校正 → 入库/审核分流 模型
+      </p>
 
       {/* 命名规范与保密分级 */}
       <UploadNamingCard naming={flow.naming} confirmConfidence={flow.confirmConfidence} />

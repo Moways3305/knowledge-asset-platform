@@ -72,10 +72,15 @@ class FakeSearchWeKnora:
                 continue
             if knowledge_ids and d["knowledge_id"] not in knowledge_ids:
                 continue
-            out.append({
-                "content": d["content"], "knowledge_id": d["knowledge_id"],
-                "chunk_index": 0, "score": round(1.0 - i * 0.01, 4), "seq": 0,
-            })
+            out.append(
+                {
+                    "content": d["content"],
+                    "knowledge_id": d["knowledge_id"],
+                    "chunk_index": 0,
+                    "score": round(1.0 - i * 0.01, 4),
+                    "seq": 0,
+                }
+            )
         return out
 
     async def hybrid_search(self, **_):
@@ -88,7 +93,9 @@ class FakeScrubLLM:
     provider = "deepseek"
     model = "deepseek-chat"
 
-    async def chat_completion(self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None):
+    async def chat_completion(
+        self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None
+    ):
         system = messages[0]["content"] if messages else ""
         if "脱敏" in system:
             text = messages[1]["content"] if len(messages) > 1 else ""
@@ -114,7 +121,9 @@ class NoOpScrubLLM:
     provider = "deepseek"
     model = "deepseek-chat"
 
-    async def chat_completion(self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None):
+    async def chat_completion(
+        self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None
+    ):
         # 脱敏请求：原样回传用户内容（脱敏未生效）。
         return messages[1]["content"] if len(messages) > 1 else ""
 
@@ -134,20 +143,36 @@ def _cleanup():
 async def _insert_alpha_l4(db_session):
     """插入一个 L4 Alpha 资产（含原文 chunk 经 fake 返回），Alpha 成员可得原文。"""
     asset = KnowledgeAsset(
-        id=KA_ALPHA_L4, title="Alpha L4 交付物（含敏感实体）", scope="project", zone="asset",
-        asset_type="deliverable", owner_user_id=USER_CONSULTANT, maintainer_user_id=USER_CONSULTANT,
-        project_id=PROJECT_ALPHA, visibility="project_only", confidentiality_level="L4",
-        ai_access_level="A1", asset_status="active", lifecycle_phase_key="交付",
+        id=KA_ALPHA_L4,
+        title="Alpha L4 交付物（含敏感实体）",
+        scope="project",
+        zone="asset",
+        asset_type="deliverable",
+        owner_user_id=USER_CONSULTANT,
+        maintainer_user_id=USER_CONSULTANT,
+        project_id=PROJECT_ALPHA,
+        visibility="project_only",
+        confidentiality_level="L4",
+        ai_access_level="A1",
+        asset_status="active",
+        lifecycle_phase_key="交付",
     )
     version = KnowledgeAssetVersion(
-        asset_id=KA_ALPHA_L4, version_no="v1", version_status="active", created_by=USER_CONSULTANT,
-        weknora_kb_id=_ALPHA_KB, weknora_doc_id=f"wk-doc-{KA_ALPHA_L4}", weknora_parse_status="completed",
+        asset_id=KA_ALPHA_L4,
+        version_no="v1",
+        version_status="active",
+        created_by=USER_CONSULTANT,
+        weknora_kb_id=_ALPHA_KB,
+        weknora_doc_id=f"wk-doc-{KA_ALPHA_L4}",
+        weknora_parse_status="completed",
         # 该 fixture 表示一个已成功索引的资产（召回/原文取件只接受 indexed）。
         index_status="indexed",
     )
     asset.versions.append(version)
     asset.current_version_id = version.id
-    s = KnowledgeAssetSummary(summary_type="redacted_summary", content="（脱敏）Alpha L4 交付物安全摘要。")
+    s = KnowledgeAssetSummary(
+        summary_type="redacted_summary", content="（脱敏）Alpha L4 交付物安全摘要。"
+    )
     s.version = version
     asset.summaries.append(s)
     asset.tags.append(KnowledgeAssetTag(tag_name="交付物"))
@@ -178,9 +203,17 @@ def test_normalize_chunks_list_and_wrapped():
 
 
 def test_search_unwrap_payload_shape():
-    ok = httpx.Response(200, json={"success": True, "data": {"results": [
-        {"content": "c", "knowledge_id": "d1", "score": 0.9},
-    ]}})
+    ok = httpx.Response(
+        200,
+        json={
+            "success": True,
+            "data": {
+                "results": [
+                    {"content": "c", "knowledge_id": "d1", "score": 0.9},
+                ]
+            },
+        },
+    )
     chunks = WeKnoraClient._normalize_chunks(WeKnoraClient._unwrap(ok))
     assert chunks[0]["knowledge_id"] == "d1"
 
@@ -208,8 +241,9 @@ async def test_stage1_cards_company_scope_l4_redacted_l5_hidden(client):
         _doc(KA_COMPANY_L5, _COMPANY_KB, "公司级绝密战略备忘原文"),
     ]
     _install(FakeSearchWeKnora(docs), FakeScrubLLM())
-    resp = await client.post(SEARCH, headers=_hdr(USER_CONSULTANT),
-                             json={"query": "数字化成熟度", "scope": "company"})
+    resp = await client.post(
+        SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": "数字化成熟度", "scope": "company"}
+    )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     cards = {c["asset_id"]: c for c in body["cards"]}
@@ -233,8 +267,9 @@ async def test_stage1_score_sorted_and_orphan_dropped(client):
         _doc(KA_COMPANY_L2, _COMPANY_KB, "零售数字化成熟度评估内容"),
     ]
     _install(FakeSearchWeKnora(docs), FakeScrubLLM())
-    resp = await client.post(SEARCH, headers=_hdr(USER_CONSULTANT),
-                             json={"query": "成熟度", "scope": "company"})
+    resp = await client.post(
+        SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": "成熟度", "scope": "company"}
+    )
     body = resp.json()
     ids = [c["asset_id"] for c in body["cards"]]
     # 孤儿 knowledge 无业务映射 → 丢弃，不透出。
@@ -247,9 +282,16 @@ async def test_stage2_original_desensitized_for_member(client, db_session):
     await _insert_alpha_l4(db_session)
     docs = [_doc(KA_ALPHA_L4, _ALPHA_KB, _SENSITIVE)]
     _install(FakeSearchWeKnora(docs), FakeScrubLLM())
-    resp = await client.post(SEARCH, headers=_hdr(USER_CONSULTANT), json={
-        "query": "交付物", "scope": "project", "want_original": True, "asset_id": str(KA_ALPHA_L4),
-    })
+    resp = await client.post(
+        SEARCH,
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "query": "交付物",
+            "scope": "project",
+            "want_original": True,
+            "asset_id": str(KA_ALPHA_L4),
+        },
+    )
     assert resp.status_code == 200, resp.text
     original = resp.json()["original"]
     assert original["available"] is True
@@ -265,9 +307,16 @@ async def test_stage2_no_permission_no_original_chunk(client):
     # consultant 对公司 L4 无原文权 → 只给卡片+联系人，断言无任何原文 chunk。
     docs = [_doc(KA_COMPANY_L4, _COMPANY_KB, _SENSITIVE)]
     _install(FakeSearchWeKnora(docs), FakeScrubLLM())
-    resp = await client.post(SEARCH, headers=_hdr(USER_CONSULTANT), json={
-        "query": "集采", "scope": "company", "want_original": True, "asset_id": str(KA_COMPANY_L4),
-    })
+    resp = await client.post(
+        SEARCH,
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "query": "集采",
+            "scope": "company",
+            "want_original": True,
+            "asset_id": str(KA_COMPANY_L4),
+        },
+    )
     assert resp.status_code == 200
     original = resp.json()["original"]
     assert original["available"] is False
@@ -283,9 +332,16 @@ async def test_stage2_llm_down_conservative_no_original(client, db_session):
     docs = [_doc(KA_ALPHA_L4, _ALPHA_KB, _SENSITIVE)]
     # 有原文权（成员），但脱敏 LLM 不可用 → 保守降级：不返回原文。
     _install(FakeSearchWeKnora(docs), DownLLM())
-    resp = await client.post(SEARCH, headers=_hdr(USER_CONSULTANT), json={
-        "query": "交付物", "scope": "project", "want_original": True, "asset_id": str(KA_ALPHA_L4),
-    })
+    resp = await client.post(
+        SEARCH,
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "query": "交付物",
+            "scope": "project",
+            "want_original": True,
+            "asset_id": str(KA_ALPHA_L4),
+        },
+    )
     assert resp.status_code == 200
     original = resp.json()["original"]
     assert original["available"] is False
@@ -298,9 +354,16 @@ async def test_stage2_noop_desensitization_fails_closed(client, db_session):
     docs = [_doc(KA_ALPHA_L4, _ALPHA_KB, _SENSITIVE)]
     # 有原文权（成员），LLM 把原文原样返回（脱敏 no-op）→ fail-closed：不返回原文。
     _install(FakeSearchWeKnora(docs), NoOpScrubLLM())
-    resp = await client.post(SEARCH, headers=_hdr(USER_CONSULTANT), json={
-        "query": "交付物", "scope": "project", "want_original": True, "asset_id": str(KA_ALPHA_L4),
-    })
+    resp = await client.post(
+        SEARCH,
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "query": "交付物",
+            "scope": "project",
+            "want_original": True,
+            "asset_id": str(KA_ALPHA_L4),
+        },
+    )
     assert resp.status_code == 200
     original = resp.json()["original"]
     assert original["available"] is False
@@ -319,12 +382,14 @@ def test_audit_redacts_weknora_chunk_refs():
     assert audit_service.sanitize_text("wk-doc-1234abcd#0") == "[redacted]"
     assert audit_service.sanitize_text("wk-kb-proj-abcd") == "[redacted]"
     # 键级：server-only chunk ref 键被剔除；无害安全键（intent 等）保留。
-    cleaned = audit_service._sanitize({
-        "cited_weknora_chunk_ref": "wk-doc-x#0",
-        "target_weknora_chunk_ref": "wk-doc-y#1",
-        "weknora_chunk_ref": "wk-doc-z#2",
-        "intent": "qa",
-    })
+    cleaned = audit_service._sanitize(
+        {
+            "cited_weknora_chunk_ref": "wk-doc-x#0",
+            "target_weknora_chunk_ref": "wk-doc-y#1",
+            "weknora_chunk_ref": "wk-doc-z#2",
+            "intent": "qa",
+        }
+    )
     assert "cited_weknora_chunk_ref" not in cleaned
     assert "target_weknora_chunk_ref" not in cleaned
     assert "weknora_chunk_ref" not in cleaned
@@ -335,9 +400,14 @@ def test_audit_redacts_weknora_chunk_refs():
 async def test_qa_answer_and_citations_from_allowed_chunks(client):
     docs = [_doc(KA_PROJECT_ALPHA, _ALPHA_KB, "Alpha 供应链优化：采购、仓储、物流要点。")]
     _install(FakeSearchWeKnora(docs), FakeScrubLLM())
-    resp = await client.post(SEARCH, headers=_hdr(USER_CONSULTANT), json={
-        "query": "如何做供应链优化？", "scope": "project",
-    })
+    resp = await client.post(
+        SEARCH,
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "query": "如何做供应链优化？",
+            "scope": "project",
+        },
+    )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["intent"] == "qa"
@@ -353,9 +423,14 @@ async def test_qa_answer_and_citations_from_allowed_chunks(client):
 async def test_search_intent_default_no_answer(client):
     docs = [_doc(KA_PROJECT_ALPHA, _ALPHA_KB, "Alpha 供应链优化交付报告内容。")]
     _install(FakeSearchWeKnora(docs), FakeScrubLLM())
-    resp = await client.post(SEARCH, headers=_hdr(USER_CONSULTANT), json={
-        "query": "供应链优化交付报告", "scope": "project",
-    })
+    resp = await client.post(
+        SEARCH,
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "query": "供应链优化交付报告",
+            "scope": "project",
+        },
+    )
     body = resp.json()
     # 查找意图：只给卡片，不附答案。
     assert body["intent"] == "search"
@@ -368,7 +443,8 @@ async def test_l5_director_can_discover(client):
     # 咨询总监可发现 L5 → 公司 L5 出现在卡片（对照 consultant 不可见）。
     docs = [_doc(KA_COMPANY_L5, _COMPANY_KB, "公司级绝密战略备忘原文")]
     _install(FakeSearchWeKnora(docs), FakeScrubLLM())
-    resp = await client.post(SEARCH, headers=_hdr(USER_DIRECTOR),
-                             json={"query": "战略", "scope": "company"})
+    resp = await client.post(
+        SEARCH, headers=_hdr(USER_DIRECTOR), json={"query": "战略", "scope": "company"}
+    )
     ids = {c["asset_id"] for c in resp.json()["cards"]}
     assert str(KA_COMPANY_L5) in ids

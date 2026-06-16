@@ -1,4 +1,4 @@
-﻿"""文件存储抽象与本地文件系统后端。
+"""文件存储抽象与本地文件系统后端。
 
 边界与安全：
 - 上传的文件字节写入**受控服务端存储**；返回的存储引用（storage ref）是
@@ -90,7 +90,7 @@ class LocalFileStorage:
         """把内部存储引用解析回本地路径（server-only，仅供后端读取，不外泄）。"""
         if not ref.startswith(_REF_PREFIX):
             raise StorageError("invalid_storage_ref")
-        key = ref[len(_REF_PREFIX):]
+        key = ref[len(_REF_PREFIX) :]
         path = (self._root / key).resolve()
         if not _contains(self._root, path):
             raise StorageError("invalid_storage_path")
@@ -109,4 +109,3 @@ def get_storage() -> LocalFileStorage:
     测试经 `app.dependency_overrides[get_storage]` 覆盖到临时目录，保持 hermetic。
     """
     return LocalFileStorage(get_settings().storage_root)
-

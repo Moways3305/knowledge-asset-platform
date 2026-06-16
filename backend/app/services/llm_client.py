@@ -52,8 +52,14 @@ class LLMClient:
     """OpenAI 兼容 LLM 客户端（httpx 异步）。"""
 
     def __init__(
-        self, *, provider: str, api_key: str, base_url: str = "", model: str = "",
-        timeout: float = 30.0, minimax_group_id: str = "",
+        self,
+        *,
+        provider: str,
+        api_key: str,
+        base_url: str = "",
+        model: str = "",
+        timeout: float = 30.0,
+        minimax_group_id: str = "",
     ) -> None:
         reg = PROVIDER_REGISTRY.get(provider) or PROVIDER_REGISTRY["custom"]
         self.provider = provider
@@ -81,8 +87,13 @@ class LLMClient:
         return url
 
     async def chat_completion(
-        self, messages: list[dict[str, str]], *, temperature: float = 0.2,
-        model: str | None = None, json_object: bool = True, trace_id: str | None = None,
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float = 0.2,
+        model: str | None = None,
+        json_object: bool = True,
+        trace_id: str | None = None,
     ) -> str:
         """调用 chat/completions，返回 assistant 文本内容（由调用方解析 JSON）。"""
         payload: dict[str, Any] = {
@@ -133,6 +144,10 @@ def get_llm_client() -> LLMClient | NullLLMClient:
         return NullLLMClient()
     s = get_settings()
     return LLMClient(
-        provider=s.llm_provider, api_key=s.llm_api_key, base_url=s.llm_base_url,
-        model=s.llm_model, timeout=s.llm_timeout, minimax_group_id=s.llm_minimax_group_id,
+        provider=s.llm_provider,
+        api_key=s.llm_api_key,
+        base_url=s.llm_base_url,
+        model=s.llm_model,
+        timeout=s.llm_timeout,
+        minimax_group_id=s.llm_minimax_group_id,
     )

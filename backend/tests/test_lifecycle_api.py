@@ -27,9 +27,21 @@ AUDIT = "/api/v1/admin/audit"
 ALERTS = "/api/v1/admin/alerts"
 
 _LEAK_TOKENS = [
-    "storage_ref", "source_file_ref", "vector_id", "api_key", "dataset_id",
-    "workflow_id", "kb_id", "bucket", "s3://", "oss://", "internal://",
-    "download_url", "file_url", "preview_token", "token_hash",
+    "storage_ref",
+    "source_file_ref",
+    "vector_id",
+    "api_key",
+    "dataset_id",
+    "workflow_id",
+    "kb_id",
+    "bucket",
+    "s3://",
+    "oss://",
+    "internal://",
+    "download_url",
+    "file_url",
+    "preview_token",
+    "token_hash",
 ]
 
 
@@ -56,8 +68,11 @@ def test_migration_0008_creates_only_three_tables():
     import pathlib
     import re
 
-    path = pathlib.Path(__file__).resolve().parents[1] / "alembic" / "versions" / (
-        "0008_create_lifecycle_alert_notification.py"
+    path = (
+        pathlib.Path(__file__).resolve().parents[1]
+        / "alembic"
+        / "versions"
+        / ("0008_create_lifecycle_alert_notification.py")
     )
     text = path.read_text(encoding="utf-8")
     created = set(re.findall(r'op\.create_table\(\s*"([^"]+)"', text))
@@ -128,9 +143,7 @@ async def test_archived_excluded_in_knowledge_preview_agent(client):
         json={"reason": "归档"},
     )
     # 知识列表（含 include_archived）对普通成员仍不返回该资产。
-    lst = await client.get(
-        "/api/v1/knowledge?include_archived=true", headers=_hdr(USER_CONSULTANT)
-    )
+    lst = await client.get("/api/v1/knowledge?include_archived=true", headers=_hdr(USER_CONSULTANT))
     assert all(item["id"] != str(aid) for item in lst.json()["items"])
 
     # 预览签发被拒（asset_not_active）。
@@ -279,9 +292,7 @@ async def test_l5_lifecycle_no_leak(client):
         json={"reason": "x"},
     )
     assert act.status_code == 404
-    evt = await client.get(
-        LC.format(aid=KA_COMPANY_L5) + "/events", headers=_hdr(USER_CONSULTANT)
-    )
+    evt = await client.get(LC.format(aid=KA_COMPANY_L5) + "/events", headers=_hdr(USER_CONSULTANT))
     assert evt.status_code == 404
     # boss 可见且确认为强审计（L5 + company）。
     conf = await client.post(

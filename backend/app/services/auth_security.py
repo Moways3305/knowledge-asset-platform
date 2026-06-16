@@ -1,4 +1,4 @@
-﻿"""登录失败守卫服务。
+"""登录失败守卫服务。
 
 最小登录失败风控闭环：把失败/成功登录写入 `auth_login_attempts`（仅不可逆 hash + 计数 +
 原因码），按 identifier / IP 两个维度做短时锁定 / 限流，并保持统一用户态错误。
@@ -76,7 +76,9 @@ def normalize_login_identifier(email: str | None) -> str:
     return (email or "").strip().lower()
 
 
-def hash_login_identifier(value: str | None, *, purpose: str, settings: Settings | None = None) -> str:
+def hash_login_identifier(
+    value: str | None, *, purpose: str, settings: Settings | None = None
+) -> str:
     """对登录标识 / IP 做带 purpose 命名空间的 HMAC-SHA256（不可逆十六进制）。
 
     `purpose` 隔离 identifier 与 ip 两类哈希空间，避免交叉碰撞 / 反推。空值仍产生稳定 hash。
@@ -111,12 +113,16 @@ async def _attempts_since(
     since: datetime,
 ) -> list[AuthLoginAttempt]:
     rows = (
-        await session.execute(
-            select(AuthLoginAttempt)
-            .where(column == value, AuthLoginAttempt.created_at >= since)
-            .order_by(AuthLoginAttempt.created_at.desc())
+        (
+            await session.execute(
+                select(AuthLoginAttempt)
+                .where(column == value, AuthLoginAttempt.created_at >= since)
+                .order_by(AuthLoginAttempt.created_at.desc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return list(rows)
 
 
@@ -181,8 +187,12 @@ async def check_login_guard(
         last_fail_at = _as_aware(id_fails[0].created_at)  # desc 排序，[0] 为最近
         if now < last_fail_at + timedelta(minutes=lockout):
             return GuardResult(
-                blocked=True, result="locked", reason_code="identifier_locked",
-                failed_count=len(id_fails), window_minutes=win, lockout_minutes=lockout,
+                blocked=True,
+                result="locked",
+                reason_code="identifier_locked",
+                failed_count=len(id_fails),
+                window_minutes=win,
+                lockout_minutes=lockout,
             )
 
     # ---- IP 维度：窗口内失败计数 ----
@@ -194,13 +204,21 @@ async def check_login_guard(
         ip_fails = [a for a in ip_attempts if a.result in _FAILED_RESULTS]
         if len(ip_fails) >= ip_max:
             return GuardResult(
-                blocked=True, result="rate_limited", reason_code="ip_rate_limited",
-                failed_count=len(ip_fails), window_minutes=ip_win, lockout_minutes=lockout,
+                blocked=True,
+                result="rate_limited",
+                reason_code="ip_rate_limited",
+                failed_count=len(ip_fails),
+                window_minutes=ip_win,
+                lockout_minutes=lockout,
             )
 
     return GuardResult(
-        blocked=False, result=None, reason_code=None,
-        failed_count=len(id_fails), window_minutes=win, lockout_minutes=lockout,
+        blocked=False,
+        result=None,
+        reason_code=None,
+        failed_count=len(id_fails),
+        window_minutes=win,
+        lockout_minutes=lockout,
     )
 
 
@@ -241,7 +259,12 @@ async def record_login_success(
 ) -> AuthLoginAttempt:
     """记录成功登录（后续 identifier 失败计数从此重置）。"""
     return await record_login_attempt(
-        session, identifier_hash=identifier_hash, ip_hash=ip_hash, user_id=user_id,
-        login_method=login_method, result="success", reason_code="success", trace_id=trace_id,
+        session,
+        identifier_hash=identifier_hash,
+        ip_hash=ip_hash,
+        user_id=user_id,
+        login_method=login_method,
+        result="success",
+        reason_code="success",
+        trace_id=trace_id,
     )
-

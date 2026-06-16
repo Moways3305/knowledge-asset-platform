@@ -22,7 +22,7 @@ export async function fetchProjects(): Promise<ProjectListResponseDTO> {
 
 // 创建项目知识空间（仅 Boss / 咨询总监）。写真实 projects + active project_manager 成员。
 export async function createProject(
-  body: ProjectCreateRequestDTO
+  body: ProjectCreateRequestDTO,
 ): Promise<ProjectCreateResponseDTO> {
   return apiPost<ProjectCreateResponseDTO>(`/api/v1/projects`, body);
 }
@@ -30,7 +30,7 @@ export async function createProject(
 // 项目问答。引用层级与可见性由后端按调用人权限裁定；前端只发查询与 capability。
 export async function projectQa(
   projectId: string,
-  input: { query: string; modelKey?: string }
+  input: { query: string; modelKey?: string },
 ): Promise<ProjectQaResponseDTO> {
   return apiPost<ProjectQaResponseDTO>(`/api/v1/projects/${projectId}/qa`, {
     query: input.query,
@@ -48,7 +48,7 @@ export async function fetchProjectSettings(projectId: string): Promise<ProjectSe
 
 export async function updateProjectSettings(
   projectId: string,
-  body: ProjectSettingsUpdateDTO
+  body: ProjectSettingsUpdateDTO,
 ): Promise<ProjectSettingsDTO> {
   return apiPatch<ProjectSettingsDTO>(`/api/v1/projects/${projectId}/settings`, body);
 }
@@ -60,10 +60,7 @@ export async function fetchProjectMembers(projectId: string): Promise<ProjectMem
 export async function patchProjectMember(
   projectId: string,
   memberId: string,
-  body: ProjectMemberPatchDTO
+  body: ProjectMemberPatchDTO,
 ): Promise<ProjectMemberDTO> {
-  return apiPatch<ProjectMemberDTO>(
-    `/api/v1/projects/${projectId}/members/${memberId}`,
-    body
-  );
+  return apiPatch<ProjectMemberDTO>(`/api/v1/projects/${projectId}/members/${memberId}`, body);
 }

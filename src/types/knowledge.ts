@@ -147,4 +147,3 @@ export interface KnowledgeDetailVM extends KnowledgeCardVM {
   currentVersionNo: string | null;
   indexErrorCode: string | null;
 }
-

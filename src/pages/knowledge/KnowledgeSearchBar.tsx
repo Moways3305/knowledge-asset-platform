@@ -28,11 +28,25 @@ interface KnowledgeSearchBarProps {
 
 export default function KnowledgeSearchBar(props: KnowledgeSearchBarProps) {
   const {
-    search, setSearch, runSearch, clearSearch, searchMode,
-    filterProject, setFilterProject, filterBizStage, setFilterBizStage,
-    filterAssetType, setFilterAssetType, filterVisibility, setFilterVisibility,
-    projectOptions, bizStageOptions, assetTypeOptions, visibilityOptions,
-    hasActiveFilters, resetFilters,
+    search,
+    setSearch,
+    runSearch,
+    clearSearch,
+    searchMode,
+    filterProject,
+    setFilterProject,
+    filterBizStage,
+    setFilterBizStage,
+    filterAssetType,
+    setFilterAssetType,
+    filterVisibility,
+    setFilterVisibility,
+    projectOptions,
+    bizStageOptions,
+    assetTypeOptions,
+    visibilityOptions,
+    hasActiveFilters,
+    resetFilters,
   } = props;
 
   return (
@@ -45,44 +59,82 @@ export default function KnowledgeSearchBar(props: KnowledgeSearchBarProps) {
             placeholder="语义检索：输入问题或关键词，回车检索（WeKnora 召回 + 权限裁剪）"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") runSearch(); }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") runSearch();
+            }}
           />
         </div>
-        <button className="btn-primary" onClick={runSearch} disabled={!search.trim()}>搜索</button>
-        {searchMode && <button className="btn-secondary" onClick={clearSearch}>返回浏览</button>}
+        <button className="btn-primary" onClick={runSearch} disabled={!search.trim()}>
+          搜索
+        </button>
+        {searchMode && (
+          <button className="btn-secondary" onClick={clearSearch}>
+            返回浏览
+          </button>
+        )}
       </div>
 
       <div className="kb-filters">
         <div className="kb-filter">
           <label>项目{searchMode ? "（仅浏览）" : ""}</label>
-          <select value={filterProject} disabled={searchMode} onChange={(e) => setFilterProject(e.target.value)}>
+          <select
+            value={filterProject}
+            disabled={searchMode}
+            onChange={(e) => setFilterProject(e.target.value)}
+          >
             <option value="">全部</option>
-            {projectOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+            {projectOptions.map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
           </select>
         </div>
         <div className="kb-filter">
           <label>业务阶段{searchMode ? "（检索过滤）" : ""}</label>
           <select value={filterBizStage} onChange={(e) => setFilterBizStage(e.target.value)}>
             <option value="">全部</option>
-            {bizStageOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+            {bizStageOptions.map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
           </select>
         </div>
         <div className="kb-filter">
           <label>资料类型{searchMode ? "（仅浏览）" : ""}</label>
-          <select value={filterAssetType} disabled={searchMode} onChange={(e) => setFilterAssetType(e.target.value)}>
+          <select
+            value={filterAssetType}
+            disabled={searchMode}
+            onChange={(e) => setFilterAssetType(e.target.value)}
+          >
             <option value="">全部</option>
-            {assetTypeOptions.map((o) => <option key={o} value={o}>{assetTypeLabel[o] ?? o}</option>)}
+            {assetTypeOptions.map((o) => (
+              <option key={o} value={o}>
+                {assetTypeLabel[o] ?? o}
+              </option>
+            ))}
           </select>
         </div>
         <div className="kb-filter">
           <label>可见性{searchMode ? "（仅浏览）" : ""}</label>
-          <select value={filterVisibility} disabled={searchMode} onChange={(e) => setFilterVisibility(e.target.value)}>
+          <select
+            value={filterVisibility}
+            disabled={searchMode}
+            onChange={(e) => setFilterVisibility(e.target.value)}
+          >
             <option value="">全部</option>
-            {visibilityOptions.map((o) => <option key={o} value={o}>{visibilityLabel[o]}</option>)}
+            {visibilityOptions.map((o) => (
+              <option key={o} value={o}>
+                {visibilityLabel[o]}
+              </option>
+            ))}
           </select>
         </div>
         {hasActiveFilters && !searchMode && (
-          <button className="btn-reset-filter" onClick={resetFilters}>清除筛选</button>
+          <button className="btn-reset-filter" onClick={resetFilters}>
+            清除筛选
+          </button>
         )}
       </div>
     </>

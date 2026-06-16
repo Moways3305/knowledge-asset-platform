@@ -30,8 +30,17 @@ def _hdr(user_id):
 
 
 _LEAK_TOKENS = [
-    "wecom_user_id", "access_token", "oauth_state", "auth_code", "download_url",
-    "storage_ref", "source_file_ref", "weknora", "token_hash", "app_secret", "ww_consultant",
+    "wecom_user_id",
+    "access_token",
+    "oauth_state",
+    "auth_code",
+    "download_url",
+    "storage_ref",
+    "source_file_ref",
+    "weknora",
+    "token_hash",
+    "app_secret",
+    "ww_consultant",
 ]
 
 
@@ -71,7 +80,8 @@ async def test_admin_can_read_but_not_write(client):
     assert r.status_code == 200, r.text
     assert r.json()["can_write"] is False
     w = await client.patch(
-        _settings(PROJECT_ALPHA), headers=_hdr(USER_ADMIN_ONLY),
+        _settings(PROJECT_ALPHA),
+        headers=_hdr(USER_ADMIN_ONLY),
         json={"force_review_on_ingest": True},
     )
     assert w.status_code == 403
@@ -88,9 +98,13 @@ async def test_governance_can_read(client):
 # ---------------- 写权限 ----------------
 async def test_project_manager_can_update(client):
     r = await client.patch(
-        _settings(PROJECT_ALPHA), headers=_hdr(USER_PROJECT_MANAGER),
-        json={"lifecycle_route_key": "route_B", "lifecycle_phase_key": "行动辅导",
-              "force_review_on_ingest": True},
+        _settings(PROJECT_ALPHA),
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "lifecycle_route_key": "route_B",
+            "lifecycle_phase_key": "行动辅导",
+            "force_review_on_ingest": True,
+        },
     )
     assert r.status_code == 200, r.text
     body = r.json()
@@ -101,7 +115,8 @@ async def test_project_manager_can_update(client):
 
 async def test_consultant_member_cannot_update(client):
     r = await client.patch(
-        _settings(PROJECT_ALPHA), headers=_hdr(USER_CONSULTANT),
+        _settings(PROJECT_ALPHA),
+        headers=_hdr(USER_CONSULTANT),
         json={"force_review_on_ingest": True},
     )
     assert r.status_code == 403
@@ -111,7 +126,8 @@ async def test_consultant_member_cannot_update(client):
 async def test_boss_and_director_can_update(client):
     for uid, phase in ((USER_BOSS, "阶段评估"), (USER_DIRECTOR, "年度复盘")):
         r = await client.patch(
-            _settings(PROJECT_ALPHA), headers=_hdr(uid),
+            _settings(PROJECT_ALPHA),
+            headers=_hdr(uid),
             json={"lifecycle_phase_key": phase},
         )
         assert r.status_code == 200, r.text
@@ -135,10 +151,14 @@ async def test_wecom_group_safe_display_and_audit(client, db_session):
 
     # 审计：只记 changed_fields + bound，绝不含 wecom_group_id 全文。
     rows = (
-        await db_session.execute(
-            select(AuditEvent).where(AuditEvent.action == "project.settings_updated")
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.action == "project.settings_updated")
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert rows
     ev = rows[-1]
     assert ev.target_type == "project" and ev.target_id == PROJECT_ALPHA
@@ -155,7 +175,17 @@ async def test_list_members_safe_fields(client):
     body = r.json()
     assert body["total"] >= 2 and body["can_manage"] is True
     m = body["items"][0]
-    for k in ("member_id", "user_id", "name", "email", "company_roles", "project_role", "status", "wecom_bound", "source"):
+    for k in (
+        "member_id",
+        "user_id",
+        "name",
+        "email",
+        "company_roles",
+        "project_role",
+        "status",
+        "wecom_bound",
+        "source",
+    ):
         assert k in m
     _assert_no_leak(r.text)  # 不含 wecom_user_id 明文（ww_consultant...）
 
@@ -164,7 +194,8 @@ async def test_patch_member_then_not_in_active_context(client, db_session):
     lst = await client.get(_members(PROJECT_ALPHA), headers=_hdr(USER_BOSS))
     cons = next(m for m in lst.json()["items"] if m["user_id"] == str(USER_CONSULTANT))
     r = await client.patch(
-        f"{_members(PROJECT_ALPHA)}/{cons['member_id']}", headers=_hdr(USER_BOSS),
+        f"{_members(PROJECT_ALPHA)}/{cons['member_id']}",
+        headers=_hdr(USER_BOSS),
         json={"status": "inactive"},
     )
     assert r.status_code == 200, r.text
@@ -178,14 +209,16 @@ async def test_last_management_role_protected(client):
     lst = await client.get(_members(PROJECT_ALPHA), headers=_hdr(USER_BOSS))
     pm = next(m for m in lst.json()["items"] if m["user_id"] == str(USER_PROJECT_MANAGER))
     r = await client.patch(
-        f"{_members(PROJECT_ALPHA)}/{pm['member_id']}", headers=_hdr(USER_BOSS),
+        f"{_members(PROJECT_ALPHA)}/{pm['member_id']}",
+        headers=_hdr(USER_BOSS),
         json={"status": "inactive"},
     )
     assert r.status_code == 409
     assert r.json()["detail"]["denied_reason"] == "last_project_manager_protected"
     # 降级为 consultant 同样被保护。
     r2 = await client.patch(
-        f"{_members(PROJECT_ALPHA)}/{pm['member_id']}", headers=_hdr(USER_BOSS),
+        f"{_members(PROJECT_ALPHA)}/{pm['member_id']}",
+        headers=_hdr(USER_BOSS),
         json={"project_role": "consultant"},
     )
     assert r2.status_code == 409
@@ -203,10 +236,14 @@ async def test_member_patch_writes_audit(client, db_session):
     )
     assert r.status_code == 200, r.text
     rows = (
-        await db_session.execute(
-            select(AuditEvent).where(AuditEvent.action == "project.member_updated")
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.action == "project.member_updated")
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert rows
     ev = rows[-1]
     assert ev.target_type == "project_member"
@@ -223,7 +260,8 @@ async def test_unknown_project_404(client):
 
 async def test_unknown_member_404(client):
     r = await client.patch(
-        f"{_members(PROJECT_ALPHA)}/{uuid.uuid4()}", headers=_hdr(USER_BOSS),
+        f"{_members(PROJECT_ALPHA)}/{uuid.uuid4()}",
+        headers=_hdr(USER_BOSS),
         json={"status": "inactive"},
     )
     assert r.status_code == 404

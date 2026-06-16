@@ -1,4 +1,4 @@
-﻿"""企业微信微盘扫描 ORM 模型（Path A）。
+"""企业微信微盘扫描 ORM 模型（Path A）。
 
 两张表（wecom_scan_configs / wecom_scan_records）：
 - wecom_scan_configs：扫描目录配置（目录、scope、关联项目、启用、归属人）。
@@ -52,13 +52,9 @@ class WecomScanConfig(Base):
     )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # 扫描发现的文件归属/创建人（IngestTask.created_by 用它，后续由该业务用户确认）。
-    created_by: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id"), nullable=False
-    )
+    created_by: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
     scan_frequency: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    last_scan_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    last_scan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
@@ -101,4 +97,3 @@ class WecomScanRecord(Base):
     error_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-

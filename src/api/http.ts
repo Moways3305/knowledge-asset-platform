@@ -15,7 +15,12 @@ export class ApiError extends Error {
   deniedReason?: string;
   // 错误响应 detail 对象（安全字段，如 missing_config 项名）；不含敏感值。
   detail?: Record<string, unknown>;
-  constructor(status: number, message: string, deniedReason?: string, detail?: Record<string, unknown>) {
+  constructor(
+    status: number,
+    message: string,
+    deniedReason?: string,
+    detail?: Record<string, unknown>,
+  ) {
     super(message);
     this.status = status;
     this.deniedReason = deniedReason;
@@ -61,7 +66,9 @@ export function clearCsrfToken(): void {
 }
 
 // 为 unsafe 请求附带 X-CSRF-Token（不覆盖调用方显式传入的同名头）。
-export async function csrfHeaders(extra: Record<string, string> = {}): Promise<Record<string, string>> {
+export async function csrfHeaders(
+  extra: Record<string, string> = {},
+): Promise<Record<string, string>> {
   const headers = devHeaders(extra);
   if (!("X-CSRF-Token" in headers)) headers["X-CSRF-Token"] = await ensureCsrfToken();
   return headers;
@@ -119,7 +126,11 @@ export async function apiGet<T>(path: string): Promise<T> {
   return handleResponse<T>(resp);
 }
 
-export async function apiPost<T>(path: string, body: unknown, extraHeaders: Record<string, string> = {}): Promise<T> {
+export async function apiPost<T>(
+  path: string,
+  body: unknown,
+  extraHeaders: Record<string, string> = {},
+): Promise<T> {
   return withCsrfRetry(async () => {
     const resp = await fetch(`${BASE_URL}${path}`, {
       method: "POST",
@@ -167,7 +178,10 @@ export async function apiDelete<T>(path: string): Promise<T> {
 }
 
 // 无请求体的 POST（如标记处理 / 触发扫描 / 登出）。仍走 CSRF 重试包装。
-export async function apiPostNoBody<T>(path: string, extraHeaders: Record<string, string> = {}): Promise<T> {
+export async function apiPostNoBody<T>(
+  path: string,
+  extraHeaders: Record<string, string> = {},
+): Promise<T> {
   return withCsrfRetry(async () => {
     const resp = await fetch(`${BASE_URL}${path}`, {
       method: "POST",

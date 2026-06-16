@@ -34,7 +34,17 @@ UPLOAD = "/api/v1/ingest/upload"
 REPARSE = "/admin/ops/indexing/reparse"
 _ALPHA_KB = f"wk-kb-proj-{PROJECT_ALPHA}"
 _STALE_DOC = "wk-doc-stale-index-failed"
-_LEAK_TOKENS = ["wk-kb", "wk-doc", "kb_id", "doc_id", "chunk_id", "api_key", "sk-", "storage_ref", "source_file_ref"]
+_LEAK_TOKENS = [
+    "wk-kb",
+    "wk-doc",
+    "kb_id",
+    "doc_id",
+    "chunk_id",
+    "api_key",
+    "sk-",
+    "storage_ref",
+    "source_file_ref",
+]
 
 
 def _hdr(user_id):
@@ -65,10 +75,15 @@ class FakeSearchWK:
                 continue
             if knowledge_ids and d["knowledge_id"] not in knowledge_ids:
                 continue
-            out.append({
-                "content": d["content"], "knowledge_id": d["knowledge_id"],
-                "chunk_index": 0, "score": round(1.0 - i * 0.01, 4), "seq": 0,
-            })
+            out.append(
+                {
+                    "content": d["content"],
+                    "knowledge_id": d["knowledge_id"],
+                    "chunk_index": 0,
+                    "score": round(1.0 - i * 0.01, 4),
+                    "seq": 0,
+                }
+            )
         return out
 
     async def hybrid_search(self, **_):
@@ -84,7 +99,9 @@ class FakeSearchWK:
     async def get_initialization_config(self, kb_id, *, trace_id=None):
         return {}
 
-    async def upload_file(self, *, kb_id, content, file_name, mime, metadata=None, channel=None, trace_id=None):
+    async def upload_file(
+        self, *, kb_id, content, file_name, mime, metadata=None, channel=None, trace_id=None
+    ):
         if self.upload_fail:
             raise WeKnoraError("weknora_down", "底座不可用")
         self._doc += 1
@@ -100,15 +117,31 @@ class FakeSearchWK:
         self.deleted.append(knowledge_id)
         return None
 
-    async def reparse_knowledge(self, *, kb_id, knowledge_id, content, file_name, mime, metadata=None, channel=None, trace_id=None):
+    async def reparse_knowledge(
+        self,
+        *,
+        kb_id,
+        knowledge_id,
+        content,
+        file_name,
+        mime,
+        metadata=None,
+        channel=None,
+        trace_id=None,
+    ):
         if knowledge_id:
             try:
                 await self.delete_knowledge(knowledge_id, trace_id=trace_id)
             except WeKnoraError:
                 pass  # 删除失败被吞（按设计不阻断），继续重传
         return await self.upload_file(
-            kb_id=kb_id, content=content, file_name=file_name, mime=mime,
-            metadata=metadata, channel=channel, trace_id=trace_id,
+            kb_id=kb_id,
+            content=content,
+            file_name=file_name,
+            mime=mime,
+            metadata=metadata,
+            channel=channel,
+            trace_id=trace_id,
         )
 
 
@@ -116,7 +149,9 @@ class FakeScrubLLM:
     provider = "deepseek"
     model = "deepseek-chat"
 
-    async def chat_completion(self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None):
+    async def chat_completion(
+        self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None
+    ):
         system = messages[0]["content"] if messages else ""
         if "脱敏" in system:
             return (messages[1]["content"] if len(messages) > 1 else "").replace("敏感", "【脱敏】")
@@ -139,14 +174,28 @@ async def _insert_stale_failed_asset(db_session, *, index_status="index_failed",
     """插入一个 active 项目 Alpha 资产，其 version 残留 weknora_doc_id 但 index_status 非 indexed。"""
     asset_id = uuid.uuid4()
     asset = KnowledgeAsset(
-        id=asset_id, title="残留旧doc的失败资产", scope="project", zone="material",
-        asset_type="deliverable", owner_user_id=USER_CONSULTANT, maintainer_user_id=USER_CONSULTANT,
-        project_id=PROJECT_ALPHA, visibility="project_only", confidentiality_level="L2",
-        ai_access_level="A2", asset_status="active", lifecycle_phase_key="交付",
+        id=asset_id,
+        title="残留旧doc的失败资产",
+        scope="project",
+        zone="material",
+        asset_type="deliverable",
+        owner_user_id=USER_CONSULTANT,
+        maintainer_user_id=USER_CONSULTANT,
+        project_id=PROJECT_ALPHA,
+        visibility="project_only",
+        confidentiality_level="L2",
+        ai_access_level="A2",
+        asset_status="active",
+        lifecycle_phase_key="交付",
     )
     version = KnowledgeAssetVersion(
-        asset_id=asset_id, version_no="v1", version_status="active", created_by=USER_CONSULTANT,
-        weknora_kb_id=_ALPHA_KB, weknora_doc_id=doc_id, weknora_parse_status="failed",
+        asset_id=asset_id,
+        version_no="v1",
+        version_status="active",
+        created_by=USER_CONSULTANT,
+        weknora_kb_id=_ALPHA_KB,
+        weknora_doc_id=doc_id,
+        weknora_parse_status="failed",
         index_status=index_status,  # 残留 doc 但未成功索引
     )
     asset.versions.append(version)
@@ -167,7 +216,9 @@ async def test_recall_skips_index_failed_stale_doc(client, db_session):
     asset_id = await _insert_stale_failed_asset(db_session)
     docs = [{"knowledge_id": _STALE_DOC, "kb_id": _ALPHA_KB, "content": "残留旧doc敏感内容"}]
     _install(FakeSearchWK(docs))
-    resp = await client.post(SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": "交付", "scope": "project"})
+    resp = await client.post(
+        SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": "交付", "scope": "project"}
+    )
     assert resp.status_code == 200, resp.text
     ids = {c["asset_id"] for c in resp.json()["cards"]}
     # index_failed 资产即使底座旧 doc 被 search 返回，也不映射回资产、不出现在卡片。
@@ -177,10 +228,14 @@ async def test_recall_skips_index_failed_stale_doc(client, db_session):
 
 async def test_recall_includes_when_indexed(client, db_session):
     """对照：同样的资产若 index_status=indexed，则正常召回——证明过滤项是 index_status 而非别的。"""
-    asset_id = await _insert_stale_failed_asset(db_session, index_status="indexed", doc_id="wk-doc-ok-indexed")
+    asset_id = await _insert_stale_failed_asset(
+        db_session, index_status="indexed", doc_id="wk-doc-ok-indexed"
+    )
     docs = [{"knowledge_id": "wk-doc-ok-indexed", "kb_id": _ALPHA_KB, "content": "已索引内容"}]
     _install(FakeSearchWK(docs))
-    resp = await client.post(SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": "交付", "scope": "project"})
+    resp = await client.post(
+        SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": "交付", "scope": "project"}
+    )
     assert resp.status_code == 200, resp.text
     ids = {c["asset_id"] for c in resp.json()["cards"]}
     assert asset_id in ids
@@ -194,9 +249,16 @@ async def test_stage2_original_unavailable_for_index_failed(client, db_session):
     docs = [{"knowledge_id": _STALE_DOC, "kb_id": _ALPHA_KB, "content": "残留旧doc敏感原文"}]
     wk = FakeSearchWK(docs)
     _install(wk)
-    resp = await client.post(SEARCH, headers=_hdr(USER_CONSULTANT), json={
-        "query": "交付", "scope": "project", "want_original": True, "asset_id": asset_id,
-    })
+    resp = await client.post(
+        SEARCH,
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "query": "交付",
+            "scope": "project",
+            "want_original": True,
+            "asset_id": asset_id,
+        },
+    )
     assert resp.status_code == 200, resp.text
     original = resp.json()["original"]
     # index_failed → 即使有 server-only doc id，也按未索引降级，不读取底座旧 doc。
@@ -214,19 +276,36 @@ async def test_stage2_original_unavailable_for_index_failed(client, db_session):
 async def _upload_and_confirm_indexed(client, db_session, ok_wk):
     """用成功 fake 走 upload+confirm 得到 indexed 资产，返回 asset_id 与其 doc_id。"""
     app.dependency_overrides[get_weknora_client] = lambda: ok_wk
-    r = await client.post(UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": ("d.txt", b"reparse stale body", "text/plain")})
+    r = await client.post(
+        UPLOAD,
+        headers=_hdr(USER_CONSULTANT),
+        files={"file": ("d.txt", b"reparse stale body", "text/plain")},
+    )
     task_id = r.json()["ingest_task_id"]
-    r2 = await client.post(f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(USER_CONSULTANT), json={
-        "title": "reparse残留资产", "summary": "摘要", "tags": ["t"], "target_scope": "project",
-        "target_project_id": str(PROJECT_ALPHA), "asset_type": "methodology",
-        "confidentiality_level": "L2", "ai_access_level": "A2",
-    })
+    r2 = await client.post(
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "title": "reparse残留资产",
+            "summary": "摘要",
+            "tags": ["t"],
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "asset_type": "methodology",
+            "confidentiality_level": "L2",
+            "ai_access_level": "A2",
+        },
+    )
     assert r2.status_code == 200, r2.text
     assert r2.json()["index_status"] == "indexed"
     asset_id = r2.json()["result_asset_id"]
-    v = (await db_session.execute(
-        select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id))
-    )).scalar_one()
+    v = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id)
+            )
+        )
+    ).scalar_one()
     return asset_id, v.weknora_doc_id
 
 
@@ -247,18 +326,29 @@ async def test_reparse_failure_leaves_stale_doc_not_retrievable(client, db_sessi
     assert doc_old
 
     # 2) 人为把解析状态置为 failed（reparse 选取条件），doc 仍在。
-    v = (await db_session.execute(
-        select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id))
-    )).scalar_one()
+    v = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id)
+            )
+        )
+    ).scalar_one()
     v.weknora_parse_status = "failed"
     await db_session.commit()
 
     # 3) reparse：删旧 doc 失败（被吞）+ 重传失败 → version 变 index_failed，可能仍残留 doc-old。
     bad = FakeSearchWK([], reparse_delete_fail=True, upload_fail=True)
     app.dependency_overrides[get_weknora_client] = lambda: bad
-    rj = await client.post(REPARSE, headers=_hdr(USER_ADMIN_ONLY), json={
-        "scope": "project", "project_id": str(PROJECT_ALPHA), "parse_statuses": ["failed"], "limit": 50,
-    })
+    rj = await client.post(
+        REPARSE,
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={
+            "scope": "project",
+            "project_id": str(PROJECT_ALPHA),
+            "parse_statuses": ["failed"],
+            "limit": 50,
+        },
+    )
     assert rj.status_code == 202, rj.text
     body = rj.json()
     # job 仍按既有语义统计失败。
@@ -268,20 +358,39 @@ async def test_reparse_failure_leaves_stale_doc_not_retrievable(client, db_sessi
 
     # 作业在独立 session 提交 index_failed；清掉本 session 身份映射缓存以读到最新值。
     db_session.expire_all()
-    v2 = (await db_session.execute(
-        select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id))
-    )).scalar_one()
+    v2 = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id)
+            )
+        )
+    ).scalar_one()
     assert v2.index_status == "index_failed"
 
     # 4) 现在 fake search 仍能返回残留旧 doc——但平台不得召回 / 不得给原文。
-    docs = [{"knowledge_id": v2.weknora_doc_id or doc_old, "kb_id": v2.weknora_kb_id or _ALPHA_KB, "content": "残留旧doc内容"}]
+    docs = [
+        {
+            "knowledge_id": v2.weknora_doc_id or doc_old,
+            "kb_id": v2.weknora_kb_id or _ALPHA_KB,
+            "content": "残留旧doc内容",
+        }
+    ]
     _install(FakeSearchWK(docs))
-    r_search = await client.post(SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": "reparse", "scope": "project"})
+    r_search = await client.post(
+        SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": "reparse", "scope": "project"}
+    )
     ids = {c["asset_id"] for c in r_search.json()["cards"]}
     assert asset_id not in ids
-    r_orig = await client.post(SEARCH, headers=_hdr(USER_CONSULTANT), json={
-        "query": "reparse", "scope": "project", "want_original": True, "asset_id": asset_id,
-    })
+    r_orig = await client.post(
+        SEARCH,
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "query": "reparse",
+            "scope": "project",
+            "want_original": True,
+            "asset_id": asset_id,
+        },
+    )
     orig = r_orig.json()["original"]
     assert orig["available"] is False
     assert orig["chunks"] == []

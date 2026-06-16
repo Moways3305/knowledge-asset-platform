@@ -31,11 +31,11 @@ const reviewTypeLabel: Record<string, string> = {
 };
 
 export default function ReviewPage() {
-  const { data, loading, error, forbidden, reload } = useAsyncData(
-    () => Promise.all([fetchAuthMe(), fetchReviews()]).then(([me, reviews]) => ({
+  const { data, loading, error, forbidden, reload } = useAsyncData(() =>
+    Promise.all([fetchAuthMe(), fetchReviews()]).then(([me, reviews]) => ({
       currentUserId: me.userId,
       items: reviews,
-    }))
+    })),
   );
   const items = useMemo(() => data?.items ?? [], [data]);
   const currentUserId = data?.currentUserId ?? "";
@@ -45,7 +45,7 @@ export default function ReviewPage() {
 
   const filtered = useMemo(
     () => (filterStatus ? items.filter((i) => i.status === filterStatus) : items),
-    [items, filterStatus]
+    [items, filterStatus],
   );
 
   const countByStatus = (s: string) => items.filter((i) => i.status === s).length;
@@ -54,27 +54,71 @@ export default function ReviewPage() {
     it.status === "pending_reviewer" && it.reviewer_user_id === currentUserId;
 
   const handleApprove = (id: string) =>
-    void action.run(async () => { await approveReview(id, "确认通过"); reload(); });
+    void action.run(async () => {
+      await approveReview(id, "确认通过");
+      reload();
+    });
 
   const handleReject = (id: string) =>
-    void action.run(async () => { await rejectReview(id, "审核未通过：需补充材料"); reload(); });
+    void action.run(async () => {
+      await rejectReview(id, "审核未通过：需补充材料");
+      reload();
+    });
 
   const columns: Column<ReviewItemDTO>[] = [
-    { key: "title", header: "知识标题", className: "cell-review-title", render: (c) => c.asset_title ?? c.target_asset_id },
-    { key: "type", header: "审核类型", render: (c) => <span className="path-badge">{reviewTypeLabel[c.review_type] ?? c.review_type}</span> },
-    { key: "project", header: "来源项目", className: "cell-source", render: (c) => c.project_name ?? "—" },
-    { key: "evidence", header: "证据数", className: "cell-center", render: (c) => c.evidence_count },
-    { key: "status", header: "状态", render: (c) => <StatusBadge variant={statusCls[c.status]} label={statusLabel[c.status] ?? c.status} /> },
     {
-      key: "actions", header: "操作", className: "cell-actions", render: (c) =>
+      key: "title",
+      header: "知识标题",
+      className: "cell-review-title",
+      render: (c) => c.asset_title ?? c.target_asset_id,
+    },
+    {
+      key: "type",
+      header: "审核类型",
+      render: (c) => (
+        <span className="path-badge">{reviewTypeLabel[c.review_type] ?? c.review_type}</span>
+      ),
+    },
+    {
+      key: "project",
+      header: "来源项目",
+      className: "cell-source",
+      render: (c) => c.project_name ?? "—",
+    },
+    {
+      key: "evidence",
+      header: "证据数",
+      className: "cell-center",
+      render: (c) => c.evidence_count,
+    },
+    {
+      key: "status",
+      header: "状态",
+      render: (c) => (
+        <StatusBadge variant={statusCls[c.status]} label={statusLabel[c.status] ?? c.status} />
+      ),
+    },
+    {
+      key: "actions",
+      header: "操作",
+      className: "cell-actions",
+      render: (c) =>
         canAct(c) ? (
           <>
-            <button className="btn-small btn-small-primary" onClick={() => handleApprove(c.id)}>通过</button>
-            <button className="btn-small btn-small-danger" onClick={() => handleReject(c.id)}>拒绝</button>
+            <button className="btn-small btn-small-primary" onClick={() => handleApprove(c.id)}>
+              通过
+            </button>
+            <button className="btn-small btn-small-danger" onClick={() => handleReject(c.id)}>
+              拒绝
+            </button>
           </>
         ) : (
           <span className="rv-evidence-summary">
-            {c.status === "pending_evidence" ? "待补充证据" : c.status === "pending_reviewer" ? "待指定审核人处理" : "—"}
+            {c.status === "pending_evidence"
+              ? "待补充证据"
+              : c.status === "pending_reviewer"
+                ? "待指定审核人处理"
+                : "—"}
           </span>
         ),
     },
@@ -85,7 +129,10 @@ export default function ReviewPage() {
       <div className="rv-header">
         <div className="rv-header-text">
           <h2>知识升级审核</h2>
-          <p>项目资料 → 项目资产的审核闭环：登记验证证据后，由项目经理确认进入资产区（zone: material → asset）</p>
+          <p>
+            项目资料 → 项目资产的审核闭环：登记验证证据后，由项目经理确认进入资产区（zone: material
+            → asset）
+          </p>
         </div>
         <div className="kl-kpis">
           <div className="kl-kpi">
@@ -109,7 +156,8 @@ export default function ReviewPage() {
 
       <div className="role-context-hint">
         <div className="role-context-hint-title">审核视角说明</div>
-        审核队列来自真实后端 `/api/v1/reviews`。仅被分配为审核人（项目经理）且任务处于「待审核人确认」时，才能通过/拒绝。
+        审核队列来自真实后端
+        `/api/v1/reviews`。仅被分配为审核人（项目经理）且任务处于「待审核人确认」时，才能通过/拒绝。
       </div>
 
       <section className="review-section">
@@ -126,10 +174,16 @@ export default function ReviewPage() {
           </div>
           <div className="rv-toolbar-actions">
             <span className="rv-toolbar-hint">共 {filtered.length} 条</span>
-            <button className="btn-small" onClick={reload}>刷新</button>
+            <button className="btn-small" onClick={reload}>
+              刷新
+            </button>
           </div>
         </div>
-        {action.error && <div className="rv-empty-desc" style={{ color: "var(--color-danger-fg, #b00)" }}>{action.error}</div>}
+        {action.error && (
+          <div className="rv-empty-desc" style={{ color: "var(--color-danger-fg, #b00)" }}>
+            {action.error}
+          </div>
+        )}
       </section>
 
       <section className="review-section">
@@ -154,7 +208,10 @@ export default function ReviewPage() {
       </section>
 
       <p className="page-help-line">
-        material → asset 须先登记验证证据再由项目经理确认；审核职责与升级治理机制见 <Link to="/help#review" className="page-help-link">使用说明 →</Link>
+        material → asset 须先登记验证证据再由项目经理确认；审核职责与升级治理机制见{" "}
+        <Link to="/help#review" className="page-help-link">
+          使用说明 →
+        </Link>
       </p>
     </div>
   );

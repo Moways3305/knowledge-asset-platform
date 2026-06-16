@@ -1,7 +1,7 @@
 // 个人知识库领域：本人个人知识列表与写动作（资产确认 / 提交到项目 / 登记验证证据）。
 // 仅 owner 本人可操作；提交/候选支持 Idempotency-Key 防重复。响应只含安全治理元数据；
 // 提交=待审核，候选=用户登记证据线索（系统不自动证明分享/客户验证真实发生）。
-import { apiGet, apiPost, apiPut,createIdempotencyKey } from "./http";
+import { apiGet, apiPost, apiPut, createIdempotencyKey } from "./http";
 import { mapCard } from "./knowledge";
 import type { KnowledgeCardVM, KnowledgeListResponseDTO } from "../types/knowledge";
 import type {
@@ -22,23 +22,23 @@ export async function confirmPersonalAsset(assetId: string): Promise<ConfirmAsse
 
 export async function submitPersonalKnowledge(
   assetId: string,
-  body: SubmitToProjectRequestDTO
+  body: SubmitToProjectRequestDTO,
 ): Promise<PersonalKnowledgeSubmissionDTO> {
   return apiPost<PersonalKnowledgeSubmissionDTO>(
     `/api/v1/my/knowledge/${assetId}/submit-to-project`,
     body,
-    { "Idempotency-Key": createIdempotencyKey() }
+    { "Idempotency-Key": createIdempotencyKey() },
   );
 }
 
 export async function registerPersonalKnowledgeEvidence(
   assetId: string,
-  body: ValidationCandidateRequestDTO
+  body: ValidationCandidateRequestDTO,
 ): Promise<PersonalKnowledgeSubmissionDTO> {
   return apiPost<PersonalKnowledgeSubmissionDTO>(
     `/api/v1/my/knowledge/${assetId}/validation-evidence`,
     body,
-    { "Idempotency-Key": createIdempotencyKey() }
+    { "Idempotency-Key": createIdempotencyKey() },
   );
 }
 

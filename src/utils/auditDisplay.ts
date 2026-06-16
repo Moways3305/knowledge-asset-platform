@@ -212,7 +212,8 @@ export function auditSnapshotSummary(event: AuditEventDTO): string {
       .map(([k, v]) => `${_keyLabel(k)}：${auditValueLabel(k, v)}`)
       .join(" · ");
   }
-  if (event.denied_reason) return `拒绝原因：${auditValueLabel("denied_reason", event.denied_reason)}`;
+  if (event.denied_reason)
+    return `拒绝原因：${auditValueLabel("denied_reason", event.denied_reason)}`;
   return "—";
 }
 
@@ -221,4 +222,3 @@ export function auditLoginSummary(event: AuditEventDTO): string {
   if (event.denied_reason) return `原因：${auditValueLabel("denied_reason", event.denied_reason)}`;
   return auditSnapshotSummary(event);
 }
-

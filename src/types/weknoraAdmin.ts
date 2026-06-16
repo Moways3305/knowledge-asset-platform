@@ -80,4 +80,3 @@ export interface KbInitUpdateRequestDTO {
   rerank_model_ref?: string | null;
   multimodal_ref?: string | null;
 }
-

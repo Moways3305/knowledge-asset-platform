@@ -1,4 +1,4 @@
-﻿"""平台会话运维 API schema。
+"""平台会话运维 API schema。
 
 只承载**安全**会话元数据：安全 `session_id`（非 token hash）、login_method、时间、撤销状态。
 **绝不**含 token / token_hash / cookie 值 / OAuth state / ip / device_info / user-agent。
@@ -41,4 +41,3 @@ class SessionRevokeResponse(BaseModel):
     revoked_count: int
     revoked_at: datetime | None
     preserved_current_session: bool = False
-

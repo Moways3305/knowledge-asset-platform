@@ -1,4 +1,4 @@
-﻿"""生命周期 / 告警 / 通知 ORM 模型。
+"""生命周期 / 告警 / 通知 ORM 模型。
 
 落地三张治理表：
 - asset_lifecycle_events：资产生命周期事件事实（预警/候选/归档/重新启用）。
@@ -111,12 +111,9 @@ class NotificationRecord(Base):
     channel: Mapped[str] = mapped_column(String(30), nullable=False)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    sent_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     send_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     # 真实下发的投递元数据（安全）。send_attempts 计重试；failure_reason 仅安全 code/文案。
     send_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     failure_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-

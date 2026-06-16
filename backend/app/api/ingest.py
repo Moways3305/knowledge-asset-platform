@@ -1,4 +1,4 @@
-﻿"""入库流水线 API。
+"""入库流水线 API。
 
 只做 upload / ai-result / confirm + 可选 admin 只读列表。权限委托 service，
 不写权限矩阵；不返回内部存储引用 / 真实上传下载 URL。
@@ -112,8 +112,13 @@ async def confirm(
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> IngestConfirmResponse:
     return await ingest_service.confirm(
-        session, caller, task_id, req, get_trace_id(request),
-        storage=storage, weknora=weknora,
+        session,
+        caller,
+        task_id,
+        req,
+        get_trace_id(request),
+        storage=storage,
+        weknora=weknora,
     )
 
 
@@ -134,4 +139,3 @@ async def list_admin_ingest(
 ) -> AdminIngestListResponse:
     items = await ingest_service.list_admin_ingest(session, caller)
     return AdminIngestListResponse(items=items, total=len(items))
-

@@ -22,7 +22,16 @@ OPS = "/admin/ops/indexing"
 UPLOAD = "/api/v1/ingest/upload"
 _LEAK_SECRET = "sk-secret-xyz mid-chat wk-kb-company wk-doc-1 https://host/v1 api_key base_url storage_ref source_file_ref"
 # 任何响应/审计都不得出现的真实敏感值（注意：配置项名如 WEKNORA_EMBEDDING_MODEL_ID 是允许的）。
-_FORBIDDEN = ["sk-", "mid-chat", "wk-kb", "wk-doc", "https://host", "storage_ref", "source_file_ref", "download_url"]
+_FORBIDDEN = [
+    "sk-",
+    "mid-chat",
+    "wk-kb",
+    "wk-doc",
+    "https://host",
+    "storage_ref",
+    "source_file_ref",
+    "download_url",
+]
 
 
 def _hdr(u):
@@ -31,11 +40,13 @@ def _hdr(u):
 
 async def _set_index_failed(db_session, asset_id, *, code, dirty_message):
     """把某资产 active 版本置 index_failed + 指定 code + 模拟历史脏文案（含 secret）。"""
-    ver = (await db_session.execute(
-        select(KnowledgeAssetVersion)
-        .where(KnowledgeAssetVersion.asset_id == asset_id)
-        .where(KnowledgeAssetVersion.version_status == "active")
-    )).scalar_one()
+    ver = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion)
+            .where(KnowledgeAssetVersion.asset_id == asset_id)
+            .where(KnowledgeAssetVersion.version_status == "active")
+        )
+    ).scalar_one()
     ver.index_status = "index_failed"
     ver.index_error_code = code
     ver.index_error_message = dirty_message  # 脏：含 secret / 上游 message
@@ -47,15 +58,29 @@ async def _set_index_failed(db_session, asset_id, *, code, dirty_message):
 # 1. 中央目录单元
 # ---------------------------------------------------------------------------
 def test_catalog_known_and_unknown():
-    for code in ("weknora_not_configured", "weknora_embedding_model_missing", "source_file_unreadable",
-                 "weknora_call_failed", "wecom_scan_failed"):
+    for code in (
+        "weknora_not_configured",
+        "weknora_embedding_model_missing",
+        "source_file_unreadable",
+        "weknora_call_failed",
+        "wecom_scan_failed",
+    ):
         info = error_catalog.get_error(code)
         assert info.user_message and info.operator_message and info.remediation_hint
         assert info.severity in ("info", "warning", "error", "critical")
     # 别名归类。
-    assert error_catalog.get_error("weknora_down").user_message == error_catalog.get_error("weknora_call_failed").user_message
-    assert error_catalog.get_error("http_500").operator_message == error_catalog.get_error("weknora_call_failed").operator_message
-    assert error_catalog.get_error("wecom_token_expired").operator_message == error_catalog.get_error("wecom_scan_failed").operator_message
+    assert (
+        error_catalog.get_error("weknora_down").user_message
+        == error_catalog.get_error("weknora_call_failed").user_message
+    )
+    assert (
+        error_catalog.get_error("http_500").operator_message
+        == error_catalog.get_error("weknora_call_failed").operator_message
+    )
+    assert (
+        error_catalog.get_error("wecom_token_expired").operator_message
+        == error_catalog.get_error("wecom_scan_failed").operator_message
+    )
     # 未知降级。
     unk = error_catalog.get_error("some_totally_unknown_code")
     assert unk.user_message == error_catalog.get_error("unknown").user_message
@@ -63,7 +88,10 @@ def test_catalog_known_and_unknown():
 
 def test_safe_code_allowlist_and_alias():
     # safe_code 是 allowlist/alias，而非正则放行。
-    assert error_catalog.safe_code("weknora_embedding_model_missing") == "weknora_embedding_model_missing"
+    assert (
+        error_catalog.safe_code("weknora_embedding_model_missing")
+        == "weknora_embedding_model_missing"
+    )
     assert error_catalog.safe_code("weknora_down") == "weknora_call_failed"
     assert error_catalog.safe_code("weknora_upload_failed") == "weknora_call_failed"
     assert error_catalog.safe_code("http_500") == "weknora_call_failed"
@@ -79,7 +107,9 @@ def test_safe_code_allowlist_and_alias():
 # 2. 用户态：详情 index_error_message 按 code 重新派生（历史脏文案不外显）
 # ---------------------------------------------------------------------------
 async def test_detail_user_message_rederived_no_dirty(client, db_session):
-    await _set_index_failed(db_session, KA_PERSONAL, code="source_file_unreadable", dirty_message=_LEAK_SECRET)
+    await _set_index_failed(
+        db_session, KA_PERSONAL, code="source_file_unreadable", dirty_message=_LEAK_SECRET
+    )
     r = await client.get(f"{KN}/{KA_PERSONAL}", headers=_hdr(USER_CONSULTANT))
     assert r.status_code == 200, r.text
     body = r.json()
@@ -91,7 +121,9 @@ async def test_detail_user_message_rederived_no_dirty(client, db_session):
 
 
 async def test_detail_unknown_code_user_message(client, db_session):
-    await _set_index_failed(db_session, KA_PERSONAL, code="weird_internal_thing", dirty_message="raw upstream sk-leak")
+    await _set_index_failed(
+        db_session, KA_PERSONAL, code="weird_internal_thing", dirty_message="raw upstream sk-leak"
+    )
     r = await client.get(f"{KN}/{KA_PERSONAL}", headers=_hdr(USER_CONSULTANT))
     assert r.json()["index_error_message"] == error_catalog.user_message("unknown")
     assert "sk-" not in r.text
@@ -101,13 +133,20 @@ async def test_detail_unknown_code_user_message(client, db_session):
 # 3. 运营态：/admin/ops/indexing 三层诊断 + 标题边界
 # ---------------------------------------------------------------------------
 async def test_ops_operator_diagnostics_and_boundary(client, db_session):
-    await _set_index_failed(db_session, KA_PERSONAL, code="weknora_embedding_model_missing", dirty_message=_LEAK_SECRET)
+    await _set_index_failed(
+        db_session, KA_PERSONAL, code="weknora_embedding_model_missing", dirty_message=_LEAK_SECRET
+    )
     # 治理角色：可见真实标题 + 运营诊断。
     gov = await client.get(OPS, headers=_hdr(USER_BOSS))
     assert gov.status_code == 200
     item = next(i for i in gov.json()["recent_failed"] if i["asset_id"] == str(KA_PERSONAL))
-    assert item["index_error_message"] == error_catalog.user_message("weknora_embedding_model_missing")
-    assert item["operator_error_message"] == error_catalog.get_error("weknora_embedding_model_missing").operator_message
+    assert item["index_error_message"] == error_catalog.user_message(
+        "weknora_embedding_model_missing"
+    )
+    assert (
+        item["operator_error_message"]
+        == error_catalog.get_error("weknora_embedding_model_missing").operator_message
+    )
     assert item["remediation_hint"]
     assert item["severity"] == "error"
     # 运营态允许配置项名，但不含值 / 内部 id / secret。
@@ -165,13 +204,26 @@ def _enable_leaky(monkeypatch):
 async def test_upstream_leaky_error_not_exposed_anywhere(client, db_session, monkeypatch):
     _enable_leaky(monkeypatch)
     try:
-        up = (await client.post(UPLOAD, headers=_hdr(USER_CONSULTANT),
-                                files={"file": ("d.txt", b"content body for leak test", "text/plain")})).json()
+        up = (
+            await client.post(
+                UPLOAD,
+                headers=_hdr(USER_CONSULTANT),
+                files={"file": ("d.txt", b"content body for leak test", "text/plain")},
+            )
+        ).json()
         task_id = up["ingest_task_id"]
         r = await client.post(
-            f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(USER_CONSULTANT),
-            json={"title": "leak", "summary": "s", "tags": [], "target_scope": "personal",
-                  "asset_type": "methodology", "confidentiality_level": "L2", "ai_access_level": "A2"},
+            f"/api/v1/ingest/{task_id}/confirm",
+            headers=_hdr(USER_CONSULTANT),
+            json={
+                "title": "leak",
+                "summary": "s",
+                "tags": [],
+                "target_scope": "personal",
+                "asset_type": "methodology",
+                "confidentiality_level": "L2",
+                "ai_access_level": "A2",
+            },
         )
         assert r.status_code == 200, r.text
         body = r.json()
@@ -191,9 +243,15 @@ async def test_upstream_leaky_error_not_exposed_anywhere(client, db_session, mon
         for token in _FORBIDDEN + ["UPSTREAM"]:
             assert token not in ops.text
         # 审计：不写上游 message。
-        ev = (await db_session.execute(
-            select(AuditEvent).where(AuditEvent.action == "ingest.index_failed")
-        )).scalars().all()
+        ev = (
+            (
+                await db_session.execute(
+                    select(AuditEvent).where(AuditEvent.action == "ingest.index_failed")
+                )
+            )
+            .scalars()
+            .all()
+        )
         blob = str([e.extra for e in ev])
         for token in _FORBIDDEN + ["UPSTREAM"]:
             assert token not in blob
@@ -213,7 +271,10 @@ def test_wecom_scan_error_catalog_safe():
     for token in ["token", "cookie", "download_url", "fileid", "spaceid:", "http"]:
         assert token not in info.operator_message and token not in info.remediation_hint
     # owner 失效等具体 wecom 码归类到 wecom_scan_failed。
-    assert error_catalog.get_error("wecom_scan_owner_invalid").operator_message == info.operator_message
+    assert (
+        error_catalog.get_error("wecom_scan_owner_invalid").operator_message
+        == info.operator_message
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -235,12 +296,25 @@ async def test_upstream_leaky_code_not_exposed(client, db_session, monkeypatch):
     monkeypatch.setattr(get_settings(), "weknora_embedding_model_id", "test-embed")
     app.dependency_overrides[get_weknora_client] = lambda: _LeakyCodeWK()
     try:
-        up = (await client.post(UPLOAD, headers=_hdr(USER_CONSULTANT),
-                                files={"file": ("d.txt", b"leaky code body", "text/plain")})).json()
+        up = (
+            await client.post(
+                UPLOAD,
+                headers=_hdr(USER_CONSULTANT),
+                files={"file": ("d.txt", b"leaky code body", "text/plain")},
+            )
+        ).json()
         r = await client.post(
-            f"/api/v1/ingest/{up['ingest_task_id']}/confirm", headers=_hdr(USER_CONSULTANT),
-            json={"title": "lc", "summary": "s", "tags": [], "target_scope": "personal",
-                  "asset_type": "methodology", "confidentiality_level": "L2", "ai_access_level": "A2"},
+            f"/api/v1/ingest/{up['ingest_task_id']}/confirm",
+            headers=_hdr(USER_CONSULTANT),
+            json={
+                "title": "lc",
+                "summary": "s",
+                "tags": [],
+                "target_scope": "personal",
+                "asset_type": "methodology",
+                "confidentiality_level": "L2",
+                "ai_access_level": "A2",
+            },
         )
         assert r.status_code == 200, r.text
         body = r.json()
@@ -249,11 +323,13 @@ async def test_upstream_leaky_code_not_exposed(client, db_session, monkeypatch):
         for token in _FORBIDDEN:
             assert token not in r.text
         # DB 写的是安全目录 code，不是原始 leaky code。
-        ver = (await db_session.execute(
-            select(KnowledgeAssetVersion)
-            .where(KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id))
-            .where(KnowledgeAssetVersion.version_status == "active")
-        )).scalar_one()
+        ver = (
+            await db_session.execute(
+                select(KnowledgeAssetVersion)
+                .where(KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id))
+                .where(KnowledgeAssetVersion.version_status == "active")
+            )
+        ).scalar_one()
         assert ver.index_error_code == "unknown"
         assert _LEAKY_CODE not in (ver.index_error_code or "")
         # 详情 / ops / 审计均不含 leaky code。
@@ -266,9 +342,15 @@ async def test_upstream_leaky_code_not_exposed(client, db_session, monkeypatch):
         assert oitem["index_error_code"] == "unknown"
         for token in _FORBIDDEN:
             assert token not in ops.text
-        ev = (await db_session.execute(
-            select(AuditEvent).where(AuditEvent.action == "ingest.index_failed")
-        )).scalars().all()
+        ev = (
+            (
+                await db_session.execute(
+                    select(AuditEvent).where(AuditEvent.action == "ingest.index_failed")
+                )
+            )
+            .scalars()
+            .all()
+        )
         blob = str([e.extra for e in ev])
         for token in _FORBIDDEN:
             assert token not in blob
@@ -280,8 +362,10 @@ async def test_upstream_leaky_code_not_exposed(client, db_session, monkeypatch):
 async def test_historical_dirty_code_not_exposed(client, db_session):
     # 直接把 DB active 版本写成脏 code + 脏 message（模拟历史数据）。
     await _set_index_failed(
-        db_session, KA_PERSONAL,
-        code="mid-chat-sk-secret-wk-kb-company", dirty_message="dirty upstream " + _LEAK_SECRET,
+        db_session,
+        KA_PERSONAL,
+        code="mid-chat-sk-secret-wk-kb-company",
+        dirty_message="dirty upstream " + _LEAK_SECRET,
     )
     d = await client.get(f"{KN}/{KA_PERSONAL}", headers=_hdr(USER_CONSULTANT))
     assert d.json()["index_error_code"] == "unknown"

@@ -1,4 +1,4 @@
-﻿"""模型配置中心 API 的 schema。
+"""模型配置中心 API 的 schema。
 
 安全红线：**绝不**承载 WeKnora `api_key` / `base_url` 真实值 / server-only `model_id` /
 `weknora_kb_id` / `weknora_doc_id` / 内部存储引用 / 原始 WeKnora payload。前端用对底座 id
@@ -128,4 +128,3 @@ class KbInitUpdateResponse(BaseModel):
     mapping_id: uuid.UUID
     mapping_status: str
     updated: bool = True
-

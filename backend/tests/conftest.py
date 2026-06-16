@@ -18,10 +18,16 @@ import os
 _TEST_ENV = {
     "APP_ENV": "test",
     "CELERY_TASK_ALWAYS_EAGER": "true",
-    "WEKNORA_BASE_URL": "", "WEKNORA_API_KEY": "", "WEKNORA_EMBEDDING_MODEL_ID": "",
-    "LLM_PROVIDER": "", "LLM_API_KEY": "",
-    "WECOM_CORP_ID": "", "WECOM_APP_SECRET": "", "WECOM_NOTIFY_ENABLED": "false",
-    "ONLYOFFICE_ENABLED": "false", "ONLYOFFICE_DOCUMENT_SERVER_URL": "",
+    "WEKNORA_BASE_URL": "",
+    "WEKNORA_API_KEY": "",
+    "WEKNORA_EMBEDDING_MODEL_ID": "",
+    "LLM_PROVIDER": "",
+    "LLM_API_KEY": "",
+    "WECOM_CORP_ID": "",
+    "WECOM_APP_SECRET": "",
+    "WECOM_NOTIFY_ENABLED": "false",
+    "ONLYOFFICE_ENABLED": "false",
+    "ONLYOFFICE_DOCUMENT_SERVER_URL": "",
 }
 for _k, _v in _TEST_ENV.items():
     os.environ[_k] = _v

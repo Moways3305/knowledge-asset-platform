@@ -42,4 +42,3 @@ export interface RequestsListResponseDTO {
   items: OriginalAccessRequestDTO[];
   total: number;
 }
-

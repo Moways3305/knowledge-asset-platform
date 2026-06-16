@@ -1,4 +1,4 @@
-﻿"""两阶段检索编排服务。
+"""两阶段检索编排服务。
 
 统一把"查询 → WeKnora 召回 → 映射回业务资产 →
 集中权限 `decide()` 复核 → 阶段1卡片 / 阶段2脱敏原文 / 问答证据"收口到这里。
@@ -54,7 +54,7 @@ _REDACTED_LEVELS = {ConfidentialityLevel.L3.value, ConfidentialityLevel.L4.value
 _ACTIVE_ASSET = AssetStatus.active.value
 _ACTIVE_VERSION = VersionStatus.active.value
 # 只有底座索引成功（index_status=indexed）的 version 才可参与语义召回 / 原文 chunk 取件
-#：index_failed/not_indexed/skipped 即使残留 server-only
+# ：index_failed/not_indexed/skipped 即使残留 server-only
 # weknora_doc_id（如 reparse 删旧 doc 失败 + 重传失败），其底座旧 doc 也不得被平台当作有效索引使用。
 _INDEXED_STATUS = "indexed"
 
@@ -101,7 +101,9 @@ class Evidence:
 # ---------------------------------------------------------------------------
 # KB 解析（scope → 可检索 KB 集）
 # ---------------------------------------------------------------------------
-async def _kb_ids_for(session: AsyncSession, *, scope: str, owner_user_id=None, project_ids=None) -> list[str]:
+async def _kb_ids_for(
+    session: AsyncSession, *, scope: str, owner_user_id=None, project_ids=None
+) -> list[str]:
     stmt = select(WeknoraKbMapping.weknora_kb_id).where(
         WeknoraKbMapping.scope == scope, WeknoraKbMapping.status == "active"
     )
@@ -127,9 +129,17 @@ async def resolve_searchable_kbs(
     want_all = scope in (None, "all")
     kbs: set[str] = set()
     if (want_all or scope == KnowledgeScope.personal.value) and caller.is_business_user:
-        kbs.update(await _kb_ids_for(session, scope=KnowledgeScope.personal.value, owner_user_id=caller.user_id))
+        kbs.update(
+            await _kb_ids_for(
+                session, scope=KnowledgeScope.personal.value, owner_user_id=caller.user_id
+            )
+        )
     if (want_all or scope == KnowledgeScope.project.value) and caller.active_project_ids:
-        kbs.update(await _kb_ids_for(session, scope=KnowledgeScope.project.value, project_ids=caller.active_project_ids))
+        kbs.update(
+            await _kb_ids_for(
+                session, scope=KnowledgeScope.project.value, project_ids=caller.active_project_ids
+            )
+        )
     if want_all or scope == KnowledgeScope.company.value:
         kbs.update(await _kb_ids_for(session, scope=KnowledgeScope.company.value))
     return list(kbs)
@@ -162,8 +172,11 @@ async def recall_assets(
     if not kb_ids:
         return []
     chunks = await weknora.search(
-        query=query, kb_ids=kb_ids, knowledge_ids=knowledge_ids,
-        top_k=_RECALL_TOP_K, trace_id=trace_id,
+        query=query,
+        kb_ids=kb_ids,
+        knowledge_ids=knowledge_ids,
+        top_k=_RECALL_TOP_K,
+        trace_id=trace_id,
     )
     if not chunks:
         return []
@@ -181,7 +194,9 @@ async def recall_assets(
                 # residual：仅索引成功的 version 可被召回映射；index_failed 等残留旧 doc 丢弃。
                 .where(KnowledgeAssetVersion.index_status == _INDEXED_STATUS)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     doc_to_version = {v.weknora_doc_id: v for v in versions}
     asset_ids = {v.asset_id for v in versions}
@@ -198,7 +213,9 @@ async def recall_assets(
                     selectinload(KnowledgeAsset.tags),
                 )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     asset_by_id = {a.id: a for a in assets}
 
@@ -232,8 +249,22 @@ async def recall_assets(
             continue
         has_grant = entry.asset.id in granted_ids
         entry.discovery = d
-        entry.summary = decide(caller, entry.asset, AccessLayer.summary, channel=channel, has_original_grant=has_grant, policy=policy)
-        entry.original = decide(caller, entry.asset, AccessLayer.original, channel=channel, has_original_grant=has_grant, policy=policy)
+        entry.summary = decide(
+            caller,
+            entry.asset,
+            AccessLayer.summary,
+            channel=channel,
+            has_original_grant=has_grant,
+            policy=policy,
+        )
+        entry.original = decide(
+            caller,
+            entry.asset,
+            AccessLayer.original,
+            channel=channel,
+            has_original_grant=has_grant,
+            policy=policy,
+        )
         out.append(entry)
 
     out.sort(key=lambda r: r.score, reverse=True)
@@ -247,7 +278,9 @@ def _summary_map(asset: KnowledgeAsset) -> dict[str, str | None]:
     return {s.summary_type: s.content for s in asset.summaries}
 
 
-def _card_summary_fields(asset: KnowledgeAsset, summary_allowed: bool) -> tuple[str | None, str | None, list[str]]:
+def _card_summary_fields(
+    asset: KnowledgeAsset, summary_allowed: bool
+) -> tuple[str | None, str | None, list[str]]:
     """卡片三层摘要字段：one_liner / detailed / key_points。
 
     L3/L4 取脱敏摘要（redacted/safe），key_points 置空（原始要点未脱敏，不外泄）。
@@ -280,12 +313,18 @@ async def load_card_aux(
     if project_ids:
         projects = {
             r[0]: r[1]
-            for r in (await session.execute(select(Project.id, Project.name).where(Project.id.in_(project_ids)))).all()
+            for r in (
+                await session.execute(
+                    select(Project.id, Project.name).where(Project.id.in_(project_ids))
+                )
+            ).all()
         }
     if user_ids:
         users = {
             r[0]: r[1]
-            for r in (await session.execute(select(User.id, User.name).where(User.id.in_(user_ids)))).all()
+            for r in (
+                await session.execute(select(User.id, User.name).where(User.id.in_(user_ids)))
+            ).all()
         }
     return projects, users
 
@@ -312,7 +351,9 @@ def build_card(
         "detailed": detailed,
         "key_points": key_points,
         "owner_name": users.get(asset.owner_user_id) if asset.owner_user_id else None,
-        "maintainer_name": users.get(asset.maintainer_user_id) if asset.maintainer_user_id else None,
+        "maintainer_name": users.get(asset.maintainer_user_id)
+        if asset.maintainer_user_id
+        else None,
         "project_name": projects.get(asset.project_id) if asset.project_id else None,
         "updated_at": asset.updated_at,
         "version": recalled.version.version_no,
@@ -363,8 +404,11 @@ async def gather_evidence(
                 ref = f"{c['knowledge_id']}#{c.get('chunk_index')}"
                 evidences.append(
                     Evidence(
-                        asset=r.asset, used_layer=AccessLayer.original.value,
-                        snippet=scrubbed[:600], seq=c.get("seq"), weknora_chunk_ref=ref,
+                        asset=r.asset,
+                        used_layer=AccessLayer.original.value,
+                        snippet=scrubbed[:600],
+                        seq=c.get("seq"),
+                        weknora_chunk_ref=ref,
                     )
                 )
                 taken += 1
@@ -374,8 +418,11 @@ async def gather_evidence(
             if snippet:
                 evidences.append(
                     Evidence(
-                        asset=r.asset, used_layer=AccessLayer.summary.value,
-                        snippet=snippet[:600], seq=None, weknora_chunk_ref=None,
+                        asset=r.asset,
+                        used_layer=AccessLayer.summary.value,
+                        snippet=snippet[:600],
+                        seq=None,
+                        weknora_chunk_ref=None,
                     )
                 )
     return evidences
@@ -397,9 +444,7 @@ async def synthesize_answer(
     """喂放行+脱敏证据给外部 LLM 自拼答案；LLM 不可用 / 无证据 → None。"""
     if not evidences:
         return None
-    blocks = [
-        f"[{i}] 《{e.asset.title}》：{e.snippet}" for i, e in enumerate(evidences, start=1)
-    ]
+    blocks = [f"[{i}] 《{e.asset.title}》：{e.snippet}" for i, e in enumerate(evidences, start=1)]
     try:
         answer = await llm.chat_completion(
             [
@@ -462,14 +507,25 @@ async def fetch_stage2_original(
     # 第②道：逐 chunk 复核的资产级前置——原文权限判断（无权 → 只给卡片+联系人）。
     # 叠加 active access_grant（外部 Agent / 问答 / 检索原文取件统一口径）。
     has_grant = await original_access.has_active_grant(session, caller.user_id, asset.id)
-    o = decide(caller, asset, AccessLayer.original, channel=channel, has_original_grant=has_grant, policy=policy)
+    o = decide(
+        caller,
+        asset,
+        AccessLayer.original,
+        channel=channel,
+        has_original_grant=has_grant,
+        policy=policy,
+    )
     _projects, users = await load_card_aux(session, [asset])
     owner_name = users.get(asset.owner_user_id) if asset.owner_user_id else None
     maintainer_name = users.get(asset.maintainer_user_id) if asset.maintainer_user_id else None
     if not o.allowed:
         return OriginalResult(
-            asset=asset, available=False, chunks=[], degraded_reason=o.denied_reason.value,
-            owner_name=owner_name, maintainer_name=maintainer_name,
+            asset=asset,
+            available=False,
+            chunks=[],
+            degraded_reason=o.denied_reason.value,
+            owner_name=owner_name,
+            maintainer_name=maintainer_name,
         )
 
     # 取该资产 active 版本的 weknora_doc_id / kb_id（第①道：限定到本资产、本 KB）。
@@ -489,13 +545,20 @@ async def fetch_stage2_original(
         or version.index_status != _INDEXED_STATUS
     ):
         return OriginalResult(
-            asset=asset, available=False, chunks=[], degraded_reason="original_unindexed",
-            owner_name=owner_name, maintainer_name=maintainer_name,
+            asset=asset,
+            available=False,
+            chunks=[],
+            degraded_reason="original_unindexed",
+            owner_name=owner_name,
+            maintainer_name=maintainer_name,
         )
 
     raw_chunks = await weknora.search(
-        query=query, kb_ids=[version.weknora_kb_id], knowledge_ids=[version.weknora_doc_id],
-        top_k=_RECALL_TOP_K, trace_id=trace_id,
+        query=query,
+        kb_ids=[version.weknora_kb_id],
+        knowledge_ids=[version.weknora_doc_id],
+        top_k=_RECALL_TOP_K,
+        trace_id=trace_id,
     )
     # 第②道：逐 chunk 复核——只接受确实映射回本资产 doc 的 chunk（防 KB 内混入越权资产）。
     out_chunks: list[dict] = []
@@ -517,11 +580,17 @@ async def fetch_stage2_original(
         # 有权但脱敏全失败（LLM 不可用）→ 保守降级：不返回原文。
         reason = "desensitization_unavailable" if scrub_failed else "original_unindexed"
         return OriginalResult(
-            asset=asset, available=False, chunks=[], degraded_reason=reason,
-            owner_name=owner_name, maintainer_name=maintainer_name,
+            asset=asset,
+            available=False,
+            chunks=[],
+            degraded_reason=reason,
+            owner_name=owner_name,
+            maintainer_name=maintainer_name,
         )
     return OriginalResult(
-        asset=asset, available=True, chunks=out_chunks,
-        owner_name=owner_name, maintainer_name=maintainer_name,
+        asset=asset,
+        available=True,
+        chunks=out_chunks,
+        owner_name=owner_name,
+        maintainer_name=maintainer_name,
     )
-

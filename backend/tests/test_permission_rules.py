@@ -24,8 +24,19 @@ from app.services import permission_rules as rules_service
 RULES = "/api/v1/admin/permissions/rules"
 
 _LEAK_TOKENS = [
-    "token_hash", "token", "api_key", "app_secret", "storage_ref", "source_file_ref",
-    "dataset_id", "workflow_id", "kb_id", "bucket", "base_url", "weknora", "oauth",
+    "token_hash",
+    "token",
+    "api_key",
+    "app_secret",
+    "storage_ref",
+    "source_file_ref",
+    "dataset_id",
+    "workflow_id",
+    "kb_id",
+    "bucket",
+    "base_url",
+    "weknora",
+    "oauth",
 ]
 
 
@@ -52,8 +63,18 @@ async def test_admin_can_read_rules_no_leak(client):
     body = r.json()
     assert body["total"] >= 15 and len(body["items"]) == body["total"]
     item = body["items"][0]
-    for k in ("rule_id", "rule_key", "rule_group", "rule_type", "display_name",
-              "default_bool", "default_number", "default_text", "editable", "updated_at"):
+    for k in (
+        "rule_id",
+        "rule_key",
+        "rule_group",
+        "rule_type",
+        "display_name",
+        "default_bool",
+        "default_number",
+        "default_text",
+        "editable",
+        "updated_at",
+    ):
         assert k in item
     _assert_no_leak(r.text)
 
@@ -83,7 +104,8 @@ async def test_default_rules_idempotent(client, db_session):
 async def test_boss_can_update_numeric(client):
     rule = await _rule_by_key(client, USER_BOSS, "review_timeout_hours")
     r = await client.patch(
-        f"{RULES}/{rule['rule_id']}", headers=_hdr(USER_BOSS),
+        f"{RULES}/{rule['rule_id']}",
+        headers=_hdr(USER_BOSS),
         json={"value_number": 72},
     )
     assert r.status_code == 200, r.text
@@ -94,7 +116,8 @@ async def test_boss_can_update_numeric(client):
 async def test_director_can_update_toggle(client):
     rule = await _rule_by_key(client, USER_DIRECTOR, "personal_knowledge_default_private")
     r = await client.patch(
-        f"{RULES}/{rule['rule_id']}", headers=_hdr(USER_DIRECTOR),
+        f"{RULES}/{rule['rule_id']}",
+        headers=_hdr(USER_DIRECTOR),
         json={"value_bool": False},
     )
     assert r.status_code == 200, r.text
@@ -104,7 +127,8 @@ async def test_director_can_update_toggle(client):
 async def test_admin_cannot_update(client):
     rule = await _rule_by_key(client, USER_ADMIN_ONLY, "review_timeout_hours")
     r = await client.patch(
-        f"{RULES}/{rule['rule_id']}", headers=_hdr(USER_ADMIN_ONLY),
+        f"{RULES}/{rule['rule_id']}",
+        headers=_hdr(USER_ADMIN_ONLY),
         json={"value_number": 99},
     )
     assert r.status_code == 403
@@ -115,7 +139,8 @@ async def test_consultant_cannot_update(client):
     # consultant 无读权；用 boss 取 id，再以 consultant 改 → 403。
     rule = await _rule_by_key(client, USER_BOSS, "review_timeout_hours")
     r = await client.patch(
-        f"{RULES}/{rule['rule_id']}", headers=_hdr(USER_CONSULTANT),
+        f"{RULES}/{rule['rule_id']}",
+        headers=_hdr(USER_CONSULTANT),
         json={"value_number": 1},
     )
     assert r.status_code == 403
@@ -127,7 +152,8 @@ async def test_fixed_path_not_editable(client):
     rule = await _rule_by_key(client, USER_BOSS, "project_asset_validation_paths")
     assert rule["editable"] is False
     r = await client.patch(
-        f"{RULES}/{rule['rule_id']}", headers=_hdr(USER_BOSS),
+        f"{RULES}/{rule['rule_id']}",
+        headers=_hdr(USER_BOSS),
         json={"value_text": "随意改"},
     )
     assert r.status_code == 422
@@ -137,7 +163,8 @@ async def test_fixed_path_not_editable(client):
 async def test_numeric_rejects_negative(client):
     rule = await _rule_by_key(client, USER_BOSS, "access_grant_duration_days")
     r = await client.patch(
-        f"{RULES}/{rule['rule_id']}", headers=_hdr(USER_BOSS),
+        f"{RULES}/{rule['rule_id']}",
+        headers=_hdr(USER_BOSS),
         json={"value_number": -1},
     )
     assert r.status_code == 422
@@ -147,7 +174,8 @@ async def test_numeric_rejects_negative(client):
 async def test_numeric_rejects_bool(client):
     rule = await _rule_by_key(client, USER_BOSS, "access_grant_duration_days")
     r = await client.patch(
-        f"{RULES}/{rule['rule_id']}", headers=_hdr(USER_BOSS),
+        f"{RULES}/{rule['rule_id']}",
+        headers=_hdr(USER_BOSS),
         json={"value_bool": True},
     )
     assert r.status_code == 422
@@ -156,7 +184,8 @@ async def test_numeric_rejects_bool(client):
 
 async def test_unknown_rule_404(client):
     r = await client.patch(
-        f"{RULES}/{uuid.uuid4()}", headers=_hdr(USER_BOSS),
+        f"{RULES}/{uuid.uuid4()}",
+        headers=_hdr(USER_BOSS),
         json={"value_number": 1},
     )
     assert r.status_code == 404
@@ -173,10 +202,14 @@ async def test_update_writes_safe_audit(client, db_session):
     )
     assert r.status_code == 200, r.text
     rows = (
-        await db_session.execute(
-            select(AuditEvent).where(AuditEvent.action == "config.permission_rule_updated")
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.action == "config.permission_rule_updated")
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert rows, "应写入 config.permission_rule_updated 审计事件"
     ev = rows[-1]
     assert ev.target_type == "permission_rule"

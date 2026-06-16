@@ -45,4 +45,3 @@ export interface MarkProcessedResponseDTO {
   processed_by: string | null;
   processed_at: string | null;
 }
-

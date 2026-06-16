@@ -62,15 +62,17 @@ class FakeSearchWeKnora:
                 continue
             if knowledge_ids and d["knowledge_id"] not in knowledge_ids:
                 continue
-            out.append({
-                "content": d["content"],
-                "knowledge_id": d["knowledge_id"],
-                "chunk_index": 0,
-                "score": round(1.0 - i * 0.01, 4),
-                "seq": 0,
-                "start": None,
-                "end": None,
-            })
+            out.append(
+                {
+                    "content": d["content"],
+                    "knowledge_id": d["knowledge_id"],
+                    "chunk_index": 0,
+                    "score": round(1.0 - i * 0.01, 4),
+                    "seq": 0,
+                    "start": None,
+                    "end": None,
+                }
+            )
         return out
 
     async def hybrid_search(self, **_):
@@ -83,7 +85,9 @@ class FakeAnswerLLM:
     provider = "deepseek"
     model = "deepseek-chat"
 
-    async def chat_completion(self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None):
+    async def chat_completion(
+        self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None
+    ):
         system = messages[0]["content"] if messages else ""
         if "脱敏" in system:
             text = messages[1]["content"] if len(messages) > 1 else ""
@@ -95,8 +99,11 @@ class FakeAnswerLLM:
 def _agent_clients():
     """为所有 Agent QA 用例注入 fake WeKnora（召回 Alpha 全部 seed 资产）+ fake LLM。"""
     docs = [
-        {"knowledge_id": f"wk-doc-{aid}", "kb_id": _ALPHA_KB,
-         "content": "Alpha 项目供应链优化相关知识内容，含采购、仓储、物流要点若干。"}
+        {
+            "knowledge_id": f"wk-doc-{aid}",
+            "kb_id": _ALPHA_KB,
+            "content": "Alpha 项目供应链优化相关知识内容，含采购、仓储、物流要点若干。",
+        }
         for aid in _ALPHA_ASSETS
     ]
     app.dependency_overrides[get_weknora_client] = lambda: FakeSearchWeKnora(docs)
@@ -104,6 +111,7 @@ def _agent_clients():
     yield
     app.dependency_overrides.pop(get_weknora_client, None)
     app.dependency_overrides.pop(get_llm_client, None)
+
 
 _LAYER_RANK = {"discovery": 1, "summary": 2, "original": 3}
 
@@ -193,9 +201,7 @@ async def test_a4_not_cited_as_original(client):
 
 async def test_l5_and_archived_not_cited(client):
     """L5（不可发现）与 archived（非 active）不进入引用与可见 decision-items。"""
-    resp = await client.post(
-        QA, headers=_hdr(USER_CONSULTANT), json={"query": "项目知识"}
-    )
+    resp = await client.post(QA, headers=_hdr(USER_CONSULTANT), json={"query": "项目知识"})
     call_id = resp.json()["call_id"]
     cited_ids = {c["asset_id"] for c in resp.json()["citations"]}
     assert str(KA_PROJECT_ALPHA_L5) not in cited_ids
@@ -214,9 +220,7 @@ async def test_l5_and_archived_not_cited(client):
 
 async def test_decision_items_returned_layer_matches_permission(client):
     """decision-items 可查询；普通 L2 项目资产对成员可达 original，A4 仅到 summary。"""
-    resp = await client.post(
-        QA, headers=_hdr(USER_CONSULTANT), json={"query": "供应链优化"}
-    )
+    resp = await client.post(QA, headers=_hdr(USER_CONSULTANT), json={"query": "供应链优化"})
     call_id = resp.json()["call_id"]
     items = (
         await client.get(
@@ -235,9 +239,7 @@ async def test_decision_items_returned_layer_matches_permission(client):
 
 async def test_citation_layer_not_exceed_returned_layer(client):
     """每条 citation 的 used_access_layer 不超过对应 decision item 的 returned_layer。"""
-    resp = await client.post(
-        QA, headers=_hdr(USER_CONSULTANT), json={"query": "项目交付与方法论"}
-    )
+    resp = await client.post(QA, headers=_hdr(USER_CONSULTANT), json={"query": "项目交付与方法论"})
     call_id = resp.json()["call_id"]
     citations = resp.json()["citations"]
     items = (
@@ -255,9 +257,7 @@ async def test_citation_layer_not_exceed_returned_layer(client):
 async def test_agent_call_visibility_and_no_leak(client):
     """调用记录可见性：本人/boss 可见，纯 admin 403，他人业务用户 404；响应不泄露内部字段。"""
     call_id = (
-        await client.post(
-            QA, headers=_hdr(USER_CONSULTANT), json={"query": "项目知识问答"}
-        )
+        await client.post(QA, headers=_hdr(USER_CONSULTANT), json={"query": "项目知识问答"})
     ).json()["call_id"]
     url = f"/api/v1/agent-calls/{call_id}"
 

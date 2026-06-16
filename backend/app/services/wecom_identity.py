@@ -1,4 +1,4 @@
-﻿"""企微身份生命周期同步服务。
+"""企微身份生命周期同步服务。
 
 把平台用户生命周期对齐其绑定的企微成员有效性：当绑定的企微成员被禁用 / 删除 / 未激活 /
 无效时，**fail-closed**——停用平台用户（active→inactive）并经 撤销其活动平台会话，
@@ -50,15 +50,23 @@ async def apply_member_status(
     prev = user.status
     if member.active:
         return ReconcileItem(
-            user_id=user.id, user_name=user.name, previous_status=prev, new_status=prev,
-            wecom_status=member.status_code, sessions_revoked=0,
+            user_id=user.id,
+            user_name=user.name,
+            previous_status=prev,
+            new_status=prev,
+            wecom_status=member.status_code,
+            sessions_revoked=0,
         )
 
     intended_status = "inactive" if prev == "active" else prev
     if dry_run:
         return ReconcileItem(
-            user_id=user.id, user_name=user.name, previous_status=prev,
-            new_status=intended_status, wecom_status=member.status_code, sessions_revoked=0,
+            user_id=user.id,
+            user_name=user.name,
+            previous_status=prev,
+            new_status=intended_status,
+            wecom_status=member.status_code,
+            sessions_revoked=0,
         )
 
     if prev == "active":
@@ -76,19 +84,32 @@ async def apply_member_status(
     }
     if actor_caller is not None:
         await audit_service.record_event(
-            session, caller=actor_caller, log_type=AuditLogType.operation,
-            action=AuditAction.identity_user_deactivated_by_wecom_sync.value, trace_id=trace_id,
-            target_type="user", target_id=user.id, extra=extra,
+            session,
+            caller=actor_caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.identity_user_deactivated_by_wecom_sync.value,
+            trace_id=trace_id,
+            target_type="user",
+            target_id=user.id,
+            extra=extra,
         )
     else:
         await audit_service.record_system_event(
-            session, log_type=AuditLogType.login,
-            action=AuditAction.identity_user_deactivated_by_wecom_sync.value, trace_id=trace_id,
-            target_type="user", target_id=user.id, extra=extra,
+            session,
+            log_type=AuditLogType.login,
+            action=AuditAction.identity_user_deactivated_by_wecom_sync.value,
+            trace_id=trace_id,
+            target_type="user",
+            target_id=user.id,
+            extra=extra,
         )
     return ReconcileItem(
-        user_id=user.id, user_name=user.name, previous_status=prev, new_status=intended_status,
-        wecom_status=member.status_code, sessions_revoked=revoked,
+        user_id=user.id,
+        user_name=user.name,
+        previous_status=prev,
+        new_status=intended_status,
+        wecom_status=member.status_code,
+        sessions_revoked=revoked,
     )
 
 
@@ -115,10 +136,14 @@ async def reconcile(
         users = list(
             (
                 await session.execute(
-                    select(User).where(User.wecom_user_id.is_not(None))
-                    .order_by(User.created_at).limit(lim)
+                    select(User)
+                    .where(User.wecom_user_id.is_not(None))
+                    .order_by(User.created_at)
+                    .limit(lim)
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
 
     items: list[ReconcileItem] = []
@@ -127,35 +152,66 @@ async def reconcile(
             member = await oauth.get_member_status(u.wecom_user_id)
         except WeComError as exc:
             # 上游 / 未配置失败 → 该用户对账失败，**不**改平台状态（仅安全 code，不回显 errmsg）。
-            items.append(ReconcileItem(
-                user_id=u.id, user_name=u.name, previous_status=u.status, new_status=u.status,
-                wecom_status="unknown", sessions_revoked=0, error_code=exc.code,
-            ))
+            items.append(
+                ReconcileItem(
+                    user_id=u.id,
+                    user_name=u.name,
+                    previous_status=u.status,
+                    new_status=u.status,
+                    wecom_status="unknown",
+                    sessions_revoked=0,
+                    error_code=exc.code,
+                )
+            )
             continue
-        items.append(await apply_member_status(
-            session, u, member, trigger="admin_reconcile", dry_run=dry_run,
-            actor_caller=caller, trace_id=trace_id,
-        ))
+        items.append(
+            await apply_member_status(
+                session,
+                u,
+                member,
+                trigger="admin_reconcile",
+                dry_run=dry_run,
+                actor_caller=caller,
+                trace_id=trace_id,
+            )
+        )
 
     checked = len(items)
     deactivated = sum(
-        1 for it in items
+        1
+        for it in items
         if it.error_code is None and it.previous_status == "active" and it.new_status == "inactive"
     )
-    already_inactive = sum(1 for it in items if it.error_code is None and it.previous_status != "active")
+    already_inactive = sum(
+        1 for it in items if it.error_code is None and it.previous_status != "active"
+    )
     failed = sum(1 for it in items if it.error_code is not None)
 
     # 批量摘要审计（安全计数；单条停用已各自审计）。dry_run 不写停用审计但记录摘要。
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.identity_wecom_user_synced.value, trace_id=trace_id,
-        target_type="user", target_id=(users[0].id if user_id is not None and users else None),
-        extra={"trigger": "admin_reconcile", "checked": checked, "deactivated": deactivated,
-               "already_inactive": already_inactive, "failed": failed, "dry_run": dry_run},
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.identity_wecom_user_synced.value,
+        trace_id=trace_id,
+        target_type="user",
+        target_id=(users[0].id if user_id is not None and users else None),
+        extra={
+            "trigger": "admin_reconcile",
+            "checked": checked,
+            "deactivated": deactivated,
+            "already_inactive": already_inactive,
+            "failed": failed,
+            "dry_run": dry_run,
+        },
     )
     await session.commit()
     return ReconcileResponse(
-        ok=True, checked=checked, deactivated=deactivated, already_inactive=already_inactive,
-        failed=failed, dry_run=dry_run, items=items,
+        ok=True,
+        checked=checked,
+        deactivated=deactivated,
+        already_inactive=already_inactive,
+        failed=failed,
+        dry_run=dry_run,
+        items=items,
     )
-

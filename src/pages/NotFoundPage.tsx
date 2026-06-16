@@ -6,9 +6,7 @@ export default function NotFoundPage() {
   return (
     <div className="state-box" role="alert">
       <div className="state-title">页面不存在</div>
-      <p className="state-desc">
-        你访问的页面可能已被移动或删除，请检查链接是否正确。
-      </p>
+      <p className="state-desc">你访问的页面可能已被移动或删除，请检查链接是否正确。</p>
       <Link className="btn-small" to="/">
         返回今日工作台
       </Link>

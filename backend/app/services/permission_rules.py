@@ -1,4 +1,4 @@
-﻿"""权限规则配置中心服务。
+"""权限规则配置中心服务。
 
 `permission_rules` 的幂等默认 seed、读取、更新。权限治理规则是**配置中心**：
 阈值 / 开关 / 固定路径三类配置项落库、可读写、写操作审计。
@@ -51,25 +51,40 @@ GROUP_LIFECYCLE = "asset_lifecycle"
 
 def _num(key, group, name, value, unit, desc):
     return {
-        "rule_key": key, "rule_group": group, "rule_type": RULE_NUMERIC,
-        "display_name": name, "value_number": float(value), "unit": unit,
-        "description": desc, "editable": True,
+        "rule_key": key,
+        "rule_group": group,
+        "rule_type": RULE_NUMERIC,
+        "display_name": name,
+        "value_number": float(value),
+        "unit": unit,
+        "description": desc,
+        "editable": True,
     }
 
 
 def _toggle(key, group, name, value, desc):
     return {
-        "rule_key": key, "rule_group": group, "rule_type": RULE_TOGGLE,
-        "display_name": name, "value_bool": bool(value), "unit": None,
-        "description": desc, "editable": True,
+        "rule_key": key,
+        "rule_group": group,
+        "rule_type": RULE_TOGGLE,
+        "display_name": name,
+        "value_bool": bool(value),
+        "unit": None,
+        "description": desc,
+        "editable": True,
     }
 
 
 def _fixed(key, group, name, text, unit, desc):
     return {
-        "rule_key": key, "rule_group": group, "rule_type": RULE_FIXED_PATH,
-        "display_name": name, "value_text": text, "unit": unit,
-        "description": desc, "editable": False,
+        "rule_key": key,
+        "rule_group": group,
+        "rule_type": RULE_FIXED_PATH,
+        "display_name": name,
+        "value_text": text,
+        "unit": unit,
+        "description": desc,
+        "editable": False,
     }
 
 
@@ -78,49 +93,137 @@ def _fixed(key, group, name, text, unit, desc):
 # （lifecycle scan 不读本表），不改其运行时行为。
 DEFAULT_RULES: list[dict] = [
     # ---- 个人知识流转 ----
-    _toggle("personal_knowledge_default_private", GROUP_PERSONAL, "个人知识默认私密", True,
-            "个人知识不参与他人检索，仅本人可用；其他顾问 / 项目经理 / 公司级检索均不命中他人个人知识"),
-    _toggle("personal_to_project_material_requires_owner_submit", GROUP_PERSONAL,
-            "个人提交项目资料需本人确认", True,
-            "个人知识进入项目资料区必须由本人主动提交，项目经理或其他顾问不能代为操作"),
-    _fixed("project_asset_validation_paths", GROUP_PERSONAL, "项目资产确认路径",
-           "内部分享 / 客户验证", "条路径",
-           "项目资产必须至少经过一条验证路径（内部分享或客户验证），并由项目经理确认后标记为资产区（zone = asset）"),
+    _toggle(
+        "personal_knowledge_default_private",
+        GROUP_PERSONAL,
+        "个人知识默认私密",
+        True,
+        "个人知识不参与他人检索，仅本人可用；其他顾问 / 项目经理 / 公司级检索均不命中他人个人知识",
+    ),
+    _toggle(
+        "personal_to_project_material_requires_owner_submit",
+        GROUP_PERSONAL,
+        "个人提交项目资料需本人确认",
+        True,
+        "个人知识进入项目资料区必须由本人主动提交，项目经理或其他顾问不能代为操作",
+    ),
+    _fixed(
+        "project_asset_validation_paths",
+        GROUP_PERSONAL,
+        "项目资产确认路径",
+        "内部分享 / 客户验证",
+        "条路径",
+        "项目资产必须至少经过一条验证路径（内部分享或客户验证），并由项目经理确认后标记为资产区（zone = asset）",
+    ),
     # ---- 项目知识升格 ----
-    _num("cross_project_source_threshold", GROUP_UPGRADE, "跨项目来源阈值", 3, "个项目",
-         "项目知识被至少 N 个不同项目调用，表示具备跨项目复用广度"),
-    _num("cross_project_call_count_threshold", GROUP_UPGRADE, "跨项目调用次数阈值", 10, "次",
-         "项目知识累计跨项目调用达到 N 次，表示具备复用强度；需与跨项目来源阈值共同判断"),
-    _num("project_upgrade_signal_window_days", GROUP_UPGRADE, "升格信号统计窗口", 90, "天",
-         "仅统计最近 N 天内的跨项目来源与调用次数，避免历史噪声"),
-    _num("review_timeout_hours", GROUP_UPGRADE, "升格审核超时", 48, "小时",
-         "升格审核提交后超过此时间未处理，系统发送催审通知"),
+    _num(
+        "cross_project_source_threshold",
+        GROUP_UPGRADE,
+        "跨项目来源阈值",
+        3,
+        "个项目",
+        "项目知识被至少 N 个不同项目调用，表示具备跨项目复用广度",
+    ),
+    _num(
+        "cross_project_call_count_threshold",
+        GROUP_UPGRADE,
+        "跨项目调用次数阈值",
+        10,
+        "次",
+        "项目知识累计跨项目调用达到 N 次，表示具备复用强度；需与跨项目来源阈值共同判断",
+    ),
+    _num(
+        "project_upgrade_signal_window_days",
+        GROUP_UPGRADE,
+        "升格信号统计窗口",
+        90,
+        "天",
+        "仅统计最近 N 天内的跨项目来源与调用次数，避免历史噪声",
+    ),
+    _num(
+        "review_timeout_hours",
+        GROUP_UPGRADE,
+        "升格审核超时",
+        48,
+        "小时",
+        "升格审核提交后超过此时间未处理，系统发送催审通知",
+    ),
     # ---- 访问申请 ----
-    _num("access_request_timeout_hours", GROUP_ACCESS, "访问申请自动通过时限", 24, "小时",
-         "访问申请超过此时间未审批，由后台任务自动通过并生成授权。"
-         "仅对 L1/L2 资产生效，L3/L4/L5 机密资产不自动通过；禁用 / 值 ≤0 则不自动通过"),
-    _num("access_grant_duration_days", GROUP_ACCESS, "授权有效期", 7, "天",
-         "访问授权到期后需重新申请，防止无限期访问"),
+    _num(
+        "access_request_timeout_hours",
+        GROUP_ACCESS,
+        "访问申请自动通过时限",
+        24,
+        "小时",
+        "访问申请超过此时间未审批，由后台任务自动通过并生成授权。"
+        "仅对 L1/L2 资产生效，L3/L4/L5 机密资产不自动通过；禁用 / 值 ≤0 则不自动通过",
+    ),
+    _num(
+        "access_grant_duration_days",
+        GROUP_ACCESS,
+        "授权有效期",
+        7,
+        "天",
+        "访问授权到期后需重新申请，防止无限期访问",
+    ),
     # L1/L2 默认原文放行。
-    _toggle("cross_project_l1_l2_original_for_business_user", GROUP_ACCESS,
-            "跨项目 L1/L2 原文默认放行业务用户", True,
-            "业务用户访问其它项目 L1/L2 原文是否默认放行。"
-            "关闭后非本项目成员对其它项目 L1/L2 最多到摘要层，原文需申请授权"),
-    _toggle("company_l1_l2_original_for_business_user", GROUP_ACCESS,
-            "公司 L1/L2 原文默认放行业务用户", True,
-            "业务用户访问公司库 L1/L2 原文是否默认放行。"
-            "关闭后普通业务用户对公司 L1/L2 最多到摘要层，原文需申请授权"),
+    _toggle(
+        "cross_project_l1_l2_original_for_business_user",
+        GROUP_ACCESS,
+        "跨项目 L1/L2 原文默认放行业务用户",
+        True,
+        "业务用户访问其它项目 L1/L2 原文是否默认放行。"
+        "关闭后非本项目成员对其它项目 L1/L2 最多到摘要层，原文需申请授权",
+    ),
+    _toggle(
+        "company_l1_l2_original_for_business_user",
+        GROUP_ACCESS,
+        "公司 L1/L2 原文默认放行业务用户",
+        True,
+        "业务用户访问公司库 L1/L2 原文是否默认放行。"
+        "关闭后普通业务用户对公司 L1/L2 最多到摘要层，原文需申请授权",
+    ),
     # ---- 资产生命周期 ----
-    _num("asset_modify_rate_threshold", GROUP_LIFECYCLE, "高修改率预警阈值", 30, "%",
-         "资产入库后修改率超过此值，触发质量复核建议"),
-    _num("asset_not_helpful_threshold", GROUP_LIFECYCLE, "负反馈预警阈值", 3, "次",
-         "资产收到「无帮助」反馈达到此次数，标记为待复核"),
-    _num("asset_expiry_days", GROUP_LIFECYCLE, "资产有效期", 365, "天",
-         "资产超过有效期未更新，触发过期提醒与归档建议"),
-    _num("asset_archive_inactive_days", GROUP_LIFECYCLE, "归档不活跃阈值", 730, "天",
-         "资产超过此天数未被调用，进入归档候选。运行时归档扫描阈值以 alert_rules 为准，本项为治理配置视图"),
-    _num("asset_archive_notice_days", GROUP_LIFECYCLE, "归档预警提前天数", 30, "天",
-         "资产距离自动归档还剩此天数时，向维护人发送归档预警。运行时来源为 alert_rules，本项为治理配置视图"),
+    _num(
+        "asset_modify_rate_threshold",
+        GROUP_LIFECYCLE,
+        "高修改率预警阈值",
+        30,
+        "%",
+        "资产入库后修改率超过此值，触发质量复核建议",
+    ),
+    _num(
+        "asset_not_helpful_threshold",
+        GROUP_LIFECYCLE,
+        "负反馈预警阈值",
+        3,
+        "次",
+        "资产收到「无帮助」反馈达到此次数，标记为待复核",
+    ),
+    _num(
+        "asset_expiry_days",
+        GROUP_LIFECYCLE,
+        "资产有效期",
+        365,
+        "天",
+        "资产超过有效期未更新，触发过期提醒与归档建议",
+    ),
+    _num(
+        "asset_archive_inactive_days",
+        GROUP_LIFECYCLE,
+        "归档不活跃阈值",
+        730,
+        "天",
+        "资产超过此天数未被调用，进入归档候选。运行时归档扫描阈值以 alert_rules 为准，本项为治理配置视图",
+    ),
+    _num(
+        "asset_archive_notice_days",
+        GROUP_LIFECYCLE,
+        "归档预警提前天数",
+        30,
+        "天",
+        "资产距离自动归档还剩此天数时，向维护人发送归档预警。运行时来源为 alert_rules，本项为治理配置视图",
+    ),
 ]
 
 # 分组显示顺序（与前端一致）。
@@ -159,10 +262,14 @@ async def load_access_policy(session: AsyncSession) -> DefaultAccessPolicy:
     供所有业务读路径在调用 `decide()` 前注入；规则缺失回退出厂默认，禁用/非法 fail-closed。
     """
     rows = (
-        await session.execute(
-            select(PermissionRule).where(PermissionRule.rule_key.in_(_RUNTIME_TOGGLE_KEYS))
+        (
+            await session.execute(
+                select(PermissionRule).where(PermissionRule.rule_key.in_(_RUNTIME_TOGGLE_KEYS))
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     by_key = {r.rule_key: r for r in rows}
     return DefaultAccessPolicy(
         cross_project_l1_l2_original_for_business_user=_runtime_toggle(
@@ -197,7 +304,9 @@ async def access_request_timeout_hours(session: AsyncSession) -> float | None:
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(status_code=status_code, detail={"denied_reason": reason, "message": message})
+    return HTTPException(
+        status_code=status_code, detail={"denied_reason": reason, "message": message}
+    )
 
 
 def _is_admin(caller: CallerContext) -> bool:
@@ -212,7 +321,9 @@ def _is_governance(caller: CallerContext) -> bool:
 def _require_read(caller: CallerContext) -> None:
     """读权限规则：admin 或治理角色。consultant / 其它 → 403。"""
     if not (_is_admin(caller) or _is_governance(caller)):
-        raise _denied(403, "permission_rules_forbidden", "无权限规则查看权（仅 admin / boss / 咨询总监）")
+        raise _denied(
+            403, "permission_rules_forbidden", "无权限规则查看权（仅 admin / boss / 咨询总监）"
+        )
 
 
 def _require_write(caller: CallerContext) -> None:
@@ -221,15 +332,17 @@ def _require_write(caller: CallerContext) -> None:
         return
     if _is_admin(caller):
         # admin 是系统身份，不因此获得业务权限规则修改权（与权限模型边界一致）。
-        raise _denied(403, "admin_business_permission_denied", "admin 不可修改业务权限规则（仅 boss / 咨询总监）")
+        raise _denied(
+            403,
+            "admin_business_permission_denied",
+            "admin 不可修改业务权限规则（仅 boss / 咨询总监）",
+        )
     raise _denied(403, "permission_rules_forbidden", "无权限规则修改权（仅 boss / 咨询总监）")
 
 
 async def ensure_default_rules(session: AsyncSession) -> None:
     """幂等创建默认规则（按 rule_key 去重）。重复调用不重复建行，不覆盖既有值。"""
-    existing = set(
-        (await session.execute(select(PermissionRule.rule_key))).scalars().all()
-    )
+    existing = set((await session.execute(select(PermissionRule.rule_key))).scalars().all())
     created = False
     for spec in DEFAULT_RULES:
         if spec["rule_key"] in existing:
@@ -294,9 +407,7 @@ async def _resolve_names(
 async def list_rules(session: AsyncSession, caller: CallerContext) -> PermissionRulesResponse:
     _require_read(caller)
     await ensure_default_rules(session)
-    rules = list(
-        (await session.execute(select(PermissionRule))).scalars().all()
-    )
+    rules = list((await session.execute(select(PermissionRule))).scalars().all())
     # 按分组顺序、再按 key 稳定排序，便于前端分组展示。
     rules.sort(key=lambda r: (_GROUP_RANK.get(r.rule_group, 99), r.rule_key))
     names = await _resolve_names(session, rules)
@@ -361,14 +472,22 @@ async def update_rule(
     await session.flush()
 
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.config_permission_rule_updated.value, trace_id=trace_id,
-        target_type="permission_rule", target_id=rule.id,
-        before=before, after=after,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.config_permission_rule_updated.value,
+        trace_id=trace_id,
+        target_type="permission_rule",
+        target_id=rule.id,
+        before=before,
+        after=after,
         # 只记安全配置元数据；绝不记 secret / provider 内部标识 / 业务原文。
-        extra={"rule_key": rule.rule_key, "rule_group": rule.rule_group, "rule_type": rule.rule_type},
+        extra={
+            "rule_key": rule.rule_key,
+            "rule_group": rule.rule_group,
+            "rule_type": rule.rule_type,
+        },
     )
     await session.commit()
     names = await _resolve_names(session, [rule])
     return _to_out(rule, names)
-

@@ -32,6 +32,7 @@ dev = [
     "aiosqlite>=0.20",
     "ruff>=0.8",
     "mypy>=1.13",
+    "pre-commit>=4.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -65,6 +66,12 @@ ignore_missing_imports = true
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+# 代码格式化基线（ruff format）。零配置默认即可：quote-style=double、行宽取上方 line-length=100。
+# 显式登记以表明已纳入格式化门禁；CI 用 `ruff format --check app tests` 阻断未格式化代码。
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

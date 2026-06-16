@@ -2,7 +2,11 @@ import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import DataTable, { type Column } from "./DataTable";
 
-interface Row { id: string; name: string; n: number }
+interface Row {
+  id: string;
+  name: string;
+  n: number;
+}
 const columns: Column<Row>[] = [
   { key: "name", header: "名称", render: (r) => r.name },
   { key: "n", header: "数量", className: "cell-center", render: (r) => r.n },
@@ -33,7 +37,15 @@ describe("DataTable", () => {
   });
 
   it("shows the loading text instead of rows while loading", () => {
-    render(<DataTable columns={columns} rows={rows} rowKey={(r) => r.id} loading loadingText="加载中…" />);
+    render(
+      <DataTable
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.id}
+        loading
+        loadingText="加载中…"
+      />,
+    );
     expect(screen.getByText("加载中…")).toBeInTheDocument();
     expect(screen.queryByText("甲")).not.toBeInTheDocument();
   });

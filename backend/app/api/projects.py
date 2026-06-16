@@ -1,11 +1,11 @@
-﻿"""项目设置 / 项目成员管理 API。
+"""项目设置 / 项目成员管理 API。
 
 - GET   /api/v1/projects/{project_id}/settings              （admin / 治理角色 / 本项目成员可读）
 - PATCH /api/v1/projects/{project_id}/settings              （project_manager·coach / 治理角色可写）
 - GET   /api/v1/projects/{project_id}/members              （同读权限）
 - PATCH /api/v1/projects/{project_id}/members/{member_id}  （同写权限）
 
-权限委托 service；响应只含安全治理元数据，写动作均写审计。新增成员仍由 
+权限委托 service；响应只含安全治理元数据，写动作均写审计。新增成员仍由
 `/admin/people/{user_id}/project-memberships` 维护，本路由不提供 POST members。
 """
 
@@ -83,7 +83,9 @@ async def update_project_settings(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> ProjectSettingsOut:
-    return await projects_service.update_settings(session, caller, project_id, req, get_trace_id(request))
+    return await projects_service.update_settings(
+        session, caller, project_id, req, get_trace_id(request)
+    )
 
 
 @router.get("/{project_id}/members", response_model=ProjectMembersResponse)
@@ -107,4 +109,3 @@ async def patch_project_member(
     return await projects_service.patch_member(
         session, caller, project_id, member_id, req, get_trace_id(request)
     )
-

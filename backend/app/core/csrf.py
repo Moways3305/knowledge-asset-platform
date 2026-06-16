@@ -1,4 +1,4 @@
-﻿"""CSRF 防护中间件。
+"""CSRF 防护中间件。
 
 只对**cookie 会话**下的 unsafe 请求强制 CSRF 校验，在业务 handler 执行前 fail-closed，
 避免失败请求产生任何业务写入 / 业务审计。
@@ -67,4 +67,3 @@ class CsrfMiddleware(BaseHTTPMiddleware):
         if request.url.path in _EXEMPT_PATHS:
             return False
         return True
-

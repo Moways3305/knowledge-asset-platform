@@ -1,4 +1,4 @@
-﻿"""审核流服务。
+"""审核流服务。
 
 闭环：项目 material 资产 → 登记验证证据 → 创建/进入 ReviewTask → PM approve →
 KnowledgeAsset.zone = asset。approve/reject 不写 audit_events、
@@ -55,11 +55,23 @@ def _is_admin(caller: CallerContext) -> bool:
 
 # 附件 metadata 黑名单：禁止携带真实 URL / 文件路径 / 内部存储引用 / 凭证。
 _FORBIDDEN_ATTACHMENT_KEYS = {
-    "url", "download_url", "file_url", "path", "storage_ref",
-    "source_file_ref", "bucket", "object_key", "token",
+    "url",
+    "download_url",
+    "file_url",
+    "path",
+    "storage_ref",
+    "source_file_ref",
+    "bucket",
+    "object_key",
+    "token",
 }
 _FORBIDDEN_VALUE_PREFIXES = (
-    "http://", "https://", "file://", "s3://", "oss://", "internal://",
+    "http://",
+    "https://",
+    "file://",
+    "s3://",
+    "oss://",
+    "internal://",
 )
 
 
@@ -71,14 +83,16 @@ def _validate_attachments(attachments: list[dict] | None) -> None:
         for key, val in item.items():
             if str(key).lower() in _FORBIDDEN_ATTACHMENT_KEYS:
                 raise _denied(
-                    422, "attachment_metadata_forbidden",
+                    422,
+                    "attachment_metadata_forbidden",
                     f"附件 metadata 不允许包含字段：{key}",
                 )
             if isinstance(val, str):
                 low = val.lower()
                 if any(low.startswith(p) for p in _FORBIDDEN_VALUE_PREFIXES):
                     raise _denied(
-                        422, "attachment_metadata_forbidden",
+                        422,
+                        "attachment_metadata_forbidden",
                         "附件 metadata 不允许包含真实 URL / 路径 / 内部引用",
                     )
 
@@ -90,14 +104,18 @@ def _is_governance(caller: CallerContext) -> bool:
 async def _active_pm_of(session: AsyncSession, project_id: uuid.UUID) -> uuid.UUID | None:
     """返回该项目一名 active 的 project_manager 用户 id（无则 None）。"""
     return (
-        await session.execute(
-            select(ProjectMember.user_id).where(
-                ProjectMember.project_id == project_id,
-                ProjectMember.project_role == ProjectRole.project_manager.value,
-                ProjectMember.status == MemberStatus.active.value,
+        (
+            await session.execute(
+                select(ProjectMember.user_id).where(
+                    ProjectMember.project_id == project_id,
+                    ProjectMember.project_role == ProjectRole.project_manager.value,
+                    ProjectMember.status == MemberStatus.active.value,
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
 
 
 async def _caller_is_pm_of(
@@ -108,15 +126,19 @@ async def _caller_is_pm_of(
     pm = await _active_pm_of(session, project_id)
     # 简化：若调用人就是该项目的 active PM。
     row = (
-        await session.execute(
-            select(ProjectMember.id).where(
-                ProjectMember.project_id == project_id,
-                ProjectMember.user_id == caller.user_id,
-                ProjectMember.project_role == ProjectRole.project_manager.value,
-                ProjectMember.status == MemberStatus.active.value,
+        (
+            await session.execute(
+                select(ProjectMember.id).where(
+                    ProjectMember.project_id == project_id,
+                    ProjectMember.user_id == caller.user_id,
+                    ProjectMember.project_role == ProjectRole.project_manager.value,
+                    ProjectMember.status == MemberStatus.active.value,
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     return row is not None or (pm is not None and pm == caller.user_id)
 
 
@@ -208,9 +230,7 @@ async def list_reviews(
     visible = [
         t
         for t in tasks
-        if governance
-        or t.submitted_by == caller.user_id
-        or t.reviewer_user_id == caller.user_id
+        if governance or t.submitted_by == caller.user_id or t.reviewer_user_id == caller.user_id
     ]
     assets, projects = await _aux_maps(session, visible)
     return [_to_list_item(t, assets, projects) for t in visible]
@@ -233,10 +253,14 @@ async def get_review(
     evidences: list[EvidenceOut] = []
     if evidence_ids:
         rows = (
-            await session.execute(
-                select(ValidationEvidence).where(ValidationEvidence.id.in_(evidence_ids))
+            (
+                await session.execute(
+                    select(ValidationEvidence).where(ValidationEvidence.id.in_(evidence_ids))
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         evidences = [
             EvidenceOut(
                 id=e.id,
@@ -255,9 +279,7 @@ async def _load_project_asset(
     session: AsyncSession, project_id: uuid.UUID, asset_id: uuid.UUID
 ) -> KnowledgeAsset:
     asset = (
-        await session.execute(
-            select(KnowledgeAsset).where(KnowledgeAsset.id == asset_id)
-        )
+        await session.execute(select(KnowledgeAsset).where(KnowledgeAsset.id == asset_id))
     ).scalar_one_or_none()
     if asset is None:
         raise _denied(404, "knowledge_asset_not_found", "知识资产不存在")
@@ -270,16 +292,20 @@ async def _find_open_material_review(
     session: AsyncSession, asset_id: uuid.UUID
 ) -> ReviewTask | None:
     return (
-        await session.execute(
-            select(ReviewTask)
-            .where(
-                ReviewTask.target_asset_id == asset_id,
-                ReviewTask.review_type == ReviewType.material_to_asset.value,
-                ReviewTask.status.in_(list(_NON_TERMINAL)),
+        (
+            await session.execute(
+                select(ReviewTask)
+                .where(
+                    ReviewTask.target_asset_id == asset_id,
+                    ReviewTask.review_type == ReviewType.material_to_asset.value,
+                    ReviewTask.status.in_(list(_NON_TERMINAL)),
+                )
+                .options(selectinload(ReviewTask.evidence_links))
             )
-            .options(selectinload(ReviewTask.evidence_links))
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
 
 
 async def register_evidence(
@@ -292,11 +318,19 @@ async def register_evidence(
 ) -> EvidenceOut:
     if not caller.is_business_user:
         await audit_service.record_denied(
-            session, caller=caller, log_type=AuditLogType.exception,
-            action=AuditAction.admin_business_denied.value, trace_id=trace_id,
-            target_type="knowledge_asset", target_id=asset_id,
-            severity=AlertSeverity.warning, risk_level=AuditRiskLevel.high.value,
-            extra={"denied_reason": "admin_business_permission_denied", "attempted": "review.evidence"},
+            session,
+            caller=caller,
+            log_type=AuditLogType.exception,
+            action=AuditAction.admin_business_denied.value,
+            trace_id=trace_id,
+            target_type="knowledge_asset",
+            target_id=asset_id,
+            severity=AlertSeverity.warning,
+            risk_level=AuditRiskLevel.high.value,
+            extra={
+                "denied_reason": "admin_business_permission_denied",
+                "attempted": "review.evidence",
+            },
         )
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可登记证据")
     if project_id not in caller.active_project_ids:
@@ -319,16 +353,18 @@ async def register_evidence(
     # 若已有非终态的 material_to_asset review，绑定证据并推进状态。
     open_task = await _find_open_material_review(session, asset_id)
     if open_task is not None:
-        session.add(
-            ReviewTaskEvidence(review_task_id=open_task.id, evidence_id=evidence.id)
-        )
+        session.add(ReviewTaskEvidence(review_task_id=open_task.id, evidence_id=evidence.id))
         if open_task.status == ReviewTaskStatus.pending_evidence.value:
             open_task.status = ReviewTaskStatus.pending_reviewer.value
 
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.review_evidence_bound.value, trace_id=trace_id,
-        target_type="knowledge_asset", target_id=asset_id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.review_evidence_bound.value,
+        trace_id=trace_id,
+        target_type="knowledge_asset",
+        target_id=asset_id,
         after={
             "evidence_id": str(evidence.id),
             "evidence_type": evidence.evidence_type,
@@ -357,11 +393,19 @@ async def create_or_get_confirm_asset(
 ) -> ReviewListItem:
     if not caller.is_business_user:
         await audit_service.record_denied(
-            session, caller=caller, log_type=AuditLogType.exception,
-            action=AuditAction.admin_business_denied.value, trace_id=trace_id,
-            target_type="knowledge_asset", target_id=asset_id,
-            severity=AlertSeverity.warning, risk_level=AuditRiskLevel.high.value,
-            extra={"denied_reason": "admin_business_permission_denied", "attempted": "review.confirm_asset"},
+            session,
+            caller=caller,
+            log_type=AuditLogType.exception,
+            action=AuditAction.admin_business_denied.value,
+            trace_id=trace_id,
+            target_type="knowledge_asset",
+            target_id=asset_id,
+            severity=AlertSeverity.warning,
+            risk_level=AuditRiskLevel.high.value,
+            extra={
+                "denied_reason": "admin_business_permission_denied",
+                "attempted": "review.confirm_asset",
+            },
         )
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可发起资产确认")
     if project_id not in caller.active_project_ids:
@@ -387,11 +431,11 @@ async def create_or_get_confirm_asset(
     evidences = list(
         (
             await session.execute(
-                select(ValidationEvidence).where(
-                    ValidationEvidence.related_asset_id == asset_id
-                )
+                select(ValidationEvidence).where(ValidationEvidence.related_asset_id == asset_id)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     status = (
         ReviewTaskStatus.pending_reviewer.value
@@ -414,9 +458,13 @@ async def create_or_get_confirm_asset(
         session.add(ReviewTaskEvidence(review_task_id=task.id, evidence_id=e.id))
 
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.review_created.value, trace_id=trace_id,
-        target_type="review_task", target_id=task.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.review_created.value,
+        trace_id=trace_id,
+        target_type="review_task",
+        target_id=task.id,
         after={
             "review_type": task.review_type,
             "status": task.status,
@@ -441,11 +489,19 @@ async def approve(
 ) -> ReviewActionResponse:
     if not caller.is_business_user:
         await audit_service.record_denied(
-            session, caller=caller, log_type=AuditLogType.exception,
-            action=AuditAction.admin_business_denied.value, trace_id=trace_id,
-            target_type="review_task", target_id=review_id,
-            severity=AlertSeverity.warning, risk_level=AuditRiskLevel.high.value,
-            extra={"denied_reason": "admin_business_permission_denied", "attempted": "review.approve"},
+            session,
+            caller=caller,
+            log_type=AuditLogType.exception,
+            action=AuditAction.admin_business_denied.value,
+            trace_id=trace_id,
+            target_type="review_task",
+            target_id=review_id,
+            severity=AlertSeverity.warning,
+            risk_level=AuditRiskLevel.high.value,
+            extra={
+                "denied_reason": "admin_business_permission_denied",
+                "attempted": "review.approve",
+            },
         )
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可审批")
     task = await _load_task(session, review_id)
@@ -469,17 +525,26 @@ async def approve(
 
     # 审批通过审计 + 资产化 zone 变更审计（trace_id 串联"证据—审核—确认"链）。
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.review_approved.value, trace_id=trace_id,
-        target_type="review_task", target_id=task.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.review_approved.value,
+        trace_id=trace_id,
+        target_type="review_task",
+        target_id=task.id,
         after={"status": task.status, "target_asset_id": str(asset.id)},
         project_id=task.target_project_id,
     )
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.asset_zone_changed.value, trace_id=trace_id,
-        target_type="knowledge_asset", target_id=asset.id,
-        before={"zone": before_zone}, after={"zone": asset.zone},
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.asset_zone_changed.value,
+        trace_id=trace_id,
+        target_type="knowledge_asset",
+        target_id=asset.id,
+        before={"zone": before_zone},
+        after={"zone": asset.zone},
         extra={"review_id": str(task.id), "confidentiality_level": asset.confidentiality_level},
         project_id=task.target_project_id,
     )
@@ -498,11 +563,19 @@ async def reject(
 ) -> ReviewActionResponse:
     if not caller.is_business_user:
         await audit_service.record_denied(
-            session, caller=caller, log_type=AuditLogType.exception,
-            action=AuditAction.admin_business_denied.value, trace_id=trace_id,
-            target_type="review_task", target_id=review_id,
-            severity=AlertSeverity.warning, risk_level=AuditRiskLevel.high.value,
-            extra={"denied_reason": "admin_business_permission_denied", "attempted": "review.reject"},
+            session,
+            caller=caller,
+            log_type=AuditLogType.exception,
+            action=AuditAction.admin_business_denied.value,
+            trace_id=trace_id,
+            target_type="review_task",
+            target_id=review_id,
+            severity=AlertSeverity.warning,
+            risk_level=AuditRiskLevel.high.value,
+            extra={
+                "denied_reason": "admin_business_permission_denied",
+                "attempted": "review.reject",
+            },
         )
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可审批")
     task = await _load_task(session, review_id)
@@ -522,14 +595,20 @@ async def reject(
     ).scalar_one()
 
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.review_rejected.value, trace_id=trace_id,
-        target_type="review_task", target_id=task.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.review_rejected.value,
+        trace_id=trace_id,
+        target_type="review_task",
+        target_id=task.id,
         after={"status": task.status, "target_asset_id": str(task.target_asset_id)},
         project_id=task.target_project_id,
     )
     await session.commit()
     return ReviewActionResponse(
-        review_id=task.id, status=task.status, target_asset_id=task.target_asset_id, asset_zone=asset
+        review_id=task.id,
+        status=task.status,
+        target_asset_id=task.target_asset_id,
+        asset_zone=asset,
     )
-

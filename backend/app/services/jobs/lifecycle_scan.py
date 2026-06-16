@@ -82,16 +82,24 @@ async def _emit(
     """写一条系统生命周期事件 + 安全审计 + 本地通知（不改 asset_status）。"""
     reason = f"系统扫描：长期未调用 {inactive_days} 天"
     event = AssetLifecycleEvent(
-        asset_id=asset.id, event_type=event_type,
-        old_status=asset.asset_status, new_status=None,
-        triggered_by=LifecycleTriggeredBy.system.value, actor_user_id=None,
-        reason=audit_service.sanitize_text(reason), trace_id=trace_id,
+        asset_id=asset.id,
+        event_type=event_type,
+        old_status=asset.asset_status,
+        new_status=None,
+        triggered_by=LifecycleTriggeredBy.system.value,
+        actor_user_id=None,
+        reason=audit_service.sanitize_text(reason),
+        trace_id=trace_id,
     )
     session.add(event)
     await session.flush()
     audit_event = await audit_service.record_system_event(
-        session, log_type=AuditLogType.operation, action=action, trace_id=trace_id or "",
-        target_type="knowledge_asset", target_id=asset.id,
+        session,
+        log_type=AuditLogType.operation,
+        action=action,
+        trace_id=trace_id or "",
+        target_type="knowledge_asset",
+        target_id=asset.id,
         extra={
             "event_type": event_type,
             "inactive_days": inactive_days,
@@ -133,7 +141,9 @@ async def scan_archive_candidates(
                     KnowledgeAsset.asset_status == AssetStatus.active.value
                 )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
     warnings = candidates = 0
@@ -151,10 +161,12 @@ async def scan_archive_candidates(
         if last_warning is None:
             # 首次预警。
             await _emit(
-                session, asset,
+                session,
+                asset,
                 event_type=LifecycleEventType.archive_warning.value,
                 action=AuditAction.lifecycle_archive_warning.value,
-                inactive_days=inactive_days, trace_id=trace_id,
+                inactive_days=inactive_days,
+                trace_id=trace_id,
             )
             warnings += 1
             continue
@@ -167,10 +179,12 @@ async def scan_archive_candidates(
             )
             if last_candidate is None or last_candidate < last_warning:
                 await _emit(
-                    session, asset,
+                    session,
+                    asset,
                     event_type=LifecycleEventType.archive_candidate.value,
                     action=AuditAction.lifecycle_archive_candidate.value,
-                    inactive_days=inactive_days, trace_id=trace_id,
+                    inactive_days=inactive_days,
+                    trace_id=trace_id,
                 )
                 candidates += 1
         # 预警期内重复扫描 → 去重跳过。

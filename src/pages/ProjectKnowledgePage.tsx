@@ -15,7 +15,15 @@ type ZoneType = "material" | "asset";
 
 // 平台生命周期阶段的规范顺序（领域元数据，用于阶段排序展示；非业务数据）。
 const LIFECYCLE_PHASES = [
-  "售前", "诊断", "启动共识", "定题", "目标计划", "行动辅导", "阶段评估", "年度复盘", "专项诊断",
+  "售前",
+  "诊断",
+  "启动共识",
+  "定题",
+  "目标计划",
+  "行动辅导",
+  "阶段评估",
+  "年度复盘",
+  "专项诊断",
 ];
 const UNLABELED_PHASE = "未标注阶段";
 
@@ -32,7 +40,6 @@ const assetTypeLabel: Record<string, string> = {
   template: "模板",
   insight: "洞察",
 };
-
 
 interface QAModel {
   id: string;
@@ -88,9 +95,15 @@ export default function ProjectKnowledgePage() {
   useEffect(() => {
     let cancelled = false;
     fetchAuthMe()
-      .then((me) => { if (!cancelled) setAuthMe(me); })
-      .catch((e) => { if (!cancelled) setAuthError(e instanceof Error ? e.message : "加载身份失败"); });
-    return () => { cancelled = true; };
+      .then((me) => {
+        if (!cancelled) setAuthMe(me);
+      })
+      .catch((e) => {
+        if (!cancelled) setAuthError(e instanceof Error ? e.message : "加载身份失败");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // 优先用路由 UUID（且为本人有效项目）；否则回退到第一个有效项目。
@@ -120,7 +133,9 @@ export default function ProjectKnowledgePage() {
         setCardsError(e instanceof ApiError ? e.message : "加载项目知识失败（请确认后端已启动）");
         setCardsLoading(false);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [effectiveProject]);
 
   const cards = useMemo(() => projectCards ?? [], [projectCards]);
@@ -139,12 +154,12 @@ export default function ProjectKnowledgePage() {
   const phaseCount = useCallback(
     (phase: string, zone?: ZoneType) =>
       cards.filter((c) => cardPhase(c) === phase && (!zone || c.zone === zone)).length,
-    [cards, cardPhase]
+    [cards, cardPhase],
   );
 
   const inPhase = useMemo(
     () => (selectedPhase ? cards.filter((c) => cardPhase(c) === selectedPhase) : cards),
-    [cards, selectedPhase, cardPhase]
+    [cards, selectedPhase, cardPhase],
   );
   const zoneMaterials = inPhase.filter((c) => c.zone === "material");
   const zoneAssets = inPhase.filter((c) => c.zone === "asset");
@@ -159,7 +174,7 @@ export default function ProjectKnowledgePage() {
   // 资产沉淀提醒：从真实数据派生——有资料但暂无资产的阶段（无假数字，无硬编码业务事实）。
   const pendingAssetPhases = useMemo(
     () => phases.filter((p) => phaseCount(p, "material") > 0 && phaseCount(p, "asset") === 0),
-    [phases, phaseCount]
+    [phases, phaseCount],
   );
 
   const handlePhaseClick = useCallback((phase: string) => {
@@ -185,7 +200,8 @@ export default function ProjectKnowledgePage() {
       });
       setQaResult(res);
     } catch (e) {
-      const msg = e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "问答请求失败";
+      const msg =
+        e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "问答请求失败";
       setQaError(msg);
     } finally {
       setQaLoading(false);
@@ -210,7 +226,10 @@ export default function ProjectKnowledgePage() {
       <div className="pj-header">
         <div className="pj-header-text">
           <h2>项目知识看板</h2>
-          <p>项目 <strong>{projectTitle}</strong> 的知识驾驶舱 — 按生命周期阶段组织项目资料区与资产区（数据来自平台项目知识库）</p>
+          <p>
+            项目 <strong>{projectTitle}</strong> 的知识驾驶舱 —
+            按生命周期阶段组织项目资料区与资产区（数据来自平台项目知识库）
+          </p>
         </div>
         <div className="kl-kpis">
           <div className="kl-kpi">
@@ -229,14 +248,21 @@ export default function ProjectKnowledgePage() {
       </div>
 
       <p className="page-help-line">
-        项目内角色（辅导老师 / 项目经理 / 顾问）职责与资料区·资产区规则见 <Link to="/help#project" className="page-help-link">使用说明 →</Link>
+        项目内角色（辅导老师 / 项目经理 / 顾问）职责与资料区·资产区规则见{" "}
+        <Link to="/help#project" className="page-help-link">
+          使用说明 →
+        </Link>
       </p>
 
       {/* Lifecycle stages（真实：仅展示数据中出现的阶段 + 真实计数） */}
       <section className="project-section">
-        <h3>生命周期阶段 <span className="lifecycle-route-inline">（按平台阶段顺序）</span></h3>
+        <h3>
+          生命周期阶段 <span className="lifecycle-route-inline">（按平台阶段顺序）</span>
+        </h3>
         {cardsLoading ? (
-          <div className="pj-empty-state"><div className="pj-empty-title">加载中…</div></div>
+          <div className="pj-empty-state">
+            <div className="pj-empty-title">加载中…</div>
+          </div>
         ) : cardsError ? (
           <div className="pj-empty-state">
             <div className="pj-empty-title">加载失败</div>
@@ -246,7 +272,9 @@ export default function ProjectKnowledgePage() {
           <div className="pj-empty-state">
             <div className="pj-empty-title">该项目暂无知识资产</div>
             <p className="pj-empty-desc">
-              项目知识库尚无内容。可前往 <Link to="/upload">资产化确认</Link> 上传入库，或在 <Link to="/admin/wecom-scan">微盘扫描</Link> 配置企微微盘自动采集；也可在 <Link to="/knowledge">知识首页</Link> 切换到项目范围浏览。
+              项目知识库尚无内容。可前往 <Link to="/upload">资产化确认</Link> 上传入库，或在{" "}
+              <Link to="/admin/wecom-scan">微盘扫描</Link> 配置企微微盘自动采集；也可在{" "}
+              <Link to="/knowledge">知识首页</Link> 切换到项目范围浏览。
             </p>
           </div>
         ) : (
@@ -255,7 +283,9 @@ export default function ProjectKnowledgePage() {
               className={`lifecycle-card ${selectedPhase === "" ? "current" : ""} lc-clickable`}
               onClick={() => handlePhaseClick("")}
             >
-              <div className="lc-head"><span className="lc-name">全部阶段</span></div>
+              <div className="lc-head">
+                <span className="lc-name">全部阶段</span>
+              </div>
               <div className="lc-stats">
                 <span className="lc-count">{cards.length} 份</span>
               </div>
@@ -271,7 +301,9 @@ export default function ProjectKnowledgePage() {
                   {selectedPhase === p && <span className="lc-current-badge">已选</span>}
                 </div>
                 <div className="lc-stats">
-                  <span className="lc-count">资料 {phaseCount(p, "material")} · 资产 {phaseCount(p, "asset")}</span>
+                  <span className="lc-count">
+                    资料 {phaseCount(p, "material")} · 资产 {phaseCount(p, "asset")}
+                  </span>
                 </div>
               </div>
             ))}
@@ -286,17 +318,29 @@ export default function ProjectKnowledgePage() {
             <h3>{selectedPhase || "全部阶段"} — 知识内容</h3>
             <div className="pj-stage-toolbar-right">
               <div className="pj-zone-tabs">
-                <button className={`pj-zone-tab ${activeZone === "" ? "active" : ""}`} onClick={() => setActiveZone("")}>
+                <button
+                  className={`pj-zone-tab ${activeZone === "" ? "active" : ""}`}
+                  onClick={() => setActiveZone("")}
+                >
                   全部（{zoneMaterials.length + zoneAssets.length}）
                 </button>
-                <button className={`pj-zone-tab ${activeZone === "material" ? "active" : ""}`} onClick={() => setActiveZone("material")}>
+                <button
+                  className={`pj-zone-tab ${activeZone === "material" ? "active" : ""}`}
+                  onClick={() => setActiveZone("material")}
+                >
                   资料区（{zoneMaterials.length}）
                 </button>
-                <button className={`pj-zone-tab ${activeZone === "asset" ? "active" : ""}`} onClick={() => setActiveZone("asset")}>
+                <button
+                  className={`pj-zone-tab ${activeZone === "asset" ? "active" : ""}`}
+                  onClick={() => setActiveZone("asset")}
+                >
                   资产区（{zoneAssets.length}）
                 </button>
               </div>
-              <select value={filterVisibility} onChange={(e) => setFilterVisibility(e.target.value)}>
+              <select
+                value={filterVisibility}
+                onChange={(e) => setFilterVisibility(e.target.value)}
+              >
                 <option value="">全部可见性</option>
                 <option value="public">公开</option>
                 <option value="project-only">项目内</option>
@@ -309,18 +353,35 @@ export default function ProjectKnowledgePage() {
           {visibleCards.length > 0 ? (
             <div className="pj-asset-grid">
               {visibleCards.map((c) => (
-                <div key={c.id} className={`pj-asset-card ${c.zone === "asset" ? "pj-card-asset" : "pj-card-material"}`}>
+                <div
+                  key={c.id}
+                  className={`pj-asset-card ${c.zone === "asset" ? "pj-card-asset" : "pj-card-material"}`}
+                >
                   <div className="card-header">
-                    <Link to={`/knowledge/${c.id}`} className="card-title">{c.title}</Link>
+                    <Link to={`/knowledge/${c.id}`} className="card-title">
+                      {c.title}
+                    </Link>
                     <div className="card-header-badges">
-                      <span className={`pj-zone-badge pj-zone-badge-${c.zone}`}>{c.zone === "asset" ? "资产" : "资料"}</span>
-                      <span className="asset-type-badge">{assetTypeLabel[c.assetType] ?? c.assetType}</span>
-                      <span className={`visibility-badge ${c.visibility}`}>{visibilityLabel[c.visibility] ?? c.visibility}</span>
+                      <span className={`pj-zone-badge pj-zone-badge-${c.zone}`}>
+                        {c.zone === "asset" ? "资产" : "资料"}
+                      </span>
+                      <span className="asset-type-badge">
+                        {assetTypeLabel[c.assetType] ?? c.assetType}
+                      </span>
+                      <span className={`visibility-badge ${c.visibility}`}>
+                        {visibilityLabel[c.visibility] ?? c.visibility}
+                      </span>
                     </div>
                   </div>
-                  <p className="pj-asset-summary">{c.summary || (c.access.summary ? "" : "（无摘要权限）")}</p>
+                  <p className="pj-asset-summary">
+                    {c.summary || (c.access.summary ? "" : "（无摘要权限）")}
+                  </p>
                   <div className="card-tags">
-                    {c.tags.map((t) => <span key={t} className="tag">{t}</span>)}
+                    {c.tags.map((t) => (
+                      <span key={t} className="tag">
+                        {t}
+                      </span>
+                    ))}
                   </div>
                   <div className="card-meta">
                     <span>{c.lifecyclePhase || UNLABELED_PHASE}</span>
@@ -332,7 +393,9 @@ export default function ProjectKnowledgePage() {
           ) : (
             <div className="pj-empty-state">
               <div className="pj-empty-title">暂无内容</div>
-              <p className="pj-empty-desc">当前筛选条件下无匹配内容，尝试切换阶段、区域或可见性筛选。</p>
+              <p className="pj-empty-desc">
+                当前筛选条件下无匹配内容，尝试切换阶段、区域或可见性筛选。
+              </p>
             </div>
           )}
         </section>
@@ -342,26 +405,42 @@ export default function ProjectKnowledgePage() {
       <section className="project-section">
         <h3>项目知识问答</h3>
         <div className="pj-qa-box">
-          <p className="pj-qa-desc">项目问答已接入平台权限网关：问题提交到后端 <code>POST /projects/&#123;id&#125;/qa</code>，以你的真实身份逐项做三层访问判断，引用与回答均由网关裁定。来自资产区的引用为已验证内容，来自资料区的引用用于参考需谨慎确认。</p>
+          <p className="pj-qa-desc">
+            项目问答已接入平台权限网关：问题提交到后端 <code>POST /projects/&#123;id&#125;/qa</code>
+            ，以你的真实身份逐项做三层访问判断，引用与回答均由网关裁定。来自资产区的引用为已验证内容，来自资料区的引用用于参考需谨慎确认。
+          </p>
           <div className="pj-qa-target">
             {effectiveProject ? (
-              <span>本次问答项目：<strong>{effectiveProject.projectName}</strong>（{effectiveProject.projectRole}）</span>
+              <span>
+                本次问答项目：<strong>{effectiveProject.projectName}</strong>（
+                {effectiveProject.projectRole}）
+              </span>
             ) : authError ? (
               <span className="pj-qa-target-warn">身份加载失败：{authError}</span>
             ) : authMe ? (
-              <span className="pj-qa-target-warn">当前账号无可问答的有效项目（需要项目成员身份）。</span>
+              <span className="pj-qa-target-warn">
+                当前账号无可问答的有效项目（需要项目成员身份）。
+              </span>
             ) : (
               <span>正在解析当前项目…</span>
             )}
           </div>
           <div className="pj-qa-model-row">
             <span className="pj-qa-model-label">问答模型</span>
-            <select className="pj-qa-model-select" value={selectedModelId} onChange={(e) => setSelectedModelId(e.target.value)}>
+            <select
+              className="pj-qa-model-select"
+              value={selectedModelId}
+              onChange={(e) => setSelectedModelId(e.target.value)}
+            >
               {qaModels.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}（{m.tag}）</option>
+                <option key={m.id} value={m.id}>
+                  {m.name}（{m.tag}）
+                </option>
               ))}
             </select>
-            <span className="pj-qa-model-hint">模型切换作为 model_key 传入本次问答，不影响知识卡片生成或系统默认配置</span>
+            <span className="pj-qa-model-hint">
+              模型切换作为 model_key 传入本次问答，不影响知识卡片生成或系统默认配置
+            </span>
           </div>
           <div className="qa-input-wrap">
             <input
@@ -370,17 +449,33 @@ export default function ProjectKnowledgePage() {
               placeholder="输入你的问题…"
               value={qaInput}
               onChange={(e) => setQaInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleAsk(); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleAsk();
+              }}
             />
-            <button className="btn-primary pj-qa-btn" onClick={handleAsk} disabled={!qaInput.trim() || qaLoading || !effectiveProject}>{qaLoading ? "提问中…" : "提问"}</button>
+            <button
+              className="btn-primary pj-qa-btn"
+              onClick={handleAsk}
+              disabled={!qaInput.trim() || qaLoading || !effectiveProject}
+            >
+              {qaLoading ? "提问中…" : "提问"}
+            </button>
             {(qaInput || qaResult || qaError) && (
-              <button className="btn-small pj-qa-reset" onClick={handleResetQA}>清空</button>
+              <button className="btn-small pj-qa-reset" onClick={handleResetQA}>
+                清空
+              </button>
             )}
           </div>
           <div className="qa-examples">
             <span className="qa-examples-label">快捷提问示例（仅填充输入框，非后端推荐）：</span>
             {exampleQuestions.map((q) => (
-              <span key={q} className="qa-example qa-example-clickable" onClick={() => handleExampleClick(q)}>{q}</span>
+              <span
+                key={q}
+                className="qa-example qa-example-clickable"
+                onClick={() => handleExampleClick(q)}
+              >
+                {q}
+              </span>
             ))}
           </div>
           {qaError && (
@@ -392,20 +487,32 @@ export default function ProjectKnowledgePage() {
           {qaResult && (
             <div className="pj-qa-result">
               <div className="pj-qa-answer">
-                <span className="pj-qa-answer-label">AI 回答 · 模型：{qaResult.model_key} · 决策：{qaResult.decision_status}</span>
+                <span className="pj-qa-answer-label">
+                  AI 回答 · 模型：{qaResult.model_key} · 决策：{qaResult.decision_status}
+                </span>
                 <p>{qaResult.response_text}</p>
               </div>
               <div className="pj-qa-trace">
-                <span>调用记录 call_id：<code>{qaResult.call_id}</code></span>
-                {qaResult.trace_id && <span>trace_id：<code>{qaResult.trace_id}</code></span>}
+                <span>
+                  调用记录 call_id：<code>{qaResult.call_id}</code>
+                </span>
+                {qaResult.trace_id && (
+                  <span>
+                    trace_id：<code>{qaResult.trace_id}</code>
+                  </span>
+                )}
               </div>
               {qaResult.citations.length > 0 && (
                 <div className="pj-qa-sources">
-                  <span className="pj-qa-sources-label">引用来源（经权限网关裁定，引用层级不超过可达访问层级）</span>
+                  <span className="pj-qa-sources-label">
+                    引用来源（经权限网关裁定，引用层级不超过可达访问层级）
+                  </span>
                   {qaResult.citations.map((c) => (
                     <div key={c.asset_id} className="pj-qa-source-item">
                       <span className="pj-qa-source-title">{c.asset_title}</span>
-                      <span className={`pj-zone-badge pj-zone-badge-${c.cited_zone}`}>{c.cited_zone === "asset" ? "资产区" : "资料区"}</span>
+                      <span className={`pj-zone-badge pj-zone-badge-${c.cited_zone}`}>
+                        {c.cited_zone === "asset" ? "资产区" : "资料区"}
+                      </span>
                       <span className="pj-qa-source-layer">访问层级：{c.used_access_layer}</span>
                       {c.is_pending_review && <span className="pj-qa-source-risk">待审风险</span>}
                     </div>
@@ -427,7 +534,8 @@ export default function ProjectKnowledgePage() {
                 <div key={p} className="risk-item pj-risk-medium">
                   <span className="pj-risk-badge pj-risk-medium">提示</span>
                   <span className="pj-risk-text">
-                    「{p}」阶段有 {phaseCount(p, "material")} 份资料，尚无资产沉淀——可在内部分享/客户验证后由项目经理确认进入资产区。
+                    「{p}」阶段有 {phaseCount(p, "material")}{" "}
+                    份资料，尚无资产沉淀——可在内部分享/客户验证后由项目经理确认进入资产区。
                   </span>
                 </div>
               ))}
@@ -442,7 +550,10 @@ export default function ProjectKnowledgePage() {
       )}
 
       <p className="page-help-line">
-        资料区 / 资产区治理规则、问答边界与脱敏复审说明见 <Link to="/help#project" className="page-help-link">使用说明 →</Link>
+        资料区 / 资产区治理规则、问答边界与脱敏复审说明见{" "}
+        <Link to="/help#project" className="page-help-link">
+          使用说明 →
+        </Link>
       </p>
     </div>
   );

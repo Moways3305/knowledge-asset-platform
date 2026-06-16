@@ -1,4 +1,4 @@
-﻿"""预览凭证服务。
+"""预览凭证服务。
 
 签发逻辑复用集中权限服务 `app.services.permission`，不重写权限矩阵。
 只签发 full（拥有 original 层权限时）；原文层判断会叠加 active access_grant
@@ -109,11 +109,19 @@ async def issue_preview(
     """签发预览凭证：拥有 original 层权限时签发 full，否则拒绝。"""
     if not caller.is_business_user:
         await audit_service.record_denied(
-            session, caller=caller, log_type=AuditLogType.exception,
-            action=AuditAction.admin_business_denied.value, trace_id=trace_id,
-            target_type="knowledge_asset", target_id=asset_id,
-            severity=AlertSeverity.warning, risk_level=AuditRiskLevel.high.value,
-            extra={"denied_reason": "admin_business_permission_denied", "attempted": "preview.issue"},
+            session,
+            caller=caller,
+            log_type=AuditLogType.exception,
+            action=AuditAction.admin_business_denied.value,
+            trace_id=trace_id,
+            target_type="knowledge_asset",
+            target_id=asset_id,
+            severity=AlertSeverity.warning,
+            risk_level=AuditRiskLevel.high.value,
+            extra={
+                "denied_reason": "admin_business_permission_denied",
+                "attempted": "preview.issue",
+            },
         )
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可申请预览")
 
@@ -140,20 +148,33 @@ async def issue_preview(
     # 原文层判断：human 渠道（A4 仅限制 agent，不阻 human preview）。
     # 叠加 active access_grant（审批通过的原文授权）后再判，运行时统一口径。
     has_grant = await original_access.has_active_grant(session, caller.user_id, asset.id)
-    o = decide(caller, asset, AccessLayer.original, channel=AccessChannel.human, has_original_grant=has_grant, policy=policy)
+    o = decide(
+        caller,
+        asset,
+        AccessLayer.original,
+        channel=AccessChannel.human,
+        has_original_grant=has_grant,
+        policy=policy,
+    )
     if not o.allowed:
         # 无 original 权限：不签 summary_only，统一引导到原文访问申请。
         await audit_service.record_denied(
-            session, caller=caller, log_type=AuditLogType.operation,
-            action=AuditAction.preview_denied.value, trace_id=trace_id,
-            target_type="knowledge_asset", target_id=asset.id,
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.preview_denied.value,
+            trace_id=trace_id,
+            target_type="knowledge_asset",
+            target_id=asset.id,
             extra={
                 "denied_reason": "original_requires_request",
                 "confidentiality_level": asset.confidentiality_level,
             },
             project_id=asset.project_id,
         )
-        raise _denied(403, "original_requires_request", "无原文层权限，请先发起原文访问申请或等待审批通过")
+        raise _denied(
+            403, "original_requires_request", "无原文层权限，请先发起原文访问申请或等待审批通过"
+        )
 
     # version_id 校验：为空用当前版本；非空必须存在、属于本资产且 active。
     if version_id is None:
@@ -195,9 +216,13 @@ async def issue_preview(
     is_l5 = asset.confidentiality_level == ConfidentialityLevel.L5.value
     # 预览签发审计：只记 credential_fingerprint（不可逆指纹），不记完整 token / entry_url。
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.preview_issued.value, trace_id=trace_id,
-        target_type="preview_credential", target_id=cred.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.preview_issued.value,
+        trace_id=trace_id,
+        target_type="preview_credential",
+        target_id=cred.id,
         after={
             "preview_type": cred.preview_type,
             "credential_fingerprint": cred.credential_fingerprint,
@@ -209,10 +234,15 @@ async def issue_preview(
     if is_l5:
         # boss / 咨询总监对 L5 原文签发预览：强审计。
         await audit_service.record_event(
-            session, caller=caller, log_type=AuditLogType.operation,
-            action=AuditAction.l5_original_access.value, trace_id=trace_id,
-            target_type="preview_credential", target_id=cred.id,
-            severity=AlertSeverity.warning, risk_level=AuditRiskLevel.high.value,
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.l5_original_access.value,
+            trace_id=trace_id,
+            target_type="preview_credential",
+            target_id=cred.id,
+            severity=AlertSeverity.warning,
+            risk_level=AuditRiskLevel.high.value,
             extra={
                 "credential_fingerprint": cred.credential_fingerprint,
                 "asset_id": str(asset.id),
@@ -241,10 +271,15 @@ async def use_preview_entry(
     """平台受控占位预览入口：校验凭证 + 资产状态，更新使用时间，返回占位 metadata。"""
     if not caller.is_business_user:
         await audit_service.record_denied(
-            session, caller=caller, log_type=AuditLogType.exception,
-            action=AuditAction.admin_business_denied.value, trace_id=trace_id,
-            target_type="preview_credential", target_id=credential_id,
-            severity=AlertSeverity.warning, risk_level=AuditRiskLevel.high.value,
+            session,
+            caller=caller,
+            log_type=AuditLogType.exception,
+            action=AuditAction.admin_business_denied.value,
+            trace_id=trace_id,
+            target_type="preview_credential",
+            target_id=credential_id,
+            severity=AlertSeverity.warning,
+            risk_level=AuditRiskLevel.high.value,
             extra={"denied_reason": "admin_business_permission_denied", "attempted": "preview.use"},
         )
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可使用预览入口")
@@ -290,9 +325,13 @@ async def use_preview_entry(
 
     # 预览入口使用审计；L5 原文预览使用为强审计。
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.preview_used.value, trace_id=trace_id,
-        target_type="preview_credential", target_id=cred.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.preview_used.value,
+        trace_id=trace_id,
+        target_type="preview_credential",
+        target_id=cred.id,
         extra={
             "credential_fingerprint": cred.credential_fingerprint,
             "asset_id": str(asset.id),
@@ -302,10 +341,15 @@ async def use_preview_entry(
     )
     if asset.confidentiality_level == ConfidentialityLevel.L5.value:
         await audit_service.record_event(
-            session, caller=caller, log_type=AuditLogType.operation,
-            action=AuditAction.preview_l5_used.value, trace_id=trace_id,
-            target_type="preview_credential", target_id=cred.id,
-            severity=AlertSeverity.warning, risk_level=AuditRiskLevel.high.value,
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.preview_l5_used.value,
+            trace_id=trace_id,
+            target_type="preview_credential",
+            target_id=cred.id,
+            severity=AlertSeverity.warning,
+            risk_level=AuditRiskLevel.high.value,
             extra={
                 "credential_fingerprint": cred.credential_fingerprint,
                 "asset_id": str(asset.id),
@@ -386,7 +430,10 @@ async def serve_preview_file(
     # 凭证状态 + 过期复核。
     if cred.credential_status == CredentialStatus.revoked.value:
         raise _denied(403, "preview_credential_revoked", "预览凭证已撤销")
-    if cred.credential_status == CredentialStatus.expired.value or _as_aware(cred.expires_at) <= _now():
+    if (
+        cred.credential_status == CredentialStatus.expired.value
+        or _as_aware(cred.expires_at) <= _now()
+    ):
         raise _denied(403, "preview_credential_expired", "预览凭证已过期")
 
     # 资产仍需 active。
@@ -408,4 +455,3 @@ async def serve_preview_file(
         # 不回显 storage_ref / 真实路径。
         raise _denied(404, "preview_source_unavailable", "原文读取失败")
     return data, (mime or "application/octet-stream"), safe_filename(file_name)
-

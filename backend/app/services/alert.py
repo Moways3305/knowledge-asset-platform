@@ -1,4 +1,4 @@
-﻿"""告警规则 / 本地通知服务。
+"""告警规则 / 本地通知服务。
 
 职责：
 - alert_rules：归档阈值等规则的本地配置与查询；阈值默认建议值（730 天未调用 +
@@ -164,9 +164,7 @@ async def list_rules(session: AsyncSession, caller: CallerContext) -> AlertRules
     _require_admin(caller)
     await ensure_default_rules(session)
     rows = list(
-        (await session.execute(select(AlertRule).order_by(AlertRule.created_at)))
-        .scalars()
-        .all()
+        (await session.execute(select(AlertRule).order_by(AlertRule.created_at))).scalars().all()
     )
     return AlertRulesResponse(items=[_rule_out(r) for r in rows])
 
@@ -201,7 +199,8 @@ async def update_rule(
         invalid = [c for c in body.notification_channels if c not in valid]
         if invalid:
             raise _denied(
-                422, "invalid_notification_channel",
+                422,
+                "invalid_notification_channel",
                 f"非法通知渠道：{invalid}（允许：{sorted(valid)}）",
             )
         rule.notification_channels = list(body.notification_channels)
@@ -212,19 +211,22 @@ async def update_rule(
     }
 
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.config_alert_rule_updated.value, trace_id=trace_id,
-        target_type="alert_rule", target_id=rule.id,
-        before=before, after=after,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.config_alert_rule_updated.value,
+        trace_id=trace_id,
+        target_type="alert_rule",
+        target_id=rule.id,
+        before=before,
+        after=after,
         extra={"rule_name": rule.rule_name},
     )
     await session.commit()
     return _rule_out(rule)
 
 
-async def list_notifications(
-    session: AsyncSession, caller: CallerContext
-) -> NotificationsResponse:
+async def list_notifications(session: AsyncSession, caller: CallerContext) -> NotificationsResponse:
     """通知记录查询（admin）。只回安全元数据。"""
     _require_admin(caller)
     rows = list(
@@ -291,4 +293,3 @@ async def record_local_notification(
     )
     session.add(rec)
     return rec
-

@@ -1,4 +1,4 @@
-﻿"""Agent / Dify Gateway API 的请求 / 响应 schema。
+"""Agent / Dify Gateway API 的请求 / 响应 schema。
 
 这些响应 schema **绝不包含** 服务端内部存储引用、向量库标识、Dify 内部标识
 （凭证 / 数据集 / 工作流 ID）、对象存储 URL、完整原文文件内容或 chunk 原始主键。
@@ -102,4 +102,3 @@ class DecisionItemsResponse(BaseModel):
     call_id: uuid.UUID
     decision_status: str
     items: list[DecisionItemOut]
-

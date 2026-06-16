@@ -62,7 +62,9 @@ export default function MyKnowledgePage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNote, setActionNote] = useState<string | null>(null);
   // 候选证据表单
-  const [evidenceMode, setEvidenceMode] = useState<"internal_sharing" | "client_validation" | null>(null);
+  const [evidenceMode, setEvidenceMode] = useState<"internal_sharing" | "client_validation" | null>(
+    null,
+  );
   const [targetProject, setTargetProject] = useState("");
   const [evidenceCategory, setEvidenceCategory] = useState(EVIDENCE_CATEGORIES[0]);
   const [evidenceDesc, setEvidenceDesc] = useState("");
@@ -89,7 +91,8 @@ export default function MyKnowledgePage() {
   }, []);
 
   const doCreateKb = useCallback(async () => {
-    setKbBusy(true); setKbError(null);
+    setKbBusy(true);
+    setKbError(null);
     try {
       const data = await createMyKnowledgeBase(kbNameDraft.trim() || undefined);
       setKb(data);
@@ -103,8 +106,12 @@ export default function MyKnowledgePage() {
 
   const doRenameKb = useCallback(async () => {
     const name = kbNameDraft.trim();
-    if (!name) { setKbError("名称不能为空"); return; }
-    setKbBusy(true); setKbError(null);
+    if (!name) {
+      setKbError("名称不能为空");
+      return;
+    }
+    setKbBusy(true);
+    setKbError(null);
     try {
       const data = await renameMyKnowledgeBase(name);
       setKb(data);
@@ -133,8 +140,12 @@ export default function MyKnowledgePage() {
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
-  useEffect(() => { void loadKb(); }, [loadKb]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  useEffect(() => {
+    void loadKb();
+  }, [loadKb]);
 
   const stats = useMemo(() => {
     const drafts = items.filter((i) => i.zone !== "asset").length;
@@ -142,7 +153,7 @@ export default function MyKnowledgePage() {
     return { total: items.length, drafts, assets };
   }, [items]);
 
-  const selectedItem = selectedId ? items.find((i) => i.id === selectedId) ?? null : null;
+  const selectedItem = selectedId ? (items.find((i) => i.id === selectedId) ?? null) : null;
 
   // 切换选中条目时重置写动作表单态。
   useEffect(() => {
@@ -156,51 +167,72 @@ export default function MyKnowledgePage() {
 
   const hasProjects = projects.length > 0;
 
-  const doConfirm = useCallback(async (assetId: string) => {
-    setActionBusy(true); setActionError(null); setActionNote(null);
-    try {
-      const r = await confirmPersonalAsset(assetId);
-      setActionNote(r.message);
-      await load();
-    } catch (e) {
-      setActionError(describeError(e, "确认资产失败"));
-    } finally {
-      setActionBusy(false);
-    }
-  }, [load]);
+  const doConfirm = useCallback(
+    async (assetId: string) => {
+      setActionBusy(true);
+      setActionError(null);
+      setActionNote(null);
+      try {
+        const r = await confirmPersonalAsset(assetId);
+        setActionNote(r.message);
+        await load();
+      } catch (e) {
+        setActionError(describeError(e, "确认资产失败"));
+      } finally {
+        setActionBusy(false);
+      }
+    },
+    [load],
+  );
 
-  const doSubmit = useCallback(async (assetId: string) => {
-    if (!targetProject) { setActionError("请选择目标项目"); return; }
-    setActionBusy(true); setActionError(null); setActionNote(null);
-    try {
-      const r = await submitPersonalKnowledge(assetId, { target_project_id: targetProject });
-      setActionNote(r.message);
-    } catch (e) {
-      setActionError(describeError(e, "提交项目资料失败"));
-    } finally {
-      setActionBusy(false);
-    }
-  }, [targetProject]);
+  const doSubmit = useCallback(
+    async (assetId: string) => {
+      if (!targetProject) {
+        setActionError("请选择目标项目");
+        return;
+      }
+      setActionBusy(true);
+      setActionError(null);
+      setActionNote(null);
+      try {
+        const r = await submitPersonalKnowledge(assetId, { target_project_id: targetProject });
+        setActionNote(r.message);
+      } catch (e) {
+        setActionError(describeError(e, "提交项目资料失败"));
+      } finally {
+        setActionBusy(false);
+      }
+    },
+    [targetProject],
+  );
 
-  const doEvidence = useCallback(async (assetId: string) => {
-    if (!evidenceMode) return;
-    if (!targetProject) { setActionError("请选择目标项目"); return; }
-    setActionBusy(true); setActionError(null); setActionNote(null);
-    try {
-      const r = await registerPersonalKnowledgeEvidence(assetId, {
-        target_project_id: targetProject,
-        evidence_type: evidenceMode,
-        evidence_category: evidenceCategory,
-        description: evidenceDesc || undefined,
-      });
-      setActionNote(r.message);
-      setEvidenceMode(null);
-    } catch (e) {
-      setActionError(describeError(e, "登记候选失败"));
-    } finally {
-      setActionBusy(false);
-    }
-  }, [evidenceMode, targetProject, evidenceCategory, evidenceDesc]);
+  const doEvidence = useCallback(
+    async (assetId: string) => {
+      if (!evidenceMode) return;
+      if (!targetProject) {
+        setActionError("请选择目标项目");
+        return;
+      }
+      setActionBusy(true);
+      setActionError(null);
+      setActionNote(null);
+      try {
+        const r = await registerPersonalKnowledgeEvidence(assetId, {
+          target_project_id: targetProject,
+          evidence_type: evidenceMode,
+          evidence_category: evidenceCategory,
+          description: evidenceDesc || undefined,
+        });
+        setActionNote(r.message);
+        setEvidenceMode(null);
+      } catch (e) {
+        setActionError(describeError(e, "登记候选失败"));
+      } finally {
+        setActionBusy(false);
+      }
+    },
+    [evidenceMode, targetProject, evidenceCategory, evidenceDesc],
+  );
 
   return (
     <div className="mk-page">
@@ -210,19 +242,40 @@ export default function MyKnowledgePage() {
           <p>管理你的个人知识（仅本人可见，不参与他人检索）</p>
         </div>
         <div className="kl-kpis">
-          <div className="kl-kpi"><div className="kl-kpi-value">{stats.total}</div><div className="kl-kpi-label">知识条目</div></div>
-          <div className="kl-kpi"><div className="kl-kpi-value">{stats.drafts}</div><div className="kl-kpi-label">私密草稿</div></div>
-          <div className="kl-kpi"><div className="kl-kpi-value kl-kpi-success">{stats.assets}</div><div className="kl-kpi-label">本人已确认</div></div>
+          <div className="kl-kpi">
+            <div className="kl-kpi-value">{stats.total}</div>
+            <div className="kl-kpi-label">知识条目</div>
+          </div>
+          <div className="kl-kpi">
+            <div className="kl-kpi-value">{stats.drafts}</div>
+            <div className="kl-kpi-label">私密草稿</div>
+          </div>
+          <div className="kl-kpi">
+            <div className="kl-kpi-value kl-kpi-success">{stats.assets}</div>
+            <div className="kl-kpi-label">本人已确认</div>
+          </div>
         </div>
       </div>
 
       <section className="mk-section">
         <h3>个人知识管理原则</h3>
         <div className="mk-principle-grid">
-          <div className="mk-principle-card"><div className="mk-principle-icon">🔒</div><div className="mk-principle-text">个人知识默认私密，不参与他人检索</div></div>
-          <div className="mk-principle-card"><div className="mk-principle-icon">👤</div><div className="mk-principle-text">项目经理和其他顾问无法搜索到你的个人知识</div></div>
-          <div className="mk-principle-card"><div className="mk-principle-icon">📤</div><div className="mk-principle-text">只有你主动提交，个人知识才进入项目侧</div></div>
-          <div className="mk-principle-card"><div className="mk-principle-icon">📋</div><div className="mk-principle-text">提交到项目资料区不等于项目资产，资产需验证</div></div>
+          <div className="mk-principle-card">
+            <div className="mk-principle-icon">🔒</div>
+            <div className="mk-principle-text">个人知识默认私密，不参与他人检索</div>
+          </div>
+          <div className="mk-principle-card">
+            <div className="mk-principle-icon">👤</div>
+            <div className="mk-principle-text">项目经理和其他顾问无法搜索到你的个人知识</div>
+          </div>
+          <div className="mk-principle-card">
+            <div className="mk-principle-icon">📤</div>
+            <div className="mk-principle-text">只有你主动提交，个人知识才进入项目侧</div>
+          </div>
+          <div className="mk-principle-card">
+            <div className="mk-principle-icon">📋</div>
+            <div className="mk-principle-text">提交到项目资料区不等于项目资产，资产需验证</div>
+          </div>
         </div>
       </section>
 
@@ -231,13 +284,19 @@ export default function MyKnowledgePage() {
         <section className="mk-section">
           <h3>我的知识库</h3>
           {kbError && (
-            <div className="up-submit-notice" style={{ color: "var(--color-danger-fg, #b00)" }}>{kbError}</div>
+            <div className="up-submit-notice" style={{ color: "var(--color-danger-fg, #b00)" }}>
+              {kbError}
+            </div>
           )}
           {kb === null ? (
-            <div className="mk-action-note">个人知识库状态加载中…（仅业务用户可管理；admin 无个人知识库）</div>
+            <div className="mk-action-note">
+              个人知识库状态加载中…（仅业务用户可管理；admin 无个人知识库）
+            </div>
           ) : !kb.exists ? (
             <div className="mk-kb-card mk-kb-empty">
-              <p className="kl-empty-desc">你还没有个人知识库，创建后可以开始上传和管理个人知识资产。</p>
+              <p className="kl-empty-desc">
+                你还没有个人知识库，创建后可以开始上传和管理个人知识资产。
+              </p>
               <div className="mk-vis-controls">
                 <input
                   className="up-edit-input"
@@ -246,7 +305,11 @@ export default function MyKnowledgePage() {
                   maxLength={100}
                   onChange={(e) => setKbNameDraft(e.target.value)}
                 />
-                <button className="btn-small-primary" disabled={kbBusy} onClick={() => void doCreateKb()}>
+                <button
+                  className="btn-small-primary"
+                  disabled={kbBusy}
+                  onClick={() => void doCreateKb()}
+                >
                   {kbBusy ? "创建中…" : "创建我的知识库"}
                 </button>
               </div>
@@ -263,15 +326,31 @@ export default function MyKnowledgePage() {
                       maxLength={100}
                       onChange={(e) => setKbNameDraft(e.target.value)}
                     />
-                    <button className="btn-small-primary" disabled={kbBusy} onClick={() => void doRenameKb()}>保存</button>
-                    <button className="btn-small" disabled={kbBusy} onClick={() => setKbEditing(false)}>取消</button>
+                    <button
+                      className="btn-small-primary"
+                      disabled={kbBusy}
+                      onClick={() => void doRenameKb()}
+                    >
+                      保存
+                    </button>
+                    <button
+                      className="btn-small"
+                      disabled={kbBusy}
+                      onClick={() => setKbEditing(false)}
+                    >
+                      取消
+                    </button>
                   </span>
                 ) : (
                   <span className="mk-vis-controls">
                     <strong>{kb.display_name}</strong>
                     <button
                       className="btn-small"
-                      onClick={() => { setKbNameDraft(kb.display_name ?? ""); setKbEditing(true); setKbError(null); }}
+                      onClick={() => {
+                        setKbNameDraft(kb.display_name ?? "");
+                        setKbEditing(true);
+                        setKbError(null);
+                      }}
                     >
                       编辑名称
                     </button>
@@ -280,11 +359,17 @@ export default function MyKnowledgePage() {
               </div>
               <div className="mk-kb-row">
                 <span className="mk-detail-label">状态</span>
-                <span className={`mk-vis-pill ${kb.status === "active" ? "mk-vis-asset" : "mk-vis-private"}`}>
+                <span
+                  className={`mk-vis-pill ${kb.status === "active" ? "mk-vis-asset" : "mk-vis-private"}`}
+                >
                   {kbStatusLabel[kb.status ?? ""] ?? kb.status}
                 </span>
                 {kb.status === "init_failed" && (
-                  <button className="btn-small-primary" disabled={kbBusy} onClick={() => void doCreateKb()}>
+                  <button
+                    className="btn-small-primary"
+                    disabled={kbBusy}
+                    onClick={() => void doCreateKb()}
+                  >
                     {kbBusy ? "重试中…" : "初始化失败，点击重试"}
                   </button>
                 )}
@@ -300,12 +385,16 @@ export default function MyKnowledgePage() {
                     <span className="mk-vis-note">—</span>
                   ) : (
                     Object.entries(kb.index_distribution ?? {}).map(([st, n]) => (
-                      <span key={st} className="al-channel-tag">{(indexStatusLabel[st] ?? st)}: {n}</span>
+                      <span key={st} className="al-channel-tag">
+                        {indexStatusLabel[st] ?? st}: {n}
+                      </span>
                     ))
                   )}
                 </span>
               </div>
-              <p className="mk-vis-note">嵌入模型在知识库创建时绑定，事后更换需全量重索引，此处不开放修改。</p>
+              <p className="mk-vis-note">
+                嵌入模型在知识库创建时绑定，事后更换需全量重索引，此处不开放修改。
+              </p>
             </div>
           )}
         </section>
@@ -315,14 +404,24 @@ export default function MyKnowledgePage() {
         {forbidden ? (
           <div className="kl-empty-state">
             <div className="kl-empty-title">无个人知识库</div>
-            <p className="kl-empty-desc">当前身份不是业务用户（仅 admin 系统身份）。admin 不作为业务个人知识库主体。</p>
+            <p className="kl-empty-desc">
+              当前身份不是业务用户（仅 admin 系统身份）。admin 不作为业务个人知识库主体。
+            </p>
           </div>
         ) : loading ? (
-          <div className="kl-empty-state"><div className="kl-empty-title">加载中…</div></div>
+          <div className="kl-empty-state">
+            <div className="kl-empty-title">加载中…</div>
+          </div>
         ) : error ? (
-          <div className="kl-empty-state"><div className="kl-empty-title">加载失败</div><p className="kl-empty-desc">{error}（请确认后端服务已启动）</p></div>
+          <div className="kl-empty-state">
+            <div className="kl-empty-title">加载失败</div>
+            <p className="kl-empty-desc">{error}（请确认后端服务已启动）</p>
+          </div>
         ) : items.length === 0 ? (
-          <div className="kl-empty-state"><div className="kl-empty-title">暂无个人知识</div><p className="kl-empty-desc">你还没有个人知识资产。</p></div>
+          <div className="kl-empty-state">
+            <div className="kl-empty-title">暂无个人知识</div>
+            <p className="kl-empty-desc">你还没有个人知识资产。</p>
+          </div>
         ) : (
           <div className={`mk-split ${selectedItem ? "mk-split-open" : ""}`}>
             <div className="mk-list">
@@ -330,7 +429,14 @@ export default function MyKnowledgePage() {
               <div className="mk-table-wrap">
                 <table className="mk-table">
                   <thead>
-                    <tr><th>标题</th><th>类型</th><th>阶段</th><th>状态</th><th>更新时间</th><th>操作</th></tr>
+                    <tr>
+                      <th>标题</th>
+                      <th>类型</th>
+                      <th>阶段</th>
+                      <th>状态</th>
+                      <th>更新时间</th>
+                      <th>操作</th>
+                    </tr>
                   </thead>
                   <tbody>
                     {items.map((item) => {
@@ -338,11 +444,21 @@ export default function MyKnowledgePage() {
                       return (
                         <tr key={item.id} className={selectedId === item.id ? "mk-row-active" : ""}>
                           <td className="mk-cell-title">{item.title}</td>
-                          <td><span className="mk-type-tag">{typeLabel[item.assetType] ?? item.assetType}</span></td>
+                          <td>
+                            <span className="mk-type-tag">
+                              {typeLabel[item.assetType] ?? item.assetType}
+                            </span>
+                          </td>
                           <td>{item.lifecyclePhase || "—"}</td>
-                          <td><span className={`mk-vis-pill ${st.cls}`}>{st.label}</span></td>
+                          <td>
+                            <span className={`mk-vis-pill ${st.cls}`}>{st.label}</span>
+                          </td>
                           <td className="mk-cell-time">{item.updatedAt || "—"}</td>
-                          <td><button className="btn-small" onClick={() => setSelectedId(item.id)}>查看</button></td>
+                          <td>
+                            <button className="btn-small" onClick={() => setSelectedId(item.id)}>
+                              查看
+                            </button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -355,33 +471,73 @@ export default function MyKnowledgePage() {
               <div className="mk-detail">
                 <div className="mk-detail-head">
                   <span className="mk-detail-title">知识详情</span>
-                  <button className="btn-small" onClick={() => setSelectedId(null)}>关闭</button>
+                  <button className="btn-small" onClick={() => setSelectedId(null)}>
+                    关闭
+                  </button>
                 </div>
                 <div className="mk-detail-body">
-                  <div className="mk-detail-field"><span className="mk-detail-label">标题</span><span className="mk-detail-value">{selectedItem.title}</span></div>
-                  <div className="mk-detail-field"><span className="mk-detail-label">一句话摘要</span><span className="mk-detail-value">{selectedItem.summary || "—"}</span></div>
+                  <div className="mk-detail-field">
+                    <span className="mk-detail-label">标题</span>
+                    <span className="mk-detail-value">{selectedItem.title}</span>
+                  </div>
+                  <div className="mk-detail-field">
+                    <span className="mk-detail-label">一句话摘要</span>
+                    <span className="mk-detail-value">{selectedItem.summary || "—"}</span>
+                  </div>
                   <div className="mk-detail-field">
                     <span className="mk-detail-label">标签</span>
-                    <span className="mk-detail-value"><div className="card-tags">{selectedItem.tags.map((t) => <span key={t} className="tag">{t}</span>)}</div></span>
+                    <span className="mk-detail-value">
+                      <div className="card-tags">
+                        {selectedItem.tags.map((t) => (
+                          <span key={t} className="tag">
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    </span>
                   </div>
                   <div className="mk-detail-field">
                     <span className="mk-detail-label">当前状态</span>
-                    <span className="mk-detail-value"><span className={`mk-vis-pill ${zoneStatus(selectedItem.zone).cls}`}>{zoneStatus(selectedItem.zone).label}</span></span>
+                    <span className="mk-detail-value">
+                      <span className={`mk-vis-pill ${zoneStatus(selectedItem.zone).cls}`}>
+                        {zoneStatus(selectedItem.zone).label}
+                      </span>
+                    </span>
                   </div>
 
                   {/* 写动作交互状态 */}
-                  {actionError && <div className="up-submit-notice" style={{ color: "var(--color-danger-fg, #b00)" }}>{actionError}</div>}
-                  {actionNote && <div className="up-submit-notice" style={{ color: "var(--color-success-fg, #176)" }}>{actionNote}</div>}
+                  {actionError && (
+                    <div
+                      className="up-submit-notice"
+                      style={{ color: "var(--color-danger-fg, #b00)" }}
+                    >
+                      {actionError}
+                    </div>
+                  )}
+                  {actionNote && (
+                    <div
+                      className="up-submit-notice"
+                      style={{ color: "var(--color-success-fg, #176)" }}
+                    >
+                      {actionNote}
+                    </div>
+                  )}
 
                   {/* 本人资产确认（仅 material） */}
                   {selectedItem.zone !== "asset" && (
                     <div className="mk-detail-field">
                       <span className="mk-detail-label">本人资产确认</span>
                       <span className="mk-detail-value">
-                        <button className="btn-small-primary" disabled={actionBusy} onClick={() => void doConfirm(selectedItem.id)}>
+                        <button
+                          className="btn-small-primary"
+                          disabled={actionBusy}
+                          onClick={() => void doConfirm(selectedItem.id)}
+                        >
                           {actionBusy ? "处理中…" : "确认为本人资产"}
                         </button>
-                        <span className="mk-vis-note">本人确认 = 整理为个人知识资产（仅本人可见，不等于项目/公司资产）</span>
+                        <span className="mk-vis-note">
+                          本人确认 = 整理为个人知识资产（仅本人可见，不等于项目/公司资产）
+                        </span>
                       </span>
                     </div>
                   )}
@@ -392,16 +548,47 @@ export default function MyKnowledgePage() {
                     <span className="mk-detail-value">
                       {hasProjects ? (
                         <div className="mk-vis-controls">
-                          <select className="up-edit-select" value={targetProject} onChange={(e) => setTargetProject(e.target.value)}>
-                            {projects.map((p) => <option key={p.projectId} value={p.projectId}>{p.projectName}</option>)}
+                          <select
+                            className="up-edit-select"
+                            value={targetProject}
+                            onChange={(e) => setTargetProject(e.target.value)}
+                          >
+                            {projects.map((p) => (
+                              <option key={p.projectId} value={p.projectId}>
+                                {p.projectName}
+                              </option>
+                            ))}
                           </select>
-                          <button className="btn-small-primary" disabled={actionBusy} onClick={() => void doSubmit(selectedItem.id)}>提交项目资料</button>
-                          <button className="btn-small" disabled={actionBusy} onClick={() => setEvidenceMode("internal_sharing")}>发起内部分享候选</button>
-                          <button className="btn-small" disabled={actionBusy} onClick={() => setEvidenceMode("client_validation")}>登记客户验证候选</button>
-                          <span className="mk-vis-note">提交项目资料 = 待项目经理审核确认；候选 = 登记证据线索，系统不自动证明分享/客户验证真实发生</span>
+                          <button
+                            className="btn-small-primary"
+                            disabled={actionBusy}
+                            onClick={() => void doSubmit(selectedItem.id)}
+                          >
+                            提交项目资料
+                          </button>
+                          <button
+                            className="btn-small"
+                            disabled={actionBusy}
+                            onClick={() => setEvidenceMode("internal_sharing")}
+                          >
+                            发起内部分享候选
+                          </button>
+                          <button
+                            className="btn-small"
+                            disabled={actionBusy}
+                            onClick={() => setEvidenceMode("client_validation")}
+                          >
+                            登记客户验证候选
+                          </button>
+                          <span className="mk-vis-note">
+                            提交项目资料 = 待项目经理审核确认；候选 =
+                            登记证据线索，系统不自动证明分享/客户验证真实发生
+                          </span>
                         </div>
                       ) : (
-                        <span className="mk-vis-note">你当前没有可提交的项目；请先在「人员权限」或项目成员关系中加入项目。</span>
+                        <span className="mk-vis-note">
+                          你当前没有可提交的项目；请先在「人员权限」或项目成员关系中加入项目。
+                        </span>
                       )}
                     </span>
                   </div>
@@ -409,16 +596,45 @@ export default function MyKnowledgePage() {
                   {/* 候选证据表单 */}
                   {evidenceMode && hasProjects && (
                     <div className="mk-detail-field">
-                      <span className="mk-detail-label">{evidenceMode === "internal_sharing" ? "内部分享候选" : "客户验证候选"}</span>
+                      <span className="mk-detail-label">
+                        {evidenceMode === "internal_sharing" ? "内部分享候选" : "客户验证候选"}
+                      </span>
                       <span className="mk-detail-value">
                         <div className="mk-vis-controls">
-                          <select className="up-edit-select" value={evidenceCategory} onChange={(e) => setEvidenceCategory(e.target.value)}>
-                            {EVIDENCE_CATEGORIES.map((c) => <option key={c} value={c}>{evidenceCategoryLabel[c]}</option>)}
+                          <select
+                            className="up-edit-select"
+                            value={evidenceCategory}
+                            onChange={(e) => setEvidenceCategory(e.target.value)}
+                          >
+                            {EVIDENCE_CATEGORIES.map((c) => (
+                              <option key={c} value={c}>
+                                {evidenceCategoryLabel[c]}
+                              </option>
+                            ))}
                           </select>
-                          <input className="up-edit-input" placeholder="证据说明（如会议主题 / 客户确认要点）" value={evidenceDesc} onChange={(e) => setEvidenceDesc(e.target.value)} />
-                          <button className="btn-small-primary" disabled={actionBusy} onClick={() => void doEvidence(selectedItem.id)}>登记候选</button>
-                          <button className="btn-small" disabled={actionBusy} onClick={() => setEvidenceMode(null)}>取消</button>
-                          <span className="mk-vis-note">仅登记证据线索元数据，不接收真实文件 URL；待项目经理审核。</span>
+                          <input
+                            className="up-edit-input"
+                            placeholder="证据说明（如会议主题 / 客户确认要点）"
+                            value={evidenceDesc}
+                            onChange={(e) => setEvidenceDesc(e.target.value)}
+                          />
+                          <button
+                            className="btn-small-primary"
+                            disabled={actionBusy}
+                            onClick={() => void doEvidence(selectedItem.id)}
+                          >
+                            登记候选
+                          </button>
+                          <button
+                            className="btn-small"
+                            disabled={actionBusy}
+                            onClick={() => setEvidenceMode(null)}
+                          >
+                            取消
+                          </button>
+                          <span className="mk-vis-note">
+                            仅登记证据线索元数据，不接收真实文件 URL；待项目经理审核。
+                          </span>
                         </div>
                       </span>
                     </div>
@@ -432,7 +648,9 @@ export default function MyKnowledgePage() {
 
       <section className="mk-section">
         <div className="mk-action-note">
-          个人知识列表与写动作均来自真实后端 <code>/api/v1/my/knowledge/*</code>：本人资产确认、提交项目资料（生成审核任务）、内部分享 / 客户验证候选（登记证据线索）经后端权限校验、幂等与审计。提交到项目为「待项目经理确认」，不等于已入项目库。
+          个人知识列表与写动作均来自真实后端 <code>/api/v1/my/knowledge/*</code>
+          ：本人资产确认、提交项目资料（生成审核任务）、内部分享 /
+          客户验证候选（登记证据线索）经后端权限校验、幂等与审计。提交到项目为「待项目经理确认」，不等于已入项目库。
         </div>
       </section>
     </div>

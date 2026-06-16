@@ -1,4 +1,4 @@
-﻿"""索引批量运维 Celery 任务。"""
+"""索引批量运维 Celery 任务。"""
 
 from __future__ import annotations
 
@@ -15,8 +15,11 @@ async def _run(maker, job_id_str: str, trace_id: str | None) -> None:
 
     async with maker() as session:
         await indexing_operations.run_operation_job(
-            session, uuid.UUID(job_id_str),
-            weknora=get_weknora_client(), storage=get_storage(), trace_id=trace_id,
+            session,
+            uuid.UUID(job_id_str),
+            weknora=get_weknora_client(),
+            storage=get_storage(),
+            trace_id=trace_id,
         )
 
 
@@ -24,4 +27,3 @@ async def _run(maker, job_id_str: str, trace_id: str | None) -> None:
 def run_indexing_operation(self, job_id_str: str, trace_id: str | None = None) -> None:
     """异步执行一个索引运维作业（worker 进程内自建 loop-local 会话/客户端）。"""
     run_task(lambda maker: _run(maker, job_id_str, trace_id))
-

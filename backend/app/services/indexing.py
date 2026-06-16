@@ -1,4 +1,4 @@
-﻿"""共享底座索引机制。
+"""共享底座索引机制。
 
 把「一个 asset version 的原文推进 WeKnora 底座（建库+初始化+上传+回写索引状态）」收口到
 一处，供 **confirm（入库确认）** 与 **retry-index（失败重试）** 共用同一安全口径：
@@ -47,7 +47,9 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-async def _load_version(session: AsyncSession, version_id: uuid.UUID) -> KnowledgeAssetVersion | None:
+async def _load_version(
+    session: AsyncSession, version_id: uuid.UUID
+) -> KnowledgeAssetVersion | None:
     return (
         await session.execute(
             select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.id == version_id)
@@ -105,7 +107,8 @@ async def index_asset_version(
 
     try:
         kb_id = await resolve_or_create_kb(
-            session, weknora,
+            session,
+            weknora,
             scope=scope,
             owner_user_id=owner_user_id if scope == KnowledgeScope.personal.value else None,
             project_id=project_id,
@@ -113,13 +116,18 @@ async def index_asset_version(
             trace_id=trace_id,
         )
         data = await weknora.upload_file(
-            kb_id=kb_id, content=file_bytes,
-            file_name=source_file_name, mime=source_file_mime,
+            kb_id=kb_id,
+            content=file_bytes,
+            file_name=source_file_name,
+            mime=source_file_mime,
             metadata={
-                "asset_id": str(asset_id), "version_id": str(version_id),
-                "scope": scope, "confidentiality_level": confidentiality,
+                "asset_id": str(asset_id),
+                "version_id": str(version_id),
+                "scope": scope,
+                "confidentiality_level": confidentiality,
             },
-            channel=channel, trace_id=trace_id,
+            channel=channel,
+            trace_id=trace_id,
         )
         version = await _load_version(session, version_id)
         parse_status = str(data.get("parse_status") or "processing")
@@ -182,7 +190,8 @@ async def reparse_asset_version(
     try:
         if not kb_id:
             kb_id = await resolve_or_create_kb(
-                session, weknora,
+                session,
+                weknora,
                 scope=scope,
                 owner_user_id=owner_user_id if scope == KnowledgeScope.personal.value else None,
                 project_id=project_id,
@@ -190,13 +199,19 @@ async def reparse_asset_version(
                 trace_id=trace_id,
             )
         data = await weknora.reparse_knowledge(
-            kb_id=kb_id, knowledge_id=knowledge_id, content=file_bytes,
-            file_name=source_file_name, mime=source_file_mime,
+            kb_id=kb_id,
+            knowledge_id=knowledge_id,
+            content=file_bytes,
+            file_name=source_file_name,
+            mime=source_file_mime,
             metadata={
-                "asset_id": str(asset_id), "version_id": str(version_id),
-                "scope": scope, "confidentiality_level": confidentiality,
+                "asset_id": str(asset_id),
+                "version_id": str(version_id),
+                "scope": scope,
+                "confidentiality_level": confidentiality,
             },
-            channel=channel, trace_id=trace_id,
+            channel=channel,
+            trace_id=trace_id,
         )
         version = await _load_version(session, version_id)
         parse_status = str(data.get("parse_status") or "processing")
@@ -226,4 +241,3 @@ async def reparse_asset_version(
     except (WeKnoraError, OSError) as exc:
         code = getattr(exc, "code", None) or "weknora_index_failed"
         return await mark_index_failed(session, version_id=version_id, error_code=str(code))
-

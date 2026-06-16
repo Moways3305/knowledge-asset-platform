@@ -37,8 +37,16 @@ CSRF = "/api/v1/auth/csrf"
 CONSULTANT_EMAIL = "consultant.a@dev.local"
 ADMIN_EMAIL = "admin.e@dev.local"
 
-_LEAK = ["password_hash", "salt", "digest", "pbkdf2", "kap_session", "token_hash",
-         "kap_oauth_state", "secret.txt"]
+_LEAK = [
+    "password_hash",
+    "salt",
+    "digest",
+    "pbkdf2",
+    "kap_session",
+    "token_hash",
+    "kap_oauth_state",
+    "secret.txt",
+]
 
 
 def _hdr(uid):
@@ -70,7 +78,9 @@ async def test_overview_admin_ok(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert "counts" in body and "recent_events" in body
-    assert set(["failed", "locked", "rate_limited", "success", "unlocked"]).issubset(body["counts"].keys())
+    assert set(["failed", "locked", "rate_limited", "success", "unlocked"]).issubset(
+        body["counts"].keys()
+    )
 
 
 @pytest.mark.parametrize("uid", [USER_BOSS, USER_DIRECTOR, USER_CONSULTANT, USER_PROJECT_MANAGER])
@@ -114,7 +124,9 @@ async def test_unlock_by_user_id_restores_login(client, monkeypatch):
     locked = await client.post(LOGIN, json={"email": CONSULTANT_EMAIL, "password": DEV_PASSWORD})
     assert locked.status_code == 401
     # admin 用 user_id 解锁（X-Dev-User-Id，无 cookie → 不走 CSRF）。
-    u = await client.post(UNLOCK, headers=_hdr(USER_ADMIN_ONLY), json={"user_id": str(USER_CONSULTANT)})
+    u = await client.post(
+        UNLOCK, headers=_hdr(USER_ADMIN_ONLY), json={"user_id": str(USER_CONSULTANT)}
+    )
     assert u.status_code == 200, u.text
     body = u.json()
     assert body["ok"] is True and body["unlocked"] is True
@@ -126,7 +138,9 @@ async def test_unlock_by_user_id_restores_login(client, monkeypatch):
 
 
 async def test_unlock_unknown_user_404(client):
-    r = await client.post(UNLOCK, headers=_hdr(USER_ADMIN_ONLY), json={"user_id": str(uuid.uuid4())})
+    r = await client.post(
+        UNLOCK, headers=_hdr(USER_ADMIN_ONLY), json={"user_id": str(uuid.uuid4())}
+    )
     assert r.status_code == 404
     assert r.json()["detail"]["denied_reason"] == "unlock_user_not_found"
 
@@ -143,20 +157,25 @@ async def test_unlock_requires_exactly_one_input(client):
 async def test_unlock_by_prefix_unique(client):
     await _fail_logins(client, CONSULTANT_EMAIL, 2)
     prefix = _id_hash(CONSULTANT_EMAIL)[:16]
-    r = await client.post(UNLOCK, headers=_hdr(USER_ADMIN_ONLY), json={"identifier_hash_prefix": prefix})
+    r = await client.post(
+        UNLOCK, headers=_hdr(USER_ADMIN_ONLY), json={"identifier_hash_prefix": prefix}
+    )
     assert r.status_code == 200, r.text
     assert r.json()["unlocked"] is True
 
 
 async def test_unlock_prefix_not_found_404(client):
-    r = await client.post(UNLOCK, headers=_hdr(USER_ADMIN_ONLY),
-                          json={"identifier_hash_prefix": "abcdef0123456789"})
+    r = await client.post(
+        UNLOCK, headers=_hdr(USER_ADMIN_ONLY), json={"identifier_hash_prefix": "abcdef0123456789"}
+    )
     assert r.status_code == 404
     assert r.json()["detail"]["denied_reason"] == "unlock_identifier_not_found"
 
 
 async def test_unlock_prefix_too_short_422(client):
-    r = await client.post(UNLOCK, headers=_hdr(USER_ADMIN_ONLY), json={"identifier_hash_prefix": "abc"})
+    r = await client.post(
+        UNLOCK, headers=_hdr(USER_ADMIN_ONLY), json={"identifier_hash_prefix": "abc"}
+    )
     assert r.status_code == 422
     assert r.json()["detail"]["denied_reason"] == "unlock_prefix_too_short"
 
@@ -166,13 +185,20 @@ async def test_unlock_prefix_rejects_non_hex(client, db_session, bad_prefix):
     """非 hex / SQL 通配符前缀 → 422 unlock_prefix_invalid，且不写解锁审计。"""
     # 先制造一条近期 attempt：旧实现的 `LIKE '________%'` 会误匹配它，新实现先按 hex 拒绝。
     await _fail_logins(client, CONSULTANT_EMAIL, 1)
-    r = await client.post(UNLOCK, headers=_hdr(USER_ADMIN_ONLY),
-                          json={"identifier_hash_prefix": bad_prefix})
+    r = await client.post(
+        UNLOCK, headers=_hdr(USER_ADMIN_ONLY), json={"identifier_hash_prefix": bad_prefix}
+    )
     assert r.status_code == 422, r.text
     assert r.json()["detail"]["denied_reason"] == "unlock_prefix_invalid"
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "auth.lockout_unlocked")
-    )).scalars().all()
+    ev = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.action == "auth.lockout_unlocked")
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert ev == []  # 非法前缀不触发解锁
 
 
@@ -180,8 +206,9 @@ async def test_unlock_prefix_accepts_uppercase_hex(client):
     """大写 hex 前缀可 lower 后唯一匹配并解锁；响应仍返回安全小写 hash 前缀。"""
     await _fail_logins(client, CONSULTANT_EMAIL, 2)
     prefix_upper = _id_hash(CONSULTANT_EMAIL)[:16].upper()
-    r = await client.post(UNLOCK, headers=_hdr(USER_ADMIN_ONLY),
-                          json={"identifier_hash_prefix": prefix_upper})
+    r = await client.post(
+        UNLOCK, headers=_hdr(USER_ADMIN_ONLY), json={"identifier_hash_prefix": prefix_upper}
+    )
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["unlocked"] is True
@@ -194,14 +221,22 @@ async def test_unlock_prefix_ambiguous_409(client, db_session):
     # 构造两个不同 identifier_hash 共享一个前缀（人为同前缀，验证 409）。
     shared = "deadbeefdead"
     for suffix in ("aaaa", "bbbb"):
-        db_session.add(AuthLoginAttempt(
-            identifier_hash=shared + suffix + "0" * (64 - len(shared) - 4),
-            identifier_hint=shared, user_id=None, ip_hash=None,
-            login_method="password", result="failed", reason_code="invalid_credentials", trace_id="t",
-        ))
+        db_session.add(
+            AuthLoginAttempt(
+                identifier_hash=shared + suffix + "0" * (64 - len(shared) - 4),
+                identifier_hint=shared,
+                user_id=None,
+                ip_hash=None,
+                login_method="password",
+                result="failed",
+                reason_code="invalid_credentials",
+                trace_id="t",
+            )
+        )
     await db_session.commit()
-    r = await client.post(UNLOCK, headers=_hdr(USER_ADMIN_ONLY),
-                          json={"identifier_hash_prefix": shared})
+    r = await client.post(
+        UNLOCK, headers=_hdr(USER_ADMIN_ONLY), json={"identifier_hash_prefix": shared}
+    )
     assert r.status_code == 409
     assert r.json()["detail"]["denied_reason"] == "unlock_identifier_ambiguous"
 
@@ -215,18 +250,30 @@ async def test_unlock_does_not_reset_ip_rate_limit(client, db_session):
     iph = auth_security.hash_login_identifier("203.0.113.50", purpose="ip")
     for _ in range(2):
         await auth_security.record_login_attempt(
-            db_session, identifier_hash=idh, ip_hash=iph, user_id=None,
-            login_method="password", result="failed", reason_code="invalid_credentials", trace_id="t",
+            db_session,
+            identifier_hash=idh,
+            ip_hash=iph,
+            user_id=None,
+            login_method="password",
+            result="failed",
+            reason_code="invalid_credentials",
+            trace_id="t",
         )
     await db_session.commit()
     # 确认 IP 已限流。
-    g0 = await auth_security.check_login_guard(db_session, identifier_hash=idh, ip_hash=iph, settings=s)
+    g0 = await auth_security.check_login_guard(
+        db_session, identifier_hash=idh, ip_hash=iph, settings=s
+    )
     assert g0.result == "rate_limited"
     # admin 用前缀解锁该 identifier。
-    r = await client.post(UNLOCK, headers=_hdr(USER_ADMIN_ONLY), json={"identifier_hash_prefix": idh[:16]})
+    r = await client.post(
+        UNLOCK, headers=_hdr(USER_ADMIN_ONLY), json={"identifier_hash_prefix": idh[:16]}
+    )
     assert r.status_code == 200, r.text
     # 解锁后：identifier 已重置，但 IP 维度仍限流。
-    g1 = await auth_security.check_login_guard(db_session, identifier_hash=idh, ip_hash=iph, settings=s)
+    g1 = await auth_security.check_login_guard(
+        db_session, identifier_hash=idh, ip_hash=iph, settings=s
+    )
     assert g1.result == "rate_limited"
 
 
@@ -236,9 +283,15 @@ async def test_unlock_does_not_reset_ip_rate_limit(client, db_session):
 async def test_unlock_writes_safe_audit(client, db_session):
     await _fail_logins(client, CONSULTANT_EMAIL, 2)
     await client.post(UNLOCK, headers=_hdr(USER_ADMIN_ONLY), json={"user_id": str(USER_CONSULTANT)})
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "auth.lockout_unlocked")
-    )).scalars().all()
+    ev = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.action == "auth.lockout_unlocked")
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert ev, "解锁应写 auth.lockout_unlocked 审计"
     e = ev[0]
     assert e.actor_user_id == USER_ADMIN_ONLY
@@ -258,15 +311,23 @@ async def test_unlock_without_csrf_forbidden_no_audit(client, db_session):
     r = await client.post(UNLOCK, json={"user_id": str(USER_CONSULTANT)})  # 无 X-CSRF-Token
     assert r.status_code == 403
     assert r.json()["detail"]["denied_reason"] == "csrf_token_missing"
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "auth.lockout_unlocked")
-    )).scalars().all()
+    ev = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.action == "auth.lockout_unlocked")
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert ev == []  # CSRF 失败 → 无解锁审计
 
 
 async def test_unlock_with_csrf_succeeds(client):
     await client.post(LOGIN, json={"email": ADMIN_EMAIL})  # cookie 会话
     csrf = (await client.get(CSRF)).json()["csrf_token"]
-    r = await client.post(UNLOCK, headers={"X-CSRF-Token": csrf}, json={"user_id": str(USER_CONSULTANT)})
+    r = await client.post(
+        UNLOCK, headers={"X-CSRF-Token": csrf}, json={"user_id": str(USER_CONSULTANT)}
+    )
     assert r.status_code == 200, r.text
     assert r.json()["unlocked"] is True

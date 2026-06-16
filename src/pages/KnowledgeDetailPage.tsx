@@ -52,9 +52,18 @@ const aiAccessLabelMap: Record<AiAccessLevel, string> = {
 
 const agentAccessHint: Record<AiAccessLevel, { allowed: string; desc: string }> = {
   A1: { allowed: "可进入问答与摘要", desc: "Agent 可直接检索并引用该资产进行问答、摘要生成。" },
-  A2: { allowed: "脱敏后可进入问答", desc: "Agent 仅可使用脱敏版本进行问答和摘要，原文不进入 Agent 调用。" },
-  A3: { allowed: "仅摘要/元数据可被调用", desc: "Agent 只能引用该资产的摘要和元数据，不可调用原文或脱敏版。" },
-  A4: { allowed: "禁止进入 Agent 调用", desc: "该资产完全禁止进入 Agent 问答、摘要或任何自动化调用。" },
+  A2: {
+    allowed: "脱敏后可进入问答",
+    desc: "Agent 仅可使用脱敏版本进行问答和摘要，原文不进入 Agent 调用。",
+  },
+  A3: {
+    allowed: "仅摘要/元数据可被调用",
+    desc: "Agent 只能引用该资产的摘要和元数据，不可调用原文或脱敏版。",
+  },
+  A4: {
+    allowed: "禁止进入 Agent 调用",
+    desc: "该资产完全禁止进入 Agent 问答、摘要或任何自动化调用。",
+  },
 };
 
 const confidentialityHint: Record<ConfidentialityLevel, string> = {
@@ -136,12 +145,18 @@ export default function KnowledgeDetailPage() {
 
   async function reloadAsset() {
     if (!id) return;
-    try { setAsset(await fetchKnowledgeDetail(id)); } catch { /* 保持原状 */ }
+    try {
+      setAsset(await fetchKnowledgeDetail(id));
+    } catch {
+      /* 保持原状 */
+    }
   }
 
   async function handleRequestOriginal() {
     if (!id) return;
-    setOaBusy(true); setOaError(null); setOaNote(null);
+    setOaBusy(true);
+    setOaError(null);
+    setOaNote(null);
     try {
       const r = await requestOriginalAccess(id);
       const msg: Record<string, string> = {
@@ -152,7 +167,11 @@ export default function KnowledgeDetailPage() {
       setOaNote(msg[r.status] ?? r.message);
       await reloadAsset();
     } catch (e) {
-      setOaError(e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "申请原文访问失败");
+      setOaError(
+        e instanceof ApiError
+          ? `${e.message}（${e.deniedReason ?? e.status}）`
+          : "申请原文访问失败",
+      );
     } finally {
       setOaBusy(false);
     }
@@ -174,13 +193,16 @@ export default function KnowledgeDetailPage() {
 
   async function handleDelete() {
     if (!id) return;
-    setDeleteBusy(true); setDeleteErr(null);
+    setDeleteBusy(true);
+    setDeleteErr(null);
     try {
       await deleteKnowledgeAsset(id, deleteReason || undefined);
       // 成功后资产退出检索/问答/预览，详情页跳回知识列表。
       navigate("/knowledge");
     } catch (e) {
-      setDeleteErr(e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "删除失败");
+      setDeleteErr(
+        e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "删除失败",
+      );
       setDeleteBusy(false);
     }
   }
@@ -192,7 +214,9 @@ export default function KnowledgeDetailPage() {
 
   async function handleRetryIndex() {
     if (!id) return;
-    setRetryBusy(true); setRetryNote(null); setRetryErr(null);
+    setRetryBusy(true);
+    setRetryNote(null);
+    setRetryErr(null);
     try {
       const r = await retryKnowledgeIndex(id);
       if (r.index_status === "indexed") setRetryNote("已重新索引到知识底座。");
@@ -200,7 +224,9 @@ export default function KnowledgeDetailPage() {
       else setRetryNote(r.index_error_message ?? "重试后底座仍失败，可稍后再试或联系管理员。");
       await reloadAsset();
     } catch (e) {
-      setRetryErr(e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "重试索引失败");
+      setRetryErr(
+        e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "重试索引失败",
+      );
     } finally {
       setRetryBusy(false);
     }
@@ -212,19 +238,30 @@ export default function KnowledgeDetailPage() {
       const data = await fetchLifecycleEvents(id);
       setLcEvents(data.items);
     } catch (e) {
-      setLcErr(e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "加载生命周期事件失败");
+      setLcErr(
+        e instanceof ApiError
+          ? `${e.message}（${e.deniedReason ?? e.status}）`
+          : "加载生命周期事件失败",
+      );
     }
   }
 
   async function handleArchiveRequest() {
     if (!id) return;
-    setLcBusy(true); setLcMsg(null); setLcErr(null);
+    setLcBusy(true);
+    setLcMsg(null);
+    setLcErr(null);
     try {
-      const r = await lifecycleArchiveRequest(id, { reason: lcReason || "手动发起归档建议", candidate_source: "manual" });
+      const r = await lifecycleArchiveRequest(id, {
+        reason: lcReason || "手动发起归档建议",
+        candidate_source: "manual",
+      });
       setLcMsg(`已生成归档候选（${r.status}）。归档需再行人工确认。`);
       await loadLcEvents();
     } catch (e) {
-      setLcErr(e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "发起归档失败");
+      setLcErr(
+        e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "发起归档失败",
+      );
     } finally {
       setLcBusy(false);
     }
@@ -232,13 +269,17 @@ export default function KnowledgeDetailPage() {
 
   async function handleArchiveConfirm() {
     if (!id) return;
-    setLcBusy(true); setLcMsg(null); setLcErr(null);
+    setLcBusy(true);
+    setLcMsg(null);
+    setLcErr(null);
     try {
       const r = await lifecycleArchiveConfirm(id, { reason: lcReason || "人工确认归档" });
       setLcMsg(`资产已归档（状态：${r.asset_status}）。归档资产默认退出检索 / 问答。`);
       await loadLcEvents();
     } catch (e) {
-      setLcErr(e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "确认归档失败");
+      setLcErr(
+        e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "确认归档失败",
+      );
     } finally {
       setLcBusy(false);
     }
@@ -270,8 +311,12 @@ export default function KnowledgeDetailPage() {
   if (loading) {
     return (
       <div className="detail-page">
-        <Link to="/knowledge" className="back-link">&larr; 返回知识首页</Link>
-        <div className="detail-empty"><h2>加载中…</h2></div>
+        <Link to="/knowledge" className="back-link">
+          &larr; 返回知识首页
+        </Link>
+        <div className="detail-empty">
+          <h2>加载中…</h2>
+        </div>
       </div>
     );
   }
@@ -279,12 +324,16 @@ export default function KnowledgeDetailPage() {
   if (notFound || !asset) {
     return (
       <div className="detail-page">
-        <Link to="/knowledge" className="back-link">&larr; 返回知识首页</Link>
+        <Link to="/knowledge" className="back-link">
+          &larr; 返回知识首页
+        </Link>
         <div className="detail-empty">
           <h2>未找到该知识资产</h2>
           <p>资产「{id}」不存在或当前身份不可见（如 L5 / 他人个人知识 / 已归档）。</p>
           {error && <p>{error}</p>}
-          <Link to="/knowledge" className="btn-primary">返回知识首页</Link>
+          <Link to="/knowledge" className="btn-primary">
+            返回知识首页
+          </Link>
         </div>
       </div>
     );
@@ -295,13 +344,19 @@ export default function KnowledgeDetailPage() {
 
   return (
     <div className="detail-page">
-      <Link to="/knowledge" className="back-link">&larr; 返回知识首页</Link>
+      <Link to="/knowledge" className="back-link">
+        &larr; 返回知识首页
+      </Link>
 
       <div className="detail-title-area">
         <h2 className="detail-title">{asset.title}</h2>
         <div className="detail-title-meta">
-          <span className={`visibility-badge ${asset.visibility}`}>{visibilityLabel[asset.visibility]}</span>
-          <span className="asset-type-badge">{assetTypeLabel[asset.assetType] ?? asset.assetType}</span>
+          <span className={`visibility-badge ${asset.visibility}`}>
+            {visibilityLabel[asset.visibility]}
+          </span>
+          <span className="asset-type-badge">
+            {assetTypeLabel[asset.assetType] ?? asset.assetType}
+          </span>
           <span className="detail-meta-item">置信度 {confidenceText(asset.confidence)}</span>
           <span className="detail-meta-item">更新 {formatBeijingTime(asset.updatedAt)}</span>
         </div>
@@ -324,19 +379,27 @@ export default function KnowledgeDetailPage() {
               <div className="detail-summary-layer">
                 <span className="detail-summary-layer-label">关键知识点</span>
                 <ul className="detail-key-points">
-                  {asset.keyPoints.map((p) => <li key={p}>{p}</li>)}
+                  {asset.keyPoints.map((p) => (
+                    <li key={p}>{p}</li>
+                  ))}
                 </ul>
               </div>
             )}
             {(asset.confidentialityLevel === "L3" || asset.confidentialityLevel === "L4") && (
-              <p className="confidentiality-derivation-note">L3/L4 对外仅展示脱敏/安全摘要，不含客户敏感数据。</p>
+              <p className="confidentiality-derivation-note">
+                L3/L4 对外仅展示脱敏/安全摘要，不含客户敏感数据。
+              </p>
             )}
           </div>
         ) : (
           <p className="detail-summary-text">当前身份无摘要层权限。</p>
         )}
         <div className="card-tags">
-          {asset.tags.map((t) => <span key={t} className="tag">{t}</span>)}
+          {asset.tags.map((t) => (
+            <span key={t} className="tag">
+              {t}
+            </span>
+          ))}
         </div>
       </section>
 
@@ -354,11 +417,15 @@ export default function KnowledgeDetailPage() {
           </div>
           <div className="detail-prov-item">
             <span className="detail-prov-label">当前版本</span>
-            <span className="detail-prov-value detail-prov-mono">{asset.currentVersionNo || "—"}</span>
+            <span className="detail-prov-value detail-prov-mono">
+              {asset.currentVersionNo || "—"}
+            </span>
           </div>
           <div className="detail-prov-item">
             <span className="detail-prov-label">归属范围</span>
-            <span className="detail-prov-value">{asset.scope} / {asset.zone}</span>
+            <span className="detail-prov-value">
+              {asset.scope} / {asset.zone}
+            </span>
           </div>
         </div>
       </section>
@@ -373,16 +440,25 @@ export default function KnowledgeDetailPage() {
         <div className="detail-access-rules">
           <div className="detail-access-rule">
             <span className="detail-access-indicator detail-access-phase1" />
-            <span className="detail-access-text"><strong>发现层</strong> — {asset.access.discovery ? "可发现" : "不可发现"}</span>
+            <span className="detail-access-text">
+              <strong>发现层</strong> — {asset.access.discovery ? "可发现" : "不可发现"}
+            </span>
           </div>
           <div className="detail-access-rule">
             <span className="detail-access-indicator detail-access-phase2" />
-            <span className="detail-access-text"><strong>摘要层</strong> — {canSummary ? "可查看摘要" : "无摘要权限"}</span>
+            <span className="detail-access-text">
+              <strong>摘要层</strong> — {canSummary ? "可查看摘要" : "无摘要权限"}
+            </span>
           </div>
           <div className="detail-access-rule">
             <span className="detail-access-indicator detail-access-cross" />
             <span className="detail-access-text">
-              <strong>原文层</strong> — {canOriginal ? "可访问原文" : asset.access.canRequestOriginal ? "需申请原文" : "不可访问原文"}
+              <strong>原文层</strong> —{" "}
+              {canOriginal
+                ? "可访问原文"
+                : asset.access.canRequestOriginal
+                  ? "需申请原文"
+                  : "不可访问原文"}
               （权限来源：{asset.access.effectiveSource}）
             </span>
           </div>
@@ -396,7 +472,9 @@ export default function KnowledgeDetailPage() {
           <div className="confidentiality-detail-card">
             <div className="confidentiality-detail-label">保密级别</div>
             <div className="confidentiality-detail-value">
-              <span className={`confidentiality-badge confidentiality-${asset.confidentialityLevel}`}>
+              <span
+                className={`confidentiality-badge confidentiality-${asset.confidentialityLevel}`}
+              >
                 {confidentialityLabelMap[asset.confidentialityLevel]}
               </span>
             </div>
@@ -414,7 +492,9 @@ export default function KnowledgeDetailPage() {
           <strong>调用边界说明</strong>
           <p>{confidentialityHint[asset.confidentialityLevel]}</p>
           {(asset.confidentialityLevel === "L4" || asset.confidentialityLevel === "L5") && (
-            <p className="confidentiality-l45-warning">L4/L5 文件不得进入开放式 AI 调用；仅可按脱敏/摘要策略处理。</p>
+            <p className="confidentiality-l45-warning">
+              L4/L5 文件不得进入开放式 AI 调用；仅可按脱敏/摘要策略处理。
+            </p>
           )}
         </div>
       </section>
@@ -425,13 +505,19 @@ export default function KnowledgeDetailPage() {
         <div className="agent-access-panel">
           <div className="agent-access-status">
             <span className="agent-access-status-label">当前 Agent 调用策略</span>
-            <span className={`agent-access-status-badge ${asset.aiAccessLevel === "A4" ? "agent-access-denied" : "agent-access-allowed"}`}>
+            <span
+              className={`agent-access-status-badge ${asset.aiAccessLevel === "A4" ? "agent-access-denied" : "agent-access-allowed"}`}
+            >
               {agentAccessHint[asset.aiAccessLevel].allowed}
             </span>
           </div>
           <div className="agent-access-desc">{agentAccessHint[asset.aiAccessLevel].desc}</div>
           <p className="page-help-line">
-            Agent 跟随调用人权限、经平台权限网关调用，不获得原文访问凭证、不绕过权限网关，只生成建议；详见 <Link to="/help#integration" className="page-help-link">使用说明 →</Link>
+            Agent
+            跟随调用人权限、经平台权限网关调用，不获得原文访问凭证、不绕过权限网关，只生成建议；详见{" "}
+            <Link to="/help#integration" className="page-help-link">
+              使用说明 →
+            </Link>
           </p>
         </div>
       </section>
@@ -461,7 +547,8 @@ export default function KnowledgeDetailPage() {
         {asset.assetStatus === "archived" && (
           <div className="lifecycle-archive-detail">
             <div className="lifecycle-archive-reason">
-              <strong>归档原因：</strong>{asset.archiveReason || "—"}
+              <strong>归档原因：</strong>
+              {asset.archiveReason || "—"}
             </div>
             <div className="lifecycle-archive-warning">归档资产默认不参与日常检索和问答。</div>
           </div>
@@ -481,13 +568,30 @@ export default function KnowledgeDetailPage() {
             />
             {asset.assetStatus !== "archived" && (
               <>
-                <button className="btn-small" onClick={handleArchiveRequest} disabled={lcBusy}>发起归档建议</button>
-                <button className="btn-small btn-small-primary" onClick={handleArchiveConfirm} disabled={lcBusy}>确认归档</button>
+                <button className="btn-small" onClick={handleArchiveRequest} disabled={lcBusy}>
+                  发起归档建议
+                </button>
+                <button
+                  className="btn-small btn-small-primary"
+                  onClick={handleArchiveConfirm}
+                  disabled={lcBusy}
+                >
+                  确认归档
+                </button>
               </>
             )}
-            <button className="btn-small" onClick={loadLcEvents} disabled={lcBusy}>查看生命周期事件</button>
+            <button className="btn-small" onClick={loadLcEvents} disabled={lcBusy}>
+              查看生命周期事件
+            </button>
             {asset.access.canDelete && asset.assetStatus !== "archived" && (
-              <button className="btn-small btn-small-danger" onClick={() => { setConfirmDelete(true); setDeleteErr(null); }} disabled={deleteBusy}>
+              <button
+                className="btn-small btn-small-danger"
+                onClick={() => {
+                  setConfirmDelete(true);
+                  setDeleteErr(null);
+                }}
+                disabled={deleteBusy}
+              >
                 删除 / 撤下
               </button>
             )}
@@ -495,7 +599,8 @@ export default function KnowledgeDetailPage() {
           {confirmDelete && (
             <div className="lifecycle-delete-confirm">
               <p className="lifecycle-delete-warning">
-                删除后该资产将<strong>立即退出检索 / 问答 / 预览 / 外部 Agent</strong>，相关原文授权同时失效；操作保留审计追溯，不可在产品内自助恢复。
+                删除后该资产将<strong>立即退出检索 / 问答 / 预览 / 外部 Agent</strong>
+                ，相关原文授权同时失效；操作保留审计追溯，不可在产品内自助恢复。
               </p>
               <input
                 className="lifecycle-reason-input"
@@ -505,18 +610,28 @@ export default function KnowledgeDetailPage() {
                 onChange={(e) => setDeleteReason(e.target.value)}
               />
               <div className="lifecycle-delete-actions">
-                <button className="btn-small btn-small-danger" onClick={handleDelete} disabled={deleteBusy}>
+                <button
+                  className="btn-small btn-small-danger"
+                  onClick={handleDelete}
+                  disabled={deleteBusy}
+                >
                   {deleteBusy ? "删除中…" : "确认删除"}
                 </button>
-                <button className="btn-small" onClick={() => setConfirmDelete(false)} disabled={deleteBusy}>取消</button>
+                <button
+                  className="btn-small"
+                  onClick={() => setConfirmDelete(false)}
+                  disabled={deleteBusy}
+                >
+                  取消
+                </button>
               </div>
               {deleteErr && <div className="lifecycle-action-err">{deleteErr}</div>}
             </div>
           )}
           {lcMsg && <div className="lifecycle-action-msg">{lcMsg}</div>}
           {lcErr && <div className="lifecycle-action-err">{lcErr}</div>}
-          {lcEvents && (
-            lcEvents.length === 0 ? (
+          {lcEvents &&
+            (lcEvents.length === 0 ? (
               <div className="lifecycle-events-empty">暂无生命周期事件</div>
             ) : (
               <ul className="lifecycle-events-list">
@@ -531,8 +646,7 @@ export default function KnowledgeDetailPage() {
                   </li>
                 ))}
               </ul>
-            )
-          )}
+            ))}
         </div>
       </section>
 
@@ -543,8 +657,12 @@ export default function KnowledgeDetailPage() {
           <div className="lifecycle-status-card">
             <div className="lifecycle-status-label">索引状态</div>
             <div className="lifecycle-status-value">
-              <span className={`asset-status-badge kl-index-badge ${asset.indexStatus ? `kl-index-${asset.indexStatus}` : ""}`}>
-                {asset.indexStatus ? indexStatusLabel[asset.indexStatus] ?? asset.indexStatus : "—"}
+              <span
+                className={`asset-status-badge kl-index-badge ${asset.indexStatus ? `kl-index-${asset.indexStatus}` : ""}`}
+              >
+                {asset.indexStatus
+                  ? (indexStatusLabel[asset.indexStatus] ?? asset.indexStatus)
+                  : "—"}
               </span>
             </div>
           </div>
@@ -554,20 +672,32 @@ export default function KnowledgeDetailPage() {
           </div>
           <div className="lifecycle-status-card">
             <div className="lifecycle-status-label">最近索引时间</div>
-            <div className="lifecycle-status-value">{asset.indexedAt ? formatBeijingTime(asset.indexedAt) : "—"}</div>
+            <div className="lifecycle-status-value">
+              {asset.indexedAt ? formatBeijingTime(asset.indexedAt) : "—"}
+            </div>
           </div>
         </div>
         {asset.indexStatus === "index_failed" && (
-          <div className="lifecycle-status-hint" style={{ color: "var(--color-warning-fg, #8a6d00)" }}>
-            {asset.indexErrorMessage ?? "知识底座索引失败：资产已保留，但暂不会被语义检索召回，可重试。"}
+          <div
+            className="lifecycle-status-hint"
+            style={{ color: "var(--color-warning-fg, #8a6d00)" }}
+          >
+            {asset.indexErrorMessage ??
+              "知识底座索引失败：资产已保留，但暂不会被语义检索召回，可重试。"}
           </div>
         )}
         {asset.indexStatus === "skipped" && (
-          <div className="lifecycle-status-hint">知识底座未启用，已跳过索引；该资产暂不会被语义检索召回。</div>
+          <div className="lifecycle-status-hint">
+            知识底座未启用，已跳过索引；该资产暂不会被语义检索召回。
+          </div>
         )}
         {asset.access.canRetryIndex && (
           <div className="lifecycle-action-row" style={{ marginTop: 10 }}>
-            <button className="btn-small btn-small-primary" onClick={handleRetryIndex} disabled={retryBusy}>
+            <button
+              className="btn-small btn-small-primary"
+              onClick={handleRetryIndex}
+              disabled={retryBusy}
+            >
               {retryBusy ? "重试中…" : "重试索引"}
             </button>
           </div>
@@ -599,7 +729,9 @@ export default function KnowledgeDetailPage() {
               {previewLoading ? "签发中…" : preview ? "重新申请预览" : "申请受控预览"}
             </button>
           ) : (
-            <button className="btn-secondary doc-preview-btn" disabled>原文预览受限</button>
+            <button className="btn-secondary doc-preview-btn" disabled>
+              原文预览受限
+            </button>
           )}
 
           {previewError && (
@@ -610,9 +742,13 @@ export default function KnowledgeDetailPage() {
 
           {preview && (
             <div className="doc-preview-cred-area">
-              <div className="doc-preview-cred-badge">受控预览凭证已签发（{preview.preview_type}）</div>
+              <div className="doc-preview-cred-badge">
+                受控预览凭证已签发（{preview.preview_type}）
+              </div>
               <div className="doc-preview-cred-meta">
-                凭证指纹：{preview.credential_fingerprint} · 有效期至：{formatBeijingTime(preview.expires_at)}（北京时间） · 状态：{preview.credential_status}
+                凭证指纹：{preview.credential_fingerprint} · 有效期至：
+                {formatBeijingTime(preview.expires_at)}（北京时间） · 状态：
+                {preview.credential_status}
               </div>
               <a
                 className="btn-secondary doc-preview-btn"
@@ -623,7 +759,11 @@ export default function KnowledgeDetailPage() {
                 打开受控预览
               </a>
               <div className="doc-preview-note">
-                预览由平台权限网关签发凭证、只读打开（仅查看，禁编辑 / 下载 / 打印），全程审计；未配置预览服务或该类型不支持时安全降级，不暴露原文地址。详细预览与凭证边界见 <Link to="/help#knowledge" className="page-help-link">使用说明 →</Link>
+                预览由平台权限网关签发凭证、只读打开（仅查看，禁编辑 / 下载 /
+                打印），全程审计；未配置预览服务或该类型不支持时安全降级，不暴露原文地址。详细预览与凭证边界见{" "}
+                <Link to="/help#knowledge" className="page-help-link">
+                  使用说明 →
+                </Link>
               </div>
             </div>
           )}
@@ -634,24 +774,47 @@ export default function KnowledgeDetailPage() {
       <section className="detail-section">
         <div className="detail-actions-bar">
           {canOriginal ? (
-            <button className="btn-secondary" disabled title="你已拥有原文层权限">已有原文权限</button>
+            <button className="btn-secondary" disabled title="你已拥有原文层权限">
+              已有原文权限
+            </button>
           ) : asset.access.existingRequestStatus === "pending" ? (
-            <button className="btn-secondary" disabled>原文申请审批中</button>
+            <button className="btn-secondary" disabled>
+              原文申请审批中
+            </button>
           ) : asset.access.canRequestOriginal ? (
-            <button className="btn-primary" disabled={oaBusy} onClick={() => void handleRequestOriginal()}>
+            <button
+              className="btn-primary"
+              disabled={oaBusy}
+              onClick={() => void handleRequestOriginal()}
+            >
               {oaBusy ? "提交中…" : "申请原文权限"}
             </button>
           ) : (
-            <button className="btn-secondary" disabled>原文不可访问</button>
+            <button className="btn-secondary" disabled>
+              原文不可访问
+            </button>
           )}
-          <button className="btn-secondary" disabled>推荐升级</button>
-          <button className="btn-secondary" disabled>编辑可见性</button>
-          <button className="btn-secondary" disabled>导出摘要</button>
+          <button className="btn-secondary" disabled>
+            推荐升级
+          </button>
+          <button className="btn-secondary" disabled>
+            编辑可见性
+          </button>
+          <button className="btn-secondary" disabled>
+            导出摘要
+          </button>
         </div>
-        {oaError && <div className="doc-preview-note" style={{ color: "var(--color-danger-fg, #b00)" }}>{oaError}</div>}
-        {oaNote && <div className="doc-preview-note" style={{ color: "var(--color-success-fg, #176)" }}>{oaNote}</div>}
+        {oaError && (
+          <div className="doc-preview-note" style={{ color: "var(--color-danger-fg, #b00)" }}>
+            {oaError}
+          </div>
+        )}
+        {oaNote && (
+          <div className="doc-preview-note" style={{ color: "var(--color-success-fg, #176)" }}>
+            {oaNote}
+          </div>
+        )}
       </section>
     </div>
   );
 }
-

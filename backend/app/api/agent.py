@@ -1,4 +1,4 @@
-﻿"""Agent / Dify Gateway API。
+"""Agent / Dify Gateway API。
 
 - POST /api/v1/projects/{project_id}/qa：项目 Q&A，经平台权限网关生成安全回答与引用。
 - GET  /api/v1/agent-calls/{call_id}：获取调用记录（本人 / boss / 咨询总监）。
@@ -56,13 +56,10 @@ async def get_agent_call(
     return await agent_service.get_agent_call(session, caller, call_id)
 
 
-@router.get(
-    "/agent-calls/{call_id}/decision-items", response_model=DecisionItemsResponse
-)
+@router.get("/agent-calls/{call_id}/decision-items", response_model=DecisionItemsResponse)
 async def get_decision_items(
     call_id: uuid.UUID,
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> DecisionItemsResponse:
     return await agent_service.get_decision_items(session, caller, call_id)
-

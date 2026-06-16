@@ -44,9 +44,20 @@ PENDING = "/api/v1/ingest/pending?source=path_a_wecom"
 VALID_DIR = "spaceid:sp1;fatherid:fa1"
 
 _LEAK = [
-    "source_file_ref", "storage_ref", "internal://", "download_url", "access_token",
-    "app_secret", "wecom_secret", "cookie", "file_id", "weknora", "kb_id", "doc_id",
-    "sk-", "Bearer",
+    "source_file_ref",
+    "storage_ref",
+    "internal://",
+    "download_url",
+    "access_token",
+    "app_secret",
+    "wecom_secret",
+    "cookie",
+    "file_id",
+    "weknora",
+    "kb_id",
+    "doc_id",
+    "sk-",
+    "Bearer",
 ]
 
 
@@ -97,7 +108,8 @@ async def test_created_by_is_owner_not_admin_operator(client):
     # 配置操作人是 admin（审计 actor），created_by 写入校验通过的业务归属人；
     # 前端塞 created_by 不被 schema 接收。
     resp = await client.post(
-        CONFIGS, headers=_hdr(USER_ADMIN_ONLY),
+        CONFIGS,
+        headers=_hdr(USER_ADMIN_ONLY),
         json={**_body(), "created_by": str(USER_ADMIN_ONLY)},
     )
     assert resp.status_code == 201
@@ -106,7 +118,8 @@ async def test_created_by_is_owner_not_admin_operator(client):
 
 async def test_create_personal_scope_no_project(client):
     resp = await client.post(
-        CONFIGS, headers=_hdr(USER_ADMIN_ONLY),
+        CONFIGS,
+        headers=_hdr(USER_ADMIN_ONLY),
         json=_body(target_scope="personal", target_project_id=None),
     )
     assert resp.status_code == 201
@@ -144,7 +157,8 @@ async def test_invalid_directory_format_422(client):
 
 async def test_project_scope_missing_project_422(client):
     resp = await client.post(
-        CONFIGS, headers=_hdr(USER_ADMIN_ONLY),
+        CONFIGS,
+        headers=_hdr(USER_ADMIN_ONLY),
         json=_body(target_scope="project", target_project_id=None),
     )
     assert resp.status_code == 422
@@ -152,14 +166,17 @@ async def test_project_scope_missing_project_422(client):
 
 
 async def test_invalid_scope_422(client):
-    resp = await client.post(CONFIGS, headers=_hdr(USER_ADMIN_ONLY), json=_body(target_scope="weird"))
+    resp = await client.post(
+        CONFIGS, headers=_hdr(USER_ADMIN_ONLY), json=_body(target_scope="weird")
+    )
     assert resp.status_code == 422
     assert resp.json()["detail"]["denied_reason"] == "wecom_scan_invalid_scope"
 
 
 async def test_project_not_found_422(client):
     resp = await client.post(
-        CONFIGS, headers=_hdr(USER_ADMIN_ONLY),
+        CONFIGS,
+        headers=_hdr(USER_ADMIN_ONLY),
         json=_body(target_project_id=str(uuid.uuid4())),
     )
     assert resp.status_code == 422
@@ -168,7 +185,8 @@ async def test_project_not_found_422(client):
 
 async def test_personal_with_project_id_422(client):
     resp = await client.post(
-        CONFIGS, headers=_hdr(USER_ADMIN_ONLY),
+        CONFIGS,
+        headers=_hdr(USER_ADMIN_ONLY),
         json=_body(target_scope="company", target_project_id=str(PROJECT_ALPHA)),
     )
     assert resp.status_code == 422
@@ -197,13 +215,16 @@ async def test_patch_edits_enabled_name_scope(client):
     cid = (await client.post(CONFIGS, headers=_hdr(USER_ADMIN_ONLY), json=_body())).json()["id"]
     url = f"{CONFIGS}/{cid}"
     # 改 name + 停用。
-    r1 = await client.patch(url, headers=_hdr(USER_ADMIN_ONLY), json={"name": "改名后", "enabled": False})
+    r1 = await client.patch(
+        url, headers=_hdr(USER_ADMIN_ONLY), json={"name": "改名后", "enabled": False}
+    )
     assert r1.status_code == 200
     assert r1.json()["name"] == "改名后"
     assert r1.json()["enabled"] is False
     # 改 scope 为 company（应清空 project）：company 归属人须为治理角色，故同时改归属人为 boss。
     r2 = await client.patch(
-        url, headers=_hdr(USER_ADMIN_ONLY),
+        url,
+        headers=_hdr(USER_ADMIN_ONLY),
         json={"target_scope": "company", "task_owner_user_id": str(USER_BOSS)},
     )
     assert r2.status_code == 200
@@ -214,7 +235,9 @@ async def test_patch_edits_enabled_name_scope(client):
 
 async def test_patch_admin_only(client):
     cid = (await client.post(CONFIGS, headers=_hdr(USER_ADMIN_ONLY), json=_body())).json()["id"]
-    denied = await client.patch(f"{CONFIGS}/{cid}", headers=_hdr(USER_DIRECTOR), json={"enabled": False})
+    denied = await client.patch(
+        f"{CONFIGS}/{cid}", headers=_hdr(USER_DIRECTOR), json={"enabled": False}
+    )
     assert denied.status_code == 403
 
 
@@ -234,7 +257,9 @@ class _FakeDrive(WeComDriveClient):
 
     async def list_files(self, directory_path):
         return [
-            WeComDriveFile(file_id=fid, name=name, mime="text/plain", size=len(name), content_hash=h)
+            WeComDriveFile(
+                file_id=fid, name=name, mime="text/plain", size=len(name), content_hash=h
+            )
             for (fid, name, h) in self._files
         ]
 
@@ -265,14 +290,19 @@ async def test_audit_created_and_updated_safe(client, db_session):
     )
     cid = created.json()["id"]
     await client.patch(
-        f"{CONFIGS}/{cid}", headers={**_hdr(USER_ADMIN_ONLY), "X-Trace-Id": "trc-cfg-update"},
+        f"{CONFIGS}/{cid}",
+        headers={**_hdr(USER_ADMIN_ONLY), "X-Trace-Id": "trc-cfg-update"},
         json={"name": "审计改名"},
     )
     rows = (
-        await db_session.execute(
-            select(AuditEvent).where(AuditEvent.target_type == "wecom_scan_config")
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.target_type == "wecom_scan_config")
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     actions = {r.action for r in rows}
     assert "wecom_scan.config_created" in actions
     assert "wecom_scan.config_updated" in actions
@@ -300,7 +330,8 @@ async def test_owner_required(client):
 
 async def test_owner_not_found_422(client):
     resp = await client.post(
-        CONFIGS, headers=_hdr(USER_ADMIN_ONLY),
+        CONFIGS,
+        headers=_hdr(USER_ADMIN_ONLY),
         json=_body(task_owner_user_id=str(uuid.uuid4())),
     )
     assert resp.status_code == 422
@@ -315,7 +346,8 @@ async def test_owner_inactive_422(client, db_session):
     db_session.add(u)
     await db_session.commit()
     resp = await client.post(
-        CONFIGS, headers=_hdr(USER_ADMIN_ONLY),
+        CONFIGS,
+        headers=_hdr(USER_ADMIN_ONLY),
         json=_body(target_scope="personal", target_project_id=None, task_owner_user_id=str(uid)),
     )
     assert resp.status_code == 422
@@ -325,8 +357,11 @@ async def test_owner_inactive_422(client, db_session):
 async def test_owner_pure_admin_422(client):
     # 纯 admin（admin active + consultant inactive）不是业务用户 → 拒绝。
     resp = await client.post(
-        CONFIGS, headers=_hdr(USER_ADMIN_ONLY),
-        json=_body(target_scope="personal", target_project_id=None, task_owner_user_id=str(USER_ADMIN_ONLY)),
+        CONFIGS,
+        headers=_hdr(USER_ADMIN_ONLY),
+        json=_body(
+            target_scope="personal", target_project_id=None, task_owner_user_id=str(USER_ADMIN_ONLY)
+        ),
     )
     assert resp.status_code == 422
     assert resp.json()["detail"]["denied_reason"] == "task_owner_not_business"
@@ -335,7 +370,8 @@ async def test_owner_pure_admin_422(client):
 async def test_project_owner_not_member_422(client):
     # boss 不是 Alpha active 成员 → 项目级归属人非法。
     resp = await client.post(
-        CONFIGS, headers=_hdr(USER_ADMIN_ONLY),
+        CONFIGS,
+        headers=_hdr(USER_ADMIN_ONLY),
         json=_body(task_owner_user_id=str(USER_BOSS)),
     )
     assert resp.status_code == 422
@@ -345,8 +381,11 @@ async def test_project_owner_not_member_422(client):
 async def test_company_owner_not_governance_422(client):
     # 顾问不是治理角色 → company 级归属人非法。
     resp = await client.post(
-        CONFIGS, headers=_hdr(USER_ADMIN_ONLY),
-        json=_body(target_scope="company", target_project_id=None, task_owner_user_id=str(USER_CONSULTANT)),
+        CONFIGS,
+        headers=_hdr(USER_ADMIN_ONLY),
+        json=_body(
+            target_scope="company", target_project_id=None, task_owner_user_id=str(USER_CONSULTANT)
+        ),
     )
     assert resp.status_code == 422
     assert resp.json()["detail"]["denied_reason"] == "task_owner_not_governance"
@@ -354,8 +393,11 @@ async def test_company_owner_not_governance_422(client):
 
 async def test_company_owner_governance_ok(client):
     resp = await client.post(
-        CONFIGS, headers=_hdr(USER_ADMIN_ONLY),
-        json=_body(target_scope="company", target_project_id=None, task_owner_user_id=str(USER_BOSS)),
+        CONFIGS,
+        headers=_hdr(USER_ADMIN_ONLY),
+        json=_body(
+            target_scope="company", target_project_id=None, task_owner_user_id=str(USER_BOSS)
+        ),
     )
     assert resp.status_code == 201
     assert resp.json()["created_by"] == str(USER_BOSS)
@@ -366,13 +408,13 @@ async def test_owner_options_api(client):
     assert resp.status_code == 200
     items = resp.json()["items"]
     ids = {i["user_id"] for i in items}
-    assert str(USER_CONSULTANT) in ids       # 业务用户在候选内
-    assert str(USER_ADMIN_ONLY) not in ids   # 纯 admin 不在候选内
+    assert str(USER_CONSULTANT) in ids  # 业务用户在候选内
+    assert str(USER_ADMIN_ONLY) not in ids  # 纯 admin 不在候选内
     # boss 候选标注 governance。
     boss = next(i for i in items if i["user_id"] == str(USER_BOSS))
     assert boss["is_governance"] is True
     _assert_no_leak(resp.text)
-    assert "ww_" not in resp.text            # 不泄露 wecom_user_id 明文
+    assert "ww_" not in resp.text  # 不泄露 wecom_user_id 明文
     # 治理角色可读 owner-options；consultant 403。
     assert (await client.get(OWNER_OPTIONS, headers=_hdr(USER_DIRECTOR))).status_code == 200
     assert (await client.get(OWNER_OPTIONS, headers=_hdr(USER_CONSULTANT))).status_code == 403
@@ -389,7 +431,7 @@ class _FakeDrive2(WeComDriveClient):
         ]
 
     async def download_file(self, file_id):
-        for (fid, _n, _h, b) in self._files:
+        for fid, _n, _h, b in self._files:
             if fid == file_id:
                 return b
         return b""
@@ -411,10 +453,10 @@ async def test_scan_task_owned_by_business_owner_end_to_end(client, db_session):
 
     # IngestTask.created_by 为业务归属人（顾问），不是 admin。
     task = (
-        await db_session.execute(
-            select(IngestTask).where(IngestTask.source == "path_a_wecom")
-        )
-    ).scalars().first()
+        (await db_session.execute(select(IngestTask).where(IngestTask.source == "path_a_wecom")))
+        .scalars()
+        .first()
+    )
     assert task is not None and task.created_by == USER_CONSULTANT
 
     # 顾问在 Path A pending 看到该任务。
@@ -428,20 +470,37 @@ async def test_scan_task_owned_by_business_owner_end_to_end(client, db_session):
     assert ar.status_code == 200
     assert ar.json()["suggested_title"] is None
     bad = await client.post(
-        f"/api/v1/ingest/{task.id}/confirm", headers=_hdr(USER_ADMIN_ONLY),
-        json={"title": "x", "summary": "y", "tags": [], "target_scope": "project",
-              "target_project_id": str(PROJECT_ALPHA), "asset_type": "deliverable",
-              "confidentiality_level": "L2", "ai_access_level": "A2"},
+        f"/api/v1/ingest/{task.id}/confirm",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={
+            "title": "x",
+            "summary": "y",
+            "tags": [],
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "asset_type": "deliverable",
+            "confidentiality_level": "L2",
+            "ai_access_level": "A2",
+        },
     )
     assert bad.status_code == 403
 
     # 业务归属人（顾问）可复用 confirm 完成入库。
     ok = await client.post(
-        f"/api/v1/ingest/{task.id}/confirm", headers=_hdr(USER_CONSULTANT),
-        json={"title": "Alpha 渠道方案", "summary": "渠道融合落地方案摘要", "tags": ["渠道"],
-              "target_scope": "project", "target_project_id": str(PROJECT_ALPHA),
-              "target_zone": "material", "asset_type": "deliverable",
-              "confidentiality_level": "L2", "ai_access_level": "A2", "lifecycle_phase_key": "诊断"},
+        f"/api/v1/ingest/{task.id}/confirm",
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "title": "Alpha 渠道方案",
+            "summary": "渠道融合落地方案摘要",
+            "tags": ["渠道"],
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "target_zone": "material",
+            "asset_type": "deliverable",
+            "confidentiality_level": "L2",
+            "ai_access_level": "A2",
+            "lifecycle_phase_key": "诊断",
+        },
     )
     assert ok.status_code == 200, ok.text
     assert ok.json()["result_asset_id"]
@@ -449,9 +508,11 @@ async def test_scan_task_owned_by_business_owner_end_to_end(client, db_session):
 
 # ================= 扫描运行时归属人保护 =================
 async def _count_path_a_tasks(db_session):
-    rows = (await db_session.execute(
-        select(IngestTask).where(IngestTask.source == "path_a_wecom")
-    )).scalars().all()
+    rows = (
+        (await db_session.execute(select(IngestTask).where(IngestTask.source == "path_a_wecom")))
+        .scalars()
+        .all()
+    )
     return len(rows)
 
 
@@ -480,13 +541,19 @@ async def test_scan_blocked_when_owner_inactive(client, db_session):
 async def test_scan_blocked_when_project_member_removed(client, db_session):
     cid = (await client.post(CONFIGS, headers=_hdr(USER_ADMIN_ONLY), json=_body())).json()["id"]
     # 顾问在 Alpha 的 active 成员关系被置 inactive（移出项目）。
-    member = (await db_session.execute(
-        select(ProjectMember).where(
-            ProjectMember.user_id == USER_CONSULTANT,
-            ProjectMember.project_id == PROJECT_ALPHA,
-            ProjectMember.status == "active",
+    member = (
+        (
+            await db_session.execute(
+                select(ProjectMember).where(
+                    ProjectMember.user_id == USER_CONSULTANT,
+                    ProjectMember.project_id == PROJECT_ALPHA,
+                    ProjectMember.status == "active",
+                )
+            )
         )
-    )).scalars().first()
+        .scalars()
+        .first()
+    )
     member.status = "inactive"
     await db_session.commit()
     _install_drive()
@@ -501,17 +568,26 @@ async def test_scan_blocked_when_project_member_removed(client, db_session):
 
 async def test_scan_blocked_when_company_owner_loses_governance(client, db_session):
     # company scope，归属人 boss。
-    cid = (await client.post(
-        CONFIGS, headers=_hdr(USER_ADMIN_ONLY),
-        json=_body(target_scope="company", target_project_id=None, task_owner_user_id=str(USER_BOSS)),
-    )).json()["id"]
+    cid = (
+        await client.post(
+            CONFIGS,
+            headers=_hdr(USER_ADMIN_ONLY),
+            json=_body(
+                target_scope="company", target_project_id=None, task_owner_user_id=str(USER_BOSS)
+            ),
+        )
+    ).json()["id"]
     # boss 的治理 company role 被停用（失去 boss 角色）。
-    (await db_session.execute(
-        select(User).where(User.id == USER_BOSS).options()
-    )).scalars().first()
-    for role in (await db_session.execute(
-        select(UserCompanyRole).where(UserCompanyRole.user_id == USER_BOSS)
-    )).scalars().all():
+    (await db_session.execute(select(User).where(User.id == USER_BOSS).options())).scalars().first()
+    for role in (
+        (
+            await db_session.execute(
+                select(UserCompanyRole).where(UserCompanyRole.user_id == USER_BOSS)
+            )
+        )
+        .scalars()
+        .all()
+    ):
         role.status = "inactive"
     await db_session.commit()
     _install_drive()
@@ -537,9 +613,15 @@ async def test_run_scan_fail_closed_on_invalid_owner_worker_path(client, db_sess
     await db_session.commit()
     # drive/storage/llm/desensitizer 传 None：归属人失效在使用它们之前已短路返回。
     await scan_service.run_scan(
-        db_session, config, record,
-        drive=None, storage=None, llm=None, desensitizer=None,
-        trace_id="t-worker", actor_caller=None,
+        db_session,
+        config,
+        record,
+        drive=None,
+        storage=None,
+        llm=None,
+        desensitizer=None,
+        trace_id="t-worker",
+        actor_caller=None,
     )
     assert record.scan_status == "failed"
     assert record.error_type == "wecom_scan_owner_invalid"

@@ -1,4 +1,4 @@
-﻿"""ORM 模型聚合导入。
+"""ORM 模型聚合导入。
 
 集中导入所有模型，确保 `Base.metadata` 在 Alembic / 测试建表时完整。
 当前已集中导入：身份与项目成员模型、知识资产核心模型。
@@ -84,4 +84,3 @@ __all__ = [
     "WecomScanConfig",
     "WecomScanRecord",
 ]
-

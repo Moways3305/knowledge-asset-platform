@@ -50,4 +50,3 @@ export function formatBeijingDate(value?: string | null): string {
   }
   return `${out.year}-${out.month}-${out.day}`;
 }
-

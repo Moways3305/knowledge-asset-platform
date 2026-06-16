@@ -78,9 +78,7 @@ async def _make_path_a_task(
 async def test_business_user_sees_own_path_a_pending(client, db_session):
     """创建人（顾问）可在 Path A 列表看到自己的待确认任务，含安全建议元数据。"""
     task_id = await _make_path_a_task(db_session, created_by=USER_CONSULTANT)
-    resp = await client.get(
-        f"{PENDING}?source=path_a_wecom", headers=_hdr(USER_CONSULTANT)
-    )
+    resp = await client.get(f"{PENDING}?source=path_a_wecom", headers=_hdr(USER_CONSULTANT))
     assert resp.status_code == 200
     body = resp.json()
     ids = [i["id"] for i in body["items"]]
@@ -95,9 +93,7 @@ async def test_business_user_sees_own_path_a_pending(client, db_session):
 async def test_other_non_governance_user_cannot_see_others_task(client, db_session):
     """非创建人、非治理业务用户（经理 B）看不到顾问的 Path A 任务（过滤，不泄露存在）。"""
     await _make_path_a_task(db_session, created_by=USER_CONSULTANT)
-    resp = await client.get(
-        f"{PENDING}?source=path_a_wecom", headers=_hdr(USER_PROJECT_MANAGER)
-    )
+    resp = await client.get(f"{PENDING}?source=path_a_wecom", headers=_hdr(USER_PROJECT_MANAGER))
     assert resp.status_code == 200
     assert resp.json()["items"] == []
 
@@ -105,9 +101,7 @@ async def test_other_non_governance_user_cannot_see_others_task(client, db_sessi
 async def test_governance_sees_others_path_a_task(client, db_session):
     """业务治理角色（boss）可看到他人创建的 Path A 待确认任务（与可代确认一致）。"""
     task_id = await _make_path_a_task(db_session, created_by=USER_CONSULTANT)
-    resp = await client.get(
-        f"{PENDING}?source=path_a_wecom", headers=_hdr(USER_BOSS)
-    )
+    resp = await client.get(f"{PENDING}?source=path_a_wecom", headers=_hdr(USER_BOSS))
     assert resp.status_code == 200
     assert str(task_id) in [i["id"] for i in resp.json()["items"]]
 
@@ -115,9 +109,7 @@ async def test_governance_sees_others_path_a_task(client, db_session):
 async def test_pure_admin_forbidden(client, db_session):
     """纯 admin 不是业务用户 → 403，不因系统身份获得业务查看 / 确认权。"""
     await _make_path_a_task(db_session, created_by=USER_CONSULTANT)
-    resp = await client.get(
-        f"{PENDING}?source=path_a_wecom", headers=_hdr(USER_ADMIN_ONLY)
-    )
+    resp = await client.get(f"{PENDING}?source=path_a_wecom", headers=_hdr(USER_ADMIN_ONLY))
     assert resp.status_code == 403
     assert resp.json()["detail"]["denied_reason"] == "admin_business_permission_denied"
 
@@ -125,9 +117,7 @@ async def test_pure_admin_forbidden(client, db_session):
 async def test_pending_list_no_leak(client, db_session):
     """列表响应绝不泄露存储引用 / WeCom file_id / 下载 URL / token / 抽取全文。"""
     await _make_path_a_task(db_session, created_by=USER_CONSULTANT)
-    resp = await client.get(
-        f"{PENDING}?source=path_a_wecom", headers=_hdr(USER_CONSULTANT)
-    )
+    resp = await client.get(f"{PENDING}?source=path_a_wecom", headers=_hdr(USER_CONSULTANT))
     assert resp.status_code == 200
     text = resp.text
     for token in [
@@ -158,9 +148,7 @@ async def test_source_filter_excludes_path_b(client, db_session):
         source=IngestSource.path_b_upload.value,
         file_name="本地上传.pptx",
     )
-    resp = await client.get(
-        f"{PENDING}?source=path_a_wecom", headers=_hdr(USER_CONSULTANT)
-    )
+    resp = await client.get(f"{PENDING}?source=path_a_wecom", headers=_hdr(USER_CONSULTANT))
     ids = [i["id"] for i in resp.json()["items"]]
     assert str(a_id) in ids
     assert str(b_id) not in ids
@@ -192,9 +180,7 @@ async def test_path_a_task_confirmable_via_shared_chain(client, db_session):
     assert asset_id
 
     # 入库后该任务退出 Path A 待确认列表（result_asset_id 已填）。
-    after = await client.get(
-        f"{PENDING}?source=path_a_wecom", headers=_hdr(USER_CONSULTANT)
-    )
+    after = await client.get(f"{PENDING}?source=path_a_wecom", headers=_hdr(USER_CONSULTANT))
     assert str(task_id) not in [i["id"] for i in after.json()["items"]]
 
     # 新资产出现在个人知识库。
@@ -258,9 +244,7 @@ async def test_processing_task_present_but_unconfirmable(client, db_session):
     task_id = await _make_path_a_task(
         db_session, created_by=USER_CONSULTANT, status=IngestStatus.processing.value
     )
-    listed = await client.get(
-        f"{PENDING}?source=path_a_wecom", headers=_hdr(USER_CONSULTANT)
-    )
+    listed = await client.get(f"{PENDING}?source=path_a_wecom", headers=_hdr(USER_CONSULTANT))
     item = next(i for i in listed.json()["items"] if i["id"] == str(task_id))
     assert item["status"] == "processing"
     r = await client.post(

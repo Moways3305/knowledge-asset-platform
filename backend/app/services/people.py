@@ -1,4 +1,4 @@
-﻿"""人员 / 公司角色 / 项目成员关系治理服务。
+"""人员 / 公司角色 / 项目成员关系治理服务。
 
 复用既有表 `users` / `user_company_roles` / `projects` / `project_members` /
 `user_sessions`（仅安全聚合最近会话时间）。不新增 demo-only 字段、不物理删除关系。
@@ -55,7 +55,9 @@ _MAX_LIMIT = 100
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(status_code=status_code, detail={"denied_reason": reason, "message": message})
+    return HTTPException(
+        status_code=status_code, detail={"denied_reason": reason, "message": message}
+    )
 
 
 def _is_admin(caller: CallerContext) -> bool:
@@ -107,8 +109,9 @@ async def _recent_session_map(
         return {}
     rows = (
         await session.execute(
-            select(UserSession.user_id, UserSession.last_seen_at, UserSession.created_at)
-            .where(UserSession.user_id.in_(user_ids))
+            select(UserSession.user_id, UserSession.last_seen_at, UserSession.created_at).where(
+                UserSession.user_id.in_(user_ids)
+            )
         )
     ).all()
     out: dict[uuid.UUID, datetime] = {}
@@ -267,9 +270,7 @@ async def set_company_role(
     if target_role == CompanyRole.admin.value and new_status != RoleStatus.active.value:
         user_is_active = user.status == UserStatus.active.value
         currently_active = (
-            user_is_active
-            and existing is not None
-            and existing.status == RoleStatus.active.value
+            user_is_active and existing is not None and existing.status == RoleStatus.active.value
         )
         if currently_active:
             usable_admins = (
@@ -298,9 +299,13 @@ async def set_company_role(
         await session.flush()
 
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.config_people_company_role_updated.value, trace_id=trace_id,
-        target_type="user_company_role", target_id=role_row.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.config_people_company_role_updated.value,
+        trace_id=trace_id,
+        target_type="user_company_role",
+        target_id=role_row.id,
         extra={
             "target_user_id": str(user.id),
             "company_role": target_role,
@@ -355,7 +360,9 @@ async def upsert_project_membership(
 
     if existing is None:
         member = ProjectMember(
-            project_id=req.project_id, project_role=new_role, status=new_status,
+            project_id=req.project_id,
+            project_role=new_role,
+            status=new_status,
         )
         # 通过关系集合追加，保证同一 session 内重读能看到新成员行。
         user.project_members.append(member)
@@ -367,9 +374,13 @@ async def upsert_project_membership(
         await session.flush()
 
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.config_people_project_membership_updated.value, trace_id=trace_id,
-        target_type="project_member", target_id=member.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.config_people_project_membership_updated.value,
+        trace_id=trace_id,
+        target_type="project_member",
+        target_id=member.id,
         extra={
             "target_user_id": str(user.id),
             "project_id": str(req.project_id),
@@ -381,8 +392,12 @@ async def upsert_project_membership(
     )
     await session.commit()
     return PersonProjectMembershipOut(
-        membership_id=member.id, project_id=member.project_id, project_name=project.name,
-        project_role=member.project_role, status=member.status, joined_at=member.joined_at,
+        membership_id=member.id,
+        project_id=member.project_id,
+        project_name=project.name,
+        project_role=member.project_role,
+        status=member.status,
+        joined_at=member.joined_at,
     )
 
 
@@ -414,9 +429,13 @@ async def patch_project_membership(
     await session.flush()
 
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.config_people_project_membership_updated.value, trace_id=trace_id,
-        target_type="project_member", target_id=member.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.config_people_project_membership_updated.value,
+        trace_id=trace_id,
+        target_type="project_member",
+        target_id=member.id,
         extra={
             "target_user_id": str(user.id),
             "project_id": str(member.project_id),
@@ -430,8 +449,12 @@ async def patch_project_membership(
     await session.commit()
     project_name = member.project.name
     return PersonProjectMembershipOut(
-        membership_id=member.id, project_id=member.project_id, project_name=project_name,
-        project_role=member.project_role, status=member.status, joined_at=member.joined_at,
+        membership_id=member.id,
+        project_id=member.project_id,
+        project_name=project_name,
+        project_role=member.project_role,
+        status=member.status,
+        joined_at=member.joined_at,
     )
 
 
@@ -445,8 +468,11 @@ def _require_admin_only(caller: CallerContext) -> None:
 
 
 async def set_password(
-    session: AsyncSession, caller: CallerContext, user_id: uuid.UUID,
-    req: SetPasswordRequest, trace_id: str,
+    session: AsyncSession,
+    caller: CallerContext,
+    user_id: uuid.UUID,
+    req: SetPasswordRequest,
+    trace_id: str,
 ) -> SetPasswordResponse:
     """管理员为用户设置 / 重置密码。
 
@@ -465,9 +491,13 @@ async def set_password(
     user.password_hash = password_service.hash_password(req.password)
     user.password_set_at = datetime.now(timezone.utc)
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.auth_password_set.value, trace_id=trace_id,
-        target_type="user", target_id=user.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.auth_password_set.value,
+        trace_id=trace_id,
+        target_type="user",
+        target_id=user.id,
         extra={
             "password_set": True,
             "target_user_status": user.status,
@@ -478,11 +508,19 @@ async def set_password(
     revoked, _ = await session_revocation.revoke_user_sessions(session, user.id)
     if revoked:
         await audit_service.record_event(
-            session, caller=caller, log_type=AuditLogType.operation,
-            action=AuditAction.auth_sessions_revoked.value, trace_id=trace_id,
-            target_type="user", target_id=user.id,
-            extra={"target_user_id": str(user.id), "revoked_count": revoked,
-                   "trigger": "password_reset", "preserved_current_session": False},
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.auth_sessions_revoked.value,
+            trace_id=trace_id,
+            target_type="user",
+            target_id=user.id,
+            extra={
+                "target_user_id": str(user.id),
+                "revoked_count": revoked,
+                "trigger": "password_reset",
+                "preserved_current_session": False,
+            },
         )
     await session.commit()
     return SetPasswordResponse(
@@ -491,8 +529,11 @@ async def set_password(
 
 
 async def set_user_status(
-    session: AsyncSession, caller: CallerContext, user_id: uuid.UUID,
-    req: UserStatusUpdateRequest, trace_id: str,
+    session: AsyncSession,
+    caller: CallerContext,
+    user_id: uuid.UUID,
+    req: UserStatusUpdateRequest,
+    trace_id: str,
 ) -> PersonOut:
     """启用 / 停用用户。active→inactive 联动撤销其全部活动平台会话。
 
@@ -505,9 +546,7 @@ async def set_user_status(
         raise _denied(409, "cannot_deactivate_self", "不能停用当前登录的自己")
 
     old_status = user.status
-    deactivating = (
-        old_status == UserStatus.active.value and new_status == UserStatus.inactive.value
-    )
+    deactivating = old_status == UserStatus.active.value and new_status == UserStatus.inactive.value
     # 不允许停用最后一个可用 admin（与公司角色停用同口径）。
     if deactivating:
         is_admin_user = any(
@@ -533,9 +572,13 @@ async def set_user_status(
     user.status = new_status
     await session.flush()
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.config_people_status_updated.value, trace_id=trace_id,
-        target_type="user", target_id=user.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.config_people_status_updated.value,
+        trace_id=trace_id,
+        target_type="user",
+        target_id=user.id,
         extra={"target_user_id": str(user.id), "old_status": old_status, "new_status": new_status},
     )
     # 停用 → 撤销目标用户全部活动平台会话（强制下线）。
@@ -543,12 +586,19 @@ async def set_user_status(
         revoked, _ = await session_revocation.revoke_user_sessions(session, user.id)
         if revoked:
             await audit_service.record_event(
-                session, caller=caller, log_type=AuditLogType.operation,
-                action=AuditAction.auth_sessions_revoked.value, trace_id=trace_id,
-                target_type="user", target_id=user.id,
-                extra={"target_user_id": str(user.id), "revoked_count": revoked,
-                       "trigger": "user_deactivated", "preserved_current_session": False},
+                session,
+                caller=caller,
+                log_type=AuditLogType.operation,
+                action=AuditAction.auth_sessions_revoked.value,
+                trace_id=trace_id,
+                target_type="user",
+                target_id=user.id,
+                extra={
+                    "target_user_id": str(user.id),
+                    "revoked_count": revoked,
+                    "trigger": "user_deactivated",
+                    "preserved_current_session": False,
+                },
             )
     await session.commit()
     return await get_person(session, caller, user_id)
-

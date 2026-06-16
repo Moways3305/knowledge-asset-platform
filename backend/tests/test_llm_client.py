@@ -41,7 +41,9 @@ class FakeLLM:
         self.mode = mode
         self.calls = 0
 
-    async def chat_completion(self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None):
+    async def chat_completion(
+        self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None
+    ):
         self.calls += 1
         if self.mode == "fail":
             raise LLMError("http_500", "LLM 调用失败")
@@ -87,7 +89,9 @@ def _cleanup():
 
 
 async def _upload(client, content=_TXT, file_name="retail.txt", mime="text/plain"):
-    r = await client.post(UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": (file_name, content, mime)})
+    r = await client.post(
+        UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": (file_name, content, mime)}
+    )
     return r.json()["ingest_task_id"]
 
 
@@ -124,7 +128,9 @@ async def test_upload_llm_structured_draft(client, monkeypatch):
     assert b["suggested_tags"] == _GOOD["tags"]
     # 标题是平台规范命名（非摘要式），且确定性拼装恒合规。
     assert _TITLE_RE.match(b["suggested_title"]), b["suggested_title"]
-    assert b["suggested_title"] == "【客户项目-交付成果】零售数字化转型方案_某零售集团_20260520_V2_L3"
+    assert (
+        b["suggested_title"] == "【客户项目-交付成果】零售数字化转型方案_某零售集团_20260520_V2_L3"
+    )
     # 标题 ≠ 一句话摘要（摘要不抢占标题字段）。
     assert b["suggested_title"] != b["suggested_one_liner"]
     # 命名解析结果（组件 + inferred/missing）随响应返回，供前端展示。
@@ -169,7 +175,9 @@ async def test_compliant_filename_parsed_into_naming(client):
     """文件名已规范时，降级也能把组件解析进规范标题（不全走默认）。"""
     fn = "【客户项目-交付成果】组织诊断报告_云宏信息_20260327_V3_L4.txt"
     task_id = await _upload(client, file_name=fn)
-    b = (await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))).json()
+    b = (
+        await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
+    ).json()
     naming = b["naming_parsed_fields"]
     assert naming["original_naming_compliant"] is True
     assert naming["primary_category"] == "客户项目"
@@ -204,10 +212,15 @@ async def test_confirm_writes_three_layer_summaries(client, monkeypatch):
         f"/api/v1/ingest/{task_id}/confirm",
         headers=_hdr(USER_CONSULTANT),
         json={
-            "title": "人工确认标题", "one_liner": "人工一句话",
-            "summary": "人工详细摘要", "key_points": ["人工要点1", "人工要点2"],
-            "tags": ["t"], "target_scope": "personal",
-            "asset_type": "methodology", "confidentiality_level": "L2", "ai_access_level": "A2",
+            "title": "人工确认标题",
+            "one_liner": "人工一句话",
+            "summary": "人工详细摘要",
+            "key_points": ["人工要点1", "人工要点2"],
+            "tags": ["t"],
+            "target_scope": "personal",
+            "asset_type": "methodology",
+            "confidentiality_level": "L2",
+            "ai_access_level": "A2",
         },
     )
     assert r.status_code == 200
@@ -217,7 +230,9 @@ async def test_confirm_writes_three_layer_summaries(client, monkeypatch):
     assert detail["summary"]["one_liner"] == "人工一句话"
     assert detail["summary"]["key_points"] == ["人工要点1", "人工要点2"]
     # AI 草稿仍是 LLM 值（未被人工覆盖）。
-    ai = (await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))).json()
+    ai = (
+        await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
+    ).json()
     assert ai["suggested_one_liner"] == _GOOD["one_liner"]
 
 
@@ -225,7 +240,9 @@ async def test_confirm_with_suggested_title_yields_compliant_asset(client, monke
     """端到端：AI 规范标题 → 人工沿用提交 → 资产详情标题符合平台命名规范。"""
     _enable_llm(monkeypatch, FakeLLM(mode="ok"))
     task_id = await _upload(client, file_name="企业级AI应用案例研究报告.docx")
-    ai = (await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))).json()
+    ai = (
+        await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
+    ).json()
     suggested = ai["suggested_title"]
     assert _TITLE_RE.match(suggested), suggested
     # 顾问沿用 AI 规范标题 + AI 一句话摘要提交入库。
@@ -233,10 +250,14 @@ async def test_confirm_with_suggested_title_yields_compliant_asset(client, monke
         f"/api/v1/ingest/{task_id}/confirm",
         headers=_hdr(USER_CONSULTANT),
         json={
-            "title": suggested, "one_liner": ai["suggested_one_liner"],
-            "summary": ai["suggested_summary"], "tags": ["t"],
-            "target_scope": "personal", "asset_type": "case",
-            "confidentiality_level": "L3", "ai_access_level": "A3",
+            "title": suggested,
+            "one_liner": ai["suggested_one_liner"],
+            "summary": ai["suggested_summary"],
+            "tags": ["t"],
+            "target_scope": "personal",
+            "asset_type": "case",
+            "confidentiality_level": "L3",
+            "ai_access_level": "A3",
         },
     )
     assert r.status_code == 200

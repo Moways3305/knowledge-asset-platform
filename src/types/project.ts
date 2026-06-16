@@ -36,4 +36,3 @@ export interface ProjectCreateResponseDTO {
   coach_user_id: string | null;
   created_at: string;
 }
-

@@ -34,8 +34,14 @@ export default function CreateProjectModal({ open, onClose, onCreated }: CreateP
 
   const handleCreate = async () => {
     setError(null);
-    if (!values.name.trim()) { setError("请填写项目名称"); return; }
-    if (!values.pm) { setError("请选择项目经理"); return; }
+    if (!values.name.trim()) {
+      setError("请填写项目名称");
+      return;
+    }
+    if (!values.pm) {
+      setError("请选择项目经理");
+      return;
+    }
     setBusy(true);
     try {
       const created = await createProject({
@@ -47,7 +53,9 @@ export default function CreateProjectModal({ open, onClose, onCreated }: CreateP
       });
       onCreated(created);
     } catch (e) {
-      setError(e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "创建项目失败");
+      setError(
+        e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "创建项目失败",
+      );
     } finally {
       setBusy(false);
     }
@@ -66,28 +74,47 @@ export default function CreateProjectModal({ open, onClose, onCreated }: CreateP
       onCancel={onClose}
     >
       <FormField label="项目名称">
-        <input value={values.name} onChange={(e) => set("name", e.target.value)} maxLength={200} placeholder="如：某客户数字化转型项目" />
+        <input
+          value={values.name}
+          onChange={(e) => set("name", e.target.value)}
+          maxLength={200}
+          placeholder="如：某客户数字化转型项目"
+        />
       </FormField>
       <FormField label="客户名称（可选）">
-        <input value={values.client} onChange={(e) => set("client", e.target.value)} maxLength={200} />
+        <input
+          value={values.client}
+          onChange={(e) => set("client", e.target.value)}
+          maxLength={200}
+        />
       </FormField>
       <FormField label="项目经理">
         <select value={values.pm} onChange={(e) => set("pm", e.target.value)}>
           <option value="">请选择项目经理…</option>
           {ownerOptions.map((o) => (
-            <option key={o.user_id} value={o.user_id}>{o.name}{o.role_label ? `（${o.role_label}）` : ""}</option>
+            <option key={o.user_id} value={o.user_id}>
+              {o.name}
+              {o.role_label ? `（${o.role_label}）` : ""}
+            </option>
           ))}
         </select>
       </FormField>
       <FormField label="辅导老师（可选）">
         <select value={values.coach} onChange={(e) => set("coach", e.target.value)}>
           <option value="">不指定</option>
-          {ownerOptions.filter((o) => o.user_id !== values.pm).map((o) => (
-            <option key={o.user_id} value={o.user_id}>{o.name}{o.role_label ? `（${o.role_label}）` : ""}</option>
-          ))}
+          {ownerOptions
+            .filter((o) => o.user_id !== values.pm)
+            .map((o) => (
+              <option key={o.user_id} value={o.user_id}>
+                {o.name}
+                {o.role_label ? `（${o.role_label}）` : ""}
+              </option>
+            ))}
         </select>
       </FormField>
-      <p className="kl-modal-hint">生命周期路线默认完整路线（route_A）。候选人来自真实后端 active 业务用户。</p>
+      <p className="kl-modal-hint">
+        生命周期路线默认完整路线（route_A）。候选人来自真实后端 active 业务用户。
+      </p>
     </ConfirmDialog>
   );
 }

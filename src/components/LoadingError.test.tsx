@@ -35,7 +35,12 @@ describe("LoadingError", () => {
 
   it("renders empty state and applies custom wrapper class", () => {
     const { container } = render(
-      <LoadingError empty emptyTitle="暂无数据" wrapperClassName="rv-empty-state" titleClassName="rv-empty-title" />
+      <LoadingError
+        empty
+        emptyTitle="暂无数据"
+        wrapperClassName="rv-empty-state"
+        titleClassName="rv-empty-title"
+      />,
     );
     expect(screen.getByText("暂无数据")).toBeInTheDocument();
     expect(container.querySelector(".rv-empty-state .rv-empty-title")).toBeInTheDocument();

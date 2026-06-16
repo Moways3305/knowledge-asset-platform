@@ -81,7 +81,9 @@ async def test_full_loop_evidence_then_pm_approve_changes_zone(client):
     assert r3.json()["status"] == "approved"
     assert r3.json()["asset_zone"] == "asset"
     # Knowledge detail 可读到 zone 变化
-    d = (await client.get(f"{KN}/{KA_PROJECT_ALPHA_MATERIAL}", headers=_hdr(USER_PROJECT_MANAGER))).json()
+    d = (
+        await client.get(f"{KN}/{KA_PROJECT_ALPHA_MATERIAL}", headers=_hdr(USER_PROJECT_MANAGER))
+    ).json()
     assert d["zone"] == "asset"
 
 
@@ -103,7 +105,9 @@ async def test_reject_keeps_material(client):
     )
     assert r.status_code == 200
     assert r.json()["status"] == "rejected"
-    d = (await client.get(f"{KN}/{KA_PROJECT_ALPHA_MATERIAL}", headers=_hdr(USER_CONSULTANT))).json()
+    d = (
+        await client.get(f"{KN}/{KA_PROJECT_ALPHA_MATERIAL}", headers=_hdr(USER_CONSULTANT))
+    ).json()
     assert d["zone"] == "material"
 
 
@@ -118,9 +122,7 @@ async def test_non_reviewer_cannot_approve(client):
         headers=_hdr(USER_CONSULTANT),
         json=_evidence_body(),
     )
-    r = await client.post(
-        f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_CONSULTANT), json={}
-    )
+    r = await client.post(f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_CONSULTANT), json={})
     assert r.status_code == 403
     assert r.json()["detail"]["denied_reason"] == "review_action_forbidden"
 
@@ -137,7 +139,9 @@ async def test_double_finalize_returns_409(client):
         json=_evidence_body(),
     )
     await client.post(f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_PROJECT_MANAGER), json={})
-    r = await client.post(f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_PROJECT_MANAGER), json={})
+    r = await client.post(
+        f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_PROJECT_MANAGER), json={}
+    )
     assert r.status_code == 409
     assert r.json()["detail"]["denied_reason"] == "review_already_finalized"
 
@@ -148,7 +152,9 @@ async def test_approve_without_evidence_422(client):
         _confirm_url(PROJECT_ALPHA, KA_PROJECT_ALPHA_MATERIAL), headers=_hdr(USER_CONSULTANT)
     )
     review_id = r1.json()["id"]  # pending_evidence，无证据
-    r = await client.post(f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_PROJECT_MANAGER), json={})
+    r = await client.post(
+        f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_PROJECT_MANAGER), json={}
+    )
     assert r.status_code == 422
     assert r.json()["detail"]["denied_reason"] == "review_evidence_required"
 

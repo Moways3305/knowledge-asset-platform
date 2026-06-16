@@ -44,7 +44,9 @@ export default function IdentityMenu() {
     }
   }, []);
 
-  useEffect(() => { void loadMe(); }, [loadMe]);
+  useEffect(() => {
+    void loadMe();
+  }, [loadMe]);
 
   // 点击浮层外 / Esc 关闭。
   useEffect(() => {
@@ -52,7 +54,9 @@ export default function IdentityMenu() {
     const onDown = (e: MouseEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
@@ -62,8 +66,12 @@ export default function IdentityMenu() {
   }, [open]);
 
   const handleLogin = useCallback(async () => {
-    if (!loginEmail.trim()) { setAuthError("请输入登录邮箱"); return; }
-    setAuthBusy(true); setAuthError(null);
+    if (!loginEmail.trim()) {
+      setAuthError("请输入登录邮箱");
+      return;
+    }
+    setAuthBusy(true);
+    setAuthError(null);
     try {
       const me = await login(loginEmail.trim(), loginPassword || undefined);
       setAuthMe(me);
@@ -76,7 +84,7 @@ export default function IdentityMenu() {
           ? "请输入密码登录"
           : e instanceof ApiError && e.status === 401
             ? "邮箱或密码错误"
-            : "登录失败，请稍后重试"
+            : "登录失败，请稍后重试",
       );
     } finally {
       setAuthBusy(false);
@@ -84,7 +92,8 @@ export default function IdentityMenu() {
   }, [loginEmail, loginPassword]);
 
   const handleWecomLogin = useCallback(async () => {
-    setAuthBusy(true); setAuthError(null);
+    setAuthBusy(true);
+    setAuthError(null);
     try {
       // 后端生成 state 写短时 httpOnly cookie 并返回授权 URL；前端只做跳转，
       // 绝不接触/存储 OAuth code / state（会话由后端 httpOnly cookie 控制）。
@@ -97,7 +106,8 @@ export default function IdentityMenu() {
   }, []);
 
   const handleLogout = useCallback(async () => {
-    setAuthBusy(true); setAuthError(null);
+    setAuthBusy(true);
+    setAuthError(null);
     try {
       await logout();
       await loadMe();
@@ -132,16 +142,22 @@ export default function IdentityMenu() {
       {open && (
         <div className="idm-panel" role="dialog">
           <div className="idm-panel-head">
-            <span className={`idm-avatar idm-avatar-lg ${authMe ? "" : "idm-avatar-anon"}`}>{initial}</span>
+            <span className={`idm-avatar idm-avatar-lg ${authMe ? "" : "idm-avatar-anon"}`}>
+              {initial}
+            </span>
             <div className="idm-panel-id">
               <div className="idm-panel-name">{name}</div>
-              <div className="idm-panel-roles"><UserRound size={12} /> 平台身份：{rolesText}</div>
+              <div className="idm-panel-roles">
+                <UserRound size={12} /> 平台身份：{rolesText}
+              </div>
             </div>
           </div>
 
           {projects.length > 0 ? (
             <div className="idm-project">
-              <label className="idm-field-label"><Building2 size={12} /> 当前项目</label>
+              <label className="idm-field-label">
+                <Building2 size={12} /> 当前项目
+              </label>
               <div className="idm-project-row">
                 <select
                   className="idm-select"
@@ -149,7 +165,9 @@ export default function IdentityMenu() {
                   onChange={(e) => setProjectIndex(Number(e.target.value))}
                 >
                   {projects.map((ctx, i) => (
-                    <option key={ctx.projectId} value={i}>{ctx.projectName}</option>
+                    <option key={ctx.projectId} value={i}>
+                      {ctx.projectName}
+                    </option>
                   ))}
                 </select>
                 {currentProject && (
@@ -173,7 +191,9 @@ export default function IdentityMenu() {
               placeholder="登录邮箱"
               value={loginEmail}
               onChange={(e) => setLoginEmail(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") void handleLogin(); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleLogin();
+              }}
             />
             <input
               className="idm-input"
@@ -181,16 +201,38 @@ export default function IdentityMenu() {
               placeholder="密码"
               value={loginPassword}
               onChange={(e) => setLoginPassword(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") void handleLogin(); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleLogin();
+              }}
             />
             <div className="idm-actions">
-              <button className="btn-primary idm-btn" onClick={() => void handleLogin()} disabled={authBusy}>登录</button>
-              <button className="btn-secondary idm-btn" onClick={() => void handleWecomLogin()} disabled={authBusy}>企业微信</button>
+              <button
+                className="btn-primary idm-btn"
+                onClick={() => void handleLogin()}
+                disabled={authBusy}
+              >
+                登录
+              </button>
+              <button
+                className="btn-secondary idm-btn"
+                onClick={() => void handleWecomLogin()}
+                disabled={authBusy}
+              >
+                企业微信
+              </button>
             </div>
-            {authError && <div className="idm-error" role="alert">{authError}</div>}
+            {authError && (
+              <div className="idm-error" role="alert">
+                {authError}
+              </div>
+            )}
             <p className="idm-hint">开发环境可不填密码用邮箱登录；生产需密码或企业微信。</p>
             {authMe && (
-              <button className="idm-logout" onClick={() => void handleLogout()} disabled={authBusy}>
+              <button
+                className="idm-logout"
+                onClick={() => void handleLogout()}
+                disabled={authBusy}
+              >
                 <LogOut size={13} /> 登出当前会话
               </button>
             )}

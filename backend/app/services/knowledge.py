@@ -1,4 +1,4 @@
-﻿"""Knowledge 读服务。
+"""Knowledge 读服务。
 
 组织列表 / 详情 / 个人知识三类只读能力。所有 discovery / summary / original
 判断**必须**调用 `app.services.permission`，不在此重写权限矩阵。
@@ -72,6 +72,7 @@ def _index_user_message(ver) -> str | None:
         return None
     return error_catalog.user_message(ver.index_error_code)
 
+
 _INACTIVE_STATUSES = [AssetStatus.archived.value, AssetStatus.deprecated.value]
 _DELETED_STATUS = AssetStatus.deleted.value
 _REDACTED_LEVELS = {ConfidentialityLevel.L3.value, ConfidentialityLevel.L4.value}
@@ -122,18 +123,17 @@ def _can_retry_index(caller: CallerContext, asset: KnowledgeAsset) -> bool:
     if not caller.is_business_user:
         return False
     if caller.can_discover_l5 and asset.scope in (
-        KnowledgeScope.project.value, KnowledgeScope.company.value
+        KnowledgeScope.project.value,
+        KnowledgeScope.company.value,
     ):
         return True
     scope = asset.scope
     if scope == KnowledgeScope.personal.value:
         return asset.owner_user_id == caller.user_id
     if scope == KnowledgeScope.project.value:
-        return (
-            asset.project_id is not None
-            and caller.active_project_roles.get(asset.project_id)
-            in (ProjectRole.project_manager.value, ProjectRole.coach.value)
-        )
+        return asset.project_id is not None and caller.active_project_roles.get(
+            asset.project_id
+        ) in (ProjectRole.project_manager.value, ProjectRole.coach.value)
     if scope == KnowledgeScope.company.value:
         return caller.can_discover_l5
     return False
@@ -190,8 +190,7 @@ def _build_access_info(
         existing_grant_expires_at=grant_expires_at if has_grant else None,
         can_delete=_can_delete(caller, asset),
         can_retry_index=(
-            _can_retry_index(caller, asset)
-            and index_status in _RETRYABLE_INDEX_STATUSES
+            _can_retry_index(caller, asset) and index_status in _RETRYABLE_INDEX_STATUSES
         ),
     )
 
@@ -213,9 +212,7 @@ async def _aux_maps(
         projects = {r[0]: r[1] for r in rows}
     if user_ids:
         rows = (
-            await session.execute(
-                select(User.id, User.name).where(User.id.in_(user_ids))
-            )
+            await session.execute(select(User.id, User.name).where(User.id.in_(user_ids)))
         ).all()
         users = {r[0]: r[1] for r in rows}
     return projects, users
@@ -229,10 +226,14 @@ async def _version_index_map(
     if not vids:
         return {}
     rows = (
-        await session.execute(
-            select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.id.in_(vids))
+        (
+            await session.execute(
+                select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.id.in_(vids))
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return {v.id: v for v in rows}
 
 
@@ -246,8 +247,11 @@ def _to_list_item(
 ) -> KnowledgeListItemOut:
     ver = (vindex or {}).get(asset.current_version_id) if asset.current_version_id else None
     access = _build_access_info(
-        caller, asset, has_grant=bool(granted_ids and asset.id in granted_ids),
-        index_status=ver.index_status if ver else None, policy=policy,
+        caller,
+        asset,
+        has_grant=bool(granted_ids and asset.id in granted_ids),
+        index_status=ver.index_status if ver else None,
+        policy=policy,
     )
     smap = _summary_map(asset)
     summary_text = (
@@ -349,8 +353,11 @@ async def get_detail(
         session, caller, asset.id
     )
     access = _build_access_info(
-        caller, asset, has_grant=has_grant,
-        grant_expires_at=grant_expires_at, pending_request=pending_request,
+        caller,
+        asset,
+        has_grant=has_grant,
+        grant_expires_at=grant_expires_at,
+        pending_request=pending_request,
         index_status=version_obj.index_status if version_obj else None,
         policy=policy,
     )
@@ -365,9 +372,7 @@ async def get_detail(
         else:
             kp_raw = smap.get("key_points")
             key_points = (
-                [line.strip() for line in kp_raw.split("\n") if line.strip()]
-                if kp_raw
-                else []
+                [line.strip() for line in kp_raw.split("\n") if line.strip()] if kp_raw else []
             )
             summary_obj = SummaryOut(
                 one_liner=smap.get("one_liner"),
@@ -419,7 +424,8 @@ async def get_detail(
         # 安全目录 code：历史脏 code 也归一，不外显原始上游 code。
         index_error_code=(
             error_catalog.safe_code(version_obj.index_error_code)
-            if (version_obj and version_obj.index_status == "index_failed") else None
+            if (version_obj and version_obj.index_status == "index_failed")
+            else None
         ),
         index_error_message=_index_user_message(version_obj),
         indexed_at=version_obj.indexed_at if version_obj else None,
@@ -443,9 +449,7 @@ async def list_my_knowledge(
             KnowledgeAsset.scope == KnowledgeScope.personal.value,
             KnowledgeAsset.owner_user_id == caller.user_id,
         )
-        .options(
-            selectinload(KnowledgeAsset.tags), selectinload(KnowledgeAsset.summaries)
-        )
+        .options(selectinload(KnowledgeAsset.tags), selectinload(KnowledgeAsset.summaries))
     )
     assets = list((await session.execute(stmt)).scalars().all())
     # 复用 discovery 决策过滤：与权限口径一致，本人 archived/deprecated personal
@@ -509,7 +513,9 @@ async def delete_asset(
                     AccessGrant.asset_id == asset_id, AccessGrant.status == "active"
                 )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     for g in grants:
         g.status = "revoked"
@@ -526,7 +532,9 @@ async def delete_asset(
                     OriginalAccessRequest.status == "pending",
                 )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     for r in pendings:
         r.status = "cancelled"
@@ -566,9 +574,13 @@ async def delete_asset(
     asset.delete_reason = clean_reason
 
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.knowledge_asset_deleted.value, trace_id=trace_id,
-        target_type="knowledge_asset", target_id=asset.id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.knowledge_asset_deleted.value,
+        trace_id=trace_id,
+        target_type="knowledge_asset",
+        target_id=asset.id,
         before={"asset_status": prev_status},
         after={
             "asset_status": asset.asset_status,
@@ -587,23 +599,37 @@ async def delete_asset(
     )
     await session.commit()
     return KnowledgeDeleteResponse(
-        asset_id=asset.id, asset_status=asset.asset_status,
-        deleted_at=asset.deleted_at, trace_id=trace_id,
+        asset_id=asset.id,
+        asset_status=asset.asset_status,
+        deleted_at=asset.deleted_at,
+        trace_id=trace_id,
     )
 
 
 async def _audit_retry_failed(
-    session: AsyncSession, caller: CallerContext, asset_id: uuid.UUID,
-    error_code: str | None, trace_id: str, project_id: uuid.UUID | None,
+    session: AsyncSession,
+    caller: CallerContext,
+    asset_id: uuid.UUID,
+    error_code: str | None,
+    trace_id: str,
+    project_id: uuid.UUID | None,
 ) -> None:
     """重试后底座仍失败的审计（exception）。extra 只放安全 stage + error_code。"""
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.exception,
-        action=AuditAction.knowledge_index_retry_failed.value, trace_id=trace_id,
-        target_type="knowledge_asset", target_id=asset_id,
-        severity=AlertSeverity.warning, risk_level=AuditRiskLevel.high.value,
+        session,
+        caller=caller,
+        log_type=AuditLogType.exception,
+        action=AuditAction.knowledge_index_retry_failed.value,
+        trace_id=trace_id,
+        target_type="knowledge_asset",
+        target_id=asset_id,
+        severity=AlertSeverity.warning,
+        risk_level=AuditRiskLevel.high.value,
         # 审计 extra 只写安全目录 code，不写上游原始 code。
-        extra={"failure_stage": "weknora_index_retry", "error_code": error_catalog.safe_code(error_code)},
+        extra={
+            "failure_stage": "weknora_index_retry",
+            "error_code": error_catalog.safe_code(error_code),
+        },
         project_id=project_id,
     )
     await session.commit()
@@ -663,9 +689,13 @@ async def retry_index(
 
     # 发起审计（operation）。
     await audit_service.record_event(
-        session, caller=caller, log_type=AuditLogType.operation,
-        action=AuditAction.knowledge_index_retry_requested.value, trace_id=trace_id,
-        target_type="knowledge_asset", target_id=asset_id,
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.knowledge_index_retry_requested.value,
+        trace_id=trace_id,
+        target_type="knowledge_asset",
+        target_id=asset_id,
         extra={"scope": scope, "from_index_status": from_status},
         project_id=project_id,
     )
@@ -687,22 +717,30 @@ async def retry_index(
             v.weknora_parse_status = None
         await session.commit()
         return RetryIndexResponse(
-            asset_id=asset_id, index_status="skipped",
-            weknora_parse_status=None, index_error_code=None, index_error_message=None,
+            asset_id=asset_id,
+            index_status="skipped",
+            weknora_parse_status=None,
+            index_error_code=None,
+            index_error_message=None,
             trace_id=trace_id,
         )
 
     # 取入库任务的 server-only source_file_ref（只读取 ref，不外泄）。
     task = (
-        await session.execute(
-            select(IngestTask)
-            .where(IngestTask.result_asset_id == asset_id)
-            .order_by(IngestTask.created_at.desc())
+        (
+            await session.execute(
+                select(IngestTask)
+                .where(IngestTask.result_asset_id == asset_id)
+                .order_by(IngestTask.created_at.desc())
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if task is None or not task.source_file_ref:
         raise _denied(
-            409, "knowledge_index_source_unavailable",
+            409,
+            "knowledge_index_source_unavailable",
             "找不到原文来源，无法重传底座（可能为历史数据）",
         )
     source_file_name = task.source_file_name
@@ -716,36 +754,56 @@ async def retry_index(
         outcome = await indexing.mark_index_failed(
             session, version_id=version_id, error_code="source_file_unreadable"
         )
-        await _audit_retry_failed(session, caller, asset_id, outcome.error_code, trace_id, project_id)
+        await _audit_retry_failed(
+            session, caller, asset_id, outcome.error_code, trace_id, project_id
+        )
         return await _retry_response(session, asset_id, version_id, outcome, trace_id)
 
     outcome = await indexing.index_asset_version(
-        session, weknora,
-        asset_id=asset_id, version_id=version_id, scope=scope,
-        owner_user_id=owner_user_id, project_id=project_id, confidentiality=confidentiality,
-        file_bytes=file_bytes, source_file_name=source_file_name,
-        source_file_mime=source_file_mime, channel=channel, trace_id=trace_id,
+        session,
+        weknora,
+        asset_id=asset_id,
+        version_id=version_id,
+        scope=scope,
+        owner_user_id=owner_user_id,
+        project_id=project_id,
+        confidentiality=confidentiality,
+        file_bytes=file_bytes,
+        source_file_name=source_file_name,
+        source_file_mime=source_file_mime,
+        channel=channel,
+        trace_id=trace_id,
     )
     if outcome.index_status == "indexed":
         await audit_service.record_event(
-            session, caller=caller, log_type=AuditLogType.operation,
-            action=AuditAction.knowledge_index_retried.value, trace_id=trace_id,
-            target_type="knowledge_asset", target_id=asset_id,
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.knowledge_index_retried.value,
+            trace_id=trace_id,
+            target_type="knowledge_asset",
+            target_id=asset_id,
             extra={
-                "scope": scope, "parse_status": outcome.parse_status,
+                "scope": scope,
+                "parse_status": outcome.parse_status,
                 "is_duplicate": outcome.is_duplicate,
             },
             project_id=project_id,
         )
         await session.commit()
     else:
-        await _audit_retry_failed(session, caller, asset_id, outcome.error_code, trace_id, project_id)
+        await _audit_retry_failed(
+            session, caller, asset_id, outcome.error_code, trace_id, project_id
+        )
     return await _retry_response(session, asset_id, version_id, outcome, trace_id)
 
 
 async def _retry_response(
-    session: AsyncSession, asset_id: uuid.UUID, version_id: uuid.UUID,
-    outcome: indexing.IndexOutcome, trace_id: str,
+    session: AsyncSession,
+    asset_id: uuid.UUID,
+    version_id: uuid.UUID,
+    outcome: indexing.IndexOutcome,
+    trace_id: str,
 ) -> RetryIndexResponse:
     """从 outcome + 最新 version 状态构建安全重试响应（不含 kb/doc id）。"""
     v = (
@@ -766,4 +824,3 @@ async def _retry_response(
         ),
         trace_id=trace_id,
     )
-

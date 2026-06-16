@@ -40,9 +40,20 @@ _COMPANY_KB = "wk-kb-company"
 # 注：审计 extra 含安全布尔键 weknora_delete_attempted/succeeded（任务明确允许），
 # 故不把裸 "weknora" 入列；真实泄露关注 WeKnora 内部 id（wk-kb / wk-doc / kb_id / doc_id）。
 _LEAK = [
-    "storage_ref", "source_file_ref", "internal://", "wk-kb", "wk-doc", "kb_id",
-    "doc_id", "chunk_id", "access_token", "download_url", "cookie",
-    "ww_consultant", "sk-", "Bearer",
+    "storage_ref",
+    "source_file_ref",
+    "internal://",
+    "wk-kb",
+    "wk-doc",
+    "kb_id",
+    "doc_id",
+    "chunk_id",
+    "access_token",
+    "download_url",
+    "cookie",
+    "ww_consultant",
+    "sk-",
+    "Bearer",
 ]
 
 
@@ -72,8 +83,15 @@ class _FakeSearchWeKnora:
         for i, d in enumerate(self.docs):
             if d["kb_id"] not in kb_ids:
                 continue
-            out.append({"content": d["content"], "knowledge_id": d["knowledge_id"],
-                        "chunk_index": 0, "score": round(1.0 - i * 0.01, 4), "seq": 0})
+            out.append(
+                {
+                    "content": d["content"],
+                    "knowledge_id": d["knowledge_id"],
+                    "chunk_index": 0,
+                    "score": round(1.0 - i * 0.01, 4),
+                    "seq": 0,
+                }
+            )
         return out
 
     async def hybrid_search(self, **_):
@@ -86,12 +104,15 @@ class _NoLLM:
 
     async def chat_completion(self, *_, **__):
         from app.services.llm_client import LLMError
+
         raise LLMError("llm_not_configured", "未配置")
 
 
 # ================= 删除：权限矩阵 =================
 async def test_owner_deletes_personal(client):
-    r = await client.post(_del(KA_PERSONAL), headers=_hdr(USER_CONSULTANT), json={"reason": "上传错误"})
+    r = await client.post(
+        _del(KA_PERSONAL), headers=_hdr(USER_CONSULTANT), json={"reason": "上传错误"}
+    )
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["asset_status"] == "deleted"
@@ -107,7 +128,9 @@ async def test_non_owner_cannot_see_personal_404(client):
 
 
 async def test_project_manager_deletes_project(client):
-    r = await client.post(_del(KA_PROJECT_ALPHA), headers=_hdr(USER_PROJECT_MANAGER), json={"reason": "重复"})
+    r = await client.post(
+        _del(KA_PROJECT_ALPHA), headers=_hdr(USER_PROJECT_MANAGER), json={"reason": "重复"}
+    )
     assert r.status_code == 200, r.text
     assert r.json()["asset_status"] == "deleted"
 
@@ -121,9 +144,11 @@ async def test_consultant_cannot_delete_project_403(client):
 
 async def test_coach_cannot_delete_project_403(client, db_session):
     # 把咨询总监设为 Alpha 的 active coach（非 PM）；coach 不可删除项目知识。
-    db_session.add(ProjectMember(
-        user_id=USER_DIRECTOR, project_id=PROJECT_ALPHA, project_role="coach", status="active"
-    ))
+    db_session.add(
+        ProjectMember(
+            user_id=USER_DIRECTOR, project_id=PROJECT_ALPHA, project_role="coach", status="active"
+        )
+    )
     await db_session.commit()
     r = await client.post(_del(KA_PROJECT_ALPHA), headers=_hdr(USER_DIRECTOR), json={})
     assert r.status_code == 403
@@ -147,7 +172,9 @@ async def test_pure_admin_cannot_delete(client, db_session):
 
 
 async def test_double_delete_404(client):
-    assert (await client.post(_del(KA_PERSONAL), headers=_hdr(USER_CONSULTANT), json={})).status_code == 200
+    assert (
+        await client.post(_del(KA_PERSONAL), headers=_hdr(USER_CONSULTANT), json={})
+    ).status_code == 200
     r2 = await client.post(_del(KA_PERSONAL), headers=_hdr(USER_CONSULTANT), json={})
     assert r2.status_code == 404
 
@@ -163,20 +190,32 @@ async def test_deleted_exits_list_detail_mykn(client):
     my = (await client.get("/api/v1/my/knowledge", headers=_hdr(USER_CONSULTANT))).json()["items"]
     assert all(i["id"] != str(KA_PERSONAL) for i in my)
     # 详情 404。
-    assert (await client.get(f"{KN}/{KA_PERSONAL}", headers=_hdr(USER_CONSULTANT))).status_code == 404
+    assert (
+        await client.get(f"{KN}/{KA_PERSONAL}", headers=_hdr(USER_CONSULTANT))
+    ).status_code == 404
 
 
 async def test_deleted_exits_search(client):
     # 删除前可被检索；删除后即使 fake 仍返回 doc，也因 asset 非 active 被排除。
     app.dependency_overrides[get_weknora_client] = lambda: _FakeSearchWeKnora(
-        [{"knowledge_id": f"wk-doc-{KA_COMPANY_L2}", "kb_id": _COMPANY_KB, "content": "零售数字化成熟度评估内容"}]
+        [
+            {
+                "knowledge_id": f"wk-doc-{KA_COMPANY_L2}",
+                "kb_id": _COMPANY_KB,
+                "content": "零售数字化成熟度评估内容",
+            }
+        ]
     )
     app.dependency_overrides[get_llm_client] = lambda: _NoLLM()
     try:
-        before = await client.post(SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": "成熟度", "scope": "company"})
+        before = await client.post(
+            SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": "成熟度", "scope": "company"}
+        )
         assert str(KA_COMPANY_L2) in {c["asset_id"] for c in before.json()["cards"]}
         await client.post(_del(KA_COMPANY_L2), headers=_hdr(USER_BOSS), json={})
-        after = await client.post(SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": "成熟度", "scope": "company"})
+        after = await client.post(
+            SEARCH, headers=_hdr(USER_CONSULTANT), json={"query": "成熟度", "scope": "company"}
+        )
         assert str(KA_COMPANY_L2) not in {c["asset_id"] for c in after.json()["cards"]}
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)
@@ -185,38 +224,69 @@ async def test_deleted_exits_search(client):
 
 async def test_deleted_blocks_preview(client):
     # 删除前 consultant 可对公司 L2 申请预览；删除后预览失败。
-    assert (await client.post(f"{KN}/{KA_COMPANY_L2}/preview", headers=_hdr(USER_CONSULTANT))).status_code == 200
+    assert (
+        await client.post(f"{KN}/{KA_COMPANY_L2}/preview", headers=_hdr(USER_CONSULTANT))
+    ).status_code == 200
     await client.post(_del(KA_COMPANY_L2), headers=_hdr(USER_BOSS), json={})
-    assert (await client.post(f"{KN}/{KA_COMPANY_L2}/preview", headers=_hdr(USER_CONSULTANT))).status_code in (403, 404)
+    assert (
+        await client.post(f"{KN}/{KA_COMPANY_L2}/preview", headers=_hdr(USER_CONSULTANT))
+    ).status_code in (403, 404)
 
 
 async def test_delete_revokes_grants_and_cancels_requests(client, db_session):
     # 预置 active grant + pending request，删除后均失效。
-    db_session.add(AccessGrant(
-        asset_id=KA_COMPANY_L2, grantee_user_id=USER_CONSULTANT, granted_by_user_id=USER_BOSS,
-        grant_type="original_access", status="active",
-    ))
-    db_session.add(OriginalAccessRequest(
-        asset_id=KA_COMPANY_L2, requester_user_id=USER_PROJECT_MANAGER, status="pending",
-    ))
+    db_session.add(
+        AccessGrant(
+            asset_id=KA_COMPANY_L2,
+            grantee_user_id=USER_CONSULTANT,
+            granted_by_user_id=USER_BOSS,
+            grant_type="original_access",
+            status="active",
+        )
+    )
+    db_session.add(
+        OriginalAccessRequest(
+            asset_id=KA_COMPANY_L2,
+            requester_user_id=USER_PROJECT_MANAGER,
+            status="pending",
+        )
+    )
     await db_session.commit()
     r = await client.post(_del(KA_COMPANY_L2), headers=_hdr(USER_DIRECTOR), json={})
     assert r.status_code == 200
-    grant = (await db_session.execute(
-        select(AccessGrant).where(AccessGrant.asset_id == KA_COMPANY_L2)
-    )).scalars().first()
+    grant = (
+        (await db_session.execute(select(AccessGrant).where(AccessGrant.asset_id == KA_COMPANY_L2)))
+        .scalars()
+        .first()
+    )
     assert grant.status == "revoked" and grant.revoke_reason == "asset_deleted"
-    req = (await db_session.execute(
-        select(OriginalAccessRequest).where(OriginalAccessRequest.asset_id == KA_COMPANY_L2)
-    )).scalars().first()
+    req = (
+        (
+            await db_session.execute(
+                select(OriginalAccessRequest).where(OriginalAccessRequest.asset_id == KA_COMPANY_L2)
+            )
+        )
+        .scalars()
+        .first()
+    )
     assert req.status == "cancelled"
 
 
 async def test_delete_audit_no_leak(client, db_session):
-    await client.post(_del(KA_COMPANY_L2), headers={**_hdr(USER_BOSS), "X-Trace-Id": "trc-del"}, json={"reason": "误上传"})
-    evt = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "knowledge.asset_deleted")
-    )).scalars().first()
+    await client.post(
+        _del(KA_COMPANY_L2),
+        headers={**_hdr(USER_BOSS), "X-Trace-Id": "trc-del"},
+        json={"reason": "误上传"},
+    )
+    evt = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.action == "knowledge.asset_deleted")
+            )
+        )
+        .scalars()
+        .first()
+    )
     assert evt is not None
     assert evt.actor_user_id == USER_BOSS
     assert evt.after_snapshot["asset_status"] == "deleted"
@@ -239,14 +309,26 @@ async def test_weknora_delete_network_failure_still_soft_deletes(client, db_sess
     # 造一个带 active weknora_doc_id 的个人资产（owner=顾问 A）。
     aid = uuid.uuid4()
     asset = KnowledgeAsset(
-        id=aid, title="待删除带索引资产", scope="personal", zone="asset",
-        asset_type="methodology", owner_user_id=USER_CONSULTANT, maintainer_user_id=USER_CONSULTANT,
-        visibility="project_only", confidentiality_level="L2", ai_access_level="A1",
+        id=aid,
+        title="待删除带索引资产",
+        scope="personal",
+        zone="asset",
+        asset_type="methodology",
+        owner_user_id=USER_CONSULTANT,
+        maintainer_user_id=USER_CONSULTANT,
+        visibility="project_only",
+        confidentiality_level="L2",
+        ai_access_level="A1",
         asset_status="active",
     )
     version = KnowledgeAssetVersion(
-        asset_id=aid, version_no="v1", version_status="active", created_by=USER_CONSULTANT,
-        weknora_kb_id="wk-kb-secret", weknora_doc_id="wk-doc-secret", weknora_parse_status="completed",
+        asset_id=aid,
+        version_no="v1",
+        version_status="active",
+        created_by=USER_CONSULTANT,
+        weknora_kb_id="wk-kb-secret",
+        weknora_doc_id="wk-doc-secret",
+        weknora_parse_status="completed",
     )
     asset.versions.append(version)
     db_session.add(asset)
@@ -257,7 +339,8 @@ async def test_weknora_delete_network_failure_still_soft_deletes(client, db_sess
     app.dependency_overrides[get_weknora_client] = lambda: _BoomWeKnora()
     try:
         r = await client.post(
-            _del(aid), headers={**_hdr(USER_CONSULTANT), "X-Trace-Id": "trc-wk-fail"},
+            _del(aid),
+            headers={**_hdr(USER_CONSULTANT), "X-Trace-Id": "trc-wk-fail"},
             json={"reason": "误上传"},
         )
     finally:
@@ -272,15 +355,23 @@ async def test_weknora_delete_network_failure_still_soft_deletes(client, db_sess
     # 资产进入 deleted；详情 404。
     db_session.expire_all()  # 丢弃 identity-map 旧值，强制从 DB 读取 API 已提交的状态。
     fresh = await db_session.get(KnowledgeAsset, aid)
-    assert fresh.asset_status == "deleted" and fresh.deleted_by == USER_CONSULTANT and fresh.deleted_at
+    assert (
+        fresh.asset_status == "deleted" and fresh.deleted_by == USER_CONSULTANT and fresh.deleted_at
+    )
     assert (await client.get(f"{KN}/{aid}", headers=_hdr(USER_CONSULTANT))).status_code == 404
 
     # 审计：attempted=True、succeeded=False；不含 doc/kb id、URL、异常原文。
-    evt = (await db_session.execute(
-        select(AuditEvent).where(
-            AuditEvent.action == "knowledge.asset_deleted", AuditEvent.target_id == aid
+    evt = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(
+                    AuditEvent.action == "knowledge.asset_deleted", AuditEvent.target_id == aid
+                )
+            )
         )
-    )).scalars().first()
+        .scalars()
+        .first()
+    )
     assert evt is not None
     assert evt.extra["weknora_delete_attempted"] is True
     assert evt.extra["weknora_delete_succeeded"] is False

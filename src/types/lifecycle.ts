@@ -37,4 +37,3 @@ export interface LifecycleEventDTO {
 export interface LifecycleEventsResponseDTO {
   items: LifecycleEventDTO[];
 }
-

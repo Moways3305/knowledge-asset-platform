@@ -17,7 +17,7 @@ export interface AsyncDataState<T> {
 
 export function useAsyncData<T>(
   fetcher: () => Promise<T>,
-  opts: { auto?: boolean; errorMessage?: string } = {}
+  opts: { auto?: boolean; errorMessage?: string } = {},
 ): AsyncDataState<T> {
   const { auto = true, errorMessage = "加载失败" } = opts;
   const [data, setData] = useState<T | null>(null);

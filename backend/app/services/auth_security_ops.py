@@ -1,4 +1,4 @@
-﻿"""登录风控运维服务。
+"""登录风控运维服务。
 
 admin-only：近期登录风控聚合（counts + 最近事件安全视图）+ 手动解除 identifier 短时锁定。
 
@@ -77,7 +77,9 @@ async def get_overview(
                 .where(AuthLoginAttempt.created_at >= window_start)
                 .order_by(AuthLoginAttempt.created_at.desc())
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
     counts = AuthSecurityCounts()
@@ -152,7 +154,9 @@ async def _resolve_identifier_by_prefix(session: AsyncSession, prefix: str) -> s
                 )
                 .distinct()
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     if not matches:
         raise _denied(404, "unlock_identifier_not_found", "未找到匹配的近期登录标识")
@@ -218,7 +222,8 @@ async def unlock_identifier(
                     AuthLoginAttempt.result.in_(auth_security._FAILED_RESULTS),
                 )
             )
-        ).scalar() or 0
+        ).scalar()
+        or 0
     )
 
     anchor = await auth_security.record_login_attempt(
@@ -263,4 +268,3 @@ async def unlock_identifier(
         identifier_hash_prefix=prefix,
         reset_at=auth_security._as_aware(anchor.created_at),
     )
-

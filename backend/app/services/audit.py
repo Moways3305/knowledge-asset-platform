@@ -1,4 +1,4 @@
-﻿"""集中审计写入服务。
+"""集中审计写入服务。
 
 **所有模块写审计只能经本模块唯一入口 `record_event`**，不得各自散写。
 本模块负责：角色快照、写入时脱敏、severity / risk_level 标记。
@@ -141,11 +141,7 @@ def sanitize_text(value: str | None) -> str | None:
 def _sanitize(value):
     """递归脱敏快照 / extra：剔除禁止键 + 对字符串值做值级脱敏（写入时兜底防线）。"""
     if isinstance(value, dict):
-        return {
-            k: _sanitize(v)
-            for k, v in value.items()
-            if str(k).lower() not in _FORBIDDEN_KEYS
-        }
+        return {k: _sanitize(v) for k, v in value.items() if str(k).lower() not in _FORBIDDEN_KEYS}
     if isinstance(value, list):
         return [_sanitize(v) for v in value]
     if isinstance(value, str):
@@ -168,14 +164,18 @@ async def _project_role_snapshot(
     if project_id is None or project_id not in caller.active_project_ids:
         return None
     return (
-        await session.execute(
-            select(ProjectMember.project_role).where(
-                ProjectMember.user_id == caller.user_id,
-                ProjectMember.project_id == project_id,
-                ProjectMember.status == MemberStatus.active.value,
+        (
+            await session.execute(
+                select(ProjectMember.project_role).where(
+                    ProjectMember.user_id == caller.user_id,
+                    ProjectMember.project_id == project_id,
+                    ProjectMember.status == MemberStatus.active.value,
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
 
 
 async def record_event(
@@ -408,15 +408,11 @@ def _to_out(event: AuditEvent, view: str, names: dict[uuid.UUID, str]) -> AuditE
     )
 
 
-async def _resolve_names(
-    session: AsyncSession, events: list[AuditEvent]
-) -> dict[uuid.UUID, str]:
+async def _resolve_names(session: AsyncSession, events: list[AuditEvent]) -> dict[uuid.UUID, str]:
     ids = {e.actor_user_id for e in events if e.actor_user_id}
     if not ids:
         return {}
-    rows = (
-        await session.execute(select(User.id, User.name).where(User.id.in_(ids)))
-    ).all()
+    rows = (await session.execute(select(User.id, User.name).where(User.id.in_(ids)))).all()
     return {r[0]: r[1] for r in rows}
 
 
@@ -541,4 +537,3 @@ async def mark_processed(
         processed_by=event.processed_by,
         processed_at=event.processed_at,
     )
-

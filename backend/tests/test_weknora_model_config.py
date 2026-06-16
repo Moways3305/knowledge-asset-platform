@@ -32,10 +32,22 @@ class FakeModelsWK:
     def __init__(self):
         # 预置若干模型（含真实 server-only id）。
         self.models: dict[str, dict] = {
-            "mid-chat": {"id": "mid-chat", "name": "qwen-plus", "type": "KnowledgeQA", "source": "remote",
-                          "status": "active", "parameters": {"provider": "aliyun"}},
-            "mid-emb": {"id": "mid-emb", "name": "text-embedding-v3", "type": "Embedding", "source": "remote",
-                         "status": "active", "parameters": {"provider": "aliyun"}},
+            "mid-chat": {
+                "id": "mid-chat",
+                "name": "qwen-plus",
+                "type": "KnowledgeQA",
+                "source": "remote",
+                "status": "active",
+                "parameters": {"provider": "aliyun"},
+            },
+            "mid-emb": {
+                "id": "mid-emb",
+                "name": "text-embedding-v3",
+                "type": "Embedding",
+                "source": "remote",
+                "status": "active",
+                "parameters": {"provider": "aliyun"},
+            },
         }
         self.last_create: dict | None = None
         self.last_update: dict | None = None
@@ -45,7 +57,14 @@ class FakeModelsWK:
         self._n = 0
 
     async def list_model_providers(self, model_type=None, *, trace_id=None):
-        return [{"value": "aliyun", "label": "阿里云 DashScope", "description": "qwen, etc.", "modelTypes": ["chat", "embedding"]}]
+        return [
+            {
+                "value": "aliyun",
+                "label": "阿里云 DashScope",
+                "description": "qwen, etc.",
+                "modelTypes": ["chat", "embedding"],
+            }
+        ]
 
     async def list_models(self, *, trace_id=None):
         return list(self.models.values())
@@ -57,9 +76,14 @@ class FakeModelsWK:
         self.last_create = payload
         self._n += 1
         mid = f"mid-new-{self._n}"
-        self.models[mid] = {"id": mid, "name": payload["name"], "type": payload["type"],
-                            "source": payload["source"], "status": "active",
-                            "parameters": {"provider": payload.get("parameters", {}).get("provider")}}
+        self.models[mid] = {
+            "id": mid,
+            "name": payload["name"],
+            "type": payload["type"],
+            "source": payload["source"],
+            "status": "active",
+            "parameters": {"provider": payload.get("parameters", {}).get("provider")},
+        }
         return self.models[mid]
 
     async def update_model(self, model_id, payload, *, trace_id=None):
@@ -74,10 +98,23 @@ class FakeModelsWK:
     async def get_initialization_config(self, kb_id, *, trace_id=None):
         return self.kb_configs.get(kb_id, {"embedding_model_id": "mid-emb"})
 
-    async def update_initialization_config(self, kb_id, *, chat_model_id=None, embedding_model_id=None,
-                                           rerank_model_id=None, multimodal_id=None, trace_id=None):
-        self.last_init = {"kb_id": kb_id, "chat": chat_model_id, "embedding": embedding_model_id,
-                          "rerank": rerank_model_id, "multimodal": multimodal_id}
+    async def update_initialization_config(
+        self,
+        kb_id,
+        *,
+        chat_model_id=None,
+        embedding_model_id=None,
+        rerank_model_id=None,
+        multimodal_id=None,
+        trace_id=None,
+    ):
+        self.last_init = {
+            "kb_id": kb_id,
+            "chat": chat_model_id,
+            "embedding": embedding_model_id,
+            "rerank": rerank_model_id,
+            "multimodal": multimodal_id,
+        }
         return {"success": True}
 
     async def check_remote_model(self, *, api_url, api_key, model, trace_id=None):
@@ -132,8 +169,13 @@ async def test_consultant_forbidden(client, wk):
 # ---------------------------------------------------------------------------
 async def test_create_model_secret_upstream_not_in_response_or_audit(client, wk, db_session):
     body = {
-        "name": "new-chat", "type": "chat", "source": "remote", "provider": "aliyun",
-        "base_url": _URL, "api_key": _SECRET, "description": "测试",
+        "name": "new-chat",
+        "type": "chat",
+        "source": "remote",
+        "provider": "aliyun",
+        "base_url": _URL,
+        "api_key": _SECRET,
+        "description": "测试",
     }
     r = await client.post(f"{BASE}/models", headers=_hdr(USER_ADMIN_ONLY), json=body)
     assert r.status_code == 200, r.text
@@ -146,9 +188,15 @@ async def test_create_model_secret_upstream_not_in_response_or_audit(client, wk,
         assert token not in r.text
     assert r.json()["model_ref"]
     # 审计只含安全字段，不含 secret。
-    ev = (await db_session.execute(
-        select(AuditEvent).where(AuditEvent.action == "weknora.model_created")
-    )).scalars().all()
+    ev = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.action == "weknora.model_created")
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert len(ev) >= 1
     blob = str([e.extra for e in ev])
     for token in [_SECRET, _URL, "sk-", "mid-new"]:
@@ -159,7 +207,13 @@ async def test_create_model_secret_upstream_not_in_response_or_audit(client, wk,
 async def test_update_model_no_secret_leak(client, wk):
     models = (await client.get(f"{BASE}/models", headers=_hdr(USER_ADMIN_ONLY))).json()["items"]
     ref = models[0]["model_ref"]
-    body = {"name": "renamed", "type": "chat", "source": "remote", "api_key": _SECRET, "base_url": _URL}
+    body = {
+        "name": "renamed",
+        "type": "chat",
+        "source": "remote",
+        "api_key": _SECRET,
+        "base_url": _URL,
+    }
     r = await client.put(f"{BASE}/models/{ref}", headers=_hdr(USER_ADMIN_ONLY), json=body)
     assert r.status_code == 200, r.text
     # 底座收到 server-only id（非 ref）+ secret。
@@ -200,13 +254,20 @@ async def test_kb_configs_no_kb_id_leak(client, wk):
 
 async def test_update_kb_init_resolves_ref_to_server_id(client, wk, db_session):
     # 取 company 映射 id + 一个 embedding 模型 ref。
-    mp = (await db_session.execute(
-        select(WeknoraKbMapping).where(WeknoraKbMapping.scope == "company")
-    )).scalars().first()
+    mp = (
+        (
+            await db_session.execute(
+                select(WeknoraKbMapping).where(WeknoraKbMapping.scope == "company")
+            )
+        )
+        .scalars()
+        .first()
+    )
     models = (await client.get(f"{BASE}/models", headers=_hdr(USER_ADMIN_ONLY))).json()["items"]
     emb_ref = next(m["model_ref"] for m in models if m["type"] == "embedding")
     r = await client.put(
-        f"{BASE}/kb-configs/{mp.id}/initialization", headers=_hdr(USER_ADMIN_ONLY),
+        f"{BASE}/kb-configs/{mp.id}/initialization",
+        headers=_hdr(USER_ADMIN_ONLY),
         json={"embedding_model_ref": emb_ref},
     )
     assert r.status_code == 200, r.text
@@ -221,8 +282,14 @@ async def test_update_kb_init_resolves_ref_to_server_id(client, wk, db_session):
 # ---------------------------------------------------------------------------
 async def test_check_model_no_secret_in_response(client, wk):
     r = await client.post(
-        f"{BASE}/models/check", headers=_hdr(USER_ADMIN_ONLY),
-        json={"model_type": "embedding", "api_url": _URL, "api_key": _SECRET, "model": "text-embedding-v3"},
+        f"{BASE}/models/check",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={
+            "model_type": "embedding",
+            "api_url": _URL,
+            "api_key": _SECRET,
+            "model": "text-embedding-v3",
+        },
     )
     assert r.status_code == 200
     assert r.json()["success"] is True
@@ -255,7 +322,9 @@ async def test_not_configured_consultant_still_403(client, monkeypatch):
 # ---------------------------------------------------------------------------
 class _LeakyCreateWK(FakeModelsWK):
     async def create_model(self, payload, *, trace_id=None):
-        raise WeKnoraError("bad_request", f"bad {_SECRET} {_URL} mid-chat wk-kb-company api_key base_url")
+        raise WeKnoraError(
+            "bad_request", f"bad {_SECRET} {_URL} mid-chat wk-kb-company api_key base_url"
+        )
 
 
 class _LeakyCheckWK(FakeModelsWK):
@@ -279,17 +348,31 @@ _LEAK_TOKENS = [_SECRET, _URL, "sk-", "mid-chat", "mid-emb", "wk-kb-company", "a
 async def test_model_create_upstream_error_no_leak(client, monkeypatch, db_session):
     _install(monkeypatch, _LeakyCreateWK())
     try:
-        r = await client.post(f"{BASE}/models", headers=_hdr(USER_ADMIN_ONLY), json={
-            "name": "x", "type": "chat", "source": "remote", "base_url": _URL, "api_key": _SECRET,
-        })
+        r = await client.post(
+            f"{BASE}/models",
+            headers=_hdr(USER_ADMIN_ONLY),
+            json={
+                "name": "x",
+                "type": "chat",
+                "source": "remote",
+                "base_url": _URL,
+                "api_key": _SECRET,
+            },
+        )
         assert r.status_code == 502, r.text
         assert r.json()["detail"]["message"] == "底座模型配置调用失败，请检查配置或稍后重试"
         for token in _LEAK_TOKENS:
             assert token not in r.text
         # 上游失败不写成功审计。
-        ev = (await db_session.execute(
-            select(AuditEvent).where(AuditEvent.action == "weknora.model_created")
-        )).scalars().all()
+        ev = (
+            (
+                await db_session.execute(
+                    select(AuditEvent).where(AuditEvent.action == "weknora.model_created")
+                )
+            )
+            .scalars()
+            .all()
+        )
         assert ev == []
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)
@@ -298,9 +381,16 @@ async def test_model_create_upstream_error_no_leak(client, monkeypatch, db_sessi
 async def test_model_check_upstream_error_no_leak(client, monkeypatch):
     _install(monkeypatch, _LeakyCheckWK())
     try:
-        r = await client.post(f"{BASE}/models/check", headers=_hdr(USER_ADMIN_ONLY), json={
-            "model_type": "embedding", "api_url": _URL, "api_key": _SECRET, "model": "text-embedding-v3",
-        })
+        r = await client.post(
+            f"{BASE}/models/check",
+            headers=_hdr(USER_ADMIN_ONLY),
+            json={
+                "model_type": "embedding",
+                "api_url": _URL,
+                "api_key": _SECRET,
+                "model": "text-embedding-v3",
+            },
+        )
         assert r.status_code == 502, r.text
         for token in _LEAK_TOKENS:
             assert token not in r.text
@@ -311,13 +401,20 @@ async def test_model_check_upstream_error_no_leak(client, monkeypatch):
 async def test_kb_init_upstream_error_no_leak(client, monkeypatch, db_session):
     _install(monkeypatch, _LeakyInitWK())
     try:
-        mp = (await db_session.execute(
-            select(WeknoraKbMapping).where(WeknoraKbMapping.scope == "company")
-        )).scalars().first()
+        mp = (
+            (
+                await db_session.execute(
+                    select(WeknoraKbMapping).where(WeknoraKbMapping.scope == "company")
+                )
+            )
+            .scalars()
+            .first()
+        )
         models = (await client.get(f"{BASE}/models", headers=_hdr(USER_ADMIN_ONLY))).json()["items"]
         emb_ref = next(m["model_ref"] for m in models if m["type"] == "embedding")
         r = await client.put(
-            f"{BASE}/kb-configs/{mp.id}/initialization", headers=_hdr(USER_ADMIN_ONLY),
+            f"{BASE}/kb-configs/{mp.id}/initialization",
+            headers=_hdr(USER_ADMIN_ONLY),
             json={"embedding_model_ref": emb_ref},
         )
         assert r.status_code == 502, r.text
@@ -338,15 +435,29 @@ class _NoIdCreateWK(FakeModelsWK):
 async def test_create_model_missing_id_fails_closed(client, monkeypatch, db_session):
     _install(monkeypatch, _NoIdCreateWK())
     try:
-        r = await client.post(f"{BASE}/models", headers=_hdr(USER_ADMIN_ONLY), json={
-            "name": "no-id-model", "type": "chat", "source": "remote", "base_url": _URL, "api_key": _SECRET,
-        })
+        r = await client.post(
+            f"{BASE}/models",
+            headers=_hdr(USER_ADMIN_ONLY),
+            json={
+                "name": "no-id-model",
+                "type": "chat",
+                "source": "remote",
+                "base_url": _URL,
+                "api_key": _SECRET,
+            },
+        )
         assert r.status_code == 502
         assert r.json()["detail"]["denied_reason"] == "weknora_model_create_no_id"
         assert "model_ref" not in r.text
-        ev = (await db_session.execute(
-            select(AuditEvent).where(AuditEvent.action == "weknora.model_created")
-        )).scalars().all()
+        ev = (
+            (
+                await db_session.execute(
+                    select(AuditEvent).where(AuditEvent.action == "weknora.model_created")
+                )
+            )
+            .scalars()
+            .all()
+        )
         assert ev == []
         for token in _LEAK_TOKENS:
             assert token not in r.text

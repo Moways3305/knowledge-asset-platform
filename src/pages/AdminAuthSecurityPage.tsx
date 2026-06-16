@@ -8,11 +8,18 @@ import { formatBeijingTime } from "../utils/time";
 // 登录风控运维。仅 admin 可见；展示安全聚合 + 最近事件 + 手动解锁入口。
 // 全部为不可逆 hash 前缀 / 安全用户元数据；不展示 raw email / raw IP / 完整 hash / token。
 const resultLabel: Record<string, string> = {
-  failed: "失败", locked: "已锁定", rate_limited: "IP 限流", success: "成功", unlocked: "已解锁",
+  failed: "失败",
+  locked: "已锁定",
+  rate_limited: "IP 限流",
+  success: "成功",
+  unlocked: "已解锁",
 };
 const reasonLabel: Record<string, string> = {
-  invalid_credentials: "凭证错误", identifier_locked: "账号短时锁定", ip_rate_limited: "IP 限流",
-  manual_unlock: "人工解锁", success: "成功",
+  invalid_credentials: "凭证错误",
+  identifier_locked: "账号短时锁定",
+  ip_rate_limited: "IP 限流",
+  manual_unlock: "人工解锁",
+  success: "成功",
 };
 
 // 可唯一定位、可解锁的事件（账号短时锁定 / 失败累积）。
@@ -39,14 +46,18 @@ export default function AdminAuthSecurityPage() {
     }
   }, [windowMinutes]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const onUnlock = useCallback(
     async (ev: AuthSecurityEventDTO) => {
       setNotice(null);
       setError(null);
       try {
-        const body = ev.user_id ? { user_id: ev.user_id } : { identifier_hash_prefix: ev.identifier_hash_prefix ?? "" };
+        const body = ev.user_id
+          ? { user_id: ev.user_id }
+          : { identifier_hash_prefix: ev.identifier_hash_prefix ?? "" };
         const res = await unlockAuthLockout(body);
         setNotice(res.unlocked ? "已解除该账号的短时锁定。" : "未发生解锁。");
         await load();
@@ -54,19 +65,21 @@ export default function AdminAuthSecurityPage() {
         setError(e instanceof ApiError ? e.message : "解锁失败，请稍后重试");
       }
     },
-    [load]
+    [load],
   );
 
   const c = data?.counts;
-  const risks: { label: string; value: number; sev: Sev }[] = c ? [
-    { label: "失败", value: c.failed, sev: "warning" },
-    { label: "锁定", value: c.locked, sev: "danger" },
-    { label: "IP 限流", value: c.rate_limited, sev: "danger" },
-    { label: "成功", value: c.success, sev: "success" },
-    { label: "人工解锁", value: c.unlocked, sev: "info" },
-    { label: "独立账号", value: c.unique_identifier_count, sev: "info" },
-    { label: "独立 IP", value: c.unique_ip_count, sev: "info" },
-  ] : [];
+  const risks: { label: string; value: number; sev: Sev }[] = c
+    ? [
+        { label: "失败", value: c.failed, sev: "warning" },
+        { label: "锁定", value: c.locked, sev: "danger" },
+        { label: "IP 限流", value: c.rate_limited, sev: "danger" },
+        { label: "成功", value: c.success, sev: "success" },
+        { label: "人工解锁", value: c.unlocked, sev: "info" },
+        { label: "独立账号", value: c.unique_identifier_count, sev: "info" },
+        { label: "独立 IP", value: c.unique_ip_count, sev: "info" },
+      ]
+    : [];
 
   return (
     <div className="cockpit">
@@ -75,7 +88,9 @@ export default function AdminAuthSecurityPage() {
           <div className="kb-eyebrow">Auth Security · 登录风控</div>
           <h2 className="kb-title">登录风控运营台</h2>
           <p className="kb-lead">
-            近 {data?.window_minutes ?? windowMinutes} 分钟登录尝试的安全聚合与手动解锁。仅显示不可逆标识前缀与安全用户元数据，不含邮箱 / IP / 密码 / 令牌。
+            近 {data?.window_minutes ?? windowMinutes}{" "}
+            分钟登录尝试的安全聚合与手动解锁。仅显示不可逆标识前缀与安全用户元数据，不含邮箱 / IP /
+            密码 / 令牌。
           </p>
         </div>
       </div>
@@ -84,7 +99,10 @@ export default function AdminAuthSecurityPage() {
         <label>
           时间窗口（分钟）
           <input
-            type="number" min={1} max={10080} value={windowMinutes}
+            type="number"
+            min={1}
+            max={10080}
+            value={windowMinutes}
             onChange={(e) => setWindowMinutes(Math.max(1, Number(e.target.value) || 60))}
           />
         </label>
@@ -113,16 +131,27 @@ export default function AdminAuthSecurityPage() {
         {(data?.recent_events ?? []).map((ev) => (
           <div key={ev.attempt_id} className="cockpit-event">
             <span className="cockpit-event-time">{formatBeijingTime(ev.created_at)}</span>
-            <span className={`authres authres-${ev.result}`}>{resultLabel[ev.result] ?? ev.result}</span>
+            <span className={`authres authres-${ev.result}`}>
+              {resultLabel[ev.result] ?? ev.result}
+            </span>
             <span className="cockpit-event-user">
               {ev.user_name ? `${ev.user_name}（${ev.user_status ?? ""}）` : "未知账号"}
-              <span className="cockpit-event-reason"> · {ev.reason_code ? reasonLabel[ev.reason_code] ?? ev.reason_code : "—"}</span>
+              <span className="cockpit-event-reason">
+                {" "}
+                · {ev.reason_code ? (reasonLabel[ev.reason_code] ?? ev.reason_code) : "—"}
+              </span>
             </span>
-            <span className="cockpit-event-hash" title="账号标识前缀（不可逆）">{ev.identifier_hash_prefix ?? "—"}</span>
-            <span className="cockpit-event-hash" title="IP 前缀（不可逆）">{ev.ip_hash_prefix ?? "—"}</span>
+            <span className="cockpit-event-hash" title="账号标识前缀（不可逆）">
+              {ev.identifier_hash_prefix ?? "—"}
+            </span>
+            <span className="cockpit-event-hash" title="IP 前缀（不可逆）">
+              {ev.ip_hash_prefix ?? "—"}
+            </span>
             <span>
               {UNLOCKABLE.has(ev.result) && (ev.user_id || ev.identifier_hash_prefix) ? (
-                <button className="cockpit-unlock" onClick={() => void onUnlock(ev)}><Unlock size={12} /> 解锁</button>
+                <button className="cockpit-unlock" onClick={() => void onUnlock(ev)}>
+                  <Unlock size={12} /> 解锁
+                </button>
               ) : null}
             </span>
           </div>

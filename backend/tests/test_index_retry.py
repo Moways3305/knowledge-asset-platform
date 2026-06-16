@@ -49,7 +49,9 @@ class FakeWK:
     async def get_initialization_config(self, kb_id, *, trace_id=None):
         return {}
 
-    async def upload_file(self, *, kb_id, content, file_name, mime, metadata=None, channel=None, trace_id=None):
+    async def upload_file(
+        self, *, kb_id, content, file_name, mime, metadata=None, channel=None, trace_id=None
+    ):
         if self.fail:
             raise WeKnoraError("weknora_down", "底座不可用")
         self._doc += 1
@@ -84,15 +86,21 @@ def _set_client(fake):
 
 
 async def _upload(client, user, *, content=_TXT, file_name="doc.txt"):
-    r = await client.post(UPLOAD, headers=_hdr(user), files={"file": (file_name, content, "text/plain")})
+    r = await client.post(
+        UPLOAD, headers=_hdr(user), files={"file": (file_name, content, "text/plain")}
+    )
     return r.json()["ingest_task_id"]
 
 
 def _payload(scope, project_id, **over):
     base = {
-        "title": "索引重试资产", "summary": "摘要", "tags": ["t"],
-        "target_scope": scope, "asset_type": "methodology",
-        "confidentiality_level": "L2", "ai_access_level": "A2",
+        "title": "索引重试资产",
+        "summary": "摘要",
+        "tags": ["t"],
+        "target_scope": scope,
+        "asset_type": "methodology",
+        "confidentiality_level": "L2",
+        "ai_access_level": "A2",
     }
     if project_id is not None:
         base["target_project_id"] = str(project_id)
@@ -102,12 +110,22 @@ def _payload(scope, project_id, **over):
 
 async def _confirm(client, user, task_id, *, scope="personal", project_id=None, **over):
     return await client.post(
-        f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(user),
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(user),
         json=_payload(scope, project_id, **over),
     )
 
 
-async def _make_index_failed(client, monkeypatch, user, *, scope="personal", project_id=None, content=_TXT, title="索引重试资产"):
+async def _make_index_failed(
+    client,
+    monkeypatch,
+    user,
+    *,
+    scope="personal",
+    project_id=None,
+    content=_TXT,
+    title="索引重试资产",
+):
     """用失败 fake 走 confirm，生成一个已落库但 index_failed 的资产，返回 asset_id。"""
     _enable(monkeypatch, FakeWK(fail=True))
     task_id = await _upload(client, user, content=content)
@@ -136,7 +154,15 @@ async def test_detail_exposes_safe_index_status_no_leak(client, monkeypatch):
         # indexed 资产不可重试。
         assert body["access_info"]["can_retry_index"] is False
         # 安全：绝不暴露 WeKnora server-only 字段。
-        for token in ["weknora_kb_id", "weknora_doc_id", "kb-", "doc-", "storage_ref", "source_file_ref", "sk-"]:
+        for token in [
+            "weknora_kb_id",
+            "weknora_doc_id",
+            "kb-",
+            "doc-",
+            "storage_ref",
+            "source_file_ref",
+            "sk-",
+        ]:
             assert token not in d.text
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)
@@ -162,12 +188,18 @@ async def test_owner_retry_personal_success(client, db_session, monkeypatch):
     asset_id = await _make_index_failed(client, monkeypatch, USER_CONSULTANT)
     try:
         _set_client(FakeWK())  # 切换为成功 fake
-        r = await client.post(f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT))
+        r = await client.post(
+            f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT)
+        )
         assert r.status_code == 200, r.text
         assert r.json()["index_status"] == "indexed"
-        ver = (await db_session.execute(
-            select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id))
-        )).scalar_one()
+        ver = (
+            await db_session.execute(
+                select(KnowledgeAssetVersion).where(
+                    KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id)
+                )
+            )
+        ).scalar_one()
         assert ver.index_status == "indexed"
         assert ver.index_error_code is None
         # 注：weknora_parse_status 是安全字段名（允许出现）；只校验真实内部标识不泄露。
@@ -181,19 +213,27 @@ async def test_retry_still_failing_keeps_index_failed(client, db_session, monkey
     asset_id = await _make_index_failed(client, monkeypatch, USER_CONSULTANT)
     try:
         _set_client(FakeWK(fail=True))  # 仍失败
-        r = await client.post(f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT))
+        r = await client.post(
+            f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT)
+        )
         assert r.status_code == 200, r.text
         assert r.json()["index_status"] == "index_failed"
         assert r.json()["index_error_code"] == "weknora_call_failed"  # 上游 code 目录化
-        ver = (await db_session.execute(
-            select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id))
-        )).scalar_one()
+        ver = (
+            await db_session.execute(
+                select(KnowledgeAssetVersion).where(
+                    KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id)
+                )
+            )
+        ).scalar_one()
         assert ver.index_status == "index_failed"
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)
 
 
-async def test_retry_source_file_unreadable_returns_safe_json_not_coroutine(client, db_session, monkeypatch):
+async def test_retry_source_file_unreadable_returns_safe_json_not_coroutine(
+    client, db_session, monkeypatch
+):
     """原文不可读时重试：必须返回正常 JSON（index_failed），不得 500、不得返回未 await 的协程。
 
     回归锁定：retry 的 source_file_unreadable 分支曾漏写 `await _retry_response(...)`，
@@ -204,14 +244,22 @@ async def test_retry_source_file_unreadable_returns_safe_json_not_coroutine(clie
     asset_id = await _make_index_failed(client, monkeypatch, USER_CONSULTANT)
     try:
         # 把入库任务的 server-only 原文引用改成"格式合法但文件缺失"，令 read_bytes 抛 OSError。
-        task = (await db_session.execute(
-            select(IngestTask).where(IngestTask.result_asset_id == uuid.UUID(asset_id))
-        )).scalars().first()
+        task = (
+            (
+                await db_session.execute(
+                    select(IngestTask).where(IngestTask.result_asset_id == uuid.UUID(asset_id))
+                )
+            )
+            .scalars()
+            .first()
+        )
         task.source_file_ref = "internal://does-not-exist.bin"
         await db_session.commit()
 
         _set_client(FakeWK())  # OSError 发生在触达底座之前，fake 不会被用到
-        r = await client.post(f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT))
+        r = await client.post(
+            f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT)
+        )
 
         # 不是 500，是正常 JSON。
         assert r.status_code == 200, r.text
@@ -219,13 +267,25 @@ async def test_retry_source_file_unreadable_returns_safe_json_not_coroutine(clie
         assert body["index_status"] == "index_failed"
         assert body["index_error_code"] == "source_file_unreadable"  # 目录化安全 code
         # 不泄露协程对象 / 内部存储引用 / 原文路径 / WeKnora server-only 标识。
-        for token in ["coroutine", "internal://", "does-not-exist", "storage_ref", "source_file_ref", "kb-", "doc-"]:
+        for token in [
+            "coroutine",
+            "internal://",
+            "does-not-exist",
+            "storage_ref",
+            "source_file_ref",
+            "kb-",
+            "doc-",
+        ]:
             assert token not in r.text
 
         # DB 落库为 index_failed + 安全错误码（资产保留、可再试）。
-        ver = (await db_session.execute(
-            select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id))
-        )).scalar_one()
+        ver = (
+            await db_session.execute(
+                select(KnowledgeAssetVersion).where(
+                    KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id)
+                )
+            )
+        ).scalar_one()
         assert ver.index_status == "index_failed"
         assert ver.index_error_code == "source_file_unreadable"
     finally:
@@ -237,16 +297,22 @@ async def test_retry_skipped_clears_stale_index_error(client, db_session, monkey
     asset_id = await _make_index_failed(client, monkeypatch, USER_CONSULTANT)
     try:
         # 初始：index_failed + 安全错误码非空。
-        ver0 = (await db_session.execute(
-            select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id))
-        )).scalar_one()
+        ver0 = (
+            await db_session.execute(
+                select(KnowledgeAssetVersion).where(
+                    KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id)
+                )
+            )
+        ).scalar_one()
         assert ver0.index_status == "index_failed"
         assert ver0.index_error_code  # 非空（weknora_down）
         db_session.expunge(ver0)
 
         # 关闭底座后重试 → skipped，且清理旧失败残留。
         monkeypatch.setattr("app.services.knowledge.weknora_enabled", lambda: False)
-        r = await client.post(f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT))
+        r = await client.post(
+            f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT)
+        )
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["index_status"] == "skipped"
@@ -254,9 +320,13 @@ async def test_retry_skipped_clears_stale_index_error(client, db_session, monkey
         assert body["index_error_message"] is None
         assert body["weknora_parse_status"] is None
 
-        ver = (await db_session.execute(
-            select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id))
-        )).scalar_one()
+        ver = (
+            await db_session.execute(
+                select(KnowledgeAssetVersion).where(
+                    KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id)
+                )
+            )
+        ).scalar_one()
         assert ver.index_status == "skipped"
         assert ver.index_error_code is None
         assert ver.index_error_message is None
@@ -276,10 +346,14 @@ async def test_retry_indexed_is_409(client, monkeypatch):
     asset_id = await _make_index_failed(client, monkeypatch, USER_CONSULTANT)
     try:
         _set_client(FakeWK())
-        r1 = await client.post(f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT))
+        r1 = await client.post(
+            f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT)
+        )
         assert r1.json()["index_status"] == "indexed"
         # 已索引再次重试 → 409。
-        r2 = await client.post(f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT))
+        r2 = await client.post(
+            f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT)
+        )
         assert r2.status_code == 409
         assert r2.json()["detail"]["denied_reason"] == "knowledge_index_already_indexed"
     finally:
@@ -294,7 +368,9 @@ async def test_non_owner_consultant_cannot_retry_personal(client, monkeypatch):
     try:
         _set_client(FakeWK())
         # 他人个人资产不可发现 → 404，不泄露存在性。
-        r = await client.post(f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_PROJECT_MANAGER))
+        r = await client.post(
+            f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_PROJECT_MANAGER)
+        )
         assert r.status_code == 404
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)
@@ -304,7 +380,9 @@ async def test_pure_admin_cannot_retry(client, monkeypatch):
     asset_id = await _make_index_failed(client, monkeypatch, USER_CONSULTANT)
     try:
         _set_client(FakeWK())
-        r = await client.post(f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_ADMIN_ONLY))
+        r = await client.post(
+            f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_ADMIN_ONLY)
+        )
         assert r.status_code in (403, 404)
         if r.status_code == 403:
             assert r.json()["detail"]["denied_reason"] == "admin_business_permission_denied"
@@ -314,8 +392,13 @@ async def test_pure_admin_cannot_retry(client, monkeypatch):
 
 async def test_project_pm_retry_and_consultant_forbidden(client, monkeypatch):
     asset_id = await _make_index_failed(
-        client, monkeypatch, USER_PROJECT_MANAGER, scope="project", project_id=PROJECT_ALPHA,
-        content=b"project retry content body", title="项目索引重试资产",
+        client,
+        monkeypatch,
+        USER_PROJECT_MANAGER,
+        scope="project",
+        project_id=PROJECT_ALPHA,
+        content=b"project retry content body",
+        title="项目索引重试资产",
     )
     try:
         _set_client(FakeWK())
@@ -337,8 +420,13 @@ async def test_project_pm_retry_and_consultant_forbidden(client, monkeypatch):
 
 async def test_governance_retry_project(client, monkeypatch):
     asset_id = await _make_index_failed(
-        client, monkeypatch, USER_PROJECT_MANAGER, scope="project", project_id=PROJECT_ALPHA,
-        content=b"governance retry content", title="治理重试项目资产",
+        client,
+        monkeypatch,
+        USER_PROJECT_MANAGER,
+        scope="project",
+        project_id=PROJECT_ALPHA,
+        content=b"governance retry content",
+        title="治理重试项目资产",
     )
     try:
         _set_client(FakeWK())
@@ -353,7 +441,9 @@ async def test_governance_retry_project(client, monkeypatch):
 # admin ops 索引面板
 # ---------------------------------------------------------------------------
 async def test_ops_indexing_safe_and_title_boundary(client, monkeypatch):
-    asset_id = await _make_index_failed(client, monkeypatch, USER_CONSULTANT, title="运维面板失败资产")
+    asset_id = await _make_index_failed(
+        client, monkeypatch, USER_CONSULTANT, title="运维面板失败资产"
+    )
     try:
         # 治理角色：可见真实标题。
         gov = await client.get("/admin/ops/indexing", headers=_hdr(USER_BOSS))
@@ -361,7 +451,10 @@ async def test_ops_indexing_safe_and_title_boundary(client, monkeypatch):
         body = gov.json()
         assert body["counts"]["index_failed"] >= 1
         assert body["title_visible"] is True
-        assert any(it["asset_id"] == asset_id and it["title"] == "运维面板失败资产" for it in body["recent_failed"])
+        assert any(
+            it["asset_id"] == asset_id and it["title"] == "运维面板失败资产"
+            for it in body["recent_failed"]
+        )
         # 纯 admin：标题隐藏。
         adm = await client.get("/admin/ops/indexing", headers=_hdr(USER_ADMIN_ONLY))
         assert adm.status_code == 200
@@ -369,7 +462,15 @@ async def test_ops_indexing_safe_and_title_boundary(client, monkeypatch):
         assert abody["title_visible"] is False
         assert all(it["title"] == "（业务资产标题已隐藏）" for it in abody["recent_failed"])
         # 安全：无 WeKnora server-only 字段。
-        for token in ["weknora_kb_id", "weknora_doc_id", "kb-", "doc-", "storage_ref", "source_file_ref", "sk-"]:
+        for token in [
+            "weknora_kb_id",
+            "weknora_doc_id",
+            "kb-",
+            "doc-",
+            "storage_ref",
+            "source_file_ref",
+            "sk-",
+        ]:
             assert token not in gov.text and token not in adm.text
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)

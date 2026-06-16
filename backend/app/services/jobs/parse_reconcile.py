@@ -49,7 +49,9 @@ async def reconcile_parse_statuses(
                 .where(KnowledgeAssetVersion.weknora_parse_status.in_(_PENDING_STATUSES))
                 .limit(limit)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
     processed = updated = failed = 0
