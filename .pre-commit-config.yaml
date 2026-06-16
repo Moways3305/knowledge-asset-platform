@@ -1,0 +1,35 @@
+# Pre-commit 钩子 —— 前后端统一一套框架（**不引入 husky / lint-staged**）。
+#
+# 启用（一次性）：
+#   pip install pre-commit      # 或安装 backend dev 依赖（已含 pre-commit）
+#   pre-commit install          # 安装本仓库的 git pre-commit 钩子
+#
+# 手动全量跑：  pre-commit run --all-files
+# 应急跳过（仅紧急修复场景，不要常态化）：  git commit --no-verify
+repos:
+  # 后端：ruff lint(--fix) + ruff format。pre-commit 在隔离环境装 ruff（rev 与项目对齐）。
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.10
+    hooks:
+      - id: ruff
+        name: ruff check --fix (backend)
+        args: [--fix]
+        files: ^backend/(app|tests)/.*\.py$
+      - id: ruff-format
+        name: ruff format (backend)
+        files: ^backend/(app|tests)/.*\.py$
+  # 前端：eslint + prettier（local hook，复用 node_modules 内项目锁定版本）。
+  - repo: local
+    hooks:
+      - id: eslint
+        name: eslint (frontend)
+        entry: npx eslint
+        language: system
+        files: ^src/.*\.(ts|tsx)$
+        pass_filenames: true
+      - id: prettier-check
+        name: prettier --check (frontend)
+        entry: npx prettier --check
+        language: system
+        files: ^src/.*\.(ts|tsx|css)$
+        pass_filenames: true

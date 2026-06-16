@@ -94,6 +94,22 @@ docker compose exec backend python -m app.seed.dev_seed   # 可选：写入开�
 - **不输出内部标识**：API、前端与审计绝不返回 storage 引用、对象存储 URL、WeKnora / 企业微信内部 id、模型真实 id、完整 token / cookie / api key 或业务原文。
 - **不展开密钥**：不要运行或粘贴完整 `docker compose config`（它会展开 `env_file` 里的真实密钥）。验证编排结构请用 `docker compose config --services` / `--volumes`，或对 `docker-compose.yml` 做定向检索。
 
+## 代码质量门禁
+
+CI 对每个 PR 强制：后端 `ruff check` + `ruff format --check` + `mypy` + `pytest`；前端 `eslint` + `prettier --check` + `vitest` + `build`。
+
+本地用 **pre-commit**（一套框架，覆盖前后端；不使用 husky / lint-staged）在提交前自动跑 ruff(check --fix / format) 与 eslint / prettier：
+
+```bash
+pip install pre-commit        # 或安装 backend dev 依赖（已含）
+pre-commit install            # 安装 git 钩子（一次性）
+pre-commit run --all-files    # 手动全量跑
+```
+
+格式化命令：后端 `cd backend && ruff format app tests`；前端 `npm run format`（`npm run format:check` 只校验）。
+
+应急跳过钩子（仅紧急修复，不要常态化）：`git commit --no-verify`。
+
 ## 技术栈
 
 - 前端：React 18、TypeScript、Vite、React Router；自托管字体（Hanken Grotesk / Fraunces / IBM Plex Mono）与 lucide 图标。
