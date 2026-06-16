@@ -80,7 +80,7 @@ def test_others_personal_all_layers_denied():
 def test_admin_only_cannot_own_personal_business_capability():
     """仅 admin 身份不得作为业务个人知识 owner 能力来源。
 
-    PBC-10D：纯系统身份在发现层即被 business_identity_required 拦截（早于 personal 归属判断）。
+    纯系统身份在发现层即被 business_identity_required 拦截（早于 personal 归属判断）。
     """
     caller = _ctx(U_ADMIN, {"admin"})
     asset = _asset(scope="personal", owner=U_ADMIN)
@@ -116,7 +116,7 @@ def test_non_member_project_l3_l4_original_denied_summary_redacted():
 def test_non_member_non_business_project_original_denied():
     """非业务身份且非项目成员不得获得项目原文（L1/L2）。
 
-    PBC-10D：纯系统身份连项目资产的发现层都不可达（business_identity_required），更不会到原文。
+    纯系统身份连项目资产的发现层都不可达（business_identity_required），更不会到原文。
     """
     caller = _ctx(U_ADMIN, {"admin"})  # 非业务用户
     asset = _asset(scope="project", level="L2", project_id=P_ALPHA)
@@ -165,7 +165,7 @@ def test_l5_boss_and_director_full_access_strong_audit():
 
 def test_l5_not_discoverable_for_consultant_and_admin():
     """L5 不可发现：consultant → l5_not_discoverable；纯 admin → business_identity_required
-    （PBC-10D：非业务身份更早被拦截）。两者都不可发现。"""
+    （非业务身份更早被拦截）。两者都不可发现。"""
     asset = _asset(scope="company", level="L5")
     # 业务用户但非 L5 发现角色：l5_not_discoverable。
     d_consultant = decide(_ctx(U_CONSULTANT, {"consultant"}), asset, DISCOVERY)
@@ -178,7 +178,7 @@ def test_l5_not_discoverable_for_consultant_and_admin():
 
 
 def test_admin_only_no_business_original_on_company():
-    """admin-only 不获得公司业务原文能力（PBC-10D：连发现层都不可达，business_identity_required）。"""
+    """admin-only 不获得公司业务原文能力（连发现层都不可达，business_identity_required）。"""
     caller = _ctx(U_ADMIN, {"admin"})
     asset = _asset(scope="company", level="L2")
     d = decide(caller, asset, ORIGINAL)

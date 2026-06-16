@@ -37,7 +37,7 @@ from app.services.weknora_client import get_weknora_client
 
 AUDIT = "/api/v1/admin/audit"
 
-# R3：Agent QA 现走真实 WeKnora 召回 + LLM；审计用例需注入 fake（不打网络）。
+# Agent QA 现走真实 WeKnora 召回 + LLM；审计用例需注入 fake（不打网络）。
 _ALPHA_KB = f"wk-kb-proj-{PROJECT_ALPHA}"
 _ALPHA_ASSETS = [
     KA_PROJECT_ALPHA, KA_PROJECT_ALPHA_A4, KA_PROJECT_ALPHA_MATERIAL, KA_PROJECT_ALPHA_REVIEWABLE,

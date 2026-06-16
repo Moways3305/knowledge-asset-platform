@@ -49,7 +49,7 @@ _ALPHA_ASSETS = [
 
 
 class FakeSearchWeKnora:
-    """R3 fake WeKnora：按 kb_ids / knowledge_ids 过滤返回 chunk（不打网络）。"""
+    """fake WeKnora：按 kb_ids / knowledge_ids 过滤返回 chunk（不打网络）。"""
 
     def __init__(self, docs):
         # docs: list of {"knowledge_id","kb_id","content"}
@@ -78,7 +78,7 @@ class FakeSearchWeKnora:
 
 
 class FakeAnswerLLM:
-    """R3 fake LLM：脱敏请求 → 擦洗敏感实体；问答请求 → 固定答案。"""
+    """fake LLM：脱敏请求 → 擦洗敏感实体；问答请求 → 固定答案。"""
 
     provider = "deepseek"
     model = "deepseek-chat"
@@ -271,7 +271,7 @@ async def test_agent_call_visibility_and_no_leak(client):
     assert body["caller_name"]
     assert body["project_name"]
     _assert_no_leak(own.text)
-    # provider 为平台抽象标识（R3 真实链路），不暴露 Dify 内部标识。
+    # provider 为平台抽象标识（真实链路），不暴露 Dify 内部标识。
     assert body["provider"] == "weknora_llm"
 
     # boss（治理角色）可见。
