@@ -6,6 +6,12 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# procps 提供 pgrep，供 docker-compose 中 beat 服务的存活健康检查使用
+# （beat 无 inspect ping，按进程存活判断，不依赖 celerybeat-schedule 文件）。
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends procps \
+    && rm -rf /var/lib/apt/lists/*
+
 # 先装锁定依赖（requirements.lock 由 `uv pip compile pyproject.toml build-requirements.in
 # -o requirements.lock --python-version 3.12 --python-platform linux --generate-hashes`
 # 生成，含运行时依赖与 PEP 517 build backend）。lock 不变时该层命中缓存，
@@ -33,4 +39,6 @@ USER appuser
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# Shell form 以便运行时展开 ${WEB_CONCURRENCY}（默认 2）；exec form 不会展开环境变量。
+# 前缀 exec 让 uvicorn 取代 shell 成为 PID 1，正确接收 SIGTERM 实现优雅退出。
+CMD exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-2}

@@ -93,13 +93,13 @@
 ## 3. 域名与 TLS
 
 - **入口拓扑**：生产用户入口 = `frontend` 服务（nginx 静态托管 `dist/` + **同源反代**后端）。前端 bundle 用同源相对路径，不烙后端内网 URL。
-  - nginx 反代（`deploy/nginx.conf`）：`/api/v1/`、`/health`（覆盖 `/health/ready`、`/health/config`）、`/admin/ops/` → `backend:8000`（Docker DNS）；其余路径 SPA fallback 到 `index.html`。
-  - backend 宿主端口（compose 本地映射 `8001`）**仅供调试**，生产正式访问不走它，可在生产移除该映射。本地 compose 前端入口为 `http://<host>:18080/`。
-- **TLS 终止位置**：在 `frontend` nginx 之前（或之上）放置真实 HTTPS/TLS 终止（云 LB / 反代 / Ingress）。本仓库 `deploy/nginx.conf` 监听 80，TLS 由前置层负责。
+  - nginx 反代（server 块 `deploy/nginx.conf.template`，http 级配置 `deploy/nginx-main.conf`）：`/api/v1/`、`/health`（覆盖 `/health/ready`、`/health/config`）、`/admin/ops/` → `backend:8000`（Docker DNS）；其余路径 SPA fallback 到 `index.html`。`nginx.conf.template` 在容器启动时由 nginx 镜像 envsubst 机制渲染（替换 `${ONLYOFFICE_ORIGIN}`）。
+  - backend 宿主端口（compose 本地映射 `127.0.0.1:8001`）**仅供调试**，生产正式访问不走它，可在生产移除该映射。本地 compose 前端入口为 `http://<host>:18080/`。
+- **TLS 终止位置**：在 `frontend` nginx 之前（或之上）放置真实 HTTPS/TLS 终止（云 LB / 反代 / Ingress）。本仓库前端 nginx 以**非 root** 用户监听 `8080`（compose 映射 `18080:8080`），TLS 由前置层负责。
 - **`APP_ENV=prod` 下 cookie `Secure=True` 的依赖（关键）**：
   - prod 时会话 cookie 与 OAuth state cookie 被**强制** `Secure`（`session_cookie_secure()`），即使显式注入 `SESSION_COOKIE_SECURE=false` 运行时也不退让（且会在 `/health/config` 报 blocker）。
   - **后果**：纯 HTTP 入口下浏览器不会回送 Secure cookie → 登录后会话不生效。**生产必须经真实 HTTPS 访问。**
-- **反代需保留转发头**：前置反代与 `frontend` nginx 都要透传 `X-Forwarded-For` / `X-Forwarded-Proto` / `Host`（`deploy/nginx.conf` 已设 server 级 `proxy_set_header`）。`X-Forwarded-Proto` 对「识别请求为 HTTPS」很重要；trace header `X-Trace-Id` 也应透传以保链路可观测。
+- **反代需保留转发头**：前置反代与 `frontend` nginx 都要透传 `X-Forwarded-For` / `X-Forwarded-Proto` / `Host`（`deploy/nginx.conf.template` 已设 server 级 `proxy_set_header`）。`X-Forwarded-Proto` 对「识别请求为 HTTPS」很重要；trace header `X-Trace-Id` 也应透传以保链路可观测。
 - **企微可信回调域名 / OAuth callback URL**：
   - 在企业微信后台把生产域名加入应用的**可信回调域名**；
   - `WECOM_REDIRECT_URI` 必须指向生产 callback（后端 `GET /api/v1/auth/wecom/callback`，经反代同源），与企微后台登记一致；

@@ -46,6 +46,7 @@
 |---|---|---|---|
 | `DATABASE_URL` | required | 经 `/health/ready` 的 `checks.database` 间接反映 | 缺失 / 不可达 → `/health/ready` 503、backend 起不来 |
 | `REDIS_URL` | required (async) | `/health/ready` 的 `checks.redis` | async 模式缺失 → 就绪失败、worker/beat 无 broker |
+| `REDIS_PASSWORD` | required (compose) | — | compose 变量（根 `./.env`）：给 Redis 加 `--requirepass` 并拼进 `REDIS_URL`。**缺失即 compose fail-fast 拒绝启动**（`${REDIS_PASSWORD:?...}`），不会静默起无密码 Redis。上线务必改强随机值 |
 | `CELERY_BROKER_URL` | optional | — | 缺省回退 `REDIS_URL` |
 | `CELERY_RESULT_BACKEND` | optional | — | 缺省回退 `REDIS_URL` |
 | `CELERY_TASK_ALWAYS_EAGER` | required (prod = false) | blocker `CELERY_TASK_ALWAYS_EAGER`（prod 下为 true 时）；`integrations.celery_eager` | true 则作业内联同步、阻塞请求、丢异步语义；prod 报 blocker |
@@ -113,7 +114,7 @@
 | 项 | 状态 | 说明 |
 |---|---|---|
 | TLS 终止层 | required (prod) | HTTPS 终止于 `frontend` nginx 之前；prod cookie 强制 Secure，纯 HTTP 入口无法登录 |
-| `X-Forwarded-For` / `X-Forwarded-Proto` / `Host` 透传 | required (prod) | 前置反代与 `deploy/nginx.conf` 都须透传；`X-Forwarded-Proto` 影响 HTTPS 识别 |
+| `X-Forwarded-For` / `X-Forwarded-Proto` / `Host` 透传 | required (prod) | 前置反代与 `deploy/nginx.conf.template`（server 块；http 级见 `deploy/nginx-main.conf`）都须透传；`X-Forwarded-Proto` 影响 HTTPS 识别 |
 | `X-Trace-Id` 透传 | recommended | 保链路可观测；trace_id 仅作关联，非鉴权凭证 |
 | 企微可信回调域名 | conditional | 启用企微 OAuth 时须在企微后台登记生产域名，与 `WECOM_REDIRECT_URI` 一致 |
 
