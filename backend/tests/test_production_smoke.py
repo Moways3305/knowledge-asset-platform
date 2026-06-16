@@ -1,4 +1,4 @@
-"""PBC-17 安全烟测脚本单元测试（scripts/production_smoke.py）。
+"""安全烟测脚本单元测试（scripts/production_smoke.py）。
 
 不真实启动 Docker / 服务：用 fake opener 注入响应，验证脚本的安全字段摘要、redaction、
 HTML 判定、退出码规则，以及输出绝不含密钥 / 正文 / cookie。
@@ -177,7 +177,7 @@ def test_build_url():
 
 
 # ---------------------------------------------------------------------------
-# --expect-prod-ready 别名（PBC-23）：与 --fail-on-production-blockers 等价
+# --expect-prod-ready 别名：与 --fail-on-production-blockers 等价
 # ---------------------------------------------------------------------------
 def test_expect_prod_ready_is_alias_of_fail_on_blockers():
     parser = smoke.build_parser()

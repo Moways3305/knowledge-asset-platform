@@ -1,4 +1,4 @@
-"""PBC-02 人员 / 公司角色 / 项目成员关系治理 API 测试。
+"""人员 / 公司角色 / 项目成员关系治理 API 测试。
 
 覆盖：读权限（admin/boss/director vs consultant 403）、公司角色 upsert（业务角色 vs admin 角色
 边界、不重复建行、最后 admin 保护）、项目成员 upsert / patch（归属校验）、inactive 成员不进
@@ -269,7 +269,7 @@ async def test_consultant_seed_inactive_beta_not_in_context(client, db_session):
 async def test_write_audits_with_safe_extra(client, db_session):
     await client.post(
         f"{PEOPLE}/{USER_PROJECT_MANAGER}/company-roles",
-        headers={**_hdr(USER_ADMIN_ONLY), "X-Trace-Id": "trc-pbc02-role"},
+        headers={**_hdr(USER_ADMIN_ONLY), "X-Trace-Id": "trc-people-role"},
         json={"company_role": "consultant", "status": "inactive"},
     )
     rows = (

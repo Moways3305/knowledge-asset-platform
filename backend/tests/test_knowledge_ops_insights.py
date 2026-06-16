@@ -1,4 +1,4 @@
-"""PBC-16 Knowledge 运营洞察 API 测试。
+"""Knowledge 运营洞察 API 测试。
 
 覆盖：
 - 普通业务用户只看本人/所在项目范围的安全聚合；跨范围资产不计入；
@@ -213,7 +213,7 @@ async def test_days_and_limit_clamped(client, db_session):
 
 
 # ---------------------------------------------------------------------------
-# 发现层状态过滤（PBC-16 残留收口）：archived / deprecated / deleted 不进入运营聚合
+# 发现层状态过滤：archived / deprecated / deleted 不进入运营聚合
 # ---------------------------------------------------------------------------
 async def _insert_lifecycle_event(db_session, *, asset_id, event_type, created_at=None):
     ev = AssetLifecycleEvent(

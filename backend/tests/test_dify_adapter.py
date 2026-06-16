@@ -1,10 +1,10 @@
-"""R4 Dify 网关测试（fake WeKnora + fake LLM，不打网络 / 不接真实 Dify）。
+"""Dify 网关测试（fake WeKnora + fake LLM，不打网络 / 不接真实 Dify）。
 
 覆盖：
 - External Knowledge 官方请求形态 → records；缺/错 Bearer → 拒；缺调用人身份 → fail closed。
 - 调用人解析 + 权限强制；A4 agent 渠道不返回原文；L5 非治理不可发现；无权不给原始上下文。
 - records.metadata 恒为安全 dict（非 null）。
-- HTTP Tool 走 agent 渠道返回 R3 SearchResponse。
+- HTTP Tool 走 agent 渠道返回 SearchResponse。
 - 接入注册管理（admin）：创建一次性返回 token、列表不含 token_hash、PATCH 启停、非 admin 403。
 - 无 weknora kb/doc/chunk id / external_* / token_hash / dataset/workflow id / 未脱敏 chunk 泄露。
 """
@@ -270,7 +270,7 @@ async def test_external_invalid_knowledge_id(client, db_session):
     assert resp.json()["error_code"] == 2001
 
 
-# ---------------- 注册行 scope / project 天花板（R4_FIX）----------------
+# ---------------- 注册行 scope / project 天花板----------------
 async def test_external_company_only_token_cannot_get_project(client, db_session):
     await _insert_rule(db_session, allowed_scope="company")
     _install([_doc(KA_PROJECT_ALPHA, _ALPHA_KB, "Alpha 内容（不应被 company-only 接入取到）")])

@@ -1,4 +1,4 @@
-"""R3 两阶段检索 / 问答测试（fake WeKnoraClient + fake LLMClient，不打网络）。
+"""两阶段检索 / 问答测试（fake WeKnoraClient + fake LLMClient，不打网络）。
 
 覆盖：
 - WeKnoraClient.search/hybrid_search 响应规整（单测）。
@@ -142,7 +142,7 @@ async def _insert_alpha_l4(db_session):
     version = KnowledgeAssetVersion(
         asset_id=KA_ALPHA_L4, version_no="v1", version_status="active", created_by=USER_CONSULTANT,
         weknora_kb_id=_ALPHA_KB, weknora_doc_id=f"wk-doc-{KA_ALPHA_L4}", weknora_parse_status="completed",
-        # 该 fixture 表示一个已成功索引的资产（PBC-15 residual：召回/原文取件只接受 indexed）。
+        # 该 fixture 表示一个已成功索引的资产（召回/原文取件只接受 indexed）。
         index_status="indexed",
     )
     asset.versions.append(version)
@@ -312,7 +312,7 @@ async def test_stage2_noop_desensitization_fails_closed(client, db_session):
 
 
 def test_audit_redacts_weknora_chunk_refs():
-    """审计兜底脱敏：R3 server-only chunk ref 键被剔除、wk-doc/wk-kb 值整串脱敏。"""
+    """审计兜底脱敏：server-only chunk ref 键被剔除、wk-doc/wk-kb 值整串脱敏。"""
     from app.services import audit as audit_service
 
     # 值级：wk-doc / wk-kb 形态整串脱敏（即便经无害键名落库也被擦洗）。

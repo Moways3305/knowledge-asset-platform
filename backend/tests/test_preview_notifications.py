@@ -1,4 +1,4 @@
-"""R7 ONLYOFFICE 真预览 + WeCom 真通知测试（全 fake，不打网络）。
+"""ONLYOFFICE 真预览 + WeCom 真通知测试（全 fake，不打网络）。
 
 覆盖：
 - 预览签发仍走集中权限 + 仅申请人可用；纯 admin 不可签发。
@@ -53,13 +53,13 @@ def _enable_onlyoffice(monkeypatch):
     monkeypatch.setattr(pv_mod, "onlyoffice_enabled", lambda: True)
 
 
-async def _upload_confirm_personal(client, *, name="doc.txt", content=b"R7 preview content body.", mime="text/plain"):
+async def _upload_confirm_personal(client, *, name="doc.txt", content=b"preview content body.", mime="text/plain"):
     """Path B 上传 + 确认为个人资产（consultant 对本人个人库有 original）。返回 asset_id。"""
     up = await client.post(UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": (name, content, mime)})
     task_id = up.json()["ingest_task_id"]
     conf = await client.post(
         f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(USER_CONSULTANT),
-        json={"title": "R7 资产", "summary": "摘要", "tags": ["t"], "target_scope": "personal",
+        json={"title": "预览资产", "summary": "摘要", "tags": ["t"], "target_scope": "personal",
               "asset_type": "methodology", "confidentiality_level": "L2", "ai_access_level": "A2"},
     )
     assert conf.status_code == 200, conf.text

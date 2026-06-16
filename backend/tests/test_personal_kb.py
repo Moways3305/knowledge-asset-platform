@@ -1,4 +1,4 @@
-"""PBC-29 个人知识库管理测试。
+"""个人知识库管理测试。
 
 覆盖三个端点（POST/GET/PUT /api/v1/my/knowledge-base）的：
 - 创建正常流 + 幂等（已 active 不重复建、不改名）；
@@ -210,7 +210,7 @@ async def test_get_returns_status_counts_and_safe_ref(client, db_session, monkey
         assert body["status"] == "active"
         assert body["knowledge_count"] >= 1
         assert body["index_distribution"].get("index_failed", 0) >= 1
-        # embedding_model_ref 是 PBC-11A 安全 HMAC 映射，非 raw id。
+        # embedding_model_ref 是安全 HMAC 映射，非 raw id。
         assert body["embedding_model_ref"] == weknora_models._model_ref(_RAW_EMBED)
         assert body["embedding_model_ref"] != _RAW_EMBED
         _assert_no_leak(r.text)

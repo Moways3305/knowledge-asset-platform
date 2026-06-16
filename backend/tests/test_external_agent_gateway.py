@@ -1,4 +1,4 @@
-"""PBC-01 provider 中立外部 Agent 网关核心测试（不经任何 provider 适配器）。
+"""provider 中立外部 Agent 网关核心测试（不经任何 provider 适配器）。
 
 直接针对 `app.services.external_agent_gateway`：
 - 调用人解析 fail-closed（None / 未知 / 非 active → None）。
@@ -92,7 +92,7 @@ async def test_run_retrieval_returns_neutral_records(db_session):
     records = await gateway.run_retrieval(
         db_session, caller, _rule(),
         knowledge_selector=f"project:{PROJECT_ALPHA}", query="供应链优化",
-        top_k=3, score_threshold=0.0, weknora=weknora, llm=FakeLLM(), trace_id="trc-pbc01",
+        top_k=3, score_threshold=0.0, weknora=weknora, llm=FakeLLM(), trace_id="trc-agent-gateway",
     )
     assert records is not None and len(records) >= 1
     rec = records[0]

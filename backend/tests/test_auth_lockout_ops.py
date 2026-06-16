@@ -1,4 +1,4 @@
-"""PBC-20 登录风控运维 + 手动解锁测试。
+"""登录风控运维 + 手动解锁测试。
 
 覆盖：
 - admin 可查看 auth-security 聚合；boss/director/consultant/pm 403；

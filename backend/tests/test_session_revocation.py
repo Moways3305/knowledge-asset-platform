@@ -1,4 +1,4 @@
-"""PBC-21 平台会话撤销测试。
+"""平台会话撤销测试。
 
 覆盖：
 - admin 可查看某用户安全会话元数据；boss/director/consultant/pm 403；

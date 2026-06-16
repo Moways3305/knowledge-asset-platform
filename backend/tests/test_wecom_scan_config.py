@@ -1,4 +1,4 @@
-"""企微微盘扫描配置 CRUD 测试（PBC-10A）。
+"""企微微盘扫描配置 CRUD 测试。
 
 覆盖：
 - admin 可创建配置（配置操作人 = 审计 actor）；created_by = 业务归属人（task_owner_user_id）。
@@ -8,7 +8,7 @@
 - personal/company scope 携带 project_id → 422（一致拒绝策略）。
 - 创建后 GET 列表可见，含 name / related_project_name。
 - PATCH 可改 enabled / name / target_scope。
-- 创建的配置可触发扫描（复用既有 R6 逻辑）。
+- 创建的配置可触发扫描（复用既有扫描逻辑）。
 - 审计 wecom_scan.config_created / config_updated 写安全字段；响应与审计无泄露。
 """
 
@@ -68,7 +68,7 @@ def _body(**over):
         "directory_path": VALID_DIR,
         "target_scope": "project",
         "target_project_id": str(PROJECT_ALPHA),
-        # 业务归属人：顾问 A 是 Alpha active 成员（PBC-10A Residual）。
+        # 业务归属人：顾问 A 是 Alpha active 成员。
         "task_owner_user_id": str(USER_CONSULTANT),
         "enabled": True,
     }
@@ -86,7 +86,7 @@ async def test_admin_can_create_config(client):
     assert out["related_project_id"] == str(PROJECT_ALPHA)
     assert out["related_project_name"]  # 解析出项目名
     assert out["enabled"] is True
-    # created_by = 业务归属人（顾问 A），而非配置操作人 admin（PBC-10A Residual）。
+    # created_by = 业务归属人（顾问 A），而非配置操作人 admin。
     assert out["created_by"] == str(USER_CONSULTANT)
     assert out["created_by"] != str(USER_ADMIN_ONLY)
     assert out["task_owner_name"]
@@ -290,7 +290,7 @@ async def test_audit_created_and_updated_safe(client, db_session):
     assert created_evt.after_snapshot.get("task_owner_user_id") == str(USER_CONSULTANT)
 
 
-# ================= PBC-10A Residual：业务归属人 =================
+# ================= 业务归属人 =================
 async def test_owner_required(client):
     body = _body()
     body.pop("task_owner_user_id")
@@ -447,7 +447,7 @@ async def test_scan_task_owned_by_business_owner_end_to_end(client, db_session):
     assert ok.json()["result_asset_id"]
 
 
-# ================= PBC-10A Residual 2：扫描运行时归属人保护 =================
+# ================= 扫描运行时归属人保护 =================
 async def _count_path_a_tasks(db_session):
     rows = (await db_session.execute(
         select(IngestTask).where(IngestTask.source == "path_a_wecom")

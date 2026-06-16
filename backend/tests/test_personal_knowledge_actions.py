@@ -1,4 +1,4 @@
-"""PBC-05 个人知识写动作测试。
+"""个人知识写动作测试。
 
 覆盖：本人资产确认（含幂等）、非 owner / 纯 admin 404、提交到项目（成员 / 非成员 /
 治理角色）、Idempotency-Key 与无 key 的 pending 去重、内部分享 / 客户验证候选证据登记、
@@ -68,7 +68,7 @@ def _evidence(aid):
 # ---------------- 本人资产确认 ----------------
 async def test_owner_confirm_material_to_asset(client, db_session):
     aid = await _mk_personal(db_session, owner=USER_CONSULTANT, zone="material")
-    r = await client.post(_confirm(aid), headers=_hdr(USER_CONSULTANT, **{"X-Trace-Id": "trc-pbc05-confirm"}))
+    r = await client.post(_confirm(aid), headers=_hdr(USER_CONSULTANT, **{"X-Trace-Id": "trc-personal-confirm"}))
     assert r.status_code == 200, r.text
     assert r.json()["zone"] == "asset" and r.json()["status"] == "confirmed"
     rows = (
@@ -149,7 +149,7 @@ async def test_governance_can_submit_own_personal(client, db_session):
 # ---------------- 幂等 / 去重 ----------------
 async def test_idempotency_key_returns_same_submission(client, db_session):
     aid = await _mk_personal(db_session, owner=USER_CONSULTANT)
-    key = "idem-pbc05-1"
+    key = "idem-personal-1"
     r1 = await client.post(
         _submit(aid), headers=_hdr(USER_CONSULTANT, **{"Idempotency-Key": key}),
         json={"target_project_id": str(PROJECT_ALPHA)},
@@ -242,7 +242,7 @@ async def test_candidate_rejects_unsafe_attachment(client, db_session):
 async def test_audit_no_leak(client, db_session):
     aid = await _mk_personal(db_session, owner=USER_CONSULTANT)
     await client.post(
-        _evidence(aid), headers=_hdr(USER_CONSULTANT, **{"X-Trace-Id": "trc-pbc05-audit"}),
+        _evidence(aid), headers=_hdr(USER_CONSULTANT, **{"X-Trace-Id": "trc-personal-audit"}),
         json={
             "target_project_id": str(PROJECT_ALPHA),
             "evidence_type": "internal_sharing",

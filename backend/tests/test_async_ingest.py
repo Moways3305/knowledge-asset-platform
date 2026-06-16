@@ -1,4 +1,4 @@
-"""R8_FIX 测试：异步入库 confirm 前置校验 + worker loop-local engine + 共享存储编排。
+"""异步入库 confirm 前置校验 + worker loop-local engine + 共享存储编排。
 
 - confirm 在 processing 任务上 → 409 ingest_processing_not_ready。
 - 空摘要 confirm → 422 ingest_summary_required；空标题 → 422 ingest_title_required。
@@ -16,7 +16,7 @@ from sqlalchemy import text
 from app.seed.dev_seed import USER_CONSULTANT
 
 UPLOAD = "/api/v1/ingest/upload"
-_TXT = "R8 异步入库测试\n标题行\n正文若干。".encode()
+_TXT = "异步入库测试\n标题行\n正文若干。".encode()
 _BLANK = b"   \n  \t "  # 抽取为空 → status failed
 
 
@@ -26,7 +26,7 @@ def _hdr(user_id):
 
 def _confirm_body(**over):
     base = {
-        "title": "R8 资产", "summary": "确认摘要", "tags": ["t"],
+        "title": "异步资产", "summary": "确认摘要", "tags": ["t"],
         "target_scope": "personal", "asset_type": "methodology",
         "confidentiality_level": "L2", "ai_access_level": "A2",
     }

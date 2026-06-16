@@ -1,4 +1,4 @@
-"""PBC-11C：索引状态可见性 + 失败重试 + 运维面板测试。
+"""索引状态可见性 + 失败重试 + 运维面板测试。
 
 覆盖：知识列表/详情返回安全 index_status（无 WeKnora server-only 字段）；owner / 项目 PM /
 治理角色可重试 index_failed 资产；无权 / 纯 admin 被拒；重试仍失败保留资产；indexed 重复重试 409；
@@ -23,7 +23,7 @@ from app.seed.dev_seed import (
 from app.services.weknora_client import WeKnoraError, get_weknora_client
 
 UPLOAD = "/api/v1/ingest/upload"
-_TXT = "PBC-11C 索引重试测试\n标题\n正文内容。".encode()
+_TXT = "索引重试测试\n标题\n正文内容。".encode()
 
 
 def _hdr(user_id):
@@ -31,7 +31,7 @@ def _hdr(user_id):
 
 
 class FakeWK:
-    """可切换成功 / 失败的 fake WeKnora（含 PBC-11B 初始化接口）。"""
+    """可切换成功 / 失败的 fake WeKnora（含初始化接口）。"""
 
     def __init__(self, *, fail: bool = False) -> None:
         self.fail = fail
@@ -184,7 +184,7 @@ async def test_retry_still_failing_keeps_index_failed(client, db_session, monkey
         r = await client.post(f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT))
         assert r.status_code == 200, r.text
         assert r.json()["index_status"] == "index_failed"
-        assert r.json()["index_error_code"] == "weknora_call_failed"  # PBC-11F：上游 code 目录化
+        assert r.json()["index_error_code"] == "weknora_call_failed"  # 上游 code 目录化
         ver = (await db_session.execute(
             select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id))
         )).scalar_one()

@@ -1,4 +1,4 @@
-"""R6 企微 OAuth 身份 + Path A 微盘扫描测试（fake WeCom 客户端，不打真实网络）。
+"""企微 OAuth 身份 + Path A 微盘扫描测试（fake WeCom 客户端，不打真实网络）。
 
 覆盖：
 - OAuth start 生成 state 绑定授权 URL，不泄露 secret。
@@ -6,7 +6,7 @@
   缺/错 state 拒绝；login.success/failed 审计不含 code/token/secret。
 - wecom_user_id 唯一且用于身份解析。
 - 扫描配置 列表/启停/记录 API 权限 + 无内部引用泄露。
-- 手动扫描建 wecom_scan_record + path_a_wecom IngestTask，复用 R5 处理到 pending_confirmation。
+- 手动扫描建 wecom_scan_record + path_a_wecom IngestTask，复用既有异步处理到 pending_confirmation。
 - 重复扫描不重复建任务；单文件失败不中断整批。
 - 纯 admin 可运营扫描但拿不到扫描任务的 AI 业务正文。
 """
@@ -77,7 +77,7 @@ class FakeOAuth:
         return WeComIdentity(wecom_user_id=self.wecom_user_id)
 
     async def get_member_status(self, wecom_user_id):
-        # PBC-22：默认 fake 成员有效（保持既有回调成功用例语义）。
+        # 默认 fake 成员有效（保持既有回调成功用例语义）。
         from app.services.wecom_client import WeComMemberStatus
 
         return WeComMemberStatus(wecom_user_id, True, "active", "企微成员有效")
@@ -245,7 +245,7 @@ async def test_manual_scan_creates_tasks_and_reuses_processing(client, db_sessio
     assert rec["discovered_count"] == 2 and rec["new_count"] == 2 and rec["duplicate_count"] == 0
     _assert_no_leak(resp.text)
 
-    # 建了 path_a_wecom 任务，且复用 R5 处理到 pending_confirmation。
+    # 建了 path_a_wecom 任务，且复用既有异步处理到 pending_confirmation。
     tasks = list((await db_session.execute(
         select(IngestTask).where(IngestTask.source == "path_a_wecom")
     )).scalars().all())

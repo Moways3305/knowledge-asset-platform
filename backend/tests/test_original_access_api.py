@@ -1,4 +1,4 @@
-"""PBC-06 原文访问申请与授权测试。
+"""原文访问申请与授权测试。
 
 覆盖：不可发现 404、可见无原文权可申请、重复申请复用 pending、已有 grant 不重复 pending、
 PM/coach 与 boss/director 可审批建 grant、纯 admin / 普通顾问不可审批、撤销/过期 grant 不再
@@ -68,7 +68,7 @@ async def test_undiscoverable_asset_404(client):
 
 async def test_visible_no_original_can_request(client, db_session):
     aid = await _mk_asset(db_session)  # BETA L3，USER_CONSULTANT 可发现摘要、无原文
-    r = await client.post(_req_path(aid), headers=_hdr(USER_CONSULTANT, **{"X-Trace-Id": "trc-pbc06-req"}), json={"reason": "需复用方法论"})
+    r = await client.post(_req_path(aid), headers=_hdr(USER_CONSULTANT, **{"X-Trace-Id": "trc-original-access-req"}), json={"reason": "需复用方法论"})
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "created"
     assert r.json()["request"]["status"] == "pending"
@@ -185,7 +185,7 @@ async def test_audit_actions_and_no_leak(client, db_session):
     aid, rid = await _create_pending(client, db_session)
     appr = await client.post(
         f"/api/v1/original-access/requests/{rid}/approve",
-        headers=_hdr(USER_BOSS, **{"X-Trace-Id": "trc-pbc06-audit"}), json={"note": "ok"},
+        headers=_hdr(USER_BOSS, **{"X-Trace-Id": "trc-original-access-audit"}), json={"note": "ok"},
     )
     gid = appr.json()["grant"]["grant_id"]
     await client.post(f"/api/v1/original-access/grants/{gid}/revoke", headers=_hdr(USER_BOSS), json={})
@@ -204,7 +204,7 @@ async def test_audit_actions_and_no_leak(client, db_session):
         assert t.lower() not in blob.lower()
 
 
-# ---------------- 预览拒绝文案现实口径（PBC-06 residual 回归）----------------
+# ---------------- 预览拒绝文案现实口径----------------
 async def test_preview_denied_message_is_current_copy(client, db_session):
     aid = await _mk_asset(db_session)  # BETA L3，USER_CONSULTANT 无原文权
     r = await client.post(f"/api/v1/knowledge/{aid}/preview", headers=_hdr(USER_CONSULTANT), json={})

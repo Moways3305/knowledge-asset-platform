@@ -1,4 +1,4 @@
-"""PBC-17 生产部署守卫与安全烟测测试。
+"""生产部署守卫与安全烟测测试。
 
 覆盖：
 - 会话 / OAuth state cookie 的 Secure 生产守卫（prod 强制 Secure，本地不强制）；
@@ -233,7 +233,7 @@ async def test_trace_id_flows_http_to_worker_audit_on_upload(client, db_session)
     trace = "trc-prod-smoke"
     r = await client.post(
         UPLOAD, headers={**_hdr(USER_CONSULTANT), "X-Trace-Id": trace},
-        files={"file": ("doc.txt", b"PBC-17 trace upload body", "text/plain")},
+        files={"file": ("doc.txt", b"trace upload body", "text/plain")},
     )
     assert r.status_code == 200, r.text
     # 回声头沿用同一 trace_id。

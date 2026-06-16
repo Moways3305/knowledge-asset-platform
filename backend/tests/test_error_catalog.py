@@ -1,4 +1,4 @@
-"""PBC-11F：错误提示与诊断分层测试。
+"""错误提示与诊断分层测试。
 
 覆盖：用户态文案（详情 / retry-index）；运营态诊断（/admin/ops/indexing）；上游 leaky 错误
 不外显；历史脏 index_error_message 按 code 重新派生；WeCom 扫描错误目录化；纯 admin 标题边界。
@@ -62,7 +62,7 @@ def test_catalog_known_and_unknown():
 
 
 def test_safe_code_allowlist_and_alias():
-    # PBC-11F residual：safe_code 是 allowlist/alias，而非正则放行。
+    # safe_code 是 allowlist/alias，而非正则放行。
     assert error_catalog.safe_code("weknora_embedding_model_missing") == "weknora_embedding_model_missing"
     assert error_catalog.safe_code("weknora_down") == "weknora_call_failed"
     assert error_catalog.safe_code("weknora_upload_failed") == "weknora_call_failed"
@@ -114,7 +114,7 @@ async def test_ops_operator_diagnostics_and_boundary(client, db_session):
     assert "WEKNORA_EMBEDDING_MODEL_ID" in gov.text  # 配置项名（允许）
     for token in _FORBIDDEN:
         assert token not in gov.text
-    # 纯 admin：标题隐藏（PBC-11C 边界不破坏）。
+    # 纯 admin：标题隐藏（边界不破坏）。
     adm = await client.get(OPS, headers=_hdr(USER_ADMIN_ONLY))
     assert adm.json()["title_visible"] is False
     aitem = next(i for i in adm.json()["recent_failed"] if i["asset_id"] == str(KA_PERSONAL))
@@ -217,7 +217,7 @@ def test_wecom_scan_error_catalog_safe():
 
 
 # ---------------------------------------------------------------------------
-# 6. 上游 leaky **code**（非 message）也不外显（PBC-11F residual）
+# 6. 上游 leaky **code**（非 message）也不外显
 # ---------------------------------------------------------------------------
 _LEAKY_CODE = "sk-secret-mid-chat-wk-kb-company-http://host-api_key-base_url"
 

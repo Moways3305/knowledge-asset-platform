@@ -1,4 +1,4 @@
-"""知识可见性权限收口测试（PBC-10D）。
+"""知识可见性权限收口测试。
 
 核心：纯系统身份（仅 admin，is_business_user=false）不经知识发现路径浏览任何业务知识
 （列表 / 详情 / 搜索 / 预览 / 项目 QA / Agent 召回），fail-closed 不泄露存在性。
@@ -98,7 +98,7 @@ async def test_personal_owner_sees_own_others_404(client):
 
 
 async def test_governance_company_visibility_preserved(client):
-    # boss 公司治理可见性保持：公司 L2 可发现 + 摘要（不被 PBC-10D 误伤）。
+    # boss 公司治理可见性保持：公司 L2 可发现 + 摘要（不被可见性收口误伤）。
     resp = await client.get(f"{KN}/{KA_COMPANY_L2}", headers=_hdr(USER_BOSS))
     assert resp.status_code == 200
     assert resp.json()["access_info"]["discovery"] is True

@@ -1,4 +1,4 @@
-"""R1 WeKnora 底座接入测试（fake client，不打真实网络）。
+"""WeKnora 底座接入测试（fake client，不打真实网络）。
 
 覆盖：KB 懒创建幂等、confirm 推原文 + 回写 doc id、parse 对账、upload 失败回滚、
 内容 hash/409 去重软提示、响应/审计无 weknora_*/api_key 泄露、admin 边界不变。
@@ -46,7 +46,7 @@ class FakeWeKnora:
         self.duplicate = duplicate
         self.init_fail = init_fail
         self.kbs: dict[str, dict] = {}
-        self.initialized: list[dict] = []  # PBC-11B：记录初始化调用
+        self.initialized: list[dict] = []  # 记录初始化调用
         self.uploads: list[dict] = []
         self.parse_status: dict[str, str] = {}
         self._kb = 0
@@ -91,7 +91,7 @@ class FakeWeKnora:
 
 
 def _enable_weknora(monkeypatch, *, embedding: str = "test-embed"):
-    """启用 WeKnora 路径并配置 embedding 模型（PBC-11B 守卫：缺 embedding 会 fail-closed）。"""
+    """启用 WeKnora 路径并配置 embedding 模型（守卫：缺 embedding 会 fail-closed）。"""
     from app.core.config import get_settings
 
     monkeypatch.setattr(ingest_module, "weknora_enabled", lambda: True)
@@ -156,7 +156,7 @@ def test_client_unwrap_success_error_and_409():
 
 
 async def test_initialize_kb_skips_when_no_models():
-    # PBC-11B：无任何模型 id → 不发网络、不抛（KB 依赖 WeKnora 租户默认）。
+    # 无任何模型 id → 不发网络、不抛（KB 依赖 WeKnora 租户默认）。
     c = WeKnoraClient(base_url="http://x", api_key="sk-test")
     assert await c.initialize_kb("kb-1") is None
 
@@ -192,7 +192,7 @@ async def test_confirm_pushes_and_writes_back(client, weknora, db_session):
     assert ver.weknora_doc_id == up["doc_id"]
     assert ver.weknora_kb_id == up["kb_id"]
     assert ver.weknora_parse_status == "processing"
-    # PBC-11B：索引成功标 indexed；建库后执行了初始化。
+    # 索引成功标 indexed；建库后执行了初始化。
     assert r.json()["index_status"] == "indexed"
     assert ver.index_status == "indexed"
     assert len(weknora.initialized) == 1
@@ -208,7 +208,7 @@ async def test_kb_mapping_idempotent(client, weknora):
 
 
 async def test_weknora_upload_failure_keeps_asset_index_failed(client, db_session, monkeypatch):
-    """PBC-11B：底座上传失败不再整单回滚——资产保留、人工校正不丢、标 index_failed 可重试。"""
+    """底座上传失败不再整单回滚——资产保留、人工校正不丢、标 index_failed 可重试。"""
     fake = FakeWeKnora(fail=True)
     _install(fake, monkeypatch)
     try:
@@ -230,7 +230,7 @@ async def test_weknora_upload_failure_keeps_asset_index_failed(client, db_sessio
             )
         )).scalar_one()
         assert ver.index_status == "index_failed"
-        assert ver.index_error_code == "weknora_call_failed"  # PBC-11F：上游 code 目录化
+        assert ver.index_error_code == "weknora_call_failed"  # 上游 code 目录化
         assert fake.uploads == []
         # 审计：ingest.confirmed（落库成功）+ ingest.index_failed（索引失败，exception）。
         from app.seed.dev_seed import USER_BOSS
@@ -247,7 +247,7 @@ async def test_weknora_upload_failure_keeps_asset_index_failed(client, db_sessio
 
 
 async def test_embedding_model_missing_keeps_asset_index_failed(client, db_session, monkeypatch):
-    """PBC-11B residual：底座启用但 embedding 未配 → 不建 KB / 不写 active，资产保留标 index_failed。"""
+    """底座启用但 embedding 未配 → 不建 KB / 不写 active，资产保留标 index_failed。"""
     from app.models.weknora import WeknoraKbMapping
 
     fake = FakeWeKnora()

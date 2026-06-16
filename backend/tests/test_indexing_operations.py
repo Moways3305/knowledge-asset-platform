@@ -1,4 +1,4 @@
-"""PBC-15 索引批量重试 / 显式 reparse / 后台队列测试。
+"""索引批量重试 / 显式 reparse / 后台队列测试。
 
 覆盖：批量 retry 入队权限（admin / 治理可，普通业务用户拒）；批量执行多条 index_failed →
 indexed；单条失败不影响其他条（completed_with_errors）；indexed 不被批量 retry 选中；
@@ -26,7 +26,7 @@ UPLOAD = "/api/v1/ingest/upload"
 RETRY = "/admin/ops/indexing/retry"
 REPARSE = "/admin/ops/indexing/reparse"
 JOBS = "/admin/ops/indexing/jobs"
-_TXT = "PBC-15 批量索引运维测试\n标题\n正文内容。".encode()
+_TXT = "批量索引运维测试\n标题\n正文内容。".encode()
 
 
 def _hdr(user_id):

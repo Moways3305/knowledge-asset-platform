@@ -1,8 +1,8 @@
-"""R2 外部 LLM 内容处理测试（fake LLMClient，不打真实网络）。
+"""外部 LLM 内容处理测试（fake LLMClient，不打真实网络）。
 
 覆盖：结构化 JSON 解析写草稿、provider/model 记录、降级（未配置/失败/脏 JSON）、
 confirm 三层摘要(含 key_points)写穿 + AI/人工独立存储、无 api_key/Bearer 泄露、
-R1 WeKnora 链路不回归。
+WeKnora 链路不回归。
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""PBC-22 企微身份生命周期同步测试。
+"""企微身份生命周期同步测试。
 
 覆盖：
 - OAuth 回调：有效成员建会话；失效成员 fail-closed（不建会话、停用平台用户、撤销会话、安全审计）；
@@ -242,7 +242,7 @@ async def test_reconcile_upstream_error_counts_failed_no_status_change(client, d
 
 
 # ---------------------------------------------------------------------------
-# normalize_member_status 归一矩阵（PBC-22 residual）
+# normalize_member_status 归一矩阵
 # ---------------------------------------------------------------------------
 def test_normalize_member_status_matrix():
     cases = [
@@ -309,7 +309,7 @@ async def test_callback_invalid_state_deactivates(client, db_session, code, msg)
 
 
 # ---------------------------------------------------------------------------
-# reconcile cookie-auth CSRF（PBC-19 中间件覆盖）
+# reconcile cookie-auth CSRF（中间件覆盖）
 # ---------------------------------------------------------------------------
 async def test_reconcile_cookie_auth_without_csrf_forbidden_no_mutation(client, db_session):
     _install(FakeOAuth(member=_disabled()))  # 若放行将停用 consultant

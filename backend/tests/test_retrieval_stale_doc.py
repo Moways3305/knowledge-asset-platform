@@ -1,4 +1,4 @@
-"""PBC-15 residual：index_failed 残留旧 doc 不得被语义召回 / 原文取件。
+"""index_failed 残留旧 doc 不得被语义召回 / 原文取件。
 
 纵深防御：即使 WeKnora 旧 doc 仍在且被 search 返回，只要平台 version 的
 `index_status != "indexed"`（index_failed / not_indexed / skipped），就不得映射回资产、
@@ -8,7 +8,7 @@
 1. 批量语义召回不映射 index_failed 旧 doc（不出现在 cards）；
 2. 单资产原文 chunk 不读取 index_failed 旧 doc（available=False，安全降级）；
 3. reparse 失败（删旧 doc 失败被吞 + 重传失败）残留旧 doc 场景：资产不被召回、原文不可用、
-   job 仍按 PBC-15 语义统计失败；全程不泄露 doc/kb/storage/source id。
+   job 仍按既有语义统计失败；全程不泄露 doc/kb/storage/source id。
 """
 
 from __future__ import annotations
@@ -261,7 +261,7 @@ async def test_reparse_failure_leaves_stale_doc_not_retrievable(client, db_sessi
     })
     assert rj.status_code == 202, rj.text
     body = rj.json()
-    # job 仍按 PBC-15 语义统计失败。
+    # job 仍按既有语义统计失败。
     assert body["total_count"] >= 1
     assert body["failed_count"] >= 1
     assert body["status"] in ("completed_with_errors", "failed")

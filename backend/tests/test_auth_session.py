@@ -25,7 +25,7 @@ ADMIN_EMAIL = "admin.e@dev.local"
 
 
 async def _csrf(client):
-    """取一条绑定当前会话 cookie 的 CSRF token（PBC-19，cookie 会话 unsafe 请求需要）。"""
+    """取一条绑定当前会话 cookie 的 CSRF token（cookie 会话 unsafe 请求需要）。"""
     r = await client.get("/api/v1/auth/csrf")
     return {"X-CSRF-Token": r.json()["csrf_token"]}
 
@@ -92,7 +92,7 @@ async def test_invalid_session_rejected_in_prod(client, monkeypatch):
 
 
 async def test_login_disabled_in_prod(client, monkeypatch):
-    """PBC-12：prod 环境无凭证（email-only）登录被禁用 → 403 auth_password_required。"""
+    """prod 环境无凭证（email-only）登录被禁用 → 403 auth_password_required。"""
     monkeypatch.setattr("app.api.auth.get_settings", lambda: Settings(app_env="prod"))
     resp = await client.post(LOGIN, json={"email": BOSS_EMAIL})
     assert resp.status_code == 403

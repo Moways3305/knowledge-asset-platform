@@ -1,4 +1,4 @@
-"""PBC-11E：运行时权限规则化测试。
+"""运行时权限规则化测试。
 
 覆盖：load_access_policy 缺失/禁用/非法 fail-closed；toggle 关闭后跨项目/公司 L1/L2 原文运行时
 被拒（API access_info.can_view_original 随之变化），但 active access_grant 仍放大；超时自动审批

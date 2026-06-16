@@ -1,4 +1,4 @@
-"""Path A（企微微盘）待确认任务列表 + 确认链路复用测试（PBC-07）。
+"""Path A（企微微盘）待确认任务列表 + 确认链路复用测试。
 
 验证：
 - 业务用户只看到自己有权确认的 path_a_wecom 待确认任务；
@@ -42,7 +42,7 @@ async def _make_path_a_task(
     file_name="零售渠道策略_V2.pptx",
     source=IngestSource.path_a_wecom.value,
 ):
-    """直接插入一个 path_a_wecom 入库任务（模拟 R6 扫描产物）+ AI 建议。"""
+    """直接插入一个 path_a_wecom 入库任务（模拟微盘扫描产物）+ AI 建议。"""
     task = IngestTask(
         source=source,
         # server-only 内部引用：包含一个假 WeCom file_id 以验证不外泄。

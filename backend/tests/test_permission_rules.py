@@ -1,4 +1,4 @@
-"""PBC-03 权限规则配置中心 API 测试。
+"""权限规则配置中心 API 测试。
 
 覆盖：默认规则幂等创建、读权限（admin/boss/director vs consultant 403）、
 写权限（boss/director numeric+toggle 可写；admin 只读 403 admin_business_permission_denied；
@@ -168,7 +168,7 @@ async def test_update_writes_safe_audit(client, db_session):
     rule = await _rule_by_key(client, USER_BOSS, "asset_expiry_days")
     r = await client.patch(
         f"{RULES}/{rule['rule_id']}",
-        headers={**_hdr(USER_BOSS), "X-Trace-Id": "trc-pbc03"},
+        headers={**_hdr(USER_BOSS), "X-Trace-Id": "trc-permission-rules"},
         json={"value_number": 400},
     )
     assert r.status_code == 200, r.text

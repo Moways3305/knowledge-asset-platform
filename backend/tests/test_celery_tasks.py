@@ -1,4 +1,4 @@
-"""R5 Celery 异步治理作业测试（直接调用 job service，不需真实 Redis/worker）。
+"""Celery 异步治理作业测试（直接调用 job service，不需真实 Redis/worker）。
 
 覆盖：
 - 上传建 processing 任务 + 入队；作业完成后落 ai_result + pending_confirmation。
@@ -44,7 +44,7 @@ from app.services.storage import LocalFileStorage
 from app.services.weknora_client import WeKnoraError
 
 UPLOAD = "/api/v1/ingest/upload"
-_TXT = "R5 异步处理测试\n第一行标题\n正文内容若干段。".encode()
+_TXT = "异步处理测试\n第一行标题\n正文内容若干段。".encode()
 
 
 def _hdr(user_id):
@@ -81,7 +81,7 @@ async def test_upload_processing_then_job_persists(client, db_session, monkeypat
     # 直接跑作业（用同一受控存储读字节）。
     status = await ingest_processing.process_upload_task(
         db_session, task_id, storage=client._kap_storage,
-        llm=NullLLMClient(), desensitizer=NullDesensitizer(), trace_id="trc-r5",
+        llm=NullLLMClient(), desensitizer=NullDesensitizer(), trace_id="trc-celery",
     )
     assert status == "pending_confirmation"
     ai2 = await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
@@ -216,7 +216,7 @@ class FakeParseWeKnora:
 
 async def _new_version(db_session, *, doc_id, parse_status):
     asset = KnowledgeAsset(
-        title=f"R5 资产 {doc_id}", scope="company", zone="material", asset_type="methodology",
+        title=f"异步资产 {doc_id}", scope="company", zone="material", asset_type="methodology",
         owner_user_id=USER_CONSULTANT, maintainer_user_id=USER_CONSULTANT,
         visibility="public", confidentiality_level="L2", ai_access_level="A1", asset_status="active",
     )

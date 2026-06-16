@@ -1,4 +1,4 @@
-"""PBC-19 Cookie 会话 CSRF 防护测试。
+"""Cookie 会话 CSRF 防护测试。
 
 覆盖：
 - cookie 会话 unsafe 请求缺 / 无效 / 过期 CSRF token → 403 安全 reason，且无业务写入 / 审计；

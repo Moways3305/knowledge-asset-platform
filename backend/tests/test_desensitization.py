@@ -1,4 +1,4 @@
-"""PBC-13 入库前置实体级规则脱敏测试。
+"""入库前置实体级规则脱敏测试。
 
 覆盖：
 - RuleBasedDesensitizer 各实体类别替换 + counts；普通文本不过度替换；
@@ -333,7 +333,7 @@ async def test_weknora_receives_original_and_no_leak(client, monkeypatch):
 
 
 async def test_retry_index_not_blocked_by_missing_desensitized_text(client, db_session, monkeypatch):
-    """retry-index 重新从原始文件索引，不依赖脱敏文本（PBC-11C 语义不回归）。"""
+    """retry-index 重新从原始文件索引，不依赖脱敏文本（索引重试语义不回归）。"""
     _enable_weknora(monkeypatch, FakeWK(fail=True))
     task_id = await _upload(client)
     r = await _confirm(client, task_id)

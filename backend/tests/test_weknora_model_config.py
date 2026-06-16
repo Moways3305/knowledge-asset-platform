@@ -1,4 +1,4 @@
-"""PBC-11A 模型配置中心测试。
+"""模型配置中心测试。
 
 覆盖：admin 读 provider/模型；非 admin 403；创建/更新模型 secret 只上送底座、响应/审计不回显；
 删除用 server-only id、响应无真实 id；模型列表只回 model_ref 不回真实 id；kb-configs 不含
@@ -251,7 +251,7 @@ async def test_not_configured_consultant_still_403(client, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Residual 1：上游错误 message 不得回显 secret / 内部标识
+# 上游错误 message 不得回显 secret / 内部标识
 # ---------------------------------------------------------------------------
 class _LeakyCreateWK(FakeModelsWK):
     async def create_model(self, payload, *, trace_id=None):
@@ -328,7 +328,7 @@ async def test_kb_init_upstream_error_no_leak(client, monkeypatch, db_session):
 
 
 # ---------------------------------------------------------------------------
-# Residual 2：create_model 缺 upstream id → fail-closed，不假成功、不写成功审计
+# create_model 缺 upstream id → fail-closed，不假成功、不写成功审计
 # ---------------------------------------------------------------------------
 class _NoIdCreateWK(FakeModelsWK):
     async def create_model(self, payload, *, trace_id=None):
@@ -355,7 +355,7 @@ async def test_create_model_missing_id_fails_closed(client, monkeypatch, db_sess
 
 
 # ---------------------------------------------------------------------------
-# Residual 3：WEKNORA_MODEL_REF_SECRET 缺失在 /health/config 标出（仅名，不回值）
+# WEKNORA_MODEL_REF_SECRET 缺失在 /health/config 标出（仅名，不回值）
 # ---------------------------------------------------------------------------
 async def test_health_config_flags_missing_model_ref_secret(client, monkeypatch):
     from app.core.config import get_settings

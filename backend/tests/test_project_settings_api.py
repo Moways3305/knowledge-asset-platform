@@ -1,4 +1,4 @@
-"""PBC-04 项目设置 / 项目成员管理 API 测试。
+"""项目设置 / 项目成员管理 API 测试。
 
 覆盖：读权限（成员 / 非成员 / admin / 治理角色）、写权限（pm / 治理可写，admin 只读，
 consultant 成员只读）、wecom_group_id 安全展示与审计脱敏、成员角色/状态修改与 active
@@ -122,7 +122,7 @@ async def test_wecom_group_safe_display_and_audit(client, db_session):
     secret_group = "wg-secret-987654"
     r = await client.patch(
         _settings(PROJECT_ALPHA),
-        headers={**_hdr(USER_PROJECT_MANAGER), "X-Trace-Id": "trc-pbc04-wecom"},
+        headers={**_hdr(USER_PROJECT_MANAGER), "X-Trace-Id": "trc-project-settings-wecom"},
         json={"wecom_group_id": secret_group},
     )
     assert r.status_code == 200, r.text
@@ -198,7 +198,7 @@ async def test_member_patch_writes_audit(client, db_session):
     cons = next(m for m in lst.json()["items"] if m["user_id"] == str(USER_CONSULTANT))
     r = await client.patch(
         f"{_members(PROJECT_ALPHA)}/{cons['member_id']}",
-        headers={**_hdr(USER_DIRECTOR), "X-Trace-Id": "trc-pbc04-member"},
+        headers={**_hdr(USER_DIRECTOR), "X-Trace-Id": "trc-project-settings-member"},
         json={"project_role": "coach"},
     )
     assert r.status_code == 200, r.text

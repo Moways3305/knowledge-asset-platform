@@ -1,4 +1,4 @@
-"""PBC-12：密码凭证登录 + 管理员设置密码测试。
+"""密码凭证登录 + 管理员设置密码测试。
 
 覆盖：prod email+password 成功 / email-only 拒绝；错密码·未知 email·未设密码·inactive 统一 401；
 登录审计 login_method；admin 设置/重置密码、非 admin 拒绝、弱密码 422、重置后旧密码失效；
@@ -35,7 +35,7 @@ def _prod(monkeypatch):
 
 
 async def _csrf(client):
-    """取一条绑定当前会话 cookie 的 CSRF token（PBC-19）。"""
+    """取一条绑定当前会话 cookie 的 CSRF token。"""
     r = await client.get("/api/v1/auth/csrf")
     return {"X-CSRF-Token": r.json()["csrf_token"]}
 
@@ -160,14 +160,14 @@ async def test_unknown_email_failure_not_audited_as_actor(client, db_session, mo
     ev = (await db_session.execute(
         select(AuditEvent).where(AuditEvent.action == "login.failed")
     )).scalars().all()
-    # 未知 email 不写**可归属** login.failed；PBC-18 起改记 actor=None 的系统安全事件
+    # 未知 email 不写**可归属** login.failed；改记 actor=None 的系统安全事件
     # （仅不可逆 hash 前缀 + reason_code，无 raw email）。
     assert all(e.actor_user_id is None for e in ev)
     assert "ghost@dev.local" not in str([e.extra for e in ev])
 
 
 # ---------------------------------------------------------------------------
-# 登出审计 login_method 真实化（PBC-12 residual）
+# 登出审计 login_method 真实化
 # ---------------------------------------------------------------------------
 LOGOUT = "/api/v1/auth/logout"
 

@@ -1,4 +1,4 @@
-"""R8 部署 / 可观测端点测试。
+"""部署 / 可观测端点测试。
 
 覆盖：
 - /health 活性；/health/ready 就绪（测试 DB 模式下 healthy）且不含密钥。
@@ -60,7 +60,7 @@ async def test_config_diagnostics_safe(client):
 
 
 async def test_config_missing_embedding_when_weknora_enabled(client, monkeypatch):
-    """PBC-11B residual：底座启用但 embedding 未配 → missing_config 列名（不回值）。"""
+    """底座启用但 embedding 未配 → missing_config 列名（不回值）。"""
     from app.core.config import get_settings
 
     monkeypatch.setattr("app.api.ops.weknora_enabled", lambda: True)

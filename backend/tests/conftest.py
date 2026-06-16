@@ -92,7 +92,7 @@ async def client(sessionmaker_fixture, tmp_path):
     app.dependency_overrides[get_storage] = lambda: storage
     transport = ASGITransport(app=app)
     # base_url 用 https，使 prod 守卫下发的 Secure cookie 能在测试 cookie jar 中正常回送
-    # （PBC-17：prod 会话 cookie 强制 Secure；httpx 不会把 Secure cookie 回送到 http://）。
+    # （prod 会话 cookie 强制 Secure；httpx 不会把 Secure cookie 回送到 http://）。
     async with AsyncClient(transport=transport, base_url="https://test") as ac:
         ac._kap_storage = storage  # 供测试断言文件确实落盘
         yield ac

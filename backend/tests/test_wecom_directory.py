@@ -1,4 +1,4 @@
-"""PBC-11D：WeCom 微盘目录浏览测试。
+"""WeCom 微盘目录浏览测试。
 
 覆盖：admin-only 权限；未配置安全 503；spaces/directories 只回安全字段；目录归一只留文件夹；
 非法 ref 安全失败；选择器生成的 directory_ref 可直接用于现有 create config；上游 leaky 错误不泄露。
