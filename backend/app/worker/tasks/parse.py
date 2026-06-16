@@ -18,4 +18,6 @@ async def _run(maker, trace_id: str | None) -> None:
 
 @celery_app.task(name="weknora.parse_reconcile", bind=True)
 def reconcile_parse(self, trace_id: str | None = None) -> None:
-    run_task(lambda maker: _run(maker, trace_id))
+    run_task(
+        lambda maker: _run(maker, trace_id), label="weknora.parse_reconcile", trace_id=trace_id
+    )

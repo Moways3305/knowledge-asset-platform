@@ -23,4 +23,8 @@ async def _run(maker, trace_id: str | None) -> dict:
 @celery_app.task(name="access.auto_approve_timed_out", bind=True)
 def auto_approve_timed_out(self, trace_id: str | None = None) -> dict:
     """返回安全统计：checked / approved / skipped_confidential / skipped_invalid / errors / enabled。"""
-    return run_task(lambda maker: _run(maker, trace_id))
+    return run_task(
+        lambda maker: _run(maker, trace_id),
+        label="access.auto_approve_timed_out",
+        trace_id=trace_id,
+    )

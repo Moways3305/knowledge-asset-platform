@@ -35,12 +35,15 @@ from app.api import (
 )
 from app.core.config import get_settings
 from app.core.csrf import CsrfMiddleware
+from app.core.logging import configure_logging
 from app.core.trace import TraceIdMiddleware
 
 
 def create_app() -> FastAPI:
     """应用工厂。"""
     settings = get_settings()
+    # 结构化 JSON 日志基线（按 LOG_LEVEL；幂等）。
+    configure_logging()
     app = FastAPI(
         title=settings.app_name,
         version="0.1.0",

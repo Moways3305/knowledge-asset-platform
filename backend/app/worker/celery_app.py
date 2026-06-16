@@ -10,8 +10,18 @@ broker / result backend 缺省回退到 `settings.redis_url`；`task_always_eage
 from __future__ import annotations
 
 from celery import Celery
+from celery.signals import setup_logging
 
 from app.core.config import get_settings
+
+
+@setup_logging.connect
+def _configure_worker_logging(**_: object) -> None:
+    """worker / beat 进程启动时装配 JSON 结构化日志（与 worker_hijack_root_logger=False 配合，
+    避免 Celery 覆盖 root logger）。仅在 Celery 真正初始化日志时触发，不影响普通 import / 测试。"""
+    from app.core.logging import configure_logging
+
+    configure_logging()
 
 
 def _make_celery() -> Celery:

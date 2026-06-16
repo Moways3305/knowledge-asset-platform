@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass, field
 
@@ -45,6 +46,8 @@ from app.services.permission_rules import load_access_policy
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
 
 # 需要输出脱敏的保密级别（返回原文/片段前必须实体脱敏）。
+_logger = logging.getLogger(__name__)
+
 _DESENSITIZE_LEVELS = {
     ConfidentialityLevel.L3.value,
     ConfidentialityLevel.L4.value,
@@ -268,6 +271,8 @@ async def recall_assets(
         out.append(entry)
 
     out.sort(key=lambda r: r.score, reverse=True)
+    # 仅记召回数量；绝不记 query / chunk 正文 / kb·doc id。
+    _logger.info("retrieval_recall", extra={"result_count": len(out)})
     return out
 
 

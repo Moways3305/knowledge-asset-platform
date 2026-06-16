@@ -12,22 +12,34 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import get_settings
+from app.core.logging import bind_trace_id
 
 _T = TypeVar("_T")
 
+_logger = logging.getLogger("app.worker")
 
-def run_task(coro_fn: Callable[[async_sessionmaker[AsyncSession]], Awaitable[_T]]) -> _T:
-    """在**全新事件循环 + loop-local engine** 上跑一个 worker 任务体。
+
+def run_task(
+    coro_fn: Callable[[async_sessionmaker[AsyncSession]], Awaitable[_T]],
+    *,
+    label: str = "task",
+    trace_id: str | None = None,
+) -> _T:
+    """在**全新事件循环 + loop-local engine** 上跑一个 worker 任务体，并记录生命周期日志。
 
     `coro_fn` 接收一个本次专用的 `async_sessionmaker`；任务结束（含异常）后 dispose
     engine。这样多次 `asyncio.run` 各自独立，规避 asyncpg 池跨循环复用崩溃。
+    `label` 为 Celery 任务名（仅日志用），`trace_id` 绑定到日志上下文供任务内服务层关联。
     """
+    bind_trace_id(trace_id)
 
     async def _main() -> _T:
         settings = get_settings()
@@ -39,4 +51,17 @@ def run_task(coro_fn: Callable[[async_sessionmaker[AsyncSession]], Awaitable[_T]
             # 释放本次循环上的连接池，避免悬挂到下一个 asyncio.run 的新循环。
             await engine.dispose()
 
-    return asyncio.run(_main())
+    start = time.perf_counter()
+    _logger.info("task_started", extra={"task": label})
+    try:
+        result = asyncio.run(_main())
+    except Exception:
+        duration_ms = round((time.perf_counter() - start) * 1000, 1)
+        # 任务失败：ERROR + 类型名 + 耗时（exc_info 仅产出 exc_type，不含 stack/message）。
+        _logger.error(
+            "task_failed", extra={"task": label, "duration_ms": duration_ms}, exc_info=True
+        )
+        raise
+    duration_ms = round((time.perf_counter() - start) * 1000, 1)
+    _logger.info("task_completed", extra={"task": label, "duration_ms": duration_ms})
+    return result

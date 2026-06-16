@@ -57,4 +57,8 @@ async def _run(maker, config_id: str, record_id: str | None, trace_id: str | Non
 def drive_scan(
     self, config_id: str, record_id: str | None = None, trace_id: str | None = None
 ) -> None:
-    run_task(lambda maker: _run(maker, config_id, record_id, trace_id))
+    run_task(
+        lambda maker: _run(maker, config_id, record_id, trace_id),
+        label="wecom.drive_scan",
+        trace_id=trace_id,
+    )

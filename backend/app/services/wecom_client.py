@@ -16,6 +16,7 @@ dev/降级：未配置（corp_id/app_secret 缺）→ `*_enabled()` False，依�
 
 from __future__ import annotations
 
+import logging
 import urllib.parse
 from dataclasses import dataclass
 from typing import Any
@@ -23,6 +24,8 @@ from typing import Any
 import httpx
 
 from app.core.config import get_settings
+
+_logger = logging.getLogger(__name__)
 
 
 class WeComError(Exception):
@@ -185,6 +188,10 @@ class WeComOAuthClient:
             raise WeComError(
                 "wecom_network_error", f"企微网络错误（{type(exc).__name__}）"
             ) from exc
+        # 仅记操作名 + HTTP 状态；绝不记 code / access_token / userid / secret。
+        _logger.info(
+            "wecom_call", extra={"operation": "oauth_exchange", "status": resp.status_code}
+        )
         user_id = data.get("userid") or data.get("UserId")
         if not user_id:
             raise WeComError("wecom_userinfo_failed", "企微身份解析失败（非企业成员或无 userid）")
@@ -208,6 +215,7 @@ class WeComOAuthClient:
             raise WeComError(
                 "wecom_network_error", f"企微网络错误（{type(exc).__name__}）"
             ) from exc
+        _logger.info("wecom_call", extra={"operation": "member_status", "status": resp.status_code})
         return normalize_member_status(wecom_user_id, data)
 
     @staticmethod
