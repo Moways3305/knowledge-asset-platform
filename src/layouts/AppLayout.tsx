@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import {
   LayoutDashboard, LibraryBig, UserRound, FileCheck2, ShieldCheck, KeyRound, FolderKanban,
@@ -5,6 +6,8 @@ import {
   KeySquare, Users, LifeBuoy, type LucideIcon,
 } from "lucide-react";
 import IdentityMenu from "../components/IdentityMenu";
+import ErrorBoundary from "../components/ErrorBoundary";
+import LoadingError from "../components/LoadingError";
 import logoUrl from "../assets/moways-logo.png";
 import "./AppLayout.css";
 import "../styles/workbench.css";
@@ -102,7 +105,13 @@ export default function AppLayout() {
           </div>
         </header>
         <main className="app-content">
-          <Outlet />
+          {/* 内容区兜底：页面 chunk 加载时显示 loading；某个页面渲染崩溃时只在此处显示
+              错误卡片，左侧导航与顶栏不受影响（外层 App 还有一道全局 ErrorBoundary）。 */}
+          <ErrorBoundary>
+            <Suspense fallback={<LoadingError loading />}>
+              <Outlet />
+            </Suspense>
+          </ErrorBoundary>
         </main>
       </div>
     </div>
