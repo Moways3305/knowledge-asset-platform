@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sys
 from contextvars import ContextVar
 from datetime import datetime, timezone
@@ -85,3 +86,69 @@ def configure_logging(level: str | None = None) -> None:
         lg = logging.getLogger(name)
         lg.handlers.clear()
         lg.propagate = True
+
+
+# 异常消息清洗规则（按顺序应用；越"包罗"的越先，避免子模式先吃掉外层）。
+# 上游（WeKnora / WeCom / LLM / httpx）异常原文可能含 URL / payload / key / token / header，
+# 直接 logger.exception 会泄露——故先经本清洗再记摘要。
+_REDACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"https?://\S+"), "<redacted-url>"),
+    (re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"), "<redacted-email>"),
+    (re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"), "<redacted-ip>"),
+    (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-]+"), "Bearer <redacted>"),
+    (re.compile(r"\bsk-[A-Za-z0-9_\-]{6,}"), "<redacted-key>"),
+    # key=value / key: value 形式的敏感项：保留键名，脱敏值。
+    (
+        re.compile(
+            r"(?i)\b(api[_-]?key|access[_-]?token|app[_-]?secret|corp[_-]?secret|client[_-]?secret"
+            r"|secret|password|passwd|token|authorization|cookie|x-api-key)\b"
+            r"(['\"\s]*[:=]['\"\s]*)[^\s,;'\"]+"
+        ),
+        r"\1=<redacted>",
+    ),
+    # 剩余高熵长串（≥32 连续字母数字/下划线/连字符）—— 多为 hash / 内部 id / token。
+    (re.compile(r"\b[A-Za-z0-9_\-]{32,}\b"), "<redacted>"),
+)
+_MAX_SUMMARY_LEN = 300
+
+# 只有形如 lower_snake 的短码才视为"安全 error code"可直接入日志。任意异常的 `.code`
+# 不可信（上游可能把 model id / OAuth code / 内部 id 放进去），不匹配则不写 error_code。
+_SAFE_ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+
+
+def sanitize_exception_message(exc: BaseException) -> str:
+    """把异常消息清洗为可安全入日志的摘要：移除 URL / email / IP / Bearer / key·token /
+    `secret=...` 形式的敏感值与高熵长串，并截断长度。**绝不**返回原始上游异常原文。"""
+    text = str(exc)
+    for pattern, repl in _REDACTIONS:
+        text = pattern.sub(repl, text)
+    if len(text) > _MAX_SUMMARY_LEN:
+        text = text[:_MAX_SUMMARY_LEN] + "…"
+    return text
+
+
+def safe_log_exception(
+    logger: logging.Logger,
+    message: str,
+    exc: BaseException,
+    *,
+    level: int = logging.ERROR,
+    include_summary: bool = True,
+    **extra: object,
+) -> None:
+    """记录**清洗后**的异常摘要 + 异常类型（+ 结构化错误的 safe code）；**绝不**经
+    `logger.exception` / `exc_info` 落原始 traceback / 上游异常原文。不改变降级逻辑，仅加可观测性。
+
+    `include_summary=False`：连清洗后的 message 也不记，**只记异常类型名**——用于解析用户
+    上传内容的路径（如 extraction / 脱敏），其异常 message 可能内嵌业务原文，清洗规则无法兜住。
+    """
+    payload: dict[str, object] = {"exc_type": type(exc).__name__}
+    if include_summary:
+        payload["error_summary"] = sanitize_exception_message(exc)
+    # 仅当 .code 形如安全 lower_snake 短码时才记（我方结构化异常如此）；否则丢弃，
+    # 不信任任意异常的 code 字段（可能内嵌 model id / OAuth code / 内部 id）。
+    code = getattr(exc, "code", None)
+    if isinstance(code, str) and _SAFE_ERROR_CODE.fullmatch(code):
+        payload["error_code"] = code
+    payload.update(extra)
+    logger.log(level, message, extra=payload)

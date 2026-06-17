@@ -24,6 +24,7 @@ from typing import Any
 import httpx
 
 from app.core.config import get_settings
+from app.core.logging import safe_log_exception
 
 _logger = logging.getLogger(__name__)
 
@@ -78,12 +79,14 @@ class WeKnoraClient:
             try:
                 data = resp.json().get("data") or {}
                 existing = data.get("id") or data.get("knowledge_id")
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                safe_log_exception(_logger, "weknora_409_parse_failed", exc, level=logging.WARNING)
                 existing = None
             raise WeKnoraDuplicateError(existing)
         try:
             body = resp.json()
         except Exception as exc:  # noqa: BLE001
+            safe_log_exception(_logger, "weknora_response_not_json", exc, status=resp.status_code)
             raise WeKnoraError(
                 "invalid_response", f"WeKnora 响应非 JSON（HTTP {resp.status_code}）"
             ) from exc

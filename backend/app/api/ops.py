@@ -11,6 +11,7 @@ WeKnora·Dify id / WeCom secret / ONLYOFFICE jwt / 预览取件 token / 业务�
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Awaitable
 from typing import cast
@@ -24,6 +25,7 @@ from app.core.config import (
     get_settings,
     session_cookie_secure_misconfigured,
 )
+from app.core.logging import safe_log_exception
 from app.core.trace import get_trace_id
 from app.db.session import get_db
 from app.models.audit import AuditEvent
@@ -69,6 +71,8 @@ from app.services.storage import LocalFileStorage, get_storage
 from app.services.wecom_client import get_wecom_oauth_client, wecom_enabled
 from app.services.weknora_client import get_weknora_client, weknora_enabled
 
+_logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["ops"])
 
 _VERSION = "0.1.0"
@@ -78,7 +82,10 @@ async def _db_ready(session: AsyncSession) -> bool:
     try:
         await session.execute(text("SELECT 1"))
         return True
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        safe_log_exception(
+            _logger, "health_db_check_failed", exc, include_summary=False, level=logging.WARNING
+        )
         return False
 
 
@@ -100,7 +107,10 @@ async def _redis_ready() -> bool | None:
             return True
         finally:
             await client.aclose()
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        safe_log_exception(
+            _logger, "health_redis_check_failed", exc, include_summary=False, level=logging.WARNING
+        )
         return False
 
 

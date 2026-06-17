@@ -13,12 +13,16 @@ dev/降级：未配置 provider+api_key → `llm_enabled()` False，依赖返回
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 from app.core.config import get_settings
+from app.core.logging import safe_log_exception
+
+_logger = logging.getLogger(__name__)
 
 
 class LLMError(Exception):
@@ -117,6 +121,7 @@ class LLMClient:
             data = resp.json()
             return str(data["choices"][0]["message"]["content"])
         except Exception as exc:  # noqa: BLE001
+            safe_log_exception(_logger, "llm_response_malformed", exc, status=resp.status_code)
             raise LLMError("llm_bad_response", "LLM 响应结构异常") from exc
 
 

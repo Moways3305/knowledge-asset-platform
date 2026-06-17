@@ -13,7 +13,12 @@ xlsx / pptx / 图片（标 `unsupported`，不崩溃、不阻断任务创建）�
 from __future__ import annotations
 
 import io
+import logging
 from dataclasses import dataclass
+
+from app.core.logging import safe_log_exception
+
+_logger = logging.getLogger(__name__)
 
 # 抽取草稿全文上限（防超大文本放大）；超过则截断。
 MAX_EXTRACT_CHARS = 200_000
@@ -79,7 +84,10 @@ def extract_text(content: bytes, *, file_name: str | None, mime: str | None) -> 
                 ),
                 char_count=0,
             )
-    except Exception:  # noqa: BLE001 — 损坏 / 格式不符文件：降级为 failed，不崩溃
+    except Exception as exc:  # noqa: BLE001 — 损坏 / 格式不符文件：降级为 failed，不崩溃
+        safe_log_exception(
+            _logger, "extraction_failed", exc, include_summary=False, level=logging.WARNING
+        )
         return ExtractionResult(
             text="",
             status="failed",
