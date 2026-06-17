@@ -41,6 +41,8 @@ export function useAsyncData<T>(
       .catch((e) => {
         if (id !== reqId.current) return;
         if (e instanceof ApiError && e.status === 403) setForbidden(true);
+        // 401：会话失效 → 引导重新登录，而非笼统「加载失败」。
+        else if (e instanceof ApiError && e.status === 401) setError("登录状态已失效，请重新登录");
         else setError(e instanceof Error ? e.message : errorMessage);
         setLoading(false);
       });

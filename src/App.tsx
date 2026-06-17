@@ -3,6 +3,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import AppLayout from "./layouts/AppLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import NotFoundPage from "./pages/NotFoundPage";
+import RouteGuard from "./auth/RouteGuard";
+import { can } from "./auth/permissions";
 
 // 路由级代码分割：每个页面按需动态 import，Vite 自动为其切分 chunk，首屏不再一次性
 // 加载全部 18 个页面。Suspense fallback 与内层 ErrorBoundary 放在 AppLayout 的 Outlet
@@ -35,22 +37,136 @@ export default function App() {
         <Routes>
           <Route element={<AppLayout />}>
             <Route index element={<HomeDashboardPage />} />
-            <Route path="knowledge" element={<KnowledgeListPage />} />
-            <Route path="knowledge/:id" element={<KnowledgeDetailPage />} />
-            <Route path="my/knowledge" element={<MyKnowledgePage />} />
-            <Route path="upload" element={<UploadPage />} />
-            <Route path="admin/ingest" element={<AdminIngestPage />} />
-            <Route path="admin/wecom-scan" element={<AdminWecomScanPage />} />
-            <Route path="admin/weknora-models" element={<AdminWeKnoraModelsPage />} />
-            <Route path="admin/audit" element={<AdminAuditPage />} />
-            <Route path="admin/auth-security" element={<AdminAuthSecurityPage />} />
-            <Route path="admin/alert-settings" element={<AdminAlertSettingsPage />} />
-            <Route path="admin/people" element={<AdminPeoplePage />} />
-            <Route path="admin/permissions" element={<AdminPermissionsPage />} />
-            <Route path="review" element={<ReviewPage />} />
-            <Route path="original-access" element={<OriginalAccessPage />} />
-            <Route path="project/:id/knowledge" element={<ProjectKnowledgePage />} />
-            <Route path="project/:id/settings" element={<ProjectSettingsPage />} />
+            {/* 守卫与导航共用 can.* 判定：无权直接渲染「无此入口」态，不让页面先发请求。
+                后端仍是权威：绕过前端直达接口照常 403/404。 */}
+            <Route
+              path="knowledge"
+              element={
+                <RouteGuard cap={can.viewKnowledge}>
+                  <KnowledgeListPage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="knowledge/:id"
+              element={
+                <RouteGuard cap={can.viewKnowledge}>
+                  <KnowledgeDetailPage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="my/knowledge"
+              element={
+                <RouteGuard cap={can.viewMyKnowledge}>
+                  <MyKnowledgePage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="upload"
+              element={
+                <RouteGuard cap={can.viewUpload}>
+                  <UploadPage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="admin/ingest"
+              element={
+                <RouteGuard cap={can.viewIngestAdmin}>
+                  <AdminIngestPage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="admin/wecom-scan"
+              element={
+                <RouteGuard cap={can.viewWecomScan}>
+                  <AdminWecomScanPage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="admin/weknora-models"
+              element={
+                <RouteGuard cap={can.viewModels}>
+                  <AdminWeKnoraModelsPage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="admin/audit"
+              element={
+                <RouteGuard cap={can.viewAudit}>
+                  <AdminAuditPage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="admin/auth-security"
+              element={
+                <RouteGuard cap={can.viewAuthSecurity}>
+                  <AdminAuthSecurityPage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="admin/alert-settings"
+              element={
+                <RouteGuard cap={can.viewAlerts}>
+                  <AdminAlertSettingsPage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="admin/people"
+              element={
+                <RouteGuard cap={can.viewPeople}>
+                  <AdminPeoplePage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="admin/permissions"
+              element={
+                <RouteGuard cap={can.viewPermissions}>
+                  <AdminPermissionsPage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="review"
+              element={
+                <RouteGuard cap={can.viewReview}>
+                  <ReviewPage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="original-access"
+              element={
+                <RouteGuard cap={can.viewOriginalAccess}>
+                  <OriginalAccessPage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="project/:id/knowledge"
+              element={
+                <RouteGuard cap={can.viewProject}>
+                  <ProjectKnowledgePage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="project/:id/settings"
+              element={
+                <RouteGuard cap={can.viewProject}>
+                  <ProjectSettingsPage />
+                </RouteGuard>
+              }
+            />
             <Route path="help" element={<HelpPage />} />
             {/* 未知路由兜底（渲染在 AppLayout 内，导航仍可用）。 */}
             <Route path="*" element={<NotFoundPage />} />

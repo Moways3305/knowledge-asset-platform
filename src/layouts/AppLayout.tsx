@@ -23,48 +23,73 @@ import {
 import IdentityMenu from "../components/IdentityMenu";
 import ErrorBoundary from "../components/ErrorBoundary";
 import LoadingError from "../components/LoadingError";
+import { AuthProvider, useAuth } from "../auth/AuthContext";
+import { can, type Capability, type Capabilities } from "../auth/permissions";
 import logoUrl from "../assets/moways-logo.png";
 import "./AppLayout.css";
 import "../styles/workbench.css";
 import "../styles/workbench-home-admin.css";
 
-type NavItem = { to: string; label: string; icon: LucideIcon; end?: boolean };
+// 每个导航项带一个能力谓词 `cap`，与页面级守卫（RouteGuard）共用 `can` 判定，
+// 保证「看得到的入口 = 进得去的页面」。无权入口直接不渲染，而非渲染后再报错。
+type NavItem = { to: string; label: string; icon: LucideIcon; end?: boolean; cap: Capability };
 type NavGroup = { no: string; label: string; items: NavItem[] };
 
-const homeItem: NavItem = { to: "/", label: "今日工作台", icon: LayoutDashboard, end: true };
+const homeItem: NavItem = {
+  to: "/",
+  label: "今日工作台",
+  icon: LayoutDashboard,
+  end: true,
+  cap: can.viewHome,
+};
 
 const navGroups: NavGroup[] = [
   {
     no: "01",
     label: "业务功能",
     items: [
-      { to: "/knowledge", label: "知识资产库", icon: LibraryBig },
-      { to: "/my/knowledge", label: "个人知识", icon: UserRound },
-      { to: "/upload", label: "资产化确认", icon: FileCheck2 },
-      { to: "/review", label: "升级审核", icon: ShieldCheck },
-      { to: "/original-access", label: "原文访问", icon: KeyRound },
-      { to: "/project/current/knowledge", label: "项目看板", icon: FolderKanban },
-      { to: "/project/current/settings", label: "项目设置", icon: SlidersHorizontal },
+      { to: "/knowledge", label: "知识资产库", icon: LibraryBig, cap: can.viewKnowledge },
+      { to: "/my/knowledge", label: "个人知识", icon: UserRound, cap: can.viewMyKnowledge },
+      { to: "/upload", label: "资产化确认", icon: FileCheck2, cap: can.viewUpload },
+      { to: "/review", label: "升级审核", icon: ShieldCheck, cap: can.viewReview },
+      { to: "/original-access", label: "原文访问", icon: KeyRound, cap: can.viewOriginalAccess },
+      {
+        to: "/project/current/knowledge",
+        label: "项目看板",
+        icon: FolderKanban,
+        cap: can.viewProject,
+      },
+      {
+        to: "/project/current/settings",
+        label: "项目设置",
+        icon: SlidersHorizontal,
+        cap: can.viewProject,
+      },
     ],
   },
   {
     no: "02",
     label: "管理后台",
     items: [
-      { to: "/admin/ingest", label: "入库管理", icon: Inbox },
-      { to: "/admin/wecom-scan", label: "微盘扫描", icon: ScanLine },
-      { to: "/admin/weknora-models", label: "模型配置", icon: Cpu },
-      { to: "/admin/audit", label: "审计日志", icon: ScrollText },
-      { to: "/admin/auth-security", label: "登录风控", icon: ShieldAlert },
-      { to: "/admin/alert-settings", label: "告警设置", icon: BellRing },
-      { to: "/admin/permissions", label: "权限规则", icon: KeySquare },
-      { to: "/admin/people", label: "人员权限", icon: Users },
+      { to: "/admin/ingest", label: "入库管理", icon: Inbox, cap: can.viewIngestAdmin },
+      { to: "/admin/wecom-scan", label: "微盘扫描", icon: ScanLine, cap: can.viewWecomScan },
+      { to: "/admin/weknora-models", label: "模型配置", icon: Cpu, cap: can.viewModels },
+      { to: "/admin/audit", label: "审计日志", icon: ScrollText, cap: can.viewAudit },
+      {
+        to: "/admin/auth-security",
+        label: "登录风控",
+        icon: ShieldAlert,
+        cap: can.viewAuthSecurity,
+      },
+      { to: "/admin/alert-settings", label: "告警设置", icon: BellRing, cap: can.viewAlerts },
+      { to: "/admin/permissions", label: "权限规则", icon: KeySquare, cap: can.viewPermissions },
+      { to: "/admin/people", label: "人员权限", icon: Users, cap: can.viewPeople },
     ],
   },
   {
     no: "03",
     label: "帮助",
-    items: [{ to: "/help", label: "使用说明", icon: LifeBuoy }],
+    items: [{ to: "/help", label: "使用说明", icon: LifeBuoy, cap: can.viewHelp }],
   },
 ];
 
@@ -80,7 +105,39 @@ function RailLink({ item }: { item: NavItem }) {
   );
 }
 
-export default function AppLayout() {
+function RailNav({ capabilities }: { capabilities: Capabilities }) {
+  // 按能力过滤：隐藏当前身份无意义的入口，并丢弃过滤后变空的分组（不留空标题）。
+  const groups = navGroups
+    .map((group) => ({ ...group, items: group.items.filter((item) => item.cap(capabilities)) }))
+    .filter((group) => group.items.length > 0);
+  return (
+    <nav className="rail-nav">
+      {homeItem.cap(capabilities) && (
+        <div className="rail-group rail-group-lead">
+          <ul>
+            <RailLink item={homeItem} />
+          </ul>
+        </div>
+      )}
+      {groups.map((group) => (
+        <div key={group.label} className="rail-group">
+          <div className="rail-group-label">
+            <span className="rail-group-no">{group.no}</span>
+            {group.label}
+          </div>
+          <ul>
+            {group.items.map((item) => (
+              <RailLink key={item.to} item={item} />
+            ))}
+          </ul>
+        </div>
+      ))}
+    </nav>
+  );
+}
+
+function AppShell() {
+  const { capabilities } = useAuth();
   return (
     <div className="app-layout">
       <aside className="rail">
@@ -88,26 +145,7 @@ export default function AppLayout() {
           <span className="rail-mark">MOWAYS</span>
           <span className="rail-sub">博维咨询 · 知识资产工作台</span>
         </div>
-        <nav className="rail-nav">
-          <div className="rail-group rail-group-lead">
-            <ul>
-              <RailLink item={homeItem} />
-            </ul>
-          </div>
-          {navGroups.map((group) => (
-            <div key={group.label} className="rail-group">
-              <div className="rail-group-label">
-                <span className="rail-group-no">{group.no}</span>
-                {group.label}
-              </div>
-              <ul>
-                {group.items.map((item) => (
-                  <RailLink key={item.to} item={item} />
-                ))}
-              </ul>
-            </div>
-          ))}
-        </nav>
+        <RailNav capabilities={capabilities} />
         <div className="rail-foot">
           <span className="rail-foot-line">知识资产与交付治理</span>
         </div>
@@ -134,5 +172,14 @@ export default function AppLayout() {
         </main>
       </div>
     </div>
+  );
+}
+
+export default function AppLayout() {
+  // AuthProvider 包裹整个外壳：导航过滤、身份菜单、页面守卫共享同一份 /auth/me。
+  return (
+    <AuthProvider>
+      <AppShell />
+    </AuthProvider>
   );
 }
