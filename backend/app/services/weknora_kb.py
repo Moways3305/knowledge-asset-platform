@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.logging import safe_log_exception
 from app.models.weknora import WeknoraKbMapping
 from app.schemas.enums import KnowledgeScope
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient, WeKnoraError
@@ -203,6 +204,7 @@ async def ensure_project_kb(
             trace_id=trace_id,
         )
         return "indexed"
-    except Exception:  # noqa: BLE001  # 任意底座异常都不阻断项目创建
+    except Exception as exc:  # noqa: BLE001  # 任意底座异常都不阻断项目创建
+        safe_log_exception(_logger, "project_kb_provision_failed", exc, include_summary=False)
         await session.rollback()
         return "index_failed"

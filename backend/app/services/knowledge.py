@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -22,6 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.logging import safe_log_exception
 from app.models.identity import Project, User
 from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
@@ -63,6 +65,8 @@ from app.services.weknora_client import (
     WeKnoraClient,
     weknora_enabled,
 )
+
+_logger = logging.getLogger(__name__)
 
 
 def _index_user_message(ver) -> str | None:
@@ -561,7 +565,14 @@ async def delete_asset(
                 await weknora.delete_knowledge(doc_id, trace_id=trace_id)
                 weknora_succeeded = True
                 version.weknora_parse_status = "deleted"
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                safe_log_exception(
+                    _logger,
+                    "weknora_delete_cleanup_failed",
+                    exc,
+                    include_summary=False,
+                    level=logging.WARNING,
+                )
                 # 外部索引清理失败**绝不**阻断平台软删除：WeKnoraError / httpx 网络·超时·
                 # 连接错误（HTTPError/RequestError/TimeoutException）/ OSError 等任意异常都吞掉，
                 # 资产仍按 deleted fail-closed。只记安全运营标记，不写异常文本 / kb·doc id / URL。

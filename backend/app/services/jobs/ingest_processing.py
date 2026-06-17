@@ -18,12 +18,14 @@ weknora id / api_key。
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.logging import safe_log_exception
 from app.models.identity import ProjectMember, User
 from app.models.ingest import IngestTask, IngestTaskAiResult
 from app.schemas.enums import (
@@ -41,6 +43,8 @@ from app.services.extraction import extract_text
 from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.permission import build_caller_context
 from app.services.storage import LocalFileStorage
+
+_logger = logging.getLogger(__name__)
 
 # 已处理终态（再次入队/重跑直接跳过，保证幂等）。
 _PROCESSED_STATUSES = {IngestStatus.pending_confirmation.value, IngestStatus.completed.value}
@@ -149,6 +153,7 @@ async def process_upload_task(
             trace_id=trace_id,
         )
     except Exception as exc:  # noqa: BLE001  # 瞬时处理失败 → 可重试
+        safe_log_exception(_logger, "ingest_processing_failed", exc, include_summary=False)
         task.retry_count += 1
         task.error_type = "processing_error"
         task.error_message = "入库处理失败（详见审计）"  # 安全文案，无内部引用

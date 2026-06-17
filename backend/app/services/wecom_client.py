@@ -24,6 +24,7 @@ from typing import Any
 import httpx
 
 from app.core.config import get_settings
+from app.core.logging import safe_log_exception
 
 _logger = logging.getLogger(__name__)
 
@@ -224,6 +225,7 @@ class WeComOAuthClient:
             result: dict[str, Any] = resp.json()
             return result
         except Exception as exc:  # noqa: BLE001
+            safe_log_exception(_logger, "wecom_response_not_json", exc, status=resp.status_code)
             raise WeComError("wecom_bad_response", "企微响应解析失败") from exc
 
 

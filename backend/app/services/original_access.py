@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.logging import safe_log_exception
 from app.models.identity import User
 from app.models.knowledge import KnowledgeAsset
 from app.models.original_access import AccessGrant, OriginalAccessRequest
@@ -787,7 +788,14 @@ async def auto_approve_timed_out_original_access_requests(
                 trace_id=trace_id,
             )
             stats[outcome] += 1
-        except Exception:  # noqa: BLE001  # 单条失败不阻断整批；不泄露业务原文
+        except Exception as exc:  # noqa: BLE001  # 单条失败不阻断整批；不泄露业务原文
+            safe_log_exception(
+                _logger,
+                "auto_approve_item_failed",
+                exc,
+                include_summary=False,
+                level=logging.WARNING,
+            )
             await session.rollback()
             stats["errors"] += 1
     return {**stats, "enabled": True, "timeout_hours": timeout_hours}

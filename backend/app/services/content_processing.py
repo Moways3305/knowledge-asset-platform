@@ -30,13 +30,17 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime, timezone
 
+from app.core.logging import safe_log_exception
 from app.schemas.enums import AiAccessLevel, AssetType, ConfidentialityLevel
 from app.services.desensitization import DesensitizationEngine, DesensitizationResult
 from app.services.extraction import ExtractionResult
 from app.services.llm_client import LLMClient, LLMError, NullLLMClient, llm_enabled
+
+_logger = logging.getLogger(__name__)
 
 # 建议草稿安全上限。
 _MAX_KEY_POINTS = 8
@@ -342,7 +346,10 @@ async def process_content(
     # 脱敏本身异常 → failed，绝不把未脱敏原文喂给平台侧外部 LLM。
     try:
         des = desensitizer.desensitize(extraction.text)
-    except Exception:  # noqa: BLE001  # 脱敏失败保守降级，不外泄原文、不让上传失败
+    except Exception as exc:  # noqa: BLE001  # 脱敏失败保守降级，不外泄原文、不让上传失败
+        safe_log_exception(
+            _logger, "desensitization_failed", exc, include_summary=False, level=logging.WARNING
+        )
         des = DesensitizationResult(
             text="", status="failed", counts={}, error_code="desensitization_error"
         )

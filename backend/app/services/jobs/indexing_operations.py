@@ -11,12 +11,14 @@ WeKnora kb·doc id / 上游原始 message 写入 job 行 / 审计 / 响应。错
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.logging import safe_log_exception
 from app.models.identity import ProjectMember, User
 from app.models.indexing_job import IndexingOperationJob
 from app.models.ingest import IngestTask
@@ -37,6 +39,8 @@ from app.services.weknora_client import (
     WeKnoraClient,
     weknora_enabled,
 )
+
+_logger = logging.getLogger(__name__)
 
 _DELETED = AssetStatus.deleted.value
 # 已处理终态（再次入队/重跑直接跳过，保证幂等）。
@@ -281,7 +285,14 @@ async def run_operation_job(
                     target=target,
                     trace_id=job_trace,
                 )
-            except Exception:  # noqa: BLE001  # 单条异常不终止整个 job
+            except Exception as exc:  # noqa: BLE001  # 单条异常不终止整个 job
+                safe_log_exception(
+                    _logger,
+                    "indexing_item_failed",
+                    exc,
+                    include_summary=False,
+                    level=logging.WARNING,
+                )
                 await session.rollback()
                 result = "failed"
             if result == "indexed":
@@ -291,6 +302,7 @@ async def run_operation_job(
             else:
                 failed += 1
     except Exception as exc:  # noqa: BLE001  # job 级异常 → failed + 安全 code/message
+        safe_log_exception(_logger, "indexing_job_failed", exc, include_summary=False)
         await session.rollback()
         code = error_catalog.safe_code(getattr(exc, "code", None) or type(exc).__name__)
         job = (
