@@ -104,9 +104,9 @@ def _wrap_weknora(exc: WeKnoraError) -> HTTPException:
 
 @router.get("/providers", response_model=ProviderListResponse)
 async def list_providers(
+    request: Request,
     model_type: str | None = None,
     caller: CallerContext = Depends(get_caller_context),
-    request: Request = None,  # type: ignore[assignment]
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> ProviderListResponse:
     _require_admin(caller)
@@ -122,9 +122,9 @@ async def list_providers(
 
 @router.get("/models", response_model=ModelListResponse)
 async def list_models(
+    request: Request,
     type: str | None = None,
     caller: CallerContext = Depends(get_caller_context),
-    request: Request = None,  # type: ignore[assignment]
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> ModelListResponse:
     _require_admin(caller)

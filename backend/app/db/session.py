@@ -22,9 +22,16 @@ from app.core.config import get_settings
 
 @lru_cache
 def get_engine() -> AsyncEngine:
-    """Create (once) and return the async engine."""
+    """Create (once) and return the async engine（按配置设连接池，pre_ping 防陈旧连接）。"""
     settings = get_settings()
-    return create_async_engine(settings.database_url, future=True, pool_pre_ping=True)
+    return create_async_engine(
+        settings.database_url,
+        future=True,
+        pool_pre_ping=True,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_recycle=settings.db_pool_recycle,
+    )
 
 
 @lru_cache

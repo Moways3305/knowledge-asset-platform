@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.db.utils import utc_now
 from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.preview import PreviewCredential
@@ -88,10 +89,6 @@ def _denied(status_code: int, reason: str, message: str) -> HTTPException:
     return HTTPException(
         status_code=status_code, detail={"denied_reason": reason, "message": message}
     )
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _as_aware(dt: datetime) -> datetime:
@@ -205,8 +202,8 @@ async def issue_preview(
         token_hash=token_hash,
         credential_fingerprint=fingerprint,
         preview_entry_url="",  # 先占位，拿到 id 后回填
-        issued_at=_now(),
-        expires_at=_now() + timedelta(minutes=PREVIEW_TTL_MINUTES),
+        issued_at=utc_now(),
+        expires_at=utc_now() + timedelta(minutes=PREVIEW_TTL_MINUTES),
         trace_id=trace_id,
     )
     session.add(cred)
@@ -301,7 +298,7 @@ async def use_preview_entry(
         raise _denied(403, "preview_credential_expired", "预览凭证已过期")
 
     # 过期检查：过期则置 expired 并拒绝。
-    if _as_aware(cred.expires_at) <= _now():
+    if _as_aware(cred.expires_at) <= utc_now():
         cred.credential_status = CredentialStatus.expired.value
         await session.commit()
         raise _denied(403, "preview_credential_expired", "预览凭证已过期")
@@ -314,11 +311,11 @@ async def use_preview_entry(
     ).scalar_one_or_none()
     if asset is None or asset.asset_status in _INACTIVE_STATUSES:
         cred.credential_status = CredentialStatus.revoked.value
-        cred.revoked_at = _now()
+        cred.revoked_at = utc_now()
         await session.commit()
         raise _denied(403, "asset_not_active", "资产不可用，凭证已失效")
 
-    now = _now()
+    now = utc_now()
     if cred.used_at is None:
         cred.used_at = now
     cred.last_used_at = now
@@ -432,7 +429,7 @@ async def serve_preview_file(
         raise _denied(403, "preview_credential_revoked", "预览凭证已撤销")
     if (
         cred.credential_status == CredentialStatus.expired.value
-        or _as_aware(cred.expires_at) <= _now()
+        or _as_aware(cred.expires_at) <= utc_now()
     ):
         raise _denied(403, "preview_credential_expired", "预览凭证已过期")
 

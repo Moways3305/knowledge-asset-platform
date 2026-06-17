@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -24,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.logging import safe_log_exception
+from app.db.utils import utc_now
 from app.models.identity import Project, User
 from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
@@ -466,10 +466,6 @@ async def list_my_knowledge(
     return [_to_list_item(caller, a, projects, granted, vindex, policy) for a in visible]
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 async def delete_asset(
     session: AsyncSession,
     caller: CallerContext,
@@ -523,7 +519,7 @@ async def delete_asset(
     )
     for g in grants:
         g.status = "revoked"
-        g.revoked_at = _now()
+        g.revoked_at = utc_now()
         g.revoked_by_user_id = caller.user_id
         g.revoke_reason = "asset_deleted"
 
@@ -543,7 +539,7 @@ async def delete_asset(
     for r in pendings:
         r.status = "cancelled"
         r.reviewer_user_id = caller.user_id
-        r.reviewed_at = _now()
+        r.reviewed_at = utc_now()
         r.review_note = "asset_deleted"
 
     # 3) 尽力删除 WeKnora 索引（active 版本 doc）。失败不阻断软删除——平台层已 fail-closed。
@@ -580,7 +576,7 @@ async def delete_asset(
 
     # 4) 软删除资产（保留行 + 追溯字段）。
     asset.asset_status = _DELETED_STATUS
-    asset.deleted_at = _now()
+    asset.deleted_at = utc_now()
     asset.deleted_by = caller.user_id
     asset.delete_reason = clean_reason
 

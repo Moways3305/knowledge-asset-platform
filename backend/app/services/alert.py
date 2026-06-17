@@ -13,7 +13,6 @@ config.alert_rule_updated（经集中审计服务）。
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -111,10 +110,6 @@ def _denied(status_code: int, reason: str, message: str) -> HTTPException:
     return HTTPException(
         status_code=status_code, detail={"denied_reason": reason, "message": message}
     )
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _require_admin(caller: CallerContext) -> None:

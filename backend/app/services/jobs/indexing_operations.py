@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import safe_log_exception
+from app.db.utils import utc_now
 from app.models.identity import ProjectMember, User
 from app.models.indexing_job import IndexingOperationJob
 from app.models.ingest import IngestTask
@@ -268,7 +269,7 @@ async def run_operation_job(
     operation_type = job.operation_type
 
     job.status = "running"
-    job.started_at = indexing._now()
+    job.started_at = utc_now()
     await session.commit()
 
     success = failed = skipped = 0
@@ -314,7 +315,7 @@ async def run_operation_job(
             job.status = "failed"
             job.error_code = code
             job.error_message = error_catalog.user_message(code)
-            job.finished_at = indexing._now()
+            job.finished_at = utc_now()
             await session.commit()
         return "failed"
 
@@ -329,7 +330,7 @@ async def run_operation_job(
     job.failed_count = failed
     job.skipped_count = skipped
     job.status = "completed" if failed == 0 else "completed_with_errors"
-    job.finished_at = indexing._now()
+    job.finished_at = utc_now()
     await session.commit()
 
     completed_action = (

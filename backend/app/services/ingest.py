@@ -9,7 +9,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import uuid
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
@@ -77,10 +76,6 @@ def _desensitization_message(status: str | None) -> str | None:
     if status is None:
         return None
     return _DESENSITIZATION_MESSAGES.get(status)
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:

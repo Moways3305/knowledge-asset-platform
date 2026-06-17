@@ -13,12 +13,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.utils import utc_now
 from app.models.audit import AuditEvent
 from app.models.identity import ProjectMember, User
 from app.schemas.audit import (
@@ -111,10 +112,6 @@ _FORBIDDEN_VALUE_MARKERS = (
     "wk-doc",  # WeKnora doc 引用形态（如 wk-doc-...#0），命中整串脱敏
     "wk-kb",  # WeKnora KB 引用形态，命中整串脱敏
 )
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _sanitize_value(value: str) -> str:
@@ -517,7 +514,7 @@ async def mark_processed(
     if not event.is_processed:
         event.is_processed = True
         event.processed_by = caller.user_id
-        event.processed_at = _now()
+        event.processed_at = utc_now()
         # 处理动作本身追加一条审计事件（不改原始 action / snapshot / actor）。
         await record_event(
             session,

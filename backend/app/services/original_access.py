@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.logging import safe_log_exception
+from app.db.utils import utc_now
 from app.models.identity import User
 from app.models.knowledge import KnowledgeAsset
 from app.models.original_access import AccessGrant, OriginalAccessRequest
@@ -61,10 +62,6 @@ def _denied(status_code: int, reason: str, message: str) -> HTTPException:
     )
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 def _as_aware(dt: datetime | None) -> datetime | None:
     if dt is None:
         return None
@@ -86,7 +83,7 @@ def _grant_is_live(g: AccessGrant) -> bool:
     if g.status != AccessGrantStatus.active.value:
         return False
     exp = _as_aware(g.expires_at)
-    return exp is None or exp > _now()
+    return exp is None or exp > utc_now()
 
 
 async def has_active_grant(session: AsyncSession, user_id: uuid.UUID, asset_id: uuid.UUID) -> bool:
@@ -482,7 +479,7 @@ async def approve_request(
     if req.status != AccessRequestStatus.pending.value:
         raise _denied(409, "request_already_finalized", "申请已处理，不能重复审批")
 
-    now = _now()
+    now = utc_now()
     req.status = AccessRequestStatus.approved.value
     req.reviewer_user_id = caller.user_id
     req.reviewed_at = now
@@ -551,7 +548,7 @@ async def reject_request(
 
     req.status = AccessRequestStatus.rejected.value
     req.reviewer_user_id = caller.user_id
-    req.reviewed_at = _now()
+    req.reviewed_at = utc_now()
     req.review_note = audit_service.sanitize_text(note)
     await session.flush()
     await audit_service.record_event(
@@ -613,7 +610,7 @@ async def revoke_grant(
         raise _denied(409, "grant_not_active", "授权非 active，无需撤销")
 
     grant.status = AccessGrantStatus.revoked.value
-    grant.revoked_at = _now()
+    grant.revoked_at = utc_now()
     grant.revoked_by_user_id = caller.user_id
     grant.revoke_reason = audit_service.sanitize_text(reason)
     await session.flush()
@@ -754,7 +751,7 @@ async def auto_approve_timed_out_original_access_requests(
         "skipped_invalid": 0,
         "errors": 0,
     }
-    now = now or _now()
+    now = now or utc_now()
     timeout_hours = await access_request_timeout_hours(session)
     if timeout_hours is None:
         return {**stats, "enabled": False}

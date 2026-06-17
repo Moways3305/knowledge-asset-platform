@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     # postgresql+asyncpg://dev:devpassword@localhost:5432/knowledge_platform
     database_url: str = "postgresql+asyncpg://dev:devpassword@localhost:5432/knowledge_platform"
 
+    # 连接池（生产 PostgreSQL engine）：常驻连接数 / 峰值溢出 / 回收周期（秒，防陈旧连接）。
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_recycle: int = 3600
+
+    # 会话有效期（小时）。决定 user_sessions.expires_at 与会话 cookie max-age。
+    session_ttl_hours: int = 12
+
     # Redis URL for Celery broker / result backend.
     redis_url: str = "redis://localhost:6379/0"
 

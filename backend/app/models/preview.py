@@ -9,16 +9,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
+from app.db.utils import utc_now
 
 
 class PreviewCredential(Base):
@@ -49,10 +46,10 @@ class PreviewCredential(Base):
     # ONLYOFFICE 受控取件 token 的 sha256（明文仅一次性放进 Document Server 取件 URL，
     # 服务端只存哈希；过期随凭证 expires_at；**绝不**存明文 / 进响应 / 进审计）。
     fetch_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     trace_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

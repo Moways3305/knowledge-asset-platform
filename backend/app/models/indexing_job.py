@@ -11,16 +11,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
+from app.db.utils import utc_now
 
 
 class IndexingOperationJob(Base):
@@ -38,7 +35,7 @@ class IndexingOperationJob(Base):
     requested_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id"), nullable=True
     )
-    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     total_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -49,7 +46,7 @@ class IndexingOperationJob(Base):
     error_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_now, onupdate=_now
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )

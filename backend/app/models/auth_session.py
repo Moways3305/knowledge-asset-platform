@@ -11,16 +11,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
+from app.db.utils import utc_now
 
 
 class UserSession(Base):
@@ -34,7 +31,7 @@ class UserSession(Base):
     login_method: Mapped[str] = mapped_column(String(30), nullable=False, default="dev_local")
     ip_address: Mapped[str | None] = mapped_column(String(50), nullable=True)
     device_info: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

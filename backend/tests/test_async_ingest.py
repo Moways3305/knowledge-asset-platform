@@ -136,6 +136,9 @@ def test_run_task_loop_local_engine_reentrant(monkeypatch, tmp_path):
 
     class _FakeSettings:
         database_url = db_url
+        db_pool_size = 5
+        db_max_overflow = 10
+        db_pool_recycle = 3600
 
     monkeypatch.setattr(rt, "get_settings", lambda: _FakeSettings())
 

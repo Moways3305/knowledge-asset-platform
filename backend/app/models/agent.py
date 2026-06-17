@@ -16,7 +16,7 @@ provider 字段保存的是平台抽象标识（weknora_llm；internal_stub 为�
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
@@ -31,10 +31,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
+from app.db.utils import utc_now
 
 
 class AgentCall(Base):
@@ -61,7 +58,7 @@ class AgentCall(Base):
     call_status: Mapped[str] = mapped_column(String(20), nullable=False)
     denied_reason: Mapped[str | None] = mapped_column(String(50), nullable=True)
     trace_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class AgentGatewayDecision(Base):
@@ -84,7 +81,7 @@ class AgentGatewayDecision(Base):
     denied_reason: Mapped[str | None] = mapped_column(String(50), nullable=True)
     effective_access_source: Mapped[str | None] = mapped_column(String(30), nullable=True)
     trace_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class AgentGatewayDecisionItem(Base):
@@ -130,7 +127,7 @@ class AgentGatewayDecisionItem(Base):
     returned_layer: Mapped[str | None] = mapped_column(String(20), nullable=True)
     effective_access_source: Mapped[str | None] = mapped_column(String(30), nullable=True)
     denied_reason: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class AgentCallCitation(Base):
@@ -164,4 +161,4 @@ class AgentCallCitation(Base):
     used_access_layer: Mapped[str] = mapped_column(String(20), nullable=False)
     cited_zone: Mapped[str] = mapped_column(String(20), nullable=False)
     citation_order: Mapped[int] = mapped_column(Integer, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

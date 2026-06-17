@@ -19,7 +19,7 @@ api_key/workflow_id/dataset_id/kb_id/collection、向量库内部 ID 等。集�
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import (
     JSON,
@@ -33,10 +33,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
+from app.db.utils import utc_now
 
 
 class AuditEvent(Base):
@@ -72,4 +69,4 @@ class AuditEvent(Base):
     login_result: Mapped[str | None] = mapped_column(String(20), nullable=True)
     trace_id: Mapped[str] = mapped_column(String(100), nullable=False)
     extra: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.trace import generate_trace_id
+from app.db.utils import utc_now
 from app.models.auth_security import AuthLoginAttempt
 from app.models.identity import User
 from app.schemas.auth_security import (
@@ -46,8 +47,10 @@ _UNLOCK_LOOKBACK_MINUTES = 7 * 24 * 60
 
 
 def _clamp(value: int | None, default: int, maximum: int) -> int:
+    if value is None:
+        return default
     try:
-        v = int(value)  # type: ignore[arg-type]
+        v = int(value)
     except (TypeError, ValueError):
         return default
     return max(1, min(v, maximum))
@@ -68,7 +71,7 @@ async def get_overview(
     win = _clamp(window_minutes, _DEFAULT_WINDOW, _MAX_WINDOW)
     lim = _clamp(limit, _DEFAULT_LIMIT, _MAX_LIMIT)
     result_filter = result if result in _RESULTS else None
-    window_start = auth_security._now() - timedelta(minutes=win)
+    window_start = utc_now() - timedelta(minutes=win)
 
     rows = list(
         (
@@ -143,7 +146,7 @@ async def _resolve_identifier_by_prefix(session: AsyncSession, prefix: str) -> s
         raise _denied(422, "unlock_prefix_too_short", f"identifier 前缀至少 {_MIN_PREFIX_LEN} 位")
     if not re.fullmatch(r"[0-9a-f]+", prefix):
         raise _denied(422, "unlock_prefix_invalid", "identifier 前缀只能是十六进制字符（0-9a-f）")
-    lookback = auth_security._now() - timedelta(minutes=_UNLOCK_LOOKBACK_MINUTES)
+    lookback = utc_now() - timedelta(minutes=_UNLOCK_LOOKBACK_MINUTES)
     matches = list(
         (
             await session.execute(
@@ -210,7 +213,7 @@ async def unlock_identifier(
 
     # 统计被解除窗口内的失败类 attempt 数（安全数字，供审计/反馈）。
     win = auth_security._clamp(get_settings().auth_failed_window_minutes, 15)
-    window_start = auth_security._now() - timedelta(minutes=win)
+    window_start = utc_now() - timedelta(minutes=win)
     matched = int(
         (
             await session.execute(

@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import (
     JSON,
@@ -23,10 +23,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
+from app.db.utils import utc_now
 
 
 class IngestTask(Base):
@@ -59,9 +56,9 @@ class IngestTask(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id"), nullable=True
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_now, onupdate=_now
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
 
     ai_result: Mapped[IngestTaskAiResult | None] = relationship(
@@ -113,9 +110,9 @@ class IngestTaskAiResult(Base):
     # 去重软提示（非阻塞）：命中相同内容哈希时指向已有任务 / 资产（均为安全 UUID）。
     duplicate_of_task_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     duplicate_of_asset_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_now, onupdate=_now
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
 
     task: Mapped[IngestTask] = relationship(back_populates="ai_result")

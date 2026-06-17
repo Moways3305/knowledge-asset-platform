@@ -13,13 +13,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 import httpx
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.db.utils import utc_now
 from app.models.identity import User
 from app.models.lifecycle import NotificationRecord
 from app.schemas.enums import (
@@ -33,10 +32,6 @@ from app.services.wecom_client import WeComError, wecom_enabled
 
 # 重试上限：超过则不再下发（失败终态）。
 MAX_SEND_ATTEMPTS = 3
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def wecom_send_enabled() -> bool:
@@ -180,7 +175,7 @@ async def dispatch_pending(
             await _audit(session, AuditAction.notification_failed.value, rec, trace_id)
             continue
         rec.send_status = NotificationStatus.sent.value
-        rec.sent_at = _now()
+        rec.sent_at = utc_now()
         rec.failure_reason = None
         sent += 1
         await _audit(session, AuditAction.notification_sent.value, rec, trace_id)
