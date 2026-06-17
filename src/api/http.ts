@@ -98,7 +98,8 @@ export async function withCsrfRetry<T>(send: () => Promise<T>): Promise<T> {
 export async function handleResponse<T>(resp: Response): Promise<T> {
   if (!resp.ok) {
     let deniedReason: string | undefined;
-    let message = `请求失败（${resp.status}）`;
+    // 默认文案不含 HTTP code / 接口路径 / trace 等技术细节；status 仅留在 ApiError.status 供逻辑判定。
+    let message = "请求未成功，请稍后重试";
     let detailObj: Record<string, unknown> | undefined;
     try {
       const body = await resp.json();

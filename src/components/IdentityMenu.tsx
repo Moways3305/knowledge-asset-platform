@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { ChevronDown, LogOut, UserRound, Building2 } from "lucide-react";
 import { ApiError } from "../api/http";
-import { fetchAuthMe, login, logout, type AuthMeVM } from "../api/auth";
+import { login, logout } from "../api/auth";
+import { useAuth } from "../auth/AuthContext";
 import { startWecomOAuth } from "../api/admin";
 
 const roleLabel: Record<string, string> = {
@@ -23,7 +24,8 @@ const projectRoleLabel: Record<string, string> = {
  * 绝不撑坏顶部命令栏（解决旧顶栏登录失败变形问题）。
  */
 export default function IdentityMenu() {
-  const [authMe, setAuthMe] = useState<AuthMeVM | null>(null);
+  // 身份来自全局 AuthProvider（与导航过滤、页面守卫共享同一份 /auth/me）。
+  const { authMe, status, setAuthMe, reload } = useAuth();
   const [open, setOpen] = useState(false);
   const [projectIndex, setProjectIndex] = useState(0);
   const [loginEmail, setLoginEmail] = useState("");
@@ -32,21 +34,11 @@ export default function IdentityMenu() {
   const [authError, setAuthError] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  const loadMe = useCallback(async () => {
-    try {
-      const me = await fetchAuthMe();
-      setAuthMe(me);
-      setProjectIndex(0);
-      setAuthError(null);
-    } catch (e) {
-      setAuthMe(null);
-      setAuthError(e instanceof ApiError ? "身份未登录或会话已过期" : "身份加载失败");
-    }
-  }, []);
-
+  // 身份加载失败（非未登录）时在浮层内提示，不影响顶栏布局。
   useEffect(() => {
-    void loadMe();
-  }, [loadMe]);
+    setAuthError(status === "error" ? "身份加载失败" : null);
+    if (status === "authenticated") setProjectIndex(0);
+  }, [status]);
 
   // 点击浮层外 / Esc 关闭。
   useEffect(() => {
@@ -89,7 +81,7 @@ export default function IdentityMenu() {
     } finally {
       setAuthBusy(false);
     }
-  }, [loginEmail, loginPassword]);
+  }, [loginEmail, loginPassword, setAuthMe]);
 
   const handleWecomLogin = useCallback(async () => {
     setAuthBusy(true);
@@ -110,13 +102,13 @@ export default function IdentityMenu() {
     setAuthError(null);
     try {
       await logout();
-      await loadMe();
+      await reload();
     } catch {
       setAuthError("登出失败，请稍后重试");
     } finally {
       setAuthBusy(false);
     }
-  }, [loadMe]);
+  }, [reload]);
 
   const projects = authMe?.projects ?? [];
   const currentProject = projects[projectIndex];
