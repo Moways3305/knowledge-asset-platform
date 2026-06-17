@@ -16,12 +16,12 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.utils import utc_now
 from app.models.identity import User
 from app.models.knowledge import KnowledgeAsset
 from app.models.lifecycle import AssetLifecycleEvent
@@ -68,10 +68,6 @@ def _denied(status_code: int, reason: str, message: str) -> HTTPException:
     return HTTPException(
         status_code=status_code, detail={"denied_reason": reason, "message": message}
     )
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 async def _load_governable_asset(
@@ -242,7 +238,7 @@ async def archive_confirm(
     reason = audit_service.sanitize_text(body.reason)
     old_status = asset.asset_status
     asset.asset_status = AssetStatus.archived.value
-    asset.archived_at = _now()
+    asset.archived_at = utc_now()
     asset.archive_reason = reason
 
     event = AssetLifecycleEvent(

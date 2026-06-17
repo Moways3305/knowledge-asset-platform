@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
 import secrets
@@ -53,7 +54,7 @@ def verify_password(password: str, encoded: str | None) -> bool:
         iterations = int(iter_str)
         salt = _b64d(salt_b64)
         expected = _b64d(digest_b64)
-    except (ValueError, TypeError, base64.binascii.Error):  # type: ignore[attr-defined]
+    except (ValueError, TypeError, binascii.Error):
         return False
     candidate = _pbkdf2(password, salt, iterations)
     return hmac.compare_digest(candidate, expected)

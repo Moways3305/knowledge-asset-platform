@@ -12,7 +12,7 @@ attachments 仅存占位 metadata（不含真实文件路径/下载 URL）。
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import (
     JSON,
@@ -28,10 +28,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
+from app.db.utils import utc_now
 
 
 class ValidationEvidence(Base):
@@ -53,9 +50,9 @@ class ValidationEvidence(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 占位 metadata 列表，不含真实文件路径/下载 URL。
     attachments: Mapped[list | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_now, onupdate=_now
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
 
 
@@ -87,9 +84,9 @@ class ReviewTask(Base):
     )
     review_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_now, onupdate=_now
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
 
     evidence_links: Mapped[list[ReviewTaskEvidence]] = relationship(
@@ -151,9 +148,9 @@ class PersonalKnowledgeSubmission(Base):
     idempotency_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # 用户备注（安全文本；不接收/返回业务原文，写入前经审计同口径脱敏由服务层保证）。
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_now, onupdate=_now
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
 
 
@@ -170,6 +167,6 @@ class ReviewTaskEvidence(Base):
     evidence_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("validation_evidences.id"), nullable=False
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     review_task: Mapped[ReviewTask] = relationship(back_populates="evidence_links")

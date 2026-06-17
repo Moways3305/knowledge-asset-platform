@@ -14,7 +14,7 @@ file_hash / token_count / invalid_reason）；摘要采用窄表 summaries 存�
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
@@ -31,11 +31,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-
-
-def _now() -> datetime:
-    """统一 UTC 时间戳（应用层默认值）。"""
-    return datetime.now(timezone.utc)
+from app.db.utils import utc_now
 
 
 class KnowledgeAsset(Base):
@@ -92,9 +88,9 @@ class KnowledgeAsset(Base):
     )
     delete_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_now, onupdate=_now
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
 
     # 容器关系（一对多）。删除资产时级联清理其版本/分块/文件/摘要/标签。
@@ -181,7 +177,7 @@ class KnowledgeAssetVersion(Base):
     index_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     index_error_message: Mapped[str | None] = mapped_column(String(255), nullable=True)
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     asset: Mapped[KnowledgeAsset] = relationship(back_populates="versions", foreign_keys=[asset_id])
@@ -240,7 +236,7 @@ class KnowledgeAssetChunk(Base):
     replaced_by_chunk_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("knowledge_asset_chunks.id"), nullable=True
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     asset: Mapped[KnowledgeAsset] = relationship(back_populates="chunks", foreign_keys=[asset_id])
     version: Mapped[KnowledgeAssetVersion] = relationship(
@@ -282,7 +278,7 @@ class KnowledgeAssetFileObject(Base):
     storage_ref: Mapped[str] = mapped_column(String(1000), nullable=False)
     file_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     confidentiality_level: Mapped[str] = mapped_column(String(2), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     asset: Mapped[KnowledgeAsset] = relationship(back_populates="file_objects")
     version: Mapped[KnowledgeAssetVersion] = relationship(back_populates="file_objects")
@@ -311,7 +307,7 @@ class KnowledgeAssetSummary(Base):
     )
     summary_type: Mapped[str] = mapped_column(String(30), nullable=False)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     asset: Mapped[KnowledgeAsset] = relationship(back_populates="summaries")
     version: Mapped[KnowledgeAssetVersion] = relationship(back_populates="summaries")
@@ -328,6 +324,6 @@ class KnowledgeAssetTag(Base):
         Uuid, ForeignKey("knowledge_assets.id"), nullable=False
     )
     tag_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     asset: Mapped[KnowledgeAsset] = relationship(back_populates="tags")

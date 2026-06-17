@@ -31,6 +31,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
+from app.db.utils import utc_now
 from app.models.auth_security import AuthLoginAttempt
 
 # 安全 hint / 审计 hash 前缀长度（不可逆，仅供运营粗略关联，绝非 email）。
@@ -48,10 +49,6 @@ _RESET_ANCHOR_RESULTS = ("success", "unlocked")
 _FALLBACK_SECRET = "kap-dev-auth-attempt-hmac-fallback"
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 def _as_aware(dt: datetime) -> datetime:
     """SQLite 读回的 naive datetime 视作 UTC（PostgreSQL 为 aware）。"""
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
@@ -64,8 +61,10 @@ def _secret(settings: Settings | None = None) -> str:
 
 def _clamp(value: int | None, default: int) -> int:
     """阈值 / 窗口钳制：<1 或非法 → 回退安全默认（绝不导致无限放行）。"""
+    if value is None:
+        return max(1, default)
     try:
-        v = int(value)  # type: ignore[arg-type]
+        v = int(value)
     except (TypeError, ValueError):
         return max(1, default)
     return v if v >= 1 else max(1, default)
@@ -157,7 +156,7 @@ async def check_login_guard(
     命中时调用方不做真实密码校验、写 locked/rate_limited attempt + 系统审计、返回统一 401。
     """
     s = settings or get_settings()
-    now = _now()
+    now = utc_now()
     win = _clamp(s.auth_failed_window_minutes, 15)
     max_failed = _clamp(s.auth_max_failed_attempts, 5)
     lockout = _clamp(s.auth_lockout_minutes, 15)

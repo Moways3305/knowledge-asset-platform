@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
@@ -32,10 +32,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
+from app.db.utils import utc_now
 
 
 class WecomScanConfig(Base):
@@ -55,9 +52,9 @@ class WecomScanConfig(Base):
     created_by: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
     scan_frequency: Mapped[str | None] = mapped_column(String(30), nullable=True)
     last_scan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_now, onupdate=_now
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
 
 
@@ -84,7 +81,7 @@ class WecomScanRecord(Base):
     trace_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # 幂等键（手动触发可携带 Idempotency-Key；同 config + key 命中已存在记录则不重扫）。
     idempotency_key: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    scan_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    scan_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     scan_completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -96,4 +93,4 @@ class WecomScanRecord(Base):
     scan_status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
     error_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

@@ -16,11 +16,11 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.utils import utc_now
 from app.models.knowledge import KnowledgeAssetVersion
 from app.schemas.enums import KnowledgeScope
 from app.services import error_catalog
@@ -41,10 +41,6 @@ class IndexOutcome:
     parse_status: str | None = None
     error_code: str | None = None
     is_duplicate: bool = False
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 async def _load_version(
@@ -136,7 +132,7 @@ async def index_asset_version(
             version.weknora_doc_id = str(data.get("id") or "") or None
             version.weknora_parse_status = parse_status
             version.index_status = "indexed"
-            version.indexed_at = _now()
+            version.indexed_at = utc_now()
             version.index_error_code = None
             version.index_error_message = None
         await session.commit()
@@ -149,7 +145,7 @@ async def index_asset_version(
             version.weknora_doc_id = dup.existing_knowledge_id
             version.weknora_parse_status = "duplicate"
             version.index_status = "indexed"
-            version.indexed_at = _now()
+            version.indexed_at = utc_now()
             version.index_error_code = None
             version.index_error_message = None
         await session.commit()
@@ -220,7 +216,7 @@ async def reparse_asset_version(
             version.weknora_doc_id = str(data.get("id") or "") or None
             version.weknora_parse_status = parse_status
             version.index_status = "indexed"
-            version.indexed_at = _now()
+            version.indexed_at = utc_now()
             version.index_error_code = None
             version.index_error_message = None
         await session.commit()
@@ -233,7 +229,7 @@ async def reparse_asset_version(
             version.weknora_doc_id = dup.existing_knowledge_id
             version.weknora_parse_status = "duplicate"
             version.index_status = "indexed"
-            version.indexed_at = _now()
+            version.indexed_at = utc_now()
             version.index_error_code = None
             version.index_error_message = None
         await session.commit()

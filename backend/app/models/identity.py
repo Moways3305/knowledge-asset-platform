@@ -10,7 +10,7 @@ users / user_company_roles / projects / project_members。
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
@@ -23,11 +23,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-
-
-def _now() -> datetime:
-    """统一的 UTC 时间戳生成函数（应用层默认值，避免依赖具体方言）。"""
-    return datetime.now(timezone.utc)
+from app.db.utils import utc_now
 
 
 class User(Base):
@@ -52,9 +48,9 @@ class User(Base):
     # **绝不**进任何响应 schema / 审计 / 日志；对外只暴露安全布尔 password_set（=hash 非空）。
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     password_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_now, onupdate=_now
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
 
     company_roles: Mapped[list[UserCompanyRole]] = relationship(
@@ -82,7 +78,7 @@ class UserCompanyRole(Base):
     company_role: Mapped[str] = mapped_column(String(30), nullable=False)
     # status：active / inactive。只有 active 角色参与身份判定。
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     user: Mapped[User] = relationship(back_populates="company_roles")
 
@@ -113,9 +109,9 @@ class Project(Base):
     force_review_on_ingest: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # 企微群配置值（非 secret；响应只回脱敏 label + bound，绝不外泄全文）。
     wecom_group_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_now, onupdate=_now
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
 
     members: Mapped[list[ProjectMember]] = relationship(
@@ -141,7 +137,7 @@ class ProjectMember(Base):
     project_role: Mapped[str] = mapped_column(String(30), nullable=False)
     # status：active / inactive
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
-    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     user: Mapped[User] = relationship(back_populates="project_members")
     project: Mapped[Project] = relationship(back_populates="members")

@@ -15,16 +15,13 @@ capability / allowed_scope / allowed_project_id / max_*level / enabled / risk_*�
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
+from app.db.utils import utc_now
 
 
 class AgentWhitelistRule(Base):
@@ -57,7 +54,7 @@ class AgentWhitelistRule(Base):
     # Dify 侧内部标识（server-only；绝不进响应 / 审计 / 前端）。
     external_app_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     external_workflow_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_now, onupdate=_now
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )

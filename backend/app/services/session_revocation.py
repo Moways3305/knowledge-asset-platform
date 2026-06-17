@@ -17,13 +17,10 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.utils import utc_now
 from app.models.auth_session import UserSession
 from app.schemas.session_ops import UserSessionItem, UserSessionsResponse
 from app.services.auth_session import _hash_token
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _as_aware(dt: datetime | None) -> datetime | None:
@@ -63,7 +60,7 @@ async def list_sessions(
     session: AsyncSession, user_id: uuid.UUID, *, current_hash: str | None
 ) -> UserSessionsResponse:
     """返回目标用户的安全会话元数据（无 token / hash / ip / device）。"""
-    now = _now()
+    now = utc_now()
     rows = await _user_sessions(session, user_id)
     items = [
         UserSessionItem(
@@ -83,7 +80,7 @@ async def list_sessions(
 
 
 async def active_session_count(session: AsyncSession, user_id: uuid.UUID) -> int:
-    now = _now()
+    now = utc_now()
     return sum(1 for s in await _user_sessions(session, user_id) if _is_active(s, now))
 
 
@@ -98,7 +95,7 @@ async def revoke_user_sessions(
     `exclude_token_hash` 非空时保留该会话（用于「保留当前会话」）。返回 (撤销数, 撤销时刻)。
     标记 `revoked_at`，不删除行；已过期 / 已撤销的不重复处理。
     """
-    now = _now()
+    now = utc_now()
     revoked = 0
     for s in await _user_sessions(session, user_id):
         if not _is_active(s, now):

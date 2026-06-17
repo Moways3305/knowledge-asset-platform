@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -23,6 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.db.utils import utc_now
 from app.models.identity import Project, ProjectMember, User
 from app.models.ingest import IngestTask
 from app.models.wecom import WecomScanConfig, WecomScanRecord
@@ -47,10 +47,6 @@ def _denied(status_code: int, reason: str, message: str) -> HTTPException:
     return HTTPException(
         status_code=status_code, detail={"denied_reason": reason, "message": message}
     )
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _is_admin(caller: CallerContext) -> bool:
@@ -739,7 +735,7 @@ async def trigger_scan(
         config_id=config.id,
         trace_id=trace_id,
         idempotency_key=idempotency_key,
-        scan_started_at=_now(),
+        scan_started_at=utc_now(),
         scan_status="running",
     )
     session.add(record)
@@ -813,7 +809,7 @@ async def run_scan(
         record.scan_status = "failed"
         record.error_type = "wecom_scan_owner_invalid"
         record.error_message = "扫描业务归属人当前不合法，已 fail-closed 阻止扫描（详见审计）"
-        record.scan_completed_at = _now()
+        record.scan_completed_at = utc_now()
         await _scan_terminal_audit(
             session,
             actor_caller,
@@ -836,7 +832,7 @@ async def run_scan(
         record.scan_status = "failed"
         record.error_type = exc.code  # 安全 code，不含上游 payload
         record.error_message = "微盘目录列举失败（详见审计）"
-        record.scan_completed_at = _now()
+        record.scan_completed_at = utc_now()
         await _scan_terminal_audit(
             session,
             actor_caller,
@@ -917,8 +913,8 @@ async def run_scan(
     record.duplicate_count = dup
     record.failed_count = failed
     record.scan_status = "completed"
-    record.scan_completed_at = _now()
-    config.last_scan_at = _now()
+    record.scan_completed_at = utc_now()
+    config.last_scan_at = utc_now()
     await _scan_terminal_audit(
         session,
         actor_caller,
@@ -975,7 +971,7 @@ async def scan_config_by_id(
     record = WecomScanRecord(
         config_id=config.id,
         trace_id=trace_id,
-        scan_started_at=_now(),
+        scan_started_at=utc_now(),
         scan_status="running",
     )
     session.add(record)

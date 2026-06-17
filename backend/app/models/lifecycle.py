@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import (
     JSON,
@@ -36,10 +36,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
+from app.db.utils import utc_now
 
 
 class AssetLifecycleEvent(Base):
@@ -68,7 +65,7 @@ class AssetLifecycleEvent(Base):
     review_task_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     # 同链路串联用（预警→确认→状态变更→后续 Agent/preview 拒绝）。
     trace_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class AlertRule(Base):
@@ -84,9 +81,9 @@ class AlertRule(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     notification_channels: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     dedup_strategy: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_now, onupdate=_now
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
 
 
@@ -116,4 +113,4 @@ class NotificationRecord(Base):
     # 真实下发的投递元数据（安全）。send_attempts 计重试；failure_reason 仅安全 code/文案。
     send_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     failure_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

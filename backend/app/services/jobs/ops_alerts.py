@@ -32,6 +32,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.utils import utc_now
 from app.models.auth_security import AuthLoginAttempt
 from app.models.identity import User, UserCompanyRole
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
@@ -65,10 +66,6 @@ DEFAULT_COOLDOWN_MINUTES = 360
 # 计入登录安全信号的结果（守卫拦截事实，不含普通 failed）。
 _GUARD_RESULTS = ("locked", "rate_limited")
 _STALLED_PARSE_STATUSES = ("pending", "processing")
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _as_aware(dt: datetime) -> datetime:
@@ -241,7 +238,7 @@ async def scan_ops_alerts(
     不假装已发送）。
     """
     await alert_service.ensure_default_rules(session)
-    now = _as_aware(now or _now())
+    now = _as_aware(now or utc_now())
     rules = await _load_rules(session)
     cooldown = _param_minutes(rules, RULE_COOLDOWN_MINUTES, DEFAULT_COOLDOWN_MINUTES)
 

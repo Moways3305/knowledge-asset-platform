@@ -43,7 +43,15 @@ def run_task(
 
     async def _main() -> _T:
         settings = get_settings()
-        engine = create_async_engine(settings.database_url, future=True, pool_pre_ping=True)
+        # 与 API engine 同套连接池配置（worker/beat 也是重度 DB 使用者，生产调参需一致生效）。
+        engine = create_async_engine(
+            settings.database_url,
+            future=True,
+            pool_pre_ping=True,
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_max_overflow,
+            pool_recycle=settings.db_pool_recycle,
+        )
         maker = async_sessionmaker(bind=engine, expire_on_commit=False)
         try:
             return await coro_fn(maker)

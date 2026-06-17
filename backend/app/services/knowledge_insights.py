@@ -20,12 +20,13 @@ api_key、provider 内部 id、文件名、原文 / chunk 原文——这些只�
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.utils import utc_now
 from app.models.audit import AuditEvent
 from app.models.indexing_job import IndexingOperationJob
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
@@ -70,10 +71,6 @@ _MAX_DAYS = 180
 _DEFAULT_LIMIT = 10
 _MAX_LIMIT = 50
 _SCOPES = {"personal", "project", "company", "all"}
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
@@ -150,7 +147,7 @@ async def get_ops_insights(
     item_limit = max(1, min(int(limit or _DEFAULT_LIMIT), _MAX_LIMIT))
     title_visible = caller.is_business_user  # 纯 admin → False
     ops_viewer = _is_ops_viewer(caller)
-    window_start = _now() - timedelta(days=window_days)
+    window_start = utc_now() - timedelta(days=window_days)
 
     vis = _asset_visibility_conditions(caller)
     scope_conds = _scope_conditions(scope_v, project_id)
@@ -209,7 +206,7 @@ async def get_ops_insights(
         )
     )
     if timeout_hours is not None:
-        cutoff = _now() - timedelta(hours=timeout_hours)
+        cutoff = utc_now() - timedelta(hours=timeout_hours)
         overdue = await _count(
             _request_count(
                 vis,

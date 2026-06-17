@@ -22,6 +22,8 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
+from app.db.utils import utc_now
 from app.models.auth_session import UserSession
 from app.models.identity import User
 from app.services.identity import (
@@ -31,15 +33,12 @@ from app.services.identity import (
 )
 
 SESSION_COOKIE_NAME = "kap_session"
-SESSION_TTL_HOURS = 12
+# 会话有效期（小时）由配置驱动，默认 12（与既有行为一致）。auth.py 的 cookie max-age 复用此值。
+SESSION_TTL_HOURS = get_settings().session_ttl_hours
 # 本地无凭证登录适配器仅在开发环境开放（真实 OAuth 接入前的占位）。
 LOGIN_ALLOWED_ENVS = DEV_IDENTITY_ALLOWED_ENVS
 
 _logger = logging.getLogger(__name__)
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _as_aware(dt: datetime) -> datetime:
@@ -70,8 +69,8 @@ async def create_session(
         login_method=login_method,
         ip_address=ip_address,
         device_info=device_info,
-        expires_at=_now() + timedelta(hours=SESSION_TTL_HOURS),
-        last_seen_at=_now(),
+        expires_at=utc_now() + timedelta(hours=SESSION_TTL_HOURS),
+        last_seen_at=utc_now(),
     )
     session.add(sess)
     await session.flush()
@@ -94,9 +93,9 @@ async def resolve_session_user(session: AsyncSession, raw_token: str | None) -> 
     ).scalar_one_or_none()
     if row is None or row.revoked_at is not None:
         return None
-    if _as_aware(row.expires_at) <= _now():
+    if _as_aware(row.expires_at) <= utc_now():
         return None
-    row.last_seen_at = _now()
+    row.last_seen_at = utc_now()
     user = await load_user_with_roles(session, user_id=row.user_id)
     if user is None or user.status != "active":
         return None
@@ -130,7 +129,7 @@ async def revoke_session(session: AsyncSession, raw_token: str | None) -> bool:
     ).scalar_one_or_none()
     if row is None or row.revoked_at is not None:
         return False
-    row.revoked_at = _now()
+    row.revoked_at = utc_now()
     _logger.info("session_revoked", extra={"user_id": str(row.user_id)})
     return True
 

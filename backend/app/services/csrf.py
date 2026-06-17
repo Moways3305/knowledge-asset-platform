@@ -19,18 +19,15 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from app.core.config import Settings, get_settings
+from app.db.utils import utc_now
 
 # 非 prod 空 secret 的稳定回退常量（仍单向 HMAC；prod 必须显式配置真实 secret）。
 _FALLBACK_SECRET = "kap-dev-csrf-token-hmac-fallback"
 _ANON_BINDING = "anon"
 _NONCE_BYTES = 16
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _secret(settings: Settings | None = None) -> str:
@@ -64,7 +61,7 @@ def issue_csrf_token(
 ) -> tuple[str, datetime]:
     """签发绑定到当前 session（或 anon）的 CSRF token，返回 (token, expires_at)。"""
     s = settings or get_settings()
-    expires_at = _now() + timedelta(minutes=_ttl_minutes(s))
+    expires_at = utc_now() + timedelta(minutes=_ttl_minutes(s))
     expiry = int(expires_at.timestamp())
     nonce = secrets.token_urlsafe(_NONCE_BYTES)
     binding = _session_binding(session_token)
@@ -94,6 +91,6 @@ def verify_csrf_token(
     # 先恒定时间比对签名，再判过期，避免对无效签名也透出"仅过期"信号。
     if not hmac.compare_digest(sig, expected):
         return "csrf_token_invalid"
-    if int(_now().timestamp()) > expiry:
+    if int(utc_now().timestamp()) > expiry:
         return "csrf_token_expired"
     return None
