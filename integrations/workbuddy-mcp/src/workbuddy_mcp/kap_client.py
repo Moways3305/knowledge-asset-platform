@@ -46,8 +46,12 @@ class KapClient:
         self._cfg = config
         self._http = client or httpx.Client(base_url=config.base_url, timeout=30.0)
 
-    def _headers(self) -> dict:
-        return {"Authorization": f"Bearer {self._cfg.agent_token}"}
+    def _headers(self, bearer: str | None) -> dict:
+        # 远程多用户：bearer 来自本次请求（调用人本人 token）；stdio：用进程级 token。
+        token = bearer or self._cfg.agent_token
+        if not token:
+            raise KapError(_DENIED_MSG)
+        return {"Authorization": f"Bearer {token}"}
 
     def _handle(self, resp: httpx.Response) -> dict:
         if resp.status_code in (401, 403):
@@ -58,16 +62,16 @@ class KapClient:
             raise KapError(_DENIED_MSG)
         return resp.json()
 
-    def post(self, path: str, body: dict) -> dict:
+    def post(self, path: str, body: dict, *, bearer: str | None = None) -> dict:
         try:
-            resp = self._http.post(path, json=body, headers=self._headers())
+            resp = self._http.post(path, json=body, headers=self._headers(bearer))
         except httpx.HTTPError:
             raise KapError(_UNAVAILABLE_MSG) from None
         return self._handle(resp)
 
-    def get(self, path: str) -> dict:
+    def get(self, path: str, *, bearer: str | None = None) -> dict:
         try:
-            resp = self._http.get(path, headers=self._headers())
+            resp = self._http.get(path, headers=self._headers(bearer))
         except httpx.HTTPError:
             raise KapError(_UNAVAILABLE_MSG) from None
         return self._handle(resp)
@@ -81,6 +85,7 @@ def search_knowledge(
     top_k: int | None = None,
     tags: list[str] | None = None,
     phase: str | None = None,
+    bearer: str | None = None,
 ) -> list[dict]:
     body: dict = {"query": query, "intent": "search"}
     if scope:
@@ -92,22 +97,24 @@ def search_knowledge(
         filters["phase"] = phase
     if filters:
         body["filters"] = filters
-    data = client.post(_SEARCH_PATH, body)
+    data = client.post(_SEARCH_PATH, body, bearer=bearer)
     cards = [_pick(c, CARD_FIELDS) for c in data.get("cards", [])]
     return cards[:top_k] if top_k else cards
 
 
-def answer_from_knowledge(client: KapClient, query: str, *, scope: str | None = None) -> dict:
+def answer_from_knowledge(
+    client: KapClient, query: str, *, scope: str | None = None, bearer: str | None = None
+) -> dict:
     body: dict = {"query": query, "intent": "qa"}
     if scope:
         body["scope"] = scope
-    data = client.post(_SEARCH_PATH, body)
+    data = client.post(_SEARCH_PATH, body, bearer=bearer)
     return {
         "answer": data.get("answer"),
         "citations": [_pick(c, CITATION_FIELDS) for c in data.get("citations", [])],
     }
 
 
-def list_accessible_projects(client: KapClient) -> list[dict]:
-    data = client.get(_PROJECTS_PATH)
+def list_accessible_projects(client: KapClient, *, bearer: str | None = None) -> list[dict]:
+    data = client.get(_PROJECTS_PATH, bearer=bearer)
     return [_pick(p, PROJECT_FIELDS) for p in data.get("items", [])]
