@@ -32,6 +32,29 @@ class ExternalRetrievalRecord(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
+# ---------------- 中立 agent-gateway 工具请求 / 响应 ----------------
+class AgentToolSearchRequest(BaseModel):
+    """中立 agent-gateway 检索请求。caller 不在 body（由 token 绑定在后端解析）。"""
+
+    query: str
+    scope: str | None = None
+    intent: str | None = None
+    # 复用统一检索过滤项（zone/tags/phase）。
+    filters: dict | None = None
+
+
+class AgentProjectOut(BaseModel):
+    """Agent 可见项目最小安全视图（不含 client_name / 成员 / 生命周期细节）。"""
+
+    project_id: uuid.UUID
+    name: str
+    status: str
+
+
+class AgentProjectsResponse(BaseModel):
+    items: list[AgentProjectOut]
+
+
 # ---------------- 接入注册管理（admin）----------------
 class RegistryRuleOut(BaseModel):
     """注册行安全视图：不含 token_hash / provider 内部标识 / agent_identifier。"""
@@ -45,6 +68,10 @@ class RegistryRuleOut(BaseModel):
     max_confidentiality_level: str
     max_ai_access_level: str
     enabled: bool
+    # WorkBuddy 绑定用户安全展示（admin 视图；绝不含 token / token_hash）。
+    bound_user_id: uuid.UUID | None = None
+    bound_user_name: str | None = None
+    bound_user_active: bool | None = None
     risk_level: str | None
     risk_note: str | None
     created_at: datetime
@@ -56,7 +83,9 @@ class RegistryListResponse(BaseModel):
 
 
 class RegistryCreateRequest(BaseModel):
-    provider: str = "dify"
+    provider: str = "custom"
+    # per-user 绑定：provider=workbuddy 时必填；指向 active 业务用户。
+    bound_user_id: uuid.UUID | None = None
     agent_identifier: str
     agent_name: str
     capability: str = "qa"

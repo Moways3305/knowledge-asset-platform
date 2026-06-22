@@ -12,6 +12,7 @@ from fastapi import FastAPI
 
 from app.api import (
     agent,
+    agent_gateway,
     alert,
     audit,
     auth,
@@ -70,6 +71,7 @@ def create_app() -> FastAPI:
     app.include_router(agent.router)
     app.include_router(search.router)
     app.include_router(dify.router)
+    app.include_router(agent_gateway.router)
     app.include_router(audit.router)
     app.include_router(lifecycle.router)
     app.include_router(alert.router)

@@ -62,13 +62,16 @@ _logger = logging.getLogger(__name__)
 
 _REDACTED_LEVELS = {ConfidentialityLevel.L3.value, ConfidentialityLevel.L4.value}
 
-# 入库前置脱敏状态 → 人读安全文案。准确口径：不夸大为"全部已脱敏"，
-# 不可抽取文本明示"无法做文本级前置脱敏"，失败明示"脱敏失败"。
+# 入库前置脱敏状态 → 人读安全文案。当前口径：入库建议由受信外部 API 处理，未启用前置脱敏
+# （not_applicable）。规则脱敏引擎保留为备用。applied/unchanged/skipped/failed 仅为兼容历史
+# 数据行的旧状态，新任务不再产生。
 _DESENSITIZATION_MESSAGES = {
-    "applied": "内容处理前已对抽取文本做规则实体脱敏（平台侧外部 LLM 仅使用脱敏后文本）",
-    "unchanged": "已运行规则脱敏，未命中可脱敏敏感实体（平台侧外部 LLM 使用该文本）",
-    "skipped": "未抽取到文本，无法做文本级前置脱敏；平台侧外部 LLM 内容建议已降级，不接触原文",
-    "failed": "规则脱敏失败；平台侧外部 LLM 内容建议已降级，不接触原文",
+    "not_applicable": "当前入库建议由受信外部 API 处理，未启用前置脱敏",
+    # 以下为历史状态文案（向后兼容旧数据，新链路不再产生）。
+    "applied": "历史记录：内容处理前曾对抽取文本做规则实体脱敏",
+    "unchanged": "历史记录：曾运行规则脱敏，未命中可脱敏敏感实体",
+    "skipped": "历史记录：未抽取到文本，未做文本级前置脱敏",
+    "failed": "历史记录：规则脱敏失败，内容建议曾降级",
 }
 
 
@@ -242,7 +245,8 @@ async def get_ai_result(
             if ai
             else None
         ),
-        # 入库前置脱敏安全元数据（状态 + 类别计数 + 人读文案，两视图均可见）。
+        # 入库脱敏安全元数据（状态 + 类别计数 + 人读文案，两视图均可见）。
+        # 新任务为 not_applicable / counts=null；旧数据行保留历史状态。
         desensitization_status=ai.desensitization_status if ai else None,
         desensitization_counts=(ai.desensitization_counts if ai else None) or None,
         desensitization_message=_desensitization_message(ai.desensitization_status if ai else None),

@@ -36,7 +36,8 @@
 - `people`、`projects`、`permissions`：人员与项目成员、项目设置、权限规则与外部 Agent 接入注册。
 - `ops`：健康探针与运维端点（索引运维、审计、登录风控、会话撤销、企业微信身份对账等，挂在 `/admin/ops` 与 `/health`）。
 - `wecom_scan`、`weknora_admin`：微盘扫描配置 / 触发 / 记录、WeKnora 模型与建库配置中心。
-- `dify`：provider 中立外部 Agent / 工作流网关的兼容适配器（Dify 只是其中一个适配面，核心逻辑 provider 无关）。
+- `agent_gateway`：provider 中立外部 Agent 网关（**WorkBuddy MCP 主接入面**）——Bearer token 绑定 KAP 用户，`/api/v1/agent-gateway/tools/knowledge-search` 与 `/projects`，channel=agent，caller 仅从 token 绑定解析。
+- `dify`：**legacy** 兼容适配器（仅承载 Dify 线缆形态；保留可用、不强删，新接入改用 agent_gateway）。
 
 健康探针：
 - `GET /health`（活性）、`GET /health/ready`（DB；async 模式下 Redis）。
@@ -54,7 +55,7 @@
 均经环境变量启用，未配置则降级（不阻断启动），真实密钥不入仓库。项名见 `.env.example`。
 
 - **WeKnora**（向量检索 / 索引底座）：`base_url + api_key` 配齐启用；建库随模型配置初始化；embedding 模型全平台统一、建库后不可改。kb_id / doc_id 视同内部存储引用，绝不进任何响应 / 审计 / 日志。
-- **外部 LLM**（内容处理）：选一个 provider + api_key 即启用；用于分类 / 三层摘要 / 标签 / 关键知识点；缺失则回退确定性草稿，上传不失败。
+- **外部 LLM**（内容处理）：选一个 provider + api_key 即启用；用于分类 / 三层摘要 / 标签 / 关键知识点；缺失则回退确定性草稿，上传不失败。入库建议由该受信外部 API 处理，**不再前置脱敏**（保留客户/金额等上下文以提升命名与摘要质量）；规则脱敏引擎保留为备用，待本地大模型资源到位后可重新接入。**对外输出仍按权限与脱敏策略收口**：检索原文 chunk / Agent 引用在权限放行后做输出脱敏。
 - **企业微信**：OAuth 登录（按 `users.wecom_user_id` 解析，不自动建用户）、微盘扫描（平台后端下载字节落受控存储 → 建入库任务）、通知下发（受总开关控制，默认仅站内）、成员身份生命周期同步。
 - **ONLYOFFICE**：只读预览，返回受控取件 URL（Document Server 凭短时 token 经平台回取字节），不暴露存储地址 / 完整 token / JWT 密钥。
 - **文件存储**：受控服务端存储，存储引用为 server-only、绝不进响应；本地后端用于 dev/test，生产可经可插拔 `StorageBackend` 平替为对象存储（S3/OSS/MinIO）。
