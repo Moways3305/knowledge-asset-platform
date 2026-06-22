@@ -1,0 +1,1 @@
+"""WorkBuddy MCP server package."""
