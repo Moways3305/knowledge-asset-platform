@@ -16,6 +16,7 @@ import secrets
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_caller_context
 from app.core.config import get_settings, session_cookie_secure
 from app.core.trace import get_trace_id
 from app.db.session import get_db
@@ -27,11 +28,14 @@ from app.schemas.auth import (
     WecomAuthorizeOut,
 )
 from app.schemas.enums import AuditAction, AuditLogType
+from app.schemas.permission import CallerContext
+from app.schemas.workbuddy import WorkbuddyTokenCreatedOut, WorkbuddyTokenStatusOut
 from app.services import audit as audit_service
 from app.services import auth_security as auth_security
 from app.services import auth_session as session_service
 from app.services import csrf as csrf_service
 from app.services import wecom_identity
+from app.services import workbuddy_token as workbuddy_token_service
 from app.services.auth_session import SESSION_COOKIE_NAME
 from app.services.identity import build_auth_me, load_user_with_roles
 from app.services.permission import build_caller_context
@@ -497,3 +501,38 @@ async def auth_me(
         dev_user_id=x_dev_user_id,
     )
     return build_auth_me(user)
+
+
+# ---------------------------------------------------------------------------
+# 自助 WorkBuddy 接入 token（当前用户本人，绑定身份由服务端强制）
+# ---------------------------------------------------------------------------
+@router.get("/workbuddy-token", response_model=WorkbuddyTokenStatusOut)
+async def get_workbuddy_token(
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> WorkbuddyTokenStatusOut:
+    """当前登录业务用户查看自己的 WorkBuddy 绑定状态（不含 token / token_hash）。"""
+    return await workbuddy_token_service.get_status(session, caller)
+
+
+@router.post("/workbuddy-token/regenerate", response_model=WorkbuddyTokenCreatedOut)
+async def regenerate_workbuddy_token(
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> WorkbuddyTokenCreatedOut:
+    """生成 / 重置当前用户自助 token（绑定 caller 本人；明文一次性返回 + 可复制 mcp.json）。"""
+    base_url = str(request.base_url).rstrip("/")
+    return await workbuddy_token_service.regenerate(
+        session, caller, base_url=base_url, trace_id=get_trace_id(request)
+    )
+
+
+@router.delete("/workbuddy-token", response_model=WorkbuddyTokenStatusOut)
+async def revoke_workbuddy_token(
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> WorkbuddyTokenStatusOut:
+    """撤销当前用户自助 token（幂等；旧 token 立即不可用）。"""
+    return await workbuddy_token_service.revoke(session, caller, trace_id=get_trace_id(request))

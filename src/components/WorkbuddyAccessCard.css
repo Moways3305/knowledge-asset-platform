@@ -1,0 +1,50 @@
+.wb-card {
+  margin: 1.5rem 0;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--border, #e2e2e2);
+  border-radius: 12px;
+  background: var(--surface, #fff);
+}
+.wb-card h3 {
+  margin: 0 0 0.5rem;
+}
+.wb-desc {
+  margin: 0 0 0.75rem;
+  color: var(--text-muted, #555);
+  font-size: 0.9rem;
+}
+.wb-status {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+}
+.wb-error {
+  margin: 0 0 0.75rem;
+  color: var(--danger, #b00020);
+  font-size: 0.9rem;
+}
+.wb-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.wb-onetime {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px dashed var(--border, #e2e2e2);
+}
+.wb-warn {
+  margin: 0 0 0.5rem;
+  color: var(--warning, #8a6d00);
+  font-size: 0.9rem;
+}
+.wb-config {
+  width: 100%;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8rem;
+  resize: vertical;
+}
+.wb-copied {
+  color: var(--success, #1a7f37);
+  font-size: 0.85rem;
+}

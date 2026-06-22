@@ -339,6 +339,8 @@ class AuditAction(str, Enum):
     agent_allowed = "agent.allowed"
     agent_denied = "agent.denied"
     agent_a4_original_denied = "agent.a4_original_denied"
+    agent_workbuddy_token_rotated = "agent.workbuddy_token_rotated"
+    agent_workbuddy_token_revoked = "agent.workbuddy_token_revoked"
     # 跨模块 admin 边界
     admin_business_denied = "admin.business_denied"
     # 审计异常处理（追加事件，不改原始事实）
