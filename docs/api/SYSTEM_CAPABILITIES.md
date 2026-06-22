@@ -102,10 +102,11 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 - 🛡️ `GET /api/v1/original-access/requests`、`POST .../{request_id}/{approve|reject}`、`POST .../grants/{grant_id}/revoke`。
 - 授权由审批通过后生成；admin 不因系统身份获得业务原文授权权。
 
-### 4.8 外部 Agent 网关与 Dify 适配（agent, dify）
+### 4.8 外部 Agent 网关：WorkBuddy MCP（主） / Dify（legacy）
 - 🔐 `GET /api/v1/agent-calls/{call_id}`(+`/decision-items`) — Agent 调用记录与候选项。
-- 🔐 `POST /api/v1/dify/external-knowledge/retrieval`、`POST /api/v1/dify/tools/knowledge-search` — **Dify 兼容适配器**（仅承载 Dify 线缆形态）。
-- 核心是 **provider 中立网关**；Dify 只是其中一个临时适配面。Agent **不**拥有独立权限，完全跟随调用人。
+- 🔐 `POST /api/v1/agent-gateway/tools/knowledge-search`、`GET /api/v1/agent-gateway/projects` — **provider 中立外部 Agent 网关**（WorkBuddy MCP 经此接入）。Bearer token 绑定唯一 KAP 用户，caller 仅由后端从绑定解析（不读客户端自报 user id）；channel=agent，不取原文。
+- 🔐 `POST /api/v1/dify/external-knowledge/retrieval`、`POST /api/v1/dify/tools/knowledge-search` — **Dify 兼容适配器（legacy）**，保留可用、不强删；新接入用 agent-gateway。
+- 核心是 **provider 中立网关**；Agent **不**拥有独立权限，完全跟随调用人。
 
 ### 4.9 治理与管理后台（audit, alert, people, permissions, wecom_scan, weknora_admin）
 - 🛡️ 审计：`GET /api/v1/admin/audit`(+`/trace/{trace_id}`,`/{event_id}/mark-processed`)。

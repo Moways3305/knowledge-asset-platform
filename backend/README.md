@@ -36,7 +36,8 @@
 - `people`、`projects`、`permissions`：人员与项目成员、项目设置、权限规则与外部 Agent 接入注册。
 - `ops`：健康探针与运维端点（索引运维、审计、登录风控、会话撤销、企业微信身份对账等，挂在 `/admin/ops` 与 `/health`）。
 - `wecom_scan`、`weknora_admin`：微盘扫描配置 / 触发 / 记录、WeKnora 模型与建库配置中心。
-- `dify`：provider 中立外部 Agent / 工作流网关的兼容适配器（Dify 只是其中一个适配面，核心逻辑 provider 无关）。
+- `agent_gateway`：provider 中立外部 Agent 网关（**WorkBuddy MCP 主接入面**）——Bearer token 绑定 KAP 用户，`/api/v1/agent-gateway/tools/knowledge-search` 与 `/projects`，channel=agent，caller 仅从 token 绑定解析。
+- `dify`：**legacy** 兼容适配器（仅承载 Dify 线缆形态；保留可用、不强删，新接入改用 agent_gateway）。
 
 健康探针：
 - `GET /health`（活性）、`GET /health/ready`（DB；async 模式下 Redis）。

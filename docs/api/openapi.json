@@ -468,6 +468,95 @@
         "title": "AgentCapability",
         "type": "string"
       },
+      "AgentProjectOut": {
+        "description": "Agent 可见项目最小安全视图（不含 client_name / 成员 / 生命周期细节）。",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "name",
+          "status"
+        ],
+        "title": "AgentProjectOut",
+        "type": "object"
+      },
+      "AgentProjectsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AgentProjectOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "AgentProjectsResponse",
+        "type": "object"
+      },
+      "AgentToolSearchRequest": {
+        "description": "中立 agent-gateway 检索请求。caller 不在 body（由 token 绑定在后端解析）。",
+        "properties": {
+          "filters": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filters"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intent"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "AgentToolSearchRequest",
+        "type": "object"
+      },
       "AiAccessLevel": {
         "description": "AI 调用级别 A1-A4。A4 资产不进入 Agent 原文上下文（与人工预览是不同边界）。",
         "enum": [
@@ -6725,6 +6814,18 @@
             ],
             "title": "Allowed Scope"
           },
+          "bound_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bound User Id"
+          },
           "capability": {
             "default": "qa",
             "title": "Capability",
@@ -6768,7 +6869,7 @@
             "type": "string"
           },
           "provider": {
-            "default": "dify",
+            "default": "custom",
             "title": "Provider",
             "type": "string"
           },
@@ -6871,6 +6972,40 @@
               }
             ],
             "title": "Allowed Scope"
+          },
+          "bound_user_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bound User Active"
+          },
+          "bound_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bound User Id"
+          },
+          "bound_user_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bound User Name"
           },
           "capability": {
             "title": "Capability",
@@ -13000,6 +13135,114 @@
         "summary": "Get Decision Items",
         "tags": [
           "agent"
+        ]
+      }
+    },
+    "/api/v1/agent-gateway/projects": {
+      "get": {
+        "operationId": "list_accessible_projects_api_v1_agent_gateway_projects_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentProjectsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Accessible Projects",
+        "tags": [
+          "agent-gateway"
+        ]
+      }
+    },
+    "/api/v1/agent-gateway/tools/knowledge-search": {
+      "post": {
+        "operationId": "knowledge_search_api_v1_agent_gateway_tools_knowledge_search_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentToolSearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Knowledge Search",
+        "tags": [
+          "agent-gateway"
         ]
       }
     },
