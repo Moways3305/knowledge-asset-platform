@@ -4,8 +4,8 @@ WorkBuddy per-user token 绑定：为 agent_whitelist_rules 增加 bound_user_id
 legacy（dify）行保持 NULL。可逆 downgrade（drop_column）。
 SQLite 测试库由 create_all 直接建表覆盖，不走本迁移。
 
-Revision ID: 0030_agent_rule_bound_user
-Revises: 0029_weknora_kb_display_name
+Revision ID: 0031_agent_rule_bound_user
+Revises: 0030_high_frequency_query_indexes
 Create Date: 2026-06-22
 
 """
@@ -17,8 +17,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "0030_agent_rule_bound_user"
-down_revision: str | None = "0029_weknora_kb_display_name"
+revision: str = "0031_agent_rule_bound_user"
+down_revision: str | None = "0030_high_frequency_query_indexes"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
