@@ -1,12 +1,16 @@
-"""入库前置实体级规则脱敏测试。
+"""入库脱敏边界测试（前置脱敏已退出入库链路；输出脱敏不变）。
+
+口径：平台侧外部 API 视为受信处理方，入库建议阶段**不再前置脱敏**——平台侧 LLM 直接吃
+抽取文本以保留上下文、提升命名/摘要质量；入库阶段恒记 desensitization_status =
+not_applicable、counts=null。规则脱敏引擎保留为备用单测。
 
 覆盖：
-- RuleBasedDesensitizer 各实体类别替换 + counts；普通文本不过度替换；
-- content_processing 调平台侧 LLM 前用脱敏文本（fake LLM 收不到原始邮箱/手机号/身份证/
-  金额/客户名）；LLM 未配置时仍记录脱敏状态；脱敏失败时平台侧 LLM 不接触原文（降级）；
+- RuleBasedDesensitizer 各实体类别替换 + counts（备用引擎单测）；普通文本不过度替换；
+- content_processing 把抽取文本直接喂平台侧 LLM（fake LLM 收得到原始邮箱/手机号/金额/
+  客户名，用于提升命名/摘要）；LLM 未配置 / 非文本抽取时降级，状态恒 not_applicable；
 - 上传/确认后 WeKnora fake 仍按信任边界收到原始文件内容，且响应/审计不泄露 WeKnora 内部
-  id/ref；retry-index 不因脱敏文本缺失而被阻断；
-- 上传 AI 结果只返回安全脱敏元数据（状态 + 类别计数 + 文案），不含脱敏前/后正文；审计 no-leak。
+  id/ref；retry-index 不因任何脱敏代理缺失而被阻断；
+- 上传 AI 结果只返回安全脱敏元数据（状态 + 文案），不含脱敏前/后正文；审计 no-leak。
 """
 
 from __future__ import annotations
@@ -42,7 +46,8 @@ _SENSITIVE = (
     "固话 010-12345678\n"
 ).encode()
 
-# 用于断言"平台侧 LLM 收不到原值"的原始敏感片段。
+# 原始敏感片段：入库阶段平台侧 LLM **应当**收到（受信处理方，提升命名/摘要质量）；
+# 但绝不可出现在脱敏元数据 / 审计 extra 等安全边界里。
 _RAW_TOKENS = [
     "13800138000",
     "zhangsan@example.com",
@@ -122,7 +127,7 @@ def test_get_desensitizer_defaults_to_rule_based():
 
 
 # ---------------------------------------------------------------------------
-# content_processing：平台侧 LLM 收到的是脱敏文本
+# content_processing：平台侧 LLM 直接收到抽取文本（前置脱敏已退出链路）
 # ---------------------------------------------------------------------------
 class CapturingLLM:
     """记录收到的 user 内容，便于断言平台侧 LLM 不接触原文。"""
@@ -164,7 +169,9 @@ def _extraction(text: str) -> ExtractionResult:
     )
 
 
-async def test_platform_llm_receives_desensitized_text(monkeypatch):
+async def test_platform_llm_receives_extracted_text(monkeypatch):
+    """前置脱敏已退出链路：平台侧 LLM 直接收到抽取文本（含客户/金额等上下文），
+    用于提升命名与摘要质量；入库脱敏状态恒 not_applicable、counts 置空。"""
     monkeypatch.setattr(cp_module, "llm_enabled", lambda: True)
     fake = CapturingLLM()
     draft, meta = await process_content(
@@ -176,15 +183,20 @@ async def test_platform_llm_receives_desensitized_text(monkeypatch):
     )
     assert fake.calls == 1
     assert meta["status"] == "llm"
-    assert meta["desensitization_status"] == "applied"
-    # 平台侧 LLM 收到的是脱敏后文本：不含任何原始敏感片段。
+    assert meta["desensitization_status"] == "not_applicable"
+    assert meta["desensitization_counts"] is None
+    # 平台侧 LLM 收到的是**原始抽取文本**：原始敏感上下文可用于命名/摘要。
     for token in _RAW_TOKENS:
-        assert token not in fake.last_user, token
-    assert "【邮箱】" in fake.last_user
-    assert "【手机号】" in fake.last_user
+        assert token in fake.last_user, token
+    # 未做前置脱敏：不应出现脱敏占位符。
+    assert "【邮箱】" not in fake.last_user
+    assert "【手机号】" not in fake.last_user
+    # 草稿不携带脱敏计数。
+    assert draft["desensitization_status"] == "not_applicable"
+    assert draft["desensitization_counts"] is None
 
 
-async def test_llm_not_configured_still_records_desensitization(monkeypatch):
+async def test_llm_not_configured_degrades(monkeypatch):
     monkeypatch.setattr(cp_module, "llm_enabled", lambda: False)
     fake = CapturingLLM()
     draft, meta = await process_content(
@@ -194,38 +206,16 @@ async def test_llm_not_configured_still_records_desensitization(monkeypatch):
         file_name="s.txt",
         trace_id="t",
     )
-    # 未配置 LLM → 不调用，但脱敏状态/计数仍记录。
+    # 未配置 LLM → 不调用，降级；脱敏不参与链路，状态恒 not_applicable。
     assert fake.calls == 0
     assert meta["status"] == "degraded"
-    assert meta["desensitization_status"] == "applied"
-    assert draft["desensitization_status"] == "applied"
-    assert draft["desensitization_counts"]["email"] >= 1
+    assert meta["reason"] == "llm_not_configured"
+    assert meta["desensitization_status"] == "not_applicable"
+    assert draft["desensitization_status"] == "not_applicable"
+    assert draft["desensitization_counts"] is None
 
 
-async def test_desensitization_failure_skips_platform_llm(monkeypatch):
-    """脱敏失败（无可用脱敏文本）→ 平台侧 LLM 不接触原文（降级）。高敏资产同此路径。"""
-    monkeypatch.setattr(cp_module, "llm_enabled", lambda: True)
-
-    class BoomDesensitizer:
-        def desensitize(self, text):
-            raise RuntimeError("boom")
-
-    fake = CapturingLLM()
-    draft, meta = await process_content(
-        fake,
-        BoomDesensitizer(),
-        extraction=_extraction(_SENSITIVE.decode("utf-8")),
-        file_name="s.txt",
-        trace_id="t",
-    )
-    assert fake.calls == 0  # 平台侧 LLM 未接触原文
-    assert meta["status"] == "degraded"
-    assert meta["reason"] == "desensitization_failed"
-    assert draft["desensitization_status"] == "failed"
-    assert draft["desensitization_error_code"] == "desensitization_error"
-
-
-async def test_non_text_extraction_skips_desensitization(monkeypatch):
+async def test_non_text_extraction_degrades(monkeypatch):
     monkeypatch.setattr(cp_module, "llm_enabled", lambda: True)
     fake = CapturingLLM()
     ext = ExtractionResult(
@@ -236,7 +226,7 @@ async def test_non_text_extraction_skips_desensitization(monkeypatch):
     )
     assert fake.calls == 0
     assert meta["status"] == "degraded"
-    assert draft["desensitization_status"] == "skipped"
+    assert draft["desensitization_status"] == "not_applicable"
 
 
 # ---------------------------------------------------------------------------
@@ -266,12 +256,13 @@ async def test_ai_result_exposes_safe_desensitization_metadata_only(client, monk
     task_id = await _upload(client)
     r = await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
     b = r.json()
-    assert b["desensitization_status"] == "applied"
-    assert b["desensitization_counts"]["email"] >= 1
-    assert b["desensitization_message"]
-    # 安全：不返回脱敏文本 ref、原始文件存储 ref、脱敏全文。
+    # 前置脱敏已退出链路：状态恒 not_applicable、counts 置空、文案为受信 API 口径。
+    assert b["desensitization_status"] == "not_applicable"
+    assert b["desensitization_counts"] is None
+    assert b["desensitization_message"] == "当前入库建议由受信外部 API 处理，未启用前置脱敏"
+    # 安全：不返回脱敏文本 ref、原始文件存储 ref、WeKnora 内部 id。
     # 注：extracted_text_preview 是 IMPLEMENT-14 既有"创建人查看自己上传的原文预览"
-    # （原文层授权，仅完整视图返回），不属于本任务新增泄露，故单独从计数/文案维度断言。
+    # （原文层授权，仅完整视图返回），不属于本任务新增泄露，故单独从元数据维度断言。
     for token in [
         "desensitized_text_ref",
         "source_file_ref",
@@ -293,7 +284,7 @@ async def test_ai_result_exposes_safe_desensitization_metadata_only(client, monk
         assert token not in meta_blob, token
 
 
-async def test_l2_ingest_still_works_with_desensitization(client, monkeypatch):
+async def test_l2_ingest_still_works(client, monkeypatch):
     """L1/L2 兼容：含敏感实体也能正常走到 pending_confirmation。"""
     _enable_llm(monkeypatch, CapturingLLM())
     task_id = await _upload(client)
@@ -301,7 +292,7 @@ async def test_l2_ingest_still_works_with_desensitization(client, monkeypatch):
         await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
     ).json()
     assert b["status"] == "pending_confirmation"
-    assert b["desensitization_status"] == "applied"
+    assert b["desensitization_status"] == "not_applicable"
 
 
 # ---------------------------------------------------------------------------
@@ -412,22 +403,22 @@ async def test_retry_index_not_blocked_by_missing_desensitized_text(
 
 
 # ---------------------------------------------------------------------------
-# 审计 no-leak：只记状态 + counts，不记脱敏文本 / 原值
+# 审计 no-leak：只记安全状态，不记抽取文本 / 原值
 # ---------------------------------------------------------------------------
-async def test_audit_records_status_and_counts_no_raw(client, db_session, monkeypatch):
+async def test_audit_records_status_no_raw(client, db_session, monkeypatch):
     from sqlalchemy import select
 
     from app.models.audit import AuditEvent
 
     _enable_llm(monkeypatch, CapturingLLM())
     await _upload(client)
-    # ai_extracted 审计应含 desensitization_status / counts，不含原值。
+    # ai_extracted 审计含 desensitization_status（not_applicable）/ counts（null），不含原值。
     logs = (await db_session.execute(select(AuditEvent))).scalars().all()
     extracted = [lg for lg in logs if lg.action == "ingest.ai_extracted"]
     assert extracted, "应有 ingest.ai_extracted 审计"
     extra = extracted[0].extra or {}
-    assert extra.get("desensitization_status") == "applied"
-    assert isinstance(extra.get("desensitization_counts"), dict)
+    assert extra.get("desensitization_status") == "not_applicable"
+    assert extra.get("desensitization_counts") is None
     blob = json.dumps([lg.extra for lg in logs], ensure_ascii=False)
     for token in _RAW_TOKENS:
         assert token not in blob, token

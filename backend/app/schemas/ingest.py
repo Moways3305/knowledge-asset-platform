@@ -72,9 +72,10 @@ class IngestAiResultResponse(BaseModel):
     llm_provider: str | None = None
     llm_model: str | None = None
     content_processing_status: str | None = None
-    # 入库前置规则脱敏安全元数据（两视图均可见；仅状态 + 类别计数 + 人读文案，
+    # 入库前置脱敏安全元数据（两视图均可见；仅状态 + 类别计数 + 人读文案，
     # **绝不**返回脱敏前/后正文、脱敏文本 ref、原始文件 ref）。
-    # status: applied | unchanged | skipped | failed。counts: 类别 → 替换数量。
+    # 当前口径：not_applicable（入库建议由受信外部 API 处理，未启用前置脱敏，counts=null）。
+    # applied|unchanged|skipped|failed 仅兼容历史数据行。counts: 类别 → 替换数量。
     desensitization_status: str | None = None
     desensitization_counts: dict | None = None
     desensitization_message: str | None = None

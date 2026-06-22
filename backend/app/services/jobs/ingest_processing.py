@@ -206,7 +206,8 @@ async def process_upload_task(
                 "degrade_reason": content_meta.get("reason"),
                 "llm_provider": content_meta.get("provider"),
                 "llm_model": content_meta.get("model"),
-                # 入库前置脱敏安全元数据——只记状态与类别计数，**绝不**记脱敏文本/原值。
+                # 入库脱敏安全元数据——只记状态与类别计数，**绝不**记脱敏文本/原值。
+                # 当前链路恒 not_applicable / counts=null（前置脱敏已退出，受信外部 API 处理）。
                 "desensitization_status": content_meta.get("desensitization_status"),
                 "desensitization_counts": content_meta.get("desensitization_counts"),
             },
