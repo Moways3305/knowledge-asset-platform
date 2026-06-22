@@ -12,6 +12,7 @@ import {
   type PersonalKbDTO,
 } from "../api/personal";
 import type { KnowledgeCardVM } from "../types/knowledge";
+import WorkbuddyAccessCard from "../components/WorkbuddyAccessCard";
 
 const kbStatusLabel: Record<string, string> = {
   active: "正常",
@@ -278,6 +279,9 @@ export default function MyKnowledgePage() {
           </div>
         </div>
       </section>
+
+      {/* WorkBuddy 自助接入（PBC-36）：仅在职业务用户可见 */}
+      <WorkbuddyAccessCard />
 
       {/* 个人知识库管理（PBC-29）：创建 / 改名 / 状态 */}
       {!forbidden && (
