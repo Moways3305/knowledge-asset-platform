@@ -59,6 +59,10 @@ class AgentWhitelistRule(Base):
     # Dify 侧内部标识（server-only；绝不进响应 / 审计 / 前端）。
     external_app_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     external_workflow_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # 自助 WorkBuddy token 最近一次轮换时间（last_rotated_at 展示用；其它 provider 为 NULL）。
+    token_rotated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
