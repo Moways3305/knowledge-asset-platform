@@ -45,6 +45,10 @@ class RegistryRuleOut(BaseModel):
     max_confidentiality_level: str
     max_ai_access_level: str
     enabled: bool
+    # WorkBuddy 绑定用户安全展示（admin 视图；绝不含 token / token_hash）。
+    bound_user_id: uuid.UUID | None = None
+    bound_user_name: str | None = None
+    bound_user_active: bool | None = None
     risk_level: str | None
     risk_note: str | None
     created_at: datetime
@@ -56,7 +60,9 @@ class RegistryListResponse(BaseModel):
 
 
 class RegistryCreateRequest(BaseModel):
-    provider: str = "dify"
+    provider: str = "custom"
+    # per-user 绑定：provider=workbuddy 时必填；指向 active 业务用户。
+    bound_user_id: uuid.UUID | None = None
     agent_identifier: str
     agent_name: str
     capability: str = "qa"

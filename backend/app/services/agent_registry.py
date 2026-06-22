@@ -21,10 +21,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent_registry import AgentWhitelistRule
+from app.models.identity import User
 from app.schemas.enums import AuditAction, AuditLogType, CompanyRole
 from app.schemas.external_agent import RegistryRuleOut
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
+from app.services.identity import load_user_with_roles
+from app.services.permission import build_caller_context
 
 
 def hash_token(token: str) -> str:
@@ -49,8 +52,13 @@ def _require_admin(caller: CallerContext) -> None:
         raise _denied(403, "agent_registry_admin_only", "仅 admin 可管理外部 Agent 接入注册")
 
 
-def _to_out(rule: AgentWhitelistRule) -> RegistryRuleOut:
+def _to_out(rule: AgentWhitelistRule, bound_user: User | None = None) -> RegistryRuleOut:
     """安全视图：不含 token_hash / provider 内部标识 / agent_identifier。"""
+    name = None
+    active = None
+    if bound_user is not None:
+        name = bound_user.name
+        active = bound_user.status == "active" and build_caller_context(bound_user).is_business_user
     return RegistryRuleOut(
         id=rule.id,
         provider=rule.provider,
@@ -61,11 +69,27 @@ def _to_out(rule: AgentWhitelistRule) -> RegistryRuleOut:
         max_confidentiality_level=rule.max_confidentiality_level,
         max_ai_access_level=rule.max_ai_access_level,
         enabled=rule.enabled,
+        bound_user_id=rule.bound_user_id,
+        bound_user_name=name,
+        bound_user_active=active,
         risk_level=rule.risk_level,
         risk_note=rule.risk_note,
         created_at=rule.created_at,
         updated_at=rule.updated_at,
     )
+
+
+async def _validate_binding(session: AsyncSession, req) -> User | None:
+    """校验 bound_user_id：workbuddy 必填；任何绑定必须指向 active 业务用户（禁 admin/inactive）。"""
+    bound_id = getattr(req, "bound_user_id", None)
+    if bound_id is None:
+        if req.provider == "workbuddy":
+            raise _denied(400, "bound_user_required", "workbuddy 接入必须绑定一个业务用户")
+        return None
+    user = await load_user_with_roles(session, user_id=bound_id)
+    if user is None or user.status != "active" or not build_caller_context(user).is_business_user:
+        raise _denied(400, "bound_user_invalid", "绑定用户不存在 / 已停用 / 非业务用户")
+    return user
 
 
 async def lookup_enabled_rule(session: AsyncSession, token: str) -> AgentWhitelistRule | None:
@@ -96,7 +120,13 @@ async def list_rules(session: AsyncSession, caller: CallerContext):
         .scalars()
         .all()
     )
-    return RegistryListResponse(items=[_to_out(r) for r in rows])
+    # bound_user_active 需读 company_roles → 用 load_user_with_roles 预加载（避免 async 懒加载）。
+    users_by_id: dict = {}
+    for bid in {r.bound_user_id for r in rows if r.bound_user_id is not None}:
+        u = await load_user_with_roles(session, user_id=bid)
+        if u is not None:
+            users_by_id[bid] = u
+    return RegistryListResponse(items=[_to_out(r, users_by_id.get(r.bound_user_id)) for r in rows])
 
 
 async def create_rule(session: AsyncSession, caller: CallerContext, req, trace_id: str | None):
@@ -104,6 +134,7 @@ async def create_rule(session: AsyncSession, caller: CallerContext, req, trace_i
     from app.schemas.external_agent import RegistryCreateResponse
 
     _require_admin(caller)
+    bound_user = await _validate_binding(session, req)
     token = generate_token()
     rule = AgentWhitelistRule(
         provider=req.provider,
@@ -120,6 +151,7 @@ async def create_rule(session: AsyncSession, caller: CallerContext, req, trace_i
         risk_note=req.risk_note,
         external_app_id=req.external_app_id,
         external_workflow_id=req.external_workflow_id,
+        bound_user_id=bound_user.id if bound_user is not None else None,
     )
     session.add(rule)
     await session.flush()
@@ -140,7 +172,7 @@ async def create_rule(session: AsyncSession, caller: CallerContext, req, trace_i
         },
     )
     await session.commit()
-    return RegistryCreateResponse(rule=_to_out(rule), token=token)
+    return RegistryCreateResponse(rule=_to_out(rule, bound_user), token=token)
 
 
 async def update_rule(
@@ -194,5 +226,10 @@ async def update_rule(
         target_id=rule.id,
         extra={"op": "update", **changed},  # 不含 token 明文 / token_hash
     )
+    bound_user = (
+        await load_user_with_roles(session, user_id=rule.bound_user_id)
+        if rule.bound_user_id is not None
+        else None
+    )
     await session.commit()
-    return RegistryCreateResponse(rule=_to_out(rule), token=new_token)
+    return RegistryCreateResponse(rule=_to_out(rule, bound_user), token=new_token)

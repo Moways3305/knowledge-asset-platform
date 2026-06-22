@@ -32,9 +32,14 @@ class AgentWhitelistRule(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    # provider：上层平台标识（dify / internal / custom），为未来自研平台替换 Dify 留抽象。
-    provider: Mapped[str] = mapped_column(String(20), nullable=False, default="dify")
-    # Gateway 内部标识（不暴露给 Dify 响应 / 前端）。
+    # provider：上层平台标识（workbuddy / custom / dify=legacy），provider 中立。默认中立 custom。
+    provider: Mapped[str] = mapped_column(String(20), nullable=False, default="custom")
+    # WorkBuddy/per-user 接入：token 绑定唯一 KAP 业务用户；调用时只从此解析 caller。
+    # legacy（dify）行为 NULL，只在 legacy 路由可用。
+    bound_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id"), nullable=True
+    )
+    # Gateway 内部标识（不暴露给 provider 响应 / 前端）。
     agent_identifier: Mapped[str] = mapped_column(String(200), nullable=False)
     agent_name: Mapped[str] = mapped_column(String(200), nullable=False)
     # 允许的能力（当前启用 qa；其余值即便存在也按 capability 边界拒绝）。
