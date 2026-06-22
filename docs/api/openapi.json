@@ -9112,6 +9112,104 @@
         ],
         "title": "WecomScanRecordsResponse",
         "type": "object"
+      },
+      "WorkbuddyTokenCreatedOut": {
+        "description": "生成 / 重置结果：明文 token 仅此一次返回，附可直接复制的 mcp.json 配置。",
+        "properties": {
+          "mcp_config": {
+            "additionalProperties": true,
+            "title": "Mcp Config",
+            "type": "object"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "mcp_config"
+        ],
+        "title": "WorkbuddyTokenCreatedOut",
+        "type": "object"
+      },
+      "WorkbuddyTokenStatusOut": {
+        "description": "当前用户的 WorkBuddy 绑定状态（无 token 明文 / token_hash）。",
+        "properties": {
+          "bound_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bound User Id"
+          },
+          "bound_user_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bound User Name"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "last_rotated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Rotated At"
+          },
+          "provider": {
+            "default": "workbuddy",
+            "title": "Provider",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "WorkbuddyTokenStatusOut",
+        "type": "object"
       }
     }
   },
@@ -13553,6 +13651,202 @@
           }
         },
         "summary": "Wecom Start",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/workbuddy-token": {
+      "delete": {
+        "description": "撤销当前用户自助 token（幂等；旧 token 立即不可用）。",
+        "operationId": "revoke_workbuddy_token_api_v1_auth_workbuddy_token_delete",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkbuddyTokenStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Workbuddy Token",
+        "tags": [
+          "auth"
+        ]
+      },
+      "get": {
+        "description": "当前登录业务用户查看自己的 WorkBuddy 绑定状态（不含 token / token_hash）。",
+        "operationId": "get_workbuddy_token_api_v1_auth_workbuddy_token_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkbuddyTokenStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Workbuddy Token",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/workbuddy-token/regenerate": {
+      "post": {
+        "description": "生成 / 重置当前用户自助 token（绑定 caller 本人；明文一次性返回 + 可复制 mcp.json）。",
+        "operationId": "regenerate_workbuddy_token_api_v1_auth_workbuddy_token_regenerate_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkbuddyTokenCreatedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Regenerate Workbuddy Token",
         "tags": [
           "auth"
         ]
