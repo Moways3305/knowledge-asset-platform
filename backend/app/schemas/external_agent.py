@@ -32,6 +32,29 @@ class ExternalRetrievalRecord(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
+# ---------------- 中立 agent-gateway 工具请求 / 响应 ----------------
+class AgentToolSearchRequest(BaseModel):
+    """中立 agent-gateway 检索请求。caller 不在 body（由 token 绑定在后端解析）。"""
+
+    query: str
+    scope: str | None = None
+    intent: str | None = None
+    # 复用统一检索过滤项（zone/tags/phase）。
+    filters: dict | None = None
+
+
+class AgentProjectOut(BaseModel):
+    """Agent 可见项目最小安全视图（不含 client_name / 成员 / 生命周期细节）。"""
+
+    project_id: uuid.UUID
+    name: str
+    status: str
+
+
+class AgentProjectsResponse(BaseModel):
+    items: list[AgentProjectOut]
+
+
 # ---------------- 接入注册管理（admin）----------------
 class RegistryRuleOut(BaseModel):
     """注册行安全视图：不含 token_hash / provider 内部标识 / agent_identifier。"""
