@@ -88,6 +88,20 @@ def _within_ceiling(asset, max_conf: str, max_ai: str) -> bool:
     return True
 
 
+def asset_within_ceiling(rule, asset) -> bool:
+    """公开包装：资产是否在注册行 max_confidentiality / max_ai 天花板内（额外收口）。
+
+    工作台只读工具复用此函数，在 `decide()` 权限之上叠加 token 声明的保密 / AI 天花板，
+    与统一检索（`run_retrieval`）口径一致——绝不放大 decide() 边界，只会进一步收紧。
+    """
+    return _within_ceiling(asset, rule.max_confidentiality_level, rule.max_ai_access_level)
+
+
+def conf_rank(level: str | None) -> int:
+    """保密等级序（L1<...<L5）；未知值返回 99（保守视为超高，触发收口）。"""
+    return _CONF_RANK.get(level or "", 99)
+
+
 def _registry_allows(rule, scope, project_id, personal_owner) -> bool:
     """注册行 scope / project 天花板（在权限网关之上的额外收口，fail closed）。
 

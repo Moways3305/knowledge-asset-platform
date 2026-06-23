@@ -10,12 +10,22 @@ provider 内部标识 / storage 引用。
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+import uuid
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.trace import get_trace_id
 from app.db.session import get_db
 from app.models.agent_registry import AgentWhitelistRule
+from app.schemas.agent_workbench import (
+    WorkbenchKnowledgeListResponse,
+    WorkbenchKnowledgeSummary,
+    WorkbenchOriginalAccessResponse,
+    WorkbenchProjectBrief,
+    WorkbenchReviewsResponse,
+    WorkbenchTodosResponse,
+)
 from app.schemas.external_agent import (
     AgentProjectOut,
     AgentProjectsResponse,
@@ -23,7 +33,7 @@ from app.schemas.external_agent import (
 )
 from app.schemas.permission import AccessChannel, CallerContext
 from app.schemas.search import SearchFilters, SearchRequest, SearchResponse
-from app.services import agent_registry
+from app.services import agent_registry, agent_workbench
 from app.services import external_agent_gateway as gateway
 from app.services import projects as projects_service
 from app.services import search as search_service
@@ -116,4 +126,90 @@ async def list_accessible_projects(
     full = await projects_service.list_projects(session, caller)
     return AgentProjectsResponse(
         items=[AgentProjectOut(project_id=p.id, name=p.name, status=p.status) for p in full.items]
+    )
+
+
+# ---------------------------------------------------------------------------
+# 只读工作台工具（PBC-37）：全部经 require_bound_caller，仅安全白名单字段，绝不写。
+# caller 由 token 绑定解析；权限走 decide() + 注册行天花板。无原文 / 文件 / 预览 URL。
+# ---------------------------------------------------------------------------
+@router.get("/todos", response_model=WorkbenchTodosResponse)
+async def list_my_todos(
+    limit: int | None = Query(default=None, ge=1, le=100),
+    bound: tuple[AgentWhitelistRule, CallerContext] = Depends(require_bound_caller),
+    session: AsyncSession = Depends(get_db),
+) -> WorkbenchTodosResponse:
+    rule, caller = bound
+    return await agent_workbench.list_todos(session, caller, rule, limit=limit)
+
+
+@router.get("/knowledge/recent", response_model=WorkbenchKnowledgeListResponse)
+async def list_recent_knowledge(
+    scope: str | None = Query(default=None),
+    project_id: uuid.UUID | None = Query(default=None),
+    limit: int | None = Query(default=None, ge=1, le=20),
+    bound: tuple[AgentWhitelistRule, CallerContext] = Depends(require_bound_caller),
+    session: AsyncSession = Depends(get_db),
+) -> WorkbenchKnowledgeListResponse:
+    rule, caller = bound
+    return await agent_workbench.list_recent_knowledge(
+        session, caller, rule, scope=scope, project_id=project_id, limit=limit
+    )
+
+
+@router.get("/knowledge/{asset_id}/summary", response_model=WorkbenchKnowledgeSummary)
+async def get_knowledge_summary(
+    asset_id: uuid.UUID,
+    bound: tuple[AgentWhitelistRule, CallerContext] = Depends(require_bound_caller),
+    session: AsyncSession = Depends(get_db),
+) -> WorkbenchKnowledgeSummary:
+    rule, caller = bound
+    return await agent_workbench.get_knowledge_summary(session, caller, rule, asset_id)
+
+
+@router.get("/projects/{project_id}/knowledge", response_model=WorkbenchKnowledgeListResponse)
+async def list_project_knowledge(
+    project_id: uuid.UUID,
+    limit: int | None = Query(default=None, ge=1, le=30),
+    phase: str | None = Query(default=None),
+    tags: list[str] | None = Query(default=None),
+    bound: tuple[AgentWhitelistRule, CallerContext] = Depends(require_bound_caller),
+    session: AsyncSession = Depends(get_db),
+) -> WorkbenchKnowledgeListResponse:
+    rule, caller = bound
+    return await agent_workbench.list_project_knowledge(
+        session, caller, rule, project_id, limit=limit, phase=phase, tags=tags
+    )
+
+
+@router.get("/projects/{project_id}/brief", response_model=WorkbenchProjectBrief)
+async def get_project_brief(
+    project_id: uuid.UUID,
+    bound: tuple[AgentWhitelistRule, CallerContext] = Depends(require_bound_caller),
+    session: AsyncSession = Depends(get_db),
+) -> WorkbenchProjectBrief:
+    rule, caller = bound
+    return await agent_workbench.get_project_brief(session, caller, rule, project_id)
+
+
+@router.get("/reviews/pending", response_model=WorkbenchReviewsResponse)
+async def list_pending_reviews(
+    limit: int | None = Query(default=None, ge=1, le=20),
+    bound: tuple[AgentWhitelistRule, CallerContext] = Depends(require_bound_caller),
+    session: AsyncSession = Depends(get_db),
+) -> WorkbenchReviewsResponse:
+    rule, caller = bound
+    return await agent_workbench.list_pending_reviews(session, caller, rule, limit=limit)
+
+
+@router.get("/original-access/requests", response_model=WorkbenchOriginalAccessResponse)
+async def list_original_access_requests(
+    box: str = Query(default="mine"),
+    limit: int | None = Query(default=None, ge=1, le=20),
+    bound: tuple[AgentWhitelistRule, CallerContext] = Depends(require_bound_caller),
+    session: AsyncSession = Depends(get_db),
+) -> WorkbenchOriginalAccessResponse:
+    rule, caller = bound
+    return await agent_workbench.list_original_access_requests(
+        session, caller, rule, box=box, limit=limit
     )

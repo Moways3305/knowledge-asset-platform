@@ -2,9 +2,34 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 
 import httpx
+
+_EXPECTED_TOOLS = {
+    "kap_search_knowledge",
+    "kap_answer_from_knowledge",
+    "kap_list_accessible_projects",
+    "kap_list_my_todos",
+    "kap_list_recent_knowledge",
+    "kap_get_knowledge_summary",
+    "kap_list_project_knowledge",
+    "kap_get_project_brief",
+    "kap_list_pending_reviews",
+    "kap_list_original_access_requests",
+}
+
+
+def test_all_readonly_tools_registered(monkeypatch):
+    monkeypatch.setenv("KAP_BASE_URL", "http://kap.test")
+    monkeypatch.setenv("KAP_AGENT_TOKEN", "kgw_x")
+    server = importlib.import_module("workbuddy_mcp.server")
+    importlib.reload(server)
+    tools = asyncio.run(server.mcp.list_tools())
+    names = {t.name for t in tools}
+    assert _EXPECTED_TOOLS.issubset(names), _EXPECTED_TOOLS - names
+    assert len(names) == 10  # 实测工具数量从 3 增至 10（全部只读）
 
 
 def test_tool_wrappers_sanitize_errors(monkeypatch):

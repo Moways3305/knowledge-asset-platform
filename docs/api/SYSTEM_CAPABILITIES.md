@@ -105,6 +105,16 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 ### 4.8 外部 Agent 网关：WorkBuddy MCP（主） / Dify（legacy）
 - 🔐 `GET /api/v1/agent-calls/{call_id}`(+`/decision-items`) — Agent 调用记录与候选项。
 - 🔐 `POST /api/v1/agent-gateway/tools/knowledge-search`、`GET /api/v1/agent-gateway/projects` — **provider 中立外部 Agent 网关**（WorkBuddy MCP 经此接入）。Bearer token 绑定唯一 KAP 用户，caller 仅由后端从绑定解析（不读客户端自报 user id）；channel=agent，不取原文。
+- 🔐 WorkBuddy 只读工作台工具（PBC-37，全部经同一 `require_bound_caller`，**只读、不取原文/文件/预览 URL**）：
+  - `GET /api/v1/agent-gateway/todos` — 我的待办聚合（待我审核 / 我的原文申请 / 待我审批 / 待确认入库）。
+  - `GET /api/v1/agent-gateway/knowledge/recent` — 我最近可见的知识资产（安全卡片）。
+  - `GET /api/v1/agent-gateway/knowledge/{asset_id}/summary` — 单资产安全摘要（不可发现 → 404，不泄露存在性）。
+  - `GET /api/v1/agent-gateway/projects/{project_id}/knowledge` — 项目内我可见的知识（先校验项目权限；无权项目与不存在项目统一 404，不可枚举存在性）。
+  - `GET /api/v1/agent-gateway/projects/{project_id}/brief` — 项目安全概览（不含客户名 / 成员名单；无权与不存在统一 404）。
+  - `GET /api/v1/agent-gateway/reviews/pending` — 我可处理 / 可见的待审核事项。
+  - `GET /api/v1/agent-gateway/original-access/requests?box=mine|inbox` — 原文访问申请（只读）。
+  - 权限走 `decide()` + 注册行 token 天花板（只收紧不放大）；响应为安全白名单字段，绝不含原文 / 文件名 / storage·source ref / 下载·预览 URL / WeKnora id / provider 内部标识 / token。
+  - **写操作暂不开放**（无 approve/reject/upload/grant/revoke 类工具）。
 - 🔐 `POST /api/v1/dify/external-knowledge/retrieval`、`POST /api/v1/dify/tools/knowledge-search` — **Dify 兼容适配器（legacy）**，保留可用、不强删；新接入用 agent-gateway。
 - 核心是 **provider 中立网关**；Agent **不**拥有独立权限，完全跟随调用人。
 

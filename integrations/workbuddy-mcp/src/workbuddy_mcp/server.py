@@ -22,7 +22,14 @@ from .kap_client import (
     KapClient,
     KapError,
     answer_from_knowledge,
+    get_knowledge_summary,
+    get_project_brief,
     list_accessible_projects,
+    list_my_todos,
+    list_original_access_requests,
+    list_pending_reviews,
+    list_project_knowledge,
+    list_recent_knowledge,
     search_knowledge,
 )
 
@@ -75,6 +82,59 @@ def _projects_tool(*, bearer=None):
         return {"error": str(exc)}
 
 
+def _todos_tool(limit=None, *, bearer=None):
+    try:
+        return list_my_todos(_client, limit=limit, bearer=bearer)
+    except KapError as exc:
+        return {"error": str(exc)}
+
+
+def _recent_knowledge_tool(scope=None, project_id=None, limit=None, *, bearer=None):
+    try:
+        return list_recent_knowledge(
+            _client, scope=scope, project_id=project_id, limit=limit, bearer=bearer
+        )
+    except KapError as exc:
+        return {"error": str(exc)}
+
+
+def _knowledge_summary_tool(asset_id, *, bearer=None):
+    try:
+        return get_knowledge_summary(_client, asset_id, bearer=bearer)
+    except KapError as exc:
+        return {"error": str(exc)}
+
+
+def _project_knowledge_tool(project_id, limit=None, phase=None, tags=None, *, bearer=None):
+    try:
+        return list_project_knowledge(
+            _client, project_id, limit=limit, phase=phase, tags=tags, bearer=bearer
+        )
+    except KapError as exc:
+        return {"error": str(exc)}
+
+
+def _project_brief_tool(project_id, *, bearer=None):
+    try:
+        return get_project_brief(_client, project_id, bearer=bearer)
+    except KapError as exc:
+        return {"error": str(exc)}
+
+
+def _pending_reviews_tool(limit=None, *, bearer=None):
+    try:
+        return list_pending_reviews(_client, limit=limit, bearer=bearer)
+    except KapError as exc:
+        return {"error": str(exc)}
+
+
+def _original_access_tool(box="mine", limit=None, *, bearer=None):
+    try:
+        return list_original_access_requests(_client, box=box, limit=limit, bearer=bearer)
+    except KapError as exc:
+        return {"error": str(exc)}
+
+
 @mcp.tool()
 def kap_search_knowledge(
     query: str,
@@ -100,6 +160,62 @@ def kap_answer_from_knowledge(
 def kap_list_accessible_projects(ctx: Context | None = None) -> object:
     """列出当前调用人可访问的项目（最小安全字段）。"""
     return _projects_tool(bearer=_read_bearer(ctx))
+
+
+# --------------------- 只读工作台工具（PBC-37）---------------------
+@mcp.tool()
+def kap_list_my_todos(limit: int | None = None, ctx: Context | None = None) -> object:
+    """列出我的工作台待办：待我审核 / 我的原文申请 / 待我审批 / 待确认入库（只读聚合）。"""
+    return _todos_tool(limit, bearer=_read_bearer(ctx))
+
+
+@mcp.tool()
+def kap_list_recent_knowledge(
+    scope: str | None = None,
+    project_id: str | None = None,
+    limit: int | None = None,
+    ctx: Context | None = None,
+) -> object:
+    """列出我最近可见的知识资产（按权限裁剪的安全卡片，不含原文）。"""
+    return _recent_knowledge_tool(scope, project_id, limit, bearer=_read_bearer(ctx))
+
+
+@mcp.tool()
+def kap_get_knowledge_summary(asset_id: str, ctx: Context | None = None) -> object:
+    """获取某知识资产的安全摘要（discovery/summary 层；即便可看原文也不经此返回原文）。"""
+    return _knowledge_summary_tool(asset_id, bearer=_read_bearer(ctx))
+
+
+@mcp.tool()
+def kap_list_project_knowledge(
+    project_id: str,
+    limit: int | None = None,
+    phase: str | None = None,
+    tags: list[str] | None = None,
+    ctx: Context | None = None,
+) -> object:
+    """列出某项目下我可见的知识资产（先按项目权限校验，再按 decide() 裁剪）。"""
+    return _project_knowledge_tool(project_id, limit, phase, tags, bearer=_read_bearer(ctx))
+
+
+@mcp.tool()
+def kap_get_project_brief(project_id: str, ctx: Context | None = None) -> object:
+    """获取某项目的安全概览（我的角色 / 知识数 / 待办计数；不含客户敏感信息 / 成员名单）。"""
+    return _project_brief_tool(project_id, bearer=_read_bearer(ctx))
+
+
+@mcp.tool()
+def kap_list_pending_reviews(limit: int | None = None, ctx: Context | None = None) -> object:
+    """列出我可处理 / 可见的待审核事项（只读，不含证据文件 / 原文 / 内部引用）。"""
+    return _pending_reviews_tool(limit, bearer=_read_bearer(ctx))
+
+
+@mcp.tool()
+def kap_list_original_access_requests(
+    box: str = "mine", limit: int | None = None, ctx: Context | None = None
+) -> object:
+    """列出原文访问申请（box=mine 我的申请 / box=inbox 待我审批；只读，不含 grant / 预览 URL）。"""
+    return _original_access_tool(box, limit, bearer=_read_bearer(ctx))
 
 
 def main() -> None:
