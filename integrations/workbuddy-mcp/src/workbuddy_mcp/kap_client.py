@@ -13,6 +13,14 @@ from .config import Config
 
 _SEARCH_PATH = "/api/v1/agent-gateway/tools/knowledge-search"
 _PROJECTS_PATH = "/api/v1/agent-gateway/projects"
+# 只读工作台端点（PBC-37）。
+_TODOS_PATH = "/api/v1/agent-gateway/todos"
+_RECENT_PATH = "/api/v1/agent-gateway/knowledge/recent"
+_SUMMARY_PATH = "/api/v1/agent-gateway/knowledge/{asset_id}/summary"
+_PROJECT_KNOWLEDGE_PATH = "/api/v1/agent-gateway/projects/{project_id}/knowledge"
+_PROJECT_BRIEF_PATH = "/api/v1/agent-gateway/projects/{project_id}/brief"
+_REVIEWS_PATH = "/api/v1/agent-gateway/reviews/pending"
+_ORIGINAL_ACCESS_PATH = "/api/v1/agent-gateway/original-access/requests"
 
 CARD_FIELDS = (
     "asset_id",
@@ -28,6 +36,85 @@ CARD_FIELDS = (
 )
 CITATION_FIELDS = ("asset_id", "asset_title", "scope", "snippet", "citation_order")
 PROJECT_FIELDS = ("project_id", "name", "status")
+
+# 工作台端点字段白名单（后端即便多回字段，MCP 也只透出这些）。
+TODO_FIELDS = (
+    "todo_id",
+    "type",
+    "title",
+    "status",
+    "priority",
+    "project_id",
+    "project_name",
+    "asset_id",
+    "asset_title",
+    "created_at",
+)
+TODO_COUNTS_FIELDS = ("reviews", "ingest", "original_access_mine", "original_access_inbox")
+KNOWLEDGE_CARD_FIELDS = (
+    "asset_id",
+    "title",
+    "scope",
+    "zone",
+    "asset_type",
+    "confidentiality_level",
+    "one_liner",
+    "updated_at",
+    "project_id",
+    "project_name",
+    "can_view_original",
+)
+SUMMARY_FIELDS = (
+    "asset_id",
+    "title",
+    "scope",
+    "zone",
+    "asset_type",
+    "confidentiality_level",
+    "summary",
+    "key_points",
+    "tags",
+    "project_id",
+    "project_name",
+    "access_layer",
+    "can_view_original",
+    "existing_original_request_status",
+)
+PROJECT_BRIEF_FIELDS = (
+    "project_id",
+    "name",
+    "status",
+    "phase",
+    "my_role",
+    "knowledge_count",
+    "recent_asset_count",
+    "pending_review_count",
+    "pending_original_request_count",
+)
+REVIEW_FIELDS = (
+    "review_id",
+    "review_type",
+    "status",
+    "asset_id",
+    "asset_title",
+    "project_id",
+    "project_name",
+    "created_at",
+    "due_hint",
+)
+ORIGINAL_ACCESS_FIELDS = (
+    "request_id",
+    "box",
+    "status",
+    "asset_id",
+    "asset_title",
+    "requester_name",
+    "reviewer_name",
+    "reason",
+    "created_at",
+    "reviewed_at",
+    "expires_at",
+)
 
 _DENIED_MSG = "无访问权限或调用身份无效"
 _UNAVAILABLE_MSG = "知识服务暂不可用，请稍后重试"
@@ -69,9 +156,11 @@ class KapClient:
             raise KapError(_UNAVAILABLE_MSG) from None
         return self._handle(resp)
 
-    def get(self, path: str, *, bearer: str | None = None) -> dict:
+    def get(self, path: str, *, params: dict | None = None, bearer: str | None = None) -> dict:
         try:
-            resp = self._http.get(path, headers=self._headers(bearer))
+            resp = self._http.get(
+                path, params=params or None, headers=self._headers(bearer)
+            )
         except httpx.HTTPError:
             raise KapError(_UNAVAILABLE_MSG) from None
         return self._handle(resp)
@@ -118,3 +207,90 @@ def answer_from_knowledge(
 def list_accessible_projects(client: KapClient, *, bearer: str | None = None) -> list[dict]:
     data = client.get(_PROJECTS_PATH, bearer=bearer)
     return [_pick(p, PROJECT_FIELDS) for p in data.get("items", [])]
+
+
+# --------------------- 只读工作台工具（PBC-37）---------------------
+def list_my_todos(client: KapClient, *, limit: int | None = None, bearer: str | None = None) -> dict:
+    params: dict = {}
+    if limit is not None:
+        params["limit"] = limit
+    data = client.get(_TODOS_PATH, params=params, bearer=bearer)
+    return {
+        "items": [_pick(i, TODO_FIELDS) for i in data.get("items", [])],
+        "counts": _pick(data.get("counts") or {}, TODO_COUNTS_FIELDS),
+    }
+
+
+def list_recent_knowledge(
+    client: KapClient,
+    *,
+    scope: str | None = None,
+    project_id: str | None = None,
+    limit: int | None = None,
+    bearer: str | None = None,
+) -> list[dict]:
+    params: dict = {}
+    if scope:
+        params["scope"] = scope
+    if project_id:
+        params["project_id"] = project_id
+    if limit is not None:
+        params["limit"] = limit
+    data = client.get(_RECENT_PATH, params=params, bearer=bearer)
+    return [_pick(c, KNOWLEDGE_CARD_FIELDS) for c in data.get("items", [])]
+
+
+def get_knowledge_summary(client: KapClient, asset_id: str, *, bearer: str | None = None) -> dict:
+    data = client.get(_SUMMARY_PATH.format(asset_id=asset_id), bearer=bearer)
+    return _pick(data, SUMMARY_FIELDS)
+
+
+def list_project_knowledge(
+    client: KapClient,
+    project_id: str,
+    *,
+    limit: int | None = None,
+    phase: str | None = None,
+    tags: list[str] | None = None,
+    bearer: str | None = None,
+) -> list[dict]:
+    params: dict = {}
+    if limit is not None:
+        params["limit"] = limit
+    if phase:
+        params["phase"] = phase
+    if tags:
+        params["tags"] = tags
+    data = client.get(
+        _PROJECT_KNOWLEDGE_PATH.format(project_id=project_id), params=params, bearer=bearer
+    )
+    return [_pick(c, KNOWLEDGE_CARD_FIELDS) for c in data.get("items", [])]
+
+
+def get_project_brief(client: KapClient, project_id: str, *, bearer: str | None = None) -> dict:
+    data = client.get(_PROJECT_BRIEF_PATH.format(project_id=project_id), bearer=bearer)
+    return _pick(data, PROJECT_BRIEF_FIELDS)
+
+
+def list_pending_reviews(
+    client: KapClient, *, limit: int | None = None, bearer: str | None = None
+) -> list[dict]:
+    params: dict = {}
+    if limit is not None:
+        params["limit"] = limit
+    data = client.get(_REVIEWS_PATH, params=params, bearer=bearer)
+    return [_pick(i, REVIEW_FIELDS) for i in data.get("items", [])]
+
+
+def list_original_access_requests(
+    client: KapClient,
+    *,
+    box: str = "mine",
+    limit: int | None = None,
+    bearer: str | None = None,
+) -> list[dict]:
+    params: dict = {"box": box}
+    if limit is not None:
+        params["limit"] = limit
+    data = client.get(_ORIGINAL_ACCESS_PATH, params=params, bearer=bearer)
+    return [_pick(i, ORIGINAL_ACCESS_FIELDS) for i in data.get("items", [])]
