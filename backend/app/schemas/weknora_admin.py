@@ -142,6 +142,29 @@ class DefaultModelsOut(BaseModel):
     updated_at: datetime | None = None
 
 
+class ModelOptionOut(BaseModel):
+    """顾问侧只读模型选项（PBC-38）：仅安全展示字段，绝不含 server-only 真实 model_id。"""
+
+    model_ref: str
+    name: str
+    type: str  # 前端别名 chat|embedding|rerank|vllm|asr
+    provider: str | None = None
+    description: str | None = None
+    enabled: bool = True
+    is_default: bool = False
+
+
+class ModelOptionsResponse(BaseModel):
+    """顾问侧模型选项响应。
+
+    `default_missing`：平台默认 **embedding** 模型未配置（前端据此禁用提交并提示联系管理员）。
+    即便缺默认，仍返回可选模型列表，供管理员配置前查看。
+    """
+
+    items: list[ModelOptionOut]
+    default_missing: bool = True
+
+
 class DefaultModelsUpdateRequest(BaseModel):
     """更新平台默认模型（PBC-38）：前端只提交对底座 id 不可逆的 model_ref，
     后端解析为 server-only model_id 并校验类型匹配。绝不接收真实 model_id。"""

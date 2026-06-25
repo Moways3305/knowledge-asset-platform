@@ -31,6 +31,8 @@ from app.schemas.weknora_admin import (
     ModelCheckResponse,
     ModelMutateRequest,
     ModelMutateResponse,
+    ModelOptionOut,
+    ModelOptionsResponse,
     ModelOut,
     ModelSlotOut,
     ProviderOut,
@@ -366,6 +368,39 @@ _DEFAULT_SLOT_TYPES: dict[str, str] = {
     "chat": "chat",
     "multimodal": "vllm",
 }
+
+
+async def list_model_options(
+    session: AsyncSession, client: _CheckClient, *, model_type: str | None, trace_id: str | None
+) -> ModelOptionsResponse:
+    """顾问侧只读模型选项（PBC-38）：安全展示字段 + is_default 标记 + default_missing 信号。
+
+    复用 `list_models`（已脱敏为 model_ref，无真实 id）。is_default 仅按当前平台默认
+    embedding / rerank 的 model_ref 精确匹配标注；其它模型（含 disabled / 伪造）不会被误标。
+    default_missing 反映平台默认 **embedding** 是否未配置（前端据此禁用提交）。
+    """
+    models = await list_models(client, model_type=model_type, trace_id=trace_id)
+    defaults = await weknora_defaults.get_defaults(session)
+    emb_default = (defaults.default_embedding_model_id if defaults else None) or None
+    rr_default = (defaults.default_rerank_model_id if defaults else None) or None
+    default_refs: set[str] = set()
+    if emb_default:
+        default_refs.add(_model_ref(emb_default))
+    if rr_default:
+        default_refs.add(_model_ref(rr_default))
+    items = [
+        ModelOptionOut(
+            model_ref=m.model_ref,
+            name=m.name,
+            type=m.type,
+            provider=m.provider,
+            description=m.description,
+            enabled=m.enabled,
+            is_default=m.model_ref in default_refs,
+        )
+        for m in models
+    ]
+    return ModelOptionsResponse(items=items, default_missing=not bool(emb_default))
 
 
 async def set_default_models(
