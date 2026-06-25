@@ -32,7 +32,7 @@ class ResolvedModels:
     multimodal_id: str | None = None
 
 
-async def _resolve_ref(ref_map: dict[str, str], ref: str) -> str:
+def _resolve_ref(ref_map: dict[str, str], ref: str) -> str:
     mid = ref_map.get(ref)
     if mid is None:
         raise WeKnoraError("weknora_model_not_found", "所选模型不存在")
@@ -49,14 +49,13 @@ async def resolve_models_for_kb(
 ) -> ResolvedModels:
     defaults = await weknora_defaults.get_defaults(session)
     # 仅当需要解析显式 ref 时才调底座列模型（默认值直接来自 DB，无需 client）。
-    ref_map: dict[str, str] | None = None
+    ref_map: dict[str, str] = {}
     if embedding_model_ref or rerank_model_ref:
         ref_map = await _ref_to_id_map(client, trace_id)
 
     explicit_embedding = bool(embedding_model_ref)
     if embedding_model_ref:
-        assert ref_map is not None
-        embedding_id = await _resolve_ref(ref_map, embedding_model_ref)
+        embedding_id = _resolve_ref(ref_map, embedding_model_ref)
     else:
         embedding_id = (defaults.default_embedding_model_id if defaults else None) or ""
         if not embedding_id.strip():
@@ -65,10 +64,9 @@ async def resolve_models_for_kb(
                 "尚未配置平台默认嵌入模型，请联系管理员在模型配置中设置",
             )
 
-    rerank_id: str | None
+    rerank_id: str | None = None
     if rerank_model_ref:
-        assert ref_map is not None
-        rerank_id = await _resolve_ref(ref_map, rerank_model_ref)
+        rerank_id = _resolve_ref(ref_map, rerank_model_ref)
     else:
         rerank_id = (defaults.default_rerank_model_id if defaults else None) or None
 

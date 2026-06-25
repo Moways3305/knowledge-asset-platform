@@ -13,8 +13,10 @@ class _FakeClient:
 
     def __init__(self, ids):
         self._ids = ids
+        self.list_models_calls = 0
 
     async def list_models(self, *, trace_id=None):
+        self.list_models_calls += 1
         return [{"id": i, "name": i, "type": "Embedding"} for i in self._ids]
 
 
@@ -55,6 +57,7 @@ async def test_falls_back_to_default(db_session):
     )
     assert res.embedding_model_id == "emb-default"
     assert res.explicit_embedding is False
+    assert client.list_models_calls == 0
 
 
 async def test_no_default_fails_closed(db_session):
