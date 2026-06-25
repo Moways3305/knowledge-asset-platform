@@ -47,6 +47,17 @@ def _kb_name(scope: str, owner_user_id: uuid.UUID | None, project_id: uuid.UUID 
     return "company_kb"
 
 
+def _locked(existing: WeknoraKbMapping, models: ResolvedModels) -> bool:
+    """KB 嵌入模型锁：显式指定了不同嵌入模型时返回 True（需重建索引）。
+    默认驱动（explicit_embedding=False）或既有映射无绑定模型时永不触发。
+    """
+    return bool(
+        models.explicit_embedding
+        and existing.embedding_model_id
+        and models.embedding_model_id != existing.embedding_model_id
+    )
+
+
 def _init_kwargs(models: ResolvedModels, embedding_model_id: str) -> dict[str, str | None]:
     """KB 初始化模型 id（仅非空才发送）。embedding 用已绑定/已解析 id；
     chat/rerank/multimodal 取自解析结果（平台默认或显式 rerank）。summary 不参与（走外部 LLM）。
@@ -118,11 +129,7 @@ async def resolve_or_create_kb(
         if existing.status == _STATUS_ACTIVE:
             # KB 锁：仅当显式指定了不同嵌入模型时拒绝（切换需重建索引）。
             # 默认驱动（explicit_embedding=False）永不触发锁——保留既有 KB。
-            if (
-                models.explicit_embedding
-                and existing.embedding_model_id
-                and models.embedding_model_id != existing.embedding_model_id
-            ):
+            if _locked(existing, models):
                 raise WeKnoraError(
                     "weknora_kb_embedding_model_locked",
                     "该知识库已绑定嵌入模型，如需切换请先重建索引",
@@ -130,6 +137,12 @@ async def resolve_or_create_kb(
             return existing.weknora_kb_id
         # init_failed：重试初始化（KB 已存在，只补模型配置）。
         # 使用已绑定的 embedding id（已建库时确定的模型），chat/rerank/multimodal 用新 models。
+        # KB 锁同样适用：显式指定了不同嵌入模型时拒绝，默认驱动可正常恢复。
+        if _locked(existing, models):
+            raise WeKnoraError(
+                "weknora_kb_embedding_model_locked",
+                "该知识库已绑定嵌入模型，如需切换请先重建索引",
+            )
         bound = existing.embedding_model_id or models.embedding_model_id
         await client.initialize_kb(
             existing.weknora_kb_id, trace_id=trace_id, **_init_kwargs(models, bound)

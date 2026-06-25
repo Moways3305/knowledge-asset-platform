@@ -172,12 +172,86 @@ async def test_existing_kb_rejects_conflicting_explicit_model(db_session):
 
 
 # ---------------------------------------------------------------------------
-# 场景 5：Fail-closed — 无平台默认配置
+# 场景 6：init_failed 映射 + 显式不同嵌入 → 触发锁
+# ---------------------------------------------------------------------------
+async def test_init_failed_kb_rejects_conflicting_explicit_model(db_session):
+    """既有 init_failed KB 绑定 emb-A；显式传入 emb-B（explicit_embedding=True）→
+    raise weknora_kb_embedding_model_locked（不允许借重试路径绕过锁）。"""
+    owner = uuid.uuid4()
+    db_session.add(
+        WeknoraKbMapping(
+            scope=KnowledgeScope.personal.value,
+            owner_user_id=owner,
+            project_id=None,
+            weknora_kb_id="kb-init-failed-1",
+            embedding_model_id="emb-A",
+            kb_name="personal_x_kb",
+            status="init_failed",
+        )
+    )
+    await db_session.commit()
+
+    with pytest.raises(WeKnoraError) as ei:
+        await weknora_kb.resolve_or_create_kb(
+            db_session,
+            _FakeKbClient(),
+            scope=KnowledgeScope.personal.value,
+            owner_user_id=owner,
+            project_id=None,
+            models=ResolvedModels(embedding_model_id="emb-B", explicit_embedding=True),
+            trace_id=None,
+        )
+    assert ei.value.code == "weknora_kb_embedding_model_locked"
+
+
+# ---------------------------------------------------------------------------
+# 场景 7：init_failed 映射 + 默认驱动 → 正常恢复（不触发锁）
+# ---------------------------------------------------------------------------
+async def test_init_failed_kb_recovers_with_default_model(db_session):
+    """既有 init_failed KB 绑定 emb-A；默认驱动（explicit_embedding=False）传入任意 id →
+    不触发锁；initialize_kb 成功后状态翻 active，返回既有 kb_id。"""
+    owner = uuid.uuid4()
+    db_session.add(
+        WeknoraKbMapping(
+            scope=KnowledgeScope.personal.value,
+            owner_user_id=owner,
+            project_id=None,
+            weknora_kb_id="kb-init-failed-2",
+            embedding_model_id="emb-A",
+            kb_name="personal_y_kb",
+            status="init_failed",
+        )
+    )
+    await db_session.commit()
+
+    fake = _FakeKbClient()
+    kb = await weknora_kb.resolve_or_create_kb(
+        db_session,
+        fake,
+        scope=KnowledgeScope.personal.value,
+        owner_user_id=owner,
+        project_id=None,
+        models=ResolvedModels(embedding_model_id="emb-B", explicit_embedding=False),
+        trace_id=None,
+    )
+    assert kb == "kb-init-failed-2"  # 复用既有 kb_id
+    assert fake.created == []  # create_kb 从未被调用（KB 已存在）
+    # 映射状态已翻为 active。
+    mapping = (
+        await db_session.execute(
+            select(WeknoraKbMapping).where(WeknoraKbMapping.owner_user_id == owner)
+        )
+    ).scalar_one()
+    assert mapping.status == "active"
+
+
+# ---------------------------------------------------------------------------
+# 场景 5：Fail-closed — 平台默认模型未配置
 # ---------------------------------------------------------------------------
 async def test_no_default_configured_raises_fail_closed(db_session):
     """无 WeknoraDefaultModels 行且无显式 ref → resolve_models_for_kb 应 raise
     weknora_default_model_not_configured（不回退 .env / settings）。"""
-    # db_session 是干净内存库，无任何 WeknoraDefaultModels 行。
+    # db_session 是干净内存库：平台默认模型未配置（DB 无 WeknoraDefaultModels 行）。
     with pytest.raises(WeKnoraError) as ei:
         await resolve_models_for_kb(
             db_session,
