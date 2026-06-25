@@ -13,9 +13,15 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class PersonalKbCreateRequest(BaseModel):
-    """显式创建个人知识库。display_name 可选（缺省用「我的知识库」）。"""
+    """显式创建个人知识库。display_name 可选（缺省用「我的知识库」）。
+
+    PBC-38：可选模型选择（model_ref，对底座 id 不可逆，绝不接收真实 model_id）。
+    缺省走平台默认；显式选择在首建个人 KB 时生效。
+    """
 
     display_name: str | None = Field(default=None, max_length=100)
+    embedding_model_ref: str | None = Field(default=None)
+    rerank_model_ref: str | None = Field(default=None)
 
 
 class PersonalKbRenameRequest(BaseModel):

@@ -133,11 +133,14 @@ async def create_personal_kb(
     caller: CallerContext,
     *,
     display_name: str | None,
+    embedding_model_ref: str | None = None,
+    rerank_model_ref: str | None = None,
     trace_id: str | None = None,
 ) -> PersonalKbOut:
     """显式创建个人 KB。幂等：已 active → 返回现有（不重复建、不改名）；init_failed → 重试初始化。
 
-    未配置底座 / 缺 embedding 模型 → fail-closed 安全 503（不写映射、不假成功）。
+    PBC-38：可选 embedding_model_ref / rerank_model_ref（model_ref，缺省走平台默认）。
+    未配置底座 / 缺 embedding 模型 / 平台默认未配置 → fail-closed 安全 503（不写映射、不假成功）。
     """
     _require_business_user(caller)
     name = (display_name or "").strip() or DEFAULT_PERSONAL_KB_NAME
@@ -154,8 +157,8 @@ async def create_personal_kb(
         models = await resolve_models_for_kb(
             session,
             client,
-            embedding_model_ref=None,
-            rerank_model_ref=None,
+            embedding_model_ref=embedding_model_ref,
+            rerank_model_ref=rerank_model_ref,
             trace_id=trace_id,
         )
         await resolve_or_create_kb(
