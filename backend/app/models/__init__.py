@@ -46,6 +46,7 @@ from app.models.review import (
 )
 from app.models.wecom import WecomScanConfig, WecomScanRecord
 from app.models.weknora import WeknoraKbMapping
+from app.models.weknora_defaults import WeknoraDefaultModels
 
 __all__ = [
     "User",
@@ -81,6 +82,7 @@ __all__ = [
     "UserSession",
     "AuthLoginAttempt",
     "WeknoraKbMapping",
+    "WeknoraDefaultModels",
     "WecomScanConfig",
     "WecomScanRecord",
 ]
