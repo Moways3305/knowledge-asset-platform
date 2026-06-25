@@ -19,7 +19,6 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.weknora import WeknoraKbMapping
 from app.schemas.enums import AssetStatus, AuditAction, AuditLogType, KnowledgeScope
@@ -36,6 +35,7 @@ from app.services.weknora_kb import (
     DEFAULT_PERSONAL_KB_NAME,
     resolve_or_create_kb,
 )
+from app.services.weknora_model_selection import resolve_models_for_kb
 
 _STATUS_ACTIVE = "active"
 _CheckClient = "WeKnoraClient | NullWeKnoraClient"
@@ -150,15 +150,21 @@ async def create_personal_kb(
         # 未配置底座：无法建库（映射要求 weknora_kb_id 非空），fail-closed 安全提示。
         raise _denied(503, "personal_kb_unavailable", "知识库底座未配置，暂无法创建个人知识库")
 
-    settings = get_settings()
     try:
+        models = await resolve_models_for_kb(
+            session,
+            client,
+            embedding_model_ref=None,
+            rerank_model_ref=None,
+            trace_id=trace_id,
+        )
         await resolve_or_create_kb(
             session,
             client,
             scope=KnowledgeScope.personal.value,
             owner_user_id=caller.user_id,
             project_id=None,
-            embedding_model_id=settings.weknora_embedding_model_id,
+            models=models,
             trace_id=trace_id,
             display_name=name,
         )
