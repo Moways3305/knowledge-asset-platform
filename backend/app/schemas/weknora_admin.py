@@ -9,6 +9,7 @@ WeKnora，绝不回显。
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel
 
@@ -128,3 +129,24 @@ class KbInitUpdateResponse(BaseModel):
     mapping_id: uuid.UUID
     mapping_status: str
     updated: bool = True
+
+
+class DefaultModelsOut(BaseModel):
+    """平台默认模型安全视图（PBC-38）：每个槽位只含安全 model_ref + name/type/provider，
+    绝不含 server-only 真实 model_id。"""
+
+    embedding: ModelSlotOut | None = None
+    rerank: ModelSlotOut | None = None
+    chat: ModelSlotOut | None = None
+    multimodal: ModelSlotOut | None = None
+    updated_at: datetime | None = None
+
+
+class DefaultModelsUpdateRequest(BaseModel):
+    """更新平台默认模型（PBC-38）：前端只提交对底座 id 不可逆的 model_ref，
+    后端解析为 server-only model_id 并校验类型匹配。绝不接收真实 model_id。"""
+
+    embedding_model_ref: str | None = None
+    rerank_model_ref: str | None = None
+    chat_model_ref: str | None = None
+    multimodal_ref: str | None = None
