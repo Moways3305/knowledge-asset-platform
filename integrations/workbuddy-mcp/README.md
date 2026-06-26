@@ -39,12 +39,33 @@ Binding rejects pure-admin / inactive / non-business users.
 
 ## Tools
 
+All tools are **read-only**. There are no write tools (no upload / approve / reject / grant /
+revoke / config). Every tool maps 1:1 to a `/api/v1/agent-gateway/*` endpoint, carries the
+**per-request bearer**, and the `KapClient` projects each response to an explicit field allowlist —
+the backend may return more, but the MCP only surfaces the whitelisted fields.
+
+Knowledge / Q&A:
+
 - `kap_search_knowledge(query, scope?, top_k?, tags?, phase?)` → safe summary cards
 - `kap_answer_from_knowledge(query, scope?)` → `{answer, citations}`
 - `kap_list_accessible_projects()` → `[{project_id, name, status}]`
 
-All permission, desensitization, and audit happen server-side. No original-file download,
-no write tools. Backend errors surface as a single safe message (no internal ids / token / URL).
+Workbench (PBC-37):
+
+- `kap_list_my_todos(limit?)` → `{items, counts}` — pending reviews assigned to me, my original-access
+  requests, requests awaiting my approval, ingest tasks awaiting my confirmation.
+- `kap_list_recent_knowledge(scope?, project_id?, limit?)` → recent knowledge cards I can see.
+- `kap_get_knowledge_summary(asset_id)` → one asset's safe/redacted summary (discovery/summary layer).
+- `kap_list_project_knowledge(project_id, limit?, phase?, tags?)` → knowledge I can see in a project.
+- `kap_get_project_brief(project_id)` → `{my_role, knowledge_count, recent_asset_count, …}`.
+- `kap_list_pending_reviews(limit?)` → review items I can act on / see.
+- `kap_list_original_access_requests(box="mine"|"inbox", limit?)` → original-access requests.
+
+10 tools total. All permission, desensitization, and audit happen server-side. **No original-file
+download, no preview URL, no write tools.** Even when a summary reports `can_view_original=true`,
+the original content is never returned over MCP. Backend errors surface as a single safe message
+(no internal ids / denied_reason / trace / token / URL). Dify stays as a separate legacy adapter
+and is unaffected.
 
 ## Run (local stdio — default, per-user token)
 
