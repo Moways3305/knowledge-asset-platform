@@ -17,6 +17,8 @@ import type {
   ModelMutateRequestDTO,
   ProviderDTO,
 } from "../types/weknoraAdmin";
+import DefaultModelsSection from "../components/DefaultModelsSection";
+import { useAuth } from "../auth/AuthContext";
 
 // 模型配置中心：admin 运营工具。代理 WeKnora 模型与 KB 初始化配置，
 // 不在前端出现 model_id / kb_id / api_key（保存后不回显）/ base_url 真实值。
@@ -53,6 +55,7 @@ const emptyForm = (): ModelMutateRequestDTO => ({
 });
 
 export default function AdminWeKnoraModelsPage() {
+  const { capabilities } = useAuth();
   const [models, setModels] = useState<ModelDTO[]>([]);
   const [providers, setProviders] = useState<ProviderDTO[]>([]);
   const [kbConfigs, setKbConfigs] = useState<KbConfigDTO[]>([]);
@@ -321,6 +324,9 @@ export default function AdminWeKnoraModelsPage() {
               {providers.length > 0 ? providers.map((p) => p.label).join(" · ") : "—"}
             </p>
           </section>
+
+          {/* 平台默认模型（PBC-38）：admin 可保存，治理角色只读 */}
+          <DefaultModelsSection models={models} canEdit={capabilities.isAdmin} />
 
           {/* 创建 / 编辑表单 */}
           {formOpen && (

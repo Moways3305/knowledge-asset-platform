@@ -125,6 +125,8 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 - 🛡️ 权限规则：`/api/v1/admin/permissions/{rules|agent-whitelist}`。
 - 🛡️ 微盘扫描：`/api/v1/admin/wecom-scan/...`（配置、扫描、目录/空间、归属选项）。
 - 🛡️ WeKnora 管理：`/api/v1/admin/weknora/{models|kb-configs|providers}`（模型经不可逆 `model_ref` 对前端暴露，内部 model id 不外泄）。
+- 🛡️ 平台默认模型（PBC-38）：`GET|PUT /api/v1/admin/weknora/default-models`（读 admin / 治理角色，写仅 admin；只用 `model_ref`）。建库 / 入库选模型优先级：请求显式 `model_ref` > 平台默认（DB `weknora_default_models`）> fail-closed，不再用 `.env` 的 `WEKNORA_*_MODEL_ID` 兜底；同一 KB 的 embedding 模型建库即锁定，不一致选择返回 `weknora_kb_embedding_model_locked`。
+- 👤 模型选项（PBC-38，业务用户只读）：`GET /api/v1/weknora/model-options`（顾问入库 / 建库时查看可选模型、按 `type` 过滤；只回安全展示字段 + `is_default` + `default_missing`，无 CRUD、无真实 model id）。
 
 ---
 

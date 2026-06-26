@@ -1518,6 +1518,23 @@ body {
   word-break: break-all;
 }
 
+/* 模型选择高级设置（PBC-38）：默认收起的折叠区 */
+.up-advanced-toggle {
+  background: none;
+  border: none;
+  padding: 4px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-body);
+  cursor: pointer;
+}
+.up-advanced-toggle:hover {
+  color: var(--color-accent, #176);
+}
+.up-model-advanced-body {
+  margin-top: 8px;
+}
+
 /* Dropzone */
 
 .upload-dropzone {
