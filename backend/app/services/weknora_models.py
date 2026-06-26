@@ -23,16 +23,21 @@ from app.core.config import get_settings
 from app.models.identity import Project, User
 from app.models.weknora import WeknoraKbMapping
 from app.schemas.weknora_admin import (
+    DefaultModelsOut,
+    DefaultModelsUpdateRequest,
     KbConfigOut,
     KbInitUpdateRequest,
     ModelCheckRequest,
     ModelCheckResponse,
     ModelMutateRequest,
     ModelMutateResponse,
+    ModelOptionOut,
+    ModelOptionsResponse,
     ModelOut,
     ModelSlotOut,
     ProviderOut,
 )
+from app.services import weknora_defaults
 from app.services.weknora_client import WeKnoraError
 
 if TYPE_CHECKING:
@@ -236,6 +241,12 @@ def _slot(model_id: str | None, id_meta: dict[str, ModelOut]) -> ModelSlotOut | 
     )
 
 
+async def _id_meta_map(client: _CheckClient, trace_id: str | None) -> dict[str, ModelOut]:
+    """server-only model_id → 安全 ModelOut 元数据（用于把 id 映射成安全名称 / 类型）。"""
+    raw = await client.list_models(trace_id=trace_id)
+    return {str(m["id"]): _to_model_out(m) for m in raw if isinstance(m, dict) and m.get("id")}
+
+
 async def list_kb_configs(
     session: AsyncSession, client: _CheckClient, *, trace_id: str | None
 ) -> list[KbConfigOut]:
@@ -245,10 +256,7 @@ async def list_kb_configs(
         .all()
     )
     # id → 安全模型元数据（用于把底座初始化配置里的 server-only id 映射成安全名称）。
-    raw_models = await client.list_models(trace_id=trace_id)
-    id_meta = {
-        str(m["id"]): _to_model_out(m) for m in raw_models if isinstance(m, dict) and m.get("id")
-    }
+    id_meta = await _id_meta_map(client, trace_id)
 
     project_ids = {m.project_id for m in mappings if m.project_id}
     owner_ids = {m.owner_user_id for m in mappings if m.owner_user_id}
@@ -334,3 +342,107 @@ async def update_kb_init(
         mp.status = "active"
     await session.commit()
     return mp
+
+
+async def get_default_models_out(
+    session: AsyncSession, client: _CheckClient, *, trace_id: str | None
+) -> DefaultModelsOut:
+    """平台默认模型安全视图（PBC-38）：DB 存 server-only id，对外只回安全 model_ref + 名称。"""
+    row = await weknora_defaults.get_defaults(session)
+    if row is None:
+        return DefaultModelsOut()
+    id_meta = await _id_meta_map(client, trace_id)
+    return DefaultModelsOut(
+        embedding=_slot(row.default_embedding_model_id, id_meta),
+        rerank=_slot(row.default_rerank_model_id, id_meta),
+        chat=_slot(row.default_chat_model_id, id_meta),
+        multimodal=_slot(row.default_multimodal_model_id, id_meta),
+        updated_at=row.updated_at,
+    )
+
+
+# 各默认槽位期望的前端模型类型别名（PBC-38 类型校验）。multimodal 对应 WeKnora VLLM（别名 vllm）。
+_DEFAULT_SLOT_TYPES: dict[str, str] = {
+    "embedding": "embedding",
+    "rerank": "rerank",
+    "chat": "chat",
+    "multimodal": "vllm",
+}
+
+
+async def list_model_options(
+    session: AsyncSession, client: _CheckClient, *, model_type: str | None, trace_id: str | None
+) -> ModelOptionsResponse:
+    """顾问侧只读模型选项（PBC-38）：安全展示字段 + is_default 标记 + default_missing 信号。
+
+    复用 `list_models`（已脱敏为 model_ref，无真实 id）。is_default 仅按当前平台默认
+    embedding / rerank 的 model_ref 精确匹配标注；其它模型（含 disabled / 伪造）不会被误标。
+    default_missing 反映平台默认 **embedding** 是否未配置（前端据此禁用提交）。
+    """
+    models = await list_models(client, model_type=model_type, trace_id=trace_id)
+    defaults = await weknora_defaults.get_defaults(session)
+    emb_default = (defaults.default_embedding_model_id if defaults else None) or None
+    rr_default = (defaults.default_rerank_model_id if defaults else None) or None
+    default_refs: set[str] = set()
+    if emb_default:
+        default_refs.add(_model_ref(emb_default))
+    if rr_default:
+        default_refs.add(_model_ref(rr_default))
+    items = [
+        ModelOptionOut(
+            model_ref=m.model_ref,
+            name=m.name,
+            type=m.type,
+            provider=m.provider,
+            description=m.description,
+            enabled=m.enabled,
+            is_default=m.model_ref in default_refs,
+        )
+        for m in models
+    ]
+    return ModelOptionsResponse(items=items, default_missing=not bool(emb_default))
+
+
+async def set_default_models(
+    session: AsyncSession,
+    client: _CheckClient,
+    req: DefaultModelsUpdateRequest,
+    *,
+    updated_by: uuid.UUID | None,
+    trace_id: str | None,
+) -> DefaultModelsOut:
+    """更新平台默认模型（PBC-38）：前端传 model_ref，后端解析为 server-only id 并校验类型匹配。
+
+    - ref 不存在 → 404 `weknora_model_not_found`；
+    - 类型与槽位不匹配（如把 chat 模型设为默认 embedding）→ 422 `weknora_model_type_mismatch`；
+    - 校验通过后存 server-only id；返回安全视图（只含 model_ref，绝不回真实 id）。
+    """
+    # 一次列模型，建 ref → (server-only id, 前端类型别名)。
+    raw = await client.list_models(trace_id=trace_id)
+    entries: dict[str, tuple[str, str]] = {}
+    for m in raw:
+        if isinstance(m, dict) and m.get("id"):
+            mid = str(m["id"])
+            entries[_model_ref(mid)] = (mid, _alias(m.get("type")))
+
+    def _resolve(ref: str | None, slot: str) -> str | None:
+        if not ref:
+            return None
+        entry = entries.get(ref)
+        if entry is None:
+            raise _denied(404, "weknora_model_not_found", "所选模型不存在")
+        mid, alias = entry
+        expected = _DEFAULT_SLOT_TYPES[slot]
+        if alias != expected:
+            raise _denied(422, "weknora_model_type_mismatch", "所选模型类型与该默认槽位不匹配")
+        return mid
+
+    await weknora_defaults.set_defaults(
+        session,
+        embedding_model_id=_resolve(req.embedding_model_ref, "embedding"),
+        rerank_model_id=_resolve(req.rerank_model_ref, "rerank"),
+        chat_model_id=_resolve(req.chat_model_ref, "chat"),
+        multimodal_id=_resolve(req.multimodal_ref, "multimodal"),
+        updated_by=updated_by,
+    )
+    return await get_default_models_out(session, client, trace_id=trace_id)

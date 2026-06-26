@@ -1859,6 +1859,116 @@
         "title": "DecisionItemsResponse",
         "type": "object"
       },
+      "DefaultModelsOut": {
+        "description": "平台默认模型安全视图（PBC-38）：每个槽位只含安全 model_ref + name/type/provider，\n绝不含 server-only 真实 model_id。",
+        "properties": {
+          "chat": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelSlotOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "embedding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelSlotOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "multimodal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelSlotOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rerank": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelSlotOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "title": "DefaultModelsOut",
+        "type": "object"
+      },
+      "DefaultModelsUpdateRequest": {
+        "description": "更新平台默认模型（PBC-38）：前端只提交对底座 id 不可逆的 model_ref，\n后端解析为 server-only model_id 并校验类型匹配。绝不接收真实 model_id。",
+        "properties": {
+          "chat_model_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat Model Ref"
+          },
+          "embedding_model_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding Model Ref"
+          },
+          "multimodal_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Multimodal Ref"
+          },
+          "rerank_model_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rerank Model Ref"
+          }
+        },
+        "title": "DefaultModelsUpdateRequest",
+        "type": "object"
+      },
       "DifyExternalRequest": {
         "description": "官方字段：knowledge_id / query / retrieval_setting / metadata_condition?。",
         "properties": {
@@ -2762,6 +2872,17 @@
           "confidentiality_level": {
             "$ref": "#/components/schemas/ConfidentialityLevel"
           },
+          "embedding_model_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding Model Ref"
+          },
           "key_points": {
             "default": [],
             "items": {
@@ -2791,6 +2912,17 @@
               }
             ],
             "title": "One Liner"
+          },
+          "rerank_model_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rerank Model Ref"
           },
           "summary": {
             "anyOf": [
@@ -4398,6 +4530,84 @@
         "title": "ModelMutateResponse",
         "type": "object"
       },
+      "ModelOptionOut": {
+        "description": "顾问侧只读模型选项（PBC-38）：仅安全展示字段，绝不含 server-only 真实 model_id。",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "is_default": {
+            "default": false,
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "model_ref": {
+            "title": "Model Ref",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_ref",
+          "name",
+          "type"
+        ],
+        "title": "ModelOptionOut",
+        "type": "object"
+      },
+      "ModelOptionsResponse": {
+        "description": "顾问侧模型选项响应。\n\n`default_missing`：平台默认 **embedding** 模型未配置（前端据此禁用提交并提示联系管理员）。\n即便缺默认，仍返回可选模型列表，供管理员配置前查看。",
+        "properties": {
+          "default_missing": {
+            "default": true,
+            "title": "Default Missing",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ModelOptionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ModelOptionsResponse",
+        "type": "object"
+      },
       "ModelOut": {
         "description": "安全模型视图：无 server-only id / 无 key / 无 base_url。",
         "properties": {
@@ -5459,7 +5669,7 @@
         "type": "object"
       },
       "PersonalKbCreateRequest": {
-        "description": "显式创建个人知识库。display_name 可选（缺省用「我的知识库」）。",
+        "description": "显式创建个人知识库。display_name 可选（缺省用「我的知识库」）。\n\nPBC-38：可选模型选择（model_ref，对底座 id 不可逆，绝不接收真实 model_id）。\n缺省走平台默认；显式选择在首建个人 KB 时生效。",
         "properties": {
           "display_name": {
             "anyOf": [
@@ -5472,6 +5682,28 @@
               }
             ],
             "title": "Display Name"
+          },
+          "embedding_model_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding Model Ref"
+          },
+          "rerank_model_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rerank Model Ref"
           }
         },
         "title": "PersonalKbCreateRequest",
@@ -7202,6 +7434,35 @@
           "total"
         ],
         "title": "RequestsListResponse",
+        "type": "object"
+      },
+      "RetryIndexRequest": {
+        "description": "底座索引重试请求（PBC-38，可选）。\n\n只接收对底座 id 不可逆的 model_ref，绝不接收真实 model_id。缺省沿用该 KB 已绑定模型；\n显式传入与已绑定 embedding 不同的 model_ref 会被锁定拒绝（weknora_kb_embedding_model_locked）。",
+        "properties": {
+          "embedding_model_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding Model Ref"
+          },
+          "rerank_model_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rerank Model Ref"
+          }
+        },
+        "title": "RetryIndexRequest",
         "type": "object"
       },
       "RetryIndexResponse": {
@@ -13151,6 +13412,146 @@
         ]
       }
     },
+    "/api/v1/admin/weknora/default-models": {
+      "get": {
+        "description": "读平台默认模型（admin / boss / 咨询总监）。只回安全 model_ref + 名称，无真实 model_id。",
+        "operationId": "get_default_models_api_v1_admin_weknora_default_models_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefaultModelsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Default Models",
+        "tags": [
+          "weknora-admin"
+        ]
+      },
+      "put": {
+        "description": "改平台默认模型（仅 admin）。前端传 model_ref，后端解析真实 id + 校验类型；响应/审计无真实 id。",
+        "operationId": "put_default_models_api_v1_admin_weknora_default_models_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefaultModelsUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefaultModelsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Default Models",
+        "tags": [
+          "weknora-admin"
+        ]
+      }
+    },
     "/api/v1/admin/weknora/kb-configs": {
       "get": {
         "operationId": "list_kb_configs_api_v1_admin_weknora_kb_configs_get",
@@ -16687,6 +17088,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RetryIndexRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Req"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
@@ -18825,6 +19243,88 @@
         ]
       }
     },
+    "/api/v1/weknora/model-options": {
+      "get": {
+        "description": "列可选模型（可按 type 过滤，如 embedding / rerank）。仅安全字段 + is_default + default_missing。",
+        "operationId": "list_model_options_api_v1_weknora_model_options_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelOptionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Model Options",
+        "tags": [
+          "weknora-options"
+        ]
+      }
+    },
     "/health": {
       "get": {
         "description": "Return basic liveness info plus the request trace_id.",
@@ -18853,7 +19353,7 @@
     },
     "/health/config": {
       "get": {
-        "description": "安全配置诊断：只回布尔 + provider 名 + 缺失项名 + 生产就绪信号，绝不回值/密钥/URL。",
+        "description": "安全配置诊断：只回布尔 + provider 名 + 缺失项名 + 生产就绪信号，绝不回值/密钥/URL。\n\nPBC-38：平台默认 embedding 模型存 DB（weknora_default_models），故需 DB 会话判定其是否已配。",
         "operationId": "health_config_health_config_get",
         "responses": {
           "200": {

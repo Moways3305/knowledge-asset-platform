@@ -72,12 +72,21 @@ class FakeWK:
         return []
 
 
+async def _async_return(val):
+    return val
+
+
 def _enable(monkeypatch, fake, *, embedding="test-embed"):
-    from app.core.config import get_settings
+    from app.services.weknora_model_selection import ResolvedModels
 
     monkeypatch.setattr("app.services.ingest.weknora_enabled", lambda: True)
     monkeypatch.setattr("app.services.knowledge.weknora_enabled", lambda: True)
-    monkeypatch.setattr(get_settings(), "weknora_embedding_model_id", embedding)
+    # 绕过 DB resolve（测试无需配置 WeknoraDefaultModels 行），直接返回测试用 ResolvedModels。
+    _resolved = ResolvedModels(embedding_model_id=embedding, explicit_embedding=False)
+    monkeypatch.setattr(
+        "app.services.indexing.resolve_models_for_kb",
+        lambda *_a, **_kw: _async_return(_resolved),
+    )
     app.dependency_overrides[get_weknora_client] = lambda: fake
 
 

@@ -80,3 +80,39 @@ export interface KbInitUpdateRequestDTO {
   rerank_model_ref?: string | null;
   multimodal_ref?: string | null;
 }
+
+// ---- 顾问只读模型选项（PBC-38）----
+// 安全展示字段；绝不含 server-only 真实 model_id / api_key / base_url。
+export interface ModelOptionDTO {
+  model_ref: string;
+  name: string;
+  type: string;
+  provider: string | null;
+  description: string | null;
+  enabled: boolean;
+  is_default: boolean;
+}
+
+// default_missing：平台默认 embedding 未配置 → 前端据此禁用提交并提示联系管理员。
+export interface ModelOptionsResponseDTO {
+  items: ModelOptionDTO[];
+  default_missing: boolean;
+}
+
+// ---- 平台默认模型（PBC-38；admin 写 / 治理只读）----
+// 每个槽位只含安全 model_ref + 名称，绝不含真实 model_id。
+export interface DefaultModelsDTO {
+  embedding: ModelSlotDTO | null;
+  rerank: ModelSlotDTO | null;
+  chat: ModelSlotDTO | null;
+  multimodal: ModelSlotDTO | null;
+  updated_at: string | null;
+}
+
+// 前端只提交对底座 id 不可逆的 model_ref；后端解析真实 id 并校验类型。绝不上送真实 model_id。
+export interface DefaultModelsUpdateRequestDTO {
+  embedding_model_ref?: string | null;
+  rerank_model_ref?: string | null;
+  chat_model_ref?: string | null;
+  multimodal_ref?: string | null;
+}

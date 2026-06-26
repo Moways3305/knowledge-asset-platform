@@ -33,6 +33,7 @@ from app.api import (
     search,
     wecom_scan,
     weknora_admin,
+    weknora_options,
 )
 from app.core.config import get_settings
 from app.core.csrf import CsrfMiddleware
@@ -80,6 +81,7 @@ def create_app() -> FastAPI:
     app.include_router(permissions.router)
     app.include_router(projects.router)
     app.include_router(weknora_admin.router)
+    app.include_router(weknora_options.router)
 
     return app
 

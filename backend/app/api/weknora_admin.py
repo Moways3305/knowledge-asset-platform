@@ -24,6 +24,8 @@ from app.db.session import get_db
 from app.schemas.enums import AuditAction, AuditLogType, CompanyRole
 from app.schemas.permission import CallerContext
 from app.schemas.weknora_admin import (
+    DefaultModelsOut,
+    DefaultModelsUpdateRequest,
     KbConfigListResponse,
     KbInitUpdateRequest,
     KbInitUpdateResponse,
@@ -55,6 +57,24 @@ def _require_admin(caller: CallerContext) -> None:
             detail={
                 "denied_reason": "weknora_admin_required",
                 "message": "仅系统管理员可管理模型配置",
+            },
+        )
+
+
+def _require_admin_or_governance(caller: CallerContext) -> None:
+    """读平台默认模型：admin 或业务治理角色（boss / 咨询总监）。普通顾问无权。"""
+    roles = set(caller.active_company_roles)
+    allowed = {
+        CompanyRole.admin.value,
+        CompanyRole.boss.value,
+        CompanyRole.consulting_director.value,
+    }
+    if not (roles & allowed):
+        raise HTTPException(
+            403,
+            detail={
+                "denied_reason": "weknora_admin_required",
+                "message": "无权查看平台默认模型配置",
             },
         )
 
@@ -288,3 +308,58 @@ async def update_kb_init(
     )
     await session.commit()
     return KbInitUpdateResponse(mapping_id=mp.id, mapping_status=mp.status, updated=True)
+
+
+@router.get("/default-models", response_model=DefaultModelsOut)
+async def get_default_models(
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
+) -> DefaultModelsOut:
+    """读平台默认模型（admin / boss / 咨询总监）。只回安全 model_ref + 名称，无真实 model_id。"""
+    _require_admin_or_governance(caller)
+    _require_enabled()
+    try:
+        return await weknora_models.get_default_models_out(
+            session, weknora, trace_id=get_trace_id(request)
+        )
+    except WeKnoraError as exc:
+        raise _wrap_weknora(exc)
+
+
+@router.put("/default-models", response_model=DefaultModelsOut)
+async def put_default_models(
+    req: DefaultModelsUpdateRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
+) -> DefaultModelsOut:
+    """改平台默认模型（仅 admin）。前端传 model_ref，后端解析真实 id + 校验类型；响应/审计无真实 id。"""
+    _require_admin(caller)
+    _require_enabled()
+    trace_id = get_trace_id(request)
+    try:
+        out = await weknora_models.set_default_models(
+            session, weknora, req, updated_by=caller.user_id, trace_id=trace_id
+        )
+    except WeKnoraError as exc:
+        raise _wrap_weknora(exc)
+    # 审计只放安全 model_ref（对底座 id 不可逆）+ 槽位名，绝不含真实 model_id / api_key / base_url。
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.weknora_default_models_updated.value,
+        trace_id=trace_id,
+        target_type="weknora_default_models",
+        extra={
+            "embedding_ref": out.embedding.model_ref if out.embedding else None,
+            "rerank_ref": out.rerank.model_ref if out.rerank else None,
+            "chat_ref": out.chat.model_ref if out.chat else None,
+            "multimodal_ref": out.multimodal.model_ref if out.multimodal else None,
+        },
+    )
+    await session.commit()
+    return out

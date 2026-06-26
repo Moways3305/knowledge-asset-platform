@@ -483,6 +483,8 @@ async def confirm(
             weknora=weknora,
             storage=storage,
             trace_id=trace_id,
+            embedding_model_ref=req.embedding_model_ref,
+            rerank_model_ref=req.rerank_model_ref,
         )
 
     # 仅记 asset_id（UUID）+ 安全索引状态；绝不记原文 / extracted_text / kb·doc id。
@@ -516,6 +518,8 @@ async def _index_asset(
     weknora: WeKnoraClient | NullWeKnoraClient,
     storage: LocalFileStorage,
     trace_id: str,
+    embedding_model_ref: str | None = None,
+    rerank_model_ref: str | None = None,
 ) -> tuple[str, str | None]:
     """阶段2：把原文推进 WeKnora 底座（共享 `indexing.index_asset_version`）+ 写 ingest 审计。
 
@@ -553,6 +557,8 @@ async def _index_asset(
         source_file_mime=task.source_file_mime_type,
         channel=task.source,
         trace_id=trace_id,
+        embedding_model_ref=embedding_model_ref,
+        rerank_model_ref=rerank_model_ref,
     )
     if outcome.index_status == "indexed":
         await audit_service.record_event(

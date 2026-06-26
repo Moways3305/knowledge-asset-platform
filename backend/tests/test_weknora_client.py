@@ -117,11 +117,12 @@ class FakeWeKnora:
 
 
 def _enable_weknora(monkeypatch, *, embedding: str = "test-embed"):
-    """启用 WeKnora 路径并配置 embedding 模型（守卫：缺 embedding 会 fail-closed）。"""
-    from app.core.config import get_settings
+    """启用 WeKnora 路径。PBC-38：embedding 非空 → resolver 返回该模型；空 → 不配默认，fail-closed。"""
+    from conftest import patch_default_model
 
     monkeypatch.setattr(ingest_module, "weknora_enabled", lambda: True)
-    monkeypatch.setattr(get_settings(), "weknora_embedding_model_id", embedding)
+    if embedding:
+        patch_default_model(monkeypatch, embedding=embedding)
 
 
 @pytest.fixture
@@ -311,7 +312,8 @@ async def test_embedding_model_missing_keeps_asset_index_failed(client, db_sessi
             )
         ).scalar_one()
         assert ver.index_status == "index_failed"
-        assert ver.index_error_code == "weknora_embedding_model_missing"
+        # PBC-38：embedding 缺失 = 平台默认模型未配置（不再读 WEKNORA_EMBEDDING_MODEL_ID）。
+        assert ver.index_error_code == "weknora_default_model_not_configured"
         mapping = (
             await db_session.execute(
                 select(WeknoraKbMapping).where(

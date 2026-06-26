@@ -31,6 +31,7 @@ from app.services.weknora_client import (
     WeKnoraError,
 )
 from app.services.weknora_kb import resolve_or_create_kb
+from app.services.weknora_model_selection import resolve_models_for_kb
 
 
 @dataclass
@@ -93,22 +94,29 @@ async def index_asset_version(
     source_file_mime: str | None,
     channel: str | None,
     trace_id: str | None,
+    embedding_model_ref: str | None = None,
+    rerank_model_ref: str | None = None,
 ) -> IndexOutcome:
     """建库+初始化（resolve_or_create_kb）+ 上传原文 + 回写 version 索引状态。提交后返回 outcome。
 
     成功 → ("indexed", parse_status)；409 重复 → ("indexed", "duplicate", is_duplicate=True)；
     建库/初始化/上传失败 → ("index_failed", None, error_code)。**绝不回滚已落库资产。**
     """
-    from app.core.config import get_settings
-
     try:
+        models = await resolve_models_for_kb(
+            session,
+            weknora,
+            embedding_model_ref=embedding_model_ref,
+            rerank_model_ref=rerank_model_ref,
+            trace_id=trace_id,
+        )
         kb_id = await resolve_or_create_kb(
             session,
             weknora,
             scope=scope,
             owner_user_id=owner_user_id if scope == KnowledgeScope.personal.value else None,
             project_id=project_id,
-            embedding_model_id=get_settings().weknora_embedding_model_id,
+            models=models,
             trace_id=trace_id,
         )
         data = await weknora.upload_file(
@@ -170,6 +178,8 @@ async def reparse_asset_version(
     source_file_mime: str | None,
     channel: str | None,
     trace_id: str | None,
+    embedding_model_ref: str | None = None,
+    rerank_model_ref: str | None = None,
 ) -> IndexOutcome:
     """显式 reparse：对**已进底座但解析异常**的 version 强制刷新底座解析。
 
@@ -178,20 +188,25 @@ async def reparse_asset_version(
     resolve/create。成功 → index_status 保持 indexed + 新 parse_status；失败 → index_failed
     （可再试）。**绝不回滚业务资产**，回写 / 返回不外泄 kb_id / doc_id / api_key / storage_ref。
     """
-    from app.core.config import get_settings
-
     version = await _load_version(session, version_id)
     kb_id = version.weknora_kb_id if version is not None else None
     knowledge_id = version.weknora_doc_id if version is not None else None
     try:
         if not kb_id:
+            models = await resolve_models_for_kb(
+                session,
+                weknora,
+                embedding_model_ref=embedding_model_ref,
+                rerank_model_ref=rerank_model_ref,
+                trace_id=trace_id,
+            )
             kb_id = await resolve_or_create_kb(
                 session,
                 weknora,
                 scope=scope,
                 owner_user_id=owner_user_id if scope == KnowledgeScope.personal.value else None,
                 project_id=project_id,
-                embedding_model_id=get_settings().weknora_embedding_model_id,
+                models=models,
                 trace_id=trace_id,
             )
         data = await weknora.reparse_knowledge(

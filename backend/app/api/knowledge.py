@@ -19,6 +19,7 @@ from app.schemas.knowledge import (
     KnowledgeDeleteResponse,
     KnowledgeDetailOut,
     KnowledgeListResponse,
+    RetryIndexRequest,
     RetryIndexResponse,
 )
 from app.schemas.knowledge_insights import KnowledgeOpsInsightsResponse
@@ -114,6 +115,7 @@ async def delete_knowledge_asset(
 async def retry_index(
     asset_id: uuid.UUID,
     request: Request,
+    req: RetryIndexRequest | None = None,
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
     storage: LocalFileStorage = Depends(get_storage),
@@ -122,6 +124,7 @@ async def retry_index(
     """重试底座索引：仅对 index_failed / not_indexed / skipped 的资产，
     且调用人有业务管理权（个人 owner / 项目 PM·coach / 公司治理）。纯 admin 不可。
     复用 confirm 的安全索引机制；响应只回安全索引状态，绝不含 kb_id / doc_id / storage_ref。"""
+    body = req or RetryIndexRequest()
     return await knowledge_service.retry_index(
         session,
         caller,
@@ -129,4 +132,6 @@ async def retry_index(
         weknora=weknora,
         storage=storage,
         trace_id=get_trace_id(request),
+        embedding_model_ref=body.embedding_model_ref,
+        rerank_model_ref=body.rerank_model_ref,
     )

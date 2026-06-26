@@ -1,0 +1,91 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import DefaultModelsSection from "./DefaultModelsSection";
+import type { ModelDTO } from "../types/weknoraAdmin";
+
+const api = vi.hoisted(() => ({
+  fetchDefaultModels: vi.fn(),
+  updateDefaultModels: vi.fn(),
+}));
+vi.mock("../api/weknoraModels", () => api);
+
+const models: ModelDTO[] = [
+  {
+    model_ref: "ref_emb_a",
+    name: "BGE 嵌入",
+    type: "embedding",
+    source: "remote",
+    provider: "siliconflow",
+    enabled: true,
+    is_builtin: false,
+    description: null,
+  },
+  {
+    model_ref: "ref_rer_a",
+    name: "BGE 重排",
+    type: "rerank",
+    source: "remote",
+    provider: "siliconflow",
+    enabled: true,
+    is_builtin: false,
+    description: null,
+  },
+];
+
+const currentDefaults = {
+  embedding: {
+    model_ref: "ref_emb_a",
+    name: "BGE 嵌入",
+    type: "embedding",
+    provider: "siliconflow",
+  },
+  rerank: null,
+  chat: null,
+  multimodal: null,
+  updated_at: "2026-06-26T00:00:00Z",
+};
+
+describe("DefaultModelsSection", () => {
+  beforeEach(() => {
+    api.fetchDefaultModels.mockReset().mockResolvedValue(currentDefaults);
+    api.updateDefaultModels.mockReset().mockResolvedValue(currentDefaults);
+  });
+
+  it("加载当前默认并以 model_ref 选中（不展示真实 model_id）", async () => {
+    render(<DefaultModelsSection models={models} canEdit={true} />);
+    await waitFor(() => {
+      const sel = screen.getByLabelText("默认嵌入 embedding") as HTMLSelectElement;
+      expect(sel.value).toBe("ref_emb_a");
+    });
+    // option 值是安全 model_ref；展示文案是模型名。
+    expect(screen.getByText(/BGE 嵌入/)).toBeInTheDocument();
+  });
+
+  it("admin 保存调用 PUT（updateDefaultModels），只提交 model_ref", async () => {
+    render(<DefaultModelsSection models={models} canEdit={true} />);
+    await waitFor(() => expect(api.fetchDefaultModels).toHaveBeenCalled());
+    await userEvent.selectOptions(screen.getByLabelText("默认重排 rerank（可选）"), "ref_rer_a");
+    await userEvent.click(screen.getByRole("button", { name: /保存平台默认模型/ }));
+    await waitFor(() => expect(api.updateDefaultModels).toHaveBeenCalledTimes(1));
+    const body = api.updateDefaultModels.mock.calls[0][0];
+    expect(body.embedding_model_ref).toBe("ref_emb_a");
+    expect(body.rerank_model_ref).toBe("ref_rer_a");
+    expect(body).not.toHaveProperty("embedding_model_id");
+  });
+
+  it("治理角色只读：无保存按钮且选择框禁用", async () => {
+    render(<DefaultModelsSection models={models} canEdit={false} />);
+    await waitFor(() => expect(api.fetchDefaultModels).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: /保存平台默认模型/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("默认嵌入 embedding")).toBeDisabled();
+  });
+
+  it("默认 embedding 未配置时显示安全提示", async () => {
+    api.fetchDefaultModels.mockResolvedValue({ ...currentDefaults, embedding: null });
+    render(<DefaultModelsSection models={models} canEdit={true} />);
+    await waitFor(() =>
+      expect(screen.getByText(/尚未配置默认 embedding 模型/)).toBeInTheDocument(),
+    );
+  });
+});

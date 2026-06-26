@@ -33,8 +33,8 @@ _CATALOG: dict[str, ErrorInfo] = {
     ),
     "weknora_embedding_model_missing": ErrorInfo(
         user_message="知识底座模型配置未完成，资产已保存，可由管理员配置后重试索引。",
-        operator_message="缺少嵌入模型配置（WEKNORA_EMBEDDING_MODEL_ID）或底座嵌入模型未就绪。",
-        remediation_hint="在模型配置中心为底座配置 embedding 模型并初始化对应知识库后重试索引。",
+        operator_message="平台默认 embedding 模型未配置（weknora_default_models），或底座嵌入模型未就绪。",
+        remediation_hint="在模型配置中心设置平台默认 embedding 模型（不再依赖已废弃的 WEKNORA_EMBEDDING_MODEL_ID）后重试索引。",
         severity="error",
     ),
     "weknora_init_failed": ErrorInfo(
@@ -48,6 +48,18 @@ _CATALOG: dict[str, ErrorInfo] = {
         operator_message="所选底座模型不存在或已被删除。",
         remediation_hint="在模型配置中心确认模型仍存在并重新选择后保存。",
         severity="error",
+    ),
+    "weknora_default_model_not_configured": ErrorInfo(
+        user_message="平台尚未配置默认模型，资产已保存，请联系管理员配置后重试索引。",
+        operator_message="平台默认 embedding 模型未配置（weknora_default_models）。",
+        remediation_hint="在模型配置中心设置平台默认 embedding 模型后重试索引。",
+        severity="error",
+    ),
+    "weknora_kb_embedding_model_locked": ErrorInfo(
+        user_message="该知识库已绑定嵌入模型，如需切换请先重建索引。",
+        operator_message="请求选择的 embedding 模型与该 KB 已绑定模型不一致。",
+        remediation_hint="沿用 KB 现有 embedding 模型，或走重建索引流程后再切换。",
+        severity="warning",
     ),
     "weknora_call_failed": ErrorInfo(
         user_message="知识底座暂时不可用，资产已保存，可稍后重试。",

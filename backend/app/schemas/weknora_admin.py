@@ -9,6 +9,7 @@ WeKnora，绝不回显。
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel
 
@@ -128,3 +129,47 @@ class KbInitUpdateResponse(BaseModel):
     mapping_id: uuid.UUID
     mapping_status: str
     updated: bool = True
+
+
+class DefaultModelsOut(BaseModel):
+    """平台默认模型安全视图（PBC-38）：每个槽位只含安全 model_ref + name/type/provider，
+    绝不含 server-only 真实 model_id。"""
+
+    embedding: ModelSlotOut | None = None
+    rerank: ModelSlotOut | None = None
+    chat: ModelSlotOut | None = None
+    multimodal: ModelSlotOut | None = None
+    updated_at: datetime | None = None
+
+
+class ModelOptionOut(BaseModel):
+    """顾问侧只读模型选项（PBC-38）：仅安全展示字段，绝不含 server-only 真实 model_id。"""
+
+    model_ref: str
+    name: str
+    type: str  # 前端别名 chat|embedding|rerank|vllm|asr
+    provider: str | None = None
+    description: str | None = None
+    enabled: bool = True
+    is_default: bool = False
+
+
+class ModelOptionsResponse(BaseModel):
+    """顾问侧模型选项响应。
+
+    `default_missing`：平台默认 **embedding** 模型未配置（前端据此禁用提交并提示联系管理员）。
+    即便缺默认，仍返回可选模型列表，供管理员配置前查看。
+    """
+
+    items: list[ModelOptionOut]
+    default_missing: bool = True
+
+
+class DefaultModelsUpdateRequest(BaseModel):
+    """更新平台默认模型（PBC-38）：前端只提交对底座 id 不可逆的 model_ref，
+    后端解析为 server-only model_id 并校验类型匹配。绝不接收真实 model_id。"""
+
+    embedding_model_ref: str | None = None
+    rerank_model_ref: str | None = None
+    chat_model_ref: str | None = None
+    multimodal_ref: str | None = None

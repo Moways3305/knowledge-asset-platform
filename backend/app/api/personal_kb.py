@@ -41,7 +41,13 @@ async def create_my_kb(
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> PersonalKbOut:
     return await personal_kb_service.create_personal_kb(
-        session, weknora, caller, display_name=req.display_name, trace_id=get_trace_id(request)
+        session,
+        weknora,
+        caller,
+        display_name=req.display_name,
+        embedding_model_ref=req.embedding_model_ref,
+        rerank_model_ref=req.rerank_model_ref,
+        trace_id=get_trace_id(request),
     )
 
 

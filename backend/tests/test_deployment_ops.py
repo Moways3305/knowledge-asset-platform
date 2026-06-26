@@ -71,15 +71,13 @@ async def test_config_diagnostics_safe(client):
 
 
 async def test_config_missing_embedding_when_weknora_enabled(client, monkeypatch):
-    """底座启用但 embedding 未配 → missing_config 列名（不回值）。"""
-    from app.core.config import get_settings
-
+    """PBC-38：底座启用但未配置平台默认 embedding（DB 无行）→ missing_config 列名（不回值）。"""
     monkeypatch.setattr("app.api.ops.weknora_enabled", lambda: True)
-    monkeypatch.setattr(get_settings(), "weknora_embedding_model_id", "")
     r = await client.get("/health/config")
     assert r.status_code == 200
     body = r.json()
-    assert "WEKNORA_EMBEDDING_MODEL_ID" in body["missing_config"]
+    assert "WEKNORA_DEFAULT_EMBEDDING_MODEL" in body["missing_config"]
+    assert "WEKNORA_EMBEDDING_MODEL_ID" not in body["missing_config"]
     _assert_no_secret(r.text)
 
 

@@ -8,6 +8,7 @@ import {
   visibilityOptions,
   type TargetLibrary,
 } from "./uploadConstants";
+import ModelAdvancedSettings from "../../components/ModelAdvancedSettings";
 import type { UploadFlow } from "./useUploadFlow";
 
 // 共享确认区：来源上下文 + AI 生成预览 + 人工校正 + AI 建议目标库 + 提交动作 / 结果提示。
@@ -53,6 +54,7 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
     submitIndexStatus,
     handleSubmit,
     handleReset,
+    models,
   } = flow;
 
   return (
@@ -384,6 +386,7 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
             使用说明 →
           </Link>
         </p>
+        {confirmReady && <ModelAdvancedSettings models={models} />}
         {apiError && (
           <div className="up-submit-notice" style={{ color: "var(--color-danger-fg, #b00)" }}>
             {apiError}

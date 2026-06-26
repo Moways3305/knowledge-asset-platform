@@ -20,7 +20,7 @@
 # 确保 WeKnora / LLM / WeCom / ONLYOFFICE 等外部集成开关一致。
 x-backend-env: &backend-env
   APP_NAME: knowledge-asset-platform
-  APP_ENV: local
+  APP_ENV: ${APP_ENV:-prod}
   LOG_LEVEL: INFO
   DATABASE_URL: postgresql+asyncpg://dev:devpassword@postgres:5432/knowledge_platform
   # Redis 密码经 compose 变量插值（从 ./.env 读 REDIS_PASSWORD），不在此硬编码密码值。

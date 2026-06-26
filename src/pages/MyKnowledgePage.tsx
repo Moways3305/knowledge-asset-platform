@@ -13,6 +13,8 @@ import {
 } from "../api/personal";
 import type { KnowledgeCardVM } from "../types/knowledge";
 import WorkbuddyAccessCard from "../components/WorkbuddyAccessCard";
+import ModelAdvancedSettings from "../components/ModelAdvancedSettings";
+import { useModelSelection } from "../hooks/useModelSelection";
 
 const kbStatusLabel: Record<string, string> = {
   active: "正常",
@@ -76,6 +78,8 @@ export default function MyKnowledgePage() {
   const [kbError, setKbError] = useState<string | null>(null);
   const [kbNameDraft, setKbNameDraft] = useState("");
   const [kbEditing, setKbEditing] = useState(false);
+  // PBC-38：创建个人知识库时的模型选择（默认平台推荐；缺默认禁用创建）。
+  const models = useModelSelection();
 
   const describeError = (e: unknown, fallback: string) =>
     e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : fallback;
@@ -91,19 +95,27 @@ export default function MyKnowledgePage() {
     }
   }, []);
 
-  const doCreateKb = useCallback(async () => {
-    setKbBusy(true);
-    setKbError(null);
-    try {
-      const data = await createMyKnowledgeBase(kbNameDraft.trim() || undefined);
-      setKb(data);
-      setKbNameDraft("");
-    } catch (e) {
-      setKbError(describeError(e, "创建知识库失败"));
-    } finally {
-      setKbBusy(false);
-    }
-  }, [kbNameDraft]);
+  // includeModels：首建时随选中的 model_ref；init_failed 重试时省略（沿用 KB 已锁定模型）。
+  const doCreateKb = useCallback(
+    async (includeModels: boolean) => {
+      setKbBusy(true);
+      setKbError(null);
+      try {
+        const data = await createMyKnowledgeBase({
+          displayName: kbNameDraft.trim() || undefined,
+          embeddingModelRef: includeModels ? models.embeddingRef || undefined : undefined,
+          rerankModelRef: includeModels ? models.rerankRef || undefined : undefined,
+        });
+        setKb(data);
+        setKbNameDraft("");
+      } catch (e) {
+        setKbError(describeError(e, "创建知识库失败"));
+      } finally {
+        setKbBusy(false);
+      }
+    },
+    [kbNameDraft, models.embeddingRef, models.rerankRef],
+  );
 
   const doRenameKb = useCallback(async () => {
     const name = kbNameDraft.trim();
@@ -311,12 +323,13 @@ export default function MyKnowledgePage() {
                 />
                 <button
                   className="btn-small-primary"
-                  disabled={kbBusy}
-                  onClick={() => void doCreateKb()}
+                  disabled={kbBusy || models.blockSubmit}
+                  onClick={() => void doCreateKb(true)}
                 >
                   {kbBusy ? "创建中…" : "创建我的知识库"}
                 </button>
               </div>
+              <ModelAdvancedSettings models={models} />
             </div>
           ) : (
             <div className="mk-kb-card">
@@ -372,7 +385,7 @@ export default function MyKnowledgePage() {
                   <button
                     className="btn-small-primary"
                     disabled={kbBusy}
-                    onClick={() => void doCreateKb()}
+                    onClick={() => void doCreateKb(false)}
                   >
                     {kbBusy ? "重试中…" : "初始化失败，点击重试"}
                   </button>

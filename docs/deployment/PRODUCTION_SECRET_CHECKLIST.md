@@ -58,10 +58,11 @@
 |---|---|---|---|
 | `WEKNORA_BASE_URL` | conditional | `integrations.weknora_enabled` | 与 api_key 任一缺失 → 未启用 → warning `WEKNORA_NOT_CONFIGURED`，检索/索引降级 |
 | `WEKNORA_API_KEY` | conditional | `integrations.weknora_enabled` | 同上；**绝不外泄** |
-| `WEKNORA_EMBEDDING_MODEL_ID` | conditional (启用则 required) | blocker + missing_config `WEKNORA_EMBEDDING_MODEL_ID` | 启用 WeKnora 但缺 → KB 建库不完整、索引失败 |
+| 平台默认 embedding 模型（DB，非 env） | conditional (启用则 required) | blocker + missing_config `WEKNORA_DEFAULT_EMBEDDING_MODEL` | PBC-38：启用 WeKnora 但未在「模型配置中心」配置平台默认 embedding → 建库 fail-closed |
 | `WEKNORA_MODEL_REF_SECRET` | conditional (启用则 required) | blocker + missing_config `WEKNORA_MODEL_REF_SECRET` | 启用但缺 → model_ref HMAC 回退常量、不稳定；prod 报 blocker |
-| `WEKNORA_CHAT_MODEL_ID` | optional | — | 配则随 KB 初始化 |
-| `WEKNORA_RERANK_MODEL_ID` | optional | — | 同上 |
+| `WEKNORA_EMBEDDING_MODEL_ID` | **DEPRECATED legacy** | — (不再作为 blocker) | PBC-38：仅历史兼容 / 测试隔离；生产改用模型配置中心，留空即可 |
+| `WEKNORA_CHAT_MODEL_ID` | DEPRECATED legacy | — | 同上，不再推荐生产配置 |
+| `WEKNORA_RERANK_MODEL_ID` | DEPRECATED legacy | — | 同上，不再推荐生产配置 |
 | `WEKNORA_MULTIMODAL_MODEL_ID` | optional | — | 同上 |
 | `WEKNORA_SUMMARY_MODEL_ID` | optional | — | 当前不参与建库，仅兼容保留 |
 | `WEKNORA_TENANT_ID` | optional | — | 按底座需要 |
@@ -122,6 +123,6 @@
 
 ## 生产 blocker / warning 速查（与 `/health/config` 一致）
 
-- **blockers（prod 必须清零）**：`CELERY_TASK_ALWAYS_EAGER`、`SESSION_COOKIE_SECURE`（显式 false 时）、`AUTH_ATTEMPT_HASH_SECRET`、`CSRF_TOKEN_SECRET`、`WEKNORA_EMBEDDING_MODEL_ID`、`WEKNORA_MODEL_REF_SECRET`（WeKnora 启用时）、`ONLYOFFICE_DOCUMENT_SERVER_URL`、`ONLYOFFICE_JWT_SECRET`（ONLYOFFICE 启用时）、`WECOM_CORP_ID/WECOM_APP_SECRET`（企微通知启用时）。
+- **blockers（prod 必须清零）**：`CELERY_TASK_ALWAYS_EAGER`、`SESSION_COOKIE_SECURE`（显式 false 时）、`AUTH_ATTEMPT_HASH_SECRET`、`CSRF_TOKEN_SECRET`、`WEKNORA_DEFAULT_EMBEDDING_MODEL`、`WEKNORA_MODEL_REF_SECRET`（WeKnora 启用时）、`ONLYOFFICE_DOCUMENT_SERVER_URL`、`ONLYOFFICE_JWT_SECRET`（ONLYOFFICE 启用时）、`WECOM_CORP_ID/WECOM_APP_SECRET`（企微通知启用时）。PBC-38：`WEKNORA_EMBEDDING_MODEL_ID` 已不再是 blocker（deprecated legacy，建库 embedding 取平台默认模型配置）。
 - **warnings（不阻断，建议确认）**：`LLM_NOT_CONFIGURED`、`WEKNORA_NOT_CONFIGURED`。
-- **missing_config（启用但缺关键值的项名）**：`WEKNORA_EMBEDDING_MODEL_ID`、`WEKNORA_MODEL_REF_SECRET`、`ONLYOFFICE_DOCUMENT_SERVER_URL`、`WECOM_CORP_ID/WECOM_APP_SECRET`。
+- **missing_config（启用但缺关键值的项名）**：`WEKNORA_DEFAULT_EMBEDDING_MODEL`、`WEKNORA_MODEL_REF_SECRET`、`ONLYOFFICE_DOCUMENT_SERVER_URL`、`WECOM_CORP_ID/WECOM_APP_SECRET`。

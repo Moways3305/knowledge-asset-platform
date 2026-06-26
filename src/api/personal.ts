@@ -60,8 +60,17 @@ export async function fetchMyKnowledgeBase(): Promise<PersonalKbDTO> {
   return apiGet<PersonalKbDTO>(MYKB);
 }
 
-export async function createMyKnowledgeBase(displayName?: string): Promise<PersonalKbDTO> {
-  return apiPost<PersonalKbDTO>(MYKB, { display_name: displayName ?? null });
+export async function createMyKnowledgeBase(input?: {
+  displayName?: string;
+  // PBC-38：仅传安全 model_ref；缺省则后端走平台默认 embedding。绝不发送真实 model_id。
+  embeddingModelRef?: string;
+  rerankModelRef?: string;
+}): Promise<PersonalKbDTO> {
+  return apiPost<PersonalKbDTO>(MYKB, {
+    display_name: input?.displayName ?? null,
+    embedding_model_ref: input?.embeddingModelRef || undefined,
+    rerank_model_ref: input?.rerankModelRef || undefined,
+  });
 }
 
 export async function renameMyKnowledgeBase(displayName: string): Promise<PersonalKbDTO> {

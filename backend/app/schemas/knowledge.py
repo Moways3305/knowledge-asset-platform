@@ -131,6 +131,17 @@ class KnowledgeDeleteResponse(BaseModel):
     trace_id: str | None = None
 
 
+class RetryIndexRequest(BaseModel):
+    """底座索引重试请求（PBC-38，可选）。
+
+    只接收对底座 id 不可逆的 model_ref，绝不接收真实 model_id。缺省沿用该 KB 已绑定模型；
+    显式传入与已绑定 embedding 不同的 model_ref 会被锁定拒绝（weknora_kb_embedding_model_locked）。
+    """
+
+    embedding_model_ref: str | None = None
+    rerank_model_ref: str | None = None
+
+
 class RetryIndexResponse(BaseModel):
     """底座索引重试响应：仅安全索引状态，绝不含 kb_id / doc_id / 内部存储引用。"""
 

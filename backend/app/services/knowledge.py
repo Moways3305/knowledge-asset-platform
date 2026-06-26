@@ -650,6 +650,8 @@ async def retry_index(
     weknora: WeKnoraClient | NullWeKnoraClient,
     storage: LocalFileStorage,
     trace_id: str,
+    embedding_model_ref: str | None = None,
+    rerank_model_ref: str | None = None,
 ) -> RetryIndexResponse:
     """对 index_failed / not_indexed / skipped 的资产重试底座索引。
 
@@ -780,6 +782,8 @@ async def retry_index(
         source_file_mime=source_file_mime,
         channel=channel,
         trace_id=trace_id,
+        embedding_model_ref=embedding_model_ref,
+        rerank_model_ref=rerank_model_ref,
     )
     if outcome.index_status == "indexed":
         await audit_service.record_event(

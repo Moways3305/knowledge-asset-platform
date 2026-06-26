@@ -149,7 +149,7 @@ python scripts/production_smoke.py --base-url <prod-url> --expect-prod-ready --j
 | **CSRF 403** | 是否 cookie 会话下的 unsafe 请求缺 `X-CSRF-Token`；前端是否先取 `GET /api/v1/auth/csrf`；prod 是否配 `CSRF_TOKEN_SECRET` | 确认前端自动取/附带 token；确认反代未吞掉 `X-CSRF-Token` 头；补 `CSRF_TOKEN_SECRET` |
 | **Secure cookie 在 HTTP 环境无法登录** | 入口是否真 HTTPS、`X-Forwarded-Proto` 是否透传 | 走真实 HTTPS 入口；prod 下不要试图关 Secure（运行时强制）；修反代转发头 |
 | **WeCom OAuth callback 失败** | 企微可信回调域名、`WECOM_REDIRECT_URI` 是否与登记一致、state 是否有效、成员有效性（失效成员 fail-closed） | 对齐回调域名 / redirect uri；成员被禁用/删除/未激活时是设计内 fail-closed（不建会话）；上游故障 fail-closed 不误改状态 |
-| **WeKnora indexing / parse 失败** | `/admin/ops/indexing`（安全状态）、confirm 后 `index_status`、worker 日志 | WeKnora 未配 → `production_warnings: WEKNORA_NOT_CONFIGURED`，检索降级；启用但缺 `WEKNORA_EMBEDDING_MODEL_ID` / `WEKNORA_MODEL_REF_SECRET` → blocker，补项；解析失败资产可在 ops 面板发起 retry-index / reparse |
+| **WeKnora indexing / parse 失败** | `/admin/ops/indexing`（安全状态）、confirm 后 `index_status`、worker 日志 | WeKnora 未配 → `production_warnings: WEKNORA_NOT_CONFIGURED`，检索降级；启用但未在模型配置中心配置平台默认 embedding（blocker `WEKNORA_DEFAULT_EMBEDDING_MODEL`）/ 缺 `WEKNORA_MODEL_REF_SECRET` → blocker，补项（PBC-38：`WEKNORA_EMBEDDING_MODEL_ID` 已 deprecated，不再是 blocker）；解析失败资产可在 ops 面板发起 retry-index / reparse |
 | **ONLYOFFICE 打不开** | `ONLYOFFICE_ENABLED`、`ONLYOFFICE_DOCUMENT_SERVER_URL`、`ONLYOFFICE_JWT_SECRET`、Document Server 可达 | 启用则三项齐全（缺 URL/JWT 为 prod blocker）；Document Server 通常强制 JWT，未签名 config 会被拒；未配置时安全降级、不泄露原文 URL |
 | **frontend 反代 404/502** | nginx 是否解析到 `backend`、backend 是否 healthy、`location` 是否覆盖目标路径 | 502 多为 backend 未就绪（nginx 用变量 `proxy_pass` + resolver 容忍启动期）；404 多为路径未走 `/api/v1//health//admin/ops` 而落到 SPA fallback；确认前置反代把 `/api/v1/` 等转给 frontend |
 

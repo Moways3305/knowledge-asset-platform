@@ -102,6 +102,10 @@ class IngestConfirmRequest(BaseModel):
     confidentiality_level: ConfidentialityLevel
     ai_access_level: AiAccessLevel
     lifecycle_phase_key: str | None = None
+    # PBC-38：可选模型选择（对底座 id 不可逆的 model_ref，绝不接收真实 model_id）。
+    # 缺省走平台默认；显式选择仅在首建该 scope 的 KB 时生效，已有 KB 冲突会被锁定拒绝。
+    embedding_model_ref: str | None = None
+    rerank_model_ref: str | None = None
 
 
 class IngestConfirmResponse(BaseModel):

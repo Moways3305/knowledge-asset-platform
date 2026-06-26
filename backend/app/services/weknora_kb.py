@@ -22,11 +22,11 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.core.logging import safe_log_exception
 from app.models.weknora import WeknoraKbMapping
 from app.schemas.enums import KnowledgeScope
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient, WeKnoraError
+from app.services.weknora_model_selection import ResolvedModels
 
 # 映射 status 取值：active（已建 + 已初始化，可用）/ init_failed（已建但初始化失败，待重试）。
 _STATUS_ACTIVE = "active"
@@ -47,18 +47,26 @@ def _kb_name(scope: str, owner_user_id: uuid.UUID | None, project_id: uuid.UUID 
     return "company_kb"
 
 
-def _init_kwargs() -> dict[str, str | None]:
-    """从 settings 取 KB 初始化模型 id（仅非空才会被 client 发送）。
-
-    embedding 必需；chat/rerank/multimodal 可选。summary 模型**不参与**（摘要走平台
-    外部 LLM）。模型 id 是 WeKnora 已注册模型的引用，非密钥，但仍 server-only。
+def _locked(existing: WeknoraKbMapping, models: ResolvedModels) -> bool:
+    """KB 嵌入模型锁：显式指定了不同嵌入模型时返回 True（需重建索引）。
+    默认驱动（explicit_embedding=False）或既有映射无绑定模型时永不触发。
     """
-    s = get_settings()
+    return bool(
+        models.explicit_embedding
+        and existing.embedding_model_id
+        and models.embedding_model_id != existing.embedding_model_id
+    )
+
+
+def _init_kwargs(models: ResolvedModels, embedding_model_id: str) -> dict[str, str | None]:
+    """KB 初始化模型 id（仅非空才发送）。embedding 用已绑定/已解析 id；
+    chat/rerank/multimodal 取自解析结果（平台默认或显式 rerank）。summary 不参与（走外部 LLM）。
+    """
     return {
-        "embedding_model_id": s.weknora_embedding_model_id or None,
-        "chat_model_id": s.weknora_chat_model_id or None,
-        "rerank_model_id": s.weknora_rerank_model_id or None,
-        "multimodal_id": s.weknora_multimodal_model_id or None,
+        "embedding_model_id": embedding_model_id or None,
+        "chat_model_id": models.chat_model_id or None,
+        "rerank_model_id": models.rerank_model_id or None,
+        "multimodal_id": models.multimodal_id or None,
     }
 
 
@@ -88,7 +96,7 @@ async def resolve_or_create_kb(
     scope: str,
     owner_user_id: uuid.UUID | None,
     project_id: uuid.UUID | None,
-    embedding_model_id: str,
+    models: ResolvedModels,
     trace_id: str | None,
     display_name: str | None = None,
 ) -> str:
@@ -98,18 +106,19 @@ async def resolve_or_create_kb(
     `display_name` 列。为空时：personal scope 回退默认「我的知识库」；project / company
     回退 slug（display_name 列留空，可读名另有来源）。命中既有映射不改名（改名走显式 API）。
 
-    - 命中 active 映射：直接返回（不重复初始化）。
+    - 命中 active 映射：直接返回（不重复初始化）。explicit_embedding + 模型不匹配 → raise lock。
     - 命中 init_failed 映射：重试初始化（ensure-initialized），成功翻 active 后返回；失败 raise。
     - 无映射：create_kb → initialize_kb → 写映射（成功 active / 失败 init_failed 后 raise）。
 
     初始化失败抛 `WeKnoraError`（已持久化 init_failed 映射供重试），由调用方标 index_failed。
 
-    **fail-closed**：底座已启用但缺 `embedding_model_id`（`WEKNORA_EMBEDDING_MODEL_ID` 未配）
-    时，KB 初始化不完整——**不建 KB、不写 active 映射**，直接抛
-    `weknora_embedding_model_missing`，由调用方标 index_failed（资产保留、可在补配置后重试）。
+    **fail-closed**：底座已启用但 models.embedding_model_id 为空（极端防御情形）时，
+    **不建 KB、不写 active 映射**，直接抛 `weknora_embedding_model_missing`，由调用方标
+    index_failed（资产保留、可在补配置后重试）。正常情况下 resolve_models_for_kb 已在上游
+    raise weknora_default_model_not_configured，本守卫仅为绝对防御兜底。
     """
-    if not (embedding_model_id or "").strip():
-        # 不创建 KB、不写映射：避免产生"平台 active、底座未初始化"的假成功。补配置后重试即可。
+    if not (models.embedding_model_id or "").strip():
+        # 不创建 KB、不写映射：避免产生"平台 active、底座未初始化"的假成功。
         raise WeKnoraError(
             "weknora_embedding_model_missing",
             "WeKnora 已启用但未配置 embedding 模型，无法初始化知识库",
@@ -118,9 +127,26 @@ async def resolve_or_create_kb(
     existing = await _find(session, scope, owner_user_id, project_id)
     if existing is not None:
         if existing.status == _STATUS_ACTIVE:
+            # KB 锁：仅当显式指定了不同嵌入模型时拒绝（切换需重建索引）。
+            # 默认驱动（explicit_embedding=False）永不触发锁——保留既有 KB。
+            if _locked(existing, models):
+                raise WeKnoraError(
+                    "weknora_kb_embedding_model_locked",
+                    "该知识库已绑定嵌入模型，如需切换请先重建索引",
+                )
             return existing.weknora_kb_id
-        # init_failed：重试初始化（KB 已存在，只补模型配置）。成功翻 active，失败 raise。
-        await client.initialize_kb(existing.weknora_kb_id, trace_id=trace_id, **_init_kwargs())
+        # init_failed：重试初始化（KB 已存在，只补模型配置）。
+        # 使用已绑定的 embedding id（已建库时确定的模型），chat/rerank/multimodal 用新 models。
+        # KB 锁同样适用：显式指定了不同嵌入模型时拒绝，默认驱动可正常恢复。
+        if _locked(existing, models):
+            raise WeKnoraError(
+                "weknora_kb_embedding_model_locked",
+                "该知识库已绑定嵌入模型，如需切换请先重建索引",
+            )
+        bound = existing.embedding_model_id or models.embedding_model_id
+        await client.initialize_kb(
+            existing.weknora_kb_id, trace_id=trace_id, **_init_kwargs(models, bound)
+        )
         existing.status = _STATUS_ACTIVE
         await session.commit()
         return existing.weknora_kb_id
@@ -133,12 +159,14 @@ async def resolve_or_create_kb(
     # 底座 KB name 用可读名（有则用），否则用 slug（项目/公司懒创建路径）。
     wk_name = effective_display or slug
     kb_id = await client.create_kb(
-        name=wk_name, embedding_model_id=embedding_model_id, trace_id=trace_id
+        name=wk_name, embedding_model_id=models.embedding_model_id, trace_id=trace_id
     )
     # 建库后初始化模型配置；失败时不写成 active 假成功，而是持久化 init_failed 供重试。
     init_error: WeKnoraError | None = None
     try:
-        await client.initialize_kb(kb_id, trace_id=trace_id, **_init_kwargs())
+        await client.initialize_kb(
+            kb_id, trace_id=trace_id, **_init_kwargs(models, models.embedding_model_id)
+        )
     except WeKnoraError as exc:
         init_error = exc
 
@@ -147,7 +175,7 @@ async def resolve_or_create_kb(
         owner_user_id=owner_user_id,
         project_id=project_id,
         weknora_kb_id=kb_id,
-        embedding_model_id=embedding_model_id,
+        embedding_model_id=models.embedding_model_id,
         kb_name=slug,
         display_name=effective_display,
         status=_STATUS_ACTIVE if init_error is None else _STATUS_INIT_FAILED,
@@ -190,17 +218,21 @@ async def ensure_project_kb(
     api_key / 原始 payload —— 只返回安全状态枚举串供调用方记安全运营信号。
     """
     from app.services.weknora_client import weknora_enabled
+    from app.services.weknora_model_selection import resolve_models_for_kb
 
     if not weknora_enabled():
         return "skipped"
     try:
+        models = await resolve_models_for_kb(
+            session, client, embedding_model_ref=None, rerank_model_ref=None, trace_id=trace_id
+        )
         await resolve_or_create_kb(
             session,
             client,
             scope=KnowledgeScope.project.value,
             owner_user_id=None,
             project_id=project_id,
-            embedding_model_id=get_settings().weknora_embedding_model_id,
+            models=models,
             trace_id=trace_id,
         )
         return "indexed"

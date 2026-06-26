@@ -8,6 +8,7 @@ import {
   fetchPendingIngestTasks,
 } from "../../api/ingest";
 import type { IngestAiResultDTO, NamingFields, PendingIngestItemDTO } from "../../types/ingest";
+import { useModelSelection } from "../../hooks/useModelSelection";
 import {
   POLL_INTERVAL_MS,
   POLL_MAX_ATTEMPTS,
@@ -23,6 +24,9 @@ import {
 // 做步骤路由与顶层 state 传递；展示拆到 UploadStepA / UploadStepB / UploadConfirmPanel。
 export function useUploadFlow() {
   const [activePath, setActivePath] = useState<PathBranch>("b");
+
+  // PBC-38：入库模型选择（默认平台推荐 embedding/rerank；缺默认时禁用提交）。
+  const models = useModelSelection();
 
   // Path B local upload state
   const [flowState, setFlowState] = useState<FlowState>("idle");
@@ -277,6 +281,9 @@ export function useUploadFlow() {
         confidentiality_level: editConfidentiality,
         ai_access_level: editAiAccess,
         lifecycle_phase_key: editBizStage,
+        // 仅传安全 model_ref；缺省（"" / WeKnora 未配置）则省略 → 后端走平台默认。
+        embedding_model_ref: models.embeddingRef || undefined,
+        rerank_model_ref: models.rerankRef || undefined,
       });
       setResultAssetId(res.result_asset_id);
       setSubmitIndexStatus(res.index_status ?? null);
@@ -301,6 +308,8 @@ export function useUploadFlow() {
     editConfidentiality,
     editAiAccess,
     loadPending,
+    models.embeddingRef,
+    models.rerankRef,
   ]);
 
   const handleReset = useCallback(() => {
@@ -355,7 +364,8 @@ export function useUploadFlow() {
     editTitle.trim().length > 0 &&
     (editSummary.trim().length > 0 || editOneLiner.trim().length > 0) &&
     (targetLibrary !== "project" || targetProjectId.length > 0);
-  const canSubmit = confirmReady && requiredFieldsOk;
+  // 平台默认 embedding 未配置时禁用提交（models.blockSubmit），不静默走 .env 兜底。
+  const canSubmit = confirmReady && requiredFieldsOk && !models.blockSubmit;
   const confirmSubmitted = flowState === "submitted";
   const sourceLabel = activePath === "a" ? "企微微盘" : "本地上传";
   const sourceFile =
@@ -420,6 +430,7 @@ export function useUploadFlow() {
     resultAssetId,
     submitIndexStatus,
     handleSubmit,
+    models,
   };
 }
 
