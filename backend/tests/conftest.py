@@ -10,6 +10,11 @@ PostgreSQL 语义一致，可放心用于快速测试；正式运行仍以 Postg
 from __future__ import annotations
 
 import os
+import sys
+
+# 让本目录可被 `from conftest import patch_default_model` 直接导入：
+# 默认 prepend 模式下 pytest 不保证把 tests/ 放进 sys.path，显式补一笔。
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # 测试隔离：**在导入 app（首次实例化 Settings）之前** 强制清空外部集成配置，
 # 让测试不受本机 `backend/.env`（含真实 WeKnora / LLM / 企微 / ONLYOFFICE 值，供 Docker
@@ -51,6 +56,29 @@ from app.services.storage import LocalFileStorage, get_storage  # noqa: E402
 
 # 若 Settings 已被其它早期 import 缓存，清缓存确保读到上面的测试环境。
 get_settings.cache_clear()
+
+
+def patch_default_model(monkeypatch, *, embedding="test-embed", explicit=False):
+    """PBC-38 测试助手：让真实模型 resolver 返回固定 ResolvedModels（绕过 DB 默认模型配置）。
+
+    建库链路现经 `resolve_models_for_kb`（explicit ref > 平台默认 > fail closed）取模型；
+    旧测试用 `settings.weknora_embedding_model_id` 启用底座已失效。覆盖三处绑定：
+    indexing（confirm/retry/index/reparse）、personal_kb（个人建库）、weknora_model_selection
+    源（ensure_project_kb 的函数内 import）。模型选择本身另有专测覆盖。
+    """
+    from app.services.weknora_model_selection import ResolvedModels
+
+    resolved = ResolvedModels(embedding_model_id=embedding, explicit_embedding=explicit)
+
+    async def _resolve(*_a, **_k):
+        return resolved
+
+    for target in (
+        "app.services.indexing.resolve_models_for_kb",
+        "app.services.personal_kb.resolve_models_for_kb",
+        "app.services.weknora_model_selection.resolve_models_for_kb",
+    ):
+        monkeypatch.setattr(target, _resolve)
 
 
 @pytest_asyncio.fixture

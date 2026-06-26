@@ -188,12 +188,13 @@ class _FakeProjectKb:
 
 
 async def test_create_project_precreates_kb(client, db_session, monkeypatch):
-    from app.core.config import get_settings
+    from conftest import patch_default_model
+
     from app.models.weknora import WeknoraKbMapping
 
     fake = _FakeProjectKb()
     monkeypatch.setattr("app.services.weknora_client.weknora_enabled", lambda: True)
-    monkeypatch.setattr(get_settings(), "weknora_embedding_model_id", "test-embed")
+    patch_default_model(monkeypatch)
     app.dependency_overrides[get_weknora_client] = lambda: fake
     try:
         r = await client.post(

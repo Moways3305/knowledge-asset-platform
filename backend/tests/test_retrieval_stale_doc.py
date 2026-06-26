@@ -310,12 +310,12 @@ async def _upload_and_confirm_indexed(client, db_session, ok_wk):
 
 
 def _enable_weknora(monkeypatch, embedding="test-embed"):
-    from app.core.config import get_settings
+    from conftest import patch_default_model
 
     monkeypatch.setattr("app.services.ingest.weknora_enabled", lambda: True)
     monkeypatch.setattr("app.services.knowledge.weknora_enabled", lambda: True)
     monkeypatch.setattr("app.services.jobs.indexing_operations.weknora_enabled", lambda: True)
-    monkeypatch.setattr(get_settings(), "weknora_embedding_model_id", embedding)
+    patch_default_model(monkeypatch, embedding=embedding)
 
 
 async def test_reparse_failure_leaves_stale_doc_not_retrievable(client, db_session, monkeypatch):

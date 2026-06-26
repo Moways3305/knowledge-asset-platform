@@ -33,8 +33,8 @@ _CATALOG: dict[str, ErrorInfo] = {
     ),
     "weknora_embedding_model_missing": ErrorInfo(
         user_message="知识底座模型配置未完成，资产已保存，可由管理员配置后重试索引。",
-        operator_message="缺少嵌入模型配置（WEKNORA_EMBEDDING_MODEL_ID）或底座嵌入模型未就绪。",
-        remediation_hint="在模型配置中心为底座配置 embedding 模型并初始化对应知识库后重试索引。",
+        operator_message="平台默认 embedding 模型未配置（weknora_default_models），或底座嵌入模型未就绪。",
+        remediation_hint="在模型配置中心设置平台默认 embedding 模型（不再依赖已废弃的 WEKNORA_EMBEDDING_MODEL_ID）后重试索引。",
         severity="error",
     ),
     "weknora_init_failed": ErrorInfo(

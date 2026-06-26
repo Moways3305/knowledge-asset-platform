@@ -62,7 +62,13 @@ from app.schemas.session_ops import (
 )
 from app.schemas.wecom_identity import ReconcileRequest, ReconcileResponse
 from app.services import audit as audit_service
-from app.services import auth_security_ops, error_catalog, session_revocation, wecom_identity
+from app.services import (
+    auth_security_ops,
+    error_catalog,
+    session_revocation,
+    wecom_identity,
+    weknora_defaults,
+)
 from app.services import indexing_ops as indexing_ops_service
 from app.services.auth_session import SESSION_COOKIE_NAME
 from app.services.llm_client import llm_enabled
@@ -128,12 +134,16 @@ async def health_ready(response: Response, session: AsyncSession = Depends(get_d
     }
 
 
-def _missing_config(s) -> list[str]:
-    """已开启但缺关键值的配置项**名称**（仅名称，绝不含值）。"""
+def _missing_config(s, *, default_embedding_ok: bool) -> list[str]:
+    """已开启但缺关键值的配置项**名称**（仅名称，绝不含值）。
+
+    PBC-38：WeKnora 启用时检查的是**平台默认 embedding 模型**（DB `weknora_default_models`，
+    由 `default_embedding_ok` 传入），而非已废弃的 `WEKNORA_EMBEDDING_MODEL_ID`（见 .env.example）。
+    """
     missing: list[str] = []
-    # WeKnora 已启用（base_url + api_key）但缺 embedding 模型 → KB 初始化不完整。
-    if weknora_enabled() and not (s.weknora_embedding_model_id or "").strip():
-        missing.append("WEKNORA_EMBEDDING_MODEL_ID")
+    # WeKnora 已启用（base_url + api_key）但未配置平台默认 embedding → 建库 fail-closed。
+    if weknora_enabled() and not default_embedding_ok:
+        missing.append("WEKNORA_DEFAULT_EMBEDDING_MODEL")
     # 模型配置中心的 model_ref HMAC key 缺失 → 生产应显式配置（dev 回退稳定常量）。
     if weknora_enabled() and not (s.weknora_model_ref_secret or "").strip():
         missing.append("WEKNORA_MODEL_REF_SECRET")
@@ -144,7 +154,7 @@ def _missing_config(s) -> list[str]:
     return missing
 
 
-def _production_blockers(s) -> list[str]:
+def _production_blockers(s, *, default_embedding_ok: bool) -> list[str]:
     """生产**硬阻断**项名：必须修复才能安全上线。仅 prod 评估，否则空——
     本地/测试默认 eager 等不视为失败。只回安全项名，绝不回值/密钥/URL/内部 id。"""
     if s.app_env != "prod":
@@ -163,9 +173,11 @@ def _production_blockers(s) -> list[str]:
     if not (s.csrf_token_secret or "").strip():
         blockers.append("CSRF_TOKEN_SECRET")
     # 3) WeKnora 启用但建库 / model_ref 关键项缺失 → KB 不可用 / model_ref 不稳定。
+    #    PBC-38：建库 embedding 来自平台默认模型配置（DB），不再以 WEKNORA_EMBEDDING_MODEL_ID
+    #    （已废弃 legacy，见 .env.example）作为生产阻断项。
     if weknora_enabled():
-        if not (s.weknora_embedding_model_id or "").strip():
-            blockers.append("WEKNORA_EMBEDDING_MODEL_ID")
+        if not default_embedding_ok:
+            blockers.append("WEKNORA_DEFAULT_EMBEDDING_MODEL")
         if not (s.weknora_model_ref_secret or "").strip():
             blockers.append("WEKNORA_MODEL_REF_SECRET")
     # 4) ONLYOFFICE 启用：缺 Document Server URL → 预览不可用；缺 JWT secret → 生产
@@ -194,10 +206,15 @@ def _production_warnings(s) -> list[str]:
 
 
 @router.get("/health/config")
-async def health_config() -> dict:
-    """安全配置诊断：只回布尔 + provider 名 + 缺失项名 + 生产就绪信号，绝不回值/密钥/URL。"""
+async def health_config(session: AsyncSession = Depends(get_db)) -> dict:
+    """安全配置诊断：只回布尔 + provider 名 + 缺失项名 + 生产就绪信号，绝不回值/密钥/URL。
+
+    PBC-38：平台默认 embedding 模型存 DB（weknora_default_models），故需 DB 会话判定其是否已配。
+    """
     s = get_settings()
-    blockers = _production_blockers(s)
+    defaults = await weknora_defaults.get_defaults(session)
+    default_embedding_ok = bool(defaults and (defaults.default_embedding_model_id or "").strip())
+    blockers = _production_blockers(s, default_embedding_ok=default_embedding_ok)
     return {
         "app_env": s.app_env,
         "version": _VERSION,
@@ -210,7 +227,7 @@ async def health_config() -> dict:
             "onlyoffice_enabled": onlyoffice_enabled(),
             "celery_eager": bool(s.celery_task_always_eager),
         },
-        "missing_config": _missing_config(s),
+        "missing_config": _missing_config(s, default_embedding_ok=default_embedding_ok),
         # 生产就绪：当前实例为 prod 部署且无硬阻断项。非 prod 恒为 False（按定义不是生产
         # 部署），但仍返回 warnings 供运维预览；blockers 仅 prod 评估，避免误判本地开发。
         "production_ready": s.app_env == "prod" and not blockers,

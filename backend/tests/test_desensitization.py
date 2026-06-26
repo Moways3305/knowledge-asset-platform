@@ -338,11 +338,11 @@ class FakeWK:
 
 
 def _enable_weknora(monkeypatch, fake, *, embedding="test-embed"):
-    from app.core.config import get_settings
+    from conftest import patch_default_model
 
     monkeypatch.setattr("app.services.ingest.weknora_enabled", lambda: True)
     monkeypatch.setattr("app.services.knowledge.weknora_enabled", lambda: True)
-    monkeypatch.setattr(get_settings(), "weknora_embedding_model_id", embedding)
+    patch_default_model(monkeypatch, embedding=embedding)
     app.dependency_overrides[get_weknora_client] = lambda: fake
 
 

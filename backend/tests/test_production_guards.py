@@ -207,8 +207,9 @@ async def test_config_prod_insecure_cookie_is_blocker(client, monkeypatch):
     _assert_no_secret(r.text)
 
 
-async def test_config_prod_weknora_missing_embedding_blocker(client, monkeypatch):
-    """prod + WeKnora 启用但缺 embedding/ref → blocker 只列项名（不含值）。"""
+async def test_config_prod_weknora_missing_default_embedding_blocker(client, monkeypatch):
+    """PBC-38：prod + WeKnora 启用但未配置平台默认 embedding（DB 无行）→ blocker
+    含 WEKNORA_DEFAULT_EMBEDDING_MODEL；旧 WEKNORA_EMBEDDING_MODEL_ID 不再是 blocker。"""
     monkeypatch.setattr("app.api.ops.weknora_enabled", lambda: True)
     monkeypatch.setattr(
         "app.api.ops.get_settings",
@@ -216,15 +217,54 @@ async def test_config_prod_weknora_missing_embedding_blocker(client, monkeypatch
             app_env="prod",
             celery_task_always_eager=False,
             session_cookie_secure=True,
-            weknora_embedding_model_id="",
+            weknora_embedding_model_id="",  # legacy 留空，已不再作为 blocker
             weknora_model_ref_secret="",
         ),
     )
     r = await client.get(CONFIG)
     body = r.json()
-    assert "WEKNORA_EMBEDDING_MODEL_ID" in body["production_blockers"]
+    assert "WEKNORA_DEFAULT_EMBEDDING_MODEL" in body["production_blockers"]
+    assert "WEKNORA_EMBEDDING_MODEL_ID" not in body["production_blockers"]
+    assert "WEKNORA_DEFAULT_EMBEDDING_MODEL" in body["missing_config"]
     assert "WEKNORA_MODEL_REF_SECRET" in body["production_blockers"]
     assert body["production_ready"] is False
+    _assert_no_secret(r.text)
+
+
+async def test_config_prod_weknora_default_configured_no_blocker(client, db_session, monkeypatch):
+    """PBC-38：prod + WeKnora 启用 + 平台默认 embedding 已配置（DB）→ 不报该 blocker；
+    即便 WEKNORA_EMBEDDING_MODEL_ID 为空也不报旧 blocker；响应不泄露真实 model_id。"""
+    from app.services import weknora_defaults
+
+    await weknora_defaults.set_defaults(
+        db_session,
+        embedding_model_id="emb-real-secret-id",
+        rerank_model_id=None,
+        chat_model_id=None,
+        multimodal_id=None,
+        updated_by=None,
+    )
+    await db_session.commit()
+    monkeypatch.setattr("app.api.ops.weknora_enabled", lambda: True)
+    monkeypatch.setattr(
+        "app.api.ops.get_settings",
+        lambda: Settings(
+            app_env="prod",
+            celery_task_always_eager=False,
+            session_cookie_secure=True,
+            auth_attempt_hash_secret="real",
+            csrf_token_secret="real",
+            weknora_embedding_model_id="",  # legacy 空，但 DB 默认已配 → 不应报阻断
+            weknora_model_ref_secret="real-ref",
+        ),
+    )
+    r = await client.get(CONFIG)
+    body = r.json()
+    assert "WEKNORA_DEFAULT_EMBEDDING_MODEL" not in body["production_blockers"]
+    assert "WEKNORA_EMBEDDING_MODEL_ID" not in body["production_blockers"]
+    assert "WEKNORA_DEFAULT_EMBEDDING_MODEL" not in body["missing_config"]
+    # /health/config 只回配置项名，绝不回真实 model_id。
+    assert "emb-real-secret-id" not in r.text
     _assert_no_secret(r.text)
 
 
@@ -334,13 +374,20 @@ class _TraceWK:
 
 
 def _enable_wk(monkeypatch, fake):
-    from app.core.config import get_settings
     from app.services.weknora_client import get_weknora_client
+    from app.services.weknora_model_selection import ResolvedModels
 
     monkeypatch.setattr("app.services.ingest.weknora_enabled", lambda: True)
     monkeypatch.setattr("app.services.knowledge.weknora_enabled", lambda: True)
     monkeypatch.setattr("app.services.jobs.indexing_operations.weknora_enabled", lambda: True)
-    monkeypatch.setattr(get_settings(), "weknora_embedding_model_id", "test-embed")
+    # PBC-38：建库模型经 resolver 解析（不再读 settings）；测试直接返回固定 ResolvedModels，
+    # 绕过 DB 默认模型配置（本套件专注 trace 链路，不验证模型选择）。
+    _resolved = ResolvedModels(embedding_model_id="test-embed", explicit_embedding=False)
+
+    async def _resolve(*_a, **_k):
+        return _resolved
+
+    monkeypatch.setattr("app.services.indexing.resolve_models_for_kb", _resolve)
     app.dependency_overrides[get_weknora_client] = lambda: fake
 
 
