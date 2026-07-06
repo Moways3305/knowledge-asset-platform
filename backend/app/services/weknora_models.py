@@ -141,14 +141,38 @@ async def _resolve_ref(client: _CheckClient, ref: str, trace_id: str | None) -> 
     return (await _ref_to_id_map(client, trace_id)).get(ref)
 
 
-def _build_model_payload(req: ModelMutateRequest) -> dict:
+def _is_http_url(value: str | None) -> bool:
+    return str(value or "").strip().lower().startswith(("http://", "https://"))
+
+
+def _validate_remote_secret_inputs(req: ModelMutateRequest) -> None:
+    if req.source != "remote":
+        return
+    if not (req.base_url or "").strip():
+        raise _denied(422, "weknora_model_base_url_required", "远程模型需要填写 API 地址")
+    if not (req.api_key or "").strip():
+        raise _denied(422, "weknora_model_api_key_required", "远程模型需要填写访问密钥")
+    if not _is_http_url(req.base_url):
+        raise _denied(
+            422, "weknora_model_base_url_invalid", "API 地址必须以 http:// 或 https:// 开头"
+        )
+
+
+def _validate_update_sensitive_inputs(req: ModelMutateRequest) -> None:
+    if (req.base_url or "").strip() and not _is_http_url(req.base_url):
+        raise _denied(
+            422, "weknora_model_base_url_invalid", "API 地址必须以 http:// 或 https:// 开头"
+        )
+
+
+def _build_model_payload(req: ModelMutateRequest, *, keep_blank_sensitive: bool = True) -> dict:
     wk_type = _ALIAS_TO_WK.get(req.type)
     if wk_type is None:
         raise _denied(422, "invalid_model_type", "非法的模型类型")
     params: dict = {}
-    if req.base_url is not None:
-        params["base_url"] = req.base_url
-    if req.api_key is not None:
+    if req.base_url is not None and (keep_blank_sensitive or str(req.base_url).strip()):
+        params["base_url"] = str(req.base_url).strip()
+    if req.api_key is not None and (keep_blank_sensitive or str(req.api_key).strip()):
         params["api_key"] = req.api_key
     if req.provider:
         params["provider"] = req.provider
@@ -166,6 +190,7 @@ def _build_model_payload(req: ModelMutateRequest) -> dict:
 async def create_model(
     client: _CheckClient, req: ModelMutateRequest, *, trace_id: str | None
 ) -> ModelMutateResponse:
+    _validate_remote_secret_inputs(req)
     created = await client.create_model(_build_model_payload(req), trace_id=trace_id)
     mid = created.get("id") if isinstance(created, dict) else None
     if not mid:
@@ -187,7 +212,10 @@ async def update_model(
     model_id = await _resolve_ref(client, model_ref, trace_id)
     if model_id is None:
         raise _denied(404, "weknora_model_not_found", "模型不存在")
-    await client.update_model(model_id, _build_model_payload(req), trace_id=trace_id)
+    _validate_update_sensitive_inputs(req)
+    await client.update_model(
+        model_id, _build_model_payload(req, keep_blank_sensitive=False), trace_id=trace_id
+    )
     return ModelMutateResponse(
         model_ref=_model_ref(model_id),
         name=req.name,

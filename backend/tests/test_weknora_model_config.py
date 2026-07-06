@@ -223,6 +223,33 @@ async def test_update_model_no_secret_leak(client, wk):
         assert token not in r.text
 
 
+async def test_update_model_blank_secret_fields_are_omitted(client, wk):
+    models = (await client.get(f"{BASE}/models", headers=_hdr(USER_ADMIN_ONLY))).json()["items"]
+    ref = models[0]["model_ref"]
+    body = {"name": "renamed", "type": "chat", "source": "remote", "api_key": "", "base_url": ""}
+    r = await client.put(f"{BASE}/models/{ref}", headers=_hdr(USER_ADMIN_ONLY), json=body)
+    assert r.status_code == 200, r.text
+    params = wk.last_update["payload"]["parameters"]
+    assert "api_key" not in params
+    assert "base_url" not in params
+
+
+async def test_update_model_rejects_email_shaped_base_url_without_upstream_call(client, wk):
+    models = (await client.get(f"{BASE}/models", headers=_hdr(USER_ADMIN_ONLY))).json()["items"]
+    ref = models[0]["model_ref"]
+    body = {
+        "name": "renamed",
+        "type": "chat",
+        "source": "remote",
+        "api_key": _SECRET,
+        "base_url": "alice@example.com",
+    }
+    r = await client.put(f"{BASE}/models/{ref}", headers=_hdr(USER_ADMIN_ONLY), json=body)
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"]["denied_reason"] == "weknora_model_base_url_invalid"
+    assert wk.last_update is None
+
+
 async def test_delete_model_uses_server_id_no_leak(client, wk):
     models = (await client.get(f"{BASE}/models", headers=_hdr(USER_ADMIN_ONLY))).json()["items"]
     ref = models[0]["model_ref"]
