@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import { ApiError } from "../api/http";
 import {
@@ -19,9 +19,6 @@ import type {
 } from "../types/weknoraAdmin";
 import DefaultModelsSection from "../components/DefaultModelsSection";
 import { useAuth } from "../auth/AuthContext";
-
-// 模型配置中心：admin 运营工具。代理 WeKnora 模型与 KB 初始化配置，
-// 不在前端出现 model_id / kb_id / api_key（保存后不回显）/ base_url 真实值。
 
 const TYPE_OPTIONS = [
   { value: "chat", label: "对话（chat）" },
@@ -54,6 +51,10 @@ const emptyForm = (): ModelMutateRequestDTO => ({
   description: "",
 });
 
+const isRemoteModel = (form: ModelMutateRequestDTO) => form.source !== "local";
+const hasEmailShape = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+const hasHttpUrlShape = (value: string) => /^https?:\/\//i.test(value.trim());
+
 export default function AdminWeKnoraModelsPage() {
   const { capabilities } = useAuth();
   const [models, setModels] = useState<ModelDTO[]>([]);
@@ -65,15 +66,18 @@ export default function AdminWeKnoraModelsPage() {
   const [note, setNote] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState("");
 
-  // 创建 / 编辑模型表单。
   const [formOpen, setFormOpen] = useState(false);
   const [editingRef, setEditingRef] = useState<string | null>(null);
   const [form, setForm] = useState<ModelMutateRequestDTO>(emptyForm());
+  const formPanelRef = useRef<HTMLElement>(null);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // 连通性测试。
-  const [checkResult, setCheckResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [checkResult, setCheckResult] = useState<{
+    ok: boolean;
+    msg: string;
+    durationMs: number;
+  } | null>(null);
   const [checkBusy, setCheckBusy] = useState(false);
 
   const describe = (e: unknown, fallback: string) =>
@@ -94,7 +98,6 @@ export default function AdminWeKnoraModelsPage() {
       setKbConfigs(k);
     } catch (e) {
       if (e instanceof ApiError && e.status === 503) {
-        // 未配置 WeKnora：只展示 missing config 项名，不展示值。
         const miss = (e.detail?.missing_config as string[] | undefined) ?? [];
         setNotConfigured(miss.length ? miss : ["WEKNORA_BASE_URL", "WEKNORA_API_KEY"]);
       } else if (e instanceof ApiError && e.status === 403) {
@@ -114,6 +117,13 @@ export default function AdminWeKnoraModelsPage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!formOpen) return;
+    window.setTimeout(() => {
+      formPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }, [formOpen, editingRef]);
+
   const openCreate = () => {
     setEditingRef(null);
     setForm(emptyForm());
@@ -121,6 +131,7 @@ export default function AdminWeKnoraModelsPage() {
     setCheckResult(null);
     setFormOpen(true);
   };
+
   const openEdit = (m: ModelDTO) => {
     setEditingRef(m.model_ref);
     setForm({
@@ -137,30 +148,68 @@ export default function AdminWeKnoraModelsPage() {
     setFormOpen(true);
   };
 
+  const validateSensitiveInputs = useCallback(() => {
+    const apiUrl = (form.base_url ?? "").trim();
+    const apiKey = (form.api_key ?? "").trim();
+    if (isRemoteModel(form) && !editingRef && !apiUrl) return "请填写 API 地址";
+    if (isRemoteModel(form) && !editingRef && !apiKey) return "请填写访问密钥";
+    if (apiUrl && (hasEmailShape(apiUrl) || !hasHttpUrlShape(apiUrl))) {
+      return "API 地址必须以 http:// 或 https:// 开头";
+    }
+    return null;
+  }, [editingRef, form]);
+
+  const buildSavePayload = useCallback((): ModelMutateRequestDTO => {
+    const payload: ModelMutateRequestDTO = {
+      ...form,
+      name: form.name.trim(),
+      provider: form.provider?.trim() || null,
+      description: form.description?.trim() || null,
+    };
+    const apiUrl = form.base_url?.trim() ?? "";
+    const apiKey = form.api_key?.trim() ?? "";
+    if (editingRef) {
+      delete payload.base_url;
+      delete payload.api_key;
+      if (apiUrl) payload.base_url = apiUrl;
+      if (apiKey) payload.api_key = form.api_key;
+    } else {
+      payload.base_url = apiUrl || null;
+      payload.api_key = form.api_key || null;
+    }
+    return payload;
+  }, [editingRef, form]);
+
   const handleSave = useCallback(async () => {
     setSaveError(null);
     if (!form.name.trim()) {
       setSaveError("请填写模型名称");
       return;
     }
+    const sensitiveError = validateSensitiveInputs();
+    if (sensitiveError) {
+      setSaveError(sensitiveError);
+      return;
+    }
     setSaveBusy(true);
     try {
+      const payload = buildSavePayload();
       if (editingRef) {
-        await updateWeknoraModel(editingRef, form);
+        await updateWeknoraModel(editingRef, payload);
         setNote("模型已更新");
       } else {
-        await createWeknoraModel(form);
+        await createWeknoraModel(payload);
         setNote("模型已创建");
       }
       setFormOpen(false);
-      setForm(emptyForm()); // 清空表单，绝不回显已提交的访问密钥
+      setForm(emptyForm());
       await load();
     } catch (e) {
       setSaveError(describe(e, "保存模型失败"));
     } finally {
       setSaveBusy(false);
     }
-  }, [editingRef, form, load]);
+  }, [buildSavePayload, editingRef, form.name, load, validateSensitiveInputs]);
 
   const handleDelete = useCallback(
     async (m: ModelDTO) => {
@@ -180,6 +229,7 @@ export default function AdminWeKnoraModelsPage() {
   const handleCheck = useCallback(async () => {
     setCheckBusy(true);
     setCheckResult(null);
+    const start = performance.now();
     try {
       const r = await checkWeknoraModel({
         model_type: form.type,
@@ -187,13 +237,26 @@ export default function AdminWeKnoraModelsPage() {
         api_key: form.api_key ?? "",
         model: form.name,
       });
-      setCheckResult({ ok: r.success, msg: r.message });
+      setCheckResult({
+        ok: r.success,
+        msg: r.message,
+        durationMs: Math.round(performance.now() - start),
+      });
     } catch (e) {
-      setCheckResult({ ok: false, msg: describe(e, "连通性测试失败") });
+      setCheckResult({
+        ok: false,
+        msg: describe(e, "连通性测试失败"),
+        durationMs: Math.round(performance.now() - start),
+      });
     } finally {
       setCheckBusy(false);
     }
   }, [form]);
+
+  const checkDisabledReason =
+    editingRef && (!form.base_url?.trim() || !form.api_key?.trim())
+      ? "编辑已有模型时，需重新输入 API 地址和访问密钥后才能测试。"
+      : null;
 
   return (
     <div className="ws-page">
@@ -201,9 +264,8 @@ export default function AdminWeKnoraModelsPage() {
         <div className="kl-header-text">
           <h2>WeKnora 模型配置中心</h2>
           <p>
-            系统管理员在此代理管理知识底座的 provider / 模型与各知识库的初始化模型配置，无需登录
-            WeKnora 控制台。本页仅承载安全运营元数据，不显示底座内部 id / 访问密钥 /
-            服务地址真实值。
+            系统管理员在此管理模型服务与各知识库的初始化模型配置。敏感配置仅用于提交和测试，
+            保存后不会在页面展示。
           </p>
         </div>
       </div>
@@ -234,7 +296,7 @@ export default function AdminWeKnoraModelsPage() {
                   {m}
                 </code>
               ))}
-              。 请在部署环境注入这些配置后重启后端；本页不显示配置值。
+              。请完成部署配置后重启后端；本页不会展示配置值。
             </p>
           </div>
         </section>
@@ -246,7 +308,6 @@ export default function AdminWeKnoraModelsPage() {
         </section>
       ) : (
         <>
-          {/* 模型列表 */}
           <section className="ws-section">
             <div className="ig-toolbar">
               <h3 style={{ margin: 0 }}>模型</h3>
@@ -270,7 +331,7 @@ export default function AdminWeKnoraModelsPage() {
             {models.length === 0 ? (
               <div className="ig-empty-state">
                 <div className="ig-empty-title">暂无模型</div>
-                <p className="ig-empty-desc">点击「新增模型」添加远程 / 本地模型。</p>
+                <p className="ig-empty-desc">点击「新增模型」添加远程或本地模型。</p>
               </div>
             ) : (
               <div className="ws-table-wrap">
@@ -296,9 +357,9 @@ export default function AdminWeKnoraModelsPage() {
                           <span
                             className={`ws-status-pill ${m.enabled ? "ws-status-on" : "ws-status-off"}`}
                           >
-                            {m.enabled ? "可用" : "停用"}
+                            {m.enabled ? "已启用" : "已停用"}
                           </span>
-                          {m.is_builtin && <span className="ws-cell-project">（内置）</span>}
+                          {m.is_builtin && <span className="ws-cell-project">（预置）</span>}
                         </td>
                         <td className="ws-cell-actions">
                           <button className="btn-small" onClick={() => openEdit(m)}>
@@ -320,17 +381,15 @@ export default function AdminWeKnoraModelsPage() {
               </div>
             )}
             <p className="au-note" style={{ marginTop: 8 }}>
-              可用 provider：
+              可选 provider：
               {providers.length > 0 ? providers.map((p) => p.label).join(" · ") : "—"}
             </p>
           </section>
 
-          {/* 平台默认模型（PBC-38）：admin 可保存，治理角色只读 */}
           <DefaultModelsSection models={models} canEdit={capabilities.isAdmin} />
 
-          {/* 创建 / 编辑表单 */}
           {formOpen && (
-            <section className="ws-section">
+            <section className="ws-section" ref={formPanelRef}>
               <div className="ws-detail-panel">
                 <div className="ws-detail-head">
                   <span className="ws-detail-title">{editingRef ? "编辑模型" : "新增模型"}</span>
@@ -342,14 +401,49 @@ export default function AdminWeKnoraModelsPage() {
                     关闭
                   </button>
                 </div>
-                <div className="ws-form-grid">
+                <form
+                  className="ws-form-grid"
+                  autoComplete="off"
+                  data-form-type="other"
+                  onSubmit={(e) => e.preventDefault()}
+                >
+                  <input
+                    type="text"
+                    name="model_config_username_decoy"
+                    tabIndex={-1}
+                    autoComplete="username"
+                    aria-hidden="true"
+                    style={{
+                      position: "absolute",
+                      left: "-10000px",
+                      width: 1,
+                      height: 1,
+                      opacity: 0,
+                    }}
+                  />
+                  <input
+                    type="password"
+                    name="model_config_password_decoy"
+                    tabIndex={-1}
+                    autoComplete="new-password"
+                    aria-hidden="true"
+                    style={{
+                      position: "absolute",
+                      left: "-10000px",
+                      width: 1,
+                      height: 1,
+                      opacity: 0,
+                    }}
+                  />
                   <label className="ws-form-field">
                     <span className="ws-form-label">模型名称</span>
                     <input
                       className="ws-form-input"
+                      name="kap_model_display_name"
+                      autoComplete="off"
                       value={form.name}
                       onChange={(e) => setForm({ ...form, name: e.target.value })}
-                      placeholder="服务商 model id 或 Ollama tag"
+                      placeholder="服务商模型名称或本地模型标签"
                     />
                   </label>
                   <label className="ws-form-field">
@@ -399,19 +493,36 @@ export default function AdminWeKnoraModelsPage() {
                     <span className="ws-form-label">API 地址</span>
                     <input
                       className="ws-form-input"
+                      name="kap_model_endpoint"
+                      id="kap-model-endpoint"
+                      autoComplete="off"
+                      data-lpignore="true"
+                      data-1p-ignore="true"
+                      data-form-type="other"
+                      inputMode="url"
                       value={form.base_url ?? ""}
                       onChange={(e) => setForm({ ...form, base_url: e.target.value })}
-                      placeholder="远程模型必填；保存后不回显"
+                      placeholder={
+                        editingRef ? "留空表示保持原 API 地址" : "https://api.example.com/v1"
+                      }
                     />
                   </label>
                   <label className="ws-form-field">
                     <span className="ws-form-label">访问密钥</span>
                     <input
                       className="ws-form-input"
+                      name="kap_model_secret"
+                      id="kap-model-secret"
                       type="password"
+                      autoComplete="new-password"
+                      data-lpignore="true"
+                      data-1p-ignore="true"
+                      data-form-type="other"
                       value={form.api_key ?? ""}
                       onChange={(e) => setForm({ ...form, api_key: e.target.value })}
-                      placeholder="仅上送底座，保存后不回显"
+                      placeholder={
+                        editingRef ? "留空表示保持原访问密钥" : "远程模型必填，保存后不展示"
+                      }
                     />
                   </label>
                   {form.type === "embedding" && (
@@ -438,12 +549,13 @@ export default function AdminWeKnoraModelsPage() {
                       onChange={(e) => setForm({ ...form, description: e.target.value })}
                     />
                   </label>
-                </div>
+                </form>
                 {saveError && (
                   <div className="ws-note-hint" style={{ color: "var(--color-danger-fg, #b00)" }}>
                     {saveError}
                   </div>
                 )}
+                {checkBusy && <div className="ws-note-hint">测试中...</div>}
                 {checkResult && (
                   <div
                     className="ws-note-hint"
@@ -453,11 +565,14 @@ export default function AdminWeKnoraModelsPage() {
                         : "var(--color-danger-fg, #b00)",
                     }}
                   >
-                    连通性测试：{checkResult.ok ? "通过" : "失败"} — {checkResult.msg}
+                    连通性测试：{checkResult.ok ? "通过" : "失败"} — {checkResult.msg}（耗时{" "}
+                    {checkResult.durationMs}ms）
                   </div>
                 )}
+                {checkDisabledReason && <div className="ws-note-hint">{checkDisabledReason}</div>}
                 <div className="ws-form-actions">
                   <button
+                    type="button"
                     className="btn-small-primary"
                     onClick={() => void handleSave()}
                     disabled={saveBusy}
@@ -466,14 +581,22 @@ export default function AdminWeKnoraModelsPage() {
                   </button>
                   {form.type !== "asr" && (
                     <button
+                      type="button"
                       className="btn-small"
                       onClick={() => void handleCheck()}
-                      disabled={checkBusy || !form.base_url || !form.api_key || !form.name}
+                      disabled={
+                        checkBusy ||
+                        Boolean(checkDisabledReason) ||
+                        !form.base_url ||
+                        !form.api_key ||
+                        !form.name
+                      }
                     >
-                      {checkBusy ? "测试中…" : "连通性测试"}
+                      {checkBusy ? "测试中..." : "连通性测试"}
                     </button>
                   )}
                   <button
+                    type="button"
                     className="btn-small"
                     onClick={() => setFormOpen(false)}
                     disabled={saveBusy}
@@ -482,14 +605,14 @@ export default function AdminWeKnoraModelsPage() {
                   </button>
                 </div>
                 <p className="au-note">
-                  连通性测试仅返回「通过 / 失败 + 安全文案」，不回显密钥 / 地址 /
-                  原始响应。访问密钥与 API 地址只代理写入底座，平台不保存、列表不回显。
+                  编辑已有模型时，API
+                  地址和访问密钥留空将保持原配置。连通性测试会发起一次后端校验调用， 页面只显示通过
+                  / 失败、说明和耗时。
                 </p>
               </div>
             </section>
           )}
 
-          {/* KB 初始化配置 */}
           <section className="ws-section">
             <h3>知识库初始化配置</h3>
             {kbConfigs.length === 0 ? (
@@ -532,9 +655,8 @@ export default function AdminWeKnoraModelsPage() {
               </div>
             )}
             <p className="au-note" style={{ marginTop: 8 }}>
-              初始化失败（init_failed）的知识库在此选择并保存模型即可恢复
-              active；已落库但索引失败的具体资产仍需在 <Link to="/admin/ingest">入库管理</Link>{" "}
-              或资产详情页重试索引。
+              初始化失败的知识库可在此选择并保存模型后恢复；已入库但索引失败的资产可在{" "}
+              <Link to="/admin/ingest">入库管理</Link> 或资产详情页重试索引。
             </p>
           </section>
         </>
@@ -543,7 +665,6 @@ export default function AdminWeKnoraModelsPage() {
   );
 }
 
-// 单个知识库初始化配置行：可为每个槽位选择模型 ref 并保存。
 function KbConfigRow({
   cfg,
   models,
