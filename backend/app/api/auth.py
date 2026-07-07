@@ -37,7 +37,11 @@ from app.services import csrf as csrf_service
 from app.services import wecom_identity
 from app.services import workbuddy_token as workbuddy_token_service
 from app.services.auth_session import SESSION_COOKIE_NAME
-from app.services.identity import build_auth_me, load_user_with_roles
+from app.services.identity import (
+    build_auth_me,
+    load_user_with_roles,
+    resolve_or_provision_wecom_user,
+)
 from app.services.permission import build_caller_context
 from app.services.wecom_client import WeComError, get_wecom_oauth_client
 
@@ -84,6 +88,52 @@ def _set_oauth_state_cookie(response: Response, state: str, settings) -> None:
         secure=session_cookie_secure(settings),
         path="/",
     )
+
+
+def _trusted_wecom_corp_id(settings, oauth) -> str:
+    corp_id = (getattr(oauth, "corp_id", None) or settings.wecom_corp_id or "").strip()
+    if corp_id:
+        return corp_id
+    if settings.app_env in {"local", "dev", "test"}:
+        return "test_corp"
+    raise HTTPException(
+        status_code=503,
+        detail={"denied_reason": "wecom_not_configured", "message": "企业微信登录暂不可用"},
+    )
+
+
+async def _audit_wecom_denied(
+    session: AsyncSession,
+    *,
+    user,
+    trace_id: str,
+    reason: str,
+) -> None:
+    extra = {
+        "operation": "wecom_login",
+        "created": False,
+        "login_method": "wecom_oauth",
+        "reason": reason,
+    }
+    if user is None:
+        await audit_service.record_system_event(
+            session,
+            log_type=AuditLogType.login,
+            action=AuditAction.auth_wecom_login_denied.value,
+            trace_id=trace_id,
+            extra=extra,
+        )
+    else:
+        await audit_service.record_event(
+            session,
+            caller=build_caller_context(user),
+            log_type=AuditLogType.login,
+            action=AuditAction.auth_wecom_login_denied.value,
+            trace_id=trace_id,
+            target_type="user",
+            target_id=user.id,
+            extra=extra,
+        )
 
 
 async def _record_login_failed(
@@ -375,14 +425,23 @@ async def wecom_callback(
     """
     trace_id = get_trace_id(request)
     ip, device = _client_meta(request)
+    settings = get_settings()
     # state 校验（CSRF）：query state 必须存在且与 cookie 一致。
     response.delete_cookie(key=_OAUTH_STATE_COOKIE, path="/")
     if not state or not kap_oauth_state or not secrets.compare_digest(state, kap_oauth_state):
+        await _audit_wecom_denied(
+            session, user=None, trace_id=trace_id, reason="oauth_state_invalid"
+        )
+        await session.commit()
         raise HTTPException(
             status_code=400,
             detail={"denied_reason": "oauth_state_invalid", "message": "state 校验失败"},
         )
     if not code:
+        await _audit_wecom_denied(
+            session, user=None, trace_id=trace_id, reason="oauth_code_missing"
+        )
+        await session.commit()
         raise HTTPException(
             status_code=400, detail={"denied_reason": "oauth_code_missing", "message": "缺少 code"}
         )
@@ -391,38 +450,29 @@ async def wecom_callback(
         identity = await oauth.exchange_code(code)
     except WeComError:
         # 上游换取失败：只暴露安全 code，不回显原始 payload。
+        await _audit_wecom_denied(
+            session, user=None, trace_id=trace_id, reason="oauth_exchange_failed"
+        )
+        await session.commit()
         raise HTTPException(
             status_code=401,
             detail={"denied_reason": "oauth_exchange_failed", "message": "企微身份换取失败"},
         )
 
-    user = await load_user_with_roles(session, wecom_user_id=identity.wecom_user_id)
-    if user is None:
-        # 未绑定平台用户：fail closed，不自动建用户（不做 auto-provision）。
-        raise HTTPException(
-            status_code=403,
-            detail={"denied_reason": "user_not_provisioned", "message": "企微用户未绑定平台账号"},
-        )
+    corp_id = _trusted_wecom_corp_id(settings, oauth)
 
-    # 建会话前先核验企微成员有效性。fail-closed。
+    # 建会话 / 自动开户前先核验企微成员有效性。fail-closed。
     try:
         member = await oauth.get_member_status(identity.wecom_user_id)
     except WeComError:
-        # 上游 / 未配置失败：不建会话、**不**改平台状态（避免瞬时上游故障误停用），写安全 login.failed。
-        await audit_service.record_denied(
-            session,
-            caller=build_caller_context(user),
-            log_type=AuditLogType.login,
-            action=AuditAction.login_failed.value,
-            trace_id=trace_id,
-            extra={
-                "login_result": "failed",
-                "login_method": "wecom_oauth",
-                "reason_code": "wecom_status_check_failed",
-                "wecom_status": "unknown",
-                "ip_address": ip,
-            },
+        # 上游 / 未配置失败：不建会话、**不**改平台状态（避免瞬时上游故障误停用）。
+        existing = await load_user_with_roles(
+            session, wecom_corp_id=corp_id, wecom_user_id=identity.wecom_user_id
         )
+        await _audit_wecom_denied(
+            session, user=existing, trace_id=trace_id, reason="wecom_status_check_failed"
+        )
+        await session.commit()
         raise HTTPException(
             status_code=401,
             detail={
@@ -430,16 +480,27 @@ async def wecom_callback(
                 "message": "企微成员状态核验失败，请稍后重试",
             },
         )
+    user = await load_user_with_roles(
+        session, wecom_corp_id=corp_id, wecom_user_id=identity.wecom_user_id
+    )
+    if user is None:
+        legacy = await load_user_with_roles(session, wecom_user_id=identity.wecom_user_id)
+        if legacy is not None and legacy.wecom_corp_id is None:
+            user = legacy
     if not member.active:
         # 企微成员失效 → 停用平台用户（若 active）+ 撤销活动会话 + 安全审计（系统触发），fail closed。
-        await wecom_identity.apply_member_status(
-            session,
-            user,
-            member,
-            trigger="oauth_callback",
-            dry_run=False,
-            actor_caller=None,
-            trace_id=trace_id,
+        if user is not None:
+            await wecom_identity.apply_member_status(
+                session,
+                user,
+                member,
+                trigger="oauth_callback",
+                dry_run=False,
+                actor_caller=None,
+                trace_id=trace_id,
+            )
+        await _audit_wecom_denied(
+            session, user=user, trace_id=trace_id, reason="wecom_user_inactive"
         )
         await session.commit()
         raise HTTPException(
@@ -450,39 +511,59 @@ async def wecom_callback(
             },
         )
 
+    provisioned = await resolve_or_provision_wecom_user(
+        session, corp_id=corp_id, identity=identity, member=member
+    )
+    user = await load_user_with_roles(session, user_id=provisioned.user.id)
+    if user is None:  # defensive; the row was just flushed in the same transaction.
+        raise HTTPException(
+            status_code=401,
+            detail={"denied_reason": "wecom_login_failed", "message": "企业微信登录失败"},
+        )
+
     if user.status != "active":
         # 已知用户但非 active → 写 login.failed（可安全归属）后 401。
-        await audit_service.record_denied(
-            session,
-            caller=build_caller_context(user),
-            log_type=AuditLogType.login,
-            action=AuditAction.login_failed.value,
-            trace_id=trace_id,
-            extra={"login_result": "failed", "login_method": "wecom_oauth", "ip_address": ip},
-        )
+        await _audit_wecom_denied(session, user=user, trace_id=trace_id, reason="user_inactive")
+        await session.commit()
         raise HTTPException(
             status_code=401, detail={"denied_reason": "user_inactive", "message": "用户已停用"}
         )
 
+    from app.db.utils import utc_now
+
+    user.last_login_at = utc_now()
     raw_token = await session_service.create_session(
         session, user, ip_address=ip, device_info=device, login_method="wecom_oauth"
     )
+    safe_extra = {
+        "operation": "wecom_login",
+        "created": provisioned.created,
+        "login_method": "wecom_oauth",
+        "company_role": "consultant",
+    }
+    if provisioned.created:
+        await audit_service.record_event(
+            session,
+            caller=build_caller_context(user),
+            log_type=AuditLogType.login,
+            action=AuditAction.auth_wecom_user_created.value,
+            trace_id=trace_id,
+            target_type="user",
+            target_id=user.id,
+            extra=safe_extra,
+        )
     await audit_service.record_event(
         session,
         caller=build_caller_context(user),
         log_type=AuditLogType.login,
-        action=AuditAction.login_success.value,
+        action=AuditAction.auth_wecom_login_success.value,
         trace_id=trace_id,
-        # 只记安全元数据：登录方式 + 安全 provider 标记 + ip；**绝不**记 code/token/state。
-        extra={
-            "login_result": "success",
-            "login_method": "wecom_oauth",
-            "provider": "wecom",
-            "ip_address": ip,
-        },
+        target_type="user",
+        target_id=user.id,
+        extra=safe_extra,
     )
     await session.commit()
-    _set_session_cookie(response, raw_token, get_settings())
+    _set_session_cookie(response, raw_token, settings)
     return build_auth_me(user)
 
 

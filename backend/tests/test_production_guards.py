@@ -94,6 +94,8 @@ async def test_login_cookie_secure_in_prod(client, monkeypatch):
 class _FakeOAuth:
     """fake 企微 OAuth 客户端：生成安全 URL（不含 secret），按 code 换取已绑定身份。"""
 
+    corp_id = "test_corp"
+
     def build_authorize_url(self, *, state: str) -> str:
         # 真实实现含 corp_id/redirect/state，但**绝不含 app_secret**。
         return f"https://open.weixin.qq.com/connect/oauth2/authorize?state={state}"

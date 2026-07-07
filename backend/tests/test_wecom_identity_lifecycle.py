@@ -2,7 +2,7 @@
 
 覆盖：
 - OAuth 回调：有效成员建会话；失效成员 fail-closed（不建会话、停用平台用户、撤销会话、安全审计）；
-  上游错误 fail-closed 不改状态；未绑定用户仍不自动建用户；
+  上游错误 fail-closed 不改状态；有效未绑定用户自动创建低权限平台用户；
 - admin 对账：停用失效绑定用户并撤销会话；dry_run 不变更；批量 clamp limit；
 - 非 admin 403；
 - 响应 / 审计无 access_token / app_secret / code / state / raw wecom_user_id / 通讯录档案 /
@@ -159,23 +159,31 @@ async def test_callback_upstream_error_fails_closed_no_status_change(client, db_
     # 平台状态未变（上游瞬时故障不误停用）。
     u = (await db_session.execute(select(User).where(User.id == USER_CONSULTANT))).scalar_one()
     assert u.status == "active"
-    # login.failed 审计含安全 reason_code，不泄露。
+    # auth.wecom_login_denied 审计含安全 reason，不泄露。
     ev = (
-        (await db_session.execute(select(AuditEvent).where(AuditEvent.action == "login.failed")))
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.action == "auth.wecom_login_denied")
+            )
+        )
         .scalars()
         .all()
     )
-    assert any((e.extra or {}).get("reason_code") == "wecom_status_check_failed" for e in ev)
+    assert any((e.extra or {}).get("reason") == "wecom_status_check_failed" for e in ev)
     _assert_no_leak(r.text)
 
 
-async def test_callback_unprovisioned_still_no_auto_create(client):
+async def test_callback_unprovisioned_auto_creates_consultant(client):
     _install(FakeOAuth(wecom_user_id="ww_unknown_nobody"))
     await client.get(START)
     state = client.cookies.get("kap_oauth_state")
     r = await client.get(CALLBACK, params={"code": "c", "state": state})
-    assert r.status_code == 403
-    assert r.json()["detail"]["denied_reason"] == "user_not_provisioned"
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "active"
+    assert body["company_roles"] == ["consultant"]
+    assert body["is_business_user"] is True
+    assert body["can_discover_l5"] is False
 
 
 # ---------------------------------------------------------------------------
