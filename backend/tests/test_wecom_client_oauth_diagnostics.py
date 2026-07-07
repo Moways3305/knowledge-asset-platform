@@ -111,3 +111,24 @@ async def test_exchange_code_nonzero_errcode_logs_code_without_errmsg(monkeypatc
     assert "SECRET-LIKE" not in caplog.text
     assert "oauth-code-bad" not in caplog.text
     assert "token-secret" not in caplog.text
+
+
+async def test_exchange_code_string_errcode_must_be_numeric_to_log(monkeypatch, caplog):
+    _install_httpx(
+        monkeypatch,
+        {"errcode": "SECRET-LIKE", "errmsg": "invalid access_token SECRET-LIKE"},
+    )
+    caplog.set_level(logging.INFO, logger="app.services.wecom_client")
+
+    with pytest.raises(WeComError) as exc:
+        await _client().exchange_code("oauth-code-string-errcode")
+
+    assert exc.value.code == "wecom_userinfo_failed"
+    record = _oauth_record(caplog)
+    assert record.errcode is None
+    assert record.has_userid is False
+    assert record.has_UserId is False
+    assert "SECRET-LIKE" not in caplog.text
+    assert "errmsg" not in caplog.text
+    assert "oauth-code-string-errcode" not in caplog.text
+    assert "token-secret" not in caplog.text

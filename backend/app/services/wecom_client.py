@@ -74,10 +74,14 @@ _WECOM_STATUS_MAP = {
 _WECOM_NOTFOUND_ERRCODES = {60111, 60121, 46004}
 
 
-def _safe_errcode(data: dict[str, Any]) -> int | str | None:
+def _safe_errcode(data: dict[str, Any]) -> int | None:
     errcode = data.get("errcode")
-    if isinstance(errcode, (int, str)):
+    if isinstance(errcode, int):
         return errcode
+    if isinstance(errcode, str):
+        cleaned = errcode.strip()
+        if cleaned.isdigit() and len(cleaned) <= 10:
+            return int(cleaned)
     return None
 
 
