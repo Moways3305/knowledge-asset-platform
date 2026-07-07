@@ -74,6 +74,33 @@ _WECOM_STATUS_MAP = {
 _WECOM_NOTFOUND_ERRCODES = {60111, 60121, 46004}
 
 
+def _safe_errcode(data: dict[str, Any]) -> int | None:
+    errcode = data.get("errcode")
+    if isinstance(errcode, int):
+        return errcode
+    if isinstance(errcode, str):
+        cleaned = errcode.strip()
+        if cleaned.isdigit() and len(cleaned) <= 10:
+            return int(cleaned)
+    return None
+
+
+def _oauth_exchange_log_extra(*, status: int, data: dict[str, Any]) -> dict[str, Any]:
+    """OAuth identity response diagnostics with booleans only for identity fields."""
+    return {
+        "operation": "oauth_exchange",
+        "status": status,
+        "errcode": _safe_errcode(data),
+        "has_userid": bool(data.get("userid")),
+        "has_UserId": bool(data.get("UserId")),
+        "has_openid": bool(data.get("openid")),
+        "has_external_userid": bool(data.get("external_userid")),
+        "has_user_ticket": bool(data.get("user_ticket")),
+        "has_deviceid": bool(data.get("deviceid")),
+        "has_corpid": bool(data.get("corpid")),
+    }
+
+
 def normalize_member_status(wecom_user_id: str, data: dict[str, Any]) -> WeComMemberStatus:
     """把企微 user/get 响应归一为安全 WeComMemberStatus（不回显原始 payload/errmsg）。
 
@@ -212,9 +239,9 @@ class WeComOAuthClient:
             raise WeComError(
                 "wecom_network_error", f"企微网络错误（{type(exc).__name__}）"
             ) from exc
-        # 仅记操作名 + HTTP 状态；绝不记 code / access_token / userid / secret。
+        # 仅记安全诊断 metadata；绝不记 code / access_token / userid / secret / errmsg。
         _logger.info(
-            "wecom_call", extra={"operation": "oauth_exchange", "status": resp.status_code}
+            "wecom_call", extra=_oauth_exchange_log_extra(status=resp.status_code, data=data)
         )
         user_id = data.get("userid") or data.get("UserId")
         if not user_id:
