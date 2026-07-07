@@ -429,11 +429,19 @@ async def wecom_callback(
     # state 校验（CSRF）：query state 必须存在且与 cookie 一致。
     response.delete_cookie(key=_OAUTH_STATE_COOKIE, path="/")
     if not state or not kap_oauth_state or not secrets.compare_digest(state, kap_oauth_state):
+        await _audit_wecom_denied(
+            session, user=None, trace_id=trace_id, reason="oauth_state_invalid"
+        )
+        await session.commit()
         raise HTTPException(
             status_code=400,
             detail={"denied_reason": "oauth_state_invalid", "message": "state 校验失败"},
         )
     if not code:
+        await _audit_wecom_denied(
+            session, user=None, trace_id=trace_id, reason="oauth_code_missing"
+        )
+        await session.commit()
         raise HTTPException(
             status_code=400, detail={"denied_reason": "oauth_code_missing", "message": "缺少 code"}
         )

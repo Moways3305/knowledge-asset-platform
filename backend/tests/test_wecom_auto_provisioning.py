@@ -220,6 +220,51 @@ async def test_upstream_error_fails_safely_and_audit_has_no_leaks(client, db_ses
     assert events[0].extra["reason"] == "wecom_status_check_failed"
 
 
+async def test_state_and_code_rejections_write_safe_denied_audit(client, db_session):
+    fake = FakeOAuth()
+    _install(fake)
+    await client.get(START)
+    state = client.cookies.get("kap_oauth_state")
+
+    bad_state = await client.get(
+        CALLBACK,
+        params={"code": "code-should-not-leak", "state": "tampered-state"},
+        headers={"X-Trace-Id": "trc-state-denied"},
+    )
+    assert bad_state.status_code == 400
+    assert bad_state.json()["detail"]["denied_reason"] == "oauth_state_invalid"
+    assert fake.exchanged_codes == []
+
+    await client.get(START)
+    state = client.cookies.get("kap_oauth_state")
+    missing_code = await client.get(
+        CALLBACK,
+        params={"state": state},
+        headers={"X-Trace-Id": "trc-code-denied"},
+    )
+    assert missing_code.status_code == 400
+    assert missing_code.json()["detail"]["denied_reason"] == "oauth_code_missing"
+
+    events = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(
+                    AuditEvent.trace_id.in_(["trc-state-denied", "trc-code-denied"])
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert {e.action for e in events} == {"auth.wecom_login_denied"}
+    assert {e.actor_user_id for e in events} == {None}
+    assert {e.extra["reason"] for e in events} == {"oauth_state_invalid", "oauth_code_missing"}
+    audit_blob = str([e.extra for e in events])
+    for token in ("code-should-not-leak", "tampered-state", state or ""):
+        if token:
+            assert token not in audit_blob
+
+
 async def test_people_list_can_see_auto_created_user_without_wecom_id_leak(client):
     r = await _callback(client, FakeOAuth(user_id="ww_people"))
     assert r.status_code == 200, r.text
