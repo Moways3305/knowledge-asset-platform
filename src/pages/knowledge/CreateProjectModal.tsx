@@ -9,7 +9,7 @@ import ConfirmDialog from "../../components/ConfirmDialog";
 import FormField from "../../components/FormField";
 
 // 新建项目知识库模态。自包含表单态 + 创建调用：仅 boss / 咨询总监可见入口。
-// 创建真实 projects + active project_manager；候选人来自真实后端 active 业务用户。
+// 创建项目并写入 active project_manager；候选人来自 active 业务用户。
 interface CreateProjectModalProps {
   open: boolean;
   onClose: () => void;
@@ -113,7 +113,7 @@ export default function CreateProjectModal({ open, onClose, onCreated }: CreateP
         </select>
       </FormField>
       <p className="kl-modal-hint">
-        生命周期路线默认完整路线（route_A）。候选人来自真实后端 active 业务用户。
+        生命周期路线默认完整路线（route_A）。候选人来自当前可用的业务用户。
       </p>
     </ConfirmDialog>
   );

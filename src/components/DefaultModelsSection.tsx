@@ -8,7 +8,7 @@ import type { DefaultModelsDTO, ModelDTO } from "../types/weknoraAdmin";
 // - 用对底座 id 不可逆的 model_ref 选择；绝不展示 / 提交真实 model_id。
 // - 保存会整体覆盖四个槽位，故每次提交携带全部当前选择，避免无意清空其它默认槽位。
 //
-// 平台默认 embedding 未配置时显式提示，提醒管理员配置（顾问入库会被 fail-closed 禁用）。
+// 平台默认 embedding / chat 未配置时显式提示，提醒管理员配置。
 export default function DefaultModelsSection({
   models,
   canEdit,
@@ -106,14 +106,13 @@ export default function DefaultModelsSection({
   };
 
   const embeddingMissing = current !== null && !current.embedding?.model_ref;
+  const chatMissing = current !== null && !current.chat?.model_ref;
 
   return (
     <section className="ws-section">
       <h3>平台默认模型</h3>
       <p className="au-note">
-        平台默认模型用于顾问入库 / 建库时的推荐选择；未配置默认 embedding
-        时，顾问入库会被禁用并提示联系管理员（不再从 .env 静默兜底）。本区仅用对底座 id 不可逆的
-        model_ref 选择，不显示底座内部标识。
+        平台默认模型用于顾问入库与知识库初始化；默认嵌入模型和默认问答模型为必填。未配置完整时，入库会提示联系管理员。本区使用安全引用选择模型，不显示内部标识。
         {canEdit ? "" : "（只读：治理角色可查看，修改需系统管理员）"}
       </p>
       {embeddingMissing && (
@@ -122,7 +121,16 @@ export default function DefaultModelsSection({
           role="alert"
           style={{ color: "var(--color-danger-fg, #b00)" }}
         >
-          尚未配置默认 embedding 模型，顾问入库将被禁用，请在下方设置后保存。
+          尚未配置默认嵌入模型，顾问入库将被禁用，请在下方设置后保存。
+        </div>
+      )}
+      {chatMissing && (
+        <div
+          className="ws-note-hint"
+          role="alert"
+          style={{ color: "var(--color-danger-fg, #b00)" }}
+        >
+          尚未配置默认问答模型，知识库初始化将被禁用，请在下方设置后保存。
         </div>
       )}
       {error && (
@@ -145,7 +153,7 @@ export default function DefaultModelsSection({
           current?.embedding,
         )}
         {slot("默认重排 rerank（可选）", rerank, setRerank, "rerank", true, current?.rerank)}
-        {slot("默认对话 chat（可选）", chat, setChat, "chat", true, current?.chat)}
+        {slot("默认问答模型", chat, setChat, "chat", false, current?.chat)}
         {slot("默认多模态（可选）", multimodal, setMultimodal, "vllm", true, current?.multimodal)}
       </div>
       {canEdit && (

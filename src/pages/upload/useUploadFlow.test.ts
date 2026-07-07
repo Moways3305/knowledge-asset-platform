@@ -120,7 +120,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(ingest.confirmIngest.mock.calls[0][1].embedding_model_ref).toBe("ref_emb_alt");
   });
 
-  it("平台默认 embedding 缺失（blockSubmit）时禁用提交", async () => {
+  it("平台默认嵌入或问答模型缺失（blockSubmit）时禁用提交", async () => {
     modelState.current = {
       ...modelState.current,
       defaultMissing: true,

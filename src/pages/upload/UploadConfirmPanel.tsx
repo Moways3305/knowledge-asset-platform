@@ -94,9 +94,7 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
             <span>来源：{sourceFile}</span>
             <span>来源渠道：{sourceLabel}</span>
           </div>
-          <p className="preview-hint">
-            * 以上为真实抽取 + 外部 LLM 内容处理建议（失败时降级为确定性建议），下方可编辑校正
-          </p>
+          <p className="preview-hint">* 以上为平台生成的内容建议，下方可编辑校正</p>
         </div>
       </section>
 
@@ -105,14 +103,12 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
         <h3>人工校正</h3>
         <p className="correction-hint">
           {confirmReady
-            ? "以下字段来自真实抽取 + 外部 LLM 内容处理（降级时为确定性建议），可直接编辑修改后提交。"
+            ? "以下字段来自平台生成的内容建议，可直接编辑修改后提交。"
             : "处理中 / 已提交 / 处理失败时字段不可编辑。"}
         </p>
         {llmStatus && (
           <div className={`up-llm-status up-llm-${llmStatus.status ?? "unknown"}`}>
-            {llmStatus.status === "llm"
-              ? `内容建议由外部 LLM 生成（${llmStatus.provider ?? "—"}）`
-              : "外部 LLM 未启用或调用失败，已降级为确定性建议，请人工补全三层摘要"}
+            {llmStatus.status === "llm" ? "内容建议已生成" : "内容建议生成受限，请人工补全三层摘要"}
           </div>
         )}
         <div className="correction-grid">
@@ -412,14 +408,13 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
           resultAssetId &&
           (submitIndexStatus === "index_failed" ? (
             <div className="up-submit-notice" style={{ color: "var(--color-warning-fg, #8a6d00)" }}>
-              已确认入库并保存校正内容（zone =
-              material），但知识底座索引暂未完成，稍后可重试或联系管理员；在此之前该资产可能暂不可被语义检索召回。
+              已确认入库并保存校正内容，但检索索引暂未完成，稍后可重试或联系管理员；在此之前该资产可能暂不可被语义检索召回。
               <Link to={`/knowledge/${resultAssetId}`}>查看新资产 →</Link>
             </div>
           ) : (
             <div className="up-submit-notice">
-              已真实入库（zone = material）
-              {submitIndexStatus === "skipped" ? "；知识底座未启用，已跳过索引" : ""}。
+              已保存入库
+              {submitIndexStatus === "skipped" ? "；检索索引暂未启用，已跳过索引" : ""}。
               <Link to={`/knowledge/${resultAssetId}`}>查看新资产 →</Link>
             </div>
           ))}

@@ -30,7 +30,7 @@ export const extractionLabel: Record<string, string> = {
   failed: "抽取失败（文件可能损坏）",
 };
 
-// 入库前置脱敏类别 → 中文标签（仅展示类别计数，不含原值）。
+// 敏感信息类别 → 中文标签（仅展示类别计数，不含原值）。
 export const desensCategoryLabel: Record<string, string> = {
   email: "邮箱",
   phone: "手机号",

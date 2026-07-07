@@ -4587,7 +4587,7 @@
         "type": "object"
       },
       "ModelOptionsResponse": {
-        "description": "顾问侧模型选项响应。\n\n`default_missing`：平台默认 **embedding** 模型未配置（前端据此禁用提交并提示联系管理员）。\n即便缺默认，仍返回可选模型列表，供管理员配置前查看。",
+        "description": "顾问侧模型选项响应。\n\n`default_missing`：平台默认 **embedding** 或 **KnowledgeQA** 模型未配置（前端据此禁用提交并提示联系管理员）。\n即便缺默认，仍返回可选模型列表，供管理员配置前查看。",
         "properties": {
           "default_missing": {
             "default": true,

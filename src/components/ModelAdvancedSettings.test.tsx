@@ -85,7 +85,7 @@ describe("ModelAdvancedSettings", () => {
       <ModelAdvancedSettings models={makeModels({ defaultMissing: true, blockSubmit: true })} />,
     );
     expect(
-      screen.getByText("尚未配置默认模型，请联系管理员在模型配置中设置。"),
+      screen.getByText("尚未配置默认嵌入或问答模型，请联系管理员在模型配置中设置。"),
     ).toBeInTheDocument();
   });
 

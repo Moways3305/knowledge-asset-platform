@@ -105,12 +105,12 @@ const assetTypeLabel: Record<string, string> = {
 
 const confidenceText = (c: number | null) => (c == null ? "—" : `${Math.round(c * 100)}%`);
 
-// 平台级底座索引状态展示。
+// 平台级检索索引状态展示。
 const indexStatusLabel: Record<string, string> = {
   indexed: "已索引",
   indexing: "索引中",
   index_failed: "索引失败",
-  skipped: "未索引（底座未启用 / 已跳过）",
+  skipped: "未索引（索引未启用 / 已跳过）",
   not_indexed: "待索引",
 };
 
@@ -219,9 +219,9 @@ export default function KnowledgeDetailPage() {
     setRetryErr(null);
     try {
       const r = await retryKnowledgeIndex(id);
-      if (r.index_status === "indexed") setRetryNote("已重新索引到知识底座。");
-      else if (r.index_status === "skipped") setRetryNote("知识底座未启用，已标记为跳过索引。");
-      else setRetryNote(r.index_error_message ?? "重试后底座仍失败，可稍后再试或联系管理员。");
+      if (r.index_status === "indexed") setRetryNote("已重新完成检索索引。");
+      else if (r.index_status === "skipped") setRetryNote("检索索引暂未启用，已标记为跳过索引。");
+      else setRetryNote(r.index_error_message ?? "重试后索引仍失败，可稍后再试或联系管理员。");
       await reloadAsset();
     } catch (e) {
       setRetryErr(
@@ -650,9 +650,9 @@ export default function KnowledgeDetailPage() {
         </div>
       </section>
 
-      {/* 知识底座索引状态。未索引资产不会被语义检索召回；可重试者可重新推进底座。 */}
+      {/* 检索索引状态。未索引资产不会被语义检索召回；可重试者可重新推进索引。 */}
       <section className="detail-section">
-        <h3>知识底座索引</h3>
+        <h3>检索索引</h3>
         <div className="lifecycle-status-grid">
           <div className="lifecycle-status-card">
             <div className="lifecycle-status-label">索引状态</div>
@@ -667,7 +667,7 @@ export default function KnowledgeDetailPage() {
             </div>
           </div>
           <div className="lifecycle-status-card">
-            <div className="lifecycle-status-label">底座解析状态</div>
+            <div className="lifecycle-status-label">解析状态</div>
             <div className="lifecycle-status-value">{asset.parseStatus ?? "—"}</div>
           </div>
           <div className="lifecycle-status-card">
@@ -683,12 +683,12 @@ export default function KnowledgeDetailPage() {
             style={{ color: "var(--color-warning-fg, #8a6d00)" }}
           >
             {asset.indexErrorMessage ??
-              "知识底座索引失败：资产已保留，但暂不会被语义检索召回，可重试。"}
+              "检索索引失败：资产已保留，但暂不会被语义检索召回，可重试。"}
           </div>
         )}
         {asset.indexStatus === "skipped" && (
           <div className="lifecycle-status-hint">
-            知识底座未启用，已跳过索引；该资产暂不会被语义检索召回。
+            检索索引暂未启用，已跳过索引；该资产暂不会被语义检索召回。
           </div>
         )}
         {asset.access.canRetryIndex && (
@@ -760,7 +760,7 @@ export default function KnowledgeDetailPage() {
               </a>
               <div className="doc-preview-note">
                 预览由平台权限网关签发凭证、只读打开（仅查看，禁编辑 / 下载 /
-                打印），全程审计；未配置预览服务或该类型不支持时安全降级，不暴露原文地址。详细预览与凭证边界见{" "}
+                打印），全程审计；未启用预览服务或该类型不支持时，不暴露原文地址。详细预览与凭证边界见{" "}
                 <Link to="/help#knowledge" className="page-help-link">
                   使用说明 →
                 </Link>

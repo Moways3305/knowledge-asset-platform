@@ -42,7 +42,7 @@ describe("useModelSelection", () => {
     expect(result.current.blockSubmit).toBe(false);
   });
 
-  it("默认 embedding 缺失时 blockSubmit=true", async () => {
+  it("默认嵌入或问答模型缺失时 blockSubmit=true", async () => {
     api.fetchModelOptions.mockResolvedValue({
       items: [{ ...embDefault, is_default: false }],
       default_missing: true,

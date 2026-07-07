@@ -58,15 +58,27 @@ def _locked(existing: WeknoraKbMapping, models: ResolvedModels) -> bool:
     )
 
 
-def _init_kwargs(models: ResolvedModels, embedding_model_id: str) -> dict[str, str | None]:
-    """KB 初始化模型 id（仅非空才发送）。embedding 用已绑定/已解析 id；
-    chat/rerank/multimodal 取自解析结果（平台默认或显式 rerank）。summary 不参与（走外部 LLM）。
+def _init_kwargs(models: ResolvedModels, embedding_model_id: str) -> dict[str, object]:
+    """KB 初始化契约。create_kb 仍用 server-only id 锁定 embedding；初始化只发 source/name。
+
+    旧版 `*_model_id` 不再进入初始化 payload，避免与当前 WeKnora contract 冲突。
     """
+    embedding = models.models_by_id.get(embedding_model_id) if models.models_by_id else None
+    if embedding is None and models.embedding_model_id == embedding_model_id:
+        embedding = models.embedding
+    if embedding is None and not models.explicit_embedding:
+        embedding = models.embedding
+    chat = models.chat
+    if embedding is None or chat is None:
+        raise WeKnoraError(
+            "weknora_init_contract_incomplete",
+            "WeKnora 知识库初始化缺少必需的模型配置",
+        )
     return {
-        "embedding_model_id": embedding_model_id or None,
-        "chat_model_id": models.chat_model_id or None,
-        "rerank_model_id": models.rerank_model_id or None,
-        "multimodal_id": models.multimodal_id or None,
+        "embedding_source": embedding.source,
+        "embedding_model_name": embedding.model_name,
+        "llm_source": chat.source,
+        "llm_model_name": chat.model_name,
     }
 
 
@@ -144,9 +156,16 @@ async def resolve_or_create_kb(
                 "该知识库已绑定嵌入模型，如需切换请先重建索引",
             )
         bound = existing.embedding_model_id or models.embedding_model_id
-        await client.initialize_kb(
-            existing.weknora_kb_id, trace_id=trace_id, **_init_kwargs(models, bound)
-        )
+        try:
+            await client.initialize_kb(
+                existing.weknora_kb_id, trace_id=trace_id, **_init_kwargs(models, bound)
+            )
+        except WeKnoraError as exc:
+            _logger.warning(
+                "kb_init_retry_failed",
+                extra={"scope": scope, "error_code": exc.code},
+            )
+            raise
         existing.status = _STATUS_ACTIVE
         await session.commit()
         return existing.weknora_kb_id
@@ -196,7 +215,11 @@ async def resolve_or_create_kb(
     # 仅记 scope + 初始化结果；**绝不**记 weknora_kb_id（server-only）。
     _logger.info(
         "kb_created",
-        extra={"scope": scope, "status": "active" if init_error is None else "init_failed"},
+        extra={
+            "scope": scope,
+            "status": "active" if init_error is None else "init_failed",
+            **({"error_code": init_error.code} if init_error is not None else {}),
+        },
     )
     if init_error is not None:
         # 映射已落库为 init_failed，抛出让调用方标 index_failed（资产不回滚）。

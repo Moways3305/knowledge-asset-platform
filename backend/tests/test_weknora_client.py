@@ -65,10 +65,13 @@ class FakeWeKnora:
         self,
         kb_id,
         *,
-        chat_model_id=None,
-        embedding_model_id=None,
-        rerank_model_id=None,
-        multimodal_id=None,
+        llm_source=None,
+        llm_model_name=None,
+        embedding_source=None,
+        embedding_model_name=None,
+        chunk_size=None,
+        chunk_overlap=None,
+        separators=None,
         trace_id=None,
     ):
         if self.init_fail:
@@ -76,8 +79,12 @@ class FakeWeKnora:
         self.initialized.append(
             {
                 "kb_id": kb_id,
-                "embedding_model_id": embedding_model_id,
-                "chat_model_id": chat_model_id,
+                "llm_source": llm_source,
+                "llm_model_name": llm_model_name,
+                "embedding_source": embedding_source,
+                "embedding_model_name": embedding_model_name,
+                "chunk_size": chunk_size,
+                "separators": separators,
             }
         )
 
@@ -188,10 +195,56 @@ def test_client_unwrap_success_error_and_409():
     assert ed.value.existing_knowledge_id == "doc-x"
 
 
-async def test_initialize_kb_skips_when_no_models():
-    # 无任何模型 id → 不发网络、不抛（KB 依赖 WeKnora 租户默认）。
+async def test_initialize_kb_requires_current_contract():
     c = WeKnoraClient(base_url="http://x", api_key="sk-test")
-    assert await c.initialize_kb("kb-1") is None
+    with pytest.raises(WeKnoraError) as ei:
+        await c.initialize_kb("kb-1")
+    assert ei.value.code == "weknora_init_contract_incomplete"
+
+
+async def test_initialize_kb_sends_current_weknora_contract(monkeypatch):
+    sent: dict = {}
+
+    class _FakeAsyncClient:
+        def __init__(self, *_, **__):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        async def post(self, url, json, headers):
+            sent["url"] = url
+            sent["json"] = json
+            sent["headers"] = headers
+            return httpx.Response(200, json={"success": True, "data": {}})
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+    c = WeKnoraClient(base_url="http://wk", api_key="sk-test")
+    await c.initialize_kb(
+        "kb-secret",
+        llm_source="remote",
+        llm_model_name="deepseek-v4-flash",
+        embedding_source="remote",
+        embedding_model_name="embedding-3",
+        trace_id="trc-init",
+    )
+
+    assert sent["url"] == "http://wk/api/v1/initialization/initialize/kb-secret"
+    assert sent["headers"]["X-Request-ID"] == "trc-init"
+    assert sent["json"] == {
+        "llm": {"source": "remote", "modelName": "deepseek-v4-flash"},
+        "embedding": {"source": "remote", "modelName": "embedding-3"},
+        "documentSplitting": {
+            "chunkSize": 512,
+            "chunkOverlap": 80,
+            "separators": ["\n\n", "\n", "。", "！", "？", ";", "；"],
+        },
+    }
+    assert "embedding_model_id" not in str(sent["json"])
+    assert "chat_model_id" not in str(sent["json"])
 
 
 def test_initialize_unwrap_error_redacts():

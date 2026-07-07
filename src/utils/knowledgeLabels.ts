@@ -46,11 +46,11 @@ export const accessLayerLabel: Record<string, string> = {
   original: "原文层",
 };
 
-// 平台级底座索引状态（小角标）。indexed 为常态，不展示角标。
+// 平台级检索索引状态（小角标）。indexed 为常态，不展示角标。
 export const indexStatusLabel: Record<string, string> = {
   indexing: "索引中",
   index_failed: "索引失败",
-  skipped: "未索引底座",
+  skipped: "未索引",
   not_indexed: "待索引",
 };
 
@@ -62,7 +62,7 @@ export const spineByLevel = (level: string) => `conf-${level}`;
 export const spineByVisibility = (v: FrontVisibility) =>
   v === "public" ? "conf-L1" : v === "confidential" ? "conf-L4" : "conf-L2";
 
-// 浏览卡底座索引状态 → 角标修饰类。
+// 浏览卡检索索引状态 → 角标修饰类。
 export const indexBadgeClass = (status: string | null) =>
   status === "indexing"
     ? "idx-indexing"

@@ -20,7 +20,7 @@ from app.services.weknora_client import get_weknora_client
 from app.services.weknora_models import _model_ref
 
 URL = "/api/v1/weknora/model-options"
-_RAW_IDS = ["mid-emb", "mid-emb2", "mid-rerank", "mid-disabled"]
+_RAW_IDS = ["mid-emb", "mid-emb2", "mid-rerank", "mid-disabled", "mid-chat"]
 
 
 def _hdr(user_id):
@@ -34,6 +34,7 @@ class FakeWK:
             "mid-emb2": _m("mid-emb2", "bge-large", "Embedding"),
             "mid-rerank": _m("mid-rerank", "gte-rerank", "Rerank"),
             "mid-disabled": _m("mid-disabled", "old-embedding", "Embedding", status="inactive"),
+            "mid-chat": _m("mid-chat", "deepseek-chat", "KnowledgeQA"),
         }
 
     async def list_models(self, *, trace_id=None):
@@ -67,7 +68,7 @@ async def test_consultant_can_read(client, wk):
     r = await client.get(URL, headers=_hdr(USER_CONSULTANT))
     assert r.status_code == 200, r.text
     body = r.json()
-    assert len(body["items"]) == 4
+    assert len(body["items"]) == 5
     for it in body["items"]:
         assert it["model_ref"] and "model_id" not in it and "id" not in it
 
@@ -116,7 +117,7 @@ async def test_is_default_marked_only_for_platform_default(client, wk, db_sessio
         db_session,
         embedding_model_id="mid-emb",
         rerank_model_id="mid-rerank",
-        chat_model_id=None,
+        chat_model_id="mid-chat",
         multimodal_id=None,
         updated_by=None,
     )
@@ -142,8 +143,26 @@ async def test_default_missing_when_unset_still_lists(client, wk):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["default_missing"] is True
-    assert len(body["items"]) == 4
+    assert len(body["items"]) == 5
     assert all(it["is_default"] is False for it in body["items"])
+
+
+async def test_default_missing_when_chat_unset_even_if_embedding_configured(client, wk, db_session):
+    await weknora_defaults.set_defaults(
+        db_session,
+        embedding_model_id="mid-emb",
+        rerank_model_id=None,
+        chat_model_id=None,
+        multimodal_id=None,
+        updated_by=None,
+    )
+    await db_session.commit()
+    r = await client.get(URL, headers=_hdr(USER_CONSULTANT))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["default_missing"] is True
+    by_ref = {it["model_ref"]: it for it in body["items"]}
+    assert by_ref[_model_ref("mid-emb")]["is_default"] is True
 
 
 # ---------------------------------------------------------------------------

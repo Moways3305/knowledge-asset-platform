@@ -190,10 +190,6 @@ export default function KnowledgeCardList(props: KnowledgeCardListProps) {
             </p>
           </div>
         )}
-
-        {searchResult?.trace_id && (
-          <div className="kb-trace">检索追踪 ID：{searchResult.trace_id}</div>
-        )}
       </>
     );
   }

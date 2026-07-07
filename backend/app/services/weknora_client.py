@@ -28,6 +28,10 @@ from app.core.logging import safe_log_exception
 
 _logger = logging.getLogger(__name__)
 
+DEFAULT_INIT_CHUNK_SIZE = 512
+DEFAULT_INIT_CHUNK_OVERLAP = 80
+DEFAULT_INIT_SEPARATORS = ["\n\n", "\n", "。", "！", "？", ";", "；"]
+
 
 def _resource_of(path: str) -> str:
     """仅取 URL 的**首层资源名**（REST 中首段恒为资源、绝不是 id），其余段（可能含
@@ -184,30 +188,49 @@ class WeKnoraClient:
         self,
         kb_id: str,
         *,
-        chat_model_id: str | None = None,
-        embedding_model_id: str | None = None,
-        rerank_model_id: str | None = None,
-        multimodal_id: str | None = None,
+        llm_source: str | None = None,
+        llm_model_name: str | None = None,
+        embedding_source: str | None = None,
+        embedding_model_name: str | None = None,
+        chunk_size: int = DEFAULT_INIT_CHUNK_SIZE,
+        chunk_overlap: int = DEFAULT_INIT_CHUNK_OVERLAP,
+        separators: list[str] | None = None,
         trace_id: str | None = None,
     ) -> None:
         """初始化 KB 的模型配置（`POST /initialization/initialize/:kb_id`）。
 
-        只发送非空模型 id（部分配置也写入，确保至少有 embedding）。失败抛 `WeKnoraError`
-        （结构化 code/message，不含 api_key / 模型内部 id 调试 payload），由调用方据此进入
+        发送 WeKnora 当前初始化契约需要的模型来源/模型名与切分配置，不再发送旧版
+        `*_model_id` 字段。失败抛 `WeKnoraError`（结构化 code/message，不含 api_key /
+        模型内部 id / 调试 payload），由调用方据此进入
         可诊断的 index_failed / init_failed 状态——**绝不**静默假成功。
         """
-        payload: dict[str, Any] = {}
-        if chat_model_id:
-            payload["chat_model_id"] = chat_model_id
-        if embedding_model_id:
-            payload["embedding_model_id"] = embedding_model_id
-        if rerank_model_id:
-            payload["rerank_model_id"] = rerank_model_id
-        if multimodal_id:
-            payload["multimodal_id"] = multimodal_id
-        if not payload:
-            # 无任何模型 id 可写：跳过初始化（KB 依赖 WeKnora 租户默认）。不报错，但也不假装已配。
-            return
+        if not all(
+            [
+                (llm_source or "").strip(),
+                (llm_model_name or "").strip(),
+                (embedding_source or "").strip(),
+                (embedding_model_name or "").strip(),
+            ]
+        ):
+            raise WeKnoraError(
+                "weknora_init_contract_incomplete",
+                "WeKnora 知识库初始化缺少必需的模型配置",
+            )
+        payload: dict[str, Any] = {
+            "llm": {
+                "source": str(llm_source).strip(),
+                "modelName": str(llm_model_name).strip(),
+            },
+            "embedding": {
+                "source": str(embedding_source).strip(),
+                "modelName": str(embedding_model_name).strip(),
+            },
+            "documentSplitting": {
+                "chunkSize": chunk_size,
+                "chunkOverlap": chunk_overlap,
+                "separators": separators or DEFAULT_INIT_SEPARATORS,
+            },
+        }
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(
                 f"{self._base}/initialization/initialize/{kb_id}",

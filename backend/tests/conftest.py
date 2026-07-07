@@ -66,9 +66,18 @@ def patch_default_model(monkeypatch, *, embedding="test-embed", explicit=False):
     indexing（confirm/retry/index/reparse）、personal_kb（个人建库）、weknora_model_selection
     源（ensure_project_kb 的函数内 import）。模型选择本身另有专测覆盖。
     """
-    from app.services.weknora_model_selection import ResolvedModels
+    from app.services.weknora_model_selection import ModelInitMeta, ResolvedModels
 
-    resolved = ResolvedModels(embedding_model_id=embedding, explicit_embedding=explicit)
+    emb = ModelInitMeta(embedding, "remote", embedding, "embedding")
+    chat = ModelInitMeta("test-chat", "remote", "test-chat", "chat")
+    resolved = ResolvedModels(
+        embedding_model_id=embedding,
+        explicit_embedding=explicit,
+        chat_model_id=chat.model_id,
+        embedding=emb,
+        chat=chat,
+        models_by_id={embedding: emb, chat.model_id: chat},
+    )
 
     async def _resolve(*_a, **_k):
         return resolved

@@ -18,7 +18,7 @@ describe("StatusBadge", () => {
   });
 
   it("sets the title attribute when provided", () => {
-    render(<StatusBadge label="索引中" title="知识底座索引状态" />);
-    expect(screen.getByText("索引中")).toHaveAttribute("title", "知识底座索引状态");
+    render(<StatusBadge label="索引中" title="检索索引状态" />);
+    expect(screen.getByText("索引中")).toHaveAttribute("title", "检索索引状态");
   });
 });

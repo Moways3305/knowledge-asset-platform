@@ -40,8 +40,7 @@ export default function UploadPage() {
         >
           <div className="up-path-card-title">路径B：本地上传资产化</div>
           <div className="up-path-card-desc">
-            手动选择本地文件，上传至平台受控存储后由 worker 异步抽取 + 外部 LLM
-            生成建议，人工校正后提交入库
+            手动选择本地文件，上传至平台受控存储后生成结构化建议，人工校正后提交入库
           </div>
         </button>
       </div>
@@ -71,8 +70,8 @@ export default function UploadPage() {
             </div>
             <p>
               {flowState === "processing"
-                ? "文件已上传至平台受控存储，worker 正在异步抽取文本并调用外部 LLM 生成建议，请稍候…"
-                : "选择文件并启动资产化后，平台将异步抽取文本并由外部 LLM 生成标题、摘要、标签等结构化建议（LLM 不可用时降级为确定性建议）"}
+                ? "文件已上传至平台受控存储，正在抽取文本并生成结构化建议，请稍候…"
+                : "选择文件并启动资产化后，平台将生成标题、摘要、标签等结构化建议，供你在提交前校正。"}
             </p>
           </div>
         </section>

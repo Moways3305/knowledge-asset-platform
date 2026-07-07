@@ -129,7 +129,7 @@ export default function MyKnowledgePage() {
       const data = await renameMyKnowledgeBase(name);
       setKb(data);
       setKbEditing(false);
-      if (data.weknora_sync_failed) setKbError("名称已保存，底座同步稍后重试");
+      if (data.weknora_sync_failed) setKbError("名称已保存，检索服务同步稍后重试");
     } catch (e) {
       setKbError(describeError(e, "改名失败"));
     } finally {
@@ -665,9 +665,7 @@ export default function MyKnowledgePage() {
 
       <section className="mk-section">
         <div className="mk-action-note">
-          个人知识列表与写动作均来自真实后端 <code>/api/v1/my/knowledge/*</code>
-          ：本人资产确认、提交项目资料（生成审核任务）、内部分享 /
-          客户验证候选（登记证据线索）经后端权限校验、幂等与审计。提交到项目为「待项目经理确认」，不等于已入项目库。
+          个人知识的查看、提交、分享与客户验证登记均受权限与操作记录保护。提交到项目后会进入「待项目经理确认」，通过前不会直接进入项目库。
         </div>
       </section>
     </div>

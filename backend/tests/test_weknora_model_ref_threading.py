@@ -27,7 +27,7 @@ from app.services.weknora_models import _model_ref
 UPLOAD = "/api/v1/ingest/upload"
 MYKB = "/api/v1/my/knowledge-base"
 _TXT = "模型穿透测试\n标题\n正文内容。".encode()
-_RAW_IDS = ["emb-A", "emb-B", "rr-1"]
+_RAW_IDS = ["emb-A", "emb-B", "rr-1", "chat-1"]
 
 
 def _hdr(uid):
@@ -45,9 +45,34 @@ class FullFakeWK:
 
     async def list_models(self, *, trace_id=None):
         return [
-            {"id": "emb-A", "name": "embed-a", "type": "Embedding", "status": "active"},
-            {"id": "emb-B", "name": "embed-b", "type": "Embedding", "status": "active"},
-            {"id": "rr-1", "name": "rerank-1", "type": "Rerank", "status": "active"},
+            {
+                "id": "emb-A",
+                "name": "embed-a",
+                "type": "Embedding",
+                "source": "remote",
+                "status": "active",
+            },
+            {
+                "id": "emb-B",
+                "name": "embed-b",
+                "type": "Embedding",
+                "source": "remote",
+                "status": "active",
+            },
+            {
+                "id": "rr-1",
+                "name": "rerank-1",
+                "type": "Rerank",
+                "source": "remote",
+                "status": "active",
+            },
+            {
+                "id": "chat-1",
+                "name": "chat-1",
+                "type": "KnowledgeQA",
+                "source": "remote",
+                "status": "active",
+            },
         ]
 
     async def create_kb(self, *, name, embedding_model_id, trace_id=None, **_):
@@ -81,12 +106,12 @@ def _disable() -> None:
     app.dependency_overrides.pop(get_weknora_client, None)
 
 
-async def _set_default(db_session, *, embedding="emb-A", rerank=None) -> None:
+async def _set_default(db_session, *, embedding="emb-A", rerank=None, chat="chat-1") -> None:
     await weknora_defaults.set_defaults(
         db_session,
         embedding_model_id=embedding,
         rerank_model_id=rerank,
-        chat_model_id=None,
+        chat_model_id=chat,
         multimodal_id=None,
         updated_by=None,
     )
