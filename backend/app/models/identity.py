@@ -17,6 +17,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     String,
+    Text,
     UniqueConstraint,
     Uuid,
 )
@@ -34,14 +35,24 @@ class User(Base):
     """
 
     __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("wecom_corp_id", "wecom_user_id", name="uq_users_wecom_corp_userid"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    # 企微用户标识（WeCom OAuth 身份解析键）。唯一、可空——
-    # 仅已绑定企微的用户有值；不自动从企微建用户。
-    wecom_user_id: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
+    # 企微绑定键：corp_id + userid 唯一。userid 为 server-only，API 只暴露 wecom_bound。
+    wecom_corp_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    wecom_user_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # 企微安全展示/同步字段：不作为登录唯一身份，不进入审计 extra。
+    wecom_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    wecom_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    wecom_avatar: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    wecom_department_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
+    wecom_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # status：active / inactive。inactive 用户不应被视为有效业务身份。
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     # 密码凭证。password_hash 为 server-only PBKDF2 编码哈希（pbkdf2_sha256$...），

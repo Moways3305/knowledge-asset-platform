@@ -49,15 +49,18 @@ class WeComIdentity:
 class WeComMemberStatus:
     """规范化企微成员生命周期状态。
 
-    只承载**安全**字段：active 布尔 + 安全归一 code + 安全中文运营文案。`wecom_user_id` 为
-    server-only 关联键，**绝不**进 API 响应。**不含**手机/邮箱/部门/头像等通讯录档案字段，
-    也不回显上游原始 payload / errmsg。
+    只承载业务层同步所需的规范化字段。`wecom_user_id` 为 server-only 关联键，**绝不**
+    进 API 响应或审计。不会携带上游原始 payload / errmsg / token。
     """
 
     wecom_user_id: str  # server-only，不外泄
     active: bool
     status_code: str  # active / disabled / not_activated / deleted / unknown
     status_message: str  # 安全中文文案，非上游 errmsg
+    name: str | None = None
+    email: str | None = None
+    avatar: str | None = None
+    department_ids: tuple[str, ...] = ()
 
 
 # 企微 user/get `status`：1 已激活 / 2 已禁用 / 4 未激活 / 5 退出企业。仅 1 视为有效。
@@ -74,8 +77,7 @@ _WECOM_NOTFOUND_ERRCODES = {60111, 60121, 46004}
 def normalize_member_status(wecom_user_id: str, data: dict[str, Any]) -> WeComMemberStatus:
     """把企微 user/get 响应归一为安全 WeComMemberStatus（不回显原始 payload/errmsg）。
 
-    仅读 `errcode` / `status` 两个非敏感字段；忽略 name/mobile/email/department/avatar 等
-    通讯录档案字段（绝不读取/外泄）。未知一律 fail-closed（active=False）。
+    读取成员生命周期与安全展示字段供服务端身份同步使用；未知状态一律 fail-closed。
     """
     try:
         errcode = int(data.get("errcode", 0) or 0)
@@ -90,7 +92,23 @@ def normalize_member_status(wecom_user_id: str, data: dict[str, Any]) -> WeComMe
     except (TypeError, ValueError):
         status = 0
     code, active, msg = _WECOM_STATUS_MAP.get(status, ("unknown", False, "企微成员状态未知"))
-    return WeComMemberStatus(wecom_user_id, active, code, msg)
+    name = str(data.get("name") or "").strip() or None
+    email = str(data.get("email") or "").strip() or None
+    avatar = str(data.get("avatar") or data.get("thumb_avatar") or "").strip() or None
+    departments = data.get("department") or ()
+    if not isinstance(departments, (list, tuple)):
+        departments = ()
+    department_ids = tuple(str(d).strip() for d in departments if str(d).strip())
+    return WeComMemberStatus(
+        wecom_user_id,
+        active,
+        code,
+        msg,
+        name=name,
+        email=email,
+        avatar=avatar,
+        department_ids=department_ids,
+    )
 
 
 @dataclass(frozen=True)
@@ -161,6 +179,11 @@ class WeComOAuthClient:
             + "#wechat_redirect"
         )
 
+    @property
+    def corp_id(self) -> str:
+        """当前 OAuth 客户端绑定的可信企业 ID（服务端配置）。"""
+        return self._corp_id
+
     async def _access_token(self, client: httpx.AsyncClient) -> str:
         resp = await client.get(
             f"{self._base}/cgi-bin/gettoken",
@@ -201,7 +224,7 @@ class WeComOAuthClient:
     async def get_member_status(
         self, wecom_user_id: str
     ) -> WeComMemberStatus:  # pragma: no cover - 真实网络
-        """查企微成员生命周期状态。失败只抛安全 WeComError；只读 status，不读档案。"""
+        """查企微成员生命周期与安全同步字段。失败只抛安全 WeComError。"""
         if not wecom_user_id:
             raise WeComError("wecom_missing_userid", "缺少企微成员标识")
         try:

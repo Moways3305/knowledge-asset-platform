@@ -418,6 +418,11 @@ class AuditAction(str, Enum):
     login_success = "login.success"
     login_failed = "login.failed"
     login_logout = "login.logout"
+    # 企微 OAuth 专用登录事件。extra 仅含 operation / created / login_method /
+    # company_role / reason_code 等安全枚举，不含 code/token/state/raw userid/ip。
+    auth_wecom_user_created = "auth.wecom_user_created"
+    auth_wecom_login_success = "auth.wecom_login_success"
+    auth_wecom_login_denied = "auth.wecom_login_denied"
     # 登录失败风控。锁定 / 限流均为系统事件（actor=None），extra 只含不可逆 hash
     # 前缀 / reason_code / 计数 / 窗口，绝不含 raw email / password / token / cookie / 原始 IP。
     login_locked = "login.locked"

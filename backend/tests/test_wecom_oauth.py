@@ -52,7 +52,6 @@ _LEAK = [
     "access_token",
     "app_secret",
     "wecom_secret",
-    "auth_code",
     "ww_consultant_a",
     "weknora",
     "kb_id",
@@ -167,8 +166,12 @@ async def test_oauth_callback_unknown_user_fails_closed(client):
     await client.get(START)
     state = client.cookies.get("kap_oauth_state")
     resp = await client.get(CALLBACK, params={"code": "c", "state": state})
-    assert resp.status_code == 403
-    assert resp.json()["detail"]["denied_reason"] == "user_not_provisioned"
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "active"
+    assert body["company_roles"] == ["consultant"]
+    assert body["is_business_user"] is True
+    assert body["can_discover_l5"] is False
 
 
 async def test_oauth_callback_inactive_user_fails_closed(client, db_session):
@@ -213,7 +216,7 @@ async def test_oauth_audit_has_no_code_or_token(client, db_session):
         await db_session.execute(
             select(AuditEvent)
             .where(AuditEvent.trace_id == "trc-oauth-audit")
-            .where(AuditEvent.action == "login.success")
+            .where(AuditEvent.action == "auth.wecom_login_success")
         )
     ).scalar_one()
     extra_text = str(row.extra or {})

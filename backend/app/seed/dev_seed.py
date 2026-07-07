@@ -61,7 +61,8 @@ async def seed_dev_identities(session: AsyncSession) -> None:
         name="顾问A",
         email="consultant.a@dev.local",
         status="active",
-        # 绑定企微身份（OAuth 回调按 wecom_user_id 解析平台用户）。
+        # 绑定企微身份（OAuth 回调按 corp_id + wecom_user_id 解析平台用户）。
+        wecom_corp_id="test_corp",
         wecom_user_id="ww_consultant_a",
     )
     consultant_a.company_roles.append(UserCompanyRole(company_role="consultant", status="active"))
