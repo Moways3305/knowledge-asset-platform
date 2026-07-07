@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from typing import TypedDict
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -39,6 +40,13 @@ DEFAULT_PERSONAL_KB_NAME = "我的知识库"
 _logger = logging.getLogger(__name__)
 
 
+class _InitKwargs(TypedDict):
+    embedding_source: str
+    embedding_model_name: str
+    llm_source: str
+    llm_model_name: str
+
+
 def _kb_name(scope: str, owner_user_id: uuid.UUID | None, project_id: uuid.UUID | None) -> str:
     if scope == KnowledgeScope.personal.value:
         return f"personal_{owner_user_id}_kb"
@@ -58,7 +66,7 @@ def _locked(existing: WeknoraKbMapping, models: ResolvedModels) -> bool:
     )
 
 
-def _init_kwargs(models: ResolvedModels, embedding_model_id: str) -> dict[str, object]:
+def _init_kwargs(models: ResolvedModels, embedding_model_id: str) -> _InitKwargs:
     """KB 初始化契约。create_kb 仍用 server-only id 锁定 embedding；初始化只发 source/name。
 
     旧版 `*_model_id` 不再进入初始化 payload，避免与当前 WeKnora contract 冲突。
