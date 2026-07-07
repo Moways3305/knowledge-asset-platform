@@ -93,7 +93,7 @@ export interface ModelOptionDTO {
   is_default: boolean;
 }
 
-// default_missing：平台默认 embedding 未配置 → 前端据此禁用提交并提示联系管理员。
+// default_missing：平台默认嵌入或问答模型未配置 → 前端据此禁用提交并提示联系管理员。
 export interface ModelOptionsResponseDTO {
   items: ModelOptionDTO[];
   default_missing: boolean;

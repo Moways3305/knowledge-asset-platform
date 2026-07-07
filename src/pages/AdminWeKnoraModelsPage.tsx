@@ -29,7 +29,7 @@ const TYPE_OPTIONS = [
 ];
 const SOURCE_OPTIONS = [
   { value: "remote", label: "远程 API（remote）" },
-  { value: "local", label: "本地 Ollama（local）" },
+  { value: "local", label: "本地模型" },
 ];
 const scopeLabel: Record<string, string> = {
   company: "公司库",
@@ -288,7 +288,7 @@ export default function AdminWeKnoraModelsPage() {
       {notConfigured ? (
         <section className="ws-section">
           <div className="ig-empty-state">
-            <div className="ig-empty-title">知识底座（WeKnora）未配置</div>
+            <div className="ig-empty-title">模型服务未配置</div>
             <p className="ig-empty-desc">
               缺少配置项：
               {notConfigured.map((m) => (

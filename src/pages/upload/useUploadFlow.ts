@@ -214,7 +214,7 @@ export function useUploadFlow() {
     setFlowState("file_selected");
   }, []);
 
-  // Path B：上传真实文件字节 + 创建入库任务 + 异步轮询 AI 建议（worker 抽取 + 外部 LLM）
+  // Path B：上传真实文件字节 + 创建入库任务 + 异步轮询内容建议。
   const handleStart = useCallback(async () => {
     if (!selectedFile) {
       setApiError("请先选择本地文件");
@@ -364,7 +364,7 @@ export function useUploadFlow() {
     editTitle.trim().length > 0 &&
     (editSummary.trim().length > 0 || editOneLiner.trim().length > 0) &&
     (targetLibrary !== "project" || targetProjectId.length > 0);
-  // 平台默认 embedding 未配置时禁用提交（models.blockSubmit），不静默走 .env 兜底。
+  // 平台默认嵌入或问答模型未配置时禁用提交（models.blockSubmit），不静默走 .env 兜底。
   const canSubmit = confirmReady && requiredFieldsOk && !models.blockSubmit;
   const confirmSubmitted = flowState === "submitted";
   const sourceLabel = activePath === "a" ? "企微微盘" : "本地上传";

@@ -156,8 +156,7 @@ export default function ReviewPage() {
 
       <div className="role-context-hint">
         <div className="role-context-hint-title">审核视角说明</div>
-        审核队列来自真实后端
-        `/api/v1/reviews`。仅被分配为审核人（项目经理）且任务处于「待审核人确认」时，才能通过/拒绝。
+        仅被分配为审核人（项目经理）且任务处于「待审核人确认」时，才能通过或拒绝。
       </div>
 
       <section className="review-section">

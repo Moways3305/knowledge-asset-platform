@@ -199,7 +199,7 @@ export default function ProjectSettingsPage() {
         <div className="kl-header-text">
           <h2>项目设置</h2>
           <p>
-            管理项目人员、项目内角色与入库策略（真实后端 API）。
+            管理项目人员、项目内角色与入库策略。
             {settings ? `当前项目：${settings.name}` : ""}
           </p>
         </div>

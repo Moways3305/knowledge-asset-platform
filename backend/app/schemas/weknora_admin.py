@@ -157,7 +157,7 @@ class ModelOptionOut(BaseModel):
 class ModelOptionsResponse(BaseModel):
     """顾问侧模型选项响应。
 
-    `default_missing`：平台默认 **embedding** 模型未配置（前端据此禁用提交并提示联系管理员）。
+    `default_missing`：平台默认 **embedding** 或 **KnowledgeQA** 模型未配置（前端据此禁用提交并提示联系管理员）。
     即便缺默认，仍返回可选模型列表，供管理员配置前查看。
     """
 

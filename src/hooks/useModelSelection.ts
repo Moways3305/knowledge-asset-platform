@@ -6,8 +6,8 @@
 // localStorage / sessionStorage，绝不接触真实 model_id。
 //
 // 阻断语义：
-// - WeKnora 已启用但平台默认 embedding 未配置（default_missing）→ blockSubmit=true，
-//   提示「尚未配置默认模型，请联系管理员」。
+// - WeKnora 已启用但平台默认嵌入或问答模型未配置（default_missing）→ blockSubmit=true，
+//   提示联系管理员补齐默认模型。
 // - WeKnora 未配置（503）→ 模型选择不适用，不阻断（索引会被安全跳过）。
 import { useState, useEffect, useCallback } from "react";
 import { ApiError } from "../api/http";
@@ -19,7 +19,7 @@ export interface ModelSelectionState {
   loaded: boolean;
   // WeKnora 未配置（503）：模型选择不适用，不阻断入库。
   weknoraDisabled: boolean;
-  // 平台默认 embedding 未配置（WeKnora 已启用）：必须阻断提交。
+  // 平台默认嵌入或问答模型未配置（WeKnora 已启用）：必须阻断提交。
   defaultMissing: boolean;
   embeddingOptions: ModelOptionDTO[];
   rerankOptions: ModelOptionDTO[];
@@ -29,7 +29,7 @@ export interface ModelSelectionState {
   setEmbeddingRef: (v: string) => void;
   setRerankRef: (v: string) => void;
   reload: () => void;
-  // 是否应禁用提交：WeKnora 已启用且平台默认 embedding 缺失。
+  // 是否应禁用提交：WeKnora 已启用且平台默认嵌入或问答模型缺失。
   blockSubmit: boolean;
 }
 

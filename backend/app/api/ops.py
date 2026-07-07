@@ -134,7 +134,7 @@ async def health_ready(response: Response, session: AsyncSession = Depends(get_d
     }
 
 
-def _missing_config(s, *, default_embedding_ok: bool) -> list[str]:
+def _missing_config(s, *, default_embedding_ok: bool, default_chat_ok: bool) -> list[str]:
     """已开启但缺关键值的配置项**名称**（仅名称，绝不含值）。
 
     PBC-38：WeKnora 启用时检查的是**平台默认 embedding 模型**（DB `weknora_default_models`，
@@ -144,6 +144,8 @@ def _missing_config(s, *, default_embedding_ok: bool) -> list[str]:
     # WeKnora 已启用（base_url + api_key）但未配置平台默认 embedding → 建库 fail-closed。
     if weknora_enabled() and not default_embedding_ok:
         missing.append("WEKNORA_DEFAULT_EMBEDDING_MODEL")
+    if weknora_enabled() and not default_chat_ok:
+        missing.append("WEKNORA_DEFAULT_KNOWLEDGE_QA_MODEL")
     # 模型配置中心的 model_ref HMAC key 缺失 → 生产应显式配置（dev 回退稳定常量）。
     if weknora_enabled() and not (s.weknora_model_ref_secret or "").strip():
         missing.append("WEKNORA_MODEL_REF_SECRET")
@@ -154,7 +156,7 @@ def _missing_config(s, *, default_embedding_ok: bool) -> list[str]:
     return missing
 
 
-def _production_blockers(s, *, default_embedding_ok: bool) -> list[str]:
+def _production_blockers(s, *, default_embedding_ok: bool, default_chat_ok: bool) -> list[str]:
     """生产**硬阻断**项名：必须修复才能安全上线。仅 prod 评估，否则空——
     本地/测试默认 eager 等不视为失败。只回安全项名，绝不回值/密钥/URL/内部 id。"""
     if s.app_env != "prod":
@@ -178,6 +180,8 @@ def _production_blockers(s, *, default_embedding_ok: bool) -> list[str]:
     if weknora_enabled():
         if not default_embedding_ok:
             blockers.append("WEKNORA_DEFAULT_EMBEDDING_MODEL")
+        if not default_chat_ok:
+            blockers.append("WEKNORA_DEFAULT_KNOWLEDGE_QA_MODEL")
         if not (s.weknora_model_ref_secret or "").strip():
             blockers.append("WEKNORA_MODEL_REF_SECRET")
     # 4) ONLYOFFICE 启用：缺 Document Server URL → 预览不可用；缺 JWT secret → 生产
@@ -214,7 +218,10 @@ async def health_config(session: AsyncSession = Depends(get_db)) -> dict:
     s = get_settings()
     defaults = await weknora_defaults.get_defaults(session)
     default_embedding_ok = bool(defaults and (defaults.default_embedding_model_id or "").strip())
-    blockers = _production_blockers(s, default_embedding_ok=default_embedding_ok)
+    default_chat_ok = bool(defaults and (defaults.default_chat_model_id or "").strip())
+    blockers = _production_blockers(
+        s, default_embedding_ok=default_embedding_ok, default_chat_ok=default_chat_ok
+    )
     return {
         "app_env": s.app_env,
         "version": _VERSION,
@@ -227,7 +234,9 @@ async def health_config(session: AsyncSession = Depends(get_db)) -> dict:
             "onlyoffice_enabled": onlyoffice_enabled(),
             "celery_eager": bool(s.celery_task_always_eager),
         },
-        "missing_config": _missing_config(s, default_embedding_ok=default_embedding_ok),
+        "missing_config": _missing_config(
+            s, default_embedding_ok=default_embedding_ok, default_chat_ok=default_chat_ok
+        ),
         # 生产就绪：当前实例为 prod 部署且无硬阻断项。非 prod 恒为 False（按定义不是生产
         # 部署），但仍返回 warnings 供运维预览；blockers 仅 prod 评估，避免误判本地开发。
         "production_ready": s.app_env == "prod" and not blockers,

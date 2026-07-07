@@ -31,6 +31,16 @@ const models: ModelDTO[] = [
     is_builtin: false,
     description: null,
   },
+  {
+    model_ref: "ref_chat_a",
+    name: "DeepSeek 问答",
+    type: "chat",
+    source: "remote",
+    provider: "deepseek",
+    enabled: true,
+    is_builtin: false,
+    description: null,
+  },
 ];
 
 const currentDefaults = {
@@ -41,7 +51,12 @@ const currentDefaults = {
     provider: "siliconflow",
   },
   rerank: null,
-  chat: null,
+  chat: {
+    model_ref: "ref_chat_a",
+    name: "DeepSeek 问答",
+    type: "chat",
+    provider: "deepseek",
+  },
   multimodal: null,
   updated_at: "2026-06-26T00:00:00Z",
 };
@@ -81,11 +96,9 @@ describe("DefaultModelsSection", () => {
     expect(screen.getByLabelText("默认嵌入 embedding")).toBeDisabled();
   });
 
-  it("默认 embedding 未配置时显示安全提示", async () => {
+  it("默认嵌入模型未配置时显示安全提示", async () => {
     api.fetchDefaultModels.mockResolvedValue({ ...currentDefaults, embedding: null });
     render(<DefaultModelsSection models={models} canEdit={true} />);
-    await waitFor(() =>
-      expect(screen.getByText(/尚未配置默认 embedding 模型/)).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText(/尚未配置默认嵌入模型/)).toBeInTheDocument());
   });
 });

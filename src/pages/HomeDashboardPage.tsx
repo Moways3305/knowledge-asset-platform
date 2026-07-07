@@ -184,7 +184,7 @@ export default function HomeDashboardPage() {
   push({
     key: "idx",
     label: "索引失败待处理",
-    desc: "知识底座索引失败，可重试",
+    desc: "检索索引失败，可重试",
     count: idxFailed,
     to: isAdmin || isGovernance ? "/admin/ingest" : "/knowledge",
     severity: "danger",
@@ -219,7 +219,7 @@ export default function HomeDashboardPage() {
           tone: idxFailed > 0 ? "is-danger" : "",
           to: isAdmin || isGovernance ? "/admin/ingest" : "/knowledge",
         },
-        { key: "skipped", label: "未索引底座", value: idxSkipped, tone: "", to: "/knowledge" },
+        { key: "skipped", label: "未索引", value: idxSkipped, tone: "", to: "/knowledge" },
         {
           key: "pending-oa",
           label: "原文待处理",
@@ -347,7 +347,7 @@ export default function HomeDashboardPage() {
             </section>
           )}
 
-          {/* 运营建议（真实后端推荐，非业务结论） */}
+          {/* 运营建议（平台记录推荐，非业务结论） */}
           {insights && insights.recommendations.length > 0 && (
             <section className="home-section">
               <div className="home-section-head">

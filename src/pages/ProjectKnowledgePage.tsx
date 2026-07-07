@@ -494,13 +494,8 @@ export default function ProjectKnowledgePage() {
               </div>
               <div className="pj-qa-trace">
                 <span>
-                  调用记录 call_id：<code>{qaResult.call_id}</code>
+                  回答记录：<code>{qaResult.call_id}</code>
                 </span>
-                {qaResult.trace_id && (
-                  <span>
-                    trace_id：<code>{qaResult.trace_id}</code>
-                  </span>
-                )}
               </div>
               {qaResult.citations.length > 0 && (
                 <div className="pj-qa-sources">

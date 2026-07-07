@@ -85,7 +85,9 @@ def _enable_weknora(monkeypatch, fake: _FakeWeKnora) -> None:
     monkeypatch.setattr("app.services.weknora_client.weknora_enabled", lambda: True)
     monkeypatch.setattr("app.services.weknora_kb.weknora_enabled", lambda: True, raising=False)
     # 绕过 DB resolve（测试无需配置 WeknoraDefaultModels 行），直接返回测试用 ResolvedModels。
-    _resolved = ResolvedModels(embedding_model_id=_RAW_EMBED, explicit_embedding=False)
+    _resolved = ResolvedModels(
+        embedding_model_id=_RAW_EMBED, explicit_embedding=False, chat_model_id="test-chat"
+    )
     monkeypatch.setattr(
         "app.services.personal_kb.resolve_models_for_kb",
         lambda *_a, **_kw: _async_return(_resolved),

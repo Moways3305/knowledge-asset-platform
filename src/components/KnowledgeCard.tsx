@@ -72,7 +72,7 @@ export default function KnowledgeCard({
           {asset.indexStatus && asset.indexStatus !== "indexed" && (
             <span
               className={`dossier-index ${idxCls}`}
-              title={asset.indexErrorMessage ?? "知识底座索引状态"}
+              title={asset.indexErrorMessage ?? "检索索引状态"}
             >
               {indexStatusLabel[asset.indexStatus] ?? asset.indexStatus}
             </span>

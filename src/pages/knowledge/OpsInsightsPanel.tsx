@@ -87,7 +87,7 @@ export default function OpsInsightsPanel({ insights, insightsErr }: OpsInsightsP
             </div>
           )}
           <p className="intel-foot">
-            统计来自真实后端（{insights.window_days} 天窗口）
+            统计基于近 {insights.window_days} 天平台记录
             {!insights.title_visible && "·系统运维视图（业务标题隐藏）"}。说明见{" "}
             <Link to="/help#knowledge" className="page-help-link">
               使用说明 →

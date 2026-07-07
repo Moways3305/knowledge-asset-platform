@@ -124,7 +124,7 @@ export default function AdminPeoplePage() {
         <div className="kl-header-text">
           <h2>人员权限管理</h2>
           <p>
-            展示用户、公司角色、项目成员关系与权限边界（真实后端 API）。企微 OAuth
+            展示用户、公司角色、项目成员关系与权限边界。企微 OAuth
             已接入，绑定状态来自后端；公司角色与项目角色分离，admin 不因系统身份获得业务原文权。
           </p>
         </div>
@@ -527,7 +527,7 @@ export default function AdminPeoplePage() {
       </section>
 
       <p className="page-help-line">
-        人员 / 公司角色 / 项目成员关系经后端权限校验与审计；身份与权限边界见{" "}
+        人员 / 公司角色 / 项目成员关系均有权限控制与操作记录；身份与权限边界见{" "}
         <Link to="/help#identity" className="page-help-link">
           使用说明 →
         </Link>

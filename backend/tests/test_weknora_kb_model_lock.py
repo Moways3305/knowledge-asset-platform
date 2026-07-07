@@ -23,6 +23,14 @@ from app.services.weknora_model_selection import ResolvedModels, resolve_models_
 pytestmark = pytest.mark.asyncio
 
 
+def _models(embedding_model_id: str, explicit_embedding: bool) -> ResolvedModels:
+    return ResolvedModels(
+        embedding_model_id=embedding_model_id,
+        explicit_embedding=explicit_embedding,
+        chat_model_id="chat-default",
+    )
+
+
 class _FakeKbClient:
     """最简 fake：记录 create_kb 收到的 embedding_model_id，初始化直接成功。"""
 
@@ -50,7 +58,7 @@ class _FakeClientNoModels:
 async def test_new_kb_with_default_model(db_session):
     """新 KB 用默认模型建库；mapping.embedding_model_id 应等于 ResolvedModels 携带的默认 id。"""
     owner = uuid.uuid4()
-    models = ResolvedModels(embedding_model_id="emb-default-real", explicit_embedding=False)
+    models = _models("emb-default-real", False)
     fake = _FakeKbClient()
 
     kb_id = await weknora_kb.resolve_or_create_kb(
@@ -81,7 +89,7 @@ async def test_new_kb_with_default_model(db_session):
 async def test_new_kb_with_explicit_model(db_session):
     """新 KB 用显式模型（explicit_embedding=True）建库；create_kb 收到显式 id，mapping 记录它。"""
     owner = uuid.uuid4()
-    models = ResolvedModels(embedding_model_id="emb-chosen-by-user", explicit_embedding=True)
+    models = _models("emb-chosen-by-user", True)
     fake = _FakeKbClient()
 
     kb_id = await weknora_kb.resolve_or_create_kb(
@@ -131,7 +139,7 @@ async def test_existing_kb_ignores_default_model_mismatch(db_session):
         scope=KnowledgeScope.personal.value,
         owner_user_id=owner,
         project_id=None,
-        models=ResolvedModels(embedding_model_id="emb-B", explicit_embedding=False),
+        models=_models("emb-B", False),
         trace_id=None,
     )
     assert kb == "kb-existing"  # 复用既有；未新建
@@ -165,7 +173,7 @@ async def test_existing_kb_rejects_conflicting_explicit_model(db_session):
             scope=KnowledgeScope.personal.value,
             owner_user_id=owner,
             project_id=None,
-            models=ResolvedModels(embedding_model_id="emb-B", explicit_embedding=True),
+            models=_models("emb-B", True),
             trace_id=None,
         )
     assert ei.value.code == "weknora_kb_embedding_model_locked"
@@ -198,7 +206,7 @@ async def test_init_failed_kb_rejects_conflicting_explicit_model(db_session):
             scope=KnowledgeScope.personal.value,
             owner_user_id=owner,
             project_id=None,
-            models=ResolvedModels(embedding_model_id="emb-B", explicit_embedding=True),
+            models=_models("emb-B", True),
             trace_id=None,
         )
     assert ei.value.code == "weknora_kb_embedding_model_locked"
@@ -231,7 +239,7 @@ async def test_init_failed_kb_recovers_with_default_model(db_session):
         scope=KnowledgeScope.personal.value,
         owner_user_id=owner,
         project_id=None,
-        models=ResolvedModels(embedding_model_id="emb-B", explicit_embedding=False),
+        models=_models("emb-B", False),
         trace_id=None,
     )
     assert kb == "kb-init-failed-2"  # 复用既有 kb_id

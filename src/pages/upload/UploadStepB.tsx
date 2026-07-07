@@ -26,7 +26,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
         <span className="up-flow-indicator" />
         <span className="up-flow-text">{flowMeta.text}</span>
         {flowState === "processing" && <span className="up-flow-spinner" />}
-        <span className="up-flow-note">真实上传 · 文件字节写入平台受控本地存储（dev）</span>
+        <span className="up-flow-note">文件已进入平台受控存储</span>
       </div>
 
       {/* Upload entry */}
@@ -45,10 +45,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
             <p className="dropzone-hint">支持 .pptx .pdf .docx .xlsx 等格式，单文件最大 25 MiB</p>
             <div className="dropzone-security">
               <span className="dropzone-security-badge">受控上传</span>
-              <span>
-                选中文件的字节会上传至平台受控本地存储（dev）；后端只返回安全元数据，不返回存储路径或对象
-                URL
-              </span>
+              <span>选中文件会上传至平台受控存储；页面只展示必要的文件状态与安全元数据</span>
             </div>
           </div>
         ) : (
@@ -80,7 +77,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
           </div>
         )}
 
-        {/* 文本抽取结果（真实抽取；后续内容处理由外部 LLM，失败时降级为确定性建议） */}
+        {/* 文本抽取结果 */}
         {extraction && (
           <div className={`up-extraction up-extraction-${extraction.status ?? "unknown"}`}>
             <div className="up-extraction-head">
@@ -107,22 +104,18 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
         )}
       </section>
 
-      {/* Security & desensitization（短诚实边界，详情入帮助页） */}
+      {/* Security boundary（短诚实边界，详情入帮助页） */}
       <section className="upload-section">
-        <h3>安全与脱敏</h3>
+        <h3>敏感信息保护</h3>
         <p className="page-help-line">
-          文本抽取与外部 LLM 内容处理<strong>已真实接入</strong>（不可用时 fail-closed
-          降级）；抽取成功后<strong>入库前已做规则实体脱敏</strong>，平台侧外部 LLM
-          内容建议仅使用脱敏后文本；不可抽取文本则无法做文本级前置脱敏。WeKnora
-          底座按已确认信任边界仍可接触原文做索引。未实现：OCR、结构保持式文件重写、Ollama/LLM
-          脱敏、历史资产全量重索引。详见{" "}
+          平台会先抽取文本并生成内容建议；原文与结构化建议受访问控制保护，对外展示与问答输出按权限和脱敏策略收口。无法抽取文本时，将保留文件并提示人工确认可用信息。详见{" "}
           <Link to="/help#ingest" className="page-help-link">
             使用说明 →
           </Link>
         </p>
         {desensitization && desensitization.status && (
           <div className={`up-desensitization up-desensitization-${desensitization.status}`}>
-            <span className="up-desensitization-label">前置脱敏</span>
+            <span className="up-desensitization-label">敏感信息保护</span>
             <span className="up-desensitization-status">
               {desensitization.message ?? desensitization.status}
             </span>

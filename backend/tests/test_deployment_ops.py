@@ -77,6 +77,7 @@ async def test_config_missing_embedding_when_weknora_enabled(client, monkeypatch
     assert r.status_code == 200
     body = r.json()
     assert "WEKNORA_DEFAULT_EMBEDDING_MODEL" in body["missing_config"]
+    assert "WEKNORA_DEFAULT_KNOWLEDGE_QA_MODEL" in body["missing_config"]
     assert "WEKNORA_EMBEDDING_MODEL_ID" not in body["missing_config"]
     _assert_no_secret(r.text)
 

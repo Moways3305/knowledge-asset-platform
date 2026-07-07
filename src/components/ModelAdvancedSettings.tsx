@@ -6,7 +6,7 @@ import type { ModelSelectionState } from "../hooks/useModelSelection";
 // 仅展示模型名 / provider / 说明，绝不出现真实 model_id（DTO 本就不含）。
 // 选择以对底座 id 不可逆的 model_ref 提交，由父级表单放入入库 payload。
 //
-// 平台默认 embedding 未配置时（models.blockSubmit）：显示安全提示，父级据此禁用提交。
+// 平台默认嵌入或问答模型未配置时（models.blockSubmit）：显示安全提示，父级据此禁用提交。
 export default function ModelAdvancedSettings({ models }: { models: ModelSelectionState }) {
   const [open, setOpen] = useState(false);
 
@@ -59,14 +59,14 @@ export default function ModelAdvancedSettings({ models }: { models: ModelSelecti
           role="alert"
           style={{ color: "var(--color-danger-fg, #b00)" }}
         >
-          尚未配置默认模型，请联系管理员在模型配置中设置。
+          尚未配置默认嵌入或问答模型，请联系管理员在模型配置中设置。
         </div>
       )}
       {open && !missing && (
         <div className="up-model-advanced-body">
           <p className="correction-hint">
             推荐默认模型适合大多数文档；仅在你明确需要时切换。模型由平台 / WeKnora
-            管理后台维护，此处不显示底座内部标识。
+            管理后台维护，此处不显示内部标识。
           </p>
           <div className="ws-form-grid">
             {slot(

@@ -17,13 +17,33 @@ class _FakeClient:
 
     async def list_models(self, *, trace_id=None):
         self.list_models_calls += 1
-        return [{"id": i, "name": i, "type": "Embedding"} for i in self._ids]
+        rows = []
+        for i in self._ids:
+            rows.append({"id": i, "name": i, "type": "Embedding", "source": "remote"})
+        rows.append(
+            {
+                "id": "chat-default",
+                "name": "chat-default",
+                "type": "KnowledgeQA",
+                "source": "remote",
+            }
+        )
+        return rows
 
 
 async def test_explicit_ref_resolves_to_real_id(db_session):
     from app.services.weknora_models import _model_ref
 
     client = _FakeClient(["emb-real-1"])
+    await weknora_defaults.set_defaults(
+        db_session,
+        embedding_model_id="emb-default",
+        rerank_model_id=None,
+        chat_model_id="chat-default",
+        multimodal_id=None,
+        updated_by=None,
+    )
+    await db_session.commit()
     ref = _model_ref("emb-real-1")
     res = await sel.resolve_models_for_kb(
         db_session, client, embedding_model_ref=ref, rerank_model_ref=None, trace_id=None
@@ -34,6 +54,15 @@ async def test_explicit_ref_resolves_to_real_id(db_session):
 
 async def test_unknown_ref_raises_model_not_found(db_session):
     client = _FakeClient(["emb-real-1"])
+    await weknora_defaults.set_defaults(
+        db_session,
+        embedding_model_id="emb-default",
+        rerank_model_id=None,
+        chat_model_id="chat-default",
+        multimodal_id=None,
+        updated_by=None,
+    )
+    await db_session.commit()
     with pytest.raises(WeKnoraError) as ei:
         await sel.resolve_models_for_kb(
             db_session, client, embedding_model_ref="deadbeef", rerank_model_ref=None, trace_id=None
@@ -46,7 +75,7 @@ async def test_falls_back_to_default(db_session):
         db_session,
         embedding_model_id="emb-default",
         rerank_model_id=None,
-        chat_model_id=None,
+        chat_model_id="chat-default",
         multimodal_id=None,
         updated_by=None,
     )
@@ -56,8 +85,11 @@ async def test_falls_back_to_default(db_session):
         db_session, client, embedding_model_ref=None, rerank_model_ref=None, trace_id=None
     )
     assert res.embedding_model_id == "emb-default"
+    assert res.chat_model_id == "chat-default"
+    assert res.embedding.model_name == "emb-default"
+    assert res.chat.model_name == "chat-default"
     assert res.explicit_embedding is False
-    assert client.list_models_calls == 0
+    assert client.list_models_calls == 1
 
 
 async def test_no_default_fails_closed(db_session):
