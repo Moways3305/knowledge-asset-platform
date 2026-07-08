@@ -43,6 +43,21 @@ def _client() -> WeComOAuthClient:
     )
 
 
+def test_build_authorize_url_supports_client_and_web_qr_modes():
+    client_url = _client().build_authorize_url(state="state-123", mode="client")
+    web_qr_url = _client().build_authorize_url(state="state-123", mode="web_qr")
+
+    assert client_url.startswith("https://open.weixin.qq.com/connect/oauth2/authorize?")
+    assert "agentid=1000014" in client_url
+    assert "state=state-123" in client_url
+    assert web_qr_url.startswith("https://open.work.weixin.qq.com/wwopen/sso/qrConnect?")
+    assert "agentid=1000014" in web_qr_url
+    assert "state=state-123" in web_qr_url
+    for url in (client_url, web_qr_url):
+        assert "app-secret" not in url
+        assert "access_token" not in url
+
+
 def _oauth_record(caplog):
     records = [r for r in caplog.records if getattr(r, "operation", None) == "oauth_exchange"]
     assert len(records) == 1

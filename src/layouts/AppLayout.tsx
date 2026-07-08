@@ -142,8 +142,8 @@ function AppShell() {
     <div className="app-layout">
       <aside className="rail">
         <div className="rail-brand">
-          <span className="rail-mark">MOWAYS</span>
-          <span className="rail-sub">博维咨询 · 知识资产工作台</span>
+          <span className="rail-mark">Kivo</span>
+          <span className="rail-sub">博维知识资产平台</span>
         </div>
         <RailNav capabilities={capabilities} />
         <div className="rail-foot">

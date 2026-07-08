@@ -18,6 +18,10 @@ const projectRoleLabel: Record<string, string> = {
   coach: "辅导老师",
 };
 
+export function wecomOAuthModeForUserAgent(userAgent: string): "client" | "web_qr" {
+  return /wxwork/i.test(userAgent) ? "client" : "web_qr";
+}
+
 /**
  * 身份与会话入口。所有登录/登出/企微/切换账号控件与错误反馈都收纳在一个
  * 固定宽度的浮层里，因此长邮箱、长项目名、失败文案都只在浮层内换行，
@@ -94,7 +98,9 @@ export default function IdentityMenu() {
     try {
       // 后端生成 state 写短时 httpOnly cookie 并返回授权 URL；前端只做跳转，
       // 绝不接触/存储 OAuth code / state（会话由后端 httpOnly cookie 控制）。
-      const { authorize_url } = await startWecomOAuth();
+      const { authorize_url } = await startWecomOAuth(
+        wecomOAuthModeForUserAgent(window.navigator.userAgent),
+      );
       window.location.href = authorize_url;
     } catch (e) {
       setAuthError(e instanceof ApiError ? "企业微信登录暂不可用" : "企业微信登录暂不可用");
@@ -268,7 +274,7 @@ export default function IdentityMenu() {
                   </div>
                 )}
                 {showLoginForm && (
-                  <p className="idm-hint">请使用企业微信登录，或使用管理员提供的账号密码。</p>
+                  <p className="idm-hint">使用企业微信登录 Kivo，或使用管理员提供的账号密码。</p>
                 )}
               </>
             )}

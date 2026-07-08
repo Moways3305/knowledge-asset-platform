@@ -77,9 +77,14 @@ class FakeOAuth:
     def __init__(self, wecom_user_id="ww_consultant_a"):
         self.wecom_user_id = wecom_user_id
 
-    def build_authorize_url(self, *, state):
+    def build_authorize_url(self, *, state, mode="client"):
         # 含 corp_id/state，绝不含 app_secret。
-        return f"https://open.work.weixin.qq.com/wwopen/oauth2?appid=test_corp&state={state}"
+        base = (
+            "https://open.work.weixin.qq.com/wwopen/sso/qrConnect"
+            if mode == "web_qr"
+            else "https://open.weixin.qq.com/connect/oauth2/authorize"
+        )
+        return f"{base}?appid=test_corp&state={state}"
 
     async def exchange_code(self, code):
         if not code:
@@ -136,6 +141,19 @@ async def test_oauth_start_state_bound_no_secret(client):
     resp = await client.get(START)
     assert resp.status_code == 200
     url = resp.json()["authorize_url"]
+    assert "connect/oauth2/authorize" in url
+    assert "state=" in url and "appid=" in url
+    assert "secret" not in resp.text
+    # state 写入 httpOnly cookie（不在 JSON body）。
+    assert client.cookies.get("kap_oauth_state")
+
+
+async def test_oauth_start_web_qr_state_bound_no_secret(client):
+    _install_oauth(FakeOAuth())
+    resp = await client.get(START, params={"mode": "web_qr"})
+    assert resp.status_code == 200
+    url = resp.json()["authorize_url"]
+    assert "wwopen/sso/qrConnect" in url
     assert "state=" in url and "appid=" in url
     assert "secret" not in resp.text
     # state 写入 httpOnly cookie（不在 JSON body）。
@@ -151,10 +169,10 @@ async def test_oauth_callback_success_creates_session(client):
         params={"code": "valid-code", "state": state},
         headers={"X-Trace-Id": "trc-oauth-ok"},
     )
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["user_id"] == str(USER_CONSULTANT)
-    assert body["is_business_user"] is True
+    assert resp.status_code == 303, resp.text
+    assert resp.headers["location"] == "/"
+    assert "kap_session=" in resp.headers.get("set-cookie", "")
+    assert resp.text == ""
     # 会话 cookie 已下发；后续 /auth/me 即为该用户。
     me = await client.get("/api/v1/auth/me")
     assert me.json()["user_id"] == str(USER_CONSULTANT)
@@ -166,8 +184,8 @@ async def test_oauth_callback_unknown_user_fails_closed(client):
     await client.get(START)
     state = client.cookies.get("kap_oauth_state")
     resp = await client.get(CALLBACK, params={"code": "c", "state": state})
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
+    assert resp.status_code == 303, resp.text
+    body = (await client.get("/api/v1/auth/me")).json()
     assert body["status"] == "active"
     assert body["company_roles"] == ["consultant"]
     assert body["is_business_user"] is True

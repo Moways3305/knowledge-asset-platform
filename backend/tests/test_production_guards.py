@@ -96,7 +96,7 @@ class _FakeOAuth:
 
     corp_id = "test_corp"
 
-    def build_authorize_url(self, *, state: str) -> str:
+    def build_authorize_url(self, *, state: str, mode: str = "client") -> str:
         # 真实实现含 corp_id/redirect/state，但**绝不含 app_secret**。
         return f"https://open.weixin.qq.com/connect/oauth2/authorize?state={state}"
 
@@ -140,11 +140,12 @@ async def test_wecom_callback_session_cookie_secure_in_prod(client, monkeypatch,
         WECOM_CALLBACK + f"?code=code-xyz&state={state}",
         headers={"Cookie": f"kap_oauth_state={state}"},
     )
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code == 303, resp.text
+    assert resp.headers["location"] == "/"
     cookie = _cookie_for(resp, "kap_session")
     assert cookie is not None
     assert "secure" in cookie.lower()
-    # code / state 绝不进 JSON 响应体。
+    # code / state 绝不进响应体。
     assert "code-xyz" not in resp.text
     assert state not in resp.text
 

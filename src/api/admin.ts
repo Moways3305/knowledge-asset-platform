@@ -405,6 +405,8 @@ export async function fetchWecomScanRecords(
 // ---- 企微 OAuth 启动 ----
 // 后端生成 state 写短时 httpOnly cookie；前端只拿 authorize_url 跳转。
 // 前端绝不接触/存储 code / state / token；会话由后端 httpOnly cookie 控制。
-export async function startWecomOAuth(): Promise<WecomAuthorizeDTO> {
-  return apiGet<WecomAuthorizeDTO>(`/api/v1/auth/wecom/start`);
+export type WecomOAuthMode = "client" | "web_qr";
+
+export async function startWecomOAuth(mode: WecomOAuthMode = "client"): Promise<WecomAuthorizeDTO> {
+  return apiGet<WecomAuthorizeDTO>(`/api/v1/auth/wecom/start?mode=${mode}`);
 }
