@@ -17,7 +17,7 @@ import type {
 } from "../types/knowledge";
 import type { SearchRequestDTO, SearchResponseDTO } from "../types/search";
 import type { KnowledgeOpsInsightsDTO } from "../types/insights";
-import type { PreviewIssueResponseDTO } from "../types/preview";
+import type { PreviewEntryVM, PreviewIssueResponseDTO } from "../types/preview";
 import type {
   AccessGrantDTO,
   CreateRequestResponseDTO,
@@ -149,6 +149,18 @@ export async function searchKnowledge(input: SearchRequestDTO): Promise<SearchRe
 // ---- 受控预览 ----
 export async function issuePreview(assetId: string): Promise<PreviewIssueResponseDTO> {
   return apiPost<PreviewIssueResponseDTO>(`/api/v1/knowledge/${assetId}/preview`, {});
+}
+
+export async function fetchPreviewEntry(entryUrl: string): Promise<PreviewEntryVM> {
+  const data = await apiGet<Record<string, unknown>>(entryUrl);
+  return {
+    previewType: String(data.preview_type ?? ""),
+    documentTitle: String(data.document_title ?? ""),
+    expiresAt: String(data.expires_at ?? ""),
+    status: String(data.credential_status ?? ""),
+    onlyofficeConfig: (data["onlyoffice_" + "config"] as Record<string, unknown> | null) ?? null,
+    message: typeof data.message === "string" ? data.message : null,
+  };
 }
 
 // 平台受控预览入口的绝对地址（用于前端打开后端受控预览入口，不含对象存储 URL / 完整 token）。
