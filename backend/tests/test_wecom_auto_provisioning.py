@@ -37,8 +37,13 @@ class FakeOAuth:
         self.exchanged_codes: list[str] = []
         self.status_calls: list[str] = []
 
-    def build_authorize_url(self, *, state):
-        return f"https://open.work.weixin.qq.com/wwopen/oauth2?appid=corp-a&state={state}"
+    def build_authorize_url(self, *, state, mode="client"):
+        base = (
+            "https://open.work.weixin.qq.com/wwopen/sso/qrConnect"
+            if mode == "web_qr"
+            else "https://open.weixin.qq.com/connect/oauth2/authorize"
+        )
+        return f"{base}?appid=corp-a&state={state}"
 
     async def exchange_code(self, code):
         self.exchanged_codes.append(code)
@@ -85,8 +90,10 @@ def _admin_headers():
 
 async def test_valid_wecom_member_auto_creates_active_consultant(client, db_session):
     r = await _callback(client, FakeOAuth())
-    assert r.status_code == 200, r.text
-    body = r.json()
+    assert r.status_code == 303, r.text
+    assert r.headers["location"] == "/"
+    assert "kap_session=" in r.headers.get("set-cookie", "")
+    body = (await client.get("/api/v1/auth/me")).json()
     assert body["name"] == "企微新人"
     assert body["email"] == "new.user@corp.example"
     assert body["status"] == "active"
@@ -124,7 +131,7 @@ async def test_frontend_self_reported_identity_is_ignored(client, db_session):
             "name": "管理员E",
         },
     )
-    assert r.status_code == 200, r.text
+    assert r.status_code == 303, r.text
     assert fake.exchanged_codes == ["server-code"]
     assert fake.status_calls == ["ww_server_truth"]
     assert (
@@ -134,6 +141,18 @@ async def test_frontend_self_reported_identity_is_ignored(client, db_session):
         await db_session.execute(select(User).where(User.wecom_user_id == "ww_server_truth"))
     ).scalar_one()
     assert created.email == "new.user@corp.example"
+
+
+async def test_callback_success_ignores_open_redirect_attempt(client):
+    r = await _callback(
+        client,
+        FakeOAuth(user_id="ww_redirect"),
+        extra_params={"next": "https://evil.example/callback", "redirect": "//evil.example"},
+    )
+    assert r.status_code == 303, r.text
+    assert r.headers["location"] == "/"
+    assert "evil.example" not in r.headers["location"]
+    assert "evil.example" not in r.text
 
 
 async def test_same_name_user_is_not_confused(client, db_session):
@@ -148,8 +167,8 @@ async def test_same_name_user_is_not_confused(client, db_session):
     await db_session.commit()
 
     r = await _callback(client, FakeOAuth(user_id="ww_same_name"))
-    assert r.status_code == 200, r.text
-    assert r.json()["user_id"] != str(existing.id)
+    assert r.status_code == 303, r.text
+    assert (await client.get("/api/v1/auth/me")).json()["user_id"] != str(existing.id)
     unchanged = await db_session.get(User, existing.id)
     assert unchanged.wecom_user_id is None
 
@@ -170,7 +189,7 @@ async def test_existing_user_sync_does_not_overwrite_email_with_empty(client, db
 
     member = WeComMemberStatus("ww_existing", True, "active", "企微成员有效", name="新名", email="")
     r = await _callback(client, FakeOAuth(user_id="ww_existing", member=member))
-    assert r.status_code == 200, r.text
+    assert r.status_code == 303, r.text
     refreshed = await db_session.get(User, uid)
     await db_session.refresh(refreshed)
     assert refreshed.name == "新名"
@@ -267,8 +286,8 @@ async def test_state_and_code_rejections_write_safe_denied_audit(client, db_sess
 
 async def test_people_list_can_see_auto_created_user_without_wecom_id_leak(client):
     r = await _callback(client, FakeOAuth(user_id="ww_people"))
-    assert r.status_code == 200, r.text
-    created_id = r.json()["user_id"]
+    assert r.status_code == 303, r.text
+    created_id = (await client.get("/api/v1/auth/me")).json()["user_id"]
     client.cookies.clear()
     people = await client.get(PEOPLE, headers=_admin_headers(), params={"q": "企微新人"})
     assert people.status_code == 200, people.text

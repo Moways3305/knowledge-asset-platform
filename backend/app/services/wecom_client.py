@@ -190,8 +190,18 @@ class WeComOAuthClient:
         self._base = base_url.rstrip("/")
         self._timeout = timeout
 
-    def build_authorize_url(self, *, state: str) -> str:
+    def build_authorize_url(self, *, state: str, mode: str = "client") -> str:
         """构造企微授权 URL（含 state）。不含 secret。"""
+        if mode == "web_qr":
+            params = {
+                "appid": self._corp_id,
+                "agentid": self._agent_id,
+                "redirect_uri": self._redirect_uri,
+                "state": state,
+            }
+            return "https://open.work.weixin.qq.com/wwopen/sso/qrConnect?" + urllib.parse.urlencode(
+                params
+            )
         params = {
             "appid": self._corp_id,
             "agentid": self._agent_id,
@@ -527,7 +537,7 @@ class WeComDriveClient:
 
 
 class NullWeComOAuthClient:
-    def build_authorize_url(self, *, state: str) -> str:
+    def build_authorize_url(self, *, state: str, mode: str = "client") -> str:
         raise WeComError("wecom_not_configured", "企微 OAuth 未配置")
 
     async def exchange_code(self, code: str) -> WeComIdentity:

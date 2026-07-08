@@ -68,7 +68,7 @@ class FakeOAuth:
         self._member = member
         self._error = error
 
-    def build_authorize_url(self, *, state):
+    def build_authorize_url(self, *, state, mode="client"):
         return f"https://open.work.weixin.qq.com/wwopen/oauth2?appid=test_corp&state={state}"
 
     async def exchange_code(self, code):
@@ -102,7 +102,7 @@ async def _oauth_login_active(client):
     await client.get(START)
     state = client.cookies.get("kap_oauth_state")
     r = await client.get(CALLBACK, params={"code": "c", "state": state})
-    assert r.status_code == 200, r.text
+    assert r.status_code == 303, r.text
 
 
 # ---------------------------------------------------------------------------
@@ -178,8 +178,8 @@ async def test_callback_unprovisioned_auto_creates_consultant(client):
     await client.get(START)
     state = client.cookies.get("kap_oauth_state")
     r = await client.get(CALLBACK, params={"code": "c", "state": state})
-    assert r.status_code == 200, r.text
-    body = r.json()
+    assert r.status_code == 303, r.text
+    body = (await client.get("/api/v1/auth/me")).json()
     assert body["status"] == "active"
     assert body["company_roles"] == ["consultant"]
     assert body["is_business_user"] is True

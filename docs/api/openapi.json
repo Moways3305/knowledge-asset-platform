@@ -15233,9 +15233,7 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AuthMeOut"
-                }
+                "schema": {}
               }
             },
             "description": "Successful Response"
@@ -15261,6 +15259,22 @@
       "get": {
         "description": "生成 state 绑定的企微授权 URL；state 写入短时 httpOnly cookie（不进 JSON 响应体）。",
         "operationId": "wecom_start_api_v1_auth_wecom_start_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "default": "client",
+              "enum": [
+                "client",
+                "web_qr"
+              ],
+              "title": "Mode",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -15271,6 +15285,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Wecom Start",

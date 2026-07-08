@@ -12,8 +12,10 @@
 from __future__ import annotations
 
 import secrets
+from typing import Literal
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Request, Response
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_caller_context
@@ -394,12 +396,13 @@ async def logout(
 @router.get("/wecom/start", response_model=WecomAuthorizeOut)
 async def wecom_start(
     response: Response,
+    mode: Literal["client", "web_qr"] = Query(default="client"),
     oauth=Depends(get_wecom_oauth_client),
 ) -> WecomAuthorizeOut:
     """生成 state 绑定的企微授权 URL；state 写入短时 httpOnly cookie（不进 JSON 响应体）。"""
     state = secrets.token_urlsafe(24)
     try:
-        url = oauth.build_authorize_url(state=state)
+        url = oauth.build_authorize_url(state=state, mode=mode)
     except WeComError as exc:
         raise HTTPException(
             status_code=503, detail={"denied_reason": exc.code, "message": "企微未配置"}
@@ -409,7 +412,7 @@ async def wecom_start(
     return WecomAuthorizeOut(authorize_url=url)
 
 
-@router.get("/wecom/callback", response_model=AuthMeOut)
+@router.get("/wecom/callback")
 async def wecom_callback(
     request: Request,
     response: Response,
@@ -418,7 +421,7 @@ async def wecom_callback(
     kap_oauth_state: str | None = Cookie(default=None, alias=_OAUTH_STATE_COOKIE),
     oauth=Depends(get_wecom_oauth_client),
     session: AsyncSession = Depends(get_db),
-) -> AuthMeOut:
+) -> RedirectResponse:
     """企微 OAuth 回调：校验 state → 换身份 → 解析平台用户 → 建会话。fail closed。
 
     安全：code / access_token / state 绝不持久化或进 JSON 响应；state 用后即清。
@@ -563,8 +566,10 @@ async def wecom_callback(
         extra=safe_extra,
     )
     await session.commit()
-    _set_session_cookie(response, raw_token, settings)
-    return build_auth_me(user)
+    redirect = RedirectResponse(url="/", status_code=303)
+    redirect.delete_cookie(key=_OAUTH_STATE_COOKIE, path="/")
+    _set_session_cookie(redirect, raw_token, settings)
+    return redirect
 
 
 @router.get("/me", response_model=AuthMeOut)
