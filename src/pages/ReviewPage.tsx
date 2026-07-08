@@ -129,10 +129,7 @@ export default function ReviewPage() {
       <div className="rv-header">
         <div className="rv-header-text">
           <h2>知识升级审核</h2>
-          <p>
-            项目资料 → 项目资产的审核闭环：登记验证证据后，由项目经理确认进入资产区（zone: material
-            → asset）
-          </p>
+          <p>处理分配给你的审核任务。</p>
         </div>
         <div className="kl-kpis">
           <div className="kl-kpi">
@@ -190,7 +187,7 @@ export default function ReviewPage() {
         <LoadingError
           loading={loading}
           forbidden={forbidden}
-          error={error ? `${error}（请确认后端服务已启动）` : null}
+          error={error ? "审核队列暂时无法加载，请稍后重试" : null}
           empty={filtered.length === 0}
           loadingTitle="加载中…"
           forbiddenTitle="无审核权限"
@@ -207,7 +204,7 @@ export default function ReviewPage() {
       </section>
 
       <p className="page-help-line">
-        material → asset 须先登记验证证据再由项目经理确认；审核职责与升级治理机制见{" "}
+        资料进入资产区须先登记验证证据再由项目经理确认；审核职责与升级治理机制见{" "}
         <Link to="/help#review" className="page-help-link">
           使用说明 →
         </Link>

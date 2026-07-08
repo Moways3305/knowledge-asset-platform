@@ -103,7 +103,7 @@ export default function AdminWeKnoraModelsPage() {
       } else if (e instanceof ApiError && e.status === 403) {
         setError("仅系统管理员可访问模型配置中心。");
       } else {
-        setError(describe(e, "加载模型配置失败（请确认后端已启动）"));
+        setError(describe(e, "模型配置暂时无法加载，请稍后重试"));
       }
       setModels([]);
       setProviders([]);

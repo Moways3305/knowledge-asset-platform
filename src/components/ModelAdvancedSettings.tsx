@@ -4,7 +4,7 @@ import type { ModelSelectionState } from "../hooks/useModelSelection";
 // 入库 / 建库高级设置：模型选择（PBC-38）。
 // 默认收起；默认选中平台推荐 embedding / rerank；普通顾问可在此切换。
 // 仅展示模型名 / provider / 说明，绝不出现真实 model_id（DTO 本就不含）。
-// 选择以对底座 id 不可逆的 model_ref 提交，由父级表单放入入库 payload。
+// 选择以安全引用提交，由父级表单放入入库 payload。
 //
 // 平台默认嵌入或问答模型未配置时（models.blockSubmit）：显示安全提示，父级据此禁用提交。
 export default function ModelAdvancedSettings({ models }: { models: ModelSelectionState }) {
@@ -65,8 +65,7 @@ export default function ModelAdvancedSettings({ models }: { models: ModelSelecti
       {open && !missing && (
         <div className="up-model-advanced-body">
           <p className="correction-hint">
-            推荐默认模型适合大多数文档；仅在你明确需要时切换。模型由平台 / WeKnora
-            管理后台维护，此处不显示内部标识。
+            推荐默认模型适合大多数文档；仅在你明确需要时切换。模型由管理后台维护。
           </p>
           <div className="ws-form-grid">
             {slot(

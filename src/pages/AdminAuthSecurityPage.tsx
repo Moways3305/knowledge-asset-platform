@@ -87,11 +87,7 @@ export default function AdminAuthSecurityPage() {
         <div>
           <div className="kb-eyebrow">Auth Security · 登录风控</div>
           <h2 className="kb-title">登录风控运营台</h2>
-          <p className="kb-lead">
-            近 {data?.window_minutes ?? windowMinutes}{" "}
-            分钟登录尝试的安全聚合与手动解锁。仅显示不可逆标识前缀与安全用户元数据，不含邮箱 / IP /
-            密码 / 令牌。
-          </p>
+          <p className="kb-lead">查看近期登录风险和异常账号状态。</p>
         </div>
       </div>
 

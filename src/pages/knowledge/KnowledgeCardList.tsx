@@ -185,9 +185,7 @@ export default function KnowledgeCardList(props: KnowledgeCardListProps) {
               <FileSearch size={20} />
             </div>
             <div className="kb-state-title">未检索到相关知识资产</div>
-            <p className="kb-state-desc">
-              换个问法或关键词，切换知识库范围，或调整业务阶段过滤后重试。无结果也可能是你对相关知识没有发现权限。
-            </p>
+            <p className="kb-state-desc">换个问法或关键词，或切换范围、业务阶段后重试。</p>
           </div>
         )}
       </>
@@ -212,7 +210,7 @@ export default function KnowledgeCardList(props: KnowledgeCardListProps) {
           <AlertTriangle size={20} />
         </div>
         <div className="kb-state-title">加载失败</div>
-        <p className="kb-state-desc">{error}（请确认后端服务已启动）</p>
+        <p className="kb-state-desc">知识列表暂时无法加载，请稍后重试。</p>
       </div>
     );
   }

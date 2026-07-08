@@ -47,8 +47,7 @@ interface QAModel {
   tag: string;
 }
 
-// 问答模型选项：选择项映射为后端 model_key 真实传入 /projects/{id}/qa（影响本次问答，
-// 回答仍由后端网关产生，非前端伪造结果）。
+// 问答模型选项：影响本次问答，不改变平台默认配置。
 const qaModels: QAModel[] = [
   { id: "default", name: "系统默认模型", tag: "稳定" },
   { id: "deepseek-r1", name: "DeepSeek-R1 内网版", tag: "推理" },
@@ -59,7 +58,7 @@ function toModelKey(modelId: string): string {
   return modelId === "default" ? "system_default" : modelId;
 }
 
-// 快捷提问示例：仅用于填充输入框，非后端推荐 / 非真实项目内容。
+// 快捷提问示例：仅用于填充输入框。
 const exampleQuestions = [
   "本项目当前阶段有哪些关键交付物？",
   "资产区里有哪些可复用的方法论？",
@@ -77,7 +76,7 @@ export default function ProjectKnowledgePage() {
   const [activeZone, setActiveZone] = useState<ZoneType | "">(""); // "" = 资料+资产
   const [filterVisibility, setFilterVisibility] = useState("");
   const [qaInput, setQaInput] = useState("");
-  // Q&A 接真实平台权限网关：结果来自后端，而非本地假问答。
+  // 项目问答结果来自平台服务。
   const [qaResult, setQaResult] = useState<ProjectQaResponseDTO | null>(null);
   const [qaLoading, setQaLoading] = useState(false);
   const [qaError, setQaError] = useState<string | null>(null);
@@ -130,7 +129,7 @@ export default function ProjectKnowledgePage() {
       })
       .catch((e) => {
         if (cancelled) return;
-        setCardsError(e instanceof ApiError ? e.message : "加载项目知识失败（请确认后端已启动）");
+        setCardsError(e instanceof ApiError ? e.message : "项目知识暂时无法加载，请稍后重试");
         setCardsLoading(false);
       });
     return () => {
@@ -227,8 +226,7 @@ export default function ProjectKnowledgePage() {
         <div className="pj-header-text">
           <h2>项目知识看板</h2>
           <p>
-            项目 <strong>{projectTitle}</strong> 的知识驾驶舱 —
-            按生命周期阶段组织项目资料区与资产区（数据来自平台项目知识库）
+            项目 <strong>{projectTitle}</strong> 的知识看板，按生命周期阶段组织资料区与资产区。
           </p>
         </div>
         <div className="kl-kpis">
@@ -401,13 +399,12 @@ export default function ProjectKnowledgePage() {
         </section>
       )}
 
-      {/* Stage Q&A（真实平台权限网关） */}
+      {/* 项目问答 */}
       <section className="project-section">
         <h3>项目知识问答</h3>
         <div className="pj-qa-box">
           <p className="pj-qa-desc">
-            项目问答已接入平台权限网关：问题提交到后端 <code>POST /projects/&#123;id&#125;/qa</code>
-            ，以你的真实身份逐项做三层访问判断，引用与回答均由网关裁定。来自资产区的引用为已验证内容，来自资料区的引用用于参考需谨慎确认。
+            向项目知识提问，回答会根据你的访问范围生成。来自资产区的引用为已验证内容，来自资料区的引用用于参考需谨慎确认。
           </p>
           <div className="pj-qa-target">
             {effectiveProject ? (
@@ -439,7 +436,7 @@ export default function ProjectKnowledgePage() {
               ))}
             </select>
             <span className="pj-qa-model-hint">
-              模型切换作为 model_key 传入本次问答，不影响知识卡片生成或系统默认配置
+              模型切换仅影响本次问答，不影响知识卡片生成或系统默认配置
             </span>
           </div>
           <div className="qa-input-wrap">
@@ -467,7 +464,7 @@ export default function ProjectKnowledgePage() {
             )}
           </div>
           <div className="qa-examples">
-            <span className="qa-examples-label">快捷提问示例（仅填充输入框，非后端推荐）：</span>
+            <span className="qa-examples-label">常用问题：</span>
             {exampleQuestions.map((q) => (
               <span
                 key={q}
@@ -499,9 +496,7 @@ export default function ProjectKnowledgePage() {
               </div>
               {qaResult.citations.length > 0 && (
                 <div className="pj-qa-sources">
-                  <span className="pj-qa-sources-label">
-                    引用来源（经权限网关裁定，引用层级不超过可达访问层级）
-                  </span>
+                  <span className="pj-qa-sources-label">引用来源</span>
                   {qaResult.citations.map((c) => (
                     <div key={c.asset_id} className="pj-qa-source-item">
                       <span className="pj-qa-source-title">{c.asset_title}</span>

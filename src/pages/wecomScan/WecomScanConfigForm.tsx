@@ -87,7 +87,7 @@ export default function WecomScanConfigForm({
       return;
     }
     if (!values.dir.trim()) {
-      setSaveError("请填写微盘目录内部标识");
+      setSaveError("请选择企业微信微盘目录");
       return;
     }
     if (values.scope === "project" && !values.projectId) {
@@ -159,7 +159,7 @@ export default function WecomScanConfigForm({
                   ? values.dirLabel
                     ? `已选择：${values.dirLabel}`
                     : "已设置服务端目录配置"
-                  : "从微盘空间/目录中选择，无需手填内部标识"}
+                  : "从微盘空间/目录中选择"}
               </span>
             </div>
             {pickerOpen && (
@@ -174,7 +174,7 @@ export default function WecomScanConfigForm({
               <summary
                 style={{ cursor: "pointer", fontSize: 12, color: "var(--color-text-muted, #888)" }}
               >
-                高级：手动输入目录标识（API 暂不可用 / 修复旧配置时）
+                高级：手动输入目录标识
               </summary>
               <input
                 className="ws-form-input"
@@ -184,7 +184,7 @@ export default function WecomScanConfigForm({
                 placeholder="spaceid:<id>;fatherid:<id>"
               />
               <span className="ws-form-hint">
-                服务端内部标识，格式 <code>spaceid:&lt;id&gt;;fatherid:&lt;id&gt;</code>；fatherid
+                技术详情，格式 <code>spaceid:&lt;id&gt;;fatherid:&lt;id&gt;</code>；fatherid
                 省略表示根目录。
               </span>
             </details>

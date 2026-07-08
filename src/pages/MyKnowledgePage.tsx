@@ -252,7 +252,7 @@ export default function MyKnowledgePage() {
       <div className="kl-header">
         <div className="kl-header-text">
           <h2>个人知识管理</h2>
-          <p>管理你的个人知识（仅本人可见，不参与他人检索）</p>
+          <p>这里保存你提交和管理的个人知识。需要进入项目库的内容，可提交给项目负责人确认。</p>
         </div>
         <div className="kl-kpis">
           <div className="kl-kpi">
@@ -305,13 +305,11 @@ export default function MyKnowledgePage() {
             </div>
           )}
           {kb === null ? (
-            <div className="mk-action-note">
-              个人知识库状态加载中…（仅业务用户可管理；admin 无个人知识库）
-            </div>
+            <div className="mk-action-note">个人知识库状态加载中…</div>
           ) : !kb.exists ? (
             <div className="mk-kb-card mk-kb-empty">
               <p className="kl-empty-desc">
-                你还没有个人知识库，创建后可以开始上传和管理个人知识资产。
+                你还没有个人知识库，创建后可以上传和管理自己的知识资产。
               </p>
               <div className="mk-vis-controls">
                 <input
@@ -421,9 +419,7 @@ export default function MyKnowledgePage() {
         {forbidden ? (
           <div className="kl-empty-state">
             <div className="kl-empty-title">无个人知识库</div>
-            <p className="kl-empty-desc">
-              当前身份不是业务用户（仅 admin 系统身份）。admin 不作为业务个人知识库主体。
-            </p>
+            <p className="kl-empty-desc">当前账号没有个人知识库。</p>
           </div>
         ) : loading ? (
           <div className="kl-empty-state">
@@ -432,7 +428,7 @@ export default function MyKnowledgePage() {
         ) : error ? (
           <div className="kl-empty-state">
             <div className="kl-empty-title">加载失败</div>
-            <p className="kl-empty-desc">{error}（请确认后端服务已启动）</p>
+            <p className="kl-empty-desc">个人知识暂时无法加载，请稍后重试。</p>
           </div>
         ) : items.length === 0 ? (
           <div className="kl-empty-state">
@@ -604,7 +600,7 @@ export default function MyKnowledgePage() {
                         </div>
                       ) : (
                         <span className="mk-vis-note">
-                          你当前没有可提交的项目；请先在「人员权限」或项目成员关系中加入项目。
+                          你当前没有可提交的项目，请联系项目负责人添加成员关系。
                         </span>
                       )}
                     </span>

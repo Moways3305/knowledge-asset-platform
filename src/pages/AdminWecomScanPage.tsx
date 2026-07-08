@@ -52,7 +52,7 @@ export default function AdminWecomScanPage() {
       const data = await fetchWecomScanConfigs();
       setConfigs(data.items);
     } catch (e) {
-      setConfigError(describeError(e, "加载扫描配置失败（请确认后端已启动）"));
+      setConfigError(describeError(e, "扫描配置暂时无法加载，请稍后重试"));
       setConfigs([]);
     } finally {
       setLoadingConfigs(false);
@@ -146,7 +146,7 @@ export default function AdminWecomScanPage() {
         setSelectedId(cfg.id);
         await Promise.all([loadConfigs(), loadRecords(cfg.id)]);
       } catch (e) {
-        // 403=无权限（需 admin）；503=企微未配置（后端 fail-closed 安全错误）。
+        // 403=无权限；503=企业微信未配置。
         setActionError(describeError(e, "手动扫描失败"));
       } finally {
         setBusyId(null);

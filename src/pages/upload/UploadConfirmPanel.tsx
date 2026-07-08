@@ -293,7 +293,7 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
             </div>
           </div>
           <div className="correction-row">
-            <div className="correction-field">AI 调用级别</div>
+            <div className="correction-field">自动处理级别</div>
             <div className="correction-value">
               {confirmReady ? (
                 <select
@@ -327,14 +327,14 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
 
       {/* AI recommendation + actions */}
       <section className="upload-section">
-        <h3>AI 建议目标知识库</h3>
+        <h3>建议目标知识库</h3>
         <p className="correction-hint">
           {confirmReady
-            ? "以下目标由 AI 根据文件内容、项目上下文与可见性自动推荐。如有偏差，可直接修正。"
+            ? "以下目标由平台根据文件内容、项目上下文与可见性推荐。如有偏差，可直接修正。"
             : "已提交，目标不可修改。"}
         </p>
         <div className="up-target-library">
-          <label className="up-target-label">AI 建议</label>
+          <label className="up-target-label">建议目标</label>
           {confirmReady ? (
             <select
               className="up-edit-select"

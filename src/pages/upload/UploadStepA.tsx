@@ -3,7 +3,7 @@ import { formatBeijingTime } from "../../utils/time";
 import { pendingStatusLabel } from "./uploadConstants";
 import type { UploadFlow } from "./useUploadFlow";
 
-// 路径 A：企微微盘待确认文件列表（真实后端，按权限只返回可确认任务）。
+// 企业微信微盘待确认文件列表。
 export default function UploadStepA({ flow }: { flow: UploadFlow }) {
   const {
     pendingTasks,
@@ -28,8 +28,7 @@ export default function UploadStepA({ flow }: { flow: UploadFlow }) {
         </button>
       </div>
       <p className="correction-hint">
-        以下文件由企微微盘扫描自动检测并完成 AI
-        抽取与内容处理，请选择一项进行人工校正与确认入库。仅显示你有权确认的任务。
+        以下文件来自企业微信微盘待确认队列，请选择一项进行人工校正与确认入库。
       </p>
 
       {pendingLoading ? (

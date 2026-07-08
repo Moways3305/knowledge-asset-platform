@@ -44,34 +44,34 @@ const confidentialityLabelMap: Record<ConfidentialityLevel, string> = {
 };
 
 const aiAccessLabelMap: Record<AiAccessLevel, string> = {
-  A1: "A1 可直接调用",
-  A2: "A2 脱敏后调用",
-  A3: "A3 摘要后调用",
-  A4: "A4 禁止调用",
+  A1: "可用于问答",
+  A2: "保护后用于问答",
+  A3: "仅摘要可用",
+  A4: "不用于问答",
 };
 
 const agentAccessHint: Record<AiAccessLevel, { allowed: string; desc: string }> = {
-  A1: { allowed: "可进入问答与摘要", desc: "Agent 可直接检索并引用该资产进行问答、摘要生成。" },
+  A1: { allowed: "可用于问答与摘要", desc: "可按你的访问范围用于问答和摘要生成。" },
   A2: {
-    allowed: "脱敏后可进入问答",
-    desc: "Agent 仅可使用脱敏版本进行问答和摘要，原文不进入 Agent 调用。",
+    allowed: "保护后可用于问答",
+    desc: "仅使用受保护内容进行问答和摘要，原文不直接用于自动处理。",
   },
   A3: {
-    allowed: "仅摘要/元数据可被调用",
-    desc: "Agent 只能引用该资产的摘要和元数据，不可调用原文或脱敏版。",
+    allowed: "仅摘要可用",
+    desc: "仅使用摘要和基础信息，不使用原文。",
   },
   A4: {
-    allowed: "禁止进入 Agent 调用",
-    desc: "该资产完全禁止进入 Agent 问答、摘要或任何自动化调用。",
+    allowed: "不用于问答",
+    desc: "该资产不进入问答、摘要或其他自动处理。",
   },
 };
 
 const confidentialityHint: Record<ConfidentialityLevel, string> = {
-  L1: "公开级内容，可自由进入 AI 摘要与问答。",
-  L2: "内部参考级：脱敏后可进入 AI 摘要与问答。",
-  L3: "受限级：仅限脱敏或摘要形式进入 AI 处理，原文不外发。",
-  L4: "商业秘密级：原文不得进入开放式 AI 环境，优先使用脱敏版或摘要。",
-  L5: "严格商业秘密级：禁止任何形式进入 AI 调用，仅限授权人员线下访问。",
+  L1: "公开级内容，可用于摘要与问答。",
+  L2: "内部参考级内容，可用于平台内摘要与问答。",
+  L3: "受限级内容，仅使用受保护摘要。",
+  L4: "商业秘密级内容，仅在授权范围内查看和处理。",
+  L5: "严格商业秘密级内容，仅限授权人员访问。",
 };
 
 const assetStatusLabel: Record<AssetStatus, string> = {
@@ -207,7 +207,7 @@ export default function KnowledgeDetailPage() {
     }
   }
 
-  // 底座索引重试。仅在后端 access.canRetryIndex 时展示按钮；成功后刷新详情。
+  // 检索索引重试。仅在可操作时展示按钮；成功后刷新详情。
   const [retryBusy, setRetryBusy] = useState(false);
   const [retryNote, setRetryNote] = useState<string | null>(null);
   const [retryErr, setRetryErr] = useState<string | null>(null);
@@ -329,7 +329,7 @@ export default function KnowledgeDetailPage() {
         </Link>
         <div className="detail-empty">
           <h2>未找到该知识资产</h2>
-          <p>资产「{id}」不存在或当前身份不可见（如 L5 / 他人个人知识 / 已归档）。</p>
+          <p>该资产不存在、已归档，或当前账号无权查看。</p>
           {error && <p>{error}</p>}
           <Link to="/knowledge" className="btn-primary">
             返回知识首页
@@ -467,7 +467,7 @@ export default function KnowledgeDetailPage() {
 
       {/* 保密分级与 AI 调用边界 */}
       <section className="detail-section">
-        <h3>保密分级与 AI 调用边界</h3>
+        <h3>保密分级与自动处理</h3>
         <div className="confidentiality-detail-grid">
           <div className="confidentiality-detail-card">
             <div className="confidentiality-detail-label">保密级别</div>
@@ -480,7 +480,7 @@ export default function KnowledgeDetailPage() {
             </div>
           </div>
           <div className="confidentiality-detail-card">
-            <div className="confidentiality-detail-label">AI 调用级别</div>
+            <div className="confidentiality-detail-label">自动处理级别</div>
             <div className="confidentiality-detail-value">
               <span className={`ai-access-badge ai-access-${asset.aiAccessLevel}`}>
                 {aiAccessLabelMap[asset.aiAccessLevel]}
@@ -489,22 +489,20 @@ export default function KnowledgeDetailPage() {
           </div>
         </div>
         <div className="confidentiality-hint-card">
-          <strong>调用边界说明</strong>
+          <strong>处理范围说明</strong>
           <p>{confidentialityHint[asset.confidentialityLevel]}</p>
           {(asset.confidentialityLevel === "L4" || asset.confidentialityLevel === "L5") && (
-            <p className="confidentiality-l45-warning">
-              L4/L5 文件不得进入开放式 AI 调用；仅可按脱敏/摘要策略处理。
-            </p>
+            <p className="confidentiality-l45-warning">高保密级别内容仅在授权范围内查看和处理。</p>
           )}
         </div>
       </section>
 
-      {/* Agent 调用边界 */}
+      {/* 外部助手使用边界 */}
       <section className="detail-section">
-        <h3>Agent 调用边界</h3>
+        <h3>外部助手使用边界</h3>
         <div className="agent-access-panel">
           <div className="agent-access-status">
-            <span className="agent-access-status-label">当前 Agent 调用策略</span>
+            <span className="agent-access-status-label">当前使用策略</span>
             <span
               className={`agent-access-status-badge ${asset.aiAccessLevel === "A4" ? "agent-access-denied" : "agent-access-allowed"}`}
             >
@@ -513,8 +511,7 @@ export default function KnowledgeDetailPage() {
           </div>
           <div className="agent-access-desc">{agentAccessHint[asset.aiAccessLevel].desc}</div>
           <p className="page-help-line">
-            Agent
-            跟随调用人权限、经平台权限网关调用，不获得原文访问凭证、不绕过权限网关，只生成建议；详见{" "}
+            外部助手只能在你的访问范围内使用知识，不会获得额外原文权限；详见{" "}
             <Link to="/help#integration" className="page-help-link">
               使用说明 →
             </Link>
@@ -599,7 +596,7 @@ export default function KnowledgeDetailPage() {
           {confirmDelete && (
             <div className="lifecycle-delete-confirm">
               <p className="lifecycle-delete-warning">
-                删除后该资产将<strong>立即退出检索 / 问答 / 预览 / 外部 Agent</strong>
+                删除后该资产将<strong>立即退出检索 / 问答 / 预览 / 外部助手</strong>
                 ，相关原文授权同时失效；操作保留审计追溯，不可在产品内自助恢复。
               </p>
               <input
@@ -712,12 +709,12 @@ export default function KnowledgeDetailPage() {
         <div className="doc-preview-panel">
           <div className="doc-preview-policy-hint">
             {canOriginal
-              ? `当前身份具备原文层权限${asset.access.effectiveSource === "access_grant" ? "（经原文访问授权）" : ""}，可申请短期受控预览凭证（默认 30 分钟）。`
+              ? `你当前可以查看原文${asset.access.effectiveSource === "access_grant" ? "（已获授权）" : ""}，可申请短期受控预览。`
               : asset.access.existingRequestStatus === "pending"
-                ? "你已提交原文访问申请，待项目经理 / 治理角色审批。"
+                ? "你已提交原文访问申请，待审批。"
                 : asset.access.canRequestOriginal
-                  ? "当前身份无原文层权限，可发起原文访问申请，经审批授权后可预览 / 取原文。"
-                  : "当前身份不可访问原文。"}
+                  ? "你当前没有原文查看权限，可发起申请。"
+                  : "你当前没有原文查看权限。"}
           </div>
 
           {canOriginal ? (
@@ -759,8 +756,8 @@ export default function KnowledgeDetailPage() {
                 打开受控预览
               </a>
               <div className="doc-preview-note">
-                预览由平台权限网关签发凭证、只读打开（仅查看，禁编辑 / 下载 /
-                打印），全程审计；未启用预览服务或该类型不支持时，不暴露原文地址。详细预览与凭证边界见{" "}
+                预览为只读打开（仅查看，禁编辑 / 下载 /
+                打印），全程记录；未启用预览服务或该类型不支持时，不展示原文地址。详细说明见{" "}
                 <Link to="/help#knowledge" className="page-help-link">
                   使用说明 →
                 </Link>
