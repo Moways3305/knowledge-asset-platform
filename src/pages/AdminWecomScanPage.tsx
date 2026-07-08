@@ -169,9 +169,7 @@ export default function AdminWecomScanPage() {
         <div className="kl-header-text">
           <h2>企微微盘扫描配置</h2>
           <p>
-            管理 Path A
-            上游扫描目录：配置企微微盘监控路径，扫描发现的文件将生成待确认资产化任务。本页调用后端微盘扫描
-            API，仅展示安全运营元数据。
+            管理企业微信微盘扫描目录，扫描发现的文件会进入资产化确认队列。本页仅展示安全运营状态。
           </p>
         </div>
         <div className="kl-kpis">

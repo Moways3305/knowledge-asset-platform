@@ -78,4 +78,12 @@ describe("ordinary user copy hygiene", () => {
 
     expect(violations).toEqual([]);
   });
+
+  it("keeps HelpPage section ids unique for stable table-of-contents anchors", () => {
+    const source = sourceModules["../pages/HelpPage.tsx"];
+    expect(source, "HelpPage should be included in the copy hygiene scan").toBeDefined();
+
+    const ids = Array.from(source.matchAll(/id:\s*"([^"]+)"/g), (match) => match[1]);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
 });
