@@ -58,9 +58,28 @@ def test_extract_txt():
 
 
 def test_extract_md():
-    r = extract_text(b"# Heading\nbody", file_name="a.md", mime=None)
+    r = extract_text(
+        b"# Heading\n\n- item\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n```js\nalert('x')\n```",
+        file_name="a.md",
+        mime=None,
+    )
     assert r.status == "extracted"
     assert "Heading" in r.text
+    assert "- item" in r.text
+    assert "| A | B |" in r.text
+    assert "alert('x')" in r.text
+
+
+def test_extract_markdown_extension():
+    r = extract_text("# 标题\n正文".encode(), file_name="a.markdown", mime="text/markdown")
+    assert r.status == "extracted"
+    assert "标题" in r.text
+
+
+def test_extract_md_invalid_encoding_no_500():
+    r = extract_text(b"# ok\n\xff\xfe<script>x</script>", file_name="bad.md", mime=None)
+    assert r.status == "extracted"
+    assert "<script>x</script>" in r.text
 
 
 def test_extract_txt_non_utf8_robust():
