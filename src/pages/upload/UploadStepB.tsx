@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { desensCategoryLabel, extractionLabel, flowLabel, formatFileSize } from "./uploadConstants";
 import type { UploadFlow } from "./useUploadFlow";
 
-// 路径 B：本地上传流程——流程状态条 + 上传入口 + 文本抽取结果 + 安全与脱敏。
+// 本地上传流程：状态条、上传入口、文本抽取结果与敏感信息保护提示。
 export default function UploadStepB({ flow }: { flow: UploadFlow }) {
   const {
     flowState,

@@ -1,6 +1,6 @@
 import type { OpsIndexingCountsDTO } from "../types/ops";
 
-// 知识底座索引状态分布：把 OpsIndexing 的安全计数渲染成现有 `.kl-kpi` 计数块串，
+// 检索索引状态分布：把 OpsIndexing 的安全计数渲染成现有 `.kl-kpi` 计数块串，
 // 与 AdminIngestPage 手写的索引运维 KPI 行视觉一致。纯展示，仅安全计数，不含任何
 // 业务原文 / 标题 / 内部 id。
 interface IndexDistributionProps {

@@ -39,12 +39,12 @@ export default function KnowledgeListPage() {
   const [sortKey, setSortKey] = useState<SortKey>("updatedAt");
   const [includeArchived, setIncludeArchived] = useState(false);
 
-  // 三个 scope 的列表数据，从后端真实 API 获取（按 includeArchived 重新拉取）。
+  // 三个 scope 的列表数据，按 includeArchived 重新拉取。
   const [byScope, setByScope] = useState<Record<KnowledgeScope, KnowledgeCardVM[]> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // 语义搜索状态（POST /knowledge/search 真实结果）。
+  // 语义搜索状态。
   const [searchResult, setSearchResult] = useState<SearchResponseDTO | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -56,7 +56,7 @@ export default function KnowledgeListPage() {
   // 浏览卡片删除：两步内联确认。
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
-  // 右侧运营洞察（真实后端安全聚合，替换本地规则提示）。
+  // 右侧运营洞察。
   const [insights, setInsights] = useState<KnowledgeOpsInsightsDTO | null>(null);
   const [insightsErr, setInsightsErr] = useState(false);
 
@@ -87,7 +87,7 @@ export default function KnowledgeListPage() {
       .catch(() => setAuthMe(null));
   }, []);
 
-  // 按当前 scope 拉取真实运营洞察。失败 → 安全错误态，不回退假数据。
+  // 按当前 scope 拉取运营洞察。
   useEffect(() => {
     let cancelled = false;
     setInsightsErr(false);
@@ -157,9 +157,7 @@ export default function KnowledgeListPage() {
       })
       .catch((e) => {
         if (cancelled) return;
-        setSearchError(
-          e instanceof ApiError ? e.message : "搜索失败，请稍后重试（请确认后端服务已启动）",
-        );
+        setSearchError(e instanceof ApiError ? e.message : "搜索暂时无法完成，请稍后重试");
         setSearchLoading(false);
       });
     return () => {
@@ -277,8 +275,7 @@ export default function KnowledgeListPage() {
         <div className="kb-identity-note">
           <ShieldAlert size={16} />
           <span>
-            当前为系统管理身份（admin），不具备业务知识访问权；业务知识仅对业务用户（顾问 / 项目经理
-            / Boss / 咨询总监）开放。运营元数据请使用管理后台（入库管理 / 微盘扫描 / 审计）。
+            当前为系统管理身份，仅显示运营入口；业务知识请使用具备项目或公司角色的账号查看。
           </span>
         </div>
       )}

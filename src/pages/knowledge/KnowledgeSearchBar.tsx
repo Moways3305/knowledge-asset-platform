@@ -56,7 +56,7 @@ export default function KnowledgeSearchBar(props: KnowledgeSearchBarProps) {
           <Search size={17} className="kb-search-icon" />
           <input
             type="text"
-            placeholder="语义检索：输入问题或关键词，回车检索（WeKnora 召回 + 权限裁剪）"
+            placeholder="搜索知识、项目、客户或关键词"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => {

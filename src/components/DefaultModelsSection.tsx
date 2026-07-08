@@ -5,7 +5,7 @@ import type { DefaultModelsDTO, ModelDTO } from "../types/weknoraAdmin";
 
 // 平台默认模型设置区（PBC-38）。
 // - admin 可保存（canEdit）；治理角色若进入本页则只读（canEdit=false）。
-// - 用对底座 id 不可逆的 model_ref 选择；绝不展示 / 提交真实 model_id。
+// - 使用安全引用选择；绝不展示 / 提交真实 model_id。
 // - 保存会整体覆盖四个槽位，故每次提交携带全部当前选择，避免无意清空其它默认槽位。
 //
 // 平台默认 embedding / chat 未配置时显式提示，提醒管理员配置。
@@ -112,7 +112,7 @@ export default function DefaultModelsSection({
     <section className="ws-section">
       <h3>平台默认模型</h3>
       <p className="au-note">
-        平台默认模型用于顾问入库与知识库初始化；默认嵌入模型和默认问答模型为必填。未配置完整时，入库会提示联系管理员。本区使用安全引用选择模型，不显示内部标识。
+        平台默认模型用于知识库创建和内容处理。修改默认模型不会改变已创建知识库的嵌入模型；默认嵌入模型和默认问答模型为必填。
         {canEdit ? "" : "（只读：治理角色可查看，修改需系统管理员）"}
       </p>
       {embeddingMissing && (

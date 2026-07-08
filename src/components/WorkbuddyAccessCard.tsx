@@ -10,8 +10,7 @@ import {
   type WorkbuddyTokenStatusVM,
 } from "../api/workbuddy";
 
-const DESCRIPTION =
-  "生成一份只绑定你本人权限的 WorkBuddy MCP 配置。WorkBuddy 查询 KAP 时只能看到你在平台内有权访问的知识。";
+const DESCRIPTION = "连接 WorkBuddy 后，它只能访问你在平台内有权限的知识。";
 
 // 安全文案：不暴露后端路径 / HTTP code / denied_reason；ApiError.message 已是安全文案。
 function safeMessage(err: unknown): string {

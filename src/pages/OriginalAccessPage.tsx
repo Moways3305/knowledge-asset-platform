@@ -84,10 +84,7 @@ export default function OriginalAccessPage() {
       <div className="kl-header">
         <div className="kl-header-text">
           <h2>原文访问申请与授权</h2>
-          <p>
-            项目经理 / 辅导老师 / 治理角色审批跨项目 ·
-            公司原文访问申请；审批通过后生成可撤销、可过期的访问授权。
-          </p>
+          <p>申请或审批原文查看权限。授权可撤销，也可设置有效期。</p>
         </div>
       </div>
 
@@ -125,10 +122,7 @@ export default function OriginalAccessPage() {
           <div className="ig-empty-state">
             <div className="ig-empty-title">无法加载</div>
             <p className="ig-empty-desc">{error}</p>
-            <p className="ig-empty-desc">
-              「待我审批」需项目经理 / 辅导老师 / Boss / 咨询总监身份；可经{" "}
-              <code>VITE_DEV_USER_ID</code> 切换。
-            </p>
+            <p className="ig-empty-desc">「待我审批」需项目经理、辅导老师、Boss 或咨询总监身份。</p>
             <button className="btn-small" onClick={() => void load()}>
               重试
             </button>
@@ -212,7 +206,7 @@ export default function OriginalAccessPage() {
       </section>
 
       <p className="page-help-line">
-        审批通过生成可过期、可撤销的原文授权，运行时统一放行；详细规则见{" "}
+        审批通过后可在有效期内查看原文，详细规则见{" "}
         <Link to="/help#review" className="page-help-link">
           使用说明 →
         </Link>

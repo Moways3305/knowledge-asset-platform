@@ -101,7 +101,7 @@ export default function AdminAlertSettingsPage() {
           <h2>告警设置</h2>
           <p>
             配置归档阈值与运维信号（索引失败/解析停滞/登录安全）告警规则、通知渠道 ·
-            经平台权限网关按 admin 角色返回
+            设置系统告警接收方式
           </p>
         </div>
         <div className="kl-kpis">
@@ -267,8 +267,7 @@ export default function AdminAlertSettingsPage() {
       </section>
 
       <p className="page-help-line">
-        归档阈值与去重策略可调；企微通知真实下发受 <code>WECOM_NOTIFY_ENABLED</code>{" "}
-        控制（默认仅本地 in_app）。详见{" "}
+        设置系统告警接收方式。外部通知通道启用状态请以部署配置为准，详见{" "}
         <Link to="/help#admin" className="page-help-link">
           使用说明 →
         </Link>

@@ -74,7 +74,7 @@ export default function AdminPermissionsPage() {
         me.companyRoles.includes("boss") || me.companyRoles.includes("consulting_director");
       admin = me.companyRoles.includes("admin");
     } catch {
-      /* 身份获取失败按只读处理，写动作仍由后端兜底 403 */
+      /* 身份获取失败按只读处理，写动作仍由服务端校验。 */
     }
     setCanEditRules(editable);
     setIsAdmin(admin);
@@ -83,7 +83,7 @@ export default function AdminPermissionsPage() {
       const data = await fetchPermissionRules();
       setRules(data.items);
     } catch (e) {
-      setError(describeError(e, "权限规则加载失败（请确认后端已启动）"));
+      setError(describeError(e, "权限规则暂时无法加载，请稍后重试"));
       setRules([]);
     } finally {
       setLoading(false);
@@ -96,7 +96,7 @@ export default function AdminPermissionsPage() {
     } catch (e) {
       setAgents([]);
       const reason = e instanceof ApiError ? (e.deniedReason ?? String(e.status)) : "未知错误";
-      setAgentNote(`外部 Agent 接入注册由 admin 管理；当前身份无法读取（${reason}）。`);
+      setAgentNote(`外部助手接入注册由系统管理员管理；当前身份无法读取（${reason}）。`);
     }
   }, []);
 
@@ -327,16 +327,14 @@ export default function AdminPermissionsPage() {
               <span className="policy-group-no">
                 {String(displayedGroups.length + 1).padStart(2, "0")}
               </span>
-              <span className="policy-group-title">外部 Agent 接入注册</span>
-              <span className="policy-group-rule">provider 中立网关白名单</span>
+              <span className="policy-group-title">外部助手接入注册</span>
+              <span className="policy-group-rule">接入白名单</span>
             </div>
             {agentNote ? (
-              <div className="policy-role is-readonly">
-                {agentNote}本区块来自 provider 中立后端兼容接口，不在前端伪造数据。
-              </div>
+              <div className="policy-role is-readonly">{agentNote}</div>
             ) : agents.length === 0 ? (
               <div className="kb-state">
-                <div className="kb-state-title">暂无已注册的外部 Agent 接入</div>
+                <div className="kb-state-title">暂无已注册的外部助手接入</div>
               </div>
             ) : (
               <div className="policy-ledger">
@@ -384,8 +382,7 @@ export default function AdminPermissionsPage() {
       )}
 
       <p className="page-help-line">
-        权限规则来自真实 <code>permission_rules</code>（Boss / 咨询总监可改、admin
-        只读、写入审计）；外部 Agent 调用边界与规则运行时口径见{" "}
+        配置知识访问规则和外部助手接入状态，详细运行说明见{" "}
         <Link to="/help#integration" className="page-help-link">
           使用说明 →
         </Link>

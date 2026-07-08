@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { Radar } from "lucide-react";
 import type { KnowledgeOpsInsightsDTO } from "../../types/insights";
 
-// 右侧运营洞察面板。真实后端安全聚合；颜色按 severity 派生，仅 UI 渲染，
+// 右侧运营洞察面板。颜色按 severity 派生，仅 UI 渲染，
 // 非业务事实来源。纯 admin 视图标题隐藏由后端 title_visible 控制。
 interface OpsInsightsPanelProps {
   insights: KnowledgeOpsInsightsDTO | null;
@@ -17,7 +17,7 @@ export default function OpsInsightsPanel({ insights, insightsErr }: OpsInsightsP
       </h4>
       {insightsErr ? (
         <p className="intel-note">
-          运营洞察加载失败（请确认后端已启动）。知识可见性与权限说明见{" "}
+          运营洞察暂时无法加载，请稍后重试。知识可见性说明见{" "}
           <Link to="/help#knowledge" className="page-help-link">
             使用说明 →
           </Link>

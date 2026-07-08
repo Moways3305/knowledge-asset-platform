@@ -19,7 +19,7 @@ import {
   type TargetLibrary,
 } from "./uploadConstants";
 
-// 资产化确认工作台的容器 Hook：收拢两条路径（A 企微微盘待确认 / B 本地上传）共享的
+// 资产化确认工作台的容器 Hook：收拢企业微信待确认 / 本地上传共享的
 // 全部状态、AI 结果轮询、人工校正字段、确认入库与重置逻辑。页面本体只消费此 hook、
 // 做步骤路由与顶层 state 传递；展示拆到 UploadStepA / UploadStepB / UploadConfirmPanel。
 export function useUploadFlow() {
@@ -101,7 +101,7 @@ export function useUploadFlow() {
       .catch(() => setProjects([]));
   }, []);
 
-  // Path A：拉取企微微盘扫描创建的真实待确认任务。后端按权限只返回调用人可确认的任务。
+  // 企业微信待确认：拉取当前用户可处理的待确认任务。
   const loadPending = useCallback(async () => {
     setPendingLoading(true);
     setPendingError(null);
@@ -109,7 +109,7 @@ export function useUploadFlow() {
       setPendingTasks(await fetchPendingIngestTasks("path_a_wecom"));
     } catch (e) {
       setPendingError(
-        e instanceof ApiError ? e.message : "加载企微微盘待确认任务失败（请确认后端已启动）",
+        e instanceof ApiError ? e.message : "企业微信待确认任务暂时无法加载，请稍后重试",
       );
     } finally {
       setPendingLoading(false);
@@ -244,12 +244,12 @@ export function useUploadFlow() {
       }
       setFlowState("ready");
     } catch (e) {
-      setApiError(e instanceof ApiError ? e.message : "创建入库任务失败（请确认后端已启动）");
+      setApiError(e instanceof ApiError ? e.message : "创建入库任务失败，请稍后重试");
       setFlowState("file_selected");
     }
   }, [selectedFile, fileName, applyAiResult, pollAiResult]);
 
-  // 两条路径共用同一 confirm 链路（同一后端 service）。确认成功后展示真实资产链接；
+  // 两种来源共用同一确认链路。确认成功后展示资产链接；
   // Path A 额外刷新待确认列表。
   const handleSubmit = useCallback(async () => {
     if (!taskId) return;
@@ -349,7 +349,7 @@ export function useUploadFlow() {
     setApiError(null);
   }, []);
 
-  // 切换路径时清空当前流程 / 选中态，避免一条路径的校正数据残留到另一条。
+  // 切换来源时清空当前流程 / 选中态，避免一处来源的校正数据残留到另一处。
   const switchPath = useCallback(
     (p: PathBranch) => {
       if (p === activePath) return;

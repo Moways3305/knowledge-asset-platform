@@ -76,7 +76,7 @@ export default function ProjectSettingsPage() {
       if (id && UUID_RE.test(id)) {
         const matched = me.projects.find((p) => p.projectId === id);
         if (matched) return matched.projectId;
-        return id; // 真实 UUID 直连（治理角色可读非本人项目；后端兜底权限）
+        return id; // 允许治理角色通过项目链接查看；服务端仍会校验权限。
       }
       return me.projects[0]?.projectId ?? null;
     },
@@ -120,7 +120,7 @@ export default function ProjectSettingsPage() {
         }
       } catch (e) {
         if (!cancelled) {
-          setError(describeError(e, "加载身份失败（请确认后端已启动并已登录）"));
+          setError(describeError(e, "身份暂时无法加载，请刷新后重试"));
           setLoading(false);
         }
       }
@@ -255,8 +255,7 @@ export default function ProjectSettingsPage() {
           <p className="ig-empty-desc">{error}</p>
           {isMembershipErr && (
             <p className="ig-empty-desc">
-              项目设置仅对本项目成员 / Boss / 咨询总监 / admin 开放；可经{" "}
-              <code>VITE_DEV_USER_ID</code> 切换授权身份。
+              项目设置仅对本项目成员、Boss、咨询总监或系统管理员开放。
             </p>
           )}
           {projectId && (
@@ -372,9 +371,7 @@ export default function ProjectSettingsPage() {
             <div className="ps-policy-card">
               <div className="ps-policy-head">
                 <div className="ps-policy-info">
-                  <span className="ps-policy-key">
-                    <code>force_review_on_ingest</code>
-                  </span>
+                  <span className="ps-policy-key">入库审核</span>
                   <span className="ps-policy-desc">
                     {settings.force_review_on_ingest
                       ? "已开启：项目库入库任务统一进入项目审核，不允许 direct_ingest"
@@ -435,7 +432,7 @@ export default function ProjectSettingsPage() {
                 </div>
               ) : null}
               <p className="au-note" style={{ marginTop: 8 }}>
-                只展示脱敏后缀，不显示企微群完整标识等敏感信息；企微群真实成员同步不在本页范围。未配置企微能力时仅保存项目配置值，不假装同步成功。
+                只展示群名称或脱敏标签；成员同步状态请在管理员诊断中查看。
               </p>
             </div>
           </section>

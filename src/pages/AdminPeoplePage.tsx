@@ -65,7 +65,7 @@ export default function AdminPeoplePage() {
       setPeople(data.items);
       setTotal(data.total);
     } catch (e) {
-      setError(describeError(e, "加载人员列表失败（请确认后端已启动）"));
+      setError(describeError(e, "人员列表暂时无法加载，请稍后重试"));
       setPeople([]);
     } finally {
       setLoading(false);
@@ -123,10 +123,7 @@ export default function AdminPeoplePage() {
       <div className="kl-header">
         <div className="kl-header-text">
           <h2>人员权限管理</h2>
-          <p>
-            展示用户、公司角色、项目成员关系与权限边界。企微 OAuth
-            已接入，绑定状态来自后端；公司角色与项目角色分离，admin 不因系统身份获得业务原文权。
-          </p>
+          <p>管理人员身份和项目关系。</p>
         </div>
         <div className="kl-kpis">
           <div className="kl-kpi">

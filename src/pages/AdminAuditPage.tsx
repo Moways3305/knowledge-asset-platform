@@ -121,10 +121,7 @@ export default function AdminAuditPage() {
       <div className="au-header">
         <div className="au-header-text">
           <h2>审计日志</h2>
-          <p>
-            平台关键操作追踪、系统异常监控与登录安全审计 · 经平台权限网关按角色脱敏返回 ·
-            时间均为北京时间（Asia/Shanghai）
-          </p>
+          <p>查看关键操作记录和安全事件。时间均为北京时间（Asia/Shanghai）。</p>
         </div>
         <div className="kl-kpis">
           <div className="kl-kpi">
@@ -202,7 +199,7 @@ export default function AdminAuditPage() {
                   <th>角色</th>
                   <th>对象类型</th>
                   <th>变更 / 结果</th>
-                  <th>追踪 ID</th>
+                  <th>技术详情</th>
                   <th>时间</th>
                 </tr>
               </thead>
@@ -221,8 +218,11 @@ export default function AdminAuditPage() {
                       {auditTargetTypeLabel(log.target_type)}
                     </td>
                     <td className="au-cell-state">{auditSnapshotSummary(log)}</td>
-                    <td className="au-cell-trace" title={log.trace_id}>
-                      {log.trace_id}
+                    <td className="au-cell-trace">
+                      <details>
+                        <summary>展开</summary>
+                        <code>{log.trace_id}</code>
+                      </details>
                     </td>
                     <td className="cell-time">{formatBeijingTime(log.created_at)}</td>
                   </tr>
@@ -268,7 +268,7 @@ export default function AdminAuditPage() {
                   <th>风险</th>
                   <th>对象类型</th>
                   <th>原因</th>
-                  <th>追踪 ID</th>
+                  <th>技术详情</th>
                   <th>状态</th>
                   <th>时间</th>
                   <th>操作</th>
@@ -295,8 +295,11 @@ export default function AdminAuditPage() {
                       {auditTargetTypeLabel(log.target_type)}
                     </td>
                     <td className="au-cell-msg">{log.denied_reason ?? "—"}</td>
-                    <td className="au-cell-trace" title={log.trace_id}>
-                      {log.trace_id}
+                    <td className="au-cell-trace">
+                      <details>
+                        <summary>展开</summary>
+                        <code>{log.trace_id}</code>
+                      </details>
                     </td>
                     <td>
                       <span
@@ -365,7 +368,7 @@ export default function AdminAuditPage() {
                     <th>角色</th>
                     <th>动作</th>
                     <th>结果 / 原因</th>
-                    <th>追踪 ID</th>
+                    <th>技术详情</th>
                     <th>时间</th>
                   </tr>
                 </thead>
@@ -381,8 +384,11 @@ export default function AdminAuditPage() {
                         <span className="au-cell-raw">{log.action}</span>
                       </td>
                       <td className="au-cell-msg">{auditLoginSummary(log)}</td>
-                      <td className="au-cell-trace" title={log.trace_id}>
-                        {log.trace_id}
+                      <td className="au-cell-trace">
+                        <details>
+                          <summary>展开</summary>
+                          <code>{log.trace_id}</code>
+                        </details>
                       </td>
                       <td className="cell-time">{formatBeijingTime(log.created_at)}</td>
                     </tr>
@@ -395,7 +401,7 @@ export default function AdminAuditPage() {
       )}
 
       <p className="page-help-line">
-        同一次操作跨模块共享同一追踪 ID，可用于还原完整链路；详见{" "}
+        技术详情仅用于管理员排障；详见{" "}
         <Link to="/help#admin" className="page-help-link">
           使用说明 →
         </Link>

@@ -41,7 +41,7 @@ const statusCls: Record<string, string> = {
 };
 
 const sourceLabel: Record<string, string> = {
-  path_a_wecom: "企微微盘 Agent",
+  path_a_wecom: "企业微信微盘",
   path_b_upload: "本地上传",
 };
 const sourceCls: Record<string, string> = {
@@ -93,8 +93,8 @@ const exceptionGuide = [
     severity: "high" as const,
   },
   {
-    title: "WeKnora 索引失败",
-    desc: "/C：人工确认后资产先落库；底座建库/初始化/上传失败不回滚资产，仅标 index_failed。资产保留、人工校正不丢，但未索引前不会被语义检索召回。可在详情页单条重试，或在下方运维面板发起批量重试 / 重新解析。",
+    title: "检索索引失败",
+    desc: "资产已保存，但暂时不会出现在语义检索结果中。可在详情页单条重试，或在下方运维面板发起批量重试 / 重新解析。",
     severity: "high" as const,
   },
   {
@@ -181,7 +181,7 @@ export default function AdminIngestPage() {
         limit: opsLimit,
       });
       setOpsNote(
-        `已入队重新解析（作业 ${jobStatusLabel[job.status] ?? job.status}）：共 ${job.total_count}，成功 ${job.success_count}，失败 ${job.failed_count}。这是底座解析运维，不改变任何权限放行。`,
+        `已入队重新解析（作业 ${jobStatusLabel[job.status] ?? job.status}）：共 ${job.total_count}，成功 ${job.success_count}，失败 ${job.failed_count}。`,
       );
       await loadOpsIndex();
     } catch (e) {
@@ -201,7 +201,7 @@ export default function AdminIngestPage() {
       setError(
         e instanceof ApiError
           ? `${e.message}（${e.deniedReason ?? e.status}）`
-          : "加载入库运营列表失败（请确认后端已启动）",
+          : "入库运营列表暂时无法加载，请稍后重试",
       );
       setItems([]);
     } finally {
@@ -234,11 +234,7 @@ export default function AdminIngestPage() {
       <div className="ig-header">
         <div className="ig-header-text">
           <h2>知识入库管理</h2>
-          <p>
-            路径A（企微微盘
-            Agent）与路径B（本地上传）的资产化任务统一在此监控。本页展示后端安全运营元数据，不展示业务原文、抽取全文、存储引用或外部系统内部
-            id。
-          </p>
+          <p>查看入库任务、处理失败项，并跟踪文件进入知识库的状态。</p>
         </div>
         <div className="kl-kpis">
           <div className="kl-kpi">
@@ -262,25 +258,25 @@ export default function AdminIngestPage() {
         </div>
       </div>
 
-      {/* Path A note → real config lives in /admin/wecom-scan */}
+      {/* 企业微信微盘配置入口 */}
       <section className="ingest-section">
         <div className="ig-alert ig-alert-info">
           <span className="ig-alert-indicator" />
           <span className="ig-alert-text">
-            <strong>路径A（企微微盘）</strong> — 扫描目录配置、启停与运行记录见{" "}
-            <Link to="/admin/wecom-scan">微盘扫描</Link>。Path A 产生的入库任务（来源 = 企微微盘
-            Agent）与本地上传任务一并在下方队列展示；需经 <Link to="/upload">资产化确认工作台</Link>{" "}
-            人工确认才成资产。
+            <strong>企业微信微盘</strong> — 扫描目录配置、启停与运行记录见{" "}
+            <Link to="/admin/wecom-scan">微盘扫描</Link>
+            。微盘任务与本地上传任务一并在下方队列展示；需经{" "}
+            <Link to="/upload">资产化确认工作台</Link> 人工确认才进入知识库。
           </span>
         </div>
       </section>
 
-      {/* 知识底座索引运维面板（安全计数 + 最近失败列表 + 重试入口在详情页） */}
+      {/* 检索索引运维面板（安全计数 + 最近失败列表 + 重试入口在详情页） */}
       {opsIndex && (
         <section className="ingest-section">
           <div className="ig-detail-panel">
             <div className="ig-detail-head">
-              <span className="ig-detail-title">知识底座索引运维</span>
+              <span className="ig-detail-title">检索索引运维</span>
               <button className="btn-small" onClick={() => void loadOpsIndex()}>
                 刷新
               </button>
@@ -337,13 +333,12 @@ export default function AdminIngestPage() {
                 {opsBusy ? "处理中…" : "批量重试索引"}
               </button>
               <button className="btn-small" onClick={() => void handleReparse()} disabled={opsBusy}>
-                {opsBusy ? "处理中…" : "重新解析（底座）"}
+                {opsBusy ? "处理中…" : "重新解析"}
               </button>
             </div>
             <p className="au-note" style={{ marginTop: 6 }}>
-              批量重试：默认处理「索引失败」，可勾选含「已跳过 /
-              待索引」。重新解析：对已进底座但解析失败 /
-              滞留的资产，受控重传刷新底座解析——这是底座解析运维，
+              批量重试：默认处理「索引失败」，可勾选含「已跳过 / 待索引」。重新解析：对解析失败 /
+              滞留的资产，受控重传刷新解析状态，
               <strong>不改变任何权限放行</strong>
               ，不让未授权用户读到原文。批量动作进入后台作业，不在请求内逐条阻塞。
             </p>
@@ -355,7 +350,7 @@ export default function AdminIngestPage() {
             {!opsIndex.title_visible && (
               <p className="au-note" style={{ marginTop: 8 }}>
                 当前为系统管理身份，业务资产标题已隐藏；批量重试 /
-                重新解析为底座运维动作，只回安全统计，不展示业务原文 / 标题。
+                重新解析为运维动作，只回安全统计，不展示业务原文 / 标题。
               </p>
             )}
             {/* 最近运维作业列表（安全统计；无标题 / 原文 / WeKnora id / 存储引用）。 */}
@@ -443,8 +438,8 @@ export default function AdminIngestPage() {
                   </tbody>
                 </table>
                 <p className="au-note" style={{ marginTop: 8 }}>
-                  诊断为安全运营态文案（含配置项名，不含配置值 / 密钥 / 底座内部
-                  id）。业务用户在资产详情页只看到「资产已保存、可重试」的用户态提示。
+                  诊断为安全运营态文案（含配置项名，不含配置值 /
+                  密钥）。业务用户在资产详情页只看到「资产已保存、可重试」的用户态提示。
                 </p>
               </div>
             ) : (
@@ -470,7 +465,7 @@ export default function AdminIngestPage() {
             </select>
             <select value={filterSource} onChange={(e) => setFilterSource(e.target.value)}>
               <option value="">全部来源</option>
-              <option value="path_a_wecom">企微微盘 Agent</option>
+              <option value="path_a_wecom">企业微信微盘</option>
               <option value="path_b_upload">本地上传</option>
             </select>
           </div>
@@ -564,7 +559,7 @@ export default function AdminIngestPage() {
                 </span>
               </div>
               <div className="ig-detail-item">
-                <span className="ig-detail-label">AI 调用级别</span>
+                <span className="ig-detail-label">自动处理级别</span>
                 <span className="ig-detail-value">
                   {viewingTask.ai_access_level ? (
                     <span className={`ai-access-badge ai-access-${viewingTask.ai_access_level}`}>
@@ -598,7 +593,7 @@ export default function AdminIngestPage() {
                 <div className="ig-detail-item ig-detail-full">
                   <span className="ig-detail-label">保密边界提示</span>
                   <span className="ig-detail-value confidentiality-l45-detail">
-                    L4/L5 文件不得进入开放式 AI 调用；仅可按脱敏/摘要策略处理。
+                    高保密级别内容仅在授权范围内查看和处理。
                   </span>
                 </div>
               )}
@@ -629,7 +624,7 @@ export default function AdminIngestPage() {
         ) : loading ? (
           <div className="ig-empty-state">
             <div className="ig-empty-title">加载中…</div>
-            <p className="ig-empty-desc">正在从后端读取入库运营队列。</p>
+            <p className="ig-empty-desc">正在加载入库运营队列。</p>
           </div>
         ) : filtered.length > 0 ? (
           <div className="ingest-table-wrap">
@@ -727,7 +722,7 @@ export default function AdminIngestPage() {
             <div className="ig-empty-title">暂无入库任务</div>
             <p className="ig-empty-desc">
               {items.length === 0
-                ? "后端入库队列为空。可在 /upload 上传文件或在 /admin/wecom-scan 触发微盘扫描后再查看。"
+                ? "入库队列为空。可前往资产化确认工作台上传文件，或触发微盘扫描后再查看。"
                 : "当前筛选条件下没有任务。尝试调整状态或来源筛选。"}
             </p>
           </div>

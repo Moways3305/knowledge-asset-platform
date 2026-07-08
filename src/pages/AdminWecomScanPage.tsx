@@ -52,7 +52,7 @@ export default function AdminWecomScanPage() {
       const data = await fetchWecomScanConfigs();
       setConfigs(data.items);
     } catch (e) {
-      setConfigError(describeError(e, "加载扫描配置失败（请确认后端已启动）"));
+      setConfigError(describeError(e, "扫描配置暂时无法加载，请稍后重试"));
       setConfigs([]);
     } finally {
       setLoadingConfigs(false);
@@ -146,7 +146,7 @@ export default function AdminWecomScanPage() {
         setSelectedId(cfg.id);
         await Promise.all([loadConfigs(), loadRecords(cfg.id)]);
       } catch (e) {
-        // 403=无权限（需 admin）；503=企微未配置（后端 fail-closed 安全错误）。
+        // 403=无权限；503=企业微信未配置。
         setActionError(describeError(e, "手动扫描失败"));
       } finally {
         setBusyId(null);
@@ -169,9 +169,7 @@ export default function AdminWecomScanPage() {
         <div className="kl-header-text">
           <h2>企微微盘扫描配置</h2>
           <p>
-            管理 Path A
-            上游扫描目录：配置企微微盘监控路径，扫描发现的文件将生成待确认资产化任务。本页调用后端微盘扫描
-            API，仅展示安全运营元数据。
+            管理企业微信微盘扫描目录，扫描发现的文件会进入资产化确认队列。本页仅展示安全运营状态。
           </p>
         </div>
         <div className="kl-kpis">
