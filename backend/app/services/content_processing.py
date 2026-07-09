@@ -381,7 +381,9 @@ async def process_content(
 
     # 校验 + 落值（脏字段回退默认）。
     one_liner = str(parsed.get("one_liner") or base["suggested_one_liner"])[:200]
-    detailed = str(parsed.get("detailed") or base["suggested_summary"])[:2000]
+    detailed_raw = str(parsed.get("detailed") or "").strip()
+    summary_generated = bool(detailed_raw)
+    detailed = (detailed_raw if summary_generated else str(base["suggested_summary"]))[:2000]
     key_points = _coerce_list(parsed.get("key_points"), _MAX_KEY_POINTS)
     tags = _coerce_list(parsed.get("tags"), _MAX_TAGS) or base["suggested_tags"]
     asset_type = parsed.get("asset_type")
@@ -399,6 +401,7 @@ async def process_content(
             components[field] = v
     components["inferred_fields"] = _coerce_list(parsed.get("inferred_fields"), 12)
     naming = _build_naming(file_name, components, level_v, ai_v)
+    naming["summary_generated"] = summary_generated
 
     draft = dict(base)
     draft.update(

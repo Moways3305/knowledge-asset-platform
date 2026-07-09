@@ -52,6 +52,10 @@ class FakeLLM:
             return "这不是 JSON 抱歉"
         if self.mode == "fenced":
             return "```json\n" + json.dumps(_GOOD) + "\n```"
+        if self.mode == "missing_detailed":
+            partial = dict(_GOOD)
+            partial.pop("detailed", None)
+            return json.dumps(partial, ensure_ascii=False)
         return json.dumps(_GOOD, ensure_ascii=False)
 
 
@@ -208,6 +212,21 @@ async def test_upload_degraded_on_llm_failure(client, monkeypatch):
     assert body["content_processing_status"] == "degraded"
     assert body["summary_status"] == "failed"
     assert body["summary"] is None
+
+
+async def test_llm_json_without_detailed_does_not_mark_summary_generated(client, monkeypatch):
+    _enable_llm(monkeypatch, FakeLLM(mode="missing_detailed"))
+    import app.services.ingest as ingest_module
+
+    monkeypatch.setattr(ingest_module, "llm_enabled", lambda: True)
+    task_id = await _upload(client)
+    r = await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
+    body = r.json()
+    assert body["content_processing_status"] == "llm"
+    assert body["llm_provider"] == "deepseek"
+    assert body["suggested_summary"]
+    assert body["summary"] is None
+    assert body["summary_status"] == "failed"
 
 
 async def test_generation_model_options_safe_fields(client, monkeypatch):

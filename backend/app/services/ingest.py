@@ -81,9 +81,16 @@ def _summary_status(task: IngestTask, ai: IngestTaskAiResult | None) -> str | No
         return "processing"
     if ai is None:
         return None
-    if ai.llm_provider:
+    if _has_generated_summary(ai):
         return "generated"
     return "failed" if llm_enabled() else "pending_model_config"
+
+
+def _has_generated_summary(ai: IngestTaskAiResult | None) -> bool:
+    if ai is None or not ai.llm_provider:
+        return False
+    fields = ai.naming_parsed_fields if isinstance(ai.naming_parsed_fields, dict) else {}
+    return fields.get("summary_generated") is True
 
 
 def _desensitization_message(status: str | None) -> str | None:
@@ -273,7 +280,7 @@ async def get_ai_result(
         base.suggested_title = ai.suggested_title
         base.suggested_one_liner = ai.suggested_one_liner
         base.suggested_summary = ai.suggested_summary
-        base.summary = ai.suggested_summary if ai.llm_provider else None
+        base.summary = ai.suggested_summary if _has_generated_summary(ai) else None
         base.suggested_key_points = ai.suggested_key_points
         base.suggested_tags = ai.suggested_tags
         if ai.extracted_text:
