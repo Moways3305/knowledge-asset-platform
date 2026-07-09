@@ -48,6 +48,10 @@ class IngestAiResultResponse(BaseModel):
     # 三层摘要建议（仅完整视图返回；admin 元数据视图为 None）。
     suggested_one_liner: str | None = None
     suggested_summary: str | None = None  # detailed
+    # generated summary only. 未配置/失败降级时保持 None，避免把抽取文本误标成 AI 摘要。
+    summary: str | None = None
+    summary_status: str | None = None
+    generation_model_ref: str | None = None
     suggested_key_points: list[str] | None = None
     suggested_tags: list[str] | None = None
     suggested_asset_type: str | None = None

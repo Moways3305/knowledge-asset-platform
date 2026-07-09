@@ -116,3 +116,26 @@ export interface DefaultModelsUpdateRequestDTO {
   chat_model_ref?: string | null;
   multimodal_ref?: string | null;
 }
+
+// ---- KAP 内容生成模型（标题 / 摘要 / 标签建议；非 WeKnora 知识库模型）----
+export interface GenerationModelOptionDTO {
+  model_ref: string;
+  name: string;
+  provider: string | null;
+  enabled: boolean;
+  is_default: boolean;
+}
+
+export interface GenerationModelOptionsResponseDTO {
+  items: GenerationModelOptionDTO[];
+  default_missing: boolean;
+}
+
+export interface GenerationModelSelectionRequestDTO {
+  model_ref?: string | null;
+}
+
+export interface GenerationModelSelectionResponseDTO {
+  current_default: GenerationModelOptionDTO | null;
+  configured: boolean;
+}

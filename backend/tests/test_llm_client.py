@@ -13,6 +13,7 @@ import re
 import pytest
 
 import app.services.content_processing as cp_module
+import app.services.generation_models as gen_module
 from app.main import app
 from app.schemas.enums import AssetType, ConfidentialityLevel
 from app.seed.dev_seed import USER_CONSULTANT
@@ -119,6 +120,9 @@ async def test_upload_llm_structured_draft(client, monkeypatch):
     r = await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
     b = r.json()
     assert b["content_processing_status"] == "llm"
+    assert b["summary_status"] == "generated"
+    assert b["summary"] == _GOOD["detailed"]
+    assert b["generation_model_ref"]
     assert b["llm_provider"] == "deepseek"
     assert b["llm_model"] == "deepseek-chat"
     assert b["suggested_one_liner"] == _GOOD["one_liner"]
@@ -155,6 +159,9 @@ async def test_upload_degraded_when_llm_disabled(client):
     r = await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
     b = r.json()
     assert b["content_processing_status"] == "degraded"
+    assert b["summary_status"] == "pending_model_config"
+    assert b["summary"] is None
+    assert b["generation_model_ref"] is None
     assert b["llm_provider"] is None
     assert b["suggested_title"]  # 仍有确定性建议
     # 降级也产出**规范化**标题（非空、合规），且不等于一句话摘要。
@@ -192,9 +199,35 @@ async def test_compliant_filename_parsed_into_naming(client):
 
 async def test_upload_degraded_on_llm_failure(client, monkeypatch):
     _enable_llm(monkeypatch, FakeLLM(mode="fail"))
+    import app.services.ingest as ingest_module
+
+    monkeypatch.setattr(ingest_module, "llm_enabled", lambda: True)
     task_id = await _upload(client)  # 不应抛错
     r = await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
-    assert r.json()["content_processing_status"] == "degraded"
+    body = r.json()
+    assert body["content_processing_status"] == "degraded"
+    assert body["summary_status"] == "failed"
+    assert body["summary"] is None
+
+
+async def test_generation_model_options_safe_fields(client, monkeypatch):
+    class S:
+        llm_provider = "deepseek"
+        llm_model = "deepseek-chat"
+        generation_model_ref_secret = "test-generation-ref"
+
+    monkeypatch.setattr(gen_module, "llm_enabled", lambda: True)
+    monkeypatch.setattr(gen_module, "get_settings", lambda: S())
+    r = await client.get("/api/v1/generation/model-options", headers=_hdr(USER_CONSULTANT))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["default_missing"] is False
+    item = body["items"][0]
+    assert set(item) == {"model_ref", "name", "provider", "enabled", "is_default"}
+    assert item["name"] == "deepseek-chat"
+    assert item["provider"] == "deepseek"
+    assert "api_key" not in r.text
+    assert "base_url" not in r.text
 
 
 async def test_upload_degraded_on_dirty_json(client, monkeypatch):

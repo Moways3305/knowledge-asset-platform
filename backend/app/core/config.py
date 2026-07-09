@@ -106,6 +106,9 @@ class Settings(BaseSettings):
     llm_timeout: float = 30.0
     # MiniMax OpenAI 兼容通道的 GroupId（仅 minimax 需要，其余忽略）。
     llm_minimax_group_id: str = ""
+    # KAP 内容生成模型（标题 / 摘要 / 标签建议）对前端暴露的安全 model_ref HMAC key。
+    # 不用于 WeKnora 知识库模型；缺省仅本地/测试使用稳定回退。
+    generation_model_ref_secret: str = ""
 
     # 企业微信 OAuth 真身份 + 微盘扫描。corp_id + app_secret 配齐才启用真实集成；
     # 否则降级（OAuth 端点返回未配置，扫描走注入的 fake/Null）。**secret 绝不外泄**。

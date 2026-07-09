@@ -7,6 +7,9 @@ import { apiGet, apiPut } from "./http";
 import type {
   DefaultModelsDTO,
   DefaultModelsUpdateRequestDTO,
+  GenerationModelOptionsResponseDTO,
+  GenerationModelSelectionRequestDTO,
+  GenerationModelSelectionResponseDTO,
   ModelOptionsResponseDTO,
 } from "../types/weknoraAdmin";
 
@@ -27,4 +30,18 @@ export async function updateDefaultModels(
   body: DefaultModelsUpdateRequestDTO,
 ): Promise<DefaultModelsDTO> {
   return apiPut<DefaultModelsDTO>(`/api/v1/admin/weknora/default-models`, body);
+}
+
+// KAP 内容生成模型：标题 / 摘要 / 标签建议。与 WeKnora 知识库 embedding/rerank/问答模型分离。
+export async function fetchGenerationModelOptions(): Promise<GenerationModelOptionsResponseDTO> {
+  return apiGet<GenerationModelOptionsResponseDTO>(`/api/v1/generation/model-options`);
+}
+
+export async function updateGenerationDefaultModel(
+  body: GenerationModelSelectionRequestDTO,
+): Promise<GenerationModelSelectionResponseDTO> {
+  return apiPut<GenerationModelSelectionResponseDTO>(
+    `/api/v1/admin/generation/default-model`,
+    body,
+  );
 }

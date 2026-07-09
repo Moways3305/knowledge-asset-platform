@@ -32,6 +32,9 @@ export interface IngestAiResultDTO {
   // 三层摘要建议 + 内容处理元数据。
   suggested_one_liner: string | null;
   suggested_summary: string | null;
+  summary: string | null;
+  summary_status: "processing" | "generated" | "pending_model_config" | "failed" | null;
+  generation_model_ref: string | null;
   suggested_key_points: string[] | null;
   suggested_tags: string[] | null;
   llm_provider: string | null;
