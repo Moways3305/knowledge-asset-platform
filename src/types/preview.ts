@@ -8,3 +8,12 @@ export interface PreviewIssueResponseDTO {
   expires_at: string;
   credential_status: string;
 }
+
+export interface PreviewEntryVM {
+  previewType: string;
+  documentTitle: string;
+  expiresAt: string;
+  status: string;
+  onlyofficeConfig: Record<string, unknown> | null;
+  message: string | null;
+}
