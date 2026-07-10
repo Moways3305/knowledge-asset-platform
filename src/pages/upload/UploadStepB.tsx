@@ -38,11 +38,13 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
               ref={fileRef}
               type="file"
               className="up-file-input"
-              accept=".pptx,.pdf,.docx,.xlsx,.doc,.xls,.ppt"
+              accept=".md,.markdown,.txt,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx"
               onChange={handleFileSelect}
             />
             <p className="dropzone-main">点击选择文件或拖拽到此区域</p>
-            <p className="dropzone-hint">支持 .pptx .pdf .docx .xlsx 等格式，单文件最大 25 MiB</p>
+            <p className="dropzone-hint">
+              支持 Markdown、PDF、Word、PPT、Excel、纯文本等资料，单文件最大 25 MiB
+            </p>
             <div className="dropzone-security">
               <span className="dropzone-security-badge">受控上传</span>
               <span>选中文件会上传至平台受控存储；页面只展示必要的文件状态与安全元数据</span>

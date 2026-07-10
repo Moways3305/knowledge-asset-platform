@@ -2246,6 +2246,104 @@
         "title": "EvidenceType",
         "type": "string"
       },
+      "GenerationModelOptionOut": {
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "is_default": {
+            "default": false,
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "model_ref": {
+            "title": "Model Ref",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          }
+        },
+        "required": [
+          "model_ref",
+          "name"
+        ],
+        "title": "GenerationModelOptionOut",
+        "type": "object"
+      },
+      "GenerationModelOptionsResponse": {
+        "properties": {
+          "default_missing": {
+            "default": true,
+            "title": "Default Missing",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GenerationModelOptionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "GenerationModelOptionsResponse",
+        "type": "object"
+      },
+      "GenerationModelSelectionRequest": {
+        "properties": {
+          "model_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Ref"
+          }
+        },
+        "title": "GenerationModelSelectionRequest",
+        "type": "object"
+      },
+      "GenerationModelSelectionResponse": {
+        "properties": {
+          "configured": {
+            "default": false,
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "current_default": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GenerationModelOptionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "GenerationModelSelectionResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2676,6 +2774,17 @@
             ],
             "title": "Extraction Status"
           },
+          "generation_model_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation Model Ref"
+          },
           "ingest_task_id": {
             "format": "uuid",
             "title": "Ingest Task Id",
@@ -2851,6 +2960,28 @@
               }
             ],
             "title": "Suggested Title"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "summary_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Status"
           }
         },
         "required": [
@@ -11553,6 +11684,81 @@
         ]
       }
     },
+    "/api/v1/admin/generation/default-model": {
+      "put": {
+        "operationId": "put_generation_default_model_api_v1_admin_generation_default_model_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerationModelSelectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerationModelSelectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Generation Default Model",
+        "tags": [
+          "generation-models"
+        ]
+      }
+    },
     "/api/v1/admin/ingest": {
       "get": {
         "operationId": "list_admin_ingest_api_v1_admin_ingest_get",
@@ -15628,6 +15834,71 @@
         "summary": "Dify Tool Search",
         "tags": [
           "dify"
+        ]
+      }
+    },
+    "/api/v1/generation/model-options": {
+      "get": {
+        "operationId": "get_generation_model_options_api_v1_generation_model_options_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerationModelOptionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Generation Model Options",
+        "tags": [
+          "generation-models"
         ]
       }
     },

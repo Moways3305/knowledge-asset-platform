@@ -31,6 +31,15 @@ _TXT_BYTES = (
     "本文介绍零售企业数字化转型的五维度成熟度评估方法论与落地路径。"
 ).encode()
 
+_MD_BYTES = (
+    "# 项目复盘\n\n"
+    "- 客户访谈纪要\n"
+    "- 后续行动\n\n"
+    "| 主题 | 结论 |\n"
+    "| --- | --- |\n"
+    "| 组织 | 需要统一节奏 |\n"
+).encode()
+
 
 async def _create_task(client, user_id, file_name="retail-strategy-v2.txt"):
     # Path B 现为真实文件上传 + 真实文本抽取；发送可抽取的真实文本字节。
@@ -362,6 +371,27 @@ async def test_upload_extraction_success_content_based(client):
     assert body["suggested_title"] != body["suggested_one_liner"]
     assert body["extracted_char_count"] > 0
     assert body["extracted_text_preview"] and "零售数字化转型" in body["extracted_text_preview"]
+
+
+async def test_upload_markdown_enters_confirmation_with_extracted_text(client):
+    """Markdown 上传走纯文本抽取成功路径，可进入资产化确认。"""
+    resp = await client.post(
+        UPLOAD,
+        headers=_hdr(USER_CONSULTANT),
+        files={"file": ("project-review.md", _MD_BYTES, "text/markdown")},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "pending_confirmation"
+
+    task_id = body["ingest_task_id"]
+    ai = (
+        await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
+    ).json()
+    assert ai["status"] == "pending_confirmation"
+    assert ai["extraction_status"] == "extracted"
+    assert ai["extracted_char_count"] > 0
+    assert ai["extracted_text_preview"] and "项目复盘" in ai["extracted_text_preview"]
 
 
 async def test_upload_unsupported_still_pending(client):

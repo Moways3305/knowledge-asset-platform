@@ -44,7 +44,8 @@ from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 from app.services import error_catalog, indexing
 from app.services.desensitization import DesensitizationEngine
-from app.services.llm_client import LLMClient, NullLLMClient
+from app.services.generation_models import generation_model_ref
+from app.services.llm_client import LLMClient, NullLLMClient, llm_enabled
 from app.services.storage import LocalFileStorage, StorageError
 from app.services.weknora_client import (
     NullWeKnoraClient,
@@ -73,6 +74,23 @@ _DESENSITIZATION_MESSAGES = {
     "skipped": "历史记录：未抽取到文本，未做文本级前置脱敏",
     "failed": "历史记录：规则脱敏失败，内容建议曾降级",
 }
+
+
+def _summary_status(task: IngestTask, ai: IngestTaskAiResult | None) -> str | None:
+    if task.status == IngestStatus.processing.value:
+        return "processing"
+    if ai is None:
+        return None
+    if _has_generated_summary(ai):
+        return "generated"
+    return "failed" if llm_enabled() else "pending_model_config"
+
+
+def _has_generated_summary(ai: IngestTaskAiResult | None) -> bool:
+    if ai is None or not ai.llm_provider:
+        return False
+    fields = ai.naming_parsed_fields if isinstance(ai.naming_parsed_fields, dict) else {}
+    return fields.get("summary_generated") is True
 
 
 def _desensitization_message(status: str | None) -> str | None:
@@ -245,6 +263,12 @@ async def get_ai_result(
             if ai
             else None
         ),
+        summary_status=_summary_status(task, ai),
+        generation_model_ref=(
+            generation_model_ref(ai.llm_provider, ai.llm_model or "")
+            if ai and ai.llm_provider and ai.llm_model
+            else None
+        ),
         # 入库脱敏安全元数据（状态 + 类别计数 + 人读文案，两视图均可见）。
         # 新任务为 not_applicable / counts=null；旧数据行保留历史状态。
         desensitization_status=ai.desensitization_status if ai else None,
@@ -256,6 +280,7 @@ async def get_ai_result(
         base.suggested_title = ai.suggested_title
         base.suggested_one_liner = ai.suggested_one_liner
         base.suggested_summary = ai.suggested_summary
+        base.summary = ai.suggested_summary if _has_generated_summary(ai) else None
         base.suggested_key_points = ai.suggested_key_points
         base.suggested_tags = ai.suggested_tags
         if ai.extracted_text:

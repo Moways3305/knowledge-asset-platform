@@ -1,14 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
 import { ApiError } from "../api/http";
-import { fetchDefaultModels, updateDefaultModels } from "../api/weknoraModels";
-import type { DefaultModelsDTO, ModelDTO } from "../types/weknoraAdmin";
+import {
+  fetchDefaultModels,
+  fetchGenerationModelOptions,
+  updateDefaultModels,
+  updateGenerationDefaultModel,
+} from "../api/weknoraModels";
+import type { DefaultModelsDTO, GenerationModelOptionDTO, ModelDTO } from "../types/weknoraAdmin";
 
 // 平台默认模型设置区（PBC-38）。
 // - admin 可保存（canEdit）；治理角色若进入本页则只读（canEdit=false）。
 // - 使用安全引用选择；绝不展示 / 提交真实 model_id。
 // - 保存会整体覆盖四个槽位，故每次提交携带全部当前选择，避免无意清空其它默认槽位。
 //
-// 平台默认 embedding / chat 未配置时显式提示，提醒管理员配置。
+// 平台默认 embedding / chat 未配置时显式提示，提醒管理员配置。KAP 内容生成模型单独展示，
+// 避免把标题/摘要/标签建议模型与 WeKnora 知识库模型混为一谈。
 export default function DefaultModelsSection({
   models,
   canEdit,
@@ -21,6 +27,9 @@ export default function DefaultModelsSection({
   const [rerank, setRerank] = useState("");
   const [chat, setChat] = useState("");
   const [multimodal, setMultimodal] = useState("");
+  const [generationOptions, setGenerationOptions] = useState<GenerationModelOptionDTO[]>([]);
+  const [generationRef, setGenerationRef] = useState("");
+  const [generationMissing, setGenerationMissing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -39,6 +48,10 @@ export default function DefaultModelsSection({
   const load = useCallback(async () => {
     try {
       apply(await fetchDefaultModels());
+      const gen = await fetchGenerationModelOptions();
+      setGenerationOptions(gen.items);
+      setGenerationRef(gen.items.find((m) => m.is_default)?.model_ref ?? "");
+      setGenerationMissing(gen.default_missing);
     } catch (e) {
       setError(describe(e, "加载平台默认模型失败"));
     }
@@ -59,6 +72,9 @@ export default function DefaultModelsSection({
         chat_model_ref: chat || null,
         multimodal_ref: multimodal || null,
       });
+      if (generationRef) {
+        await updateGenerationDefaultModel({ model_ref: generationRef });
+      }
       apply(d);
       setNote("平台默认模型已保存");
     } catch (e) {
@@ -66,7 +82,7 @@ export default function DefaultModelsSection({
     } finally {
       setBusy(false);
     }
-  }, [embedding, rerank, chat, multimodal]);
+  }, [embedding, rerank, chat, multimodal, generationRef]);
 
   const opts = (type: string) => models.filter((m) => m.type === type);
   const slot = (
@@ -112,7 +128,8 @@ export default function DefaultModelsSection({
     <section className="ws-section">
       <h3>平台默认模型</h3>
       <p className="au-note">
-        平台默认模型用于知识库创建和内容处理。修改默认模型不会改变已创建知识库的嵌入模型；默认嵌入模型和默认问答模型为必填。
+        WeKnora
+        默认模型用于知识库创建与初始化。修改默认模型不会改变已创建知识库的嵌入模型；默认嵌入模型和默认问答模型为必填。
         {canEdit ? "" : "（只读：治理角色可查看，修改需系统管理员）"}
       </p>
       {embeddingMissing && (
@@ -156,6 +173,35 @@ export default function DefaultModelsSection({
         {slot("默认问答模型", chat, setChat, "chat", false, current?.chat)}
         {slot("默认多模态（可选）", multimodal, setMultimodal, "vllm", true, current?.multimodal)}
       </div>
+      <div className="ws-form-grid" style={{ marginTop: 16 }}>
+        <label className="ws-form-field">
+          <span className="ws-form-label">KAP 内容生成模型</span>
+          <select
+            className="ws-form-input"
+            aria-label="KAP 内容生成模型"
+            value={generationRef}
+            disabled={!canEdit || generationOptions.length === 0}
+            onChange={(e) => setGenerationRef(e.target.value)}
+          >
+            <option value="">{generationMissing ? "（未配置）" : "（不设置）"}</option>
+            {generationOptions.map((m) => (
+              <option key={m.model_ref} value={m.model_ref}>
+                {m.name}
+                {m.provider ? `（${m.provider}）` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <p className="au-note">
+        KAP 内容生成模型仅用于上传后的标题、摘要、标签和内容建议；不参与 WeKnora 知识库 embedding /
+        rerank / 问答初始化。
+      </p>
+      {generationMissing && (
+        <div className="ws-note-hint" style={{ color: "var(--color-warning-fg, #8a6d00)" }}>
+          尚未配置 KAP 内容生成模型，上传仍可继续，但摘要会显示为待生成并需要人工补全。
+        </div>
+      )}
       {canEdit && (
         <div className="ws-form-actions">
           <button className="btn-small-primary" onClick={() => void save()} disabled={busy}>

@@ -200,9 +200,9 @@ def _production_blockers(s, *, default_embedding_ok: bool, default_chat_ok: bool
 def _production_warnings(s) -> list[str]:
     """生产**软提醒**项名：不阻断上线但建议运维确认。仅安全项名。"""
     warnings: list[str] = []
-    # LLM 未配置 → 内容处理降级为确定性草稿（功能仍可用，但非真实 LLM 质量）。
+    # KAP 内容生成模型未配置 → 标题/摘要/标签建议降级为确定性草稿，系统仍可用。
     if not llm_enabled():
-        warnings.append("LLM_NOT_CONFIGURED")
+        warnings.append("KAP_GENERATION_MODEL_NOT_CONFIGURED")
     # WeKnora 未配置 → 检索 / 索引降级（dev 可接受，生产一般应接真实底座）。
     if not weknora_enabled():
         warnings.append("WEKNORA_NOT_CONFIGURED")
@@ -228,6 +228,7 @@ async def health_config(session: AsyncSession = Depends(get_db)) -> dict:
         "integrations": {
             "weknora_enabled": weknora_enabled(),
             "llm_enabled": llm_enabled(),
+            "kap_generation_model_configured": llm_enabled(),
             "llm_provider": s.llm_provider or None,  # provider 名（如 deepseek）安全，非密钥
             "wecom_enabled": wecom_enabled(),
             "wecom_notify_enabled": bool(s.wecom_notify_enabled),

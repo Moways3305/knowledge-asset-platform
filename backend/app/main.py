@@ -17,6 +17,7 @@ from app.api import (
     audit,
     auth,
     dify,
+    generation_models,
     health,
     ingest,
     knowledge,
@@ -69,6 +70,7 @@ def create_app() -> FastAPI:
     app.include_router(ingest.router)
     app.include_router(review.router)
     app.include_router(preview.router)
+    app.include_router(generation_models.router)
     app.include_router(agent.router)
     app.include_router(search.router)
     app.include_router(dify.router)

@@ -42,9 +42,13 @@ const readyAiResult = {
   suggested_title: "渠道转型方法论",
   suggested_one_liner: "一句话",
   suggested_summary: "详细摘要内容",
+  summary: "详细摘要内容",
+  summary_status: "generated",
+  generation_model_ref: "ref_generation_default",
   suggested_key_points: ["要点一"],
   suggested_tags: ["渠道"],
   llm_provider: "external",
+  llm_model: "content-model",
   content_processing_status: "llm",
   desensitization_status: "applied",
   desensitization_counts: {},
@@ -60,6 +64,7 @@ const readyAiResult = {
   error_message: null,
   is_possible_duplicate: false,
   duplicate_of_task_id: null,
+  duplicate_of_asset_id: null,
 };
 
 function fileEvent() {

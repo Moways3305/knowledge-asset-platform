@@ -60,6 +60,8 @@ export function useUploadFlow() {
   const [llmStatus, setLlmStatus] = useState<{
     status: string | null;
     provider: string | null;
+    summaryStatus: IngestAiResultDTO["summary_status"];
+    generationModelRef: string | null;
   } | null>(null);
   const [desensitization, setDesensitization] = useState<{
     status: string | null;
@@ -122,7 +124,12 @@ export function useUploadFlow() {
 
   // 把一次 ai-result 的建议填入人工校正区（Path A / Path B 共用）。
   const applyAiResult = useCallback((ai: IngestAiResultDTO, fallbackTitle: string) => {
-    setLlmStatus({ status: ai.content_processing_status, provider: ai.llm_provider });
+    setLlmStatus({
+      status: ai.content_processing_status,
+      provider: ai.llm_provider,
+      summaryStatus: ai.summary_status,
+      generationModelRef: ai.generation_model_ref,
+    });
     setDesensitization({
       status: ai.desensitization_status,
       counts: ai.desensitization_counts,

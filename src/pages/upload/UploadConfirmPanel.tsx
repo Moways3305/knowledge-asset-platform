@@ -11,7 +11,7 @@ import {
 import ModelAdvancedSettings from "../../components/ModelAdvancedSettings";
 import type { UploadFlow } from "./useUploadFlow";
 
-// 共享确认区：来源上下文 + AI 生成预览 + 人工校正 + AI 建议目标库 + 提交动作 / 结果提示。
+// 共享确认区：来源上下文 + 内容建议预览 + 人工校正 + 建议目标库 + 提交动作 / 结果提示。
 // 仅在 confirmReady / confirmSubmitted 时由页面渲染。
 export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
   const {
@@ -56,6 +56,16 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
     handleReset,
     models,
   } = flow;
+  const summaryStatus = llmStatus?.summaryStatus ?? null;
+  const summaryGenerated = summaryStatus === "generated";
+  const summaryStatusText =
+    summaryStatus === "generated"
+      ? "内容建议已生成"
+      : summaryStatus === "pending_model_config"
+        ? "摘要待生成：当前未配置内容生成模型。"
+        : summaryStatus === "failed"
+          ? "摘要生成失败，可稍后重试或联系管理员检查内容生成模型配置。"
+          : "内容建议处理中";
 
   return (
     <>
@@ -67,9 +77,9 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
         <span className="up-source-file">{sourceFile}</span>
       </div>
 
-      {/* AI preview card */}
+      {/* Content suggestion preview card */}
       <section className="upload-section">
-        <h3>AI 生成预览</h3>
+        <h3>内容建议预览</h3>
         <div className="preview-card">
           <div className="card-header">
             <span className="card-title">{editTitle}</span>
@@ -78,7 +88,7 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
               <span className="visibility-badge project-only">{editVisibility}</span>
             </div>
           </div>
-          <p className="card-summary">{editSummary}</p>
+          <p className="card-summary">{summaryGenerated ? editSummary : summaryStatusText}</p>
           <div className="card-tags">
             {editTags
               .split(/[·,，、\s]+/)
@@ -94,7 +104,9 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
             <span>来源：{sourceFile}</span>
             <span>来源渠道：{sourceLabel}</span>
           </div>
-          <p className="preview-hint">* 以上为平台生成的内容建议，下方可编辑校正</p>
+          <p className="preview-hint">
+            * 标题和标签可能含规则草稿；摘要只有在内容生成成功后才标记为已生成，下方可编辑校正
+          </p>
         </div>
       </section>
 
@@ -108,7 +120,7 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
         </p>
         {llmStatus && (
           <div className={`up-llm-status up-llm-${llmStatus.status ?? "unknown"}`}>
-            {llmStatus.status === "llm" ? "内容建议已生成" : "内容建议生成受限，请人工补全三层摘要"}
+            {summaryStatusText}
           </div>
         )}
         <div className="correction-grid">
@@ -147,7 +159,13 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
             </div>
           </div>
           <div className="correction-row">
-            <div className="correction-field">详细摘要</div>
+            <div className="correction-field">
+              详细摘要
+              <br />
+              <span className="correction-hint">
+                {summaryGenerated ? "生成摘要" : "待人工补全"}
+              </span>
+            </div>
             <div className="correction-value">
               {confirmReady ? (
                 <textarea
@@ -330,7 +348,7 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
         <h3>建议目标知识库</h3>
         <p className="correction-hint">
           {confirmReady
-            ? "以下目标由平台根据文件内容、项目上下文与可见性推荐。如有偏差，可直接修正。"
+            ? "以下目标由平台根据文件内容、项目上下文与可见性建议。如有偏差，可直接修正。"
             : "已提交，目标不可修改。"}
         </p>
         <div className="up-target-library">
