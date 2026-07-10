@@ -12,6 +12,7 @@ import type {
   GenerationModelCreateRequestDTO,
   GenerationModelOptionDTO,
 } from "../types/weknoraAdmin";
+import { SettingsRow } from "./ProductLayout";
 
 const PROVIDERS = ["deepseek", "kimi", "qwen", "glm", "minimax", "openai", "custom"];
 
@@ -287,26 +288,30 @@ export default function GenerationModelsSection({ canEdit }: { canEdit: boolean 
                 </tbody>
               </table>
             </div>
-            <div className="ws-form-grid" style={{ marginTop: 16 }}>
-              <label className="ws-form-field">
-                <span className="ws-form-label">平台默认内容生成模型</span>
-                <select
-                  className="ws-form-input"
-                  aria-label="平台默认内容生成模型"
-                  value={defaultRef}
-                  disabled={!canEdit}
-                  onChange={(e) => setDefaultRef(e.target.value)}
-                >
-                  <option value="">（清空默认）</option>
-                  {models
-                    .filter((model) => model.enabled)
-                    .map((model) => (
-                      <option key={model.model_ref} value={model.model_ref}>
-                        {model.display_name}
-                      </option>
-                    ))}
-                </select>
-              </label>
+            <div className="product-settings-list" style={{ marginTop: 16 }}>
+              <SettingsRow
+                title="平台默认内容生成模型"
+                description="用于上传后的标题、摘要、标签与内容建议。"
+                disabledReason={!canEdit ? "当前身份仅可查看，修改需系统管理员。" : undefined}
+                control={
+                  <select
+                    className="ws-form-input"
+                    aria-label="平台默认内容生成模型"
+                    value={defaultRef}
+                    disabled={!canEdit}
+                    onChange={(e) => setDefaultRef(e.target.value)}
+                  >
+                    <option value="">（清空默认）</option>
+                    {models
+                      .filter((model) => model.enabled)
+                      .map((model) => (
+                        <option key={model.model_ref} value={model.model_ref}>
+                          {model.display_name}
+                        </option>
+                      ))}
+                  </select>
+                }
+              />
             </div>
             {canEdit && (
               <div className="ws-form-actions">

@@ -17,6 +17,7 @@ import KnowledgeSearchBar from "./knowledge/KnowledgeSearchBar";
 import KnowledgeCardList from "./knowledge/KnowledgeCardList";
 import OpsInsightsPanel from "./knowledge/OpsInsightsPanel";
 import CreateProjectModal from "./knowledge/CreateProjectModal";
+import { ProductPage } from "../components/ProductLayout";
 
 const scopes: KnowledgeScope[] = ["company", "project", "personal"];
 
@@ -243,7 +244,7 @@ export default function KnowledgeListPage() {
   const cards = searchResult?.cards ?? [];
 
   return (
-    <div className="kb">
+    <ProductPage className="kb">
       <div className="kb-masthead">
         <div className="kb-masthead-text">
           <div className="kb-eyebrow">Knowledge Base · 知识资产</div>
@@ -390,6 +391,6 @@ export default function KnowledgeListPage() {
           navigate(`/project/${created.id}/settings`);
         }}
       />
-    </div>
+    </ProductPage>
   );
 }

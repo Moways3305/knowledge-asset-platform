@@ -8972,3 +8972,421 @@ body {
   border-color: var(--color-accent-2);
   box-shadow: var(--shadow-md);
 }
+/* ================================================================
+   PBC-47 shared product layout system
+   ================================================================ */
+
+.product-page,
+:where(
+  .ingest-page,
+  .audit-page,
+  .ws-page,
+  .kb,
+  .my-page,
+  .upload-page,
+  .review-page,
+  .original-access-page,
+  .project-knowledge-page,
+  .project-settings-page,
+  .help-page
+) {
+  width: min(100%, 1320px);
+  min-width: 0;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.product-page-header {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 2px 0 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.product-page-heading {
+  min-width: 0;
+  max-width: 760px;
+}
+
+.product-page-eyebrow {
+  margin-bottom: 4px;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.product-page-header h2,
+.product-page-heading h2 {
+  margin: 0;
+  color: var(--color-text-heading);
+  font-size: 24px;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.product-page-header p,
+.product-page-heading p {
+  margin: 6px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.product-page-actions,
+.product-section-actions,
+.product-toolbar-start,
+.product-toolbar-end {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.product-page-actions {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+
+.product-section,
+:where(.ingest-section, .audit-section, .ws-section) {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.product-section-header {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.product-section-header h3,
+.product-section > h3,
+:where(.ingest-section, .audit-section, .ws-section) > h3 {
+  margin: 0;
+  color: var(--color-text-heading);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.product-section-header p {
+  max-width: 720px;
+  margin: 3px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.product-section-body {
+  min-width: 0;
+}
+
+.product-section-body > :first-child {
+  margin-top: 0;
+}
+
+.product-section-body > :last-child {
+  margin-bottom: 0;
+}
+
+.product-toolbar,
+:where(.ig-toolbar, .au-toolbar) {
+  min-width: 0;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--color-bg-muted);
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
+}
+
+.product-toolbar-end {
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
+.product-toolbar select,
+.product-toolbar input,
+.product-setting-control select,
+.product-setting-control input,
+:where(.ig-toolbar, .au-toolbar) select {
+  min-height: 32px;
+  max-width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font-size: 12px;
+}
+
+.product-status-strip {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--status-columns, 4), minmax(0, 1fr));
+  overflow: hidden;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.product-status-item {
+  min-width: 0;
+  min-height: 62px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
+  border-right: 1px solid var(--color-border);
+}
+
+.product-status-item:last-child {
+  border-right: 0;
+}
+
+.product-status-value {
+  color: var(--color-text-heading);
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.product-status-label {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.product-status-item.is-success .product-status-value {
+  color: var(--color-success);
+}
+
+.product-status-item.is-warning .product-status-value {
+  color: var(--color-warning);
+}
+
+.product-status-item.is-danger .product-status-value {
+  color: var(--color-danger);
+}
+
+.product-setting-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(260px, 420px);
+  align-items: center;
+  gap: 24px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.product-setting-row:last-child {
+  border-bottom: 0;
+}
+
+.product-setting-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.product-setting-copy strong {
+  color: var(--color-text-heading);
+  font-size: 13px;
+}
+
+.product-setting-copy span {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.product-setting-copy .product-setting-reason {
+  color: var(--color-warning);
+}
+
+.product-setting-control {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.product-setting-control > :where(input, select) {
+  width: min(100%, 320px);
+}
+
+.product-inline-note {
+  margin: 0;
+  padding: 10px 16px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.product-inline-note.is-warning {
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+}
+
+.product-inline-note.is-danger {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+}
+
+.product-disclosure {
+  border-top: 1px solid var(--color-border);
+}
+
+.product-disclosure > summary {
+  padding: 10px 16px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.product-disclosure > :not(summary) {
+  margin-left: 16px;
+  margin-right: 16px;
+}
+
+.product-page :where(.ingest-table-wrap, .ws-table-wrap) {
+  min-width: 0;
+  margin: 0;
+  overflow-x: auto;
+  border: 0;
+  border-radius: 0;
+}
+
+.product-page :where(.ingest-table, .ws-table) {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+}
+
+.product-page :where(.ingest-table, .ws-table) th {
+  height: 38px;
+  padding: 8px 12px;
+  background: var(--color-bg-muted);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.product-page :where(.ingest-table, .ws-table) td {
+  min-height: 44px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+.product-page :where(.ingest-table, .ws-table) tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.product-page :where(.ig-empty-state, .au-empty-state, .state-box) {
+  margin: 0;
+  padding: 32px 20px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: center;
+}
+
+.product-page :where(button, select, input, textarea):focus-visible {
+  outline: 2px solid var(--color-accent-1);
+  outline-offset: 2px;
+}
+
+.product-page :where(button, select, input, textarea):disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+@media (max-width: 720px) {
+  .product-page,
+  :where(
+    .ingest-page,
+    .audit-page,
+    .ws-page,
+    .kb,
+    .my-page,
+    .upload-page,
+    .review-page,
+    .original-access-page,
+    .project-knowledge-page,
+    .project-settings-page,
+    .help-page
+  ) {
+    gap: 12px;
+  }
+
+  .product-page-header,
+  .product-section-header,
+  .product-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .product-page-actions,
+  .product-section-actions,
+  .product-toolbar-end {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+
+  .product-status-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .product-status-item:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .product-status-item:nth-child(n + 3) {
+    border-top: 1px solid var(--color-border);
+  }
+
+  .product-setting-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .product-setting-control {
+    justify-content: flex-start;
+  }
+
+  .product-setting-control > :where(input, select) {
+    width: 100%;
+  }
+}

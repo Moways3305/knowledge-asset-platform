@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { PageHeader, PageToolbar, ProductPage, StatusStrip } from "../components/ProductLayout";
 import { ApiError } from "../api/http";
 import { fetchAudit, markAuditProcessed } from "../api/admin";
 import type { AuditEventDTO } from "../types/audit";
@@ -116,32 +117,25 @@ export default function AdminAuditPage() {
     roleLabel[e.actor_company_role ?? ""] ?? (e.actor_company_role || "—");
 
   return (
-    <div className="audit-page">
-      {/* Header + KPI */}
-      <div className="au-header">
-        <div className="au-header-text">
-          <h2>审计日志</h2>
-          <p>查看关键操作记录和安全事件。时间均为北京时间（Asia/Shanghai）。</p>
-        </div>
-        <div className="kl-kpis">
-          <div className="kl-kpi">
-            <div className="kl-kpi-value">{operationLogs.length}</div>
-            <div className="kl-kpi-label">操作记录</div>
-          </div>
-          <div className="kl-kpi">
-            <div className="kl-kpi-value kl-kpi-warning">{unresolvedCount}</div>
-            <div className="kl-kpi-label">未处理异常</div>
-          </div>
-          <div className="kl-kpi">
-            <div className="kl-kpi-value au-kpi-failed">{loginFailedCount}</div>
-            <div className="kl-kpi-label">登录失败</div>
-          </div>
-          <div className="kl-kpi">
-            <div className="kl-kpi-value au-kpi-crit">{critErrorCount}</div>
-            <div className="kl-kpi-label">Critical/Error</div>
-          </div>
-        </div>
-      </div>
+    <ProductPage className="audit-page">
+      <PageHeader
+        title="审计日志"
+        description="查看关键操作记录和安全事件。时间均为北京时间（Asia/Shanghai）。"
+        actions={
+          <button className="btn-small" onClick={() => void load()} disabled={loading}>
+            {loading ? "加载中…" : "刷新"}
+          </button>
+        }
+      />
+      <StatusStrip
+        label="审计状态"
+        items={[
+          { label: "操作记录", value: operationLogs.length },
+          { label: "未处理异常", value: unresolvedCount, tone: "warning" },
+          { label: "登录失败", value: loginFailedCount, tone: "danger" },
+          { label: "严重 / 错误", value: critErrorCount, tone: "danger" },
+        ]}
+      />
 
       {/* 视图档位提示 */}
       {view && !error && (
@@ -168,21 +162,21 @@ export default function AdminAuditPage() {
       )}
 
       {/* Tabs */}
-      <div className="au-tabs">
-        {(["operation", "exception", "login"] as LogTab[]).map((tab) => (
-          <button
-            key={tab}
-            className={`au-tab ${activeTab === tab ? "active" : ""}`}
-            onClick={() => setActiveTab(tab)}
-          >
-            {tabLabel[tab]}
-          </button>
-        ))}
-        <div className="au-tabs-spacer" />
-        <button className="btn-small" onClick={() => void load()} disabled={loading}>
-          {loading ? "加载中…" : "刷新"}
-        </button>
-      </div>
+      <PageToolbar
+        start={
+          <div className="au-tabs">
+            {(["operation", "exception", "login"] as LogTab[]).map((tab) => (
+              <button
+                key={tab}
+                className={`au-tab ${activeTab === tab ? "active" : ""}`}
+                onClick={() => setActiveTab(tab)}
+              >
+                {tabLabel[tab]}
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       {/* Operation logs */}
       {activeTab === "operation" && (
@@ -208,7 +202,6 @@ export default function AdminAuditPage() {
                   <tr key={log.id}>
                     <td className="au-cell-action" title={log.action}>
                       {auditActionLabel(log.action)}
-                      <span className="au-cell-raw">{log.action}</span>
                     </td>
                     <td>{log.actor_name ?? "—"}</td>
                     <td>
@@ -221,6 +214,7 @@ export default function AdminAuditPage() {
                     <td className="au-cell-trace">
                       <details>
                         <summary>展开</summary>
+                        <code>{log.action}</code>
                         <code>{log.trace_id}</code>
                       </details>
                     </td>
@@ -279,7 +273,6 @@ export default function AdminAuditPage() {
                   <tr key={log.id}>
                     <td className="au-cell-action" title={log.action}>
                       {auditActionLabel(log.action)}
-                      <span className="au-cell-raw">{log.action}</span>
                     </td>
                     <td>
                       {log.severity ? (
@@ -298,6 +291,7 @@ export default function AdminAuditPage() {
                     <td className="au-cell-trace">
                       <details>
                         <summary>展开</summary>
+                        <code>{log.action}</code>
                         <code>{log.trace_id}</code>
                       </details>
                     </td>
@@ -331,10 +325,13 @@ export default function AdminAuditPage() {
               </tbody>
             </table>
           </div>
-          <p className="au-note">
-            标记已处理仅更新处理状态并追加一条 <code>audit.exception_processed</code> 处理事件，
-            <strong>不修改原始审计事实</strong>（仅 admin 可操作）。
-          </p>
+          <details className="product-disclosure">
+            <summary>查看登录审计说明</summary>
+            <p className="au-note">
+              标记已处理仅更新处理状态并追加一条 <code>audit.exception_processed</code> 处理事件，
+              <strong>不修改原始审计事实</strong>（仅 admin 可操作）。
+            </p>
+          </details>
         </section>
       )}
 
@@ -381,12 +378,12 @@ export default function AdminAuditPage() {
                       </td>
                       <td className="au-cell-action" title={log.action}>
                         {auditActionLabel(log.action)}
-                        <span className="au-cell-raw">{log.action}</span>
                       </td>
                       <td className="au-cell-msg">{auditLoginSummary(log)}</td>
                       <td className="au-cell-trace">
                         <details>
                           <summary>展开</summary>
+                          <code>{log.action}</code>
                           <code>{log.trace_id}</code>
                         </details>
                       </td>
@@ -406,6 +403,6 @@ export default function AdminAuditPage() {
           使用说明 →
         </Link>
       </p>
-    </div>
+    </ProductPage>
   );
 }
