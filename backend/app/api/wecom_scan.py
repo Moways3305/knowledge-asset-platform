@@ -33,7 +33,7 @@ from app.schemas.wecom import (
 )
 from app.services import wecom_scan as scan_service
 from app.services.desensitization import get_desensitizer
-from app.services.llm_client import get_llm_client
+from app.services.generation_models import get_generation_llm_client
 from app.services.storage import get_storage
 from app.services.wecom_client import get_wecom_drive_client
 
@@ -131,7 +131,7 @@ async def trigger_scan(
     session: AsyncSession = Depends(get_db),
     drive=Depends(get_wecom_drive_client),
     storage=Depends(get_storage),
-    llm=Depends(get_llm_client),
+    llm=Depends(get_generation_llm_client),
     desensitizer=Depends(get_desensitizer),
 ) -> WecomScanRecordOut:
     result: WecomScanRecordOut = await scan_service.trigger_scan(

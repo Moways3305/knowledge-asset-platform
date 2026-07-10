@@ -26,7 +26,8 @@ from app.schemas.ingest import (
 from app.schemas.permission import CallerContext
 from app.services import ingest as ingest_service
 from app.services.desensitization import DesensitizationEngine, get_desensitizer
-from app.services.llm_client import LLMClient, NullLLMClient, get_llm_client
+from app.services.generation_models import get_generation_llm_client
+from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.storage import MAX_UPLOAD_BYTES, LocalFileStorage, get_storage
 from app.services.weknora_client import (
     NullWeKnoraClient,
@@ -46,7 +47,7 @@ async def create_upload(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
     storage: LocalFileStorage = Depends(get_storage),
-    llm: LLMClient | NullLLMClient = Depends(get_llm_client),
+    llm: LLMClient | NullLLMClient = Depends(get_generation_llm_client),
     desensitizer: DesensitizationEngine = Depends(get_desensitizer),
 ) -> IngestUploadResponse:
     """Path B 本地上传：接收真实文件字节（multipart/form-data）并经存储服务持久化，

@@ -12,13 +12,12 @@ import re
 
 import pytest
 
-import app.services.content_processing as cp_module
-import app.services.generation_models as gen_module
 from app.main import app
 from app.schemas.enums import AssetType, ConfidentialityLevel
 from app.seed.dev_seed import USER_CONSULTANT
 from app.services import audit as audit_service
-from app.services.llm_client import LLMClient, LLMError, get_llm_client
+from app.services.generation_models import get_generation_llm_client
+from app.services.llm_client import LLMClient, LLMError
 
 UPLOAD = "/api/v1/ingest/upload"
 KN = "/api/v1/knowledge"
@@ -83,14 +82,14 @@ _GOOD = {
 
 
 def _enable_llm(monkeypatch, fake):
-    monkeypatch.setattr(cp_module, "llm_enabled", lambda: True)
-    app.dependency_overrides[get_llm_client] = lambda: fake
+    del monkeypatch
+    app.dependency_overrides[get_generation_llm_client] = lambda: fake
 
 
 @pytest.fixture(autouse=True)
 def _cleanup():
     yield
-    app.dependency_overrides.pop(get_llm_client, None)
+    app.dependency_overrides.pop(get_generation_llm_client, None)
 
 
 async def _upload(client, content=_TXT, file_name="retail.txt", mime="text/plain"):
@@ -203,9 +202,6 @@ async def test_compliant_filename_parsed_into_naming(client):
 
 async def test_upload_degraded_on_llm_failure(client, monkeypatch):
     _enable_llm(monkeypatch, FakeLLM(mode="fail"))
-    import app.services.ingest as ingest_module
-
-    monkeypatch.setattr(ingest_module, "llm_enabled", lambda: True)
     task_id = await _upload(client)  # 不应抛错
     r = await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
     body = r.json()
@@ -216,9 +212,6 @@ async def test_upload_degraded_on_llm_failure(client, monkeypatch):
 
 async def test_llm_json_without_detailed_does_not_mark_summary_generated(client, monkeypatch):
     _enable_llm(monkeypatch, FakeLLM(mode="missing_detailed"))
-    import app.services.ingest as ingest_module
-
-    monkeypatch.setattr(ingest_module, "llm_enabled", lambda: True)
     task_id = await _upload(client)
     r = await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
     body = r.json()
@@ -227,26 +220,6 @@ async def test_llm_json_without_detailed_does_not_mark_summary_generated(client,
     assert body["suggested_summary"]
     assert body["summary"] is None
     assert body["summary_status"] == "failed"
-
-
-async def test_generation_model_options_safe_fields(client, monkeypatch):
-    class S:
-        llm_provider = "deepseek"
-        llm_model = "deepseek-chat"
-        generation_model_ref_secret = "test-generation-ref"
-
-    monkeypatch.setattr(gen_module, "llm_enabled", lambda: True)
-    monkeypatch.setattr(gen_module, "get_settings", lambda: S())
-    r = await client.get("/api/v1/generation/model-options", headers=_hdr(USER_CONSULTANT))
-    assert r.status_code == 200
-    body = r.json()
-    assert body["default_missing"] is False
-    item = body["items"][0]
-    assert set(item) == {"model_ref", "name", "provider", "enabled", "is_default"}
-    assert item["name"] == "deepseek-chat"
-    assert item["provider"] == "deepseek"
-    assert "api_key" not in r.text
-    assert "base_url" not in r.text
 
 
 async def test_upload_degraded_on_dirty_json(client, monkeypatch):

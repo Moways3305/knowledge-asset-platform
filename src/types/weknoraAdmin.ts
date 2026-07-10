@@ -120,8 +120,9 @@ export interface DefaultModelsUpdateRequestDTO {
 // ---- KAP 内容生成模型（标题 / 摘要 / 标签建议；非 WeKnora 知识库模型）----
 export interface GenerationModelOptionDTO {
   model_ref: string;
-  name: string;
-  provider: string | null;
+  display_name: string;
+  provider: string;
+  model_name: string;
   enabled: boolean;
   is_default: boolean;
 }
@@ -138,4 +139,34 @@ export interface GenerationModelSelectionRequestDTO {
 export interface GenerationModelSelectionResponseDTO {
   current_default: GenerationModelOptionDTO | null;
   configured: boolean;
+}
+
+export interface GenerationModelAdminListResponseDTO {
+  items: GenerationModelOptionDTO[];
+  total: number;
+}
+
+export interface GenerationModelCreateRequestDTO {
+  display_name: string;
+  provider: string;
+  model_name: string;
+  base_url: string;
+  api_key: string;
+  enabled: boolean;
+  make_default: boolean;
+}
+
+export interface GenerationModelUpdateRequestDTO {
+  display_name: string;
+  provider: string;
+  model_name: string;
+  base_url?: string | null;
+  api_key?: string | null;
+  enabled: boolean;
+}
+
+export interface GenerationModelTestResponseDTO {
+  success: boolean;
+  message: string;
+  duration_ms: number;
 }

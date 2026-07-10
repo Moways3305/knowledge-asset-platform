@@ -17,14 +17,14 @@ async def _run(maker, config_id: str, record_id: str | None, trace_id: str | Non
     from app.models.wecom import WecomScanConfig, WecomScanRecord
     from app.services import wecom_scan
     from app.services.desensitization import get_desensitizer
-    from app.services.llm_client import get_llm_client
+    from app.services.generation_models import resolve_generation_llm_client
     from app.services.storage import get_storage
     from app.services.wecom_client import get_wecom_drive_client
 
     async with maker() as session:
         drive = get_wecom_drive_client()
         storage = get_storage()
-        llm = get_llm_client()
+        llm = await resolve_generation_llm_client(session)
         desensitizer = get_desensitizer()
         if record_id:
             config = await session.get(WecomScanConfig, uuid.UUID(config_id))

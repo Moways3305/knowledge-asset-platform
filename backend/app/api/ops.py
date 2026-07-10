@@ -65,6 +65,7 @@ from app.services import audit as audit_service
 from app.services import (
     auth_security_ops,
     error_catalog,
+    generation_models,
     session_revocation,
     wecom_identity,
     weknora_defaults,
@@ -134,7 +135,13 @@ async def health_ready(response: Response, session: AsyncSession = Depends(get_d
     }
 
 
-def _missing_config(s, *, default_embedding_ok: bool, default_chat_ok: bool) -> list[str]:
+def _missing_config(
+    s,
+    *,
+    default_embedding_ok: bool,
+    default_chat_ok: bool,
+    generation_product_configured: bool,
+) -> list[str]:
     """已开启但缺关键值的配置项**名称**（仅名称，绝不含值）。
 
     PBC-38：WeKnora 启用时检查的是**平台默认 embedding 模型**（DB `weknora_default_models`，
@@ -153,10 +160,18 @@ def _missing_config(s, *, default_embedding_ok: bool, default_chat_ok: bool) -> 
         missing.append("ONLYOFFICE_DOCUMENT_SERVER_URL")
     if s.wecom_notify_enabled and not (s.wecom_corp_id and s.wecom_app_secret):
         missing.append("WECOM_CORP_ID/WECOM_APP_SECRET")
+    if generation_product_configured and not (s.generation_model_encryption_key or "").strip():
+        missing.append("GENERATION_MODEL_ENCRYPTION_KEY")
     return missing
 
 
-def _production_blockers(s, *, default_embedding_ok: bool, default_chat_ok: bool) -> list[str]:
+def _production_blockers(
+    s,
+    *,
+    default_embedding_ok: bool,
+    default_chat_ok: bool,
+    generation_product_configured: bool,
+) -> list[str]:
     """生产**硬阻断**项名：必须修复才能安全上线。仅 prod 评估，否则空——
     本地/测试默认 eager 等不视为失败。只回安全项名，绝不回值/密钥/URL/内部 id。"""
     if s.app_env != "prod":
@@ -194,14 +209,16 @@ def _production_blockers(s, *, default_embedding_ok: bool, default_chat_ok: bool
     # 5) 企微通知启用但缺 corp/app secret 项 → 通知无法真实下发。
     if s.wecom_notify_enabled and not (s.wecom_corp_id and s.wecom_app_secret):
         blockers.append("WECOM_CORP_ID/WECOM_APP_SECRET")
+    if generation_product_configured and not (s.generation_model_encryption_key or "").strip():
+        blockers.append("GENERATION_MODEL_ENCRYPTION_KEY")
     return blockers
 
 
-def _production_warnings(s) -> list[str]:
+def _production_warnings(s, *, kap_generation_configured: bool) -> list[str]:
     """生产**软提醒**项名：不阻断上线但建议运维确认。仅安全项名。"""
     warnings: list[str] = []
     # KAP 内容生成模型未配置 → 标题/摘要/标签建议降级为确定性草稿，系统仍可用。
-    if not llm_enabled():
+    if not kap_generation_configured:
         warnings.append("KAP_GENERATION_MODEL_NOT_CONFIGURED")
     # WeKnora 未配置 → 检索 / 索引降级（dev 可接受，生产一般应接真实底座）。
     if not weknora_enabled():
@@ -217,10 +234,15 @@ async def health_config(session: AsyncSession = Depends(get_db)) -> dict:
     """
     s = get_settings()
     defaults = await weknora_defaults.get_defaults(session)
+    generation_product_configured = await generation_models.product_configuration_exists(session)
+    kap_generation_configured = await generation_models.generation_model_configured(session)
     default_embedding_ok = bool(defaults and (defaults.default_embedding_model_id or "").strip())
     default_chat_ok = bool(defaults and (defaults.default_chat_model_id or "").strip())
     blockers = _production_blockers(
-        s, default_embedding_ok=default_embedding_ok, default_chat_ok=default_chat_ok
+        s,
+        default_embedding_ok=default_embedding_ok,
+        default_chat_ok=default_chat_ok,
+        generation_product_configured=generation_product_configured,
     )
     return {
         "app_env": s.app_env,
@@ -228,7 +250,7 @@ async def health_config(session: AsyncSession = Depends(get_db)) -> dict:
         "integrations": {
             "weknora_enabled": weknora_enabled(),
             "llm_enabled": llm_enabled(),
-            "kap_generation_model_configured": llm_enabled(),
+            "kap_generation_model_configured": kap_generation_configured,
             "llm_provider": s.llm_provider or None,  # provider 名（如 deepseek）安全，非密钥
             "wecom_enabled": wecom_enabled(),
             "wecom_notify_enabled": bool(s.wecom_notify_enabled),
@@ -236,13 +258,18 @@ async def health_config(session: AsyncSession = Depends(get_db)) -> dict:
             "celery_eager": bool(s.celery_task_always_eager),
         },
         "missing_config": _missing_config(
-            s, default_embedding_ok=default_embedding_ok, default_chat_ok=default_chat_ok
+            s,
+            default_embedding_ok=default_embedding_ok,
+            default_chat_ok=default_chat_ok,
+            generation_product_configured=generation_product_configured,
         ),
         # 生产就绪：当前实例为 prod 部署且无硬阻断项。非 prod 恒为 False（按定义不是生产
         # 部署），但仍返回 warnings 供运维预览；blockers 仅 prod 评估，避免误判本地开发。
         "production_ready": s.app_env == "prod" and not blockers,
         "production_blockers": blockers,
-        "production_warnings": _production_warnings(s),
+        "production_warnings": _production_warnings(
+            s, kap_generation_configured=kap_generation_configured
+        ),
     }
 
 

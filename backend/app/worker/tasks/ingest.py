@@ -19,8 +19,8 @@ _logger = logging.getLogger(__name__)
 
 async def _run(maker, task_id_str: str, trace_id: str | None) -> None:
     from app.services.desensitization import get_desensitizer
+    from app.services.generation_models import resolve_generation_llm_client
     from app.services.jobs import ingest_processing
-    from app.services.llm_client import get_llm_client
     from app.services.storage import get_storage
 
     async with maker() as session:
@@ -28,7 +28,7 @@ async def _run(maker, task_id_str: str, trace_id: str | None) -> None:
             session,
             uuid.UUID(task_id_str),
             storage=get_storage(),
-            llm=get_llm_client(),
+            llm=await resolve_generation_llm_client(session),
             desensitizer=get_desensitizer(),
             trace_id=trace_id,
         )

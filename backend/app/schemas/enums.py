@@ -373,6 +373,11 @@ class AuditAction(str, Enum):
     weknora_kb_config_updated = "weknora.kb_config_updated"
     # PBC-38 平台默认模型配置变更。extra 只放安全 model_ref / 名称，绝不含真实 model_id。
     weknora_default_models_updated = "weknora.default_models_updated"
+    # KAP 内容生成模型配置。extra 仅允许安全 model_ref。
+    generation_model_created = "generation_model.created"
+    generation_model_updated = "generation_model.updated"
+    generation_model_deleted = "generation_model.deleted"
+    generation_model_default_updated = "generation_model.default_updated"
     # 个人知识库管理（PBC-29）：显式创建 / 改名（仅安全元数据：可读名 + sync_ok，无 kb_id）。
     config_personal_kb_created = "config.personal_kb_created"
     config_personal_kb_updated = "config.personal_kb_updated"

@@ -77,6 +77,12 @@ _FORBIDDEN_KEYS = {
     "knowledge_id",
     "file_path",
     "llm_api_key",
+    "base_url",
+    "api_url",
+    "ciphertext",
+    "base_url_ciphertext",
+    "api_key_ciphertext",
+    "generation_model_id",
     "authorization",
     # server-only chunk 引用：视同 storage_ref，绝不入审计（防御性二次过滤）。
     "target_weknora_chunk_ref",

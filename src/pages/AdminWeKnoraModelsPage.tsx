@@ -18,6 +18,7 @@ import type {
   ProviderDTO,
 } from "../types/weknoraAdmin";
 import DefaultModelsSection from "../components/DefaultModelsSection";
+import GenerationModelsSection from "../components/GenerationModelsSection";
 import { useAuth } from "../auth/AuthContext";
 
 const TYPE_OPTIONS = [
@@ -284,6 +285,8 @@ export default function AdminWeKnoraModelsPage() {
           </div>
         </section>
       )}
+
+      <GenerationModelsSection canEdit={capabilities.isAdmin} />
 
       {notConfigured ? (
         <section className="ws-section">
