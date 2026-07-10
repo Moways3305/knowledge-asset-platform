@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import time
 import uuid
+from typing import cast
 
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import Depends
@@ -72,12 +73,14 @@ def _cipher() -> Fernet:
 
 
 def _encrypt(value: str) -> str:
-    return _cipher().encrypt(value.encode("utf-8")).decode("ascii")
+    encrypted = cast(bytes, _cipher().encrypt(value.encode("utf-8")))
+    return encrypted.decode("ascii")
 
 
 def _decrypt(value: str) -> str:
     try:
-        return _cipher().decrypt(value.encode("ascii")).decode("utf-8")
+        decrypted = cast(bytes, _cipher().decrypt(value.encode("ascii")))
+        return decrypted.decode("utf-8")
     except (InvalidToken, UnicodeDecodeError, UnicodeEncodeError) as exc:
         raise GenerationModelError(
             "generation_model_secret_unreadable",
