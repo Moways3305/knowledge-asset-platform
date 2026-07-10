@@ -56,6 +56,7 @@ class ModelMutateRequest(BaseModel):
     api_key: str | None = None
     description: str | None = None
     dimension: int | None = None  # 仅 embedding 用
+    enabled: bool | None = None
 
 
 class ModelMutateResponse(BaseModel):

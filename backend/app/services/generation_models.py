@@ -133,7 +133,7 @@ async def _settings(
     return row
 
 
-async def _all_models(session: AsyncSession) -> list[ContentGenerationModel]:
+async def all_connection_models(session: AsyncSession) -> list[ContentGenerationModel]:
     return list(
         (
             await session.execute(
@@ -146,7 +146,7 @@ async def _all_models(session: AsyncSession) -> list[ContentGenerationModel]:
 
 
 async def _resolve_ref(session: AsyncSession, model_ref: str) -> ContentGenerationModel | None:
-    for model in await _all_models(session):
+    for model in await all_connection_models(session):
         if hmac.compare_digest(_model_ref(model.id), model_ref):
             return model
     return None
@@ -166,7 +166,11 @@ def _safe_model(model: ContentGenerationModel, default_id: uuid.UUID | None) -> 
 async def list_admin_models(session: AsyncSession) -> list[dict]:
     settings = await _settings(session)
     default_id = settings.default_model_id if settings else None
-    return [_safe_model(m, default_id) for m in await _all_models(session)]
+    return [
+        _safe_model(m, default_id)
+        for m in await all_connection_models(session)
+        if m.capability_type == "chat"
+    ]
 
 
 def _env_option() -> dict | None:
@@ -203,6 +207,7 @@ async def create_model(
     enabled: bool,
     make_default: bool,
     actor_id: uuid.UUID,
+    capability_type: str = "chat",
 ) -> dict:
     if make_default and not enabled:
         raise GenerationModelError(
@@ -214,6 +219,7 @@ async def create_model(
         ),
         provider=_required(provider, "generation_model_provider_required", "请选择 provider"),
         model_name=_required(model_name, "generation_model_name_required", "请填写模型名称"),
+        capability_type=capability_type,
         base_url_ciphertext=_encrypt(_validate_http_url(base_url)),
         api_key_ciphertext=_encrypt(
             _required(api_key, "generation_model_api_key_required", "请填写 API key")
@@ -304,6 +310,8 @@ async def set_default_model(
         raise GenerationModelError(
             "generation_model_default_disabled", "停用的内容生成模型不能设为默认"
         )
+    if model.capability_type != "chat":
+        raise GenerationModelError("generation_model_type_mismatch", "只有对话模型可用于内容生成")
     settings.default_model_id = model.id
     settings.updated_by = actor_id
     await session.flush()
@@ -350,7 +358,7 @@ async def resolve_generation_llm_client(
     if settings.default_model_id is None:
         return NullLLMClient()
     model = await session.get(ContentGenerationModel, settings.default_model_id)
-    if model is None or not model.enabled:
+    if model is None or not model.enabled or model.capability_type != "chat":
         return NullLLMClient()
     try:
         return LLMClient(
@@ -376,3 +384,18 @@ async def generation_model_configured(session: AsyncSession) -> bool:
 
 async def product_configuration_exists(session: AsyncSession) -> bool:
     return await _settings(session) is not None
+
+
+def connection_model_ref(model: ContentGenerationModel) -> str:
+    return _model_ref(model.id)
+
+
+async def resolve_connection_ref(
+    session: AsyncSession, model_ref: str
+) -> ContentGenerationModel | None:
+    return await _resolve_ref(session, model_ref)
+
+
+def decrypt_connection_secrets(model: ContentGenerationModel) -> tuple[str, str]:
+    """Return endpoint/key only to server-side adapter code."""
+    return _decrypt(model.base_url_ciphertext), _decrypt(model.api_key_ciphertext)
