@@ -10,7 +10,7 @@ import hashlib
 import hmac
 
 from app.core.config import get_settings
-from app.services.llm_client import llm_enabled
+from app.services.llm_client import PROVIDER_REGISTRY, llm_enabled
 
 
 def _configured_provider_model() -> tuple[str, str] | None:
@@ -22,9 +22,7 @@ def _configured_provider_model() -> tuple[str, str] | None:
     if not provider:
         return None
     if not model:
-        from app.services.llm_client import PROVIDERS
-
-        reg = PROVIDERS.get(provider)
+        reg = PROVIDER_REGISTRY.get(provider)
         model = reg.default_model if reg else ""
     if not model:
         return None
