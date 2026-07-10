@@ -19,7 +19,6 @@ import json
 
 import pytest
 
-import app.services.content_processing as cp_module
 from app.main import app
 from app.seed.dev_seed import USER_CONSULTANT
 from app.services.content_processing import process_content
@@ -29,7 +28,8 @@ from app.services.desensitization import (
     get_desensitizer,
 )
 from app.services.extraction import ExtractionResult
-from app.services.llm_client import LLMError, get_llm_client
+from app.services.generation_models import get_generation_llm_client
+from app.services.llm_client import LLMError, NullLLMClient
 from app.services.weknora_client import WeKnoraError, get_weknora_client
 
 UPLOAD = "/api/v1/ingest/upload"
@@ -172,7 +172,7 @@ def _extraction(text: str) -> ExtractionResult:
 async def test_platform_llm_receives_extracted_text(monkeypatch):
     """前置脱敏已退出链路：平台侧 LLM 直接收到抽取文本（含客户/金额等上下文），
     用于提升命名与摘要质量；入库脱敏状态恒 not_applicable、counts 置空。"""
-    monkeypatch.setattr(cp_module, "llm_enabled", lambda: True)
+    del monkeypatch
     fake = CapturingLLM()
     draft, meta = await process_content(
         fake,
@@ -197,8 +197,8 @@ async def test_platform_llm_receives_extracted_text(monkeypatch):
 
 
 async def test_llm_not_configured_degrades(monkeypatch):
-    monkeypatch.setattr(cp_module, "llm_enabled", lambda: False)
-    fake = CapturingLLM()
+    del monkeypatch
+    fake = NullLLMClient()
     draft, meta = await process_content(
         fake,
         RuleBasedDesensitizer(),
@@ -207,7 +207,6 @@ async def test_llm_not_configured_degrades(monkeypatch):
         trace_id="t",
     )
     # 未配置 LLM → 不调用，降级；脱敏不参与链路，状态恒 not_applicable。
-    assert fake.calls == 0
     assert meta["status"] == "degraded"
     assert meta["reason"] == "llm_not_configured"
     assert meta["desensitization_status"] == "not_applicable"
@@ -216,7 +215,7 @@ async def test_llm_not_configured_degrades(monkeypatch):
 
 
 async def test_non_text_extraction_degrades(monkeypatch):
-    monkeypatch.setattr(cp_module, "llm_enabled", lambda: True)
+    del monkeypatch
     fake = CapturingLLM()
     ext = ExtractionResult(
         text="", status="empty", error_type="empty", error_message="无文本", char_count=0
@@ -233,14 +232,14 @@ async def test_non_text_extraction_degrades(monkeypatch):
 # API：上传 AI 结果只返回安全脱敏元数据
 # ---------------------------------------------------------------------------
 def _enable_llm(monkeypatch, fake):
-    monkeypatch.setattr(cp_module, "llm_enabled", lambda: True)
-    app.dependency_overrides[get_llm_client] = lambda: fake
+    del monkeypatch
+    app.dependency_overrides[get_generation_llm_client] = lambda: fake
 
 
 @pytest.fixture(autouse=True)
 def _cleanup():
     yield
-    app.dependency_overrides.pop(get_llm_client, None)
+    app.dependency_overrides.pop(get_generation_llm_client, None)
     app.dependency_overrides.pop(get_weknora_client, None)
 
 

@@ -124,5 +124,6 @@ def test_runtime_dependency_import_smoke():
         "docx",
         "fastapi",
         "sqlalchemy",
+        "cryptography",
     ):
         assert importlib.import_module(mod) is not None

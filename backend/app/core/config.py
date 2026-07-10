@@ -109,6 +109,9 @@ class Settings(BaseSettings):
     # KAP 内容生成模型（标题 / 摘要 / 标签建议）对前端暴露的安全 model_ref HMAC key。
     # 不用于 WeKnora 知识库模型；缺省仅本地/测试使用稳定回退。
     generation_model_ref_secret: str = ""
+    # Fernet key（urlsafe base64 编码的 32-byte key），只用于内容生成模型敏感配置加密。
+    # 生产必须显式配置；不入库、不进响应/日志。
+    generation_model_encryption_key: str = ""
 
     # 企业微信 OAuth 真身份 + 微盘扫描。corp_id + app_secret 配齐才启用真实集成；
     # 否则降级（OAuth 端点返回未配置，扫描走注入的 fake/Null）。**secret 绝不外泄**。

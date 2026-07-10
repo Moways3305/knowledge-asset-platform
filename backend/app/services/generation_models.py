@@ -1,16 +1,33 @@
-"""KAP 内容生成模型安全视图。
+"""KAP 内容生成模型持久化、安全引用与运行时解析。
 
-该模块只描述平台内容生成链路（标题 / 摘要 / 标签 / 内容建议）的安全配置状态，
-不参与 WeKnora 知识库初始化，也不暴露 LLM base_url / api_key / 真实内部配置。
+产品配置存在后，内容生成调用只使用数据库中的平台默认模型。敏感字段使用 Fernet
+加密落库，解密仅发生在后端构造 LLMClient 时；API/审计/日志只使用安全 model_ref。
 """
 
 from __future__ import annotations
 
 import hashlib
 import hmac
+import time
+import uuid
+from typing import cast
+
+from cryptography.fernet import Fernet, InvalidToken
+from fastapi import Depends
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.services.llm_client import PROVIDER_REGISTRY, llm_enabled
+from app.db.session import get_db
+from app.models.generation_model import ContentGenerationModel, ContentGenerationSettings
+from app.services.llm_client import (
+    PROVIDER_REGISTRY,
+    LLMClient,
+    LLMError,
+    NullLLMClient,
+    get_llm_client,
+    llm_enabled,
+)
 
 
 def _configured_provider_model() -> tuple[str, str] | None:
@@ -29,7 +46,58 @@ def _configured_provider_model() -> tuple[str, str] | None:
     return provider, model
 
 
+class GenerationModelError(Exception):
+    def __init__(self, code: str, message: str, status_code: int = 422) -> None:
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+        super().__init__(code)
+
+
+def _cipher() -> Fernet:
+    key = (get_settings().generation_model_encryption_key or "").strip()
+    if not key:
+        raise GenerationModelError(
+            "generation_model_encryption_key_missing",
+            "内容生成模型加密密钥未配置",
+            503,
+        )
+    try:
+        return Fernet(key.encode("ascii"))
+    except (ValueError, UnicodeEncodeError) as exc:
+        raise GenerationModelError(
+            "generation_model_encryption_key_invalid",
+            "内容生成模型加密密钥格式无效",
+            503,
+        ) from exc
+
+
+def _encrypt(value: str) -> str:
+    encrypted = cast(bytes, _cipher().encrypt(value.encode("utf-8")))
+    return encrypted.decode("ascii")
+
+
+def _decrypt(value: str) -> str:
+    try:
+        decrypted = cast(bytes, _cipher().decrypt(value.encode("ascii")))
+        return decrypted.decode("utf-8")
+    except (InvalidToken, UnicodeDecodeError, UnicodeEncodeError) as exc:
+        raise GenerationModelError(
+            "generation_model_secret_unreadable",
+            "内容生成模型敏感配置无法读取",
+            503,
+        ) from exc
+
+
+def _model_ref(model_id: uuid.UUID) -> str:
+    key = (get_settings().generation_model_ref_secret or "kap-generation-model-ref-v1").encode(
+        "utf-8"
+    )
+    return hmac.new(key, str(model_id).encode("ascii"), hashlib.sha256).hexdigest()
+
+
 def generation_model_ref(provider: str, model: str) -> str:
+    """兼容环境变量模型与既有 ai_result 的安全引用。"""
     raw = f"{provider}:{model}"
     key = (get_settings().generation_model_ref_secret or "kap-generation-model-ref-v1").encode(
         "utf-8"
@@ -37,24 +105,274 @@ def generation_model_ref(provider: str, model: str) -> str:
     return hmac.new(key, raw.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
-def current_generation_model_ref() -> str | None:
-    pair = _configured_provider_model()
-    if pair is None:
+def _validate_http_url(value: str) -> str:
+    cleaned = value.strip()
+    if not cleaned.lower().startswith(("http://", "https://")):
+        raise GenerationModelError(
+            "generation_model_base_url_invalid",
+            "API 地址必须以 http:// 或 https:// 开头",
+        )
+    return cleaned.rstrip("/")
+
+
+def _required(value: str, code: str, message: str) -> str:
+    cleaned = value.strip()
+    if not cleaned:
+        raise GenerationModelError(code, message)
+    return cleaned
+
+
+async def _settings(
+    session: AsyncSession, *, create: bool = False
+) -> ContentGenerationSettings | None:
+    row = await session.get(ContentGenerationSettings, 1)
+    if row is None and create:
+        row = ContentGenerationSettings(id=1)
+        session.add(row)
+        await session.flush()
+    return row
+
+
+async def _all_models(session: AsyncSession) -> list[ContentGenerationModel]:
+    return list(
+        (
+            await session.execute(
+                select(ContentGenerationModel).order_by(ContentGenerationModel.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+async def _resolve_ref(session: AsyncSession, model_ref: str) -> ContentGenerationModel | None:
+    for model in await _all_models(session):
+        if hmac.compare_digest(_model_ref(model.id), model_ref):
+            return model
+    return None
+
+
+def _safe_model(model: ContentGenerationModel, default_id: uuid.UUID | None) -> dict:
+    return {
+        "model_ref": _model_ref(model.id),
+        "display_name": model.display_name,
+        "provider": model.provider,
+        "model_name": model.model_name,
+        "enabled": model.enabled,
+        "is_default": model.id == default_id,
+    }
+
+
+async def list_admin_models(session: AsyncSession) -> list[dict]:
+    settings = await _settings(session)
+    default_id = settings.default_model_id if settings else None
+    return [_safe_model(m, default_id) for m in await _all_models(session)]
+
+
+def _env_option() -> dict | None:
+    settings = get_settings()
+    client = get_llm_client()
+    if isinstance(client, NullLLMClient):
         return None
-    return generation_model_ref(pair[0], pair[1])
+    return {
+        "model_ref": generation_model_ref(client.provider, client.model),
+        "display_name": settings.llm_model or client.model,
+        "provider": client.provider,
+        "model_name": client.model,
+        "enabled": True,
+        "is_default": True,
+    }
 
 
-def safe_generation_model_options() -> list[dict]:
-    pair = _configured_provider_model()
-    if pair is None:
-        return []
-    provider, model = pair
-    return [
-        {
-            "model_ref": generation_model_ref(provider, model),
-            "name": model,
-            "provider": provider,
-            "enabled": True,
-            "is_default": True,
+async def safe_generation_model_options(session: AsyncSession) -> list[dict]:
+    settings = await _settings(session)
+    if settings is None:
+        fallback = _env_option()
+        return [fallback] if fallback else []
+    return [item for item in await list_admin_models(session) if item["enabled"]]
+
+
+async def create_model(
+    session: AsyncSession,
+    *,
+    display_name: str,
+    provider: str,
+    model_name: str,
+    base_url: str,
+    api_key: str,
+    enabled: bool,
+    make_default: bool,
+    actor_id: uuid.UUID,
+) -> dict:
+    if make_default and not enabled:
+        raise GenerationModelError(
+            "generation_model_default_disabled", "停用的内容生成模型不能设为默认"
+        )
+    model = ContentGenerationModel(
+        display_name=_required(
+            display_name, "generation_model_display_name_required", "请填写显示名称"
+        ),
+        provider=_required(provider, "generation_model_provider_required", "请选择 provider"),
+        model_name=_required(model_name, "generation_model_name_required", "请填写模型名称"),
+        base_url_ciphertext=_encrypt(_validate_http_url(base_url)),
+        api_key_ciphertext=_encrypt(
+            _required(api_key, "generation_model_api_key_required", "请填写 API key")
+        ),
+        enabled=enabled,
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    session.add(model)
+    await session.flush()
+    settings = await _settings(session, create=True)
+    assert settings is not None
+    if make_default:
+        settings.default_model_id = model.id
+        settings.updated_by = actor_id
+    await session.flush()
+    return _safe_model(model, settings.default_model_id)
+
+
+async def update_model(
+    session: AsyncSession,
+    model_ref: str,
+    *,
+    display_name: str,
+    provider: str,
+    model_name: str,
+    base_url: str | None,
+    api_key: str | None,
+    enabled: bool,
+    actor_id: uuid.UUID,
+) -> dict:
+    model = await _resolve_ref(session, model_ref)
+    if model is None:
+        raise GenerationModelError("generation_model_not_found", "内容生成模型不存在", 404)
+    settings = await _settings(session, create=True)
+    assert settings is not None
+    if not enabled and settings.default_model_id == model.id:
+        raise GenerationModelError(
+            "generation_model_default_disable_denied",
+            "请先选择其他默认模型或清空默认模型，再停用当前模型",
+            409,
+        )
+    model.display_name = _required(
+        display_name, "generation_model_display_name_required", "请填写显示名称"
+    )
+    model.provider = _required(provider, "generation_model_provider_required", "请选择 provider")
+    model.model_name = _required(model_name, "generation_model_name_required", "请填写模型名称")
+    model.enabled = enabled
+    model.updated_by = actor_id
+    if base_url is not None and base_url.strip():
+        model.base_url_ciphertext = _encrypt(_validate_http_url(base_url))
+    if api_key is not None and api_key.strip():
+        model.api_key_ciphertext = _encrypt(api_key.strip())
+    await session.flush()
+    return _safe_model(model, settings.default_model_id)
+
+
+async def delete_model(session: AsyncSession, model_ref: str) -> None:
+    model = await _resolve_ref(session, model_ref)
+    if model is None:
+        raise GenerationModelError("generation_model_not_found", "内容生成模型不存在", 404)
+    settings = await _settings(session, create=True)
+    assert settings is not None
+    if settings.default_model_id == model.id:
+        raise GenerationModelError(
+            "generation_model_default_delete_denied",
+            "请先选择其他默认模型或清空默认模型，再删除当前模型",
+            409,
+        )
+    await session.delete(model)
+    await session.flush()
+
+
+async def set_default_model(
+    session: AsyncSession, model_ref: str | None, *, actor_id: uuid.UUID
+) -> dict | None:
+    settings = await _settings(session, create=True)
+    assert settings is not None
+    if not model_ref:
+        settings.default_model_id = None
+        settings.updated_by = actor_id
+        await session.flush()
+        return None
+    model = await _resolve_ref(session, model_ref)
+    if model is None:
+        raise GenerationModelError("generation_model_not_found", "内容生成模型不存在", 404)
+    if not model.enabled:
+        raise GenerationModelError(
+            "generation_model_default_disabled", "停用的内容生成模型不能设为默认"
+        )
+    settings.default_model_id = model.id
+    settings.updated_by = actor_id
+    await session.flush()
+    return _safe_model(model, model.id)
+
+
+async def test_model_connection(session: AsyncSession, model_ref: str) -> dict:
+    model = await _resolve_ref(session, model_ref)
+    if model is None:
+        raise GenerationModelError("generation_model_not_found", "内容生成模型不存在", 404)
+    started = time.monotonic()
+    try:
+        client = LLMClient(
+            provider=model.provider,
+            api_key=_decrypt(model.api_key_ciphertext),
+            base_url=_decrypt(model.base_url_ciphertext),
+            model=model.model_name,
+            timeout=min(get_settings().llm_timeout, 15.0),
+        )
+        await client.chat_completion(
+            [{"role": "user", "content": "请仅回复 OK"}],
+            json_object=False,
+            trace_id=None,
+        )
+    except (LLMError, GenerationModelError):
+        return {
+            "success": False,
+            "message": "连接测试失败，请检查内容生成模型配置",
+            "duration_ms": round((time.monotonic() - started) * 1000),
         }
-    ]
+    return {
+        "success": True,
+        "message": "连接测试成功",
+        "duration_ms": round((time.monotonic() - started) * 1000),
+    }
+
+
+async def resolve_generation_llm_client(
+    session: AsyncSession,
+) -> LLMClient | NullLLMClient:
+    settings = await _settings(session)
+    if settings is None:
+        return get_llm_client()
+    if settings.default_model_id is None:
+        return NullLLMClient()
+    model = await session.get(ContentGenerationModel, settings.default_model_id)
+    if model is None or not model.enabled:
+        return NullLLMClient()
+    try:
+        return LLMClient(
+            provider=model.provider,
+            api_key=_decrypt(model.api_key_ciphertext),
+            base_url=_decrypt(model.base_url_ciphertext),
+            model=model.model_name,
+            timeout=get_settings().llm_timeout,
+        )
+    except (LLMError, GenerationModelError):
+        return NullLLMClient()
+
+
+async def get_generation_llm_client(
+    session: AsyncSession = Depends(get_db),
+) -> LLMClient | NullLLMClient:
+    return await resolve_generation_llm_client(session)
+
+
+async def generation_model_configured(session: AsyncSession) -> bool:
+    return not isinstance(await resolve_generation_llm_client(session), NullLLMClient)
+
+
+async def product_configuration_exists(session: AsyncSession) -> bool:
+    return await _settings(session) is not None

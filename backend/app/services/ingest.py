@@ -45,7 +45,7 @@ from app.services import audit as audit_service
 from app.services import error_catalog, indexing
 from app.services.desensitization import DesensitizationEngine
 from app.services.generation_models import generation_model_ref
-from app.services.llm_client import LLMClient, NullLLMClient, llm_enabled
+from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.storage import LocalFileStorage, StorageError
 from app.services.weknora_client import (
     NullWeKnoraClient,
@@ -81,9 +81,13 @@ def _summary_status(task: IngestTask, ai: IngestTaskAiResult | None) -> str | No
         return "processing"
     if ai is None:
         return None
+    fields = ai.naming_parsed_fields if isinstance(ai.naming_parsed_fields, dict) else {}
+    persisted = fields.get("generation_status")
+    if persisted in {"generated", "failed", "pending_model_config"}:
+        return str(persisted)
     if _has_generated_summary(ai):
         return "generated"
-    return "failed" if llm_enabled() else "pending_model_config"
+    return "pending_model_config"
 
 
 def _has_generated_summary(ai: IngestTaskAiResult | None) -> bool:

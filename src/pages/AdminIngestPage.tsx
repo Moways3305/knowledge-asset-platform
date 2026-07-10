@@ -12,6 +12,7 @@ import type { AdminIngestItemDTO } from "../types/ingest";
 import type { OpsIndexingDTO, IndexingJobSummaryDTO } from "../types/ops";
 import { formatBeijingTime } from "../utils/time";
 import IndexDistribution from "../components/IndexDistribution";
+import { PageHeader, PageToolbar, ProductPage, StatusStrip } from "../components/ProductLayout";
 
 // 索引运维作业状态 / 类型的安全中文标签。
 const jobOpLabel: Record<string, string> = {
@@ -79,39 +80,6 @@ const aiAccessLabel: Record<string, string> = {
   A2: "A2 脱敏后调用",
   A3: "A3 摘要后调用",
   A4: "A4 禁止调用",
-};
-
-const exceptionGuide = [
-  {
-    title: "AI 内容提取失败",
-    desc: "不支持的格式或损坏文件会标记 failed（可在 /upload 人工补全后确认）。单文件上限为 25 MiB。",
-    severity: "high" as const,
-  },
-  {
-    title: "脱敏失败",
-    desc: "标记 failed，通知上传人和 Admin。检查文件是否加密或受保护；尝试另存为无保护格式后重新上传。",
-    severity: "high" as const,
-  },
-  {
-    title: "检索索引失败",
-    desc: "资产已保存，但暂时不会出现在语义检索结果中。可在详情页单条重试，或在下方运维面板发起批量重试 / 重新解析。",
-    severity: "high" as const,
-  },
-  {
-    title: "哈希重复",
-    desc: "系统按文件内容哈希做去重软提示，命中时不阻断入库，仅提示已存在相同内容的任务。",
-    severity: "low" as const,
-  },
-  {
-    title: "AI 置信度低",
-    desc: "AI 建议置信度偏低时仍可入库，但建议人工校正摘要与标签。低置信度不视为系统错误。",
-    severity: "medium" as const,
-  },
-];
-const severityCls: Record<string, string> = {
-  high: "ig-severity-high",
-  medium: "ig-severity-medium",
-  low: "ig-severity-low",
 };
 
 const fmtTime = (iso: string | null) => formatBeijingTime(iso); // 北京时间
@@ -229,34 +197,25 @@ export default function AdminIngestPage() {
   const viewingTask = viewingId ? (items.find((t) => t.id === viewingId) ?? null) : null;
 
   return (
-    <div className="ingest-page">
-      {/* Header + KPI */}
-      <div className="ig-header">
-        <div className="ig-header-text">
-          <h2>知识入库管理</h2>
-          <p>查看入库任务、处理失败项，并跟踪文件进入知识库的状态。</p>
-        </div>
-        <div className="kl-kpis">
-          <div className="kl-kpi">
-            <div className="kl-kpi-value ig-kpi-processing">{countByStatus("processing")}</div>
-            <div className="kl-kpi-label">处理中</div>
-          </div>
-          <div className="kl-kpi">
-            <div className="kl-kpi-value ig-kpi-pending">
-              {countByStatus("pending_confirmation")}
-            </div>
-            <div className="kl-kpi-label">待确认</div>
-          </div>
-          <div className="kl-kpi">
-            <div className="kl-kpi-value kl-kpi-success">{countByStatus("completed")}</div>
-            <div className="kl-kpi-label">已完成</div>
-          </div>
-          <div className="kl-kpi">
-            <div className="kl-kpi-value kl-kpi-warning">{countByStatus("failed")}</div>
-            <div className="kl-kpi-label">失败</div>
-          </div>
-        </div>
-      </div>
+    <ProductPage className="ingest-page">
+      <PageHeader
+        title="知识入库管理"
+        description="查看入库任务、处理失败项，并跟踪文件进入知识库的状态。"
+        actions={
+          <button className="btn-small" onClick={() => void load()} disabled={loading}>
+            {loading ? "加载中…" : "刷新任务"}
+          </button>
+        }
+      />
+      <StatusStrip
+        label="入库任务状态"
+        items={[
+          { label: "处理中", value: countByStatus("processing") },
+          { label: "待确认", value: countByStatus("pending_confirmation"), tone: "warning" },
+          { label: "已完成", value: countByStatus("completed"), tone: "success" },
+          { label: "失败", value: countByStatus("failed"), tone: "danger" },
+        ]}
+      />
 
       {/* 企业微信微盘配置入口 */}
       <section className="ingest-section">
@@ -285,63 +244,66 @@ export default function AdminIngestPage() {
               <IndexDistribution counts={opsIndex.counts} />
             </div>
             {/* 批量运维控件（批量重试 / 重新解析）。 */}
-            <div
-              className="ig-ops-actions"
-              style={{
-                marginTop: 12,
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 12,
-                alignItems: "center",
-              }}
-            >
-              <label className="ig-ops-check">
-                <input
-                  type="checkbox"
-                  checked={retryIncludeSkipped}
-                  onChange={(e) => setRetryIncludeSkipped(e.target.checked)}
-                />{" "}
-                含已跳过
-              </label>
-              <label className="ig-ops-check">
-                <input
-                  type="checkbox"
-                  checked={retryIncludeNotIndexed}
-                  onChange={(e) => setRetryIncludeNotIndexed(e.target.checked)}
-                />{" "}
-                含待索引
-              </label>
-              <label className="ig-ops-check">
-                上限
-                <select
-                  value={opsLimit}
-                  onChange={(e) => setOpsLimit(Number(e.target.value))}
-                  style={{ marginLeft: 4 }}
-                >
-                  {[20, 50, 100, 200].map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                className="btn-small"
-                onClick={() => void handleBatchRetry()}
-                disabled={opsBusy}
-              >
-                {opsBusy ? "处理中…" : "批量重试索引"}
-              </button>
-              <button className="btn-small" onClick={() => void handleReparse()} disabled={opsBusy}>
-                {opsBusy ? "处理中…" : "重新解析"}
-              </button>
-            </div>
-            <p className="au-note" style={{ marginTop: 6 }}>
-              批量重试：默认处理「索引失败」，可勾选含「已跳过 / 待索引」。重新解析：对解析失败 /
-              滞留的资产，受控重传刷新解析状态，
-              <strong>不改变任何权限放行</strong>
-              ，不让未授权用户读到原文。批量动作进入后台作业，不在请求内逐条阻塞。
-            </p>
+            <PageToolbar
+              start={
+                <>
+                  <label className="ig-ops-check">
+                    <input
+                      type="checkbox"
+                      checked={retryIncludeSkipped}
+                      onChange={(e) => setRetryIncludeSkipped(e.target.checked)}
+                    />{" "}
+                    含已跳过
+                  </label>
+                  <label className="ig-ops-check">
+                    <input
+                      type="checkbox"
+                      checked={retryIncludeNotIndexed}
+                      onChange={(e) => setRetryIncludeNotIndexed(e.target.checked)}
+                    />{" "}
+                    含待索引
+                  </label>
+                  <label className="ig-ops-check">
+                    上限
+                    <select
+                      value={opsLimit}
+                      onChange={(e) => setOpsLimit(Number(e.target.value))}
+                      style={{ marginLeft: 4 }}
+                    >
+                      {[20, 50, 100, 200].map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              }
+              end={
+                <>
+                  <button
+                    className="btn-small"
+                    onClick={() => void handleBatchRetry()}
+                    disabled={opsBusy}
+                  >
+                    {opsBusy ? "处理中…" : "批量重试索引"}
+                  </button>
+                  <button
+                    className="btn-small"
+                    onClick={() => void handleReparse()}
+                    disabled={opsBusy}
+                  >
+                    {opsBusy ? "处理中…" : "重新解析"}
+                  </button>
+                </>
+              }
+            />
+            <details className="product-disclosure">
+              <summary>查看批量操作说明</summary>
+              <p>
+                批量重试默认处理索引失败项；重新解析处理解析失败或滞留资产。操作不会改变权限放行，仅返回安全统计。
+              </p>
+            </details>
             {opsNote && (
               <p className="au-note" style={{ marginTop: 6 }}>
                 {opsNote}
@@ -355,40 +317,44 @@ export default function AdminIngestPage() {
             )}
             {/* 最近运维作业列表（安全统计；无标题 / 原文 / WeKnora id / 存储引用）。 */}
             {opsJobs.length > 0 && (
-              <div className="ws-table-wrap" style={{ marginTop: 8 }}>
-                <table className="ws-table">
-                  <thead>
-                    <tr>
-                      <th>类型</th>
-                      <th>状态</th>
-                      <th>共/成/败/跳</th>
-                      <th>发起人</th>
-                      <th>发起时间</th>
-                      <th>诊断</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {opsJobs.map((j) => (
-                      <tr key={j.job_id}>
-                        <td>{jobOpLabel[j.operation_type] ?? j.operation_type}</td>
-                        <td>
-                          <span
-                            className={`ws-status-pill ${j.status === "failed" ? "ws-status-off" : "ws-status-on"}`}
-                          >
-                            {jobStatusLabel[j.status] ?? j.status}
-                          </span>
-                        </td>
-                        <td>
-                          {j.total_count} / {j.success_count} / {j.failed_count} / {j.skipped_count}
-                        </td>
-                        <td>{j.requested_by_name ?? "—"}</td>
-                        <td className="ws-cell-time">{fmtTime(j.requested_at)}</td>
-                        <td className="ws-cell-suggestion">{j.error_message ?? "—"}</td>
+              <details className="product-disclosure">
+                <summary>最近运维作业（{opsJobs.length}）</summary>
+                <div className="ws-table-wrap">
+                  <table className="ws-table">
+                    <thead>
+                      <tr>
+                        <th>类型</th>
+                        <th>状态</th>
+                        <th>共/成/败/跳</th>
+                        <th>发起人</th>
+                        <th>发起时间</th>
+                        <th>诊断</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {opsJobs.map((j) => (
+                        <tr key={j.job_id}>
+                          <td>{jobOpLabel[j.operation_type] ?? j.operation_type}</td>
+                          <td>
+                            <span
+                              className={`ws-status-pill ${j.status === "failed" ? "ws-status-off" : "ws-status-on"}`}
+                            >
+                              {jobStatusLabel[j.status] ?? j.status}
+                            </span>
+                          </td>
+                          <td>
+                            {j.total_count} / {j.success_count} / {j.failed_count} /{" "}
+                            {j.skipped_count}
+                          </td>
+                          <td>{j.requested_by_name ?? "—"}</td>
+                          <td className="ws-cell-time">{fmtTime(j.requested_at)}</td>
+                          <td className="ws-cell-suggestion">{j.error_message ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
             )}
             {opsIndex.recent_failed.length > 0 ? (
               <div className="ws-table-wrap" style={{ marginTop: 8 }}>
@@ -453,29 +419,33 @@ export default function AdminIngestPage() {
 
       {/* Queue toolbar */}
       <section className="ingest-section">
-        <div className="ig-toolbar">
-          <div className="ig-toolbar-filters">
-            <span className="ig-toolbar-label">队列筛选</span>
-            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-              <option value="">全部状态</option>
-              <option value="processing">处理中</option>
-              <option value="pending_confirmation">待确认</option>
-              <option value="completed">已完成</option>
-              <option value="failed">失败</option>
-            </select>
-            <select value={filterSource} onChange={(e) => setFilterSource(e.target.value)}>
-              <option value="">全部来源</option>
-              <option value="path_a_wecom">企业微信微盘</option>
-              <option value="path_b_upload">本地上传</option>
-            </select>
-          </div>
-          <div className="ig-toolbar-actions">
-            <span className="ig-toolbar-hint">共 {filtered.length} 条任务</span>
-            <button className="btn-small" onClick={() => void load()} disabled={loading}>
-              {loading ? "加载中…" : "刷新"}
-            </button>
-          </div>
-        </div>
+        <PageToolbar
+          start={
+            <div className="ig-toolbar-filters">
+              <span className="ig-toolbar-label">队列筛选</span>
+              <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+                <option value="">全部状态</option>
+                <option value="processing">处理中</option>
+                <option value="pending_confirmation">待确认</option>
+                <option value="completed">已完成</option>
+                <option value="failed">失败</option>
+              </select>
+              <select value={filterSource} onChange={(e) => setFilterSource(e.target.value)}>
+                <option value="">全部来源</option>
+                <option value="path_a_wecom">企业微信微盘</option>
+                <option value="path_b_upload">本地上传</option>
+              </select>
+            </div>
+          }
+          end={
+            <div className="ig-toolbar-actions">
+              <span className="ig-toolbar-hint">共 {filtered.length} 条任务</span>
+              <button className="btn-small" onClick={() => void load()} disabled={loading}>
+                {loading ? "加载中…" : "刷新"}
+              </button>
+            </div>
+          }
+        />
       </section>
 
       {/* Detail panel */}
@@ -634,14 +604,8 @@ export default function AdminIngestPage() {
                   <th>文件名</th>
                   <th>来源</th>
                   <th>目标库</th>
-                  <th>命名</th>
-                  <th>保密</th>
-                  <th>AI</th>
-                  <th>抽取</th>
-                  <th>置信度</th>
                   <th>状态</th>
                   <th>创建时间</th>
-                  <th>备注</th>
                   <th>操作</th>
                 </tr>
               </thead>
@@ -668,40 +632,12 @@ export default function AdminIngestPage() {
                         "—"
                       )}
                     </td>
-                    <td>{fmtNaming(t.naming_compliant)}</td>
-                    <td>
-                      {t.confidentiality_level ? (
-                        <span
-                          className={`confidentiality-badge confidentiality-${t.confidentiality_level}`}
-                        >
-                          {t.confidentiality_level}
-                        </span>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td>
-                      {t.ai_access_level ? (
-                        <span className={`ai-access-badge ai-access-${t.ai_access_level}`}>
-                          {t.ai_access_level}
-                        </span>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td>
-                      {t.extraction_status
-                        ? (extractionLabel[t.extraction_status] ?? t.extraction_status)
-                        : "—"}
-                    </td>
-                    <td>{fmtConfidence(t.confidence)}</td>
                     <td>
                       <span className={`status-pill ${statusCls[t.status] ?? ""}`}>
                         {statusLabel[t.status] ?? t.status}
                       </span>
                     </td>
                     <td className="cell-time">{fmtTime(t.created_at)}</td>
-                    <td className="cell-reason">{t.error_message || t.error_type || "—"}</td>
                     <td className="cell-actions">
                       <button className="btn-small" onClick={() => setViewingId(t.id)}>
                         查看
@@ -725,27 +661,38 @@ export default function AdminIngestPage() {
                 ? "入库队列为空。可前往资产化确认工作台上传文件，或触发微盘扫描后再查看。"
                 : "当前筛选条件下没有任务。尝试调整状态或来源筛选。"}
             </p>
+            {items.length === 0 ? (
+              <div className="product-empty-actions">
+                <Link className="btn-small-primary" to="/upload">
+                  前往资产化确认
+                </Link>
+                <Link className="btn-small" to="/admin/wecom-scan">
+                  配置微盘扫描
+                </Link>
+              </div>
+            ) : (
+              <button
+                className="btn-small"
+                onClick={() => {
+                  setFilterStatus("");
+                  setFilterSource("");
+                }}
+              >
+                清除筛选
+              </button>
+            )}
           </div>
         )}
       </section>
 
-      {/* Exception guide */}
-      <section className="ingest-section">
-        <h3>异常处理指南</h3>
-        <div className="ig-exception-grid">
-          {exceptionGuide.map((e) => (
-            <div key={e.title} className={`ig-exception-card ${severityCls[e.severity]}`}>
-              <div className="ig-exception-head">
-                <span className="ig-exception-title">{e.title}</span>
-                <span className={`ig-severity-badge ${severityCls[e.severity]}`}>
-                  {e.severity === "high" ? "高" : e.severity === "medium" ? "中" : "低"}
-                </span>
-              </div>
-              <p className="ig-exception-desc">{e.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+      {(countByStatus("failed") > 0 || Boolean(opsIndex?.recent_failed.length)) && (
+        <details className="product-disclosure">
+          <summary>查看异常处理说明</summary>
+          <p>
+            内容提取失败时可由上传人补全后重新确认；检索索引失败不会删除资产，可在资产详情单条重试或使用上方批量操作。
+          </p>
+        </details>
+      )}
 
       <p className="page-help-line">
         本页仅运营队列监控，不承担业务确认（业务确认在资产化确认工作台完成），仅展示安全运营元数据。目标库
@@ -754,6 +701,6 @@ export default function AdminIngestPage() {
           使用说明 →
         </Link>
       </p>
-    </div>
+    </ProductPage>
   );
 }

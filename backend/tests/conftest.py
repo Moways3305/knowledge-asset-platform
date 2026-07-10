@@ -28,6 +28,8 @@ _TEST_ENV = {
     "WEKNORA_EMBEDDING_MODEL_ID": "",
     "LLM_PROVIDER": "",
     "LLM_API_KEY": "",
+    "GENERATION_MODEL_ENCRYPTION_KEY": "120-AdD5cTy_h5BsXpX0yMJbn4ff95Ca9jx66G9e0ck=",
+    "GENERATION_MODEL_REF_SECRET": "test-generation-model-ref-secret",
     "WECOM_CORP_ID": "",
     "WECOM_APP_SECRET": "",
     "WECOM_NOTIFY_ENABLED": "false",

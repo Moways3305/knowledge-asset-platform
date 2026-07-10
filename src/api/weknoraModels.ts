@@ -3,13 +3,18 @@
 // - 平台默认模型读/写：/api/v1/admin/weknora/default-models（读 admin/治理，写仅 admin）。
 // 安全边界：前端只用对底座 id 不可逆的 model_ref 选择模型；绝不接触/提交/展示真实 model_id /
 // api_key / base_url。model_ref 仅用于请求与内存状态，绝不写入 localStorage / sessionStorage。
-import { apiGet, apiPut } from "./http";
+import { apiDelete, apiGet, apiPost, apiPut } from "./http";
 import type {
   DefaultModelsDTO,
   DefaultModelsUpdateRequestDTO,
   GenerationModelOptionsResponseDTO,
+  GenerationModelAdminListResponseDTO,
+  GenerationModelCreateRequestDTO,
+  GenerationModelOptionDTO,
   GenerationModelSelectionRequestDTO,
   GenerationModelSelectionResponseDTO,
+  GenerationModelTestResponseDTO,
+  GenerationModelUpdateRequestDTO,
   ModelOptionsResponseDTO,
 } from "../types/weknoraAdmin";
 
@@ -43,5 +48,40 @@ export async function updateGenerationDefaultModel(
   return apiPut<GenerationModelSelectionResponseDTO>(
     `/api/v1/admin/generation/default-model`,
     body,
+  );
+}
+
+export async function fetchGenerationModels(): Promise<GenerationModelAdminListResponseDTO> {
+  return apiGet<GenerationModelAdminListResponseDTO>(`/api/v1/admin/generation/models`);
+}
+
+export async function createGenerationModel(
+  body: GenerationModelCreateRequestDTO,
+): Promise<GenerationModelOptionDTO> {
+  return apiPost<GenerationModelOptionDTO>(`/api/v1/admin/generation/models`, body);
+}
+
+export async function updateGenerationModel(
+  modelRef: string,
+  body: GenerationModelUpdateRequestDTO,
+): Promise<GenerationModelOptionDTO> {
+  return apiPut<GenerationModelOptionDTO>(
+    `/api/v1/admin/generation/models/${encodeURIComponent(modelRef)}`,
+    body,
+  );
+}
+
+export async function deleteGenerationModel(modelRef: string): Promise<{ deleted: boolean }> {
+  return apiDelete<{ deleted: boolean }>(
+    `/api/v1/admin/generation/models/${encodeURIComponent(modelRef)}`,
+  );
+}
+
+export async function testGenerationModel(
+  modelRef: string,
+): Promise<GenerationModelTestResponseDTO> {
+  return apiPost<GenerationModelTestResponseDTO>(
+    `/api/v1/admin/generation/models/${encodeURIComponent(modelRef)}/test`,
+    {},
   );
 }

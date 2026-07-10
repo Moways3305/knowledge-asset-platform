@@ -18,7 +18,9 @@ import type {
   ProviderDTO,
 } from "../types/weknoraAdmin";
 import DefaultModelsSection from "../components/DefaultModelsSection";
+import GenerationModelsSection from "../components/GenerationModelsSection";
 import { useAuth } from "../auth/AuthContext";
+import { PageHeader, ProductPage } from "../components/ProductLayout";
 
 const TYPE_OPTIONS = [
   { value: "chat", label: "对话（chat）" },
@@ -259,16 +261,16 @@ export default function AdminWeKnoraModelsPage() {
       : null;
 
   return (
-    <div className="ws-page">
-      <div className="kl-header">
-        <div className="kl-header-text">
-          <h2>WeKnora 模型配置中心</h2>
-          <p>
-            系统管理员在此管理模型服务与各知识库的初始化模型配置。敏感配置仅用于提交和测试，
-            保存后不会在页面展示。
-          </p>
-        </div>
-      </div>
+    <ProductPage className="ws-page">
+      <PageHeader
+        title="WeKnora 模型配置中心"
+        description="管理内容生成、知识库默认模型和服务连接。敏感配置仅用于提交和测试，保存后不会在页面展示。"
+        actions={
+          <button className="btn-small" onClick={() => void load()} disabled={loading}>
+            {loading ? "加载中…" : "刷新"}
+          </button>
+        }
+      />
 
       {note && (
         <section className="ws-section">
@@ -284,6 +286,8 @@ export default function AdminWeKnoraModelsPage() {
           </div>
         </section>
       )}
+
+      <GenerationModelsSection canEdit={capabilities.isAdmin} />
 
       {notConfigured ? (
         <section className="ws-section">
@@ -661,7 +665,7 @@ export default function AdminWeKnoraModelsPage() {
           </section>
         </>
       )}
-    </div>
+    </ProductPage>
   );
 }
 

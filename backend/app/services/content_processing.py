@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from app.schemas.enums import AiAccessLevel, AssetType, ConfidentialityLevel
 from app.services.desensitization import DesensitizationEngine
 from app.services.extraction import ExtractionResult
-from app.services.llm_client import LLMClient, LLMError, NullLLMClient, llm_enabled
+from app.services.llm_client import LLMClient, LLMError, NullLLMClient
 
 # 建议草稿安全上限。
 _MAX_KEY_POINTS = 8
@@ -338,6 +338,7 @@ async def process_content(
     # 无可抽取文本 → 平台侧 LLM 不接触内容（降级）。
     # （WeKnora 底座按已确认信任边界仍可索引原始文件，不在此处理。）
     if extraction.status != "extracted":
+        base["naming_parsed_fields"]["generation_status"] = "failed"
         return base, {
             "status": "degraded",
             "reason": "extraction_not_text",
@@ -348,7 +349,8 @@ async def process_content(
         }
 
     # LLM 未配置 → 降级（脱敏不参与链路，无脱敏元数据需保留）。
-    if not llm_enabled():
+    if isinstance(llm, NullLLMClient) or not getattr(llm, "provider", ""):
+        base["naming_parsed_fields"]["generation_status"] = "pending_model_config"
         return base, {
             "status": "degraded",
             "reason": "llm_not_configured",
@@ -369,6 +371,7 @@ async def process_content(
         raw = await llm.chat_completion(messages, trace_id=trace_id)
         parsed = _parse_llm_json(raw)
     except (LLMError, json.JSONDecodeError, ValueError, TypeError) as exc:
+        base["naming_parsed_fields"]["generation_status"] = "failed"
         reason = getattr(exc, "code", None) or "llm_parse_failed"
         return base, {
             "status": "degraded",
@@ -402,6 +405,7 @@ async def process_content(
     components["inferred_fields"] = _coerce_list(parsed.get("inferred_fields"), 12)
     naming = _build_naming(file_name, components, level_v, ai_v)
     naming["summary_generated"] = summary_generated
+    naming["generation_status"] = "generated" if summary_generated else "failed"
 
     draft = dict(base)
     draft.update(

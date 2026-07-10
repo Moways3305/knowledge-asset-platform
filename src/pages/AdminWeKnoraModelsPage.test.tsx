@@ -12,7 +12,11 @@ import {
   updateWeknoraKbInit,
   updateWeknoraModel,
 } from "../api/admin";
-import { fetchDefaultModels, updateDefaultModels } from "../api/weknoraModels";
+import {
+  fetchDefaultModels,
+  fetchGenerationModels,
+  updateDefaultModels,
+} from "../api/weknoraModels";
 
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({ capabilities: { isAdmin: true } }),
@@ -31,6 +35,12 @@ vi.mock("../api/admin", () => ({
 
 vi.mock("../api/weknoraModels", () => ({
   fetchDefaultModels: vi.fn(),
+  fetchGenerationModels: vi.fn(),
+  createGenerationModel: vi.fn(),
+  updateGenerationModel: vi.fn(),
+  deleteGenerationModel: vi.fn(),
+  testGenerationModel: vi.fn(),
+  updateGenerationDefaultModel: vi.fn(),
   updateDefaultModels: vi.fn(),
 }));
 
@@ -71,6 +81,7 @@ describe("AdminWeKnoraModelsPage", () => {
     ]);
     vi.mocked(fetchWeknoraKbConfigs).mockResolvedValue([]);
     vi.mocked(fetchDefaultModels).mockResolvedValue(defaultModels);
+    vi.mocked(fetchGenerationModels).mockResolvedValue({ items: [], total: 0 });
     vi.mocked(updateDefaultModels).mockResolvedValue(defaultModels);
     vi.mocked(createWeknoraModel).mockResolvedValue({
       model_ref: "new-ref",
