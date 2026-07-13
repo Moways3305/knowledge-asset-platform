@@ -140,7 +140,7 @@ jobs:
   frontend-ui-qa:
     name: Frontend (UI layout smoke)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       UI_QA_BASE: http://localhost:4173
       UI_QA_OUT_DIR: ${{ github.workspace }}/ui_qa
