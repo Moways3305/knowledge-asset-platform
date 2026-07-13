@@ -1,3 +1,6 @@
 # 版本化的 OpenAPI 契约固定 LF：导出脚本以 LF 写出，CI(Linux) 重生成亦为 LF，
 # 跨平台（含 Windows autocrlf）保持一致，避免 spec 漂移检测因行尾差异误报。
 docs/api/openapi.json text eol=lf
+
+# Prettier expects LF; keep frontend text checkouts stable when core.autocrlf is enabled on Windows.
+src/** text=auto eol=lf
