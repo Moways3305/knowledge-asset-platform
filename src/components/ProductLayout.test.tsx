@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import {
+  Disclosure,
+  EmptyState,
   PageHeader,
   PageSection,
   PageToolbar,
@@ -36,5 +38,20 @@ describe("ProductLayout primitives", () => {
     );
     expect(screen.getByRole("button", { name: "新增内容生成模型" })).toBeInTheDocument();
     expect(screen.getByLabelText("内容生成模型")).toBeDisabled();
+  });
+
+  it("provides compact empty and progressive-disclosure states", () => {
+    render(
+      <>
+        <EmptyState
+          title="暂无内容"
+          description="上传一份资料开始使用"
+          action={<button>上传</button>}
+        />
+        <Disclosure summary="查看管理说明">低频技术说明</Disclosure>
+      </>,
+    );
+    expect(screen.getByRole("button", { name: "上传" })).toBeInTheDocument();
+    expect(screen.getByText("查看管理说明").closest("details")).not.toHaveAttribute("open");
   });
 });

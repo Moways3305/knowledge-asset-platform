@@ -33,7 +33,7 @@ import "../styles/workbench-home-admin.css";
 // 每个导航项带一个能力谓词 `cap`，与页面级守卫（RouteGuard）共用 `can` 判定，
 // 保证「看得到的入口 = 进得去的页面」。无权入口直接不渲染，而非渲染后再报错。
 type NavItem = { to: string; label: string; icon: LucideIcon; end?: boolean; cap: Capability };
-type NavGroup = { no: string; label: string; items: NavItem[] };
+type NavGroup = { label: string; items: NavItem[] };
 
 const homeItem: NavItem = {
   to: "/",
@@ -45,7 +45,6 @@ const homeItem: NavItem = {
 
 const navGroups: NavGroup[] = [
   {
-    no: "01",
     label: "业务功能",
     items: [
       { to: "/knowledge", label: "知识资产库", icon: LibraryBig, cap: can.viewKnowledge },
@@ -68,7 +67,6 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    no: "02",
     label: "管理后台",
     items: [
       { to: "/admin/ingest", label: "入库管理", icon: Inbox, cap: can.viewIngestAdmin },
@@ -87,7 +85,6 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    no: "03",
     label: "帮助",
     items: [{ to: "/help", label: "使用说明", icon: LifeBuoy, cap: can.viewHelp }],
   },
@@ -121,10 +118,7 @@ function RailNav({ capabilities }: { capabilities: Capabilities }) {
       )}
       {groups.map((group) => (
         <div key={group.label} className="rail-group">
-          <div className="rail-group-label">
-            <span className="rail-group-no">{group.no}</span>
-            {group.label}
-          </div>
+          <div className="rail-group-label">{group.label}</div>
           <ul>
             {group.items.map((item) => (
               <RailLink key={item.to} item={item} />

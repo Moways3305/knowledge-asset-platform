@@ -9,6 +9,7 @@ import {
   type WorkbuddyConfigVM,
   type WorkbuddyTokenStatusVM,
 } from "../api/workbuddy";
+import { SettingsRow } from "./ProductLayout";
 
 const DESCRIPTION = "连接 WorkBuddy 后，它只能访问你在平台内有权限的知识。";
 
@@ -98,33 +99,32 @@ export default function WorkbuddyAccessCard() {
 
   return (
     <section className="wb-card" aria-label="WorkBuddy 接入">
-      <h3>WorkBuddy 接入</h3>
-      <p className="wb-desc">{DESCRIPTION}</p>
-
-      {loading ? (
-        <p className="wb-status">加载中…</p>
-      ) : (
-        <p className="wb-status">
-          {enabled ? "已启用：可重置或撤销你的配置。" : "尚未生成：点击下方按钮生成你的配置。"}
-        </p>
-      )}
+      <SettingsRow
+        title="WorkBuddy 接入"
+        description={
+          loading
+            ? "正在加载接入状态…"
+            : `${DESCRIPTION}${enabled ? " 当前已启用。" : " 当前未启用。"}`
+        }
+        control={
+          <div className="wb-actions">
+            <button type="button" onClick={onGenerate} disabled={busy || loading}>
+              {enabled ? "重置配置" : "生成配置"}
+            </button>
+            {enabled && (
+              <button type="button" onClick={onRevoke} disabled={busy}>
+                撤销配置
+              </button>
+            )}
+          </div>
+        }
+      />
 
       {error && (
         <p className="wb-error" role="alert">
           {error}
         </p>
       )}
-
-      <div className="wb-actions">
-        <button type="button" onClick={onGenerate} disabled={busy}>
-          {enabled ? "重置配置" : "生成配置"}
-        </button>
-        {enabled && (
-          <button type="button" onClick={onRevoke} disabled={busy}>
-            撤销配置
-          </button>
-        )}
-      </div>
 
       {oneTime && (
         <div className="wb-onetime" role="region" aria-label="WorkBuddy 配置（仅显示一次）">

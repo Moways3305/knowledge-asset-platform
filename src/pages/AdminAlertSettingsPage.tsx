@@ -4,6 +4,13 @@ import { ApiError } from "../api/http";
 import { fetchAlertNotifications, fetchAlertRules, updateAlertRule } from "../api/admin";
 import type { AlertRuleDTO, NotificationDTO } from "../types/alert";
 import { formatBeijingTime } from "../utils/time";
+import {
+  PageHeader,
+  PageSection,
+  PageToolbar,
+  ProductPage,
+  StatusStrip,
+} from "../components/ProductLayout";
 
 const levelLabel: Record<string, string> = {
   critical: "Critical",
@@ -94,35 +101,21 @@ export default function AdminAlertSettingsPage() {
   );
 
   return (
-    <div className="alert-settings-page">
-      {/* Header + KPI */}
-      <div className="al-header">
-        <div className="al-header-text">
-          <h2>告警设置</h2>
-          <p>
-            配置归档阈值与运维信号（索引失败/解析停滞/登录安全）告警规则、通知渠道 ·
-            设置系统告警接收方式
-          </p>
-        </div>
-        <div className="kl-kpis">
-          <div className="kl-kpi">
-            <div className="kl-kpi-value kl-kpi-success">{enabledCount}</div>
-            <div className="kl-kpi-label">启用规则</div>
-          </div>
-          <div className="kl-kpi">
-            <div className="kl-kpi-value al-kpi-crit">{criticalCount}</div>
-            <div className="kl-kpi-label">Critical 规则</div>
-          </div>
-          <div className="kl-kpi">
-            <div className="kl-kpi-value">{notifications.length}</div>
-            <div className="kl-kpi-label">通知记录</div>
-          </div>
-          <div className="kl-kpi">
-            <div className="kl-kpi-value kl-kpi-warning">{pendingNotif}</div>
-            <div className="kl-kpi-label">待发送</div>
-          </div>
-        </div>
-      </div>
+    <ProductPage className="alert-settings-page">
+      <PageHeader
+        eyebrow="安全运营"
+        title="告警设置"
+        description="管理归档、内容处理和登录安全告警规则及接收方式。"
+      />
+      <StatusStrip
+        label="告警状态"
+        items={[
+          { label: "启用规则", value: enabledCount, tone: "success" },
+          { label: "严重规则", value: criticalCount, tone: criticalCount ? "danger" : "neutral" },
+          { label: "通知记录", value: notifications.length },
+          { label: "待发送", value: pendingNotif, tone: pendingNotif ? "warning" : "neutral" },
+        ]}
+      />
 
       {/* 错误态：非授权角色显示后端业务原因 */}
       {error && (
@@ -136,29 +129,32 @@ export default function AdminAlertSettingsPage() {
       )}
 
       {/* Rule list */}
-      <section className="al-section">
-        <h3>告警规则</h3>
-        <div className="al-toolbar">
-          <div className="al-toolbar-filters">
-            <select value={filterLevel} onChange={(e) => setFilterLevel(e.target.value)}>
-              <option value="">全部级别</option>
-              <option value="critical">Critical</option>
-              <option value="error">Error</option>
-              <option value="warning">Warning</option>
-            </select>
-            <select value={filterEnabled} onChange={(e) => setFilterEnabled(e.target.value)}>
-              <option value="">全部状态</option>
-              <option value="enabled">已启用</option>
-              <option value="disabled">已停用</option>
-            </select>
-          </div>
-          <div className="al-toolbar-right">
-            <span className="al-toolbar-hint">共 {filtered.length} 条规则</span>
-            <button className="btn-small" onClick={() => void load()} disabled={loading}>
-              {loading ? "加载中…" : "刷新"}
-            </button>
-          </div>
-        </div>
+      <PageSection title="告警规则" className="al-section">
+        <PageToolbar
+          start={
+            <>
+              <select value={filterLevel} onChange={(e) => setFilterLevel(e.target.value)}>
+                <option value="">全部级别</option>
+                <option value="critical">Critical</option>
+                <option value="error">Error</option>
+                <option value="warning">Warning</option>
+              </select>
+              <select value={filterEnabled} onChange={(e) => setFilterEnabled(e.target.value)}>
+                <option value="">全部状态</option>
+                <option value="enabled">已启用</option>
+                <option value="disabled">已停用</option>
+              </select>
+            </>
+          }
+          end={
+            <>
+              <span className="al-toolbar-hint">共 {filtered.length} 条规则</span>
+              <button className="btn-small" onClick={() => void load()} disabled={loading}>
+                {loading ? "加载中…" : "刷新"}
+              </button>
+            </>
+          }
+        />
         <div className="ingest-table-wrap">
           <table className="ingest-table">
             <thead>
@@ -222,11 +218,10 @@ export default function AdminAlertSettingsPage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </PageSection>
 
       {/* Notification records */}
-      <section className="al-section">
-        <h3>通知记录</h3>
+      <PageSection title="通知记录" className="al-section">
         <div className="ingest-table-wrap">
           <table className="ingest-table">
             <thead>
@@ -264,7 +259,7 @@ export default function AdminAlertSettingsPage() {
           当前环境仅记录站内通知，<strong>未配置外部通知通道</strong>（邮件 / 企微 /
           webhook）；记录仅含安全元数据，新建状态恒为「待发送」。
         </p>
-      </section>
+      </PageSection>
 
       <p className="page-help-line">
         设置系统告警接收方式。外部通知通道启用状态请以部署配置为准，详见{" "}
@@ -272,6 +267,6 @@ export default function AdminAlertSettingsPage() {
           使用说明 →
         </Link>
       </p>
-    </div>
+    </ProductPage>
   );
 }

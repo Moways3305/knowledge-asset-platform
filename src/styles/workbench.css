@@ -1393,3 +1393,29 @@
   color: var(--color-danger);
   font-size: 12px;
 }
+
+/* PBC-49 final shell override: the product direction uses a quiet light rail. */
+.rail {
+  background: #fff;
+  color: var(--color-text-primary);
+  border-right-color: var(--color-border);
+}
+.rail::before {
+  background: var(--color-accent-1);
+}
+.rail .rail-mark {
+  color: var(--color-text-heading);
+}
+.rail :where(.rail-sub, .rail-group-label, .rail-foot-line) {
+  color: var(--color-text-secondary);
+}
+.rail .rail-link {
+  color: var(--color-text-primary);
+}
+.rail .rail-link:hover {
+  background: var(--color-bg-muted);
+}
+.rail .rail-link.active {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-1);
+}

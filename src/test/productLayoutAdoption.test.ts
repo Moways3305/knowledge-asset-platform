@@ -5,9 +5,17 @@ const sourceModules = import.meta.glob("../{pages,components}/**/*.{ts,tsx}", {
   query: "?raw",
   import: "default",
 }) as Record<string, string>;
-const read = (file: string) => sourceModules[`../${file.replace(/^src\//, "")}`];
+const docs = import.meta.glob("../../docs/ui/*.md", {
+  eager: true,
+  query: "?raw",
+  import: "default",
+}) as Record<string, string>;
+const read = (file: string) =>
+  file.startsWith("docs/")
+    ? docs[`../../${file}`]
+    : sourceModules[`../${file.replace(/^src\//, "")}`];
 
-describe("PBC-47 product layout adoption", () => {
+describe("PBC-49 product-wide layout adoption", () => {
   it("shares the product page primitive across representative user and admin routes", () => {
     expect(read("src/pages/KnowledgeListPage.tsx")).toContain("<ProductPage");
     for (const page of [
@@ -42,5 +50,49 @@ describe("PBC-47 product layout adoption", () => {
     const source = read("src/components/DefaultModelsSection.tsx");
     expect(source).toContain("disabled={!canEdit}");
     expect(source).toContain("当前身份仅可查看，修改需系统管理员");
+  });
+
+  it("keeps personal knowledge guidance compact and WorkBuddy row-based", () => {
+    const personal = read("src/pages/MyKnowledgePage.tsx");
+    const workbuddy = read("src/components/WorkbuddyAccessCard.tsx");
+    expect(personal).toContain('<Disclosure summary="个人知识管理说明">');
+    expect(personal).not.toContain('className="mk-principle-card"');
+    expect(workbuddy).toContain("<SettingsRow");
+  });
+
+  it("shows a continuous, product-facing upload flow", () => {
+    const source = read("src/pages/UploadPage.tsx");
+    for (const label of ["上传", "提取", "确认", "进入知识库"]) {
+      expect(source).toContain(`label: "${label}"`);
+    }
+    expect(source).toContain('className="product-flow-steps"');
+    expect(source).not.toContain("storage_ref");
+    expect(source).not.toContain("weknora_kb_id");
+  });
+
+  it("classifies every owned route in the layout audit", () => {
+    const audit = read("docs/ui/PBC_47_LAYOUT_AUDIT.md");
+    for (const route of [
+      "/",
+      "/knowledge",
+      "/knowledge/:id",
+      "/my/knowledge",
+      "/upload",
+      "/review",
+      "/original-access",
+      "/project/:id/knowledge",
+      "/project/:id/settings",
+      "/admin/ingest",
+      "/admin/wecom-scan",
+      "/admin/weknora-models",
+      "/admin/audit",
+      "/admin/auth-security",
+      "/admin/alert-settings",
+      "/admin/people",
+      "/admin/permissions",
+      "/help",
+    ]) {
+      expect(audit).toContain(`\`${route}\``);
+    }
   });
 });
