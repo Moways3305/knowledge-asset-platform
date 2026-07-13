@@ -40,6 +40,7 @@ const emptyUsages = {
 
 describe("UnifiedModelConnectionsSection", () => {
   beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
     vi.mocked(fetchModelConnections).mockResolvedValue({ items: [chat], total: 1, warning: null });
     vi.mocked(fetchModelUsageAssignments).mockResolvedValue(emptyUsages);
     vi.mocked(updateModelUsageAssignments).mockResolvedValue({
@@ -80,5 +81,34 @@ describe("UnifiedModelConnectionsSection", () => {
     expect(screen.queryByText("新增模型连接")).not.toBeInTheDocument();
     expect(screen.queryByText("编辑")).not.toBeInTheDocument();
     expect(screen.getAllByText("当前身份仅可查看，修改需系统管理员。").length).toBeGreaterThan(0);
+  });
+
+  it("shows exactly seven labelled business controls while keeping autofill decoys hidden", async () => {
+    const { container } = render(<UnifiedModelConnectionsSection canEdit />);
+    fireEvent.click(await screen.findByText("新增模型连接"));
+
+    const labels = [
+      "显示名称",
+      "模型能力",
+      "Provider",
+      "模型名称",
+      "API 地址",
+      "API key",
+      "启用状态",
+    ];
+    for (const label of labels) {
+      expect(screen.getByLabelText(label)).toBeVisible();
+    }
+
+    const form = container.querySelector(".ws-form-grid");
+    expect(form?.querySelectorAll(".ws-form-field")).toHaveLength(7);
+    const decoys = form?.querySelectorAll<HTMLInputElement>(".form-decoy");
+    expect(decoys).toHaveLength(2);
+    for (const decoy of decoys ?? []) {
+      expect(decoy).toHaveAttribute("aria-hidden", "true");
+      expect(decoy).toHaveAttribute("tabindex", "-1");
+    }
+
+    expect(screen.queryByRole("textbox", { name: "" })).not.toBeInTheDocument();
   });
 });
