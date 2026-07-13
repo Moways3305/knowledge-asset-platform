@@ -108,7 +108,7 @@ _SAFE_CODE_RE = re.compile(r"^[a-z0-9_]{1,40}$")
 _WEKNORA_SAFE_MESSAGE = "底座模型配置调用失败，请检查配置或稍后重试"
 
 
-def _wrap_weknora(exc: WeKnoraError) -> HTTPException:
+def _wrap_weknora(exc: WeKnoraError, *, kb_update: bool = False) -> HTTPException:
     """WeKnora 错误 → 安全 HTTP：未配置 → 503；其余 → 502 固定安全文案。
 
     **绝不**把上游 `exc.message` 原样返回（可能含 api_key / base_url / model_id / kb_id / payload）。
@@ -117,6 +117,22 @@ def _wrap_weknora(exc: WeKnoraError) -> HTTPException:
     if exc.code == "weknora_not_configured":
         return HTTPException(
             503, detail={"denied_reason": "weknora_not_configured", "message": "WeKnora 未配置"}
+        )
+    if kb_update:
+        if exc.status_code is not None and 400 <= exc.status_code < 500:
+            return HTTPException(
+                502,
+                detail={
+                    "denied_reason": "weknora_kb_config_rejected",
+                    "message": "知识库配置被底座拒绝，请检查所选模型是否兼容",
+                },
+            )
+        return HTTPException(
+            502,
+            detail={
+                "denied_reason": "weknora_model_service_unavailable",
+                "message": "模型连接服务暂不可用，请稍后重试",
+            },
         )
     safe_code = exc.code if _SAFE_CODE_RE.match(str(exc.code or "")) else "weknora_call_failed"
     return HTTPException(502, detail={"denied_reason": safe_code, "message": _WEKNORA_SAFE_MESSAGE})
@@ -293,7 +309,7 @@ async def update_kb_init(
             session, weknora, mapping_id, req, trace_id=trace_id
         )
     except WeKnoraError as exc:
-        raise _wrap_weknora(exc)
+        raise _wrap_weknora(exc, kb_update=True)
     # 审计只放安全字段（mapping id / scope / 状态），绝不含 weknora_kb_id / 真实 model_id。
     await audit_service.record_event(
         session,

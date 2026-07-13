@@ -247,6 +247,48 @@ async def test_initialize_kb_sends_current_weknora_contract(monkeypatch):
     assert "chat_model_id" not in str(sent["json"])
 
 
+async def test_update_initialization_config_sends_current_complete_contract(monkeypatch):
+    sent: dict = {}
+
+    async def _call(method, path, *, json=None, trace_id=None):
+        sent.update(method=method, path=path, json=json, trace_id=trace_id)
+        return {"updated": True}
+
+    client = WeKnoraClient(base_url="http://wk", api_key="sk-test")
+    monkeypatch.setattr(client, "_call", _call)
+    config = {
+        "llmModelId": "server-chat",
+        "embeddingModelId": "server-embedding",
+        "documentSplitting": {
+            "chunkSize": 512,
+            "chunkOverlap": 80,
+            "separators": ["\n\n", "\n"],
+        },
+        "multimodal": {"enabled": False},
+        "nodeExtract": {"enabled": False},
+    }
+
+    await client.update_initialization_config("server-kb", config=config, trace_id="trace-update")
+
+    assert sent == {
+        "method": "PUT",
+        "path": "/initialization/config/server-kb",
+        "json": config,
+        "trace_id": "trace-update",
+    }
+    assert not any(key.endswith("_model_id") for key in sent["json"])
+
+
+async def test_update_initialization_config_rejects_legacy_contract():
+    client = WeKnoraClient(base_url="http://wk", api_key="sk-test")
+    with pytest.raises(WeKnoraError) as exc:
+        await client.update_initialization_config(
+            "server-kb",
+            config={"llmModelId": "server-chat", "embedding_model_id": "legacy"},
+        )
+    assert exc.value.code == "weknora_kb_update_contract_invalid"
+
+
 def test_initialize_unwrap_error_redacts():
     # 初始化失败经 _unwrap 抛结构化 WeKnoraError（只带 code/message，不含 api_key）。
     err = httpx.Response(

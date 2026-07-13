@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchWeknoraKbConfigs, fetchWeknoraModels } from "../api/admin";
+import { fetchWeknoraKbConfigs, fetchWeknoraModels, updateWeknoraKbInit } from "../api/admin";
+import { ApiError } from "../api/http";
 import {
   createModelConnection,
   fetchModelConnections,
@@ -137,5 +138,51 @@ describe("AdminWeKnoraModelsPage", () => {
     renderPage();
     expect(await screen.findByText("模型列表加载失败，请刷新或检查模型连接")).toBeInTheDocument();
     expect(screen.queryByText(/500|SECRET-LIKE/)).not.toBeInTheDocument();
+  });
+
+  it("distinguishes a rejected KB config without exposing the upstream error", async () => {
+    vi.mocked(fetchWeknoraModels).mockResolvedValue([
+      {
+        model_ref: "safe-chat-ref",
+        name: "问答模型",
+        type: "chat",
+        source: "remote",
+        provider: "provider",
+        enabled: true,
+        is_builtin: false,
+        description: null,
+      },
+    ]);
+    vi.mocked(fetchWeknoraKbConfigs).mockResolvedValue([
+      {
+        mapping_id: "safe-mapping-id",
+        scope: "company",
+        kb_name: "公司知识库",
+        project_name: null,
+        owner_name: null,
+        mapping_status: "active",
+        chat: null,
+        embedding: null,
+        rerank: null,
+        multimodal: null,
+        config_error: null,
+      },
+    ]);
+    vi.mocked(updateWeknoraKbInit).mockRejectedValue(
+      new ApiError(502, "SECRET-LIKE upstream body", "weknora_kb_config_rejected"),
+    );
+
+    renderPage();
+    const kbRow = (await screen.findByText("公司知识库")).closest("tr");
+    expect(kbRow).not.toBeNull();
+    fireEvent.change(within(kbRow!).getAllByRole("combobox")[0], {
+      target: { value: "safe-chat-ref" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(
+      await screen.findByText("知识库配置被底座拒绝，请检查所选模型是否兼容"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/SECRET-LIKE/)).not.toBeInTheDocument();
   });
 });
