@@ -42,8 +42,8 @@ describe("product layout and route contract", () => {
   });
 
   it("keeps governance model selectors read-only with an explanation", () => {
-    const source = read("src/components/DefaultModelsSection.tsx");
-    expect(source).toContain("disabled={!canEdit}");
+    const source = read("src/components/UnifiedModelConnectionsSection.tsx");
+    expect(source).toContain("disabled={!canEdit || loading}");
     expect(source).toContain("当前身份仅可查看，修改需系统管理员");
   });
 

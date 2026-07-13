@@ -1,23 +1,11 @@
-// WeKnora 模型选择 API（PBC-38）。
-// - 顾问只读模型选项：GET /api/v1/weknora/model-options（业务用户可读，仅安全字段）。
-// - 平台默认模型读/写：/api/v1/admin/weknora/default-models（读 admin/治理，写仅 admin）。
-// 安全边界：前端只用对底座 id 不可逆的 model_ref 选择模型；绝不接触/提交/展示真实 model_id /
-// api_key / base_url。model_ref 仅用于请求与内存状态，绝不写入 localStorage / sessionStorage。
-import { apiDelete, apiGet, apiPost, apiPut } from "./http";
+// Safe model references are used for selection and assignment; raw provider credentials never
+// enter frontend persistence or response state.
+import { apiGet, apiPost, apiPut } from "./http";
 import type {
-  DefaultModelsDTO,
-  DefaultModelsUpdateRequestDTO,
-  GenerationModelOptionsResponseDTO,
-  GenerationModelAdminListResponseDTO,
-  GenerationModelCreateRequestDTO,
-  GenerationModelOptionDTO,
-  GenerationModelSelectionRequestDTO,
-  GenerationModelSelectionResponseDTO,
-  GenerationModelTestResponseDTO,
-  GenerationModelUpdateRequestDTO,
   ModelConnectionDTO,
   ModelConnectionListDTO,
   ModelConnectionMutateDTO,
+  ModelConnectionTestResponseDTO,
   ModelUsageAssignmentsDTO,
   ModelUsageAssignmentsUpdateDTO,
   ModelOptionsResponseDTO,
@@ -28,67 +16,6 @@ import type {
 export async function fetchModelOptions(type?: string): Promise<ModelOptionsResponseDTO> {
   const qs = type ? `?type=${encodeURIComponent(type)}` : "";
   return apiGet<ModelOptionsResponseDTO>(`/api/v1/weknora/model-options${qs}`);
-}
-
-// 读平台默认模型（admin / boss / 咨询总监）。只回安全 model_ref + 名称。
-export async function fetchDefaultModels(): Promise<DefaultModelsDTO> {
-  return apiGet<DefaultModelsDTO>(`/api/v1/admin/weknora/default-models`);
-}
-
-// 改平台默认模型（仅 admin）。前端只提交 model_ref，后端解析真实 id；响应/审计无真实 id。
-export async function updateDefaultModels(
-  body: DefaultModelsUpdateRequestDTO,
-): Promise<DefaultModelsDTO> {
-  return apiPut<DefaultModelsDTO>(`/api/v1/admin/weknora/default-models`, body);
-}
-
-// KAP 内容生成模型：标题 / 摘要 / 标签建议。与 WeKnora 知识库 embedding/rerank/问答模型分离。
-export async function fetchGenerationModelOptions(): Promise<GenerationModelOptionsResponseDTO> {
-  return apiGet<GenerationModelOptionsResponseDTO>(`/api/v1/generation/model-options`);
-}
-
-export async function updateGenerationDefaultModel(
-  body: GenerationModelSelectionRequestDTO,
-): Promise<GenerationModelSelectionResponseDTO> {
-  return apiPut<GenerationModelSelectionResponseDTO>(
-    `/api/v1/admin/generation/default-model`,
-    body,
-  );
-}
-
-export async function fetchGenerationModels(): Promise<GenerationModelAdminListResponseDTO> {
-  return apiGet<GenerationModelAdminListResponseDTO>(`/api/v1/admin/generation/models`);
-}
-
-export async function createGenerationModel(
-  body: GenerationModelCreateRequestDTO,
-): Promise<GenerationModelOptionDTO> {
-  return apiPost<GenerationModelOptionDTO>(`/api/v1/admin/generation/models`, body);
-}
-
-export async function updateGenerationModel(
-  modelRef: string,
-  body: GenerationModelUpdateRequestDTO,
-): Promise<GenerationModelOptionDTO> {
-  return apiPut<GenerationModelOptionDTO>(
-    `/api/v1/admin/generation/models/${encodeURIComponent(modelRef)}`,
-    body,
-  );
-}
-
-export async function deleteGenerationModel(modelRef: string): Promise<{ deleted: boolean }> {
-  return apiDelete<{ deleted: boolean }>(
-    `/api/v1/admin/generation/models/${encodeURIComponent(modelRef)}`,
-  );
-}
-
-export async function testGenerationModel(
-  modelRef: string,
-): Promise<GenerationModelTestResponseDTO> {
-  return apiPost<GenerationModelTestResponseDTO>(
-    `/api/v1/admin/generation/models/${encodeURIComponent(modelRef)}/test`,
-    {},
-  );
 }
 
 const CONNECTIONS = "/api/v1/admin/model-connections";
@@ -112,8 +39,8 @@ export async function updateModelConnection(
 
 export async function testModelConnection(
   modelRef: string,
-): Promise<GenerationModelTestResponseDTO> {
-  return apiPost<GenerationModelTestResponseDTO>(
+): Promise<ModelConnectionTestResponseDTO> {
+  return apiPost<ModelConnectionTestResponseDTO>(
     `${CONNECTIONS}/items/${encodeURIComponent(modelRef)}/test`,
     {},
   );
