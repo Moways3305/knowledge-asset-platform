@@ -146,11 +146,7 @@ export default function AdminPeoplePage() {
       </div>
 
       <div className="pp-multi-role-card">
-        <strong>公司角色与项目角色分离</strong> — 公司角色（Boss / 咨询总监 / 顾问 / 管理员）来自{" "}
-        <code>user_company_roles</code>；项目内角色（coach / project_manager / consultant）来自{" "}
-        <code>project_members</code>。同一人可在不同项目担任不同项目角色。
-        <strong>项目知识库权限只来自 active 项目成员关系</strong>；公司角色（含 Boss /
-        咨询总监）不自动授予项目权限；admin 是系统身份，不等于业务原文访问权。
+        公司角色和项目角色分别管理。项目知识访问以有效项目成员关系为准；系统管理员不因此获得业务原文权限。
       </div>
 
       <section className="pp-section">

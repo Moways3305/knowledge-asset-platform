@@ -61,31 +61,27 @@ export default function UploadPage() {
           : "选择本地文件，生成内容建议，确认后进入知识库。"}
       </p>
 
-      {/* 命名规范与保密分级 */}
-      <UploadNamingCard naming={flow.naming} confirmConfidence={flow.confirmConfidence} />
-
       {/* 企业微信待确认任务 */}
       {activePath === "a" && <UploadStepA flow={flow} />}
 
       {/* 本地上传流程 */}
       {activePath === "b" && <UploadStepB flow={flow} />}
 
+      {/* 仅在内容处理完成并返回解析结果后展示 */}
+      {flow.naming && (
+        <UploadNamingCard naming={flow.naming} confirmConfidence={flow.confirmConfidence} />
+      )}
+
       {/* 共享确认区 */}
       {(confirmReady || confirmSubmitted) && <UploadConfirmPanel flow={flow} />}
 
       {/* 本地上传占位 */}
-      {activePath === "b" && !confirmReady && !confirmSubmitted && (
+      {activePath === "b" && flowState === "processing" && (
         <section className="upload-section">
-          <h3>AI 生成预览</h3>
+          <h3>正在生成内容建议</h3>
           <div className="up-preview-placeholder">
-            <div className="up-preview-placeholder-title">
-              {flowState === "processing" ? "AI 正在提取中…" : "待生成"}
-            </div>
-            <p>
-              {flowState === "processing"
-                ? "文件已上传至平台受控存储，正在抽取文本并生成结构化建议，请稍候…"
-                : "选择文件并启动资产化后，平台将生成标题、摘要、标签等结构化建议，供你在提交前校正。"}
-            </p>
+            <div className="up-preview-placeholder-title">内容正在提取中…</div>
+            <p>正在生成标题、摘要和标签建议，请稍候。</p>
           </div>
         </section>
       )}
