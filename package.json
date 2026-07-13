@@ -12,6 +12,7 @@
     "format:check": "prettier --check src",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:ui:model-autofill": "node scripts/pbc52_model_autofill_test.mjs",
     "api:export": "python scripts/export_openapi.py"
   },
   "dependencies": {

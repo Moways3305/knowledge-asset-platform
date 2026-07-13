@@ -170,6 +170,8 @@ jobs:
           exit 1
       - name: UI QA (horizontal overflow smoke)
         run: node scripts/ui_qa.mjs ci
+      - name: UI QA (model connection autofill state)
+        run: npm run test:ui:model-autofill
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
