@@ -22,6 +22,13 @@ class ContentGenerationModel(Base):
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
     provider: Mapped[str] = mapped_column(String(50), nullable=False)
     model_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # PBC-48: legacy rows are chat connections. New rows may also represent
+    # embedding/rerank connections while retaining the same encrypted secret store.
+    capability_type: Mapped[str] = mapped_column(String(20), nullable=False, default="chat")
+    # Safe HMAC reference only; the raw WeKnora model id remains server-side in WeKnora.
+    weknora_model_ref: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True, index=True
+    )
     base_url_ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
     api_key_ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

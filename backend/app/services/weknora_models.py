@@ -178,13 +178,16 @@ def _build_model_payload(req: ModelMutateRequest, *, keep_blank_sensitive: bool 
         params["provider"] = req.provider
     if req.type == "embedding" and req.dimension:
         params["embedding_parameters"] = {"dimension": req.dimension, "truncate_prompt_tokens": 0}
-    return {
+    payload = {
         "name": req.name,
         "type": wk_type,
         "source": req.source,
         "description": req.description or "",
         "parameters": params,
     }
+    if req.enabled is not None:
+        payload["status"] = "active" if req.enabled else "inactive"
+    return payload
 
 
 async def create_model(

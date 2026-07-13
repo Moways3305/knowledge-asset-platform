@@ -15,6 +15,11 @@ import type {
   GenerationModelSelectionResponseDTO,
   GenerationModelTestResponseDTO,
   GenerationModelUpdateRequestDTO,
+  ModelConnectionDTO,
+  ModelConnectionListDTO,
+  ModelConnectionMutateDTO,
+  ModelUsageAssignmentsDTO,
+  ModelUsageAssignmentsUpdateDTO,
   ModelOptionsResponseDTO,
 } from "../types/weknoraAdmin";
 
@@ -84,4 +89,42 @@ export async function testGenerationModel(
     `/api/v1/admin/generation/models/${encodeURIComponent(modelRef)}/test`,
     {},
   );
+}
+
+const CONNECTIONS = "/api/v1/admin/model-connections";
+
+export async function fetchModelConnections(): Promise<ModelConnectionListDTO> {
+  return apiGet<ModelConnectionListDTO>(CONNECTIONS);
+}
+
+export async function createModelConnection(
+  body: ModelConnectionMutateDTO,
+): Promise<ModelConnectionDTO> {
+  return apiPost<ModelConnectionDTO>(CONNECTIONS, body);
+}
+
+export async function updateModelConnection(
+  modelRef: string,
+  body: ModelConnectionMutateDTO,
+): Promise<ModelConnectionDTO> {
+  return apiPut<ModelConnectionDTO>(`${CONNECTIONS}/items/${encodeURIComponent(modelRef)}`, body);
+}
+
+export async function testModelConnection(
+  modelRef: string,
+): Promise<GenerationModelTestResponseDTO> {
+  return apiPost<GenerationModelTestResponseDTO>(
+    `${CONNECTIONS}/items/${encodeURIComponent(modelRef)}/test`,
+    {},
+  );
+}
+
+export async function fetchModelUsageAssignments(): Promise<ModelUsageAssignmentsDTO> {
+  return apiGet<ModelUsageAssignmentsDTO>(`${CONNECTIONS}/usages/current`);
+}
+
+export async function updateModelUsageAssignments(
+  body: ModelUsageAssignmentsUpdateDTO,
+): Promise<ModelUsageAssignmentsDTO> {
+  return apiPut<ModelUsageAssignmentsDTO>(`${CONNECTIONS}/usages/current`, body);
 }

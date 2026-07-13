@@ -29,6 +29,7 @@ import { fetchPendingIngestTasks } from "../api/ingest";
 import { fetchProjects } from "../api/project";
 import type { KnowledgeOpsInsightsDTO } from "../types/insights";
 import type { ProjectListItemDTO } from "../types/project";
+import { PageHeader, ProductPage } from "../components/ProductLayout";
 
 const roleLabel: Record<string, string> = {
   boss: "Boss",
@@ -261,20 +262,22 @@ export default function HomeDashboardPage() {
   ];
 
   return (
-    <div className="home">
-      <div className="home-masthead">
-        <div>
-          <div className="home-eyebrow">Today · 今日工作台</div>
-          <h2 className="home-greeting">
+    <ProductPage className="home">
+      <PageHeader
+        eyebrow="今日工作台"
+        title={
+          <>
             {greeting()}，<span className="accent">{me?.name ?? "同事"}</span>
-          </h2>
-          <p className="home-submeta">
+          </>
+        }
+        description={
+          <>
             平台身份：{roles.map((r) => roleLabel[r] ?? r).join(" / ") || "—"}
             {me && !me.isBusinessUser && " · 系统管理身份（仅运营视图）"}
-          </p>
-        </div>
-        <div className="home-date">{todayLabel()}</div>
-      </div>
+          </>
+        }
+        actions={<div className="home-date">{todayLabel()}</div>}
+      />
 
       <div className="home-grid">
         <div className="home-col">
@@ -453,6 +456,6 @@ export default function HomeDashboardPage() {
           )}
         </aside>
       </div>
-    </div>
+    </ProductPage>
   );
 }

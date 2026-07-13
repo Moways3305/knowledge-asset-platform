@@ -357,7 +357,7 @@ export default function KnowledgeDetailPage() {
 
   if (loading) {
     return (
-      <div className="detail-page">
+      <div className="product-page detail-page">
         <Link to="/knowledge" className="back-link">
           &larr; 返回知识首页
         </Link>
@@ -370,7 +370,7 @@ export default function KnowledgeDetailPage() {
 
   if (notFound || !asset) {
     return (
-      <div className="detail-page">
+      <div className="product-page detail-page">
         <Link to="/knowledge" className="back-link">
           &larr; 返回知识首页
         </Link>
@@ -393,7 +393,7 @@ export default function KnowledgeDetailPage() {
   const steps = progressSteps(asset);
 
   return (
-    <div className="detail-page detail-page-wide">
+    <div className="product-page detail-page detail-page-wide">
       <Link to="/knowledge" className="back-link">
         &larr; 返回知识首页
       </Link>

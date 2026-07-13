@@ -15,6 +15,7 @@ import type { KnowledgeCardVM } from "../types/knowledge";
 import WorkbuddyAccessCard from "../components/WorkbuddyAccessCard";
 import ModelAdvancedSettings from "../components/ModelAdvancedSettings";
 import { useModelSelection } from "../hooks/useModelSelection";
+import { Disclosure, PageHeader, ProductPage, StatusStrip } from "../components/ProductLayout";
 
 const kbStatusLabel: Record<string, string> = {
   active: "正常",
@@ -248,49 +249,27 @@ export default function MyKnowledgePage() {
   );
 
   return (
-    <div className="mk-page">
-      <div className="kl-header">
-        <div className="kl-header-text">
-          <h2>个人知识管理</h2>
-          <p>这里保存你提交和管理的个人知识。需要进入项目库的内容，可提交给项目负责人确认。</p>
-        </div>
-        <div className="kl-kpis">
-          <div className="kl-kpi">
-            <div className="kl-kpi-value">{stats.total}</div>
-            <div className="kl-kpi-label">知识条目</div>
-          </div>
-          <div className="kl-kpi">
-            <div className="kl-kpi-value">{stats.drafts}</div>
-            <div className="kl-kpi-label">私密草稿</div>
-          </div>
-          <div className="kl-kpi">
-            <div className="kl-kpi-value kl-kpi-success">{stats.assets}</div>
-            <div className="kl-kpi-label">本人已确认</div>
-          </div>
-        </div>
-      </div>
+    <ProductPage className="mk-page">
+      <PageHeader
+        title="个人知识管理"
+        description="保存和管理你的个人知识；需要进入项目库时，再提交给项目负责人确认。"
+      />
+      <StatusStrip
+        label="个人知识状态"
+        items={[
+          { label: "知识条目", value: stats.total },
+          { label: "私密草稿", value: stats.drafts },
+          { label: "本人已确认", value: stats.assets, tone: "success" },
+        ]}
+      />
 
-      <section className="mk-section">
-        <h3>个人知识管理原则</h3>
-        <div className="mk-principle-grid">
-          <div className="mk-principle-card">
-            <div className="mk-principle-icon">🔒</div>
-            <div className="mk-principle-text">个人知识默认私密，不参与他人检索</div>
-          </div>
-          <div className="mk-principle-card">
-            <div className="mk-principle-icon">👤</div>
-            <div className="mk-principle-text">项目经理和其他顾问无法搜索到你的个人知识</div>
-          </div>
-          <div className="mk-principle-card">
-            <div className="mk-principle-icon">📤</div>
-            <div className="mk-principle-text">只有你主动提交，个人知识才进入项目侧</div>
-          </div>
-          <div className="mk-principle-card">
-            <div className="mk-principle-icon">📋</div>
-            <div className="mk-principle-text">提交到项目资料区不等于项目资产，资产需验证</div>
-          </div>
-        </div>
-      </section>
+      <Disclosure summary="个人知识管理说明">
+        <ul className="product-compact-list">
+          <li>个人知识默认私密，不参与他人检索。</li>
+          <li>只有你主动提交，内容才进入项目侧。</li>
+          <li>提交到项目资料区不等于项目资产，仍需验证确认。</li>
+        </ul>
+      </Disclosure>
 
       {/* WorkBuddy 自助接入（PBC-36）：仅在职业务用户可见 */}
       <WorkbuddyAccessCard />
@@ -664,6 +643,6 @@ export default function MyKnowledgePage() {
           个人知识的查看、提交、分享与客户验证登记均受权限与操作记录保护。提交到项目后会进入「待项目经理确认」，通过前不会直接进入项目库。
         </div>
       </section>
-    </div>
+    </ProductPage>
   );
 }

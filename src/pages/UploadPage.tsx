@@ -3,6 +3,7 @@ import UploadNamingCard from "./upload/UploadNamingCard";
 import UploadStepA from "./upload/UploadStepA";
 import UploadStepB from "./upload/UploadStepB";
 import UploadConfirmPanel from "./upload/UploadConfirmPanel";
+import { PageHeader, ProductPage } from "../components/ProductLayout";
 
 // 资产化确认工作台。页面本体只做步骤路由与顶层 state 传递：全部状态/逻辑在
 // useUploadFlow，展示拆到 UploadNamingCard / UploadStepA / UploadStepB / UploadConfirmPanel。
@@ -10,36 +11,55 @@ export default function UploadPage() {
   const flow = useUploadFlow();
   const { activePath, switchPath, confirmReady, confirmSubmitted, flowState } = flow;
 
+  const progress = [
+    { label: "上传", done: flowState !== "idle" || confirmReady || confirmSubmitted },
+    { label: "提取", active: flowState === "processing", done: confirmReady || confirmSubmitted },
+    { label: "确认", active: confirmReady && !confirmSubmitted, done: confirmSubmitted },
+    { label: "进入知识库", active: confirmSubmitted, done: confirmSubmitted },
+  ];
+
   return (
-    <div className="upload-page">
-      {/* Unified header */}
-      <div className="up-header">
-        <div className="up-header-text">
-          <h2>资产化确认工作台</h2>
-          <p>上传文件后，平台会提取内容并生成入库建议，你确认后再进入知识库。</p>
-        </div>
-      </div>
+    <ProductPage className="upload-page">
+      <PageHeader
+        eyebrow="内容资产化"
+        title="上传与入库"
+        description="选择内容来源，完成提取与确认后进入知识库。"
+      />
+
+      <ol className="product-flow-steps" aria-label="资产化进度">
+        {progress.map((step, index) => (
+          <li
+            className={`${step.active ? "is-active" : ""} ${step.done ? "is-done" : ""}`.trim()}
+            key={step.label}
+          >
+            <span>{index + 1}</span>
+            {step.label}
+          </li>
+        ))}
+      </ol>
 
       {/* Path branch selector */}
-      <div className="up-path-branches">
+      <div className="product-segmented" aria-label="内容来源">
         <button
-          className={`up-path-card ${activePath === "a" ? "active" : ""}`}
+          className={activePath === "a" ? "is-active" : ""}
           onClick={() => switchPath("a")}
+          type="button"
         >
-          <div className="up-path-card-title">企业微信待确认</div>
-          <div className="up-path-card-desc">
-            查看企业微信微盘产生的待确认文件，校正建议后提交入库
-          </div>
+          企业微信待确认
         </button>
         <button
-          className={`up-path-card ${activePath === "b" ? "active" : ""}`}
+          className={activePath === "b" ? "is-active" : ""}
           onClick={() => switchPath("b")}
+          type="button"
         >
-          <div className="up-path-card-title">本地上传</div>
-          <div className="up-path-card-desc">选择本地文件，生成内容建议，确认后进入知识库</div>
+          本地上传
         </button>
       </div>
-      <p className="up-path-shared-note">两种来源共享相同的内容提取、人工校正和入库确认流程</p>
+      <p className="up-path-shared-note">
+        {activePath === "a"
+          ? "查看企业微信微盘产生的待确认文件，校正建议后提交入库。"
+          : "选择本地文件，生成内容建议，确认后进入知识库。"}
+      </p>
 
       {/* 命名规范与保密分级 */}
       <UploadNamingCard naming={flow.naming} confirmConfidence={flow.confirmConfidence} />
@@ -69,6 +89,6 @@ export default function UploadPage() {
           </div>
         </section>
       )}
-    </div>
+    </ProductPage>
   );
 }

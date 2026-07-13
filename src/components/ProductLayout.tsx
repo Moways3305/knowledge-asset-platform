@@ -120,3 +120,30 @@ export function SettingsRow({
     </div>
   );
 }
+
+export function EmptyState({
+  title,
+  description,
+  action,
+}: {
+  title: ReactNode;
+  description?: ReactNode;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="product-empty-state">
+      <strong>{title}</strong>
+      {description && <p>{description}</p>}
+      {action && <div className="product-empty-actions">{action}</div>}
+    </div>
+  );
+}
+
+export function Disclosure({ summary, children }: { summary: ReactNode; children: ReactNode }) {
+  return (
+    <details className="product-disclosure">
+      <summary>{summary}</summary>
+      <div className="product-disclosure-body">{children}</div>
+    </details>
+  );
+}

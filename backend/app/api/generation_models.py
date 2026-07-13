@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_caller_context
@@ -86,10 +87,19 @@ async def list_generation_models(
     session: AsyncSession = Depends(get_db),
 ) -> GenerationModelAdminListResponse:
     _require_reader(caller)
-    items = [
-        GenerationModelOptionOut(**item)
-        for item in await generation_models.list_admin_models(session)
-    ]
+    try:
+        items = [
+            GenerationModelOptionOut(**item)
+            for item in await generation_models.list_admin_models(session)
+        ]
+    except SQLAlchemyError:
+        raise HTTPException(
+            503,
+            detail={
+                "denied_reason": "generation_model_storage_unavailable",
+                "message": "模型列表加载失败，请刷新或检查模型连接",
+            },
+        )
     return GenerationModelAdminListResponse(items=items, total=len(items))
 
 

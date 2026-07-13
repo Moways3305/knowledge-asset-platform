@@ -1,68 +1,53 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import AdminWeKnoraModelsPage from "./AdminWeKnoraModelsPage";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fetchWeknoraKbConfigs, fetchWeknoraModels } from "../api/admin";
 import {
-  checkWeknoraModel,
-  createWeknoraModel,
-  deleteWeknoraModel,
-  fetchWeknoraKbConfigs,
-  fetchWeknoraModels,
-  fetchWeknoraProviders,
-  updateWeknoraKbInit,
-  updateWeknoraModel,
-} from "../api/admin";
-import {
-  fetchDefaultModels,
-  fetchGenerationModels,
-  updateDefaultModels,
+  createModelConnection,
+  fetchModelConnections,
+  fetchModelUsageAssignments,
+  testModelConnection,
+  updateModelConnection,
+  updateModelUsageAssignments,
 } from "../api/weknoraModels";
+import AdminWeKnoraModelsPage from "./AdminWeKnoraModelsPage";
+import type { ModelConnectionDTO } from "../types/weknoraAdmin";
 
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({ capabilities: { isAdmin: true } }),
 }));
 
 vi.mock("../api/admin", () => ({
-  checkWeknoraModel: vi.fn(),
-  createWeknoraModel: vi.fn(),
-  deleteWeknoraModel: vi.fn(),
   fetchWeknoraKbConfigs: vi.fn(),
   fetchWeknoraModels: vi.fn(),
-  fetchWeknoraProviders: vi.fn(),
   updateWeknoraKbInit: vi.fn(),
-  updateWeknoraModel: vi.fn(),
 }));
 
 vi.mock("../api/weknoraModels", () => ({
-  fetchDefaultModels: vi.fn(),
-  fetchGenerationModels: vi.fn(),
-  createGenerationModel: vi.fn(),
-  updateGenerationModel: vi.fn(),
-  deleteGenerationModel: vi.fn(),
-  testGenerationModel: vi.fn(),
-  updateGenerationDefaultModel: vi.fn(),
-  updateDefaultModels: vi.fn(),
+  createModelConnection: vi.fn(),
+  fetchModelConnections: vi.fn(),
+  fetchModelUsageAssignments: vi.fn(),
+  testModelConnection: vi.fn(),
+  updateModelConnection: vi.fn(),
+  updateModelUsageAssignments: vi.fn(),
 }));
 
-const models = [
-  {
-    model_ref: "ref-chat",
-    name: "qwen-plus",
-    type: "chat",
-    source: "remote",
-    provider: "aliyun",
-    enabled: true,
-    is_builtin: false,
-    description: null,
-  },
-];
-
-const defaultModels = {
-  embedding: null,
-  rerank: null,
-  chat: null,
-  multimodal: null,
-  updated_at: null,
+const connection: ModelConnectionDTO = {
+  model_ref: "safe-chat-ref",
+  display_name: "DeepSeek 对话",
+  capability_type: "chat" as const,
+  provider: "deepseek",
+  model_name: "deepseek-chat",
+  enabled: true,
+  health_status: "registered",
+  available_usages: ["content_generation", "knowledge_chat"],
+  legacy_adapter: false,
+};
+const emptyUsages = {
+  content_generation: null,
+  knowledge_embedding: null,
+  knowledge_chat: null,
+  knowledge_rerank: null,
 };
 
 function renderPage() {
@@ -75,129 +60,82 @@ function renderPage() {
 
 describe("AdminWeKnoraModelsPage", () => {
   beforeEach(() => {
-    vi.mocked(fetchWeknoraModels).mockResolvedValue(models);
-    vi.mocked(fetchWeknoraProviders).mockResolvedValue([
-      { value: "aliyun", label: "阿里云", description: null, model_types: ["chat"] },
-    ]);
+    vi.mocked(fetchWeknoraModels).mockResolvedValue([]);
     vi.mocked(fetchWeknoraKbConfigs).mockResolvedValue([]);
-    vi.mocked(fetchDefaultModels).mockResolvedValue(defaultModels);
-    vi.mocked(fetchGenerationModels).mockResolvedValue({ items: [], total: 0 });
-    vi.mocked(updateDefaultModels).mockResolvedValue(defaultModels);
-    vi.mocked(createWeknoraModel).mockResolvedValue({
-      model_ref: "new-ref",
-      name: "x",
-      type: "chat",
-      provider: "aliyun",
-      status: "ok",
+    vi.mocked(fetchModelConnections).mockResolvedValue({
+      items: [connection],
+      total: 1,
+      warning: null,
     });
-    vi.mocked(updateWeknoraModel).mockResolvedValue({
-      model_ref: "ref-chat",
-      name: "qwen-plus",
-      type: "chat",
-      provider: "aliyun",
-      status: "ok",
-    });
-    vi.mocked(checkWeknoraModel).mockResolvedValue({
+    vi.mocked(fetchModelUsageAssignments).mockResolvedValue(emptyUsages);
+    vi.mocked(createModelConnection).mockResolvedValue(connection);
+    vi.mocked(updateModelConnection).mockResolvedValue(connection);
+    vi.mocked(updateModelUsageAssignments).mockResolvedValue(emptyUsages);
+    vi.mocked(testModelConnection).mockResolvedValue({
       success: true,
-      message: "后端连通性校验通过",
-    });
-    vi.mocked(deleteWeknoraModel).mockResolvedValue({ deleted: true });
-    vi.mocked(updateWeknoraKbInit).mockResolvedValue({
-      mapping_id: "m1",
-      mapping_status: "active",
-      updated: true,
+      message: "连接测试成功",
+      duration_ms: 18,
     });
     Element.prototype.scrollIntoView = vi.fn();
   });
 
-  it("uses production status copy instead of claiming connectivity", async () => {
+  it("shows one unified connection entry and production status copy", async () => {
     renderPage();
-    expect(await screen.findByText("已启用")).toBeInTheDocument();
-    expect(screen.queryByText("可用")).not.toBeInTheDocument();
+    expect(await screen.findByText("DeepSeek 对话")).toBeInTheDocument();
+    expect(screen.getByText("已启用")).toBeInTheDocument();
+    expect(screen.getAllByText("新增模型连接")).toHaveLength(1);
+    expect(screen.queryByText("新增内容生成模型")).not.toBeInTheDocument();
   });
 
-  it("adds anti-autofill attributes to model secret fields", async () => {
+  it("adds anti-autofill attributes and never pre-fills saved secrets", async () => {
     renderPage();
-    fireEvent.click(await screen.findByText("新增模型"));
-
+    fireEvent.click(await screen.findByText("编辑"));
     const apiUrl = screen.getByLabelText("API 地址");
-    const apiKey = screen.getByLabelText("访问密钥");
-
-    expect(apiUrl).toHaveAttribute("name", "kap_model_endpoint");
+    const apiKey = screen.getByLabelText("API key");
+    expect(apiUrl).toHaveAttribute("name", "model_connection_endpoint");
     expect(apiUrl).toHaveAttribute("autocomplete", "off");
     expect(apiUrl).toHaveAttribute("data-lpignore", "true");
-    expect(apiUrl).toHaveAttribute("data-1p-ignore", "true");
-    expect(apiKey).toHaveAttribute("name", "kap_model_secret");
+    expect(apiKey).toHaveAttribute("name", "model_connection_secret");
     expect(apiKey).toHaveAttribute("autocomplete", "new-password");
-    expect(screen.getByRole("textbox", { name: "模型名称" }).closest("form")).toHaveAttribute(
-      "autocomplete",
-      "off",
-    );
+    expect(apiUrl).toHaveValue("");
+    expect(apiKey).toHaveValue("");
   });
 
-  it("blocks an email-shaped API URL before saving", async () => {
+  it("blocks an invalid API URL before saving", async () => {
+    vi.mocked(fetchModelConnections).mockResolvedValue({ items: [], total: 0, warning: null });
     renderPage();
-    fireEvent.click(await screen.findByText("新增模型"));
-
-    fireEvent.change(screen.getByLabelText("模型名称"), { target: { value: "qwen" } });
+    fireEvent.click((await screen.findAllByText("新增模型连接"))[0]);
+    fireEvent.change(screen.getByLabelText("显示名称"), { target: { value: "Qwen" } });
+    fireEvent.change(screen.getByLabelText("模型名称"), { target: { value: "qwen-plus" } });
     fireEvent.change(screen.getByLabelText("API 地址"), { target: { value: "alice@example.com" } });
-    fireEvent.change(screen.getByLabelText("访问密钥"), { target: { value: "sk-secret" } });
-    fireEvent.click(screen.getByText("创建模型"));
-
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "secret" } });
+    fireEvent.click(screen.getByText("保存模型连接"));
     expect(await screen.findByText("API 地址必须以 http:// 或 https:// 开头")).toBeInTheDocument();
-    expect(createWeknoraModel).not.toHaveBeenCalled();
+    expect(createModelConnection).not.toHaveBeenCalled();
   });
 
-  it("omits blank API URL and key while editing so existing values are kept", async () => {
+  it("omits blank endpoint and key while editing", async () => {
     renderPage();
     fireEvent.click(await screen.findByText("编辑"));
-    fireEvent.click(screen.getByText("保存修改"));
-
-    await waitFor(() => expect(updateWeknoraModel).toHaveBeenCalled());
-    expect(updateWeknoraModel).toHaveBeenCalledWith(
-      "ref-chat",
-      expect.not.objectContaining({
-        base_url: expect.anything(),
-        api_key: expect.anything(),
-      }),
+    fireEvent.click(screen.getByText("保存模型连接"));
+    await waitFor(() => expect(updateModelConnection).toHaveBeenCalled());
+    expect(updateModelConnection).toHaveBeenCalledWith(
+      connection.model_ref,
+      expect.not.objectContaining({ base_url: expect.anything(), api_key: expect.anything() }),
     );
   });
 
-  it("disables connectivity test in edit mode until URL and key are re-entered", async () => {
+  it("tests a saved connection and renders safe duration", async () => {
     renderPage();
-    fireEvent.click(await screen.findByText("编辑"));
-
-    expect(
-      screen.getByText("编辑已有模型时，需重新输入 API 地址和访问密钥后才能测试。"),
-    ).toBeInTheDocument();
-    expect(screen.getByText("连通性测试")).toBeDisabled();
+    fireEvent.click(await screen.findByText("测试连接"));
+    expect(await screen.findByText("连接正常 · 18 ms")).toBeInTheDocument();
+    expect(testModelConnection).toHaveBeenCalledWith(connection.model_ref);
   });
 
-  it("shows busy state and duration for connectivity checks", async () => {
-    vi.mocked(checkWeknoraModel).mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          window.setTimeout(() => resolve({ success: true, message: "后端连通性校验通过" }), 10);
-        }),
-    );
+  it("turns list failures into an actionable message without raw HTTP status", async () => {
+    vi.mocked(fetchModelConnections).mockRejectedValue(new Error("500 SECRET-LIKE"));
     renderPage();
-    fireEvent.click(await screen.findByText("新增模型"));
-
-    fireEvent.change(screen.getByLabelText("模型名称"), { target: { value: "qwen" } });
-    fireEvent.change(screen.getByLabelText("API 地址"), {
-      target: { value: "https://api.example.com/v1" },
-    });
-    fireEvent.change(screen.getByLabelText("访问密钥"), { target: { value: "sk-secret" } });
-    fireEvent.click(screen.getByText("连通性测试"));
-
-    expect(screen.getAllByText("测试中...").length).toBeGreaterThan(0);
-    expect(await screen.findByText(/耗时 \d+ms/)).toBeInTheDocument();
-    expect(checkWeknoraModel).toHaveBeenCalledWith(
-      expect.objectContaining({
-        api_url: "https://api.example.com/v1",
-        api_key: "sk-secret",
-        model: "qwen",
-      }),
-    );
+    expect(await screen.findByText("模型列表加载失败，请刷新或检查模型连接")).toBeInTheDocument();
+    expect(screen.queryByText(/500|SECRET-LIKE/)).not.toBeInTheDocument();
   });
 });
