@@ -7,6 +7,7 @@ const sourceModules = import.meta.glob("../{pages,components,styles}/**/*.{ts,ts
 }) as Record<string, string>;
 const docs = import.meta.glob("../../docs/ui/*.md", {
   eager: true,
+  exhaustive: true,
   query: "?raw",
   import: "default",
 }) as Record<string, string>;
