@@ -9392,32 +9392,6 @@ body {
 }
 
 /* PBC-49: product-wide layout contract */
-.rail {
-  background: #ffffff;
-  border-right: 1px solid var(--color-border);
-  color: var(--color-text-primary);
-}
-
-.rail :where(.rail-mark) {
-  color: var(--color-text-heading);
-}
-.rail :where(.rail-sub, .rail-group-label, .rail-foot-line) {
-  color: var(--color-text-secondary);
-}
-
-.rail .rail-link {
-  color: var(--color-text-primary);
-}
-
-.rail .rail-link:hover {
-  background: var(--color-bg-muted);
-}
-
-.rail .rail-link.active {
-  background: var(--color-accent-soft);
-  color: var(--color-accent-1);
-}
-
 .product-flow-steps {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -9541,6 +9515,72 @@ body {
   margin: -8px 0 0;
   color: var(--color-text-secondary);
   font-size: 12px;
+}
+
+/* PBC-50: the dropzone is the only large bordered control in the upload empty state. */
+.upload-page,
+.upload-page *,
+.upload-input-region,
+.upload-input-region * {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.upload-input-region {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.upload-page .upload-dropzone {
+  width: 100%;
+  padding: clamp(24px, 5vw, 40px) clamp(14px, 3vw, 24px);
+}
+
+.upload-page .up-file-info {
+  width: 100%;
+  box-shadow: none;
+}
+
+.upload-page .up-flow-bar {
+  width: 100%;
+  margin: 0;
+}
+
+.upload-inline-info {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.upload-inline-info > p {
+  margin: 0;
+}
+
+.upload-inline-info .up-desensitization {
+  flex: 0 1 auto;
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .upload-page .up-file-info,
+  .upload-inline-info {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .upload-page .up-file-actions {
+    flex-wrap: wrap;
+  }
+
+  .upload-page .up-flow-note {
+    margin-left: 0;
+  }
 }
 
 @media (max-width: 720px) {

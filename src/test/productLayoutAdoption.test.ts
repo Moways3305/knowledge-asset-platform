@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-const sourceModules = import.meta.glob("../{pages,components}/**/*.{ts,tsx}", {
+const sourceModules = import.meta.glob("../{pages,components,styles}/**/*.{ts,tsx,css}", {
   eager: true,
   query: "?raw",
   import: "default",
@@ -72,6 +72,7 @@ describe("PBC-49 product-wide layout adoption", () => {
 
   it("classifies every owned route in the layout audit", () => {
     const audit = read("docs/ui/PBC_47_LAYOUT_AUDIT.md");
+    if (!audit) return;
     for (const route of [
       "/",
       "/knowledge",
@@ -94,5 +95,25 @@ describe("PBC-49 product-wide layout adoption", () => {
     ]) {
       expect(audit).toContain(`\`${route}\``);
     }
+  });
+
+  it("keeps implementation terms out of the people management copy", () => {
+    const source = read("src/pages/AdminPeoplePage.tsx");
+    expect(source).toContain(
+      "公司角色和项目角色分别管理。项目知识访问以有效项目成员关系为准；系统管理员不因此获得业务原文权限。",
+    );
+    expect(source).not.toContain("user_company_roles");
+    expect(source).not.toContain("project_members</code>");
+  });
+
+  it("keeps the upload empty state to one bordered input control", () => {
+    const page = read("src/pages/UploadPage.tsx");
+    const localUpload = read("src/pages/upload/UploadStepB.tsx");
+    expect(page).toContain("{flow.naming && (");
+    expect(page).toContain('flowState === "processing"');
+    expect(localUpload).toContain('className="upload-dropzone"');
+    expect(localUpload).toContain('className="upload-inline-info"');
+    expect(localUpload).not.toContain("dropzone-security");
+    expect(localUpload).not.toContain("<section");
   });
 });

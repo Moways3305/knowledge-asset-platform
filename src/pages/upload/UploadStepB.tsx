@@ -21,17 +21,8 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
 
   return (
     <>
-      {/* Flow status bar */}
-      <div className={`up-flow-bar ${flowMeta.cls}`}>
-        <span className="up-flow-indicator" />
-        <span className="up-flow-text">{flowMeta.text}</span>
-        {flowState === "processing" && <span className="up-flow-spinner" />}
-        <span className="up-flow-note">文件已进入平台受控存储</span>
-      </div>
-
       {/* Upload entry */}
-      <section className="upload-section">
-        <h3>上传入口</h3>
+      <div className="upload-input-region">
         {!hasFile ? (
           <div className="upload-dropzone" onClick={() => fileRef.current?.click()}>
             <input
@@ -45,10 +36,6 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
             <p className="dropzone-hint">
               支持 Markdown、PDF、Word、PPT、Excel、纯文本等资料，单文件最大 25 MiB
             </p>
-            <div className="dropzone-security">
-              <span className="dropzone-security-badge">受控上传</span>
-              <span>选中文件会上传至平台受控存储；页面只展示必要的文件状态与安全元数据</span>
-            </div>
           </div>
         ) : (
           <div className="up-file-info">
@@ -79,6 +66,15 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
           </div>
         )}
 
+        {hasFile && (
+          <div className={`up-flow-bar ${flowMeta.cls}`}>
+            <span className="up-flow-indicator" />
+            <span className="up-flow-text">{flowMeta.text}</span>
+            {flowState === "processing" && <span className="up-flow-spinner" />}
+            <span className="up-flow-note">文件已进入平台受控存储</span>
+          </div>
+        )}
+
         {/* 文本抽取结果 */}
         {extraction && (
           <div className={`up-extraction up-extraction-${extraction.status ?? "unknown"}`}>
@@ -104,13 +100,12 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
             )}
           </div>
         )}
-      </section>
+      </div>
 
       {/* Security boundary（短诚实边界，详情入帮助页） */}
-      <section className="upload-section">
-        <h3>敏感信息保护</h3>
-        <p className="page-help-line">
-          平台会先抽取文本并生成内容建议；原文与结构化建议受访问控制保护，对外展示与问答输出按权限和脱敏策略收口。无法抽取文本时，将保留文件并提示人工确认可用信息。详见{" "}
+      <div className="upload-inline-info">
+        <p>
+          原文与内容建议受访问控制保护；命名、保密级别与异常处理详见{" "}
           <Link to="/help#ingest" className="page-help-link">
             使用说明 →
           </Link>
@@ -130,7 +125,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
             )}
           </div>
         )}
-      </section>
+      </div>
     </>
   );
 }
