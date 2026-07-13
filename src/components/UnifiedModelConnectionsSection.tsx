@@ -46,6 +46,8 @@ const emptyUsages: ModelUsageAssignmentsDTO = {
   knowledge_rerank: null,
 };
 
+const autofillWarning = "检测到浏览器自动填充，已恢复表单原值。请手动确认并重新填写连接信息。";
+
 export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: boolean }) {
   const [connections, setConnections] = useState<ModelConnectionDTO[]>([]);
   const [usages, setUsages] = useState<ModelUsageAssignmentsDTO>(emptyUsages);
@@ -88,6 +90,47 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
     if (formOpen) panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [formOpen]);
 
+  const reconcileExternalValues = useCallback(
+    (showWarning = true) => {
+      const root = panelRef.current;
+      if (!root) return false;
+      const expected: Record<string, string> = {
+        display_name: form.display_name,
+        capability_type: form.capability_type,
+        provider: form.provider,
+        model_name: form.model_name,
+        base_url: form.base_url ?? "",
+        api_key: form.api_key ?? "",
+        enabled: form.enabled ? "enabled" : "disabled",
+      };
+      let restored = false;
+      for (const [field, value] of Object.entries(expected)) {
+        const control = root.querySelector<HTMLInputElement | HTMLSelectElement>(
+          `[data-model-field="${field}"]`,
+        );
+        if (control && control.value !== value) {
+          control.value = value;
+          restored = true;
+        }
+      }
+      if (restored && showWarning) setError(autofillWarning);
+      return restored;
+    },
+    [form],
+  );
+
+  useEffect(() => {
+    if (!formOpen) return;
+    const timer = window.setInterval(() => reconcileExternalValues(), 150);
+    const handleAutofillSignal = () => reconcileExternalValues();
+    const panel = panelRef.current;
+    panel?.addEventListener("animationstart", handleAutofillSignal);
+    return () => {
+      window.clearInterval(timer);
+      panel?.removeEventListener("animationstart", handleAutofillSignal);
+    };
+  }, [formOpen, reconcileExternalValues]);
+
   const openCreate = () => {
     setEditingRef(null);
     setForm(emptyForm());
@@ -111,6 +154,7 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
   };
 
   const saveConnection = async () => {
+    if (reconcileExternalValues()) return;
     if (!form.display_name.trim() || !form.model_name.trim()) {
       setError("请填写显示名称和模型名称");
       return;
@@ -383,30 +427,18 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
           }
         >
           <form
+            key={editingRef ?? "create"}
             className="ws-form-grid"
             autoComplete="off"
             onSubmit={(event) => event.preventDefault()}
             ref={panelRef}
           >
-            <input
-              name="model_connection_username_decoy"
-              tabIndex={-1}
-              autoComplete="username"
-              aria-hidden="true"
-              className="form-decoy"
-            />
-            <input
-              name="model_connection_password_decoy"
-              type="password"
-              tabIndex={-1}
-              autoComplete="new-password"
-              aria-hidden="true"
-              className="form-decoy"
-            />
             <label className="ws-form-field">
               <span className="ws-form-label">显示名称</span>
               <input
                 className="ws-form-input"
+                data-model-field="display_name"
+                autoComplete="off"
                 value={form.display_name}
                 onChange={(event) => setForm({ ...form, display_name: event.target.value })}
               />
@@ -415,6 +447,7 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
               <span className="ws-form-label">模型能力</span>
               <select
                 className="ws-form-input"
+                data-model-field="capability_type"
                 value={form.capability_type}
                 disabled={Boolean(editingRef)}
                 onChange={(event) =>
@@ -430,6 +463,7 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
               <span className="ws-form-label">Provider</span>
               <select
                 className="ws-form-input"
+                data-model-field="provider"
                 value={form.provider}
                 onChange={(event) => setForm({ ...form, provider: event.target.value })}
               >
@@ -442,6 +476,8 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
               <span className="ws-form-label">模型名称</span>
               <input
                 className="ws-form-input"
+                data-model-field="model_name"
+                autoComplete="off"
                 value={form.model_name}
                 onChange={(event) => setForm({ ...form, model_name: event.target.value })}
               />
@@ -450,6 +486,7 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
               <span className="ws-form-label">API 地址</span>
               <input
                 className="ws-form-input"
+                data-model-field="base_url"
                 name="model_connection_endpoint"
                 inputMode="url"
                 autoComplete="off"
@@ -463,6 +500,7 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
               <span className="ws-form-label">API key</span>
               <input
                 className="ws-form-input"
+                data-model-field="api_key"
                 name="model_connection_secret"
                 type="password"
                 autoComplete="new-password"
@@ -477,6 +515,7 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
               <span className="ws-form-label">启用状态</span>
               <select
                 className="ws-form-input"
+                data-model-field="enabled"
                 value={form.enabled ? "enabled" : "disabled"}
                 onChange={(event) =>
                   setForm({ ...form, enabled: event.target.value === "enabled" })
