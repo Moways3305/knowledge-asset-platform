@@ -1,22 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-const sourceModules = import.meta.glob("../{pages,components,styles}/**/*.{ts,tsx,css}", {
-  eager: true,
-  query: "?raw",
-  import: "default",
-}) as Record<string, string>;
-const docs = import.meta.glob("../../docs/ui/*.md", {
-  eager: true,
-  exhaustive: true,
-  query: "?raw",
-  import: "default",
-}) as Record<string, string>;
-const read = (file: string) =>
-  file.startsWith("docs/")
-    ? docs[`../../${file}`]
-    : sourceModules[`../${file.replace(/^src\//, "")}`];
+const sourceModules = import.meta.glob(
+  ["../App.tsx", "../{pages,components,styles}/**/*.{ts,tsx,css}"],
+  {
+    eager: true,
+    query: "?raw",
+    import: "default",
+  },
+) as Record<string, string>;
+const read = (file: string) => sourceModules[`../${file.replace(/^src\//, "")}`];
 
-describe("PBC-49 product-wide layout adoption", () => {
+describe("product layout and route contract", () => {
   it("shares the product page primitive across representative user and admin routes", () => {
     expect(read("src/pages/KnowledgeListPage.tsx")).toContain("<ProductPage");
     for (const page of [
@@ -71,11 +65,10 @@ describe("PBC-49 product-wide layout adoption", () => {
     expect(source).not.toContain("weknora_kb_id");
   });
 
-  it("classifies every owned route in the layout audit", () => {
-    const audit = read("docs/ui/PBC_47_LAYOUT_AUDIT.md");
-    expect(audit, "the committed product layout audit must remain available").toBeDefined();
+  it("declares every current product route in the production router", () => {
+    const app = read("src/App.tsx");
+    expect(app).toContain("<Route index");
     for (const route of [
-      "/",
       "/knowledge",
       "/knowledge/:id",
       "/my/knowledge",
@@ -94,7 +87,7 @@ describe("PBC-49 product-wide layout adoption", () => {
       "/admin/permissions",
       "/help",
     ]) {
-      expect(audit).toContain(`\`${route}\``);
+      expect(app).toContain(`path="${route.slice(1)}"`);
     }
   });
 
