@@ -12,6 +12,7 @@
     "format:check": "prettier --check src",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:ui:model-autofill": "node scripts/pbc52_model_autofill_test.mjs",
     "api:export": "python scripts/export_openapi.py"
   },
   "dependencies": {
@@ -21,7 +22,7 @@
     "lucide-react": "^1.17.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.28.0"
+    "react-router-dom": "6.30.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

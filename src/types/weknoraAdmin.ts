@@ -99,73 +99,7 @@ export interface ModelOptionsResponseDTO {
   default_missing: boolean;
 }
 
-// ---- 平台默认模型（PBC-38；admin 写 / 治理只读）----
-// 每个槽位只含安全 model_ref + 名称，绝不含真实 model_id。
-export interface DefaultModelsDTO {
-  embedding: ModelSlotDTO | null;
-  rerank: ModelSlotDTO | null;
-  chat: ModelSlotDTO | null;
-  multimodal: ModelSlotDTO | null;
-  updated_at: string | null;
-}
-
-// 前端只提交对底座 id 不可逆的 model_ref；后端解析真实 id 并校验类型。绝不上送真实 model_id。
-export interface DefaultModelsUpdateRequestDTO {
-  embedding_model_ref?: string | null;
-  rerank_model_ref?: string | null;
-  chat_model_ref?: string | null;
-  multimodal_ref?: string | null;
-}
-
-// ---- KAP 内容生成模型（标题 / 摘要 / 标签建议；非 WeKnora 知识库模型）----
-export interface GenerationModelOptionDTO {
-  model_ref: string;
-  display_name: string;
-  provider: string;
-  model_name: string;
-  enabled: boolean;
-  is_default: boolean;
-}
-
-export interface GenerationModelOptionsResponseDTO {
-  items: GenerationModelOptionDTO[];
-  default_missing: boolean;
-}
-
-export interface GenerationModelSelectionRequestDTO {
-  model_ref?: string | null;
-}
-
-export interface GenerationModelSelectionResponseDTO {
-  current_default: GenerationModelOptionDTO | null;
-  configured: boolean;
-}
-
-export interface GenerationModelAdminListResponseDTO {
-  items: GenerationModelOptionDTO[];
-  total: number;
-}
-
-export interface GenerationModelCreateRequestDTO {
-  display_name: string;
-  provider: string;
-  model_name: string;
-  base_url: string;
-  api_key: string;
-  enabled: boolean;
-  make_default: boolean;
-}
-
-export interface GenerationModelUpdateRequestDTO {
-  display_name: string;
-  provider: string;
-  model_name: string;
-  base_url?: string | null;
-  api_key?: string | null;
-  enabled: boolean;
-}
-
-export interface GenerationModelTestResponseDTO {
+export interface ModelConnectionTestResponseDTO {
   success: boolean;
   message: string;
   duration_ms: number;

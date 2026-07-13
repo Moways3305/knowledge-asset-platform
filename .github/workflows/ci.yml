@@ -140,7 +140,7 @@ jobs:
   frontend-ui-qa:
     name: Frontend (UI layout smoke)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       UI_QA_BASE: http://localhost:4173
       UI_QA_OUT_DIR: ${{ github.workspace }}/ui_qa
@@ -153,7 +153,7 @@ jobs:
       - name: Install
         run: npm ci
       - name: Install Playwright chromium
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
       - name: Build
         run: npm run build
       - name: Start preview server
@@ -170,6 +170,8 @@ jobs:
           exit 1
       - name: UI QA (horizontal overflow smoke)
         run: node scripts/ui_qa.mjs ci
+      - name: UI QA (model connection autofill state)
+        run: npm run test:ui:model-autofill
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
