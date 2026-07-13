@@ -72,7 +72,7 @@ describe("PBC-49 product-wide layout adoption", () => {
 
   it("classifies every owned route in the layout audit", () => {
     const audit = read("docs/ui/PBC_47_LAYOUT_AUDIT.md");
-    if (!audit) return;
+    expect(audit, "the committed product layout audit must remain available").toBeDefined();
     for (const route of [
       "/",
       "/knowledge",
