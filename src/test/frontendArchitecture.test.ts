@@ -5,7 +5,7 @@ const forbiddenParallelModules = import.meta.glob(
   { eager: true, query: "?raw", import: "default" },
 );
 
-const productionUiModules = import.meta.glob(["../{pages,components}/**/*.{ts,tsx}"], {
+const productionUiModules = import.meta.glob(["../{pages,components,auth}/**/*.{ts,tsx}"], {
   eager: true,
   query: "?raw",
   import: "default",
@@ -38,6 +38,9 @@ describe("frontend architecture baseline", () => {
   });
 
   it("does not cache identity or permission state in browser storage", () => {
+    const scannedFiles = Object.keys(productionUiModules);
+    expect(scannedFiles.some((file) => file.endsWith("/auth/AuthContext.tsx"))).toBe(true);
+    expect(scannedFiles.some((file) => file.endsWith("/auth/permissions.ts"))).toBe(true);
     for (const [file, source] of Object.entries(productionUiModules)) {
       expect(source, file).not.toMatch(/\b(?:localStorage|sessionStorage)\b/);
     }
