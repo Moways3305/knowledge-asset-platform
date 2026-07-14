@@ -108,7 +108,13 @@ async def test_preview_entry_returns_onlyoffice_config(client, monkeypatch):
     assert body["onlyoffice_config"] is not None
     cfg = body["onlyoffice_config"]
     assert cfg["editorConfig"]["mode"] == "view"
-    assert cfg["document"]["permissions"]["edit"] is False
+    assert cfg["document"]["permissions"] == {
+        "edit": False,
+        "download": False,
+        "print": False,
+        "copy": False,
+        "review": False,
+    }
     # 取件 URL 指向平台受控端点，含短时 ft token，但无内部引用。
     assert "/api/v1/preview/" in cfg["document"]["url"] and "ft=" in cfg["document"]["url"]
     _assert_no_leak(entry.text)

@@ -36,7 +36,7 @@ COPY --from=build /app/dist /usr/share/nginx/html
 RUN chown -R nginx:nginx /var/cache/nginx /etc/nginx/conf.d /usr/share/nginx/html
 
 # Only ONLYOFFICE_ORIGIN is substituted into the template; default empty (=> CSP
-# frame-src/connect-src collapse to 'self'). Define it (even empty) so envsubst
+# script-src/frame-src/connect-src collapse to 'self'). Define it (even empty) so envsubst
 # replaces the placeholder instead of leaving a literal ${ONLYOFFICE_ORIGIN}.
 ENV NGINX_ENVSUBST_FILTER=ONLYOFFICE_ORIGIN \
     ONLYOFFICE_ORIGIN=

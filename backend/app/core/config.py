@@ -129,6 +129,8 @@ class Settings(BaseSettings):
     # 否则预览入口返回 onlyoffice_not_configured（绝不回退泄露原文 URL）。jwt_secret 绝不外泄。
     onlyoffice_enabled: bool = False
     onlyoffice_document_server_url: str = ""
+    # 前端 CSP 使用的浏览器可达 origin；仅供安全配置一致性诊断，不进入业务响应。
+    onlyoffice_origin: str = ""
     # 平台对外基址（拼受控取件 URL 供 Document Server 回取）；空则用相对路径。
     onlyoffice_internal_base_url: str = ""
     onlyoffice_jwt_secret: str = ""

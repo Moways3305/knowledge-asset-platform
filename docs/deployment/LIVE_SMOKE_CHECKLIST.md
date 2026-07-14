@@ -107,10 +107,15 @@ python scripts/production_smoke.py --base-url <prod-url> --expect-prod-ready --j
 
 ### B11. ONLYOFFICE 预览（启用时）
 - 操作人：有原文层权限的业务用户
-- 步骤：`GET /api/v1/preview/{id}` → 在启用 ONLYOFFICE 时返回真实只读编辑器配置 + 平台受控取件 URL
-- 预期：启用且配置齐全时预览可打开；未启用 / 缺配置时安全降级，不泄露原文 URL
-- 可观察：走集中权限 + 预览凭证 + 审计（L5 强审计）
-- 不应出现：`storage_ref`、对象存储 URL、完整 token、JWT 密钥、WeKnora id
+- 配置职责：`ONLYOFFICE_DOCUMENT_SERVER_URL` 是浏览器可访问的 Document Server origin；`ONLYOFFICE_ORIGIN` 是前端 CSP 放行的同一个精确 origin；`ONLYOFFICE_INTERNAL_BASE_URL` 是 Document Server 回取 KAP 受控文件端点时可访问的基址。前两项必须同源，浏览器地址不得使用 Docker DNS。
+- 步骤：
+  1. 先看 `/health/config` 的 `integrations.onlyoffice_config`，四个布尔状态均应为 `true`，且无 `ONLYOFFICE_*` blocker。响应只记录布尔和配置项名。
+  2. 用有原文权限的账号打开一个受支持的 `.md` 或 `.docx`，浏览器 DevTools Network 只确认 `api.js`、编辑器 iframe 和受控 `/file?ft=...` 请求的 HTTP 结果；Console 只记录错误类别（CSP / 网络 / 编辑器），不得复制完整消息或地址。
+  3. 成功场景应在文档就绪后移除“正在打开”；预览保持只读，关闭后编辑器实例被销毁。
+  4. 在测试/生产等价环境临时阻断 Document Server（或用浏览器 DevTools Request blocking 阻断 `api.js`），确认有限时间内显示安全失败和“重新打开预览”，不永久加载。完成后立即恢复阻断。
+- 预期：启用且三项配置匹配时预览可打开；脚本、CSP、编辑器或回取失败时进入可重试失败态，不降级为下载或直接文件链接。
+- 可观察：只记录 HTTP 状态和 `script_load_failed` / `editor_failed` / `preview_timeout` 等类别；走集中权限 + 预览凭证 + 审计（L5 强审计）。
+- 不应出现：完整 `/file?ft=`、fetch token、JWT、Document Server/KAP 完整 URL、容器地址、`storage_ref`、对象存储位置、credential/asset/WeKnora id、Console 原始错误正文。
 
 ### B12. `/health/config` 无 production blockers
 - 操作人：运维

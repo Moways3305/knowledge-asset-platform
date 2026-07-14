@@ -15,6 +15,7 @@ import logging
 import uuid
 from collections.abc import Awaitable
 from typing import cast
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Cookie, Depends, Request, Response
 from sqlalchemy import func, select, text
@@ -135,6 +136,46 @@ async def health_ready(response: Response, session: AsyncSession = Depends(get_d
     }
 
 
+def _http_origin(value: str) -> str | None:
+    """Return a normalized HTTP(S) origin without exposing it to callers."""
+    try:
+        parsed = urlsplit((value or "").strip())
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+            return None
+        if parsed.username or parsed.password:
+            return None
+        return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+    except ValueError:
+        return None
+
+
+def _origin_only(value: str) -> bool:
+    try:
+        parsed = urlsplit((value or "").strip())
+        return bool(
+            _http_origin(value)
+            and parsed.path in {"", "/"}
+            and not parsed.query
+            and not parsed.fragment
+        )
+    except ValueError:
+        return False
+
+
+def _onlyoffice_config_status(s) -> dict[str, bool]:
+    document_origin = _http_origin(s.onlyoffice_document_server_url)
+    csp_origin = _http_origin(s.onlyoffice_origin)
+    internal_base = _http_origin(s.onlyoffice_internal_base_url)
+    return {
+        "document_server_origin_valid": bool(
+            document_origin and _origin_only(s.onlyoffice_document_server_url)
+        ),
+        "internal_base_configured": bool(internal_base),
+        "csp_origin_valid": bool(csp_origin and _origin_only(s.onlyoffice_origin)),
+        "browser_origin_matches": bool(document_origin and csp_origin == document_origin),
+    }
+
+
 def _missing_config(
     s,
     *,
@@ -158,6 +199,10 @@ def _missing_config(
         missing.append("WEKNORA_MODEL_REF_SECRET")
     if s.onlyoffice_enabled and not s.onlyoffice_document_server_url:
         missing.append("ONLYOFFICE_DOCUMENT_SERVER_URL")
+    if s.onlyoffice_enabled and not s.onlyoffice_internal_base_url:
+        missing.append("ONLYOFFICE_INTERNAL_BASE_URL")
+    if s.onlyoffice_enabled and not s.onlyoffice_origin:
+        missing.append("ONLYOFFICE_ORIGIN")
     if s.wecom_notify_enabled and not (s.wecom_corp_id and s.wecom_app_secret):
         missing.append("WECOM_CORP_ID/WECOM_APP_SECRET")
     if generation_product_configured and not (s.generation_model_encryption_key or "").strip():
@@ -202,8 +247,21 @@ def _production_blockers(
     # 4) ONLYOFFICE 启用：缺 Document Server URL → 预览不可用；缺 JWT secret → 生产
     #    Document Server 通常强制 JWT，未签名 config 会被拒/不安全，故 prod 视为阻断。
     if s.onlyoffice_enabled:
+        status = _onlyoffice_config_status(s)
         if not (s.onlyoffice_document_server_url or "").strip():
             blockers.append("ONLYOFFICE_DOCUMENT_SERVER_URL")
+        elif not status["document_server_origin_valid"]:
+            blockers.append("ONLYOFFICE_DOCUMENT_SERVER_URL_ORIGIN")
+        if not (s.onlyoffice_internal_base_url or "").strip():
+            blockers.append("ONLYOFFICE_INTERNAL_BASE_URL")
+        elif not status["internal_base_configured"]:
+            blockers.append("ONLYOFFICE_INTERNAL_BASE_URL_INVALID")
+        if not (s.onlyoffice_origin or "").strip():
+            blockers.append("ONLYOFFICE_ORIGIN")
+        elif not status["csp_origin_valid"]:
+            blockers.append("ONLYOFFICE_ORIGIN_INVALID")
+        elif not status["browser_origin_matches"]:
+            blockers.append("ONLYOFFICE_ORIGIN_MISMATCH")
         if not (s.onlyoffice_jwt_secret or "").strip():
             blockers.append("ONLYOFFICE_JWT_SECRET")
     # 5) 企微通知启用但缺 corp/app secret 项 → 通知无法真实下发。
@@ -255,6 +313,7 @@ async def health_config(session: AsyncSession = Depends(get_db)) -> dict:
             "wecom_enabled": wecom_enabled(),
             "wecom_notify_enabled": bool(s.wecom_notify_enabled),
             "onlyoffice_enabled": onlyoffice_enabled(),
+            "onlyoffice_config": _onlyoffice_config_status(s),
             "celery_eager": bool(s.celery_task_always_eager),
         },
         "missing_config": _missing_config(

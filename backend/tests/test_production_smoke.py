@@ -61,6 +61,12 @@ def _healthy_config_body(**over):
             "weknora_enabled": True,
             "llm_enabled": True,
             "llm_provider": "deepseek",
+            "onlyoffice_config": {
+                "document_server_origin_valid": True,
+                "internal_base_configured": True,
+                "browser_origin_matches": True,
+                "unsafe_url": "https://must-not-appear.invalid",
+            },
             "celery_eager": False,
         },
         "missing_config": [],
@@ -110,6 +116,12 @@ def test_safe_config_summary_whitelists_fields():
     # integrations 只保留布尔 + provider 名。
     assert summary["integrations"]["weknora_enabled"] is True
     assert summary["integrations"]["llm_provider"] == "deepseek"
+    assert summary["integrations"]["onlyoffice_config"] == {
+        "document_server_origin_valid": True,
+        "internal_base_configured": True,
+        "browser_origin_matches": True,
+    }
+    assert "must-not-appear" not in json.dumps(summary)
 
 
 def test_safe_config_summary_handles_bad_json():
