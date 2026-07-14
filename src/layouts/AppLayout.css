@@ -9409,7 +9409,6 @@ body {
     .al-section,
     .review-section,
     .oa-section,
-    .home-section,
     .policy-group,
     .pp-section
   ) {
@@ -9419,7 +9418,7 @@ body {
   background: var(--color-bg-surface);
   box-shadow: none;
 }
-.product-page :where(.mk-kb-card, .mk-recent-card, .wb-card, .home-panel, .up-path-card) {
+.product-page :where(.mk-kb-card, .mk-recent-card, .wb-card, .up-path-card) {
   box-shadow: none;
 }
 .product-page .wb-card {

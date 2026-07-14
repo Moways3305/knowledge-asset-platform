@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui:model-autofill": "node scripts/pbc52_model_autofill_test.mjs",
+    "test:ui:home-workbench": "node scripts/pbc65_home_ui_qa.mjs",
     "api:export": "python scripts/export_openapi.py"
   },
   "dependencies": {
