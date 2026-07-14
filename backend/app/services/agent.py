@@ -120,14 +120,6 @@ def _top_chunk_ref(r: retrieval.RecalledAsset) -> str | None:
     return f"{c.get('knowledge_id')}#{c.get('chunk_index')}"
 
 
-def _degraded_answer(query: str, count: int) -> str:
-    """LLM 答案生成不可用时的安全降级文案（不编造内容，只说明已检索到的引用数）。"""
-    return (
-        f"【答案生成暂不可用】已在本项目知识库中检索到 {count} 条调用人权限范围内的"
-        f"相关知识（见引用），但答案生成模型当前不可用，请参考引用片段或稍后重试。"
-    )
-
-
 async def list_project_qa_model_options(
     session: AsyncSession,
     caller: CallerContext,
@@ -381,9 +373,35 @@ async def run_project_qa(
             "调用人权限范围内本项目无可用知识上下文，无法生成回答",
         )
 
-    # ---- 7. 外部 LLM 自拼答案（只喂放行+脱敏证据）；LLM 不可用 → 安全降级文案 ----
+    # ---- 7. 外部 LLM 自拼答案（只喂放行+脱敏证据）；LLM 不可用 → fail closed ----
     answer = await retrieval.synthesize_answer(selected_llm, query, evidences, trace_id=trace_id)
-    response_text = answer or _degraded_answer(query, len(evidences))
+    if not answer:
+        decision.discovery_allowed = any_discovery
+        decision.summary_allowed = any_summary
+        decision.original_allowed = any_original
+        decision.decision_status = GatewayDecisionStatus.denied.value
+        decision.denied_reason = "external_llm_unavailable"
+        call.call_status = AgentCallStatus.denied.value
+        call.denied_reason = "external_llm_unavailable"
+        await _emit_a4_denied()
+        await audit_service.record_denied(
+            session,
+            caller=caller,
+            log_type=AuditLogType.exception,
+            action=AuditAction.agent_denied.value,
+            trace_id=trace_id,
+            target_type="agent_call",
+            target_id=call.id,
+            extra={"denied_reason": "external_llm_unavailable"},
+            project_id=project_id,
+        )
+        await session.commit()
+        raise _denied(
+            503,
+            "external_llm_unavailable",
+            "项目问答模型当前不可用，请稍后重试",
+        )
+    response_text = answer
 
     # ---- 8. 写 citations（引用只来自放行证据；used_access_layer=证据层级，不越权）----
     citations_out: list[CitationOut] = []

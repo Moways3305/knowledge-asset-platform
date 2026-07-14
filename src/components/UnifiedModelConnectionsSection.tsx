@@ -6,27 +6,23 @@ import {
   testModelConnection,
   updateModelConnection,
   updateModelUsageAssignments,
-} from "../api/weknoraModels";
+} from "../api/modelConnections";
 import type {
   ModelCapabilityType,
   ModelConnectionDTO,
   ModelConnectionMutateDTO,
   ModelUsageAssignmentsDTO,
   ModelUsageKey,
-} from "../types/weknoraAdmin";
+} from "../types/modelConnections";
 import { PageSection, PageToolbar, SettingsRow } from "./ProductLayout";
 
 const PROVIDERS = ["deepseek", "kimi", "qwen", "glm", "minimax", "openai", "custom"];
 const capabilityLabel: Record<ModelCapabilityType, string> = {
-  chat: "对话",
-  embedding: "嵌入",
-  rerank: "重排",
+  chat: "外部对话",
 };
 const usageLabel: Record<ModelUsageKey, string> = {
   content_generation: "内容生成",
-  knowledge_embedding: "知识库嵌入",
-  knowledge_chat: "知识库问答",
-  knowledge_rerank: "知识库重排",
+  project_qa: "项目问答",
 };
 
 const emptyForm = (): ModelConnectionMutateDTO => ({
@@ -40,10 +36,7 @@ const emptyForm = (): ModelConnectionMutateDTO => ({
 });
 
 const emptyUsages: ModelUsageAssignmentsDTO = {
-  content_generation: null,
-  knowledge_embedding: null,
-  knowledge_chat: null,
-  knowledge_rerank: null,
+  external_llm_default: null,
 };
 
 const autofillWarning = "检测到浏览器自动填充，已恢复表单原值。请手动确认并重新填写连接信息。";
@@ -76,7 +69,7 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
     } catch {
       setConnections([]);
       setUsages(emptyUsages);
-      setError("模型列表加载失败，请刷新或检查模型连接");
+      setError("外部 LLM 列表加载失败，请刷新或检查连接服务");
     } finally {
       setLoading(false);
     }
@@ -160,7 +153,7 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
       return;
     }
     if (!editingRef && (!form.base_url?.trim() || !form.api_key?.trim())) {
-      setError("新增模型连接需要填写 API 地址和 API key");
+      setError("新增外部 LLM 连接需要填写 API 地址和 API key");
       return;
     }
     if (form.base_url?.trim() && !/^https?:\/\//i.test(form.base_url.trim())) {
@@ -178,11 +171,11 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
       } else {
         await createModelConnection(payload);
       }
-      setNote(editingRef ? "模型连接已更新" : "模型连接已创建");
+      setNote(editingRef ? "外部 LLM 连接已更新" : "外部 LLM 连接已创建");
       setFormOpen(false);
       await load();
     } catch {
-      setError("模型连接保存失败，请检查连接信息后重试");
+      setError("外部 LLM 连接保存失败，请检查连接信息后重试");
     } finally {
       setBusy(false);
     }
@@ -216,7 +209,7 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
         [connection.model_ref]: `${result.success ? "连接正常" : "连接失败"} · ${result.duration_ms} ms`,
       }));
     } catch {
-      setTests((old) => ({ ...old, [connection.model_ref]: "测试失败，请检查模型连接" }));
+      setTests((old) => ({ ...old, [connection.model_ref]: "测试失败，请检查外部 LLM 连接" }));
     }
   };
 
@@ -239,13 +232,10 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
     setError(null);
     try {
       const updated = await updateModelUsageAssignments({
-        content_generation_ref: usages.content_generation?.model_ref,
-        knowledge_embedding_ref: usages.knowledge_embedding?.model_ref,
-        knowledge_chat_ref: usages.knowledge_chat?.model_ref,
-        knowledge_rerank_ref: usages.knowledge_rerank?.model_ref,
+        external_llm_default_ref: usages.external_llm_default?.model_ref,
       });
       setUsages(updated);
-      setNote("模型用途已保存；已有知识库的嵌入模型保持原绑定");
+      setNote("外部 LLM 默认连接已保存；WeKnora 底座模型和已有知识库绑定未改变");
     } catch {
       setError("模型用途保存失败，请确认所选模型已启用且能力匹配");
     } finally {
@@ -271,7 +261,7 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
           disabled={!canEdit || loading}
           onChange={(event) => setUsage(key, event.target.value)}
         >
-          <option value="">{optional ? "暂不设置" : "请选择模型连接"}</option>
+          <option value="">{optional ? "暂不设置" : "请选择外部 LLM 连接"}</option>
           {connections
             .filter((item) => item.enabled && item.available_usages.includes(usage))
             .map((item) => (
@@ -287,8 +277,8 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
   return (
     <>
       <PageSection
-        title="模型用途"
-        description="同一个对话模型可同时用于内容生成和知识库问答，不需要重复录入密钥。"
+        title="外部 LLM 默认用途"
+        description="默认连接用于内容生成和项目问答；项目问答也可在安全选项中选择其他已启用外部 LLM。"
       >
         {error && (
           <div className="product-inline-note is-danger" role="alert">
@@ -299,29 +289,10 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
         {note && <div className="product-inline-note">{note}</div>}
         <div className="product-settings-list">
           {usageRow(
+            "external_llm_default",
+            "内容生成与项目问答默认模型",
+            "KAP 直接调用该 OpenAI-compatible 连接，不经过 WeKnora。",
             "content_generation",
-            "内容生成",
-            "上传后的标题、摘要、标签和内容建议。",
-            "content_generation",
-          )}
-          {usageRow(
-            "knowledge_embedding",
-            "知识库默认嵌入",
-            "创建新知识库时的向量模型；已有库保持原绑定。",
-            "knowledge_embedding",
-          )}
-          {usageRow(
-            "knowledge_chat",
-            "知识库默认问答",
-            "知识库初始化和问答能力使用的默认模型。",
-            "knowledge_chat",
-          )}
-          {usageRow(
-            "knowledge_rerank",
-            "默认重排",
-            "改善检索排序；不配置时使用知识库默认策略。",
-            "knowledge_rerank",
-            true,
           )}
         </div>
         {canEdit && (
@@ -332,7 +303,7 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
                 onClick={() => void saveUsages()}
                 disabled={busy || loading}
               >
-                {busy ? "保存中…" : "保存模型用途"}
+                {busy ? "保存中…" : "保存外部 LLM 默认连接"}
               </button>
             }
           />
@@ -340,22 +311,22 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
       </PageSection>
 
       <PageSection
-        title="模型连接"
-        description="统一维护模型能力、Provider 和连接状态；API 地址与密钥保存后不再显示。"
+        title="外部 LLM 连接"
+        description="仅维护 KAP 直接调用的 OpenAI-compatible 对话模型；API 地址与密钥保存后不再显示。"
         actions={
           canEdit ? (
             <button className="btn-small-primary" onClick={openCreate}>
-              新增模型连接
+              新增外部 LLM 连接
             </button>
           ) : undefined
         }
       >
         {loading ? (
-          <div className="ig-empty-state">正在加载模型连接…</div>
+          <div className="ig-empty-state">正在加载外部 LLM 连接…</div>
         ) : connections.length === 0 ? (
           <div className="ig-empty-state">
-            <div className="ig-empty-title">尚未配置模型连接</div>
-            <p className="ig-empty-desc">添加连接后，可在上方为内容生成和知识库分配用途。</p>
+            <div className="ig-empty-title">尚未配置外部 LLM 连接</div>
+            <p className="ig-empty-desc">添加连接后，可将其用于内容生成和项目问答。</p>
           </div>
         ) : (
           <div className="ws-table-wrap">
@@ -419,7 +390,7 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
       {formOpen && (
         <PageSection
           className="ws-section"
-          title={editingRef ? "编辑模型连接" : "新增模型连接"}
+          title={editingRef ? "编辑外部 LLM 连接" : "新增外部 LLM 连接"}
           actions={
             <button className="btn-small" onClick={() => setFormOpen(false)} disabled={busy}>
               关闭
@@ -449,14 +420,9 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
                 className="ws-form-input"
                 data-model-field="capability_type"
                 value={form.capability_type}
-                disabled={Boolean(editingRef)}
-                onChange={(event) =>
-                  setForm({ ...form, capability_type: event.target.value as ModelCapabilityType })
-                }
+                disabled
               >
-                <option value="chat">对话</option>
-                <option value="embedding">嵌入</option>
-                <option value="rerank">重排</option>
+                <option value="chat">对话（OpenAI 兼容）</option>
               </select>
             </label>
             <label className="ws-form-field">
@@ -534,7 +500,7 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
                   onClick={() => void saveConnection()}
                   disabled={busy}
                 >
-                  {busy ? "保存中…" : "保存模型连接"}
+                  {busy ? "保存中…" : "保存外部 LLM 连接"}
                 </button>
                 <button className="btn-small" onClick={() => setFormOpen(false)} disabled={busy}>
                   取消

@@ -31,7 +31,7 @@ from app.seed.dev_seed import (
     USER_PROJECT_MANAGER,
 )
 from app.services import generation_models
-from app.services.llm_client import get_llm_client
+from app.services.llm_client import LLMClient, LLMError, get_llm_client
 from app.services.weknora_client import get_weknora_client
 
 QA = f"/api/v1/projects/{PROJECT_ALPHA}/qa"
@@ -280,6 +280,70 @@ async def test_project_qa_rejects_non_chat_model_ref(client, db_session):
     assert response.status_code == 422
     assert response.json()["detail"]["denied_reason"] == "project_qa_model_type_mismatch"
     assert "SECRET-LIKE" not in response.text
+
+
+async def test_project_qa_uses_external_model_ref_without_weknora_model_bridge(
+    client, db_session, monkeypatch
+):
+    created = await generation_models.create_model(
+        db_session,
+        display_name="项目问答外部连接",
+        provider="openai_compatible",
+        model_name="project-qa-chat",
+        base_url="https://qa.example.test/v1",
+        api_key="SECRET-LIKE-project-qa-external",
+        enabled=True,
+        make_default=False,
+        actor_id=USER_ADMIN_ONLY,
+    )
+    await db_session.commit()
+
+    async def fake_chat(self, messages, **kwargs):
+        system = messages[0]["content"] if messages else ""
+        if "脱敏" in system:
+            return "【客户】项目供应链优化知识。"
+        return "外部 LLM 基于项目知识生成的回答。[1]"
+
+    monkeypatch.setattr(LLMClient, "chat_completion", fake_chat)
+    response = await client.post(
+        QA,
+        headers=_hdr(USER_CONSULTANT),
+        json={"query": "项目知识", "model_ref": created["model_ref"]},
+    )
+    assert response.status_code == 200
+    assert response.json()["model_key"] == created["model_ref"]
+    assert response.json()["response_text"].startswith("外部 LLM")
+    assert "SECRET-LIKE" not in response.text
+
+
+async def test_external_llm_failure_does_not_fabricate_project_qa_success(
+    client, db_session, monkeypatch
+):
+    created = await generation_models.create_model(
+        db_session,
+        display_name="不可用的项目问答连接",
+        provider="openai_compatible",
+        model_name="unavailable-chat",
+        base_url="https://qa.example.test/v1",
+        api_key="SECRET-LIKE-unavailable",
+        enabled=True,
+        make_default=False,
+        actor_id=USER_ADMIN_ONLY,
+    )
+    await db_session.commit()
+
+    async def fail_chat(self, messages, **kwargs):
+        raise LLMError("external_llm_unavailable", "SECRET-LIKE upstream body")
+
+    monkeypatch.setattr(LLMClient, "chat_completion", fail_chat)
+    response = await client.post(
+        QA,
+        headers=_hdr(USER_CONSULTANT),
+        json={"query": "项目知识", "model_ref": created["model_ref"]},
+    )
+    assert response.status_code != 200
+    assert "SECRET-LIKE" not in response.text
+    assert "外部 LLM 基于项目知识生成的回答" not in response.text
 
 
 async def test_a4_not_cited_as_original(client):

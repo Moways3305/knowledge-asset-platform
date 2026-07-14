@@ -1,6 +1,6 @@
-"""Unified model connection and usage assignment API schemas."""
+"""External LLM connection and business default assignment API schemas."""
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 
 class ModelConnectionOut(BaseModel):
@@ -22,6 +22,8 @@ class ModelConnectionListResponse(BaseModel):
 
 
 class ModelConnectionCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     display_name: str = Field(min_length=1, max_length=200)
     capability_type: str
     provider: str = Field(min_length=1, max_length=50)
@@ -32,6 +34,8 @@ class ModelConnectionCreateRequest(BaseModel):
 
 
 class ModelConnectionUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     display_name: str = Field(min_length=1, max_length=200)
     capability_type: str
     provider: str = Field(min_length=1, max_length=50)
@@ -54,14 +58,10 @@ class ModelUsageSlotOut(BaseModel):
 
 
 class ModelUsageAssignmentsOut(BaseModel):
-    content_generation: ModelUsageSlotOut | None = None
-    knowledge_embedding: ModelUsageSlotOut | None = None
-    knowledge_chat: ModelUsageSlotOut | None = None
-    knowledge_rerank: ModelUsageSlotOut | None = None
+    external_llm_default: ModelUsageSlotOut | None = None
 
 
 class ModelUsageAssignmentsUpdate(BaseModel):
-    content_generation_ref: str | None = None
-    knowledge_embedding_ref: str | None = None
-    knowledge_chat_ref: str | None = None
-    knowledge_rerank_ref: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    external_llm_default_ref: str | None = None

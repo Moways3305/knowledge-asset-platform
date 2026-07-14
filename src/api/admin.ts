@@ -12,7 +12,13 @@ import type {
 import type { AuthSecurityOverviewDTO, AuthUnlockResponseDTO } from "../types/authSecurity";
 import type { SessionRevokeResponseDTO } from "../types/sessionOps";
 import type { WecomReconcileResponseDTO } from "../types/wecomIdentity";
-import type { KbConfigDTO, KbInitUpdateRequestDTO, ModelDTO } from "../types/weknoraAdmin";
+import type {
+  KbConfigDTO,
+  KbInitUpdateRequestDTO,
+  ModelDTO,
+  WeknoraDefaultModelsDTO,
+  WeknoraDefaultModelsUpdateDTO,
+} from "../types/weknoraAdmin";
 import type { AuditListResponseDTO, MarkProcessedResponseDTO } from "../types/audit";
 import type {
   AlertRuleDTO,
@@ -130,6 +136,16 @@ export async function fetchWeknoraModels(type?: string): Promise<ModelDTO[]> {
 
 export async function fetchWeknoraKbConfigs(): Promise<KbConfigDTO[]> {
   return (await apiGet<{ items: KbConfigDTO[] }>(`${WK}/kb-configs`)).items;
+}
+
+export async function fetchWeknoraDefaultModels(): Promise<WeknoraDefaultModelsDTO> {
+  return apiGet<WeknoraDefaultModelsDTO>(`${WK}/default-models`);
+}
+
+export async function updateWeknoraDefaultModels(
+  body: WeknoraDefaultModelsUpdateDTO,
+): Promise<WeknoraDefaultModelsDTO> {
+  return apiPut<WeknoraDefaultModelsDTO>(`${WK}/default-models`, body);
 }
 
 export async function updateWeknoraKbInit(

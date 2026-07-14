@@ -128,7 +128,7 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 - 🛡️ WeKnora 管理：`/api/v1/admin/weknora/{models|kb-configs|providers}`（模型经不可逆 `model_ref` 对前端暴露，内部 model id 不外泄）。
 - 🛡️ 平台默认模型（PBC-38）：`GET|PUT /api/v1/admin/weknora/default-models`（读 admin / 治理角色，写仅 admin；只用 `model_ref`）。建库 / 入库选模型优先级：请求显式 `model_ref` > 平台默认（DB `weknora_default_models`）> fail-closed，不再用 `.env` 的 `WEKNORA_*_MODEL_ID` 兜底；同一 KB 的 embedding 模型建库即锁定，不一致选择返回 `weknora_kb_embedding_model_locked`。
 - 🛡️ KAP 内容生成模型（PBC-46）：`/api/v1/admin/generation/models` 支持管理员新增、编辑、启停、删除与安全连接测试，`PUT /api/v1/admin/generation/default-model` 保存平台默认；API 地址与 API key 使用 Fernet 密文落库，所有响应和审计只暴露安全 `model_ref` 与展示字段。业务侧 `GET /api/v1/generation/model-options` 只读安全选项。
-- 🛡️ 统一模型连接与用途（PBC-48）：`/api/v1/admin/model-connections` 将一次加密保存的连接按能力适配到内容生成与 WeKnora，并统一分配内容生成、知识库嵌入、问答和重排用途；既有 PBC-46 / WeKnora 配置通过安全引用映射继续可用，旧 API 保持兼容。
+- 🛡️ 外部 LLM 与 WeKnora 拆分（PBC-63）：`/api/v1/admin/model-connections` 是 KAP 外部 OpenAI-compatible Chat LLM 的兼容管理面，只读写加密的 KAP 连接，并设置内容生成/项目问答共用的业务默认模型；它不调用 WeKnora `/models`。WeKnora 的 embedding、rerank 和部署必需兼容 LLM 槽位继续由 `/api/v1/admin/weknora/default-models` 独立管理，既有知识库及索引绑定不迁移、不重建。
 - 👤 模型选项（PBC-38，业务用户只读）：`GET /api/v1/weknora/model-options`（顾问入库 / 建库时查看可选模型、按 `type` 过滤；只回安全展示字段 + `is_default` + `default_missing`，无 CRUD、无真实 model id）。
 
 ---

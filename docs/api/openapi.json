@@ -4778,6 +4778,7 @@
         "type": "object"
       },
       "ModelConnectionCreateRequest": {
+        "additionalProperties": false,
         "properties": {
           "api_key": {
             "format": "password",
@@ -4947,6 +4948,7 @@
         "type": "object"
       },
       "ModelConnectionUpdateRequest": {
+        "additionalProperties": false,
         "properties": {
           "api_key": {
             "anyOf": [
@@ -5366,37 +5368,7 @@
       },
       "ModelUsageAssignmentsOut": {
         "properties": {
-          "content_generation": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ModelUsageSlotOut"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "knowledge_chat": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ModelUsageSlotOut"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "knowledge_embedding": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ModelUsageSlotOut"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "knowledge_rerank": {
+          "external_llm_default": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/ModelUsageSlotOut"
@@ -5411,8 +5383,9 @@
         "type": "object"
       },
       "ModelUsageAssignmentsUpdate": {
+        "additionalProperties": false,
         "properties": {
-          "content_generation_ref": {
+          "external_llm_default_ref": {
             "anyOf": [
               {
                 "type": "string"
@@ -5421,40 +5394,7 @@
                 "type": "null"
               }
             ],
-            "title": "Content Generation Ref"
-          },
-          "knowledge_chat_ref": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Knowledge Chat Ref"
-          },
-          "knowledge_embedding_ref": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Knowledge Embedding Ref"
-          },
-          "knowledge_rerank_ref": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Knowledge Rerank Ref"
+            "title": "External Llm Default Ref"
           }
         },
         "title": "ModelUsageAssignmentsUpdate",

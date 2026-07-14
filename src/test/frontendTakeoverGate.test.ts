@@ -83,7 +83,7 @@ const routes: RouteContract[] = [
     component: "AdminWeKnoraModelsPage",
     guard: "viewModels",
     owners: ["pages/AdminWeKnoraModelsPage.tsx", "components/UnifiedModelConnectionsSection.tsx"],
-    apiModules: ["admin", "http", "weknoraModels"],
+    apiModules: ["admin", "http", "modelConnections"],
   },
   {
     route: "/admin/audit",
