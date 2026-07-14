@@ -21,6 +21,7 @@ from app.db.session import get_db
 from app.schemas.agent import (
     AgentCallDetailResponse,
     DecisionItemsResponse,
+    ProjectQaModelOptionsResponse,
     ProjectQaRequest,
     ProjectQaResponse,
 )
@@ -30,6 +31,19 @@ from app.services.llm_client import get_llm_client
 from app.services.weknora_client import get_weknora_client
 
 router = APIRouter(prefix="/api/v1", tags=["agent"])
+
+
+@router.get(
+    "/projects/{project_id}/qa/model-options",
+    response_model=ProjectQaModelOptionsResponse,
+)
+async def project_qa_model_options(
+    project_id: uuid.UUID,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    llm=Depends(get_llm_client),
+) -> ProjectQaModelOptionsResponse:
+    return await agent_service.list_project_qa_model_options(session, caller, project_id, llm=llm)
 
 
 @router.post("/projects/{project_id}/qa", response_model=ProjectQaResponse)

@@ -42,6 +42,8 @@ from app.schemas.agent import (
     CitationOut,
     DecisionItemOut,
     DecisionItemsResponse,
+    ProjectQaModelOptionOut,
+    ProjectQaModelOptionsResponse,
     ProjectQaRequest,
     ProjectQaResponse,
 )
@@ -65,7 +67,7 @@ from app.schemas.permission import (
     DeniedReason,
 )
 from app.services import audit as audit_service
-from app.services import retrieval
+from app.services import generation_models, retrieval
 from app.services.desensitization import LlmOutputDesensitizer
 from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
@@ -124,6 +126,27 @@ def _degraded_answer(query: str, count: int) -> str:
         f"【答案生成暂不可用】已在本项目知识库中检索到 {count} 条调用人权限范围内的"
         f"相关知识（见引用），但答案生成模型当前不可用，请参考引用片段或稍后重试。"
     )
+
+
+async def list_project_qa_model_options(
+    session: AsyncSession,
+    caller: CallerContext,
+    project_id: uuid.UUID,
+    *,
+    llm: LLMClient | NullLLMClient,
+) -> ProjectQaModelOptionsResponse:
+    """List runnable QA choices only after project membership is established."""
+    if not caller.is_active:
+        raise _denied(403, DeniedReason.user_inactive.value, "用户已停用")
+    if not caller.is_business_user:
+        raise _denied(403, "admin_business_permission_denied", "仅业务用户可查看问答模型")
+    if project_id not in caller.active_project_ids:
+        raise _denied(403, "project_membership_required", "需为该项目的有效成员")
+    items = [
+        ProjectQaModelOptionOut(**item)
+        for item in await generation_models.safe_project_qa_options(session, llm)
+    ]
+    return ProjectQaModelOptionsResponse(items=items, total=len(items))
 
 
 async def run_project_qa(
@@ -199,7 +222,22 @@ async def run_project_qa(
     if not query:
         raise _denied(422, "query_required", "问题不能为空")
 
-    model_key = req.model_key or "system_default"
+    model_key = req.model_ref
+    try:
+        selected_llm = await generation_models.resolve_project_qa_client(session, model_key, llm)
+    except generation_models.GenerationModelError as exc:
+        await audit_service.record_denied(
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.agent_denied.value,
+            trace_id=trace_id,
+            target_type="project",
+            target_id=project_id,
+            extra={"denied_reason": exc.code, "attempted": "agent.qa_model_select"},
+            project_id=project_id,
+        )
+        raise _denied(exc.status_code, exc.code, exc.message)
 
     # ---- 2. 创建 agent_calls ----
     call = AgentCall(
@@ -312,7 +350,7 @@ async def run_project_qa(
     )
 
     # ---- 6. 收集放行+脱敏证据（只来自 summary/original 放行候选；引用片段必经脱敏）----
-    desens = LlmOutputDesensitizer(llm)
+    desens = LlmOutputDesensitizer(selected_llm)
     evidences = await retrieval.gather_evidence(recalled, desens, trace_id=trace_id)
 
     # 无任何可用证据（全部候选仅发现层 / 脱敏全失败 / 无召回）→ 调用整体拒绝，不编造引用。
@@ -344,7 +382,7 @@ async def run_project_qa(
         )
 
     # ---- 7. 外部 LLM 自拼答案（只喂放行+脱敏证据）；LLM 不可用 → 安全降级文案 ----
-    answer = await retrieval.synthesize_answer(llm, query, evidences, trace_id=trace_id)
+    answer = await retrieval.synthesize_answer(selected_llm, query, evidences, trace_id=trace_id)
     response_text = answer or _degraded_answer(query, len(evidences))
 
     # ---- 8. 写 citations（引用只来自放行证据；used_access_layer=证据层级，不越权）----

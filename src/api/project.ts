@@ -13,7 +13,7 @@ import type {
   ProjectSettingsDTO,
   ProjectSettingsUpdateDTO,
 } from "../types/projectSettings";
-import type { ProjectQaResponseDTO } from "../types/agent";
+import type { ProjectQaModelOptionsResponseDTO, ProjectQaResponseDTO } from "../types/agent";
 
 // 项目列表（治理角色 / admin 看全部 active；业务用户看本人 active 项目）。
 export async function fetchProjects(): Promise<ProjectListResponseDTO> {
@@ -30,13 +30,19 @@ export async function createProject(
 // 项目问答。引用层级与可见性由后端按调用人权限裁定；前端只发查询与 capability。
 export async function projectQa(
   projectId: string,
-  input: { query: string; modelKey?: string },
+  input: { query: string; modelRef: string },
 ): Promise<ProjectQaResponseDTO> {
   return apiPost<ProjectQaResponseDTO>(`/api/v1/projects/${projectId}/qa`, {
     query: input.query,
-    model_key: input.modelKey ?? "system_default",
+    model_ref: input.modelRef,
     capability: "qa",
   });
+}
+
+export async function fetchProjectQaModelOptions(
+  projectId: string,
+): Promise<ProjectQaModelOptionsResponseDTO> {
+  return apiGet<ProjectQaModelOptionsResponseDTO>(`/api/v1/projects/${projectId}/qa/model-options`);
 }
 
 // ---- 项目设置 / 项目成员 ----

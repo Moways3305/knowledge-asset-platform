@@ -10,6 +10,15 @@ type RouteContract = {
   allowedTimerOwners?: string[];
 };
 
+type BusinessOptionContract = {
+  route: string;
+  owner: string;
+  option: "model" | "project" | "role" | "status";
+  source:
+    | { kind: "runtime"; symbol: string }
+    | { kind: "static-product-exception"; registry: string; reason: string };
+};
+
 const routes: RouteContract[] = [
   {
     route: "/",
@@ -130,7 +139,7 @@ const routes: RouteContract[] = [
     component: "ProjectKnowledgePage",
     guard: "viewProject",
     owners: ["pages/ProjectKnowledgePage.tsx"],
-    apiModules: ["auth", "http", "knowledge", "project"],
+    apiModules: ["http", "knowledge", "project"],
   },
   {
     route: "/project/:id/settings",
@@ -145,6 +154,59 @@ const routes: RouteContract[] = [
     guard: "public",
     owners: [],
     apiModules: [],
+  },
+];
+
+const businessOptions: BusinessOptionContract[] = [
+  {
+    route: "/project/:id/knowledge",
+    owner: "pages/ProjectKnowledgePage.tsx",
+    option: "project",
+    source: { kind: "runtime", symbol: "useAuth" },
+  },
+  {
+    route: "/project/:id/knowledge",
+    owner: "pages/ProjectKnowledgePage.tsx",
+    option: "model",
+    source: { kind: "runtime", symbol: "fetchProjectQaModelOptions" },
+  },
+  {
+    route: "/project/:id/settings",
+    owner: "pages/ProjectSettingsPage.tsx",
+    option: "role",
+    source: {
+      kind: "static-product-exception",
+      registry: "PROJECT_ROLE_OPTIONS",
+      reason: "Matches the backend ProjectRole product enum.",
+    },
+  },
+  {
+    route: "/admin/people",
+    owner: "pages/AdminPeoplePage.tsx",
+    option: "role",
+    source: {
+      kind: "static-product-exception",
+      registry: "COMPANY_ROLE_OPTIONS",
+      reason: "Matches the governed company-role enum exposed by the people API.",
+    },
+  },
+  {
+    route: "/admin/people",
+    owner: "pages/AdminPeoplePage.tsx",
+    option: "status",
+    source: {
+      kind: "static-product-exception",
+      registry: "USER_STATUS_OPTIONS",
+      reason: "Matches the active/inactive user lifecycle enum enforced by the backend.",
+    },
+  },
+];
+
+const repairedBusinessOptionDefects = [
+  {
+    id: "PBC-62-project-qa-demo-models",
+    owner: "pages/ProjectKnowledgePage.tsx",
+    forbiddenValues: ["deepseek-r1", "qwen-enterprise", "DeepSeek-R1 内网版", "通义千问企业版"],
   },
 ];
 
@@ -287,6 +349,35 @@ describe("frontend route takeover gate", () => {
           ts.forEachChild(node, visit);
         };
         visit(tree);
+      }
+    }
+  });
+
+  it("requires high-risk business options to declare a real source or product exception", () => {
+    for (const contract of businessOptions) {
+      expect(
+        routes.some((route) => route.route === contract.route),
+        contract.route,
+      ).toBe(true);
+      const ownerSource = source(contract.owner);
+      if (contract.source.kind === "runtime") {
+        expect(ownerSource, `${contract.route}:${contract.option}`).toContain(
+          contract.source.symbol,
+        );
+      } else {
+        expect(contract.source.reason.trim().length).toBeGreaterThan(0);
+        expect(ownerSource, `${contract.route}:${contract.option}`).toContain(
+          contract.source.registry,
+        );
+      }
+    }
+  });
+
+  it("keeps repaired demo business options out of production owners", () => {
+    for (const defect of repairedBusinessOptionDefects) {
+      const ownerSource = source(defect.owner);
+      for (const value of defect.forbiddenValues) {
+        expect(ownerSource, `${defect.id}:${value}`).not.toContain(value);
       }
     }
   });

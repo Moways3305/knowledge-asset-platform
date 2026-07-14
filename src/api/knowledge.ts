@@ -92,10 +92,12 @@ function mapDetail(d: KnowledgeDetailDTO): KnowledgeDetailVM {
 // ---- 列表 / 详情 ----
 export async function fetchKnowledgeList(params: {
   scope?: string;
+  projectId?: string;
   includeArchived?: boolean;
 }): Promise<KnowledgeCardVM[]> {
   const qs = new URLSearchParams();
   if (params.scope) qs.set("scope", params.scope);
+  if (params.projectId) qs.set("project_id", params.projectId);
   if (params.includeArchived) qs.set("include_archived", "true");
   const data = await apiGet<KnowledgeListResponseDTO>(`/api/v1/knowledge?${qs.toString()}`);
   return data.items.map(mapCard);

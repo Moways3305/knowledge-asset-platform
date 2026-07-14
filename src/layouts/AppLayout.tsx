@@ -53,13 +53,13 @@ const navGroups: NavGroup[] = [
       { to: "/review", label: "升级审核", icon: ShieldCheck, cap: can.viewReview },
       { to: "/original-access", label: "原文访问", icon: KeyRound, cap: can.viewOriginalAccess },
       {
-        to: "/project/current/knowledge",
+        to: "/project/:projectId/knowledge",
         label: "项目看板",
         icon: FolderKanban,
         cap: can.viewProject,
       },
       {
-        to: "/project/current/settings",
+        to: "/project/:projectId/settings",
         label: "项目设置",
         icon: SlidersHorizontal,
         cap: can.viewProject,
@@ -102,10 +102,18 @@ function RailLink({ item }: { item: NavItem }) {
   );
 }
 
-function RailNav({ capabilities }: { capabilities: Capabilities }) {
+function RailNav({ capabilities, projectId }: { capabilities: Capabilities; projectId?: string }) {
   // 按能力过滤：隐藏当前身份无意义的入口，并丢弃过滤后变空的分组（不留空标题）。
   const groups = navGroups
-    .map((group) => ({ ...group, items: group.items.filter((item) => item.cap(capabilities)) }))
+    .map((group) => ({
+      ...group,
+      items: group.items
+        .filter((item) => item.cap(capabilities) && (!item.to.includes(":projectId") || projectId))
+        .map((item) => ({
+          ...item,
+          to: projectId ? item.to.replace(":projectId", projectId) : item.to,
+        })),
+    }))
     .filter((group) => group.items.length > 0);
   return (
     <nav className="rail-nav">
@@ -131,7 +139,8 @@ function RailNav({ capabilities }: { capabilities: Capabilities }) {
 }
 
 function AppShell() {
-  const { capabilities } = useAuth();
+  const { authMe, capabilities } = useAuth();
+  const firstProjectId = authMe?.projects[0]?.projectId;
   return (
     <div className="app-layout">
       <aside className="rail">
@@ -139,7 +148,7 @@ function AppShell() {
           <span className="rail-mark">Kivo</span>
           <span className="rail-sub">博维知识资产平台</span>
         </div>
-        <RailNav capabilities={capabilities} />
+        <RailNav capabilities={capabilities} projectId={firstProjectId} />
         <div className="rail-foot">
           <span className="rail-foot-line">知识资产与交付治理</span>
         </div>

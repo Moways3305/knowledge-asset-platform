@@ -40,6 +40,7 @@ const statusCls: Record<string, string> = {
 
 const COMPANY_ROLE_OPTIONS = ["boss", "consulting_director", "consultant", "admin"];
 const PROJECT_ROLE_OPTIONS = ["consultant", "project_manager", "coach"];
+const USER_STATUS_OPTIONS = ["active", "inactive"];
 
 // 用户可见时间统一北京时间。
 const fmtTime = (iso: string | null): string => formatBeijingTime(iso);
@@ -223,8 +224,11 @@ export default function AdminPeoplePage() {
             </select>
             <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
               <option value="">全部状态</option>
-              <option value="active">正常</option>
-              <option value="inactive">已停用</option>
+              {USER_STATUS_OPTIONS.map((status) => (
+                <option key={status} value={status}>
+                  {statusLabel[status]}
+                </option>
+              ))}
             </select>
             <input
               className="up-edit-input"

@@ -7226,16 +7226,63 @@
         "title": "ProjectMembershipPatchRequest",
         "type": "object"
       },
+      "ProjectQaModelOptionOut": {
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "is_default": {
+            "default": false,
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "model_ref": {
+            "title": "Model Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_ref",
+          "display_name"
+        ],
+        "title": "ProjectQaModelOptionOut",
+        "type": "object"
+      },
+      "ProjectQaModelOptionsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectQaModelOptionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "ProjectQaModelOptionsResponse",
+        "type": "object"
+      },
       "ProjectQaRequest": {
-        "description": "项目 Q&A 请求。\n\nmodel_key / capability 可选；model_key 仅记录到 agent_calls，不改变权限判断逻辑。",
+        "additionalProperties": false,
+        "description": "项目 Q&A 请求。\n\nmodel_ref 只能是系统默认标记或后端签发的不可逆安全引用。",
         "properties": {
           "capability": {
             "$ref": "#/components/schemas/AgentCapability",
             "default": "qa"
           },
-          "model_key": {
+          "model_ref": {
             "default": "system_default",
-            "title": "Model Key",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Model Ref",
             "type": "string"
           },
           "query": {
@@ -17949,6 +17996,23 @@
           },
           {
             "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          },
+          {
+            "in": "query",
             "name": "include_archived",
             "required": false,
             "schema": {
@@ -20657,6 +20721,81 @@
           }
         },
         "summary": "Project Qa",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/qa/model-options": {
+      "get": {
+        "operationId": "project_qa_model_options_api_v1_projects__project_id__qa_model_options_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectQaModelOptionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Project Qa Model Options",
         "tags": [
           "agent"
         ]

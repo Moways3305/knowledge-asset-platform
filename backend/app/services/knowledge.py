@@ -291,14 +291,22 @@ async def list_knowledge(
     caller: CallerContext,
     *,
     scope: str | None = None,
+    project_id: uuid.UUID | None = None,
     include_archived: bool = False,
 ) -> list[KnowledgeListItemOut]:
     """知识列表：只返回调用人可发现的资产。"""
+    if project_id is not None:
+        if scope not in {None, KnowledgeScope.project.value}:
+            raise _denied(422, "project_filter_scope_mismatch", "项目筛选仅适用于项目知识")
+        if project_id not in caller.active_project_ids:
+            raise _denied(403, "project_membership_required", "需为该项目的有效成员")
     stmt = select(KnowledgeAsset).options(
         selectinload(KnowledgeAsset.tags), selectinload(KnowledgeAsset.summaries)
     )
     if scope:
         stmt = stmt.where(KnowledgeAsset.scope == scope)
+    if project_id is not None:
+        stmt = stmt.where(KnowledgeAsset.project_id == project_id)
     # deleted始终排除，即使 include_archived（删除 ≠ 归档；decide() 也会拦截，此处双保险）。
     stmt = stmt.where(KnowledgeAsset.asset_status != _DELETED_STATUS)
     if not include_archived:

@@ -12,7 +12,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.enums import AgentCapability
 
@@ -20,12 +20,25 @@ from app.schemas.enums import AgentCapability
 class ProjectQaRequest(BaseModel):
     """项目 Q&A 请求。
 
-    model_key / capability 可选；model_key 仅记录到 agent_calls，不改变权限判断逻辑。
+    model_ref 只能是系统默认标记或后端签发的不可逆安全引用。
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     query: str
-    model_key: str = "system_default"
+    model_ref: str = Field(default="system_default", min_length=1, max_length=128)
     capability: AgentCapability = AgentCapability.qa
+
+
+class ProjectQaModelOptionOut(BaseModel):
+    model_ref: str
+    display_name: str
+    is_default: bool = False
+
+
+class ProjectQaModelOptionsResponse(BaseModel):
+    items: list[ProjectQaModelOptionOut]
+    total: int
 
 
 class CitationOut(BaseModel):
