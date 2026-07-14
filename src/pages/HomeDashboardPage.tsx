@@ -210,7 +210,10 @@ export default function HomeDashboardPage() {
       const reviews = await fetchReviews({});
       setPendingReviews({
         status: "ready",
-        data: reviews.filter((review) => review.status.startsWith("pending")).length,
+        data: reviews.filter(
+          (review) =>
+            review.can_decide && ["pending_reviewer", "approval_failed"].includes(review.status),
+        ).length,
       });
     } catch (error) {
       setPendingReviews(statusFromError(error));

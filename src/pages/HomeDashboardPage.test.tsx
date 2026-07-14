@@ -144,8 +144,8 @@ describe("HomeDashboardPage real workbench", () => {
   it("uses real counts, severity order and business routes for a consultant", async () => {
     vi.mocked(fetchPendingIngestTasks).mockResolvedValue([{} as never, {} as never]);
     vi.mocked(fetchReviews).mockResolvedValue([
-      { status: "pending" } as never,
-      { status: "approved" } as never,
+      { status: "pending_reviewer", can_decide: true } as never,
+      { status: "approved", can_decide: false } as never,
     ]);
     vi.mocked(fetchKnowledgeOpsInsights).mockResolvedValue(
       insights({
@@ -183,6 +183,18 @@ describe("HomeDashboardPage real workbench", () => {
     expect(screen.getByRole("link", { name: /乙项目/ })).toHaveTextContent("项目经理");
   });
 
+  it("does not count a visible review that the current user cannot decide", async () => {
+    vi.mocked(fetchReviews).mockResolvedValue([
+      { status: "pending_reviewer", can_decide: false, submitted_by: "user-real-65" } as never,
+      { status: "pending_evidence", can_decide: false, submitted_by: "user-real-65" } as never,
+    ]);
+
+    renderPage();
+
+    expect(await screen.findByText("今天没有待处理事项")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /处理升级审核/ })).not.toBeInTheDocument();
+  });
+
   it("distinguishes zero work from an unavailable identity scope", async () => {
     const first = renderPage();
     expect(await screen.findByText("今天没有待处理事项")).toBeInTheDocument();
@@ -213,7 +225,7 @@ describe("HomeDashboardPage real workbench", () => {
   it("shows a failed source without turning it into an empty queue and retries it", async () => {
     vi.mocked(fetchReviews)
       .mockRejectedValueOnce(new Error("network"))
-      .mockResolvedValueOnce([{ status: "pending" } as never]);
+      .mockResolvedValueOnce([{ status: "approval_failed", can_decide: true } as never]);
 
     renderPage();
     const alert = await screen.findByRole("alert", { name: "" });
