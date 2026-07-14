@@ -4,13 +4,6 @@
 
 export type ModelTypeAlias = "chat" | "embedding" | "rerank" | "vllm" | "asr";
 
-export interface ProviderDTO {
-  value: string;
-  label: string;
-  description: string | null;
-  model_types: string[];
-}
-
 export interface ModelDTO {
   model_ref: string;
   name: string;
@@ -20,37 +13,6 @@ export interface ModelDTO {
   enabled: boolean;
   is_builtin: boolean;
   description: string | null;
-}
-
-export interface ModelMutateRequestDTO {
-  name: string;
-  type: string;
-  source: string;
-  provider?: string | null;
-  base_url?: string | null;
-  api_key?: string | null;
-  description?: string | null;
-  dimension?: number | null;
-}
-
-export interface ModelMutateResponseDTO {
-  model_ref: string;
-  name: string;
-  type: string;
-  provider: string | null;
-  status: string;
-}
-
-export interface ModelCheckRequestDTO {
-  model_type: string;
-  api_url: string;
-  api_key: string;
-  model: string;
-}
-
-export interface ModelCheckResponseDTO {
-  success: boolean;
-  message: string;
 }
 
 export interface ModelSlotDTO {

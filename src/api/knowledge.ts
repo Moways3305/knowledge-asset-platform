@@ -1,7 +1,7 @@
 // 知识资产领域：列表 / 详情 / 语义检索 / 受控预览 / 删除 / 重试索引 / 运营洞察 /
-// 生命周期动作（归档·重新启用）/ 原文访问申请与授权。所有响应均为后端经权限网关
+// 生命周期归档 / 原文访问申请与授权。所有响应均为后端经权限网关
 // 裁剪、脱敏后的安全字段，前端不构造、不展示任何内部标识（WeKnora id / storage 引用等）。
-import { apiGet, apiPost, BASE_URL } from "./http";
+import { apiGet, apiPost } from "./http";
 import type {
   AccessInfoDTO,
   AccessInfoVM,
@@ -18,16 +18,11 @@ import type {
 import type { SearchRequestDTO, SearchResponseDTO } from "../types/search";
 import type { KnowledgeOpsInsightsDTO } from "../types/insights";
 import type { PreviewEntryVM, PreviewIssueResponseDTO } from "../types/preview";
-import type {
-  AccessGrantDTO,
-  CreateRequestResponseDTO,
-  RequestsListResponseDTO,
-} from "../types/originalAccess";
+import type { CreateRequestResponseDTO, RequestsListResponseDTO } from "../types/originalAccess";
 import type {
   ArchiveConfirmResponseDTO,
   LifecycleActionResponseDTO,
   LifecycleEventsResponseDTO,
-  ReenableConfirmResponseDTO,
 } from "../types/lifecycle";
 
 // ---- 转换 helpers ----
@@ -164,11 +159,7 @@ export async function fetchPreviewEntry(entryUrl: string): Promise<PreviewEntryV
 }
 
 // 平台受控预览入口的绝对地址（用于前端打开后端受控预览入口，不含对象存储 URL / 完整 token）。
-export function previewEntryHref(entryUrl: string): string {
-  return `${BASE_URL}${entryUrl}`;
-}
-
-// ---- 知识生命周期动作（归档 / 重新启用） ----
+// ---- 知识生命周期归档 ----
 // 治理流程：request 仅产生预警/候选，confirm 才人工确认状态变更；Agent 不执行治理动作。
 export async function lifecycleArchiveRequest(
   assetId: string,
@@ -190,32 +181,12 @@ export async function lifecycleArchiveConfirm(
   );
 }
 
-export async function lifecycleReenableRequest(
-  assetId: string,
-  body: { reason: string; target_status?: string },
-): Promise<LifecycleActionResponseDTO> {
-  return apiPost<LifecycleActionResponseDTO>(
-    `/api/v1/knowledge/${assetId}/lifecycle/reenable-request`,
-    body,
-  );
-}
-
-export async function lifecycleReenableConfirm(
-  assetId: string,
-  body: { reason: string; target_status: string },
-): Promise<ReenableConfirmResponseDTO> {
-  return apiPost<ReenableConfirmResponseDTO>(
-    `/api/v1/knowledge/${assetId}/lifecycle/reenable-confirm`,
-    body,
-  );
-}
-
 export async function fetchLifecycleEvents(assetId: string): Promise<LifecycleEventsResponseDTO> {
   return apiGet<LifecycleEventsResponseDTO>(`/api/v1/knowledge/${assetId}/lifecycle/events`);
 }
 
 // ---- 原文访问申请与授权 ----
-// 申请=业务用户且可发现该资产；审批/拒绝/撤销=项目经理 / 治理角色。响应只含安全元数据。
+// 申请=业务用户且可发现该资产；审批/拒绝=项目经理 / 治理角色。响应只含安全元数据。
 export async function requestOriginalAccess(
   assetId: string,
   reason?: string,
@@ -247,14 +218,5 @@ export async function rejectOriginalAccess(
 ): Promise<CreateRequestResponseDTO> {
   return apiPost<CreateRequestResponseDTO>(`/api/v1/original-access/requests/${requestId}/reject`, {
     note: note ?? null,
-  });
-}
-
-export async function revokeOriginalAccessGrant(
-  grantId: string,
-  reason?: string,
-): Promise<AccessGrantDTO> {
-  return apiPost<AccessGrantDTO>(`/api/v1/original-access/grants/${grantId}/revoke`, {
-    reason: reason ?? null,
   });
 }

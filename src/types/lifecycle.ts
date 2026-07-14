@@ -16,13 +16,6 @@ export interface ArchiveConfirmResponseDTO {
   trace_id: string;
 }
 
-export interface ReenableConfirmResponseDTO {
-  asset_id: string;
-  asset_status: string;
-  lifecycle_event_id: string;
-  trace_id: string;
-}
-
 export interface LifecycleEventDTO {
   event_id: string;
   event_type: string;

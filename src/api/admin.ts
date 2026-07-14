@@ -1,15 +1,7 @@
 // 管理与运营领域：索引运维 / 登录风控 / 会话运维 / 企微身份对账 / WeKnora 模型配置 /
 // 审计 / 告警 / 人员与角色 / 权限规则 / 外部 Agent 注册 / 企微微盘扫描 / 企微 OAuth 启动。
 // 所有响应只含安全运营/治理元数据；前端不构造、不展示任何内部标识（后端本就不返回）。
-import {
-  apiGet,
-  apiPost,
-  apiPatch,
-  apiPut,
-  apiDelete,
-  apiPostNoBody,
-  createIdempotencyKey,
-} from "./http";
+import { apiGet, apiPost, apiPatch, apiPut, apiPostNoBody, createIdempotencyKey } from "./http";
 import type {
   IndexingJobListResponseDTO,
   IndexingJobSummaryDTO,
@@ -18,23 +10,10 @@ import type {
   OpsIndexingDTO,
 } from "../types/ops";
 import type { AuthSecurityOverviewDTO, AuthUnlockResponseDTO } from "../types/authSecurity";
-import type { SessionRevokeResponseDTO, UserSessionsResponseDTO } from "../types/sessionOps";
+import type { SessionRevokeResponseDTO } from "../types/sessionOps";
 import type { WecomReconcileResponseDTO } from "../types/wecomIdentity";
-import type {
-  KbConfigDTO,
-  KbInitUpdateRequestDTO,
-  ModelCheckRequestDTO,
-  ModelCheckResponseDTO,
-  ModelDTO,
-  ModelMutateRequestDTO,
-  ModelMutateResponseDTO,
-  ProviderDTO,
-} from "../types/weknoraAdmin";
-import type {
-  AuditListResponseDTO,
-  AuditTraceResponseDTO,
-  MarkProcessedResponseDTO,
-} from "../types/audit";
+import type { KbConfigDTO, KbInitUpdateRequestDTO, ModelDTO } from "../types/weknoraAdmin";
+import type { AuditListResponseDTO, MarkProcessedResponseDTO } from "../types/audit";
 import type {
   AlertRuleDTO,
   AlertRulesResponseDTO,
@@ -115,12 +94,7 @@ export async function unlockAuthLockout(body: {
 }
 
 // ---- 平台会话运维 ----
-// admin-only：查看某用户安全会话 + 强制撤销（解除下线）。
-// 仅安全 session_id / login_method / 时间 / 撤销状态；撤销 POST 受 CSRF 保护。
-export async function fetchUserSessions(userId: string): Promise<UserSessionsResponseDTO> {
-  return apiGet<UserSessionsResponseDTO>(`/admin/ops/sessions/users/${userId}`);
-}
-
+// admin-only：强制撤销某用户会话；仅返回安全计数和状态。
 export async function revokeUserSessions(
   userId: string,
   body?: { reason?: string; preserve_current_session?: boolean },
@@ -144,37 +118,9 @@ export async function reconcileWecomIdentity(body: {
 // admin-only；不传/收 api_key/base_url 真实值，model 选择用 model_ref。
 const WK = "/api/v1/admin/weknora";
 
-export async function fetchWeknoraProviders(modelType?: string): Promise<ProviderDTO[]> {
-  const qs = modelType ? `?model_type=${encodeURIComponent(modelType)}` : "";
-  return (await apiGet<{ items: ProviderDTO[] }>(`${WK}/providers${qs}`)).items;
-}
-
 export async function fetchWeknoraModels(type?: string): Promise<ModelDTO[]> {
   const qs = type ? `?type=${encodeURIComponent(type)}` : "";
   return (await apiGet<{ items: ModelDTO[] }>(`${WK}/models${qs}`)).items;
-}
-
-export async function createWeknoraModel(
-  body: ModelMutateRequestDTO,
-): Promise<ModelMutateResponseDTO> {
-  return apiPost<ModelMutateResponseDTO>(`${WK}/models`, body);
-}
-
-export async function updateWeknoraModel(
-  modelRef: string,
-  body: ModelMutateRequestDTO,
-): Promise<ModelMutateResponseDTO> {
-  return apiPut<ModelMutateResponseDTO>(`${WK}/models/${modelRef}`, body);
-}
-
-export async function deleteWeknoraModel(modelRef: string): Promise<{ deleted: boolean }> {
-  return apiDelete<{ deleted: boolean }>(`${WK}/models/${modelRef}`);
-}
-
-export async function checkWeknoraModel(
-  body: ModelCheckRequestDTO,
-): Promise<ModelCheckResponseDTO> {
-  return apiPost<ModelCheckResponseDTO>(`${WK}/models/check`, body);
 }
 
 export async function fetchWeknoraKbConfigs(): Promise<KbConfigDTO[]> {
@@ -208,10 +154,6 @@ export async function fetchAudit(
   if (params.traceId) qs.set("trace_id", params.traceId);
   qs.set("page_size", String(params.pageSize ?? 200));
   return apiGet<AuditListResponseDTO>(`/api/v1/admin/audit?${qs.toString()}`);
-}
-
-export async function fetchAuditTrace(traceId: string): Promise<AuditTraceResponseDTO> {
-  return apiGet<AuditTraceResponseDTO>(`/api/v1/admin/audit/trace/${encodeURIComponent(traceId)}`);
 }
 
 export async function markAuditProcessed(eventId: string): Promise<MarkProcessedResponseDTO> {
