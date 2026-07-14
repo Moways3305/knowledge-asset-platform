@@ -44,6 +44,7 @@ async def bootstrap_first_boss(
                 UserCompanyRole.status == RoleStatus.active.value,
                 User.status == UserStatus.active.value,
             )
+            .limit(1)
             .with_for_update()
         )
     ).scalar_one_or_none()

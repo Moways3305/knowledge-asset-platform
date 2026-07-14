@@ -155,6 +155,32 @@ async def test_bootstrap_runs_once_without_identity_in_audit(db_session):
     assert "email" not in blob
 
 
+async def test_bootstrap_is_safe_noop_when_multiple_active_bosses_exist(db_session):
+    db_session.add(
+        UserCompanyRole(
+            user_id=USER_DIRECTOR,
+            company_role=CompanyRole.boss.value,
+            status=RoleStatus.active.value,
+        )
+    )
+    await db_session.commit()
+
+    result = await bootstrap_first_boss(
+        db_session, target_user_id=USER_CONSULTANT, trace_id="bootstrap-multiple-bosses"
+    )
+
+    assert result is BossBootstrapResult.already_configured
+    target_role = (
+        await db_session.execute(
+            select(UserCompanyRole).where(
+                UserCompanyRole.user_id == USER_CONSULTANT,
+                UserCompanyRole.company_role == CompanyRole.boss.value,
+            )
+        )
+    ).scalar_one_or_none()
+    assert target_role is None
+
+
 def test_bootstrap_has_no_http_route():
     assert all("bootstrap" not in path for path in app.openapi()["paths"])
 
