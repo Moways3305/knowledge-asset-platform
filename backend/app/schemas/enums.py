@@ -381,6 +381,8 @@ class AuditAction(str, Enum):
     # 个人知识库管理（PBC-29）：显式创建 / 改名（仅安全元数据：可读名 + sync_ok，无 kb_id）。
     config_personal_kb_created = "config.personal_kb_created"
     config_personal_kb_updated = "config.personal_kb_updated"
+    config_company_kb_created = "config.company_kb_created"
+    governance_boss_bootstrapped = "governance.boss_bootstrapped"
     # 项目知识库（项目空间）创建。
     project_created = "project.created"
     config_alert_rule_updated = "config.alert_rule_updated"

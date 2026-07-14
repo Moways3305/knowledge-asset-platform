@@ -87,6 +87,7 @@ def patch_default_model(monkeypatch, *, embedding="test-embed", explicit=False):
     for target in (
         "app.services.indexing.resolve_models_for_kb",
         "app.services.personal_kb.resolve_models_for_kb",
+        "app.services.company_kb.resolve_models_for_kb",
         "app.services.weknora_model_selection.resolve_models_for_kb",
     ):
         monkeypatch.setattr(target, _resolve)

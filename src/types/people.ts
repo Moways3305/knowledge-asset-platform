@@ -39,3 +39,12 @@ export interface PeopleListResponseDTO {
   items: PersonDTO[];
   total: number;
 }
+
+export interface CompanyKnowledgeBaseDTO {
+  exists: boolean;
+  display_name: string | null;
+  status: string | null;
+  created_at: string | null;
+  available: boolean;
+  availability_summary: string;
+}

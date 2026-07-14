@@ -16,6 +16,7 @@ from app.api import (
     alert,
     audit,
     auth,
+    company_kb,
     dify,
     generation_models,
     health,
@@ -67,6 +68,7 @@ def create_app() -> FastAPI:
     app.include_router(knowledge.router)
     app.include_router(my_knowledge.router)
     app.include_router(personal_kb.router)
+    app.include_router(company_kb.router)
     app.include_router(original_access.router)
     app.include_router(ingest.router)
     app.include_router(review.router)

@@ -20,6 +20,8 @@ describe("deriveCapabilities", () => {
     const c = deriveCapabilities(null);
     expect(c).toEqual({
       isAdmin: false,
+      isBoss: false,
+      isConsultingDirector: false,
       isBusinessUser: false,
       isGovernance: false,
       hasProject: false,
@@ -39,8 +41,18 @@ describe("deriveCapabilities", () => {
       me({ companyRoles: ["boss"], isBusinessUser: true, canDiscoverL5: true }),
     );
     expect(c.isGovernance).toBe(true);
+    expect(c.isBoss).toBe(true);
+    expect(c.isConsultingDirector).toBe(false);
     expect(c.isBusinessUser).toBe(true);
     expect(c.isAdmin).toBe(false);
+  });
+
+  it("distinguishes consulting director from Boss for governance writes", () => {
+    const c = deriveCapabilities(
+      me({ companyRoles: ["consulting_director"], isBusinessUser: true, canDiscoverL5: true }),
+    );
+    expect(c.isBoss).toBe(false);
+    expect(c.isConsultingDirector).toBe(true);
   });
 
   it("detects project membership and project manager role", () => {

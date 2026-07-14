@@ -20,7 +20,12 @@ import type {
   AlertRuleUpdateDTO,
   NotificationsResponseDTO,
 } from "../types/alert";
-import type { PeopleListResponseDTO, PersonDTO, PersonProjectMembershipDTO } from "../types/people";
+import type {
+  CompanyKnowledgeBaseDTO,
+  PeopleListResponseDTO,
+  PersonDTO,
+  PersonProjectMembershipDTO,
+} from "../types/people";
 import type {
   AgentRegistryListResponseDTO,
   AgentRegistryRuleDTO,
@@ -247,6 +252,14 @@ export async function patchProjectMembership(
     `/api/v1/admin/people/${userId}/project-memberships/${membershipId}`,
     body,
   );
+}
+
+export async function fetchCompanyKnowledgeBase(): Promise<CompanyKnowledgeBaseDTO> {
+  return apiGet<CompanyKnowledgeBaseDTO>(`/api/v1/company/knowledge-base`);
+}
+
+export async function createCompanyKnowledgeBase(): Promise<CompanyKnowledgeBaseDTO> {
+  return apiPost<CompanyKnowledgeBaseDTO>(`/api/v1/company/knowledge-base`, {});
 }
 
 // ---- 权限规则配置中心 ----

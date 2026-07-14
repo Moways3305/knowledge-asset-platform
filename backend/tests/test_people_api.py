@@ -141,7 +141,7 @@ async def test_company_role_upsert_no_duplicate(client):
     # USER_CONSULTANT 已有 active consultant 角色；重复设置 inactive 只更新、不新增行。
     r = await client.post(
         f"{PEOPLE}/{USER_CONSULTANT}/company-roles",
-        headers=_hdr(USER_ADMIN_ONLY),
+        headers=_hdr(USER_BOSS),
         json={"company_role": "consultant", "status": "inactive"},
     )
     assert r.status_code == 200
@@ -160,6 +160,67 @@ async def test_admin_can_grant_admin_role(client):
     assert any(
         c["company_role"] == "admin" and c["status"] == "active" for c in r.json()["company_roles"]
     )
+
+
+async def test_company_role_authorization_matrix(client):
+    # 咨询总监可管理顾问，但不可管理 Boss / 咨询总监。
+    allowed = await client.post(
+        f"{PEOPLE}/{USER_PROJECT_MANAGER}/company-roles",
+        headers=_hdr(USER_DIRECTOR),
+        json={"company_role": "consultant", "status": "inactive"},
+    )
+    assert allowed.status_code == 200, allowed.text
+    for role in ("boss", "consulting_director"):
+        denied = await client.post(
+            f"{PEOPLE}/{USER_PROJECT_MANAGER}/company-roles",
+            headers=_hdr(USER_DIRECTOR),
+            json={"company_role": role, "status": "active"},
+        )
+        assert denied.status_code == 403
+        assert denied.json()["detail"]["denied_reason"] == "company_role_management_forbidden"
+
+    # admin 对全部业务公司角色写入均拒绝；技术 admin 角色仍由 admin 管理。
+    for role in ("boss", "consulting_director", "consultant"):
+        denied = await client.post(
+            f"{PEOPLE}/{USER_PROJECT_MANAGER}/company-roles",
+            headers=_hdr(USER_ADMIN_ONLY),
+            json={"company_role": role, "status": "active"},
+        )
+        assert denied.status_code == 403
+        assert denied.json()["detail"]["denied_reason"] == "admin_business_permission_denied"
+
+
+async def test_last_active_boss_protected_and_handoff(client):
+    blocked = await client.post(
+        f"{PEOPLE}/{USER_BOSS}/company-roles",
+        headers=_hdr(USER_BOSS),
+        json={"company_role": "boss", "status": "inactive"},
+    )
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"]["denied_reason"] == "last_active_boss_protected"
+
+    grant = await client.post(
+        f"{PEOPLE}/{USER_PROJECT_MANAGER}/company-roles",
+        headers=_hdr(USER_BOSS),
+        json={"company_role": "boss", "status": "active"},
+    )
+    assert grant.status_code == 200
+    handoff = await client.post(
+        f"{PEOPLE}/{USER_BOSS}/company-roles",
+        headers=_hdr(USER_BOSS),
+        json={"company_role": "boss", "status": "inactive"},
+    )
+    assert handoff.status_code == 200
+
+
+async def test_admin_cannot_deactivate_last_boss_account(client):
+    response = await client.post(
+        f"{PEOPLE}/{USER_BOSS}/status",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"status": "inactive"},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["denied_reason"] == "last_active_boss_protected"
 
 
 async def test_last_active_admin_protected(client):
@@ -236,7 +297,7 @@ async def test_membership_upsert_no_duplicate(client):
 async def test_membership_create_unknown_project_404(client):
     r = await client.post(
         f"{PEOPLE}/{USER_BOSS}/project-memberships",
-        headers=_hdr(USER_ADMIN_ONLY),
+        headers=_hdr(USER_BOSS),
         json={"project_id": str(uuid.uuid4()), "project_role": "consultant", "status": "active"},
     )
     assert r.status_code == 404
@@ -263,7 +324,7 @@ async def test_patch_membership_deactivate_then_not_in_caller_context(client, db
     # 给 USER_BOSS 创建 ALPHA active 成员 → 其 caller context 含 ALPHA。
     create = await client.post(
         f"{PEOPLE}/{USER_BOSS}/project-memberships",
-        headers=_hdr(USER_ADMIN_ONLY),
+        headers=_hdr(USER_BOSS),
         json={"project_id": str(PROJECT_ALPHA), "project_role": "consultant", "status": "active"},
     )
     mid = create.json()["membership_id"]
@@ -272,13 +333,23 @@ async def test_patch_membership_deactivate_then_not_in_caller_context(client, db
     # PATCH inactive → 重新加载后不再出现在 active_project_ids。
     patch = await client.patch(
         f"{PEOPLE}/{USER_BOSS}/project-memberships/{mid}",
-        headers=_hdr(USER_ADMIN_ONLY),
+        headers=_hdr(USER_BOSS),
         json={"status": "inactive"},
     )
     assert patch.status_code == 200
     db_session.expire_all()  # 丢弃本 session 的身份映射缓存，强制从已提交数据重读
     user2 = await load_user_with_roles(db_session, user_id=USER_BOSS)
     assert PROJECT_ALPHA not in build_caller_context(user2).active_project_ids
+
+
+async def test_admin_cannot_manage_project_memberships(client):
+    response = await client.post(
+        f"{PEOPLE}/{USER_BOSS}/project-memberships",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"project_id": str(PROJECT_ALPHA), "project_role": "consultant", "status": "active"},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"]["denied_reason"] == "admin_business_permission_denied"
 
 
 async def test_consultant_seed_inactive_beta_not_in_context(client, db_session):
@@ -293,7 +364,7 @@ async def test_consultant_seed_inactive_beta_not_in_context(client, db_session):
 async def test_write_audits_with_safe_extra(client, db_session):
     await client.post(
         f"{PEOPLE}/{USER_PROJECT_MANAGER}/company-roles",
-        headers={**_hdr(USER_ADMIN_ONLY), "X-Trace-Id": "trc-people-role"},
+        headers={**_hdr(USER_BOSS), "X-Trace-Id": "trc-people-role"},
         json={"company_role": "consultant", "status": "inactive"},
     )
     rows = (
@@ -308,12 +379,33 @@ async def test_write_audits_with_safe_extra(client, db_session):
     assert rows, "应写入 config.people_company_role_updated 审计事件"
     ev = rows[-1]
     extra = ev.extra or {}
-    assert extra.get("target_user_id") == str(USER_PROJECT_MANAGER)
+    assert "target_user_id" not in extra
+    assert str(USER_PROJECT_MANAGER) not in str(extra)
     assert extra.get("company_role") == "consultant"
     assert "new_status" in extra
     blob = str(extra)
     for t in _LEAK_TOKENS:
         assert t not in blob
+
+
+async def test_denied_business_role_write_is_audited_without_target_identity(client, db_session):
+    response = await client.post(
+        f"{PEOPLE}/{USER_PROJECT_MANAGER}/company-roles",
+        headers={**_hdr(USER_ADMIN_ONLY), "X-Trace-Id": "trc-role-denied"},
+        json={"company_role": "consultant", "status": "active"},
+    )
+    assert response.status_code == 403
+    event = (
+        await db_session.execute(
+            select(AuditEvent).where(
+                AuditEvent.trace_id == "trc-role-denied",
+                AuditEvent.action == "config.people_company_role_updated",
+            )
+        )
+    ).scalar_one()
+    assert event.target_id is None
+    assert (event.extra or {}).get("denied_reason") == "admin_business_permission_denied"
+    assert str(USER_PROJECT_MANAGER) not in str(event.extra)
 
 
 # ---------------- admin 业务边界 ----------------

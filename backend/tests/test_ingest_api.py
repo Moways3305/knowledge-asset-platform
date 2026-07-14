@@ -5,7 +5,9 @@ from __future__ import annotations
 import re
 
 import pytest
+from sqlalchemy import delete
 
+from app.models.weknora import WeknoraKbMapping
 from app.seed.dev_seed import (
     PROJECT_ALPHA,
     PROJECT_BETA,
@@ -168,6 +170,20 @@ async def test_consultant_company_confirm_rejected_boss_ok(client):
         json=_confirm_payload(title="公司级入库资产", target_scope="company"),
     )
     assert r2.status_code == 200
+
+
+async def test_company_confirm_requires_ready_company_kb(client, db_session):
+    await db_session.execute(delete(WeknoraKbMapping).where(WeknoraKbMapping.scope == "company"))
+    await db_session.commit()
+    task_id = (await _create_task(client, USER_BOSS)).json()["ingest_task_id"]
+    response = await client.post(
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(USER_BOSS),
+        json=_confirm_payload(title="公司库未就绪", target_scope="company"),
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["denied_reason"] == "company_kb_not_ready"
+    assert "wk-kb" not in response.text
 
 
 async def test_confirm_l4_redacted_summary_no_key_points(client):

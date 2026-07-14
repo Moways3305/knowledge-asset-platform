@@ -409,6 +409,9 @@ async def confirm(
                 "company_confirmation_requires_governance",
                 "公司知识需 Boss / 咨询总监确认",
             )
+        from app.services.company_kb import require_company_kb_ready
+
+        await require_company_kb_ready(session)
         owner_id = caller.user_id
         project_id = None
     else:
