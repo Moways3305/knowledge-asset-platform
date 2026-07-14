@@ -52,7 +52,7 @@ from app.services.storage import LocalFileStorage, safe_filename
 
 # 默认预览凭证有效期。
 PREVIEW_TTL_MINUTES = 30
-_INACTIVE_STATUSES = {"archived", "deprecated", "deleted"}  # deleted：预览拒签
+_INACTIVE_STATUSES = {"processing", "archived", "deprecated", "deleted"}
 
 
 def _hash(raw: str) -> str:

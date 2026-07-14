@@ -51,6 +51,7 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
     confirmSubmitted,
     canSubmit,
     resultAssetId,
+    awaitingProjectReview,
     submitIndexStatus,
     handleSubmit,
     handleReset,
@@ -422,7 +423,14 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
             {confirmSubmitted ? "再入库一条" : "取消"}
           </button>
         </div>
+        {confirmSubmitted && awaitingProjectReview && (
+          <div className="up-submit-notice" role="status">
+            已提交，待项目经理确认。审批通过后才会进入项目知识库并参与检索与问答。
+            <Link to="/reviews">查看审批状态 →</Link>
+          </div>
+        )}
         {confirmSubmitted &&
+          !awaitingProjectReview &&
           resultAssetId &&
           (submitIndexStatus === "index_failed" ? (
             <div className="up-submit-notice" style={{ color: "var(--color-warning-fg, #8a6d00)" }}>

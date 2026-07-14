@@ -46,6 +46,9 @@ from app.schemas.permission import (
 
 # 读侧默认不可进入检索/访问的资产状态。
 _INACTIVE_ASSET_STATUSES = {
+    # Internal approval/indexing state. It must never enter discovery, summary,
+    # original preview, or agent paths before the approval closes successfully.
+    "processing",
     AssetStatus.archived.value,
     AssetStatus.deprecated.value,
     # deleted：软删除态全程不可发现 / 摘要 / 原文（含 access_grant 也不放行）。

@@ -9,13 +9,25 @@ import { PageHeader, ProductPage } from "../components/ProductLayout";
 // useUploadFlow，展示拆到 UploadNamingCard / UploadStepA / UploadStepB / UploadConfirmPanel。
 export default function UploadPage() {
   const flow = useUploadFlow();
-  const { activePath, switchPath, confirmReady, confirmSubmitted, flowState } = flow;
+  const {
+    activePath,
+    switchPath,
+    confirmReady,
+    confirmSubmitted,
+    awaitingProjectReview,
+    flowState,
+  } = flow;
 
   const progress = [
     { label: "上传", done: flowState !== "idle" || confirmReady || confirmSubmitted },
     { label: "提取", active: flowState === "processing", done: confirmReady || confirmSubmitted },
     { label: "确认", active: confirmReady && !confirmSubmitted, done: confirmSubmitted },
-    { label: "进入知识库", active: confirmSubmitted, done: confirmSubmitted },
+    {
+      label: "进入知识库",
+      displayLabel: awaitingProjectReview ? "项目审批" : undefined,
+      active: awaitingProjectReview,
+      done: confirmSubmitted && !awaitingProjectReview,
+    },
   ];
 
   return (
@@ -33,7 +45,7 @@ export default function UploadPage() {
             key={step.label}
           >
             <span>{index + 1}</span>
-            {step.label}
+            {step.displayLabel ?? step.label}
           </li>
         ))}
       </ol>

@@ -63,14 +63,21 @@ class ReviewTask(Base):
     __table_args__ = (
         Index("ix_review_tasks_type_status", "review_type", "status"),
         Index("ix_review_tasks_reviewer_status", "reviewer_user_id", "status"),
+        UniqueConstraint("source_ingest_task_id", name="uq_review_tasks_source_ingest"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     review_type: Mapped[str] = mapped_column(String(30), nullable=False)
     trigger_source: Mapped[str] = mapped_column(String(50), nullable=False)
-    target_asset_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("knowledge_assets.id"), nullable=False
+    target_asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("knowledge_assets.id"), nullable=True
     )
+    # 项目上传审批在资产生成前关联 ingest；普通 material_to_asset 任务保持为空。
+    source_ingest_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("ingest_tasks.id"), nullable=True
+    )
+    # 人工确认快照仅含请求业务字段，不含文件引用、原文或底座标识。
+    confirmation_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     target_project_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("projects.id"), nullable=True
     )

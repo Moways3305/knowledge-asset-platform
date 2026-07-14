@@ -3380,9 +3380,28 @@
             "title": "Parse Status"
           },
           "result_asset_id": {
-            "format": "uuid",
-            "title": "Result Asset Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Asset Id"
+          },
+          "review_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Id"
           },
           "status": {
             "title": "Status",
@@ -8303,8 +8322,26 @@
       "ReviewActionResponse": {
         "properties": {
           "asset_zone": {
-            "title": "Asset Zone",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Zone"
+          },
+          "index_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Status"
           },
           "review_id": {
             "format": "uuid",
@@ -8316,9 +8353,16 @@
             "type": "string"
           },
           "target_asset_id": {
-            "format": "uuid",
-            "title": "Target Asset Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Asset Id"
           }
         },
         "required": [
@@ -8359,6 +8403,11 @@
               }
             ],
             "title": "Asset Title"
+          },
+          "can_decide": {
+            "default": false,
+            "title": "Can Decide",
+            "type": "boolean"
           },
           "created_at": {
             "anyOf": [
@@ -8455,9 +8504,16 @@
             "title": "Submitted By"
           },
           "target_asset_id": {
-            "format": "uuid",
-            "title": "Target Asset Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Asset Id"
           },
           "target_project_id": {
             "anyOf": [
@@ -8520,6 +8576,11 @@
               }
             ],
             "title": "Asset Title"
+          },
+          "can_decide": {
+            "default": false,
+            "title": "Can Decide",
+            "type": "boolean"
           },
           "created_at": {
             "anyOf": [
@@ -8609,9 +8670,16 @@
             "title": "Submitted By"
           },
           "target_asset_id": {
-            "format": "uuid",
-            "title": "Target Asset Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Asset Id"
           },
           "target_project_id": {
             "anyOf": [

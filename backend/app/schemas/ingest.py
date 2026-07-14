@@ -115,7 +115,8 @@ class IngestConfirmRequest(BaseModel):
 class IngestConfirmResponse(BaseModel):
     task_id: uuid.UUID
     status: str
-    result_asset_id: uuid.UUID
+    result_asset_id: uuid.UUID | None
+    review_id: uuid.UUID | None = None
     # WeKnora 解析的安全业务状态（pending/processing/completed/failed/duplicate）；
     # 未启用 WeKnora 时为 None。不暴露任何 kb_id / doc_id。
     parse_status: str | None = None

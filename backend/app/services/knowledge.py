@@ -77,7 +77,7 @@ def _index_user_message(ver) -> str | None:
     return error_catalog.user_message(ver.index_error_code)
 
 
-_INACTIVE_STATUSES = [AssetStatus.archived.value, AssetStatus.deprecated.value]
+_INACTIVE_STATUSES = ["processing", AssetStatus.archived.value, AssetStatus.deprecated.value]
 _DELETED_STATUS = AssetStatus.deleted.value
 _REDACTED_LEVELS = {ConfidentialityLevel.L3.value, ConfidentialityLevel.L4.value}
 

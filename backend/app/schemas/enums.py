@@ -245,8 +245,9 @@ class PersonalSubmissionStatus(str, Enum):
 
 
 class ReviewType(str, Enum):
-    """审核类型。当前仅实现 material_to_asset；其余为前向占位。"""
+    """审核类型。"""
 
+    project_ingest_approval = "project_ingest_approval"
     personal_to_project = "personal_to_project"
     material_to_asset = "material_to_asset"
     project_to_company = "project_to_company"
@@ -265,6 +266,8 @@ class ReviewTaskStatus(str, Enum):
 
     pending_evidence = "pending_evidence"
     pending_reviewer = "pending_reviewer"
+    approving = "approving"
+    approval_failed = "approval_failed"
     approved = "approved"
     rejected = "rejected"
 
@@ -322,6 +325,8 @@ class AuditAction(str, Enum):
     # 审核
     review_evidence_bound = "review.evidence_bound"
     review_created = "review.created"
+    review_approval_started = "review.approval_started"
+    review_approval_failed = "review.approval_failed"
     review_approved = "review.approved"
     review_rejected = "review.rejected"
     asset_zone_changed = "asset.zone_changed"
@@ -557,5 +562,6 @@ class IngestStatus(str, Enum):
     processing = "processing"
     pending_confirmation = "pending_confirmation"
     waiting_review = "waiting_review"
+    rejected = "rejected"
     completed = "completed"
     failed = "failed"

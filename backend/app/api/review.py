@@ -25,6 +25,12 @@ from app.schemas.review import (
     ReviewRejectRequest,
 )
 from app.services import review as review_service
+from app.services.storage import LocalFileStorage, get_storage
+from app.services.weknora_client import (
+    NullWeKnoraClient,
+    WeKnoraClient,
+    get_weknora_client,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["review"])
 
@@ -88,9 +94,19 @@ async def approve_review(
     req: ReviewActionRequest | None = None,
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> ReviewActionResponse:
     comment = req.review_comment if req else None
-    return await review_service.approve(session, caller, review_id, comment, get_trace_id(request))
+    return await review_service.approve(
+        session,
+        caller,
+        review_id,
+        comment,
+        get_trace_id(request),
+        storage=storage,
+        weknora=weknora,
+    )
 
 
 @router.post("/reviews/{review_id}/reject", response_model=ReviewActionResponse)

@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchAuthMe } from "../api/auth";
 import { approveReview, fetchReviews, rejectReview } from "../api/review";
 import type { ReviewItemDTO } from "../types/review";
 import { useAsyncData } from "../hooks/useAsyncData";
@@ -15,12 +14,16 @@ const statusLabel: Record<string, string> = {
   pending_reviewer: "待审核人确认",
   approved: "已通过",
   rejected: "已拒绝",
+  approving: "正在入库",
+  approval_failed: "入库失败，可重试",
 };
 const statusCls: Record<string, string> = {
   pending_evidence: "rv-status-consultant",
   pending_reviewer: "rv-status-manager",
   approved: "rv-status-approved",
   rejected: "rv-status-rejected",
+  approving: "rv-status-manager",
+  approval_failed: "rv-status-rejected",
 };
 
 const reviewTypeLabel: Record<string, string> = {
@@ -28,17 +31,12 @@ const reviewTypeLabel: Record<string, string> = {
   personal_to_project: "个人 → 项目",
   project_to_company: "项目 → 公司",
   lifecycle_change: "生命周期变更",
+  project_ingest_approval: "项目知识入库",
 };
 
 export default function ReviewPage() {
-  const { data, loading, error, forbidden, reload } = useAsyncData(() =>
-    Promise.all([fetchAuthMe(), fetchReviews()]).then(([me, reviews]) => ({
-      currentUserId: me.userId,
-      items: reviews,
-    })),
-  );
-  const items = useMemo(() => data?.items ?? [], [data]);
-  const currentUserId = data?.currentUserId ?? "";
+  const { data, loading, error, forbidden, reload } = useAsyncData(fetchReviews);
+  const items = useMemo(() => data ?? [], [data]);
 
   const [filterStatus, setFilterStatus] = useState("");
   const action = useActionFeedback();
@@ -51,7 +49,7 @@ export default function ReviewPage() {
   const countByStatus = (s: string) => items.filter((i) => i.status === s).length;
 
   const canAct = (it: ReviewItemDTO) =>
-    it.status === "pending_reviewer" && it.reviewer_user_id === currentUserId;
+    it.can_decide && ["pending_reviewer", "approval_failed"].includes(it.status);
 
   const handleApprove = (id: string) =>
     void action.run(async () => {
@@ -70,7 +68,7 @@ export default function ReviewPage() {
       key: "title",
       header: "知识标题",
       className: "cell-review-title",
-      render: (c) => c.asset_title ?? c.target_asset_id,
+      render: (c) => c.asset_title ?? c.target_asset_id ?? "待入库项目知识",
     },
     {
       key: "type",
@@ -89,7 +87,7 @@ export default function ReviewPage() {
       key: "evidence",
       header: "证据数",
       className: "cell-center",
-      render: (c) => c.evidence_count,
+      render: (c) => (c.review_type === "project_ingest_approval" ? "无需证据" : c.evidence_count),
     },
     {
       key: "status",
@@ -106,7 +104,7 @@ export default function ReviewPage() {
         canAct(c) ? (
           <>
             <button className="btn-small btn-small-primary" onClick={() => handleApprove(c.id)}>
-              通过
+              {c.status === "approval_failed" ? "重试入库" : "通过"}
             </button>
             <button className="btn-small btn-small-danger" onClick={() => handleReject(c.id)}>
               拒绝
@@ -117,8 +115,10 @@ export default function ReviewPage() {
             {c.status === "pending_evidence"
               ? "待补充证据"
               : c.status === "pending_reviewer"
-                ? "待指定审核人处理"
-                : "—"}
+                ? "待项目经理或治理角色处理"
+                : c.status === "approving"
+                  ? "正在完成资产化与索引"
+                  : "—"}
           </span>
         ),
     },
@@ -128,8 +128,8 @@ export default function ReviewPage() {
     <div className="review-page">
       <div className="rv-header">
         <div className="rv-header-text">
-          <h2>知识升级审核</h2>
-          <p>处理分配给你的审核任务。</p>
+          <h2>知识审批</h2>
+          <p>处理项目知识入库与知识升级审核任务。</p>
         </div>
         <div className="kl-kpis">
           <div className="kl-kpi">
@@ -153,7 +153,7 @@ export default function ReviewPage() {
 
       <div className="role-context-hint">
         <div className="role-context-hint-title">审核视角说明</div>
-        仅被分配为审核人（项目经理）且任务处于「待审核人确认」时，才能通过或拒绝。
+        目标项目经理可处理本项目的知识入库；Boss、咨询总监可作为治理兜底。技术管理员无业务审批权限。
       </div>
 
       <section className="review-section">
@@ -166,6 +166,7 @@ export default function ReviewPage() {
               <option value="pending_reviewer">待审核人确认</option>
               <option value="approved">已通过</option>
               <option value="rejected">已拒绝</option>
+              <option value="approval_failed">入库失败，可重试</option>
             </select>
           </div>
           <div className="rv-toolbar-actions">

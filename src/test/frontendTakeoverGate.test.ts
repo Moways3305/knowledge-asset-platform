@@ -116,7 +116,7 @@ const routes: RouteContract[] = [
     component: "ReviewPage",
     guard: "viewReview",
     owners: ["pages/ReviewPage.tsx"],
-    apiModules: ["auth", "review"],
+    apiModules: ["review"],
   },
   {
     route: "/original-access",

@@ -29,6 +29,7 @@ from app.seed.dev_seed import (
     USER_BOSS,
     USER_CONSULTANT,
     USER_DIRECTOR,
+    USER_PROJECT_MANAGER,
 )
 from app.services import wecom_scan as scan_service
 from app.services.wecom_client import (
@@ -485,7 +486,7 @@ async def test_scan_task_owned_by_business_owner_end_to_end(client, db_session):
     )
     assert bad.status_code == 403
 
-    # 业务归属人（顾问）可复用 confirm 完成入库。
+    # 业务归属人（顾问）可复用 confirm 提交项目经理审批。
     ok = await client.post(
         f"/api/v1/ingest/{task.id}/confirm",
         headers=_hdr(USER_CONSULTANT),
@@ -503,7 +504,16 @@ async def test_scan_task_owned_by_business_owner_end_to_end(client, db_session):
         },
     )
     assert ok.status_code == 200, ok.text
-    assert ok.json()["result_asset_id"]
+    assert ok.json()["status"] == "waiting_review"
+    assert ok.json()["result_asset_id"] is None
+    review_id = ok.json()["review_id"]
+    approved = await client.post(
+        f"/api/v1/reviews/{review_id}/approve",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={},
+    )
+    assert approved.status_code == 200
+    assert approved.json()["target_asset_id"]
 
 
 # ================= 扫描运行时归属人保护 =================

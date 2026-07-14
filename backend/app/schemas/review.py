@@ -37,7 +37,7 @@ class ReviewListItem(BaseModel):
     review_type: str
     trigger_source: str
     status: str
-    target_asset_id: uuid.UUID
+    target_asset_id: uuid.UUID | None
     asset_title: str | None
     target_scope: str | None
     target_project_id: uuid.UUID | None
@@ -45,6 +45,7 @@ class ReviewListItem(BaseModel):
     submitted_by: uuid.UUID | None
     reviewer_user_id: uuid.UUID | None
     evidence_count: int
+    can_decide: bool = False
     review_comment: str | None
     reviewed_at: datetime | None
     created_at: datetime | None
@@ -70,5 +71,6 @@ class ReviewRejectRequest(BaseModel):
 class ReviewActionResponse(BaseModel):
     review_id: uuid.UUID
     status: str
-    target_asset_id: uuid.UUID
-    asset_zone: str
+    target_asset_id: uuid.UUID | None
+    asset_zone: str | None
+    index_status: str | None = None
