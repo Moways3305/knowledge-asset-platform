@@ -97,6 +97,12 @@ def safe_config_summary(body_text: str | None) -> dict:
             k: v for k, v in integ.items()
             if isinstance(v, bool) or (k == "llm_provider")
         }
+        onlyoffice = integ.get("onlyoffice_config")
+        if isinstance(onlyoffice, dict):
+            summary["integrations"]["onlyoffice_config"] = {
+                key: value for key, value in onlyoffice.items()
+                if isinstance(value, bool)
+            }
     return summary
 
 
@@ -224,4 +230,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

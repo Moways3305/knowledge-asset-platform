@@ -37,6 +37,8 @@ x-backend-env: &backend-env
   # WEKNORA_BASE_URL / WEKNORA_API_KEY / LLM_PROVIDER / LLM_API_KEY /
   # WECOM_CORP_ID / WECOM_APP_SECRET / WECOM_NOTIFY_ENABLED /
   # ONLYOFFICE_ENABLED / ONLYOFFICE_DOCUMENT_SERVER_URL / ONLYOFFICE_JWT_SECRET
+  # 浏览器 CSP origin 同时注入 backend，仅用于 /health/config 安全一致性诊断。
+  ONLYOFFICE_ORIGIN: ${ONLYOFFICE_ORIGIN:-}
 
 services:
   postgres:
@@ -208,7 +210,7 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
     restart: unless-stopped
-    # CSP frame-src/connect-src 预留 ONLYOFFICE 来源；默认空（仅 'self'）。
+    # CSP script-src/frame-src/connect-src 预留 ONLYOFFICE 来源；默认空（仅 'self'）。
     # 填**浏览器**可达的 Document Server origin（非容器内 Docker DNS），
     # 配 ONLYOFFICE 时在 ./.env 设 ONLYOFFICE_ORIGIN=https://onlyoffice.example.com。
     environment:

@@ -4,3 +4,6 @@ docs/api/openapi.json text eol=lf
 
 # Prettier expects LF; keep frontend text checkouts stable when core.autocrlf is enabled on Windows.
 src/** text=auto eol=lf
+
+# Container entrypoint scripts require LF so their shebang remains executable.
+deploy/*.sh text eol=lf

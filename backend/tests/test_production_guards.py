@@ -9,6 +9,10 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+from pathlib import Path
+
 import pytest
 from sqlalchemy import select
 
@@ -294,6 +298,133 @@ async def test_config_prod_ready_when_clean(client, monkeypatch):
     assert body["production_blockers"] == []
     assert body["production_ready"] is True
     _assert_no_secret(r.text)
+
+
+async def test_config_onlyoffice_origin_mismatch_is_safe_blocker(client, monkeypatch):
+    monkeypatch.setattr("app.api.ops.onlyoffice_enabled", lambda: True)
+    monkeypatch.setattr(
+        "app.api.ops.get_settings",
+        lambda: Settings(
+            app_env="prod",
+            celery_task_always_eager=False,
+            session_cookie_secure=True,
+            auth_attempt_hash_secret="configured",
+            csrf_token_secret="configured",
+            onlyoffice_enabled=True,
+            onlyoffice_document_server_url="https://browser-docs.invalid",
+            onlyoffice_origin="https://different-docs.invalid",
+            onlyoffice_internal_base_url="https://controlled-fetch.invalid",
+            onlyoffice_jwt_secret="configured",
+        ),
+    )
+
+    response = await client.get(CONFIG)
+    body = response.json()
+
+    assert "ONLYOFFICE_ORIGIN_MISMATCH" in body["production_blockers"]
+    assert body["integrations"]["onlyoffice_config"] == {
+        "document_server_origin_valid": True,
+        "internal_base_configured": True,
+        "csp_origin_valid": True,
+        "browser_origin_matches": False,
+    }
+    assert "browser-docs.invalid" not in response.text
+    assert "different-docs.invalid" not in response.text
+    assert "controlled-fetch.invalid" not in response.text
+    _assert_no_secret(response.text)
+
+
+async def test_config_onlyoffice_origins_match_without_exposing_values(client, monkeypatch):
+    monkeypatch.setattr("app.api.ops.onlyoffice_enabled", lambda: True)
+    monkeypatch.setattr(
+        "app.api.ops.get_settings",
+        lambda: Settings(
+            onlyoffice_enabled=True,
+            onlyoffice_document_server_url="https://browser-docs.invalid/",
+            onlyoffice_origin="https://browser-docs.invalid",
+            onlyoffice_internal_base_url="https://controlled-fetch.invalid",
+            onlyoffice_jwt_secret="configured",
+        ),
+    )
+
+    response = await client.get(CONFIG)
+    status = response.json()["integrations"]["onlyoffice_config"]
+
+    assert status["document_server_origin_valid"] is True
+    assert status["internal_base_configured"] is True
+    assert status["csp_origin_valid"] is True
+    assert status["browser_origin_matches"] is True
+    assert "browser-docs.invalid" not in response.text
+    assert "controlled-fetch.invalid" not in response.text
+
+
+def test_onlyoffice_csp_uses_one_explicit_origin_without_unsafe_expansion():
+    root = Path(__file__).resolve().parents[2]
+    nginx = (root / "deploy" / "nginx.conf.template").read_text(encoding="utf-8")
+    dockerfile = (root / "Dockerfile.frontend").read_text(encoding="utf-8")
+
+    csp_lines = [line for line in nginx.splitlines() if "Content-Security-Policy" in line]
+    assert len(csp_lines) == 2
+    for line in csp_lines:
+        assert "script-src 'self' ${ONLYOFFICE_ORIGIN}" in line
+        assert "frame-src 'self' ${ONLYOFFICE_ORIGIN}" in line
+        assert "connect-src 'self' ${ONLYOFFICE_ORIGIN}" in line
+        assert "unsafe-eval" not in line
+        assert " *" not in line
+    assert "NGINX_ENVSUBST_FILTER=ONLYOFFICE_ORIGIN" in dockerfile
+    assert "19-validate-onlyoffice-origin.sh" in dockerfile
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://docs.invalid https://extra.invalid",
+        "https://docs.invalid; script-src *",
+        "https://user@docs.invalid",
+        "https://docs.invalid/path",
+        "https://docs.invalid:70000",
+        "javascript:alert(1)",
+    ],
+)
+def test_onlyoffice_entrypoint_rejects_unsafe_csp_sources(origin):
+    root = Path(__file__).resolve().parents[2]
+    validator = root / "deploy" / "validate-onlyoffice-origin.sh"
+    result = subprocess.run(
+        ["sh", str(validator)],
+        env={**os.environ, "ONLYOFFICE_ORIGIN": origin},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert origin not in result.stderr
+
+
+@pytest.mark.parametrize("origin", ["", "https://docs.invalid", "http://127.0.0.1:8080"])
+def test_onlyoffice_runtime_rendered_csp_contains_only_validated_origin(origin):
+    root = Path(__file__).resolve().parents[2]
+    validator = root / "deploy" / "validate-onlyoffice-origin.sh"
+    template = (root / "deploy" / "nginx.conf.template").read_text(encoding="utf-8")
+    result = subprocess.run(
+        ["sh", str(validator)],
+        env={**os.environ, "ONLYOFFICE_ORIGIN": origin},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    rendered = template.replace("${ONLYOFFICE_ORIGIN}", origin)
+    csp_lines = [line for line in rendered.splitlines() if "Content-Security-Policy" in line]
+    assert len(csp_lines) == 2
+    for line in csp_lines:
+        assert "${ONLYOFFICE_ORIGIN}" not in line
+        assert f"script-src 'self' {origin}" in line
+        assert f"frame-src 'self' {origin}" in line
+        assert f"connect-src 'self' {origin}" in line
+        assert "unsafe-eval" not in line
+        assert " *" not in line
 
 
 # ---------------------------------------------------------------------------

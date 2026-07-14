@@ -28,6 +28,7 @@ FROM nginx:1.27-alpine
 # only ${ONLYOFFICE_ORIGIN} (constrained by NGINX_ENVSUBST_FILTER).
 COPY deploy/nginx-main.conf /etc/nginx/nginx.conf
 COPY deploy/nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY --chmod=0555 deploy/validate-onlyoffice-origin.sh /docker-entrypoint.d/19-validate-onlyoffice-origin.sh
 COPY --from=build /app/dist /usr/share/nginx/html
 
 # Run as the image's unprivileged `nginx` user (uid 101). Grant write access to the
@@ -35,9 +36,9 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # /var/cache/nginx, the rendered conf.d target, and the static root.
 RUN chown -R nginx:nginx /var/cache/nginx /etc/nginx/conf.d /usr/share/nginx/html
 
-# Only ONLYOFFICE_ORIGIN is substituted into the template; default empty (=> CSP
-# frame-src/connect-src collapse to 'self'). Define it (even empty) so envsubst
-# replaces the placeholder instead of leaving a literal ${ONLYOFFICE_ORIGIN}.
+# The 19-* entrypoint script rejects anything except one exact HTTP(S) origin
+# before nginx's 20-envsubst-on-templates.sh runs. Only ONLYOFFICE_ORIGIN is
+# substituted; default empty makes the CSP sources collapse to 'self'.
 ENV NGINX_ENVSUBST_FILTER=ONLYOFFICE_ORIGIN \
     ONLYOFFICE_ORIGIN=
 
