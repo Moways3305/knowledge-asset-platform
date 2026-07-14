@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -370,6 +372,59 @@ def test_onlyoffice_csp_uses_one_explicit_origin_without_unsafe_expansion():
         assert "unsafe-eval" not in line
         assert " *" not in line
     assert "NGINX_ENVSUBST_FILTER=ONLYOFFICE_ORIGIN" in dockerfile
+    assert "19-validate-onlyoffice-origin.sh" in dockerfile
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://docs.invalid https://extra.invalid",
+        "https://docs.invalid; script-src *",
+        "https://user@docs.invalid",
+        "https://docs.invalid/path",
+        "https://docs.invalid:70000",
+        "javascript:alert(1)",
+    ],
+)
+def test_onlyoffice_entrypoint_rejects_unsafe_csp_sources(origin):
+    root = Path(__file__).resolve().parents[2]
+    validator = root / "deploy" / "validate-onlyoffice-origin.sh"
+    result = subprocess.run(
+        ["sh", str(validator)],
+        env={**os.environ, "ONLYOFFICE_ORIGIN": origin},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert origin not in result.stderr
+
+
+@pytest.mark.parametrize("origin", ["", "https://docs.invalid", "http://127.0.0.1:8080"])
+def test_onlyoffice_runtime_rendered_csp_contains_only_validated_origin(origin):
+    root = Path(__file__).resolve().parents[2]
+    validator = root / "deploy" / "validate-onlyoffice-origin.sh"
+    template = (root / "deploy" / "nginx.conf.template").read_text(encoding="utf-8")
+    result = subprocess.run(
+        ["sh", str(validator)],
+        env={**os.environ, "ONLYOFFICE_ORIGIN": origin},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    rendered = template.replace("${ONLYOFFICE_ORIGIN}", origin)
+    csp_lines = [line for line in rendered.splitlines() if "Content-Security-Policy" in line]
+    assert len(csp_lines) == 2
+    for line in csp_lines:
+        assert "${ONLYOFFICE_ORIGIN}" not in line
+        assert f"script-src 'self' {origin}" in line
+        assert f"frame-src 'self' {origin}" in line
+        assert f"connect-src 'self' {origin}" in line
+        assert "unsafe-eval" not in line
+        assert " *" not in line
 
 
 # ---------------------------------------------------------------------------
