@@ -88,7 +88,8 @@ export interface IngestConfirmRequestDTO {
 export interface IngestConfirmResponseDTO {
   task_id: string;
   status: string;
-  result_asset_id: string;
+  result_asset_id: string | null;
+  review_id?: string | null;
   // WeKnora 解析安全业务状态（processing/completed/failed/duplicate）；未启用底座时 null。
   parse_status?: string | null;
   // 平台级索引状态：indexed | index_failed | skipped。

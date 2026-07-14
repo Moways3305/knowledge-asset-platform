@@ -51,7 +51,8 @@ class AgentCall(Base):
     project_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("projects.id"), nullable=False)
     query_text: Mapped[str] = mapped_column(Text, nullable=False)
     response_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    model_key: Mapped[str] = mapped_column(String(50), nullable=False)
+    # Historical column name retained; value is now system_default or a safe model_ref.
+    model_key: Mapped[str] = mapped_column(String(128), nullable=False)
     # provider：平台抽象标识（weknora_llm；internal_stub 为旧桩）。不保存 Dify 敏感标识。
     provider: Mapped[str] = mapped_column(String(30), nullable=False)
     capability: Mapped[str] = mapped_column(String(30), nullable=False)

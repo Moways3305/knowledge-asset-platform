@@ -35,13 +35,18 @@ router = APIRouter(prefix="/api/v1", tags=["knowledge"])
 @router.get("/knowledge", response_model=KnowledgeListResponse)
 async def list_knowledge(
     scope: str | None = Query(default=None),
+    project_id: uuid.UUID | None = Query(default=None),
     include_archived: bool = Query(default=False),
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> KnowledgeListResponse:
     """知识列表：只返回调用人可发现的资产。"""
     items = await knowledge_service.list_knowledge(
-        session, caller, scope=scope, include_archived=include_archived
+        session,
+        caller,
+        scope=scope,
+        project_id=project_id,
+        include_archived=include_archived,
     )
     return KnowledgeListResponse(items=items, total=len(items))
 

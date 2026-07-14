@@ -1557,6 +1557,82 @@
         "title": "CitationOut",
         "type": "object"
       },
+      "CompanyKbCreateRequest": {
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          }
+        },
+        "title": "CompanyKbCreateRequest",
+        "type": "object"
+      },
+      "CompanyKbOut": {
+        "description": "不含底座 KB/model id、URL、密钥或存储引用的安全状态。",
+        "properties": {
+          "availability_summary": {
+            "title": "Availability Summary",
+            "type": "string"
+          },
+          "available": {
+            "default": false,
+            "title": "Available",
+            "type": "boolean"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "exists": {
+            "title": "Exists",
+            "type": "boolean"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "required": [
+          "exists",
+          "availability_summary"
+        ],
+        "title": "CompanyKbOut",
+        "type": "object"
+      },
       "CompanyRole": {
         "description": "公司角色。boss / consulting_director / consultant 为业务角色；admin 为系统身份。",
         "enum": [
@@ -3304,9 +3380,28 @@
             "title": "Parse Status"
           },
           "result_asset_id": {
-            "format": "uuid",
-            "title": "Result Asset Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Asset Id"
+          },
+          "review_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Id"
           },
           "status": {
             "title": "Status",
@@ -4683,6 +4778,7 @@
         "type": "object"
       },
       "ModelConnectionCreateRequest": {
+        "additionalProperties": false,
         "properties": {
           "api_key": {
             "format": "password",
@@ -4852,6 +4948,7 @@
         "type": "object"
       },
       "ModelConnectionUpdateRequest": {
+        "additionalProperties": false,
         "properties": {
           "api_key": {
             "anyOf": [
@@ -5271,37 +5368,7 @@
       },
       "ModelUsageAssignmentsOut": {
         "properties": {
-          "content_generation": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ModelUsageSlotOut"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "knowledge_chat": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ModelUsageSlotOut"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "knowledge_embedding": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ModelUsageSlotOut"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "knowledge_rerank": {
+          "external_llm_default": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/ModelUsageSlotOut"
@@ -5316,8 +5383,9 @@
         "type": "object"
       },
       "ModelUsageAssignmentsUpdate": {
+        "additionalProperties": false,
         "properties": {
-          "content_generation_ref": {
+          "external_llm_default_ref": {
             "anyOf": [
               {
                 "type": "string"
@@ -5326,40 +5394,7 @@
                 "type": "null"
               }
             ],
-            "title": "Content Generation Ref"
-          },
-          "knowledge_chat_ref": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Knowledge Chat Ref"
-          },
-          "knowledge_embedding_ref": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Knowledge Embedding Ref"
-          },
-          "knowledge_rerank_ref": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Knowledge Rerank Ref"
+            "title": "External Llm Default Ref"
           }
         },
         "title": "ModelUsageAssignmentsUpdate",
@@ -7131,16 +7166,63 @@
         "title": "ProjectMembershipPatchRequest",
         "type": "object"
       },
+      "ProjectQaModelOptionOut": {
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "is_default": {
+            "default": false,
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "model_ref": {
+            "title": "Model Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_ref",
+          "display_name"
+        ],
+        "title": "ProjectQaModelOptionOut",
+        "type": "object"
+      },
+      "ProjectQaModelOptionsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectQaModelOptionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "ProjectQaModelOptionsResponse",
+        "type": "object"
+      },
       "ProjectQaRequest": {
-        "description": "项目 Q&A 请求。\n\nmodel_key / capability 可选；model_key 仅记录到 agent_calls，不改变权限判断逻辑。",
+        "additionalProperties": false,
+        "description": "项目 Q&A 请求。\n\nmodel_ref 只能是系统默认标记或后端签发的不可逆安全引用。",
         "properties": {
           "capability": {
             "$ref": "#/components/schemas/AgentCapability",
             "default": "qa"
           },
-          "model_key": {
+          "model_ref": {
             "default": "system_default",
-            "title": "Model Key",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Model Ref",
             "type": "string"
           },
           "query": {
@@ -8227,8 +8309,26 @@
       "ReviewActionResponse": {
         "properties": {
           "asset_zone": {
-            "title": "Asset Zone",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Zone"
+          },
+          "index_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Status"
           },
           "review_id": {
             "format": "uuid",
@@ -8240,9 +8340,16 @@
             "type": "string"
           },
           "target_asset_id": {
-            "format": "uuid",
-            "title": "Target Asset Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Asset Id"
           }
         },
         "required": [
@@ -8283,6 +8390,11 @@
               }
             ],
             "title": "Asset Title"
+          },
+          "can_decide": {
+            "default": false,
+            "title": "Can Decide",
+            "type": "boolean"
           },
           "created_at": {
             "anyOf": [
@@ -8379,9 +8491,16 @@
             "title": "Submitted By"
           },
           "target_asset_id": {
-            "format": "uuid",
-            "title": "Target Asset Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Asset Id"
           },
           "target_project_id": {
             "anyOf": [
@@ -8444,6 +8563,11 @@
               }
             ],
             "title": "Asset Title"
+          },
+          "can_decide": {
+            "default": false,
+            "title": "Can Decide",
+            "type": "boolean"
           },
           "created_at": {
             "anyOf": [
@@ -8533,9 +8657,16 @@
             "title": "Submitted By"
           },
           "target_asset_id": {
-            "format": "uuid",
-            "title": "Target Asset Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Asset Id"
           },
           "target_project_id": {
             "anyOf": [
@@ -17054,6 +17185,144 @@
         ]
       }
     },
+    "/api/v1/company/knowledge-base": {
+      "get": {
+        "operationId": "get_company_kb_api_v1_company_knowledge_base_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyKbOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Company Kb",
+        "tags": [
+          "company-knowledge-base"
+        ]
+      },
+      "post": {
+        "operationId": "create_company_kb_api_v1_company_knowledge_base_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompanyKbCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyKbOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Company Kb",
+        "tags": [
+          "company-knowledge-base"
+        ]
+      }
+    },
     "/api/v1/dify/external-knowledge/retrieval": {
       "post": {
         "operationId": "dify_external_retrieval_api_v1_dify_external_knowledge_retrieval_post",
@@ -17663,6 +17932,23 @@
                 }
               ],
               "title": "Scope"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
             }
           },
           {
@@ -20375,6 +20661,81 @@
           }
         },
         "summary": "Project Qa",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/qa/model-options": {
+      "get": {
+        "operationId": "project_qa_model_options_api_v1_projects__project_id__qa_model_options_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectQaModelOptionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Project Qa Model Options",
         "tags": [
           "agent"
         ]

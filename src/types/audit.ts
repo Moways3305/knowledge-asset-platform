@@ -33,12 +33,6 @@ export interface AuditListResponseDTO {
   view: string;
 }
 
-export interface AuditTraceResponseDTO {
-  trace_id: string;
-  items: AuditEventDTO[];
-  view: string;
-}
-
 export interface MarkProcessedResponseDTO {
   event_id: string;
   is_processed: boolean;

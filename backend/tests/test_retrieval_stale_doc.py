@@ -25,7 +25,12 @@ from app.models.knowledge import (
     KnowledgeAssetTag,
     KnowledgeAssetVersion,
 )
-from app.seed.dev_seed import PROJECT_ALPHA, USER_ADMIN_ONLY, USER_CONSULTANT
+from app.seed.dev_seed import (
+    PROJECT_ALPHA,
+    USER_ADMIN_ONLY,
+    USER_CONSULTANT,
+    USER_PROJECT_MANAGER,
+)
 from app.services.llm_client import get_llm_client
 from app.services.weknora_client import WeKnoraError, get_weknora_client
 
@@ -278,13 +283,13 @@ async def _upload_and_confirm_indexed(client, db_session, ok_wk):
     app.dependency_overrides[get_weknora_client] = lambda: ok_wk
     r = await client.post(
         UPLOAD,
-        headers=_hdr(USER_CONSULTANT),
+        headers=_hdr(USER_PROJECT_MANAGER),
         files={"file": ("d.txt", b"reparse stale body", "text/plain")},
     )
     task_id = r.json()["ingest_task_id"]
     r2 = await client.post(
         f"/api/v1/ingest/{task_id}/confirm",
-        headers=_hdr(USER_CONSULTANT),
+        headers=_hdr(USER_PROJECT_MANAGER),
         json={
             "title": "reparse残留资产",
             "summary": "摘要",

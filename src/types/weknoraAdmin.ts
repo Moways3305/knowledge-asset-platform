@@ -4,13 +4,6 @@
 
 export type ModelTypeAlias = "chat" | "embedding" | "rerank" | "vllm" | "asr";
 
-export interface ProviderDTO {
-  value: string;
-  label: string;
-  description: string | null;
-  model_types: string[];
-}
-
 export interface ModelDTO {
   model_ref: string;
   name: string;
@@ -20,37 +13,6 @@ export interface ModelDTO {
   enabled: boolean;
   is_builtin: boolean;
   description: string | null;
-}
-
-export interface ModelMutateRequestDTO {
-  name: string;
-  type: string;
-  source: string;
-  provider?: string | null;
-  base_url?: string | null;
-  api_key?: string | null;
-  description?: string | null;
-  dimension?: number | null;
-}
-
-export interface ModelMutateResponseDTO {
-  model_ref: string;
-  name: string;
-  type: string;
-  provider: string | null;
-  status: string;
-}
-
-export interface ModelCheckRequestDTO {
-  model_type: string;
-  api_url: string;
-  api_key: string;
-  model: string;
-}
-
-export interface ModelCheckResponseDTO {
-  success: boolean;
-  message: string;
 }
 
 export interface ModelSlotDTO {
@@ -81,6 +43,21 @@ export interface KbInitUpdateRequestDTO {
   multimodal_ref?: string | null;
 }
 
+export interface WeknoraDefaultModelsDTO {
+  embedding: ModelSlotDTO | null;
+  rerank: ModelSlotDTO | null;
+  chat: ModelSlotDTO | null;
+  multimodal: ModelSlotDTO | null;
+  updated_at: string | null;
+}
+
+export interface WeknoraDefaultModelsUpdateDTO {
+  embedding_model_ref?: string | null;
+  rerank_model_ref?: string | null;
+  chat_model_ref?: string | null;
+  multimodal_ref?: string | null;
+}
+
 // ---- 顾问只读模型选项（PBC-38）----
 // 安全展示字段；绝不含 server-only 真实 model_id / api_key / base_url。
 export interface ModelOptionDTO {
@@ -97,66 +74,4 @@ export interface ModelOptionDTO {
 export interface ModelOptionsResponseDTO {
   items: ModelOptionDTO[];
   default_missing: boolean;
-}
-
-export interface ModelConnectionTestResponseDTO {
-  success: boolean;
-  message: string;
-  duration_ms: number;
-}
-
-// ---- PBC-48 unified model connections and usage assignments ----
-export type ModelCapabilityType = "chat" | "embedding" | "rerank";
-export type ModelUsageKey =
-  | "content_generation"
-  | "knowledge_embedding"
-  | "knowledge_chat"
-  | "knowledge_rerank";
-
-export interface ModelConnectionDTO {
-  model_ref: string;
-  display_name: string;
-  capability_type: ModelCapabilityType;
-  provider: string | null;
-  model_name: string;
-  enabled: boolean;
-  health_status: "configured" | "registered" | "untested" | string;
-  available_usages: ModelUsageKey[];
-  legacy_adapter: boolean;
-}
-
-export interface ModelConnectionListDTO {
-  items: ModelConnectionDTO[];
-  total: number;
-  warning: string | null;
-}
-
-export interface ModelConnectionMutateDTO {
-  display_name: string;
-  capability_type: ModelCapabilityType;
-  provider: string;
-  model_name: string;
-  base_url?: string | null;
-  api_key?: string | null;
-  enabled: boolean;
-}
-
-export interface ModelUsageSlotDTO {
-  model_ref: string | null;
-  display_name: string | null;
-  capability_type: ModelCapabilityType | null;
-}
-
-export interface ModelUsageAssignmentsDTO {
-  content_generation: ModelUsageSlotDTO | null;
-  knowledge_embedding: ModelUsageSlotDTO | null;
-  knowledge_chat: ModelUsageSlotDTO | null;
-  knowledge_rerank: ModelUsageSlotDTO | null;
-}
-
-export interface ModelUsageAssignmentsUpdateDTO {
-  content_generation_ref?: string | null;
-  knowledge_embedding_ref?: string | null;
-  knowledge_chat_ref?: string | null;
-  knowledge_rerank_ref?: string | null;
 }

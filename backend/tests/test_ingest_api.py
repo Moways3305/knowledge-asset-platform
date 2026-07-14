@@ -5,7 +5,9 @@ from __future__ import annotations
 import re
 
 import pytest
+from sqlalchemy import delete
 
+from app.models.weknora import WeknoraKbMapping
 from app.seed.dev_seed import (
     PROJECT_ALPHA,
     PROJECT_BETA,
@@ -121,8 +123,8 @@ async def test_confirm_personal_then_visible_in_my_knowledge(client):
     assert any(i["id"] == asset_id for i in my["items"])
 
 
-async def test_confirm_project_non_member_rejected_member_ok(client):
-    """项目入库：非成员（Beta）被拒；成员（Alpha）成功且可在项目列表看到。"""
+async def test_confirm_project_non_member_rejected_consultant_waits_for_review(client):
+    """项目入库：非成员被拒；普通成员提交后等待审批且资产不可见。"""
     # 非成员项目 Beta（consultant 在 Beta 为 inactive）→ 403
     task1 = (await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"]
     r1 = await client.post(
@@ -133,7 +135,7 @@ async def test_confirm_project_non_member_rejected_member_ok(client):
     assert r1.status_code == 403
     assert r1.json()["detail"]["denied_reason"] == "project_membership_required"
 
-    # 成员项目 Alpha → 成功
+    # 成员项目 Alpha → 仅创建持久化审批任务，不创建可见资产。
     task2 = (await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"]
     r2 = await client.post(
         f"/api/v1/ingest/{task2}/confirm",
@@ -145,9 +147,33 @@ async def test_confirm_project_non_member_rejected_member_ok(client):
         ),
     )
     assert r2.status_code == 200
-    asset_id = r2.json()["result_asset_id"]
+    assert r2.json()["status"] == "waiting_review"
+    assert r2.json()["result_asset_id"] is None
+    assert r2.json()["review_id"] is not None
     items = (await client.get(f"{KN}?scope=project", headers=_hdr(USER_CONSULTANT))).json()["items"]
-    assert any(i["id"] == asset_id for i in items)
+    assert all(i["title"] != "Alpha 入库项目资产" for i in items)
+
+
+async def test_project_manager_self_submission_is_confirmed_directly(client):
+    """目标项目经理提交自己的项目知识，后端明确走经理自确认路径。"""
+    task_id = (await _create_task(client, USER_PROJECT_MANAGER)).json()["ingest_task_id"]
+    response = await client.post(
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json=_confirm_payload(
+            title="经理自确认项目资产",
+            target_scope="project",
+            target_project_id=str(PROJECT_ALPHA),
+        ),
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "completed"
+    assert response.json()["result_asset_id"] is not None
+    assert response.json()["review_id"] is None
+    items = (await client.get(f"{KN}?scope=project", headers=_hdr(USER_PROJECT_MANAGER))).json()[
+        "items"
+    ]
+    assert any(item["title"] == "经理自确认项目资产" for item in items)
 
 
 async def test_consultant_company_confirm_rejected_boss_ok(client):
@@ -168,6 +194,20 @@ async def test_consultant_company_confirm_rejected_boss_ok(client):
         json=_confirm_payload(title="公司级入库资产", target_scope="company"),
     )
     assert r2.status_code == 200
+
+
+async def test_company_confirm_requires_ready_company_kb(client, db_session):
+    await db_session.execute(delete(WeknoraKbMapping).where(WeknoraKbMapping.scope == "company"))
+    await db_session.commit()
+    task_id = (await _create_task(client, USER_BOSS)).json()["ingest_task_id"]
+    response = await client.post(
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(USER_BOSS),
+        json=_confirm_payload(title="公司库未就绪", target_scope="company"),
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["denied_reason"] == "company_kb_not_ready"
+    assert "wk-kb" not in response.text
 
 
 async def test_confirm_l4_redacted_summary_no_key_points(client):

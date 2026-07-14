@@ -11,9 +11,12 @@ import {
   revokeUserSessions,
   setUserStatus,
   reconcileWecomIdentity,
+  fetchCompanyKnowledgeBase,
+  createCompanyKnowledgeBase,
 } from "../api/admin";
-import type { PersonDTO } from "../types/people";
+import type { CompanyKnowledgeBaseDTO, PersonDTO } from "../types/people";
 import { formatBeijingTime } from "../utils/time";
+import { useAuth } from "../auth/AuthContext";
 
 const companyRoleLabel: Record<string, string> = {
   boss: "Boss",
@@ -37,11 +40,20 @@ const statusCls: Record<string, string> = {
 
 const COMPANY_ROLE_OPTIONS = ["boss", "consulting_director", "consultant", "admin"];
 const PROJECT_ROLE_OPTIONS = ["consultant", "project_manager", "coach"];
+const USER_STATUS_OPTIONS = ["active", "inactive"];
 
 // 用户可见时间统一北京时间。
 const fmtTime = (iso: string | null): string => formatBeijingTime(iso);
 
 export default function AdminPeoplePage() {
+  const { capabilities } = useAuth();
+  const canManageProjects = capabilities.isBoss || capabilities.isConsultingDirector;
+  const canManageCompanyRole = (role: string) =>
+    role === "admin"
+      ? capabilities.isAdmin
+      : role === "consultant"
+        ? canManageProjects
+        : capabilities.isBoss;
   const [people, setPeople] = useState<PersonDTO[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -53,6 +65,8 @@ export default function AdminPeoplePage() {
   const [detail, setDetail] = useState<PersonDTO | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNote, setActionNote] = useState<string | null>(null);
+  const [companyKb, setCompanyKb] = useState<CompanyKnowledgeBaseDTO | null>(null);
+  const [companyKbBusy, setCompanyKbBusy] = useState(false);
 
   const describeError = (e: unknown, fallback: string) =>
     e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : fallback;
@@ -77,6 +91,13 @@ export default function AdminPeoplePage() {
     // 仅按 role/status 变化自动重载；q 由搜索按钮 / 回车触发。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterRole, filterStatus]);
+
+  useEffect(() => {
+    if (!canManageProjects) return;
+    void fetchCompanyKnowledgeBase()
+      .then(setCompanyKb)
+      .catch(() => setCompanyKb(null));
+  }, [canManageProjects]);
 
   // 已知项目（project_id → name），从已拉取人员的成员关系聚合，供"新增成员关系"选择。
   const knownProjects = useMemo(() => {
@@ -149,6 +170,46 @@ export default function AdminPeoplePage() {
         公司角色和项目角色分别管理。项目知识访问以有效项目成员关系为准；系统管理员不因此获得业务原文权限。
       </div>
 
+      {canManageProjects && (
+        <section className="pp-section" aria-labelledby="company-kb-heading">
+          <h3 id="company-kb-heading">公司知识库</h3>
+          <p className="pp-toolbar-hint">
+            {companyKb?.availability_summary ?? "正在读取公司知识库状态…"}
+          </p>
+          {companyKb?.exists && (
+            <div className="pp-role-tags">
+              <span className="pp-role-tag">{companyKb.display_name ?? "公司知识库"}</span>
+              <span
+                className={`pp-status-pill ${companyKb.available ? statusCls.active : statusCls.inactive}`}
+              >
+                {companyKb.available ? "可用" : "暂不可用"}
+              </span>
+              <span className="pp-toolbar-hint">创建于 {fmtTime(companyKb.created_at)}</span>
+            </div>
+          )}
+          {(!companyKb?.exists || !companyKb.available) && (
+            <button
+              className="btn-small btn-small-primary"
+              disabled={companyKbBusy}
+              onClick={async () => {
+                setCompanyKbBusy(true);
+                setActionError(null);
+                try {
+                  setCompanyKb(await createCompanyKnowledgeBase());
+                  setActionNote("公司知识库状态已更新");
+                } catch (e) {
+                  setActionError(describeError(e, "公司知识库创建失败"));
+                } finally {
+                  setCompanyKbBusy(false);
+                }
+              }}
+            >
+              {companyKbBusy ? "处理中…" : companyKb?.exists ? "重试初始化" : "创建公司知识库"}
+            </button>
+          )}
+        </section>
+      )}
+
       <section className="pp-section">
         <div className="pp-toolbar">
           <div className="pp-toolbar-filters">
@@ -163,8 +224,11 @@ export default function AdminPeoplePage() {
             </select>
             <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
               <option value="">全部状态</option>
-              <option value="active">正常</option>
-              <option value="inactive">已停用</option>
+              {USER_STATUS_OPTIONS.map((status) => (
+                <option key={status} value={status}>
+                  {statusLabel[status]}
+                </option>
+              ))}
             </select>
             <input
               className="up-edit-input"
@@ -242,110 +306,147 @@ export default function AdminPeoplePage() {
             </div>
 
             {/* 登录会话与账号安全 */}
-            <h4 style={{ marginTop: 14 }}>登录会话与账号安全（仅系统管理员）</h4>
-            <div className="pp-actions-row" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button
-                disabled={(detail.active_session_count ?? 0) === 0}
-                onClick={async () => {
-                  setActionError(null);
-                  setActionNote(null);
-                  try {
-                    const r = await revokeUserSessions(detail.user_id, {
-                      reason: "admin force offline",
-                    });
-                    setActionNote(`已撤销 ${r.revoked_count} 个平台会话`);
-                    await refreshAfterWrite(detail.user_id);
-                  } catch (e) {
-                    setActionError(describeError(e, "撤销会话失败"));
-                  }
-                }}
-              >
-                撤销全部会话
-              </button>
-              <button
-                onClick={async () => {
-                  setActionError(null);
-                  setActionNote(null);
-                  const next = detail.status === "active" ? "inactive" : "active";
-                  try {
-                    await setUserStatus(detail.user_id, next);
-                    setActionNote(next === "inactive" ? "已停用账号并撤销其会话" : "已启用账号");
-                    await refreshAfterWrite(detail.user_id);
-                  } catch (e) {
-                    setActionError(describeError(e, "更新账号状态失败"));
-                  }
-                }}
-              >
-                {detail.status === "active" ? "停用账号" : "启用账号"}
-              </button>
-              {detail.wecom_bound && (
-                <button
-                  onClick={async () => {
+            {capabilities.isAdmin ? (
+              <>
+                <h4 style={{ marginTop: 14 }}>登录会话与账号安全（仅系统管理员）</h4>
+                <div
+                  className="pp-actions-row"
+                  style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
+                >
+                  <button
+                    disabled={(detail.active_session_count ?? 0) === 0}
+                    onClick={async () => {
+                      setActionError(null);
+                      setActionNote(null);
+                      try {
+                        const r = await revokeUserSessions(detail.user_id, {
+                          reason: "admin force offline",
+                        });
+                        setActionNote(`已撤销 ${r.revoked_count} 个平台会话`);
+                        await refreshAfterWrite(detail.user_id);
+                      } catch (e) {
+                        setActionError(describeError(e, "撤销会话失败"));
+                      }
+                    }}
+                  >
+                    撤销全部会话
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setActionError(null);
+                      setActionNote(null);
+                      const next = detail.status === "active" ? "inactive" : "active";
+                      try {
+                        await setUserStatus(detail.user_id, next);
+                        setActionNote(
+                          next === "inactive" ? "已停用账号并撤销其会话" : "已启用账号",
+                        );
+                        await refreshAfterWrite(detail.user_id);
+                      } catch (e) {
+                        setActionError(describeError(e, "更新账号状态失败"));
+                      }
+                    }}
+                  >
+                    {detail.status === "active" ? "停用账号" : "启用账号"}
+                  </button>
+                  {detail.wecom_bound && (
+                    <button
+                      onClick={async () => {
+                        setActionError(null);
+                        setActionNote(null);
+                        try {
+                          const r = await reconcileWecomIdentity({ user_id: detail.user_id });
+                          setActionNote(
+                            r.deactivated > 0
+                              ? `企微对账：成员失效，已停用并撤销 ${r.items[0]?.sessions_revoked ?? 0} 个会话`
+                              : r.failed > 0
+                                ? "企微对账：状态核验失败，请稍后重试"
+                                : "企微对账：成员仍有效",
+                          );
+                          await refreshAfterWrite(detail.user_id);
+                        } catch (e) {
+                          setActionError(describeError(e, "企微身份对账失败"));
+                        }
+                      }}
+                    >
+                      企微身份对账
+                    </button>
+                  )}
+                </div>
+
+                {/* 密码设置 / 重置 */}
+                <h4 style={{ marginTop: 14 }}>登录密码（仅系统管理员）</h4>
+                <SetPasswordForm
+                  onSubmit={async (password) => {
                     setActionError(null);
                     setActionNote(null);
                     try {
-                      const r = await reconcileWecomIdentity({ user_id: detail.user_id });
-                      setActionNote(
-                        r.deactivated > 0
-                          ? `企微对账：成员失效，已停用并撤销 ${r.items[0]?.sessions_revoked ?? 0} 个会话`
-                          : r.failed > 0
-                            ? "企微对账：状态核验失败，请稍后重试"
-                            : "企微对账：成员仍有效",
-                      );
+                      await setUserPassword(detail.user_id, password);
+                      setActionNote("密码已设置 / 重置");
                       await refreshAfterWrite(detail.user_id);
                     } catch (e) {
-                      setActionError(describeError(e, "企微身份对账失败"));
+                      setActionError(describeError(e, "设置密码失败"));
                     }
                   }}
-                >
-                  企微身份对账
-                </button>
-              )}
-            </div>
-
-            {/* 密码设置 / 重置 */}
-            <h4 style={{ marginTop: 14 }}>登录密码（仅系统管理员）</h4>
-            <SetPasswordForm
-              onSubmit={async (password) => {
-                setActionError(null);
-                setActionNote(null);
-                try {
-                  await setUserPassword(detail.user_id, password);
-                  setActionNote("密码已设置 / 重置");
-                  await refreshAfterWrite(detail.user_id);
-                } catch (e) {
-                  setActionError(describeError(e, "设置密码失败"));
-                }
-              }}
-            />
+                />
+              </>
+            ) : (
+              <p className="pp-no-project" style={{ marginTop: 14 }}>
+                账号、会话和密码由系统管理员维护。
+              </p>
+            )}
 
             {/* 公司角色管理 */}
             <h4 style={{ marginTop: 14 }}>公司角色</h4>
-            <div className="pp-role-tags">
-              {detail.company_roles.length > 0 ? (
-                detail.company_roles.map((c) => (
-                  <span key={c.role_id} className="pp-role-tag">
-                    {companyRoleLabel[c.company_role] ?? c.company_role}（
-                    {statusLabel[c.status] ?? c.status}）
-                  </span>
-                ))
-              ) : (
-                <span className="pp-no-project">—</span>
-              )}
+            <div className="pp-project-role-list">
+              {COMPANY_ROLE_OPTIONS.map((role) => {
+                const current = detail.company_roles.find((item) => item.company_role === role);
+                const currentStatus = current?.status ?? "unassigned";
+                const allowed = canManageCompanyRole(role);
+                const nextStatus = currentStatus === "active" ? "inactive" : "active";
+                return (
+                  <div
+                    key={role}
+                    className="pp-project-role-item"
+                    style={{ display: "flex", gap: 8, alignItems: "center" }}
+                  >
+                    <span className="pp-pr-project">{companyRoleLabel[role]}</span>
+                    <span className={`pp-status-pill ${statusCls[currentStatus] ?? ""}`}>
+                      {current ? statusLabel[currentStatus] : "未授予"}
+                    </span>
+                    {allowed ? (
+                      <button
+                        className="btn-small"
+                        onClick={async () => {
+                          setActionError(null);
+                          setActionNote(null);
+                          try {
+                            await setCompanyRole(detail.user_id, {
+                              company_role: role,
+                              status: nextStatus,
+                            });
+                            setActionNote(
+                              nextStatus === "active"
+                                ? `${companyRoleLabel[role]}已恢复或授予`
+                                : `${companyRoleLabel[role]}已停用`,
+                            );
+                            await refreshAfterWrite(detail.user_id);
+                          } catch (e) {
+                            setActionError(describeError(e, "更新公司角色失败"));
+                          }
+                        }}
+                      >
+                        {currentStatus === "active" ? "停用" : current ? "恢复" : "授予"}
+                      </button>
+                    ) : (
+                      <span className="pp-toolbar-hint">
+                        {role === "admin" ? "仅系统管理员可操作" : "当前身份只读"}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-            <CompanyRoleForm
-              onSubmit={async (company_role, status) => {
-                setActionError(null);
-                setActionNote(null);
-                try {
-                  await setCompanyRole(detail.user_id, { company_role, status });
-                  setActionNote("公司角色已更新");
-                  await refreshAfterWrite(detail.user_id);
-                } catch (e) {
-                  setActionError(describeError(e, "更新公司角色失败"));
-                }
-              }}
-            />
 
             {/* 项目成员关系管理 */}
             <h4 style={{ marginTop: 14 }}>项目成员关系</h4>
@@ -358,75 +459,85 @@ export default function AdminPeoplePage() {
                     style={{ display: "flex", gap: 8, alignItems: "center" }}
                   >
                     <span className="pp-pr-project">{m.project_name}</span>
-                    <select
-                      className="up-edit-select"
-                      value={m.project_role}
-                      onChange={async (e) => {
-                        setActionError(null);
-                        setActionNote(null);
-                        try {
-                          await patchProjectMembership(detail.user_id, m.membership_id, {
-                            project_role: e.target.value,
-                          });
-                          setActionNote("项目角色已更新");
-                          await refreshAfterWrite(detail.user_id);
-                        } catch (err) {
-                          setActionError(describeError(err, "更新项目角色失败"));
-                        }
-                      }}
-                    >
-                      {PROJECT_ROLE_OPTIONS.map((r) => (
-                        <option key={r} value={r}>
-                          {projectRoleLabel[r]}
-                        </option>
-                      ))}
-                    </select>
+                    {canManageProjects ? (
+                      <select
+                        className="up-edit-select"
+                        value={m.project_role}
+                        onChange={async (e) => {
+                          setActionError(null);
+                          setActionNote(null);
+                          try {
+                            await patchProjectMembership(detail.user_id, m.membership_id, {
+                              project_role: e.target.value,
+                            });
+                            setActionNote("项目角色已更新");
+                            await refreshAfterWrite(detail.user_id);
+                          } catch (err) {
+                            setActionError(describeError(err, "更新项目角色失败"));
+                          }
+                        }}
+                      >
+                        {PROJECT_ROLE_OPTIONS.map((r) => (
+                          <option key={r} value={r}>
+                            {projectRoleLabel[r]}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span>{projectRoleLabel[m.project_role] ?? m.project_role}</span>
+                    )}
                     <span className={`pp-status-pill ${statusCls[m.status] ?? ""}`}>
                       {statusLabel[m.status] ?? m.status}
                     </span>
-                    <button
-                      className="btn-small"
-                      onClick={async () => {
-                        setActionError(null);
-                        setActionNote(null);
-                        const next = m.status === "active" ? "inactive" : "active";
-                        try {
-                          await patchProjectMembership(detail.user_id, m.membership_id, {
-                            status: next,
-                          });
-                          setActionNote("项目成员状态已更新");
-                          await refreshAfterWrite(detail.user_id);
-                        } catch (err) {
-                          setActionError(describeError(err, "更新成员状态失败"));
-                        }
-                      }}
-                    >
-                      {m.status === "active" ? "停用" : "启用"}
-                    </button>
+                    {canManageProjects && (
+                      <button
+                        className="btn-small"
+                        onClick={async () => {
+                          setActionError(null);
+                          setActionNote(null);
+                          const next = m.status === "active" ? "inactive" : "active";
+                          try {
+                            await patchProjectMembership(detail.user_id, m.membership_id, {
+                              status: next,
+                            });
+                            setActionNote("项目成员状态已更新");
+                            await refreshAfterWrite(detail.user_id);
+                          } catch (err) {
+                            setActionError(describeError(err, "更新成员状态失败"));
+                          }
+                        }}
+                      >
+                        {m.status === "active" ? "停用" : "启用"}
+                      </button>
+                    )}
                   </div>
                 ))
               ) : (
                 <span className="pp-no-project">未加入项目</span>
               )}
             </div>
-            <AddMembershipForm
-              projects={knownProjects}
-              onSubmit={async (project_id, project_role) => {
-                setActionError(null);
-                setActionNote(null);
-                try {
-                  await upsertProjectMembership(detail.user_id, {
-                    project_id,
-                    project_role,
-                    status: "active",
-                  });
-                  setActionNote("项目成员关系已新增 / 更新");
-                  await refreshAfterWrite(detail.user_id);
-                } catch (e) {
-                  setActionError(describeError(e, "新增项目成员关系失败"));
-                }
-              }}
-            />
+            {canManageProjects ? (
+              <AddMembershipForm
+                projects={knownProjects}
+                onSubmit={async (project_id, project_role) => {
+                  setActionError(null);
+                  setActionNote(null);
+                  try {
+                    await upsertProjectMembership(detail.user_id, {
+                      project_id,
+                      project_role,
+                      status: "active",
+                    });
+                    setActionNote("项目成员关系已新增 / 更新");
+                    await refreshAfterWrite(detail.user_id);
+                  } catch (e) {
+                    setActionError(describeError(e, "新增项目成员关系失败"));
+                  }
+                }}
+              />
+            ) : (
+              <p className="pp-no-project">项目成员关系由 Boss 或咨询总监维护。</p>
+            )}
           </div>
         </section>
       )}
@@ -525,29 +636,6 @@ export default function AdminPeoplePage() {
           使用说明 →
         </Link>
       </p>
-    </div>
-  );
-}
-
-function CompanyRoleForm({ onSubmit }: { onSubmit: (role: string, status: string) => void }) {
-  const [role, setRole] = useState("consultant");
-  const [status, setStatus] = useState("active");
-  return (
-    <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-      <select className="up-edit-select" value={role} onChange={(e) => setRole(e.target.value)}>
-        {COMPANY_ROLE_OPTIONS.map((r) => (
-          <option key={r} value={r}>
-            {companyRoleLabel[r]}
-          </option>
-        ))}
-      </select>
-      <select className="up-edit-select" value={status} onChange={(e) => setStatus(e.target.value)}>
-        <option value="active">正常</option>
-        <option value="inactive">已停用</option>
-      </select>
-      <button className="btn-small btn-small-primary" onClick={() => onSubmit(role, status)}>
-        设置公司角色
-      </button>
     </div>
   );
 }

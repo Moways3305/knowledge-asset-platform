@@ -5,7 +5,7 @@ export interface ReviewItemDTO {
   review_type: string;
   trigger_source: string;
   status: string;
-  target_asset_id: string;
+  target_asset_id: string | null;
   asset_title: string | null;
   target_scope: string | null;
   target_project_id: string | null;
@@ -16,6 +16,7 @@ export interface ReviewItemDTO {
   review_comment: string | null;
   reviewed_at: string | null;
   created_at: string | null;
+  can_decide: boolean;
 }
 
 export interface ReviewListResponseDTO {

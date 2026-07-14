@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchWeknoraKbConfigs, fetchWeknoraModels, updateWeknoraKbInit } from "../api/admin";
+import {
+  fetchWeknoraDefaultModels,
+  fetchWeknoraKbConfigs,
+  fetchWeknoraModels,
+  updateWeknoraDefaultModels,
+  updateWeknoraKbInit,
+} from "../api/admin";
 import { ApiError } from "../api/http";
 import { useAuth } from "../auth/AuthContext";
-import { PageHeader, PageSection, ProductPage } from "../components/ProductLayout";
+import { PageHeader, PageSection, ProductPage, SettingsRow } from "../components/ProductLayout";
 import UnifiedModelConnectionsSection from "../components/UnifiedModelConnectionsSection";
 import type { KbConfigDTO, ModelDTO } from "../types/weknoraAdmin";
 
@@ -44,18 +50,28 @@ export default function AdminWeKnoraModelsPage() {
   const [notConfigured, setNotConfigured] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [defaultChatRef, setDefaultChatRef] = useState("");
+  const [defaultEmbeddingRef, setDefaultEmbeddingRef] = useState("");
+  const [defaultRerankRef, setDefaultRerankRef] = useState("");
+  const [defaultMultimodalRef, setDefaultMultimodalRef] = useState("");
+  const [defaultsBusy, setDefaultsBusy] = useState(false);
 
   const loadKnowledgeConfigs = useCallback(async () => {
     setLoading(true);
     setError(null);
     setNotConfigured(false);
     try {
-      const [availableModels, configs] = await Promise.all([
+      const [availableModels, configs, defaults] = await Promise.all([
         fetchWeknoraModels(),
         fetchWeknoraKbConfigs(),
+        fetchWeknoraDefaultModels(),
       ]);
       setModels(availableModels);
       setKbConfigs(configs);
+      setDefaultChatRef(defaults.chat?.model_ref ?? "");
+      setDefaultEmbeddingRef(defaults.embedding?.model_ref ?? "");
+      setDefaultRerankRef(defaults.rerank?.model_ref ?? "");
+      setDefaultMultimodalRef(defaults.multimodal?.model_ref ?? "");
     } catch (caught) {
       setModels([]);
       setKbConfigs([]);
@@ -69,6 +85,32 @@ export default function AdminWeKnoraModelsPage() {
     }
   }, []);
 
+  const saveFoundationDefaults = async () => {
+    if (!defaultEmbeddingRef || !defaultChatRef) {
+      setError("请配置底座默认嵌入模型和底座兼容 LLM 槽位");
+      return;
+    }
+    setDefaultsBusy(true);
+    setError(null);
+    try {
+      const updated = await updateWeknoraDefaultModels({
+        embedding_model_ref: defaultEmbeddingRef,
+        chat_model_ref: defaultChatRef,
+        rerank_model_ref: defaultRerankRef || null,
+        multimodal_ref: defaultMultimodalRef || null,
+      });
+      setDefaultChatRef(updated.chat?.model_ref ?? "");
+      setDefaultEmbeddingRef(updated.embedding?.model_ref ?? "");
+      setDefaultRerankRef(updated.rerank?.model_ref ?? "");
+      setDefaultMultimodalRef(updated.multimodal?.model_ref ?? "");
+      setNote("WeKnora 底座默认模型已更新；外部 LLM 默认连接未改变");
+    } catch {
+      setError("WeKnora 底座默认模型保存失败，请检查模型类型和底座连接");
+    } finally {
+      setDefaultsBusy(false);
+    }
+  };
+
   useEffect(() => {
     void loadKnowledgeConfigs();
   }, [loadKnowledgeConfigs]);
@@ -76,8 +118,8 @@ export default function AdminWeKnoraModelsPage() {
   return (
     <ProductPage className="ws-page">
       <PageHeader
-        title="模型与知识库配置"
-        description="统一管理模型连接，并为内容生成和知识库分别指定用途。"
+        title="外部 LLM 与知识库底座"
+        description="外部 LLM 由 KAP 直接调用；WeKnora 模型仅服务知识库初始化、检索与底座兼容。"
         actions={
           <button
             className="btn-small"
@@ -90,6 +132,72 @@ export default function AdminWeKnoraModelsPage() {
       />
 
       <UnifiedModelConnectionsSection canEdit={capabilities.isAdmin} />
+
+      <PageSection
+        title="WeKnora 底座默认模型"
+        description="用于新知识库初始化和检索底座。修改默认值不会重建知识库，也不会改变已有库的嵌入绑定。"
+      >
+        {notConfigured ? (
+          <div className="ig-empty-state">
+            <div className="ig-empty-title">WeKnora 尚未配置</div>
+            <p className="ig-empty-desc">此状态不影响上方外部 LLM 连接的创建、编辑和测试。</p>
+          </div>
+        ) : loading ? (
+          <div className="ig-empty-state">正在加载底座默认模型…</div>
+        ) : (
+          <div className="product-settings-list">
+            <FoundationModelSelect
+              label="默认嵌入模型"
+              description="新知识库的向量化模型；已有知识库保持原绑定。"
+              value={defaultEmbeddingRef}
+              type="embedding"
+              models={models}
+              disabled={!capabilities.isAdmin || defaultsBusy}
+              onChange={setDefaultEmbeddingRef}
+            />
+            <FoundationModelSelect
+              label="底座兼容配置（LLM 槽位）"
+              description="满足当前 WeKnora 初始化契约，不控制 KAP 内容生成或项目问答。"
+              value={defaultChatRef}
+              type="chat"
+              models={models}
+              disabled={!capabilities.isAdmin || defaultsBusy}
+              onChange={setDefaultChatRef}
+            />
+            <FoundationModelSelect
+              label="默认重排模型"
+              description="用于改善底座检索排序，可按部署能力选择。"
+              value={defaultRerankRef}
+              type="rerank"
+              models={models}
+              disabled={!capabilities.isAdmin || defaultsBusy}
+              onChange={setDefaultRerankRef}
+              optional
+            />
+            <FoundationModelSelect
+              label="默认多模态模型"
+              description="仅用于底座支持的多模态解析能力。"
+              value={defaultMultimodalRef}
+              type="vllm"
+              models={models}
+              disabled={!capabilities.isAdmin || defaultsBusy}
+              onChange={setDefaultMultimodalRef}
+              optional
+            />
+            {capabilities.isAdmin && (
+              <div>
+                <button
+                  className="btn-small-primary"
+                  onClick={() => void saveFoundationDefaults()}
+                  disabled={defaultsBusy}
+                >
+                  {defaultsBusy ? "保存中…" : "保存 WeKnora 底座默认模型"}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </PageSection>
 
       <PageSection
         title="知识库配置"
@@ -123,7 +231,7 @@ export default function AdminWeKnoraModelsPage() {
                   <th>知识库</th>
                   <th>范围</th>
                   <th>状态</th>
-                  <th>问答</th>
+                  <th>底座兼容</th>
                   <th>嵌入</th>
                   <th>重排</th>
                   <th>多模态</th>
@@ -153,6 +261,49 @@ export default function AdminWeKnoraModelsPage() {
         </p>
       </PageSection>
     </ProductPage>
+  );
+}
+
+function FoundationModelSelect({
+  label,
+  description,
+  value,
+  type,
+  models,
+  disabled,
+  onChange,
+  optional = false,
+}: {
+  label: string;
+  description: string;
+  value: string;
+  type: string;
+  models: ModelDTO[];
+  disabled: boolean;
+  onChange: (value: string) => void;
+  optional?: boolean;
+}) {
+  const options = models.filter((model) => model.type === type && model.enabled);
+  return (
+    <SettingsRow
+      title={label}
+      description={description}
+      control={
+        <select
+          aria-label={label}
+          value={value}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+        >
+          <option value="">{optional ? "暂不设置" : "请选择底座模型"}</option>
+          {options.map((model) => (
+            <option key={model.model_ref} value={model.model_ref}>
+              {model.name}
+            </option>
+          ))}
+        </select>
+      }
+    />
   );
 }
 

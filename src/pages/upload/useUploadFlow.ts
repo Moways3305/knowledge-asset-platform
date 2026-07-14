@@ -77,6 +77,7 @@ export function useUploadFlow() {
   // 真实入库任务状态
   const [taskId, setTaskId] = useState<string | null>(null);
   const [resultAssetId, setResultAssetId] = useState<string | null>(null);
+  const [submitReviewId, setSubmitReviewId] = useState<string | null>(null);
   const [submitIndexStatus, setSubmitIndexStatus] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [processingNote, setProcessingNote] = useState<string | null>(null);
@@ -293,6 +294,7 @@ export function useUploadFlow() {
         rerank_model_ref: models.rerankRef || undefined,
       });
       setResultAssetId(res.result_asset_id);
+      setSubmitReviewId(res.review_id ?? null);
       setSubmitIndexStatus(res.index_status ?? null);
       setFlowState("submitted");
       if (activePath === "a") void loadPending();
@@ -352,6 +354,7 @@ export function useUploadFlow() {
     setEditAiAccess("A2");
     setTaskId(null);
     setResultAssetId(null);
+    setSubmitReviewId(null);
     setSubmitIndexStatus(null);
     setApiError(null);
   }, []);
@@ -374,6 +377,7 @@ export function useUploadFlow() {
   // 平台默认嵌入或问答模型未配置时禁用提交（models.blockSubmit），不静默走 .env 兜底。
   const canSubmit = confirmReady && requiredFieldsOk && !models.blockSubmit;
   const confirmSubmitted = flowState === "submitted";
+  const awaitingProjectReview = confirmSubmitted && submitReviewId !== null;
   const sourceLabel = activePath === "a" ? "企微微盘" : "本地上传";
   const sourceFile =
     activePath === "a" ? selectedTaskName : fileName || "retail-channel-transformation.pptx";
@@ -435,6 +439,8 @@ export function useUploadFlow() {
     sourceLabel,
     sourceFile,
     resultAssetId,
+    submitReviewId,
+    awaitingProjectReview,
     submitIndexStatus,
     handleSubmit,
     models,

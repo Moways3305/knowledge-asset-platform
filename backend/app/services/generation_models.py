@@ -399,3 +399,80 @@ async def resolve_connection_ref(
 def decrypt_connection_secrets(model: ContentGenerationModel) -> tuple[str, str]:
     """Return endpoint/key only to server-side adapter code."""
     return _decrypt(model.base_url_ciphertext), _decrypt(model.api_key_ciphertext)
+
+
+def _client_for_model(model: ContentGenerationModel) -> LLMClient:
+    return LLMClient(
+        provider=model.provider,
+        api_key=_decrypt(model.api_key_ciphertext),
+        base_url=_decrypt(model.base_url_ciphertext),
+        model=model.model_name,
+        timeout=get_settings().llm_timeout,
+    )
+
+
+async def safe_project_qa_options(
+    session: AsyncSession, fallback: LLMClient | NullLLMClient
+) -> list[dict]:
+    """Return only runnable project-QA choices and irreversible references."""
+    settings = await _settings(session)
+    default_id = settings.default_model_id if settings else None
+    default_model = await session.get(ContentGenerationModel, default_id) if default_id else None
+    default_available = bool(
+        (default_model and default_model.enabled and default_model.capability_type == "chat")
+        or (settings is None and not isinstance(fallback, NullLLMClient))
+    )
+    items: list[dict] = []
+    if default_available:
+        items.append(
+            {
+                "model_ref": "system_default",
+                "display_name": "系统默认模型",
+                "is_default": True,
+            }
+        )
+    for model in await all_connection_models(session):
+        if model.enabled and model.capability_type == "chat" and model.id != default_id:
+            items.append(
+                {
+                    "model_ref": _model_ref(model.id),
+                    "display_name": model.display_name,
+                    "is_default": False,
+                }
+            )
+    return items
+
+
+async def resolve_project_qa_client(
+    session: AsyncSession,
+    model_ref: str,
+    fallback: LLMClient | NullLLMClient,
+) -> LLMClient | NullLLMClient:
+    """Resolve a validated QA model without exposing connection credentials."""
+    if model_ref == "system_default":
+        settings = await _settings(session)
+        if settings is None:
+            if isinstance(fallback, NullLLMClient):
+                raise GenerationModelError(
+                    "project_qa_default_model_missing", "系统默认问答模型尚未配置", 409
+                )
+            return fallback
+        model = (
+            await session.get(ContentGenerationModel, settings.default_model_id)
+            if settings.default_model_id
+            else None
+        )
+        if model is None or not model.enabled or model.capability_type != "chat":
+            raise GenerationModelError(
+                "project_qa_default_model_missing", "系统默认问答模型尚未配置", 409
+            )
+        return _client_for_model(model)
+
+    model = await _resolve_ref(session, model_ref)
+    if model is None:
+        raise GenerationModelError("project_qa_model_not_found", "所选问答模型不可用")
+    if model.capability_type != "chat":
+        raise GenerationModelError("project_qa_model_type_mismatch", "所选模型不支持问答")
+    if not model.enabled:
+        raise GenerationModelError("project_qa_model_disabled", "所选问答模型已停用", 409)
+    return _client_for_model(model)

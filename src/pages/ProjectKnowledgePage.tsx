@@ -1,15 +1,11 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError } from "../api/http";
-import { fetchAuthMe, type AuthMeVM } from "../api/auth";
+import { useAuth } from "../auth/AuthContext";
 import { fetchKnowledgeList } from "../api/knowledge";
-import { projectQa } from "../api/project";
-import type { ProjectQaResponseDTO } from "../types/agent";
+import { fetchProjectQaModelOptions, projectQa } from "../api/project";
+import type { ProjectQaModelOptionDTO, ProjectQaResponseDTO } from "../types/agent";
 import type { KnowledgeCardVM } from "../types/knowledge";
-
-// 路由 :id 在导航里是路由兼容占位串（如 "current"），不是业务数据；真实项目 Q&A /
-// 知识看板需要真实项目，因此从 /auth/me 的有效项目中解析"本次实际所在项目"。
-const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 type ZoneType = "material" | "asset";
 
@@ -41,23 +37,6 @@ const assetTypeLabel: Record<string, string> = {
   insight: "洞察",
 };
 
-interface QAModel {
-  id: string;
-  name: string;
-  tag: string;
-}
-
-// 问答模型选项：影响本次问答，不改变平台默认配置。
-const qaModels: QAModel[] = [
-  { id: "default", name: "系统默认模型", tag: "稳定" },
-  { id: "deepseek-r1", name: "DeepSeek-R1 内网版", tag: "推理" },
-  { id: "qwen-enterprise", name: "通义千问企业版", tag: "通用" },
-];
-
-function toModelKey(modelId: string): string {
-  return modelId === "default" ? "system_default" : modelId;
-}
-
 // 快捷提问示例：仅用于填充输入框。
 const exampleQuestions = [
   "本项目当前阶段有哪些关键交付物？",
@@ -72,6 +51,8 @@ function phaseOrder(phase: string): number {
 
 export default function ProjectKnowledgePage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { authMe, status } = useAuth();
   const [selectedPhase, setSelectedPhase] = useState<string>(""); // "" = 全部阶段
   const [activeZone, setActiveZone] = useState<ZoneType | "">(""); // "" = 资料+资产
   const [filterVisibility, setFilterVisibility] = useState("");
@@ -80,51 +61,35 @@ export default function ProjectKnowledgePage() {
   const [qaResult, setQaResult] = useState<ProjectQaResponseDTO | null>(null);
   const [qaLoading, setQaLoading] = useState(false);
   const [qaError, setQaError] = useState<string | null>(null);
-  const [selectedModelId, setSelectedModelId] = useState(qaModels[0].id);
-
-  // 从 /auth/me 解析"本次实际所在项目"（路由 :id 为占位串，不直接用作项目 UUID）。
-  const [authMe, setAuthMe] = useState<AuthMeVM | null>(null);
-  const [authError, setAuthError] = useState<string | null>(null);
+  const [modelOptions, setModelOptions] = useState<ProjectQaModelOptionDTO[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [selectedModelRef, setSelectedModelRef] = useState("");
 
   // 真实项目知识（来自 GET /knowledge?scope=project，按当前项目名筛选）。
   const [projectCards, setProjectCards] = useState<KnowledgeCardVM[] | null>(null);
   const [cardsLoading, setCardsLoading] = useState(false);
   const [cardsError, setCardsError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetchAuthMe()
-      .then((me) => {
-        if (!cancelled) setAuthMe(me);
-      })
-      .catch((e) => {
-        if (!cancelled) setAuthError(e instanceof Error ? e.message : "加载身份失败");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // 优先用路由 UUID（且为本人有效项目）；否则回退到第一个有效项目。
-  const effectiveProject = useMemo(() => {
-    const projects = authMe?.projects ?? [];
-    if (id && UUID_RE.test(id)) {
-      const matched = projects.find((p) => p.projectId === id);
-      if (matched) return matched;
-    }
-    return projects[0] ?? null;
+  // URL 是项目上下文的唯一来源；无效或无权项目绝不回退到其他项目。
+  const routeProject = useMemo(() => {
+    if (!id) return null;
+    return authMe?.projects.find((project) => project.projectId === id) ?? null;
   }, [authMe, id]);
 
-  // 拉取项目 scope 真实知识，按当前项目名筛选（列表项暴露 project_name，不暴露 project_id）。
+  // 后端按精确 project_id 做权限判断与 SQL 过滤，前端不再按项目名称筛选。
   useEffect(() => {
-    if (!effectiveProject) return;
+    if (!routeProject) {
+      setProjectCards(null);
+      return;
+    }
     let cancelled = false;
     setCardsLoading(true);
     setCardsError(null);
-    fetchKnowledgeList({ scope: "project" })
-      .then((all) => {
+    fetchKnowledgeList({ scope: "project", projectId: routeProject.projectId })
+      .then((items) => {
         if (cancelled) return;
-        setProjectCards(all.filter((c) => c.projectName === effectiveProject.projectName));
+        setProjectCards(items);
         setCardsLoading(false);
       })
       .catch((e) => {
@@ -135,7 +100,38 @@ export default function ProjectKnowledgePage() {
     return () => {
       cancelled = true;
     };
-  }, [effectiveProject]);
+  }, [routeProject]);
+
+  useEffect(() => {
+    setSelectedPhase("");
+    setActiveZone("");
+    setFilterVisibility("");
+    setQaInput("");
+    setQaResult(null);
+    setQaError(null);
+    setSelectedModelRef("");
+    setModelOptions([]);
+    setModelsError(null);
+    if (!routeProject) return;
+
+    let cancelled = false;
+    setModelsLoading(true);
+    fetchProjectQaModelOptions(routeProject.projectId)
+      .then((response) => {
+        if (cancelled) return;
+        setModelOptions(response.items);
+        setSelectedModelRef(response.items[0]?.model_ref ?? "");
+        setModelsLoading(false);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setModelsError(error instanceof ApiError ? error.message : "问答模型暂时无法加载");
+        setModelsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [routeProject]);
 
   const cards = useMemo(() => projectCards ?? [], [projectCards]);
   const cardPhase = useCallback((c: KnowledgeCardVM) => c.lifecyclePhase || UNLABELED_PHASE, []);
@@ -185,17 +181,17 @@ export default function ProjectKnowledgePage() {
   const handleAsk = useCallback(async () => {
     const q = qaInput.trim();
     if (!q) return;
-    if (!effectiveProject) {
-      setQaError("当前账号没有可问答的有效项目（需要项目成员身份）。");
+    if (!routeProject || !selectedModelRef) {
+      setQaError("当前项目没有可用的问答模型，请联系管理员检查模型配置。");
       return;
     }
     setQaLoading(true);
     setQaError(null);
     setQaResult(null);
     try {
-      const res = await projectQa(effectiveProject.projectId, {
+      const res = await projectQa(routeProject.projectId, {
         query: q,
-        modelKey: toModelKey(selectedModelId),
+        modelRef: selectedModelRef,
       });
       setQaResult(res);
     } catch (e) {
@@ -205,7 +201,7 @@ export default function ProjectKnowledgePage() {
     } finally {
       setQaLoading(false);
     }
-  }, [qaInput, effectiveProject, selectedModelId]);
+  }, [qaInput, routeProject, selectedModelRef]);
 
   const handleResetQA = useCallback(() => {
     setQaInput("");
@@ -217,7 +213,56 @@ export default function ProjectKnowledgePage() {
     setQaInput(q);
   }, []);
 
-  const projectTitle = effectiveProject?.projectName ?? "（未解析到有效项目）";
+  const projectTitle = routeProject?.projectName ?? "未选择项目";
+  const projects = authMe?.projects ?? [];
+  const switchProject = (projectId: string) => {
+    if (projectId) navigate(`/project/${projectId}/knowledge`);
+  };
+
+  if (status === "loading") {
+    return (
+      <div className="project-page">
+        <div className="pj-empty-state">
+          <div className="pj-empty-title">正在加载项目上下文…</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!routeProject) {
+    const noProjects = status === "authenticated" && projects.length === 0;
+    return (
+      <div className="project-page">
+        <div className="pj-header">
+          <div className="pj-header-text">
+            <h2>项目知识看板</h2>
+            <p>{noProjects ? "当前账号没有有效项目身份。" : "当前项目不可用或你没有访问权限。"}</p>
+          </div>
+          {projects.length > 0 && (
+            <label className="pj-project-switcher">
+              <span>切换项目</span>
+              <select value="" onChange={(event) => switchProject(event.target.value)}>
+                <option value="">请选择有权限的项目</option>
+                {projects.map((project) => (
+                  <option key={project.projectId} value={project.projectId}>
+                    {project.projectName}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+        <div className="pj-empty-state" role="status">
+          <div className="pj-empty-title">{noProjects ? "暂无可访问项目" : "无法打开该项目"}</div>
+          <p className="pj-empty-desc">
+            {noProjects
+              ? "请联系管理员为你配置有效的项目成员身份。"
+              : "请从项目选择器进入你有权限的项目，或联系管理员确认项目状态与成员身份。"}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="project-page">
@@ -229,6 +274,19 @@ export default function ProjectKnowledgePage() {
             项目 <strong>{projectTitle}</strong> 的知识看板，按生命周期阶段组织资料区与资产区。
           </p>
         </div>
+        <label className="pj-project-switcher">
+          <span>切换项目</span>
+          <select
+            value={routeProject.projectId}
+            onChange={(event) => switchProject(event.target.value)}
+          >
+            {projects.map((project) => (
+              <option key={project.projectId} value={project.projectId}>
+                {project.projectName}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="kl-kpis">
           <div className="kl-kpi">
             <div className="kl-kpi-value">{totalMaterials}</div>
@@ -407,36 +465,34 @@ export default function ProjectKnowledgePage() {
             向项目知识提问，回答会根据你的访问范围生成。来自资产区的引用为已验证内容，来自资料区的引用用于参考需谨慎确认。
           </p>
           <div className="pj-qa-target">
-            {effectiveProject ? (
-              <span>
-                本次问答项目：<strong>{effectiveProject.projectName}</strong>（
-                {effectiveProject.projectRole}）
-              </span>
-            ) : authError ? (
-              <span className="pj-qa-target-warn">身份加载失败：{authError}</span>
-            ) : authMe ? (
-              <span className="pj-qa-target-warn">
-                当前账号无可问答的有效项目（需要项目成员身份）。
-              </span>
-            ) : (
-              <span>正在解析当前项目…</span>
-            )}
+            <span>
+              本次问答项目：<strong>{routeProject.projectName}</strong>（{routeProject.projectRole}
+              ）
+            </span>
           </div>
           <div className="pj-qa-model-row">
             <span className="pj-qa-model-label">问答模型</span>
             <select
               className="pj-qa-model-select"
-              value={selectedModelId}
-              onChange={(e) => setSelectedModelId(e.target.value)}
+              value={selectedModelRef}
+              onChange={(e) => setSelectedModelRef(e.target.value)}
+              disabled={modelsLoading || modelOptions.length === 0}
             >
-              {qaModels.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}（{m.tag}）
+              {modelsLoading && <option value="">正在加载可用模型…</option>}
+              {!modelsLoading && modelOptions.length === 0 && (
+                <option value="">暂无可用模型</option>
+              )}
+              {modelOptions.map((model) => (
+                <option key={model.model_ref} value={model.model_ref}>
+                  {model.display_name}
                 </option>
               ))}
             </select>
             <span className="pj-qa-model-hint">
-              模型切换仅影响本次问答，不影响知识卡片生成或系统默认配置
+              {modelsError ??
+                (modelOptions.length === 0 && !modelsLoading
+                  ? "当前没有可用问答模型，请联系管理员在模型配置中启用问答模型或设置系统默认模型。"
+                  : "模型切换仅影响本次问答，不影响知识卡片生成或系统默认配置")}
             </span>
           </div>
           <div className="qa-input-wrap">
@@ -453,7 +509,7 @@ export default function ProjectKnowledgePage() {
             <button
               className="btn-primary pj-qa-btn"
               onClick={handleAsk}
-              disabled={!qaInput.trim() || qaLoading || !effectiveProject}
+              disabled={!qaInput.trim() || qaLoading || !selectedModelRef}
             >
               {qaLoading ? "提问中…" : "提问"}
             </button>
@@ -485,7 +541,10 @@ export default function ProjectKnowledgePage() {
             <div className="pj-qa-result">
               <div className="pj-qa-answer">
                 <span className="pj-qa-answer-label">
-                  AI 回答 · 模型：{qaResult.model_key} · 决策：{qaResult.decision_status}
+                  AI 回答 · 模型：
+                  {modelOptions.find((model) => model.model_ref === selectedModelRef)
+                    ?.display_name ?? "已选模型"}
+                  · 决策：{qaResult.decision_status}
                 </span>
                 <p>{qaResult.response_text}</p>
               </div>

@@ -251,7 +251,15 @@ export default function HomeDashboardPage() {
     { to: "/upload", label: "上传资产化", icon: UploadCloud },
     { to: "/review", label: "升级审核", icon: ShieldCheck },
     { to: "/original-access", label: "原文访问", icon: KeyRound },
-    { to: "/project/current/knowledge", label: "项目看板", icon: FolderKanban },
+    ...(me?.projects[0]
+      ? [
+          {
+            to: `/project/${me.projects[0].projectId}/knowledge`,
+            label: "项目看板",
+            icon: FolderKanban,
+          },
+        ]
+      : []),
     { to: "/my/knowledge", label: "个人知识", icon: UserRound },
   ];
   const adminQuick = [

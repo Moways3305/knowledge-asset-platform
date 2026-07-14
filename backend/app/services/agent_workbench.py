@@ -53,6 +53,7 @@ from app.services.permission_rules import load_access_policy
 
 # 发现层不可见的资产终态（与 /knowledge 列表 / 检索一致）。
 _INACTIVE_STATUSES = (
+    "processing",
     AssetStatus.archived.value,
     AssetStatus.deprecated.value,
     AssetStatus.deleted.value,
@@ -60,6 +61,8 @@ _INACTIVE_STATUSES = (
 _NON_TERMINAL_REVIEW = (
     ReviewTaskStatus.pending_evidence.value,
     ReviewTaskStatus.pending_reviewer.value,
+    ReviewTaskStatus.approving.value,
+    ReviewTaskStatus.approval_failed.value,
 )
 _RESTRICTED_TITLE = "（受限知识）"
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
@@ -244,7 +247,7 @@ async def list_todos(
 
     conf = await _asset_conf_map(
         session,
-        {r.target_asset_id for r in my_reviews}
+        {r.target_asset_id for r in my_reviews if r.target_asset_id is not None}
         | {it.asset_id for it in mine.items}
         | {it.asset_id for it in inbox.items},
     )
@@ -259,7 +262,11 @@ async def list_todos(
                 project_id=r.target_project_id,
                 project_name=r.project_name,
                 asset_id=r.target_asset_id,
-                asset_title=_ceiling_title(r.asset_title, conf.get(r.target_asset_id), rule),
+                asset_title=_ceiling_title(
+                    r.asset_title,
+                    conf.get(r.target_asset_id) if r.target_asset_id is not None else None,
+                    rule,
+                ),
                 created_at=r.created_at,
             )
         )
@@ -478,14 +485,20 @@ async def list_pending_reviews(
     reviews = await review_service.list_reviews(session, caller)
     pending = [r for r in reviews if r.status in _NON_TERMINAL_REVIEW]
     pending.sort(key=lambda r: _aware(r.created_at), reverse=True)
-    conf = await _asset_conf_map(session, {r.target_asset_id for r in pending})
+    conf = await _asset_conf_map(
+        session, {r.target_asset_id for r in pending if r.target_asset_id is not None}
+    )
     items = [
         WorkbenchReviewItem(
             review_id=r.id,
             review_type=r.review_type,
             status=r.status,
             asset_id=r.target_asset_id,
-            asset_title=_ceiling_title(r.asset_title, conf.get(r.target_asset_id), rule),
+            asset_title=_ceiling_title(
+                r.asset_title,
+                conf.get(r.target_asset_id) if r.target_asset_id is not None else None,
+                rule,
+            ),
             project_id=r.target_project_id,
             project_name=r.project_name,
             created_at=r.created_at,

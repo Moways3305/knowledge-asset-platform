@@ -59,7 +59,9 @@ def _healthy_config_body(**over):
         "version": "0.1.0",
         "integrations": {
             "weknora_enabled": True,
+            "weknora_foundation_defaults_configured": True,
             "llm_enabled": True,
+            "external_llm_configured": True,
             "llm_provider": "deepseek",
             "onlyoffice_config": {
                 "document_server_origin_valid": True,
@@ -115,6 +117,8 @@ def test_safe_config_summary_whitelists_fields():
     assert "sk-should-never-appear" not in json.dumps(summary)
     # integrations 只保留布尔 + provider 名。
     assert summary["integrations"]["weknora_enabled"] is True
+    assert summary["integrations"]["external_llm_configured"] is True
+    assert summary["integrations"]["weknora_foundation_defaults_configured"] is True
     assert summary["integrations"]["llm_provider"] == "deepseek"
     assert summary["integrations"]["onlyoffice_config"] == {
         "document_server_origin_valid": True,

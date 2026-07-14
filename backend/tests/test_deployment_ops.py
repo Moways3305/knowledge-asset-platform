@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT
+from app.services import generation_models
 
 # 任何 ops 响应都不得出现的敏感子串。
 _SECRET_TOKENS = [
@@ -66,8 +67,32 @@ async def test_config_diagnostics_safe(client):
     for key in ("weknora_enabled", "llm_enabled", "wecom_enabled", "onlyoffice_enabled"):
         assert integ[key] is False
     assert integ["celery_eager"] is True  # 测试默认 eager
+    assert integ["external_llm_configured"] is False
+    assert integ["weknora_foundation_defaults_configured"] is False
     assert "missing_config" in body
     _assert_no_secret(r.text)
+
+
+async def test_health_reports_external_llm_and_weknora_foundation_independently(client, db_session):
+    await generation_models.create_model(
+        db_session,
+        display_name="外部业务 LLM",
+        provider="openai_compatible",
+        model_name="business-chat",
+        base_url="https://external.example.test/v1",
+        api_key="SECRET-LIKE-health-key",
+        enabled=True,
+        make_default=True,
+        actor_id=USER_ADMIN_ONLY,
+    )
+    await db_session.commit()
+
+    response = await client.get("/health/config")
+    assert response.status_code == 200
+    integrations = response.json()["integrations"]
+    assert integrations["external_llm_configured"] is True
+    assert integrations["weknora_foundation_defaults_configured"] is False
+    _assert_no_secret(response.text)
 
 
 async def test_config_missing_embedding_when_weknora_enabled(client, monkeypatch):

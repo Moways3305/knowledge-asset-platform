@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
@@ -22,6 +23,7 @@ from app.models.knowledge import (
     KnowledgeAssetTag,
     KnowledgeAssetVersion,
 )
+from app.models.review import ReviewTask
 from app.schemas.enums import (
     AlertSeverity,
     AuditAction,
@@ -31,6 +33,8 @@ from app.schemas.enums import (
     IngestSource,
     IngestStatus,
     KnowledgeScope,
+    ProjectRole,
+    ReviewTaskStatus,
 )
 from app.schemas.ingest import (
     AdminIngestItem,
@@ -41,6 +45,7 @@ from app.schemas.ingest import (
     PendingIngestItem,
 )
 from app.schemas.permission import CallerContext
+from app.schemas.review import ReviewActionResponse
 from app.services import audit as audit_service
 from app.services import error_catalog, indexing
 from app.services.desensitization import DesensitizationEngine
@@ -398,6 +403,22 @@ async def confirm(
             raise _denied(422, "target_project_required", "项目入库必须指定目标项目")
         if req.target_project_id not in caller.active_project_ids:
             raise _denied(403, "project_membership_required", "需为目标项目的有效成员")
+        can_self_confirm = bool(
+            _is_governance(caller)
+            or caller.active_project_roles.get(req.target_project_id)
+            == ProjectRole.project_manager.value
+        )
+        if not can_self_confirm:
+            from app.services.review import create_or_get_project_ingest_review
+
+            review = await create_or_get_project_ingest_review(session, caller, task, req, trace_id)
+            return IngestConfirmResponse(
+                task_id=task.id,
+                status=IngestStatus.waiting_review.value,
+                result_asset_id=None,
+                review_id=review.id,
+                index_status=None,
+            )
         owner_id = caller.user_id
         project_id = req.target_project_id
     elif scope == KnowledgeScope.company.value:
@@ -409,6 +430,9 @@ async def confirm(
                 "company_confirmation_requires_governance",
                 "公司知识需 Boss / 咨询总监确认",
             )
+        from app.services.company_kb import require_company_kb_ready
+
+        await require_company_kb_ready(session)
         owner_id = caller.user_id
         project_id = None
     else:
@@ -529,6 +553,196 @@ async def confirm(
         status=response_status,
         result_asset_id=result_asset_id,
         parse_status=parse_status,
+        index_status=index_status,
+    )
+
+
+async def approve_project_ingest_review(
+    session: AsyncSession,
+    caller: CallerContext,
+    review: ReviewTask,
+    comment: str | None,
+    trace_id: str,
+    *,
+    storage: LocalFileStorage,
+    weknora: WeKnoraClient | NullWeKnoraClient,
+) -> ReviewActionResponse:
+    """Materialize an approved project submission without exposing partial assets."""
+    if review.source_ingest_task_id is None or review.confirmation_snapshot is None:
+        raise _denied(409, "project_ingest_snapshot_missing", "项目提交确认快照不可用")
+    req = IngestConfirmRequest.model_validate(review.confirmation_snapshot)
+    if req.target_project_id is None or review.target_project_id != req.target_project_id:
+        raise _denied(409, "project_ingest_snapshot_invalid", "项目提交目标不一致")
+    submitter_id = review.submitted_by
+    if submitter_id is None:
+        raise _denied(409, "project_ingest_submitter_missing", "项目提交人不可用")
+
+    task = (
+        await session.execute(
+            select(IngestTask)
+            .where(IngestTask.id == review.source_ingest_task_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if task is None:
+        raise _denied(409, "project_ingest_task_missing", "项目提交来源不可用")
+
+    asset: KnowledgeAsset
+    version: KnowledgeAssetVersion
+    if review.target_asset_id is None:
+        summary_text = (req.summary or "").strip() or (req.one_liner or "").strip()
+        confidentiality = req.confidentiality_level.value
+        asset = KnowledgeAsset(
+            title=req.title,
+            scope=KnowledgeScope.project.value,
+            zone=req.target_zone.value,
+            asset_type=req.asset_type.value,
+            owner_user_id=submitter_id,
+            maintainer_user_id=submitter_id,
+            project_id=req.target_project_id,
+            visibility=req.visibility.value,
+            confidentiality_level=confidentiality,
+            ai_access_level=req.ai_access_level.value,
+            asset_status="processing",
+            lifecycle_phase_key=req.lifecycle_phase_key,
+        )
+        version = KnowledgeAssetVersion(
+            version_no="v1", version_status="active", created_by=submitter_id
+        )
+        asset.versions.append(version)
+        for summary in _build_summaries(
+            confidentiality,
+            one_liner=req.one_liner,
+            detailed=summary_text,
+            key_points=req.key_points,
+        ):
+            summary.version = version
+            asset.summaries.append(summary)
+        for tag in req.tags:
+            asset.tags.append(KnowledgeAssetTag(tag_name=tag))
+        session.add(asset)
+        await session.flush()
+        asset.current_version_id = version.id
+        review.target_asset_id = asset.id
+        task.result_asset_id = asset.id
+        version.index_status = "indexing" if weknora_enabled() else "skipped"
+    else:
+        asset = (
+            await session.execute(
+                select(KnowledgeAsset).where(KnowledgeAsset.id == review.target_asset_id)
+            )
+        ).scalar_one()
+        version = (
+            await session.execute(
+                select(KnowledgeAssetVersion).where(
+                    KnowledgeAssetVersion.id == asset.current_version_id
+                )
+            )
+        ).scalar_one()
+
+    # The review service atomically claimed this task before materialization.
+    review.status = ReviewTaskStatus.approving.value
+    review.review_comment = comment
+    review.reviewed_at = None
+    await session.commit()
+    review_id = review.id
+    asset_id = asset.id
+    ingest_task_id = task.id
+
+    index_status = "skipped"
+    parse_status: str | None = None
+    if weknora_enabled():
+        try:
+            index_status, parse_status = await _index_asset(
+                session,
+                caller,
+                task,
+                asset,
+                version,
+                scope=KnowledgeScope.project.value,
+                owner_id=submitter_id,
+                project_id=req.target_project_id,
+                confidentiality=req.confidentiality_level.value,
+                weknora=weknora,
+                storage=storage,
+                trace_id=trace_id,
+                embedding_model_ref=req.embedding_model_ref,
+                rerank_model_ref=req.rerank_model_ref,
+            )
+        except Exception:
+            _logger.warning("project_ingest_approval_index_failed", extra={"stage": "index"})
+            await session.rollback()
+            index_status = "index_failed"
+
+    loaded_review = await session.get(ReviewTask, review_id)
+    loaded_asset = await session.get(KnowledgeAsset, asset_id)
+    loaded_task = await session.get(IngestTask, ingest_task_id)
+    assert loaded_review is not None and loaded_asset is not None and loaded_task is not None
+    review, asset, task = loaded_review, loaded_asset, loaded_task
+    if index_status not in {"indexed", "skipped"}:
+        review.status = ReviewTaskStatus.approval_failed.value
+        task.status = IngestStatus.waiting_review.value
+        await audit_service.record_event(
+            session,
+            caller=caller,
+            log_type=AuditLogType.exception,
+            action=AuditAction.review_approval_failed.value,
+            trace_id=trace_id,
+            target_type="review_task",
+            target_id=review.id,
+            after={"status": review.status, "index_status": index_status},
+            project_id=req.target_project_id,
+        )
+        await session.commit()
+        return ReviewActionResponse(
+            review_id=review.id,
+            status=review.status,
+            target_asset_id=asset.id,
+            asset_zone=None,
+            index_status=index_status,
+        )
+
+    asset.asset_status = "active"
+    task.status = IngestStatus.completed.value
+    task.target_scope = KnowledgeScope.project.value
+    task.target_project_id = req.target_project_id
+    task.target_zone = asset.zone
+    review.status = ReviewTaskStatus.approved.value
+    review.reviewed_at = datetime.now(timezone.utc)
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.review_approved.value,
+        trace_id=trace_id,
+        target_type="review_task",
+        target_id=review.id,
+        after={"status": review.status, "review_type": review.review_type},
+        project_id=req.target_project_id,
+    )
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.ingest_confirmed.value,
+        trace_id=trace_id,
+        target_type="knowledge_asset",
+        target_id=asset.id,
+        after={
+            "scope": asset.scope,
+            "zone": asset.zone,
+            "confidentiality_level": asset.confidentiality_level,
+            "ai_access_level": asset.ai_access_level,
+            "approval": "project_manager",
+        },
+        project_id=req.target_project_id,
+    )
+    await session.commit()
+    return ReviewActionResponse(
+        review_id=review.id,
+        status=review.status,
+        target_asset_id=asset.id,
+        asset_zone=asset.zone,
         index_status=index_status,
     )
 

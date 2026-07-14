@@ -8,11 +8,15 @@ import type { AuthMeVM } from "../api/auth";
 
 // 公司角色 / 项目角色技术 key（与后端 enums 一致）。
 const ADMIN_ROLE = "admin";
+const BOSS_ROLE = "boss";
+const CONSULTING_DIRECTOR_ROLE = "consulting_director";
 const PROJECT_MANAGER_ROLE = "project_manager";
 
 export interface Capabilities {
   // 系统管理员（公司角色含 admin）。admin 是系统身份，不因此拥有业务原文权限。
   isAdmin: boolean;
+  isBoss: boolean;
+  isConsultingDirector: boolean;
   // 业务用户（active 业务公司角色：boss / consulting_director / consultant）。
   isBusinessUser: boolean;
   // 业务治理角色（boss / consulting_director），等价于后端 can_discover_l5。
@@ -27,6 +31,8 @@ export function deriveCapabilities(me: AuthMeVM | null): Capabilities {
   if (!me) {
     return {
       isAdmin: false,
+      isBoss: false,
+      isConsultingDirector: false,
       isBusinessUser: false,
       isGovernance: false,
       hasProject: false,
@@ -35,6 +41,8 @@ export function deriveCapabilities(me: AuthMeVM | null): Capabilities {
   }
   return {
     isAdmin: me.companyRoles.includes(ADMIN_ROLE),
+    isBoss: me.companyRoles.includes(BOSS_ROLE),
+    isConsultingDirector: me.companyRoles.includes(CONSULTING_DIRECTOR_ROLE),
     isBusinessUser: me.isBusinessUser,
     isGovernance: me.canDiscoverL5,
     hasProject: me.projects.length > 0,

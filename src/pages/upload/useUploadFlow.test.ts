@@ -88,7 +88,10 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     ingest.fetchIngestAiResult.mockReset().mockResolvedValue(readyAiResult);
     ingest.fetchPendingIngestTasks.mockReset().mockResolvedValue([]);
     ingest.confirmIngest.mockReset().mockResolvedValue({
+      task_id: "t1",
+      status: "completed",
       result_asset_id: "a1",
+      review_id: null,
       index_status: "indexed",
     });
     modelState.current = {
@@ -135,5 +138,30 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     const { result } = renderHook(() => useUploadFlow());
     await driveToReady(result);
     expect(result.current.canSubmit).toBe(false);
+  });
+
+  it("普通顾问提交项目知识后展示真实待审批状态而非资产结果", async () => {
+    auth.fetchAuthMe.mockResolvedValue({
+      projects: [{ projectId: "project-alpha", projectName: "Alpha 项目" }],
+    });
+    ingest.confirmIngest.mockResolvedValue({
+      task_id: "t1",
+      status: "waiting_review",
+      result_asset_id: null,
+      review_id: "review-1",
+      index_status: null,
+    });
+    const { result } = renderHook(() => useUploadFlow());
+    await driveToReady(result);
+    act(() => {
+      result.current.setTargetLibrary("project");
+      result.current.setTargetProjectId("project-alpha");
+    });
+    await act(async () => {
+      await result.current.handleSubmit();
+    });
+    expect(result.current.awaitingProjectReview).toBe(true);
+    expect(result.current.resultAssetId).toBeNull();
+    expect(result.current.submitReviewId).toBe("review-1");
   });
 });

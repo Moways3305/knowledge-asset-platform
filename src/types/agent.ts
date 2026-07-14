@@ -24,3 +24,14 @@ export interface ProjectQaResponseDTO {
   trace_id: string | null;
   created_at: string;
 }
+
+export interface ProjectQaModelOptionDTO {
+  model_ref: string;
+  display_name: string;
+  is_default: boolean;
+}
+
+export interface ProjectQaModelOptionsResponseDTO {
+  items: ProjectQaModelOptionDTO[];
+  total: number;
+}

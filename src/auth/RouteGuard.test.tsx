@@ -12,6 +12,8 @@ const authState: {
   status: "authenticated",
   capabilities: {
     isAdmin: false,
+    isBoss: false,
+    isConsultingDirector: false,
     isBusinessUser: false,
     isGovernance: false,
     hasProject: false,

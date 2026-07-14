@@ -12,6 +12,8 @@ from app.seed.dev_seed import (
     KA_COMPANY_L4,
     KA_COMPANY_L5,
     KA_PROJECT_BETA_L3,
+    PROJECT_ALPHA,
+    PROJECT_BETA,
     USER_ADMIN_ONLY,
     USER_BOSS,
     USER_CONSULTANT,
@@ -101,6 +103,29 @@ async def test_project_member_can_get_original(client):
     items = (await client.get(f"{KN}?scope=project", headers=_hdr(USER_CONSULTANT))).json()["items"]
     alpha = next(i for i in items if i["title"].startswith("Alpha 项目"))
     assert alpha["access_info"]["original"] is True
+
+
+async def test_project_list_uses_exact_authorized_project_id(client):
+    response = await client.get(
+        f"{KN}?scope=project&project_id={PROJECT_ALPHA}", headers=_hdr(USER_CONSULTANT)
+    )
+    assert response.status_code == 200
+    assert response.json()["items"]
+    assert all(item["project_name"] == "Alpha 项目" for item in response.json()["items"])
+
+    denied = await client.get(
+        f"{KN}?scope=project&project_id={PROJECT_BETA}", headers=_hdr(USER_CONSULTANT)
+    )
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["denied_reason"] == "project_membership_required"
+
+
+async def test_project_id_filter_rejects_non_project_scope(client):
+    response = await client.get(
+        f"{KN}?scope=company&project_id={PROJECT_ALPHA}", headers=_hdr(USER_CONSULTANT)
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["denied_reason"] == "project_filter_scope_mismatch"
 
 
 async def test_archived_not_in_default_list(client):

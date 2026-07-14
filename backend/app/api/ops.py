@@ -272,12 +272,12 @@ def _production_blockers(
     return blockers
 
 
-def _production_warnings(s, *, kap_generation_configured: bool) -> list[str]:
+def _production_warnings(s, *, external_llm_configured: bool) -> list[str]:
     """生产**软提醒**项名：不阻断上线但建议运维确认。仅安全项名。"""
     warnings: list[str] = []
     # KAP 内容生成模型未配置 → 标题/摘要/标签建议降级为确定性草稿，系统仍可用。
-    if not kap_generation_configured:
-        warnings.append("KAP_GENERATION_MODEL_NOT_CONFIGURED")
+    if not external_llm_configured:
+        warnings.append("EXTERNAL_LLM_NOT_CONFIGURED")
     # WeKnora 未配置 → 检索 / 索引降级（dev 可接受，生产一般应接真实底座）。
     if not weknora_enabled():
         warnings.append("WEKNORA_NOT_CONFIGURED")
@@ -293,7 +293,7 @@ async def health_config(session: AsyncSession = Depends(get_db)) -> dict:
     s = get_settings()
     defaults = await weknora_defaults.get_defaults(session)
     generation_product_configured = await generation_models.product_configuration_exists(session)
-    kap_generation_configured = await generation_models.generation_model_configured(session)
+    external_llm_configured = await generation_models.generation_model_configured(session)
     default_embedding_ok = bool(defaults and (defaults.default_embedding_model_id or "").strip())
     default_chat_ok = bool(defaults and (defaults.default_chat_model_id or "").strip())
     blockers = _production_blockers(
@@ -307,8 +307,11 @@ async def health_config(session: AsyncSession = Depends(get_db)) -> dict:
         "version": _VERSION,
         "integrations": {
             "weknora_enabled": weknora_enabled(),
+            "weknora_foundation_defaults_configured": default_embedding_ok and default_chat_ok,
             "llm_enabled": llm_enabled(),
-            "kap_generation_model_configured": kap_generation_configured,
+            "external_llm_configured": external_llm_configured,
+            # Compatibility alias for existing operational dashboards.
+            "kap_generation_model_configured": external_llm_configured,
             "llm_provider": s.llm_provider or None,  # provider 名（如 deepseek）安全，非密钥
             "wecom_enabled": wecom_enabled(),
             "wecom_notify_enabled": bool(s.wecom_notify_enabled),
@@ -327,7 +330,7 @@ async def health_config(session: AsyncSession = Depends(get_db)) -> dict:
         "production_ready": s.app_env == "prod" and not blockers,
         "production_blockers": blockers,
         "production_warnings": _production_warnings(
-            s, kap_generation_configured=kap_generation_configured
+            s, external_llm_configured=external_llm_configured
         ),
     }
 
