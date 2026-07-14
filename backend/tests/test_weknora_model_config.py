@@ -96,24 +96,41 @@ class FakeModelsWK:
         self.models.pop(model_id, None)
 
     async def get_initialization_config(self, kb_id, *, trace_id=None):
-        return self.kb_configs.get(kb_id, {"embedding_model_id": "mid-emb"})
+        return {"hasFiles": False}
+
+    async def get_kb(self, kb_id, *, trace_id=None):
+        return self.kb_configs.get(
+            kb_id,
+            {
+                "summary_model_id": "mid-chat",
+                "embedding_model_id": "mid-emb",
+                "chunking_config": {
+                    "chunk_size": 640,
+                    "chunk_overlap": 64,
+                    "separators": ["\n\n", "\n"],
+                    "enable_parent_child": True,
+                    "parent_chunk_size": 2048,
+                    "child_chunk_size": 256,
+                },
+                "vlm_config": {"enabled": False},
+                "asr_config": {"enabled": False},
+                "storage_provider_config": {"provider": "local"},
+                "extract_config": {"enabled": False},
+                "question_generation_config": {"enabled": False, "question_count": 4},
+                "knowledge_count": 0,
+            },
+        )
 
     async def update_initialization_config(
         self,
         kb_id,
         *,
-        chat_model_id=None,
-        embedding_model_id=None,
-        rerank_model_id=None,
-        multimodal_id=None,
+        config,
         trace_id=None,
     ):
         self.last_init = {
             "kb_id": kb_id,
-            "chat": chat_model_id,
-            "embedding": embedding_model_id,
-            "rerank": rerank_model_id,
-            "multimodal": multimodal_id,
+            "config": config,
         }
         return {"success": True}
 
@@ -298,10 +315,109 @@ async def test_update_kb_init_resolves_ref_to_server_id(client, wk, db_session):
         json={"embedding_model_ref": emb_ref},
     )
     assert r.status_code == 200, r.text
-    # 底座收到真实 server-only model id（mid-emb），不是 ref。
-    assert wk.last_init["embedding"] == "mid-emb"
-    assert wk.last_init["embedding"] != emb_ref
+    # 底座收到当前 camelCase 完整契约，未编辑的问答与切分配置保持不变。
+    config = wk.last_init["config"]
+    assert config["embeddingModelId"] == "mid-emb"
+    assert config["embeddingModelId"] != emb_ref
+    assert config["llmModelId"] == "mid-chat"
+    assert config["documentSplitting"]["chunkSize"] == 640
+    assert config["documentSplitting"]["enableParentChild"] is True
+    assert not {
+        "chat_model_id",
+        "embedding_model_id",
+        "rerank_model_id",
+        "multimodal_id",
+    }.intersection(config)
     assert "mid-emb" not in r.text and "wk-kb-" not in r.text
+
+
+async def test_update_kb_init_merges_chat_and_embedding_after_upstream_success(
+    client, wk, db_session
+):
+    wk.models["server-chat-next"] = {
+        "id": "server-chat-next",
+        "name": "chat-next",
+        "type": "KnowledgeQA",
+        "source": "remote",
+        "status": "active",
+        "parameters": {"provider": "provider"},
+    }
+    wk.models["server-embedding-next"] = {
+        "id": "server-embedding-next",
+        "name": "embedding-next",
+        "type": "Embedding",
+        "source": "remote",
+        "status": "active",
+        "parameters": {"provider": "provider"},
+    }
+    mp = (
+        (
+            await db_session.execute(
+                select(WeknoraKbMapping).where(WeknoraKbMapping.scope == "company")
+            )
+        )
+        .scalars()
+        .first()
+    )
+    models = (await client.get(f"{BASE}/models", headers=_hdr(USER_ADMIN_ONLY))).json()["items"]
+    refs = {model["name"]: model["model_ref"] for model in models}
+
+    response = await client.put(
+        f"{BASE}/kb-configs/{mp.id}/initialization",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={
+            "chat_model_ref": refs["chat-next"],
+            "embedding_model_ref": refs["embedding-next"],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert wk.last_init["config"]["llmModelId"] == "server-chat-next"
+    assert wk.last_init["config"]["embeddingModelId"] == "server-embedding-next"
+    assert wk.last_init["config"]["documentSplitting"]["separators"] == ["\n\n", "\n"]
+    await db_session.refresh(mp)
+    assert mp.embedding_model_id == "server-embedding-next"
+    for token in ("server-chat-next", "server-embedding-next", "wk-kb-company"):
+        assert token not in response.text
+
+
+async def test_update_kb_init_keeps_embedding_locked_when_files_exist(client, wk, db_session):
+    wk.models["server-embedding-next"] = {
+        "id": "server-embedding-next",
+        "name": "embedding-next",
+        "type": "Embedding",
+        "source": "remote",
+        "status": "active",
+        "parameters": {"provider": "provider"},
+    }
+
+    async def _with_files(kb_id, *, trace_id=None):
+        return {"hasFiles": True}
+
+    wk.get_initialization_config = _with_files
+    mp = (
+        (
+            await db_session.execute(
+                select(WeknoraKbMapping).where(WeknoraKbMapping.scope == "company")
+            )
+        )
+        .scalars()
+        .first()
+    )
+    models = (await client.get(f"{BASE}/models", headers=_hdr(USER_ADMIN_ONLY))).json()["items"]
+    embedding_ref = next(
+        model["model_ref"] for model in models if model["name"] == "embedding-next"
+    )
+
+    response = await client.put(
+        f"{BASE}/kb-configs/{mp.id}/initialization",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"embedding_model_ref": embedding_ref},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["denied_reason"] == "weknora_embedding_locked"
+    assert wk.last_init is None
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +477,7 @@ class _LeakyCheckWK(FakeModelsWK):
 
 class _LeakyInitWK(FakeModelsWK):
     async def update_initialization_config(self, kb_id, **_):
-        raise WeKnoraError("init_400", f"fail {_SECRET} {_URL} {kb_id} mid-emb")
+        raise WeKnoraError("init_400", f"fail {_SECRET} {_URL} {kb_id} mid-emb", status_code=400)
 
 
 def _install(monkeypatch, fake):
@@ -439,12 +555,31 @@ async def test_kb_init_upstream_error_no_leak(client, monkeypatch, db_session):
         )
         models = (await client.get(f"{BASE}/models", headers=_hdr(USER_ADMIN_ONLY))).json()["items"]
         emb_ref = next(m["model_ref"] for m in models if m["type"] == "embedding")
+        original_status = mp.status
+        original_embedding = mp.embedding_model_id
         r = await client.put(
             f"{BASE}/kb-configs/{mp.id}/initialization",
             headers=_hdr(USER_ADMIN_ONLY),
             json={"embedding_model_ref": emb_ref},
         )
         assert r.status_code == 502, r.text
+        assert r.json()["detail"] == {
+            "denied_reason": "weknora_kb_config_rejected",
+            "message": "知识库配置被底座拒绝，请检查所选模型是否兼容",
+        }
+        await db_session.refresh(mp)
+        assert mp.status == original_status
+        assert mp.embedding_model_id == original_embedding
+        saved = (
+            (
+                await db_session.execute(
+                    select(AuditEvent).where(AuditEvent.action == "weknora.kb_config_updated")
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert saved == []
         for token in _LEAK_TOKENS + ["wk-kb-company"]:
             assert token not in r.text
     finally:

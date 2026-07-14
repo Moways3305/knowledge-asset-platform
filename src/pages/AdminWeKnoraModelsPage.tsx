@@ -17,6 +17,25 @@ const mappingStatusLabel: Record<string, string> = {
   init_failed: "初始化失败",
 };
 
+function kbUpdateErrorMessage(caught: unknown): string {
+  if (caught instanceof ApiError) {
+    const messages: Record<string, string> = {
+      weknora_kb_config_rejected: "知识库配置被底座拒绝，请检查所选模型是否兼容",
+      weknora_embedding_locked: "知识库已有文件，不能更换嵌入模型",
+      weknora_model_type_mismatch: "所选模型类型与配置项不匹配",
+      weknora_model_slot_unsupported: "当前底座不支持按知识库更新该模型",
+      weknora_kb_chat_model_missing: "知识库当前未配置问答模型，请先选择问答模型",
+    };
+    if (caught.deniedReason && messages[caught.deniedReason]) {
+      return messages[caught.deniedReason];
+    }
+    if (caught.status >= 400 && caught.status < 500) {
+      return "知识库配置未保存，请检查所选模型";
+    }
+  }
+  return "模型连接服务暂不可用，请稍后重试";
+}
+
 export default function AdminWeKnoraModelsPage() {
   const { capabilities } = useAuth();
   const [models, setModels] = useState<ModelDTO[]>([]);
@@ -190,7 +209,7 @@ function KbConfigRow({
       await updateWeknoraKbInit(cfg.mapping_id, body);
       onSaved(`知识库「${cfg.kb_name}」配置已更新`);
     } catch (caught) {
-      onError(caught instanceof ApiError ? caught.message : "更新知识库配置失败");
+      onError(kbUpdateErrorMessage(caught));
     } finally {
       setBusy(false);
     }

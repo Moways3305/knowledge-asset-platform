@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import uuid
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -278,6 +278,67 @@ async def _id_meta_map(client: _CheckClient, trace_id: str | None) -> dict[str, 
     return {str(m["id"]): _to_model_out(m) for m in raw if isinstance(m, dict) and m.get("id")}
 
 
+def _dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _kb_update_config(kb: dict[str, Any]) -> dict[str, Any]:
+    """Convert the current KB resource to WeKnora's complete update DTO.
+
+    The current WeKnora PUT handler treats omitted non-pointer fields as zero values, so preserving
+    the existing KB resource is required even when KAP changes only one model slot.
+    """
+    chunking = _dict(kb.get("chunking_config"))
+    vlm = dict(_dict(kb.get("vlm_config")))
+    asr = dict(_dict(kb.get("asr_config")))
+    extract = _dict(kb.get("extract_config"))
+    questions = _dict(kb.get("question_generation_config"))
+    storage = _dict(kb.get("storage_provider_config"))
+    legacy_storage = _dict(kb.get("storage_config"))
+
+    document_splitting: dict[str, Any] = {
+        "chunkSize": chunking.get("chunk_size", 512),
+        "chunkOverlap": chunking.get("chunk_overlap", 80),
+        "separators": chunking.get("separators") or ["\n\n", "\n", "。", "！", "？", ";", "；"],
+        "parserEngineRules": chunking.get("parser_engine_rules") or [],
+        "enableParentChild": bool(chunking.get("enable_parent_child", False)),
+        "parentChunkSize": chunking.get("parent_chunk_size", 0),
+        "childChunkSize": chunking.get("child_chunk_size", 0),
+    }
+    for source_key, target_key in (
+        ("strategy", "strategy"),
+        ("token_limit", "tokenLimit"),
+        ("languages", "languages"),
+        ("table_metadata_instructions", "tableMetadataInstructions"),
+    ):
+        if source_key in chunking:
+            document_splitting[target_key] = chunking[source_key]
+
+    provider = storage.get("provider") or legacy_storage.get("provider") or "local"
+    return {
+        "llmModelId": kb.get("summary_model_id"),
+        "embeddingModelId": kb.get("embedding_model_id") or "",
+        "vlm_config": vlm,
+        "asr_config": asr,
+        "documentSplitting": document_splitting,
+        "multimodal": {"enabled": bool(vlm.get("enabled", False))},
+        "storageProvider": provider,
+        "nodeExtract": {
+            "enabled": bool(extract.get("enabled", False)),
+            "text": extract.get("text") or "",
+            "tags": extract.get("tags") or [],
+            "nodes": extract.get("nodes") or [],
+            "relations": extract.get("relations") or [],
+            "customInstructions": extract.get("custom_instructions") or "",
+        },
+        "questionGeneration": {
+            "enabled": bool(questions.get("enabled", False)),
+            "questionCount": questions.get("question_count") or 3,
+            "customInstructions": questions.get("custom_instructions") or "",
+        },
+    }
+
+
 async def list_kb_configs(
     session: AsyncSession, client: _CheckClient, *, trace_id: str | None
 ) -> list[KbConfigOut]:
@@ -311,15 +372,14 @@ async def list_kb_configs(
         chat = embedding = rerank = multimodal = None
         config_error = None
         try:
-            cfg = await client.get_initialization_config(mp.weknora_kb_id, trace_id=trace_id)
+            cfg = await client.get_kb(mp.weknora_kb_id, trace_id=trace_id)
         except WeKnoraError:
             cfg = None
             config_error = "读取底座初始化配置失败，可重试或检查底座可用性"
         if cfg:
-            chat = _slot(cfg.get("chat_model_id"), id_meta)
+            chat = _slot(cfg.get("summary_model_id"), id_meta)
             embedding = _slot(cfg.get("embedding_model_id"), id_meta)
-            rerank = _slot(cfg.get("rerank_model_id"), id_meta)
-            multimodal = _slot(cfg.get("multimodal_id"), id_meta)
+            multimodal = _slot(_dict(cfg.get("vlm_config")).get("model_id"), id_meta)
         items.append(
             KbConfigOut(
                 mapping_id=mp.id,
@@ -351,23 +411,61 @@ async def update_kb_init(
     if mp is None:
         raise _denied(404, "weknora_kb_mapping_not_found", "知识库映射不存在")
     refs = {
-        "chat_model_id": req.chat_model_ref,
-        "embedding_model_id": req.embedding_model_ref,
-        "rerank_model_id": req.rerank_model_ref,
-        "multimodal_id": req.multimodal_ref,
+        "chat": req.chat_model_ref,
+        "embedding": req.embedding_model_ref,
+        "rerank": req.rerank_model_ref,
+        "vllm": req.multimodal_ref,
     }
     provided = {k: v for k, v in refs.items() if v}
     if not provided:
         raise _denied(422, "no_model_selected", "至少选择一个模型")
-    ref_map = await _ref_to_id_map(client, trace_id)
-    resolved: dict = {}
+    raw_models = await client.list_models(trace_id=trace_id)
+    ref_map = {
+        _model_ref(str(model["id"])): model
+        for model in raw_models
+        if isinstance(model, dict) and model.get("id")
+    }
+    resolved: dict[str, str] = {}
     for slot, ref in provided.items():
-        mid = ref_map.get(ref)
-        if mid is None:
+        model = ref_map.get(ref)
+        if model is None:
             raise _denied(404, "weknora_model_not_found", "所选模型不存在")
-        resolved[slot] = mid
-    # 调底座更新初始化配置（失败抛 WeKnoraError，API 转安全 502，mapping 状态不变）。
-    await client.update_initialization_config(mp.weknora_kb_id, trace_id=trace_id, **resolved)
+        if _alias(model.get("type")) != slot:
+            raise _denied(422, "weknora_model_type_mismatch", "所选模型类型与配置项不匹配")
+        resolved[slot] = str(model["id"])
+    if "rerank" in resolved:
+        raise _denied(422, "weknora_model_slot_unsupported", "当前底座不支持按知识库更新重排模型")
+
+    # PUT 接口要求完整配置。先读取现有资源与 hasFiles，只在内存中合并本次模型变更。
+    current_kb = await client.get_kb(mp.weknora_kb_id, trace_id=trace_id)
+    current_init = await client.get_initialization_config(mp.weknora_kb_id, trace_id=trace_id)
+    config = _kb_update_config(current_kb)
+    if "chat" in resolved:
+        config["llmModelId"] = resolved["chat"]
+    if not str(config.get("llmModelId") or "").strip():
+        raise _denied(
+            409, "weknora_kb_chat_model_missing", "知识库当前未配置问答模型，请先选择问答模型"
+        )
+
+    current_embedding = str(current_kb.get("embedding_model_id") or mp.embedding_model_id or "")
+    next_embedding = resolved.get("embedding", current_embedding)
+    has_files = (
+        bool(current_init.get("hasFiles")) or int(current_kb.get("knowledge_count") or 0) > 0
+    )
+    if next_embedding and current_embedding and next_embedding != current_embedding and has_files:
+        raise _denied(409, "weknora_embedding_locked", "知识库已有文件，不能更换嵌入模型")
+    config["embeddingModelId"] = next_embedding
+
+    if "vllm" in resolved:
+        vlm = dict(_dict(config.get("vlm_config")))
+        vlm.update({"enabled": True, "model_id": resolved["vllm"]})
+        config["vlm_config"] = vlm
+        config["multimodal"] = {"enabled": True}
+
+    # 失败抛 WeKnoraError；此调用之前不写 mapping，失败时数据库和现有索引保持不变。
+    await client.update_initialization_config(mp.weknora_kb_id, config=config, trace_id=trace_id)
+    if next_embedding:
+        mp.embedding_model_id = next_embedding
     # 成功：init_failed 映射恢复 active（与 ensure-initialized 语义一致）。
     if mp.status == "init_failed":
         mp.status = "active"

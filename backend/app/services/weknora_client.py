@@ -44,9 +44,10 @@ def _resource_of(path: str) -> str:
 class WeKnoraError(Exception):
     """WeKnora 调用失败（结构化，不含 api_key）。"""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, *, status_code: int | None = None) -> None:
         self.code = code
         self.message = message
+        self.status_code = status_code
         super().__init__(f"{code}: {message}")
 
 
@@ -99,6 +100,7 @@ class WeKnoraClient:
             raise WeKnoraError(
                 str(err.get("code") or f"http_{resp.status_code}"),
                 str(err.get("message") or "WeKnora 调用失败"),
+                status_code=resp.status_code,
             )
         return body.get("data") or {}
 
@@ -175,8 +177,8 @@ class WeKnoraClient:
     ) -> dict[str, Any]:
         """读 KB 当前模型初始化配置（`GET /initialization/config/:kb_id`）。
 
-        返回 chat/embedding/rerank/multimodal 模型 id（WeKnora 内部 id，server-only，
-        绝不外泄前端 / 审计）。供运维诊断「KB 是否已配齐模型」。
+        返回底座的脱敏展示配置。当前契约不保证返回模型 id；需要更新配置时应从
+        `GET /knowledge-bases/:id` 读取完整的 server-only KB 配置。
         """
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.get(
@@ -491,26 +493,27 @@ class WeKnoraClient:
         self,
         kb_id: str,
         *,
-        chat_model_id: str | None = None,
-        embedding_model_id: str | None = None,
-        rerank_model_id: str | None = None,
-        multimodal_id: str | None = None,
+        config: dict[str, Any],
         trace_id: str | None = None,
-    ) -> dict[str, Any] | None:
-        """更新 KB 模型初始化配置（`PUT /initialization/config/:kb_id`）。只发非空字段。"""
-        payload: dict[str, Any] = {}
-        if chat_model_id:
-            payload["chat_model_id"] = chat_model_id
-        if embedding_model_id:
-            payload["embedding_model_id"] = embedding_model_id
-        if rerank_model_id:
-            payload["rerank_model_id"] = rerank_model_id
-        if multimodal_id:
-            payload["multimodal_id"] = multimodal_id
-        if not payload:
-            return None
+    ) -> dict[str, Any]:
+        """按当前 WeKnora 契约更新已有 KB，不触发重新初始化或重建。
+
+        `llmModelId` 是必填字段；其余完整配置由上层从当前 KB 读取后合并。旧版
+        snake_case `*_model_id` 字段在此 fail closed，避免再次向生产发送无效协议。
+        """
+        legacy_keys = {
+            "chat_model_id",
+            "embedding_model_id",
+            "rerank_model_id",
+            "multimodal_id",
+        }
+        if not str(config.get("llmModelId") or "").strip() or legacy_keys.intersection(config):
+            raise WeKnoraError(
+                "weknora_kb_update_contract_invalid",
+                "知识库配置更新请求不符合当前底座契约",
+            )
         result: dict[str, Any] = await self._call(
-            "PUT", f"/initialization/config/{kb_id}", json=payload, trace_id=trace_id
+            "PUT", f"/initialization/config/{kb_id}", json=config, trace_id=trace_id
         )
         return result
 
