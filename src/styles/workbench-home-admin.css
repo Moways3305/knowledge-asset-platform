@@ -3,47 +3,6 @@
    Loaded after workbench.css. Extends the Dossier Desk language.
    ========================================================================== */
 
-:root {
-  --color-teal: #1f9baa; /* echoes the teal O in the MOWAYS mark */
-  --color-teal-soft: #e3f2f4;
-}
-
-/* ---- Brand --------------------------------------------------------------- */
-.rail-mark {
-  font-family: var(--font-sans);
-  font-weight: 700;
-  font-size: 21px;
-  letter-spacing: 0.16em;
-}
-.rail-mark::after {
-  width: 30px;
-  background: linear-gradient(90deg, var(--color-gold) 0%, var(--color-teal) 100%);
-}
-.rail-sub {
-  letter-spacing: 0.05em;
-}
-.rail-group-lead {
-  margin-top: 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--rail-divider);
-}
-
-.deck-brand {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-.deck-logo {
-  height: 26px;
-  width: auto;
-  display: block;
-}
-@media (max-width: 560px) {
-  .deck-logo {
-    height: 22px;
-  }
-}
-
 /* ---- Home dashboard ------------------------------------------------------ */
 .home {
   max-width: 1180px;

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   Disclosure,
   EmptyState,
+  FilterBar,
   PageHeader,
   PageSection,
   PageToolbar,
@@ -53,5 +54,17 @@ describe("ProductLayout primitives", () => {
     );
     expect(screen.getByRole("button", { name: "上传" })).toBeInTheDocument();
     expect(screen.getByText("查看管理说明").closest("details")).not.toHaveAttribute("open");
+  });
+
+  it("provides an accessible filter bar without duplicating the page toolbar", () => {
+    render(
+      <FilterBar actions={<button>清除筛选</button>}>
+        <select aria-label="状态">
+          <option>全部</option>
+        </select>
+      </FilterBar>,
+    );
+    expect(screen.getByRole("search", { name: "筛选条件" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "清除筛选" })).toBeInTheDocument();
   });
 });

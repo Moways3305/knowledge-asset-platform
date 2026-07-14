@@ -36,8 +36,9 @@ const ROUTES = [
 ];
 
 const VIEWPORTS = [
-  ["desktop", 1440, 900],
-  ["narrow", 390, 844],
+  ["desktop-1440", 1440, 900],
+  ["desktop-1920", 1920, 1080],
+  ["mobile-390", 390, 844],
 ];
 
 const results = [];
@@ -72,8 +73,10 @@ for (const [vpName, w, h] of VIEWPORTS) {
       }),
     );
   }
-  const page = await ctx.newPage();
   for (const [name, route] of ROUTES) {
+    // A fresh page per route prevents Chromium compositor tiles from leaking across repeated SPA
+    // navigation, which otherwise can create black screenshot regions despite correct DOM colors.
+    const page = await ctx.newPage();
     try {
       await page.goto(`${BASE}${route}`, { waitUntil: "networkidle", timeout: 15000 });
     } catch {
@@ -95,10 +98,35 @@ for (const [vpName, w, h] of VIEWPORTS) {
           offenders.push(`${el.tagName.toLowerCase()}.${cls}`.slice(0, 60));
         }
       });
-      return { overflowX, offenders: [...new Set(offenders)].slice(0, 8) };
+      const rail = document.querySelector(".rail")?.getBoundingClientRect();
+      const main = document.querySelector(".app-main")?.getBoundingClientRect();
+      const deck = document.querySelector(".deck")?.getBoundingClientRect();
+      const content = document.querySelector(".app-content")?.getBoundingClientRect();
+      const desktopShell = vw >= 1024;
+      const shellOverlap = Boolean(
+        desktopShell &&
+        rail &&
+        main &&
+        deck &&
+        content &&
+        (rail.right > main.left + 1 || deck.bottom > content.top + 1),
+      );
+      const visibleNavLinks = document.querySelectorAll(".rail-nav a").length;
+      const brokenNavigation = visibleNavLinks === 0 || (main?.width ?? 0) <= 0;
+      return {
+        overflowX,
+        offenders: [...new Set(offenders)].slice(0, 8),
+        shellOverlap,
+        brokenNavigation,
+        visibleNavLinks,
+      };
     });
-    await page.screenshot({ path: `${outDir}/${vpName}-${name}.png`, fullPage: true });
-    results.push({ vp: vpName, name, overflowX: metrics.overflowX, offenders: metrics.offenders });
+    // The shell owns its internal scroll regions, so viewport screenshots represent the actual
+    // desktop frame. Chromium fullPage capture can produce black compositor tiles after repeated
+    // SPA navigation even when computed colors and a fresh-page screenshot are correct.
+    await page.screenshot({ path: `${outDir}/${vpName}-${name}.png` });
+    results.push({ vp: vpName, name, ...metrics });
+    await page.close();
   }
   await ctx.close();
 }
@@ -106,19 +134,22 @@ await browser.close();
 
 let report = `# UI QA (${label})\n`;
 for (const r of results) {
-  const flag = r.overflowX > 2 ? "  <-- HORIZONTAL OVERFLOW" : "";
+  const failed = r.overflowX > 2 || r.shellOverlap || r.brokenNavigation;
+  const flag = failed ? "  <-- LAYOUT FAILURE" : "";
   report += `${r.vp.padEnd(8)} ${r.name.padEnd(20)} overflowX=${r.overflowX}px${flag}\n`;
   if (r.offenders.length) report += `         offenders: ${r.offenders.join(", ")}\n`;
+  if (r.shellOverlap) report += "         shell overlap detected\n";
+  if (r.brokenNavigation) report += `         broken navigation (${r.visibleNavLinks} links)\n`;
 }
 fs.writeFileSync(`${outDir}/report.txt`, report);
 console.log(report);
 
 // 与上方 HORIZONTAL OVERFLOW 标记同一阈值（>2px，容忍亚像素取整抖动）；
 // 任一路由命中即非零退出，供 CI 判失败。
-const overflowed = results.filter((r) => r.overflowX > 2);
-if (overflowed.length) {
+const failed = results.filter((r) => r.overflowX > 2 || r.shellOverlap || r.brokenNavigation);
+if (failed.length) {
   console.error(
-    `UI QA failed: ${overflowed.length} route/viewport combination(s) with horizontal overflow.`,
+    `UI QA failed: ${failed.length} route/viewport combination(s) with layout failures.`,
   );
   process.exit(1);
 }

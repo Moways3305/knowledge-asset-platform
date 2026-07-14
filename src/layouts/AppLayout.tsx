@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -18,6 +18,8 @@ import {
   KeySquare,
   Users,
   LifeBuoy,
+  PanelLeftClose,
+  PanelLeftOpen,
   type LucideIcon,
 } from "lucide-react";
 import IdentityMenu from "../components/IdentityMenu";
@@ -90,19 +92,33 @@ const navGroups: NavGroup[] = [
   },
 ];
 
-function RailLink({ item }: { item: NavItem }) {
+function RailLink({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
   const Icon = item.icon;
   return (
     <li>
-      <NavLink to={item.to} end={item.end} className={({ isActive }) => (isActive ? "active" : "")}>
-        <Icon size={16} className="rail-icon" strokeWidth={1.75} />
+      <NavLink
+        to={item.to}
+        end={item.end}
+        className={({ isActive }) => (isActive ? "active" : "")}
+        aria-label={item.label}
+        title={collapsed ? item.label : undefined}
+      >
+        <Icon size={18} className="rail-icon" strokeWidth={1.8} aria-hidden="true" />
         <span className="rail-label">{item.label}</span>
       </NavLink>
     </li>
   );
 }
 
-function RailNav({ capabilities, projectId }: { capabilities: Capabilities; projectId?: string }) {
+function RailNav({
+  capabilities,
+  projectId,
+  collapsed,
+}: {
+  capabilities: Capabilities;
+  projectId?: string;
+  collapsed: boolean;
+}) {
   // 按能力过滤：隐藏当前身份无意义的入口，并丢弃过滤后变空的分组（不留空标题）。
   const groups = navGroups
     .map((group) => ({
@@ -116,11 +132,11 @@ function RailNav({ capabilities, projectId }: { capabilities: Capabilities; proj
     }))
     .filter((group) => group.items.length > 0);
   return (
-    <nav className="rail-nav">
+    <nav className="rail-nav" id="primary-navigation" aria-label="主导航">
       {homeItem.cap(capabilities) && (
         <div className="rail-group rail-group-lead">
           <ul>
-            <RailLink item={homeItem} />
+            <RailLink item={homeItem} collapsed={collapsed} />
           </ul>
         </div>
       )}
@@ -129,7 +145,7 @@ function RailNav({ capabilities, projectId }: { capabilities: Capabilities; proj
           <div className="rail-group-label">{group.label}</div>
           <ul>
             {group.items.map((item) => (
-              <RailLink key={item.to} item={item} />
+              <RailLink key={item.to} item={item} collapsed={collapsed} />
             ))}
           </ul>
         </div>
@@ -141,14 +157,34 @@ function RailNav({ capabilities, projectId }: { capabilities: Capabilities; proj
 function AppShell() {
   const { authMe, capabilities } = useAuth();
   const firstProjectId = authMe?.projects[0]?.projectId;
+  const [railCollapsed, setRailCollapsed] = useState(false);
   return (
-    <div className="app-layout">
-      <aside className="rail">
+    <div className={`app-layout ${railCollapsed ? "is-rail-collapsed" : ""}`}>
+      <aside className="rail" aria-label="产品导航">
         <div className="rail-brand">
-          <span className="rail-mark">Kivo</span>
+          <div className="rail-brand-row">
+            <span className="rail-mark" aria-label="Kivo">
+              Kivo
+            </span>
+            <button
+              type="button"
+              className="rail-collapse"
+              onClick={() => setRailCollapsed((value) => !value)}
+              aria-label={railCollapsed ? "展开主导航" : "折叠主导航"}
+              aria-expanded={!railCollapsed}
+              aria-controls="primary-navigation"
+              title={railCollapsed ? "展开主导航" : "折叠主导航"}
+            >
+              {railCollapsed ? (
+                <PanelLeftOpen size={18} aria-hidden="true" />
+              ) : (
+                <PanelLeftClose size={18} aria-hidden="true" />
+              )}
+            </button>
+          </div>
           <span className="rail-sub">博维知识资产平台</span>
         </div>
-        <RailNav capabilities={capabilities} projectId={firstProjectId} />
+        <RailNav capabilities={capabilities} projectId={firstProjectId} collapsed={railCollapsed} />
         <div className="rail-foot">
           <span className="rail-foot-line">知识资产与交付治理</span>
         </div>
@@ -157,8 +193,12 @@ function AppShell() {
       <div className="app-main">
         <header className="deck">
           <div className="deck-brand">
-            {/* 真实公司品牌资产；产品名见左侧导航 */}
             <img className="deck-logo" src={logoUrl} alt="MOWAYS 博维咨询" />
+            <span className="deck-divider" aria-hidden="true" />
+            <span className="deck-product">
+              <strong>智能知识资产工作台</strong>
+              <small>知识资产与交付治理</small>
+            </span>
           </div>
           <div className="deck-identity">
             <IdentityMenu />

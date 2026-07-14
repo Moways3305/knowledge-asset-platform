@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Button from "./Button";
 
 // 统一页面三态骨架：按优先级渲染 加载中 / 无权限(forbidden) / 加载失败 / 空态 中的
 // 第一个命中项；都不命中则返回 null（由调用方渲染正常内容）。各页面已有的状态容器
@@ -41,9 +42,9 @@ export default function LoadingError({
   onRetry,
   retryText = "重试",
   children,
-  wrapperClassName = "state-box",
-  titleClassName = "state-title",
-  descClassName = "state-desc",
+  wrapperClassName = "product-state",
+  titleClassName = "product-state-title",
+  descClassName = "product-state-description",
 }: LoadingErrorProps) {
   if (loading) {
     return (
@@ -66,9 +67,9 @@ export default function LoadingError({
         <div className={titleClassName}>{errorTitle}</div>
         <p className={descClassName}>{error}</p>
         {onRetry && (
-          <button className="btn-small" onClick={onRetry}>
+          <Button size="small" onClick={onRetry}>
             {retryText}
-          </button>
+          </Button>
         )}
       </div>
     );

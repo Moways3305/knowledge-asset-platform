@@ -7,71 +7,109 @@
 
 /* ---- App frame: rail + main column ---------------------------------------- */
 .app-layout {
+  display: flex;
   flex-direction: row;
-  min-height: 100vh;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .rail {
-  width: 252px;
+  width: var(--shell-rail-width);
   flex-shrink: 0;
-  align-self: stretch;
-  position: sticky;
-  top: 0;
-  height: 100vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(168deg, var(--rail-bg-top) 0%, var(--rail-bg-bottom) 100%);
+  background: var(--color-primary);
   color: var(--rail-text);
-  border-right: 1px solid rgba(0, 0, 0, 0.25);
-  overflow-y: auto;
-  overflow-x: hidden;
+  border-right: 1px solid var(--color-primary-deep);
+  overflow: hidden;
+  transition: width 160ms ease;
 }
-/* faint gold seam at the very top of the rail — the quiet signature */
+/* The gold rule is the shell's single visual signature and mirrors the source artwork. */
 .rail::before {
   content: "";
-  position: sticky;
-  top: 0;
-  display: block;
+  flex: 0 0 auto;
   height: 2px;
-  background: linear-gradient(90deg, var(--color-gold) 0%, rgba(201, 169, 98, 0) 75%);
-  z-index: 1;
+  background: var(--color-gold);
 }
 
 .rail-brand {
-  padding: 22px 24px 18px;
+  padding: 20px 18px 16px 22px;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  border-bottom: 1px solid var(--rail-divider);
+}
+.rail-brand-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.rail-collapse {
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--rail-text);
+  cursor: pointer;
+}
+.rail-collapse:hover {
+  border-color: rgba(255, 255, 255, 0.34);
+  background: var(--rail-hover);
+  color: #fff;
+}
+.rail-collapse:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
 }
 .rail-mark {
-  font-family: var(--font-serif);
-  font-size: 27px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-family: var(--font-sans);
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
   color: #fff;
   line-height: 1;
 }
 .rail-mark::after {
   content: "";
   display: block;
-  width: 26px;
+  width: 30px;
   height: 2px;
   margin-top: 9px;
   background: var(--color-gold);
 }
 .rail-sub {
   font-size: 11px;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.05em;
   color: var(--rail-text-dim);
 }
 
 .rail-nav {
   flex: 1;
+  min-height: 0;
   padding: 4px 0 14px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
 }
 
 .rail-group {
   margin-top: 14px;
+}
+.rail-group-lead {
+  margin-top: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rail-divider);
 }
 .rail-group-label {
   display: flex;
@@ -149,20 +187,19 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
   overflow: hidden;
 }
 
 .deck {
   flex-shrink: 0;
-  height: 60px;
+  min-height: var(--shell-header-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 0 28px;
-  background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: saturate(1.1) blur(6px);
+  padding: 0 30px;
+  background: var(--color-bg-surface);
   border-bottom: 1px solid var(--color-border);
   /* sit above the scrolling workspace so the identity popover is never covered */
   position: relative;
@@ -188,6 +225,7 @@
   color: var(--color-text-heading);
 }
 .deck-identity {
+  min-width: 0;
   flex-shrink: 0;
 }
 
@@ -195,11 +233,76 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 30px 32px 56px;
-  background:
-    radial-gradient(1200px 480px at 78% -8%, rgba(74, 111, 165, 0.06), transparent 60%),
-    var(--paper);
+  padding: var(--shell-content-padding-y) var(--shell-content-padding-x) 56px;
+  background: var(--paper);
   min-width: 0;
+  overscroll-behavior: contain;
+}
+
+.deck-brand {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.deck-logo {
+  width: auto;
+  height: 26px;
+  display: block;
+  flex: 0 0 auto;
+}
+.deck-divider {
+  width: 1px;
+  height: 28px;
+  flex: 0 0 auto;
+  background: var(--color-border);
+}
+.deck-product {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.deck-product strong {
+  overflow: hidden;
+  color: var(--color-text-heading);
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.deck-product small {
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-layout.is-rail-collapsed .rail {
+  width: var(--shell-rail-collapsed-width);
+}
+.app-layout.is-rail-collapsed .rail-brand {
+  padding-inline: 12px;
+}
+.app-layout.is-rail-collapsed .rail-brand-row {
+  justify-content: center;
+}
+.app-layout.is-rail-collapsed .rail-mark,
+.app-layout.is-rail-collapsed .rail-sub,
+.app-layout.is-rail-collapsed .rail-group-label,
+.app-layout.is-rail-collapsed .rail-foot,
+.app-layout.is-rail-collapsed .rail-label {
+  display: none;
+}
+.app-layout.is-rail-collapsed .rail-nav li a {
+  justify-content: center;
+  gap: 0;
+  padding-inline: 0;
+}
+.app-layout.is-rail-collapsed .rail-icon {
+  width: 20px;
+  height: 20px;
 }
 
 /* ---- Identity menu (fixed-width popover; never deforms the deck) ----------- */
@@ -1262,8 +1365,14 @@
 }
 
 @media (max-width: 860px) {
+  body {
+    overflow: auto;
+  }
   .app-layout {
     flex-direction: column;
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
   }
   .rail {
     position: static;
@@ -1275,6 +1384,9 @@
   }
   .rail-brand {
     padding: 14px 18px 10px;
+  }
+  .rail-collapse {
+    display: none;
   }
   .rail-mark {
     font-size: 22px;
@@ -1327,6 +1439,9 @@
   .app-content {
     height: auto;
     padding: 20px 18px 40px;
+  }
+  .deck-product small {
+    display: none;
   }
 }
 

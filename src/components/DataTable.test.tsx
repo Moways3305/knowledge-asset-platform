@@ -22,7 +22,9 @@ describe("DataTable", () => {
     expect(screen.getByText("名称")).toBeInTheDocument();
     expect(screen.getByText("甲")).toBeInTheDocument();
     expect(screen.getByText("乙")).toBeInTheDocument();
-    expect(container.querySelector("table.ingest-table")).toBeInTheDocument();
+    expect(
+      container.querySelector(".product-table-wrap table.product-data-table"),
+    ).toBeInTheDocument();
     expect(container.querySelectorAll("tbody tr")).toHaveLength(2);
   });
 
@@ -47,6 +49,7 @@ describe("DataTable", () => {
       />,
     );
     expect(screen.getByText("加载中…")).toBeInTheDocument();
+    expect(screen.getByRole("table")).toHaveAttribute("aria-busy", "true");
     expect(screen.queryByText("甲")).not.toBeInTheDocument();
   });
 });

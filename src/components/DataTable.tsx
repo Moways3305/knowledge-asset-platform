@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
 
-// 通用表格壳：列定义 + 行数据 + 空态 / 加载态。默认套用现有 `.ingest-table-wrap`
-// / `.ingest-table` 样式，故渲染结果与各页面手写表格一致；需要别的表皮时可用
-// wrapClassName / tableClassName 覆盖（如 ws-table）。空态 / 加载态以跨列单行呈现。
+// 通用表格壳：列定义 + 行数据 + 空态 / 加载态。默认使用产品级表格类；尚未逐页迁移
+// 的页面可通过 className 显式兼容旧表皮，避免默认实现依赖某个业务页面。
 export interface Column<T> {
   key: string;
   header: ReactNode;
@@ -21,6 +20,7 @@ interface DataTableProps<T> {
   loadingText?: ReactNode;
   wrapClassName?: string;
   tableClassName?: string;
+  ariaLabel?: string;
 }
 
 export default function DataTable<T>({
@@ -31,12 +31,13 @@ export default function DataTable<T>({
   emptyText,
   loading = false,
   loadingText = "加载中…",
-  wrapClassName = "ingest-table-wrap",
-  tableClassName = "ingest-table",
+  wrapClassName = "product-table-wrap",
+  tableClassName = "product-data-table",
+  ariaLabel,
 }: DataTableProps<T>) {
   return (
-    <div className={wrapClassName}>
-      <table className={tableClassName}>
+    <div className={wrapClassName} data-table-scroll>
+      <table className={tableClassName} aria-label={ariaLabel} aria-busy={loading}>
         <thead>
           <tr>
             {columns.map((c) => (
@@ -49,7 +50,9 @@ export default function DataTable<T>({
         <tbody>
           {loading ? (
             <tr>
-              <td colSpan={columns.length}>{loadingText}</td>
+              <td className="product-table-state" colSpan={columns.length}>
+                {loadingText}
+              </td>
             </tr>
           ) : rows.length > 0 ? (
             rows.map((row) => (
@@ -63,7 +66,9 @@ export default function DataTable<T>({
             ))
           ) : emptyText != null ? (
             <tr>
-              <td colSpan={columns.length}>{emptyText}</td>
+              <td className="product-table-state" colSpan={columns.length}>
+                {emptyText}
+              </td>
             </tr>
           ) : null}
         </tbody>

@@ -66,15 +66,34 @@ export function PageToolbar({
   start,
   end,
   className = "",
+  ariaLabel = "页面工具栏",
 }: {
   start?: ReactNode;
   end?: ReactNode;
   className?: string;
+  ariaLabel?: string;
 }) {
   return (
-    <div className={`product-toolbar ${className}`.trim()}>
+    <div className={`product-toolbar ${className}`.trim()} role="toolbar" aria-label={ariaLabel}>
       <div className="product-toolbar-start">{start}</div>
       <div className="product-toolbar-end">{end}</div>
+    </div>
+  );
+}
+
+export function FilterBar({
+  children,
+  actions,
+  ariaLabel = "筛选条件",
+}: {
+  children: ReactNode;
+  actions?: ReactNode;
+  ariaLabel?: string;
+}) {
+  return (
+    <div className="product-filter-bar" role="search" aria-label={ariaLabel}>
+      <div className="product-filter-fields">{children}</div>
+      {actions && <div className="product-filter-actions">{actions}</div>}
     </div>
   );
 }
