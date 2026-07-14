@@ -11,10 +11,7 @@ const assert = (condition, message) => {
 };
 
 const emptyUsages = {
-  content_generation: null,
-  knowledge_embedding: null,
-  knowledge_chat: null,
-  knowledge_rerank: null,
+  external_llm_default: null,
 };
 
 const browser = await chromium.launch();
@@ -54,8 +51,8 @@ async function prepareContext(viewport) {
         provider: postedPayload.provider,
         model_name: postedPayload.model_name,
         enabled: postedPayload.enabled,
-        health_status: "registered",
-        available_usages: ["content_generation", "knowledge_chat"],
+        health_status: "configured",
+        available_usages: ["content_generation", "project_qa"],
         legacy_adapter: false,
       };
       connections = [created];
@@ -108,13 +105,12 @@ assert(postCount === 0, "external autofill caused a POST");
 await page.screenshot({ path: `${outDir}/desktop-new-reconciled.png`, fullPage: true });
 
 await page.getByLabel("显示名称").fill("Reviewed connection");
-await page.getByLabel("模型能力").selectOption("chat");
 await page.getByLabel("Provider").selectOption("deepseek");
 await page.getByLabel("模型名称").fill("deepseek-chat");
 await page.getByLabel("API 地址").fill("https://api.example.com/v1");
 await page.getByLabel("API key").fill("reviewed-secret");
 await page.getByLabel("启用状态").selectOption("enabled");
-await page.getByRole("button", { name: "保存模型连接" }).click();
+await page.getByRole("button", { name: "保存外部 LLM 连接" }).click();
 await page.waitForTimeout(250);
 assert(postCount === 1, `manual create sent ${postCount} POST requests`);
 assert(
@@ -138,7 +134,7 @@ assert((await page.getByLabel("API key").inputValue()) === "", "edit form expose
 await page.screenshot({ path: `${outDir}/desktop-edit-secure.png`, fullPage: true });
 
 await page.getByRole("button", { name: "关闭" }).last().click();
-await page.getByRole("button", { name: "新增模型连接" }).click();
+await page.getByRole("button", { name: "新增外部 LLM 连接" }).click();
 assert((await page.getByLabel("显示名称").inputValue()) === "", "new form retained display name");
 assert((await page.getByLabel("模型名称").inputValue()) === "", "new form retained model name");
 assert((await page.getByLabel("API 地址").inputValue()) === "", "new form retained endpoint");
