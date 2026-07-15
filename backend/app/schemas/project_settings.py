@@ -12,7 +12,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.enums import MemberStatus, ProjectRole
 
@@ -96,12 +96,70 @@ class ProjectListItemOut(BaseModel):
     lifecycle_route_key: str | None = None
     lifecycle_phase_key: str | None = None
     created_at: datetime
-    # 调用人是否可管理该项目（治理角色 或 本项目 project_manager）。
+    project_role: str
+    # 管理能力只来自本项目 active project_manager 成员关系。
     can_manage: bool = False
 
 
 class ProjectListResponse(BaseModel):
     items: list[ProjectListItemOut]
+
+
+class ProjectOverviewHeader(BaseModel):
+    project_id: uuid.UUID
+    name: str
+    client_name: str | None = None
+    status: str
+    project_role: str
+    lifecycle_route_key: str | None = None
+    lifecycle_phase_key: str | None = None
+    can_manage: bool = False
+
+
+class ProjectOverviewCapabilities(BaseModel):
+    can_view_knowledge: bool = True
+    can_upload_material: bool = True
+    can_manage_members: bool = False
+    can_manage_kb: bool = False
+    can_confirm_assets: bool = False
+
+
+class ProjectOverviewCounts(BaseModel):
+    material_count: int = 0
+    asset_count: int = 0
+    pending_confirmation_count: int = 0
+    pending_review_count: int = 0
+    original_access_request_count: int = 0
+
+
+class ProjectOverviewKbStatus(BaseModel):
+    configured: bool = False
+    status: str | None = None
+
+
+class ProjectOverviewMember(BaseModel):
+    user_id: uuid.UUID
+    name: str
+    project_role: str
+    status: str
+
+
+class ProjectOverviewActivity(BaseModel):
+    asset_id: uuid.UUID
+    title: str
+    zone: str
+    asset_type: str
+    confidentiality_level: str
+    updated_at: datetime | None = None
+
+
+class ProjectOverviewResponse(BaseModel):
+    project: ProjectOverviewHeader
+    capabilities: ProjectOverviewCapabilities
+    counts: ProjectOverviewCounts
+    knowledge_base: ProjectOverviewKbStatus
+    members: list[ProjectOverviewMember] = Field(default_factory=list)
+    recent_activity: list[ProjectOverviewActivity] = Field(default_factory=list)
 
 
 class ProjectCreateRequest(BaseModel):

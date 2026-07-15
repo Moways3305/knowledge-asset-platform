@@ -28,9 +28,11 @@ from app.schemas.project_settings import (
     ProjectMemberOut,
     ProjectMemberPatchRequest,
     ProjectMembersResponse,
+    ProjectOverviewResponse,
     ProjectSettingsOut,
     ProjectSettingsUpdateRequest,
 )
+from app.services import project_overview as project_overview_service
 from app.services import projects as projects_service
 from app.services.weknora_client import (
     NullWeKnoraClient,
@@ -46,7 +48,7 @@ async def list_projects(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> ProjectListResponse:
-    """项目列表：治理角色看安全元数据；项目成员看本人项目；纯 admin 拒绝。"""
+    """Return switchable projects from the caller's active memberships."""
     result: ProjectListResponse = await projects_service.list_projects(session, caller)
     return result
 
@@ -65,6 +67,15 @@ async def create_project(
         session, caller, req, get_trace_id(request), weknora=weknora
     )
     return result
+
+
+@router.get("/{project_id}/overview", response_model=ProjectOverviewResponse)
+async def get_project_overview(
+    project_id: uuid.UUID,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> ProjectOverviewResponse:
+    return await project_overview_service.get_overview(session, caller, project_id)
 
 
 @router.get("/{project_id}/settings", response_model=ProjectSettingsOut)

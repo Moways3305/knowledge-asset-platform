@@ -125,6 +125,7 @@ describe("HomeDashboardPage real workbench", () => {
             lifecycle_route_key: null,
             lifecycle_phase_key: null,
             created_at: "2026-07-14T00:00:00Z",
+            project_role: "consultant",
             can_manage: false,
           },
           {
@@ -135,6 +136,7 @@ describe("HomeDashboardPage real workbench", () => {
             lifecycle_route_key: null,
             lifecycle_phase_key: null,
             created_at: "2026-07-14T00:00:00Z",
+            project_role: "project_manager",
             can_manage: true,
           },
         ],

@@ -5,6 +5,7 @@ import type {
   ProjectCreateRequestDTO,
   ProjectCreateResponseDTO,
   ProjectListResponseDTO,
+  ProjectOverviewDTO,
 } from "../types/project";
 import type {
   ProjectMemberDTO,
@@ -15,9 +16,13 @@ import type {
 } from "../types/projectSettings";
 import type { ProjectQaModelOptionsResponseDTO, ProjectQaResponseDTO } from "../types/agent";
 
-// 项目列表（治理角色 / admin 看全部 active；业务用户看本人 active 项目）。
+// 可切换项目只来自当前用户的 active 项目成员关系，公司角色不扩展项目范围。
 export async function fetchProjects(): Promise<ProjectListResponseDTO> {
   return apiGet<ProjectListResponseDTO>(`/api/v1/projects`);
+}
+
+export async function fetchProjectOverview(projectId: string): Promise<ProjectOverviewDTO> {
+  return apiGet<ProjectOverviewDTO>(`/api/v1/projects/${projectId}/overview`);
 }
 
 // 创建项目知识空间（仅总经理 / 咨询总监）。写真实 projects + active project_manager 成员。

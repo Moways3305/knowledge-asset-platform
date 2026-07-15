@@ -7162,6 +7162,10 @@
             "title": "Name",
             "type": "string"
           },
+          "project_role": {
+            "title": "Project Role",
+            "type": "string"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -7171,7 +7175,8 @@
           "id",
           "name",
           "status",
-          "created_at"
+          "created_at",
+          "project_role"
         ],
         "title": "ProjectListItemOut",
         "type": "object"
@@ -7411,6 +7416,270 @@
           }
         },
         "title": "ProjectMembershipPatchRequest",
+        "type": "object"
+      },
+      "ProjectOverviewActivity": {
+        "properties": {
+          "asset_id": {
+            "format": "uuid",
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "asset_type": {
+            "title": "Asset Type",
+            "type": "string"
+          },
+          "confidentiality_level": {
+            "title": "Confidentiality Level",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "zone": {
+            "title": "Zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id",
+          "title",
+          "zone",
+          "asset_type",
+          "confidentiality_level"
+        ],
+        "title": "ProjectOverviewActivity",
+        "type": "object"
+      },
+      "ProjectOverviewCapabilities": {
+        "properties": {
+          "can_confirm_assets": {
+            "default": false,
+            "title": "Can Confirm Assets",
+            "type": "boolean"
+          },
+          "can_manage_kb": {
+            "default": false,
+            "title": "Can Manage Kb",
+            "type": "boolean"
+          },
+          "can_manage_members": {
+            "default": false,
+            "title": "Can Manage Members",
+            "type": "boolean"
+          },
+          "can_upload_material": {
+            "default": true,
+            "title": "Can Upload Material",
+            "type": "boolean"
+          },
+          "can_view_knowledge": {
+            "default": true,
+            "title": "Can View Knowledge",
+            "type": "boolean"
+          }
+        },
+        "title": "ProjectOverviewCapabilities",
+        "type": "object"
+      },
+      "ProjectOverviewCounts": {
+        "properties": {
+          "asset_count": {
+            "default": 0,
+            "title": "Asset Count",
+            "type": "integer"
+          },
+          "material_count": {
+            "default": 0,
+            "title": "Material Count",
+            "type": "integer"
+          },
+          "original_access_request_count": {
+            "default": 0,
+            "title": "Original Access Request Count",
+            "type": "integer"
+          },
+          "pending_confirmation_count": {
+            "default": 0,
+            "title": "Pending Confirmation Count",
+            "type": "integer"
+          },
+          "pending_review_count": {
+            "default": 0,
+            "title": "Pending Review Count",
+            "type": "integer"
+          }
+        },
+        "title": "ProjectOverviewCounts",
+        "type": "object"
+      },
+      "ProjectOverviewHeader": {
+        "properties": {
+          "can_manage": {
+            "default": false,
+            "title": "Can Manage",
+            "type": "boolean"
+          },
+          "client_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Name"
+          },
+          "lifecycle_phase_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifecycle Phase Key"
+          },
+          "lifecycle_route_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifecycle Route Key"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_role": {
+            "title": "Project Role",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "name",
+          "status",
+          "project_role"
+        ],
+        "title": "ProjectOverviewHeader",
+        "type": "object"
+      },
+      "ProjectOverviewKbStatus": {
+        "properties": {
+          "configured": {
+            "default": false,
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "title": "ProjectOverviewKbStatus",
+        "type": "object"
+      },
+      "ProjectOverviewMember": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_role": {
+            "title": "Project Role",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "name",
+          "project_role",
+          "status"
+        ],
+        "title": "ProjectOverviewMember",
+        "type": "object"
+      },
+      "ProjectOverviewResponse": {
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/ProjectOverviewCapabilities"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/ProjectOverviewCounts"
+          },
+          "knowledge_base": {
+            "$ref": "#/components/schemas/ProjectOverviewKbStatus"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectOverviewMember"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "project": {
+            "$ref": "#/components/schemas/ProjectOverviewHeader"
+          },
+          "recent_activity": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectOverviewActivity"
+            },
+            "title": "Recent Activity",
+            "type": "array"
+          }
+        },
+        "required": [
+          "project",
+          "capabilities",
+          "counts",
+          "knowledge_base"
+        ],
+        "title": "ProjectOverviewResponse",
         "type": "object"
       },
       "ProjectQaModelOptionOut": {
@@ -21172,7 +21441,7 @@
     },
     "/api/v1/projects": {
       "get": {
-        "description": "项目列表：治理角色看安全元数据；项目成员看本人项目；纯 admin 拒绝。",
+        "description": "Return switchable projects from the caller's active memberships.",
         "operationId": "list_projects_api_v1_projects_get",
         "parameters": [
           {
@@ -21823,6 +22092,81 @@
           }
         },
         "summary": "Patch Project Member",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/overview": {
+      "get": {
+        "operationId": "get_project_overview_api_v1_projects__project_id__overview_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectOverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Project Overview",
         "tags": [
           "projects"
         ]

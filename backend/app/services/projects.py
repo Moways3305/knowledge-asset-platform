@@ -482,7 +482,7 @@ async def _load_active_business_user(session: AsyncSession, user_id: uuid.UUID, 
     return user
 
 
-def _list_item_out(project: Project, can_manage: bool):
+def _list_item_out(project: Project, project_role: str):
     from app.schemas.project_settings import ProjectListItemOut
 
     return ProjectListItemOut(
@@ -493,42 +493,30 @@ def _list_item_out(project: Project, can_manage: bool):
         lifecycle_route_key=project.lifecycle_route_key,
         lifecycle_phase_key=project.lifecycle_phase_key,
         created_at=project.created_at,
-        can_manage=can_manage,
+        project_role=project_role,
+        can_manage=project_role == ProjectRole.project_manager.value,
     )
 
 
 async def list_projects(session: AsyncSession, caller: CallerContext):
-    """项目列表：治理角色看安全治理元数据；项目成员看本人项目；纯 admin 拒绝。"""
+    """Return active projects from active membership only."""
     from app.schemas.project_settings import ProjectListResponse
 
-    if _is_admin(caller) and not caller.is_business_user:
-        raise _denied(403, "admin_business_permission_denied", "admin 不可查看业务项目")
-    if _is_governance(caller):
-        rows = list(
-            (
-                await session.execute(
-                    select(Project).where(Project.status == "active").order_by(Project.name)
-                )
+    rows = (
+        await session.execute(
+            select(ProjectMember, Project)
+            .join(Project, Project.id == ProjectMember.project_id)
+            .where(
+                ProjectMember.user_id == caller.user_id,
+                ProjectMember.status == MemberStatus.active.value,
+                Project.status == "active",
             )
-            .scalars()
-            .all()
+            .order_by(Project.name, Project.id)
         )
-    else:
-        pids = caller.active_project_ids
-        if not pids:
-            return ProjectListResponse(items=[])
-        rows = list(
-            (
-                await session.execute(
-                    select(Project)
-                    .where(Project.status == "active", Project.id.in_(pids))
-                    .order_by(Project.name)
-                )
-            )
-            .scalars()
-            .all()
-        )
-    return ProjectListResponse(items=[_list_item_out(p, _can_write(caller, p.id)) for p in rows])
+    ).all()
+    return ProjectListResponse(
+        items=[_list_item_out(project, membership.project_role) for membership, project in rows]
+    )
 
 
 async def create_project(
