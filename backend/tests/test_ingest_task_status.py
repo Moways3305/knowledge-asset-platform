@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from sqlalchemy import select
@@ -9,12 +10,18 @@ from sqlalchemy import select
 from app.models.ingest import IngestTask, IngestTaskAiResult
 from app.models.knowledge import KnowledgeAssetVersion
 from app.models.review import ReviewTask
+from app.schemas.permission import CallerContext
 from app.seed.dev_seed import (
     KA_PERSONAL,
     PROJECT_ALPHA,
     USER_CONSULTANT,
     USER_PROJECT_MANAGER,
 )
+from app.services.desensitization import NullDesensitizer
+from app.services.ingest_status import retry_task
+from app.services.llm_client import NullLLMClient
+from app.services.storage import LocalFileStorage
+from app.services.weknora_client import NullWeKnoraClient
 
 
 def _headers(user_id):
@@ -291,6 +298,71 @@ async def test_duplicate_retry_while_processing_enqueues_once(client, db_session
     assert first.status_code == second.status_code == 200
     assert first.json()["status"] == second.json()["status"] == "processing"
     assert calls == 1
+
+
+async def test_concurrent_retry_with_independent_sessions_enqueues_once(
+    sessionmaker_fixture, db_session, tmp_path, monkeypatch
+):
+    task = await _task(db_session, status="failed", error_type="processing_error")
+    caller = CallerContext(
+        user_id=USER_CONSULTANT,
+        is_active=True,
+        active_company_roles={"consultant"},
+        active_project_ids={PROJECT_ALPHA},
+        active_project_roles={PROJECT_ALPHA: "consultant"},
+    )
+    storage = LocalFileStorage(tmp_path / "concurrent-retry")
+    loaded = 0
+    both_loaded = asyncio.Event()
+    enqueue_calls = 0
+
+    import app.services.ingest_status as status_service
+
+    original_load = status_service._load_context
+
+    async def _load_after_barrier(*args, **kwargs):
+        nonlocal loaded
+        context = await original_load(*args, **kwargs)
+        loaded += 1
+        if loaded == 2:
+            both_loaded.set()
+        await asyncio.wait_for(both_loaded.wait(), timeout=2)
+        return context
+
+    async def _fake_enqueue(*_args, **_kwargs):
+        nonlocal enqueue_calls
+        enqueue_calls += 1
+        return "processing"
+
+    monkeypatch.setattr(status_service, "_load_context", _load_after_barrier)
+    monkeypatch.setattr(status_service, "enqueue_ingest_processing", _fake_enqueue)
+
+    async with sessionmaker_fixture() as first, sessionmaker_fixture() as second:
+        responses = await asyncio.gather(
+            retry_task(
+                first,
+                caller,
+                task.id,
+                storage=storage,
+                llm=NullLLMClient(),
+                desensitizer=NullDesensitizer(),
+                weknora=NullWeKnoraClient(),
+                trace_id="concurrent-first",
+            ),
+            retry_task(
+                second,
+                caller,
+                task.id,
+                storage=storage,
+                llm=NullLLMClient(),
+                desensitizer=NullDesensitizer(),
+                weknora=NullWeKnoraClient(),
+                trace_id="concurrent-second",
+            ),
+        )
+
+    assert enqueue_calls == 1
+    assert {response.status.value for response in responses} == {"processing"}
 
 
 async def test_index_failure_retry_reuses_authorized_index_contract(client, db_session):

@@ -7,7 +7,7 @@ import uuid
 from dataclasses import dataclass
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -291,12 +291,25 @@ async def retry_task(
         task.status in {IngestStatus.failed.value, IngestStatus.processing.value}
         and task.error_type == "processing_error"
     ):
-        task.status = IngestStatus.processing.value
-        task.processing_stage = "upload_saved"
-        task.retry_count = 0
-        task.error_type = None
-        task.error_message = None
+        claim = await session.execute(
+            update(IngestTask)
+            .where(
+                IngestTask.id == task.id,
+                IngestTask.status.in_({IngestStatus.failed.value, IngestStatus.processing.value}),
+                IngestTask.error_type == "processing_error",
+            )
+            .values(
+                status=IngestStatus.processing.value,
+                processing_stage="upload_saved",
+                retry_count=0,
+                error_type=None,
+                error_message=None,
+            )
+        )
         await session.commit()
+        if getattr(claim, "rowcount", 0) != 1:
+            session.expire_all()
+            return await get_task_status(session, caller, task_id)
         try:
             await enqueue_ingest_processing(
                 session,
