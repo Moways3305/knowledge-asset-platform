@@ -388,6 +388,9 @@ async def create_request(
         extra={"asset_id": str(asset.id), "requester_user_id": str(caller.user_id)},
         project_id=asset.project_id,
     )
+    from app.services.notifications import notify_original_access_pending
+
+    await notify_original_access_pending(session, req)
     await session.commit()
     return CreateRequestResponse(
         status="created",

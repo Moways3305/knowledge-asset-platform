@@ -36,6 +36,7 @@ from app.models.lifecycle import (
     AssetLifecycleEvent,
     NotificationRecord,
 )
+from app.models.notification import BusinessNotification
 from app.models.original_access import AccessGrant, OriginalAccessRequest
 from app.models.permission_rule import PermissionRule
 from app.models.preview import PreviewCredential
@@ -82,6 +83,7 @@ __all__ = [
     "AssetLifecycleEvent",
     "AlertRule",
     "NotificationRecord",
+    "BusinessNotification",
     "UserSession",
     "AuthLoginAttempt",
     "ContentGenerationModel",

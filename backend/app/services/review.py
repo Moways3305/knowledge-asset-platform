@@ -530,6 +530,10 @@ async def register_evidence(
         },
         project_id=project_id,
     )
+    if open_task is not None and open_task.status == ReviewTaskStatus.pending_reviewer.value:
+        from app.services.notifications import notify_review_pending
+
+        await notify_review_pending(session, open_task)
     await session.commit()
     return EvidenceOut(
         id=evidence.id,
@@ -630,6 +634,10 @@ async def create_or_get_confirm_asset(
         },
         project_id=project_id,
     )
+    if task.status == ReviewTaskStatus.pending_reviewer.value:
+        from app.services.notifications import notify_review_pending
+
+        await notify_review_pending(session, task)
     await session.commit()
 
     task = await _load_task(session, task.id)
@@ -717,6 +725,9 @@ async def create_or_get_company_upgrade(
         },
         project_id=project_id,
     )
+    from app.services.notifications import notify_review_pending
+
+    await notify_review_pending(session, task)
     await session.commit()
     task = await _load_task(session, task.id)
     assets, projects = await _aux_maps(session, [task])
@@ -780,6 +791,9 @@ async def create_or_get_project_ingest_review(
         },
         project_id=req.target_project_id,
     )
+    from app.services.notifications import notify_review_pending
+
+    await notify_review_pending(session, task)
     await session.commit()
     task = await _load_task(session, task.id)
     assets, projects = await _aux_maps(session, [task])

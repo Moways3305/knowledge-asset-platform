@@ -433,6 +433,10 @@ class AuditAction(str, Enum):
     # 通知真实下发：发送成功 / 失败（安全元数据，不含正文/密钥）。
     notification_sent = "notification.sent"
     notification_failed = "notification.failed"
+    notification_read = "notification.read"
+    notification_batch_read = "notification.batch_read"
+    notification_business_delivered = "notification.business_delivered"
+    notification_business_delivery_failed = "notification.business_delivery_failed"
     # 运维告警：信号超阈值触发（仅安全元数据：信号/计数/阈值/时间窗/安全 error_code 聚合）。
     ops_alert_triggered = "ops.alert_triggered"
     # 会话 / 登录。真实 OAuth 接入前为本地会话最小闭环。

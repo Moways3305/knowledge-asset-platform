@@ -274,6 +274,9 @@ async def submit_to_project(
         },
         project_id=project.id,
     )
+    from app.services.notifications import notify_review_pending
+
+    await notify_review_pending(session, task)
     await session.commit()
     return await _submission_out(session, sub)
 
@@ -378,5 +381,8 @@ async def register_validation_candidate(
         extra={"target_project_id": str(project.id), "evidence_id": str(evidence.id)},
         project_id=project.id,
     )
+    from app.services.notifications import notify_review_pending
+
+    await notify_review_pending(session, task)
     await session.commit()
     return await _submission_out(session, sub)

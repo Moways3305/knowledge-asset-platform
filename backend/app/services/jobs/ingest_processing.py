@@ -181,6 +181,10 @@ async def process_upload_task(
             },
             project_id=task.target_project_id,
         )
+        if exhausted:
+            from app.services.notifications import notify_ingest_failed
+
+            await notify_ingest_failed(session, task)
         await session.commit()
         return task.status
 
@@ -238,5 +242,8 @@ async def process_upload_task(
             },
             project_id=task.target_project_id,
         )
+        from app.services.notifications import notify_ingest_failed
+
+        await notify_ingest_failed(session, task)
     await session.commit()
     return task.status

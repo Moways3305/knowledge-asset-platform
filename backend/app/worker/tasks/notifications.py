@@ -7,10 +7,18 @@ from app.worker.runtime import run_task
 
 
 async def _run(maker, trace_id: str | None) -> None:
-    from app.services.wecom_notification import dispatch_pending, get_wecom_notification_sender
+    from app.services.notifications import dispatch_pending as dispatch_business_pending
+    from app.services.wecom_notification import (
+        dispatch_pending as dispatch_ops_pending,
+    )
+    from app.services.wecom_notification import (
+        get_wecom_notification_sender,
+    )
 
     async with maker() as session:
-        await dispatch_pending(session, sender=get_wecom_notification_sender(), trace_id=trace_id)
+        sender = get_wecom_notification_sender()
+        await dispatch_ops_pending(session, sender=sender, trace_id=trace_id)
+        await dispatch_business_pending(session, sender=sender, trace_id=trace_id)
 
 
 @celery_app.task(name="notifications.dispatch_pending", bind=True)
