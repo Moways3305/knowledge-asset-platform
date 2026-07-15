@@ -115,29 +115,26 @@ _RETRYABLE_INDEX_STATUSES = {"index_failed", "not_indexed", "skipped"}
 def _can_retry_index(caller: CallerContext, asset: KnowledgeAsset) -> bool:
     """底座索引重试权限。
 
-    比受控删除略宽：项目资产额外允许 active coach；治理角色（boss / 咨询总监）可跨项目重试。
+    项目资产仅允许 active 项目经理；公司治理角色不因公司职务跨项目重试。
     纯 admin（非业务用户）永不获得业务重试权（不因系统身份触达业务原文）。
     - personal：仅 owner 本人。
-    - project：active project_manager / coach，或治理角色。
-    - company：仅 boss / 咨询总监。
+    - project：active project_manager。
+    - company：仅总经理 / 咨询总监。
     已删除资产不可重试。
     """
     if asset.asset_status == _DELETED_STATUS:
         return False
     if not caller.is_business_user:
         return False
-    if caller.can_discover_l5 and asset.scope in (
-        KnowledgeScope.project.value,
-        KnowledgeScope.company.value,
-    ):
-        return True
     scope = asset.scope
     if scope == KnowledgeScope.personal.value:
         return asset.owner_user_id == caller.user_id
     if scope == KnowledgeScope.project.value:
-        return asset.project_id is not None and caller.active_project_roles.get(
-            asset.project_id
-        ) in (ProjectRole.project_manager.value, ProjectRole.coach.value)
+        return (
+            asset.project_id is not None
+            and caller.active_project_roles.get(asset.project_id)
+            == ProjectRole.project_manager.value
+        )
     if scope == KnowledgeScope.company.value:
         return caller.can_discover_l5
     return False

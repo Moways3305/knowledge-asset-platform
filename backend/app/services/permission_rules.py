@@ -322,7 +322,7 @@ def _require_read(caller: CallerContext) -> None:
     """读权限规则：admin 或治理角色。consultant / 其它 → 403。"""
     if not (_is_admin(caller) or _is_governance(caller)):
         raise _denied(
-            403, "permission_rules_forbidden", "无权限规则查看权（仅 admin / boss / 咨询总监）"
+            403, "permission_rules_forbidden", "无权限规则查看权（仅 admin / 总经理 / 咨询总监）"
         )
 
 
@@ -335,9 +335,9 @@ def _require_write(caller: CallerContext) -> None:
         raise _denied(
             403,
             "admin_business_permission_denied",
-            "admin 不可修改业务权限规则（仅 boss / 咨询总监）",
+            "admin 不可修改业务权限规则（仅总经理 / 咨询总监）",
         )
-    raise _denied(403, "permission_rules_forbidden", "无权限规则修改权（仅 boss / 咨询总监）")
+    raise _denied(403, "permission_rules_forbidden", "无权限规则修改权（仅总经理 / 咨询总监）")
 
 
 async def ensure_default_rules(session: AsyncSession) -> None:

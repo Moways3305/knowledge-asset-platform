@@ -101,16 +101,16 @@ def test_project_member_all_layers_allowed_original_audited():
     assert d_orig.effective_access_source == EffectiveAccessSource.project_member
 
 
-def test_non_member_project_l3_l4_original_denied_summary_redacted():
-    """非项目成员访问 project L3/L4：原文拒绝、摘要只给脱敏摘要。"""
+def test_non_member_project_l3_l4_not_discoverable():
+    """非项目成员不可发现、摘要或读取任何 project L3/L4 内容。"""
     caller = _ctx(U_CONSULTANT, {"consultant"}, projects={P_ALPHA})
     asset = _asset(scope="project", level="L4", project_id=P_BETA)  # 非成员项目
     d_sum = decide(caller, asset, SUMMARY)
-    assert d_sum.allowed is True
-    assert d_sum.summary_variant == "redacted_summary"
+    assert d_sum.allowed is False
+    assert d_sum.denied_reason == DeniedReason.no_project_membership
     d_orig = decide(caller, asset, ORIGINAL)
     assert d_orig.allowed is False
-    assert d_orig.denied_reason == DeniedReason.original_requires_request
+    assert d_orig.denied_reason == DeniedReason.no_project_membership
 
 
 def test_non_member_non_business_project_original_denied():
@@ -127,14 +127,14 @@ def test_non_member_non_business_project_original_denied():
     assert decide(caller, asset, DISCOVERY).allowed is False
 
 
-def test_company_l1_l2_original_allowed_business_user_audited():
-    """公司 L1/L2 原文默认允许 active 业务用户，且需审计。"""
+def test_company_l1_l2_consultant_summary_only():
+    """公司顾问对公司 L1/L2 仅到安全摘要，原文需治理角色。"""
     caller = _ctx(U_CONSULTANT, {"consultant"})
     asset = _asset(scope="company", level="L2")
     d = decide(caller, asset, ORIGINAL)
-    assert d.allowed is True
-    assert d.audit_required is True
-    assert d.effective_access_source == EffectiveAccessSource.system_rule
+    assert d.allowed is False
+    assert d.allowed_layer == SUMMARY
+    assert d.denied_reason == DeniedReason.original_requires_request
 
 
 def test_company_l3_l4_original_denied_summary_redacted():
@@ -213,21 +213,22 @@ def test_a4_agent_original_denied_but_human_allowed():
     asset = _asset(scope="company", level="L2", ai="A4")
     d_agent = decide(caller, asset, ORIGINAL, channel=AccessChannel.agent)
     assert d_agent.allowed is False
-    assert d_agent.denied_reason == DeniedReason.agent_a4_original_denied
+    assert d_agent.denied_reason == DeniedReason.original_requires_request
 
     d_human = decide(caller, asset, ORIGINAL, channel=AccessChannel.human)
-    assert d_human.allowed is True
+    assert d_human.allowed is False
+    assert d_human.denied_reason == DeniedReason.original_requires_request
 
 
 def test_allowed_layer_reports_highest_reachable_on_allow():
     """allowed=True 时 allowed_layer 表示可达最高层级，而非本次请求层级。"""
-    # 公司 L2 业务用户可达 original；请求 discovery 时 allowed_layer 仍应为 original。
+    # 公司顾问最高可达 summary；请求 discovery 时 allowed_layer 应为 summary。
     caller = _ctx(U_CONSULTANT, {"consultant"})
     asset = _asset(scope="company", level="L2")
     d = decide(caller, asset, DISCOVERY)
     assert d.allowed is True
     assert d.requested_layer == DISCOVERY
-    assert d.allowed_layer == ORIGINAL
+    assert d.allowed_layer == SUMMARY
 
 
 def test_allowed_layer_equals_summary_when_max_is_summary():

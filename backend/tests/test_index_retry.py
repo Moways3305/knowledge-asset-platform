@@ -429,7 +429,7 @@ async def test_project_pm_retry_and_consultant_forbidden(client, monkeypatch):
         app.dependency_overrides.pop(get_weknora_client, None)
 
 
-async def test_governance_retry_project(client, monkeypatch):
+async def test_governance_cannot_retry_project_without_membership(client, monkeypatch):
     asset_id = await _make_index_failed(
         client,
         monkeypatch,
@@ -442,8 +442,8 @@ async def test_governance_retry_project(client, monkeypatch):
     try:
         _set_client(FakeWK())
         r = await client.post(f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_BOSS))
-        assert r.status_code == 200, r.text
-        assert r.json()["index_status"] == "indexed"
+        assert r.status_code == 404, r.text
+        assert r.json()["detail"]["denied_reason"] == "knowledge_asset_not_found"
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)
 

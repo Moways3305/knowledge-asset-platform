@@ -1,7 +1,7 @@
 """原文访问申请与授权测试。
 
 覆盖：不可发现 404、可见无原文权可申请、重复申请复用 pending、已有 grant 不重复 pending、
-PM/coach 与 boss/director 可审批建 grant、纯 admin / 普通顾问不可审批、撤销/过期 grant 不再
+项目角色与公司治理角色可按范围审批建 grant、纯 admin / 普通顾问不可审批、撤销/过期 grant 不再
 放行原文、运行时入口（知识详情 original + stage2 取件）grant 前后行为不同、审计安全无泄露。
 """
 
@@ -49,14 +49,14 @@ def _assert_no_leak(text: str):
 
 
 async def _mk_asset(
-    db_session, *, scope="project", level="L3", project_id=PROJECT_BETA, status="active"
+    db_session, *, scope="company", level="L3", project_id=None, status="active"
 ) -> uuid.UUID:
-    """建一个跨项目/公司资产用于原文申请测试（USER_CONSULTANT 非 BETA active 成员）。"""
+    """建一个公司资产；公司顾问可见安全摘要但默认无原文。"""
     aid = uuid.uuid4()
     db_session.add(
         KnowledgeAsset(
             id=aid,
-            title="跨项目 L3 资产",
+            title="公司 L3 资产",
             scope=scope,
             zone="asset",
             asset_type="case",
@@ -85,7 +85,7 @@ async def test_undiscoverable_asset_404(client):
 
 
 async def test_visible_no_original_can_request(client, db_session):
-    aid = await _mk_asset(db_session)  # BETA L3，USER_CONSULTANT 可发现摘要、无原文
+    aid = await _mk_asset(db_session)  # 公司 L3，USER_CONSULTANT 可发现摘要、无原文
     r = await client.post(
         _req_path(aid),
         headers=_hdr(USER_CONSULTANT, **{"X-Trace-Id": "trc-original-access-req"}),
@@ -117,7 +117,7 @@ async def test_member_with_original_no_pending(client, db_session):
     # USER_PROJECT_MANAGER 是 ALPHA PM；建一个 ALPHA L3 资产，PM 本就有原文权 → already_granted。
     from app.seed.dev_seed import PROJECT_ALPHA
 
-    aid = await _mk_asset(db_session, project_id=PROJECT_ALPHA)
+    aid = await _mk_asset(db_session, scope="project", project_id=PROJECT_ALPHA)
     r = await client.post(_req_path(aid), headers=_hdr(USER_PROJECT_MANAGER), json={"reason": "x"})
     assert r.status_code == 200
     assert r.json()["status"] == "already_granted"
@@ -139,7 +139,7 @@ async def _create_pending(client, db_session, requester=USER_CONSULTANT):
 
 
 async def test_pm_can_approve_creates_grant(client, db_session):
-    # BETA 资产；给 BETA 加一个 active PM 来审批。用 boss 直接审批更简单（治理角色）。
+    # 公司资产由总经理审批原文申请。
     aid, rid = await _create_pending(client, db_session)
     r = await client.post(
         f"/api/v1/original-access/requests/{rid}/approve",
@@ -262,7 +262,7 @@ async def test_audit_actions_and_no_leak(client, db_session):
 
 # ---------------- 预览拒绝文案现实口径----------------
 async def test_preview_denied_message_is_current_copy(client, db_session):
-    aid = await _mk_asset(db_session)  # BETA L3，USER_CONSULTANT 无原文权
+    aid = await _mk_asset(db_session)  # 公司 L3，USER_CONSULTANT 无原文权
     r = await client.post(
         f"/api/v1/knowledge/{aid}/preview", headers=_hdr(USER_CONSULTANT), json={}
     )

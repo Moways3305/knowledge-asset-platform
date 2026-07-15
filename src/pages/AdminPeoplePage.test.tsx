@@ -117,14 +117,16 @@ describe("AdminPeoplePage governance controls", () => {
     await renderDetail();
     expect(screen.getByRole("button", { name: "撤销全部会话" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "设置 / 重置密码" })).toBeInTheDocument();
-    expect(roleRow("Boss").queryByRole("button")).not.toBeInTheDocument();
+    expect(roleRow("总经理").queryByRole("button")).not.toBeInTheDocument();
     expect(roleRow("顾问").queryByRole("button")).not.toBeInTheDocument();
     expect(screen.queryByText("新增 / 更新成员关系")).not.toBeInTheDocument();
-    expect(screen.getByText("项目成员关系由 Boss 或咨询总监维护。")).toBeInTheDocument();
+    expect(
+      screen.getByText("总经理或咨询总监任命项目经理与默认辅导老师；项目顾问由项目经理维护。"),
+    ).toBeInTheDocument();
     expect(fetchCompanyKnowledgeBase).not.toHaveBeenCalled();
   });
 
-  it("lets Boss manage every business role and project membership, but not admin", async () => {
+  it("lets the general manager govern business roles and appoint project leaders", async () => {
     authState.capabilities = {
       ...authState.capabilities,
       isAdmin: false,
@@ -134,7 +136,7 @@ describe("AdminPeoplePage governance controls", () => {
     };
     await renderDetail();
     expect(screen.queryByRole("button", { name: "撤销全部会话" })).not.toBeInTheDocument();
-    expect(roleRow("Boss").getByRole("button", { name: "停用" })).toBeInTheDocument();
+    expect(roleRow("总经理").getByRole("button", { name: "停用" })).toBeInTheDocument();
     expect(roleRow("咨询总监").getByRole("button", { name: "授予" })).toBeInTheDocument();
     expect(roleRow("顾问").getByRole("button", { name: "恢复" })).toBeInTheDocument();
     expect(roleRow("管理员").queryByRole("button")).not.toBeInTheDocument();
@@ -142,7 +144,7 @@ describe("AdminPeoplePage governance controls", () => {
     await waitFor(() => expect(fetchCompanyKnowledgeBase).toHaveBeenCalled());
   });
 
-  it("limits consulting director to consultant and project membership controls", async () => {
+  it("lets consulting directors manage director and consultant roles but not general managers", async () => {
     authState.capabilities = {
       ...authState.capabilities,
       isAdmin: false,
@@ -151,8 +153,8 @@ describe("AdminPeoplePage governance controls", () => {
       isGovernance: true,
     };
     await renderDetail();
-    expect(roleRow("Boss").queryByRole("button")).not.toBeInTheDocument();
-    expect(roleRow("咨询总监").queryByRole("button")).not.toBeInTheDocument();
+    expect(roleRow("总经理").queryByRole("button")).not.toBeInTheDocument();
+    expect(roleRow("咨询总监").getByRole("button", { name: "授予" })).toBeInTheDocument();
     expect(roleRow("顾问").getByRole("button", { name: "恢复" })).toBeInTheDocument();
     expect(screen.getByText("新增 / 更新成员关系")).toBeInTheDocument();
   });

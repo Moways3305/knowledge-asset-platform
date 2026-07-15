@@ -155,16 +155,16 @@ async def test_non_member_submit_forbidden(client, db_session):
     assert r.json()["detail"]["denied_reason"] == "project_membership_required"
 
 
-async def test_governance_can_submit_own_personal(client, db_session):
-    # 治理角色（boss）提交本人个人知识到项目，即使非该项目成员。
+async def test_governance_without_project_membership_cannot_submit_personal(client, db_session):
+    # 公司治理职务不自动授予项目知识提交权。
     aid = await _mk_personal(db_session, owner=USER_BOSS)
     r = await client.post(
         _submit(aid),
         headers=_hdr(USER_BOSS),
         json={"target_project_id": str(PROJECT_ALPHA)},
     )
-    assert r.status_code == 200, r.text
-    assert r.json()["submission_type"] == "submit_to_project"
+    assert r.status_code == 403
+    assert r.json()["detail"]["denied_reason"] == "project_membership_required"
 
 
 # ---------------- 幂等 / 去重 ----------------

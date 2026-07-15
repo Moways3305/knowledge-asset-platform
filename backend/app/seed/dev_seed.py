@@ -6,7 +6,7 @@
 覆盖场景：
 - 顾问（consultant）：一个项目 consultant 角色 + 一个 inactive 项目成员关系（验证只返回 active）。
 - 项目经理（project_manager）：一个项目 project_manager 角色。
-- 老板（boss）：可发现 L5。
+- 总经理（内部角色键为 boss）：可发现 L5。
 - 咨询总监（consulting_director）：可发现 L5。
 - 纯 admin：is_business_user=false，can_discover_l5=false；并带一个 inactive
   的 consultant 角色（验证只统计 active 公司角色）。
@@ -85,8 +85,8 @@ async def seed_dev_identities(session: AsyncSession) -> None:
         ProjectMember(project_id=PROJECT_ALPHA, project_role="project_manager", status="active")
     )
 
-    # ---- 老板 C：boss，可发现 L5 ----
-    boss_c = User(id=USER_BOSS, name="老板C", email="boss.c@dev.local", status="active")
+    # ---- 总经理 C：内部角色键为 boss，可发现 L5 ----
+    boss_c = User(id=USER_BOSS, name="总经理C", email="boss.c@dev.local", status="active")
     boss_c.company_roles.append(UserCompanyRole(company_role="boss", status="active"))
 
     # ---- 总监 D：consulting_director，可发现 L5 ----

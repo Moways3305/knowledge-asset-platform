@@ -272,6 +272,12 @@ class ReviewTaskStatus(str, Enum):
     rejected = "rejected"
 
 
+class CompanyAssetDecision(str, Enum):
+    confirmed = "confirmed"
+    rejected = "rejected"
+    withdrawn = "withdrawn"
+
+
 class PreviewType(str, Enum):
     """预览类型。由保密等级 + 访问场景 + 授权共同决定，不固定绑定保密级别。"""
 
@@ -329,7 +335,10 @@ class AuditAction(str, Enum):
     review_approval_failed = "review.approval_failed"
     review_approved = "review.approved"
     review_rejected = "review.rejected"
+    review_company_confirmation_recorded = "review.company_confirmation_recorded"
+    review_company_confirmation_withdrawn = "review.company_confirmation_withdrawn"
     asset_zone_changed = "asset.zone_changed"
+    asset_scope_changed = "asset.scope_changed"
     # 预览
     preview_requested = "preview.requested"
     preview_issued = "preview.issued"

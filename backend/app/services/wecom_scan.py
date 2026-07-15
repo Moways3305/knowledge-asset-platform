@@ -150,7 +150,7 @@ _VALID_SCOPES = {
 # 业务公司角色 → 中文标签（仅展示，安全；admin 是系统身份，不作业务归属人候选）。
 _ROLE_LABELS = {
     CompanyRole.consultant.value: "顾问",
-    CompanyRole.boss.value: "Boss",
+    CompanyRole.boss.value: "总经理",
     CompanyRole.consulting_director.value: "咨询总监",
 }
 
@@ -219,7 +219,7 @@ async def _validate_task_owner(
             raise _denied(
                 422,
                 "task_owner_not_governance",
-                "公司级配置的业务归属人必须是 Boss / 咨询总监",
+                "公司级配置的业务归属人必须是总经理 / 咨询总监",
             )
     result: User = user
     return result

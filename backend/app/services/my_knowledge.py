@@ -8,7 +8,7 @@
 
 权限：仅 `owner_user_id == caller.user_id` 且 `scope=personal` 的资产可操作；他人个人知识 /
 纯 admin 一律 404 `personal_asset_not_owned`（不泄露存在）。提交到项目需调用人为目标项目
-active 成员或治理角色（boss / 咨询总监，提交本人个人知识）。审核仍由项目经理人工确认。
+active 成员。公司层职务不自动授予项目知识提交权，审核仍由项目经理人工确认。
 
 安全：响应 / 审计绝不含原文 / 摘要全文 / storage_ref / source_file_ref / WeKnora id /
 token / 真实附件 URL / provider 内部标识。
@@ -88,16 +88,10 @@ async def _load_target_project(session: AsyncSession, project_id: uuid.UUID) -> 
 
 
 def _require_can_submit(caller: CallerContext, project: Project) -> None:
-    """提交本人个人知识到项目：目标项目 active 成员，或治理角色（boss / 咨询总监）。
-
-    治理角色（can_discover_l5）的提交权来自公司级知识治理身份，提交的是其本人个人知识；
-    纯 admin 不在 is_business_user 内，已在 owner 校验阶段被 404 拦截，无法绕过。
-    """
+    """提交本人个人知识到项目仅允许目标项目 active 成员。"""
     if project.id in caller.active_project_ids:
         return
-    if caller.can_discover_l5:
-        return
-    raise _denied(403, "project_membership_required", "需为目标项目 active 成员或治理角色")
+    raise _denied(403, "project_membership_required", "需为目标项目 active 成员")
 
 
 async def _find_existing_submission(

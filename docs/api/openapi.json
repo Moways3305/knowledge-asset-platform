@@ -345,7 +345,7 @@
         "type": "object"
       },
       "AgentCallDetailResponse": {
-        "description": "Agent 调用记录详情（本人 / boss / 咨询总监可见）。",
+        "description": "Agent 调用记录详情（本人 / 总经理 / 咨询总监可见）。",
         "properties": {
           "call_id": {
             "format": "uuid",
@@ -6968,6 +6968,29 @@
         "title": "ProjectListResponse",
         "type": "object"
       },
+      "ProjectMemberCreateRequest": {
+        "description": "新增或恢复项目成员；项目 ID 只取可信路由参数。",
+        "properties": {
+          "project_role": {
+            "$ref": "#/components/schemas/ProjectRole"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MemberStatus",
+            "default": "active"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "project_role"
+        ],
+        "title": "ProjectMemberCreateRequest",
+        "type": "object"
+      },
       "ProjectMemberOut": {
         "description": "项目成员安全视图。",
         "properties": {
@@ -8396,6 +8419,22 @@
             "title": "Can Decide",
             "type": "boolean"
           },
+          "can_withdraw": {
+            "default": false,
+            "title": "Can Withdraw",
+            "type": "boolean"
+          },
+          "consulting_director_confirmation_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consulting Director Confirmation Status"
+          },
           "created_at": {
             "anyOf": [
               {
@@ -8418,6 +8457,17 @@
             },
             "title": "Evidences",
             "type": "array"
+          },
+          "general_manager_confirmation_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "General Manager Confirmation Status"
           },
           "id": {
             "format": "uuid",
@@ -8569,6 +8619,22 @@
             "title": "Can Decide",
             "type": "boolean"
           },
+          "can_withdraw": {
+            "default": false,
+            "title": "Can Withdraw",
+            "type": "boolean"
+          },
+          "consulting_director_confirmation_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consulting Director Confirmation Status"
+          },
           "created_at": {
             "anyOf": [
               {
@@ -8584,6 +8650,17 @@
           "evidence_count": {
             "title": "Evidence Count",
             "type": "integer"
+          },
+          "general_manager_confirmation_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "General Manager Confirmation Status"
           },
           "id": {
             "format": "uuid",
@@ -8748,6 +8825,23 @@
           "review_comment"
         ],
         "title": "ReviewRejectRequest",
+        "type": "object"
+      },
+      "ReviewWithdrawRequest": {
+        "properties": {
+          "review_comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Comment"
+          }
+        },
+        "title": "ReviewWithdrawRequest",
         "type": "object"
       },
       "RevokeBody": {
@@ -15100,7 +15194,7 @@
     },
     "/api/v1/admin/weknora/default-models": {
       "get": {
-        "description": "读平台默认模型（admin / boss / 咨询总监）。只回安全 model_ref + 名称，无真实 model_id。",
+        "description": "读平台默认模型（admin / 总经理 / 咨询总监）。只回安全 model_ref + 名称，无真实 model_id。",
         "operationId": "get_default_models_api_v1_admin_weknora_default_models_get",
         "parameters": [
           {
@@ -18294,7 +18388,7 @@
     },
     "/api/v1/knowledge/{asset_id}/delete": {
       "post": {
-        "description": "受控删除 / 撤下知识资产。权限：个人 owner / 项目 active\nproject_manager / 公司 boss·咨询总监；纯 admin 不可。删除后资产立即退出\n列表 / 检索 / 问答 / 预览 / Agent / 原文授权运行时。",
+        "description": "受控删除 / 撤下知识资产。权限：个人 owner / 项目 active\nproject_manager / 公司总经理·咨询总监；纯 admin 不可。删除后资产立即退出\n列表 / 检索 / 问答 / 预览 / Agent / 原文授权运行时。",
         "operationId": "delete_knowledge_asset_api_v1_knowledge__asset_id__delete_post",
         "parameters": [
           {
@@ -20093,7 +20187,7 @@
     },
     "/api/v1/projects": {
       "get": {
-        "description": "项目列表：治理角色 / admin 看全部 active 项目；业务用户看本人 active 项目。",
+        "description": "项目列表：治理角色看安全元数据；项目成员看本人项目；纯 admin 拒绝。",
         "operationId": "list_projects_api_v1_projects_get",
         "parameters": [
           {
@@ -20157,7 +20251,7 @@
         ]
       },
       "post": {
-        "description": "创建项目知识空间（仅 Boss / 咨询总监）。写入真实 projects + active project_manager 成员；\n随后 best-effort 预创建并初始化 project WeKnora KB。",
+        "description": "创建项目知识空间（仅总经理 / 咨询总监）。写入真实 projects + active project_manager 成员；\n随后 best-effort 预创建并初始化 project WeKnora KB。",
         "operationId": "create_project_api_v1_projects_post",
         "parameters": [
           {
@@ -20411,6 +20505,91 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/knowledge/{asset_id}/upgrade-company": {
+      "post": {
+        "operationId": "request_company_upgrade_api_v1_projects__project_id__knowledge__asset_id__upgrade_company_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewListItem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Request Company Upgrade",
+        "tags": [
+          "review"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/members": {
       "get": {
         "operationId": "list_project_members_api_v1_projects__project_id__members_get",
@@ -20481,6 +20660,89 @@
           }
         },
         "summary": "List Project Members",
+        "tags": [
+          "projects"
+        ]
+      },
+      "post": {
+        "operationId": "add_project_member_api_v1_projects__project_id__members_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectMemberCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectMemberOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Project Member",
         "tags": [
           "projects"
         ]
@@ -21243,6 +21505,91 @@
           }
         },
         "summary": "Reject Review",
+        "tags": [
+          "review"
+        ]
+      }
+    },
+    "/api/v1/reviews/{review_id}/withdraw": {
+      "post": {
+        "operationId": "withdraw_review_confirmation_api_v1_reviews__review_id__withdraw_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "review_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Review Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewWithdrawRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewActionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Withdraw Review Confirmation",
         "tags": [
           "review"
         ]

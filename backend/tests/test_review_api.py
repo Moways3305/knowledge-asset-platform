@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy import func, select
 
-from app.models.review import ValidationEvidence
+from app.models.audit import AuditEvent
+from app.models.identity import UserCompanyRole
+from app.models.knowledge import KnowledgeAsset
+from app.models.review import CompanyAssetReviewDecision, ValidationEvidence
+from app.schemas.enums import RoleStatus
 from app.seed.dev_seed import (
+    KA_PROJECT_ALPHA,
     KA_PROJECT_ALPHA_MATERIAL,
     PROJECT_ALPHA,
     PROJECT_BETA,
@@ -13,6 +20,7 @@ from app.seed.dev_seed import (
     USER_ADMIN_ONLY,
     USER_BOSS,
     USER_CONSULTANT,
+    USER_DIRECTOR,
     USER_PROJECT_MANAGER,
 )
 
@@ -39,6 +47,10 @@ def _confirm_url(project_id, asset_id):
 
 def _evidence_url(project_id, asset_id):
     return f"/api/v1/projects/{project_id}/knowledge/{asset_id}/evidence"
+
+
+def _upgrade_url(project_id=PROJECT_ALPHA, asset_id=KA_PROJECT_ALPHA):
+    return f"/api/v1/projects/{project_id}/knowledge/{asset_id}/upgrade-company"
 
 
 async def test_confirm_asset_without_evidence_creates_pending_evidence(client):
@@ -231,3 +243,140 @@ async def test_governance_sees_reviews(client):
     """boss（治理角色）可看审核队列。"""
     resp = await client.get(REVIEWS, headers=_hdr(USER_BOSS))
     assert resp.status_code == 200
+
+
+async def test_company_upgrade_requires_independent_general_manager_and_director(
+    client, db_session
+):
+    created = await client.post(_upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER))
+    assert created.status_code == 200, created.text
+    review_id = created.json()["id"]
+
+    first = await client.post(
+        f"{REVIEWS}/{review_id}/approve",
+        headers=_hdr(USER_BOSS),
+        json={"review_comment": "总经理确认"},
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["status"] == "pending_reviewer"
+    detail = await client.get(f"{REVIEWS}/{review_id}", headers=_hdr(USER_BOSS))
+    assert detail.json()["general_manager_confirmation_status"] == "confirmed"
+    assert detail.json()["consulting_director_confirmation_status"] is None
+
+    second = await client.post(
+        f"{REVIEWS}/{review_id}/approve",
+        headers=_hdr(USER_DIRECTOR),
+        json={"review_comment": "咨询总监确认"},
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["status"] == "approved"
+    db_session.expire_all()
+    asset = await db_session.get(KnowledgeAsset, KA_PROJECT_ALPHA)
+    assert asset.scope == "company"
+    assert asset.project_id is None
+
+    decisions = list(
+        (
+            await db_session.execute(
+                select(CompanyAssetReviewDecision).where(
+                    CompanyAssetReviewDecision.review_task_id == uuid.UUID(review_id)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert {(row.required_role, row.actor_user_id) for row in decisions} == {
+        ("boss", USER_BOSS),
+        ("consulting_director", USER_DIRECTOR),
+    }
+    audits = list(
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.target_id == KA_PROJECT_ALPHA)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert "asset.scope_changed" in {row.action for row in audits}
+
+
+async def test_same_person_cannot_fill_both_company_confirmation_roles(client, db_session):
+    db_session.add(
+        UserCompanyRole(
+            user_id=USER_BOSS,
+            company_role="consulting_director",
+            status=RoleStatus.active.value,
+        )
+    )
+    await db_session.commit()
+    created = await client.post(_upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER))
+    review_id = created.json()["id"]
+    first = await client.post(f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_BOSS), json={})
+    assert first.status_code == 200
+    second = await client.post(f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_BOSS), json={})
+    assert second.status_code == 403
+    assert second.json()["detail"]["denied_reason"] == "company_confirmation_role_required"
+
+
+async def test_company_upgrade_reject_and_withdraw_are_terminal(client, db_session):
+    created = await client.post(_upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER))
+    review_id = created.json()["id"]
+    rejected = await client.post(
+        f"{REVIEWS}/{review_id}/reject",
+        headers=_hdr(USER_DIRECTOR),
+        json={"review_comment": "不适合公司复用"},
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["status"] == "rejected"
+    asset = await db_session.get(KnowledgeAsset, KA_PROJECT_ALPHA)
+    assert asset.scope == "project"
+
+    # 终态后可重新发起一个独立审核；已拒绝历史保留。
+    retry = await client.post(_upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER))
+    retry_id = retry.json()["id"]
+    await client.post(f"{REVIEWS}/{retry_id}/approve", headers=_hdr(USER_BOSS), json={})
+    withdrawn = await client.post(
+        f"{REVIEWS}/{retry_id}/withdraw",
+        headers=_hdr(USER_BOSS),
+        json={"review_comment": "撤回确认"},
+    )
+    assert withdrawn.status_code == 200
+    assert withdrawn.json()["status"] == "rejected"
+    assert (
+        await client.post(f"{REVIEWS}/{retry_id}/approve", headers=_hdr(USER_DIRECTOR), json={})
+    ).status_code == 409
+
+
+async def test_missing_director_keeps_company_upgrade_pending(client, db_session):
+    role = (
+        await db_session.execute(
+            select(UserCompanyRole).where(
+                UserCompanyRole.user_id == USER_DIRECTOR,
+                UserCompanyRole.company_role == "consulting_director",
+            )
+        )
+    ).scalar_one()
+    role.status = RoleStatus.inactive.value
+    await db_session.commit()
+
+    created = await client.post(_upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER))
+    review_id = created.json()["id"]
+    confirmed = await client.post(
+        f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_BOSS), json={}
+    )
+    assert confirmed.status_code == 200
+    assert confirmed.json()["status"] == "pending_reviewer"
+    asset = await db_session.get(KnowledgeAsset, KA_PROJECT_ALPHA)
+    assert asset.scope == "project"
+
+
+async def test_admin_and_company_role_cannot_bypass_project_confirmation(client):
+    created = await client.post(_upgrade_url(), headers=_hdr(USER_ADMIN_ONLY))
+    assert created.status_code == 403
+    review = await client.post(
+        f"{REVIEWS}/{REVIEW_SEED}/approve", headers=_hdr(USER_DIRECTOR), json={}
+    )
+    assert review.status_code == 403
+    assert review.json()["detail"]["denied_reason"] == "review_action_forbidden"

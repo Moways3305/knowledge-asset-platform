@@ -24,7 +24,7 @@ const projectRoleCls: Record<string, string> = {
   consultant: "ps-role-consultant",
 };
 const companyRoleLabel: Record<string, string> = {
-  boss: "Boss",
+  boss: "总经理",
   consulting_director: "咨询总监",
   consultant: "顾问",
   admin: "管理员",
@@ -76,7 +76,7 @@ export default function ProjectSettingsPage() {
       if (id && UUID_RE.test(id)) {
         const matched = me.projects.find((p) => p.projectId === id);
         if (matched) return matched.projectId;
-        return id; // 允许治理角色通过项目链接查看；服务端仍会校验权限。
+        return id; // 保留路由上下文，由服务端按 active 项目成员关系校验。
       }
       return me.projects[0]?.projectId ?? null;
     },
@@ -236,9 +236,7 @@ export default function ProjectSettingsPage() {
         <div className="au-error-banner">
           <p>{actionError}</p>
           {isWriteForbidden && (
-            <p className="au-error-hint">
-              顾问成员只读，项目设置修改需 project_manager / coach 或 Boss / 咨询总监。
-            </p>
+            <p className="au-error-hint">顾问与辅导老师只读，项目设置仅由本项目经理修改。</p>
           )}
           {isAdminDenied && <p className="au-error-hint">admin 是系统身份，不修改项目业务设置。</p>}
         </div>
@@ -255,7 +253,7 @@ export default function ProjectSettingsPage() {
           <p className="ig-empty-desc">{error}</p>
           {isMembershipErr && (
             <p className="ig-empty-desc">
-              项目设置仅对本项目成员、Boss、咨询总监或系统管理员开放。
+              项目设置仅对本项目 active 成员开放，公司职务与系统管理员身份不会自动放行。
             </p>
           )}
           {projectId && (
@@ -273,8 +271,7 @@ export default function ProjectSettingsPage() {
           {!canWrite && (
             <div className="role-context-hint">
               <div className="role-context-hint-title">只读视角</div>
-              当前身份对本项目设置为只读（顾问成员 / admin 系统身份）。可查看项目规则与成员，修改需
-              project_manager / coach 或 Boss / 咨询总监。
+              当前身份对本项目设置为只读。可查看项目规则与成员，修改仅由本项目经理完成。
             </div>
           )}
 

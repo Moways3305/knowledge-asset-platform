@@ -76,7 +76,7 @@ class ProjectQaResponse(BaseModel):
 
 
 class AgentCallDetailResponse(BaseModel):
-    """Agent 调用记录详情（本人 / boss / 咨询总监可见）。"""
+    """Agent 调用记录详情（本人 / 总经理 / 咨询总监可见）。"""
 
     call_id: uuid.UUID
     caller_user_id: uuid.UUID

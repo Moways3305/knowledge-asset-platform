@@ -6,7 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 import { startWecomOAuth } from "../api/admin";
 
 const roleLabel: Record<string, string> = {
-  boss: "Boss",
+  boss: "总经理",
   consulting_director: "咨询总监",
   consultant: "顾问",
   admin: "管理员",

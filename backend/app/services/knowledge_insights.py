@@ -9,7 +9,7 @@ original_access_requests / access_grants / asset_lifecycle_events / audit_events
 - 未登录 / inactive → 403。
 - 纯 admin（系统运维，非业务用户）：可看系统运维聚合，但 `title_visible=false`，
   recent_items 不含标题 / owner / 文件名。
-- boss / 咨询总监（治理）：可看公司 / 跨项目治理聚合 + title-visible drilldown（不含他人个人知识）。
+- 总经理 / 咨询总监（治理）：可看公司范围、本人与 active 成员项目的聚合和安全下钻。
 - 项目经理 / coach / 普通业务用户：限本人资产 + 所在项目资产范围聚合 + drilldown。
 - insights 不绕过 `/knowledge` 发现权限：他人个人知识不计入、不下钻。
 
@@ -94,9 +94,9 @@ def _require_access(caller: CallerContext) -> None:
 
 
 def _asset_visibility_conditions(caller: CallerContext) -> list:
-    """资产可见性条件（不绕过发现权限）：治理/admin 全量但排除他人个人知识；其余限本人+所在项目。"""
-    if _is_ops_viewer(caller):
-        # 个人知识不可发现：治理 / admin 也不下钻他人个人资产。
+    """资产可见性条件；公司职务不自动形成跨项目访问权。"""
+    if _is_admin(caller):
+        # admin 仅消费无标题系统聚合；个人知识仍不可进入统计。
         return [
             or_(
                 KnowledgeAsset.scope != KnowledgeScope.personal.value,
@@ -107,6 +107,7 @@ def _asset_visibility_conditions(caller: CallerContext) -> list:
     return [
         or_(
             KnowledgeAsset.owner_user_id == caller.user_id,
+            KnowledgeAsset.scope == KnowledgeScope.company.value,
             KnowledgeAsset.project_id.in_(pids),
         )
     ]
@@ -268,11 +269,12 @@ async def get_ops_insights(
 def _kb_init_failed_stmt(caller: CallerContext, scope_v: str, project_id: uuid.UUID | None):
     """KB 初始化失败计数（按可见范围限定 mapping）。"""
     conds = [WeknoraKbMapping.status == "init_failed"]
-    if not _is_ops_viewer(caller):
+    if not _is_admin(caller):
         pids = list(caller.active_project_ids) or [uuid.UUID(int=0)]
         conds.append(
             or_(
                 WeknoraKbMapping.owner_user_id == caller.user_id,
+                WeknoraKbMapping.scope == KnowledgeScope.company.value,
                 WeknoraKbMapping.project_id.in_(pids),
             )
         )

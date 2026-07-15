@@ -253,7 +253,7 @@ export default function WecomScanConfigForm({
                 {values.scope === "project" && !values.projectId
                   ? "请先选择目标项目，再选择该项目的业务归属人。"
                   : values.scope === "company"
-                    ? "公司级配置需选择 Boss / 咨询总监作为业务归属人，当前无可选治理角色。"
+                    ? "公司级配置需选择总经理 / 咨询总监作为业务归属人，当前无可选治理角色。"
                     : "暂无可选业务用户作为归属人。"}
               </span>
             )}

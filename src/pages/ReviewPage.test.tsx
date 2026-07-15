@@ -9,6 +9,7 @@ vi.mock("../api/review", () => ({
   approveReview: vi.fn(),
   fetchReviews: vi.fn(),
   rejectReview: vi.fn(),
+  withdrawReviewConfirmation: vi.fn(),
 }));
 
 const pending: ReviewItemDTO = {
@@ -28,6 +29,9 @@ const pending: ReviewItemDTO = {
   reviewed_at: null,
   created_at: "2026-07-14T00:00:00Z",
   can_decide: true,
+  can_withdraw: false,
+  general_manager_confirmation_status: null,
+  consulting_director_confirmation_status: null,
 };
 
 describe("ReviewPage project ingest approvals", () => {
@@ -47,7 +51,7 @@ describe("ReviewPage project ingest approvals", () => {
     expect(row).not.toBeNull();
     expect(within(row!).getByText("项目知识入库")).toBeInTheDocument();
     expect(within(row!).getByText("无需证据")).toBeInTheDocument();
-    fireEvent.click(within(row!).getByRole("button", { name: "通过" }));
+    fireEvent.click(within(row!).getByRole("button", { name: "确认" }));
     await waitFor(() => expect(approveReview).toHaveBeenCalledWith("review-1", "确认通过"));
   });
 

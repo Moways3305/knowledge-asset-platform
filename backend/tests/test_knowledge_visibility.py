@@ -114,10 +114,7 @@ async def test_governance_company_visibility_preserved(client):
 
 
 async def test_inactive_project_member_no_member_original(db_session):
-    """顾问 A 在 Beta 为 inactive 成员 → 不获得成员级原文：Beta L3 最多到脱敏摘要、原文需申请。
-
-    （Beta L1/L2 的跨项目业务用户可见性为既有 DefaultAccessPolicy 设计，非项目越权——见报告。）
-    """
+    """顾问 A 在 Beta 为 inactive 成员，因此不能发现或读取 Beta 知识。"""
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
 
@@ -136,8 +133,8 @@ async def test_inactive_project_member_no_member_original(db_session):
     beta_l3 = await db_session.get(KnowledgeAsset, KA_PROJECT_BETA_L3)
     assert beta_l3.project_id not in ctx.active_project_ids
     orig = decide(ctx, beta_l3, AccessLayer.original)
-    assert orig.allowed is False  # 非成员对 L3 原文需申请，未放行
-    assert orig.denied_reason == DeniedReason.original_requires_request
+    assert orig.allowed is False
+    assert orig.denied_reason == DeniedReason.no_project_membership
     summ = decide(ctx, beta_l3, AccessLayer.summary)
-    assert summ.allowed is True  # 跨项目 L3 仍可发现 + 脱敏摘要（既有设计）
-    assert summ.effective_access_source.value == "system_rule"
+    assert summ.allowed is False
+    assert summ.denied_reason == DeniedReason.no_project_membership

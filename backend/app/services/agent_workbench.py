@@ -203,7 +203,7 @@ async def _load_visible_project(
 ) -> Project:
     """加载对调用人可见的项目；**不存在或不可见一律 404（同一安全文案）**。
 
-    可见 = 本项目 active 成员，或治理角色（boss / 咨询总监）。项目外、无治理权限者不能借
+    可见 = 本项目 active 成员。公司层职务不自动形成项目访问权；项目外调用人不能借
     project_id 枚举项目资料 / 概览——「无权项目」与「不存在项目」对外完全不可区分（不可枚举），
     不返回成员 / 客户 / 项目配置 / 权限判断过程等任何业务信息。
     """
@@ -215,7 +215,7 @@ async def _load_visible_project(
     ).scalar_one_or_none()
     if project is None:
         raise not_available
-    if project_id not in caller.active_project_ids and not caller.can_discover_l5:
+    if project_id not in caller.active_project_ids:
         raise not_available
     return project
 

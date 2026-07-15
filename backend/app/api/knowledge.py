@@ -104,7 +104,7 @@ async def delete_knowledge_asset(
     weknora=Depends(get_weknora_client),
 ) -> KnowledgeDeleteResponse:
     """受控删除 / 撤下知识资产。权限：个人 owner / 项目 active
-    project_manager / 公司 boss·咨询总监；纯 admin 不可。删除后资产立即退出
+    project_manager / 公司总经理·咨询总监；纯 admin 不可。删除后资产立即退出
     列表 / 检索 / 问答 / 预览 / Agent / 原文授权运行时。"""
     return await knowledge_service.delete_asset(
         session,

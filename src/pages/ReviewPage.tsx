@@ -1,6 +1,11 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { approveReview, fetchReviews, rejectReview } from "../api/review";
+import {
+  approveReview,
+  fetchReviews,
+  rejectReview,
+  withdrawReviewConfirmation,
+} from "../api/review";
 import type { ReviewItemDTO } from "../types/review";
 import { useAsyncData } from "../hooks/useAsyncData";
 import { useActionFeedback } from "../hooks/useActionFeedback";
@@ -34,6 +39,12 @@ const reviewTypeLabel: Record<string, string> = {
   project_ingest_approval: "项目知识入库",
 };
 
+const confirmationStatusLabel: Record<string, string> = {
+  confirmed: "已确认",
+  rejected: "已拒绝",
+  withdrawn: "已撤回",
+};
+
 export default function ReviewPage() {
   const { data, loading, error, forbidden, reload } = useAsyncData(fetchReviews);
   const items = useMemo(() => data ?? [], [data]);
@@ -60,6 +71,12 @@ export default function ReviewPage() {
   const handleReject = (id: string) =>
     void action.run(async () => {
       await rejectReview(id, "审核未通过：需补充材料");
+      reload();
+    });
+
+  const handleWithdraw = (id: string) =>
+    void action.run(async () => {
+      await withdrawReviewConfirmation(id, "撤回本人确认");
       reload();
     });
 
@@ -93,7 +110,17 @@ export default function ReviewPage() {
       key: "status",
       header: "状态",
       render: (c) => (
-        <StatusBadge variant={statusCls[c.status]} label={statusLabel[c.status] ?? c.status} />
+        <>
+          <StatusBadge variant={statusCls[c.status]} label={statusLabel[c.status] ?? c.status} />
+          {c.review_type === "project_to_company" && (
+            <span className="rv-evidence-summary">
+              总经理：
+              {confirmationStatusLabel[c.general_manager_confirmation_status ?? ""] ?? "待确认"} ·
+              咨询总监：
+              {confirmationStatusLabel[c.consulting_director_confirmation_status ?? ""] ?? "待确认"}
+            </span>
+          )}
+        </>
       ),
     },
     {
@@ -101,21 +128,32 @@ export default function ReviewPage() {
       header: "操作",
       className: "cell-actions",
       render: (c) =>
-        canAct(c) ? (
+        canAct(c) || c.can_withdraw ? (
           <>
-            <button className="btn-small btn-small-primary" onClick={() => handleApprove(c.id)}>
-              {c.status === "approval_failed" ? "重试入库" : "通过"}
-            </button>
-            <button className="btn-small btn-small-danger" onClick={() => handleReject(c.id)}>
-              拒绝
-            </button>
+            {canAct(c) && (
+              <>
+                <button className="btn-small btn-small-primary" onClick={() => handleApprove(c.id)}>
+                  {c.status === "approval_failed" ? "重试入库" : "确认"}
+                </button>
+                <button className="btn-small btn-small-danger" onClick={() => handleReject(c.id)}>
+                  拒绝
+                </button>
+              </>
+            )}
+            {c.can_withdraw && (
+              <button className="btn-small" onClick={() => handleWithdraw(c.id)}>
+                撤回确认
+              </button>
+            )}
           </>
         ) : (
           <span className="rv-evidence-summary">
             {c.status === "pending_evidence"
               ? "待补充证据"
               : c.status === "pending_reviewer"
-                ? "待项目经理或治理角色处理"
+                ? c.review_type === "project_to_company"
+                  ? "待总经理与咨询总监分别确认"
+                  : "待项目经理处理"
                 : c.status === "approving"
                   ? "正在完成资产化与索引"
                   : "—"}
@@ -153,7 +191,7 @@ export default function ReviewPage() {
 
       <div className="role-context-hint">
         <div className="role-context-hint-title">审核视角说明</div>
-        目标项目经理可处理本项目的知识入库；Boss、咨询总监可作为治理兜底。技术管理员无业务审批权限。
+        项目经理独立处理本项目知识入库与资产确认；项目资产升格公司资产须总经理与咨询总监分别确认。技术管理员无业务审批权限。
       </div>
 
       <section className="review-section">

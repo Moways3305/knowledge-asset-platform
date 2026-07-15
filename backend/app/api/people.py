@@ -1,6 +1,6 @@
 """人员 / 公司角色 / 项目成员关系管理 API。
 
-- GET   /api/v1/admin/people                                         （admin / boss / 咨询总监）
+- GET   /api/v1/admin/people                                         （admin / 总经理 / 咨询总监）
 - GET   /api/v1/admin/people/{user_id}                               （同上）
 - POST  /api/v1/admin/people/{user_id}/company-roles                 （管理公司角色）
 - GET   /api/v1/admin/people/{user_id}/project-memberships           （读，含 inactive）

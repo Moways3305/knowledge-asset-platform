@@ -102,7 +102,7 @@ async def test_director_creates_with_coach(client, db_session):
         json=_project_body(
             name="带辅导老师项目",
             project_manager_user_id=str(USER_PROJECT_MANAGER),
-            coach_user_id=str(USER_CONSULTANT),
+            coach_user_id=str(USER_BOSS),
         ),
     )
     assert r.status_code == 201, r.text

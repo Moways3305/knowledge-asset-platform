@@ -77,6 +77,14 @@ class ProjectMemberPatchRequest(BaseModel):
     status: MemberStatus | None = None
 
 
+class ProjectMemberCreateRequest(BaseModel):
+    """新增或恢复项目成员；项目 ID 只取可信路由参数。"""
+
+    user_id: uuid.UUID
+    project_role: ProjectRole
+    status: MemberStatus = MemberStatus.active
+
+
 # ----- 项目列表 / 创建 -----
 class ProjectListItemOut(BaseModel):
     """项目列表条目（安全治理元数据）。"""

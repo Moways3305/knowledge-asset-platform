@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-rou
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchKnowledgeList } from "../api/knowledge";
 import { fetchProjectQaModelOptions, projectQa } from "../api/project";
+import { requestCompanyUpgrade } from "../api/review";
 import ProjectKnowledgePage from "./ProjectKnowledgePage";
 
 const PROJECT_A = "00000000-0000-0000-0000-0000000000a1";
@@ -31,6 +32,10 @@ vi.mock("../api/knowledge", () => ({
 vi.mock("../api/project", () => ({
   fetchProjectQaModelOptions: vi.fn(),
   projectQa: vi.fn(),
+}));
+
+vi.mock("../api/review", () => ({
+  requestCompanyUpgrade: vi.fn(),
 }));
 
 function HistoryControls() {
@@ -78,6 +83,9 @@ describe("ProjectKnowledgePage project context", () => {
       trace_id: null,
       created_at: "2026-07-14T00:00:00Z",
     });
+    vi.mocked(requestCompanyUpgrade)
+      .mockReset()
+      .mockResolvedValue({} as never);
   });
 
   it("binds direct URLs and list/model requests to the exact project id", async () => {
@@ -151,5 +159,47 @@ describe("ProjectKnowledgePage project context", () => {
     renderPage(`/project/${PROJECT_A}/knowledge`);
     expect(await screen.findByText(/当前没有可用问答模型，请联系管理员/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "提问" })).toBeDisabled();
+  });
+
+  it("lets only the project manager request company upgrade for a project asset", async () => {
+    vi.mocked(fetchKnowledgeList).mockResolvedValue([
+      {
+        id: "asset-1",
+        title: "可复用项目资产",
+        scope: "project",
+        zone: "asset",
+        assetType: "case",
+        confidentialityLevel: "L2",
+        aiAccessLevel: "A2",
+        assetStatus: "active",
+        visibility: "project-only",
+        tags: [],
+        summary: "安全摘要",
+        projectName: "乙项目",
+        lifecyclePhase: "阶段评估",
+        confidence: null,
+        lastCalledAt: "",
+        updatedAt: "",
+        access: {
+          discovery: true,
+          summary: true,
+          original: true,
+          effectiveSource: "project_member",
+          canRequestOriginal: false,
+          existingRequestStatus: null,
+          existingGrantExpiresAt: null,
+          canDelete: true,
+          canRetryIndex: false,
+        },
+        indexStatus: "indexed",
+        parseStatus: null,
+        indexErrorMessage: null,
+        indexedAt: null,
+      },
+    ]);
+    renderPage(`/project/${PROJECT_B}/knowledge`);
+    fireEvent.click(await screen.findByRole("button", { name: "申请升格公司资产" }));
+    await waitFor(() => expect(requestCompanyUpgrade).toHaveBeenCalledWith(PROJECT_B, "asset-1"));
+    expect(await screen.findByText(/等待总经理与咨询总监分别确认/)).toBeInTheDocument();
   });
 });

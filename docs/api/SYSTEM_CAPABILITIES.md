@@ -21,9 +21,9 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 |---|---|---|---|
 | 个人知识库 | 个人资料/草稿/摘录 | 本人整理确认的个人知识资产（仅本人可见） | 知识所有者**本人** |
 | 项目知识库 | 项目过程材料 | 经验证的可复用知识资产 | **项目经理**（需真实分享/客户验证证据） |
-| 公司知识库 | 公司级资料/候选/待治理 | 公司级知识资产 | **Boss / 咨询总监** |
+| 公司知识库 | 公司级资料/候选/待治理 | 公司级知识资产 | **总经理 / 咨询总监** |
 
-- 个人知识库可由 Boss / 咨询总监 / 顾问拥有；仅本人使用，不参与他人检索；进项目须本人主动提交。
+- 个人知识库可由总经理 / 咨询总监 / 顾问拥有；仅本人使用，不参与他人检索；进项目须本人主动提交且本人须为目标项目 active 成员。
 - 资料区与资产区**不是两个物理知识库**，是同一库内的 `zone` 标签。
 
 ---
@@ -35,10 +35,10 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 | 顾问 | `consultant` | 个人知识管理、资料贡献、提交候选、项目问答 |
 | 项目经理 | `project_manager` | 项目知识运营、个人到项目提交审核、项目资产区确认 |
 | 辅导老师 | `coach` | 现场教学/陪跑/进度观察；**不**做资产区确认 |
-| Boss | `boss` | 公司级决策、公司知识资产审核 |
+| 总经理 | `boss` | 公司级决策、公司知识资产审核 |
 | 咨询总监 | `consulting_director` | 公司级知识治理、权限规则、跨项目治理 |
 
-`admin` 是系统管理身份，**不**作为业务个人知识库主体，也**不**因系统身份自动获得业务原文授权或 L5 发现权。
+公司角色与项目角色分别存储、分别判定；公司职务不自动形成任何项目成员关系。`admin` 是系统管理身份，**不**作为业务个人知识库主体，也**不**因系统身份自动获得业务知识、审批或成员管理权。
 
 ---
 
@@ -50,7 +50,7 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
    （发现/摘要层召回 + 原文层受权限网关约束）。
 3. **问答（QA）**：项目问答经外部 Agent 网关，**完全跟随调用人权限**取上下文。
 4. **资产化确认**：material → asset 按上表规则由对应确认人完成（项目资产需验证证据）。
-5. **公司库升格**：项目资产经跨项目复用信号**推荐**为公司候选 → Boss / 咨询总监审核。
+5. **公司库升格**：项目经理发起项目资产升格 → 一名总经理与一名咨询总监分别确认；任一方拒绝或撤回均不升格，任一角色缺失则保持待确认。
 6. **生命周期**：知识可归档 / 重启用（archive / reenable，带申请—确认）。
 7. **原文访问**：跨项目 / 公司 L3/L4 原文经申请—审批生成授权后方可访问；全程审计。
 
@@ -90,12 +90,13 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 
 ### 4.5 入库与审核（ingest, review）
 - 🔐 `POST /api/v1/ingest/upload`、`GET /api/v1/ingest/pending`、`GET .../{task_id}/ai-result`、`POST .../{task_id}/{confirm|refresh-parse}`。
-- 🛡️ `GET /api/v1/reviews`、`GET /api/v1/reviews/{review_id}`、`POST .../{approve|reject}` — 升格/提交审核。
+- 🛡️ `GET /api/v1/reviews`、`GET /api/v1/reviews/{review_id}`、`POST .../{approve|reject|withdraw}` — 升格/提交审核。
+- 🔐 `POST /api/v1/projects/{project_id}/knowledge/{asset_id}/upgrade-company` — 仅项目经理发起公司资产升格双确认。
 
 ### 4.6 项目（projects）
 - 🔐 `GET/POST /api/v1/projects`、`GET/PATCH /api/v1/projects/{project_id}/settings`。
 - 🔐 `POST /api/v1/projects/{project_id}/qa` — 项目问答（经 Agent 网关 + 权限）。
-- 🛡️ `GET/PATCH /api/v1/projects/{project_id}/members/...` — 成员协同。
+- 🛡️ `GET/POST/PATCH /api/v1/projects/{project_id}/members/...` — 总经理/咨询总监任命项目经理，项目经理管理本项目辅导老师与顾问。
 - 🛡️ `POST /api/v1/projects/{project_id}/knowledge/{asset_id}/{confirm-asset|evidence}` — 项目资产确认（项目经理）。
 
 ### 4.7 原文访问授权（original_access）
@@ -121,8 +122,8 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 ### 4.9 治理与管理后台（audit, alert, people, permissions, wecom_scan, weknora_admin）
 - 🛡️ 审计：`GET /api/v1/admin/audit`(+`/trace/{trace_id}`,`/{event_id}/mark-processed`)。
 - 🛡️ 告警：`GET /api/v1/admin/alerts/{rules|notifications}`、`PATCH .../rules/{rule_id}`。
-- 🛡️ 人员：`/api/v1/admin/people/...`。Boss 可管理 Boss / 咨询总监 / 顾问，咨询总监仅管理顾问；Boss / 咨询总监管理项目成员关系。admin 仅管理 admin 角色及账号、会话、密码，不得写业务角色或项目成员关系。
-- 🛡️ 公司知识库：`GET|POST /api/v1/company/knowledge-base` 仅 Boss / 咨询总监可用；显式创建复用受控 WeKnora 适配层且幂等，响应只含安全名称、状态、创建时间与可用性。非 `active` 公司库不能用于公司范围入库。
+- 🛡️ 人员：`/api/v1/admin/people/...`。总经理可管理总经理 / 咨询总监 / 顾问；咨询总监可管理咨询总监 / 顾问，但不可修改总经理。总经理 / 咨询总监任命或撤销项目经理；项目经理独立管理本项目辅导老师与顾问。admin 仅管理 admin 角色及账号、会话、密码，不得写业务角色或项目成员关系。
+- 🛡️ 公司知识库：`GET|POST /api/v1/company/knowledge-base` 仅总经理 / 咨询总监可用；显式创建复用受控 WeKnora 适配层且幂等，响应只含安全名称、状态、创建时间与可用性。非 `active` 公司库不能用于公司范围入库。
 - 🛡️ 权限规则：`/api/v1/admin/permissions/{rules|agent-whitelist}`。
 - 🛡️ 微盘扫描：`/api/v1/admin/wecom-scan/...`（配置、扫描、目录/空间、归属选项）。
 - 🛡️ WeKnora 管理：`/api/v1/admin/weknora/{models|kb-configs|providers}`（模型经不可逆 `model_ref` 对前端暴露，内部 model id 不外泄）。
@@ -144,8 +145,9 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 关键规则：
 - 无项目身份用户**也可**查看公司知识库中允许发现的知识摘要（无项目身份 ≠ 只能看个人知识）。
 - 项目组人员对**所在项目**知识库拥有摘要与原文（含客户数据原文）权限，行为受审计、无需额外原文申请。
-- 跨项目 / 公司知识库的 L3/L4 原文需原文审核 / 授权。
-- L5 仅 Boss / 咨询总监可发现；admin **不**自动发现 L5。
+- 非 active 项目成员不可发现对应项目知识，公司职务不能绕过此边界。
+- 公司顾问可访问公司知识的发现层与安全摘要层；公司原文默认仅总经理 / 咨询总监可访问，并继续遵守保密级别与受控预览规则。
+- L5 仅总经理 / 咨询总监可发现；admin **不**自动发现 L5。
 - L3/L4 摘要必须是脱敏摘要，不得含客户敏感数据。L2 是内部一般资料，不强制脱敏，不比 L3/L4 更严格。
 - `preview_type` 由保密等级 + 访问场景 + 调用人授权**共同**决定，不固定对应某一保密级别。
 - Agent 跟随调用人权限：调用人能看摘要则 Agent 可用同范围摘要；调用人有原文授权则 Agent 同步具备该范围原文能力；调用人无权发现 L5，Agent 亦不能。Agent 只能推荐候选，不自动完成审核 / 验证 / 资产确认 / 公司库升格。

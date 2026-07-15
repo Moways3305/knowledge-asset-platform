@@ -1,4 +1,4 @@
-"""Run the one-time first-Boss bootstrap without echoing identity details."""
+"""Run the one-time first-general-manager bootstrap without echoing identity details."""
 
 from __future__ import annotations
 

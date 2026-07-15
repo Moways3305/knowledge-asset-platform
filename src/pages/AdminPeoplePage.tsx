@@ -19,7 +19,7 @@ import { formatBeijingTime } from "../utils/time";
 import { useAuth } from "../auth/AuthContext";
 
 const companyRoleLabel: Record<string, string> = {
-  boss: "Boss",
+  boss: "总经理",
   consulting_director: "咨询总监",
   consultant: "顾问",
   admin: "管理员",
@@ -39,7 +39,7 @@ const statusCls: Record<string, string> = {
 };
 
 const COMPANY_ROLE_OPTIONS = ["boss", "consulting_director", "consultant", "admin"];
-const PROJECT_ROLE_OPTIONS = ["consultant", "project_manager", "coach"];
+const PROJECT_ROLE_OPTIONS = ["project_manager", "coach"];
 const USER_STATUS_OPTIONS = ["active", "inactive"];
 
 // 用户可见时间统一北京时间。
@@ -51,9 +51,11 @@ export default function AdminPeoplePage() {
   const canManageCompanyRole = (role: string) =>
     role === "admin"
       ? capabilities.isAdmin
-      : role === "consultant"
+      : role === "consultant" || role === "consulting_director"
         ? canManageProjects
         : capabilities.isBoss;
+  const canManageProjectRole = (role: string) =>
+    canManageProjects && (role === "project_manager" || role === "coach");
   const [people, setPeople] = useState<PersonDTO[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -459,7 +461,7 @@ export default function AdminPeoplePage() {
                     style={{ display: "flex", gap: 8, alignItems: "center" }}
                   >
                     <span className="pp-pr-project">{m.project_name}</span>
-                    {canManageProjects ? (
+                    {canManageProjectRole(m.project_role) ? (
                       <select
                         className="up-edit-select"
                         value={m.project_role}
@@ -489,7 +491,7 @@ export default function AdminPeoplePage() {
                     <span className={`pp-status-pill ${statusCls[m.status] ?? ""}`}>
                       {statusLabel[m.status] ?? m.status}
                     </span>
-                    {canManageProjects && (
+                    {canManageProjectRole(m.project_role) && (
                       <button
                         className="btn-small"
                         onClick={async () => {
@@ -536,7 +538,9 @@ export default function AdminPeoplePage() {
                 }}
               />
             ) : (
-              <p className="pp-no-project">项目成员关系由 Boss 或咨询总监维护。</p>
+              <p className="pp-no-project">
+                总经理或咨询总监任命项目经理与默认辅导老师；项目顾问由项目经理维护。
+              </p>
             )}
           </div>
         </section>
@@ -549,7 +553,7 @@ export default function AdminPeoplePage() {
             <div className="ig-empty-title">无法加载</div>
             <p className="ig-empty-desc">{error}</p>
             <p className="ig-empty-desc">
-              人员治理查看仅对 admin / Boss / 咨询总监开放；可经 <code>VITE_DEV_USER_ID</code>{" "}
+              人员治理查看仅对 admin / 总经理 / 咨询总监开放；可经 <code>VITE_DEV_USER_ID</code>{" "}
               切换授权身份。
             </p>
             <button className="btn-small" onClick={() => void load()}>

@@ -163,14 +163,20 @@ async def test_admin_can_grant_admin_role(client):
 
 
 async def test_company_role_authorization_matrix(client):
-    # 咨询总监可管理顾问，但不可管理 Boss / 咨询总监。
+    # 咨询总监可管理咨询总监及顾问，但不可管理总经理。
     allowed = await client.post(
         f"{PEOPLE}/{USER_PROJECT_MANAGER}/company-roles",
         headers=_hdr(USER_DIRECTOR),
         json={"company_role": "consultant", "status": "inactive"},
     )
     assert allowed.status_code == 200, allowed.text
-    for role in ("boss", "consulting_director"):
+    director = await client.post(
+        f"{PEOPLE}/{USER_PROJECT_MANAGER}/company-roles",
+        headers=_hdr(USER_DIRECTOR),
+        json={"company_role": "consulting_director", "status": "active"},
+    )
+    assert director.status_code == 200
+    for role in ("boss",):
         denied = await client.post(
             f"{PEOPLE}/{USER_PROJECT_MANAGER}/company-roles",
             headers=_hdr(USER_DIRECTOR),
@@ -272,16 +278,16 @@ async def test_last_admin_protection_ignores_inactive_user(client, db_session):
 
 # ---------------- 项目成员关系管理 ----------------
 async def test_membership_upsert_no_duplicate(client):
-    # boss 给 USER_BOSS 加入 ALPHA（consultant）→ 创建；再 upsert 为 project_manager → 更新同一行。
+    # 治理角色给合格候选人加入 ALPHA（coach），再 upsert 为 project_manager，更新同一行。
     r1 = await client.post(
-        f"{PEOPLE}/{USER_BOSS}/project-memberships",
+        f"{PEOPLE}/{USER_DIRECTOR}/project-memberships",
         headers=_hdr(USER_BOSS),
-        json={"project_id": str(PROJECT_ALPHA), "project_role": "consultant", "status": "active"},
+        json={"project_id": str(PROJECT_ALPHA), "project_role": "coach", "status": "active"},
     )
     assert r1.status_code == 200, r1.text
     mid = r1.json()["membership_id"]
     r2 = await client.post(
-        f"{PEOPLE}/{USER_BOSS}/project-memberships",
+        f"{PEOPLE}/{USER_DIRECTOR}/project-memberships",
         headers=_hdr(USER_BOSS),
         json={
             "project_id": str(PROJECT_ALPHA),
@@ -321,10 +327,10 @@ async def test_patch_membership_wrong_user_404(client):
 
 
 async def test_patch_membership_deactivate_then_not_in_caller_context(client, db_session):
-    # 给 USER_BOSS 创建 ALPHA active 成员 → 其 caller context 含 ALPHA。
+    # 项目经理给 USER_BOSS 创建 ALPHA consultant，再由项目经理停用。
     create = await client.post(
         f"{PEOPLE}/{USER_BOSS}/project-memberships",
-        headers=_hdr(USER_BOSS),
+        headers=_hdr(USER_PROJECT_MANAGER),
         json={"project_id": str(PROJECT_ALPHA), "project_role": "consultant", "status": "active"},
     )
     mid = create.json()["membership_id"]
@@ -333,7 +339,7 @@ async def test_patch_membership_deactivate_then_not_in_caller_context(client, db
     # PATCH inactive → 重新加载后不再出现在 active_project_ids。
     patch = await client.patch(
         f"{PEOPLE}/{USER_BOSS}/project-memberships/{mid}",
-        headers=_hdr(USER_BOSS),
+        headers=_hdr(USER_PROJECT_MANAGER),
         json={"status": "inactive"},
     )
     assert patch.status_code == 200

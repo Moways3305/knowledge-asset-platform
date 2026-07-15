@@ -40,6 +40,7 @@ from app.models.original_access import AccessGrant, OriginalAccessRequest
 from app.models.permission_rule import PermissionRule
 from app.models.preview import PreviewCredential
 from app.models.review import (
+    CompanyAssetReviewDecision,
     PersonalKnowledgeSubmission,
     ReviewTask,
     ReviewTaskEvidence,
@@ -64,6 +65,7 @@ __all__ = [
     "IngestTaskAiResult",
     "IndexingOperationJob",
     "ValidationEvidence",
+    "CompanyAssetReviewDecision",
     "ReviewTask",
     "ReviewTaskEvidence",
     "PersonalKnowledgeSubmission",

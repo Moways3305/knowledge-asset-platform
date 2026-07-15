@@ -168,7 +168,7 @@ export default function AdminPermissionsPage() {
           <div className="kb-eyebrow">Governance · 治理规则册</div>
           <h2 className="kb-title">权限规则管理</h2>
           <p className="kb-lead">
-            配置知识流转阈值、访问申请策略与外部 Agent 接入注册。Boss /
+            配置知识流转阈值、访问申请策略与外部 Agent 接入注册。总经理 /
             咨询总监可修改业务权限规则；admin 只读；修改写入审计日志。
           </p>
         </div>
@@ -198,12 +198,12 @@ export default function AdminPermissionsPage() {
         !error &&
         (canEditRules ? (
           <div className="policy-role is-edit">
-            当前身份可<strong>查看并修改</strong>业务权限规则（Boss / 咨询总监）。
+            当前身份可<strong>查看并修改</strong>业务权限规则（总经理 / 咨询总监）。
           </div>
         ) : isAdmin ? (
           <div className="policy-role is-readonly">
             当前身份为 <strong>admin（系统身份）</strong>
-            ：可查看权限规则，但不能修改业务权限规则。修改请使用 Boss / 咨询总监身份。
+            ：可查看权限规则，但不能修改业务权限规则。修改请使用总经理 / 咨询总监身份。
           </div>
         ) : null)}
 
@@ -216,7 +216,7 @@ export default function AdminPermissionsPage() {
           <p className="kb-state-desc">{error}</p>
           <p className="kb-state-desc">
             {isForbidden
-              ? "权限规则查看仅对 admin / Boss / 咨询总监开放，顾问无权访问。"
+              ? "权限规则查看仅对 admin / 总经理 / 咨询总监开放，顾问无权访问。"
               : "切换为授权身份后重试。"}
           </p>
           <button className="btn-secondary" onClick={() => void load()}>

@@ -342,7 +342,7 @@ def _require_audit_reader(caller: CallerContext) -> str:
         return "governance"
     if _is_admin(caller):
         return "admin_metadata"
-    raise _denied(403, "audit_access_forbidden", "无审计查询权（仅 admin / boss / 咨询总监）")
+    raise _denied(403, "audit_access_forbidden", "无审计查询权（仅 admin / 总经理 / 咨询总监）")
 
 
 def _event_is_l5(event: AuditEvent) -> bool:

@@ -288,7 +288,7 @@ class KnowledgeAssetSummary(Base):
     """知识资产摘要（窄表：每种 summary_type 一行 content）。
 
     L3 / L4 对外展示必须使用脱敏/安全摘要（safe_summary / redacted_summary）；
-    L5 不向 Boss / 咨询总监以外用户返回摘要或存在信息（由权限层落实）。
+    L5 不向总经理 / 咨询总监以外用户返回摘要或存在信息（由权限层落实）。
     """
 
     __tablename__ = "knowledge_asset_summaries"

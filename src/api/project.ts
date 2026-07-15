@@ -20,7 +20,7 @@ export async function fetchProjects(): Promise<ProjectListResponseDTO> {
   return apiGet<ProjectListResponseDTO>(`/api/v1/projects`);
 }
 
-// 创建项目知识空间（仅 Boss / 咨询总监）。写真实 projects + active project_manager 成员。
+// 创建项目知识空间（仅总经理 / 咨询总监）。写真实 projects + active project_manager 成员。
 export async function createProject(
   body: ProjectCreateRequestDTO,
 ): Promise<ProjectCreateResponseDTO> {

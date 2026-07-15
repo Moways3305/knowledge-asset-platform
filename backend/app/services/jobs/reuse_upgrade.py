@@ -3,10 +3,10 @@
 从既有后端事实（`agent_call_citations` join `agent_calls.project_id`）计算安全复用信号：
 - 回写 `knowledge_assets.last_called_at`（被引用/使用即更新）。
 - 识别被多个项目复用、或调用次数超阈值的 **project** 资产。
-- 对这类资产推一条**人审升格推荐**（通知 Boss / 咨询总监 + 安全审计事件）。
+- 对这类资产推一条**人审升格推荐**（通知总经理 / 咨询总监 + 安全审计事件）。
 
 强约束：
-- **绝不**自动升格 scope/zone——只产生候选信号，升格仍须 Boss / 咨询总监审核。
+- **绝不**自动升格 scope/zone——只产生候选信号，升格仍须总经理 / 咨询总监审核。
 - 去重：同一资产已推过（存在 knowledge.upgrade_recommended 审计事件）则不再重复推。
 
 设计取舍：本作业**只发本地通知 + 审计推荐事件**，不创建 `project_to_company`
@@ -49,7 +49,7 @@ def _to_naive_utc(dt: datetime) -> datetime:
 
 
 async def _governance_recipients(session: AsyncSession) -> list[uuid.UUID]:
-    """active Boss / 咨询总监 用户 id（升格推荐接收人）。"""
+    """active 总经理 / 咨询总监用户 id（升格推荐接收人）。"""
     rows = (
         await session.execute(
             select(UserCompanyRole.user_id)
@@ -146,7 +146,7 @@ async def scan_reuse_and_recommend(
                     content=(
                         f"项目资产「{asset.title}」被 {int(project_count)} 个项目、共 "
                         f"{int(call_count)} 次复用，建议评估升格为公司知识资产"
-                        f"（需 Boss / 咨询总监审核，系统不自动升格）。"
+                        f"（需总经理 / 咨询总监审核，系统不自动升格）。"
                     ),
                     audit_event_id=audit_event.id,
                     channel=channel,

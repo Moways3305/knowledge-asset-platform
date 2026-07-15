@@ -33,7 +33,7 @@ const severityCls: Record<string, string> = {
 };
 
 const roleLabel: Record<string, string> = {
-  boss: "Boss",
+  boss: "总经理",
   consulting_director: "咨询总监",
   consultant: "顾问",
   admin: "管理员",
@@ -143,7 +143,7 @@ export default function AdminAuditPage() {
           当前审计视图：
           <strong>
             {view === "governance"
-              ? "业务治理视图（Boss / 咨询总监）"
+              ? "业务治理视图（总经理 / 咨询总监）"
               : "系统元数据视图（admin，已对 L5 / 业务原文脱敏）"}
           </strong>
         </div>
@@ -155,7 +155,7 @@ export default function AdminAuditPage() {
           <strong>无法加载审计日志</strong>
           <p>{error}</p>
           <p className="au-error-hint">
-            审计查询仅对 admin / Boss / 咨询总监开放（普通业务用户无全局审计查询权）。可通过{" "}
+            审计查询仅对 admin / 总经理 / 咨询总监开放（普通业务用户无全局审计查询权）。可通过{" "}
             <code>VITE_DEV_USER_ID</code> 切换为授权身份查看。
           </p>
         </div>

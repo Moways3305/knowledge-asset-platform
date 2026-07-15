@@ -28,7 +28,7 @@ import type { KnowledgeOpsInsightsDTO } from "../types/insights";
 import type { ProjectListItemDTO } from "../types/project";
 
 const roleLabel: Record<string, string> = {
-  boss: "Boss",
+  boss: "总经理",
   consulting_director: "咨询总监",
   consultant: "顾问",
   admin: "管理员",

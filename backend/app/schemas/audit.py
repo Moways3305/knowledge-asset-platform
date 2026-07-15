@@ -3,7 +3,7 @@
 响应按角色做视图级二次脱敏：
 - admin 视图只回系统元数据，不回 before/after 快照、不回 L5 资产存在信息（title / 被
   L5 标记时连 target_id 也隐藏），extra 仅保留安全子集。
-- boss / 咨询总监视图可回业务治理字段（含快照、title、L5 强审计），但技术敏感标识本就
+- 总经理 / 咨询总监视图可回业务治理字段（含快照、title、L5 强审计），但技术敏感标识本就
   不入库，视图层不回填。
 
 无论何视图都不返回服务端内部存储引用 / 完整 token / 对象存储 URL / Dify 内部标识。
@@ -37,7 +37,7 @@ class AuditEventOut(BaseModel):
     denied_reason: str | None
     risk_level: str | None
     created_at: datetime
-    # 业务治理视图（boss / 咨询总监）才填充；admin 视图为 None。
+    # 业务治理视图（总经理 / 咨询总监）才填充；admin 视图为 None。
     before_snapshot: dict | None = None
     after_snapshot: dict | None = None
     extra: dict | None = None

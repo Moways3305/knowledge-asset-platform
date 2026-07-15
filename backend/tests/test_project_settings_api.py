@@ -1,7 +1,7 @@
 """项目设置 / 项目成员管理 API 测试。
 
-覆盖：读权限（成员 / 非成员 / admin / 治理角色）、写权限（pm / 治理可写，admin 只读，
-consultant 成员只读）、wecom_group_id 安全展示与审计脱敏、成员角色/状态修改与 active
+覆盖：读权限（成员 / 非成员 / admin / 治理角色）、写权限（仅 pm，admin / 治理 / 普通成员拒绝）、
+wecom_group_id 安全展示与审计脱敏、成员角色/状态修改与 active
 成员上下文、最后管理角色保护、未知 project/member 404、写审计安全无泄露。
 """
 
@@ -75,10 +75,10 @@ async def test_non_member_consultant_forbidden(client):
     assert r.json()["detail"]["denied_reason"] == "project_membership_required"
 
 
-async def test_admin_can_read_but_not_write(client):
+async def test_admin_cannot_read_or_write_business_project(client):
     r = await client.get(_settings(PROJECT_ALPHA), headers=_hdr(USER_ADMIN_ONLY))
-    assert r.status_code == 200, r.text
-    assert r.json()["can_write"] is False
+    assert r.status_code == 403
+    assert r.json()["detail"]["denied_reason"] == "project_membership_required"
     w = await client.patch(
         _settings(PROJECT_ALPHA),
         headers=_hdr(USER_ADMIN_ONLY),
@@ -92,7 +92,7 @@ async def test_governance_can_read(client):
     for uid in (USER_BOSS, USER_DIRECTOR):
         r = await client.get(_settings(PROJECT_ALPHA), headers=_hdr(uid))
         assert r.status_code == 200
-        assert r.json()["can_write"] is True
+        assert r.json()["can_write"] is False
 
 
 # ---------------- 写权限 ----------------
@@ -123,14 +123,15 @@ async def test_consultant_member_cannot_update(client):
     assert r.json()["detail"]["denied_reason"] == "project_settings_write_forbidden"
 
 
-async def test_boss_and_director_can_update(client):
+async def test_governance_cannot_update_project_settings(client):
     for uid, phase in ((USER_BOSS, "阶段评估"), (USER_DIRECTOR, "年度复盘")):
         r = await client.patch(
             _settings(PROJECT_ALPHA),
             headers=_hdr(uid),
             json={"lifecycle_phase_key": phase},
         )
-        assert r.status_code == 200, r.text
+        assert r.status_code == 403
+        assert r.json()["detail"]["denied_reason"] == "project_membership_required"
 
 
 # ---------------- wecom_group_id 安全 + 审计 ----------------
@@ -191,11 +192,11 @@ async def test_list_members_safe_fields(client):
 
 
 async def test_patch_member_then_not_in_active_context(client, db_session):
-    lst = await client.get(_members(PROJECT_ALPHA), headers=_hdr(USER_BOSS))
+    lst = await client.get(_members(PROJECT_ALPHA), headers=_hdr(USER_PROJECT_MANAGER))
     cons = next(m for m in lst.json()["items"] if m["user_id"] == str(USER_CONSULTANT))
     r = await client.patch(
         f"{_members(PROJECT_ALPHA)}/{cons['member_id']}",
-        headers=_hdr(USER_BOSS),
+        headers=_hdr(USER_PROJECT_MANAGER),
         json={"status": "inactive"},
     )
     assert r.status_code == 200, r.text
@@ -215,24 +216,24 @@ async def test_last_management_role_protected(client):
     )
     assert r.status_code == 409
     assert r.json()["detail"]["denied_reason"] == "last_project_manager_protected"
-    # 降级为 consultant 同样被保护。
+    # 治理角色只能任命/撤销项目经理，不把项目经理改成普通项目角色。
     r2 = await client.patch(
         f"{_members(PROJECT_ALPHA)}/{pm['member_id']}",
         headers=_hdr(USER_BOSS),
         json={"project_role": "consultant"},
     )
-    assert r2.status_code == 409
+    assert r2.status_code == 403
+    assert r2.json()["detail"]["denied_reason"] == "project_member_management_forbidden"
 
 
 async def test_member_patch_writes_audit(client, db_session):
-    # 先给 Alpha 加一个第二管理角色（coach），避免触发最后管理角色保护后再降级首个。
-    # 这里直接改 USER_CONSULTANT（consultant）角色为 coach，再断言审计。
-    lst = await client.get(_members(PROJECT_ALPHA), headers=_hdr(USER_BOSS))
+    # 项目经理独立调整本项目顾问状态，并写安全审计。
+    lst = await client.get(_members(PROJECT_ALPHA), headers=_hdr(USER_PROJECT_MANAGER))
     cons = next(m for m in lst.json()["items"] if m["user_id"] == str(USER_CONSULTANT))
     r = await client.patch(
         f"{_members(PROJECT_ALPHA)}/{cons['member_id']}",
-        headers={**_hdr(USER_DIRECTOR), "X-Trace-Id": "trc-project-settings-member"},
-        json={"project_role": "coach"},
+        headers={**_hdr(USER_PROJECT_MANAGER), "X-Trace-Id": "trc-project-settings-member"},
+        json={"status": "inactive"},
     )
     assert r.status_code == 200, r.text
     rows = (
@@ -248,7 +249,25 @@ async def test_member_patch_writes_audit(client, db_session):
     ev = rows[-1]
     assert ev.target_type == "project_member"
     assert (ev.extra or {}).get("target_user_id") == str(USER_CONSULTANT)
-    assert (ev.after_snapshot or {}).get("project_role") == "coach"
+    assert (ev.after_snapshot or {}).get("status") == "inactive"
+
+
+async def test_governance_adds_default_coach_and_pm_adds_consultant(client):
+    coach = await client.post(
+        _members(PROJECT_ALPHA),
+        headers=_hdr(USER_BOSS),
+        json={"user_id": str(USER_DIRECTOR), "project_role": "coach", "status": "active"},
+    )
+    assert coach.status_code == 201, coach.text
+    assert coach.json()["project_role"] == "coach"
+
+    consultant = await client.post(
+        _members(PROJECT_ALPHA),
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={"user_id": str(USER_BOSS), "project_role": "consultant", "status": "active"},
+    )
+    assert consultant.status_code == 201, consultant.text
+    assert consultant.json()["project_role"] == "consultant"
 
 
 # ---------------- 404 ----------------

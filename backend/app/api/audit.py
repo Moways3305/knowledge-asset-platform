@@ -1,6 +1,6 @@
 """Admin Audit API。
 
-- GET  /api/v1/admin/audit：审计查询（admin / boss / 咨询总监；按角色脱敏）。
+- GET  /api/v1/admin/audit：审计查询（admin / 总经理 / 咨询总监；按角色脱敏）。
 - GET  /api/v1/admin/audit/trace/{trace_id}：trace 链路查询（同权限；按可见性脱敏）。
 - POST /api/v1/admin/audit/{event_id}/mark-processed：标记异常已处理（仅 admin）。
 

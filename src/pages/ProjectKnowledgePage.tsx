@@ -4,6 +4,7 @@ import { ApiError } from "../api/http";
 import { useAuth } from "../auth/AuthContext";
 import { fetchKnowledgeList } from "../api/knowledge";
 import { fetchProjectQaModelOptions, projectQa } from "../api/project";
+import { requestCompanyUpgrade } from "../api/review";
 import type { ProjectQaModelOptionDTO, ProjectQaResponseDTO } from "../types/agent";
 import type { KnowledgeCardVM } from "../types/knowledge";
 
@@ -70,6 +71,8 @@ export default function ProjectKnowledgePage() {
   const [projectCards, setProjectCards] = useState<KnowledgeCardVM[] | null>(null);
   const [cardsLoading, setCardsLoading] = useState(false);
   const [cardsError, setCardsError] = useState<string | null>(null);
+  const [upgradeBusyId, setUpgradeBusyId] = useState<string | null>(null);
+  const [upgradeNote, setUpgradeNote] = useState<string | null>(null);
 
   // URL 是项目上下文的唯一来源；无效或无权项目绝不回退到其他项目。
   const routeProject = useMemo(() => {
@@ -208,6 +211,25 @@ export default function ProjectKnowledgePage() {
     setQaResult(null);
     setQaError(null);
   }, []);
+
+  const handleCompanyUpgrade = useCallback(
+    async (assetId: string) => {
+      if (!routeProject || routeProject.projectRole !== "project_manager") return;
+      setUpgradeBusyId(assetId);
+      setUpgradeNote(null);
+      try {
+        await requestCompanyUpgrade(routeProject.projectId, assetId);
+        setUpgradeNote("公司资产升格申请已提交，等待总经理与咨询总监分别确认。");
+      } catch (error) {
+        setUpgradeNote(
+          error instanceof ApiError ? error.message : "升格申请提交失败，请稍后重试。",
+        );
+      } finally {
+        setUpgradeBusyId(null);
+      }
+    },
+    [routeProject],
+  );
 
   const handleExampleClick = useCallback((q: string) => {
     setQaInput(q);
@@ -407,45 +429,57 @@ export default function ProjectKnowledgePage() {
           </div>
 
           {visibleCards.length > 0 ? (
-            <div className="pj-asset-grid">
-              {visibleCards.map((c) => (
-                <div
-                  key={c.id}
-                  className={`pj-asset-card ${c.zone === "asset" ? "pj-card-asset" : "pj-card-material"}`}
-                >
-                  <div className="card-header">
-                    <Link to={`/knowledge/${c.id}`} className="card-title">
-                      {c.title}
-                    </Link>
-                    <div className="card-header-badges">
-                      <span className={`pj-zone-badge pj-zone-badge-${c.zone}`}>
-                        {c.zone === "asset" ? "资产" : "资料"}
-                      </span>
-                      <span className="asset-type-badge">
-                        {assetTypeLabel[c.assetType] ?? c.assetType}
-                      </span>
-                      <span className={`visibility-badge ${c.visibility}`}>
-                        {visibilityLabel[c.visibility] ?? c.visibility}
-                      </span>
+            <>
+              {upgradeNote && <p className="page-help-line">{upgradeNote}</p>}
+              <div className="pj-asset-grid">
+                {visibleCards.map((c) => (
+                  <div
+                    key={c.id}
+                    className={`pj-asset-card ${c.zone === "asset" ? "pj-card-asset" : "pj-card-material"}`}
+                  >
+                    <div className="card-header">
+                      <Link to={`/knowledge/${c.id}`} className="card-title">
+                        {c.title}
+                      </Link>
+                      <div className="card-header-badges">
+                        <span className={`pj-zone-badge pj-zone-badge-${c.zone}`}>
+                          {c.zone === "asset" ? "资产" : "资料"}
+                        </span>
+                        <span className="asset-type-badge">
+                          {assetTypeLabel[c.assetType] ?? c.assetType}
+                        </span>
+                        <span className={`visibility-badge ${c.visibility}`}>
+                          {visibilityLabel[c.visibility] ?? c.visibility}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="pj-asset-summary">
+                      {c.summary || (c.access.summary ? "" : "（无摘要权限）")}
+                    </p>
+                    <div className="card-tags">
+                      {c.tags.map((t) => (
+                        <span key={t} className="tag">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="card-meta">
+                      <span>{c.lifecyclePhase || UNLABELED_PHASE}</span>
+                      <span>{c.updatedAt || "—"}</span>
+                      {c.zone === "asset" && routeProject.projectRole === "project_manager" && (
+                        <button
+                          className="btn-small"
+                          disabled={upgradeBusyId === c.id}
+                          onClick={() => void handleCompanyUpgrade(c.id)}
+                        >
+                          {upgradeBusyId === c.id ? "提交中…" : "申请升格公司资产"}
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <p className="pj-asset-summary">
-                    {c.summary || (c.access.summary ? "" : "（无摘要权限）")}
-                  </p>
-                  <div className="card-tags">
-                    {c.tags.map((t) => (
-                      <span key={t} className="tag">
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="card-meta">
-                    <span>{c.lifecyclePhase || UNLABELED_PHASE}</span>
-                    <span>{c.updatedAt || "—"}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </>
           ) : (
             <div className="pj-empty-state">
               <div className="pj-empty-title">暂无内容</div>

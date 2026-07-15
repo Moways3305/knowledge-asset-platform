@@ -122,7 +122,9 @@ export default function OriginalAccessPage() {
           <div className="ig-empty-state">
             <div className="ig-empty-title">无法加载</div>
             <p className="ig-empty-desc">{error}</p>
-            <p className="ig-empty-desc">「待我审批」需项目经理、辅导老师、Boss 或咨询总监身份。</p>
+            <p className="ig-empty-desc">
+              「待我审批」需项目经理、辅导老师、总经理或咨询总监身份。
+            </p>
             <button className="btn-small" onClick={() => void load()}>
               重试
             </button>

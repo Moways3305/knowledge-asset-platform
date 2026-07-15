@@ -404,8 +404,7 @@ async def confirm(
         if req.target_project_id not in caller.active_project_ids:
             raise _denied(403, "project_membership_required", "需为目标项目的有效成员")
         can_self_confirm = bool(
-            _is_governance(caller)
-            or caller.active_project_roles.get(req.target_project_id)
+            caller.active_project_roles.get(req.target_project_id)
             == ProjectRole.project_manager.value
         )
         if not can_self_confirm:
@@ -428,7 +427,7 @@ async def confirm(
             raise _denied(
                 403,
                 "company_confirmation_requires_governance",
-                "公司知识需 Boss / 咨询总监确认",
+                "公司知识需总经理或咨询总监确认",
             )
         from app.services.company_kb import require_company_kb_ready
 
