@@ -2522,9 +2522,29 @@
             "title": "Duration Ms",
             "type": "integer"
           },
+          "error_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Category"
+          },
           "message": {
             "title": "Message",
             "type": "string"
+          },
+          "remediation_hint": {
+            "title": "Remediation Hint",
+            "type": "string"
+          },
+          "retryable": {
+            "default": false,
+            "title": "Retryable",
+            "type": "boolean"
           },
           "success": {
             "title": "Success",
@@ -2534,6 +2554,7 @@
         "required": [
           "success",
           "message",
+          "remediation_hint",
           "duration_ms"
         ],
         "title": "GenerationModelTestResponse",
@@ -3029,6 +3050,17 @@
             ],
             "title": "Extraction Status"
           },
+          "generation_error_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation Error Category"
+          },
           "generation_model_ref": {
             "anyOf": [
               {
@@ -3039,6 +3071,17 @@
               }
             ],
             "title": "Generation Model Ref"
+          },
+          "generation_recovery_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation Recovery Hint"
           },
           "ingest_task_id": {
             "format": "uuid",
@@ -5113,6 +5156,41 @@
             "title": "Health Status",
             "type": "string"
           },
+          "last_error_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Category"
+          },
+          "last_test_failed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Test Failed At"
+          },
+          "last_test_succeeded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Test Succeeded At"
+          },
           "legacy_adapter": {
             "default": false,
             "title": "Legacy Adapter",
@@ -5154,9 +5232,29 @@
             "title": "Duration Ms",
             "type": "integer"
           },
+          "error_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Category"
+          },
           "message": {
             "title": "Message",
             "type": "string"
+          },
+          "remediation_hint": {
+            "title": "Remediation Hint",
+            "type": "string"
+          },
+          "retryable": {
+            "default": false,
+            "title": "Retryable",
+            "type": "boolean"
           },
           "success": {
             "title": "Success",
@@ -5166,6 +5264,7 @@
         "required": [
           "success",
           "message",
+          "remediation_hint",
           "duration_ms"
         ],
         "title": "ModelConnectionTestResponse",
@@ -5592,6 +5691,14 @@
       },
       "ModelUsageAssignmentsOut": {
         "properties": {
+          "dependency_message": {
+            "title": "Dependency Message",
+            "type": "string"
+          },
+          "dependency_status": {
+            "title": "Dependency Status",
+            "type": "string"
+          },
           "external_llm_default": {
             "anyOf": [
               {
@@ -5601,8 +5708,17 @@
                 "type": "null"
               }
             ]
+          },
+          "remediation_hint": {
+            "title": "Remediation Hint",
+            "type": "string"
           }
         },
+        "required": [
+          "dependency_status",
+          "dependency_message",
+          "remediation_hint"
+        ],
         "title": "ModelUsageAssignmentsOut",
         "type": "object"
       },

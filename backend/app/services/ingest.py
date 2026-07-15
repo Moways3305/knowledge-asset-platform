@@ -279,6 +279,16 @@ async def get_ai_result(
             if ai and ai.llm_provider and ai.llm_model
             else None
         ),
+        generation_error_category=(
+            ai.naming_parsed_fields.get("generation_error_category")
+            if ai and isinstance(ai.naming_parsed_fields, dict)
+            else None
+        ),
+        generation_recovery_hint=(
+            ai.naming_parsed_fields.get("generation_recovery_hint")
+            if ai and isinstance(ai.naming_parsed_fields, dict)
+            else None
+        ),
         # 入库脱敏安全元数据（状态 + 类别计数 + 人读文案，两视图均可见）。
         # 新任务为 not_applicable / counts=null；旧数据行保留历史状态。
         desensitization_status=ai.desensitization_status if ai else None,

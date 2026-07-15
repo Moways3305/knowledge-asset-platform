@@ -27,7 +27,7 @@ from app.schemas.permission import CallerContext
 from app.services import error_catalog
 from app.services import knowledge as knowledge_service
 from app.services.desensitization import DesensitizationEngine
-from app.services.llm_client import LLMClient, NullLLMClient
+from app.services.llm_client import LLMClient, NullLLMClient, safe_llm_diagnostic
 from app.services.storage import LocalFileStorage
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
 from app.worker.enqueue import enqueue_ingest_processing
@@ -153,6 +153,20 @@ def _generation_degraded(task: IngestTask) -> bool:
     return fields.get("generation_status") != "generated"
 
 
+def _generation_error(task: IngestTask) -> IngestTaskSafeError:
+    ai = task.ai_result
+    fields = ai.naming_parsed_fields if ai and isinstance(ai.naming_parsed_fields, dict) else {}
+    category = fields.get("generation_error_category")
+    if not isinstance(category, str):
+        return _safe_error("content_generation_unavailable")
+    diagnostic = safe_llm_diagnostic(category)
+    return IngestTaskSafeError(
+        code=diagnostic.category,
+        message=diagnostic.message,
+        recovery_hint=diagnostic.remediation_hint,
+    )
+
+
 def _response(ctx: _TaskContext, caller: CallerContext) -> IngestTaskStatusResponse:
     task, review, asset, version = ctx.task, ctx.review, ctx.asset, ctx.version
     stage = IngestTaskStage.upload_saved
@@ -185,7 +199,7 @@ def _response(ctx: _TaskContext, caller: CallerContext) -> IngestTaskStatusRespo
         elif _generation_degraded(task):
             stage = IngestTaskStage.degraded_complete
             status = IngestTaskWorkflowStatus.degraded
-            error = _safe_error("content_generation_unavailable")
+            error = _generation_error(task)
         else:
             stage = IngestTaskStage.awaiting_confirmation
             status = IngestTaskWorkflowStatus.action_required

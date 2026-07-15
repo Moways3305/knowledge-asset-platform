@@ -24,13 +24,19 @@ const chat = {
   provider: "deepseek",
   model_name: "deepseek-chat",
   enabled: true,
-  health_status: "configured",
+  health_status: "untested" as const,
+  last_test_succeeded_at: null,
+  last_test_failed_at: null,
+  last_error_category: null,
   available_usages: ["content_generation", "project_qa"] as ("content_generation" | "project_qa")[],
   legacy_adapter: false as const,
 };
 
 const emptyUsages = {
   external_llm_default: null,
+  dependency_status: "missing" as const,
+  dependency_message: "未设置外部 LLM 默认连接，内容生成和默认项目问答将不可用。",
+  remediation_hint: "选择一个已启用且测试通过的外部 LLM 连接并保存。",
 };
 
 describe("UnifiedModelConnectionsSection", () => {
@@ -46,6 +52,9 @@ describe("UnifiedModelConnectionsSection", () => {
         display_name: chat.display_name,
         capability_type: "chat",
       },
+      dependency_status: "configured",
+      dependency_message: "内容生成和默认项目问答使用当前外部 LLM 连接。",
+      remediation_hint: "变更或停用前，请先确认替代连接可用。",
     });
   });
 

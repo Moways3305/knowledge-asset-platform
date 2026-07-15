@@ -48,12 +48,18 @@ const connection: ModelConnectionDTO = {
   provider: "deepseek",
   model_name: "deepseek-chat",
   enabled: true,
-  health_status: "configured",
+  health_status: "untested",
+  last_test_succeeded_at: null,
+  last_test_failed_at: null,
+  last_error_category: null,
   available_usages: ["content_generation", "project_qa"],
   legacy_adapter: false,
 };
 const emptyUsages = {
   external_llm_default: null,
+  dependency_status: "missing" as const,
+  dependency_message: "未设置外部 LLM 默认连接，内容生成和默认项目问答将不可用。",
+  remediation_hint: "选择一个已启用且测试通过的外部 LLM 连接并保存。",
 };
 
 function renderPage() {
@@ -94,7 +100,10 @@ describe("AdminWeKnoraModelsPage", () => {
     vi.mocked(updateModelUsageAssignments).mockResolvedValue(emptyUsages);
     vi.mocked(testModelConnection).mockResolvedValue({
       success: true,
-      message: "连接测试成功",
+      error_category: null,
+      message: "外部 LLM 连接正常。",
+      remediation_hint: "无需处理。",
+      retryable: false,
       duration_ms: 18,
     });
     Element.prototype.scrollIntoView = vi.fn();
@@ -103,7 +112,7 @@ describe("AdminWeKnoraModelsPage", () => {
   it("shows external LLM separately from WeKnora foundation configuration", async () => {
     renderPage();
     expect(await screen.findByText("DeepSeek 对话")).toBeInTheDocument();
-    expect(screen.getByText("已启用")).toBeInTheDocument();
+    expect(screen.getByText("未测试")).toBeInTheDocument();
     expect(screen.getAllByText("新增外部 LLM 连接")).toHaveLength(1);
     expect(screen.getByText("WeKnora 底座默认模型")).toBeInTheDocument();
     expect(screen.queryByText("新增内容生成模型")).not.toBeInTheDocument();
@@ -150,7 +159,7 @@ describe("AdminWeKnoraModelsPage", () => {
   it("tests a saved connection and renders safe duration", async () => {
     renderPage();
     fireEvent.click(await screen.findByText("测试连接"));
-    expect(await screen.findByText("连接正常 · 18 ms")).toBeInTheDocument();
+    expect(await screen.findByText("外部 LLM 连接正常。 无需处理。 · 18 ms")).toBeInTheDocument();
     expect(testModelConnection).toHaveBeenCalledWith(connection.model_ref);
   });
 

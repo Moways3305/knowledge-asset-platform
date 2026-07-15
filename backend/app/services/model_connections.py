@@ -17,10 +17,22 @@ from app.services import generation_models
 
 
 class ModelConnectionError(Exception):
-    def __init__(self, code: str, message: str, status_code: int = 422) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        status_code: int = 422,
+        *,
+        dependency: str | None = None,
+        remediation_hint: str | None = None,
+        action: str | None = None,
+    ) -> None:
         self.code = code
         self.message = message
         self.status_code = status_code
+        self.dependency = dependency
+        self.remediation_hint = remediation_hint
+        self.action = action
         super().__init__(code)
 
 
@@ -30,6 +42,7 @@ class ConnectionRecord:
     model: ContentGenerationModel
 
     def safe_out(self) -> dict:
+        safe = generation_models.safe_connection_diagnostics(self.model)
         return {
             "model_ref": self.model_ref,
             "display_name": self.model.display_name,
@@ -37,7 +50,10 @@ class ConnectionRecord:
             "provider": self.model.provider,
             "model_name": self.model.model_name,
             "enabled": self.model.enabled,
-            "health_status": "configured",
+            "health_status": safe["health_status"],
+            "last_test_succeeded_at": safe["last_test_succeeded_at"],
+            "last_test_failed_at": safe["last_test_failed_at"],
+            "last_error_category": safe["last_error_category"],
             "available_usages": ["content_generation", "project_qa"],
             "legacy_adapter": False,
         }
@@ -120,8 +136,11 @@ async def update_connection(
     if not enabled and current and current.get("model_ref") == record.model_ref:
         raise ModelConnectionError(
             "model_connection_in_use",
-            "请先调整外部 LLM 默认连接，再停用当前连接",
+            "当前连接正在承担内容生成和默认项目问答，不能直接停用。",
             409,
+            dependency="external_llm_default",
+            remediation_hint="先选择其他已启用连接作为默认，或明确清空默认用途，再停用当前连接。",
+            action="change_or_clear_external_llm_default",
         )
     await generation_models.update_model(
         session,
@@ -162,7 +181,20 @@ async def get_usage_assignments(session: AsyncSession) -> dict:
         (record for record in records if default and record.model_ref == default["model_ref"]),
         None,
     )
-    return {"external_llm_default": _usage_slot(selected)}
+    slot = _usage_slot(selected)
+    if slot is None:
+        return {
+            "external_llm_default": None,
+            "dependency_status": "missing",
+            "dependency_message": "未设置外部 LLM 默认连接，内容生成和默认项目问答将不可用。",
+            "remediation_hint": "选择一个已启用且测试通过的外部 LLM 连接并保存。",
+        }
+    return {
+        "external_llm_default": slot,
+        "dependency_status": "configured",
+        "dependency_message": "内容生成和默认项目问答使用当前外部 LLM 连接。",
+        "remediation_hint": "变更或停用前，请先确认替代连接可用。",
+    }
 
 
 async def set_usage_assignments(
@@ -174,6 +206,12 @@ async def set_usage_assignments(
     if external_llm_default_ref:
         record = await _resolve(session, external_llm_default_ref)
         if not record.model.enabled:
-            raise ModelConnectionError("model_usage_disabled", "停用的外部 LLM 不能设为默认")
+            raise ModelConnectionError(
+                "model_usage_disabled",
+                "停用的外部 LLM 不能设为默认。",
+                dependency="external_llm_default",
+                remediation_hint="先启用并测试该连接，或选择其他已启用连接。",
+                action="enable_or_choose_external_llm",
+            )
     await generation_models.set_default_model(session, external_llm_default_ref, actor_id=actor_id)
     return await get_usage_assignments(session)

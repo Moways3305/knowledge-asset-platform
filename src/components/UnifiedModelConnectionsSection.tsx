@@ -14,6 +14,7 @@ import type {
   ModelUsageAssignmentsDTO,
   ModelUsageKey,
 } from "../types/modelConnections";
+import { ApiError } from "../api/http";
 import { PageSection, PageToolbar, SettingsRow } from "./ProductLayout";
 
 const PROVIDERS = ["deepseek", "kimi", "qwen", "glm", "minimax", "openai", "custom"];
@@ -37,9 +38,18 @@ const emptyForm = (): ModelConnectionMutateDTO => ({
 
 const emptyUsages: ModelUsageAssignmentsDTO = {
   external_llm_default: null,
+  dependency_status: "missing",
+  dependency_message: "未设置外部 LLM 默认连接，内容生成和默认项目问答将不可用。",
+  remediation_hint: "选择一个已启用且测试通过的外部 LLM 连接并保存。",
 };
 
 const autofillWarning = "检测到浏览器自动填充，已恢复表单原值。请手动确认并重新填写连接信息。";
+
+const actionableError = (err: unknown, fallback: string) => {
+  if (!(err instanceof ApiError)) return fallback;
+  const hint = err.detail?.remediation_hint;
+  return typeof hint === "string" ? `${err.message} ${hint}` : err.message;
+};
 
 export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: boolean }) {
   const [connections, setConnections] = useState<ModelConnectionDTO[]>([]);
@@ -193,8 +203,8 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
         enabled: !connection.enabled,
       });
       await load();
-    } catch {
-      setError("模型状态更新失败；如该模型正在用于平台默认用途，请先调整用途分配");
+    } catch (err) {
+      setError(actionableError(err, "外部 LLM 状态更新失败，请检查默认用途依赖后重试。"));
     } finally {
       setBusy(false);
     }
@@ -206,14 +216,18 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
       const result = await testModelConnection(connection.model_ref);
       setTests((old) => ({
         ...old,
-        [connection.model_ref]: `${result.success ? "连接正常" : "连接失败"} · ${result.duration_ms} ms`,
+        [connection.model_ref]: `${result.message} ${result.remediation_hint} · ${result.duration_ms} ms`,
       }));
-    } catch {
-      setTests((old) => ({ ...old, [connection.model_ref]: "测试失败，请检查外部 LLM 连接" }));
+      await load();
+    } catch (err) {
+      setTests((old) => ({
+        ...old,
+        [connection.model_ref]: actionableError(err, "连接测试未完成，请检查外部 LLM 连接后重试。"),
+      }));
     }
   };
 
-  const setUsage = (key: keyof ModelUsageAssignmentsDTO, modelRef: string) => {
+  const setUsage = (key: "external_llm_default", modelRef: string) => {
     const selected = connections.find((item) => item.model_ref === modelRef) ?? null;
     setUsages((old) => ({
       ...old,
@@ -236,15 +250,15 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
       });
       setUsages(updated);
       setNote("外部 LLM 默认连接已保存；WeKnora 底座模型和已有知识库绑定未改变");
-    } catch {
-      setError("模型用途保存失败，请确认所选模型已启用且能力匹配");
+    } catch (err) {
+      setError(actionableError(err, "外部 LLM 默认用途保存失败，请确认所选连接已启用。"));
     } finally {
       setBusy(false);
     }
   };
 
   const usageRow = (
-    key: keyof ModelUsageAssignmentsDTO,
+    key: "external_llm_default",
     title: string,
     description: string,
     usage: ModelUsageKey,
@@ -286,6 +300,11 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
           </div>
         )}
         {warning && <div className="product-inline-note is-warning">{warning}</div>}
+        {usages.dependency_status === "missing" && (
+          <div className="product-inline-note is-warning">
+            {usages.dependency_message} {usages.remediation_hint}
+          </div>
+        )}
         {note && <div className="product-inline-note">{note}</div>}
         <div className="product-settings-list">
           {usageRow(
@@ -354,7 +373,14 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
                       <span
                         className={`ws-status-pill ${connection.enabled ? "ws-status-on" : "ws-status-off"}`}
                       >
-                        {connection.enabled ? (tests[connection.model_ref] ?? "已启用") : "已停用"}
+                        {connection.enabled
+                          ? (tests[connection.model_ref] ??
+                            (connection.health_status === "healthy"
+                              ? "连接正常"
+                              : connection.health_status === "unhealthy"
+                                ? "连接异常"
+                                : "未测试"))
+                          : "已停用"}
                       </span>
                     </td>
                     <td>

@@ -33,6 +33,14 @@ class ContentGenerationModel(Base):
     base_url_ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
     api_key_ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_test_succeeded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_test_failed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Fixed safe category only; never stores an upstream message, response, URL, or credential.
+    last_error_category: Mapped[str | None] = mapped_column(String(40), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id"), nullable=True
     )

@@ -101,6 +101,8 @@ class IngestAiResultResponse(BaseModel):
     summary: str | None = None
     summary_status: str | None = None
     generation_model_ref: str | None = None
+    generation_error_category: str | None = None
+    generation_recovery_hint: str | None = None
     suggested_key_points: list[str] | None = None
     suggested_tags: list[str] | None = None
     suggested_asset_type: str | None = None

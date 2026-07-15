@@ -27,7 +27,13 @@ _RETRYABLE_TYPES: tuple[type[BaseException], ...] = (
 )
 
 # 我方结构化异常（WeKnoraError / LLMError / WeComError）的"瞬时" code。
-_RETRYABLE_CODES = {"http_429"}
+_RETRYABLE_CODES = {
+    "http_429",
+    "llm_connection_error",
+    "llm_timeout",
+    "llm_rate_limited",
+    "llm_server_error",
+}
 _RETRYABLE_CODE_PREFIXES = ("http_5",)  # 5xx
 _RETRYABLE_CODE_SUFFIX = (
     "_network_error"  # weknora_network_error / llm_network_error / wecom_network_error

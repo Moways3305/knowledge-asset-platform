@@ -40,6 +40,105 @@ class _Provider:
     default_model: str
 
 
+@dataclass(frozen=True)
+class LLMDiagnostic:
+    category: str
+    message: str
+    remediation_hint: str
+    retryable: bool
+
+
+_DIAGNOSTICS: dict[str, LLMDiagnostic] = {
+    "connection_error": LLMDiagnostic(
+        "connection_error",
+        "无法连接外部 LLM 服务。",
+        "检查 API 地址、DNS、防火墙和后端网络连通性后重试。",
+        True,
+    ),
+    "authentication_error": LLMDiagnostic(
+        "authentication_error",
+        "外部 LLM 认证失败。",
+        "更新 API key，并确认该凭证有权访问所选模型。",
+        False,
+    ),
+    "model_unavailable": LLMDiagnostic(
+        "model_unavailable",
+        "配置的外部 LLM 模型不可用。",
+        "核对模型名称及账号权限，或选择供应商已开放的模型。",
+        False,
+    ),
+    "timeout": LLMDiagnostic(
+        "timeout",
+        "外部 LLM 请求超时。",
+        "稍后重试；若持续超时，请检查网络或供应商服务状态。",
+        True,
+    ),
+    "rate_limited": LLMDiagnostic(
+        "rate_limited",
+        "外部 LLM 请求受到限流。",
+        "稍后重试，并检查供应商配额、并发限制或计费状态。",
+        True,
+    ),
+    "request_error": LLMDiagnostic(
+        "request_error",
+        "外部 LLM 拒绝了测试请求。",
+        "确认 API 地址提供 OpenAI-compatible chat/completions，并核对模型能力。",
+        False,
+    ),
+    "server_error": LLMDiagnostic(
+        "server_error",
+        "外部 LLM 服务端暂时异常。",
+        "稍后重试，并在持续失败时检查供应商服务状态。",
+        True,
+    ),
+    "response_error": LLMDiagnostic(
+        "response_error",
+        "外部 LLM 返回了无法识别的响应。",
+        "确认接口兼容 OpenAI chat/completions 响应格式。",
+        False,
+    ),
+    "configuration_error": LLMDiagnostic(
+        "configuration_error",
+        "外部 LLM 本地配置无法使用。",
+        "检查模型名称、API 地址和平台加密配置后重新保存连接。",
+        False,
+    ),
+}
+
+
+def safe_llm_diagnostic(code: str | None) -> LLMDiagnostic:
+    """Map internal/client codes to a fixed user-safe diagnostic category."""
+    raw = (code or "").strip()
+    if raw in _DIAGNOSTICS:
+        return _DIAGNOSTICS[raw]
+    if raw in {"llm_connection_error", "llm_network_error"}:
+        return _DIAGNOSTICS["connection_error"]
+    if raw in {"llm_authentication_error", "http_401", "http_403"}:
+        return _DIAGNOSTICS["authentication_error"]
+    if raw in {"llm_model_not_found", "http_404"}:
+        return _DIAGNOSTICS["model_unavailable"]
+    if raw == "llm_timeout":
+        return _DIAGNOSTICS["timeout"]
+    if raw in {"llm_rate_limited", "http_429"}:
+        return _DIAGNOSTICS["rate_limited"]
+    if raw in {"llm_request_error", "http_400", "http_422"}:
+        return _DIAGNOSTICS["request_error"]
+    if raw == "llm_bad_response":
+        return _DIAGNOSTICS["response_error"]
+    if raw in {
+        "llm_not_configured",
+        "llm_no_base_url",
+        "llm_no_model",
+        "generation_model_secret_unreadable",
+        "generation_model_encryption_key_missing",
+        "generation_model_encryption_key_invalid",
+    }:
+        return _DIAGNOSTICS["configuration_error"]
+    if raw == "llm_server_error" or raw.startswith("http_5"):
+        return _DIAGNOSTICS["server_error"]
+    return _DIAGNOSTICS["server_error"]
+
+
 # provider 注册表：base_url + 默认 model（env 可覆盖）。
 PROVIDER_REGISTRY: dict[str, _Provider] = {
     "deepseek": _Provider("https://api.deepseek.com/v1", "deepseek-chat"),
@@ -112,11 +211,25 @@ class LLMClient:
                 resp = await client.post(
                     self._endpoint(), json=payload, headers=self._headers(trace_id)
                 )
-        except httpx.HTTPError as exc:
-            raise LLMError("llm_network_error", f"LLM 网络错误（{type(exc).__name__}）") from exc
+        except httpx.TimeoutException as exc:
+            raise LLMError("llm_timeout", "LLM 请求超时") from exc
+        except httpx.RequestError as exc:
+            raise LLMError("llm_connection_error", "LLM 连接失败") from exc
         if resp.status_code >= 400:
             # 不回显 provider 错误明文（可能含敏感串）；只给状态码。
-            raise LLMError(f"http_{resp.status_code}", "LLM 调用失败")
+            if resp.status_code in {401, 403}:
+                code = "llm_authentication_error"
+            elif resp.status_code == 404:
+                code = "llm_model_not_found"
+            elif resp.status_code == 429:
+                code = "llm_rate_limited"
+            elif resp.status_code in {400, 422}:
+                code = "llm_request_error"
+            elif resp.status_code >= 500:
+                code = "llm_server_error"
+            else:
+                code = "llm_request_error"
+            raise LLMError(code, "LLM 调用失败")
         try:
             data = resp.json()
             return str(data["choices"][0]["message"]["content"])
