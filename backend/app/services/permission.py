@@ -20,6 +20,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, replace
 
+from sqlalchemy import and_, false, or_, true
+from sqlalchemy.sql.elements import ColumnElement
+
 from app.models.identity import User
 from app.models.knowledge import KnowledgeAsset
 from app.schemas.enums import (
@@ -314,6 +317,36 @@ def decide(
         strong_audit_required=False,
         summary_variant=summary_variant,
     )
+
+
+def discovery_filter(caller: CallerContext) -> ColumnElement[bool]:
+    """Return the SQL predicate equivalent of ``decide(..., discovery)``.
+
+    List/count queries must apply this predicate before pagination so totals never
+    reveal assets outside the caller's discovery boundary. ``decide`` remains the
+    authoritative per-asset decision and is still used while projecting DTOs.
+    """
+    if not caller.is_active or not caller.is_business_user:
+        return false()
+
+    active = KnowledgeAsset.asset_status.notin_(_INACTIVE_ASSET_STATUSES)
+    personal = and_(
+        KnowledgeAsset.scope == KnowledgeScope.personal.value,
+        KnowledgeAsset.owner_user_id == caller.user_id,
+    )
+
+    l5_visible = (
+        KnowledgeAsset.confidentiality_level != ConfidentialityLevel.L5.value
+        if not caller.can_discover_l5
+        else true()
+    )
+    company = and_(KnowledgeAsset.scope == KnowledgeScope.company.value, l5_visible)
+    project = and_(
+        KnowledgeAsset.scope == KnowledgeScope.project.value,
+        KnowledgeAsset.project_id.in_(caller.active_project_ids),
+        l5_visible,
+    )
+    return and_(active, or_(personal, project, company))
 
 
 # ============================================================

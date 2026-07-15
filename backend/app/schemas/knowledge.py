@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from enum import Enum
 
 from pydantic import BaseModel
 
@@ -60,9 +61,28 @@ class KnowledgeListItemOut(BaseModel):
     indexed_at: datetime | None = None
 
 
-class KnowledgeListResponse(BaseModel):
+class KnowledgeSortField(str, Enum):
+    updated_at = "updated_at"
+    created_at = "created_at"
+    title_ = "title"
+    confidentiality_level = "confidentiality_level"
+    asset_status = "asset_status"
+
+
+class SortDirection(str, Enum):
+    asc = "asc"
+    desc = "desc"
+
+
+class KnowledgeItemsResponse(BaseModel):
     items: list[KnowledgeListItemOut]
     total: int
+
+
+class KnowledgeListResponse(KnowledgeItemsResponse):
+    page: int = 1
+    page_size: int = 50
+    has_next: bool = False
 
 
 class MaintainerOut(BaseModel):

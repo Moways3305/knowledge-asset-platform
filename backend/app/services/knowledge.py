@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -26,7 +27,12 @@ from app.core.logging import safe_log_exception
 from app.db.utils import utc_now
 from app.models.identity import Project, User
 from app.models.ingest import IngestTask
-from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
+from app.models.knowledge import (
+    KnowledgeAsset,
+    KnowledgeAssetSummary,
+    KnowledgeAssetTag,
+    KnowledgeAssetVersion,
+)
 from app.models.original_access import AccessGrant, OriginalAccessRequest
 from app.schemas.enums import (
     AlertSeverity,
@@ -44,6 +50,7 @@ from app.schemas.knowledge import (
     KnowledgeDeleteResponse,
     KnowledgeDetailOut,
     KnowledgeListItemOut,
+    KnowledgeListResponse,
     MaintainerOut,
     RetryIndexResponse,
     SummaryOut,
@@ -57,7 +64,7 @@ from app.schemas.permission import (
 )
 from app.services import audit as audit_service
 from app.services import error_catalog, indexing, original_access
-from app.services.permission import decide
+from app.services.permission import decide, discovery_filter
 from app.services.permission_rules import load_access_policy
 from app.services.storage import LocalFileStorage
 from app.services.weknora_client import (
@@ -245,6 +252,7 @@ def _to_list_item(
     granted_ids: set[uuid.UUID] | None = None,
     vindex: dict[uuid.UUID, KnowledgeAssetVersion] | None = None,
     policy: DefaultAccessPolicy = DEFAULT_POLICY,
+    summary_map: dict[str, str | None] | None = None,
 ) -> KnowledgeListItemOut:
     ver = (vindex or {}).get(asset.current_version_id) if asset.current_version_id else None
     access = _build_access_info(
@@ -254,7 +262,7 @@ def _to_list_item(
         index_status=ver.index_status if ver else None,
         policy=policy,
     )
-    smap = _summary_map(asset)
+    smap = summary_map if summary_map is not None else _summary_map(asset)
     summary_text = (
         _select_summary_text(asset.confidentiality_level, smap) if access.summary else None
     )
@@ -283,6 +291,49 @@ def _to_list_item(
     )
 
 
+def _like_pattern(keyword: str) -> str:
+    escaped = keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+async def _list_summary_maps(
+    session: AsyncSession, assets: list[KnowledgeAsset]
+) -> dict[uuid.UUID, dict[str, str | None]]:
+    """Load only summary variants safe for each page asset."""
+    asset_ids = [asset.id for asset in assets]
+    if not asset_ids:
+        return {}
+    rows = (
+        await session.execute(
+            select(
+                KnowledgeAssetSummary.asset_id,
+                KnowledgeAssetSummary.summary_type,
+                KnowledgeAssetSummary.content,
+            )
+            .join(KnowledgeAsset, KnowledgeAsset.id == KnowledgeAssetSummary.asset_id)
+            .where(
+                KnowledgeAssetSummary.asset_id.in_(asset_ids),
+                or_(
+                    and_(
+                        KnowledgeAsset.confidentiality_level.in_(_REDACTED_LEVELS),
+                        KnowledgeAssetSummary.summary_type.in_(
+                            ["redacted_summary", "safe_summary"]
+                        ),
+                    ),
+                    and_(
+                        KnowledgeAsset.confidentiality_level.notin_(_REDACTED_LEVELS),
+                        KnowledgeAssetSummary.summary_type.in_(["one_liner", "detailed"]),
+                    ),
+                ),
+            )
+        )
+    ).all()
+    result: dict[uuid.UUID, dict[str, str | None]] = {}
+    for asset_id, summary_type, content in rows:
+        result.setdefault(asset_id, {})[summary_type] = content
+    return result
+
+
 async def list_knowledge(
     session: AsyncSession,
     caller: CallerContext,
@@ -290,33 +341,110 @@ async def list_knowledge(
     scope: str | None = None,
     project_id: uuid.UUID | None = None,
     include_archived: bool = False,
-) -> list[KnowledgeListItemOut]:
-    """知识列表：只返回调用人可发现的资产。"""
+    keyword: str | None = None,
+    zone: str | None = None,
+    asset_type: str | None = None,
+    asset_status: str | None = None,
+    confidentiality_level: str | None = None,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+    updated_from: datetime | None = None,
+    updated_to: datetime | None = None,
+    sort_by: str = "updated_at",
+    sort_direction: str = "desc",
+    page: int = 1,
+    page_size: int = 50,
+) -> KnowledgeListResponse:
+    """Return a permission-filtered, stable page of discoverable assets."""
+    # include_archived is retained for legacy clients; discovery policy still excludes archived assets.
     if project_id is not None:
         if scope not in {None, KnowledgeScope.project.value}:
             raise _denied(422, "project_filter_scope_mismatch", "项目筛选仅适用于项目知识")
         if project_id not in caller.active_project_ids:
             raise _denied(403, "project_membership_required", "需为该项目的有效成员")
-    stmt = select(KnowledgeAsset).options(
-        selectinload(KnowledgeAsset.tags), selectinload(KnowledgeAsset.summaries)
-    )
-    if scope:
-        stmt = stmt.where(KnowledgeAsset.scope == scope)
-    if project_id is not None:
-        stmt = stmt.where(KnowledgeAsset.project_id == project_id)
-    # deleted始终排除，即使 include_archived（删除 ≠ 归档；decide() 也会拦截，此处双保险）。
-    stmt = stmt.where(KnowledgeAsset.asset_status != _DELETED_STATUS)
-    if not include_archived:
-        stmt = stmt.where(KnowledgeAsset.asset_status.notin_(_INACTIVE_STATUSES))
 
+    conditions = [discovery_filter(caller)]
+    if scope:
+        conditions.append(KnowledgeAsset.scope == scope)
+    if project_id is not None:
+        conditions.append(KnowledgeAsset.project_id == project_id)
+    if zone:
+        conditions.append(KnowledgeAsset.zone == zone)
+    if asset_type:
+        conditions.append(KnowledgeAsset.asset_type == asset_type)
+    if asset_status:
+        conditions.append(KnowledgeAsset.asset_status == asset_status)
+    if confidentiality_level:
+        conditions.append(KnowledgeAsset.confidentiality_level == confidentiality_level)
+    if created_from:
+        conditions.append(KnowledgeAsset.created_at >= created_from)
+    if created_to:
+        conditions.append(KnowledgeAsset.created_at <= created_to)
+    if updated_from:
+        conditions.append(KnowledgeAsset.updated_at >= updated_from)
+    if updated_to:
+        conditions.append(KnowledgeAsset.updated_at <= updated_to)
+    if keyword:
+        pattern = _like_pattern(keyword)
+        conditions.append(
+            or_(
+                KnowledgeAsset.title.ilike(pattern, escape="\\"),
+                KnowledgeAsset.tags.any(KnowledgeAssetTag.tag_name.ilike(pattern, escape="\\")),
+            )
+        )
+
+    total = int(
+        (
+            await session.execute(
+                select(func.count()).select_from(KnowledgeAsset).where(*conditions)
+            )
+        ).scalar_one()
+    )
+    sort_columns = {
+        "updated_at": KnowledgeAsset.updated_at,
+        "created_at": KnowledgeAsset.created_at,
+        "title": func.lower(KnowledgeAsset.title),
+        "confidentiality_level": KnowledgeAsset.confidentiality_level,
+        "asset_status": KnowledgeAsset.asset_status,
+    }
+    primary = sort_columns[sort_by]
+    order = primary.asc() if sort_direction == "asc" else primary.desc()
+    tie_breaker = KnowledgeAsset.id.asc() if sort_direction == "asc" else KnowledgeAsset.id.desc()
+    stmt = (
+        select(KnowledgeAsset)
+        .where(*conditions)
+        .options(selectinload(KnowledgeAsset.tags))
+        .order_by(order, tie_breaker)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     assets = list((await session.execute(stmt)).scalars().all())
-    # 发现层过滤：不可发现的资产（他人 personal、无权 L5、archived 等）直接剔除。
+
     policy = await load_access_policy(session)
     visible = [a for a in assets if decide(caller, a, AccessLayer.discovery, policy=policy).allowed]
     projects, _users = await _aux_maps(session, visible)
     granted = await original_access.active_grant_asset_ids(session, caller, [a.id for a in visible])
     vindex = await _version_index_map(session, visible)
-    return [_to_list_item(caller, a, projects, granted, vindex, policy) for a in visible]
+    summary_maps = await _list_summary_maps(session, visible)
+    items = [
+        _to_list_item(
+            caller,
+            asset,
+            projects,
+            granted,
+            vindex,
+            policy,
+            summary_maps.get(asset.id, {}),
+        )
+        for asset in visible
+    ]
+    return KnowledgeListResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        has_next=page * page_size < total,
+    )
 
 
 async def get_detail(

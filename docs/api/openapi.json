@@ -837,6 +837,18 @@
         "title": "ArchiveRequestBody",
         "type": "object"
       },
+      "AssetStatus": {
+        "description": "资产宏观状态。archived / deprecated 不进入默认检索 / RAG / Agent 上下文。",
+        "enum": [
+          "active",
+          "needs_update",
+          "deprecated",
+          "archived",
+          "deleted"
+        ],
+        "title": "AssetStatus",
+        "type": "string"
+      },
       "AssetType": {
         "enum": [
           "methodology",
@@ -4172,6 +4184,27 @@
         "title": "KnowledgeDetailOut",
         "type": "object"
       },
+      "KnowledgeItemsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeListItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "KnowledgeItemsResponse",
+        "type": "object"
+      },
       "KnowledgeListItemOut": {
         "description": "知识列表条目。summary_text 已按权限/保密级别过滤（L3/L4 为脱敏/安全摘要）。",
         "properties": {
@@ -4359,12 +4392,27 @@
       },
       "KnowledgeListResponse": {
         "properties": {
+          "has_next": {
+            "default": false,
+            "title": "Has Next",
+            "type": "boolean"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/KnowledgeListItemOut"
             },
             "title": "Items",
             "type": "array"
+          },
+          "page": {
+            "default": 1,
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "default": 50,
+            "title": "Page Size",
+            "type": "integer"
           },
           "total": {
             "title": "Total",
@@ -4445,6 +4493,17 @@
           "company"
         ],
         "title": "KnowledgeScope",
+        "type": "string"
+      },
+      "KnowledgeSortField": {
+        "enum": [
+          "updated_at",
+          "created_at",
+          "title",
+          "confidentiality_level",
+          "asset_status"
+        ],
+        "title": "KnowledgeSortField",
         "type": "string"
       },
       "KnowledgeZone": {
@@ -9373,6 +9432,14 @@
         ],
         "title": "SetPasswordResponse",
         "type": "object"
+      },
+      "SortDirection": {
+        "enum": [
+          "asc",
+          "desc"
+        ],
+        "title": "SortDirection",
+        "type": "string"
       },
       "SubmitToProjectRequest": {
         "description": "个人知识提交到项目资料区。",
@@ -18014,12 +18081,53 @@
         "parameters": [
           {
             "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "keyword",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Keyword"
+            }
+          },
+          {
+            "in": "query",
             "name": "scope",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/KnowledgeScope"
                 },
                 {
                   "type": "null"
@@ -18043,6 +18151,156 @@
                 }
               ],
               "title": "Project Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "zone",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/KnowledgeZone"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Zone"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AssetType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AssetStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "confidentiality_level",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ConfidentialityLevel"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Confidentiality Level"
+            }
+          },
+          {
+            "in": "query",
+            "name": "created_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "created_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "updated_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updated From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "updated_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updated To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/KnowledgeSortField",
+              "default": "updated_at"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_direction",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/SortDirection",
+              "default": "desc"
             }
           },
           {
@@ -19200,7 +19458,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/KnowledgeListResponse"
+                  "$ref": "#/components/schemas/KnowledgeItemsResponse"
                 }
               }
             },

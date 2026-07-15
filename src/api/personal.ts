@@ -3,7 +3,7 @@
 // 提交=待审核，候选=用户登记证据线索（系统不自动证明分享/客户验证真实发生）。
 import { apiGet, apiPost, apiPut, createIdempotencyKey } from "./http";
 import { mapCard } from "./knowledge";
-import type { KnowledgeCardVM, KnowledgeListResponseDTO } from "../types/knowledge";
+import type { KnowledgeCardVM, KnowledgeItemsResponseDTO } from "../types/knowledge";
 import type {
   ConfirmAssetResponseDTO,
   PersonalKnowledgeSubmissionDTO,
@@ -12,7 +12,7 @@ import type {
 } from "../types/myKnowledge";
 
 export async function fetchMyKnowledge(): Promise<KnowledgeCardVM[]> {
-  const data = await apiGet<KnowledgeListResponseDTO>(`/api/v1/my/knowledge`);
+  const data = await apiGet<KnowledgeItemsResponseDTO>(`/api/v1/my/knowledge`);
   return data.items.map(mapCard);
 }
 

@@ -78,6 +78,9 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 
 ### 4.3 知识读 / 检索 / 生命周期 / 预览（knowledge, search, lifecycle, preview）
 - 🔐 `GET /api/v1/knowledge`、`GET /api/v1/knowledge/{asset_id}`、`GET /api/v1/knowledge/ops-insights`。
+  - 列表查询先在数据库层应用调用人的发现权限，再执行关键词、scope、项目、资料/资产区、资产类型、状态、保密等级和创建/更新时间筛选；`total` 仅统计有权发现的资产。
+  - 支持白名单字段稳定排序及 `page/page_size` 分页，响应包含 `total/page/page_size/has_next`。旧客户端不传分页参数时使用第 1 页、每页 50 条的安全默认值，不再返回无限列表。
+  - 关键词只匹配资产标题和标签，不转发给 WeKnora、不写入日志；L3/L4 列表摘要仅投影 safe/redacted 变体。`include_archived` 为旧参数兼容位，不会绕过既有归档资产不可发现规则。
 - 🔐 `POST /api/v1/knowledge/search`、`POST /api/v1/knowledge/{asset_id}/preview`。
 - 🔐 `POST /api/v1/knowledge/{asset_id}/lifecycle/{archive|reenable}-{request|confirm}`、`GET .../lifecycle/events`。
 - 🔐 `POST /api/v1/knowledge/{asset_id}/original-access/request`、`/retry-index`、`/delete`。
