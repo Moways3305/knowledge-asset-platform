@@ -127,7 +127,7 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 ### 4.9 治理与管理后台（audit, alert, people, permissions, wecom_scan, weknora_admin）
 - 🛡️ 审计：`GET /api/v1/admin/audit`(+`/trace/{trace_id}`,`/{event_id}/mark-processed`)。
 - 🛡️ 告警：`GET /api/v1/admin/alerts/{rules|notifications}`、`PATCH .../rules/{rule_id}`。
-- 🛡️ 人员：`/api/v1/admin/people/...`。总经理可管理总经理 / 咨询总监 / 顾问；咨询总监可管理咨询总监 / 顾问，但不可修改总经理。总经理 / 咨询总监任命或撤销项目经理；项目经理独立管理本项目辅导老师与顾问。admin 仅管理 admin 角色及账号、会话、密码，不得写业务角色或项目成员关系。
+- 🛡️ 人员：`/api/v1/admin/people/...` 仅总经理 / 咨询总监可读。总经理可管理总经理 / 咨询总监 / 顾问；咨询总监可管理咨询总监 / 顾问，但不可修改总经理。总经理 / 咨询总监任命或撤销项目经理；项目经理独立管理本项目任意 active 用户的辅导老师与顾问关系。技术 `admin` 角色不提供浏览器维护路径；admin 仅保留审计与必要系统运行视图。
 - 🛡️ 公司知识库：`GET|POST /api/v1/company/knowledge-base` 仅总经理 / 咨询总监可用；显式创建复用受控 WeKnora 适配层且幂等，响应只含安全名称、状态、创建时间与可用性。非 `active` 公司库不能用于公司范围入库。
 - 🛡️ 权限规则：`/api/v1/admin/permissions/{rules|agent-whitelist}`。
 - 🛡️ 微盘扫描：`/api/v1/admin/wecom-scan/...`（配置、扫描、目录/空间、归属选项）。

@@ -13,8 +13,11 @@ from sqlalchemy import select
 
 from app.models.audit import AuditEvent
 from app.seed.dev_seed import (
+    KA_PROJECT_ALPHA,
+    KA_PROJECT_BETA_L3,
     PROJECT_ALPHA,
     PROJECT_BETA,
+    REVIEW_SEED,
     USER_ADMIN_ONLY,
     USER_BOSS,
     USER_CONSULTANT,
@@ -252,22 +255,40 @@ async def test_member_patch_writes_audit(client, db_session):
     assert (ev.after_snapshot or {}).get("status") == "inactive"
 
 
-async def test_governance_adds_default_coach_and_pm_adds_consultant(client):
-    coach = await client.post(
+async def test_pm_can_appoint_ordinary_active_user_as_coach_without_expanding_permissions(client):
+    members = await client.get(_members(PROJECT_ALPHA), headers=_hdr(USER_PROJECT_MANAGER))
+    consultant = next(
+        item for item in members.json()["items"] if item["user_id"] == str(USER_CONSULTANT)
+    )
+    appointed = await client.patch(
+        f"{_members(PROJECT_ALPHA)}/{consultant['member_id']}",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={"project_role": "coach", "status": "active"},
+    )
+    assert appointed.status_code == 200, appointed.text
+    assert appointed.json()["project_role"] == "coach"
+
+    own_project = await client.get(
+        f"/api/v1/knowledge/{KA_PROJECT_ALPHA}", headers=_hdr(USER_CONSULTANT)
+    )
+    assert own_project.status_code == 200
+    approval = await client.post(
+        f"/api/v1/reviews/{REVIEW_SEED}/approve", headers=_hdr(USER_CONSULTANT)
+    )
+    assert approval.status_code == 403
+    other_project = await client.get(
+        f"/api/v1/knowledge/{KA_PROJECT_BETA_L3}", headers=_hdr(USER_CONSULTANT)
+    )
+    assert other_project.status_code == 404
+
+
+async def test_governance_appoints_project_manager_not_coach(client):
+    response = await client.post(
         _members(PROJECT_ALPHA),
         headers=_hdr(USER_BOSS),
         json={"user_id": str(USER_DIRECTOR), "project_role": "coach", "status": "active"},
     )
-    assert coach.status_code == 201, coach.text
-    assert coach.json()["project_role"] == "coach"
-
-    consultant = await client.post(
-        _members(PROJECT_ALPHA),
-        headers=_hdr(USER_PROJECT_MANAGER),
-        json={"user_id": str(USER_BOSS), "project_role": "consultant", "status": "active"},
-    )
-    assert consultant.status_code == 201, consultant.text
-    assert consultant.json()["project_role"] == "consultant"
+    assert response.status_code == 403
 
 
 # ---------------- 404 ----------------

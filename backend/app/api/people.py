@@ -1,6 +1,6 @@
 """人员 / 公司角色 / 项目成员关系管理 API。
 
-- GET   /api/v1/admin/people                                         （admin / 总经理 / 咨询总监）
+- GET   /api/v1/admin/people                                         （总经理 / 咨询总监）
 - GET   /api/v1/admin/people/{user_id}                               （同上）
 - POST  /api/v1/admin/people/{user_id}/company-roles                 （管理公司角色）
 - GET   /api/v1/admin/people/{user_id}/project-memberships           （读，含 inactive）
@@ -90,7 +90,7 @@ async def set_password(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> SetPasswordResponse:
-    """管理员设置 / 重置用户密码。password 仅入站、绝不回显。
+    """治理角色设置 / 重置用户密码。password 仅入站、绝不回显。
     改密成功后撤销该用户全部活动平台会话（强制重登）。"""
     return await people_service.set_password(session, caller, user_id, req, get_trace_id(request))
 
@@ -103,8 +103,7 @@ async def set_user_status(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> PersonOut:
-    """启用 / 停用用户。active→inactive 联动撤销其平台会话；
-    不能停用自己 / 最后一个可用 admin。"""
+    """治理角色启用 / 停用用户。active→inactive 联动撤销其平台会话。"""
     return await people_service.set_user_status(
         session, caller, user_id, req, get_trace_id(request)
     )

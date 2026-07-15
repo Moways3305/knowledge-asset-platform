@@ -141,7 +141,7 @@ async def test_deactivation_revokes_sessions(client, db_session):
     await _login_target_then_drop_cookie(client, CONSULTANT_EMAIL)
     r = await client.post(
         f"/api/v1/admin/people/{USER_CONSULTANT}/status",
-        headers=_hdr(USER_ADMIN_ONLY),
+        headers=_hdr(USER_BOSS),
         json={"status": "inactive"},
     )
     assert r.status_code == 200, r.text
@@ -160,23 +160,23 @@ async def test_deactivation_revokes_sessions(client, db_session):
     assert any((e.extra or {}).get("trigger") == "user_deactivated" for e in ev)
 
 
-async def test_cannot_deactivate_self(client):
+async def test_admin_cannot_use_people_status_endpoint(client):
     r = await client.post(
         f"/api/v1/admin/people/{USER_ADMIN_ONLY}/status",
         headers=_hdr(USER_ADMIN_ONLY),
         json={"status": "inactive"},
     )
-    assert r.status_code == 409
-    assert r.json()["detail"]["denied_reason"] == "cannot_deactivate_self"
+    assert r.status_code == 403
+    assert r.json()["detail"]["denied_reason"] == "admin_business_permission_denied"
 
 
-async def test_status_endpoint_admin_only(client):
+async def test_status_endpoint_governance_allowed(client):
     r = await client.post(
         f"/api/v1/admin/people/{USER_CONSULTANT}/status",
         headers=_hdr(USER_BOSS),
         json={"status": "inactive"},
     )
-    assert r.status_code == 403
+    assert r.status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +186,7 @@ async def test_password_reset_revokes_sessions(client, db_session):
     await _login_target_then_drop_cookie(client, CONSULTANT_EMAIL)
     r = await client.post(
         f"/api/v1/admin/people/{USER_CONSULTANT}/password",
-        headers=_hdr(USER_ADMIN_ONLY),
+        headers=_hdr(USER_BOSS),
         json={"password": "newpass1234"},
     )
     assert r.status_code == 200, r.text

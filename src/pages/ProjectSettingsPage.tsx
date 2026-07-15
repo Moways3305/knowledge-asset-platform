@@ -49,7 +49,7 @@ const routeLabel: Record<string, string> = {
   route_B: "年度辅导循环",
   route_C: "专项诊断",
 };
-const PROJECT_ROLE_OPTIONS = ["coach", "project_manager", "consultant"];
+const PROJECT_ROLE_OPTIONS = ["coach", "consultant"];
 
 // 用户可见时间统一北京时间。
 const fmtTime = (iso: string | null): string => formatBeijingTime(iso);
@@ -471,7 +471,7 @@ export default function ProjectSettingsPage() {
                           </span>
                         </td>
                         <td>
-                          {canManage ? (
+                          {canManage && m.project_role !== "project_manager" ? (
                             <select
                               className="ps-role-select"
                               value={m.project_role}
@@ -503,7 +503,7 @@ export default function ProjectSettingsPage() {
                           </span>
                         </td>
                         <td className="ps-cell-time">{fmtTime(m.joined_at)}</td>
-                        {canManage && (
+                        {canManage && m.project_role !== "project_manager" && (
                           <td>
                             <button
                               className="btn-small"
@@ -526,8 +526,7 @@ export default function ProjectSettingsPage() {
               </div>
             )}
             <p className="au-note" style={{ marginTop: 8 }}>
-              新增 / 移除项目成员请到 <Link to="/admin/people">人员权限</Link>{" "}
-              维护项目成员关系；本页只调整已加入成员的项目角色与状态。
+              项目经理可在本项目内维护辅导老师与顾问；项目经理身份仅由总经理或咨询总监任命。
             </p>
           </section>
 
@@ -540,13 +539,6 @@ export default function ProjectSettingsPage() {
                 <div className="ps-link-desc">查看当前项目知识资产、阶段 Q&A 与风险提醒</div>
                 <Link to={`/project/${projectId}/knowledge`} className="ps-link-action">
                   前往项目看板 →
-                </Link>
-              </div>
-              <div className="ps-link-card">
-                <div className="ps-link-title">全局人员权限</div>
-                <div className="ps-link-desc">管理跨项目、多角色、平台角色与权限边界</div>
-                <Link to="/admin/people" className="ps-link-action">
-                  前往人员权限 →
                 </Link>
               </div>
             </div>

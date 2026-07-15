@@ -14,7 +14,7 @@ from sqlalchemy import select
 from app.main import app
 from app.models.audit import AuditEvent
 from app.models.identity import User, UserCompanyRole
-from app.seed.dev_seed import USER_ADMIN_ONLY
+from app.seed.dev_seed import USER_ADMIN_ONLY, USER_BOSS
 from app.services.wecom_client import (
     WeComError,
     WeComIdentity,
@@ -86,6 +86,10 @@ async def _callback(client, fake, *, code="server-code", extra_params=None, trac
 
 def _admin_headers():
     return {"X-Dev-User-Id": str(USER_ADMIN_ONLY)}
+
+
+def _governance_headers():
+    return {"X-Dev-User-Id": str(USER_BOSS)}
 
 
 async def test_valid_wecom_member_auto_creates_active_consultant(client, db_session):
@@ -289,7 +293,7 @@ async def test_people_list_can_see_auto_created_user_without_wecom_id_leak(clien
     assert r.status_code == 303, r.text
     created_id = (await client.get("/api/v1/auth/me")).json()["user_id"]
     client.cookies.clear()
-    people = await client.get(PEOPLE, headers=_admin_headers(), params={"q": "企微新人"})
+    people = await client.get(PEOPLE, headers=_governance_headers(), params={"q": "企微新人"})
     assert people.status_code == 200, people.text
     item = next(i for i in people.json()["items"] if i["user_id"] == created_id)
     assert item["wecom_bound"] is True

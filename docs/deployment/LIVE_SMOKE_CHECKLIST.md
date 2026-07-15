@@ -53,9 +53,9 @@ python scripts/production_smoke.py --base-url <prod-url> --expect-prod-ready --j
 
 ### B4. admin ops 可达 / 业务用户不可达 admin ops
 - 操作人：admin（系统管理） vs 普通业务用户
-- 步骤：登录后 `GET /admin/people`（admin/boss/咨询总监可读）；普通业务用户访问 `/admin/ops/*`
+- 步骤：分别以总经理 / 咨询总监调用 `GET /admin/people`；以 pure admin 调用该接口；普通业务用户访问 `/admin/ops/*`
 - 预期：admin / 治理角色 `200`；普通业务用户 `403`
-- 可观察：HTTP 状态；admin 列表仅安全人员/角色元数据
+- 可观察：HTTP 状态；pure admin 返回 403，治理角色列表仅含安全人员/角色元数据
 - 不应出现：`token_hash` / session token / OAuth / 存储引用 / 业务原文；注意 **纯 admin `title_visible=false`**，admin 不应看到业务知识标题/原文
 
 ### B5. 上传 Path B：upload → AI result → confirm

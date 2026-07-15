@@ -274,7 +274,7 @@ export default function IdentityMenu() {
                   </div>
                 )}
                 {showLoginForm && (
-                  <p className="idm-hint">使用企业微信登录 Kivo，或使用管理员提供的账号密码。</p>
+                  <p className="idm-hint">使用企业微信登录 Kivo，或使用已分配的账号密码。</p>
                 )}
               </>
             )}

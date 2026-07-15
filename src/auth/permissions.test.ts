@@ -109,11 +109,10 @@ describe("can (nav / route capability predicates)", () => {
     expect(can.viewAlerts(governance)).toBe(false);
   });
 
-  it("shows audit / ingest / people / permissions / wecom-scan to admin or governance", () => {
+  it("shows shared system views to admin or governance", () => {
     for (const pred of [
       can.viewAudit,
       can.viewIngestAdmin,
-      can.viewPeople,
       can.viewPermissions,
       can.viewWecomScan,
     ]) {
@@ -121,6 +120,12 @@ describe("can (nav / route capability predicates)", () => {
       expect(pred(governance)).toBe(true);
       expect(pred(consultant)).toBe(false);
     }
+  });
+
+  it("keeps people governance hidden from pure admin", () => {
+    expect(can.viewPeople(admin)).toBe(false);
+    expect(can.viewPeople(governance)).toBe(true);
+    expect(can.viewPeople(consultant)).toBe(false);
   });
 
   it("shows project board only to active project members", () => {

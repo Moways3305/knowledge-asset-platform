@@ -110,7 +110,7 @@ async def seed_dev_identities(session: AsyncSession) -> None:
     dual_f.company_roles.append(UserCompanyRole(company_role="admin", status="active"))
 
     # 给开发态用户设置统一开发密码（仅 seed/测试可见，不写入 .env.example）。
-    # 真实部署由 admin 经 /admin/people/{id}/password 设置，不依赖此开发密码。
+    # 真实部署由治理角色经 /admin/people/{id}/password 设置，不依赖此开发密码。
     from datetime import datetime, timezone
 
     from app.services.passwords import hash_password

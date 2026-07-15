@@ -113,15 +113,16 @@ describe("AdminPeoplePage governance controls", () => {
     vi.mocked(createCompanyKnowledgeBase).mockReset();
   });
 
-  it("keeps technical controls for admin while business governance stays read-only", async () => {
+  it("does not expose personnel management controls to pure admin", async () => {
     await renderDetail();
-    expect(screen.getByRole("button", { name: "撤销全部会话" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "设置 / 重置密码" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "撤销全部会话" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "设置 / 重置密码" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "停用账号" })).not.toBeInTheDocument();
     expect(roleRow("总经理").queryByRole("button")).not.toBeInTheDocument();
     expect(roleRow("顾问").queryByRole("button")).not.toBeInTheDocument();
     expect(screen.queryByText("新增 / 更新成员关系")).not.toBeInTheDocument();
     expect(
-      screen.getByText("总经理或咨询总监任命项目经理与默认辅导老师；项目顾问由项目经理维护。"),
+      screen.getByText("总经理或咨询总监任命项目经理；项目经理在本项目内维护辅导老师与顾问。"),
     ).toBeInTheDocument();
     expect(fetchCompanyKnowledgeBase).not.toHaveBeenCalled();
   });
@@ -135,11 +136,12 @@ describe("AdminPeoplePage governance controls", () => {
       isGovernance: true,
     };
     await renderDetail();
-    expect(screen.queryByRole("button", { name: "撤销全部会话" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "停用账号" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "设置 / 重置密码" })).toBeInTheDocument();
     expect(roleRow("总经理").getByRole("button", { name: "停用" })).toBeInTheDocument();
     expect(roleRow("咨询总监").getByRole("button", { name: "授予" })).toBeInTheDocument();
     expect(roleRow("顾问").getByRole("button", { name: "恢复" })).toBeInTheDocument();
-    expect(roleRow("管理员").queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByText("管理员")).not.toBeInTheDocument();
     expect(screen.getByText("新增 / 更新成员关系")).toBeInTheDocument();
     await waitFor(() => expect(fetchCompanyKnowledgeBase).toHaveBeenCalled());
   });

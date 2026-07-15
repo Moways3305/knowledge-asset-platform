@@ -8,9 +8,7 @@ import {
   setUserPassword,
   upsertProjectMembership,
   patchProjectMembership,
-  revokeUserSessions,
   setUserStatus,
-  reconcileWecomIdentity,
   fetchCompanyKnowledgeBase,
   createCompanyKnowledgeBase,
 } from "../api/admin";
@@ -22,7 +20,6 @@ const companyRoleLabel: Record<string, string> = {
   boss: "总经理",
   consulting_director: "咨询总监",
   consultant: "顾问",
-  admin: "管理员",
 };
 const projectRoleLabel: Record<string, string> = {
   consultant: "顾问",
@@ -38,8 +35,8 @@ const statusCls: Record<string, string> = {
   inactive: "pp-status-disabled",
 };
 
-const COMPANY_ROLE_OPTIONS = ["boss", "consulting_director", "consultant", "admin"];
-const PROJECT_ROLE_OPTIONS = ["project_manager", "coach"];
+const COMPANY_ROLE_OPTIONS = ["boss", "consulting_director", "consultant"];
+const PROJECT_ROLE_OPTIONS = ["project_manager"];
 const USER_STATUS_OPTIONS = ["active", "inactive"];
 
 // 用户可见时间统一北京时间。
@@ -49,13 +46,10 @@ export default function AdminPeoplePage() {
   const { capabilities } = useAuth();
   const canManageProjects = capabilities.isBoss || capabilities.isConsultingDirector;
   const canManageCompanyRole = (role: string) =>
-    role === "admin"
-      ? capabilities.isAdmin
-      : role === "consultant" || role === "consulting_director"
-        ? canManageProjects
-        : capabilities.isBoss;
-  const canManageProjectRole = (role: string) =>
-    canManageProjects && (role === "project_manager" || role === "coach");
+    role === "consultant" || role === "consulting_director"
+      ? canManageProjects
+      : capabilities.isBoss;
+  const canManageProjectRole = (role: string) => canManageProjects && role === "project_manager";
   const [people, setPeople] = useState<PersonDTO[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -170,6 +164,7 @@ export default function AdminPeoplePage() {
 
       <div className="pp-multi-role-card">
         公司角色和项目角色分别管理。项目知识访问以有效项目成员关系为准；系统管理员不因此获得业务原文权限。
+        系统管理员也不进入人员治理。
       </div>
 
       {canManageProjects && (
@@ -307,32 +302,18 @@ export default function AdminPeoplePage() {
               </div>
             </div>
 
-            {/* 登录会话与账号安全 */}
-            {capabilities.isAdmin ? (
+            {/* 人员账号治理 */}
+            {canManageProjects &&
+            (capabilities.isBoss ||
+              !detail.company_roles.some(
+                (role) => role.company_role === "boss" && role.status === "active",
+              )) ? (
               <>
-                <h4 style={{ marginTop: 14 }}>登录会话与账号安全（仅系统管理员）</h4>
+                <h4 style={{ marginTop: 14 }}>人员账号状态</h4>
                 <div
                   className="pp-actions-row"
                   style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
                 >
-                  <button
-                    disabled={(detail.active_session_count ?? 0) === 0}
-                    onClick={async () => {
-                      setActionError(null);
-                      setActionNote(null);
-                      try {
-                        const r = await revokeUserSessions(detail.user_id, {
-                          reason: "admin force offline",
-                        });
-                        setActionNote(`已撤销 ${r.revoked_count} 个平台会话`);
-                        await refreshAfterWrite(detail.user_id);
-                      } catch (e) {
-                        setActionError(describeError(e, "撤销会话失败"));
-                      }
-                    }}
-                  >
-                    撤销全部会话
-                  </button>
                   <button
                     onClick={async () => {
                       setActionError(null);
@@ -351,33 +332,10 @@ export default function AdminPeoplePage() {
                   >
                     {detail.status === "active" ? "停用账号" : "启用账号"}
                   </button>
-                  {detail.wecom_bound && (
-                    <button
-                      onClick={async () => {
-                        setActionError(null);
-                        setActionNote(null);
-                        try {
-                          const r = await reconcileWecomIdentity({ user_id: detail.user_id });
-                          setActionNote(
-                            r.deactivated > 0
-                              ? `企微对账：成员失效，已停用并撤销 ${r.items[0]?.sessions_revoked ?? 0} 个会话`
-                              : r.failed > 0
-                                ? "企微对账：状态核验失败，请稍后重试"
-                                : "企微对账：成员仍有效",
-                          );
-                          await refreshAfterWrite(detail.user_id);
-                        } catch (e) {
-                          setActionError(describeError(e, "企微身份对账失败"));
-                        }
-                      }}
-                    >
-                      企微身份对账
-                    </button>
-                  )}
                 </div>
 
                 {/* 密码设置 / 重置 */}
-                <h4 style={{ marginTop: 14 }}>登录密码（仅系统管理员）</h4>
+                <h4 style={{ marginTop: 14 }}>登录密码</h4>
                 <SetPasswordForm
                   onSubmit={async (password) => {
                     setActionError(null);
@@ -394,7 +352,7 @@ export default function AdminPeoplePage() {
               </>
             ) : (
               <p className="pp-no-project" style={{ marginTop: 14 }}>
-                账号、会话和密码由系统管理员维护。
+                当前身份不可修改该人员的账号状态或密码。
               </p>
             )}
 
@@ -441,9 +399,7 @@ export default function AdminPeoplePage() {
                         {currentStatus === "active" ? "停用" : current ? "恢复" : "授予"}
                       </button>
                     ) : (
-                      <span className="pp-toolbar-hint">
-                        {role === "admin" ? "仅系统管理员可操作" : "当前身份只读"}
-                      </span>
+                      <span className="pp-toolbar-hint">当前身份只读</span>
                     )}
                   </div>
                 );
@@ -539,7 +495,7 @@ export default function AdminPeoplePage() {
               />
             ) : (
               <p className="pp-no-project">
-                总经理或咨询总监任命项目经理与默认辅导老师；项目顾问由项目经理维护。
+                总经理或咨询总监任命项目经理；项目经理在本项目内维护辅导老师与顾问。
               </p>
             )}
           </div>
@@ -553,7 +509,7 @@ export default function AdminPeoplePage() {
             <div className="ig-empty-title">无法加载</div>
             <p className="ig-empty-desc">{error}</p>
             <p className="ig-empty-desc">
-              人员治理查看仅对 admin / 总经理 / 咨询总监开放；可经 <code>VITE_DEV_USER_ID</code>{" "}
+              人员治理查看仅对总经理 / 咨询总监开放；可经 <code>VITE_DEV_USER_ID</code>{" "}
               切换授权身份。
             </p>
             <button className="btn-small" onClick={() => void load()}>

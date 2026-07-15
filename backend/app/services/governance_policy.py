@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Set
 
 from app.schemas.enums import CompanyRole, ProjectRole
 from app.schemas.permission import CallerContext
@@ -31,9 +30,6 @@ PROJECT_MEMBER_ROLES = frozenset(
 )
 PROJECT_MANAGER_MANAGED_ROLES = frozenset({ProjectRole.coach.value, ProjectRole.consultant.value})
 
-# 默认候选策略位于服务层而非数据模型/DB constraint，后续可由配置或策略表替换。
-DEFAULT_COACH_COMPANY_ROLES = GOVERNANCE_COMPANY_ROLES
-
 
 def is_admin(caller: CallerContext) -> bool:
     return caller.is_active and CompanyRole.admin.value in caller.active_company_roles
@@ -55,12 +51,12 @@ def governance_confirmation_role(caller: CallerContext) -> str | None:
 
 
 def can_manage_company_role(caller: CallerContext, target_role: str) -> bool:
-    """公司业务角色层级；技术 admin 角色仍由 admin 自身的系统治理入口管理。"""
+    """公司业务角色层级；技术 admin 角色没有浏览器治理路径。"""
     if not caller.is_active:
         return False
     roles = caller.active_company_roles
     if target_role == CompanyRole.admin.value:
-        return CompanyRole.admin.value in roles
+        return False
     if CompanyRole.boss.value in roles:
         return target_role in BUSINESS_COMPANY_ROLES
     if CompanyRole.consulting_director.value in roles:
@@ -95,22 +91,10 @@ def can_assign_project_role(
 ) -> bool:
     """治理角色任命项目经理；项目经理独立管理辅导老师与项目顾问。"""
     if is_governance(caller):
-        return requested_role in {
-            ProjectRole.project_manager.value,
-            ProjectRole.coach.value,
-        }
+        return requested_role == ProjectRole.project_manager.value
     if not is_project_manager(caller, project_id):
         return False
     return (
         requested_role in PROJECT_MANAGER_MANAGED_ROLES
         and current_role != ProjectRole.project_manager.value
     )
-
-
-def coach_candidate_allowed(
-    company_roles: Set[str],
-    *,
-    allowed_company_roles: Set[str] = DEFAULT_COACH_COMPANY_ROLES,
-) -> bool:
-    """默认辅导老师候选策略，可注入其它允许集合扩展，未固化为 DB 约束。"""
-    return bool(company_roles & allowed_company_roles)

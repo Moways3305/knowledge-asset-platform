@@ -25,6 +25,7 @@ from app.schemas.enums import (
     MemberStatus,
     ProjectRole,
     RoleStatus,
+    UserStatus,
 )
 from app.schemas.permission import CallerContext
 from app.schemas.project_settings import (
@@ -315,14 +316,6 @@ async def add_member(
             else "project_member_management_forbidden"
         )
         raise _denied(403, reason, "当前身份不可新增该项目成员")
-    company_roles = {
-        role.company_role for role in user.company_roles if role.status == RoleStatus.active.value
-    }
-    if requested_role == ProjectRole.coach.value and not governance_policy.coach_candidate_allowed(
-        company_roles
-    ):
-        raise _denied(422, "coach_candidate_role_required", "辅导老师默认须由总经理或咨询总监担任")
-
     old = None
     if current is None:
         current = ProjectMember(
@@ -387,6 +380,8 @@ async def patch_member(
     old_role, old_status = member.project_role, member.status
     new_role = req.project_role.value if req.project_role is not None else old_role
     new_status = req.status.value if req.status is not None else old_status
+    if new_status == MemberStatus.active.value and member.user.status != UserStatus.active.value:
+        raise _denied(422, "active_project_member_required", "仅 active 用户可加入项目")
 
     if not governance_policy.can_assign_project_role(
         caller,
@@ -400,16 +395,6 @@ async def patch_member(
             else "project_member_management_forbidden"
         )
         raise _denied(403, reason, "当前身份不可调整该项目成员")
-    target_company_roles = {
-        role.company_role
-        for role in member.user.company_roles
-        if role.status == RoleStatus.active.value
-    }
-    if new_role == ProjectRole.coach.value and not governance_policy.coach_candidate_allowed(
-        target_company_roles
-    ):
-        raise _denied(422, "coach_candidate_role_required", "辅导老师默认须由总经理或咨询总监担任")
-
     # 保护：变更后项目仍须至少有一个 active 项目经理。
     if (old_role in _MANAGEMENT_ROLES and old_status == MemberStatus.active.value) and not (
         new_role in _MANAGEMENT_ROLES and new_status == MemberStatus.active.value
@@ -562,15 +547,6 @@ async def create_project(
     coach = None
     if req.coach_user_id is not None:
         coach = await _load_active_business_user(session, req.coach_user_id, role_field="coach")
-        coach_roles = {
-            role.company_role
-            for role in coach.company_roles
-            if role.status == RoleStatus.active.value
-        }
-        if not governance_policy.coach_candidate_allowed(coach_roles):
-            raise _denied(
-                422, "coach_candidate_role_required", "辅导老师默认须由总经理或咨询总监担任"
-            )
 
     project = Project(
         name=name,

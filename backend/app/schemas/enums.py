@@ -467,7 +467,7 @@ class AuditAction(str, Enum):
     # raw wecom_user_id / 通讯录档案字段 / 上游 errmsg。
     identity_wecom_user_synced = "identity.wecom_user_synced"
     identity_user_deactivated_by_wecom_sync = "identity.user_deactivated_by_wecom_sync"
-    # 管理员设置 / 重置用户密码。extra 只放安全元数据，绝不含 password/hash/salt。
+    # 治理角色设置 / 重置用户密码。extra 只放安全元数据，绝不含 password/hash/salt。
     auth_password_set = "auth.password_set"
 
 

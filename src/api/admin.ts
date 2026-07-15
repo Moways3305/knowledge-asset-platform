@@ -227,7 +227,7 @@ export async function setCompanyRole(
   return apiPost<PersonDTO>(`/api/v1/admin/people/${userId}/company-roles`, body);
 }
 
-// admin 设置 / 重置用户密码。password 仅上送，响应不回显。
+// 治理角色设置 / 重置用户密码。password 仅上送，响应不回显。
 export async function setUserPassword(
   userId: string,
   password: string,
