@@ -882,6 +882,7 @@ async def run_scan(
             source_file_size=len(data),
             source_file_hash=content_hash,
             status=IngestStatus.processing.value,
+            processing_stage="upload_saved",
             target_scope=config.scope_type,
             target_project_id=project_id,
             target_zone=zone,

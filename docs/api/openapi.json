@@ -3473,6 +3473,171 @@
         "title": "IngestParseRefreshResponse",
         "type": "object"
       },
+      "IngestTaskNextAction": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "route_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Route Key"
+          }
+        },
+        "required": [
+          "key",
+          "enabled"
+        ],
+        "title": "IngestTaskNextAction",
+        "type": "object"
+      },
+      "IngestTaskSafeError": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "recovery_hint": {
+            "title": "Recovery Hint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "recovery_hint"
+        ],
+        "title": "IngestTaskSafeError",
+        "type": "object"
+      },
+      "IngestTaskStage": {
+        "enum": [
+          "upload_saved",
+          "text_extraction",
+          "content_generation",
+          "awaiting_confirmation",
+          "confirmation",
+          "indexing_queued",
+          "indexing_in_progress",
+          "completed",
+          "failed",
+          "degraded_complete"
+        ],
+        "title": "IngestTaskStage",
+        "type": "string"
+      },
+      "IngestTaskStatusResponse": {
+        "description": "Permission-filtered task progress without provider or storage internals.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IngestTaskSafeError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IngestTaskNextAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result_asset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Asset Id"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          },
+          "review_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Id"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/IngestTaskStage"
+          },
+          "status": {
+            "$ref": "#/components/schemas/IngestTaskWorkflowStatus"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "task_id",
+          "stage",
+          "status",
+          "updated_at",
+          "retryable"
+        ],
+        "title": "IngestTaskStatusResponse",
+        "type": "object"
+      },
+      "IngestTaskWorkflowStatus": {
+        "enum": [
+          "processing",
+          "action_required",
+          "waiting",
+          "completed",
+          "degraded",
+          "failed"
+        ],
+        "title": "IngestTaskWorkflowStatus",
+        "type": "string"
+      },
       "IngestUploadResponse": {
         "properties": {
           "ingest_task_id": {
@@ -18481,6 +18646,156 @@
           }
         },
         "summary": "Refresh Parse",
+        "tags": [
+          "ingest"
+        ]
+      }
+    },
+    "/api/v1/ingest/{task_id}/retry": {
+      "post": {
+        "operationId": "retry_task_api_v1_ingest__task_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestTaskStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retry Task",
+        "tags": [
+          "ingest"
+        ]
+      }
+    },
+    "/api/v1/ingest/{task_id}/status": {
+      "get": {
+        "operationId": "get_task_status_api_v1_ingest__task_id__status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestTaskStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Task Status",
         "tags": [
           "ingest"
         ]

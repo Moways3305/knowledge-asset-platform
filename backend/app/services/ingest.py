@@ -187,6 +187,7 @@ async def create_upload(
         source_file_size=len(content),
         source_file_hash=content_hash,
         status=IngestStatus.processing.value,
+        processing_stage="upload_saved",
         target_scope=target_scope,
         target_project_id=target_project_id,
         created_by=caller.user_id,

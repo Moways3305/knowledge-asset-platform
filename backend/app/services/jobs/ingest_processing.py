@@ -139,12 +139,16 @@ async def process_upload_task(
 
     # ---- 瞬时区：读盘 + 抽取 + 内容处理。异常 → 递增 retry_count 并退避 ----
     try:
+        task.processing_stage = "text_extraction"
+        await session.commit()
         file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
         extraction = extract_text(
             file_bytes, file_name=task.source_file_name, mime=task.source_file_mime_type
         )
         content_hash = task.source_file_hash or hashlib.sha256(file_bytes).hexdigest()
         dup = await _find_duplicate(session, content_hash, task.id)
+        task.processing_stage = "content_generation"
+        await session.commit()
         ai, content_meta = await content_processing.process_content(
             llm,
             desensitizer,
@@ -184,6 +188,7 @@ async def process_upload_task(
     _apply_ai_result(task, ai, dup)
     failed = extraction.status in {"empty", "failed"}
     task.status = IngestStatus.failed.value if failed else IngestStatus.pending_confirmation.value
+    task.processing_stage = None
     if failed:
         task.error_type = extraction.error_type
         task.error_message = extraction.error_message

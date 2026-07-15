@@ -6,6 +6,50 @@ export interface IngestUploadResponseDTO {
   upload_url: null;
 }
 
+export type IngestTaskStage =
+  | "upload_saved"
+  | "text_extraction"
+  | "content_generation"
+  | "awaiting_confirmation"
+  | "confirmation"
+  | "indexing_queued"
+  | "indexing_in_progress"
+  | "completed"
+  | "failed"
+  | "degraded_complete";
+
+export type IngestTaskWorkflowStatus =
+  | "processing"
+  | "action_required"
+  | "waiting"
+  | "completed"
+  | "degraded"
+  | "failed";
+
+export interface IngestTaskNextActionDTO {
+  key: string;
+  route_key: string | null;
+  enabled: boolean;
+}
+
+export interface IngestTaskSafeErrorDTO {
+  code: string;
+  message: string;
+  recovery_hint: string;
+}
+
+export interface IngestTaskStatusDTO {
+  task_id: string;
+  stage: IngestTaskStage;
+  status: IngestTaskWorkflowStatus;
+  updated_at: string | null;
+  retryable: boolean;
+  next_action: IngestTaskNextActionDTO | null;
+  error: IngestTaskSafeErrorDTO | null;
+  result_asset_id: string | null;
+  review_id: string | null;
+}
+
 // 规范命名解析结果（后端确定性拼装；存于 naming_parsed_fields）。
 // suggested_title 即由这些组件拼成的 normalized_title。
 export interface NamingFields {

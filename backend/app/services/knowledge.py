@@ -119,7 +119,7 @@ def _can_delete(caller: CallerContext, asset: KnowledgeAsset) -> bool:
 _RETRYABLE_INDEX_STATUSES = {"index_failed", "not_indexed", "skipped"}
 
 
-def _can_retry_index(caller: CallerContext, asset: KnowledgeAsset) -> bool:
+def can_retry_index(caller: CallerContext, asset: KnowledgeAsset) -> bool:
     """底座索引重试权限。
 
     项目资产仅允许 active 项目经理；公司治理角色不因公司职务跨项目重试。
@@ -198,7 +198,7 @@ def _build_access_info(
         existing_grant_expires_at=grant_expires_at if has_grant else None,
         can_delete=_can_delete(caller, asset),
         can_retry_index=(
-            _can_retry_index(caller, asset) and index_status in _RETRYABLE_INDEX_STATUSES
+            can_retry_index(caller, asset) and index_status in _RETRYABLE_INDEX_STATUSES
         ),
     )
 
@@ -798,7 +798,7 @@ async def retry_index(
     not_found = _denied(404, "knowledge_asset_not_found", "知识资产不存在或不可见")
     if asset is None or asset.asset_status == _DELETED_STATUS:
         raise not_found
-    if not _can_retry_index(caller, asset):
+    if not can_retry_index(caller, asset):
         # 不可发现 → 404 不泄露；可发现但无重试权 → 403（纯 admin 单独提示）。
         if not decide(caller, asset, AccessLayer.discovery).allowed:
             raise not_found

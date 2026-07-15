@@ -58,7 +58,7 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 
 ## 4. API 路由概览
 
-后端注册 **22 个业务 router**（共约 96 个 endpoint）。除健康探针与少数集成回调外，
+后端注册 **22 个业务 router**（共约 98 个 endpoint）。除健康探针与少数集成回调外，
 默认需认证会话；写操作在 cookie 会话下受 CSRF 保护；管理类路由额外要求对应治理角色。
 
 > 认证标注：🔓 无需会话；🔐 需登录会话；🛡️ 需登录 + 治理/管理角色。
@@ -94,6 +94,7 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 
 ### 4.5 入库与审核（ingest, review）
 - 🔐 `POST /api/v1/ingest/upload`、`GET /api/v1/ingest/pending`、`GET .../{task_id}/ai-result`、`POST .../{task_id}/{confirm|refresh-parse}`。
+- 🔐 `GET /api/v1/ingest/{task_id}/status`、`POST .../{task_id}/retry` — 第一方单任务进度与安全恢复契约；区分上传、抽取、内容生成、人工确认、审核、索引及完成/降级/失败阶段，只返回白名单错误码、修复建议和安全动作键。无权任务与不存在任务统一不可枚举。
 - 🛡️ `GET /api/v1/reviews`、`GET /api/v1/reviews/{review_id}`、`POST .../{approve|reject|withdraw}` — 升格/提交审核。
 - 🔐 `POST /api/v1/projects/{project_id}/knowledge/{asset_id}/upgrade-company` — 仅项目经理发起公司资产升格双确认。
 
