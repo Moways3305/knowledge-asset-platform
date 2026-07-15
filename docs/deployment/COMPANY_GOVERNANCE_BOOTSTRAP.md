@@ -17,6 +17,14 @@ python -m app.commands.bootstrap_boss
 unset KAP_BOOTSTRAP_BOSS_TARGET_USER_ID
 ```
 
+在受控自动化中也可显式传入目标 UUID：
+
+```bash
+python -m app.commands.bootstrap_boss --user-id "<TARGET_USER_UUID>"
+```
+
+命令行参数优先于环境变量。交互式操作仍推荐使用上面的环境变量方式，避免目标标识进入 shell history 或进程参数列表。
+
 命令只输出以下固定状态之一，不回显身份信息：
 
 - `boss_bootstrap_created`：首位 Boss 已建立。
