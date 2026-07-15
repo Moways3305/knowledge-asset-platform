@@ -10567,6 +10567,122 @@
         "title": "WorkbenchKnowledgeSummary",
         "type": "object"
       },
+      "WorkbenchOperationsIndexing": {
+        "properties": {
+          "index_failed": {
+            "default": 0,
+            "title": "Index Failed",
+            "type": "integer"
+          },
+          "kb_init_failed": {
+            "default": 0,
+            "title": "Kb Init Failed",
+            "type": "integer"
+          },
+          "not_indexed": {
+            "default": 0,
+            "title": "Not Indexed",
+            "type": "integer"
+          },
+          "parse_failed": {
+            "default": 0,
+            "title": "Parse Failed",
+            "type": "integer"
+          },
+          "parse_pending": {
+            "default": 0,
+            "title": "Parse Pending",
+            "type": "integer"
+          },
+          "parse_processing": {
+            "default": 0,
+            "title": "Parse Processing",
+            "type": "integer"
+          },
+          "skipped": {
+            "default": 0,
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "title": "WorkbenchOperationsIndexing",
+        "type": "object"
+      },
+      "WorkbenchOperationsSection": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkbenchOperationsSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "status": {
+            "$ref": "#/components/schemas/WorkbenchSectionStatus"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "WorkbenchOperationsSection",
+        "type": "object"
+      },
+      "WorkbenchOperationsSummary": {
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/AccessInsights"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/InsightCard"
+            },
+            "title": "Cards",
+            "type": "array"
+          },
+          "indexing": {
+            "$ref": "#/components/schemas/WorkbenchOperationsIndexing"
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/LifecycleInsights"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "title_visible": {
+            "title": "Title Visible",
+            "type": "boolean"
+          },
+          "window_days": {
+            "title": "Window Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "title_visible",
+          "scope",
+          "window_days",
+          "indexing",
+          "access",
+          "lifecycle"
+        ],
+        "title": "WorkbenchOperationsSummary",
+        "type": "object"
+      },
       "WorkbenchOriginalAccessItem": {
         "description": "原文访问申请安全视图（只读）。reason 复用现有安全输出口径（创建时已脱敏）。",
         "properties": {
@@ -10705,6 +10821,30 @@
         "title": "WorkbenchOriginalAccessResponse",
         "type": "object"
       },
+      "WorkbenchOverviewResponse": {
+        "properties": {
+          "operations": {
+            "$ref": "#/components/schemas/WorkbenchOperationsSection"
+          },
+          "projects": {
+            "$ref": "#/components/schemas/WorkbenchProjectsSection"
+          },
+          "recent_activity": {
+            "$ref": "#/components/schemas/WorkbenchRecentActivitySection"
+          },
+          "todos": {
+            "$ref": "#/components/schemas/WorkbenchTodosSection"
+          }
+        },
+        "required": [
+          "todos",
+          "operations",
+          "projects",
+          "recent_activity"
+        ],
+        "title": "WorkbenchOverviewResponse",
+        "type": "object"
+      },
       "WorkbenchProjectBrief": {
         "description": "调用人可见的项目概览（不含客户敏感信息 / 成员名单 / 内部配置开关）。",
         "properties": {
@@ -10770,6 +10910,200 @@
           "status"
         ],
         "title": "WorkbenchProjectBrief",
+        "type": "object"
+      },
+      "WorkbenchProjectItem": {
+        "properties": {
+          "lifecycle_phase_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifecycle Phase Key"
+          },
+          "lifecycle_route_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifecycle Route Key"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_role": {
+            "title": "Project Role",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "name",
+          "status",
+          "project_role"
+        ],
+        "title": "WorkbenchProjectItem",
+        "type": "object"
+      },
+      "WorkbenchProjectsSection": {
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkbenchProjectItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/WorkbenchSectionStatus"
+          },
+          "total": {
+            "default": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "WorkbenchProjectsSection",
+        "type": "object"
+      },
+      "WorkbenchRecentActivityItem": {
+        "properties": {
+          "asset_id": {
+            "format": "uuid",
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "asset_type": {
+            "title": "Asset Type",
+            "type": "string"
+          },
+          "confidentiality_level": {
+            "title": "Confidentiality Level",
+            "type": "string"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "zone": {
+            "title": "Zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id",
+          "title",
+          "scope",
+          "zone",
+          "asset_type",
+          "confidentiality_level"
+        ],
+        "title": "WorkbenchRecentActivityItem",
+        "type": "object"
+      },
+      "WorkbenchRecentActivitySection": {
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkbenchRecentActivityItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/WorkbenchSectionStatus"
+          },
+          "total": {
+            "default": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "WorkbenchRecentActivitySection",
         "type": "object"
       },
       "WorkbenchReviewItem": {
@@ -10887,6 +11221,16 @@
         "title": "WorkbenchReviewsResponse",
         "type": "object"
       },
+      "WorkbenchSectionStatus": {
+        "enum": [
+          "available",
+          "empty",
+          "forbidden",
+          "error"
+        ],
+        "title": "WorkbenchSectionStatus",
+        "type": "string"
+      },
       "WorkbenchTodoCounts": {
         "properties": {
           "ingest": {
@@ -10913,98 +11257,6 @@
         "title": "WorkbenchTodoCounts",
         "type": "object"
       },
-      "WorkbenchTodoItem": {
-        "description": "工作台待办条目（安全聚合）。asset_title 已按权限边界裁剪，无权看标题时为安全占位。",
-        "properties": {
-          "asset_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Asset Id"
-          },
-          "asset_title": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Asset Title"
-          },
-          "created_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Created At"
-          },
-          "priority": {
-            "default": "normal",
-            "title": "Priority",
-            "type": "string"
-          },
-          "project_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Project Id"
-          },
-          "project_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Project Name"
-          },
-          "status": {
-            "title": "Status",
-            "type": "string"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "todo_id": {
-            "title": "Todo Id",
-            "type": "string"
-          },
-          "type": {
-            "title": "Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "todo_id",
-          "type",
-          "title",
-          "status"
-        ],
-        "title": "WorkbenchTodoItem",
-        "type": "object"
-      },
       "WorkbenchTodosResponse": {
         "properties": {
           "counts": {
@@ -11012,7 +11264,7 @@
           },
           "items": {
             "items": {
-              "$ref": "#/components/schemas/WorkbenchTodoItem"
+              "$ref": "#/components/schemas/app__schemas__agent_workbench__WorkbenchTodoItem"
             },
             "title": "Items",
             "type": "array"
@@ -11023,6 +11275,41 @@
           "counts"
         ],
         "title": "WorkbenchTodosResponse",
+        "type": "object"
+      },
+      "WorkbenchTodosSection": {
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/app__schemas__workbench__WorkbenchTodoItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/WorkbenchSectionStatus"
+          },
+          "total": {
+            "default": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "WorkbenchTodosSection",
         "type": "object"
       },
       "WorkbuddyTokenCreatedOut": {
@@ -11121,6 +11408,131 @@
           "enabled"
         ],
         "title": "WorkbuddyTokenStatusOut",
+        "type": "object"
+      },
+      "app__schemas__agent_workbench__WorkbenchTodoItem": {
+        "description": "工作台待办条目（安全聚合）。asset_title 已按权限边界裁剪，无权看标题时为安全占位。",
+        "properties": {
+          "asset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Id"
+          },
+          "asset_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Title"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "priority": {
+            "default": "normal",
+            "title": "Priority",
+            "type": "string"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "todo_id": {
+            "title": "Todo Id",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "todo_id",
+          "type",
+          "title",
+          "status"
+        ],
+        "title": "WorkbenchTodoItem",
+        "type": "object"
+      },
+      "app__schemas__workbench__WorkbenchTodoItem": {
+        "properties": {
+          "action_key": {
+            "title": "Action Key",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "route_key": {
+            "title": "Route Key",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "count",
+          "severity",
+          "route_key",
+          "action_key"
+        ],
+        "title": "WorkbenchTodoItem",
         "type": "object"
       }
     }
@@ -21932,6 +22344,72 @@
         "summary": "List Model Options",
         "tags": [
           "weknora-options"
+        ]
+      }
+    },
+    "/api/v1/workbench/overview": {
+      "get": {
+        "description": "Return a session-bound, permission-filtered workbench overview.",
+        "operationId": "get_workbench_overview_api_v1_workbench_overview_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkbenchOverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Workbench Overview",
+        "tags": [
+          "workbench"
         ]
       }
     },

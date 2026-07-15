@@ -58,7 +58,7 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 
 ## 4. API 路由概览
 
-后端注册 **21 个业务 router**（共约 95 个 endpoint）。除健康探针与少数集成回调外，
+后端注册 **22 个业务 router**（共约 96 个 endpoint）。除健康探针与少数集成回调外，
 默认需认证会话；写操作在 cookie 会话下受 CSRF 保护；管理类路由额外要求对应治理角色。
 
 > 认证标注：🔓 无需会话；🔐 需登录会话；🛡️ 需登录 + 治理/管理角色。
@@ -77,6 +77,7 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 - 密码登录带失败风控（锁定/限流）；企微 OAuth 走 Path A 身份；会话为 httpOnly cookie。
 
 ### 4.3 知识读 / 检索 / 生命周期 / 预览（knowledge, search, lifecycle, preview）
+- 🔐 `GET /api/v1/workbench/overview` — 第一方浏览器会话工作台聚合；待办、运营摘要、active 成员项目和近期知识动态分别报告可用、空、无权或失败状态。该路由不使用 Agent Gateway，项目与知识字段均按调用人权限裁剪。
 - 🔐 `GET /api/v1/knowledge`、`GET /api/v1/knowledge/{asset_id}`、`GET /api/v1/knowledge/ops-insights`。
   - 列表查询先在数据库层应用调用人的发现权限，再执行关键词、scope、项目、资料/资产区、资产类型、状态、保密等级和创建/更新时间筛选；`total` 仅统计有权发现的资产。
   - 支持白名单字段稳定排序及 `page/page_size` 分页，响应包含 `total/page/page_size/has_next`。旧客户端不传分页参数时使用第 1 页、每页 50 条的安全默认值，不再返回无限列表。
