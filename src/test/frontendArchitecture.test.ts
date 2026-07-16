@@ -45,4 +45,20 @@ describe("frontend architecture baseline", () => {
       expect(source, file).not.toMatch(/\b(?:localStorage|sessionStorage)\b/);
     }
   });
+
+  it("keeps one real project settings page without the retired KPI shell or identity fields", () => {
+    const source = productionUiModules["../pages/ProjectSettingsPage.tsx"];
+    const styles = Object.values(styleModules).join("\n");
+    expect(source).toBeDefined();
+    expect(source).toContain("fetchProjectSettings");
+    expect(source).toContain("fetchProjectMembers");
+    expect(source).toContain("fetchReviews");
+    expect(source).not.toContain('className="kl-header"');
+    expect(source).not.toContain('className="ps-page"');
+    expect(source).not.toContain("member.email");
+    expect(source).not.toContain("member.company_roles");
+    expect(styles).not.toContain(".ps-page");
+    expect(styles).not.toContain(".ps-kpi-on");
+    expect(styles).not.toContain(".ps-table");
+  });
 });

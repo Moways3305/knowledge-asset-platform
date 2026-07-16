@@ -1,5 +1,5 @@
 import { Suspense, useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   LibraryBig,
@@ -27,7 +27,6 @@ import ErrorBoundary from "../components/ErrorBoundary";
 import LoadingError from "../components/LoadingError";
 import { AuthProvider, useAuth } from "../auth/AuthContext";
 import { can, type Capability, type Capabilities } from "../auth/permissions";
-import logoUrl from "../assets/moways-logo.png";
 import "./AppLayout.css";
 import "../styles/workbench.css";
 import "../styles/workbench-home-admin.css";
@@ -86,11 +85,36 @@ const navGroups: NavGroup[] = [
       { to: "/admin/people", label: "人员权限", icon: Users, cap: can.viewPeople },
     ],
   },
-  {
-    label: "帮助",
-    items: [{ to: "/help", label: "使用说明", icon: LifeBuoy, cap: can.viewHelp }],
-  },
 ];
+
+const moduleTitles: Array<[prefix: string, title: string]> = [
+  ["/project/", "项目空间"],
+  ["/knowledge", "知识资产库"],
+  ["/my/knowledge", "个人知识"],
+  ["/upload", "资产化确认"],
+  ["/review", "升级审核"],
+  ["/original-access", "原文访问"],
+  ["/admin/ingest", "入库管理"],
+  ["/admin/wecom-scan", "微盘扫描"],
+  ["/admin/weknora-models", "模型配置"],
+  ["/admin/audit", "审计日志"],
+  ["/admin/auth-security", "登录风控"],
+  ["/admin/alert-settings", "告警设置"],
+  ["/admin/permissions", "权限规则"],
+  ["/admin/people", "人员权限"],
+  ["/help", "使用说明"],
+  ["/", "今日工作台"],
+];
+
+function currentModuleTitle(pathname: string): string {
+  if (/^\/project\/[^/]+\/settings(?:\/|$)/.test(pathname)) return "项目设置";
+  if (/^\/project\/[^/]+\/knowledge(?:\/|$)/.test(pathname)) return "项目看板";
+  return (
+    moduleTitles.find(([prefix]) =>
+      prefix === "/" ? pathname === "/" : pathname.startsWith(prefix),
+    )?.[1] ?? "知识资产工作台"
+  );
+}
 
 function RailLink({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
   const Icon = item.icon;
@@ -156,6 +180,7 @@ function RailNav({
 
 function AppShell() {
   const { authMe, capabilities } = useAuth();
+  const location = useLocation();
   const firstProjectId = authMe?.projects[0]?.projectId;
   const [railCollapsed, setRailCollapsed] = useState(false);
   return (
@@ -163,8 +188,8 @@ function AppShell() {
       <aside className="rail" aria-label="产品导航">
         <div className="rail-brand">
           <div className="rail-brand-row">
-            <span className="rail-mark" aria-label="Kivo">
-              Kivo
+            <span className="rail-mark" aria-label="KAP">
+              KAP
             </span>
             <button
               type="button"
@@ -186,22 +211,28 @@ function AppShell() {
         </div>
         <RailNav capabilities={capabilities} projectId={firstProjectId} collapsed={railCollapsed} />
         <div className="rail-foot">
-          <span className="rail-foot-line">知识资产与交付治理</span>
+          {can.viewHelp(capabilities) && (
+            <Link
+              to="/help"
+              className="rail-foot-link"
+              aria-label="使用说明"
+              title={railCollapsed ? "使用说明" : undefined}
+            >
+              <LifeBuoy size={18} aria-hidden="true" />
+              <span className="rail-foot-label">使用说明</span>
+            </Link>
+          )}
+          <div className="rail-identity">
+            <IdentityMenu />
+          </div>
         </div>
       </aside>
 
       <div className="app-main">
         <header className="deck">
-          <div className="deck-brand">
-            <img className="deck-logo" src={logoUrl} alt="MOWAYS 博维咨询" />
-            <span className="deck-divider" aria-hidden="true" />
-            <span className="deck-product">
-              <strong>智能知识资产工作台</strong>
-              <small>知识资产与交付治理</small>
-            </span>
-          </div>
-          <div className="deck-identity">
-            <IdentityMenu />
+          <div className="deck-context">
+            <span className="deck-eyebrow">博维知识资产平台</span>
+            <strong className="deck-title">{currentModuleTitle(location.pathname)}</strong>
           </div>
         </header>
         <main className="app-content">

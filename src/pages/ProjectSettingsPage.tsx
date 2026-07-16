@@ -1,584 +1,629 @@
-﻿import { useState, useMemo, useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { Check, ClipboardCheck, RotateCcw, Save, X } from "lucide-react";
+import { useAuth } from "../auth/AuthContext";
 import { ApiError } from "../api/http";
-import { fetchAuthMe, type AuthMeVM } from "../api/auth";
 import {
-  fetchProjectSettings,
-  updateProjectSettings,
   fetchProjectMembers,
+  fetchProjectSettings,
   patchProjectMember,
+  updateProjectSettings,
 } from "../api/project";
-import type { ProjectSettingsDTO, ProjectMemberDTO } from "../types/projectSettings";
+import { approveReview, fetchReviews, rejectReview } from "../api/review";
+import type { ProjectMemberDTO, ProjectSettingsDTO } from "../types/projectSettings";
+import type { ReviewItemDTO } from "../types/review";
 import { formatBeijingTime } from "../utils/time";
+import "./ProjectSettingsPage.css";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const projectRoleLabel: Record<string, string> = {
-  coach: "辅导老师",
-  project_manager: "项目经理",
-  consultant: "顾问",
-};
-const projectRoleCls: Record<string, string> = {
-  coach: "ps-role-coach",
-  project_manager: "ps-role-pm",
-  consultant: "ps-role-consultant",
-};
-const companyRoleLabel: Record<string, string> = {
-  boss: "总经理",
-  consulting_director: "咨询总监",
-  consultant: "顾问",
-  admin: "管理员",
-};
-const statusLabel: Record<string, string> = {
-  active: "进行中",
-  completed: "已完成",
-  archived: "已归档",
-  inactive: "已停用",
-};
-const statusCls: Record<string, string> = {
-  active: "ps-st-active",
-  completed: "ps-st-reviewing",
-  archived: "ps-st-archived",
-  inactive: "ps-st-archived",
-};
-
-// UI 可选项（route 枚举为前端展示元数据，非后端业务数据；当前值始终来自后端）。
 const ROUTE_OPTIONS = ["route_A", "route_B", "route_C"];
+const PROJECT_ROLE_OPTIONS = ["coach", "consultant"];
+const PENDING_REVIEW_STATUSES = new Set(["pending_reviewer", "approval_failed"]);
+
 const routeLabel: Record<string, string> = {
   route_A: "完整路线",
   route_B: "年度辅导循环",
   route_C: "专项诊断",
 };
-const PROJECT_ROLE_OPTIONS = ["coach", "consultant"];
+const projectRoleLabel: Record<string, string> = {
+  project_manager: "项目经理",
+  coach: "辅导老师",
+  consultant: "顾问",
+};
+const projectStatusLabel: Record<string, string> = {
+  active: "进行中",
+  completed: "已完成",
+  archived: "已归档",
+  inactive: "已停用",
+};
+const memberStatusLabel: Record<string, string> = {
+  active: "有效",
+  inactive: "已停用",
+};
+const reviewTypeLabel: Record<string, string> = {
+  material_to_asset: "资料资产化",
+  personal_to_project: "个人知识升级",
+  project_ingest_approval: "项目知识入库",
+  lifecycle_change: "生命周期变更",
+};
 
-// 用户可见时间统一北京时间。
-const fmtTime = (iso: string | null): string => formatBeijingTime(iso);
+type SettingsDraft = {
+  lifecycleRouteKey: string;
+  lifecyclePhaseKey: string;
+  forceReviewOnIngest: boolean;
+  wecomGroupId: string | null;
+};
+
+const draftFromSettings = (settings: ProjectSettingsDTO): SettingsDraft => ({
+  lifecycleRouteKey: settings.lifecycle_route_key ?? "",
+  lifecyclePhaseKey: settings.lifecycle_phase_key ?? "",
+  forceReviewOnIngest: settings.force_review_on_ingest,
+  wecomGroupId: null,
+});
+
+const safeError = (error: unknown, fallback: string): string => {
+  if (error instanceof ApiError) return error.message || fallback;
+  return fallback;
+};
 
 export default function ProjectSettingsPage() {
   const { id } = useParams<{ id: string }>();
-  const [projectId, setProjectId] = useState<string | null>(null);
+  const { authMe } = useAuth();
+  const projectId = id && UUID_RE.test(id) ? id : null;
+  const authProjectRole = authMe?.projects.find(
+    (project) => project.projectId === projectId,
+  )?.projectRole;
+
   const [settings, setSettings] = useState<ProjectSettingsDTO | null>(null);
+  const [draft, setDraft] = useState<SettingsDraft | null>(null);
   const [members, setMembers] = useState<ProjectMemberDTO[]>([]);
-  const [canManage, setCanManage] = useState(false);
+  const [canManageMembers, setCanManageMembers] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNote, setActionNote] = useState<string | null>(null);
-  const [wecomInput, setWecomInput] = useState("");
+  const [memberBusy, setMemberBusy] = useState<string | null>(null);
 
-  const describeError = (e: unknown, fallback: string) =>
-    e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : fallback;
+  const [reviews, setReviews] = useState<ReviewItemDTO[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [reviewsError, setReviewsError] = useState<string | null>(null);
+  const [reviewBusy, setReviewBusy] = useState<string | null>(null);
 
-  // 解析有效项目：优先路由 UUID（且为本人有效项目），否则回退到第一个有效项目。
-  const resolveProjectId = useCallback(
-    (me: AuthMeVM): string | null => {
-      if (id && UUID_RE.test(id)) {
-        const matched = me.projects.find((p) => p.projectId === id);
-        if (matched) return matched.projectId;
-        return id; // 保留路由上下文，由服务端按 active 项目成员关系校验。
-      }
-      return me.projects[0]?.projectId ?? null;
-    },
-    [id],
-  );
-
-  const loadProject = useCallback(async (pid: string) => {
-    setLoading(true);
-    setError(null);
-    setActionError(null);
-    setActionNote(null);
+  const loadReviews = useCallback(async (pid: string) => {
+    setReviewsLoading(true);
+    setReviewsError(null);
     try {
-      const [s, m] = await Promise.all([fetchProjectSettings(pid), fetchProjectMembers(pid)]);
-      setSettings(s);
-      setMembers(m.items);
-      setCanManage(m.can_manage);
-    } catch (e) {
-      setError(describeError(e, "项目设置加载失败"));
-      setSettings(null);
-      setMembers([]);
+      const authorized = await fetchReviews();
+      setReviews(
+        authorized.filter(
+          (review) =>
+            review.target_project_id === pid &&
+            PENDING_REVIEW_STATUSES.has(review.status) &&
+            review.can_decide,
+        ),
+      );
+    } catch (error) {
+      setReviews([]);
+      setReviewsError(safeError(error, "待确认任务暂时无法加载"));
     } finally {
-      setLoading(false);
+      setReviewsLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
+  const loadProject = useCallback(
+    async (pid: string) => {
+      setLoading(true);
+      setPageError(null);
+      setActionError(null);
+      setActionNote(null);
       try {
-        const me = await fetchAuthMe();
-        if (cancelled) return;
-        const pid = resolveProjectId(me);
-        setProjectId(pid);
-        if (pid) {
-          await loadProject(pid);
+        const [nextSettings, memberResponse] = await Promise.all([
+          fetchProjectSettings(pid),
+          fetchProjectMembers(pid),
+        ]);
+        setSettings(nextSettings);
+        setDraft(draftFromSettings(nextSettings));
+        setMembers(memberResponse.items);
+        setCanManageMembers(memberResponse.can_manage);
+        if (nextSettings.can_write) {
+          setReviews([]);
+          void loadReviews(pid);
         } else {
-          setError(
-            "当前身份没有可展示的项目成员关系；请从项目看板进入，或在「人员权限」维护项目成员关系。",
-          );
-          setLoading(false);
+          setReviews([]);
+          setReviewsError(null);
+          setReviewsLoading(false);
         }
-      } catch (e) {
-        if (!cancelled) {
-          setError(describeError(e, "身份暂时无法加载，请刷新后重试"));
-          setLoading(false);
-        }
+      } catch (error) {
+        setSettings(null);
+        setDraft(null);
+        setMembers([]);
+        setPageError(safeError(error, "项目设置加载失败"));
+      } finally {
+        setLoading(false);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [resolveProjectId, loadProject]);
+    },
+    [loadReviews],
+  );
 
-  const refresh = useCallback(async () => {
-    if (projectId) await loadProject(projectId);
-  }, [projectId, loadProject]);
+  useEffect(() => {
+    if (!projectId) {
+      setLoading(false);
+      setPageError("当前地址没有有效的项目上下文");
+      return;
+    }
+    void loadProject(projectId);
+  }, [loadProject, projectId]);
 
   const canWrite = settings?.can_write ?? false;
-
-  const patchSettings = useCallback(
-    async (body: Record<string, unknown>, note: string) => {
-      if (!projectId) return;
-      setSaving(true);
-      setActionError(null);
-      setActionNote(null);
-      try {
-        const updated = await updateProjectSettings(projectId, body);
-        setSettings(updated);
-        setActionNote(note);
-      } catch (e) {
-        setActionError(describeError(e, "保存失败"));
-        // 失败重新拉取，保证 UI 与后端一致（回滚乐观更新）。
-        await refresh();
-      } finally {
-        setSaving(false);
-      }
-    },
-    [projectId, refresh],
+  const canEditProjectRoles = canManageMembers && authProjectRole === "project_manager";
+  const routeOptions = useMemo(() => {
+    const current = settings?.lifecycle_route_key;
+    return current && !ROUTE_OPTIONS.includes(current)
+      ? [current, ...ROUTE_OPTIONS]
+      : ROUTE_OPTIONS;
+  }, [settings?.lifecycle_route_key]);
+  const dirty = Boolean(
+    settings &&
+    draft &&
+    (draft.lifecycleRouteKey !== (settings.lifecycle_route_key ?? "") ||
+      draft.lifecyclePhaseKey !== (settings.lifecycle_phase_key ?? "") ||
+      draft.forceReviewOnIngest !== settings.force_review_on_ingest ||
+      draft.wecomGroupId !== null),
   );
 
-  const changeMember = useCallback(
-    async (memberId: string, body: { project_role?: string; status?: string }, note: string) => {
-      if (!projectId) return;
-      setActionError(null);
-      setActionNote(null);
-      try {
-        const updated = await patchProjectMember(projectId, memberId, body);
-        setMembers((prev) => prev.map((m) => (m.member_id === memberId ? updated : m)));
-        setActionNote(note);
-      } catch (e) {
-        setActionError(describeError(e, "更新成员失败"));
+  const discardDraft = () => {
+    if (!settings) return;
+    setDraft(draftFromSettings(settings));
+    setActionError(null);
+    setActionNote("已恢复为最近一次保存的设置");
+  };
+
+  const saveDraft = async () => {
+    if (!projectId || !settings || !draft || !canWrite || !dirty) return;
+    const body: Record<string, unknown> = {};
+    if (draft.lifecycleRouteKey !== (settings.lifecycle_route_key ?? "")) {
+      body.lifecycle_route_key = draft.lifecycleRouteKey;
+    }
+    if (draft.lifecyclePhaseKey !== (settings.lifecycle_phase_key ?? "")) {
+      body.lifecycle_phase_key = draft.lifecyclePhaseKey;
+    }
+    if (draft.forceReviewOnIngest !== settings.force_review_on_ingest) {
+      body.force_review_on_ingest = draft.forceReviewOnIngest;
+    }
+    if (draft.wecomGroupId !== null) body.wecom_group_id = draft.wecomGroupId;
+
+    setSaving(true);
+    setActionError(null);
+    setActionNote(null);
+    try {
+      const updated = await updateProjectSettings(projectId, body);
+      setSettings(updated);
+      setDraft(draftFromSettings(updated));
+      setActionNote("项目设置已保存");
+    } catch (error) {
+      setActionError(safeError(error, "保存失败，未保存内容已保留"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const changeMember = async (
+    member: ProjectMemberDTO,
+    body: { project_role?: string; status?: string },
+  ) => {
+    if (!projectId || !canEditProjectRoles || member.project_role === "project_manager") return;
+    setMemberBusy(member.member_id);
+    setActionError(null);
+    setActionNote(null);
+    try {
+      const updated = await patchProjectMember(projectId, member.member_id, body);
+      setMembers((current) =>
+        current.map((item) => (item.member_id === updated.member_id ? updated : item)),
+      );
+      setActionNote("项目成员关系已更新");
+    } catch (error) {
+      setActionError(safeError(error, "成员更新失败"));
+    } finally {
+      setMemberBusy(null);
+    }
+  };
+
+  const decideReview = async (review: ReviewItemDTO, decision: "approve" | "reject") => {
+    if (!projectId || !review.can_decide || review.target_project_id !== projectId) return;
+    setReviewBusy(review.id);
+    setReviewsError(null);
+    try {
+      if (decision === "approve") {
+        await approveReview(review.id, "项目经理确认通过");
+      } else {
+        await rejectReview(review.id, "项目经理驳回：请补充或修正材料");
       }
-    },
-    [projectId],
-  );
+      await loadReviews(projectId);
+    } catch (error) {
+      setReviewsError(safeError(error, "确认操作失败，请重试"));
+    } finally {
+      setReviewBusy(null);
+    }
+  };
 
-  const stats = useMemo(() => {
-    const total = members.length;
-    const mgmt = members.filter(
-      (m) =>
-        (m.project_role === "coach" || m.project_role === "project_manager") &&
-        m.status === "active",
-    ).length;
-    return {
-      total,
-      mgmt,
-      wecomBound: settings?.wecom_group_bound ? 1 : 0,
-      forceReview: settings?.force_review_on_ingest ?? false,
-    };
-  }, [members, settings]);
-
-  // 403 文案区分
-  const isMembershipErr = error?.includes("project_membership_required");
-  const isWriteForbidden = actionError?.includes("project_settings_write_forbidden");
-  const isAdminDenied = actionError?.includes("admin_business_permission_denied");
-
-  return (
-    <div className="ps-page">
-      <div className="kl-header">
-        <div className="kl-header-text">
-          <h2>项目设置</h2>
-          <p>
-            管理项目人员、项目内角色与入库策略。
-            {settings ? `当前项目：${settings.name}` : ""}
-          </p>
-        </div>
-        <div className="kl-kpis">
-          <div className="kl-kpi">
-            <div className="kl-kpi-value">{stats.total}</div>
-            <div className="kl-kpi-label">项目人员</div>
-          </div>
-          <div className="kl-kpi">
-            <div className="kl-kpi-value">{stats.mgmt}</div>
-            <div className="kl-kpi-label">教练/经理</div>
-          </div>
-          <div className="kl-kpi">
-            <div className="kl-kpi-value">{stats.wecomBound}</div>
-            <div className="kl-kpi-label">绑定企微群</div>
-          </div>
-          <div className="kl-kpi">
-            <div className={`kl-kpi-value ${stats.forceReview ? "ps-kpi-on" : ""}`}>
-              {stats.forceReview ? "开启" : "关闭"}
-            </div>
-            <div className="kl-kpi-label">强制审核</div>
-          </div>
+  if (loading) {
+    return (
+      <div className="project-settings-page">
+        <div className="ps74-page-state" role="status">
+          正在加载项目设置…
         </div>
       </div>
+    );
+  }
 
-      <p className="page-help-line">
-        项目内角色（辅导老师 / 项目经理 / 顾问）职责与设置写权见{" "}
-        <Link to="/help#project" className="page-help-link">
-          使用说明 →
-        </Link>
-      </p>
-
-      {actionError && (
-        <div className="au-error-banner">
-          <p>{actionError}</p>
-          {isWriteForbidden && (
-            <p className="au-error-hint">顾问与辅导老师只读，项目设置仅由本项目经理修改。</p>
-          )}
-          {isAdminDenied && <p className="au-error-hint">admin 是系统身份，不修改项目业务设置。</p>}
-        </div>
-      )}
-      {actionNote && (
-        <div className="up-submit-notice" style={{ color: "var(--color-success-fg, #176)" }}>
-          {actionNote}
-        </div>
-      )}
-
-      {error ? (
-        <div className="ig-empty-state">
-          <div className="ig-empty-title">无法加载项目设置</div>
-          <p className="ig-empty-desc">{error}</p>
-          {isMembershipErr && (
-            <p className="ig-empty-desc">
-              项目设置仅对本项目 active 成员开放，公司职务与系统管理员身份不会自动放行。
-            </p>
-          )}
+  if (pageError || !settings || !draft || !projectId) {
+    return (
+      <div className="project-settings-page">
+        <div className="ps74-page-state is-error">
+          <strong>无法加载项目设置</strong>
+          <p>{pageError ?? "当前项目不可用"}</p>
           {projectId && (
-            <button className="btn-small" onClick={() => void refresh()}>
+            <button
+              className="product-button is-secondary"
+              onClick={() => void loadProject(projectId)}
+            >
               重试
             </button>
           )}
         </div>
-      ) : loading ? (
-        <div className="ig-empty-state">
-          <div className="ig-empty-title">加载中…</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="project-settings-page">
+      <header className="ps74-header">
+        <div className="ps74-heading">
+          <div className="ps74-heading-meta">
+            <span className={`ps74-status is-${settings.status}`}>
+              {projectStatusLabel[settings.status] ?? "项目状态未知"}
+            </span>
+            <Link to={`/project/${projectId}/knowledge`}>返回项目知识库</Link>
+          </div>
+          <h1>{settings.name}</h1>
+          <p>管理项目入库策略、企微群绑定与项目成员关系。</p>
         </div>
-      ) : settings ? (
-        <>
-          {!canWrite && (
-            <div className="role-context-hint">
-              <div className="role-context-hint-title">只读视角</div>
-              当前身份对本项目设置为只读。可查看项目规则与成员，修改仅由本项目经理完成。
-            </div>
-          )}
+        {canWrite && dirty && (
+          <div className="ps74-header-actions" aria-label="未保存设置操作">
+            <button
+              className="product-button is-secondary"
+              disabled={saving}
+              onClick={discardDraft}
+            >
+              <RotateCcw size={16} aria-hidden="true" />
+              放弃未保存
+            </button>
+            <button
+              className="product-button is-primary"
+              disabled={saving}
+              onClick={() => void saveDraft()}
+            >
+              <Save size={16} aria-hidden="true" />
+              {saving ? "保存中…" : "保存设置"}
+            </button>
+          </div>
+        )}
+      </header>
 
-          {/* 项目基础信息 */}
-          <section className="ps-section">
-            <h3>项目基础信息</h3>
-            <div className="ps-info-grid">
-              <div className="ps-info-item">
-                <span className="ps-info-label">项目名称</span>
-                <span className="ps-info-value">{settings.name}</span>
-              </div>
-              <div className="ps-info-item">
-                <span className="ps-info-label">客户名称</span>
-                <span className="ps-info-value">{settings.client_name ?? "—"}</span>
-              </div>
-              <div className="ps-info-item">
-                <span className="ps-info-label">项目状态</span>
-                <span className="ps-info-value">
-                  <span className={`ps-status-pill ${statusCls[settings.status] ?? ""}`}>
-                    {statusLabel[settings.status] ?? settings.status}
-                  </span>
-                </span>
-              </div>
-              <div className="ps-info-item">
-                <span className="ps-info-label">辅导老师</span>
-                <span className="ps-info-value">{settings.coach_name ?? "—"}</span>
-              </div>
-              <div className="ps-info-item">
-                <span className="ps-info-label">最近更新</span>
-                <span className="ps-info-value">{fmtTime(settings.updated_at)}</span>
+      {actionError && <div className="ps74-feedback is-error">{actionError}</div>}
+      {actionNote && <div className="ps74-feedback is-success">{actionNote}</div>}
+      {!canWrite && (
+        <div className="ps74-readonly-note">当前身份可查看项目设置，修改仅由本项目经理完成。</div>
+      )}
+
+      <div className="ps74-layout">
+        <div className="ps74-main-column">
+          <section className="ps74-section" aria-labelledby="project-basic-heading">
+            <div className="ps74-section-header">
+              <div>
+                <h2 id="project-basic-heading">项目基本信息</h2>
+                <p>以下信息来自项目治理记录，仅供查看。</p>
               </div>
             </div>
+            <dl className="ps74-info-grid">
+              <div>
+                <dt>项目名称</dt>
+                <dd>{settings.name}</dd>
+              </div>
+              <div>
+                <dt>客户名称</dt>
+                <dd>{settings.client_name ?? "未提供"}</dd>
+              </div>
+              <div>
+                <dt>项目状态</dt>
+                <dd>{projectStatusLabel[settings.status] ?? "状态未知"}</dd>
+              </div>
+              <div>
+                <dt>辅导老师</dt>
+                <dd>{settings.coach_name ?? "暂未设置"}</dd>
+              </div>
+              <div>
+                <dt>最近更新</dt>
+                <dd>{formatBeijingTime(settings.updated_at)}</dd>
+              </div>
+            </dl>
           </section>
 
-          {/* 生命周期 */}
-          <section className="ps-section">
-            <h3>项目生命周期路线</h3>
-            <div className="lifecycle-route-card">
-              <div className="lifecycle-route-current">
-                <span className="lifecycle-route-label">当前路线</span>
-                <span className="lifecycle-route-value">
-                  {canWrite ? (
-                    <select
-                      className="ps-role-select"
-                      value={settings.lifecycle_route_key ?? ""}
-                      disabled={saving}
-                      onChange={(e) =>
-                        void patchSettings(
-                          { lifecycle_route_key: e.target.value },
-                          "生命周期路线已更新",
-                        )
-                      }
-                    >
-                      {ROUTE_OPTIONS.map((r) => (
-                        <option key={r} value={r}>
-                          {r} {routeLabel[r]}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <>
-                      {settings.lifecycle_route_key ?? "—"}{" "}
-                      {settings.lifecycle_route_key
-                        ? (routeLabel[settings.lifecycle_route_key] ?? "")
-                        : ""}
-                    </>
-                  )}
-                </span>
-              </div>
-              <div className="lifecycle-route-current">
-                <span className="lifecycle-route-label">当前阶段</span>
-                <span className="lifecycle-route-value">
-                  {canWrite ? (
-                    <PhaseEditor
-                      value={settings.lifecycle_phase_key ?? ""}
-                      saving={saving}
-                      onSave={(v) =>
-                        void patchSettings({ lifecycle_phase_key: v }, "当前阶段已更新")
-                      }
-                    />
-                  ) : (
-                    <span className="phase-tag phase-tag-active">
-                      {settings.lifecycle_phase_key ?? "—"}
-                    </span>
-                  )}
-                </span>
+          <section className="ps74-section" aria-labelledby="project-policy-heading">
+            <div className="ps74-section-header">
+              <div>
+                <h2 id="project-policy-heading">项目入库策略与企微群绑定</h2>
+                <p>设置只在统一保存成功后生效。</p>
               </div>
             </div>
-          </section>
-
-          {/* 入库策略 */}
-          <section className="ps-section">
-            <h3>项目入库策略</h3>
-            <div className="ps-policy-card">
-              <div className="ps-policy-head">
-                <div className="ps-policy-info">
-                  <span className="ps-policy-key">入库审核</span>
-                  <span className="ps-policy-desc">
-                    {settings.force_review_on_ingest
-                      ? "已开启：项目库入库任务统一进入项目审核，不允许 direct_ingest"
-                      : "已关闭：低风险高置信度任务可直接入项目知识库"}
-                  </span>
-                </div>
-                <button
-                  className={`ps-toggle ${settings.force_review_on_ingest ? "ps-toggle-on" : "ps-toggle-off"}`}
+            <div className="ps74-settings-grid">
+              <label>
+                <span>生命周期路线</span>
+                <select
+                  value={draft.lifecycleRouteKey}
                   disabled={!canWrite || saving}
-                  title={canWrite ? "" : "只读：需 project_manager / coach 或治理角色"}
-                  onClick={() =>
-                    void patchSettings(
-                      { force_review_on_ingest: !settings.force_review_on_ingest },
-                      "入库策略已更新",
+                  onChange={(event) =>
+                    setDraft((current) =>
+                      current ? { ...current, lifecycleRouteKey: event.target.value } : current,
                     )
                   }
                 >
-                  {settings.force_review_on_ingest ? "开启" : "关闭"}
-                </button>
-              </div>
-            </div>
-          </section>
-
-          {/* 企微群绑定 */}
-          <section className="ps-section">
-            <h3>企微群绑定</h3>
-            <div className="ps-policy-card">
-              <div className="ps-info-item">
-                <span className="ps-info-label">绑定状态</span>
-                <span className="ps-info-value">
-                  {settings.wecom_group_bound ? (
-                    <>
-                      已绑定 <code>{settings.wecom_group_label}</code>
-                    </>
-                  ) : (
-                    "未绑定"
-                  )}
+                  {routeOptions.map((route) => (
+                    <option key={route} value={route}>
+                      {routeLabel[route] ?? route}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>当前阶段</span>
+                <input
+                  value={draft.lifecyclePhaseKey}
+                  disabled={!canWrite || saving}
+                  onChange={(event) =>
+                    setDraft((current) =>
+                      current ? { ...current, lifecyclePhaseKey: event.target.value } : current,
+                    )
+                  }
+                />
+              </label>
+              <label className="ps74-switch-row">
+                <span>
+                  <strong>入库必须审核</strong>
+                  <small>开启后，项目入库任务统一进入项目经理确认。</small>
                 </span>
-              </div>
-              {canWrite ? (
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}>
-                  <input
-                    className="up-edit-input"
-                    placeholder="输入企微群 ID 以绑定 / 替换（留空提交可解绑）"
-                    value={wecomInput}
-                    onChange={(e) => setWecomInput(e.target.value)}
-                  />
-                  <button
-                    className="btn-small btn-small-primary"
-                    disabled={saving}
-                    onClick={() => {
-                      void patchSettings({ wecom_group_id: wecomInput }, "企微群绑定已更新");
-                      setWecomInput("");
-                    }}
-                  >
-                    保存绑定
-                  </button>
+                <input
+                  type="checkbox"
+                  checked={draft.forceReviewOnIngest}
+                  disabled={!canWrite || saving}
+                  onChange={(event) =>
+                    setDraft((current) =>
+                      current ? { ...current, forceReviewOnIngest: event.target.checked } : current,
+                    )
+                  }
+                />
+              </label>
+              <div className="ps74-wecom-setting">
+                <div className="ps74-wecom-status">
+                  <span>企微群绑定</span>
+                  <strong>
+                    {settings.wecom_group_bound
+                      ? `已绑定（${settings.wecom_group_label ?? "脱敏标签不可用"}）`
+                      : "未绑定"}
+                  </strong>
                 </div>
-              ) : null}
-              <p className="au-note" style={{ marginTop: 8 }}>
-                只展示群名称或脱敏标签；成员同步状态请在管理员诊断中查看。
-              </p>
+                {canWrite && (
+                  <div className="ps74-wecom-controls">
+                    <label>
+                      <span className="sr-only">新的企微群绑定标识</span>
+                      <input
+                        type="password"
+                        autoComplete="off"
+                        placeholder="输入新的企微群绑定标识"
+                        value={draft.wecomGroupId ?? ""}
+                        disabled={saving}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            current ? { ...current, wecomGroupId: event.target.value } : current,
+                          )
+                        }
+                      />
+                    </label>
+                    {settings.wecom_group_bound && (
+                      <button
+                        type="button"
+                        className="product-button is-secondary is-small"
+                        disabled={saving}
+                        onClick={() =>
+                          setDraft((current) =>
+                            current ? { ...current, wecomGroupId: "" } : current,
+                          )
+                        }
+                      >
+                        解除绑定
+                      </button>
+                    )}
+                  </div>
+                )}
+                <small>当前绑定仅展示后端提供的脱敏标签，新值不会在保存后回显。</small>
+              </div>
             </div>
           </section>
 
-          {/* 项目人员 */}
-          <section className="ps-section">
-            <h3>项目人员</h3>
-            {members.length === 0 ? (
-              <div className="ig-empty-state">
-                <div className="ig-empty-title">暂无项目成员</div>
+          <section className="ps74-section" aria-labelledby="project-members-heading">
+            <div className="ps74-section-header">
+              <div>
+                <h2 id="project-members-heading">项目成员与项目内角色</h2>
+                <p>项目经理可维护本项目的辅导老师和顾问；项目经理身份在此不可调整。</p>
               </div>
-            ) : (
-              <div className="ps-table-wrap">
-                <table className="ps-table">
-                  <thead>
-                    <tr>
-                      <th>姓名</th>
-                      <th>邮箱</th>
-                      <th>公司角色</th>
-                      <th>项目内角色</th>
-                      <th>状态</th>
-                      <th>加入时间</th>
-                      {canManage && <th>操作</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {members.map((m) => (
+            </div>
+            <div className="ps74-table-wrap">
+              <table className="ps74-members-table">
+                <thead>
+                  <tr>
+                    <th>成员</th>
+                    <th>项目内角色</th>
+                    <th>成员状态</th>
+                    <th>加入时间</th>
+                    {canEditProjectRoles && <th>操作</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {members.map((member) => {
+                    const editable =
+                      canEditProjectRoles && member.project_role !== "project_manager";
+                    const busy = memberBusy === member.member_id;
+                    return (
                       <tr
-                        key={m.member_id}
-                        className={m.status !== "active" ? "ps-row-disabled" : ""}
+                        key={member.member_id}
+                        className={member.status !== "active" ? "is-muted" : ""}
                       >
-                        <td className="ps-cell-name">{m.name}</td>
-                        <td>{m.email}</td>
+                        <td className="ps74-member-name">{member.name}</td>
                         <td>
-                          <span className="ps-cell-platform">
-                            {m.company_roles.length > 0
-                              ? m.company_roles.map((c) => companyRoleLabel[c] ?? c).join(" / ")
-                              : "—"}
-                          </span>
-                        </td>
-                        <td>
-                          {canManage && m.project_role !== "project_manager" ? (
+                          {editable ? (
                             <select
-                              className="ps-role-select"
-                              value={m.project_role}
-                              onChange={(e) =>
-                                void changeMember(
-                                  m.member_id,
-                                  { project_role: e.target.value },
-                                  "项目角色已更新",
-                                )
+                              aria-label={`调整${member.name}的项目内角色`}
+                              value={member.project_role}
+                              disabled={busy}
+                              onChange={(event) =>
+                                void changeMember(member, { project_role: event.target.value })
                               }
                             >
-                              {PROJECT_ROLE_OPTIONS.map((r) => (
-                                <option key={r} value={r}>
-                                  {projectRoleLabel[r]}
+                              {PROJECT_ROLE_OPTIONS.map((role) => (
+                                <option key={role} value={role}>
+                                  {projectRoleLabel[role]}
                                 </option>
                               ))}
                             </select>
                           ) : (
-                            <span
-                              className={`ps-role-pill ${projectRoleCls[m.project_role] ?? ""}`}
-                            >
-                              {projectRoleLabel[m.project_role] ?? m.project_role}
+                            <span className={`ps74-role is-${member.project_role}`}>
+                              {projectRoleLabel[member.project_role] ?? "项目成员"}
                             </span>
                           )}
                         </td>
-                        <td>
-                          <span className={`ps-status-pill ${statusCls[m.status] ?? ""}`}>
-                            {statusLabel[m.status] ?? m.status}
-                          </span>
-                        </td>
-                        <td className="ps-cell-time">{fmtTime(m.joined_at)}</td>
-                        {canManage && m.project_role !== "project_manager" && (
+                        <td>{memberStatusLabel[member.status] ?? "状态未知"}</td>
+                        <td>{formatBeijingTime(member.joined_at)}</td>
+                        {canEditProjectRoles && (
                           <td>
-                            <button
-                              className="btn-small"
-                              onClick={() =>
-                                void changeMember(
-                                  m.member_id,
-                                  { status: m.status === "active" ? "inactive" : "active" },
-                                  "成员状态已更新",
-                                )
-                              }
-                            >
-                              {m.status === "active" ? "停用" : "启用"}
-                            </button>
+                            {editable ? (
+                              <button
+                                className="product-button is-secondary is-small"
+                                disabled={busy}
+                                onClick={() =>
+                                  void changeMember(member, {
+                                    status: member.status === "active" ? "inactive" : "active",
+                                  })
+                                }
+                              >
+                                {member.status === "active" ? "停用" : "启用"}
+                              </button>
+                            ) : (
+                              <span className="ps74-locked-role">由治理角色任命</span>
+                            )}
                           </td>
                         )}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            <p className="au-note" style={{ marginTop: 8 }}>
-              项目经理可在本项目内维护辅导老师与顾问；项目经理身份仅由总经理或咨询总监任命。
-            </p>
-          </section>
-
-          {/* 关联入口 */}
-          <section className="ps-section">
-            <h3>关联入口</h3>
-            <div className="ps-links-grid">
-              <div className="ps-link-card">
-                <div className="ps-link-title">项目知识看板</div>
-                <div className="ps-link-desc">查看当前项目知识资产、阶段 Q&A 与风险提醒</div>
-                <Link to={`/project/${projectId}/knowledge`} className="ps-link-action">
-                  前往项目看板 →
-                </Link>
-              </div>
+                    );
+                  })}
+                  {members.length === 0 && (
+                    <tr>
+                      <td colSpan={canEditProjectRoles ? 5 : 4} className="ps74-table-empty">
+                        当前项目暂无成员记录
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </section>
-        </>
-      ) : null}
-    </div>
-  );
-}
+        </div>
 
-// 阶段编辑器：受控文本输入 + 保存（阶段标签随路线而异，用输入框而非固定枚举）。
-function PhaseEditor({
-  value,
-  saving,
-  onSave,
-}: {
-  value: string;
-  saving: boolean;
-  onSave: (v: string) => void;
-}) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => {
-    setDraft(value);
-  }, [value]);
-  return (
-    <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-      <input
-        className="up-edit-input"
-        style={{ maxWidth: 180 }}
-        placeholder="当前阶段标签"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-      />
-      <button
-        className="btn-small"
-        disabled={saving || draft === value}
-        onClick={() => onSave(draft)}
-      >
-        保存
-      </button>
-    </span>
+        <aside className="ps74-review-column" aria-labelledby="pending-review-heading">
+          <div className="ps74-review-header">
+            <div>
+              <h2 id="pending-review-heading">
+                <ClipboardCheck size={18} aria-hidden="true" />
+                待项目经理确认
+              </h2>
+              <p>仅显示当前项目中可由当前身份处理的记录。</p>
+            </div>
+            {canWrite && !reviewsLoading && <span>{reviews.length}</span>}
+          </div>
+
+          {!canWrite ? (
+            <div className="ps74-review-state">
+              <strong>当前身份无确认权限</strong>
+              <p>待确认处理仅向本项目经理开放。</p>
+            </div>
+          ) : reviewsLoading ? (
+            <div className="ps74-review-state" role="status">
+              正在加载待确认任务…
+            </div>
+          ) : reviewsError ? (
+            <div className="ps74-review-state is-error">
+              <strong>待确认任务加载失败</strong>
+              <p>{reviewsError}</p>
+              <button
+                className="product-button is-secondary is-small"
+                onClick={() => void loadReviews(projectId)}
+              >
+                重试
+              </button>
+            </div>
+          ) : reviews.length === 0 ? (
+            <div className="ps74-review-state">
+              <strong>暂无待确认任务</strong>
+              <p>当前项目没有需要你处理的记录。</p>
+            </div>
+          ) : (
+            <div className="ps74-review-list">
+              {reviews.map((review) => {
+                const busy = reviewBusy === review.id;
+                return (
+                  <article key={review.id} className="ps74-review-item">
+                    <span className="ps74-review-type">
+                      {reviewTypeLabel[review.review_type] ?? "项目知识确认"}
+                    </span>
+                    <h3>{review.asset_title ?? "待确认项目知识"}</h3>
+                    <p>
+                      {review.status === "approval_failed"
+                        ? "上次入库失败，可重新确认"
+                        : "等待项目经理确认"}
+                      {review.created_at ? ` · ${formatBeijingTime(review.created_at)}` : ""}
+                    </p>
+                    <div className="ps74-review-actions">
+                      <Link to="/review" className="product-button is-secondary is-small">
+                        查看
+                      </Link>
+                      {review.can_decide && (
+                        <>
+                          <button
+                            className="product-button is-primary is-small"
+                            disabled={busy}
+                            onClick={() => void decideReview(review, "approve")}
+                          >
+                            <Check size={15} aria-hidden="true" />
+                            通过
+                          </button>
+                          <button
+                            className="product-button is-danger is-small"
+                            disabled={busy}
+                            onClick={() => void decideReview(review, "reject")}
+                          >
+                            <X size={15} aria-hidden="true" />
+                            驳回
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </aside>
+      </div>
+    </div>
   );
 }

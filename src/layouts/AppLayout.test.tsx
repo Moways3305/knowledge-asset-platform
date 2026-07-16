@@ -57,17 +57,22 @@ function renderLayout() {
 describe("AppLayout shell contract", () => {
   beforeEach(() => {
     auth.capabilities.isAdmin = true;
+    auth.capabilities.isBoss = true;
+    auth.capabilities.isConsultingDirector = false;
     auth.capabilities.isBusinessUser = true;
     auth.capabilities.isGovernance = true;
     auth.capabilities.hasProject = true;
+    auth.capabilities.isProjectManager = true;
   });
 
   it("keeps the product brand and real identity menu in the shell", () => {
-    renderLayout();
-    expect(screen.getByText("Kivo")).toBeInTheDocument();
-    expect(screen.getByText("博维知识资产平台")).toBeInTheDocument();
-    expect(screen.getByText("智能知识资产工作台")).toBeInTheDocument();
+    const { container } = renderLayout();
+    expect(screen.getByText("KAP")).toBeInTheDocument();
+    expect(container.querySelector(".rail-sub")).toHaveTextContent("博维知识资产平台");
+    expect(container.querySelector(".deck-title")).toHaveTextContent("今日工作台");
     expect(screen.getByRole("button", { name: /布局验收用户/ })).toBeInTheDocument();
+    expect(container.querySelector(".rail-foot .rail-identity .idm-trigger")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "使用说明" })).toBeInTheDocument();
   });
 
   it("filters navigation with the existing capabilities", () => {
@@ -99,6 +104,28 @@ describe("AppLayout shell contract", () => {
       "title",
       "展开主导航",
     );
+    expect(screen.getByRole("button", { name: "展开主导航" })).toHaveClass("rail-collapse");
     expect(screen.getByRole("link", { name: "今日工作台" })).toHaveAttribute("title", "今日工作台");
+  });
+
+  it("does not add uncontracted global actions to the slim header", () => {
+    const { container } = renderLayout();
+    const header = container.querySelector(".deck");
+    expect(header).toHaveTextContent("今日工作台");
+    expect(header).not.toHaveTextContent(/搜索|导出|新建项目|通知/);
+    expect(header?.querySelector("input")).toBeNull();
+  });
+
+  it("keeps pure admin out of people and project business navigation", () => {
+    auth.capabilities.isAdmin = true;
+    auth.capabilities.isBoss = false;
+    auth.capabilities.isGovernance = false;
+    auth.capabilities.isBusinessUser = false;
+    auth.capabilities.hasProject = false;
+    auth.capabilities.isProjectManager = false;
+    renderLayout();
+    expect(screen.getByRole("link", { name: "审计日志" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "人员权限" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "项目设置" })).not.toBeInTheDocument();
   });
 });

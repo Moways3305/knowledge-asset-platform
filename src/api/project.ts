@@ -51,7 +51,7 @@ export async function fetchProjectQaModelOptions(
 }
 
 // ---- 项目设置 / 项目成员 ----
-// 读：admin / 治理角色 / 本项目成员；写：项目经理 / 治理角色。
+// 读：治理角色 / 本项目 active 成员；项目设置写：本项目项目经理。pure admin 无业务权限。
 // 响应只含安全治理元数据；企微群只回 bound + 脱敏 label（不回全文）；前端不展示任何内部标识。
 export async function fetchProjectSettings(projectId: string): Promise<ProjectSettingsDTO> {
   return apiGet<ProjectSettingsDTO>(`/api/v1/projects/${projectId}/settings`);
