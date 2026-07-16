@@ -42,6 +42,14 @@ export function useUploadFlow() {
   const [naming, setNaming] = useState<NamingFields | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const workflowRunRef = useRef(0);
+  const pendingRequestRef = useRef(0);
+
+  const beginWorkflowRun = useCallback(() => {
+    workflowRunRef.current += 1;
+    return workflowRunRef.current;
+  }, []);
+  const isCurrentWorkflowRun = useCallback((runId: number) => workflowRunRef.current === runId, []);
 
   // Path A：企微微盘待确认任务。
   const [pendingTasks, setPendingTasks] = useState<PendingIngestItemDTO[]>([]);
@@ -86,6 +94,8 @@ export function useUploadFlow() {
 
   useEffect(() => {
     return () => {
+      workflowRunRef.current += 1;
+      pendingRequestRef.current += 1;
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, []);
@@ -103,16 +113,20 @@ export function useUploadFlow() {
 
   // 企业微信待确认：拉取当前用户可处理的待确认任务。
   const loadPending = useCallback(async () => {
+    const requestId = ++pendingRequestRef.current;
     setPendingLoading(true);
     setPendingError(null);
     try {
-      setPendingTasks(await fetchPendingIngestTasks("path_a_wecom"));
+      const tasks = await fetchPendingIngestTasks("path_a_wecom");
+      if (pendingRequestRef.current !== requestId) return;
+      setPendingTasks(tasks);
     } catch (e) {
+      if (pendingRequestRef.current !== requestId) return;
       setPendingError(
         e instanceof ApiError ? e.message : "企业微信待确认任务暂时无法加载，请稍后重试",
       );
     } finally {
-      setPendingLoading(false);
+      if (pendingRequestRef.current === requestId) setPendingLoading(false);
     }
   }, []);
 
@@ -151,12 +165,16 @@ export function useUploadFlow() {
   }, []);
 
   // 轮询 ai-result 至非 processing 或超时。
-  const pollAiResult = useCallback(async (id: string) => {
+  const pollAiResult = useCallback(async (id: string, isCurrent: () => boolean) => {
+    if (!isCurrent()) return null;
     let ai = await fetchIngestAiResult(id);
+    if (!isCurrent()) return null;
     let attempts = 0;
     while (ai.status === "processing" && attempts < POLL_MAX_ATTEMPTS) {
       await sleep(POLL_INTERVAL_MS);
+      if (!isCurrent()) return null;
       ai = await fetchIngestAiResult(id);
+      if (!isCurrent()) return null;
       attempts += 1;
     }
     return ai;
@@ -166,6 +184,8 @@ export function useUploadFlow() {
   // 人工校正区。处理中则轮询；失败/超时给安全提示且不可确认。
   const handleSelectPendingTask = useCallback(
     async (t: PendingIngestItemDTO) => {
+      const runId = beginWorkflowRun();
+      const isCurrent = () => isCurrentWorkflowRun(runId);
       setSelectedTaskName(t.source_file_name);
       setTaskId(t.id);
       setApiError(null);
@@ -181,7 +201,8 @@ export function useUploadFlow() {
       if (t.target_project_id) setTargetProjectId(t.target_project_id);
       setFlowState("processing");
       try {
-        const ai = await pollAiResult(t.id);
+        const ai = await pollAiResult(t.id, isCurrent);
+        if (!ai || !isCurrent()) return;
         applyAiResult(ai, t.source_file_name);
         if (ai.status === "processing") {
           setProcessingNote(
@@ -199,24 +220,29 @@ export function useUploadFlow() {
         }
         setFlowState("ready");
       } catch (e) {
+        if (!isCurrent()) return;
         setApiError(e instanceof ApiError ? e.message : "加载该任务的 AI 建议失败");
         setFlowState("idle");
       }
     },
-    [applyAiResult, pollAiResult],
+    [applyAiResult, beginWorkflowRun, isCurrentWorkflowRun, pollAiResult],
   );
 
-  const selectLocalFile = useCallback((file: File) => {
-    setSelectedFile(file);
-    setFileName(file.name);
-    setFileSize(file.size);
-    setFileType(file.name.split(".").pop()?.toUpperCase() || file.type || "未知");
-    setExtraction(null);
-    setNaming(null);
-    setApiError(null);
-    setProcessingNote(null);
-    setFlowState("file_selected");
-  }, []);
+  const selectLocalFile = useCallback(
+    (file: File) => {
+      beginWorkflowRun();
+      setSelectedFile(file);
+      setFileName(file.name);
+      setFileSize(file.size);
+      setFileType(file.name.split(".").pop()?.toUpperCase() || file.type || "未知");
+      setExtraction(null);
+      setNaming(null);
+      setApiError(null);
+      setProcessingNote(null);
+      setFlowState("file_selected");
+    },
+    [beginWorkflowRun],
+  );
 
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -236,6 +262,8 @@ export function useUploadFlow() {
 
   // Path B：上传真实文件字节 + 创建入库任务 + 异步轮询内容建议。
   const handleStart = useCallback(async () => {
+    const runId = beginWorkflowRun();
+    const isCurrent = () => isCurrentWorkflowRun(runId);
     if (!selectedFile) {
       setApiError("请先选择本地文件");
       return;
@@ -245,8 +273,10 @@ export function useUploadFlow() {
     setProcessingNote(null);
     try {
       const up = await createIngestUpload({ file: selectedFile });
+      if (!isCurrent()) return;
       setTaskId(up.ingest_task_id);
-      const ai = await pollAiResult(up.ingest_task_id);
+      const ai = await pollAiResult(up.ingest_task_id, isCurrent);
+      if (!ai || !isCurrent()) return;
       if (ai.status === "processing") {
         setProcessingNote(
           "后台仍在处理该上传（抽取 / LLM 内容处理），请稍后刷新重试，暂不可提交。",
@@ -264,19 +294,23 @@ export function useUploadFlow() {
       }
       setFlowState("ready");
     } catch (e) {
+      if (!isCurrent()) return;
       setApiError(e instanceof ApiError ? e.message : "创建入库任务失败，请稍后重试");
       setFlowState("file_selected");
     }
-  }, [selectedFile, fileName, applyAiResult, pollAiResult]);
+  }, [selectedFile, fileName, applyAiResult, beginWorkflowRun, isCurrentWorkflowRun, pollAiResult]);
 
   // 轮询达到有限上限后，由用户显式重新检查同一真实任务，不创建伪进度或新任务。
   const handleRefreshProcessing = useCallback(async () => {
+    const runId = beginWorkflowRun();
+    const isCurrent = () => isCurrentWorkflowRun(runId);
     if (!taskId) return;
     setApiError(null);
     setProcessingNote(null);
     setFlowState("processing");
     try {
-      const ai = await pollAiResult(taskId);
+      const ai = await pollAiResult(taskId, isCurrent);
+      if (!ai || !isCurrent()) return;
       applyAiResult(ai, activePath === "a" ? selectedTaskName : fileName);
       if (ai.status === "processing") {
         setProcessingNote("后台仍在处理，请稍后重新检查，当前不可确认入库。");
@@ -291,14 +325,26 @@ export function useUploadFlow() {
       }
       setFlowState("ready");
     } catch (e) {
+      if (!isCurrent()) return;
       setApiError(e instanceof ApiError ? e.message : "任务状态暂时无法获取，请稍后重试");
       setFlowState(activePath === "a" ? "idle" : "file_selected");
     }
-  }, [activePath, applyAiResult, fileName, pollAiResult, selectedTaskName, taskId]);
+  }, [
+    activePath,
+    applyAiResult,
+    beginWorkflowRun,
+    fileName,
+    isCurrentWorkflowRun,
+    pollAiResult,
+    selectedTaskName,
+    taskId,
+  ]);
 
   // 两种来源共用同一确认链路。确认成功后展示资产链接；
   // Path A 额外刷新待确认列表。
   const handleSubmit = useCallback(async () => {
+    const runId = beginWorkflowRun();
+    const isCurrent = () => isCurrentWorkflowRun(runId);
     if (!taskId) return;
     setApiError(null);
     if (targetLibrary === "project" && !targetProjectId) {
@@ -332,12 +378,14 @@ export function useUploadFlow() {
         embedding_model_ref: models.embeddingRef || undefined,
         rerank_model_ref: models.rerankRef || undefined,
       });
+      if (!isCurrent()) return;
       setResultAssetId(res.result_asset_id);
       setSubmitReviewId(res.review_id ?? null);
       setSubmitIndexStatus(res.index_status ?? null);
       setFlowState("submitted");
       if (activePath === "a") void loadPending();
     } catch (e) {
+      if (!isCurrent()) return;
       setApiError(e instanceof ApiError ? e.message : "提交入库失败");
     }
   }, [
@@ -355,12 +403,16 @@ export function useUploadFlow() {
     editVisibility,
     editConfidentiality,
     editAiAccess,
+    beginWorkflowRun,
+    isCurrentWorkflowRun,
     loadPending,
     models.embeddingRef,
     models.rerankRef,
   ]);
 
   const handleReset = useCallback(() => {
+    beginWorkflowRun();
+    pendingRequestRef.current += 1;
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
@@ -396,7 +448,7 @@ export function useUploadFlow() {
     setSubmitReviewId(null);
     setSubmitIndexStatus(null);
     setApiError(null);
-  }, []);
+  }, [beginWorkflowRun]);
 
   // 切换来源时清空当前流程 / 选中态，避免一处来源的校正数据残留到另一处。
   const switchPath = useCallback(
