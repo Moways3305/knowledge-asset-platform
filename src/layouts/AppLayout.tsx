@@ -18,6 +18,7 @@ import {
   KeySquare,
   Users,
   LifeBuoy,
+  LogOut,
   PanelLeftClose,
   PanelLeftOpen,
   type LucideIcon,
@@ -26,6 +27,7 @@ import IdentityMenu from "../components/IdentityMenu";
 import ErrorBoundary from "../components/ErrorBoundary";
 import LoadingError from "../components/LoadingError";
 import { AuthProvider, useAuth } from "../auth/AuthContext";
+import { logout } from "../api/auth";
 import { can, type Capability, type Capabilities } from "../auth/permissions";
 import "./AppLayout.css";
 import "../styles/workbench.css";
@@ -102,7 +104,7 @@ const moduleTitles: Array<[prefix: string, title: string]> = [
   ["/admin/alert-settings", "告警设置"],
   ["/admin/permissions", "权限规则"],
   ["/admin/people", "人员权限"],
-  ["/help", "使用说明"],
+  ["/help", "帮助"],
   ["/", "今日工作台"],
 ];
 
@@ -179,10 +181,25 @@ function RailNav({
 }
 
 function AppShell() {
-  const { authMe, capabilities } = useAuth();
+  const { authMe, capabilities, reload } = useAuth();
   const location = useLocation();
   const firstProjectId = authMe?.projects[0]?.projectId;
   const [railCollapsed, setRailCollapsed] = useState(false);
+  const [logoutBusy, setLogoutBusy] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+
+  const handleLogout = async () => {
+    setLogoutBusy(true);
+    setLogoutError(null);
+    try {
+      await logout();
+      await reload();
+    } catch {
+      setLogoutError("退出失败，请重试");
+    } finally {
+      setLogoutBusy(false);
+    }
+  };
   return (
     <div className={`app-layout ${railCollapsed ? "is-rail-collapsed" : ""}`}>
       <aside className="rail" aria-label="产品导航">
@@ -215,12 +232,30 @@ function AppShell() {
             <Link
               to="/help"
               className="rail-foot-link"
-              aria-label="使用说明"
-              title={railCollapsed ? "使用说明" : undefined}
+              aria-label="帮助"
+              title={railCollapsed ? "帮助" : undefined}
             >
               <LifeBuoy size={18} aria-hidden="true" />
-              <span className="rail-foot-label">使用说明</span>
+              <span className="rail-foot-label">帮助</span>
             </Link>
+          )}
+          {authMe && (
+            <button
+              type="button"
+              className="rail-foot-link rail-foot-action"
+              aria-label="退出登录"
+              title={railCollapsed ? "退出登录" : undefined}
+              disabled={logoutBusy}
+              onClick={() => void handleLogout()}
+            >
+              <LogOut size={18} aria-hidden="true" />
+              <span className="rail-foot-label">{logoutBusy ? "退出中…" : "退出登录"}</span>
+            </button>
+          )}
+          {logoutError && (
+            <span className="rail-foot-error" role="alert">
+              {logoutError}
+            </span>
           )}
           <div className="rail-identity">
             <IdentityMenu />

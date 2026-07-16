@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Check, ClipboardCheck, RotateCcw, Save, X } from "lucide-react";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { useAuth } from "../auth/AuthContext";
 import { ApiError } from "../api/http";
 import {
@@ -89,6 +90,9 @@ export default function ProjectSettingsPage() {
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [reviewsError, setReviewsError] = useState<string | null>(null);
   const [reviewBusy, setReviewBusy] = useState<string | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<ReviewItemDTO | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [rejectError, setRejectError] = useState<string | null>(null);
   const projectRequestRef = useRef(0);
   const reviewRequestRef = useRef(0);
   const invalidateRequests = useCallback(() => {
@@ -131,6 +135,9 @@ export default function ProjectSettingsPage() {
       setReviews([]);
       setReviewsError(null);
       setReviewsLoading(false);
+      setRejectTarget(null);
+      setRejectReason("");
+      setRejectError(null);
       try {
         const [nextSettings, memberResponse] = await Promise.all([
           fetchProjectSettings(pid),
@@ -247,19 +254,53 @@ export default function ProjectSettingsPage() {
     }
   };
 
-  const decideReview = async (review: ReviewItemDTO, decision: "approve" | "reject") => {
+  const approveProjectReview = async (review: ReviewItemDTO) => {
     if (!projectId || !review.can_decide || review.target_project_id !== projectId) return;
     setReviewBusy(review.id);
     setReviewsError(null);
     try {
-      if (decision === "approve") {
-        await approveReview(review.id, "项目经理确认通过");
-      } else {
-        await rejectReview(review.id, "项目经理驳回：请补充或修正材料");
-      }
+      await approveReview(review.id, "项目经理确认通过");
       await loadReviews(projectId);
     } catch (error) {
       setReviewsError(safeError(error, "确认操作失败，请重试"));
+    } finally {
+      setReviewBusy(null);
+    }
+  };
+
+  const openRejectDialog = (review: ReviewItemDTO) => {
+    if (!projectId || !review.can_decide || review.target_project_id !== projectId) return;
+    setRejectTarget(review);
+    setRejectReason("");
+    setRejectError(null);
+  };
+
+  const submitReject = async () => {
+    const reason = rejectReason.trim();
+    if (!reason) {
+      setRejectError("请填写驳回理由");
+      return;
+    }
+    if (
+      !projectId ||
+      !rejectTarget ||
+      !rejectTarget.can_decide ||
+      rejectTarget.target_project_id !== projectId
+    ) {
+      setRejectError("当前任务已不可处理，请关闭后刷新");
+      return;
+    }
+
+    const reviewId = rejectTarget.id;
+    setReviewBusy(reviewId);
+    setRejectError(null);
+    try {
+      await rejectReview(reviewId, reason);
+      setRejectTarget(null);
+      setRejectReason("");
+      await loadReviews(projectId);
+    } catch (error) {
+      setRejectError(safeError(error, "驳回失败，请重试"));
     } finally {
       setReviewBusy(null);
     }
@@ -619,7 +660,7 @@ export default function ProjectSettingsPage() {
                           <button
                             className="product-button is-primary is-small"
                             disabled={busy}
-                            onClick={() => void decideReview(review, "approve")}
+                            onClick={() => void approveProjectReview(review)}
                           >
                             <Check size={15} aria-hidden="true" />
                             通过
@@ -627,7 +668,7 @@ export default function ProjectSettingsPage() {
                           <button
                             className="product-button is-danger is-small"
                             disabled={busy}
-                            onClick={() => void decideReview(review, "reject")}
+                            onClick={() => openRejectDialog(review)}
                           >
                             <X size={15} aria-hidden="true" />
                             驳回
@@ -642,6 +683,45 @@ export default function ProjectSettingsPage() {
           )}
         </aside>
       </div>
+      <ConfirmDialog
+        open={Boolean(rejectTarget)}
+        title="驳回项目知识"
+        description={
+          rejectTarget?.asset_title
+            ? `请说明“${rejectTarget.asset_title}”未通过的具体原因。`
+            : "请说明该项目知识未通过的具体原因。"
+        }
+        confirmText="确认驳回"
+        busyText="驳回中…"
+        busy={Boolean(rejectTarget && reviewBusy === rejectTarget.id)}
+        danger
+        error={rejectError}
+        onConfirm={() => void submitReject()}
+        onCancel={() => {
+          setRejectTarget(null);
+          setRejectReason("");
+          setRejectError(null);
+        }}
+      >
+        <div className="ps74-reject-field">
+          <label htmlFor="project-review-reject-reason">驳回理由</label>
+          <textarea
+            id="project-review-reject-reason"
+            aria-describedby="project-review-reject-hint"
+            autoFocus
+            rows={4}
+            maxLength={500}
+            value={rejectReason}
+            disabled={Boolean(rejectTarget && reviewBusy === rejectTarget.id)}
+            onChange={(event) => {
+              setRejectReason(event.target.value);
+              if (rejectError) setRejectError(null);
+            }}
+            placeholder="填写需要补充或修正的具体内容"
+          />
+          <small id="project-review-reject-hint">该理由将随审核记录保存，并反馈给提交人。</small>
+        </div>
+      </ConfirmDialog>
     </div>
   );
 }

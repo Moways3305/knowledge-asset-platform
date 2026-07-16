@@ -195,6 +195,23 @@
   background: var(--rail-hover);
   color: #fff;
 }
+.rail-foot-action {
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rail-foot-action:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.rail-foot-error {
+  padding: 0 10px;
+  color: #ffb4b4;
+  font-size: 11px;
+  line-height: 1.4;
+}
 .rail-identity {
   min-width: 0;
 }
@@ -327,6 +344,11 @@
   width: 38px;
   justify-content: center;
   padding: 0;
+}
+.app-layout.is-rail-collapsed .rail-foot-error {
+  padding: 0;
+  font-size: 9px;
+  text-align: center;
 }
 
 /* ---- Identity menu (fixed-width popover; never deforms the deck) ----------- */

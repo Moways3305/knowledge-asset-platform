@@ -1,10 +1,12 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AppLayout from "./AppLayout";
+import { logout } from "../api/auth";
 
 const auth = vi.hoisted(() => ({
+  reload: vi.fn(),
   capabilities: {
     isAdmin: true,
     isBoss: true,
@@ -38,8 +40,12 @@ vi.mock("../auth/AuthContext", () => ({
     authMe: auth.authMe,
     status: "authenticated",
     setAuthMe: vi.fn(),
-    reload: vi.fn(),
+    reload: auth.reload,
   }),
+}));
+
+vi.mock("../api/auth", () => ({
+  logout: vi.fn(),
 }));
 
 function renderLayout() {
@@ -56,6 +62,8 @@ function renderLayout() {
 
 describe("AppLayout shell contract", () => {
   beforeEach(() => {
+    auth.reload.mockReset();
+    vi.mocked(logout).mockReset();
     auth.capabilities.isAdmin = true;
     auth.capabilities.isBoss = true;
     auth.capabilities.isConsultingDirector = false;
@@ -72,7 +80,19 @@ describe("AppLayout shell contract", () => {
     expect(container.querySelector(".deck-title")).toHaveTextContent("今日工作台");
     expect(screen.getByRole("button", { name: /布局验收用户/ })).toBeInTheDocument();
     expect(container.querySelector(".rail-foot .rail-identity .idm-trigger")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "使用说明" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "帮助" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "退出登录" })).toBeInTheDocument();
+  });
+
+  it("offers a visible rail logout action and refreshes the shared identity", async () => {
+    vi.mocked(logout).mockResolvedValue(undefined);
+    auth.reload.mockResolvedValue(undefined);
+    renderLayout();
+
+    fireEvent.click(screen.getByRole("button", { name: "退出登录" }));
+
+    await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
+    expect(auth.reload).toHaveBeenCalledTimes(1);
   });
 
   it("filters navigation with the existing capabilities", () => {

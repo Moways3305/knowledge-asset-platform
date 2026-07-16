@@ -457,6 +457,49 @@
   padding-inline: 8px;
 }
 
+.ps74-reject-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.ps74-reject-field > label {
+  color: var(--color-text-heading);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ps74-reject-field textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  padding: 9px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ps74-reject-field textarea:focus {
+  border-color: var(--color-primary);
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 16%, transparent);
+}
+
+.ps74-reject-field textarea:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.ps74-reject-field small {
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .ps74-review-state,
 .ps74-page-state {
   padding: 34px 18px;

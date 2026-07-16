@@ -289,11 +289,37 @@ describe("ProjectSettingsPage reference implementation", () => {
     expect(reviewApi.fetchReviews).toHaveBeenCalledTimes(2);
   });
 
+  it("requires and submits the project manager's actual rejection reason", async () => {
+    reviewApi.fetchReviews.mockResolvedValueOnce([actionableReview]).mockResolvedValueOnce([]);
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "驳回" }));
+    expect(screen.getByRole("heading", { name: "驳回项目知识" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "确认驳回" }));
+
+    expect(screen.getByText("请填写驳回理由")).toBeInTheDocument();
+    expect(reviewApi.rejectReview).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("驳回理由"), {
+      target: { value: "  缺少客户确认记录，请补充会议纪要。  " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "确认驳回" }));
+
+    await waitFor(() =>
+      expect(reviewApi.rejectReview).toHaveBeenCalledWith(
+        actionableReview.id,
+        "缺少客户确认记录，请补充会议纪要。",
+      ),
+    );
+    expect(screen.queryByRole("heading", { name: "驳回项目知识" })).not.toBeInTheDocument();
+    expect(reviewApi.fetchReviews).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps the settings usable when the independent review request fails", async () => {
     reviewApi.fetchReviews.mockRejectedValue(new ApiError(503, "审核服务暂时不可用"));
     renderPage();
     expect(await screen.findByRole("heading", { name: settings.name })).toBeInTheDocument();
-    expect(screen.getByText("待确认任务加载失败")).toBeInTheDocument();
+    expect(await screen.findByText("待确认任务加载失败")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "项目基本信息" })).toBeInTheDocument();
   });
