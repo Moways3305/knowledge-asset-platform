@@ -164,4 +164,43 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(result.current.resultAssetId).toBeNull();
     expect(result.current.submitReviewId).toBe("review-1");
   });
+
+  it("接受真实拖放文件并在重置时清空前一任务状态", async () => {
+    auth.fetchAuthMe.mockResolvedValue({
+      projects: [{ projectId: "project-ready", projectName: "验收项目" }],
+    });
+    const { result } = renderHook(() => useUploadFlow());
+    const file = new File(["markdown"], "复盘.md", { type: "text/markdown" });
+
+    await waitFor(() => expect(result.current.projects).toHaveLength(1));
+    act(() => result.current.handleFileDrop(file));
+    expect(result.current.fileName).toBe("复盘.md");
+    expect(result.current.flowState).toBe("file_selected");
+
+    act(() => result.current.handleReset());
+    expect(result.current.fileName).toBe("");
+    expect(result.current.taskId).toBeNull();
+    expect(result.current.flowState).toBe("idle");
+  });
+
+  it("处理失败时保持不可提交并提供真实恢复状态", async () => {
+    ingest.fetchIngestAiResult.mockResolvedValue({
+      ...readyAiResult,
+      status: "failed",
+      suggested_one_liner: null,
+      suggested_summary: null,
+      summary: null,
+      summary_status: "failed",
+      error_message: "未能生成内容建议",
+    });
+    const { result } = renderHook(() => useUploadFlow());
+
+    await waitFor(() => expect(auth.fetchAuthMe).toHaveBeenCalled());
+    act(() => result.current.handleFileSelect(fileEvent()));
+    await act(async () => result.current.handleStart());
+
+    expect(result.current.flowState).toBe("failed");
+    expect(result.current.canSubmit).toBe(false);
+    expect(result.current.processingNote).toContain("未能生成内容建议");
+  });
 });

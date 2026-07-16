@@ -16,7 +16,6 @@ const ordinaryUserFiles = [
   "pages/upload/UploadStepA.tsx",
   "pages/upload/UploadStepB.tsx",
   "pages/upload/UploadConfirmPanel.tsx",
-  "pages/upload/UploadNamingCard.tsx",
   "pages/ProjectKnowledgePage.tsx",
   "pages/ProjectSettingsPage.tsx",
   "pages/ReviewPage.tsx",

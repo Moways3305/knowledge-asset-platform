@@ -17,6 +17,7 @@
     "test:ui:project-settings": "node scripts/pbc74_project_settings_ui_qa.mjs",
     "test:ui:knowledge-list": "node scripts/pbc75_knowledge_list_ui_qa.mjs",
     "test:ui:knowledge-detail": "node scripts/pbc76_knowledge_detail_ui_qa.mjs",
+    "test:ui:upload": "node scripts/pbc77_upload_ingest_ui_qa.mjs",
     "api:export": "python scripts/export_openapi.py"
   },
   "dependencies": {

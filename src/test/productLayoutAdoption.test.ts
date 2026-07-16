@@ -57,10 +57,10 @@ describe("product layout and route contract", () => {
 
   it("shows a continuous, product-facing upload flow", () => {
     const source = read("src/pages/UploadPage.tsx");
-    for (const label of ["上传", "提取", "确认", "进入知识库"]) {
-      expect(source).toContain(`label: "${label}"`);
-    }
-    expect(source).toContain('className="product-flow-steps"');
+    expect(source).toContain("本地上传");
+    expect(source).toContain("企微微盘待确认");
+    expect(source).toContain("confirmReady || confirmSubmitted");
+    expect(source).toContain("<UploadConfirmPanel");
     expect(source).not.toContain("storage_ref");
     expect(source).not.toContain("weknora_kb_id");
   });
@@ -103,11 +103,14 @@ describe("product layout and route contract", () => {
   it("keeps the upload empty state to one bordered input control", () => {
     const page = read("src/pages/UploadPage.tsx");
     const localUpload = read("src/pages/upload/UploadStepB.tsx");
-    expect(page).toContain("{flow.naming && (");
-    expect(page).toContain('flowState === "processing"');
-    expect(localUpload).toContain('className="upload-dropzone"');
-    expect(localUpload).toContain('className="upload-inline-info"');
+    const confirmation = read("src/pages/upload/UploadConfirmPanel.tsx");
+    expect(page).toContain('title="上传与入库"');
+    expect(page).not.toContain("UploadNamingCard");
+    expect(localUpload).toContain('className="upload-dropzone upload77-dropzone"');
+    expect(localUpload).toContain("className={`upload-inline-info");
     expect(localUpload).not.toContain("dropzone-security");
     expect(localUpload).not.toContain("<section");
+    expect(confirmation).not.toContain("保存草稿");
+    expect(confirmation).not.toContain("Import from URL");
   });
 });

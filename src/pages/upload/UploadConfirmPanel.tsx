@@ -1,23 +1,31 @@
+import { ArrowRight, CheckCircle2 } from "lucide-react";
 import { Link } from "react-router-dom";
+import ModelAdvancedSettings from "../../components/ModelAdvancedSettings";
 import {
   aiAccessOptions,
   assetTypeOptions,
   bizStageOptions,
   confidentialityOptions,
+  extractionLabel,
   targetLibraryOptions,
   visibilityOptions,
   type TargetLibrary,
 } from "./uploadConstants";
-import ModelAdvancedSettings from "../../components/ModelAdvancedSettings";
 import type { UploadFlow } from "./useUploadFlow";
 
-// 共享确认区：来源上下文 + 内容建议预览 + 人工校正 + 建议目标库 + 提交动作 / 结果提示。
-// 仅在 confirmReady / confirmSubmitted 时由页面渲染。
+const indexStatusLabel: Record<string, string> = {
+  indexed: "问答索引已完成",
+  index_failed: "资产已保存，问答索引暂未完成",
+  skipped: "资产已保存，未启用问答索引",
+};
+
 export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
   const {
-    activePath,
     sourceLabel,
     sourceFile,
+    extraction,
+    desensitization,
+    naming,
     editTitle,
     setEditTitle,
     editOneLiner,
@@ -46,8 +54,6 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
     confirmConfidence,
     llmStatus,
     apiError,
-    processingNote,
-    confirmReady,
     confirmSubmitted,
     canSubmit,
     resultAssetId,
@@ -58,7 +64,6 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
     models,
   } = flow;
   const summaryStatus = llmStatus?.summaryStatus ?? null;
-  const summaryGenerated = summaryStatus === "generated";
   const summaryStatusText =
     summaryStatus === "generated"
       ? "内容建议已生成"
@@ -68,383 +73,246 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
           ? "摘要生成失败，可稍后重试或联系管理员检查内容生成模型配置。"
           : "内容建议处理中";
 
+  if (confirmSubmitted) {
+    return (
+      <section className="upload77-result" aria-labelledby="upload-result-title">
+        <CheckCircle2 size={28} aria-hidden="true" />
+        <div>
+          <h2 id="upload-result-title">
+            {awaitingProjectReview ? "已提交，等待项目经理确认" : "入库提交已完成"}
+          </h2>
+          {awaitingProjectReview ? (
+            <p>项目经理确认后，资料才会进入项目知识库并参与检索与问答。</p>
+          ) : (
+            <p>
+              {submitIndexStatus
+                ? (indexStatusLabel[submitIndexStatus] ?? "资产处理状态已更新")
+                : "资产已经按当前入库规则处理。"}
+            </p>
+          )}
+          <div className="upload77-result-actions">
+            {awaitingProjectReview && <Link to="/reviews">查看审批状态</Link>}
+            {!awaitingProjectReview && resultAssetId && (
+              <Link to={`/knowledge/${resultAssetId}`}>
+                查看资产 <ArrowRight size={14} aria-hidden="true" />
+              </Link>
+            )}
+            <button className="btn-secondary" onClick={handleReset} type="button">
+              继续上传
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
-    <>
-      {/* Source context bar */}
-      <div className="up-source-bar">
-        <span className={`ig-src-badge ${activePath === "a" ? "ig-src-wecom" : "ig-src-local"}`}>
-          {sourceLabel}
-        </span>
-        <span className="up-source-file">{sourceFile}</span>
+    <section className="upload77-confirm" aria-labelledby="upload-confirm-title">
+      <div className="upload77-confirm-head">
+        <div>
+          <span className="upload77-kicker">核对并确认</span>
+          <h2 id="upload-confirm-title">内容建议预览</h2>
+        </div>
+        <span className="upload77-status upload77-status-ready">待确认</span>
       </div>
 
-      {/* Content suggestion preview card */}
-      <section className="upload-section">
-        <h3>内容建议预览</h3>
-        <div className="preview-card">
-          <div className="card-header">
-            <span className="card-title">{editTitle}</span>
-            <div className="card-header-badges">
-              <span className="asset-type-badge">交付物</span>
-              <span className="visibility-badge project-only">{editVisibility}</span>
-            </div>
-          </div>
-          <p className="card-summary">{summaryGenerated ? editSummary : summaryStatusText}</p>
-          <div className="card-tags">
-            {editTags
-              .split(/[·,，、\s]+/)
-              .filter(Boolean)
-              .map((t) => (
-                <span key={t} className="tag">
-                  {t.trim()}
-                </span>
-              ))}
-          </div>
-          <div className="card-meta">
-            <span>置信度 {confirmConfidence}</span>
-            <span>来源：{sourceFile}</span>
-            <span>来源渠道：{sourceLabel}</span>
-          </div>
-          <p className="preview-hint">
-            * 标题和标签可能含规则草稿；摘要只有在内容生成成功后才标记为已生成，下方可编辑校正
-          </p>
-        </div>
-      </section>
-
-      {/* Human correction */}
-      <section className="upload-section">
-        <h3>人工校正</h3>
-        <p className="correction-hint">
-          {confirmReady
-            ? "以下字段来自平台生成的内容建议，可直接编辑修改后提交。"
-            : "处理中 / 已提交 / 处理失败时字段不可编辑。"}
-        </p>
-        {llmStatus && (
-          <div className={`up-llm-status up-llm-${llmStatus.status ?? "unknown"}`}>
+      <div className="upload77-confirm-layout">
+        <div className="upload77-form-column">
+          <div className={`upload77-summary-status upload77-summary-${summaryStatus ?? "pending"}`}>
             {summaryStatusText}
           </div>
-        )}
-        <div className="correction-grid">
-          <div className="correction-row">
-            <div className="correction-field">标题</div>
-            <div className="correction-value">
-              {confirmReady ? (
-                <input
-                  className="up-edit-input"
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                />
-              ) : (
-                <span className="up-edit-disabled">{editTitle}</span>
-              )}
-            </div>
-            <div className={`correction-status ${confirmReady ? "editable" : "readonly"}`}>
-              {confirmReady ? "可编辑" : "只读"}
-            </div>
-          </div>
-          <div className="correction-row">
-            <div className="correction-field">一句话摘要</div>
-            <div className="correction-value">
-              {confirmReady ? (
-                <input
-                  className="up-edit-input"
-                  value={editOneLiner}
-                  onChange={(e) => setEditOneLiner(e.target.value)}
-                />
-              ) : (
-                <span className="up-edit-disabled">{editOneLiner}</span>
-              )}
-            </div>
-            <div className={`correction-status ${confirmReady ? "editable" : "readonly"}`}>
-              {confirmReady ? "可编辑" : "只读"}
-            </div>
-          </div>
-          <div className="correction-row">
-            <div className="correction-field">
-              详细摘要
-              <br />
-              <span className="correction-hint">
-                {summaryGenerated ? "生成摘要" : "待人工补全"}
-              </span>
-            </div>
-            <div className="correction-value">
-              {confirmReady ? (
-                <textarea
-                  className="up-edit-textarea"
-                  value={editSummary}
-                  onChange={(e) => setEditSummary(e.target.value)}
-                />
-              ) : (
-                <span className="up-edit-disabled">{editSummary}</span>
-              )}
-            </div>
-            <div className={`correction-status ${confirmReady ? "editable" : "readonly"}`}>
-              {confirmReady ? "可编辑" : "只读"}
-            </div>
-          </div>
-          <div className="correction-row">
-            <div className="correction-field">
-              关键知识点
-              <br />
-              <span className="correction-hint">每行一条</span>
-            </div>
-            <div className="correction-value">
-              {confirmReady ? (
-                <textarea
-                  className="up-edit-textarea"
-                  value={editKeyPoints}
-                  placeholder="每行一条关键知识点"
-                  onChange={(e) => setEditKeyPoints(e.target.value)}
-                />
-              ) : (
-                <span className="up-edit-disabled">{editKeyPoints}</span>
-              )}
-            </div>
-            <div className={`correction-status ${confirmReady ? "editable" : "readonly"}`}>
-              {confirmReady ? "可编辑" : "只读"}
-            </div>
-          </div>
-          <div className="correction-row">
-            <div className="correction-field">标签</div>
-            <div className="correction-value">
-              {confirmReady ? (
-                <input
-                  className="up-edit-input"
-                  value={editTags}
-                  onChange={(e) => setEditTags(e.target.value)}
-                />
-              ) : (
-                <span className="up-edit-disabled">{editTags}</span>
-              )}
-            </div>
-            <div className={`correction-status ${confirmReady ? "editable" : "readonly"}`}>
-              {confirmReady ? "可编辑" : "只读"}
-            </div>
-          </div>
-          <div className="correction-row">
-            <div className="correction-field">可见性</div>
-            <div className="correction-value">
-              {confirmReady ? (
-                <select
-                  className="up-edit-select"
-                  value={editVisibility}
-                  onChange={(e) => setEditVisibility(e.target.value)}
-                >
-                  {visibilityOptions.map((o) => (
-                    <option key={o}>{o}</option>
-                  ))}
-                </select>
-              ) : (
-                <span className="up-edit-disabled">{editVisibility}</span>
-              )}
-            </div>
-            <div className={`correction-status ${confirmReady ? "editable" : "readonly"}`}>
-              {confirmReady ? "可编辑" : "只读"}
-            </div>
-          </div>
-          <div className="correction-row">
-            <div className="correction-field">业务阶段</div>
-            <div className="correction-value">
-              {confirmReady ? (
-                <select
-                  className="up-edit-select"
-                  value={editBizStage}
-                  onChange={(e) => setEditBizStage(e.target.value)}
-                >
-                  {bizStageOptions.map((o) => (
-                    <option key={o}>{o}</option>
-                  ))}
-                </select>
-              ) : (
-                <span className="up-edit-disabled">{editBizStage}</span>
-              )}
-            </div>
-            <div className={`correction-status ${confirmReady ? "editable" : "readonly"}`}>
-              {confirmReady ? "可编辑" : "只读"}
-            </div>
-          </div>
-          <div className="correction-row">
-            <div className="correction-field">资产类型</div>
-            <div className="correction-value">
-              {confirmReady ? (
-                <select
-                  className="up-edit-select"
-                  value={editAssetType}
-                  onChange={(e) => setEditAssetType(e.target.value)}
-                >
-                  {assetTypeOptions.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <span className="up-edit-disabled">
-                  {assetTypeOptions.find((o) => o.value === editAssetType)?.label ?? editAssetType}
-                </span>
-              )}
-            </div>
-            <div className={`correction-status ${confirmReady ? "editable" : "readonly"}`}>
-              {confirmReady ? "可编辑" : "只读"}
-            </div>
-          </div>
-          <div className="correction-row">
-            <div className="correction-field">保密级别</div>
-            <div className="correction-value">
-              {confirmReady ? (
-                <select
-                  className="up-edit-select"
-                  value={editConfidentiality}
-                  onChange={(e) => setEditConfidentiality(e.target.value)}
-                >
-                  {confidentialityOptions.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <span className="up-edit-disabled">{editConfidentiality}</span>
-              )}
-            </div>
-            <div className={`correction-status ${confirmReady ? "editable" : "readonly"}`}>
-              {confirmReady ? "可编辑" : "只读"}
-            </div>
-          </div>
-          <div className="correction-row">
-            <div className="correction-field">自动处理级别</div>
-            <div className="correction-value">
-              {confirmReady ? (
-                <select
-                  className="up-edit-select"
-                  value={editAiAccess}
-                  onChange={(e) => setEditAiAccess(e.target.value)}
-                >
-                  {aiAccessOptions.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <span className="up-edit-disabled">{editAiAccess}</span>
-              )}
-            </div>
-            <div className={`correction-status ${confirmReady ? "editable" : "readonly"}`}>
-              {confirmReady ? "可编辑" : "只读"}
-            </div>
-          </div>
-          <div className="correction-row">
-            <div className="correction-field">置信度</div>
-            <div className="correction-value">
-              <span className="up-edit-disabled">{confirmConfidence}</span>
-            </div>
-            <div className="correction-status readonly">只读</div>
-          </div>
-        </div>
-      </section>
 
-      {/* AI recommendation + actions */}
-      <section className="upload-section">
-        <h3>建议目标知识库</h3>
-        <p className="correction-hint">
-          {confirmReady
-            ? "以下目标由平台根据文件内容、项目上下文与可见性建议。如有偏差，可直接修正。"
-            : "已提交，目标不可修改。"}
-        </p>
-        <div className="up-target-library">
-          <label className="up-target-label">建议目标</label>
-          {confirmReady ? (
-            <select
-              className="up-edit-select"
-              value={targetLibrary}
-              onChange={(e) => setTargetLibrary(e.target.value as TargetLibrary)}
-            >
-              {targetLibraryOptions.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <span className="up-edit-disabled">
-              {targetLibraryOptions.find((o) => o.value === targetLibrary)!.label}
-            </span>
-          )}
-          {confirmReady && <span className="up-target-adjust-hint">如不准确可修改</span>}
-        </div>
-        {targetLibrary === "project" && confirmReady && (
-          <div className="up-target-library">
-            <label className="up-target-label">目标项目</label>
-            {projects.length > 0 ? (
+          <label className="upload77-field upload77-field-wide">
+            <span>标题</span>
+            <input value={editTitle} onChange={(event) => setEditTitle(event.target.value)} />
+          </label>
+
+          <label className="upload77-field upload77-field-wide">
+            <span>一句话摘要</span>
+            <input value={editOneLiner} onChange={(event) => setEditOneLiner(event.target.value)} />
+          </label>
+
+          <label className="upload77-field upload77-field-wide">
+            <span>详细摘要</span>
+            <textarea
+              rows={6}
+              value={editSummary}
+              onChange={(event) => setEditSummary(event.target.value)}
+            />
+          </label>
+
+          <label className="upload77-field">
+            <span>关键知识点</span>
+            <textarea
+              rows={5}
+              value={editKeyPoints}
+              placeholder="每行一条"
+              onChange={(event) => setEditKeyPoints(event.target.value)}
+            />
+          </label>
+
+          <label className="upload77-field">
+            <span>标签</span>
+            <textarea
+              rows={5}
+              value={editTags}
+              placeholder="使用空格或顿号分隔"
+              onChange={(event) => setEditTags(event.target.value)}
+            />
+          </label>
+
+          <div className="upload77-field-grid">
+            <label className="upload77-field">
+              <span>资产类型</span>
               <select
-                className="up-edit-select"
-                value={targetProjectId}
-                onChange={(e) => setTargetProjectId(e.target.value)}
+                value={editAssetType}
+                onChange={(event) => setEditAssetType(event.target.value)}
               >
-                {projects.map((p) => (
-                  <option key={p.projectId} value={p.projectId}>
-                    {p.projectName}
+                {assetTypeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
                   </option>
                 ))}
               </select>
-            ) : (
-              <span className="up-edit-disabled">
-                你不是任何项目的有效成员，无法提交到项目知识库
-              </span>
+            </label>
+            <label className="upload77-field">
+              <span>业务阶段</span>
+              <select
+                value={editBizStage}
+                onChange={(event) => setEditBizStage(event.target.value)}
+              >
+                {bizStageOptions.map((option) => (
+                  <option key={option}>{option}</option>
+                ))}
+              </select>
+            </label>
+            <label className="upload77-field">
+              <span>可见性</span>
+              <select
+                value={editVisibility}
+                onChange={(event) => setEditVisibility(event.target.value)}
+              >
+                {visibilityOptions.map((option) => (
+                  <option key={option}>{option}</option>
+                ))}
+              </select>
+            </label>
+            <label className="upload77-field">
+              <span>保密级别</span>
+              <select
+                value={editConfidentiality}
+                onChange={(event) => setEditConfidentiality(event.target.value)}
+              >
+                {confidentialityOptions.map((option) => (
+                  <option key={option}>{option}</option>
+                ))}
+              </select>
+            </label>
+            <label className="upload77-field">
+              <span>自动处理级别</span>
+              <select
+                value={editAiAccess}
+                onChange={(event) => setEditAiAccess(event.target.value)}
+              >
+                {aiAccessOptions.map((option) => (
+                  <option key={option}>{option}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <aside className="upload77-confirm-side" aria-label="入库上下文与提交">
+          <div className="upload77-context">
+            <h3>资料信息</h3>
+            <dl>
+              <div>
+                <dt>来源</dt>
+                <dd>{sourceLabel}</dd>
+              </div>
+              <div>
+                <dt>文件</dt>
+                <dd>{sourceFile}</dd>
+              </div>
+              <div>
+                <dt>置信度</dt>
+                <dd>{confirmConfidence}</dd>
+              </div>
+              <div>
+                <dt>内容提取</dt>
+                <dd>{extractionLabel[extraction?.status ?? ""] ?? "状态待确认"}</dd>
+              </div>
+              <div>
+                <dt>敏感信息保护</dt>
+                <dd>{desensitization?.message ?? desensitization?.status ?? "未返回状态"}</dd>
+              </div>
+            </dl>
+          </div>
+
+          {naming && (
+            <details className="upload77-naming">
+              <summary>命名解析</summary>
+              <p>{naming.normalized_title}</p>
+              <span>{naming.original_naming_compliant ? "原文件名合规" : "已生成规范化标题"}</span>
+            </details>
+          )}
+
+          <div className="upload77-targets">
+            <h3>入库目标</h3>
+            <label className="upload77-field">
+              <span>目标知识库</span>
+              <select
+                value={targetLibrary}
+                onChange={(event) => setTargetLibrary(event.target.value as TargetLibrary)}
+              >
+                {targetLibraryOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {targetLibrary === "project" && (
+              <label className="upload77-field">
+                <span>目标项目</span>
+                {projects.length > 0 ? (
+                  <select
+                    value={targetProjectId}
+                    onChange={(event) => setTargetProjectId(event.target.value)}
+                  >
+                    {projects.map((project) => (
+                      <option key={project.projectId} value={project.projectId}>
+                        {project.projectName}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="upload77-field-error">当前没有可提交的项目</span>
+                )}
+              </label>
             )}
           </div>
-        )}
-        <p className="page-help-line">
-          目标库与资料区 / 资产区分区规则、入库 / 审核分流说明见{" "}
-          <Link to="/help#ingest" className="page-help-link">
-            使用说明 →
-          </Link>
-        </p>
-        {confirmReady && <ModelAdvancedSettings models={models} />}
-        {apiError && (
-          <div className="up-submit-notice" style={{ color: "var(--color-danger-fg, #b00)" }}>
-            {apiError}
-          </div>
-        )}
-        {processingNote && (
-          <div className="up-submit-notice" style={{ color: "var(--color-warning-fg, #8a6d00)" }}>
-            {processingNote}
-          </div>
-        )}
-        <div className="detail-actions-bar">
-          <button className="btn-primary" disabled={!canSubmit} onClick={handleSubmit}>
-            提交入库
-          </button>
-          <button className="btn-secondary" disabled>
-            保存草稿
-          </button>
-          <button className="btn-secondary" onClick={handleReset}>
-            {confirmSubmitted ? "再入库一条" : "取消"}
-          </button>
-        </div>
-        {confirmSubmitted && awaitingProjectReview && (
-          <div className="up-submit-notice" role="status">
-            已提交，待项目经理确认。审批通过后才会进入项目知识库并参与检索与问答。
-            <Link to="/reviews">查看审批状态 →</Link>
-          </div>
-        )}
-        {confirmSubmitted &&
-          !awaitingProjectReview &&
-          resultAssetId &&
-          (submitIndexStatus === "index_failed" ? (
-            <div className="up-submit-notice" style={{ color: "var(--color-warning-fg, #8a6d00)" }}>
-              已确认入库并保存校正内容，但检索索引暂未完成，稍后可重试或联系管理员；在此之前该资产可能暂不可被语义检索召回。
-              <Link to={`/knowledge/${resultAssetId}`}>查看新资产 →</Link>
+
+          <ModelAdvancedSettings models={models} />
+
+          {apiError && (
+            <div className="upload77-submit-error" role="alert">
+              {apiError}
             </div>
-          ) : (
-            <div className="up-submit-notice">
-              已保存入库
-              {submitIndexStatus === "skipped" ? "；检索索引暂未启用，已跳过索引" : ""}。
-              <Link to={`/knowledge/${resultAssetId}`}>查看新资产 →</Link>
-            </div>
-          ))}
-      </section>
-    </>
+          )}
+          <button
+            className="btn-primary upload77-submit"
+            disabled={!canSubmit}
+            onClick={handleSubmit}
+            type="button"
+          >
+            确认入库
+          </button>
+          <button className="upload77-cancel" onClick={handleReset} type="button">
+            取消
+          </button>
+        </aside>
+      </div>
+    </section>
   );
 }

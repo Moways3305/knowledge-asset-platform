@@ -36,11 +36,8 @@ export function useUploadFlow() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [extraction, setExtraction] = useState<{
     status: string | null;
-    preview: string | null;
     charCount: number | null;
-    errorMessage: string | null;
     isDuplicate: boolean;
-    duplicateTaskId: string | null;
   } | null>(null);
   const [naming, setNaming] = useState<NamingFields | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -148,11 +145,8 @@ export function useUploadFlow() {
     setNaming(ai.naming_parsed_fields ?? null);
     setExtraction({
       status: ai.extraction_status,
-      preview: ai.extracted_text_preview,
       charCount: ai.extracted_char_count,
-      errorMessage: ai.error_message,
       isDuplicate: ai.is_possible_duplicate,
-      duplicateTaskId: ai.duplicate_of_task_id,
     });
   }, []);
 
@@ -212,15 +206,33 @@ export function useUploadFlow() {
     [applyAiResult, pollAiResult],
   );
 
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const selectLocalFile = useCallback((file: File) => {
     setSelectedFile(file);
     setFileName(file.name);
     setFileSize(file.size);
-    setFileType(file.type || file.name.split(".").pop()?.toUpperCase() || "未知");
+    setFileType(file.name.split(".").pop()?.toUpperCase() || file.type || "未知");
+    setExtraction(null);
+    setNaming(null);
+    setApiError(null);
+    setProcessingNote(null);
     setFlowState("file_selected");
   }, []);
+
+  const handleFileSelect = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) selectLocalFile(file);
+    },
+    [selectLocalFile],
+  );
+
+  const handleFileDrop = useCallback(
+    (file: File) => {
+      selectLocalFile(file);
+      if (fileRef.current) fileRef.current.value = "";
+    },
+    [selectLocalFile],
+  );
 
   // Path B：上传真实文件字节 + 创建入库任务 + 异步轮询内容建议。
   const handleStart = useCallback(async () => {
@@ -256,6 +268,33 @@ export function useUploadFlow() {
       setFlowState("file_selected");
     }
   }, [selectedFile, fileName, applyAiResult, pollAiResult]);
+
+  // 轮询达到有限上限后，由用户显式重新检查同一真实任务，不创建伪进度或新任务。
+  const handleRefreshProcessing = useCallback(async () => {
+    if (!taskId) return;
+    setApiError(null);
+    setProcessingNote(null);
+    setFlowState("processing");
+    try {
+      const ai = await pollAiResult(taskId);
+      applyAiResult(ai, activePath === "a" ? selectedTaskName : fileName);
+      if (ai.status === "processing") {
+        setProcessingNote("后台仍在处理，请稍后重新检查，当前不可确认入库。");
+        return;
+      }
+      if (ai.status === "failed") {
+        setProcessingNote(
+          `文件处理失败：${ai.error_message ?? "无法从该文件抽取内容"}。当前不可确认入库。`,
+        );
+        setFlowState("failed");
+        return;
+      }
+      setFlowState("ready");
+    } catch (e) {
+      setApiError(e instanceof ApiError ? e.message : "任务状态暂时无法获取，请稍后重试");
+      setFlowState(activePath === "a" ? "idle" : "file_selected");
+    }
+  }, [activePath, applyAiResult, fileName, pollAiResult, selectedTaskName, taskId]);
 
   // 两种来源共用同一确认链路。确认成功后展示资产链接；
   // Path A 额外刷新待确认列表。
@@ -379,8 +418,7 @@ export function useUploadFlow() {
   const confirmSubmitted = flowState === "submitted";
   const awaitingProjectReview = confirmSubmitted && submitReviewId !== null;
   const sourceLabel = activePath === "a" ? "企微微盘" : "本地上传";
-  const sourceFile =
-    activePath === "a" ? selectedTaskName : fileName || "retail-channel-transformation.pptx";
+  const sourceFile = activePath === "a" ? selectedTaskName : fileName;
   const hasFile = flowState !== "idle";
 
   return {
@@ -396,7 +434,9 @@ export function useUploadFlow() {
     naming,
     fileRef,
     handleFileSelect,
+    handleFileDrop,
     handleStart,
+    handleRefreshProcessing,
     handleReset,
     pendingTasks,
     pendingLoading,
