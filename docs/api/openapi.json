@@ -87,6 +87,11 @@
             "title": "Can Delete",
             "type": "boolean"
           },
+          "can_manage_lifecycle": {
+            "default": false,
+            "title": "Can Manage Lifecycle",
+            "type": "boolean"
+          },
           "can_request_original": {
             "default": false,
             "title": "Can Request Original",

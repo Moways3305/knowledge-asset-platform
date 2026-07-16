@@ -34,6 +34,7 @@ const access = (overrides = {}) => ({
   existing_request_status: null,
   existing_grant_expires_at: null,
   can_delete: false,
+  can_manage_lifecycle: false,
   can_retry_index: false,
   ...overrides,
 });
@@ -48,7 +49,9 @@ const accessFor = (scenario) => {
     });
   }
   if (scenario === "restricted") return access({ summary: false, original: false });
-  if (scenario === "governed") return access({ can_delete: true, can_retry_index: true });
+  if (scenario === "governed") {
+    return access({ can_delete: false, can_manage_lifecycle: true, can_retry_index: true });
+  }
   return access();
 };
 
@@ -257,6 +260,7 @@ for (const scenario of scenarios) {
           text.includes("00000000-0000-0000-0000-000000000176"),
         deniedVisible: text.includes("未找到或无权查看"),
         previewFailureVisible: text.includes("在线预览服务暂未启用"),
+        deleteActionVisible: text.includes("删除资产"),
       };
     });
     const screenshot = path.join(outDir, `${scenario}-${viewport.name}.png`);
@@ -304,6 +308,7 @@ if (
       (result.scenario === "denied" && !result.deniedVisible) ||
       (result.scenario === "preview-failure" && !result.previewFailureVisible) ||
       (result.scenario === "governed" && result.lifecycleCalls !== 1) ||
+      (result.scenario === "governed" && result.deleteActionVisible) ||
       (result.scenario !== "governed" && result.lifecycleCalls !== 0),
   )
 ) {

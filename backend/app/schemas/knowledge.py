@@ -28,6 +28,8 @@ class AccessInfoOut(BaseModel):
     existing_grant_expires_at: datetime | None = None
     # 调用人是否有权对该资产执行受控删除 / 撤下（后端权威，前端据此显示按钮）。
     can_delete: bool = False
+    # 生命周期治理权限独立于删除权限；项目维护人可治理但不一定可删除。
+    can_manage_lifecycle: bool = False
     # 调用人是否有权对该资产重试底座索引（仅在可重试状态 + 有业务管理权时为 True）。
     can_retry_index: bool = False
 

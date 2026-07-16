@@ -356,7 +356,9 @@ export default function KnowledgeDetailPage() {
   const pendingOriginal = asset.access.existingRequestStatus === "pending";
   const hasSummaryBody = hasText(asset.detailed) || asset.keyPoints.length > 0;
   const hasOpsActions =
-    asset.access.canRetryIndex || (asset.access.canDelete && asset.assetStatus !== "archived");
+    asset.access.canRetryIndex ||
+    ((asset.access.canManageLifecycle || asset.access.canDelete) &&
+      asset.assetStatus !== "archived");
   const coreFacts = [
     { label: "所属范围", value: scopeLabel[asset.scope] ?? asset.scope },
     { label: "所属项目", value: asset.projectName },
@@ -587,7 +589,7 @@ export default function KnowledgeDetailPage() {
                 <ChevronRight size={17} aria-hidden="true" />
               </summary>
               <div className="kdetail-disclosure-body">
-                {asset.access.canDelete && asset.assetStatus !== "archived" && (
+                {asset.access.canManageLifecycle && asset.assetStatus !== "archived" && (
                   <div className="kdetail-ops-group">
                     <label htmlFor="archive-reason">归档原因</label>
                     <textarea

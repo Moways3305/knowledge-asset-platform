@@ -52,6 +52,7 @@ const asset: KnowledgeDetailVM = {
     existingRequestStatus: null,
     existingGrantExpiresAt: null,
     canDelete: false,
+    canManageLifecycle: false,
     canRetryIndex: false,
   },
   indexStatus: "indexed",
@@ -226,11 +227,52 @@ describe("KnowledgeDetailPage reference contract", () => {
     expect(screen.queryByRole("button", { name: /重新处理问答/ })).not.toBeInTheDocument();
   });
 
+  it("lets a maintainer archive without granting delete permission", async () => {
+    vi.mocked(fetchKnowledgeDetail).mockResolvedValue({
+      ...asset,
+      access: {
+        ...asset.access,
+        canDelete: false,
+        canManageLifecycle: true,
+        canRetryIndex: false,
+      },
+    });
+    vi.mocked(lifecycleArchiveRequest).mockResolvedValue({
+      lifecycle_event_id: "event-maintainer",
+      review_task_id: null,
+      status: "candidate",
+      trace_id: "trace-hidden",
+    });
+    renderDetail();
+
+    fireEvent.click(await screen.findByText("更多操作"));
+    const operations = screen.getByText("更多操作").closest("details")!;
+    expect(within(operations).getByRole("button", { name: /发起归档候选/ })).toBeInTheDocument();
+    expect(within(operations).getByRole("button", { name: "确认归档" })).toBeInTheDocument();
+    expect(within(operations).queryByRole("button", { name: /删除资产/ })).not.toBeInTheDocument();
+
+    fireEvent.change(within(operations).getByLabelText("归档原因"), {
+      target: { value: "维护人完成复核" },
+    });
+    fireEvent.click(within(operations).getByRole("button", { name: /发起归档候选/ }));
+    await waitFor(() =>
+      expect(lifecycleArchiveRequest).toHaveBeenCalledWith("asset-76", {
+        reason: "维护人完成复核",
+        candidate_source: "manual",
+      }),
+    );
+  });
+
   it("gates real archive, retry and delete calls behind the expanded operations", async () => {
     vi.mocked(fetchKnowledgeDetail).mockResolvedValue({
       ...asset,
       indexStatus: "index_failed",
-      access: { ...asset.access, canDelete: true, canRetryIndex: true },
+      access: {
+        ...asset.access,
+        canDelete: true,
+        canManageLifecycle: true,
+        canRetryIndex: true,
+      },
     });
     vi.mocked(lifecycleArchiveRequest).mockResolvedValue({
       lifecycle_event_id: "event-2",

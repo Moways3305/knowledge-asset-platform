@@ -189,6 +189,7 @@ describe("ProjectKnowledgePage project context", () => {
           existingRequestStatus: null,
           existingGrantExpiresAt: null,
           canDelete: true,
+          canManageLifecycle: true,
           canRetryIndex: false,
         },
         indexStatus: "indexed",

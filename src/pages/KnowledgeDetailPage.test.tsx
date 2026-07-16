@@ -49,6 +49,7 @@ const baseAsset: KnowledgeDetailVM = {
     existingRequestStatus: null,
     existingGrantExpiresAt: null,
     canDelete: false,
+    canManageLifecycle: false,
     canRetryIndex: false,
   },
   indexStatus: "indexed",

@@ -27,6 +27,7 @@ export interface AccessInfoDTO {
   existing_request_status: string | null;
   existing_grant_expires_at: string | null;
   can_delete: boolean;
+  can_manage_lifecycle: boolean;
   can_retry_index?: boolean;
 }
 
@@ -143,6 +144,7 @@ export interface AccessInfoVM {
   existingRequestStatus: string | null;
   existingGrantExpiresAt: string | null;
   canDelete: boolean;
+  canManageLifecycle: boolean;
   canRetryIndex: boolean;
 }
 

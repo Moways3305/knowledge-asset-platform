@@ -64,7 +64,12 @@ from app.schemas.permission import (
 )
 from app.services import audit as audit_service
 from app.services import error_catalog, indexing, original_access
-from app.services.permission import decide, discovery_filter
+from app.services.permission import (
+    decide,
+    discovery_filter,
+    lifecycle_actor_allowed,
+    lifecycle_visibility,
+)
 from app.services.permission_rules import load_access_policy
 from app.services.storage import LocalFileStorage
 from app.services.weknora_client import (
@@ -197,6 +202,11 @@ def _build_access_info(
         existing_request_status="pending" if pending_request else None,
         existing_grant_expires_at=grant_expires_at if has_grant else None,
         can_delete=_can_delete(caller, asset),
+        can_manage_lifecycle=(
+            caller.is_business_user
+            and lifecycle_visibility(caller, asset) is None
+            and lifecycle_actor_allowed(caller, asset)
+        ),
         can_retry_index=(
             can_retry_index(caller, asset) and index_status in _RETRYABLE_INDEX_STATUSES
         ),
