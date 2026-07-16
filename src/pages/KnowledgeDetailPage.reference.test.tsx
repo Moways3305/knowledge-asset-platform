@@ -181,28 +181,40 @@ describe("KnowledgeDetailPage reference contract", () => {
   });
 
   it("loads lifecycle records only after expansion", async () => {
+    const lifecycleCases = [
+      ["archive_warning", "归档预警"],
+      ["archive_candidate", "归档候选"],
+      ["archived", "资产已归档"],
+      ["reenable_requested", "申请重新启用"],
+      ["reenabled", "资产已重新启用"],
+      ["status_changed", "资产状态已变更"],
+    ] as const;
     vi.mocked(fetchLifecycleEvents).mockResolvedValue({
-      items: [
-        {
-          event_id: "event-1",
-          event_type: "asset_updated",
-          old_status: "active",
-          new_status: "active",
-          reason: "完成年度复核",
-          actor_display: "治理负责人",
-          created_at: "2026-07-15T10:00:00Z",
-          trace_id: "hidden-trace",
-        },
-      ],
+      items: lifecycleCases.map(([eventType], index) => ({
+        event_id: `event-${index}`,
+        event_type: eventType,
+        old_status: "active",
+        new_status: "active",
+        reason: "完成年度复核",
+        actor_display: "治理负责人",
+        created_at: "2026-07-15T10:00:00Z",
+        trace_id: "hidden-trace",
+      })),
     });
     renderDetail();
 
     const lifecycle = await screen.findByText("生命周期");
     expect(fetchLifecycleEvents).not.toHaveBeenCalled();
     fireEvent.click(lifecycle);
-    expect(await screen.findByText("资产更新")).toBeInTheDocument();
+    for (const [, label] of lifecycleCases) {
+      expect(await screen.findByText(label)).toBeInTheDocument();
+    }
     expect(fetchLifecycleEvents).toHaveBeenCalledTimes(1);
-    expect(document.body.textContent).not.toContain("hidden-trace");
+    const visibleText = document.body.textContent ?? "";
+    expect(visibleText).not.toContain("hidden-trace");
+    for (const [eventType] of lifecycleCases) {
+      expect(visibleText).not.toContain(eventType);
+    }
   });
 
   it("shows a safe lifecycle error and retries", async () => {

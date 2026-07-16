@@ -10,6 +10,14 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const assetId = "00000000-0000-0000-0000-000000000076";
 const projectId = "00000000-0000-0000-0000-000000000176";
+const lifecycleCases = [
+  ["archive_warning", "归档预警"],
+  ["archive_candidate", "归档候选"],
+  ["archived", "资产已归档"],
+  ["reenable_requested", "申请重新启用"],
+  ["reenabled", "资产已重新启用"],
+  ["status_changed", "资产状态已变更"],
+];
 const scenarios = [
   "full",
   "requestable",
@@ -184,18 +192,16 @@ for (const scenario of scenarios) {
       if (url.pathname === `/api/v1/knowledge/${assetId}/lifecycle/events`) {
         lifecycleCalls += 1;
         return fulfill({
-          items: [
-            {
-              event_id: "event-hidden",
-              event_type: "asset_updated",
-              old_status: "active",
-              new_status: "active",
-              reason: "完成年度复核",
-              actor_display: "知识治理负责人",
-              created_at: "2026-07-15T10:00:00Z",
-              trace_id: "trace-must-not-render",
-            },
-          ],
+          items: lifecycleCases.map(([eventType], index) => ({
+            event_id: `event-hidden-${index}`,
+            event_type: eventType,
+            old_status: "active",
+            new_status: "active",
+            reason: "完成年度复核",
+            actor_display: "知识治理负责人",
+            created_at: "2026-07-15T10:00:00Z",
+            trace_id: "trace-must-not-render",
+          })),
         });
       }
       return fulfill({ detail: { message: "UI QA route not configured" } }, 404);
@@ -224,12 +230,14 @@ for (const scenario of scenarios) {
     }
     if (scenario === "governed") {
       await page.getByText("生命周期", { exact: true }).click();
-      await page.getByText("资产更新").waitFor();
+      for (const [, label] of lifecycleCases) {
+        await page.getByText(label, { exact: true }).waitFor();
+      }
       await page.getByText("更多操作").click();
       await page.getByLabel("归档原因").fill("UI QA 归档原因");
     }
 
-    const metrics = await page.evaluate(() => {
+    const metrics = await page.evaluate((lifecycleCases) => {
       const root = document.documentElement;
       const rail = document.querySelector(".rail")?.getBoundingClientRect();
       const deck = document.querySelector(".deck")?.getBoundingClientRect();
@@ -261,8 +269,12 @@ for (const scenario of scenarios) {
         deniedVisible: text.includes("未找到或无权查看"),
         previewFailureVisible: text.includes("在线预览服务暂未启用"),
         deleteActionVisible: text.includes("删除资产"),
+        lifecycleLabelsLocalized: lifecycleCases.every(([, label]) => text.includes(label)),
+        internalLifecycleEventVisible: lifecycleCases.some(([eventType]) =>
+          text.includes(eventType),
+        ),
       };
-    });
+    }, lifecycleCases);
     const screenshot = path.join(outDir, `${scenario}-${viewport.name}.png`);
     await page.screenshot({
       path: screenshot,
@@ -309,6 +321,8 @@ if (
       (result.scenario === "preview-failure" && !result.previewFailureVisible) ||
       (result.scenario === "governed" && result.lifecycleCalls !== 1) ||
       (result.scenario === "governed" && result.deleteActionVisible) ||
+      (result.scenario === "governed" && !result.lifecycleLabelsLocalized) ||
+      result.internalLifecycleEventVisible ||
       (result.scenario !== "governed" && result.lifecycleCalls !== 0),
   )
 ) {

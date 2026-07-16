@@ -95,11 +95,12 @@ const scopeLabel: Record<string, string> = {
 };
 
 const lifecycleEventLabel: Record<string, string> = {
-  archive_requested: "发起归档候选",
-  archive_confirmed: "确认归档",
-  asset_archived: "资产已归档",
-  asset_created: "资产创建",
-  asset_updated: "资产更新",
+  archive_warning: "归档预警",
+  archive_candidate: "归档候选",
+  archived: "资产已归档",
+  reenable_requested: "申请重新启用",
+  reenabled: "资产已重新启用",
+  status_changed: "资产状态已变更",
 };
 
 const hasText = (value: string | null | undefined) => Boolean(value && value.trim());
@@ -568,7 +569,7 @@ export default function KnowledgeDetailPage() {
                     <li key={event.event_id}>
                       <span className="kdetail-timeline-dot" aria-hidden="true" />
                       <div>
-                        <strong>{lifecycleEventLabel[event.event_type] ?? event.event_type}</strong>
+                        <strong>{lifecycleEventLabel[event.event_type] ?? "生命周期事件"}</strong>
                         <time>{formatBeijingTime(event.created_at)}</time>
                         {event.actor_display && <span>{event.actor_display}</span>}
                         {event.reason && <p>{event.reason}</p>}
