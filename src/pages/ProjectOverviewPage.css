@@ -1,0 +1,338 @@
+.project78-page {
+  max-width: 1500px;
+  margin: 0 auto;
+}
+
+.project78-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.project78-heading {
+  min-width: 0;
+}
+
+.project78-eyebrow,
+.project78-section-kicker {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--color-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.project78-heading h2 {
+  margin: 0;
+  color: var(--color-text-heading);
+  font-size: 30px;
+  line-height: 1.2;
+}
+
+.project78-heading > p {
+  margin: 7px 0 0;
+  color: var(--color-text-secondary);
+}
+
+.project78-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 13px;
+}
+
+.project78-tags span {
+  padding: 4px 8px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 4px;
+  background: var(--color-bg-muted);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.project78-picker {
+  display: grid;
+  flex: 0 0 min(320px, 35vw);
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.project78-picker select {
+  min-width: 220px;
+  height: 38px;
+  padding: 0 34px 0 11px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 14px;
+}
+
+.project78-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 330px);
+  gap: 26px;
+  margin-top: 24px;
+}
+
+.project78-main,
+.project78-side {
+  min-width: 0;
+}
+
+.project78-counts {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+}
+
+.project78-count {
+  min-width: 0;
+  padding: 18px 16px;
+  border-right: 1px solid var(--color-border-light);
+}
+
+.project78-count:last-child {
+  border-right: 0;
+}
+
+.project78-count strong,
+.project78-count span {
+  display: block;
+}
+
+.project78-count strong {
+  color: var(--color-text-heading);
+  font-size: 25px;
+  font-variant-numeric: tabular-nums;
+}
+
+.project78-count span {
+  margin-top: 5px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.project78-kb,
+.project78-activity,
+.project78-actions,
+.project78-members {
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+}
+
+.project78-kb {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 18px;
+  padding: 16px 18px;
+}
+
+.project78-kb h3,
+.project78-activity h3,
+.project78-actions h3,
+.project78-members h3 {
+  margin: 0;
+  color: var(--color-text-heading);
+  font-size: 17px;
+}
+
+.project78-kb > strong {
+  color: var(--color-success);
+  font-size: 13px;
+}
+
+.project78-activity {
+  margin-top: 18px;
+}
+
+.project78-section-heading,
+.project78-actions,
+.project78-members {
+  padding: 18px;
+}
+
+.project78-activity ul,
+.project78-members ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project78-activity li {
+  border-top: 1px solid var(--color-border-light);
+}
+
+.project78-activity li a {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 18px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.project78-activity li a:hover {
+  background: var(--color-bg-hover);
+}
+
+.project78-activity-copy,
+.project78-activity-copy strong,
+.project78-activity-copy span {
+  display: block;
+  min-width: 0;
+}
+
+.project78-activity-copy strong {
+  overflow: hidden;
+  color: var(--color-text-heading);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project78-activity-copy span,
+.project78-activity-date {
+  margin-top: 4px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.project78-side {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.project78-action-list {
+  margin-top: 13px;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.project78-action-list a {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 45px;
+  border-bottom: 1px solid var(--color-border-light);
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+
+.project78-action-list a:hover {
+  color: var(--color-primary);
+}
+
+.project78-members ul {
+  margin-top: 12px;
+}
+
+.project78-members li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 0;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.project78-members li span,
+.project78-members strong,
+.project78-members small {
+  display: block;
+}
+
+.project78-members small {
+  margin-top: 3px;
+  color: var(--color-text-secondary);
+}
+
+.project78-members em {
+  color: var(--color-success);
+  font-size: 12px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.project78-empty-copy {
+  margin: 14px 18px 18px;
+  color: var(--color-text-secondary);
+}
+
+.project78-state-link {
+  display: inline-flex;
+  margin-top: 14px;
+  color: var(--color-primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.project78-unavailable .project78-picker {
+  width: min(340px, 100%);
+  margin-top: 16px;
+}
+
+@media (max-width: 1050px) {
+  .project78-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .project78-counts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .project78-count:nth-child(3) {
+    border-right: 0;
+  }
+
+  .project78-count:nth-child(n + 4) {
+    border-top: 1px solid var(--color-border-light);
+  }
+}
+
+@media (max-width: 720px) {
+  .project78-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .project78-picker,
+  .project78-picker select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .project78-counts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .project78-count:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .project78-count:nth-child(3) {
+    border-right: 1px solid var(--color-border-light);
+  }
+
+  .project78-count:nth-child(n + 3) {
+    border-top: 1px solid var(--color-border-light);
+  }
+
+  .project78-activity li a {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .project78-activity-date {
+    display: none;
+  }
+}

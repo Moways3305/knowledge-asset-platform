@@ -56,9 +56,10 @@ const navGroups: NavGroup[] = [
       { to: "/review", label: "升级审核", icon: ShieldCheck, cap: can.viewReview },
       { to: "/original-access", label: "原文访问", icon: KeyRound, cap: can.viewOriginalAccess },
       {
-        to: "/project/:projectId/knowledge",
-        label: "项目看板",
+        to: "/project/:projectId",
+        label: "项目空间",
         icon: FolderKanban,
+        end: true,
         cap: can.viewProject,
       },
       {
@@ -110,7 +111,7 @@ const moduleTitles: Array<[prefix: string, title: string]> = [
 
 function currentModuleTitle(pathname: string): string {
   if (/^\/project\/[^/]+\/settings(?:\/|$)/.test(pathname)) return "项目设置";
-  if (/^\/project\/[^/]+\/knowledge(?:\/|$)/.test(pathname)) return "项目看板";
+  if (/^\/project\/[^/]+\/knowledge(?:\/|$)/.test(pathname)) return "项目知识库";
   return (
     moduleTitles.find(([prefix]) =>
       prefix === "/" ? pathname === "/" : pathname.startsWith(prefix),

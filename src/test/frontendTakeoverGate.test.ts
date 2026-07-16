@@ -135,6 +135,13 @@ const routes: RouteContract[] = [
     apiModules: ["http", "knowledge"],
   },
   {
+    route: "/project/:id",
+    component: "ProjectOverviewPage",
+    guard: "viewProject",
+    owners: ["pages/ProjectOverviewPage.tsx"],
+    apiModules: ["project"],
+  },
+  {
     route: "/project/:id/knowledge",
     component: "ProjectKnowledgePage",
     guard: "viewProject",
@@ -158,6 +165,12 @@ const routes: RouteContract[] = [
 ];
 
 const businessOptions: BusinessOptionContract[] = [
+  {
+    route: "/project/:id",
+    owner: "pages/ProjectOverviewPage.tsx",
+    option: "project",
+    source: { kind: "runtime", symbol: "fetchProjects" },
+  },
   {
     route: "/knowledge",
     owner: "pages/KnowledgeListPage.tsx",
@@ -305,7 +318,7 @@ function appRouteOwnership() {
 describe("frontend route takeover gate", () => {
   it("assigns every formal App route to the registered page and capability", () => {
     const actual = appRouteOwnership();
-    expect(actual.size).toBe(18);
+    expect(actual.size).toBe(19);
     expect([...actual.keys()].sort()).toEqual(routes.map((item) => item.route).sort());
     for (const contract of routes) {
       expect(actual.get(contract.route), contract.route).toEqual({

@@ -48,12 +48,13 @@ vi.mock("../api/auth", () => ({
   logout: vi.fn(),
 }));
 
-function renderLayout() {
+function renderLayout(path = "/") {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route element={<AppLayout />}>
           <Route index element={<div>home</div>} />
+          <Route path="*" element={<div>page</div>} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -105,14 +106,29 @@ describe("AppLayout shell contract", () => {
 
   it("builds project navigation from the real auth project id", () => {
     renderLayout();
-    expect(screen.getByRole("link", { name: "项目看板" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "项目空间" })).toHaveAttribute(
       "href",
-      "/project/project-real-64/knowledge",
+      "/project/project-real-64",
     );
     expect(screen.getByRole("link", { name: "项目设置" })).toHaveAttribute(
       "href",
       "/project/project-real-64/settings",
     );
+  });
+
+  it("names each project module and activates only its exact rail entry", () => {
+    const overview = renderLayout("/project/project-real-64");
+    expect(overview.container.querySelector(".deck-title")).toHaveTextContent("项目空间");
+    expect(screen.getByRole("link", { name: "项目空间" })).toHaveClass("active");
+    overview.unmount();
+
+    const knowledge = renderLayout("/project/project-real-64/knowledge");
+    expect(knowledge.container.querySelector(".deck-title")).toHaveTextContent("项目知识库");
+    expect(screen.getByRole("link", { name: "项目空间" })).not.toHaveClass("active");
+    knowledge.unmount();
+
+    const settings = renderLayout("/project/project-real-64/settings");
+    expect(settings.container.querySelector(".deck-title")).toHaveTextContent("项目设置");
   });
 
   it("exposes accessible names and native tooltips in collapsed mode", () => {

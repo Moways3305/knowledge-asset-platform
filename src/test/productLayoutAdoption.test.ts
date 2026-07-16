@@ -75,6 +75,7 @@ describe("product layout and route contract", () => {
       "/upload",
       "/review",
       "/original-access",
+      "/project/:id",
       "/project/:id/knowledge",
       "/project/:id/settings",
       "/admin/ingest",
