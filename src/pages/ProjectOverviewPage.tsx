@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowRight, BookOpen, CheckSquare, Settings, Upload } from "lucide-react";
+import { BookOpen, Bot, CheckSquare, RefreshCw, Send, Settings, Upload } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { fetchProjectOverview, fetchProjects } from "../api/project";
+import {
+  fetchProjectOverview,
+  fetchProjectQaModelOptions,
+  fetchProjects,
+  projectQa,
+} from "../api/project";
 import LoadingError from "../components/LoadingError";
 import { ProductPage } from "../components/ProductLayout";
+import type { ProjectQaModelOptionDTO, ProjectQaResponseDTO } from "../types/agent";
 import type { ProjectListItemDTO, ProjectOverviewDTO } from "../types/project";
 import "./ProjectOverviewPage.css";
 
@@ -24,19 +30,6 @@ const MEMBER_STATUS: Record<string, string> = {
   inactive: "已停用",
 };
 
-const ASSET_TYPE: Record<string, string> = {
-  methodology: "方法论",
-  deliverable: "交付物",
-  case: "案例",
-  template: "模板",
-  insight: "洞察",
-};
-
-const ZONE: Record<string, string> = {
-  material: "资料",
-  asset: "资产",
-};
-
 const KB_STATUS: Record<string, string> = {
   active: "已启用",
   initializing: "配置中",
@@ -45,12 +38,9 @@ const KB_STATUS: Record<string, string> = {
   disabled: "已停用",
 };
 
-const CONFIDENTIALITY_LEVEL: Record<string, string> = {
-  L1: "L1 公开级",
-  L2: "L2 内部参考级",
-  L3: "L3 受限级",
-  L4: "L4 商业秘密级",
-  L5: "L5 严格商业秘密级",
+const CITED_ZONE: Record<string, string> = {
+  material: "资料区",
+  asset: "资产区",
 };
 
 type ListState =
@@ -59,24 +49,23 @@ type ListState =
   | { status: "ready"; items: ProjectListItemDTO[] };
 
 type OverviewState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "ready"; data: ProjectOverviewDTO };
+
+type ModelState =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "ready"; items: ProjectQaModelOptionDTO[]; selectedRef: string };
+
+type ConversationState =
   | { status: "idle" }
-  | { status: "loading"; projectId: string }
-  | { status: "error"; projectId: string; message: string }
-  | { status: "ready"; projectId: string; data: ProjectOverviewDTO };
+  | { status: "asking"; question: string }
+  | { status: "error"; question: string }
+  | { status: "answer"; question: string; result: ProjectQaResponseDTO };
 
-function safeErrorMessage(_error: unknown): string {
+function safeErrorMessage(): string {
   return "暂时无法加载，请稍后重试";
-}
-
-function formatDate(value: string | null): string {
-  if (!value) return "时间待补充";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "时间待补充";
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
 }
 
 function ProjectPicker({
@@ -103,13 +92,405 @@ function ProjectPicker({
   );
 }
 
+function ProjectWorkspace({
+  selectedProject,
+  projects,
+  onSwitch,
+}: {
+  selectedProject: ProjectListItemDTO;
+  projects: ProjectListItemDTO[];
+  onSwitch: (projectId: string) => void;
+}) {
+  const projectId = selectedProject.id;
+  const overviewRequest = useRef(0);
+  const modelRequest = useRef(0);
+  const qaRequest = useRef(0);
+  const [overviewState, setOverviewState] = useState<OverviewState>({ status: "loading" });
+  const [modelState, setModelState] = useState<ModelState>({ status: "loading" });
+  const [conversation, setConversation] = useState<ConversationState>({ status: "idle" });
+  const [question, setQuestion] = useState("");
+
+  const loadOverview = useCallback(async () => {
+    const request = ++overviewRequest.current;
+    setOverviewState({ status: "loading" });
+    try {
+      const response = await fetchProjectOverview(projectId);
+      if (request !== overviewRequest.current) return;
+      if (response.project.project_id !== projectId) {
+        setOverviewState({ status: "error", message: safeErrorMessage() });
+        return;
+      }
+      setOverviewState({ status: "ready", data: response });
+    } catch {
+      if (request === overviewRequest.current) {
+        setOverviewState({ status: "error", message: safeErrorMessage() });
+      }
+    }
+  }, [projectId]);
+
+  const loadModels = useCallback(async () => {
+    const request = ++modelRequest.current;
+    setModelState({ status: "loading" });
+    try {
+      const response = await fetchProjectQaModelOptions(projectId);
+      if (request !== modelRequest.current) return;
+      const selected = response.items.find((item) => item.is_default) ?? response.items[0];
+      setModelState({
+        status: "ready",
+        items: response.items,
+        selectedRef: selected?.model_ref ?? "",
+      });
+    } catch {
+      if (request === modelRequest.current) setModelState({ status: "error" });
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    void loadOverview();
+    void loadModels();
+    return () => {
+      overviewRequest.current += 1;
+      modelRequest.current += 1;
+      qaRequest.current += 1;
+    };
+  }, [loadModels, loadOverview]);
+
+  const submitQuestion = useCallback(
+    async (value: string) => {
+      const trimmed = value.trim();
+      if (!trimmed || modelState.status !== "ready" || !modelState.selectedRef) return;
+      const request = ++qaRequest.current;
+      setConversation({ status: "asking", question: trimmed });
+      setQuestion("");
+      try {
+        const response = await projectQa(projectId, {
+          query: trimmed,
+          modelRef: modelState.selectedRef,
+        });
+        if (request === qaRequest.current) {
+          setConversation({ status: "answer", question: trimmed, result: response });
+        }
+      } catch {
+        if (request === qaRequest.current) {
+          setConversation({ status: "error", question: trimmed });
+        }
+      }
+    },
+    [modelState, projectId],
+  );
+
+  if (overviewState.status === "loading") {
+    return (
+      <ProductPage className="project78-page">
+        <LoadingError loading loadingTitle="正在加载项目空间…" />
+      </ProductPage>
+    );
+  }
+
+  if (overviewState.status === "error") {
+    return (
+      <ProductPage className="project78-page">
+        <LoadingError
+          error={overviewState.message}
+          errorTitle="项目概览加载失败"
+          onRetry={() => void loadOverview()}
+        />
+      </ProductPage>
+    );
+  }
+
+  const overview = overviewState.data;
+  const selectedModel =
+    modelState.status === "ready"
+      ? modelState.items.find((item) => item.model_ref === modelState.selectedRef)
+      : undefined;
+  const canAsk = modelState.status === "ready" && Boolean(modelState.selectedRef);
+  const asking = conversation.status === "asking";
+
+  return (
+    <ProductPage className="project78-page">
+      <header className="project78-switchbar">
+        <div>
+          <span>项目协作空间</span>
+          <strong>{selectedProject.name}</strong>
+        </div>
+        <ProjectPicker projects={projects} value={projectId} onChange={onSwitch} />
+      </header>
+
+      <div className="project78-workspace">
+        <aside className="project78-context" aria-label="项目上下文">
+          <section className="project78-project-status">
+            <span className="project78-section-label">项目状态</span>
+            <h2>{overview.project.name}</h2>
+            {overview.project.client_name && <p>{overview.project.client_name}</p>}
+            <div className="project78-status-line">
+              <span className="project78-status-badge">
+                {PROJECT_STATUS[overview.project.status] ?? "状态待确认"}
+              </span>
+              <span>{PROJECT_ROLE[overview.project.project_role] ?? "项目成员"}</span>
+            </div>
+          </section>
+
+          <dl className="project78-facts" aria-label="项目数据概览">
+            <div>
+              <dt>资料</dt>
+              <dd>{overview.counts.material_count}</dd>
+            </div>
+            <div>
+              <dt>资产</dt>
+              <dd>{overview.counts.asset_count}</dd>
+            </div>
+            <div>
+              <dt>待确认</dt>
+              <dd>{overview.counts.pending_confirmation_count}</dd>
+            </div>
+            <div>
+              <dt>待审核</dt>
+              <dd>{overview.counts.pending_review_count}</dd>
+            </div>
+            <div>
+              <dt>原文申请</dt>
+              <dd>{overview.counts.original_access_request_count}</dd>
+            </div>
+            <div>
+              <dt>知识库</dt>
+              <dd>
+                {overview.knowledge_base.configured
+                  ? (KB_STATUS[overview.knowledge_base.status ?? ""] ?? "状态待确认")
+                  : "尚未配置"}
+              </dd>
+            </div>
+          </dl>
+
+          <nav className="project78-context-actions" aria-label="项目操作">
+            {overview.capabilities.can_view_knowledge && (
+              <Link to={`/project/${projectId}/knowledge`}>
+                <BookOpen size={16} aria-hidden="true" />
+                <span>项目知识库</span>
+              </Link>
+            )}
+            {overview.capabilities.can_upload_material && (
+              <Link to="/upload">
+                <Upload size={16} aria-hidden="true" />
+                <span>上传资料</span>
+              </Link>
+            )}
+            {overview.capabilities.can_confirm_assets &&
+              overview.counts.pending_review_count > 0 && (
+                <Link to={`/project/${projectId}/settings`} className="is-review-action">
+                  <CheckSquare size={16} aria-hidden="true" />
+                  <span>处理待审核（{overview.counts.pending_review_count}）</span>
+                </Link>
+              )}
+            {overview.capabilities.can_manage_members && (
+              <Link to={`/project/${projectId}/settings`}>
+                <Settings size={16} aria-hidden="true" />
+                <span>项目设置</span>
+              </Link>
+            )}
+          </nav>
+
+          {overview.capabilities.can_manage_members && (
+            <section className="project78-members" aria-labelledby="project78-members-title">
+              <span className="project78-section-label">关键成员</span>
+              <h3 id="project78-members-title">项目协作成员</h3>
+              {overview.members.length > 0 ? (
+                <ul>
+                  {overview.members.map((member) => (
+                    <li key={member.user_id}>
+                      <span className="project78-member-mark" aria-hidden="true">
+                        {member.name.slice(0, 1)}
+                      </span>
+                      <span>
+                        <strong>{member.name}</strong>
+                        <small>{PROJECT_ROLE[member.project_role] ?? "项目成员"}</small>
+                      </span>
+                      <em>{MEMBER_STATUS[member.status] ?? "状态待确认"}</em>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="project78-muted">暂无成员信息。</p>
+              )}
+            </section>
+          )}
+        </aside>
+
+        <main className="project78-assistant" aria-labelledby="project78-assistant-title">
+          <header className="project78-assistant-header">
+            <div className="project78-assistant-title">
+              <span className="project78-bot-mark" aria-hidden="true">
+                <Bot size={17} />
+              </span>
+              <div>
+                <h2 id="project78-assistant-title">项目 AI 助手</h2>
+                <p>
+                  {modelState.status === "loading" && "正在确认可用问答模型"}
+                  {modelState.status === "error" && "问答模型暂时不可用"}
+                  {modelState.status === "ready" &&
+                    modelState.items.length === 0 &&
+                    "当前项目暂无可用问答模型"}
+                  {selectedModel && `当前可用模型：${selectedModel.display_name}`}
+                </p>
+              </div>
+            </div>
+            {modelState.status === "error" && (
+              <button
+                type="button"
+                className="project78-model-retry"
+                onClick={() => void loadModels()}
+              >
+                <RefreshCw size={14} aria-hidden="true" />
+                重试
+              </button>
+            )}
+          </header>
+
+          <div className="project78-conversation" aria-live="polite">
+            {conversation.status === "idle" && (
+              <div className="project78-message is-assistant is-welcome">
+                <span className="project78-message-avatar" aria-hidden="true">
+                  <Bot size={16} />
+                </span>
+                <div>
+                  <strong>项目 AI 助手</strong>
+                  <p>可以围绕“{overview.project.name}”的项目知识提问。</p>
+                </div>
+              </div>
+            )}
+
+            {conversation.status !== "idle" && (
+              <div className="project78-message is-user">
+                <div>
+                  <strong>你</strong>
+                  <p>{conversation.question}</p>
+                </div>
+              </div>
+            )}
+
+            {conversation.status === "asking" && (
+              <div className="project78-message is-assistant">
+                <span className="project78-message-avatar" aria-hidden="true">
+                  <Bot size={16} />
+                </span>
+                <div>
+                  <strong>项目 AI 助手</strong>
+                  <p className="project78-thinking">正在整理项目知识…</p>
+                </div>
+              </div>
+            )}
+
+            {conversation.status === "error" && (
+              <div className="project78-message is-assistant is-error">
+                <span className="project78-message-avatar" aria-hidden="true">
+                  <Bot size={16} />
+                </span>
+                <div>
+                  <strong>问答未成功</strong>
+                  <p>暂时无法完成回答，请稍后重试。</p>
+                  <button type="button" onClick={() => void submitQuestion(conversation.question)}>
+                    重新提问
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {conversation.status === "answer" && (
+              <div className="project78-message is-assistant">
+                <span className="project78-message-avatar" aria-hidden="true">
+                  <Bot size={16} />
+                </span>
+                <div>
+                  <strong>项目 AI 助手</strong>
+                  <p>{conversation.result.response_text}</p>
+                  {conversation.result.citations.length > 0 && (
+                    <div className="project78-citations" aria-label="回答引用">
+                      {conversation.result.citations.map((citation) => (
+                        <div
+                          className="project78-citation"
+                          key={`${citation.citation_order}-${citation.asset_title}`}
+                        >
+                          <span>{citation.asset_title}</span>
+                          <small>{CITED_ZONE[citation.cited_zone] ?? "来源区域待确认"}</small>
+                          {citation.is_pending_review && <em>内容待审核，请谨慎参考</em>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="project78-composer">
+            <label className="project78-sr-only" htmlFor="project78-question">
+              向项目 AI 助手提问
+            </label>
+            <textarea
+              id="project78-question"
+              value={question}
+              rows={2}
+              placeholder={canAsk ? "向项目知识提问…" : "当前没有可用问答模型"}
+              disabled={!canAsk || asking}
+              onChange={(event) => setQuestion(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  void submitQuestion(question);
+                }
+              }}
+            />
+            <div className="project78-composer-controls">
+              <label>
+                <span className="project78-sr-only">问答模型</span>
+                <select
+                  aria-label="问答模型"
+                  value={modelState.status === "ready" ? modelState.selectedRef : ""}
+                  disabled={
+                    modelState.status !== "ready" || modelState.items.length === 0 || asking
+                  }
+                  onChange={(event) => {
+                    if (modelState.status === "ready") {
+                      setModelState({ ...modelState, selectedRef: event.target.value });
+                    }
+                  }}
+                >
+                  {modelState.status === "loading" && <option value="">正在加载模型…</option>}
+                  {modelState.status === "error" && <option value="">模型加载失败</option>}
+                  {modelState.status === "ready" && modelState.items.length === 0 && (
+                    <option value="">暂无可用模型</option>
+                  )}
+                  {modelState.status === "ready" &&
+                    modelState.items.map((model) => (
+                      <option key={model.model_ref} value={model.model_ref}>
+                        {model.display_name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="project78-send"
+                aria-label={asking ? "提问中" : "提问"}
+                title={asking ? "提问中" : "提问"}
+                disabled={!canAsk || !question.trim() || asking}
+                onClick={() => void submitQuestion(question)}
+              >
+                <Send size={17} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        </main>
+      </div>
+    </ProductPage>
+  );
+}
+
 export default function ProjectOverviewPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const listRequest = useRef(0);
-  const overviewRequest = useRef(0);
   const [listState, setListState] = useState<ListState>({ status: "loading" });
-  const [overviewState, setOverviewState] = useState<OverviewState>({ status: "idle" });
 
   const loadProjects = useCallback(async () => {
     const request = ++listRequest.current;
@@ -117,9 +498,9 @@ export default function ProjectOverviewPage() {
     try {
       const response = await fetchProjects();
       if (request === listRequest.current) setListState({ status: "ready", items: response.items });
-    } catch (error) {
+    } catch {
       if (request === listRequest.current) {
-        setListState({ status: "error", message: safeErrorMessage(error) });
+        setListState({ status: "error", message: safeErrorMessage() });
       }
     }
   }, []);
@@ -128,45 +509,8 @@ export default function ProjectOverviewPage() {
     void loadProjects();
     return () => {
       listRequest.current += 1;
-      overviewRequest.current += 1;
     };
   }, [loadProjects]);
-
-  const projects = listState.status === "ready" ? listState.items : [];
-  const selectedProject = projects.find((project) => project.id === id);
-
-  const loadOverview = useCallback(async (projectId: string) => {
-    const request = ++overviewRequest.current;
-    setOverviewState({ status: "loading", projectId });
-    try {
-      const response = await fetchProjectOverview(projectId);
-      if (request === overviewRequest.current) {
-        if (response.project.project_id !== projectId) {
-          setOverviewState({
-            status: "error",
-            projectId,
-            message: safeErrorMessage(response),
-          });
-          return;
-        }
-        setOverviewState({ status: "ready", projectId, data: response });
-      }
-    } catch (error) {
-      if (request === overviewRequest.current) {
-        setOverviewState({ status: "error", projectId, message: safeErrorMessage(error) });
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    overviewRequest.current += 1;
-    setOverviewState({ status: "idle" });
-    if (listState.status === "ready" && selectedProject) void loadOverview(selectedProject.id);
-  }, [id, listState.status, selectedProject, loadOverview]);
-
-  const switchProject = (projectId: string) => {
-    if (projects.some((project) => project.id === projectId)) navigate(`/project/${projectId}`);
-  };
 
   if (listState.status === "loading") {
     return (
@@ -188,6 +532,7 @@ export default function ProjectOverviewPage() {
     );
   }
 
+  const projects = listState.items;
   if (projects.length === 0) {
     return (
       <ProductPage className="project78-page">
@@ -199,6 +544,11 @@ export default function ProjectOverviewPage() {
       </ProductPage>
     );
   }
+
+  const selectedProject = projects.find((project) => project.id === id);
+  const switchProject = (projectId: string) => {
+    if (projects.some((project) => project.id === projectId)) navigate(`/project/${projectId}`);
+  };
 
   if (!selectedProject) {
     return (
@@ -217,165 +567,12 @@ export default function ProjectOverviewPage() {
     );
   }
 
-  const currentOverviewState =
-    overviewState.status !== "idle" && overviewState.projectId === selectedProject.id
-      ? overviewState
-      : ({ status: "loading", projectId: selectedProject.id } as const);
-  const overview = currentOverviewState.status === "ready" ? currentOverviewState.data : null;
-  const project = overview?.project ?? selectedProject;
-
   return (
-    <ProductPage className="project78-page">
-      <header className="project78-header">
-        <div className="project78-heading">
-          <span className="project78-eyebrow">项目空间</span>
-          <h2>{project.name}</h2>
-          {project.client_name && <p>{project.client_name}</p>}
-          <div className="project78-tags" aria-label="项目状态">
-            <span>{PROJECT_STATUS[project.status] ?? "状态待确认"}</span>
-            <span>{PROJECT_ROLE[project.project_role] ?? "项目成员"}</span>
-          </div>
-        </div>
-        <ProjectPicker projects={projects} value={selectedProject.id} onChange={switchProject} />
-      </header>
-
-      {currentOverviewState.status === "loading" && (
-        <LoadingError loading loadingTitle="正在加载项目概览…" />
-      )}
-      {currentOverviewState.status === "error" && (
-        <LoadingError
-          error={currentOverviewState.message}
-          errorTitle="项目概览加载失败"
-          onRetry={() => void loadOverview(selectedProject.id)}
-        />
-      )}
-
-      {overview && (
-        <div className="project78-workspace">
-          <main className="project78-main">
-            <section className="project78-counts" aria-label="项目数据概览">
-              {[
-                ["项目资料", overview.counts.material_count],
-                ["知识资产", overview.counts.asset_count],
-                ["待确认", overview.counts.pending_confirmation_count],
-                ["待升级审核", overview.counts.pending_review_count],
-                ["原文访问申请", overview.counts.original_access_request_count],
-              ].map(([label, value]) => (
-                <div key={label} className="project78-count">
-                  <strong>{value}</strong>
-                  <span>{label}</span>
-                </div>
-              ))}
-            </section>
-
-            <section className="project78-kb" aria-labelledby="project78-kb-title">
-              <div>
-                <span className="project78-section-kicker">知识库</span>
-                <h3 id="project78-kb-title">项目知识库状态</h3>
-              </div>
-              <strong>
-                {overview.knowledge_base.configured
-                  ? (KB_STATUS[overview.knowledge_base.status ?? ""] ?? "状态待确认")
-                  : "尚未配置"}
-              </strong>
-            </section>
-
-            <section className="project78-activity" aria-labelledby="project78-activity-title">
-              <div className="project78-section-heading">
-                <div>
-                  <span className="project78-section-kicker">近期动态</span>
-                  <h3 id="project78-activity-title">最近更新的知识</h3>
-                </div>
-              </div>
-              {overview.recent_activity.length === 0 ? (
-                <p className="project78-empty-copy">暂无近期知识动态。</p>
-              ) : (
-                <ul>
-                  {overview.recent_activity.map((activity) => (
-                    <li key={activity.asset_id}>
-                      <Link to={`/knowledge/${activity.asset_id}`}>
-                        <span className="project78-activity-copy">
-                          <strong>{activity.title}</strong>
-                          <span>
-                            {ZONE[activity.zone] ?? "知识"} ·{" "}
-                            {ASSET_TYPE[activity.asset_type] ?? "知识资产"} ·{" "}
-                            {CONFIDENTIALITY_LEVEL[activity.confidentiality_level] ??
-                              "保密级别待确认"}
-                          </span>
-                        </span>
-                        <span className="project78-activity-date">
-                          {formatDate(activity.updated_at)}
-                        </span>
-                        <ArrowRight size={17} aria-hidden="true" />
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </main>
-
-          <aside className="project78-side" aria-label="项目操作与成员">
-            <section className="project78-actions">
-              <span className="project78-section-kicker">快捷操作</span>
-              <h3>继续处理项目工作</h3>
-              <div className="project78-action-list">
-                {overview.capabilities.can_upload_material && (
-                  <Link to="/upload">
-                    <Upload size={18} aria-hidden="true" />
-                    <span>上传资料</span>
-                    <ArrowRight size={16} aria-hidden="true" />
-                  </Link>
-                )}
-                {overview.capabilities.can_view_knowledge && (
-                  <Link to={`/project/${selectedProject.id}/knowledge`}>
-                    <BookOpen size={18} aria-hidden="true" />
-                    <span>项目知识库</span>
-                    <ArrowRight size={16} aria-hidden="true" />
-                  </Link>
-                )}
-                {overview.capabilities.can_confirm_assets &&
-                  overview.counts.pending_review_count > 0 && (
-                    <Link to={`/project/${selectedProject.id}/settings`}>
-                      <CheckSquare size={18} aria-hidden="true" />
-                      <span>处理待审核（{overview.counts.pending_review_count}）</span>
-                      <ArrowRight size={16} aria-hidden="true" />
-                    </Link>
-                  )}
-                {overview.capabilities.can_manage_members && (
-                  <Link to={`/project/${selectedProject.id}/settings`}>
-                    <Settings size={18} aria-hidden="true" />
-                    <span>项目设置</span>
-                    <ArrowRight size={16} aria-hidden="true" />
-                  </Link>
-                )}
-              </div>
-            </section>
-
-            {overview.capabilities.can_manage_members && (
-              <section className="project78-members">
-                <span className="project78-section-kicker">项目成员</span>
-                <h3>当前协作成员</h3>
-                {overview.members.length === 0 ? (
-                  <p className="project78-empty-copy">暂无成员信息。</p>
-                ) : (
-                  <ul>
-                    {overview.members.map((member) => (
-                      <li key={member.user_id}>
-                        <span>
-                          <strong>{member.name}</strong>
-                          <small>{PROJECT_ROLE[member.project_role] ?? "项目成员"}</small>
-                        </span>
-                        <em>{MEMBER_STATUS[member.status] ?? "状态待确认"}</em>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-            )}
-          </aside>
-        </div>
-      )}
-    </ProductPage>
+    <ProjectWorkspace
+      key={selectedProject.id}
+      selectedProject={selectedProject}
+      projects={projects}
+      onSwitch={switchProject}
+    />
   );
 }

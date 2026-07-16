@@ -14,15 +14,19 @@ const projectA = "00000000-0000-0000-0000-000000000078";
 const projectB = "00000000-0000-0000-0000-000000000079";
 const hiddenMemberId = "member-secret-78";
 const hiddenAssetId = "asset-secret-78";
+const modelRef = "qa-model-ref-secret-78";
 const scenarios = [
-  "member",
+  "member-initial",
   "manager",
   "manager-confirmation-only",
-  "unknown-confidentiality",
-  "switch-project",
+  "qa-success",
+  "qa-sending",
+  "qa-failure",
+  "no-model",
+  "model-failure",
+  "switch-late-answer",
   "empty-projects",
   "inaccessible",
-  "list-failure",
   "overview-failure",
 ];
 const viewports = [
@@ -73,6 +77,36 @@ const authMe = {
   ],
 };
 
+const models = {
+  items: [
+    { model_ref: "secondary-model-secret", display_name: "备用问答模型", is_default: false },
+    { model_ref: modelRef, display_name: "项目默认问答模型", is_default: true },
+  ],
+  total: 2,
+};
+
+const qaAnswer = {
+  call_id: "call-secret-78",
+  response_text: "访谈材料显示，客户当前最关注交付节奏与复盘机制。",
+  model_key: modelRef,
+  decision_status: "allowed",
+  citations: [
+    {
+      asset_id: hiddenAssetId,
+      asset_title: "客户访谈纪要",
+      scope: "project",
+      cited_zone: "material",
+      used_access_layer: "summary",
+      is_pending_review: true,
+      is_asset_zone: false,
+      citation_order: 1,
+      snippet: "original content must stay hidden",
+    },
+  ],
+  trace_id: "trace-secret-78",
+  created_at: "2026-07-16T08:00:00Z",
+};
+
 function overview(projectId, manager = false) {
   const item = projectItems.find((project) => project.id === projectId) || projectItems[0];
   return {
@@ -111,71 +145,77 @@ function overview(projectId, manager = false) {
           },
         ]
       : [],
-    recent_activity: [
-      {
-        asset_id: hiddenAssetId,
-        title: "客户访谈洞察",
-        zone: "asset",
-        asset_type: "insight",
-        confidentiality_level: "L2",
-        updated_at: "2026-07-16T08:00:00Z",
-      },
-    ],
+    recent_activity: [],
   };
+}
+
+function hasValidSkeleton(result) {
+  return (
+    result.contextWidth >= 200 &&
+    result.contextWidth <= 300 &&
+    result.assistantWidth / result.contextWidth >= 2.5 &&
+    result.composerVisible &&
+    result.conversationScrollable &&
+    !result.oldDashboardPresent &&
+    result.chartCount === 0
+  );
 }
 
 function accepted(result) {
   if (
     result.overflowX > 2 ||
     result.shellOverlap > 1 ||
-    result.clippedActions > 0 ||
-    result.chartCount > 0 ||
-    result.deckTitle !== "项目空间"
+    result.clippedControls > 0 ||
+    result.deckTitle !== "项目空间" ||
+    result.sensitiveVisible ||
+    result.internalEnumVisible
   ) {
     return false;
   }
-  if (result.sensitiveVisible || result.internalEnumVisible) return false;
-  if (result.scenario === "member") {
+  if (["empty-projects", "inaccessible"].includes(result.scenario)) {
+    return result.scenario === "empty-projects" ? result.emptyVisible : result.inaccessibleVisible;
+  }
+  if (result.scenario === "overview-failure") {
+    return result.overviewFailureSeen && result.retrySucceeded && hasValidSkeleton(result);
+  }
+  if (!hasValidSkeleton(result)) return false;
+  if (result.scenario === "member-initial") {
     return (
-      result.projectAVisible &&
-      result.countsVisible &&
+      result.welcomeVisible &&
+      result.defaultModelSelected &&
+      result.inputEnabled &&
+      result.emptySendDisabled &&
       result.memberSectionCount === 0 &&
-      !result.settingsVisible
+      result.knowledgeLinkCorrect
     );
   }
   if (result.scenario === "manager") {
-    return (
-      result.memberVisible &&
-      result.settingsVisible &&
-      result.auditActionVisible &&
-      result.auditActionHref === `/project/${projectA}/settings`
-    );
+    return result.memberVisible && result.reviewLinkCorrect && result.settingsVisible;
   }
   if (result.scenario === "manager-confirmation-only") {
+    return result.pendingConfirmationStat && !result.reviewActionVisible;
+  }
+  if (result.scenario === "qa-success") {
+    return result.questionVisible && result.answerVisible && result.safeCitationVisible;
+  }
+  if (result.scenario === "qa-sending") return result.sendingVisible && result.inputDisabled;
+  if (result.scenario === "qa-failure") {
+    return result.qaFailureSeen && result.retrySucceeded && result.answerVisible;
+  }
+  if (result.scenario === "no-model") {
+    return result.noModelVisible && result.inputDisabled && result.emptySendDisabled;
+  }
+  if (result.scenario === "model-failure") {
+    return result.modelFailureSeen && result.retrySucceeded && result.defaultModelSelected;
+  }
+  if (result.scenario === "switch-late-answer") {
     return (
-      result.pendingConfirmationStat &&
-      result.pendingReviewZeroStat &&
-      !result.auditActionVisible &&
-      !result.wrongConfirmationActionVisible
+      result.projectBHeading &&
+      result.projectBWelcome &&
+      !result.oldQuestionVisible &&
+      !result.answerVisible &&
+      result.pathEndsWithProjectB
     );
-  }
-  if (result.scenario === "unknown-confidentiality") {
-    return result.safeConfidentialityVisible && !result.unknownConfidentialityVisible;
-  }
-  if (result.scenario === "switch-project") {
-    return (
-      result.projectBHeading && result.pathEndsWithProjectB && result.projectBOverviewCalls === 1
-    );
-  }
-  if (result.scenario === "empty-projects")
-    return result.emptyVisible && result.overviewCalls === 0;
-  if (result.scenario === "inaccessible")
-    return result.inaccessibleVisible && result.overviewCalls === 0;
-  if (result.scenario === "list-failure") {
-    return result.listFailureSeen && result.retrySucceeded && result.overviewCalls === 1;
-  }
-  if (result.scenario === "overview-failure") {
-    return result.overviewFailureSeen && result.retrySucceeded && result.overviewCalls === 2;
   }
   return false;
 }
@@ -195,41 +235,61 @@ try {
   for (const scenario of scenarios) {
     for (const viewport of viewports) {
       let overviewCalls = 0;
-      let projectBOverviewCalls = 0;
-      let listCalls = 0;
-      let listFailureSeen = false;
+      let modelCalls = 0;
+      let qaCalls = 0;
       let overviewFailureSeen = false;
+      let modelFailureSeen = false;
+      let qaFailureSeen = false;
       let retrySucceeded = false;
+      let releasePendingQa;
+      const pendingQa = new Promise((resolve) => {
+        releasePendingQa = resolve;
+      });
       const context = await browser.newContext({ viewport });
       await context.route("**/api/v1/**", async (route) => {
-        const url = new URL(route.request().url());
+        const request = route.request();
+        const url = new URL(request.url());
         const fulfill = (body, status = 200) =>
           route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
         if (url.pathname === "/api/v1/auth/me") return fulfill(authMe);
         if (url.pathname === "/api/v1/projects") {
-          listCalls += 1;
-          if (scenario === "list-failure" && listCalls === 1) {
-            return fulfill({ detail: { message: "项目列表暂时不可用" } }, 503);
-          }
           return fulfill({ items: scenario === "empty-projects" ? [] : projectItems });
         }
-        const match = url.pathname.match(/^\/api\/v1\/projects\/([^/]+)\/overview$/);
-        if (match) {
+
+        const modelMatch = url.pathname.match(/^\/api\/v1\/projects\/([^/]+)\/qa\/model-options$/);
+        if (modelMatch) {
+          modelCalls += 1;
+          if (scenario === "model-failure" && modelCalls === 1) {
+            return fulfill({ detail: { message: "provider secret must stay hidden" } }, 503);
+          }
+          return fulfill(scenario === "no-model" ? { items: [], total: 0 } : models);
+        }
+
+        const qaMatch = url.pathname.match(/^\/api\/v1\/projects\/([^/]+)\/qa$/);
+        if (qaMatch && request.method() === "POST") {
+          qaCalls += 1;
+          if (scenario === "qa-failure" && qaCalls === 1) {
+            return fulfill({ detail: { message: "upstream trace secret" } }, 503);
+          }
+          if (scenario === "qa-sending" || scenario === "switch-late-answer") {
+            await pendingQa;
+          }
+          return fulfill(qaAnswer);
+        }
+
+        const overviewMatch = url.pathname.match(/^\/api\/v1\/projects\/([^/]+)\/overview$/);
+        if (overviewMatch) {
           overviewCalls += 1;
-          if (match[1] === projectB) projectBOverviewCalls += 1;
           if (scenario === "overview-failure" && overviewCalls === 1) {
-            return fulfill({ detail: { message: "项目概览暂时不可用" } }, 503);
+            return fulfill({ detail: { message: "internal project secret" } }, 503);
           }
           const manager =
             scenario === "manager" ||
             scenario === "manager-confirmation-only" ||
-            match[1] === projectB;
-          const payload = overview(match[1], manager);
+            overviewMatch[1] === projectB;
+          const payload = overview(overviewMatch[1], manager);
           if (scenario === "manager-confirmation-only") payload.counts.pending_review_count = 0;
-          if (scenario === "unknown-confidentiality") {
-            payload.recent_activity[0].confidentiality_level = "secret_level_78";
-          }
           return fulfill(payload);
         }
         return fulfill({ detail: { message: "UI QA route not configured" } }, 404);
@@ -239,94 +299,156 @@ try {
       const initialProject = scenario === "inaccessible" ? "not-accessible" : projectA;
       await page.goto(`${base}/project/${initialProject}`, { waitUntil: "networkidle" });
 
-      if (scenario === "switch-project") {
-        await page.getByLabel("切换项目").selectOption(projectB);
-        await page.getByRole("heading", { name: "年度辅导项目" }).waitFor();
-      } else if (scenario === "empty-projects") {
+      if (scenario === "empty-projects") {
         await page.getByText("暂无可访问项目").waitFor();
       } else if (scenario === "inaccessible") {
         await page.getByText("项目不可访问").waitFor();
-      } else if (scenario === "list-failure") {
-        await page.getByText("项目列表加载失败").waitFor();
-        listFailureSeen = true;
-        await page.getByRole("button", { name: "重试" }).click();
-        await page.getByText("最近更新的知识").waitFor();
-        retrySucceeded = true;
       } else if (scenario === "overview-failure") {
         await page.getByText("项目概览加载失败").waitFor();
         overviewFailureSeen = true;
         await page.getByRole("button", { name: "重试" }).click();
-        await page.getByText("最近更新的知识").waitFor();
+        await page.getByRole("heading", { name: "项目 AI 助手" }).waitFor();
         retrySucceeded = true;
       } else {
-        await page.getByText("最近更新的知识").waitFor();
+        await page.getByRole("heading", { name: "项目 AI 助手" }).waitFor();
+      }
+
+      if (["qa-success", "qa-sending", "qa-failure", "switch-late-answer"].includes(scenario)) {
+        await page
+          .getByRole("textbox", { name: "向项目 AI 助手提问" })
+          .fill("项目 A 的关键风险是什么？");
+        await page.getByRole("button", { name: "提问" }).click();
+      }
+      if (scenario === "qa-success") {
+        await page.getByText(qaAnswer.response_text).waitFor();
+      } else if (scenario === "qa-failure") {
+        await page.getByText("暂时无法完成回答，请稍后重试。").waitFor();
+        qaFailureSeen = true;
+        await page.getByRole("button", { name: "重新提问" }).click();
+        await page.getByText(qaAnswer.response_text).waitFor();
+        retrySucceeded = true;
+      } else if (scenario === "qa-sending") {
+        await page.getByText("正在整理项目知识…").waitFor();
+      } else if (scenario === "switch-late-answer") {
+        await page.getByText("正在整理项目知识…").waitFor();
+        await page.getByLabel("切换项目").selectOption(projectB);
+        await page.getByText("可以围绕“年度辅导项目”的项目知识提问。").waitFor();
+        releasePendingQa();
+        await page.waitForTimeout(80);
+      } else if (scenario === "model-failure") {
+        await page.getByText("问答模型暂时不可用").waitFor();
+        modelFailureSeen = true;
+        await page.getByRole("button", { name: "重试" }).click();
+        await page.waitForFunction(
+          (expected) =>
+            document.querySelector('select[aria-label="问答模型"]')?.value === expected,
+          modelRef,
+        );
+        retrySucceeded = true;
+      } else if (scenario === "no-model") {
+        await page.getByText("当前项目暂无可用问答模型").waitFor();
       }
 
       const result = await page.evaluate(
         ({
           scenarioName,
+          projectAId,
           projectBId,
-          overviewCount,
-          projectBCount,
-          listFailureWasSeen,
+          defaultModelRef,
           overviewFailureWasSeen,
+          modelFailureWasSeen,
+          qaFailureWasSeen,
           retryDidSucceed,
           secrets,
         }) => {
           const bodyText = document.body.innerText;
           const rail = document.querySelector(".rail")?.getBoundingClientRect();
-          const main = document.querySelector(".app-main")?.getBoundingClientRect();
-          const actionLinks = [...document.querySelectorAll(".project78-action-list a")];
-          const countItems = [...document.querySelectorAll(".project78-count")];
-          const auditAction = actionLinks.find((link) =>
-            link.textContent?.includes("处理待审核（2）"),
+          const appMain = document.querySelector(".app-main")?.getBoundingClientRect();
+          const contextPanel = document
+            .querySelector(".project78-context")
+            ?.getBoundingClientRect();
+          const assistant = document.querySelector(".project78-assistant")?.getBoundingClientRect();
+          const composer = document.querySelector(".project78-composer")?.getBoundingClientRect();
+          const conversation = document.querySelector(".project78-conversation");
+          const input = document.querySelector("#project78-question");
+          const send = document.querySelector(".project78-send");
+          const model = document.querySelector('select[aria-label="问答模型"]');
+          const reviewLink = [...document.querySelectorAll(".project78-context-actions a")].find(
+            (link) => link.textContent?.includes("处理待审核（2）"),
           );
+          const interactive = [
+            ...document.querySelectorAll(
+              ".project78-assistant button, .project78-assistant textarea, .project78-assistant select",
+            ),
+          ];
           return {
             scenario: scenarioName,
             overflowX: document.documentElement.scrollWidth - window.innerWidth,
-            shellOverlap: rail && main ? Math.max(0, rail.right - main.left) : 0,
-            clippedActions: actionLinks.filter((link) => {
-              const rect = link.getBoundingClientRect();
-              return rect.left < 0 || rect.right > window.innerWidth || rect.height < 32;
+            shellOverlap: rail && appMain ? Math.max(0, rail.right - appMain.left) : 0,
+            clippedControls: interactive.filter((element) => {
+              const rect = element.getBoundingClientRect();
+              return (
+                rect.left < 0 || rect.right > window.innerWidth || rect.bottom > window.innerHeight
+              );
             }).length,
-            chartCount: document.querySelectorAll("canvas, .chart, [data-chart]").length,
             deckTitle: document.querySelector(".deck-title")?.textContent?.trim() || "",
-            projectAVisible: bodyText.includes("华东增长项目"),
-            projectBVisible: bodyText.includes("年度辅导项目"),
-            countsVisible: ["项目资料", "知识资产", "待确认", "待升级审核", "原文访问申请"].every(
-              (text) => bodyText.includes(text),
+            contextWidth: contextPanel?.width || 0,
+            assistantWidth: assistant?.width || 0,
+            composerVisible: Boolean(
+              composer &&
+              assistant &&
+              composer.top >= assistant.top &&
+              composer.bottom <= window.innerHeight,
+            ),
+            conversationScrollable:
+              conversation instanceof HTMLElement &&
+              ["auto", "scroll"].includes(getComputedStyle(conversation).overflowY),
+            oldDashboardPresent: Boolean(
+              document.querySelector(".project78-counts, .project78-action-list, .project78-main"),
+            ),
+            chartCount: document.querySelectorAll("canvas, .chart, [data-chart]").length,
+            welcomeVisible: bodyText.includes("可以围绕“华东增长项目”的项目知识提问。"),
+            projectBWelcome: bodyText.includes("可以围绕“年度辅导项目”的项目知识提问。"),
+            projectBHeading: [...document.querySelectorAll(".project78-context h2")].some(
+              (heading) => heading.textContent?.trim() === "年度辅导项目",
             ),
             memberSectionCount: document.querySelectorAll(".project78-members").length,
             memberVisible: bodyText.includes("周项目经理"),
-            projectBHeading:
-              document.querySelector(".project78-heading h2")?.textContent?.trim() ===
-              "年度辅导项目",
             settingsVisible: Boolean(
-              document.querySelector('.project78-action-list a[href$="/settings"]'),
+              [...document.querySelectorAll(".project78-context-actions a")].find(
+                (link) => link.textContent?.includes("项目设置"),
+              ),
             ),
-            auditActionVisible: Boolean(auditAction),
-            auditActionHref: auditAction?.getAttribute("href") || null,
-            wrongConfirmationActionVisible: actionLinks.some((link) =>
-              link.textContent?.includes("处理待确认"),
+            reviewActionVisible: Boolean(reviewLink),
+            reviewLinkCorrect:
+              reviewLink?.getAttribute("href") === `/project/${projectAId}/settings`,
+            pendingConfirmationStat: [...document.querySelectorAll(".project78-facts div")].some(
+              (item) => item.textContent?.includes("待确认") && item.textContent?.includes("3"),
             ),
-            pendingConfirmationStat: countItems.some(
-              (item) => item.textContent?.includes("3") && item.textContent?.includes("待确认"),
-            ),
-            pendingReviewZeroStat: countItems.some(
-              (item) => item.textContent?.includes("0") && item.textContent?.includes("待升级审核"),
-            ),
-            safeConfidentialityVisible: bodyText.includes("保密级别待确认"),
-            unknownConfidentialityVisible: bodyText.includes("secret_level_78"),
+            knowledgeLinkCorrect:
+              document.querySelector(".project78-context-actions a")?.getAttribute("href") ===
+              `/project/${projectAId}/knowledge`,
+            defaultModelSelected:
+              model instanceof HTMLSelectElement && model.value === defaultModelRef,
+            inputEnabled: input instanceof HTMLTextAreaElement && !input.disabled,
+            inputDisabled: input instanceof HTMLTextAreaElement && input.disabled,
+            emptySendDisabled: send instanceof HTMLButtonElement && send.disabled,
+            sendingVisible: bodyText.includes("正在整理项目知识…"),
+            noModelVisible: bodyText.includes("当前项目暂无可用问答模型"),
+            questionVisible: bodyText.includes("项目 A 的关键风险是什么？"),
+            oldQuestionVisible: bodyText.includes("项目 A 的关键风险是什么？"),
+            answerVisible: bodyText.includes("访谈材料显示，客户当前最关注交付节奏与复盘机制。"),
+            safeCitationVisible:
+              bodyText.includes("客户访谈纪要") &&
+              bodyText.includes("资料区") &&
+              bodyText.includes("内容待审核，请谨慎参考"),
             emptyVisible: bodyText.includes("暂无可访问项目"),
             inaccessibleVisible: bodyText.includes("项目不可访问"),
-            listFailureVisible: bodyText.includes("项目列表加载失败"),
-            overviewFailureVisible: bodyText.includes("项目概览加载失败"),
-            listFailureSeen: listFailureWasSeen,
             overviewFailureSeen: overviewFailureWasSeen,
+            modelFailureSeen: modelFailureWasSeen,
+            qaFailureSeen: qaFailureWasSeen,
             retrySucceeded: retryDidSucceed,
             pathEndsWithProjectB: window.location.pathname === `/project/${projectBId}`,
-            overviewCalls: overviewCount,
-            projectBOverviewCalls: projectBCount,
             sensitiveVisible: secrets.some((secret) => bodyText.includes(secret)),
             internalEnumVisible: [
               "route_A",
@@ -336,26 +458,32 @@ try {
               "archived",
               "诊断",
               "年度复盘",
-              "secret_level_78",
+              "decision_status",
+              "used_access_layer",
               "storage_ref",
               "weknora",
-              "token",
+              "original content",
             ].some((value) => bodyText.includes(value)),
           };
         },
         {
           scenarioName: scenario,
+          projectAId: projectA,
           projectBId: projectB,
-          overviewCount: overviewCalls,
-          projectBCount: projectBOverviewCalls,
-          listFailureWasSeen: listFailureSeen,
+          defaultModelRef: modelRef,
           overviewFailureWasSeen: overviewFailureSeen,
+          modelFailureWasSeen: modelFailureSeen,
+          qaFailureWasSeen: qaFailureSeen,
           retryDidSucceed: retrySucceeded,
           secrets: [
             projectA,
             projectB,
             hiddenMemberId,
             hiddenAssetId,
+            modelRef,
+            "secondary-model-secret",
+            "call-secret-78",
+            "trace-secret-78",
             "identity-hidden@example.test",
           ],
         },
@@ -366,6 +494,7 @@ try {
         fullPage: true,
       });
       results.push({ viewport: viewport.name, ...result, passed: accepted(result) });
+      if (scenario === "qa-sending") releasePendingQa();
       await context.close();
     }
   }
@@ -376,4 +505,5 @@ try {
 
 console.log(JSON.stringify(results, null, 2));
 const failed = results.filter((result) => !result.passed);
-if (failed.length > 0) throw new Error(`PBC-78 UI QA failed in ${failed.length} scenario(s)`);
+if (failed.length > 0)
+  throw new Error(`PBC-78 strict-reference UI QA failed in ${failed.length} scenario(s)`);
