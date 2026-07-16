@@ -177,6 +177,48 @@ describe("ProjectOverviewPage reference implementation", () => {
     expect(screen.queryByRole("heading", { name: "华东增长项目" })).not.toBeInTheDocument();
   });
 
+  it("hides a ready project overview as soon as the URL switches to a pending project", async () => {
+    let resolveB!: (value: ReturnType<typeof overview>) => void;
+    const managerOverview = overview(PROJECT_A, {
+      capabilities: {
+        can_view_knowledge: true,
+        can_upload_material: true,
+        can_manage_members: true,
+        can_manage_kb: false,
+        can_confirm_assets: true,
+      },
+      members: [
+        {
+          user_id: "old-project-member-id",
+          name: "项目 A 负责人",
+          project_role: "project_manager",
+          status: "active",
+        },
+      ],
+    });
+    api.fetchProjectOverview.mockImplementation((projectId: string) => {
+      if (projectId === PROJECT_A) return Promise.resolve(managerOverview);
+      return new Promise((resolve) => {
+        resolveB = resolve;
+      });
+    });
+    renderPage();
+
+    expect(await screen.findByText("项目 A 负责人")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "处理待确认（3）" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("切换项目"), { target: { value: PROJECT_B } });
+
+    expect(screen.getByRole("heading", { name: "年度辅导项目" })).toBeInTheDocument();
+    expect(screen.getByText("正在加载项目概览…")).toBeInTheDocument();
+    expect(screen.queryByText("项目 A 负责人")).not.toBeInTheDocument();
+    expect(screen.queryByText("12")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "项目设置" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "处理待确认（3）" })).not.toBeInTheDocument();
+
+    resolveB(overview(PROJECT_B));
+    expect(await screen.findByText("最近更新的知识")).toBeInTheDocument();
+  });
+
   it("keeps empty and inaccessible project contexts explicit", async () => {
     api.fetchProjects.mockResolvedValueOnce({ items: [] });
     const empty = renderPage();

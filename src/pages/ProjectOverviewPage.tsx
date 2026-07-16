@@ -52,9 +52,9 @@ type ListState =
 
 type OverviewState =
   | { status: "idle" }
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | { status: "ready"; data: ProjectOverviewDTO };
+  | { status: "loading"; projectId: string }
+  | { status: "error"; projectId: string; message: string }
+  | { status: "ready"; projectId: string; data: ProjectOverviewDTO };
 
 function safeErrorMessage(_error: unknown): string {
   return "暂时无法加载，请稍后重试";
@@ -129,15 +129,23 @@ export default function ProjectOverviewPage() {
 
   const loadOverview = useCallback(async (projectId: string) => {
     const request = ++overviewRequest.current;
-    setOverviewState({ status: "loading" });
+    setOverviewState({ status: "loading", projectId });
     try {
       const response = await fetchProjectOverview(projectId);
       if (request === overviewRequest.current) {
-        setOverviewState({ status: "ready", data: response });
+        if (response.project.project_id !== projectId) {
+          setOverviewState({
+            status: "error",
+            projectId,
+            message: safeErrorMessage(response),
+          });
+          return;
+        }
+        setOverviewState({ status: "ready", projectId, data: response });
       }
     } catch (error) {
       if (request === overviewRequest.current) {
-        setOverviewState({ status: "error", message: safeErrorMessage(error) });
+        setOverviewState({ status: "error", projectId, message: safeErrorMessage(error) });
       }
     }
   }, []);
@@ -201,7 +209,11 @@ export default function ProjectOverviewPage() {
     );
   }
 
-  const overview = overviewState.status === "ready" ? overviewState.data : null;
+  const currentOverviewState =
+    overviewState.status !== "idle" && overviewState.projectId === selectedProject.id
+      ? overviewState
+      : ({ status: "loading", projectId: selectedProject.id } as const);
+  const overview = currentOverviewState.status === "ready" ? currentOverviewState.data : null;
   const project = overview?.project ?? selectedProject;
 
   return (
@@ -220,12 +232,12 @@ export default function ProjectOverviewPage() {
         <ProjectPicker projects={projects} value={selectedProject.id} onChange={switchProject} />
       </header>
 
-      {overviewState.status === "loading" && (
+      {currentOverviewState.status === "loading" && (
         <LoadingError loading loadingTitle="正在加载项目概览…" />
       )}
-      {overviewState.status === "error" && (
+      {currentOverviewState.status === "error" && (
         <LoadingError
-          error={overviewState.message}
+          error={currentOverviewState.message}
           errorTitle="项目概览加载失败"
           onRetry={() => void loadOverview(selectedProject.id)}
         />
