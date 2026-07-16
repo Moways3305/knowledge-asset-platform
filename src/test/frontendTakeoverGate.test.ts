@@ -31,8 +31,8 @@ const routes: RouteContract[] = [
     route: "/knowledge",
     component: "KnowledgeListPage",
     guard: "viewKnowledge",
-    owners: ["pages/KnowledgeListPage.tsx", "pages/knowledge/CreateProjectModal.tsx"],
-    apiModules: ["admin", "auth", "http", "knowledge", "project"],
+    owners: ["pages/KnowledgeListPage.tsx"],
+    apiModules: ["knowledge"],
   },
   {
     route: "/knowledge/:id",
@@ -158,6 +158,12 @@ const routes: RouteContract[] = [
 ];
 
 const businessOptions: BusinessOptionContract[] = [
+  {
+    route: "/knowledge",
+    owner: "pages/KnowledgeListPage.tsx",
+    option: "project",
+    source: { kind: "runtime", symbol: "useAuth" },
+  },
   {
     route: "/project/:id/knowledge",
     owner: "pages/ProjectKnowledgePage.tsx",

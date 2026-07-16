@@ -22,9 +22,6 @@ const ordinaryUserFiles = [
   "pages/OriginalAccessPage.tsx",
   "components/WorkbuddyAccessCard.tsx",
   "components/ModelAdvancedSettings.tsx",
-  "pages/knowledge/KnowledgeSearchBar.tsx",
-  "pages/knowledge/KnowledgeCardList.tsx",
-  "pages/knowledge/OpsInsightsPanel.tsx",
   "layouts/AppLayout.tsx",
   "components/IdentityMenu.tsx",
 ];
