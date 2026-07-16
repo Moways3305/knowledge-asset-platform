@@ -17,6 +17,8 @@ const hiddenAssetId = "asset-secret-78";
 const scenarios = [
   "member",
   "manager",
+  "manager-confirmation-only",
+  "unknown-confidentiality",
   "switch-project",
   "empty-projects",
   "inaccessible",
@@ -142,7 +144,23 @@ function accepted(result) {
     );
   }
   if (result.scenario === "manager") {
-    return result.memberVisible && result.settingsVisible && result.confirmVisible;
+    return (
+      result.memberVisible &&
+      result.settingsVisible &&
+      result.auditActionVisible &&
+      result.auditActionHref === `/project/${projectA}/settings`
+    );
+  }
+  if (result.scenario === "manager-confirmation-only") {
+    return (
+      result.pendingConfirmationStat &&
+      result.pendingReviewZeroStat &&
+      !result.auditActionVisible &&
+      !result.wrongConfirmationActionVisible
+    );
+  }
+  if (result.scenario === "unknown-confidentiality") {
+    return result.safeConfidentialityVisible && !result.unknownConfidentialityVisible;
   }
   if (result.scenario === "switch-project") {
     return (
@@ -203,7 +221,16 @@ try {
           if (scenario === "overview-failure" && overviewCalls === 1) {
             return fulfill({ detail: { message: "项目概览暂时不可用" } }, 503);
           }
-          return fulfill(overview(match[1], scenario === "manager" || match[1] === projectB));
+          const manager =
+            scenario === "manager" ||
+            scenario === "manager-confirmation-only" ||
+            match[1] === projectB;
+          const payload = overview(match[1], manager);
+          if (scenario === "manager-confirmation-only") payload.counts.pending_review_count = 0;
+          if (scenario === "unknown-confidentiality") {
+            payload.recent_activity[0].confidentiality_level = "secret_level_78";
+          }
+          return fulfill(payload);
         }
         return fulfill({ detail: { message: "UI QA route not configured" } }, 404);
       });
@@ -250,6 +277,10 @@ try {
           const rail = document.querySelector(".rail")?.getBoundingClientRect();
           const main = document.querySelector(".app-main")?.getBoundingClientRect();
           const actionLinks = [...document.querySelectorAll(".project78-action-list a")];
+          const countItems = [...document.querySelectorAll(".project78-count")];
+          const auditAction = actionLinks.find((link) =>
+            link.textContent?.includes("处理待审核（2）"),
+          );
           return {
             scenario: scenarioName,
             overflowX: document.documentElement.scrollWidth - window.innerWidth,
@@ -273,11 +304,19 @@ try {
             settingsVisible: Boolean(
               document.querySelector('.project78-action-list a[href$="/settings"]'),
             ),
-            confirmVisible: Boolean(
-              [...document.querySelectorAll(".project78-action-list a")].find((link) =>
-                link.textContent?.includes("处理待确认（3）"),
-              ),
+            auditActionVisible: Boolean(auditAction),
+            auditActionHref: auditAction?.getAttribute("href") || null,
+            wrongConfirmationActionVisible: actionLinks.some((link) =>
+              link.textContent?.includes("处理待确认"),
             ),
+            pendingConfirmationStat: countItems.some(
+              (item) => item.textContent?.includes("3") && item.textContent?.includes("待确认"),
+            ),
+            pendingReviewZeroStat: countItems.some(
+              (item) => item.textContent?.includes("0") && item.textContent?.includes("待升级审核"),
+            ),
+            safeConfidentialityVisible: bodyText.includes("保密级别待确认"),
+            unknownConfidentialityVisible: bodyText.includes("secret_level_78"),
             emptyVisible: bodyText.includes("暂无可访问项目"),
             inaccessibleVisible: bodyText.includes("项目不可访问"),
             listFailureVisible: bodyText.includes("项目列表加载失败"),
@@ -295,6 +334,9 @@ try {
               "project_manager",
               "consultant",
               "archived",
+              "诊断",
+              "年度复盘",
+              "secret_level_78",
               "storage_ref",
               "weknora",
               "token",

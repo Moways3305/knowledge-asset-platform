@@ -106,6 +106,7 @@ describe("ProjectOverviewPage reference implementation", () => {
     expect(await screen.findByText("12")).toBeInTheDocument();
     expect(screen.getByText("7")).toBeInTheDocument();
     expect(screen.getByText("已启用")).toBeInTheDocument();
+    expect(screen.getByText(/L2 内部参考级/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /客户访谈洞察/ })).toHaveAttribute(
       "href",
       "/knowledge/asset-safe-link-78",
@@ -118,6 +119,7 @@ describe("ProjectOverviewPage reference implementation", () => {
     expect(screen.queryByRole("link", { name: "项目设置" })).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(PROJECT_A);
     expect(document.body).not.toHaveTextContent("route_A");
+    expect(document.body).not.toHaveTextContent("诊断");
   });
 
   it("shows manager-only confirmation, settings and members from capabilities", async () => {
@@ -143,9 +145,9 @@ describe("ProjectOverviewPage reference implementation", () => {
     renderPage(`/project/${PROJECT_B}`);
 
     expect(await screen.findByText("周项目经理")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "处理待确认（3）" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "处理待审核（2）" })).toHaveAttribute(
       "href",
-      "/upload",
+      `/project/${PROJECT_B}/settings`,
     );
     expect(screen.getByRole("link", { name: "项目设置" })).toHaveAttribute(
       "href",
@@ -205,7 +207,7 @@ describe("ProjectOverviewPage reference implementation", () => {
     renderPage();
 
     expect(await screen.findByText("项目 A 负责人")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "处理待确认（3）" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "处理待审核（2）" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("切换项目"), { target: { value: PROJECT_B } });
 
     expect(screen.getByRole("heading", { name: "年度辅导项目" })).toBeInTheDocument();
@@ -213,10 +215,47 @@ describe("ProjectOverviewPage reference implementation", () => {
     expect(screen.queryByText("项目 A 负责人")).not.toBeInTheDocument();
     expect(screen.queryByText("12")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "项目设置" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "处理待确认（3）" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "处理待审核（2）" })).not.toBeInTheDocument();
 
     resolveB(overview(PROJECT_B));
     expect(await screen.findByText("最近更新的知识")).toBeInTheDocument();
+  });
+
+  it("keeps pending confirmation as a statistic without inventing a manager action", async () => {
+    api.fetchProjectOverview.mockResolvedValue(
+      overview(PROJECT_B, {
+        capabilities: {
+          can_view_knowledge: true,
+          can_upload_material: true,
+          can_manage_members: true,
+          can_manage_kb: false,
+          can_confirm_assets: true,
+        },
+        counts: {
+          material_count: 12,
+          asset_count: 7,
+          pending_confirmation_count: 3,
+          pending_review_count: 0,
+          original_access_request_count: 1,
+        },
+      }),
+    );
+    renderPage(`/project/${PROJECT_B}`);
+
+    expect(await screen.findByText("最近更新的知识")).toBeInTheDocument();
+    expect(screen.getByText("待确认").previousElementSibling).toHaveTextContent("3");
+    expect(screen.queryByText(/处理待确认/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/处理待审核/)).not.toBeInTheDocument();
+  });
+
+  it("uses a safe label for an unknown confidentiality level", async () => {
+    const unsafeOverview = overview(PROJECT_A);
+    unsafeOverview.recent_activity[0].confidentiality_level = "secret_level_78";
+    api.fetchProjectOverview.mockResolvedValue(unsafeOverview);
+    renderPage();
+
+    expect(await screen.findByText(/保密级别待确认/)).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("secret_level_78");
   });
 
   it("keeps empty and inaccessible project contexts explicit", async () => {

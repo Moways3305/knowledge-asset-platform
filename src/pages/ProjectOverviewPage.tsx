@@ -45,6 +45,14 @@ const KB_STATUS: Record<string, string> = {
   disabled: "已停用",
 };
 
+const CONFIDENTIALITY_LEVEL: Record<string, string> = {
+  L1: "L1 公开级",
+  L2: "L2 内部参考级",
+  L3: "L3 受限级",
+  L4: "L4 商业秘密级",
+  L5: "L5 严格商业秘密级",
+};
+
 type ListState =
   | { status: "loading" }
   | { status: "error"; message: string }
@@ -226,7 +234,6 @@ export default function ProjectOverviewPage() {
           <div className="project78-tags" aria-label="项目状态">
             <span>{PROJECT_STATUS[project.status] ?? "状态待确认"}</span>
             <span>{PROJECT_ROLE[project.project_role] ?? "项目成员"}</span>
-            {project.lifecycle_phase_key && <span>{project.lifecycle_phase_key}</span>}
           </div>
         </div>
         <ProjectPicker projects={projects} value={selectedProject.id} onChange={switchProject} />
@@ -292,7 +299,8 @@ export default function ProjectOverviewPage() {
                           <span>
                             {ZONE[activity.zone] ?? "知识"} ·{" "}
                             {ASSET_TYPE[activity.asset_type] ?? "知识资产"} ·{" "}
-                            {activity.confidentiality_level}
+                            {CONFIDENTIALITY_LEVEL[activity.confidentiality_level] ??
+                              "保密级别待确认"}
                           </span>
                         </span>
                         <span className="project78-activity-date">
@@ -327,10 +335,10 @@ export default function ProjectOverviewPage() {
                   </Link>
                 )}
                 {overview.capabilities.can_confirm_assets &&
-                  overview.counts.pending_confirmation_count > 0 && (
-                    <Link to="/upload">
+                  overview.counts.pending_review_count > 0 && (
+                    <Link to={`/project/${selectedProject.id}/settings`}>
                       <CheckSquare size={18} aria-hidden="true" />
-                      <span>处理待确认（{overview.counts.pending_confirmation_count}）</span>
+                      <span>处理待审核（{overview.counts.pending_review_count}）</span>
                       <ArrowRight size={16} aria-hidden="true" />
                     </Link>
                   )}
