@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/http";
 import ProjectSettingsPage from "./ProjectSettingsPage";
@@ -37,6 +37,11 @@ vi.mock("../auth/AuthContext", () => ({
         {
           projectId: PROJECT_ID,
           projectName: "真实项目",
+          projectRole: auth.projectRole,
+        },
+        {
+          projectId: OTHER_PROJECT_ID,
+          projectName: "切换后的项目",
           projectRole: auth.projectRole,
         },
       ],
@@ -108,9 +113,27 @@ const actionableReview = {
   consulting_director_confirmation_status: null,
 };
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function ProjectSwitcher() {
+  const navigate = useNavigate();
+  return (
+    <button onClick={() => navigate(`/project/${OTHER_PROJECT_ID}/settings`)}>切换到项目 B</button>
+  );
+}
+
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={[`/project/${PROJECT_ID}/settings`]}>
+      <ProjectSwitcher />
       <Routes>
         <Route path="/project/:id/settings" element={<ProjectSettingsPage />} />
         <Route path="/review" element={<div>审核页</div>} />
@@ -273,5 +296,88 @@ describe("ProjectSettingsPage reference implementation", () => {
     expect(screen.getByText("待确认任务加载失败")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "项目基本信息" })).toBeInTheDocument();
+  });
+
+  it("ignores stale settings and members when project B finishes before project A", async () => {
+    const settingsA = deferred<typeof settings>();
+    const membersA = deferred<{ items: typeof members; total: number; can_manage: boolean }>();
+    const settingsB = {
+      ...settings,
+      project_id: OTHER_PROJECT_ID,
+      name: "项目 B 设置",
+      coach_name: "项目 B 辅导老师",
+    };
+    const membersB = {
+      items: [{ ...members[1], member_id: "member-b", name: "项目 B 顾问" }],
+      total: 1,
+      can_manage: true,
+    };
+    projectApi.fetchProjectSettings.mockImplementation((pid) =>
+      pid === PROJECT_ID ? settingsA.promise : Promise.resolve(settingsB),
+    );
+    projectApi.fetchProjectMembers.mockImplementation((pid) =>
+      pid === PROJECT_ID ? membersA.promise : Promise.resolve(membersB),
+    );
+    reviewApi.fetchReviews.mockResolvedValue([]);
+
+    renderPage();
+    await waitFor(() => expect(projectApi.fetchProjectSettings).toHaveBeenCalledWith(PROJECT_ID));
+    fireEvent.click(screen.getByRole("button", { name: "切换到项目 B" }));
+
+    expect(await screen.findByRole("heading", { name: "项目 B 设置" })).toBeInTheDocument();
+    expect(screen.getByText("项目 B 顾问")).toBeInTheDocument();
+
+    await act(async () => {
+      settingsA.resolve({ ...settings, name: "过期的项目 A 设置" });
+      membersA.resolve({ items: members, total: members.length, can_manage: true });
+      await Promise.all([settingsA.promise, membersA.promise]);
+    });
+
+    expect(screen.getByRole("heading", { name: "项目 B 设置" })).toBeInTheDocument();
+    expect(screen.getByText("项目 B 顾问")).toBeInTheDocument();
+    expect(screen.queryByText("过期的项目 A 设置")).not.toBeInTheDocument();
+    expect(screen.queryByText("项目负责人")).not.toBeInTheDocument();
+  });
+
+  it("ignores a stale project A review queue after project B is active", async () => {
+    const reviewsA = deferred<(typeof actionableReview)[]>();
+    const settingsB = {
+      ...settings,
+      project_id: OTHER_PROJECT_ID,
+      name: "项目 B 设置",
+    };
+    const reviewB = {
+      ...actionableReview,
+      id: "review-b",
+      target_project_id: OTHER_PROJECT_ID,
+      asset_title: "项目 B 待确认事项",
+    };
+    projectApi.fetchProjectSettings.mockImplementation((pid) =>
+      Promise.resolve(pid === PROJECT_ID ? settings : settingsB),
+    );
+    projectApi.fetchProjectMembers.mockResolvedValue({
+      items: members,
+      total: members.length,
+      can_manage: true,
+    });
+    reviewApi.fetchReviews
+      .mockImplementationOnce(() => reviewsA.promise)
+      .mockResolvedValueOnce([reviewB]);
+
+    renderPage();
+    expect(await screen.findByRole("heading", { name: settings.name })).toBeInTheDocument();
+    await waitFor(() => expect(reviewApi.fetchReviews).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "切换到项目 B" }));
+
+    expect(await screen.findByRole("heading", { name: "项目 B 设置" })).toBeInTheDocument();
+    expect(await screen.findByText("项目 B 待确认事项")).toBeInTheDocument();
+
+    await act(async () => {
+      reviewsA.resolve([{ ...actionableReview, asset_title: "过期的项目 A 待确认事项" }]);
+      await reviewsA.promise;
+    });
+
+    expect(screen.getByText("项目 B 待确认事项")).toBeInTheDocument();
+    expect(screen.queryByText("过期的项目 A 待确认事项")).not.toBeInTheDocument();
   });
 });

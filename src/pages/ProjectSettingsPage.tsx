@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Check, ClipboardCheck, RotateCcw, Save, X } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
@@ -89,12 +89,20 @@ export default function ProjectSettingsPage() {
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [reviewsError, setReviewsError] = useState<string | null>(null);
   const [reviewBusy, setReviewBusy] = useState<string | null>(null);
+  const projectRequestRef = useRef(0);
+  const reviewRequestRef = useRef(0);
+  const invalidateRequests = useCallback(() => {
+    ++projectRequestRef.current;
+    ++reviewRequestRef.current;
+  }, []);
 
   const loadReviews = useCallback(async (pid: string) => {
+    const requestId = ++reviewRequestRef.current;
     setReviewsLoading(true);
     setReviewsError(null);
     try {
       const authorized = await fetchReviews();
+      if (requestId !== reviewRequestRef.current) return;
       setReviews(
         authorized.filter(
           (review) =>
@@ -104,24 +112,31 @@ export default function ProjectSettingsPage() {
         ),
       );
     } catch (error) {
+      if (requestId !== reviewRequestRef.current) return;
       setReviews([]);
       setReviewsError(safeError(error, "待确认任务暂时无法加载"));
     } finally {
-      setReviewsLoading(false);
+      if (requestId === reviewRequestRef.current) setReviewsLoading(false);
     }
   }, []);
 
   const loadProject = useCallback(
     async (pid: string) => {
+      const requestId = ++projectRequestRef.current;
+      ++reviewRequestRef.current;
       setLoading(true);
       setPageError(null);
       setActionError(null);
       setActionNote(null);
+      setReviews([]);
+      setReviewsError(null);
+      setReviewsLoading(false);
       try {
         const [nextSettings, memberResponse] = await Promise.all([
           fetchProjectSettings(pid),
           fetchProjectMembers(pid),
         ]);
+        if (requestId !== projectRequestRef.current) return;
         setSettings(nextSettings);
         setDraft(draftFromSettings(nextSettings));
         setMembers(memberResponse.items);
@@ -135,12 +150,13 @@ export default function ProjectSettingsPage() {
           setReviewsLoading(false);
         }
       } catch (error) {
+        if (requestId !== projectRequestRef.current) return;
         setSettings(null);
         setDraft(null);
         setMembers([]);
         setPageError(safeError(error, "项目设置加载失败"));
       } finally {
-        setLoading(false);
+        if (requestId === projectRequestRef.current) setLoading(false);
       }
     },
     [loadReviews],
@@ -148,12 +164,14 @@ export default function ProjectSettingsPage() {
 
   useEffect(() => {
     if (!projectId) {
+      invalidateRequests();
       setLoading(false);
       setPageError("当前地址没有有效的项目上下文");
       return;
     }
     void loadProject(projectId);
-  }, [loadProject, projectId]);
+    return invalidateRequests;
+  }, [invalidateRequests, loadProject, projectId]);
 
   const canWrite = settings?.can_write ?? false;
   const canEditProjectRoles = canManageMembers && authProjectRole === "project_manager";
