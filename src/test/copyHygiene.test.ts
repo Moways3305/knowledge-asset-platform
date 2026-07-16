@@ -10,6 +10,7 @@ const ordinaryUserFiles = [
   "pages/HomeDashboardPage.tsx",
   "pages/KnowledgeListPage.tsx",
   "pages/KnowledgeDetailPage.tsx",
+  "pages/knowledge/OnlyOfficePreview.tsx",
   "pages/MyKnowledgePage.tsx",
   "pages/UploadPage.tsx",
   "pages/upload/UploadStepA.tsx",

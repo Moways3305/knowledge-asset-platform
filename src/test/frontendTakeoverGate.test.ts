@@ -38,9 +38,9 @@ const routes: RouteContract[] = [
     route: "/knowledge/:id",
     component: "KnowledgeDetailPage",
     guard: "viewKnowledge",
-    owners: ["pages/KnowledgeDetailPage.tsx"],
+    owners: ["pages/KnowledgeDetailPage.tsx", "pages/knowledge/OnlyOfficePreview.tsx"],
     apiModules: ["http", "knowledge"],
-    allowedTimerOwners: ["pages/KnowledgeDetailPage.tsx"],
+    allowedTimerOwners: ["pages/knowledge/OnlyOfficePreview.tsx"],
   },
   {
     route: "/my/knowledge",

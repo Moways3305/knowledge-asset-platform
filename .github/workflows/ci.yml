@@ -176,6 +176,8 @@ jobs:
         run: npm run test:ui:project-settings
       - name: UI QA (knowledge asset library reference layout)
         run: npm run test:ui:knowledge-list
+      - name: UI QA (knowledge asset detail reference layout)
+        run: npm run test:ui:knowledge-detail
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
