@@ -42,6 +42,7 @@ def _make_celery() -> Celery:
             "app.worker.tasks.original_access",
             "app.worker.tasks.indexing",
             "app.worker.tasks.ops_alerts",
+            "app.worker.tasks.ops_health",
         ],
     )
     app.conf.update(
@@ -51,6 +52,7 @@ def _make_celery() -> Celery:
         worker_hijack_root_logger=False,
         timezone="UTC",
         enable_utc=True,
+        beat_scheduler="app.worker.beat_scheduler:DatabaseHeartbeatScheduler",
         # 定时调度（celery beat）：扫描类作业按日触发；实际由 worker+beat 驱动，
         # 测试直接调用 service 层，不依赖 beat。
         beat_schedule={
@@ -77,6 +79,14 @@ def _make_celery() -> Celery:
             "ops-alerts-scan": {
                 "task": "ops.alerts_scan",
                 "schedule": 600.0,  # 每 10 分钟检查运维告警信号（超阈值经通知链路告警）
+            },
+            "ops-worker-heartbeat": {
+                "task": "ops.worker_heartbeat",
+                "schedule": 60.0,
+            },
+            "ops-indexing-health-snapshot": {
+                "task": "ops.indexing_health_snapshot",
+                "schedule": 3600.0,
             },
         },
     )

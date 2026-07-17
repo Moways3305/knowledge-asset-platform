@@ -3,11 +3,13 @@ import { Link } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
+  BarChart3,
   CheckCircle2,
   Clock3,
   Database,
   FileSearch,
   ListFilter,
+  HeartPulse,
   RefreshCw,
   RotateCw,
   ScanLine,
@@ -15,20 +17,30 @@ import {
 } from "lucide-react";
 import {
   fetchIndexingJobs,
+  fetchIndexingHealth,
   fetchOpsIndexing,
   triggerIndexingReparse,
   triggerIndexingRetry,
+  triggerTargetedIndexingRetry,
 } from "../api/admin";
+import { ApiError } from "../api/http";
 import { fetchAdminIngest } from "../api/ingest";
 import IndexDistribution from "../components/IndexDistribution";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
 import type { AdminIngestItemDTO } from "../types/ingest";
-import type { IndexingJobSummaryDTO, OpsIndexingDTO, OpsIndexingFailedItemDTO } from "../types/ops";
+import type {
+  IndexingHealthDTO,
+  IndexingJobSummaryDTO,
+  OpsIndexingDTO,
+  OpsIndexingFailedItemDTO,
+} from "../types/ops";
 import { formatBeijingTime } from "../utils/time";
 import "./AdminIngestPage.css";
 
 type LoadState = "loading" | "ready" | "error";
-type FailureFilter = "all" | "urgent" | "attention";
+type DiagnosticCategory = OpsIndexingFailedItemDTO["diagnostic_category"];
+type FailureFilter = "all" | DiagnosticCategory;
 
 const jobOpLabel: Record<string, string> = {
   retry_index: "批量重试索引",
@@ -51,6 +63,21 @@ const ingestStatusLabel: Record<string, string> = {
 };
 
 const urgentSeverities = new Set(["critical", "error"]);
+const diagnosticLabels: Record<DiagnosticCategory, string> = {
+  configuration: "配置问题",
+  external_service: "外部服务",
+  source_content: "文件或内容",
+  permission: "权限或访问",
+  platform: "平台处理",
+  unknown: "待确认",
+};
+
+const healthLabels = {
+  healthy: "正常",
+  degraded: "需关注",
+  stale: "心跳过期",
+  unknown: "待确认",
+};
 
 function jobTone(status: string) {
   if (status === "completed") return "success";
@@ -81,6 +108,8 @@ export default function AdminIngestPage() {
   const [opsState, setOpsState] = useState<LoadState>("loading");
   const [opsJobs, setOpsJobs] = useState<IndexingJobSummaryDTO[]>([]);
   const [jobsState, setJobsState] = useState<LoadState>("loading");
+  const [health, setHealth] = useState<IndexingHealthDTO | null>(null);
+  const [healthState, setHealthState] = useState<LoadState>("loading");
   const [failureFilter, setFailureFilter] = useState<FailureFilter>("all");
   const [retryIncludeSkipped, setRetryIncludeSkipped] = useState(false);
   const [retryIncludeNotIndexed, setRetryIncludeNotIndexed] = useState(false);
@@ -88,6 +117,9 @@ export default function AdminIngestPage() {
   const [opsBusy, setOpsBusy] = useState(false);
   const [opsNote, setOpsNote] = useState<string | null>(null);
   const [opsNoteTone, setOpsNoteTone] = useState<"success" | "danger">("success");
+  const [retryTarget, setRetryTarget] = useState<OpsIndexingFailedItemDTO | null>(null);
+  const [targetBusy, setTargetBusy] = useState(false);
+  const [targetError, setTargetError] = useState<string | null>(null);
 
   const loadIngest = useCallback(async () => {
     setIngestState("loading");
@@ -122,10 +154,21 @@ export default function AdminIngestPage() {
     }
   }, []);
 
+  const loadHealth = useCallback(async () => {
+    setHealthState("loading");
+    try {
+      setHealth(await fetchIndexingHealth(24));
+      setHealthState("ready");
+    } catch {
+      setHealth(null);
+      setHealthState("error");
+    }
+  }, []);
+
   const refreshAll = useCallback(async () => {
     setOpsNote(null);
-    await Promise.all([loadIngest(), loadOpsIndex(), loadOpsJobs()]);
-  }, [loadIngest, loadOpsIndex, loadOpsJobs]);
+    await Promise.all([loadIngest(), loadOpsIndex(), loadOpsJobs(), loadHealth()]);
+  }, [loadHealth, loadIngest, loadOpsIndex, loadOpsJobs]);
 
   useEffect(() => {
     void refreshAll();
@@ -133,14 +176,18 @@ export default function AdminIngestPage() {
 
   const activeJob = opsJobs.some((job) => ["queued", "running"].includes(job.status));
   const actionLocked = opsBusy || activeJob || opsState !== "ready";
-  const refreshing = ingestState === "loading" || opsState === "loading" || jobsState === "loading";
+  const refreshing =
+    ingestState === "loading" ||
+    opsState === "loading" ||
+    jobsState === "loading" ||
+    healthState === "loading";
 
-  const recordJob = useCallback((job: IndexingJobSummaryDTO) => {
+  const recordJob = useCallback((job: IndexingJobSummaryDTO, operationLabel?: string) => {
     setOpsJobs((current) => [job, ...current.filter((item) => item.job_id !== job.job_id)]);
     setJobsState("ready");
     setOpsNoteTone("success");
     setOpsNote(
-      `${safeJobOperation(job.operation_type)}已提交：共 ${job.total_count} 项，成功 ${job.success_count} 项，失败 ${job.failed_count} 项，跳过 ${job.skipped_count} 项。`,
+      `${operationLabel ?? safeJobOperation(job.operation_type)}已提交：共 ${job.total_count} 项，成功 ${job.success_count} 项，失败 ${job.failed_count} 项，跳过 ${job.skipped_count} 项。`,
     );
   }, []);
 
@@ -190,6 +237,27 @@ export default function AdminIngestPage() {
     }
   }, [actionLocked, loadOpsIndex, opsLimit, recordJob]);
 
+  const handleTargetRetry = useCallback(async () => {
+    if (!retryTarget || targetBusy) return;
+    setTargetBusy(true);
+    setTargetError(null);
+    try {
+      recordJob(await triggerTargetedIndexingRetry(retryTarget.asset_id), "单条索引重试");
+      setRetryTarget(null);
+      await Promise.all([loadOpsIndex(), loadOpsJobs(), loadHealth()]);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) {
+        setTargetError("当前身份无权执行此操作。");
+      } else if (error instanceof ApiError && error.status === 409) {
+        setTargetError("任务状态已变化或正在执行，请刷新后重试。");
+      } else {
+        setTargetError("单条重试未能发起，请稍后重试。");
+      }
+    } finally {
+      setTargetBusy(false);
+    }
+  }, [loadHealth, loadOpsIndex, loadOpsJobs, recordJob, retryTarget, targetBusy]);
+
   const ingestCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of ingestItems) counts.set(item.status, (counts.get(item.status) ?? 0) + 1);
@@ -198,14 +266,46 @@ export default function AdminIngestPage() {
 
   const failedItems = useMemo(() => {
     const items = opsIndex?.recent_failed ?? [];
-    if (failureFilter === "urgent") {
-      return items.filter((item) => urgentSeverities.has(item.severity ?? ""));
-    }
-    if (failureFilter === "attention") {
-      return items.filter((item) => !urgentSeverities.has(item.severity ?? ""));
-    }
-    return items;
+    return failureFilter === "all"
+      ? items
+      : items.filter((item) => item.diagnostic_category === failureFilter);
   }, [failureFilter, opsIndex]);
+
+  const trendMax = useMemo(
+    () =>
+      Math.max(
+        1,
+        ...(health?.trend_points.map((point) => point.completed_jobs + point.failed_jobs) ?? []),
+      ),
+    [health],
+  );
+  const healthCards: Array<{
+    label: string;
+    status: keyof typeof healthLabels;
+    lastHeartbeat: string | null;
+    detail: string | null;
+  }> = health
+    ? [
+        {
+          label: "任务进程",
+          status: health.worker.status,
+          lastHeartbeat: health.worker.last_heartbeat_at,
+          detail: null,
+        },
+        {
+          label: "定时调度",
+          status: health.beat.status,
+          lastHeartbeat: health.beat.last_heartbeat_at,
+          detail: null,
+        },
+        {
+          label: "作业队列",
+          status: health.queue.status,
+          lastHeartbeat: null,
+          detail: `等待 ${health.queue.queued_count} 项`,
+        },
+      ]
+    : [];
 
   return (
     <ProductPage className="ao84-page">
@@ -415,11 +515,30 @@ export default function AdminIngestPage() {
                 onChange={(event) => setFailureFilter(event.target.value as FailureFilter)}
               >
                 <option value="all">全部失败任务</option>
-                <option value="urgent">需优先处理</option>
-                <option value="attention">一般关注</option>
+                {Object.entries(diagnosticLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
               </select>
             </label>
           </header>
+
+          {opsState === "ready" && opsIndex && (
+            <div className="ao85-diagnostics" aria-label="失败诊断分类数量">
+              {Object.entries(diagnosticLabels).map(([category, label]) => (
+                <button
+                  key={category}
+                  type="button"
+                  className={failureFilter === category ? "is-active" : ""}
+                  onClick={() => setFailureFilter(category as DiagnosticCategory)}
+                >
+                  <span>{label}</span>
+                  <strong>{opsIndex.diagnostic_counts[category as DiagnosticCategory] ?? 0}</strong>
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="ao84-table-wrap">
             <table className="ao84-table">
@@ -439,7 +558,7 @@ export default function AdminIngestPage() {
                         <div className="ao84-failure-kind">
                           <AlertTriangle size={16} aria-hidden="true" />
                           <div>
-                            <strong>索引处理异常</strong>
+                            <strong>{item.diagnostic_label}</strong>
                             <span>{safeFailureMessage(item)}</span>
                           </div>
                         </div>
@@ -451,7 +570,21 @@ export default function AdminIngestPage() {
                         <span className={`ao84-status is-${failureTone(item)}`}>索引失败</span>
                       </td>
                       <td>
-                        <span className="ao84-batch-hint">通过左侧批量重试处理</span>
+                        {item.retry_eligible ? (
+                          <button
+                            type="button"
+                            className="btn-small ao85-target-retry"
+                            onClick={() => {
+                              setTargetError(null);
+                              setRetryTarget(item);
+                            }}
+                          >
+                            <RotateCw size={14} aria-hidden="true" />
+                            重试索引
+                          </button>
+                        ) : (
+                          <span className="ao84-batch-hint">通过左侧批量重试处理</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -480,8 +613,80 @@ export default function AdminIngestPage() {
               </div>
             )}
           </div>
+
+          <section className="ao85-runtime" aria-labelledby="ao85-runtime-title">
+            <div className="ao85-runtime-head">
+              <div>
+                <HeartPulse size={17} aria-hidden="true" />
+                <h3 id="ao85-runtime-title">运行健康</h3>
+              </div>
+              <span>最近 24 小时</span>
+            </div>
+            {healthState === "loading" ? (
+              <div className="ao85-runtime-state" role="status">
+                正在读取运行健康…
+              </div>
+            ) : healthState === "error" || !health ? (
+              <div className="ao85-runtime-state is-error" role="alert">
+                运行健康暂时无法加载。
+              </div>
+            ) : (
+              <>
+                <div className="ao85-runtime-statuses">
+                  {healthCards.map((card) => (
+                    <div key={card.label}>
+                      <span>{card.label}</span>
+                      <strong className={`is-${card.status}`}>{healthLabels[card.status]}</strong>
+                      {card.lastHeartbeat && <time>{formatBeijingTime(card.lastHeartbeat)}</time>}
+                      {card.detail && <small>{card.detail}</small>}
+                    </div>
+                  ))}
+                </div>
+                {health.insufficient_data ? (
+                  <div className="ao85-trend-empty">
+                    <BarChart3 size={18} aria-hidden="true" />
+                    <strong>正在积累运维数据</strong>
+                    <span>形成至少两个真实小时快照后展示趋势。</span>
+                  </div>
+                ) : (
+                  <div className="ao85-trend" aria-label="最近 24 小时索引作业趋势">
+                    {health.trend_points.map((point) => (
+                      <div
+                        key={point.observed_at}
+                        title={`${formatBeijingTime(point.observed_at)}：完成 ${point.completed_jobs}，失败 ${point.failed_jobs}`}
+                      >
+                        <span
+                          className="is-completed"
+                          style={{ height: `${(point.completed_jobs / trendMax) * 100}%` }}
+                        />
+                        <span
+                          className="is-failed"
+                          style={{ height: `${(point.failed_jobs / trendMax) * 100}%` }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </section>
         </section>
       </div>
+
+      <ConfirmDialog
+        open={retryTarget !== null}
+        title="确认重试这项索引？"
+        description="此操作仅重新尝试索引，不查看、不下载、不修改原文。"
+        confirmText="确认重试"
+        busyText="提交中…"
+        busy={targetBusy}
+        error={targetError}
+        onConfirm={() => void handleTargetRetry()}
+        onCancel={() => {
+          setRetryTarget(null);
+          setTargetError(null);
+        }}
+      />
     </ProductPage>
   );
 }

@@ -21,7 +21,7 @@ from app.models.identity import (
     User,
     UserCompanyRole,
 )
-from app.models.indexing_job import IndexingOperationJob
+from app.models.indexing_job import IndexingOperationJob, IndexingOpsSnapshot, OpsRuntimeHeartbeat
 from app.models.ingest import IngestTask, IngestTaskAiResult
 from app.models.knowledge import (
     KnowledgeAsset,
@@ -65,6 +65,8 @@ __all__ = [
     "IngestTask",
     "IngestTaskAiResult",
     "IndexingOperationJob",
+    "IndexingOpsSnapshot",
+    "OpsRuntimeHeartbeat",
     "ValidationEvidence",
     "CompanyAssetReviewDecision",
     "ReviewTask",

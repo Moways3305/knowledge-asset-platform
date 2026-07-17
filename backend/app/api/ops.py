@@ -31,10 +31,10 @@ from app.core.trace import get_trace_id
 from app.db.session import get_db
 from app.models.audit import AuditEvent
 from app.models.identity import Project, User
+from app.models.indexing_job import IndexingOperationJob
 from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.lifecycle import NotificationRecord
-from app.models.weknora import WeknoraKbMapping
 from app.schemas.auth_security import (
     AuthSecurityOverviewResponse,
     AuthUnlockRequest,
@@ -50,6 +50,7 @@ from app.schemas.enums import (
     NotificationStatus,
 )
 from app.schemas.indexing_ops import (
+    IndexingHealthResponse,
     IndexingJobListResponse,
     IndexingJobSummary,
     IndexingReparseRequest,
@@ -67,6 +68,7 @@ from app.services import (
     auth_security_ops,
     error_catalog,
     generation_models,
+    indexing_health,
     session_revocation,
     wecom_identity,
     weknora_defaults,
@@ -420,38 +422,7 @@ async def ops_indexing(
         KnowledgeAsset.asset_status != AssetStatus.deleted.value,
     )
 
-    async def _count(stmt) -> int:
-        return int((await session.execute(stmt)).scalar() or 0)
-
-    def _version_count(*conds):
-        return (
-            select(func.count())
-            .select_from(KnowledgeAssetVersion)
-            .join(KnowledgeAsset, KnowledgeAssetVersion.asset_id == KnowledgeAsset.id)
-            .where(*active_non_deleted, *conds)
-        )
-
-    counts = {
-        "index_failed": await _count(
-            _version_count(KnowledgeAssetVersion.index_status == "index_failed")
-        ),
-        "indexing": await _count(_version_count(KnowledgeAssetVersion.index_status == "indexing")),
-        "not_indexed": await _count(
-            _version_count(KnowledgeAssetVersion.index_status == "not_indexed")
-        ),
-        "skipped": await _count(_version_count(KnowledgeAssetVersion.index_status == "skipped")),
-        "parse_pending": await _count(
-            _version_count(KnowledgeAssetVersion.weknora_parse_status == "pending")
-        ),
-        "parse_processing": await _count(
-            _version_count(KnowledgeAssetVersion.weknora_parse_status == "processing")
-        ),
-        "kb_init_failed": await _count(
-            select(func.count())
-            .select_from(WeknoraKbMapping)
-            .where(WeknoraKbMapping.status == "init_failed")
-        ),
-    }
+    counts = await indexing_health.indexing_counts(session)
 
     # 最近失败资产（安全摘要，最多 20 条）。
     rows = (
@@ -480,17 +451,42 @@ async def ops_indexing(
         ).all():
             omap[uid] = uname
 
+    active_target_ids = set(
+        (
+            await session.execute(
+                select(IndexingOperationJob.target_asset_id).where(
+                    IndexingOperationJob.target_asset_id.is_not(None),
+                    IndexingOperationJob.operation_type == "retry_index",
+                    IndexingOperationJob.status.in_(("queued", "running")),
+                )
+            )
+        ).scalars()
+    )
+    diagnostic_counts = {key: 0 for key in error_catalog.DIAGNOSTIC_LABELS}
+    grouped_codes = (
+        await session.execute(
+            select(KnowledgeAssetVersion.index_error_code, func.count())
+            .join(KnowledgeAsset, KnowledgeAssetVersion.asset_id == KnowledgeAsset.id)
+            .where(*active_non_deleted, KnowledgeAssetVersion.index_status == "index_failed")
+            .group_by(KnowledgeAssetVersion.index_error_code)
+        )
+    ).all()
+    for code, count in grouped_codes:
+        category, _label = error_catalog.diagnostic(code)
+        diagnostic_counts[category] += int(count or 0)
+
     recent_failed = []
     for a, v in rows:
         # 安全目录 code：历史脏 code 也归一，不外显原始上游 code。
         scode = error_catalog.safe_code(v.index_error_code)
         info = error_catalog.get_error(scode)
+        diagnostic_category, diagnostic_label = error_catalog.diagnostic(scode)
         recent_failed.append(
             {
                 "asset_id": str(a.id),
                 "title": a.title if show_title else "（业务资产标题已隐藏）",
                 "scope": a.scope,
-                "project_name": pmap.get(a.project_id) if a.project_id else None,
+                "project_name": (pmap.get(a.project_id) if show_title and a.project_id else None),
                 "owner_name": (omap.get(a.owner_user_id) if show_title else None),
                 "index_status": v.index_status,
                 "index_error_code": scode,
@@ -500,11 +496,54 @@ async def ops_indexing(
                 "operator_error_message": info.operator_message,
                 "remediation_hint": info.remediation_hint,
                 "severity": info.severity,
+                "diagnostic_category": diagnostic_category,
+                "diagnostic_label": diagnostic_label,
+                "retry_eligible": (
+                    error_catalog.targeted_retry_eligible(scode) and a.id not in active_target_ids
+                ),
                 "updated_at": a.updated_at.isoformat() if a.updated_at else None,
             }
         )
 
-    return {"counts": counts, "recent_failed": recent_failed, "title_visible": show_title}
+    return {
+        "counts": counts,
+        "recent_failed": recent_failed,
+        "diagnostic_counts": diagnostic_counts,
+        "title_visible": show_title,
+    }
+
+
+@router.get("/admin/ops/indexing/health", response_model=IndexingHealthResponse)
+async def ops_indexing_health(
+    window_hours: int = 24,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> IndexingHealthResponse:
+    _require_ops_viewer(caller)
+    return await indexing_health.get_health(session, window_hours=window_hours)
+
+
+@router.post(
+    "/admin/ops/indexing/failures/{asset_id}/retry",
+    response_model=IndexingJobSummary,
+    status_code=202,
+)
+async def ops_indexing_target_retry(
+    asset_id: uuid.UUID,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    weknora=Depends(get_weknora_client),
+) -> IndexingJobSummary:
+    return await indexing_ops_service.create_targeted_retry_job(
+        session,
+        caller,
+        asset_id,
+        weknora=weknora,
+        storage=storage,
+        trace_id=get_trace_id(request),
+    )
 
 
 @router.post("/admin/ops/indexing/retry", response_model=IndexingJobSummary, status_code=202)

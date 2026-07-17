@@ -8,13 +8,17 @@
 from __future__ import annotations
 
 import uuid
+from typing import NoReturn
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import and_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.identity import User
 from app.models.indexing_job import IndexingOperationJob
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
+from app.models.weknora import WeknoraKbMapping
 from app.schemas.enums import AuditAction, AuditLogType, CompanyRole, KnowledgeScope
 from app.schemas.indexing_ops import (
     MAX_LIMIT,
@@ -27,7 +31,9 @@ from app.schemas.indexing_ops import (
 )
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
+from app.services import error_catalog, weknora_defaults
 from app.services.storage import LocalFileStorage
+from app.services.weknora_client import weknora_enabled
 from app.worker.enqueue import enqueue_indexing_operation
 
 _SCOPES = {"personal", "project", "company", "all"}
@@ -76,6 +82,7 @@ async def _create_and_run(
     weknora,
     storage: LocalFileStorage,
     trace_id: str,
+    target_asset_id: uuid.UUID | None = None,
 ) -> IndexingJobSummary:
     """建 job（queued）+ 写发起审计 + 入队（eager 内联跑完）+ 回安全摘要。"""
     job = IndexingOperationJob(
@@ -84,9 +91,26 @@ async def _create_and_run(
         scope_filter=scope_filter,
         requested_by_user_id=caller.user_id,
         trace_id=trace_id,
+        target_asset_id=target_asset_id,
     )
     session.add(job)
-    await session.flush()  # 取 job.id 供审计 / 入队
+    try:
+        await session.flush()  # unique partial index atomically claims a targeted retry
+    except IntegrityError:
+        await session.rollback()
+        if target_asset_id is None:
+            raise
+        await audit_service.record_denied(
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.knowledge_index_target_retry_denied.value,
+            trace_id=trace_id,
+            target_type="indexing_failure",
+            target_id=None,
+            extra={"denied_reason": "target_retry_in_progress", "diagnostic_category": "platform"},
+        )
+        raise _denied(409, "target_retry_in_progress", "该任务正在执行，请勿重复提交") from None
     job_id = job.id
 
     await audit_service.record_event(
@@ -111,6 +135,135 @@ async def _create_and_run(
     ).scalar_one()
     name = await _requester_name(session, job.requested_by_user_id)
     return _job_summary(job, name)
+
+
+async def _deny_target(
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    status_code: int,
+    reason: str,
+    message: str,
+    category: str,
+    trace_id: str,
+) -> NoReturn:
+    await audit_service.record_denied(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.knowledge_index_target_retry_denied.value,
+        trace_id=trace_id,
+        target_type="indexing_failure",
+        target_id=None,
+        extra={"denied_reason": reason, "diagnostic_category": category},
+    )
+    raise _denied(status_code, reason, message)
+
+
+async def _target_configuration_ready(session: AsyncSession, asset: KnowledgeAsset) -> bool:
+    if not weknora_enabled():
+        return False
+    mapping_condition = WeknoraKbMapping.scope == asset.scope
+    if asset.scope == KnowledgeScope.personal.value:
+        mapping_condition = and_(
+            mapping_condition, WeknoraKbMapping.owner_user_id == asset.owner_user_id
+        )
+    elif asset.scope == KnowledgeScope.project.value:
+        mapping_condition = and_(mapping_condition, WeknoraKbMapping.project_id == asset.project_id)
+    else:
+        mapping_condition = and_(
+            mapping_condition,
+            WeknoraKbMapping.owner_user_id.is_(None),
+            WeknoraKbMapping.project_id.is_(None),
+        )
+    mapping = (
+        await session.execute(
+            select(WeknoraKbMapping.id).where(
+                mapping_condition, WeknoraKbMapping.status == "active"
+            )
+        )
+    ).scalar_one_or_none()
+    if mapping is not None:
+        return True
+    defaults = await weknora_defaults.get_defaults(session)
+    return bool(defaults and defaults.default_embedding_model_id and defaults.default_chat_model_id)
+
+
+async def create_targeted_retry_job(
+    session: AsyncSession,
+    caller: CallerContext,
+    asset_id: uuid.UUID,
+    *,
+    weknora,
+    storage: LocalFileStorage,
+    trace_id: str,
+) -> IndexingJobSummary:
+    """Atomically claim one still-failed active asset and reuse the existing worker chain."""
+    _require_ops_viewer(caller)
+    row = (
+        await session.execute(
+            select(KnowledgeAsset, KnowledgeAssetVersion)
+            .join(KnowledgeAssetVersion, KnowledgeAssetVersion.asset_id == KnowledgeAsset.id)
+            .where(
+                KnowledgeAsset.id == asset_id,
+                KnowledgeAsset.asset_status != "deleted",
+                KnowledgeAssetVersion.version_status == "active",
+            )
+        )
+    ).one_or_none()
+    if row is None:
+        await _deny_target(
+            session,
+            caller,
+            status_code=404,
+            reason="target_not_actionable",
+            message="目标不存在或不可操作",
+            category="unknown",
+            trace_id=trace_id,
+        )
+    asset, version = row
+    if version.index_status != "index_failed":
+        await _deny_target(
+            session,
+            caller,
+            status_code=409,
+            reason="target_already_recovered",
+            message="索引状态已恢复，无需重试",
+            category="platform",
+            trace_id=trace_id,
+        )
+    category, _label = error_catalog.diagnostic(version.index_error_code)
+    if not error_catalog.targeted_retry_eligible(version.index_error_code):
+        await _deny_target(
+            session,
+            caller,
+            status_code=409,
+            reason="target_not_retryable",
+            message="当前失败原因不支持单条重试",
+            category=category,
+            trace_id=trace_id,
+        )
+    if not await _target_configuration_ready(session, asset):
+        await _deny_target(
+            session,
+            caller,
+            status_code=409,
+            reason="index_configuration_incomplete",
+            message="知识底座配置未完成，暂不能重试",
+            category="configuration",
+            trace_id=trace_id,
+        )
+    return await _create_and_run(
+        session,
+        caller,
+        operation_type="retry_index",
+        scope_filter={"scope": asset.scope, "statuses": ["index_failed"], "limit": 1},
+        requested_action=AuditAction.knowledge_index_target_retry_requested,
+        weknora=weknora,
+        storage=storage,
+        trace_id=trace_id,
+        target_asset_id=asset.id,
+    )
 
 
 async def create_retry_job(

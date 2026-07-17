@@ -5,6 +5,7 @@ import { apiGet, apiPost, apiPatch, apiPut, apiPostNoBody, createIdempotencyKey 
 import type {
   IndexingJobListResponseDTO,
   IndexingJobSummaryDTO,
+  IndexingHealthDTO,
   IndexingReparseRequestDTO,
   IndexingRetryRequestDTO,
   OpsIndexingDTO,
@@ -78,6 +79,21 @@ export async function triggerIndexingReparse(
 // 最近索引运维作业列表。仅安全统计与安全错误文案。
 export async function fetchIndexingJobs(): Promise<IndexingJobListResponseDTO> {
   return apiGet<IndexingJobListResponseDTO>(`/admin/ops/indexing/jobs`);
+}
+
+export async function fetchIndexingHealth(windowHours = 24): Promise<IndexingHealthDTO> {
+  return apiGet<IndexingHealthDTO>(
+    `/admin/ops/indexing/health?window_hours=${encodeURIComponent(windowHours)}`,
+  );
+}
+
+export async function triggerTargetedIndexingRetry(
+  assetId: string,
+): Promise<IndexingJobSummaryDTO> {
+  return apiPost<IndexingJobSummaryDTO>(
+    `/admin/ops/indexing/failures/${encodeURIComponent(assetId)}/retry`,
+    {},
+  );
 }
 
 // ---- 登录风控运维 ----

@@ -4,19 +4,24 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   fetchIndexingJobs,
+  fetchIndexingHealth,
   fetchOpsIndexing,
   triggerIndexingReparse,
   triggerIndexingRetry,
+  triggerTargetedIndexingRetry,
 } from "../api/admin";
+import { ApiError } from "../api/http";
 import { fetchAdminIngest } from "../api/ingest";
-import type { IndexingJobSummaryDTO, OpsIndexingDTO } from "../types/ops";
+import type { IndexingHealthDTO, IndexingJobSummaryDTO, OpsIndexingDTO } from "../types/ops";
 import AdminIngestPage from "./AdminIngestPage";
 
 vi.mock("../api/admin", () => ({
   fetchIndexingJobs: vi.fn(),
+  fetchIndexingHealth: vi.fn(),
   fetchOpsIndexing: vi.fn(),
   triggerIndexingReparse: vi.fn(),
   triggerIndexingRetry: vi.fn(),
+  triggerTargetedIndexingRetry: vi.fn(),
 }));
 vi.mock("../api/ingest", () => ({ fetchAdminIngest: vi.fn() }));
 
@@ -43,10 +48,54 @@ const ops: OpsIndexingDTO = {
       operator_error_message: "连接检查未通过，请确认平台配置。",
       remediation_hint: "SECRET-REMEDIATION",
       severity: "critical",
+      diagnostic_category: "external_service",
+      diagnostic_label: "外部服务",
+      retry_eligible: true,
       updated_at: "2026-07-17T02:30:00Z",
     },
   ],
+  diagnostic_counts: {
+    configuration: 1,
+    external_service: 2,
+    source_content: 0,
+    permission: 0,
+    platform: 0,
+    unknown: 0,
+  },
   title_visible: true,
+};
+
+const health: IndexingHealthDTO = {
+  generated_at: "2026-07-17T03:00:00Z",
+  window_hours: 24,
+  insufficient_data: true,
+  message: "正在积累运维数据",
+  queue: {
+    status: "healthy",
+    queued_count: 0,
+    oldest_queued_seconds: null,
+    message: "索引作业队列运行正常。",
+  },
+  worker: {
+    status: "unknown",
+    last_heartbeat_at: null,
+    message: "本地同步模式不代表独立运行进程在线。",
+  },
+  beat: {
+    status: "unknown",
+    last_heartbeat_at: null,
+    message: "本地同步模式不代表独立运行进程在线。",
+  },
+  trend_points: [
+    {
+      observed_at: "2026-07-17T02:00:00Z",
+      ...ops.counts,
+      completed_jobs: 2,
+      failed_jobs: 1,
+      queued_jobs: 0,
+      oldest_queued_seconds: null,
+    },
+  ],
 };
 
 const completedJob: IndexingJobSummaryDTO = {
@@ -80,6 +129,7 @@ describe("AdminIngestPage operations reference", () => {
     vi.clearAllMocks();
     vi.mocked(fetchOpsIndexing).mockResolvedValue(ops);
     vi.mocked(fetchIndexingJobs).mockResolvedValue({ items: [], total: 0 });
+    vi.mocked(fetchIndexingHealth).mockResolvedValue(health);
     vi.mocked(fetchAdminIngest).mockResolvedValue({
       items: [
         {
@@ -106,6 +156,12 @@ describe("AdminIngestPage operations reference", () => {
       ...completedJob,
       job_id: "reparse-job-secret-84",
       operation_type: "reparse",
+    });
+    vi.mocked(triggerTargetedIndexingRetry).mockResolvedValue({
+      ...completedJob,
+      total_count: 1,
+      success_count: 1,
+      failed_count: 0,
     });
   });
 
@@ -138,6 +194,103 @@ describe("AdminIngestPage operations reference", () => {
     expect(document.body).not.toHaveTextContent("asset-secret-84");
     expect(document.body).not.toHaveTextContent("UPSTREAM_SECRET_CODE");
     expect(document.body).not.toHaveTextContent("critical");
+    expect(screen.getByText("正在积累运维数据")).toBeInTheDocument();
+    expect(screen.getAllByText("待确认").length).toBeGreaterThan(0);
+  });
+
+  it("filters the current failure list by the server diagnostic category", async () => {
+    vi.mocked(fetchOpsIndexing).mockResolvedValue({
+      ...ops,
+      recent_failed: [
+        ops.recent_failed[0],
+        {
+          ...ops.recent_failed[0],
+          asset_id: "configuration-target-secret",
+          operator_error_message: "请完成平台默认模型配置。",
+          diagnostic_category: "configuration",
+          diagnostic_label: "配置问题",
+          retry_eligible: false,
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("请完成平台默认模型配置。");
+    await user.click(screen.getByRole("button", { name: "配置问题1" }));
+    expect(screen.getByText("请完成平台默认模型配置。")).toBeInTheDocument();
+    expect(screen.queryByText("连接检查未通过，请确认平台配置。")).not.toBeInTheDocument();
+  });
+
+  it("confirms and completes one safe targeted retry", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "重试索引" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      "此操作仅重新尝试索引，不查看、不下载、不修改原文。",
+    );
+    await user.click(screen.getByRole("button", { name: "确认重试" }));
+    await waitFor(() =>
+      expect(triggerTargetedIndexingRetry).toHaveBeenCalledWith("asset-secret-84"),
+    );
+    expect(await screen.findByText(/单条索引重试已提交：共 1 项/)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [409, "任务状态已变化或正在执行，请刷新后重试。"],
+    [403, "当前身份无权执行此操作。"],
+    [500, "单条重试未能发起，请稍后重试。"],
+  ])("unlocks targeted retry after safe HTTP %s feedback", async (status, message) => {
+    vi.mocked(triggerTargetedIndexingRetry).mockRejectedValue(
+      new ApiError(status, "SECRET upstream response"),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "重试索引" }));
+    await user.click(screen.getByRole("button", { name: "确认重试" }));
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "确认重试" })).toBeEnabled();
+    expect(document.body).not.toHaveTextContent("SECRET upstream response");
+  });
+
+  it("shows real stale health and a trend only with enough snapshots", async () => {
+    vi.mocked(fetchIndexingHealth).mockResolvedValue({
+      ...health,
+      insufficient_data: false,
+      message: "最近运行趋势已更新",
+      worker: {
+        status: "stale",
+        last_heartbeat_at: "2026-07-17T01:00:00Z",
+        message: "最近心跳已过期，请检查运行服务。",
+      },
+      beat: {
+        status: "healthy",
+        last_heartbeat_at: "2026-07-17T02:59:00Z",
+        message: "定时调度进程心跳正常。",
+      },
+      trend_points: [
+        health.trend_points[0],
+        { ...health.trend_points[0], observed_at: "2026-07-17T03:00:00Z" },
+      ],
+    });
+    renderPage();
+
+    expect(await screen.findByText("心跳过期")).toBeInTheDocument();
+    expect(screen.getAllByText("正常").length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("最近 24 小时索引作业趋势")).toBeInTheDocument();
+    expect(screen.queryByText("正在积累运维数据")).not.toBeInTheDocument();
+  });
+
+  it("isolates a health endpoint failure from the indexing panels", async () => {
+    vi.mocked(fetchIndexingHealth).mockRejectedValue(new Error("SECRET health payload"));
+    renderPage();
+
+    expect(await screen.findByText("运行健康暂时无法加载。")).toBeInTheDocument();
+    expect(screen.getByText("3 项索引失败")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("SECRET health payload");
   });
 
   it("submits the selected bounded batch retry and prevents duplicate actions", async () => {

@@ -86,6 +86,8 @@ async def _select_targets(session: AsyncSession, job: IndexingOperationJob) -> l
         KnowledgeAsset.asset_status != _DELETED,
         *_scope_conditions(scope, project_id),
     ]
+    if job.target_asset_id is not None:
+        base_conds.append(KnowledgeAsset.id == job.target_asset_id)
     if job.operation_type == "reparse":
         parse_statuses = list(sf.get("parse_statuses") or [])
         base_conds.append(KnowledgeAssetVersion.index_status == "indexed")
@@ -267,6 +269,7 @@ async def run_operation_job(
     # 之后再访问 `job.*` 会触发隐式 IO（MissingGreenlet）。用局部值规避。
     job_trace = trace_id or job.trace_id
     operation_type = job.operation_type
+    targeted_retry = job.target_asset_id is not None
 
     job.status = "running"
     job.started_at = utc_now()
@@ -334,9 +337,13 @@ async def run_operation_job(
     await session.commit()
 
     completed_action = (
-        AuditAction.knowledge_index_reparse_completed
-        if job.operation_type == "reparse"
-        else AuditAction.knowledge_index_batch_retry_completed
+        AuditAction.knowledge_index_target_retry_completed
+        if targeted_retry
+        else (
+            AuditAction.knowledge_index_reparse_completed
+            if job.operation_type == "reparse"
+            else AuditAction.knowledge_index_batch_retry_completed
+        )
     )
     await audit_service.record_event(
         session,

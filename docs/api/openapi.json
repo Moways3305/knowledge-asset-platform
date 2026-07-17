@@ -2731,6 +2731,131 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "IndexingHealthResponse": {
+        "properties": {
+          "beat": {
+            "$ref": "#/components/schemas/RuntimeHealth"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "insufficient_data": {
+            "title": "Insufficient Data",
+            "type": "boolean"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "queue": {
+            "$ref": "#/components/schemas/QueueHealth"
+          },
+          "trend_points": {
+            "items": {
+              "$ref": "#/components/schemas/IndexingHealthTrendPoint"
+            },
+            "title": "Trend Points",
+            "type": "array"
+          },
+          "window_hours": {
+            "title": "Window Hours",
+            "type": "integer"
+          },
+          "worker": {
+            "$ref": "#/components/schemas/RuntimeHealth"
+          }
+        },
+        "required": [
+          "generated_at",
+          "window_hours",
+          "insufficient_data",
+          "message",
+          "queue",
+          "worker",
+          "beat",
+          "trend_points"
+        ],
+        "title": "IndexingHealthResponse",
+        "type": "object"
+      },
+      "IndexingHealthTrendPoint": {
+        "properties": {
+          "completed_jobs": {
+            "title": "Completed Jobs",
+            "type": "integer"
+          },
+          "failed_jobs": {
+            "title": "Failed Jobs",
+            "type": "integer"
+          },
+          "index_failed": {
+            "title": "Index Failed",
+            "type": "integer"
+          },
+          "indexing": {
+            "title": "Indexing",
+            "type": "integer"
+          },
+          "kb_init_failed": {
+            "title": "Kb Init Failed",
+            "type": "integer"
+          },
+          "not_indexed": {
+            "title": "Not Indexed",
+            "type": "integer"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "oldest_queued_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Queued Seconds"
+          },
+          "parse_pending": {
+            "title": "Parse Pending",
+            "type": "integer"
+          },
+          "parse_processing": {
+            "title": "Parse Processing",
+            "type": "integer"
+          },
+          "queued_jobs": {
+            "title": "Queued Jobs",
+            "type": "integer"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "observed_at",
+          "index_failed",
+          "indexing",
+          "not_indexed",
+          "skipped",
+          "parse_pending",
+          "parse_processing",
+          "kb_init_failed",
+          "completed_jobs",
+          "failed_jobs",
+          "queued_jobs",
+          "oldest_queued_seconds"
+        ],
+        "title": "IndexingHealthTrendPoint",
+        "type": "object"
+      },
       "IndexingInsights": {
         "properties": {
           "index_failed": {
@@ -8704,6 +8829,41 @@
         "title": "ProviderOut",
         "type": "object"
       },
+      "QueueHealth": {
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "oldest_queued_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Queued Seconds"
+          },
+          "queued_count": {
+            "title": "Queued Count",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "queued_count",
+          "oldest_queued_seconds",
+          "message"
+        ],
+        "title": "QueueHealth",
+        "type": "object"
+      },
       "Recommendation": {
         "properties": {
           "key": {
@@ -10043,6 +10203,37 @@
         ],
         "title": "RoleStatus",
         "type": "string"
+      },
+      "RuntimeHealth": {
+        "properties": {
+          "last_heartbeat_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Heartbeat At"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "last_heartbeat_at",
+          "message"
+        ],
+        "title": "RuntimeHealth",
+        "type": "object"
       },
       "SearchCardOut": {
         "description": "阶段1摘要卡片（§6.1）。绝不含原文 / kb/doc/chunk id / 客户敏感实体。",
@@ -12926,6 +13117,156 @@
           }
         },
         "summary": "Ops Indexing",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/admin/ops/indexing/failures/{asset_id}/retry": {
+      "post": {
+        "operationId": "ops_indexing_target_retry_admin_ops_indexing_failures__asset_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexingJobSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ops Indexing Target Retry",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/admin/ops/indexing/health": {
+      "get": {
+        "operationId": "ops_indexing_health_admin_ops_indexing_health_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "window_hours",
+            "required": false,
+            "schema": {
+              "default": 24,
+              "title": "Window Hours",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexingHealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ops Indexing Health",
         "tags": [
           "ops"
         ]

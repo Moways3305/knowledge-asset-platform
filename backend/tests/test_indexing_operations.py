@@ -8,24 +8,35 @@ reparse 入队与执行（已进底座但解析异常）；refresh-parse 仍只�
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import pytest
-from sqlalchemy import select
+from fastapi import HTTPException
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.db.base import Base
 from app.main import app
-from app.models.knowledge import KnowledgeAssetVersion
+from app.models.audit import AuditEvent
+from app.models.indexing_job import IndexingOperationJob
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
+from app.schemas.permission import CallerContext
 from app.seed.dev_seed import (
     USER_ADMIN_ONLY,
     USER_BOSS,
     USER_CONSULTANT,
+    seed_dev_identities,
 )
+from app.services import indexing_ops
+from app.services.storage import LocalFileStorage
 from app.services.weknora_client import WeKnoraError, get_weknora_client
 
 UPLOAD = "/api/v1/ingest/upload"
 RETRY = "/admin/ops/indexing/retry"
 REPARSE = "/admin/ops/indexing/reparse"
 JOBS = "/admin/ops/indexing/jobs"
+TARGET_RETRY = "/admin/ops/indexing/failures/{asset_id}/retry"
 _TXT = "批量索引运维测试\n标题\n正文内容。".encode()
 
 
@@ -382,6 +393,258 @@ async def test_reparse_requires_ops_viewer(client, monkeypatch):
     r = await client.post(REPARSE, headers=_hdr(USER_CONSULTANT), json={"scope": "all"})
     assert r.status_code == 403
     assert r.json()["detail"]["denied_reason"] == "ops_viewer_required"
+
+
+# ---------------------------------------------------------------------------
+# 单条安全 retry
+# ---------------------------------------------------------------------------
+async def test_targeted_retry_reuses_worker_chain_and_returns_one(client, db_session, monkeypatch):
+    asset_id = await _make_index_failed(client, monkeypatch, USER_CONSULTANT)
+    ok = FakeWK()
+    _enable(monkeypatch, ok)
+    monkeypatch.setattr("app.services.indexing_ops.weknora_enabled", lambda: True)
+
+    response = await client.post(
+        TARGET_RETRY.format(asset_id=asset_id), headers=_hdr(USER_ADMIN_ONLY)
+    )
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["operation_type"] == "retry_index"
+    assert body["total_count"] == 1
+    assert body["success_count"] == 1
+    assert asset_id not in response.text
+    assert len(ok.uploads) == 1
+
+    job = (
+        await db_session.execute(
+            select(IndexingOperationJob).where(IndexingOperationJob.id == uuid.UUID(body["job_id"]))
+        )
+    ).scalar_one()
+    assert job.target_asset_id == uuid.UUID(asset_id)
+
+    events = list(
+        (
+            await db_session.execute(
+                select(AuditEvent).where(
+                    AuditEvent.action.in_(
+                        (
+                            "knowledge.index_target_retry_requested",
+                            "knowledge.index_target_retry_completed",
+                        )
+                    )
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(events) == 2
+    assert all(asset_id not in str(event.extra) for event in events)
+
+
+async def test_targeted_retry_conflict_is_database_guarded(client, db_session, monkeypatch):
+    asset_id = await _make_index_failed(client, monkeypatch, USER_CONSULTANT)
+    _set_client(FakeWK())
+    monkeypatch.setattr("app.services.indexing_ops.weknora_enabled", lambda: True)
+
+    async def _leave_queued(*_args, **_kwargs):
+        return "queued"
+
+    monkeypatch.setattr("app.services.indexing_ops.enqueue_indexing_operation", _leave_queued)
+    first = await client.post(TARGET_RETRY.format(asset_id=asset_id), headers=_hdr(USER_ADMIN_ONLY))
+    second = await client.post(
+        TARGET_RETRY.format(asset_id=asset_id), headers=_hdr(USER_ADMIN_ONLY)
+    )
+
+    assert first.status_code == 202
+    assert second.status_code == 409
+    assert second.json()["detail"] == {
+        "denied_reason": "target_retry_in_progress",
+        "message": "该任务正在执行，请勿重复提交",
+    }
+    jobs = int(
+        (
+            await db_session.execute(
+                select(func.count()).where(
+                    IndexingOperationJob.target_asset_id == uuid.UUID(asset_id)
+                )
+            )
+        ).scalar()
+        or 0
+    )
+    assert jobs == 1
+
+
+async def test_concurrent_targeted_retry_with_independent_sessions_creates_one_job(
+    tmp_path, monkeypatch
+):
+    db_path = (tmp_path / "targeted-concurrency.db").as_posix()
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    asset_id = uuid.uuid4()
+    version_id = uuid.uuid4()
+    async with maker() as setup:
+        await seed_dev_identities(setup)
+        setup.add(
+            KnowledgeAsset(
+                id=asset_id,
+                title="并发目标标题不得进入响应",
+                scope="personal",
+                zone="asset",
+                asset_type="methodology",
+                owner_user_id=USER_CONSULTANT,
+                current_version_id=version_id,
+                visibility="private",
+                confidentiality_level="L2",
+                ai_access_level="A2",
+                asset_status="active",
+            )
+        )
+        setup.add(
+            KnowledgeAssetVersion(
+                id=version_id,
+                asset_id=asset_id,
+                version_no="v1",
+                version_status="active",
+                created_by=USER_CONSULTANT,
+                index_status="index_failed",
+                index_error_code="weknora_call_failed",
+            )
+        )
+        await setup.commit()
+    caller = CallerContext(
+        user_id=USER_ADMIN_ONLY,
+        is_active=True,
+        active_company_roles={"admin"},
+        active_project_ids=set(),
+    )
+    arrived = 0
+    both_ready = asyncio.Event()
+
+    async def _ready(*_args, **_kwargs):
+        nonlocal arrived
+        arrived += 1
+        if arrived == 2:
+            both_ready.set()
+        await asyncio.wait_for(both_ready.wait(), timeout=2)
+        return True
+
+    async def _leave_queued(*_args, **_kwargs):
+        return "queued"
+
+    monkeypatch.setattr(indexing_ops, "_target_configuration_ready", _ready)
+    monkeypatch.setattr(indexing_ops, "enqueue_indexing_operation", _leave_queued)
+    storage = LocalFileStorage(tmp_path / "targeted-concurrency")
+
+    try:
+        async with maker() as first, maker() as second:
+            outcomes = await asyncio.gather(
+                indexing_ops.create_targeted_retry_job(
+                    first,
+                    caller,
+                    asset_id,
+                    weknora=FakeWK(),
+                    storage=storage,
+                    trace_id="targeted-concurrent-one",
+                ),
+                indexing_ops.create_targeted_retry_job(
+                    second,
+                    caller,
+                    asset_id,
+                    weknora=FakeWK(),
+                    storage=storage,
+                    trace_id="targeted-concurrent-two",
+                ),
+                return_exceptions=True,
+            )
+
+        summaries = [item for item in outcomes if not isinstance(item, Exception)]
+        conflicts = [item for item in outcomes if isinstance(item, HTTPException)]
+        assert len(summaries) == 1, outcomes
+        assert len(conflicts) == 1
+        assert conflicts[0].status_code == 409
+        async with maker() as verify:
+            count = int(
+                (
+                    await verify.execute(
+                        select(func.count()).where(IndexingOperationJob.target_asset_id == asset_id)
+                    )
+                ).scalar()
+                or 0
+            )
+        assert count == 1
+    finally:
+        await engine.dispose()
+
+
+async def test_targeted_retry_fails_closed_for_invalid_states(client, db_session, monkeypatch):
+    asset_id = await _make_index_failed(client, monkeypatch, USER_CONSULTANT)
+    monkeypatch.setattr("app.services.indexing_ops.weknora_enabled", lambda: True)
+    version = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id)
+            )
+        )
+    ).scalar_one()
+    version.index_status = "indexed"
+    await db_session.commit()
+    recovered = await client.post(
+        TARGET_RETRY.format(asset_id=asset_id), headers=_hdr(USER_ADMIN_ONLY)
+    )
+    assert recovered.status_code == 409
+    assert recovered.json()["detail"]["denied_reason"] == "target_already_recovered"
+
+    asset = await db_session.get(KnowledgeAsset, uuid.UUID(asset_id))
+    assert asset is not None
+    asset.asset_status = "deleted"
+    version.index_status = "index_failed"
+    await db_session.commit()
+    deleted = await client.post(
+        TARGET_RETRY.format(asset_id=asset_id), headers=_hdr(USER_ADMIN_ONLY)
+    )
+    assert deleted.status_code == 404
+    assert deleted.json()["detail"]["denied_reason"] == "target_not_actionable"
+
+    missing = await client.post(
+        TARGET_RETRY.format(asset_id=uuid.uuid4()), headers=_hdr(USER_ADMIN_ONLY)
+    )
+    assert missing.status_code == 404
+    denied = await client.post(
+        TARGET_RETRY.format(asset_id=asset_id), headers=_hdr(USER_CONSULTANT)
+    )
+    assert denied.status_code == 403
+
+
+async def test_targeted_retry_rejects_unsafe_category_and_missing_configuration(
+    client, db_session, monkeypatch
+):
+    asset_id = await _make_index_failed(client, monkeypatch, USER_CONSULTANT)
+    version = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id)
+            )
+        )
+    ).scalar_one()
+    version.index_error_code = "source_file_unreadable"
+    await db_session.commit()
+    source = await client.post(
+        TARGET_RETRY.format(asset_id=asset_id), headers=_hdr(USER_ADMIN_ONLY)
+    )
+    assert source.status_code == 409
+    assert source.json()["detail"]["denied_reason"] == "target_not_retryable"
+
+    version.index_error_code = "weknora_call_failed"
+    await db_session.commit()
+    monkeypatch.setattr("app.services.indexing_ops.weknora_enabled", lambda: False)
+    config = await client.post(
+        TARGET_RETRY.format(asset_id=asset_id), headers=_hdr(USER_ADMIN_ONLY)
+    )
+    assert config.status_code == 409
+    assert config.json()["detail"]["denied_reason"] == "index_configuration_incomplete"
 
 
 # ---------------------------------------------------------------------------

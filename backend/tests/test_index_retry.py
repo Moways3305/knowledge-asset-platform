@@ -472,6 +472,14 @@ async def test_ops_indexing_safe_and_title_boundary(client, monkeypatch):
         abody = adm.json()
         assert abody["title_visible"] is False
         assert all(it["title"] == "（业务资产标题已隐藏）" for it in abody["recent_failed"])
+        assert all(it["project_name"] is None for it in abody["recent_failed"])
+        assert all(it["owner_name"] is None for it in abody["recent_failed"])
+        assert all(
+            it["diagnostic_label"]
+            in {"配置问题", "外部服务", "文件或内容", "权限或访问", "平台处理", "待确认"}
+            for it in abody["recent_failed"]
+        )
+        assert sum(abody["diagnostic_counts"].values()) == abody["counts"]["index_failed"]
         # 安全：无 WeKnora server-only 字段。
         for token in [
             "weknora_kb_id",

@@ -24,12 +24,22 @@ export interface OpsIndexingFailedItemDTO {
   operator_error_message: string | null;
   remediation_hint: string | null;
   severity: string | null;
+  diagnostic_category:
+    | "configuration"
+    | "external_service"
+    | "source_content"
+    | "permission"
+    | "platform"
+    | "unknown";
+  diagnostic_label: string;
+  retry_eligible: boolean;
   updated_at: string | null;
 }
 
 export interface OpsIndexingDTO {
   counts: OpsIndexingCountsDTO;
   recent_failed: OpsIndexingFailedItemDTO[];
+  diagnostic_counts: Record<OpsIndexingFailedItemDTO["diagnostic_category"], number>;
   title_visible: boolean;
 }
 
@@ -70,4 +80,36 @@ export interface IndexingJobSummaryDTO {
 export interface IndexingJobListResponseDTO {
   items: IndexingJobSummaryDTO[];
   total: number;
+}
+
+export interface IndexingHealthTrendPointDTO extends OpsIndexingCountsDTO {
+  observed_at: string;
+  completed_jobs: number;
+  failed_jobs: number;
+  queued_jobs: number;
+  oldest_queued_seconds: number | null;
+}
+
+export interface RuntimeHealthDTO {
+  status: "healthy" | "stale" | "unknown";
+  last_heartbeat_at: string | null;
+  message: string;
+}
+
+export interface QueueHealthDTO {
+  status: "healthy" | "degraded" | "unknown";
+  queued_count: number;
+  oldest_queued_seconds: number | null;
+  message: string;
+}
+
+export interface IndexingHealthDTO {
+  generated_at: string;
+  window_hours: number;
+  insufficient_data: boolean;
+  message: string;
+  queue: QueueHealthDTO;
+  worker: RuntimeHealthDTO;
+  beat: RuntimeHealthDTO;
+  trend_points: IndexingHealthTrendPointDTO[];
 }
