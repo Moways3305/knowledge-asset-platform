@@ -12,7 +12,7 @@ export interface OpsIndexingCountsDTO {
 }
 
 export interface OpsIndexingFailedItemDTO {
-  asset_id: string;
+  retry_target: string | null;
   title: string; // 纯 admin 看「（业务资产标题已隐藏）」；业务治理角色看真实标题
   scope: string;
   project_name: string | null;

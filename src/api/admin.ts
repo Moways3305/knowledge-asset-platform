@@ -88,10 +88,10 @@ export async function fetchIndexingHealth(windowHours = 24): Promise<IndexingHea
 }
 
 export async function triggerTargetedIndexingRetry(
-  assetId: string,
+  operationTarget: string,
 ): Promise<IndexingJobSummaryDTO> {
   return apiPost<IndexingJobSummaryDTO>(
-    `/admin/ops/indexing/failures/${encodeURIComponent(assetId)}/retry`,
+    `/admin/ops/indexing/failures/${encodeURIComponent(operationTarget)}/retry`,
     {},
   );
 }

@@ -36,7 +36,13 @@ UPLOAD = "/api/v1/ingest/upload"
 RETRY = "/admin/ops/indexing/retry"
 REPARSE = "/admin/ops/indexing/reparse"
 JOBS = "/admin/ops/indexing/jobs"
-TARGET_RETRY = "/admin/ops/indexing/failures/{asset_id}/retry"
+TARGET_RETRY = "/admin/ops/indexing/failures/{operation_target}/retry"
+
+
+def _target_for(asset_id: str | uuid.UUID) -> str:
+    return indexing_ops.issue_targeted_retry_token(uuid.UUID(str(asset_id)))
+
+
 _TXT = "批量索引运维测试\n标题\n正文内容。".encode()
 
 
@@ -404,9 +410,15 @@ async def test_targeted_retry_reuses_worker_chain_and_returns_one(client, db_ses
     _enable(monkeypatch, ok)
     monkeypatch.setattr("app.services.indexing_ops.weknora_enabled", lambda: True)
 
-    response = await client.post(
-        TARGET_RETRY.format(asset_id=asset_id), headers=_hdr(USER_ADMIN_ONLY)
-    )
+    listing = await client.get("/admin/ops/indexing", headers=_hdr(USER_ADMIN_ONLY))
+    assert listing.status_code == 200
+    assert asset_id not in listing.text
+    assert '"asset_id"' not in listing.text
+    operation_target = listing.json()["recent_failed"][0]["retry_target"]
+    assert operation_target and asset_id not in operation_target
+    request_path = TARGET_RETRY.format(operation_target=operation_target)
+    assert asset_id not in request_path
+    response = await client.post(request_path, headers=_hdr(USER_ADMIN_ONLY))
     assert response.status_code == 202, response.text
     body = response.json()
     assert body["operation_type"] == "retry_index"
@@ -451,9 +463,12 @@ async def test_targeted_retry_conflict_is_database_guarded(client, db_session, m
         return "queued"
 
     monkeypatch.setattr("app.services.indexing_ops.enqueue_indexing_operation", _leave_queued)
-    first = await client.post(TARGET_RETRY.format(asset_id=asset_id), headers=_hdr(USER_ADMIN_ONLY))
+    operation_target = _target_for(asset_id)
+    first = await client.post(
+        TARGET_RETRY.format(operation_target=operation_target), headers=_hdr(USER_ADMIN_ONLY)
+    )
     second = await client.post(
-        TARGET_RETRY.format(asset_id=asset_id), headers=_hdr(USER_ADMIN_ONLY)
+        TARGET_RETRY.format(operation_target=operation_target), headers=_hdr(USER_ADMIN_ONLY)
     )
 
     assert first.status_code == 202
@@ -591,8 +606,9 @@ async def test_targeted_retry_fails_closed_for_invalid_states(client, db_session
     ).scalar_one()
     version.index_status = "indexed"
     await db_session.commit()
+    operation_target = _target_for(asset_id)
     recovered = await client.post(
-        TARGET_RETRY.format(asset_id=asset_id), headers=_hdr(USER_ADMIN_ONLY)
+        TARGET_RETRY.format(operation_target=operation_target), headers=_hdr(USER_ADMIN_ONLY)
     )
     assert recovered.status_code == 409
     assert recovered.json()["detail"]["denied_reason"] == "target_already_recovered"
@@ -603,17 +619,28 @@ async def test_targeted_retry_fails_closed_for_invalid_states(client, db_session
     version.index_status = "index_failed"
     await db_session.commit()
     deleted = await client.post(
-        TARGET_RETRY.format(asset_id=asset_id), headers=_hdr(USER_ADMIN_ONLY)
+        TARGET_RETRY.format(operation_target=operation_target), headers=_hdr(USER_ADMIN_ONLY)
     )
     assert deleted.status_code == 404
     assert deleted.json()["detail"]["denied_reason"] == "target_not_actionable"
 
     missing = await client.post(
-        TARGET_RETRY.format(asset_id=uuid.uuid4()), headers=_hdr(USER_ADMIN_ONLY)
+        TARGET_RETRY.format(operation_target=_target_for(uuid.uuid4())),
+        headers=_hdr(USER_ADMIN_ONLY),
     )
     assert missing.status_code == 404
+    raw_identifier = await client.post(
+        TARGET_RETRY.format(operation_target=asset_id), headers=_hdr(USER_ADMIN_ONLY)
+    )
+    assert raw_identifier.status_code == 404
+    assert raw_identifier.json()["detail"]["denied_reason"] == "target_not_actionable"
+    tampered = await client.post(
+        TARGET_RETRY.format(operation_target=f"{operation_target[:-1]}x"),
+        headers=_hdr(USER_ADMIN_ONLY),
+    )
+    assert tampered.status_code == 404
     denied = await client.post(
-        TARGET_RETRY.format(asset_id=asset_id), headers=_hdr(USER_CONSULTANT)
+        TARGET_RETRY.format(operation_target=operation_target), headers=_hdr(USER_CONSULTANT)
     )
     assert denied.status_code == 403
 
@@ -631,8 +658,9 @@ async def test_targeted_retry_rejects_unsafe_category_and_missing_configuration(
     ).scalar_one()
     version.index_error_code = "source_file_unreadable"
     await db_session.commit()
+    operation_target = _target_for(asset_id)
     source = await client.post(
-        TARGET_RETRY.format(asset_id=asset_id), headers=_hdr(USER_ADMIN_ONLY)
+        TARGET_RETRY.format(operation_target=operation_target), headers=_hdr(USER_ADMIN_ONLY)
     )
     assert source.status_code == 409
     assert source.json()["detail"]["denied_reason"] == "target_not_retryable"
@@ -641,7 +669,7 @@ async def test_targeted_retry_rejects_unsafe_category_and_missing_configuration(
     await db_session.commit()
     monkeypatch.setattr("app.services.indexing_ops.weknora_enabled", lambda: False)
     config = await client.post(
-        TARGET_RETRY.format(asset_id=asset_id), headers=_hdr(USER_ADMIN_ONLY)
+        TARGET_RETRY.format(operation_target=operation_target), headers=_hdr(USER_ADMIN_ONLY)
     )
     assert config.status_code == 409
     assert config.json()["detail"]["denied_reason"] == "index_configuration_incomplete"

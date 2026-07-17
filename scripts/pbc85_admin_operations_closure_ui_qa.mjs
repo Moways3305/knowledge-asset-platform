@@ -51,7 +51,7 @@ const counts = {
   kb_init_failed: 0,
 };
 const failure = (overrides = {}) => ({
-  asset_id: "secret-target-asset-85",
+  retry_target: "opaque-retry-target-85",
   title: "绝不能显示的业务标题",
   scope: "project",
   project_name: "绝不能显示的项目名称",
@@ -161,6 +161,7 @@ try {
       const context = await browser.newContext({ viewport });
       const messages = [];
       let targetCalls = 0;
+      let targetPathSafe = true;
       let releaseTarget;
       await context.route("**/*", async (route) => {
         const request = route.request();
@@ -191,6 +192,10 @@ try {
         }
         if (url.pathname.endsWith("/retry") && url.pathname.includes("/failures/")) {
           targetCalls += 1;
+          targetPathSafe =
+            targetPathSafe &&
+            url.pathname.includes("opaque-retry-target-85") &&
+            !url.pathname.includes("secret-target-asset-85");
           if (scenario === "target-running") {
             await new Promise((resolve) => (releaseTarget = resolve));
           }
@@ -221,7 +226,7 @@ try {
               : [
                   failure({ retry_eligible: retryEligible }),
                   failure({
-                    asset_id: "secret-config-target-85",
+                    retry_target: null,
                     diagnostic_category: "configuration",
                     diagnostic_label: "配置问题",
                     operator_error_message: "请完成平台默认模型配置。",
@@ -342,6 +347,7 @@ try {
       }, scenario);
       result.consoleLeak = messages.some((message) => /secret|storage_ref|token/i.test(message));
       result.targetCalls = targetCalls;
+      result.targetPathSafe = targetPathSafe;
       const scenarioPass = {
         "normal-trend": result.trendVisible,
         "category-filter": result.categoryFiltered,
@@ -349,8 +355,8 @@ try {
         "worker-stale": result.stale,
         "beat-stale": result.stale,
         "target-running": result.targetHidden,
-        "target-success": result.success && result.targetCalls === 1,
-        "target-conflict": result.conflict && result.targetCalls === 1,
+        "target-success": result.success && result.targetCalls === 1 && result.targetPathSafe,
+        "target-conflict": result.conflict && result.targetCalls === 1 && result.targetPathSafe,
         "indexing-error": result.indexingError,
         "health-error": result.healthError,
         forbidden: result.forbidden,

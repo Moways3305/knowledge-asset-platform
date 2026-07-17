@@ -7,14 +7,18 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import uuid
 from typing import NoReturn
 
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import HTTPException
 from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.models.identity import User
 from app.models.indexing_job import IndexingOperationJob
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
@@ -38,6 +42,8 @@ from app.worker.enqueue import enqueue_indexing_operation
 
 _SCOPES = {"personal", "project", "company", "all"}
 _RECENT_JOBS_LIMIT = 20
+_TARGET_TOKEN_TTL_SECONDS = 15 * 60
+_TARGET_TOKEN_DOMAIN = b"kap:indexing-target-retry:v1:"
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
@@ -51,6 +57,32 @@ def _require_ops_viewer(caller: CallerContext) -> None:
     if CompanyRole.admin.value in caller.active_company_roles or caller.can_discover_l5:
         return
     raise _denied(403, "ops_viewer_required", "无权发起索引运维作业")
+
+
+def _target_token_cipher() -> Fernet:
+    settings = get_settings()
+    secret = (settings.csrf_token_secret or "").strip()
+    if not secret:
+        if settings.app_env == "prod":
+            raise RuntimeError("indexing_operation_token_secret_missing")
+        secret = "kap-local-indexing-operation-target"
+    key = base64.urlsafe_b64encode(hashlib.sha256(_TARGET_TOKEN_DOMAIN + secret.encode()).digest())
+    return Fernet(key)
+
+
+def issue_targeted_retry_token(asset_id: uuid.UUID) -> str:
+    """Return an opaque, short-lived browser operation target, never a raw asset identifier."""
+    return _target_token_cipher().encrypt(asset_id.hex.encode("ascii")).decode("ascii")
+
+
+def _resolve_targeted_retry_token(operation_target: str) -> uuid.UUID:
+    try:
+        payload = _target_token_cipher().decrypt(
+            operation_target.encode("ascii"), ttl=_TARGET_TOKEN_TTL_SECONDS
+        )
+        return uuid.UUID(hex=payload.decode("ascii"))
+    except (InvalidToken, UnicodeError, ValueError):
+        raise _denied(404, "target_not_actionable", "目标不存在或不可操作") from None
 
 
 def _clamp_limit(limit) -> int:
@@ -263,6 +295,39 @@ async def create_targeted_retry_job(
         storage=storage,
         trace_id=trace_id,
         target_asset_id=asset.id,
+    )
+
+
+async def create_targeted_retry_from_operation_target(
+    session: AsyncSession,
+    caller: CallerContext,
+    operation_target: str,
+    *,
+    weknora,
+    storage: LocalFileStorage,
+    trace_id: str,
+) -> IndexingJobSummary:
+    """Resolve an opaque browser target, then apply every server-side retry guard."""
+    _require_ops_viewer(caller)
+    try:
+        asset_id = _resolve_targeted_retry_token(operation_target)
+    except HTTPException:
+        await _deny_target(
+            session,
+            caller,
+            status_code=404,
+            reason="target_not_actionable",
+            message="目标不存在或不可操作",
+            category="unknown",
+            trace_id=trace_id,
+        )
+    return await create_targeted_retry_job(
+        session,
+        caller,
+        asset_id,
+        weknora=weknora,
+        storage=storage,
+        trace_id=trace_id,
     )
 
 

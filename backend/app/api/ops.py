@@ -481,9 +481,16 @@ async def ops_indexing(
         scode = error_catalog.safe_code(v.index_error_code)
         info = error_catalog.get_error(scode)
         diagnostic_category, diagnostic_label = error_catalog.diagnostic(scode)
+        retry_eligible = (
+            error_catalog.targeted_retry_eligible(scode) and a.id not in active_target_ids
+        )
         recent_failed.append(
             {
-                "asset_id": str(a.id),
+                "retry_target": (
+                    indexing_ops_service.issue_targeted_retry_token(a.id)
+                    if retry_eligible
+                    else None
+                ),
                 "title": a.title if show_title else "（业务资产标题已隐藏）",
                 "scope": a.scope,
                 "project_name": (pmap.get(a.project_id) if show_title and a.project_id else None),
@@ -498,9 +505,7 @@ async def ops_indexing(
                 "severity": info.severity,
                 "diagnostic_category": diagnostic_category,
                 "diagnostic_label": diagnostic_label,
-                "retry_eligible": (
-                    error_catalog.targeted_retry_eligible(scode) and a.id not in active_target_ids
-                ),
+                "retry_eligible": retry_eligible,
                 "updated_at": a.updated_at.isoformat() if a.updated_at else None,
             }
         )
@@ -524,22 +529,22 @@ async def ops_indexing_health(
 
 
 @router.post(
-    "/admin/ops/indexing/failures/{asset_id}/retry",
+    "/admin/ops/indexing/failures/{operation_target}/retry",
     response_model=IndexingJobSummary,
     status_code=202,
 )
 async def ops_indexing_target_retry(
-    asset_id: uuid.UUID,
+    operation_target: str,
     request: Request,
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
     storage: LocalFileStorage = Depends(get_storage),
     weknora=Depends(get_weknora_client),
 ) -> IndexingJobSummary:
-    return await indexing_ops_service.create_targeted_retry_job(
+    return await indexing_ops_service.create_targeted_retry_from_operation_target(
         session,
         caller,
-        asset_id,
+        operation_target,
         weknora=weknora,
         storage=storage,
         trace_id=get_trace_id(request),

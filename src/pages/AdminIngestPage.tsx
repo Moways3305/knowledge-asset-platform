@@ -242,7 +242,8 @@ export default function AdminIngestPage() {
     setTargetBusy(true);
     setTargetError(null);
     try {
-      recordJob(await triggerTargetedIndexingRetry(retryTarget.asset_id), "单条索引重试");
+      if (!retryTarget.retry_target) return;
+      recordJob(await triggerTargetedIndexingRetry(retryTarget.retry_target), "单条索引重试");
       setRetryTarget(null);
       await Promise.all([loadOpsIndex(), loadOpsJobs(), loadHealth()]);
     } catch (error) {
@@ -553,7 +554,7 @@ export default function AdminIngestPage() {
               <tbody>
                 {opsState === "ready" &&
                   failedItems.map((item) => (
-                    <tr key={item.asset_id}>
+                    <tr key={item.retry_target ?? `${item.scope}-${item.updated_at}`}>
                       <td>
                         <div className="ao84-failure-kind">
                           <AlertTriangle size={16} aria-hidden="true" />
@@ -570,7 +571,7 @@ export default function AdminIngestPage() {
                         <span className={`ao84-status is-${failureTone(item)}`}>索引失败</span>
                       </td>
                       <td>
-                        {item.retry_eligible ? (
+                        {item.retry_eligible && item.retry_target ? (
                           <button
                             type="button"
                             className="btn-small ao85-target-retry"

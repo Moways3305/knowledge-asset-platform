@@ -13122,17 +13122,16 @@
         ]
       }
     },
-    "/admin/ops/indexing/failures/{asset_id}/retry": {
+    "/admin/ops/indexing/failures/{operation_target}/retry": {
       "post": {
-        "operationId": "ops_indexing_target_retry_admin_ops_indexing_failures__asset_id__retry_post",
+        "operationId": "ops_indexing_target_retry_admin_ops_indexing_failures__operation_target__retry_post",
         "parameters": [
           {
             "in": "path",
-            "name": "asset_id",
+            "name": "operation_target",
             "required": true,
             "schema": {
-              "format": "uuid",
-              "title": "Asset Id",
+              "title": "Operation Target",
               "type": "string"
             }
           },

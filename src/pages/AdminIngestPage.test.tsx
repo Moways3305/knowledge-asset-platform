@@ -37,7 +37,7 @@ const ops: OpsIndexingDTO = {
   },
   recent_failed: [
     {
-      asset_id: "asset-secret-84",
+      retry_target: "opaque-retry-target-84",
       title: "绝不能显示的业务标题",
       scope: "project",
       project_name: "绝不能显示的项目名称",
@@ -205,7 +205,7 @@ describe("AdminIngestPage operations reference", () => {
         ops.recent_failed[0],
         {
           ...ops.recent_failed[0],
-          asset_id: "configuration-target-secret",
+          retry_target: null,
           operator_error_message: "请完成平台默认模型配置。",
           diagnostic_category: "configuration",
           diagnostic_label: "配置问题",
@@ -232,7 +232,7 @@ describe("AdminIngestPage operations reference", () => {
     );
     await user.click(screen.getByRole("button", { name: "确认重试" }));
     await waitFor(() =>
-      expect(triggerTargetedIndexingRetry).toHaveBeenCalledWith("asset-secret-84"),
+      expect(triggerTargetedIndexingRetry).toHaveBeenCalledWith("opaque-retry-target-84"),
     );
     expect(await screen.findByText(/单条索引重试已提交：共 1 项/)).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

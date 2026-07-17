@@ -462,10 +462,10 @@ async def test_ops_indexing_safe_and_title_boundary(client, monkeypatch):
         body = gov.json()
         assert body["counts"]["index_failed"] >= 1
         assert body["title_visible"] is True
-        assert any(
-            it["asset_id"] == asset_id and it["title"] == "运维面板失败资产"
-            for it in body["recent_failed"]
-        )
+        assert any(it["title"] == "运维面板失败资产" for it in body["recent_failed"])
+        assert asset_id not in gov.text
+        assert all("asset_id" not in it for it in body["recent_failed"])
+        assert any(it["retry_target"] for it in body["recent_failed"])
         # 纯 admin：标题隐藏。
         adm = await client.get("/admin/ops/indexing", headers=_hdr(USER_ADMIN_ONLY))
         assert adm.status_code == 200
