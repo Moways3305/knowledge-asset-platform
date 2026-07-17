@@ -25,7 +25,7 @@ const routes: RouteContract[] = [
     component: "HomeDashboardPage",
     guard: "public",
     owners: ["pages/HomeDashboardPage.tsx"],
-    apiModules: ["http", "ingest", "knowledge", "project", "review"],
+    apiModules: ["workbench"],
   },
   {
     route: "/knowledge",
@@ -125,7 +125,7 @@ const routes: RouteContract[] = [
     component: "ReviewPage",
     guard: "viewReview",
     owners: ["pages/ReviewPage.tsx"],
-    apiModules: ["review"],
+    apiModules: ["http", "review"],
   },
   {
     route: "/original-access",
