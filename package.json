@@ -13,7 +13,6 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui:model-autofill": "node scripts/pbc52_model_autofill_test.mjs",
-    "test:ui:home-workbench": "node scripts/pbc65_home_ui_qa.mjs",
     "test:ui:project-settings": "node scripts/pbc74_project_settings_ui_qa.mjs",
     "test:ui:knowledge-list": "node scripts/pbc75_knowledge_list_ui_qa.mjs",
     "test:ui:knowledge-detail": "node scripts/pbc76_knowledge_detail_ui_qa.mjs",
@@ -21,6 +20,7 @@
     "test:ui:project-space": "node scripts/pbc78_project_space_ui_qa.mjs",
     "test:ui:project-knowledge": "node scripts/pbc79_project_knowledge_ui_qa.mjs",
     "test:ui:review-access": "node scripts/pbc80_review_access_ui_qa.mjs",
+    "test:ui:workbench": "node scripts/pbc81_workbench_ui_qa.mjs",
     "api:export": "python scripts/export_openapi.py"
   },
   "dependencies": {
