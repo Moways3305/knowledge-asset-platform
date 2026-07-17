@@ -304,7 +304,10 @@ export default function AdminIngestPage() {
   );
   const activeTrendPoint = useMemo(() => {
     const points = health?.trend_points ?? [];
-    return points.find((point) => point.observed_at === activeTrendTime) ?? points.at(-1) ?? null;
+    return (
+      points.find((point) => point.observed_at === activeTrendTime) ??
+      (points.length > 0 ? points[points.length - 1] : null)
+    );
   }, [activeTrendTime, health]);
   const healthCards: Array<{
     label: string;
