@@ -282,7 +282,49 @@ try {
       } else if (scenario === "empty") {
         await page.getByText("当前没有索引失败任务").waitFor();
       } else {
-        await page.getByLabel("最近 24 小时索引作业趋势").waitFor();
+        await page.getByLabel("近 24 小时索引运维趋势").waitFor();
+      }
+
+      const trendExpected = !["insufficient-data", "health-error", "forbidden"].includes(scenario);
+      const trendReadability = {
+        legendVisible: false,
+        tickCount: 0,
+        accessiblePoints: false,
+        focusDetailVisible: false,
+        noUnexpectedTrend: false,
+      };
+      if (trendExpected) {
+        const legend = page.locator(".ao85-trend-legend");
+        await legend.getByText("深蓝：已完成索引运维作业数").waitFor();
+        await legend.getByText("红色：失败或部分失败的索引运维作业数").waitFor();
+        trendReadability.legendVisible = true;
+        trendReadability.tickCount = await page.locator(".ao85-trend-tick:not(.is-hidden)").count();
+        const points = page.locator(".ao85-trend-point");
+        const pointLabels = await points.evaluateAll((nodes) =>
+          nodes.map((node) => node.getAttribute("aria-label") || ""),
+        );
+        trendReadability.accessiblePoints =
+          pointLabels.length === 3 &&
+          pointLabels.every(
+            (label) =>
+              label.includes("已完成作业") &&
+              label.includes("失败或部分失败作业") &&
+              label.includes("排队作业") &&
+              label.includes("索引失败存量") &&
+              !label.includes("T02:") &&
+              !label.includes("Z"),
+          );
+        await points.nth(1).focus();
+        const detail = page.locator("#ao85-trend-detail");
+        await detail.waitFor({ state: "visible" });
+        const tooltipText = (await detail.textContent()) || "";
+        trendReadability.focusDetailVisible =
+          tooltipText.includes("已完成作业 3") &&
+          tooltipText.includes("失败或部分失败作业 1") &&
+          tooltipText.includes("排队作业 0") &&
+          tooltipText.includes("索引失败存量 3");
+      } else {
+        trendReadability.noUnexpectedTrend = (await page.locator(".ao85-trend").count()) === 0;
       }
 
       const screenshot = path.join(outDir, `${scenario}-${viewport.name}.png`);
@@ -348,6 +390,7 @@ try {
       result.consoleLeak = messages.some((message) => /secret|storage_ref|token/i.test(message));
       result.targetCalls = targetCalls;
       result.targetPathSafe = targetPathSafe;
+      Object.assign(result, trendReadability);
       const scenarioPass = {
         "normal-trend": result.trendVisible,
         "category-filter": result.categoryFiltered,
@@ -371,6 +414,12 @@ try {
         result.localized &&
         result.healthVisible &&
         !result.consoleLeak &&
+        (trendExpected
+          ? result.legendVisible &&
+            result.tickCount >= 3 &&
+            result.accessiblePoints &&
+            result.focusDetailVisible
+          : result.noUnexpectedTrend) &&
         scenarioPass,
       );
       results.push({ viewport: viewport.name, screenshot, ...result });

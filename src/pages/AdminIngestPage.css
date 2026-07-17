@@ -732,39 +732,122 @@
   font-size: 11px;
 }
 
-.ao85-trend {
-  display: flex;
-  align-items: flex-end;
-  gap: 4px;
-  height: 96px;
+.ao85-trend-block {
   margin-top: 8px;
-  padding: 10px;
+  padding: 10px 12px 8px;
   background: var(--color-bg-muted);
   border: 1px solid var(--color-border-light);
 }
 
-.ao85-trend > div {
+.ao85-trend-heading {
   display: flex;
-  align-items: flex-end;
-  gap: 1px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ao85-trend-heading > strong {
+  flex: 0 0 auto;
+  color: var(--color-text-heading);
+  font-size: 12px;
+}
+
+.ao85-trend-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 14px;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+}
+
+.ao85-trend-legend span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ao85-trend-legend i {
+  width: 8px;
+  height: 8px;
+}
+
+.ao85-trend {
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+  height: 104px;
+  margin-top: 8px;
+}
+
+.ao85-trend-detail {
+  display: grid;
+  grid-template-columns: minmax(136px, 1.35fr) repeat(4, minmax(90px, 1fr));
+  gap: 6px 12px;
+  align-items: center;
+  margin-top: 8px;
+  padding: 6px 8px;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-light);
+}
+
+.ao85-trend-detail strong {
+  color: var(--color-text-heading);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.ao85-trend-point {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 16px;
   flex: 1 1 0;
   height: 100%;
   min-width: 3px;
+  outline: none;
+}
+
+.ao85-trend-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  min-height: 0;
   border-bottom: 1px solid var(--color-border-strong);
 }
 
-.ao85-trend > div > span {
-  display: block;
+.ao85-trend-bars > span {
   flex: 1 1 0;
-  min-height: 1px;
 }
 
-.ao85-trend .is-completed {
+.ao85-trend .is-completed,
+.ao85-trend-legend .is-completed {
   background: var(--color-primary);
 }
 
-.ao85-trend .is-failed {
+.ao85-trend .is-failed,
+.ao85-trend-legend .is-failed {
   background: var(--color-danger);
+}
+
+.ao85-trend-tick {
+  align-self: end;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 14px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.ao85-trend-tick.is-hidden {
+  visibility: hidden;
+}
+
+.ao85-trend-point:focus-visible .ao85-trend-bars {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 .ao84-table-state > svg {
@@ -795,6 +878,10 @@
 
   .ao84-table-wrap {
     min-height: 430px;
+  }
+
+  .ao85-trend-detail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -195,6 +195,7 @@ describe("AdminIngestPage operations reference", () => {
     expect(document.body).not.toHaveTextContent("UPSTREAM_SECRET_CODE");
     expect(document.body).not.toHaveTextContent("critical");
     expect(screen.getByText("正在积累运维数据")).toBeInTheDocument();
+    expect(screen.queryByLabelText("近 24 小时索引运维趋势")).not.toBeInTheDocument();
     expect(screen.getAllByText("待确认").length).toBeGreaterThan(0);
   });
 
@@ -256,7 +257,7 @@ describe("AdminIngestPage operations reference", () => {
     expect(document.body).not.toHaveTextContent("SECRET upstream response");
   });
 
-  it("shows real stale health and a trend only with enough snapshots", async () => {
+  it("shows a readable real trend with legend, Beijing ticks, focus detail and zero values", async () => {
     vi.mocked(fetchIndexingHealth).mockResolvedValue({
       ...health,
       insufficient_data: false,
@@ -272,16 +273,80 @@ describe("AdminIngestPage operations reference", () => {
         message: "定时调度进程心跳正常。",
       },
       trend_points: [
-        health.trend_points[0],
-        { ...health.trend_points[0], observed_at: "2026-07-17T03:00:00Z" },
+        {
+          ...health.trend_points[0],
+          completed_jobs: 0,
+          failed_jobs: 0,
+          queued_jobs: 0,
+          index_failed: 3,
+        },
+        {
+          ...health.trend_points[0],
+          observed_at: "2026-07-17T03:00:00Z",
+          completed_jobs: 4,
+          failed_jobs: 1,
+          queued_jobs: 2,
+          index_failed: 5,
+        },
+        {
+          ...health.trend_points[0],
+          observed_at: "2026-07-17T04:00:00Z",
+          completed_jobs: 2,
+          failed_jobs: 0,
+          queued_jobs: 1,
+          index_failed: 4,
+        },
       ],
     });
     renderPage();
 
     expect(await screen.findByText("心跳过期")).toBeInTheDocument();
     expect(screen.getAllByText("正常").length).toBeGreaterThan(0);
-    expect(screen.getByLabelText("最近 24 小时索引作业趋势")).toBeInTheDocument();
+    expect(screen.getByText("近 24 小时索引运维趋势")).toBeInTheDocument();
+    expect(screen.getByText("深蓝：已完成索引运维作业数")).toBeInTheDocument();
+    expect(screen.getByText("红色：失败或部分失败的索引运维作业数")).toBeInTheDocument();
+    expect(screen.getByText("10:00")).toBeInTheDocument();
+    expect(screen.getByText("11:00")).toBeInTheDocument();
+    expect(screen.getByText("12:00")).toBeInTheDocument();
+    expect(document.querySelectorAll(".ao85-trend-tick:not(.is-hidden)")).toHaveLength(3);
+    const zeroPoint = screen.getByRole("img", {
+      name: /已完成作业 0，失败或部分失败作业 0，排队作业 0，索引失败存量 3/,
+    });
+    expect(zeroPoint.querySelector<HTMLElement>(".is-completed")).toHaveStyle({ height: "0%" });
+    expect(zeroPoint.querySelector<HTMLElement>(".is-failed")).toHaveStyle({ height: "0%" });
+    const detailPoint = screen.getByRole("img", {
+      name: /已完成作业 4，失败或部分失败作业 1，排队作业 2，索引失败存量 5/,
+    });
+    act(() => detailPoint.focus());
+    expect(detailPoint).toHaveFocus();
+    const tooltip = document.getElementById(detailPoint.getAttribute("aria-describedby") ?? "");
+    await waitFor(() => expect(tooltip).toHaveTextContent("已完成作业 4"));
+    expect(tooltip).toHaveTextContent("失败或部分失败作业 1");
+    expect(tooltip).toHaveTextContent("排队作业 2");
+    expect(tooltip).toHaveTextContent("索引失败存量 5");
     expect(screen.queryByText("正在积累运维数据")).not.toBeInTheDocument();
+  });
+
+  it("uses sparse start, intermediate and end ticks for a full 24-hour window", async () => {
+    const start = Date.parse("2026-07-16T03:00:00Z");
+    vi.mocked(fetchIndexingHealth).mockResolvedValue({
+      ...health,
+      insufficient_data: false,
+      message: "最近运行趋势已更新",
+      trend_points: Array.from({ length: 24 }, (_, index) => ({
+        ...health.trend_points[0],
+        observed_at: new Date(start + index * 60 * 60 * 1000).toISOString(),
+        completed_jobs: index % 3,
+        failed_jobs: index % 2,
+      })),
+    });
+    renderPage();
+
+    expect(await screen.findByText("近 24 小时索引运维趋势")).toBeInTheDocument();
+    const visibleTicks = document.querySelectorAll(".ao85-trend-tick:not(.is-hidden)");
+    expect(visibleTicks).toHaveLength(5);
+    expect(visibleTicks[0]).toHaveTextContent("11:00");
+    expect(visibleTicks[visibleTicks.length - 1]).toHaveTextContent("10:00");
   });
 
   it("isolates a health endpoint failure from the indexing panels", async () => {
@@ -290,7 +355,17 @@ describe("AdminIngestPage operations reference", () => {
 
     expect(await screen.findByText("运行健康暂时无法加载。")).toBeInTheDocument();
     expect(screen.getByText("3 项索引失败")).toBeInTheDocument();
+    expect(screen.queryByLabelText("近 24 小时索引运维趋势")).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent("SECRET health payload");
+  });
+
+  it("does not render a trend when the health endpoint is forbidden", async () => {
+    vi.mocked(fetchIndexingHealth).mockRejectedValue(new ApiError(403, "SECRET forbidden"));
+    renderPage();
+
+    expect(await screen.findByText("运行健康暂时无法加载。")).toBeInTheDocument();
+    expect(screen.queryByLabelText("近 24 小时索引运维趋势")).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("SECRET forbidden");
   });
 
   it("submits the selected bounded batch retry and prevents duplicate actions", async () => {

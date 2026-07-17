@@ -79,6 +79,26 @@ const healthLabels = {
   unknown: "待确认",
 };
 
+function trendPointLabel(point: IndexingHealthDTO["trend_points"][number]): string {
+  return `${formatBeijingTime(point.observed_at)}，已完成作业 ${point.completed_jobs}，失败或部分失败作业 ${point.failed_jobs}，排队作业 ${point.queued_jobs}，索引失败存量 ${point.index_failed}`;
+}
+
+function trendTickLabel(value: string): string {
+  return formatBeijingTime(value).slice(11, 16);
+}
+
+function showTrendTick(index: number, total: number): boolean {
+  if (total < 24) return true;
+  const last = total - 1;
+  return new Set([
+    0,
+    Math.round(last / 4),
+    Math.round(last / 2),
+    Math.round((last * 3) / 4),
+    last,
+  ]).has(index);
+}
+
 function jobTone(status: string) {
   if (status === "completed") return "success";
   if (status === "failed" || status === "completed_with_errors") return "danger";
@@ -110,6 +130,7 @@ export default function AdminIngestPage() {
   const [jobsState, setJobsState] = useState<LoadState>("loading");
   const [health, setHealth] = useState<IndexingHealthDTO | null>(null);
   const [healthState, setHealthState] = useState<LoadState>("loading");
+  const [activeTrendTime, setActiveTrendTime] = useState<string | null>(null);
   const [failureFilter, setFailureFilter] = useState<FailureFilter>("all");
   const [retryIncludeSkipped, setRetryIncludeSkipped] = useState(false);
   const [retryIncludeNotIndexed, setRetryIncludeNotIndexed] = useState(false);
@@ -276,10 +297,15 @@ export default function AdminIngestPage() {
     () =>
       Math.max(
         1,
-        ...(health?.trend_points.map((point) => point.completed_jobs + point.failed_jobs) ?? []),
+        ...(health?.trend_points.flatMap((point) => [point.completed_jobs, point.failed_jobs]) ??
+          []),
       ),
     [health],
   );
+  const activeTrendPoint = useMemo(() => {
+    const points = health?.trend_points ?? [];
+    return points.find((point) => point.observed_at === activeTrendTime) ?? points.at(-1) ?? null;
+  }, [activeTrendTime, health]);
   const healthCards: Array<{
     label: string;
     status: keyof typeof healthLabels;
@@ -650,22 +676,78 @@ export default function AdminIngestPage() {
                     <span>形成至少两个真实小时快照后展示趋势。</span>
                   </div>
                 ) : (
-                  <div className="ao85-trend" aria-label="最近 24 小时索引作业趋势">
-                    {health.trend_points.map((point) => (
-                      <div
-                        key={point.observed_at}
-                        title={`${formatBeijingTime(point.observed_at)}：完成 ${point.completed_jobs}，失败 ${point.failed_jobs}`}
-                      >
-                        <span
-                          className="is-completed"
-                          style={{ height: `${(point.completed_jobs / trendMax) * 100}%` }}
-                        />
-                        <span
-                          className="is-failed"
-                          style={{ height: `${(point.failed_jobs / trendMax) * 100}%` }}
-                        />
+                  <div className="ao85-trend-block">
+                    <div className="ao85-trend-heading">
+                      <strong>近 24 小时索引运维趋势</strong>
+                      <div className="ao85-trend-legend" aria-label="趋势图例">
+                        <span>
+                          <i className="is-completed" aria-hidden="true" />
+                          深蓝：已完成索引运维作业数
+                        </span>
+                        <span>
+                          <i className="is-failed" aria-hidden="true" />
+                          红色：失败或部分失败的索引运维作业数
+                        </span>
                       </div>
-                    ))}
+                    </div>
+                    {activeTrendPoint && (
+                      <div
+                        id="ao85-trend-detail"
+                        className="ao85-trend-detail"
+                        role="group"
+                        aria-label="当前时段详情"
+                      >
+                        <strong>{formatBeijingTime(activeTrendPoint.observed_at)}</strong>
+                        <span>已完成作业 {activeTrendPoint.completed_jobs}</span>
+                        <span>失败或部分失败作业 {activeTrendPoint.failed_jobs}</span>
+                        <span>排队作业 {activeTrendPoint.queued_jobs}</span>
+                        <span>索引失败存量 {activeTrendPoint.index_failed}</span>
+                      </div>
+                    )}
+                    <div className="ao85-trend" aria-label="近 24 小时索引运维趋势">
+                      {health.trend_points.map((point, index) => {
+                        const label = trendPointLabel(point);
+                        return (
+                          <div
+                            key={point.observed_at}
+                            className={`ao85-trend-point${index === 0 ? " is-first" : ""}${index === health.trend_points.length - 1 ? " is-last" : ""}`}
+                            role="img"
+                            tabIndex={0}
+                            aria-label={label}
+                            aria-describedby="ao85-trend-detail"
+                            onMouseEnter={() => setActiveTrendTime(point.observed_at)}
+                            onFocus={() => setActiveTrendTime(point.observed_at)}
+                          >
+                            <div className="ao85-trend-bars" aria-hidden="true">
+                              <span
+                                className="is-completed"
+                                style={{
+                                  height:
+                                    point.completed_jobs === 0
+                                      ? "0%"
+                                      : `${Math.max(2, (point.completed_jobs / trendMax) * 100)}%`,
+                                }}
+                              />
+                              <span
+                                className="is-failed"
+                                style={{
+                                  height:
+                                    point.failed_jobs === 0
+                                      ? "0%"
+                                      : `${Math.max(2, (point.failed_jobs / trendMax) * 100)}%`,
+                                }}
+                              />
+                            </div>
+                            <time
+                              className={`ao85-trend-tick${showTrendTick(index, health.trend_points.length) ? "" : " is-hidden"}`}
+                              aria-hidden="true"
+                            >
+                              {trendTickLabel(point.observed_at)}
+                            </time>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </>
