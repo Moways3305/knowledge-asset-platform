@@ -182,6 +182,12 @@
   transition: opacity 140ms ease;
 }
 
+@media (min-width: 1000px) {
+  .pk-table-wrap {
+    min-height: max(292px, calc(100vh - 380px));
+  }
+}
+
 .pk-table-wrap.is-updating tbody {
   opacity: 0.55;
 }

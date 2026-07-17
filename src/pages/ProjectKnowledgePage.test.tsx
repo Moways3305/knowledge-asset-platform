@@ -96,6 +96,15 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+function expectDocumentOrder(firstSelector: string, secondSelector: string) {
+  const first = document.querySelector(firstSelector);
+  const second = document.querySelector(secondSelector);
+  if (!first || !second) {
+    throw new Error(`Missing ordered elements: ${firstSelector}, ${secondSelector}`);
+  }
+  expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+}
+
 describe("ProjectKnowledgePage reference workspace", () => {
   beforeEach(() => {
     authState.status = "authenticated";
@@ -150,6 +159,23 @@ describe("ProjectKnowledgePage reference workspace", () => {
       sortDirection: "desc",
       includeArchived: false,
     });
+    expectDocumentOrder(".pk-filter-form", ".pk-list-section");
+    expectDocumentOrder(".pk-pagination", ".pk-qa-section");
+    expect(document.querySelectorAll(".pk-qa-section")).toHaveLength(1);
+  });
+
+  it("keeps project QA last, collapsed and lazy-loads models only after disclosure", async () => {
+    renderPage();
+    await screen.findByRole("table", { name: "项目知识列表" });
+
+    const qaToggle = screen.getByRole("button", { name: /项目问答/ });
+    expect(qaToggle).toHaveAttribute("aria-expanded", "false");
+    expect(fetchProjectQaModelOptions).not.toHaveBeenCalled();
+    expectDocumentOrder(".pk-list-section", ".pk-qa-section");
+
+    fireEvent.click(qaToggle);
+    await waitFor(() => expect(fetchProjectQaModelOptions).toHaveBeenCalledTimes(1));
+    expect(qaToggle).toHaveAttribute("aria-expanded", "true");
   });
 
   it("sends real search, filter, date, sort and pagination parameters to the server", async () => {
@@ -260,6 +286,7 @@ describe("ProjectKnowledgePage reference workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "申请升格公司资产" }));
     await waitFor(() => expect(requestCompanyUpgrade).toHaveBeenCalledWith(PROJECT_B, "asset-2"));
     expect(await screen.findByText("公司资产升级申请已提交。")).toBeInTheDocument();
+    expectDocumentOrder(".pk-upgrade-notice", ".pk-qa-section");
   });
 
   it("uses the default model and renders only safe QA fields", async () => {

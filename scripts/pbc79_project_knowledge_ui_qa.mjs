@@ -139,9 +139,27 @@ function accepted(result) {
   }
   if (!result.tableVisible || !result.toolbarBeforeTable || result.maxRowHeight > 76) return false;
   if (result.scenario === "member-list") {
-    return result.qaInitiallyCollapsed && !result.managerActionVisible;
+    return (
+      result.qaInitiallyCollapsed &&
+      result.modelOptionsLazy &&
+      result.domOrderCorrect &&
+      result.qaEntryCount === 1 &&
+      result.qaOutsideInitialViewport &&
+      result.bottomQaVisible &&
+      !result.managerActionVisible
+    );
   }
-  if (result.scenario === "manager-list") return result.managerActionVisible;
+  if (result.scenario === "manager-list") {
+    return (
+      result.qaInitiallyCollapsed &&
+      result.modelOptionsLazy &&
+      result.domOrderCorrect &&
+      result.qaEntryCount === 1 &&
+      result.qaOutsideInitialViewport &&
+      result.bottomQaVisible &&
+      result.managerActionVisible
+    );
+  }
   if (result.scenario === "filters-pagination") {
     return result.filterRequestCorrect && result.pageRequestCorrect && result.resetToFirstPage;
   }
@@ -150,9 +168,20 @@ function accepted(result) {
   }
   if (result.scenario === "list-failure") return result.failureSeen && result.retrySucceeded;
   if (result.scenario === "filtered-empty") return result.filteredEmptyVisible;
-  if (result.scenario === "no-model") return result.noModelVisible && result.qaInputDisabled;
-  if (result.scenario === "qa-success") return result.safeAnswerVisible;
-  if (result.scenario === "qa-failure") return result.qaFailureVisible;
+  if (result.scenario === "no-model") {
+    return (
+      result.modelOptionsLazy &&
+      result.qaModelCalls === 1 &&
+      result.noModelVisible &&
+      result.qaInputDisabled
+    );
+  }
+  if (result.scenario === "qa-success") {
+    return result.modelOptionsLazy && result.qaModelCalls === 1 && result.safeAnswerVisible;
+  }
+  if (result.scenario === "qa-failure") {
+    return result.modelOptionsLazy && result.qaModelCalls === 1 && result.qaFailureVisible;
+  }
   if (result.scenario === "upgrade-failure") return result.upgradeFailureVisible;
   return true;
 }
@@ -172,6 +201,7 @@ try {
   for (const scenario of scenarios) {
     for (const viewport of viewports) {
       let knowledgeCalls = 0;
+      let qaModelCalls = 0;
       let capturedFilterQuery = null;
       let capturedPageQuery = null;
       let listFailureSeen = false;
@@ -247,6 +277,7 @@ try {
         }
 
         if (requestUrl.pathname.endsWith("/qa/model-options")) {
+          qaModelCalls += 1;
           if (scenario === "no-model") return fulfill({ items: [], total: 0 });
           return fulfill({
             items: [
@@ -285,6 +316,7 @@ try {
       await page.goto(`${base}/project/${initialProject}/knowledge`, {
         waitUntil: scenario === "switch-late" ? "domcontentloaded" : "networkidle",
       });
+      const modelOptionsLazy = qaModelCalls === 0;
 
       let filteredEmptyVisible = false;
       let safeAnswerVisible = false;
@@ -296,6 +328,13 @@ try {
       let lateProjectContentHidden = true;
       let pageRequestCorrect = false;
       let resetToFirstPage = false;
+      let initialLayout = {
+        domOrderCorrect: false,
+        qaEntryCount: 0,
+        qaInitiallyCollapsed: false,
+        qaOutsideInitialViewport: false,
+      };
+      let bottomQaVisible = false;
 
       if (scenario === "empty-projects") {
         await page.getByText("当前账号无此入口").waitFor();
@@ -324,6 +363,40 @@ try {
               : "客户经营诊断与交付复盘框架",
           )
           .waitFor();
+
+        if (["member-list", "manager-list"].includes(scenario)) {
+          initialLayout = await page.evaluate(() => {
+            const toolbar = document.querySelector(".pk-filter-form");
+            const list = document.querySelector(".pk-list-section");
+            const pagination = document.querySelector(".pk-pagination");
+            const qa = document.querySelector(".pk-qa-section");
+            const follows = (first, second) =>
+              Boolean(first?.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
+            return {
+              domOrderCorrect:
+                follows(toolbar, list) && follows(list, pagination) && follows(pagination, qa),
+              qaEntryCount: document.querySelectorAll(".pk-qa-section").length,
+              qaInitiallyCollapsed:
+                document.querySelector(".pk-qa-toggle")?.getAttribute("aria-expanded") === "false",
+              qaOutsideInitialViewport: Boolean(
+                qa && qa.getBoundingClientRect().top >= window.innerHeight,
+              ),
+            };
+          });
+          await page.screenshot({
+            path: path.join(outDir, `${scenario}-${viewport.name}-first-fold.png`),
+            fullPage: false,
+            animations: "disabled",
+          });
+          await page.locator(".pk-qa-section").scrollIntoViewIfNeeded();
+          bottomQaVisible = await page.locator(".pk-qa-toggle").isVisible();
+          await page.screenshot({
+            path: path.join(outDir, `${scenario}-${viewport.name}-page-bottom.png`),
+            fullPage: false,
+            animations: "disabled",
+          });
+          await page.evaluate(() => window.scrollTo(0, 0));
+        }
 
         if (scenario === "filters-pagination") {
           await page.getByPlaceholder("按标题或标签搜索").fill("交付");
@@ -412,9 +485,7 @@ try {
             maxRowHeight: Math.max(0, ...rows.map((row) => row.getBoundingClientRect().height)),
             qaInitiallyCollapsed:
               document.querySelector(".pk-qa-toggle")?.getAttribute("aria-expanded") === "false",
-            managerActionVisible: Boolean(
-              document.querySelector('[aria-label^="更多操作："]'),
-            ),
+            managerActionVisible: Boolean(document.querySelector('[aria-label^="更多操作："]')),
             qaInputDisabled:
               document.querySelector(".pk-qa-body textarea") instanceof HTMLTextAreaElement &&
               document.querySelector(".pk-qa-body textarea").disabled,
@@ -489,6 +560,10 @@ try {
         upgradeFailureVisible: upgradeFailureVisible && upgradeFailureSeen,
         listFailureSeen,
         knowledgeCalls,
+        qaModelCalls,
+        modelOptionsLazy,
+        bottomQaVisible,
+        ...initialLayout,
       });
 
       await page.screenshot({
