@@ -1,10 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchPendingIngestTasks } from "../api/ingest";
-import { fetchKnowledgeOpsInsights, fetchOriginalAccessRequests } from "../api/knowledge";
-import { fetchProjects } from "../api/project";
-import { fetchReviews } from "../api/review";
 import { fetchWorkbenchOverview } from "../api/workbench";
 import type { WorkbenchOverviewDTO } from "../types/workbench";
 import HomeDashboardPage from "./HomeDashboardPage";
@@ -32,13 +28,6 @@ const auth = vi.hoisted(() => ({
 
 vi.mock("../auth/AuthContext", () => ({ useAuth: () => auth }));
 vi.mock("../api/workbench", () => ({ fetchWorkbenchOverview: vi.fn() }));
-vi.mock("../api/ingest", () => ({ fetchPendingIngestTasks: vi.fn() }));
-vi.mock("../api/review", () => ({ fetchReviews: vi.fn() }));
-vi.mock("../api/project", () => ({ fetchProjects: vi.fn() }));
-vi.mock("../api/knowledge", () => ({
-  fetchKnowledgeOpsInsights: vi.fn(),
-  fetchOriginalAccessRequests: vi.fn(),
-}));
 
 function overview(overrides: Partial<WorkbenchOverviewDTO> = {}): WorkbenchOverviewDTO {
   return {
@@ -158,23 +147,15 @@ describe("HomeDashboardPage overview workbench", () => {
       hasProject: true,
     });
     vi.mocked(fetchWorkbenchOverview).mockReset().mockResolvedValue(overview());
-    vi.mocked(fetchPendingIngestTasks).mockReset();
-    vi.mocked(fetchKnowledgeOpsInsights).mockReset();
-    vi.mocked(fetchOriginalAccessRequests).mockReset();
-    vi.mocked(fetchProjects).mockReset();
-    vi.mocked(fetchReviews).mockReset();
   });
 
   it("uses only overview and renders all four available sections with formal routes", async () => {
+    const networkSpy = vi.spyOn(globalThis, "fetch");
     const { container } = renderPage();
 
     expect(await screen.findByRole("heading", { name: "我的待办" })).toBeInTheDocument();
     expect(fetchWorkbenchOverview).toHaveBeenCalledTimes(1);
-    expect(fetchPendingIngestTasks).not.toHaveBeenCalled();
-    expect(fetchKnowledgeOpsInsights).not.toHaveBeenCalled();
-    expect(fetchOriginalAccessRequests).not.toHaveBeenCalled();
-    expect(fetchProjects).not.toHaveBeenCalled();
-    expect(fetchReviews).not.toHaveBeenCalled();
+    expect(networkSpy).not.toHaveBeenCalled();
 
     expect(screen.getByRole("link", { name: /处理知识审核/ })).toHaveAttribute("href", "/review");
     expect(screen.getByRole("link", { name: /确认待入库资料/ })).toHaveAttribute("href", "/upload");
@@ -191,17 +172,59 @@ describe("HomeDashboardPage overview workbench", () => {
     expect(screen.getByRole("link", { name: "上传资产化" })).toBeInTheDocument();
 
     const dashboard = container.querySelector(".wb81-dashboard");
+    const secondaryColumn = container.querySelector(".wb81-secondary-column");
     const primaryColumn = container.querySelector(".wb81-primary-column");
-    expect(dashboard?.children[0]).toHaveClass("is-todos");
+    expect(dashboard?.children[0]).toBe(secondaryColumn);
     expect(dashboard?.children[1]).toBe(primaryColumn);
+    expect(secondaryColumn?.children[0]).toHaveClass("is-todos");
+    expect(secondaryColumn?.children[1]).toHaveClass("is-recent");
     expect(primaryColumn?.children[0]).toHaveClass("is-operations");
     expect(primaryColumn?.children[1]).toHaveClass("is-projects");
-    expect(dashboard?.nextElementSibling).toHaveClass("is-recent");
     expect(container.querySelector(".wb81-grid")).not.toBeInTheDocument();
 
     expect(document.body.textContent).not.toMatch(
       /review_pending|decide_review|secret-route-A|secret-phase|secret-zone|secret-type|secret-level|secret-summary|server label|server hint/,
     );
+    networkSpy.mockRestore();
+  });
+
+  it("keeps project empty state compact and limits operations to three non-zero cards", async () => {
+    vi.mocked(fetchWorkbenchOverview).mockResolvedValue(
+      overview({
+        operations: {
+          ...overview().operations,
+          data: {
+            ...overview().operations.data!,
+            cards: [
+              { key: "index_failed", label: "", count: 4, severity: "warning", action_hint: null },
+              { key: "parse_failed", label: "", count: 3, severity: "error", action_hint: null },
+              { key: "kb_init_failed", label: "", count: 2, severity: "error", action_hint: null },
+              {
+                key: "archive_candidates",
+                label: "",
+                count: 1,
+                severity: "info",
+                action_hint: null,
+              },
+              {
+                key: "pending_original_requests",
+                label: "",
+                count: 0,
+                severity: "info",
+                action_hint: null,
+              },
+            ],
+          },
+        },
+        projects: { status: "empty", error_code: null, items: [], total: 0 },
+      }),
+    );
+    const { container } = renderPage();
+
+    expect(await screen.findByText("当前没有可访问的项目")).toBeInTheDocument();
+    expect(container.querySelectorAll(".wb81-operation")).toHaveLength(3);
+    expect(screen.queryByText("归档候选")).not.toBeInTheDocument();
+    expect(screen.queryByText("原文申请待处理")).not.toBeInTheDocument();
   });
 
   it("renders empty, forbidden and error sections independently and retries overview", async () => {
@@ -294,11 +317,12 @@ describe("HomeDashboardPage overview workbench", () => {
 
     const todo = await screen.findByText("待处理事项");
     expect(todo.closest("a")).toBeNull();
-    expect(screen.getAllByText("信息待确认")).toHaveLength(2);
+    expect(screen.getAllByText("信息待确认").length).toBeGreaterThanOrEqual(2);
     const projectLink = screen
       .getAllByRole("link")
       .find((link) => link.getAttribute("href") === "/project/project-real-81");
-    expect(projectLink).toHaveTextContent("信息待确认 · 信息待确认");
+    expect(projectLink).toBeDefined();
+    expect(within(projectLink!).getAllByText("信息待确认")).toHaveLength(2);
     expect(screen.getByRole("link", { name: /客户交付复盘/ })).toHaveTextContent("信息待确认");
     expect(document.body.textContent).not.toMatch(
       /secret_todo|secret_severity|secret_route|secret_action|secret_card|secret label|secret hint|secret_role|secret_status|secret_scope/,

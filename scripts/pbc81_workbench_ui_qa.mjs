@@ -18,6 +18,7 @@ const viewports = [
 const scenarios = [
   { name: "normal" },
   { name: "zero-todos" },
+  { name: "projects-empty" },
   { name: "projects-forbidden" },
   { name: "recent-error-retry" },
   { name: "titles-hidden" },
@@ -98,6 +99,27 @@ function overviewFor(scenario, callCount) {
             severity: "info",
             action_hint: null,
           },
+          {
+            key: "parse_failed",
+            label: "secret server label three",
+            count: 3,
+            severity: "error",
+            action_hint: null,
+          },
+          {
+            key: "archive_candidates",
+            label: "secret server label four",
+            count: 1,
+            severity: "info",
+            action_hint: null,
+          },
+          {
+            key: "kb_init_failed",
+            label: "secret server zero label",
+            count: 0,
+            severity: "error",
+            action_hint: null,
+          },
         ],
         indexing: {
           index_failed: 4,
@@ -123,36 +145,43 @@ function overviewFor(scenario, callCount) {
       },
     },
     projects:
-      scenario === "projects-forbidden"
+      scenario === "projects-empty"
         ? {
-            status: "forbidden",
-            error_code: "projects_secret_forbidden",
+            status: "empty",
+            error_code: null,
             items: [],
             total: 0,
           }
-        : {
-            status: "available",
-            error_code: null,
-            total: 2,
-            items: [
-              {
-                project_id: "00000000-0000-0000-0000-0000000000a1",
-                name: "企业知识治理项目",
-                status: "active",
-                project_role: "project_manager",
-                lifecycle_route_key: "secret_route_A",
-                lifecycle_phase_key: "secret_phase",
-              },
-              {
-                project_id: "00000000-0000-0000-0000-0000000000b2",
-                name: "客户交付方法沉淀",
-                status: "active",
-                project_role: "consultant",
-                lifecycle_route_key: null,
-                lifecycle_phase_key: null,
-              },
-            ],
-          },
+        : scenario === "projects-forbidden"
+          ? {
+              status: "forbidden",
+              error_code: "projects_secret_forbidden",
+              items: [],
+              total: 0,
+            }
+          : {
+              status: "available",
+              error_code: null,
+              total: 2,
+              items: [
+                {
+                  project_id: "00000000-0000-0000-0000-0000000000a1",
+                  name: "企业知识治理项目",
+                  status: "active",
+                  project_role: "project_manager",
+                  lifecycle_route_key: "secret_route_A",
+                  lifecycle_phase_key: "secret_phase",
+                },
+                {
+                  project_id: "00000000-0000-0000-0000-0000000000b2",
+                  name: "客户交付方法沉淀",
+                  status: "active",
+                  project_role: "consultant",
+                  lifecycle_route_key: null,
+                  lifecycle_phase_key: null,
+                },
+              ],
+            },
     recent_activity:
       scenario === "recent-error-retry" && !retryReady
         ? {
@@ -201,6 +230,8 @@ function accepted(result) {
     result.panelCount === 4 &&
     result.stitchHierarchyCorrect &&
     result.todoColumnNarrower &&
+    result.recentInLeftColumn &&
+    result.operationsCompact &&
     result.compactHeader &&
     !result.staleFourPanelGrid &&
     !result.oldSurfaceVisible &&
@@ -212,6 +243,7 @@ function accepted(result) {
   if (!shared) return false;
   if (result.scenario === "normal") return result.normalContent;
   if (result.scenario === "zero-todos") return result.zeroState;
+  if (result.scenario === "projects-empty") return result.projectEmptyState;
   if (result.scenario === "projects-forbidden") return result.forbiddenState;
   if (result.scenario === "recent-error-retry") return result.retrySucceeded;
   if (result.scenario === "titles-hidden") return result.hiddenTitleSafe;
@@ -278,7 +310,10 @@ try {
             .querySelector(".wb81-panel.is-projects")
             ?.getBoundingClientRect();
           const recent = document.querySelector(".wb81-panel.is-recent")?.getBoundingClientRect();
-          const dashboard = document.querySelector(".wb81-dashboard")?.getBoundingClientRect();
+          const operationCardCount = document.querySelectorAll(".wb81-operation").length;
+          const secondary = document
+            .querySelector(".wb81-secondary-column")
+            ?.getBoundingClientRect();
           const primary = document.querySelector(".wb81-primary-column")?.getBoundingClientRect();
           const pageHeader = document
             .querySelector(".wb81-workbench .product-page-header")
@@ -319,14 +354,24 @@ try {
               operations &&
               projects &&
               recent &&
-              dashboard &&
+              secondary &&
               primary &&
-              Math.abs(todos.top - primary.top) <= 1 &&
+              Math.abs(secondary.top - primary.top) <= 1 &&
+              recent.top > todos.bottom &&
               operations.bottom < projects.top &&
-              recent.top >= dashboard.bottom - 1,
+              Math.abs(operations.left - projects.left) <= 1,
             ),
             todoColumnNarrower: Boolean(
               todos && operations && operations.width > todos.width * 1.8,
+            ),
+            recentInLeftColumn: Boolean(
+              todos &&
+              recent &&
+              Math.abs(todos.left - recent.left) <= 1 &&
+              Math.abs(todos.width - recent.width) <= 1,
+            ),
+            operationsCompact: Boolean(
+              operations && projects && operationCardCount > 0 && operationCardCount <= 3,
             ),
             compactHeader: Boolean(pageHeader && pageHeader.height <= 72),
             staleFourPanelGrid: Boolean(document.querySelector(".wb81-grid")),
@@ -343,6 +388,7 @@ try {
               bodyText.includes("企业知识治理项目") &&
               bodyText.includes("绝不能越权显示的资产标题"),
             zeroState: bodyText.includes("今天没有待处理事项"),
+            projectEmptyState: bodyText.includes("当前没有可访问的项目"),
             forbiddenState: bodyText.includes("当前身份暂无访问权限"),
             hiddenTitleSafe:
               bodyText.includes("业务标题已隐藏") &&
