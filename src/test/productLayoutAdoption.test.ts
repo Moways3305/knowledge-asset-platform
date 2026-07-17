@@ -47,12 +47,13 @@ describe("product layout and route contract", () => {
     expect(source).toContain("当前身份仅可查看，修改需系统管理员");
   });
 
-  it("keeps personal knowledge guidance compact and WorkBuddy row-based", () => {
+  it("keeps personal knowledge as a compact table with controlled write dialogs", () => {
     const personal = read("src/pages/MyKnowledgePage.tsx");
-    const workbuddy = read("src/components/WorkbuddyAccessCard.tsx");
-    expect(personal).toContain('<Disclosure summary="个人知识管理说明">');
-    expect(personal).not.toContain('className="mk-principle-card"');
-    expect(workbuddy).toContain("<SettingsRow");
+    expect(personal).toContain('className="mk82-table"');
+    expect(personal).toContain("<ConfirmDialog");
+    expect(personal).toContain('setNotice("已提交，等待项目经理确认")');
+    expect(personal).not.toContain("<Disclosure");
+    expect(personal).not.toContain("<WorkbuddyAccessCard");
   });
 
   it("shows a continuous, product-facing upload flow", () => {
