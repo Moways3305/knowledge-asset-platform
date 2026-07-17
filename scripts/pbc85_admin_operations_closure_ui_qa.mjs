@@ -93,6 +93,11 @@ const bucket = (hour, completed, failed) => ({
   queued_jobs: 0,
   oldest_queued_seconds: null,
 });
+const shortTrend = [bucket(0, 1, 0), bucket(1, 3, 1), bucket(2, 2, 0)];
+const fullTrend = Array.from({ length: 24 }, (_, index) => {
+  if (index < shortTrend.length) return shortTrend[index];
+  return bucket(index, index % 4, index % 5 === 0 ? 1 : 0);
+});
 const health = (scenario) => {
   const insufficient = scenario === "insufficient-data";
   const workerStale = scenario === "worker-stale";
@@ -118,9 +123,7 @@ const health = (scenario) => {
       last_heartbeat_at: beatStale ? "2026-07-17T01:00:00Z" : "2026-07-17T02:59:00Z",
       message: beatStale ? "最近心跳已过期，请检查运行服务。" : "定时调度进程心跳正常。",
     },
-    trend_points: insufficient
-      ? [bucket(2, 2, 1)]
-      : [bucket(0, 1, 0), bucket(1, 3, 1), bucket(2, 2, 0)],
+    trend_points: insufficient ? [bucket(2, 2, 1)] : scenario === "empty" ? shortTrend : fullTrend,
   };
 };
 const ingest = {
@@ -162,6 +165,7 @@ try {
       const messages = [];
       let targetCalls = 0;
       let targetPathSafe = true;
+      let conflictObserved = false;
       let releaseTarget;
       await context.route("**/*", async (route) => {
         const request = route.request();
@@ -267,6 +271,10 @@ try {
               : "任务状态已变化或正在执行，请刷新后重试。",
           )
           .waitFor();
+        if (scenario === "target-conflict") {
+          conflictObserved = true;
+          await page.getByRole("button", { name: "取消" }).click();
+        }
       } else if (scenario === "target-running") {
         await page.getByRole("button", { name: "作业执行中" }).waitFor();
       } else if (scenario === "insufficient-data") {
@@ -290,7 +298,11 @@ try {
         legendVisible: false,
         tickCount: 0,
         accessiblePoints: false,
+        detailInitiallyHidden: false,
+        hoverDetailVisible: false,
         focusDetailVisible: false,
+        detailHidesAfterLeave: false,
+        detailContained: false,
         noUnexpectedTrend: false,
       };
       if (trendExpected) {
@@ -303,8 +315,9 @@ try {
         const pointLabels = await points.evaluateAll((nodes) =>
           nodes.map((node) => node.getAttribute("aria-label") || ""),
         );
+        const expectedPointCount = scenario === "empty" ? 3 : 24;
         trendReadability.accessiblePoints =
-          pointLabels.length === 3 &&
+          pointLabels.length === expectedPointCount &&
           pointLabels.every(
             (label) =>
               label.includes("已完成作业") &&
@@ -314,15 +327,33 @@ try {
               !label.includes("T02:") &&
               !label.includes("Z"),
           );
-        await points.nth(1).focus();
-        const detail = page.locator("#ao85-trend-detail");
+        const detailPoint = points.nth(1);
+        const detail = detailPoint.locator('[role="tooltip"]');
+        trendReadability.detailInitiallyHidden = await detail.isHidden();
+        await detailPoint.hover();
         await detail.waitFor({ state: "visible" });
         const tooltipText = (await detail.textContent()) || "";
-        trendReadability.focusDetailVisible =
+        trendReadability.hoverDetailVisible =
           tooltipText.includes("已完成作业 3") &&
           tooltipText.includes("失败或部分失败作业 1") &&
           tooltipText.includes("排队作业 0") &&
           tooltipText.includes("索引失败存量 3");
+        const trendBox = await page.locator(".ao85-trend").boundingBox();
+        const detailBox = await detail.boundingBox();
+        trendReadability.detailContained = Boolean(
+          trendBox &&
+          detailBox &&
+          detailBox.x >= trendBox.x - 1 &&
+          detailBox.x + detailBox.width <= trendBox.x + trendBox.width + 1 &&
+          detailBox.y >= trendBox.y - 1 &&
+          detailBox.y + detailBox.height <= trendBox.y + trendBox.height + 1,
+        );
+        await page.locator(".ao85-trend-heading").hover();
+        await detail.waitFor({ state: "hidden" });
+        trendReadability.detailHidesAfterLeave = true;
+        await detailPoint.focus();
+        await detail.waitFor({ state: "visible" });
+        trendReadability.focusDetailVisible = true;
       } else {
         trendReadability.noUnexpectedTrend = (await page.locator(".ao85-trend").count()) === 0;
       }
@@ -390,6 +421,7 @@ try {
       result.consoleLeak = messages.some((message) => /secret|storage_ref|token/i.test(message));
       result.targetCalls = targetCalls;
       result.targetPathSafe = targetPathSafe;
+      result.conflict = result.conflict || conflictObserved;
       Object.assign(result, trendReadability);
       const scenarioPass = {
         "normal-trend": result.trendVisible,
@@ -416,9 +448,13 @@ try {
         !result.consoleLeak &&
         (trendExpected
           ? result.legendVisible &&
-            result.tickCount >= 3 &&
+            result.tickCount >= (scenario === "empty" ? 3 : 8) &&
             result.accessiblePoints &&
-            result.focusDetailVisible
+            result.detailInitiallyHidden &&
+            result.hoverDetailVisible &&
+            result.focusDetailVisible &&
+            result.detailHidesAfterLeave &&
+            result.detailContained
           : result.noUnexpectedTrend) &&
         scenarioPass,
       );

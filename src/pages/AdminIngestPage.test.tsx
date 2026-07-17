@@ -317,9 +317,11 @@ describe("AdminIngestPage operations reference", () => {
     const detailPoint = screen.getByRole("img", {
       name: /已完成作业 4，失败或部分失败作业 1，排队作业 2，索引失败存量 5/,
     });
+    const tooltip = document.getElementById(detailPoint.getAttribute("aria-describedby") ?? "");
+    expect(tooltip).not.toBeNull();
+    expect(tooltip).toHaveClass("ao85-trend-tooltip");
     act(() => detailPoint.focus());
     expect(detailPoint).toHaveFocus();
-    const tooltip = document.getElementById(detailPoint.getAttribute("aria-describedby") ?? "");
     await waitFor(() => expect(tooltip).toHaveTextContent("已完成作业 4"));
     expect(tooltip).toHaveTextContent("失败或部分失败作业 1");
     expect(tooltip).toHaveTextContent("排队作业 2");
@@ -327,7 +329,7 @@ describe("AdminIngestPage operations reference", () => {
     expect(screen.queryByText("正在积累运维数据")).not.toBeInTheDocument();
   });
 
-  it("uses sparse start, intermediate and end ticks for a full 24-hour window", async () => {
+  it("uses at least eight real ticks and marks the first point of a new Beijing date", async () => {
     const start = Date.parse("2026-07-16T03:00:00Z");
     vi.mocked(fetchIndexingHealth).mockResolvedValue({
       ...health,
@@ -344,9 +346,10 @@ describe("AdminIngestPage operations reference", () => {
 
     expect(await screen.findByText("近 24 小时索引运维趋势")).toBeInTheDocument();
     const visibleTicks = document.querySelectorAll(".ao85-trend-tick:not(.is-hidden)");
-    expect(visibleTicks).toHaveLength(5);
+    expect(visibleTicks.length).toBeGreaterThanOrEqual(8);
     expect(visibleTicks[0]).toHaveTextContent("11:00");
-    expect(visibleTicks[visibleTicks.length - 1]).toHaveTextContent("10:00");
+    expect([...visibleTicks].some((tick) => tick.textContent === "07/17 00:00")).toBe(true);
+    expect(document.querySelectorAll(".ao85-trend-point")).toHaveLength(24);
   });
 
   it("isolates a health endpoint failure from the indexing panels", async () => {

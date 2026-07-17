@@ -83,20 +83,52 @@ function trendPointLabel(point: IndexingHealthDTO["trend_points"][number]): stri
   return `${formatBeijingTime(point.observed_at)}，已完成作业 ${point.completed_jobs}，失败或部分失败作业 ${point.failed_jobs}，排队作业 ${point.queued_jobs}，索引失败存量 ${point.index_failed}`;
 }
 
-function trendTickLabel(value: string): string {
-  return formatBeijingTime(value).slice(11, 16);
+function trendTickLabel(points: IndexingHealthDTO["trend_points"], index: number): string {
+  const current = formatBeijingTime(points[index]?.observed_at);
+  const previous = index > 0 ? formatBeijingTime(points[index - 1]?.observed_at) : null;
+  const time = current.slice(11, 16);
+  return previous && previous.slice(0, 10) !== current.slice(0, 10)
+    ? `${current.slice(5, 10).replace("-", "/")} ${time}`
+    : time;
 }
 
-function showTrendTick(index: number, total: number): boolean {
-  if (total < 24) return true;
-  const last = total - 1;
-  return new Set([
-    0,
-    Math.round(last / 4),
-    Math.round(last / 2),
-    Math.round((last * 3) / 4),
-    last,
-  ]).has(index);
+function trendTickIndexes(points: IndexingHealthDTO["trend_points"]): Set<number> {
+  if (points.length < 8) return new Set(points.map((_, index) => index));
+  const indexes = new Set<number>();
+  if (points.length === 24) {
+    for (let index = 0; index < points.length; index += 3) indexes.add(index);
+  } else {
+    const last = points.length - 1;
+    for (let tick = 0; tick < 8; tick += 1) indexes.add(Math.round((last * tick) / 7));
+  }
+  const dateBoundaries: number[] = [];
+  for (let index = 1; index < points.length; index += 1) {
+    const previousDate = formatBeijingTime(points[index - 1].observed_at).slice(0, 10);
+    const currentDate = formatBeijingTime(points[index].observed_at).slice(0, 10);
+    if (currentDate !== previousDate) dateBoundaries.push(index);
+  }
+  for (const boundary of dateBoundaries) {
+    for (const index of [...indexes]) {
+      if (Math.abs(index - boundary) < 3) indexes.delete(index);
+    }
+    indexes.add(boundary);
+  }
+  indexes.add(points.length - 1);
+  while (indexes.size < 8) {
+    let candidate = -1;
+    let candidateDistance = -1;
+    for (let index = 0; index < points.length; index += 1) {
+      if (indexes.has(index)) continue;
+      const distance = Math.min(...[...indexes].map((existing) => Math.abs(existing - index)));
+      if (distance > candidateDistance) {
+        candidate = index;
+        candidateDistance = distance;
+      }
+    }
+    if (candidate < 0) break;
+    indexes.add(candidate);
+  }
+  return indexes;
 }
 
 function jobTone(status: string) {
@@ -130,7 +162,6 @@ export default function AdminIngestPage() {
   const [jobsState, setJobsState] = useState<LoadState>("loading");
   const [health, setHealth] = useState<IndexingHealthDTO | null>(null);
   const [healthState, setHealthState] = useState<LoadState>("loading");
-  const [activeTrendTime, setActiveTrendTime] = useState<string | null>(null);
   const [failureFilter, setFailureFilter] = useState<FailureFilter>("all");
   const [retryIncludeSkipped, setRetryIncludeSkipped] = useState(false);
   const [retryIncludeNotIndexed, setRetryIncludeNotIndexed] = useState(false);
@@ -302,13 +333,7 @@ export default function AdminIngestPage() {
       ),
     [health],
   );
-  const activeTrendPoint = useMemo(() => {
-    const points = health?.trend_points ?? [];
-    return (
-      points.find((point) => point.observed_at === activeTrendTime) ??
-      (points.length > 0 ? points[points.length - 1] : null)
-    );
-  }, [activeTrendTime, health]);
+  const visibleTrendTicks = useMemo(() => trendTickIndexes(health?.trend_points ?? []), [health]);
   const healthCards: Array<{
     label: string;
     status: keyof typeof healthLabels;
@@ -693,33 +718,18 @@ export default function AdminIngestPage() {
                         </span>
                       </div>
                     </div>
-                    {activeTrendPoint && (
-                      <div
-                        id="ao85-trend-detail"
-                        className="ao85-trend-detail"
-                        role="group"
-                        aria-label="当前时段详情"
-                      >
-                        <strong>{formatBeijingTime(activeTrendPoint.observed_at)}</strong>
-                        <span>已完成作业 {activeTrendPoint.completed_jobs}</span>
-                        <span>失败或部分失败作业 {activeTrendPoint.failed_jobs}</span>
-                        <span>排队作业 {activeTrendPoint.queued_jobs}</span>
-                        <span>索引失败存量 {activeTrendPoint.index_failed}</span>
-                      </div>
-                    )}
                     <div className="ao85-trend" aria-label="近 24 小时索引运维趋势">
                       {health.trend_points.map((point, index) => {
                         const label = trendPointLabel(point);
+                        const tooltipId = `ao85-trend-tooltip-${index}`;
                         return (
                           <div
                             key={point.observed_at}
-                            className={`ao85-trend-point${index === 0 ? " is-first" : ""}${index === health.trend_points.length - 1 ? " is-last" : ""}`}
+                            className={`ao85-trend-point${index < 3 ? " is-near-start" : ""}${index >= health.trend_points.length - 3 ? " is-near-end" : ""}`}
                             role="img"
                             tabIndex={0}
                             aria-label={label}
-                            aria-describedby="ao85-trend-detail"
-                            onMouseEnter={() => setActiveTrendTime(point.observed_at)}
-                            onFocus={() => setActiveTrendTime(point.observed_at)}
+                            aria-describedby={tooltipId}
                           >
                             <div className="ao85-trend-bars" aria-hidden="true">
                               <span
@@ -742,11 +752,18 @@ export default function AdminIngestPage() {
                               />
                             </div>
                             <time
-                              className={`ao85-trend-tick${showTrendTick(index, health.trend_points.length) ? "" : " is-hidden"}`}
+                              className={`ao85-trend-tick${visibleTrendTicks.has(index) ? "" : " is-hidden"}`}
                               aria-hidden="true"
                             >
-                              {trendTickLabel(point.observed_at)}
+                              {trendTickLabel(health.trend_points, index)}
                             </time>
+                            <div id={tooltipId} className="ao85-trend-tooltip" role="tooltip">
+                              <strong>{formatBeijingTime(point.observed_at)}</strong>
+                              <span>已完成作业 {point.completed_jobs}</span>
+                              <span>失败或部分失败作业 {point.failed_jobs}</span>
+                              <span>排队作业 {point.queued_jobs}</span>
+                              <span>索引失败存量 {point.index_failed}</span>
+                            </div>
                           </div>
                         );
                       })}
