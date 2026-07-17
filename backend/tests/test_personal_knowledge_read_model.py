@@ -5,14 +5,17 @@ from __future__ import annotations
 from sqlalchemy import select
 
 from app.models.audit import AuditEvent
+from app.models.identity import ProjectMember
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetTag
 from app.models.review import PersonalKnowledgeSubmission, ReviewTask
 from app.seed.dev_seed import (
     PROJECT_ALPHA,
+    PROJECT_BETA,
     USER_ADMIN_ONLY,
     USER_CONSULTANT,
     USER_PROJECT_MANAGER,
 )
+from app.services import knowledge as knowledge_service
 
 MY = "/api/v1/my/knowledge"
 
@@ -259,3 +262,130 @@ async def test_personal_state_filter_uses_projected_status(client, db_session):
         await db_session.execute(select(ReviewTask).where(ReviewTask.target_asset_id == asset_id))
     ).scalar_one()
     assert task.status == "pending_reviewer"
+
+
+async def test_active_project_copy_wins_over_later_cross_project_rejection(client, db_session):
+    beta_consultant = (
+        await db_session.execute(
+            select(ProjectMember).where(
+                ProjectMember.user_id == USER_CONSULTANT,
+                ProjectMember.project_id == PROJECT_BETA,
+            )
+        )
+    ).scalar_one()
+    beta_consultant.status = "active"
+    db_session.add(
+        ProjectMember(
+            user_id=USER_PROJECT_MANAGER,
+            project_id=PROJECT_BETA,
+            project_role="project_manager",
+            status="active",
+        )
+    )
+    await db_session.commit()
+
+    asset_id = await _asset(db_session, "PBC83 Cross Project")
+    approved_review = await _submit(client, asset_id)
+    approved = await client.post(
+        f"/api/v1/reviews/{approved_review}/approve",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={"review_comment": "同意进入 Alpha 项目"},
+    )
+    assert approved.status_code == 200, approved.text
+
+    beta_submission = await client.post(
+        f"{MY}/{asset_id}/submit-to-project",
+        headers=_hdr(USER_CONSULTANT),
+        json={"target_project_id": str(PROJECT_BETA)},
+    )
+    assert beta_submission.status_code == 200, beta_submission.text
+    rejected = await client.post(
+        f"/api/v1/reviews/{beta_submission.json()['review_task_id']}/reject",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={"review_comment": "暂不进入 Beta 项目"},
+    )
+    assert rejected.status_code == 200, rejected.text
+
+    response = await client.get(
+        MY,
+        headers=_hdr(USER_CONSULTANT),
+        params={"keyword": "PBC83 Cross Project"},
+    )
+    assert response.status_code == 200, response.text
+    item = response.json()["items"][0]
+    assert item["personal_state"] == "active_in_project"
+    assert item["project_submission"]["status"] == "rejected"
+    assert item["project_submission"]["target_project_name"] == "Beta 项目"
+    active_filter = await client.get(
+        MY,
+        headers=_hdr(USER_CONSULTANT),
+        params={
+            "keyword": "PBC83 Cross Project",
+            "personal_state": "active_in_project",
+        },
+    )
+    rejected_filter = await client.get(
+        MY,
+        headers=_hdr(USER_CONSULTANT),
+        params={
+            "keyword": "PBC83 Cross Project",
+            "personal_state": "project_rejected",
+        },
+    )
+    assert active_filter.json()["total"] == 1
+    assert rejected_filter.json()["total"] == 0
+    assert active_filter.json()["summary"]["active_in_project"] >= 1
+    assert (
+        await client.patch(
+            f"{MY}/{asset_id}",
+            headers=_hdr(USER_CONSULTANT),
+            json={"title": "不得因后续驳回而解锁"},
+        )
+    ).status_code == 409
+
+
+async def test_large_personal_collection_only_projects_the_requested_page(
+    client, db_session, monkeypatch
+):
+    assets = [
+        KnowledgeAsset(
+            title=f"PBC83 Bounded {index:03d}",
+            scope="personal",
+            zone="asset",
+            asset_type="methodology",
+            owner_user_id=USER_CONSULTANT,
+            visibility="confidential",
+            confidentiality_level="L2",
+            ai_access_level="A2",
+            asset_status="active",
+        )
+        for index in range(125)
+    ]
+    db_session.add_all(assets)
+    await db_session.commit()
+
+    projected_batch_sizes: list[int] = []
+    original_projection = knowledge_service._personal_projection
+
+    async def tracked_projection(session, page_assets):
+        projected_batch_sizes.append(len(page_assets))
+        return await original_projection(session, page_assets)
+
+    monkeypatch.setattr(knowledge_service, "_personal_projection", tracked_projection)
+    response = await client.get(
+        MY,
+        headers=_hdr(USER_CONSULTANT),
+        params={
+            "keyword": "PBC83 Bounded",
+            "sort_by": "title",
+            "sort_direction": "asc",
+            "page": 7,
+            "page_size": 5,
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["total"] == 125
+    assert len(body["items"]) == 5
+    assert body["items"][0]["title"] == "PBC83 Bounded 030"
+    assert projected_batch_sizes == [5]

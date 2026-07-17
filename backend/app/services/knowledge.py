@@ -20,9 +20,9 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 
 from app.core.logging import safe_log_exception
 from app.db.utils import utc_now
@@ -317,14 +317,6 @@ def _to_list_item(
 def _like_pattern(keyword: str) -> str:
     escaped = keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return f"%{escaped}%"
-
-
-def _as_utc(value: datetime) -> datetime:
-    return (
-        value.replace(tzinfo=timezone.utc)
-        if value.tzinfo is None
-        else value.astimezone(timezone.utc)
-    )
 
 
 async def _list_summary_maps(
@@ -631,6 +623,95 @@ def _effective_submission_status(
     return submission.status
 
 
+def _latest_project_submission_status_expression():
+    return (
+        select(
+            case(
+                (
+                    ReviewTask.status == ReviewTaskStatus.approved.value,
+                    PersonalSubmissionStatus.approved.value,
+                ),
+                (
+                    ReviewTask.status == ReviewTaskStatus.rejected.value,
+                    PersonalSubmissionStatus.rejected.value,
+                ),
+                (
+                    ReviewTask.status.in_(_PENDING_REVIEW_STATUSES),
+                    PersonalSubmissionStatus.pending.value,
+                ),
+                else_=PersonalKnowledgeSubmission.status,
+            )
+        )
+        .select_from(PersonalKnowledgeSubmission)
+        .outerjoin(ReviewTask, ReviewTask.id == PersonalKnowledgeSubmission.review_task_id)
+        .where(
+            PersonalKnowledgeSubmission.source_asset_id == KnowledgeAsset.id,
+            PersonalKnowledgeSubmission.submission_type
+            == PersonalSubmissionType.submit_to_project.value,
+        )
+        .order_by(
+            PersonalKnowledgeSubmission.created_at.desc(),
+            PersonalKnowledgeSubmission.id.desc(),
+        )
+        .limit(1)
+        .correlate(KnowledgeAsset)
+        .scalar_subquery()
+    )
+
+
+def _active_project_copy_exists_expression():
+    project_copy = aliased(KnowledgeAsset)
+    return KnowledgeAsset.id.in_(
+        select(project_copy.source_asset_id).where(
+            project_copy.scope == KnowledgeScope.project.value,
+            project_copy.asset_status == AssetStatus.active.value,
+            project_copy.source_asset_id.is_not(None),
+        )
+    )
+
+
+def _personal_state_expression():
+    latest_status = _latest_project_submission_status_expression()
+    return case(
+        (
+            _active_project_copy_exists_expression(),
+            PersonalKnowledgeState.active_in_project.value,
+        ),
+        (
+            KnowledgeAsset.zone == "material",
+            PersonalKnowledgeState.awaiting_confirmation.value,
+        ),
+        (
+            latest_status == PersonalSubmissionStatus.pending.value,
+            PersonalKnowledgeState.pending_project_review.value,
+        ),
+        (
+            latest_status == PersonalSubmissionStatus.rejected.value,
+            PersonalKnowledgeState.project_rejected.value,
+        ),
+        else_=PersonalKnowledgeState.ready_to_submit.value,
+    )
+
+
+def _personal_state_filter_expression(personal_state: str):
+    if personal_state == PersonalKnowledgeState.evidence_registered.value:
+        return (
+            select(PersonalKnowledgeSubmission.id)
+            .where(
+                PersonalKnowledgeSubmission.source_asset_id == KnowledgeAsset.id,
+                PersonalKnowledgeSubmission.submission_type.in_(
+                    {
+                        PersonalSubmissionType.internal_sharing_candidate.value,
+                        PersonalSubmissionType.client_validation_candidate.value,
+                    }
+                ),
+            )
+            .correlate(KnowledgeAsset)
+            .exists()
+        )
+    return _personal_state_expression() == personal_state
+
+
 async def _personal_projection(
     session: AsyncSession, assets: list[KnowledgeAsset]
 ) -> dict[uuid.UUID, dict]:
@@ -717,16 +798,14 @@ async def _personal_projection(
         latest_status = (
             _effective_submission_status(latest, latest_task) if latest is not None else None
         )
-        if asset.zone == "material":
+        if asset.id in project_copies:
+            state = PersonalKnowledgeState.active_in_project.value
+        elif asset.zone == "material":
             state = PersonalKnowledgeState.awaiting_confirmation.value
         elif latest_status == PersonalSubmissionStatus.pending.value:
             state = PersonalKnowledgeState.pending_project_review.value
         elif latest_status == PersonalSubmissionStatus.rejected.value:
             state = PersonalKnowledgeState.project_rejected.value
-        elif (
-            latest_status == PersonalSubmissionStatus.approved.value and asset.id in project_copies
-        ):
-            state = PersonalKnowledgeState.active_in_project.value
         else:
             state = PersonalKnowledgeState.ready_to_submit.value
 
@@ -801,30 +880,30 @@ async def list_my_knowledge(
                 KnowledgeAsset.tags.any(KnowledgeAssetTag.tag_name.ilike(pattern, escape="\\")),
             )
         )
-    stmt = (
+    if personal_state:
+        conditions.append(_personal_state_filter_expression(personal_state))
+
+    total = int(
+        (
+            await session.execute(select(func.count(KnowledgeAsset.id)).where(*conditions))
+        ).scalar_one()
+    )
+    sort_column = (
+        func.lower(KnowledgeAsset.title) if sort_by == "title" else getattr(KnowledgeAsset, sort_by)
+    )
+    order = sort_column.desc() if sort_direction == "desc" else sort_column.asc()
+    id_order = KnowledgeAsset.id.desc() if sort_direction == "desc" else KnowledgeAsset.id.asc()
+    page_stmt = (
         select(KnowledgeAsset)
         .where(*conditions)
         .options(selectinload(KnowledgeAsset.tags), selectinload(KnowledgeAsset.summaries))
+        .order_by(order, id_order)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
     )
-    assets = list((await session.execute(stmt)).scalars().all())
+    page_assets = list((await session.execute(page_stmt)).scalars().all())
     policy = await load_access_policy(session)
-    visible = [a for a in assets if decide(caller, a, AccessLayer.discovery, policy=policy).allowed]
-    projection = await _personal_projection(session, visible)
-    if personal_state:
-        visible = [asset for asset in visible if projection[asset.id]["state"] == personal_state]
-    reverse = sort_direction == "desc"
-    if sort_by == "title":
-        visible.sort(key=lambda asset: (asset.title.casefold(), str(asset.id)), reverse=reverse)
-    else:
-        visible.sort(
-            key=lambda asset: (
-                getattr(asset, sort_by) or datetime.min.replace(tzinfo=timezone.utc),
-                str(asset.id),
-            ),
-            reverse=reverse,
-        )
-    total = len(visible)
-    page_assets = visible[(page - 1) * page_size : page * page_size]
+    projection = await _personal_projection(session, page_assets)
     projects, _users = await _aux_maps(session, page_assets)
     granted = await original_access.active_grant_asset_ids(
         session, caller, [a.id for a in page_assets]
@@ -845,42 +924,80 @@ async def list_my_knowledge(
             )
         )
 
-    all_stmt = (
-        select(KnowledgeAsset)
-        .where(
-            KnowledgeAsset.scope == KnowledgeScope.personal.value,
-            KnowledgeAsset.owner_user_id == caller.user_id,
-            KnowledgeAsset.asset_status == AssetStatus.active.value,
-        )
-        .options(selectinload(KnowledgeAsset.tags), selectinload(KnowledgeAsset.summaries))
-    )
-    all_assets = list((await session.execute(all_stmt)).scalars().all())
-    all_visible = [
-        asset
-        for asset in all_assets
-        if decide(caller, asset, AccessLayer.discovery, policy=policy).allowed
+    summary_conditions = [
+        KnowledgeAsset.scope == KnowledgeScope.personal.value,
+        KnowledgeAsset.owner_user_id == caller.user_id,
+        KnowledgeAsset.asset_status == AssetStatus.active.value,
     ]
-    all_projection = await _personal_projection(session, all_visible)
     month_start = (
         datetime.now(ZoneInfo("Asia/Shanghai"))
         .replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         .astimezone(timezone.utc)
     )
+    summary_rows = (
+        select(
+            KnowledgeAsset.id.label("asset_id"),
+            KnowledgeAsset.created_at.label("created_at"),
+            _personal_state_expression().label("personal_state"),
+        )
+        .where(*summary_conditions)
+        .subquery()
+    )
+    summary_state = summary_rows.c.personal_state
+    summary_row = (
+        await session.execute(
+            select(
+                func.count(summary_rows.c.asset_id),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                summary_state == PersonalKnowledgeState.awaiting_confirmation.value,
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                summary_state
+                                == PersonalKnowledgeState.pending_project_review.value,
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                summary_state == PersonalKnowledgeState.active_in_project.value,
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.coalesce(
+                    func.sum(case((summary_rows.c.created_at >= month_start, 1), else_=0)),
+                    0,
+                ),
+            ).select_from(summary_rows)
+        )
+    ).one()
     summary = PersonalKnowledgeSummary(
-        total_assets=len(all_visible),
-        awaiting_confirmation=sum(
-            all_projection[asset.id]["state"] == PersonalKnowledgeState.awaiting_confirmation.value
-            for asset in all_visible
-        ),
-        pending_project_review=sum(
-            all_projection[asset.id]["state"] == PersonalKnowledgeState.pending_project_review.value
-            for asset in all_visible
-        ),
-        active_in_project=sum(
-            all_projection[asset.id]["state"] == PersonalKnowledgeState.active_in_project.value
-            for asset in all_visible
-        ),
-        created_this_month=sum(_as_utc(asset.created_at) >= month_start for asset in all_visible),
+        total_assets=int(summary_row[0]),
+        awaiting_confirmation=int(summary_row[1]),
+        pending_project_review=int(summary_row[2]),
+        active_in_project=int(summary_row[3]),
+        created_this_month=int(summary_row[4]),
     )
     return PersonalKnowledgeListResponse(
         items=items,
