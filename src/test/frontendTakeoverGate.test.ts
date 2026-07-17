@@ -65,7 +65,7 @@ const routes: RouteContract[] = [
     component: "AdminIngestPage",
     guard: "viewIngestAdmin",
     owners: ["pages/AdminIngestPage.tsx"],
-    apiModules: ["admin", "http", "ingest"],
+    apiModules: ["admin", "ingest"],
   },
   {
     route: "/admin/wecom-scan",

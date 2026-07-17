@@ -24,13 +24,16 @@ describe("product layout and route contract", () => {
     }
   });
 
-  it("keeps ingest provenance visible while moving technical fields into details", () => {
+  it("keeps the admin operations page on the safe two-column reference contract", () => {
     const source = read("src/pages/AdminIngestPage.tsx");
-    expect(source).toContain('path_a_wecom: "企业微信微盘"');
-    expect(source).toContain('path_b_upload: "本地上传"');
-    expect(source).toContain("任务详情（运营元数据）");
-    expect(source).toContain('<details className="product-disclosure"');
-    expect(source).not.toContain("ig-exception-grid");
+    expect(source).toContain('className="ao84-console"');
+    expect(source).toContain('className="ao84-panel ao84-summary"');
+    expect(source).toContain('className="ao84-panel ao84-failures"');
+    expect(source).toContain('aria-current="page"');
+    expect(source).toContain("当前没有索引失败任务");
+    expect(source).not.toContain("source_file_name");
+    expect(source).not.toContain("project_name");
+    expect(source).not.toContain("owner_name");
   });
 
   it("collapses audit action codes and trace identifiers by default", () => {

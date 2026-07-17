@@ -22,6 +22,7 @@
     "test:ui:review-access": "node scripts/pbc80_review_access_ui_qa.mjs",
     "test:ui:workbench": "node scripts/pbc81_workbench_ui_qa.mjs",
     "test:ui:personal-knowledge": "node scripts/pbc83_personal_knowledge_ui_qa.mjs",
+    "test:ui:admin-operations": "node scripts/pbc84_admin_operations_ui_qa.mjs",
     "api:export": "python scripts/export_openapi.py"
   },
   "dependencies": {

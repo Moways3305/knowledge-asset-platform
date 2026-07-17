@@ -1,8 +1,5 @@
 import type { OpsIndexingCountsDTO } from "../types/ops";
 
-// 检索索引状态分布：把 OpsIndexing 的安全计数渲染成现有 `.kl-kpi` 计数块串，
-// 与 AdminIngestPage 手写的索引运维 KPI 行视觉一致。纯展示，仅安全计数，不含任何
-// 业务原文 / 标题 / 内部 id。
 interface IndexDistributionProps {
   counts: OpsIndexingCountsDTO;
   className?: string;
@@ -10,34 +7,25 @@ interface IndexDistributionProps {
 
 export default function IndexDistribution({
   counts,
-  className = "kl-kpis",
+  className = "ao84-index-grid",
 }: IndexDistributionProps) {
+  const metrics = [
+    { label: "索引失败", value: counts.index_failed, tone: "danger" },
+    { label: "索引处理中", value: counts.indexing, tone: "blue" },
+    { label: "未索引", value: counts.not_indexed, tone: "gold" },
+    { label: "已跳过", value: counts.skipped, tone: "neutral" },
+    { label: "解析处理中", value: counts.parse_pending + counts.parse_processing, tone: "violet" },
+    { label: "知识库初始化失败", value: counts.kb_init_failed, tone: "danger" },
+  ];
+
   return (
-    <div className={className}>
-      <div className="kl-kpi">
-        <div className="kl-kpi-value kl-kpi-warning">{counts.index_failed}</div>
-        <div className="kl-kpi-label">索引失败</div>
-      </div>
-      <div className="kl-kpi">
-        <div className="kl-kpi-value">{counts.indexing}</div>
-        <div className="kl-kpi-label">索引中</div>
-      </div>
-      <div className="kl-kpi">
-        <div className="kl-kpi-value">{counts.not_indexed}</div>
-        <div className="kl-kpi-label">待索引</div>
-      </div>
-      <div className="kl-kpi">
-        <div className="kl-kpi-value">{counts.skipped}</div>
-        <div className="kl-kpi-label">已跳过</div>
-      </div>
-      <div className="kl-kpi">
-        <div className="kl-kpi-value">{counts.parse_pending + counts.parse_processing}</div>
-        <div className="kl-kpi-label">解析滞留</div>
-      </div>
-      <div className="kl-kpi">
-        <div className="kl-kpi-value kl-kpi-warning">{counts.kb_init_failed}</div>
-        <div className="kl-kpi-label">KB 初始化失败</div>
-      </div>
+    <div className={className} aria-label="索引状态分布">
+      {metrics.map((metric) => (
+        <div key={metric.label} className={`ao84-index-metric is-${metric.tone}`}>
+          <strong>{metric.value}</strong>
+          <span>{metric.label}</span>
+        </div>
+      ))}
     </div>
   );
 }
