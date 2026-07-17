@@ -72,7 +72,6 @@ const stateConfig: Record<PersonalKnowledgeState, { label: string; tone: string 
   pending_project_review: { label: "待项目经理审批", tone: "pending" },
   active_in_project: { label: "已进入项目", tone: "success" },
   project_rejected: { label: "项目未通过", tone: "danger" },
-  evidence_registered: { label: "已登记候选证据", tone: "neutral" },
 };
 
 const evidenceCategoryLabels: Record<string, string> = {
@@ -412,13 +411,11 @@ export default function MyKnowledgePage() {
                       }}
                     >
                       <option value="">全部状态</option>
-                      {Object.entries(stateConfig)
-                        .filter(([key]) => key !== "evidence_registered")
-                        .map(([key, value]) => (
-                          <option key={key} value={key}>
-                            {value.label}
-                          </option>
-                        ))}
+                      {Object.entries(stateConfig).map(([key, value]) => (
+                        <option key={key} value={key}>
+                          {value.label}
+                        </option>
+                      ))}
                     </select>
                   </label>
                   <label>

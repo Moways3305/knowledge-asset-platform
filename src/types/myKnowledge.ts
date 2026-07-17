@@ -5,8 +5,7 @@ export type PersonalKnowledgeState =
   | "ready_to_submit"
   | "pending_project_review"
   | "active_in_project"
-  | "project_rejected"
-  | "evidence_registered";
+  | "project_rejected";
 
 export interface PersonalProjectSubmissionDTO {
   status: string;

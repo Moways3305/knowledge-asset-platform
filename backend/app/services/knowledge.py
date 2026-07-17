@@ -598,7 +598,6 @@ _PERSONAL_STATE_LABELS = {
     PersonalKnowledgeState.pending_project_review.value: "待项目经理审批",
     PersonalKnowledgeState.active_in_project.value: "已进入项目",
     PersonalKnowledgeState.project_rejected.value: "项目未通过",
-    PersonalKnowledgeState.evidence_registered.value: "已登记候选证据",
 }
 _PENDING_REVIEW_STATUSES = {
     ReviewTaskStatus.pending_evidence.value,
@@ -694,21 +693,6 @@ def _personal_state_expression():
 
 
 def _personal_state_filter_expression(personal_state: str):
-    if personal_state == PersonalKnowledgeState.evidence_registered.value:
-        return (
-            select(PersonalKnowledgeSubmission.id)
-            .where(
-                PersonalKnowledgeSubmission.source_asset_id == KnowledgeAsset.id,
-                PersonalKnowledgeSubmission.submission_type.in_(
-                    {
-                        PersonalSubmissionType.internal_sharing_candidate.value,
-                        PersonalSubmissionType.client_validation_candidate.value,
-                    }
-                ),
-            )
-            .correlate(KnowledgeAsset)
-            .exists()
-        )
     return _personal_state_expression() == personal_state
 
 

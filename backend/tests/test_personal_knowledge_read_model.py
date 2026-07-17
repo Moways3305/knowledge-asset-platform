@@ -112,6 +112,13 @@ async def test_query_validation_and_admin_isolation(client):
     assert (
         await client.get(MY, headers=_hdr(USER_CONSULTANT), params={"asset_type": "bad"})
     ).status_code == 422
+    assert (
+        await client.get(
+            MY,
+            headers=_hdr(USER_CONSULTANT),
+            params={"personal_state": "evidence_registered"},
+        )
+    ).status_code == 422
     denied = await client.get(MY, headers=_hdr(USER_ADMIN_ONLY))
     assert denied.status_code == 403
     assert "summary" not in denied.json()

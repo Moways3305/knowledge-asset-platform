@@ -252,7 +252,6 @@ class PersonalKnowledgeState(str, Enum):
     pending_project_review = "pending_project_review"
     active_in_project = "active_in_project"
     project_rejected = "project_rejected"
-    evidence_registered = "evidence_registered"
 
 
 class ReviewType(str, Enum):
