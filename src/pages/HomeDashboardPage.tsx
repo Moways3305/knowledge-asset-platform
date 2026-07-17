@@ -103,11 +103,13 @@ function safeTone(value: string): string {
 function WorkbenchPanel({
   title,
   icon,
+  meta,
   className = "",
   children,
 }: {
   title: string;
   icon: ReactNode;
+  meta?: ReactNode;
   className?: string;
   children: ReactNode;
 }) {
@@ -118,6 +120,7 @@ function WorkbenchPanel({
           {icon}
         </span>
         <h2>{title}</h2>
+        {meta && <span className="wb81-panel-meta">{meta}</span>}
       </header>
       <div className="wb81-panel-body">{children}</div>
     </section>
@@ -236,20 +239,36 @@ export default function HomeDashboardPage() {
   const roleText =
     authMe?.companyRoles.map((role) => COMPANY_ROLE[role] ?? SAFE_FALLBACK).join(" / ") ||
     SAFE_FALLBACK;
+  const displayName = authMe?.name?.trim() || "同事";
+  const todoCount = todoItems.reduce((total, item) => total + item.count, 0);
 
   return (
     <ProductPage className="today-workbench wb81-workbench">
       <PageHeader
-        eyebrow="今日工作台"
         title={
           <>
-            今日工作台 <span className="wb81-user-name">{authMe?.name?.trim() || "同事"}</span>
+            你好，<span className="wb81-user-name">{displayName}</span>
           </>
         }
-        description={`当前身份：${roleText}`}
+        description={`${roleText} · ${todayLabel()}`}
         actions={
-          <div className="wb81-header-actions">
-            <time className="wb81-date">{todayLabel()}</time>
+          <div className="wb81-header-tools">
+            {(can.viewKnowledge(capabilities) || can.viewUpload(capabilities)) && (
+              <nav className="wb81-shortcuts" aria-label="快捷入口">
+                {can.viewKnowledge(capabilities) && (
+                  <Link to="/knowledge">
+                    <LibraryBig size={15} aria-hidden="true" />
+                    知识资产库
+                  </Link>
+                )}
+                {can.viewUpload(capabilities) && (
+                  <Link to="/upload">
+                    <UploadCloud size={15} aria-hidden="true" />
+                    上传资产化
+                  </Link>
+                )}
+              </nav>
+            )}
             <button
               className="wb81-refresh"
               type="button"
@@ -263,25 +282,13 @@ export default function HomeDashboardPage() {
         }
       />
 
-      {(can.viewKnowledge(capabilities) || can.viewUpload(capabilities)) && (
-        <nav className="wb81-shortcuts" aria-label="快捷入口">
-          {can.viewKnowledge(capabilities) && (
-            <Link to="/knowledge">
-              <LibraryBig size={15} aria-hidden="true" />
-              知识资产库
-            </Link>
-          )}
-          {can.viewUpload(capabilities) && (
-            <Link to="/upload">
-              <UploadCloud size={15} aria-hidden="true" />
-              上传资产化
-            </Link>
-          )}
-        </nav>
-      )}
-
-      <div className="wb81-grid">
-        <WorkbenchPanel title="我的待办" icon={<ListChecks size={17} />} className="is-todos">
+      <div className="wb81-dashboard">
+        <WorkbenchPanel
+          title="我的待办"
+          icon={<ListChecks size={17} />}
+          meta={todosStatus === "available" ? `${todoCount} 项` : undefined}
+          className="is-todos"
+        >
           {todosStatus === "available" && todoItems.length > 0 ? (
             <div className="wb81-todo-list">
               {todoItems.map((item, index) => (
@@ -301,88 +308,108 @@ export default function HomeDashboardPage() {
           )}
         </WorkbenchPanel>
 
-        <WorkbenchPanel
-          title="资产运行概览"
-          icon={<BriefcaseBusiness size={17} />}
-          className="is-operations"
-        >
-          {operationsStatus === "available" && operationCards.length > 0 ? (
-            <div className="wb81-operation-grid">
-              {operationCards.map((item, index) => (
-                <OperationCard key={`${item.key}-${index}`} item={item} />
-              ))}
-            </div>
-          ) : (
-            <SectionMessage
-              status={operationsStatus === "available" ? "empty" : operationsStatus}
-              loadingText="正在加载资产运行状态…"
-              emptyText="当前没有需要处理的运营事项"
-              onRetry={() => void load()}
-            />
-          )}
-        </WorkbenchPanel>
+        <div className="wb81-primary-column">
+          <WorkbenchPanel
+            title="资产运行概览"
+            icon={<BriefcaseBusiness size={17} />}
+            className="is-operations"
+          >
+            {operationsStatus === "available" && operationCards.length > 0 ? (
+              <div className="wb81-operation-grid">
+                {operationCards.map((item, index) => (
+                  <OperationCard key={`${item.key}-${index}`} item={item} />
+                ))}
+              </div>
+            ) : (
+              <SectionMessage
+                status={operationsStatus === "available" ? "empty" : operationsStatus}
+                loadingText="正在加载资产运行状态…"
+                emptyText="当前没有需要处理的运营事项"
+                onRetry={() => void load()}
+              />
+            )}
+          </WorkbenchPanel>
 
-        <WorkbenchPanel title="协作空间" icon={<FolderKanban size={17} />} className="is-projects">
-          {projectsStatus === "available" && overview && overview.projects.items.length > 0 ? (
-            <div className="wb81-project-list">
-              {overview.projects.items.map((project) => (
-                <Link
-                  key={project.project_id}
-                  to={`/project/${encodeURIComponent(project.project_id)}`}
-                >
-                  <span className="wb81-project-mark" aria-hidden="true">
-                    {project.name.trim().slice(0, 1) || "项"}
-                  </span>
-                  <span className="wb81-project-copy">
-                    <strong>{project.name.trim() || "待确认项目"}</strong>
-                    <small>
-                      {PROJECT_ROLE[project.project_role] ?? SAFE_FALLBACK} ·{" "}
-                      {PROJECT_STATUS[project.status] ?? SAFE_FALLBACK}
-                    </small>
-                  </span>
-                  <ArrowRight size={15} aria-hidden="true" />
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <SectionMessage
-              status={projectsStatus === "available" ? "empty" : projectsStatus}
-              loadingText="正在加载协作空间…"
-              emptyText="当前没有可访问的项目"
-              onRetry={() => void load()}
-            />
-          )}
-        </WorkbenchPanel>
-
-        <WorkbenchPanel title="最近动态" icon={<LibraryBig size={17} />} className="is-recent">
-          {recentStatus === "available" && overview && overview.recent_activity.items.length > 0 ? (
-            <div className="wb81-recent-list">
-              {overview.recent_activity.items.map((item) => (
-                <Link key={item.asset_id} to={`/knowledge/${encodeURIComponent(item.asset_id)}`}>
-                  <span className="wb81-activity-copy">
-                    <strong>
-                      {canShowAssetTitles ? item.title.trim() || "待确认资产" : "业务标题已隐藏"}
-                    </strong>
-                    <small>
-                      {SCOPE_LABEL[item.scope] ?? SAFE_FALLBACK}
-                      {item.project_name?.trim() ? ` · ${item.project_name}` : ""}
-                    </small>
-                  </span>
-                  <time>{formatBeijingTime(item.updated_at)}</time>
-                  <ArrowRight size={15} aria-hidden="true" />
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <SectionMessage
-              status={recentStatus === "available" ? "empty" : recentStatus}
-              loadingText="正在加载最近动态…"
-              emptyText="当前没有最近更新的资产"
-              onRetry={() => void load()}
-            />
-          )}
-        </WorkbenchPanel>
+          <WorkbenchPanel
+            title="协作空间"
+            icon={<FolderKanban size={17} />}
+            meta={
+              projectsStatus === "available" && overview
+                ? `${overview.projects.items.length} 个项目`
+                : undefined
+            }
+            className="is-projects"
+          >
+            {projectsStatus === "available" && overview && overview.projects.items.length > 0 ? (
+              <div className="wb81-project-list">
+                {overview.projects.items.map((project) => (
+                  <Link
+                    key={project.project_id}
+                    to={`/project/${encodeURIComponent(project.project_id)}`}
+                  >
+                    <span className="wb81-project-mark" aria-hidden="true">
+                      {project.name.trim().slice(0, 1) || "项"}
+                    </span>
+                    <span className="wb81-project-copy">
+                      <strong>{project.name.trim() || "待确认项目"}</strong>
+                      <small>
+                        {PROJECT_ROLE[project.project_role] ?? SAFE_FALLBACK} ·{" "}
+                        {PROJECT_STATUS[project.status] ?? SAFE_FALLBACK}
+                      </small>
+                    </span>
+                    <ArrowRight size={15} aria-hidden="true" />
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <SectionMessage
+                status={projectsStatus === "available" ? "empty" : projectsStatus}
+                loadingText="正在加载协作空间…"
+                emptyText="当前没有可访问的项目"
+                onRetry={() => void load()}
+              />
+            )}
+          </WorkbenchPanel>
+        </div>
       </div>
+
+      <WorkbenchPanel
+        title="最近动态"
+        icon={<LibraryBig size={17} />}
+        meta={
+          recentStatus === "available" && overview
+            ? `${overview.recent_activity.items.length} 条更新`
+            : undefined
+        }
+        className="is-recent"
+      >
+        {recentStatus === "available" && overview && overview.recent_activity.items.length > 0 ? (
+          <div className="wb81-recent-list">
+            {overview.recent_activity.items.map((item) => (
+              <Link key={item.asset_id} to={`/knowledge/${encodeURIComponent(item.asset_id)}`}>
+                <span className="wb81-activity-copy">
+                  <strong>
+                    {canShowAssetTitles ? item.title.trim() || "待确认资产" : "业务标题已隐藏"}
+                  </strong>
+                  <small>
+                    {SCOPE_LABEL[item.scope] ?? SAFE_FALLBACK}
+                    {item.project_name?.trim() ? ` · ${item.project_name}` : ""}
+                  </small>
+                </span>
+                <time>{formatBeijingTime(item.updated_at)}</time>
+                <ArrowRight size={15} aria-hidden="true" />
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <SectionMessage
+            status={recentStatus === "available" ? "empty" : recentStatus}
+            loadingText="正在加载最近动态…"
+            emptyText="当前没有最近更新的资产"
+            onRetry={() => void load()}
+          />
+        )}
+      </WorkbenchPanel>
     </ProductPage>
   );
 }

@@ -166,7 +166,7 @@ describe("HomeDashboardPage overview workbench", () => {
   });
 
   it("uses only overview and renders all four available sections with formal routes", async () => {
-    renderPage();
+    const { container } = renderPage();
 
     expect(await screen.findByRole("heading", { name: "我的待办" })).toBeInTheDocument();
     expect(fetchWorkbenchOverview).toHaveBeenCalledTimes(1);
@@ -189,6 +189,15 @@ describe("HomeDashboardPage overview workbench", () => {
     );
     expect(screen.getByRole("link", { name: "知识资产库" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "上传资产化" })).toBeInTheDocument();
+
+    const dashboard = container.querySelector(".wb81-dashboard");
+    const primaryColumn = container.querySelector(".wb81-primary-column");
+    expect(dashboard?.children[0]).toHaveClass("is-todos");
+    expect(dashboard?.children[1]).toBe(primaryColumn);
+    expect(primaryColumn?.children[0]).toHaveClass("is-operations");
+    expect(primaryColumn?.children[1]).toHaveClass("is-projects");
+    expect(dashboard?.nextElementSibling).toHaveClass("is-recent");
+    expect(container.querySelector(".wb81-grid")).not.toBeInTheDocument();
 
     expect(document.body.textContent).not.toMatch(
       /review_pending|decide_review|secret-route-A|secret-phase|secret-zone|secret-type|secret-level|secret-summary|server label|server hint/,

@@ -199,8 +199,10 @@ function accepted(result) {
     result.shellOverlap <= 1 &&
     result.clippedControls === 0 &&
     result.panelCount === 4 &&
-    result.gridOrderCorrect &&
-    result.leftColumnWider &&
+    result.stitchHierarchyCorrect &&
+    result.todoColumnNarrower &&
+    result.compactHeader &&
+    !result.staleFourPanelGrid &&
     !result.oldSurfaceVisible &&
     !result.fakeFeatureVisible &&
     !result.sensitiveVisible &&
@@ -262,72 +264,94 @@ try {
         retrySucceeded = overviewCalls === 2;
       }
 
-      const result = await page.evaluate(({ scenarioName }) => {
-        const root = document.documentElement;
-        const shell = document.querySelector(".rail");
-        const content = document.querySelector(".app-content");
-        const panels = [...document.querySelectorAll(".wb81-panel")];
-        const todos = document.querySelector(".wb81-panel.is-todos")?.getBoundingClientRect();
-        const operations = document
-          .querySelector(".wb81-panel.is-operations")
-          ?.getBoundingClientRect();
-        const projects = document.querySelector(".wb81-panel.is-projects")?.getBoundingClientRect();
-        const recent = document.querySelector(".wb81-panel.is-recent")?.getBoundingClientRect();
-        const bodyText = document.body.innerText;
-        const shellBox = shell?.getBoundingClientRect();
-        const contentBox = content?.getBoundingClientRect();
-        const forbiddenStrings = [
-          "secret_todo_key",
-          "secret_severity",
-          "secret_route",
-          "secret_action",
-          "secret server label",
-          "secret server hint",
-          "projects_secret_forbidden",
-          "recent_secret_unavailable",
-          "secret_phase",
-          "secret_zone",
-          "secret_type",
-          "secret_level",
-          "secret summary body",
-          "available",
-          "forbidden",
-          "error_code",
-          "HTTP 500",
-        ];
-        return {
-          scenario: scenarioName,
-          overflowX: root.scrollWidth - root.clientWidth,
-          shellOverlap:
-            shellBox && contentBox ? Math.max(0, shellBox.right - contentBox.left) : 0,
-          clippedControls: [...document.querySelectorAll("a, button")].filter(
-            (element) => element.scrollWidth > element.clientWidth + 2,
-          ).length,
-          panelCount: panels.length,
-          gridOrderCorrect: Boolean(
-            todos && operations && projects && recent && todos.top === operations.top && projects.top === recent.top,
-          ),
-          leftColumnWider: Boolean(todos && operations && todos.width > operations.width * 1.25),
-          oldSurfaceVisible: Boolean(
-            document.querySelector(
-              ".workbench-command-grid, .workbench-context-grid, .workbench-insight-column, .workbench-recommendations",
+      const result = await page.evaluate(
+        ({ scenarioName }) => {
+          const root = document.documentElement;
+          const shell = document.querySelector(".rail");
+          const content = document.querySelector(".app-content");
+          const panels = [...document.querySelectorAll(".wb81-panel")];
+          const todos = document.querySelector(".wb81-panel.is-todos")?.getBoundingClientRect();
+          const operations = document
+            .querySelector(".wb81-panel.is-operations")
+            ?.getBoundingClientRect();
+          const projects = document
+            .querySelector(".wb81-panel.is-projects")
+            ?.getBoundingClientRect();
+          const recent = document.querySelector(".wb81-panel.is-recent")?.getBoundingClientRect();
+          const dashboard = document.querySelector(".wb81-dashboard")?.getBoundingClientRect();
+          const primary = document.querySelector(".wb81-primary-column")?.getBoundingClientRect();
+          const pageHeader = document
+            .querySelector(".wb81-workbench .product-page-header")
+            ?.getBoundingClientRect();
+          const bodyText = document.body.innerText;
+          const shellBox = shell?.getBoundingClientRect();
+          const contentBox = content?.getBoundingClientRect();
+          const forbiddenStrings = [
+            "secret_todo_key",
+            "secret_severity",
+            "secret_route",
+            "secret_action",
+            "secret server label",
+            "secret server hint",
+            "projects_secret_forbidden",
+            "recent_secret_unavailable",
+            "secret_phase",
+            "secret_zone",
+            "secret_type",
+            "secret_level",
+            "secret summary body",
+            "available",
+            "forbidden",
+            "error_code",
+            "HTTP 500",
+          ];
+          return {
+            scenario: scenarioName,
+            overflowX: root.scrollWidth - root.clientWidth,
+            shellOverlap:
+              shellBox && contentBox ? Math.max(0, shellBox.right - contentBox.left) : 0,
+            clippedControls: [...document.querySelectorAll("a, button")].filter(
+              (element) => element.scrollWidth > element.clientWidth + 2,
+            ).length,
+            panelCount: panels.length,
+            stitchHierarchyCorrect: Boolean(
+              todos &&
+              operations &&
+              projects &&
+              recent &&
+              dashboard &&
+              primary &&
+              Math.abs(todos.top - primary.top) <= 1 &&
+              operations.bottom < projects.top &&
+              recent.top >= dashboard.bottom - 1,
             ),
-          ),
-          fakeFeatureVisible: /AI 洞察|健康分|趋势|搜索资产|导出|新建项目/.test(bodyText),
-          sensitiveVisible: forbiddenStrings.some((value) => bodyText.includes(value)),
-          normalContent:
-            bodyText.includes("处理知识审核") &&
-            bodyText.includes("索引失败") &&
-            bodyText.includes("企业知识治理项目") &&
-            bodyText.includes("绝不能越权显示的资产标题"),
-          zeroState: bodyText.includes("今天没有待处理事项"),
-          forbiddenState: bodyText.includes("当前身份暂无访问权限"),
-          hiddenTitleSafe:
-            bodyText.includes("业务标题已隐藏") &&
-            !bodyText.includes("绝不能越权显示的资产标题") &&
-            !bodyText.includes("项目复盘方法"),
-        };
-      }, { scenarioName: scenario.name });
+            todoColumnNarrower: Boolean(
+              todos && operations && operations.width > todos.width * 1.8,
+            ),
+            compactHeader: Boolean(pageHeader && pageHeader.height <= 72),
+            staleFourPanelGrid: Boolean(document.querySelector(".wb81-grid")),
+            oldSurfaceVisible: Boolean(
+              document.querySelector(
+                ".workbench-command-grid, .workbench-context-grid, .workbench-insight-column, .workbench-recommendations",
+              ),
+            ),
+            fakeFeatureVisible: /AI 洞察|健康分|趋势|搜索资产|导出|新建项目/.test(bodyText),
+            sensitiveVisible: forbiddenStrings.some((value) => bodyText.includes(value)),
+            normalContent:
+              bodyText.includes("处理知识审核") &&
+              bodyText.includes("索引失败") &&
+              bodyText.includes("企业知识治理项目") &&
+              bodyText.includes("绝不能越权显示的资产标题"),
+            zeroState: bodyText.includes("今天没有待处理事项"),
+            forbiddenState: bodyText.includes("当前身份暂无访问权限"),
+            hiddenTitleSafe:
+              bodyText.includes("业务标题已隐藏") &&
+              !bodyText.includes("绝不能越权显示的资产标题") &&
+              !bodyText.includes("项目复盘方法"),
+          };
+        },
+        { scenarioName: scenario.name },
+      );
 
       Object.assign(result, {
         overviewCalls,
