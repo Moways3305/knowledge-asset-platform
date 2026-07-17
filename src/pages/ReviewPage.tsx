@@ -81,12 +81,15 @@ export default function ReviewPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [rejectError, setRejectError] = useState<string | null>(null);
   const requestRef = useRef(0);
+  const filtersRef = useRef({ status: "", reviewType: "" });
   const status = statusFilters.find((item) => item.token === statusToken)?.apiValue ?? "";
   const reviewType =
     reviewTypeFilters.find((item) => item.token === reviewTypeToken)?.apiValue ?? "";
+  filtersRef.current = { status, reviewType };
 
   const load = useCallback(async () => {
     const requestId = ++requestRef.current;
+    const filters = filtersRef.current;
     setLoading(true);
     setForbidden(false);
     setLoadFailed(false);
@@ -94,8 +97,8 @@ export default function ReviewPage() {
     setItems([]);
     try {
       const next = await fetchReviews({
-        status: status || undefined,
-        reviewType: reviewType || undefined,
+        status: filters.status || undefined,
+        reviewType: filters.reviewType || undefined,
       });
       if (requestId !== requestRef.current) return;
       setItems(next);
@@ -106,14 +109,14 @@ export default function ReviewPage() {
     } finally {
       if (requestId === requestRef.current) setLoading(false);
     }
-  }, [reviewType, status]);
+  }, []);
 
   useEffect(() => {
     void load();
     return () => {
       requestRef.current += 1;
     };
-  }, [load]);
+  }, [load, reviewType, status]);
 
   const runAction = async (
     item: ReviewItemDTO,

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/http";
@@ -158,6 +158,43 @@ describe("ReviewPage governance workspace", () => {
       expect(withdrawReviewConfirmation).toHaveBeenCalledWith("withdraw-review", "撤回本人确认"),
     );
     expect(within(screen.getByText("只读审核").closest("tr")!).queryByRole("button")).toBeNull();
+  });
+
+  it("reloads an action with the latest filters when they change while the action is pending", async () => {
+    const approved = {
+      ...pending,
+      id: "approved-review",
+      asset_title: "已筛选审核",
+      status: "approved",
+      can_decide: false,
+    };
+    let completeApprove!: () => void;
+    vi.mocked(approveReview).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          completeApprove = resolve;
+        }),
+    );
+    vi.mocked(fetchReviews).mockImplementation(async (options) =>
+      options?.status === "approved" ? [approved] : [pending],
+    );
+    renderPage();
+
+    const pendingRow = (await screen.findByText("客户交付复盘")).closest("tr");
+    fireEvent.click(within(pendingRow!).getByRole("button", { name: "确认" }));
+    await waitFor(() => expect(approveReview).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("审核状态"), { target: { value: "3" } });
+    expect(await screen.findByText("已筛选审核")).toBeInTheDocument();
+
+    await act(async () => completeApprove());
+    await waitFor(() => expect(fetchReviews).toHaveBeenCalledTimes(3));
+    expect(fetchReviews).toHaveBeenLastCalledWith({
+      status: "approved",
+      reviewType: undefined,
+    });
+    expect(screen.getByText("已筛选审核")).toBeInTheDocument();
+    expect(screen.queryByText("客户交付复盘")).not.toBeInTheDocument();
   });
 
   it("requires a real rejection reason before calling the reject endpoint", async () => {
