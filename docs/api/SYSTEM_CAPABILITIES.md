@@ -88,9 +88,12 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 - 🔐 `GET /api/v1/preview/{credential_id}`(+`/file`) — ONLYOFFICE 受控只读预览（凭据制，取件 URL server-only）。
 
 ### 4.4 个人知识库（my_knowledge, personal_kb）
-- 🔐 `GET /api/v1/my/knowledge`、`GET/POST/PUT /api/v1/my/knowledge-base` — 个人库显式创建/改名/状态。
+- 🔐 `GET /api/v1/my/knowledge` — owner-only 分页读模型；支持 `page/page_size`、标题与安全标签关键词、资料类型、个人状态以及创建/更新时间或标题排序。响应包含安全资料项、分页信息和同一 owner 数据集计算的汇总，不返回项目/审核/提交 UUID、原文、存储引用或底座标识。
+- 🔐 `PATCH /api/v1/my/knowledge/{asset_id}` — owner-only 安全元数据修改，仅允许标题、资料类型和标签；待项目审批或已进入项目资料区时由后端拒绝修改。
+- 🔐 `GET/POST/PUT /api/v1/my/knowledge-base` — 个人库显式创建/改名/状态。
 - 🔐 `POST /api/v1/my/knowledge/{asset_id}/{confirm-asset|submit-to-project|validation-evidence}`。
-- 边界：他人个人知识**不可发现、不可摘要**；进项目须本人主动提交。
+- 个人状态稳定为：待本人确认、可提交项目、待项目经理审批、已进入项目、项目未通过；候选证据仅作为安全汇总提示，不等同于已验证或已采纳。项目审批结果会同步个人提交状态，批准后生成可发现的项目资料副本。
+- 边界：他人个人知识**不可发现、不可摘要**；进项目须本人主动提交。待审批或已进入项目的个人资料不可直接编辑或删除，保护规则由后端写接口再次强制执行。
 
 ### 4.5 入库与审核（ingest, review）
 - 🔐 `POST /api/v1/ingest/upload`、`GET /api/v1/ingest/pending`、`GET .../{task_id}/ai-result`、`POST .../{task_id}/{confirm|refresh-parse}`。

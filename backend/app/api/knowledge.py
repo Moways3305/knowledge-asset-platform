@@ -21,12 +21,12 @@ from app.schemas.enums import (
     ConfidentialityLevel,
     KnowledgeScope,
     KnowledgeZone,
+    PersonalKnowledgeState,
 )
 from app.schemas.knowledge import (
     KnowledgeDeleteRequest,
     KnowledgeDeleteResponse,
     KnowledgeDetailOut,
-    KnowledgeItemsResponse,
     KnowledgeListResponse,
     KnowledgeSortField,
     RetryIndexRequest,
@@ -34,6 +34,7 @@ from app.schemas.knowledge import (
     SortDirection,
 )
 from app.schemas.knowledge_insights import KnowledgeOpsInsightsResponse
+from app.schemas.my_knowledge import PersonalKnowledgeListResponse
 from app.schemas.permission import CallerContext
 from app.services import knowledge as knowledge_service
 from app.services import knowledge_insights as insights_service
@@ -136,14 +137,45 @@ async def knowledge_ops_insights(
     )
 
 
-@router.get("/my/knowledge", response_model=KnowledgeItemsResponse)
+@router.get("/my/knowledge", response_model=PersonalKnowledgeListResponse)
 async def list_my_knowledge(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None, min_length=1, max_length=100),
+    asset_type: AssetType | None = Query(default=None),
+    personal_state: PersonalKnowledgeState | None = Query(default=None),
+    sort_by: KnowledgeSortField = Query(default=KnowledgeSortField.updated_at),
+    sort_direction: SortDirection = Query(default=SortDirection.desc),
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
-) -> KnowledgeItemsResponse:
+) -> PersonalKnowledgeListResponse:
     """个人知识：仅返回本人的 scope=personal 资产；纯 admin 返回 403。"""
-    items = await knowledge_service.list_my_knowledge(session, caller)
-    return KnowledgeItemsResponse(items=items, total=len(items))
+    clean_keyword = keyword.strip() if keyword else None
+    if keyword is not None and not clean_keyword:
+        raise HTTPException(
+            status_code=422,
+            detail={"denied_reason": "keyword_invalid", "message": "关键词不能为空"},
+        )
+    if sort_by not in {
+        KnowledgeSortField.updated_at,
+        KnowledgeSortField.created_at,
+        KnowledgeSortField.title_,
+    }:
+        raise HTTPException(
+            status_code=422,
+            detail={"denied_reason": "sort_field_invalid", "message": "个人知识不支持该排序字段"},
+        )
+    return await knowledge_service.list_my_knowledge(
+        session,
+        caller,
+        page=page,
+        page_size=page_size,
+        keyword=clean_keyword,
+        asset_type=asset_type.value if asset_type else None,
+        personal_state=personal_state.value if personal_state else None,
+        sort_by=sort_by.value,
+        sort_direction=sort_direction.value,
+    )
 
 
 @router.get("/knowledge/{asset_id}", response_model=KnowledgeDetailOut)

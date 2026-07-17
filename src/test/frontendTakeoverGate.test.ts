@@ -51,7 +51,7 @@ const routes: RouteContract[] = [
       "hooks/useModelSelection.ts",
       "components/WorkbuddyAccessCard.tsx",
     ],
-    apiModules: ["auth", "http", "personal", "weknoraModels", "workbuddy"],
+    apiModules: ["auth", "http", "knowledge", "personal", "weknoraModels", "workbuddy"],
   },
   {
     route: "/upload",

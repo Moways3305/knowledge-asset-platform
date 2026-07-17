@@ -4490,27 +4490,6 @@
         "title": "KnowledgeDetailOut",
         "type": "object"
       },
-      "KnowledgeItemsResponse": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/KnowledgeListItemOut"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "total": {
-            "title": "Total",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "items",
-          "total"
-        ],
-        "title": "KnowledgeItemsResponse",
-        "type": "object"
-      },
       "KnowledgeListItemOut": {
         "description": "知识列表条目。summary_text 已按权限/保密级别过滤（L3/L4 为脱敏/安全摘要）。",
         "properties": {
@@ -6880,6 +6859,41 @@
         "title": "PersonProjectMembershipOut",
         "type": "object"
       },
+      "PersonalEvidenceSummary": {
+        "description": "候选证据安全聚合，不返回正文、附件或内部 ID。",
+        "properties": {
+          "latest_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Status"
+          },
+          "registered_count": {
+            "default": 0,
+            "title": "Registered Count",
+            "type": "integer"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "title": "PersonalEvidenceSummary",
+        "type": "object"
+      },
       "PersonalKbCreateRequest": {
         "description": "显式创建个人知识库。display_name 可选（缺省用「我的知识库」）。\n\nPBC-38：可选模型选择（model_ref，对底座 id 不可逆，绝不接收真实 model_id）。\n缺省走平台默认；显式选择在首建个人 KB 时生效。",
         "properties": {
@@ -7013,6 +7027,278 @@
         "title": "PersonalKbRenameRequest",
         "type": "object"
       },
+      "PersonalKnowledgeItemOut": {
+        "properties": {
+          "access_info": {
+            "$ref": "#/components/schemas/AccessInfoOut"
+          },
+          "ai_access_level": {
+            "title": "Ai Access Level",
+            "type": "string"
+          },
+          "asset_status": {
+            "title": "Asset Status",
+            "type": "string"
+          },
+          "asset_type": {
+            "title": "Asset Type",
+            "type": "string"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "confidentiality_level": {
+            "title": "Confidentiality Level",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "evidence_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonalEvidenceSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "index_error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Error Message"
+          },
+          "index_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Status"
+          },
+          "indexed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Indexed At"
+          },
+          "last_called_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Called At"
+          },
+          "lifecycle_phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifecycle Phase"
+          },
+          "personal_state": {
+            "$ref": "#/components/schemas/PersonalKnowledgeState"
+          },
+          "personal_state_label": {
+            "title": "Personal State Label",
+            "type": "string"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
+          },
+          "project_submission": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonalProjectSubmissionSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "summary_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Text"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          },
+          "weknora_parse_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weknora Parse Status"
+          },
+          "zone": {
+            "title": "Zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "scope",
+          "zone",
+          "asset_type",
+          "confidentiality_level",
+          "ai_access_level",
+          "asset_status",
+          "visibility",
+          "tags",
+          "summary_text",
+          "project_name",
+          "lifecycle_phase",
+          "last_called_at",
+          "updated_at",
+          "access_info",
+          "created_at",
+          "personal_state",
+          "personal_state_label"
+        ],
+        "title": "PersonalKnowledgeItemOut",
+        "type": "object"
+      },
+      "PersonalKnowledgeListResponse": {
+        "properties": {
+          "has_next": {
+            "title": "Has Next",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalKnowledgeItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/PersonalKnowledgeSummary"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "has_next",
+          "summary"
+        ],
+        "title": "PersonalKnowledgeListResponse",
+        "type": "object"
+      },
+      "PersonalKnowledgeState": {
+        "description": "个人知识工作区稳定状态，不直接暴露审核任务内部状态机。",
+        "enum": [
+          "awaiting_confirmation",
+          "ready_to_submit",
+          "pending_project_review",
+          "active_in_project",
+          "project_rejected",
+          "evidence_registered"
+        ],
+        "title": "PersonalKnowledgeState",
+        "type": "string"
+      },
       "PersonalKnowledgeSubmissionOut": {
         "description": "个人知识提交记录安全视图。",
         "properties": {
@@ -7105,6 +7391,128 @@
           "next_action"
         ],
         "title": "PersonalKnowledgeSubmissionOut",
+        "type": "object"
+      },
+      "PersonalKnowledgeSummary": {
+        "properties": {
+          "active_in_project": {
+            "title": "Active In Project",
+            "type": "integer"
+          },
+          "awaiting_confirmation": {
+            "title": "Awaiting Confirmation",
+            "type": "integer"
+          },
+          "created_this_month": {
+            "title": "Created This Month",
+            "type": "integer"
+          },
+          "pending_project_review": {
+            "title": "Pending Project Review",
+            "type": "integer"
+          },
+          "total_assets": {
+            "title": "Total Assets",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_assets",
+          "awaiting_confirmation",
+          "pending_project_review",
+          "active_in_project",
+          "created_this_month"
+        ],
+        "title": "PersonalKnowledgeSummary",
+        "type": "object"
+      },
+      "PersonalKnowledgeUpdateRequest": {
+        "additionalProperties": false,
+        "description": "仅允许修改个人资料的安全元数据。",
+        "properties": {
+          "asset_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssetType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "title": "PersonalKnowledgeUpdateRequest",
+        "type": "object"
+      },
+      "PersonalProjectSubmissionSummary": {
+        "description": "项目提交的安全摘要，不含任何内部或项目 UUID。",
+        "properties": {
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "submitted_at": {
+            "format": "date-time",
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "target_project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Project Name"
+          }
+        },
+        "required": [
+          "status",
+          "submitted_at"
+        ],
+        "title": "PersonalProjectSubmissionSummary",
         "type": "object"
       },
       "PreviewEntryResponse": {
@@ -20705,6 +21113,97 @@
         "operationId": "list_my_knowledge_api_v1_my_knowledge_get",
         "parameters": [
           {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "keyword",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Keyword"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AssetType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "personal_state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/PersonalKnowledgeState"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Personal State"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/KnowledgeSortField",
+              "default": "updated_at"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_direction",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/SortDirection",
+              "default": "desc"
+            }
+          },
+          {
             "in": "header",
             "name": "X-Dev-User-Id",
             "required": false,
@@ -20742,7 +21241,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/KnowledgeItemsResponse"
+                  "$ref": "#/components/schemas/PersonalKnowledgeListResponse"
                 }
               }
             },
@@ -20973,6 +21472,91 @@
         "summary": "Rename My Kb",
         "tags": [
           "my-knowledge-base"
+        ]
+      }
+    },
+    "/api/v1/my/knowledge/{asset_id}": {
+      "patch": {
+        "operationId": "update_personal_knowledge_api_v1_my_knowledge__asset_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalKnowledgeUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalKnowledgeItemOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Personal Knowledge",
+        "tags": [
+          "my-knowledge"
         ]
       }
     },

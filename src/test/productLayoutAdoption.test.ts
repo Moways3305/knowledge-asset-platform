@@ -49,9 +49,9 @@ describe("product layout and route contract", () => {
 
   it("keeps personal knowledge as a compact table with controlled write dialogs", () => {
     const personal = read("src/pages/MyKnowledgePage.tsx");
-    expect(personal).toContain('className="mk82-table"');
+    expect(personal).toContain('className="mk83-table"');
     expect(personal).toContain("<ConfirmDialog");
-    expect(personal).toContain('setNotice("已提交，等待项目经理确认")');
+    expect(personal).toContain('"已提交，等待项目经理确认"');
     expect(personal).not.toContain("<Disclosure");
     expect(personal).not.toContain("<WorkbuddyAccessCard");
   });

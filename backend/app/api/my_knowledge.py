@@ -20,7 +20,9 @@ from app.core.trace import get_trace_id
 from app.db.session import get_db
 from app.schemas.my_knowledge import (
     ConfirmAssetResponse,
+    PersonalKnowledgeItemOut,
     PersonalKnowledgeSubmissionOut,
+    PersonalKnowledgeUpdateRequest,
     SubmitToProjectRequest,
     ValidationCandidateRequest,
 )
@@ -28,6 +30,19 @@ from app.schemas.permission import CallerContext
 from app.services import my_knowledge as my_knowledge_service
 
 router = APIRouter(prefix="/api/v1/my/knowledge", tags=["my-knowledge"])
+
+
+@router.patch("/{asset_id}", response_model=PersonalKnowledgeItemOut)
+async def update_personal_knowledge(
+    asset_id: uuid.UUID,
+    body: PersonalKnowledgeUpdateRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> PersonalKnowledgeItemOut:
+    return await my_knowledge_service.update_personal_asset(
+        session, caller, asset_id, body, get_trace_id(request)
+    )
 
 
 @router.post("/{asset_id}/confirm-asset", response_model=ConfirmAssetResponse)

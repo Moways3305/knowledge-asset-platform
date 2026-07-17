@@ -244,6 +244,17 @@ class PersonalSubmissionStatus(str, Enum):
     rejected = "rejected"
 
 
+class PersonalKnowledgeState(str, Enum):
+    """个人知识工作区稳定状态，不直接暴露审核任务内部状态机。"""
+
+    awaiting_confirmation = "awaiting_confirmation"
+    ready_to_submit = "ready_to_submit"
+    pending_project_review = "pending_project_review"
+    active_in_project = "active_in_project"
+    project_rejected = "project_rejected"
+    evidence_registered = "evidence_registered"
+
+
 class ReviewType(str, Enum):
     """审核类型。"""
 
@@ -368,6 +379,7 @@ class AuditAction(str, Enum):
     lifecycle_reenabled = "lifecycle.reenabled"
     # 知识资产受控删除 / 撤下。
     knowledge_asset_deleted = "knowledge.asset_deleted"
+    knowledge_asset_metadata_updated = "knowledge.asset_metadata_updated"
     # 底座索引重试。requested=发起（operation）；retried=成功（operation）；
     # retry_failed=重试后底座仍失败（exception）。区别于 ingest.index_failed（confirm 阶段失败）。
     knowledge_index_retry_requested = "knowledge.index_retry_requested"

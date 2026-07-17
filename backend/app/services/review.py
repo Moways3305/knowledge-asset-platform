@@ -17,9 +17,10 @@ from sqlalchemy.orm import selectinload
 
 from app.models.identity import Project, ProjectMember
 from app.models.ingest import IngestTask
-from app.models.knowledge import KnowledgeAsset
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetTag
 from app.models.review import (
     CompanyAssetReviewDecision,
+    PersonalKnowledgeSubmission,
     ReviewTask,
     ReviewTaskEvidence,
     ValidationEvidence,
@@ -33,6 +34,8 @@ from app.schemas.enums import (
     CompanyRole,
     KnowledgeScope,
     MemberStatus,
+    PersonalSubmissionStatus,
+    PersonalSubmissionType,
     ProjectRole,
     ReviewTaskStatus,
     ReviewType,
@@ -1033,6 +1036,90 @@ async def approve(
             storage=storage,
             weknora=weknora,
         )
+    if task.review_type == ReviewType.personal_to_project.value:
+        if task.reviewer_user_id != caller.user_id:
+            raise _denied(403, "review_action_forbidden", "只有被分配的审核人可审批")
+        if task.status in _TERMINAL:
+            raise _denied(409, "review_already_finalized", "审核任务已是终态，不可重复操作")
+        submission = (
+            await session.execute(
+                select(PersonalKnowledgeSubmission).where(
+                    PersonalKnowledgeSubmission.review_task_id == task.id
+                )
+            )
+        ).scalar_one_or_none()
+        if submission is None:
+            raise _denied(409, "personal_submission_missing", "个人知识提交记录不可用")
+        task.status = ReviewTaskStatus.approved.value
+        task.review_comment = comment
+        task.reviewed_at = datetime.now(timezone.utc)
+        submission.status = PersonalSubmissionStatus.approved.value
+        result_asset = await session.get(KnowledgeAsset, task.target_asset_id)
+        if (
+            submission.submission_type == PersonalSubmissionType.submit_to_project.value
+            and result_asset is not None
+            and task.target_project_id is not None
+        ):
+            existing_copy = (
+                await session.execute(
+                    select(KnowledgeAsset).where(
+                        KnowledgeAsset.source_asset_id == result_asset.id,
+                        KnowledgeAsset.scope == KnowledgeScope.project.value,
+                        KnowledgeAsset.project_id == task.target_project_id,
+                        KnowledgeAsset.asset_status == "active",
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing_copy is None:
+                source = (
+                    await session.execute(
+                        select(KnowledgeAsset)
+                        .where(KnowledgeAsset.id == result_asset.id)
+                        .options(selectinload(KnowledgeAsset.tags))
+                    )
+                ).scalar_one()
+                existing_copy = KnowledgeAsset(
+                    title=source.title,
+                    scope=KnowledgeScope.project.value,
+                    zone="material",
+                    asset_type=source.asset_type,
+                    owner_user_id=source.owner_user_id,
+                    maintainer_user_id=source.maintainer_user_id or source.owner_user_id,
+                    project_id=task.target_project_id,
+                    source_asset_id=source.id,
+                    current_version_id=source.current_version_id,
+                    visibility="project_only",
+                    confidentiality_level=source.confidentiality_level,
+                    ai_access_level=source.ai_access_level,
+                    asset_status="active",
+                )
+                existing_copy.tags.extend(
+                    KnowledgeAssetTag(tag_name=tag.tag_name) for tag in source.tags
+                )
+                session.add(existing_copy)
+                await session.flush()
+            result_asset = existing_copy
+        await audit_service.record_event(
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.review_approved.value,
+            trace_id=trace_id,
+            target_type="review_task",
+            target_id=task.id,
+            after={
+                "status": task.status,
+                "submission_type": submission.submission_type,
+            },
+            project_id=task.target_project_id,
+        )
+        await session.commit()
+        return ReviewActionResponse(
+            review_id=task.id,
+            status=task.status,
+            target_asset_id=result_asset.id if result_asset else task.target_asset_id,
+            asset_zone=result_asset.zone if result_asset else None,
+        )
     if task.reviewer_user_id != caller.user_id:
         raise _denied(403, "review_action_forbidden", "只有被分配的审核人可审批")
     if task.status in _TERMINAL:
@@ -1230,6 +1317,46 @@ async def reject(
             status=task.status,
             target_asset_id=task.target_asset_id,
             asset_zone=None,
+        )
+    if task.review_type == ReviewType.personal_to_project.value:
+        if task.reviewer_user_id != caller.user_id:
+            raise _denied(403, "review_action_forbidden", "只有被分配的审核人可审批")
+        if task.status in _TERMINAL:
+            raise _denied(409, "review_already_finalized", "审核任务已是终态，不可重复操作")
+        submission = (
+            await session.execute(
+                select(PersonalKnowledgeSubmission).where(
+                    PersonalKnowledgeSubmission.review_task_id == task.id
+                )
+            )
+        ).scalar_one_or_none()
+        if submission is None:
+            raise _denied(409, "personal_submission_missing", "个人知识提交记录不可用")
+        task.status = ReviewTaskStatus.rejected.value
+        task.review_comment = comment
+        task.reviewed_at = datetime.now(timezone.utc)
+        submission.status = PersonalSubmissionStatus.rejected.value
+        await audit_service.record_event(
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.review_rejected.value,
+            trace_id=trace_id,
+            target_type="review_task",
+            target_id=task.id,
+            after={
+                "status": task.status,
+                "submission_type": submission.submission_type,
+            },
+            project_id=task.target_project_id,
+        )
+        await session.commit()
+        asset = await session.get(KnowledgeAsset, task.target_asset_id)
+        return ReviewActionResponse(
+            review_id=task.id,
+            status=task.status,
+            target_asset_id=task.target_asset_id,
+            asset_zone=asset.zone if asset else None,
         )
     if task.reviewer_user_id != caller.user_id:
         raise _denied(403, "review_action_forbidden", "只有被分配的审核人可审批")

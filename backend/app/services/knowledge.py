@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from sqlalchemy import and_, func, or_, select
@@ -34,6 +35,7 @@ from app.models.knowledge import (
     KnowledgeAssetVersion,
 )
 from app.models.original_access import AccessGrant, OriginalAccessRequest
+from app.models.review import PersonalKnowledgeSubmission, ReviewTask
 from app.schemas.enums import (
     AlertSeverity,
     AssetStatus,
@@ -42,7 +44,11 @@ from app.schemas.enums import (
     AuditRiskLevel,
     ConfidentialityLevel,
     KnowledgeScope,
+    PersonalKnowledgeState,
+    PersonalSubmissionStatus,
+    PersonalSubmissionType,
     ProjectRole,
+    ReviewTaskStatus,
 )
 from app.schemas.knowledge import (
     AccessInfoOut,
@@ -54,6 +60,13 @@ from app.schemas.knowledge import (
     MaintainerOut,
     RetryIndexResponse,
     SummaryOut,
+)
+from app.schemas.my_knowledge import (
+    PersonalEvidenceSummary,
+    PersonalKnowledgeItemOut,
+    PersonalKnowledgeListResponse,
+    PersonalKnowledgeSummary,
+    PersonalProjectSubmissionSummary,
 )
 from app.schemas.permission import (
     DEFAULT_POLICY,
@@ -304,6 +317,14 @@ def _to_list_item(
 def _like_pattern(keyword: str) -> str:
     escaped = keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return f"%{escaped}%"
+
+
+def _as_utc(value: datetime) -> datetime:
+    return (
+        value.replace(tzinfo=timezone.utc)
+        if value.tzinfo is None
+        else value.astimezone(timezone.utc)
+    )
 
 
 async def _list_summary_maps(
@@ -579,10 +600,185 @@ async def get_detail(
     )
 
 
+_PERSONAL_STATE_LABELS = {
+    PersonalKnowledgeState.awaiting_confirmation.value: "待本人确认",
+    PersonalKnowledgeState.ready_to_submit.value: "可提交项目",
+    PersonalKnowledgeState.pending_project_review.value: "待项目经理审批",
+    PersonalKnowledgeState.active_in_project.value: "已进入项目",
+    PersonalKnowledgeState.project_rejected.value: "项目未通过",
+    PersonalKnowledgeState.evidence_registered.value: "已登记候选证据",
+}
+_PENDING_REVIEW_STATUSES = {
+    ReviewTaskStatus.pending_evidence.value,
+    ReviewTaskStatus.pending_reviewer.value,
+    ReviewTaskStatus.approving.value,
+    ReviewTaskStatus.approval_failed.value,
+}
+
+
+def _effective_submission_status(
+    submission: PersonalKnowledgeSubmission, task: ReviewTask | None
+) -> str:
+    """审核任务是真实裁决源；无任务时才回退提交记录状态。"""
+    if task is None:
+        return submission.status
+    if task.status == ReviewTaskStatus.approved.value:
+        return PersonalSubmissionStatus.approved.value
+    if task.status == ReviewTaskStatus.rejected.value:
+        return PersonalSubmissionStatus.rejected.value
+    if task.status in _PENDING_REVIEW_STATUSES:
+        return PersonalSubmissionStatus.pending.value
+    return submission.status
+
+
+async def _personal_projection(
+    session: AsyncSession, assets: list[KnowledgeAsset]
+) -> dict[uuid.UUID, dict]:
+    asset_ids = [asset.id for asset in assets]
+    if not asset_ids:
+        return {}
+    submissions = list(
+        (
+            await session.execute(
+                select(PersonalKnowledgeSubmission)
+                .where(PersonalKnowledgeSubmission.source_asset_id.in_(asset_ids))
+                .order_by(
+                    PersonalKnowledgeSubmission.created_at.desc(),
+                    PersonalKnowledgeSubmission.id.desc(),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    task_ids = {row.review_task_id for row in submissions if row.review_task_id is not None}
+    tasks = (
+        {
+            row.id: row
+            for row in (
+                (await session.execute(select(ReviewTask).where(ReviewTask.id.in_(task_ids))))
+                .scalars()
+                .all()
+            )
+        }
+        if task_ids
+        else {}
+    )
+    project_ids = {row.target_project_id for row in submissions if row.target_project_id}
+    project_names: dict[uuid.UUID, str] = {}
+    if project_ids:
+        project_name_rows = (
+            await session.execute(
+                select(Project.id, Project.name).where(Project.id.in_(project_ids))
+            )
+        ).all()
+        project_names = {project_id: name for project_id, name in project_name_rows}
+    project_copies = set(
+        (
+            await session.execute(
+                select(KnowledgeAsset.source_asset_id).where(
+                    KnowledgeAsset.source_asset_id.in_(asset_ids),
+                    KnowledgeAsset.scope == KnowledgeScope.project.value,
+                    KnowledgeAsset.asset_status == AssetStatus.active.value,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    grouped: dict[uuid.UUID, list[PersonalKnowledgeSubmission]] = {}
+    for row in submissions:
+        grouped.setdefault(row.source_asset_id, []).append(row)
+
+    result: dict[uuid.UUID, dict] = {}
+    for asset in assets:
+        rows = grouped.get(asset.id, [])
+        project_rows = [
+            row
+            for row in rows
+            if row.submission_type == PersonalSubmissionType.submit_to_project.value
+        ]
+        evidence_rows = [
+            row
+            for row in rows
+            if row.submission_type
+            in {
+                PersonalSubmissionType.internal_sharing_candidate.value,
+                PersonalSubmissionType.client_validation_candidate.value,
+            }
+        ]
+        latest = project_rows[0] if project_rows else None
+        latest_task = (
+            tasks.get(latest.review_task_id)
+            if latest is not None and latest.review_task_id is not None
+            else None
+        )
+        latest_status = (
+            _effective_submission_status(latest, latest_task) if latest is not None else None
+        )
+        if asset.zone == "material":
+            state = PersonalKnowledgeState.awaiting_confirmation.value
+        elif latest_status == PersonalSubmissionStatus.pending.value:
+            state = PersonalKnowledgeState.pending_project_review.value
+        elif latest_status == PersonalSubmissionStatus.rejected.value:
+            state = PersonalKnowledgeState.project_rejected.value
+        elif (
+            latest_status == PersonalSubmissionStatus.approved.value and asset.id in project_copies
+        ):
+            state = PersonalKnowledgeState.active_in_project.value
+        else:
+            state = PersonalKnowledgeState.ready_to_submit.value
+
+        task = latest_task
+        project_summary = (
+            PersonalProjectSubmissionSummary(
+                status=latest_status or latest.status,
+                target_project_name=(
+                    project_names.get(latest.target_project_id)
+                    if latest.target_project_id is not None
+                    else None
+                ),
+                submitted_at=latest.created_at,
+                resolved_at=task.reviewed_at if task else None,
+            )
+            if latest is not None
+            else None
+        )
+        evidence_summary = None
+        if evidence_rows:
+            evidence_latest = evidence_rows[0]
+            evidence_task = (
+                tasks.get(evidence_latest.review_task_id)
+                if evidence_latest.review_task_id is not None
+                else None
+            )
+            evidence_summary = PersonalEvidenceSummary(
+                registered_count=len(evidence_rows),
+                latest_status=_effective_submission_status(evidence_latest, evidence_task),
+                updated_at=evidence_latest.updated_at,
+            )
+        result[asset.id] = {
+            "state": state,
+            "project_submission": project_summary,
+            "evidence_summary": evidence_summary,
+        }
+    return result
+
+
 async def list_my_knowledge(
-    session: AsyncSession, caller: CallerContext
-) -> list[KnowledgeListItemOut]:
-    """个人知识：仅返回本人的 scope=personal 资产；纯 admin 返回 403。"""
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    keyword: str | None = None,
+    asset_type: str | None = None,
+    personal_state: str | None = None,
+    sort_by: str = "updated_at",
+    sort_direction: str = "desc",
+) -> PersonalKnowledgeListResponse:
+    """个人知识 owner-only 分页读模型及安全治理状态投影。"""
     if not caller.is_business_user:
         # admin 不作为业务个人知识库主体。
         raise _denied(
@@ -590,23 +786,110 @@ async def list_my_knowledge(
             "admin_business_permission_denied",
             "仅业务用户可拥有个人知识库",
         )
+    conditions = [
+        KnowledgeAsset.scope == KnowledgeScope.personal.value,
+        KnowledgeAsset.owner_user_id == caller.user_id,
+        KnowledgeAsset.asset_status == AssetStatus.active.value,
+    ]
+    if asset_type:
+        conditions.append(KnowledgeAsset.asset_type == asset_type)
+    if keyword:
+        pattern = _like_pattern(keyword)
+        conditions.append(
+            or_(
+                KnowledgeAsset.title.ilike(pattern, escape="\\"),
+                KnowledgeAsset.tags.any(KnowledgeAssetTag.tag_name.ilike(pattern, escape="\\")),
+            )
+        )
     stmt = (
+        select(KnowledgeAsset)
+        .where(*conditions)
+        .options(selectinload(KnowledgeAsset.tags), selectinload(KnowledgeAsset.summaries))
+    )
+    assets = list((await session.execute(stmt)).scalars().all())
+    policy = await load_access_policy(session)
+    visible = [a for a in assets if decide(caller, a, AccessLayer.discovery, policy=policy).allowed]
+    projection = await _personal_projection(session, visible)
+    if personal_state:
+        visible = [asset for asset in visible if projection[asset.id]["state"] == personal_state]
+    reverse = sort_direction == "desc"
+    if sort_by == "title":
+        visible.sort(key=lambda asset: (asset.title.casefold(), str(asset.id)), reverse=reverse)
+    else:
+        visible.sort(
+            key=lambda asset: (
+                getattr(asset, sort_by) or datetime.min.replace(tzinfo=timezone.utc),
+                str(asset.id),
+            ),
+            reverse=reverse,
+        )
+    total = len(visible)
+    page_assets = visible[(page - 1) * page_size : page * page_size]
+    projects, _users = await _aux_maps(session, page_assets)
+    granted = await original_access.active_grant_asset_ids(
+        session, caller, [a.id for a in page_assets]
+    )
+    vindex = await _version_index_map(session, page_assets)
+    items: list[PersonalKnowledgeItemOut] = []
+    for asset in page_assets:
+        base = _to_list_item(caller, asset, projects, granted, vindex, policy)
+        projected = projection[asset.id]
+        items.append(
+            PersonalKnowledgeItemOut(
+                **base.model_dump(),
+                created_at=asset.created_at,
+                personal_state=projected["state"],
+                personal_state_label=_PERSONAL_STATE_LABELS[projected["state"]],
+                project_submission=projected["project_submission"],
+                evidence_summary=projected["evidence_summary"],
+            )
+        )
+
+    all_stmt = (
         select(KnowledgeAsset)
         .where(
             KnowledgeAsset.scope == KnowledgeScope.personal.value,
             KnowledgeAsset.owner_user_id == caller.user_id,
+            KnowledgeAsset.asset_status == AssetStatus.active.value,
         )
         .options(selectinload(KnowledgeAsset.tags), selectinload(KnowledgeAsset.summaries))
     )
-    assets = list((await session.execute(stmt)).scalars().all())
-    # 复用 discovery 决策过滤：与权限口径一致，本人 archived/deprecated personal
-    # 资产默认不进入个人知识列表（读侧默认过滤），而非只写 SQL 状态条件。
-    policy = await load_access_policy(session)
-    visible = [a for a in assets if decide(caller, a, AccessLayer.discovery, policy=policy).allowed]
-    projects, _users = await _aux_maps(session, visible)
-    granted = await original_access.active_grant_asset_ids(session, caller, [a.id for a in visible])
-    vindex = await _version_index_map(session, visible)
-    return [_to_list_item(caller, a, projects, granted, vindex, policy) for a in visible]
+    all_assets = list((await session.execute(all_stmt)).scalars().all())
+    all_visible = [
+        asset
+        for asset in all_assets
+        if decide(caller, asset, AccessLayer.discovery, policy=policy).allowed
+    ]
+    all_projection = await _personal_projection(session, all_visible)
+    month_start = (
+        datetime.now(ZoneInfo("Asia/Shanghai"))
+        .replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        .astimezone(timezone.utc)
+    )
+    summary = PersonalKnowledgeSummary(
+        total_assets=len(all_visible),
+        awaiting_confirmation=sum(
+            all_projection[asset.id]["state"] == PersonalKnowledgeState.awaiting_confirmation.value
+            for asset in all_visible
+        ),
+        pending_project_review=sum(
+            all_projection[asset.id]["state"] == PersonalKnowledgeState.pending_project_review.value
+            for asset in all_visible
+        ),
+        active_in_project=sum(
+            all_projection[asset.id]["state"] == PersonalKnowledgeState.active_in_project.value
+            for asset in all_visible
+        ),
+        created_this_month=sum(_as_utc(asset.created_at) >= month_start for asset in all_visible),
+    )
+    return PersonalKnowledgeListResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        has_next=page * page_size < total,
+        summary=summary,
+    )
 
 
 async def delete_asset(
@@ -644,6 +927,41 @@ async def delete_asset(
         if not caller.is_business_user:
             raise _denied(403, "admin_business_permission_denied", "系统管理员不具备业务知识删除权")
         raise _denied(403, "knowledge_delete_forbidden", "无权删除该知识资产")
+
+    if asset.scope == KnowledgeScope.personal.value:
+        pending_submission = (
+            await session.execute(
+                select(PersonalKnowledgeSubmission.id)
+                .join(
+                    ReviewTask,
+                    ReviewTask.id == PersonalKnowledgeSubmission.review_task_id,
+                )
+                .where(
+                    PersonalKnowledgeSubmission.source_asset_id == asset.id,
+                    PersonalKnowledgeSubmission.submission_type
+                    == PersonalSubmissionType.submit_to_project.value,
+                    ReviewTask.status.in_(_PENDING_REVIEW_STATUSES),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        active_project_copy = (
+            await session.execute(
+                select(KnowledgeAsset.id)
+                .where(
+                    KnowledgeAsset.source_asset_id == asset.id,
+                    KnowledgeAsset.scope == KnowledgeScope.project.value,
+                    KnowledgeAsset.asset_status == AssetStatus.active.value,
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if pending_submission is not None or active_project_copy is not None:
+            raise _denied(
+                409,
+                "personal_asset_project_locked",
+                "项目审核或项目使用中的资料不可删除",
+            )
 
     prev_status = asset.asset_status
     clean_reason = (reason or "").strip()[:500] or None
