@@ -311,6 +311,10 @@ try {
             ?.getBoundingClientRect();
           const recent = document.querySelector(".wb81-panel.is-recent")?.getBoundingClientRect();
           const operationCardCount = document.querySelectorAll(".wb81-operation").length;
+          const operationCards = [...document.querySelectorAll(".wb81-operation")].map((element) =>
+            element.getBoundingClientRect(),
+          );
+          const operationIconCount = document.querySelectorAll(".wb81-operation-icon svg").length;
           const secondary = document
             .querySelector(".wb81-secondary-column")
             ?.getBoundingClientRect();
@@ -362,7 +366,11 @@ try {
               Math.abs(operations.left - projects.left) <= 1,
             ),
             todoColumnNarrower: Boolean(
-              todos && operations && operations.width > todos.width * 1.8,
+              todos &&
+              operations &&
+              todos.width >= 320 &&
+              operations.width > todos.width * 1.8 &&
+              operations.width < todos.width * 2.4,
             ),
             recentInLeftColumn: Boolean(
               todos &&
@@ -371,7 +379,12 @@ try {
               Math.abs(todos.width - recent.width) <= 1,
             ),
             operationsCompact: Boolean(
-              operations && projects && operationCardCount > 0 && operationCardCount <= 3,
+              operations &&
+              projects &&
+              operationCardCount > 0 &&
+              operationCardCount <= 3 &&
+              operationCards.every((card) => card.width <= 190) &&
+              operationIconCount === operationCardCount,
             ),
             compactHeader: Boolean(pageHeader && pageHeader.height <= 72),
             staleFourPanelGrid: Boolean(document.querySelector(".wb81-grid")),

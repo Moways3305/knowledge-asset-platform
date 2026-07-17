@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
+  Archive,
   ArrowRight,
+  ArrowUpRight,
   BriefcaseBusiness,
+  Clock3,
+  DatabaseZap,
+  FileWarning,
   FolderKanban,
   LibraryBig,
   ListChecks,
   RefreshCw,
+  SearchX,
+  ShieldAlert,
   UploadCloud,
+  type LucideIcon,
 } from "lucide-react";
 import { fetchWorkbenchOverview } from "../api/workbench";
 import { useAuth } from "../auth/AuthContext";
@@ -79,6 +87,16 @@ const OPERATION_LABEL: Record<string, string> = {
   overdue_original_requests: "原文申请超时",
   archive_candidates: "归档候选",
   reuse_upgrade_candidates: "升格推荐",
+};
+
+const OPERATION_ICON: Record<string, LucideIcon> = {
+  index_failed: SearchX,
+  parse_failed: FileWarning,
+  kb_init_failed: DatabaseZap,
+  pending_original_requests: Clock3,
+  overdue_original_requests: ShieldAlert,
+  archive_candidates: Archive,
+  reuse_upgrade_candidates: ArrowUpRight,
 };
 
 type PageState = "loading" | "ready" | "error";
@@ -190,9 +208,15 @@ function TodoRow({ item }: { item: WorkbenchTodoItemDTO }) {
 }
 
 function OperationCard({ item }: { item: WorkbenchOperationCardDTO }) {
+  const Icon = OPERATION_ICON[item.key] ?? BriefcaseBusiness;
   return (
     <div className={`wb81-operation ${safeTone(item.severity)}`}>
-      <span>{OPERATION_LABEL[item.key] ?? SAFE_FALLBACK}</span>
+      <div className="wb81-operation-heading">
+        <span>{OPERATION_LABEL[item.key] ?? SAFE_FALLBACK}</span>
+        <span className="wb81-operation-icon" aria-hidden="true">
+          <Icon size={17} />
+        </span>
+      </div>
       <strong>{item.count}</strong>
     </div>
   );

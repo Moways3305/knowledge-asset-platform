@@ -223,6 +223,7 @@ describe("HomeDashboardPage overview workbench", () => {
 
     expect(await screen.findByText("当前没有可访问的项目")).toBeInTheDocument();
     expect(container.querySelectorAll(".wb81-operation")).toHaveLength(3);
+    expect(container.querySelectorAll(".wb81-operation-icon svg")).toHaveLength(3);
     expect(screen.queryByText("归档候选")).not.toBeInTheDocument();
     expect(screen.queryByText("原文申请待处理")).not.toBeInTheDocument();
   });
