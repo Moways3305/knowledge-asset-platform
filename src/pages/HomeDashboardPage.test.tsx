@@ -168,6 +168,9 @@ describe("HomeDashboardPage overview workbench", () => {
       "href",
       "/knowledge/asset-real-81",
     );
+    expect(
+      container.querySelector(".wb81-panel.is-projects .wb81-project-list"),
+    ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "知识资产库" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "上传资产化" })).toBeInTheDocument();
 
@@ -222,6 +225,11 @@ describe("HomeDashboardPage overview workbench", () => {
     const { container } = renderPage();
 
     expect(await screen.findByText("当前没有可访问的项目")).toBeInTheDocument();
+    expect(
+      container.querySelector(
+        '.wb81-panel.is-projects .wb81-section-state.is-empty[data-section-state="empty"]',
+      ),
+    ).toBeInTheDocument();
     expect(container.querySelectorAll(".wb81-operation")).toHaveLength(3);
     expect(container.querySelectorAll(".wb81-operation-icon svg")).toHaveLength(3);
     expect(screen.queryByText("归档候选")).not.toBeInTheDocument();
@@ -253,6 +261,12 @@ describe("HomeDashboardPage overview workbench", () => {
     expect(await screen.findByText("今天没有待处理事项")).toBeInTheDocument();
     expect(screen.getByText("当前没有需要处理的运营事项")).toBeInTheDocument();
     expect(screen.getByText("当前身份暂无访问权限")).toBeInTheDocument();
+    const projectPanel = screen.getByRole("heading", { name: "项目概览" }).closest("section")!;
+    expect(
+      projectPanel.querySelector(
+        '.wb81-section-state.is-forbidden[data-section-state="forbidden"]',
+      ),
+    ).toBeInTheDocument();
     const recent = screen.getByRole("heading", { name: "最近动态" }).closest("section")!;
     expect(within(recent).getByText("内容暂时未能加载")).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(
@@ -353,6 +367,10 @@ describe("HomeDashboardPage overview workbench", () => {
 
     const alerts = await screen.findAllByRole("alert");
     expect(alerts).toHaveLength(4);
+    const projectPanel = screen.getByRole("heading", { name: "项目概览" }).closest("section")!;
+    expect(
+      projectPanel.querySelector('.wb81-section-state.is-error[data-section-state="error"]'),
+    ).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/SECRET-LIKE|api\/v1|HTTP|500/);
     fireEvent.click(within(alerts[0]).getByRole("button", { name: "重新加载" }));
     await waitFor(() => expect(fetchWorkbenchOverview).toHaveBeenCalledTimes(2));

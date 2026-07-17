@@ -159,14 +159,22 @@ function SectionMessage({
   emptyAction?: ReactNode;
 }) {
   if (status === "loading") {
-    return <div className="wb81-section-state is-loading">{loadingText}</div>;
+    return (
+      <div className="wb81-section-state is-loading" data-section-state="loading">
+        {loadingText}
+      </div>
+    );
   }
   if (status === "forbidden") {
-    return <div className="wb81-section-state">当前身份暂无访问权限</div>;
+    return (
+      <div className="wb81-section-state is-forbidden" data-section-state="forbidden">
+        当前身份暂无访问权限
+      </div>
+    );
   }
   if (status === "error") {
     return (
-      <div className="wb81-section-state is-error" role="alert">
+      <div className="wb81-section-state is-error" data-section-state="error" role="alert">
         <span>内容暂时未能加载</span>
         <button type="button" onClick={onRetry}>
           重新加载
@@ -175,7 +183,7 @@ function SectionMessage({
     );
   }
   return (
-    <div className="wb81-section-state is-empty">
+    <div className="wb81-section-state is-empty" data-section-state="empty">
       <span>{emptyText}</span>
       {emptyAction}
     </div>

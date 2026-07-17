@@ -456,7 +456,14 @@
 }
 
 .wb81-panel.is-projects .wb81-section-state {
-  min-height: 112px;
+  min-height: 54px;
+  padding: 9px 12px;
+}
+
+.wb81-panel.is-projects .wb81-section-state.is-empty,
+.wb81-panel.is-projects .wb81-section-state.is-forbidden,
+.wb81-panel.is-projects .wb81-section-state.is-error {
+  flex-direction: row;
 }
 
 .wb81-panel.is-recent .wb81-section-state {

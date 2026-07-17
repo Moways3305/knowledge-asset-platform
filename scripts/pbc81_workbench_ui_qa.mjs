@@ -232,6 +232,7 @@ function accepted(result) {
     result.todoColumnNarrower &&
     result.recentInLeftColumn &&
     result.operationsCompact &&
+    result.projectStateCompact &&
     result.compactHeader &&
     !result.staleFourPanelGrid &&
     !result.oldSurfaceVisible &&
@@ -353,6 +354,7 @@ try {
               (element) => element.scrollWidth > element.clientWidth + 2,
             ).length,
             panelCount: panels.length,
+            projectPanelHeight: projects?.height ?? 0,
             stitchHierarchyCorrect: Boolean(
               todos &&
               operations &&
@@ -425,13 +427,24 @@ try {
         fullPage: false,
         animations: "disabled",
       });
-      results.push({ viewport: viewport.name, ...result, passed: accepted(result) });
+      results.push({ viewport: viewport.name, ...result });
       await context.close();
     }
   }
 } finally {
   await browser?.close();
   await previewServer?.close();
+}
+
+for (const result of results) {
+  const normal = results.find(
+    (candidate) => candidate.viewport === result.viewport && candidate.scenario === "normal",
+  );
+  result.projectStateCompact =
+    result.scenario === "projects-empty" || result.scenario === "projects-forbidden"
+      ? Boolean(normal && result.projectPanelHeight < normal.projectPanelHeight * 0.7)
+      : true;
+  result.passed = accepted(result);
 }
 
 fs.writeFileSync(path.join(outDir, "report.json"), JSON.stringify(results, null, 2));
