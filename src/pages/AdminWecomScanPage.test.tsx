@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createWecomScanConfig,
@@ -112,6 +112,28 @@ describe("AdminWecomScanPage", () => {
     expect(html).not.toContain("trace-secret-id");
     expect(html).not.toContain("raw upstream body");
     expect(html).not.toContain("upstream_auth_token_secret");
+    const console = container.querySelector<HTMLElement>(".ws87-console");
+    const main = container.querySelector<HTMLElement>(".ws87-main-workspace");
+    const configPanel = container.querySelector<HTMLElement>(".ws87-config-panel");
+    const recordPanel = container.querySelector<HTMLElement>(".ws87-record-panel");
+    expect(console?.children).toHaveLength(2);
+    expect(main).toContainElement(configPanel);
+    expect(main).toContainElement(recordPanel);
+    expect(
+      configPanel!.compareDocumentPosition(recordPanel!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const summary = screen.getByLabelText("运行摘要");
+    expect(within(summary).getByText("最近扫描失败")).toBeInTheDocument();
+    expect(within(summary).getByText("最近扫描新增")).toBeInTheDocument();
+    expect(within(summary).queryByText("新增待确认")).not.toBeInTheDocument();
+  });
+
+  it("selects the first real configuration and loads its records by default", async () => {
+    render(<AdminWecomScanPage />);
+    expect(
+      await screen.findByRole("heading", { name: "项目交付目录 · 最近扫描记录" }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(fetchWecomScanRecords).toHaveBeenCalledWith(config.id));
   });
 
   it("makes governance access read-only", async () => {
@@ -174,16 +196,35 @@ describe("AdminWecomScanPage", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "查看记录" })[1]);
     expect(
-      await screen.findByRole("heading", { name: "Beta 交付目录 · 记录" }),
+      await screen.findByRole("heading", { name: "Beta 交付目录 · 最近扫描记录" }),
     ).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "查看记录" })[0]);
-    expect(await screen.findByRole("heading", { name: "项目交付目录 · 记录" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "项目交付目录 · 最近扫描记录" }),
+    ).toBeInTheDocument();
     expect(await screen.findByText("17")).toBeInTheDocument();
 
     resolveLate?.({ items: [{ ...record, discovered_count: 99 }] });
     await Promise.resolve();
     expect(screen.queryByText("99")).not.toBeInTheDocument();
     expect(screen.getByText("17")).toBeInTheDocument();
+    expect(fetchWecomScanConfigs).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses compact content states for no configuration and no records", async () => {
+    vi.mocked(fetchWecomScanConfigs).mockResolvedValueOnce({ items: [] });
+    const { container, unmount } = render(<AdminWecomScanPage />);
+    expect(await screen.findByText("尚未配置微盘扫描")).toBeInTheDocument();
+    expect(container.querySelector(".ws87-record-panel")).not.toBeInTheDocument();
+    expect(within(screen.getByLabelText("运行摘要")).getAllByText("尚未运行")).toHaveLength(2);
+    unmount();
+
+    vi.mocked(fetchWecomScanConfigs).mockResolvedValue({ items: [config] });
+    vi.mocked(fetchWecomScanRecords).mockResolvedValue({ items: [] });
+    render(<AdminWecomScanPage />);
+    expect(
+      await screen.findByText("尚未运行", { selector: ".ws87-empty strong" }),
+    ).toBeInTheDocument();
   });
 
   it("updates only the requested configuration state", async () => {

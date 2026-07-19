@@ -75,6 +75,18 @@ const record = {
   error_message: "SECRET_UPSTREAM_87 SECRET_TOKEN_87",
   created_at: "2026-07-20T01:00:00Z",
 };
+const earlierRecord = {
+  ...record,
+  scan_started_at: "2026-07-19T01:00:00Z",
+  scan_completed_at: "2026-07-19T01:01:00Z",
+  discovered_count: 6,
+  new_count: 2,
+  duplicate_count: 4,
+  failed_count: 0,
+  scan_status: "completed",
+  error_type: null,
+  error_message: null,
+};
 
 let server;
 let browser;
@@ -106,7 +118,7 @@ try {
             items: scenario === "empty" ? [] : [{ ...config, enabled: scenario !== "disabled" }],
           });
         if (url.pathname.endsWith("/records"))
-          return fulfill({ items: scenario === "records-empty" ? [] : [record] });
+          return fulfill({ items: scenario === "records-empty" ? [] : [record, earlierRecord] });
         if (url.pathname.endsWith("/scan")) {
           scanHeader = request.headers()["idempotency-key"] || null;
           if (scenario === "scan-failure")
@@ -156,22 +168,55 @@ try {
         ({ scenario, secrets }) => {
           const root = document.documentElement;
           const text = document.body.innerText;
+          const console = document.querySelector(".ws87-console");
+          const summary = document.querySelector(".ws87-summary")?.getBoundingClientRect();
+          const main = document.querySelector(".ws87-main-workspace")?.getBoundingClientRect();
+          const config = document.querySelector(".ws87-config-panel")?.getBoundingClientRect();
+          const records = document.querySelector(".ws87-record-panel")?.getBoundingClientRect();
+          const actionCells = [...document.querySelectorAll(".ws87-row-actions")];
+          const actionsVisible = actionCells.every((cell) => {
+            const rect = cell.getBoundingClientRect();
+            const panel = document.querySelector(".ws87-config-panel")?.getBoundingClientRect();
+            return !panel || rect.right <= panel.right + 1;
+          });
+          const fictionalLabels = ["健康分数", "成功率", "待处理总量", "系统容量", "扫描趋势"];
           return {
             scenario,
             overflowX: root.scrollWidth - root.clientWidth,
             safe: secrets.every((secret) => !document.documentElement.innerHTML.includes(secret)),
-            consoleLayout: Boolean(
-              document.querySelector(".ws87-summary") &&
-              document.querySelector(".ws87-config-panel") &&
-              document.querySelector(".ws87-record-panel"),
-            ),
+            twoColumn:
+              Boolean(console && summary && main) &&
+              console.children.length === 2 &&
+              Math.abs(summary.y - main.y) <= 2 &&
+              summary.width >= 220 &&
+              summary.width <= 250 &&
+              main.width >= summary.width * 2.4,
+            recordBelow:
+              scenario === "empty" || scenario === "forbidden"
+                ? !records
+                : Boolean(
+                    config &&
+                    records &&
+                    records.y >= config.bottom + 8 &&
+                    Math.abs(records.x - config.x) <= 2 &&
+                    Math.abs(records.width - config.width) <= 2,
+                  ),
+            recordsAreTable:
+              scenario === "empty" || scenario === "records-empty" || scenario === "forbidden"
+                ? true
+                : document.querySelectorAll(".ws87-record-table tbody tr").length >= 2,
+            actionsVisible,
+            honestSummary:
+              text.includes("最近扫描失败") &&
+              text.includes("最近扫描新增") &&
+              fictionalLabels.every((label) => !text.includes(label)),
             readOnly:
               scenario !== "forbidden" ||
               (text.includes("保持只读") && !text.includes("新增扫描配置")),
             stateVisible: {
               empty: text.includes("尚未配置微盘扫描"),
               disabled: text.includes("停用"),
-              "records-empty": text.includes("暂无扫描记录"),
+              "records-empty": text.includes("尚未运行"),
               unconfigured: text.includes("微盘空间暂时无法加载"),
               normal: text.includes("Alpha 交付资料"),
               "scan-success": text.includes("扫描已结束"),
@@ -195,7 +240,11 @@ try {
         pass:
           metrics.overflowX <= 2 &&
           metrics.safe &&
-          metrics.consoleLayout &&
+          metrics.twoColumn &&
+          metrics.recordBelow &&
+          metrics.recordsAreTable &&
+          metrics.actionsVisible &&
+          metrics.honestSummary &&
           metrics.readOnly &&
           metrics.stateVisible &&
           !consoleLeak &&

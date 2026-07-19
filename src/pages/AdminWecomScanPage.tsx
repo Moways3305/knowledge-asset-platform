@@ -182,13 +182,13 @@ export default function AdminWecomScanPage() {
   const selectedConfig = configs.find((item) => item.id === selectedId) ?? null;
   const summary = useMemo(() => {
     const enabled = configs.filter((item) => item.enabled).length;
-    const runs = Object.values(latest).filter(Boolean) as WecomScanRecordDTO[];
-    const failed = runs.filter(
-      (item) => item.scan_status === "failed" || item.scan_status === "partial",
-    ).length;
-    const pending = runs.reduce((sum, item) => sum + item.new_count, 0);
-    return { enabled, failed, pending };
-  }, [configs, latest]);
+    const selectedRun = selectedId ? latest[selectedId] : null;
+    return {
+      enabled,
+      failed: selectedRun?.failed_count ?? null,
+      discoveredNew: selectedRun?.new_count ?? null,
+    };
+  }, [configs, latest, selectedId]);
 
   const mergeConfig = (saved: WecomScanConfigDTO) => {
     setConfigs((current) => {
@@ -295,20 +295,6 @@ export default function AdminWecomScanPage() {
         </div>
       )}
 
-      <WecomScanConfigForm
-        open={formOpen && canEdit}
-        editingConfig={editingConfig}
-        projectOptions={projectOptions}
-        ownerOptions={ownerOptions}
-        optionsError={optionsError}
-        onForbidden={enterReadOnly}
-        onClose={() => setFormOpen(false)}
-        onSaved={(saved, text) => {
-          mergeConfig(saved);
-          setNotice({ tone: "success", text });
-        }}
-      />
-
       <div className="ws87-console">
         <aside className="ws87-summary" aria-label="运行摘要">
           <div className="ws87-panel-heading">
@@ -321,99 +307,126 @@ export default function AdminWecomScanPage() {
               <dd>{summary.enabled}</dd>
             </div>
             <div>
-              <dt>最近异常</dt>
-              <dd className={summary.failed ? "is-danger" : ""}>{summary.failed}</dd>
+              <dt>最近扫描失败</dt>
+              <dd className={summary.failed ? "is-danger" : ""}>
+                {summary.failed ?? <span>尚未运行</span>}
+              </dd>
             </div>
             <div>
-              <dt>新增待确认</dt>
-              <dd>{summary.pending}</dd>
+              <dt>最近扫描新增</dt>
+              <dd>{summary.discoveredNew ?? <span>尚未运行</span>}</dd>
             </div>
           </dl>
-          <p>统计来自各配置最近一次扫描。扫描只创建待确认任务，入库仍需人工确认。</p>
+          <p>摘要跟随当前所选配置。扫描只创建待确认任务，入库仍需人工确认。</p>
         </aside>
 
-        <main className="ws87-config-panel">
-          <div className="ws87-panel-heading">
-            <span>SCAN CONFIGS</span>
-            <h3>扫描配置</h3>
-          </div>
-          <WecomScanConfigList
-            configs={configs}
-            latest={latest}
-            loading={loading}
-            error={configError}
-            busyId={busyId}
-            selectedId={selectedId}
-            canEdit={canEdit}
-            onReload={() => void loadPage()}
-            onSelect={setSelectedId}
-            onEdit={(config) => {
-              setEditingConfig(config);
-              setFormOpen(true);
+        <main className="ws87-main-workspace">
+          <section className="ws87-config-panel">
+            <div className="ws87-panel-heading">
+              <span>SCAN CONFIGS</span>
+              <h3>扫描配置</h3>
+            </div>
+            <WecomScanConfigList
+              configs={configs}
+              latest={latest}
+              loading={loading}
+              error={configError}
+              busyId={busyId}
+              selectedId={selectedId}
+              canEdit={canEdit}
+              onReload={() => void loadPage()}
+              onSelect={setSelectedId}
+              onEdit={(config) => {
+                setEditingConfig(config);
+                setFormOpen(true);
+              }}
+              onToggle={(config) => void handleToggle(config)}
+              onScan={(config) => void handleScan(config)}
+            />
+          </section>
+
+          <WecomScanConfigForm
+            open={formOpen && canEdit}
+            editingConfig={editingConfig}
+            projectOptions={projectOptions}
+            ownerOptions={ownerOptions}
+            optionsError={optionsError}
+            onForbidden={enterReadOnly}
+            onClose={() => setFormOpen(false)}
+            onSaved={(saved, text) => {
+              mergeConfig(saved);
+              setNotice({ tone: "success", text });
             }}
-            onToggle={(config) => void handleToggle(config)}
-            onScan={(config) => void handleScan(config)}
           />
-        </main>
 
-        <aside className="ws87-record-panel" aria-label="扫描记录">
-          <div className="ws87-panel-heading">
-            <span>RUN HISTORY</span>
-            <h3>{selectedConfig ? `${selectedConfig.name || "未命名配置"} · 记录` : "扫描记录"}</h3>
-          </div>
-          {!selectedConfig ? (
-            <div className="ws87-empty">选择一项配置查看扫描记录。</div>
-          ) : recordError ? (
-            <div className="ws87-empty is-danger">{recordError}</div>
-          ) : recordsLoading ? (
-            <div className="ws87-empty">正在读取扫描记录…</div>
-          ) : records.length === 0 ? (
-            <div className="ws87-empty">
-              暂无扫描记录。{selectedConfig.enabled && canEdit ? "可从配置列表发起扫描。" : ""}
-            </div>
-          ) : (
-            <div className="ws87-records">
-              {records.map((record, index) => {
-                const safeError = safeRecordError(record);
-                return (
-                  <article className="ws87-record" key={`${record.scan_started_at}-${index}`}>
-                    <div className="ws87-record-head">
-                      <time>{formatBeijingTime(record.scan_started_at)}</time>
-                      <span
-                        className={`ws87-pill ${scanStatusCls[record.scan_status] ?? "ws-result-empty"}`}
-                      >
-                        {scanStatusLabel[record.scan_status] ?? "未知"}
-                      </span>
-                    </div>
-                    <div className="ws87-counts">
-                      <span>
-                        发现 <b>{record.discovered_count}</b>
-                      </span>
-                      <span>
-                        新增 <b>{record.new_count}</b>
-                      </span>
-                      <span>
-                        重复 <b>{record.duplicate_count}</b>
-                      </span>
-                      <span>
-                        失败 <b>{record.failed_count}</b>
-                      </span>
-                    </div>
-                    {record.scan_completed_at && (
-                      <small>完成于 {formatBeijingTime(record.scan_completed_at)}</small>
-                    )}
-                    {safeError && (
-                      <div className="ws87-safe-error">
-                        <strong>{safeError.category}</strong>
-                        <span>{safeError.action}</span>
-                      </div>
-                    )}
-                  </article>
-                );
-              })}
-            </div>
+          {selectedConfig && (
+            <section className="ws87-record-panel" aria-label="最近扫描记录">
+              <div className="ws87-panel-heading">
+                <span>RUN HISTORY</span>
+                <h3>{selectedConfig.name || "未命名配置"} · 最近扫描记录</h3>
+              </div>
+              {recordError ? (
+                <div className="ws87-empty is-danger">{recordError}</div>
+              ) : recordsLoading ? (
+                <div className="ws87-empty">正在读取扫描记录…</div>
+              ) : records.length === 0 ? (
+                <div className="ws87-empty">
+                  <strong>尚未运行</strong>
+                  {selectedConfig.enabled && canEdit && <span>可从配置列表发起扫描。</span>}
+                </div>
+              ) : (
+                <div className="ws87-records">
+                  <table className="ws87-record-table">
+                    <thead>
+                      <tr>
+                        <th>开始时间</th>
+                        <th>完成时间</th>
+                        <th>状态</th>
+                        <th>发现</th>
+                        <th>新增</th>
+                        <th>重复</th>
+                        <th>失败</th>
+                        <th>处理提示</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {records.map((record, index) => {
+                        const safeError = safeRecordError(record);
+                        return (
+                          <tr key={`${record.scan_started_at}-${index}`}>
+                            <td>{formatBeijingTime(record.scan_started_at)}</td>
+                            <td>{formatBeijingTime(record.scan_completed_at)}</td>
+                            <td>
+                              <span
+                                className={`ws87-pill ${scanStatusCls[record.scan_status] ?? "ws-result-empty"}`}
+                              >
+                                {scanStatusLabel[record.scan_status] ?? "未知"}
+                              </span>
+                            </td>
+                            <td>{record.discovered_count}</td>
+                            <td>{record.new_count}</td>
+                            <td>{record.duplicate_count}</td>
+                            <td>{record.failed_count}</td>
+                            <td className="ws87-record-guidance">
+                              {safeError ? (
+                                <>
+                                  <strong>{safeError.category}</strong>
+                                  <span>{safeError.action}</span>
+                                </>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
           )}
-        </aside>
+        </main>
       </div>
     </ProductPage>
   );

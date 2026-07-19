@@ -28,9 +28,15 @@
 }
 .ws87-console {
   display: grid;
-  grid-template-columns: minmax(180px, 0.42fr) minmax(640px, 1.65fr) minmax(280px, 0.72fr);
-  gap: 12px;
+  grid-template-columns: 230px minmax(0, 1fr);
+  gap: 14px;
   align-items: start;
+}
+.ws87-main-workspace {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
 }
 .ws87-summary,
 .ws87-config-panel,
@@ -85,6 +91,12 @@
 }
 .ws87-summary dd.is-danger {
   color: var(--color-danger);
+}
+.ws87-summary dd span {
+  color: var(--color-text-tertiary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
 }
 .ws87-summary p {
   margin: 0;
@@ -190,8 +202,8 @@
   align-items: center;
   justify-content: center;
   gap: 7px;
-  min-height: 160px;
-  padding: 22px;
+  min-height: 96px;
+  padding: 20px;
   color: var(--color-text-secondary);
   text-align: center;
   font-size: 13px;
@@ -201,20 +213,34 @@
   color: var(--color-danger);
 }
 .ws87-records {
-  max-height: 620px;
-  overflow-y: auto;
+  overflow-x: auto;
 }
-.ws87-record {
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--color-border-light);
-}
-.ws87-record-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--color-text-heading);
+.ws87-record-table {
+  width: 100%;
+  border-collapse: collapse;
   font-size: 12px;
+}
+.ws87-record-table th,
+.ws87-record-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--color-border-light);
+  text-align: left;
+  vertical-align: middle;
+}
+.ws87-record-table th {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-table-head);
+  font-weight: 650;
+  white-space: nowrap;
+}
+.ws87-record-table td {
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.ws87-record-table th:nth-child(n + 4):nth-child(-n + 7),
+.ws87-record-table td:nth-child(n + 4):nth-child(-n + 7) {
+  width: 54px;
+  text-align: center;
 }
 .ws87-pill.ws-result-success {
   color: var(--color-success);
@@ -232,32 +258,20 @@
   color: var(--color-info);
   background: var(--color-info-bg);
 }
-.ws87-counts {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 5px;
-  margin-top: 10px;
-  color: var(--color-text-secondary);
+.ws87-record-guidance {
+  min-width: 190px;
   font-size: 11px;
 }
-.ws87-counts b {
-  color: var(--color-text-heading);
-  font-variant-numeric: tabular-nums;
-}
-.ws87-record small {
+.ws87-record-guidance strong,
+.ws87-record-guidance span {
   display: block;
-  margin-top: 8px;
-  color: var(--color-text-tertiary);
 }
-.ws87-safe-error {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  margin-top: 9px;
-  padding: 8px;
+.ws87-record-guidance strong {
   color: var(--color-danger);
-  background: var(--color-danger-bg);
-  font-size: 11px;
+}
+.ws87-record-guidance span {
+  margin-top: 2px;
+  color: var(--color-text-secondary);
 }
 .ws87-form-panel {
   padding-bottom: 12px;
@@ -281,27 +295,8 @@
   background: var(--color-bg-muted);
   border: 1px solid var(--color-border-light);
 }
-@media (max-width: 1400px) {
-  .ws87-console {
-    grid-template-columns: minmax(170px, 0.4fr) minmax(620px, 1.6fr);
-  }
-  .ws87-record-panel {
-    grid-column: 1 / -1;
-  }
-  .ws87-records {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    max-height: none;
-  }
-}
 @media (max-width: 900px) {
   .ws87-console {
-    grid-template-columns: 1fr;
-  }
-  .ws87-record-panel {
-    grid-column: auto;
-  }
-  .ws87-records {
     grid-template-columns: 1fr;
   }
 }
