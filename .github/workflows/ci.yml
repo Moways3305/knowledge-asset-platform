@@ -186,6 +186,8 @@ jobs:
         run: npm run test:ui:wecom-scan
       - name: UI QA (audit and security operations workspace)
         run: npm run test:ui:audit-security
+      - name: UI QA (people and permissions governance)
+        run: npm run test:ui:people-permissions
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4

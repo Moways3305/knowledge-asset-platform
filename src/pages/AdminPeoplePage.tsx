@@ -1,5 +1,5 @@
 ﻿import { useState, useMemo, useCallback, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { RefreshCw, Search, UsersRound, X } from "lucide-react";
 import { ApiError } from "../api/http";
 import {
   fetchPeople,
@@ -15,6 +15,7 @@ import {
 import type { CompanyKnowledgeBaseDTO, PersonDTO } from "../types/people";
 import { formatBeijingTime } from "../utils/time";
 import { useAuth } from "../auth/AuthContext";
+import { PageHeader, ProductPage } from "../components/ProductLayout";
 
 const companyRoleLabel: Record<string, string> = {
   boss: "总经理",
@@ -59,13 +60,15 @@ export default function AdminPeoplePage() {
   const [q, setQ] = useState("");
 
   const [detail, setDetail] = useState<PersonDTO | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNote, setActionNote] = useState<string | null>(null);
   const [companyKb, setCompanyKb] = useState<CompanyKnowledgeBaseDTO | null>(null);
   const [companyKbBusy, setCompanyKbBusy] = useState(false);
 
   const describeError = (e: unknown, fallback: string) =>
-    e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : fallback;
+    e instanceof ApiError && e.status === 403 ? "当前身份没有执行此操作的权限。" : fallback;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -107,10 +110,13 @@ export default function AdminPeoplePage() {
   const openDetail = useCallback(async (userId: string) => {
     setActionError(null);
     setActionNote(null);
+    setDetailLoading(true);
     try {
       setDetail(await fetchPerson(userId));
     } catch (e) {
       setActionError(describeError(e, "加载用户详情失败"));
+    } finally {
+      setDetailLoading(false);
     }
   }, []);
 
@@ -126,40 +132,33 @@ export default function AdminPeoplePage() {
     [load],
   );
 
-  const totalUsers = total;
+  const totalUsers = people.length;
+  const activeUsers = people.filter((p) => p.status === "active").length;
   const withMembership = people.filter((p) =>
     p.project_memberships.some((m) => m.status === "active"),
-  ).length;
-  const multiRole = people.filter(
-    (p) => p.company_roles.filter((c) => c.status === "active").length > 1,
   ).length;
   const wecomBound = people.filter((p) => p.wecom_bound).length;
 
   return (
-    <div className="people-page">
-      <div className="kl-header">
-        <div className="kl-header-text">
-          <h2>人员权限管理</h2>
-          <p>管理人员身份和项目关系。</p>
-        </div>
-        <div className="kl-kpis">
-          <div className="kl-kpi">
-            <div className="kl-kpi-value">{totalUsers}</div>
-            <div className="kl-kpi-label">总用户数</div>
-          </div>
-          <div className="kl-kpi">
-            <div className="kl-kpi-value">{withMembership}</div>
-            <div className="kl-kpi-label">有项目成员关系</div>
-          </div>
-          <div className="kl-kpi">
-            <div className="kl-kpi-value kl-kpi-warning">{multiRole}</div>
-            <div className="kl-kpi-label">多公司角色</div>
-          </div>
-          <div className="kl-kpi">
-            <div className="kl-kpi-value">{wecomBound}</div>
-            <div className="kl-kpi-label">已绑定企微</div>
-          </div>
-        </div>
+    <ProductPage className="people-page gp-page people89-page">
+      <PageHeader
+        eyebrow="身份与权限治理"
+        title="人员治理"
+        description="管理人员账号状态、公司角色与项目成员关系。"
+      />
+      <div className="gp-summary" aria-label="人员摘要">
+        <span>
+          <strong>{totalUsers}</strong>当前加载
+        </span>
+        <span>
+          <strong>{activeUsers}</strong>正常账号
+        </span>
+        <span>
+          <strong>{wecomBound}</strong>已绑定企微
+        </span>
+        <span>
+          <strong>{withMembership}</strong>拥有项目关系
+        </span>
       </div>
 
       <div className="pp-multi-role-card">
@@ -167,50 +166,13 @@ export default function AdminPeoplePage() {
         系统管理员也不进入人员治理。
       </div>
 
-      {canManageProjects && (
-        <section className="pp-section" aria-labelledby="company-kb-heading">
-          <h3 id="company-kb-heading">公司知识库</h3>
-          <p className="pp-toolbar-hint">
-            {companyKb?.availability_summary ?? "正在读取公司知识库状态…"}
-          </p>
-          {companyKb?.exists && (
-            <div className="pp-role-tags">
-              <span className="pp-role-tag">{companyKb.display_name ?? "公司知识库"}</span>
-              <span
-                className={`pp-status-pill ${companyKb.available ? statusCls.active : statusCls.inactive}`}
-              >
-                {companyKb.available ? "可用" : "暂不可用"}
-              </span>
-              <span className="pp-toolbar-hint">创建于 {fmtTime(companyKb.created_at)}</span>
-            </div>
-          )}
-          {(!companyKb?.exists || !companyKb.available) && (
-            <button
-              className="btn-small btn-small-primary"
-              disabled={companyKbBusy}
-              onClick={async () => {
-                setCompanyKbBusy(true);
-                setActionError(null);
-                try {
-                  setCompanyKb(await createCompanyKnowledgeBase());
-                  setActionNote("公司知识库状态已更新");
-                } catch (e) {
-                  setActionError(describeError(e, "公司知识库创建失败"));
-                } finally {
-                  setCompanyKbBusy(false);
-                }
-              }}
-            >
-              {companyKbBusy ? "处理中…" : companyKb?.exists ? "重试初始化" : "创建公司知识库"}
-            </button>
-          )}
-        </section>
-      )}
-
-      <section className="pp-section">
+      <section className="pp-section pp-filter-section">
         <div className="pp-toolbar">
           <div className="pp-toolbar-filters">
-            <span className="pp-toolbar-label">用户筛选</span>
+            <span className="pp-toolbar-label">
+              <Search size={14} />
+              人员筛选
+            </span>
             <select value={filterRole} onChange={(e) => setFilterRole(e.target.value)}>
               <option value="">全部公司角色</option>
               {COMPANY_ROLE_OPTIONS.map((r) => (
@@ -229,7 +191,8 @@ export default function AdminPeoplePage() {
             </select>
             <input
               className="up-edit-input"
-              placeholder="搜索姓名 / 邮箱"
+              aria-label="搜索姓名"
+              placeholder="搜索姓名"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => {
@@ -237,7 +200,7 @@ export default function AdminPeoplePage() {
               }}
             />
             <button className="btn-small" onClick={() => void load()} disabled={loading}>
-              {loading ? "加载中…" : "搜索 / 刷新"}
+              <RefreshCw size={13} /> {loading ? "加载中…" : "搜索 / 刷新"}
             </button>
           </div>
           <div className="pp-toolbar-actions">
@@ -247,12 +210,21 @@ export default function AdminPeoplePage() {
       </section>
 
       {detail && (
-        <section className="pp-section">
+        <section
+          className="pp-section pp-detail-section"
+          role="dialog"
+          aria-modal="true"
+          aria-label="人员治理详情"
+        >
           <div className="pp-detail-panel">
             <div className="pp-detail-head">
               <span className="pp-detail-title">用户详情 · 治理</span>
-              <button className="btn-small" onClick={() => setDetail(null)}>
-                关闭
+              <button
+                className="btn-small"
+                aria-label="关闭人员详情"
+                onClick={() => setDetail(null)}
+              >
+                <X size={14} /> 关闭
               </button>
             </div>
             {actionError && (
@@ -271,10 +243,6 @@ export default function AdminPeoplePage() {
                 <span className="pp-detail-value">{detail.name}</span>
               </div>
               <div className="pp-detail-item">
-                <span className="pp-detail-label">邮箱</span>
-                <span className="pp-detail-value">{detail.email}</span>
-              </div>
-              <div className="pp-detail-item">
                 <span className="pp-detail-label">企微绑定</span>
                 <span className="pp-detail-value">{detail.wecom_bound ? "已绑定" : "未绑定"}</span>
               </div>
@@ -282,7 +250,7 @@ export default function AdminPeoplePage() {
                 <span className="pp-detail-label">状态</span>
                 <span className="pp-detail-value">
                   <span className={`pp-status-pill ${statusCls[detail.status] ?? ""}`}>
-                    {statusLabel[detail.status] ?? detail.status}
+                    {statusLabel[detail.status] ?? "状态未知"}
                   </span>
                 </span>
               </div>
@@ -315,7 +283,15 @@ export default function AdminPeoplePage() {
                   style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
                 >
                   <button
+                    disabled={busyKey === "account-status"}
                     onClick={async () => {
+                      if (
+                        !window.confirm(
+                          detail.status === "active" ? "确认停用该账号？" : "确认启用该账号？",
+                        )
+                      )
+                        return;
+                      setBusyKey("account-status");
                       setActionError(null);
                       setActionNote(null);
                       const next = detail.status === "active" ? "inactive" : "active";
@@ -327,10 +303,16 @@ export default function AdminPeoplePage() {
                         await refreshAfterWrite(detail.user_id);
                       } catch (e) {
                         setActionError(describeError(e, "更新账号状态失败"));
+                      } finally {
+                        setBusyKey(null);
                       }
                     }}
                   >
-                    {detail.status === "active" ? "停用账号" : "启用账号"}
+                    {busyKey === "account-status"
+                      ? "处理中…"
+                      : detail.status === "active"
+                        ? "停用账号"
+                        : "启用账号"}
                   </button>
                 </div>
 
@@ -377,7 +359,15 @@ export default function AdminPeoplePage() {
                     {allowed ? (
                       <button
                         className="btn-small"
+                        disabled={busyKey === `company-${role}`}
                         onClick={async () => {
+                          if (
+                            !window.confirm(
+                              `确认${currentStatus === "active" ? "停用" : "授予或恢复"}${companyRoleLabel[role]}角色？`,
+                            )
+                          )
+                            return;
+                          setBusyKey(`company-${role}`);
                           setActionError(null);
                           setActionNote(null);
                           try {
@@ -393,10 +383,18 @@ export default function AdminPeoplePage() {
                             await refreshAfterWrite(detail.user_id);
                           } catch (e) {
                             setActionError(describeError(e, "更新公司角色失败"));
+                          } finally {
+                            setBusyKey(null);
                           }
                         }}
                       >
-                        {currentStatus === "active" ? "停用" : current ? "恢复" : "授予"}
+                        {busyKey === `company-${role}`
+                          ? "保存中…"
+                          : currentStatus === "active"
+                            ? "停用"
+                            : current
+                              ? "恢复"
+                              : "授予"}
                       </button>
                     ) : (
                       <span className="pp-toolbar-hint">当前身份只读</span>
@@ -420,8 +418,11 @@ export default function AdminPeoplePage() {
                     {canManageProjectRole(m.project_role) ? (
                       <select
                         className="up-edit-select"
+                        disabled={busyKey === `membership-role-${m.membership_id}`}
                         value={m.project_role}
                         onChange={async (e) => {
+                          if (!window.confirm("确认更新该项目角色？")) return;
+                          setBusyKey(`membership-role-${m.membership_id}`);
                           setActionError(null);
                           setActionNote(null);
                           try {
@@ -432,6 +433,8 @@ export default function AdminPeoplePage() {
                             await refreshAfterWrite(detail.user_id);
                           } catch (err) {
                             setActionError(describeError(err, "更新项目角色失败"));
+                          } finally {
+                            setBusyKey(null);
                           }
                         }}
                       >
@@ -442,15 +445,25 @@ export default function AdminPeoplePage() {
                         ))}
                       </select>
                     ) : (
-                      <span>{projectRoleLabel[m.project_role] ?? m.project_role}</span>
+                      <span>{projectRoleLabel[m.project_role] ?? "项目成员"}</span>
                     )}
                     <span className={`pp-status-pill ${statusCls[m.status] ?? ""}`}>
-                      {statusLabel[m.status] ?? m.status}
+                      {statusLabel[m.status] ?? "状态未知"}
                     </span>
                     {canManageProjectRole(m.project_role) && (
                       <button
                         className="btn-small"
+                        disabled={busyKey === `membership-${m.membership_id}`}
                         onClick={async () => {
+                          if (
+                            !window.confirm(
+                              m.status === "active"
+                                ? "确认停用该项目成员关系？"
+                                : "确认启用该项目成员关系？",
+                            )
+                          )
+                            return;
+                          setBusyKey(`membership-${m.membership_id}`);
                           setActionError(null);
                           setActionNote(null);
                           const next = m.status === "active" ? "inactive" : "active";
@@ -462,10 +475,16 @@ export default function AdminPeoplePage() {
                             await refreshAfterWrite(detail.user_id);
                           } catch (err) {
                             setActionError(describeError(err, "更新成员状态失败"));
+                          } finally {
+                            setBusyKey(null);
                           }
                         }}
                       >
-                        {m.status === "active" ? "停用" : "启用"}
+                        {busyKey === `membership-${m.membership_id}`
+                          ? "保存中…"
+                          : m.status === "active"
+                            ? "停用"
+                            : "启用"}
                       </button>
                     )}
                   </div>
@@ -478,6 +497,8 @@ export default function AdminPeoplePage() {
               <AddMembershipForm
                 projects={knownProjects}
                 onSubmit={async (project_id, project_role) => {
+                  if (!window.confirm("确认新增或更新该项目成员关系？")) return;
+                  setBusyKey("membership-add");
                   setActionError(null);
                   setActionNote(null);
                   try {
@@ -490,6 +511,8 @@ export default function AdminPeoplePage() {
                     await refreshAfterWrite(detail.user_id);
                   } catch (e) {
                     setActionError(describeError(e, "新增项目成员关系失败"));
+                  } finally {
+                    setBusyKey(null);
                   }
                 }}
               />
@@ -502,16 +525,18 @@ export default function AdminPeoplePage() {
         </section>
       )}
 
-      <section className="pp-section">
-        <h3>用户列表</h3>
+      <section className="pp-section pp-list-section">
+        <div className="gp-panel-heading">
+          <span>
+            <UsersRound size={17} />
+            人员名册
+          </span>
+          <small>共 {total} 人</small>
+        </div>
         {error ? (
           <div className="ig-empty-state">
             <div className="ig-empty-title">无法加载</div>
             <p className="ig-empty-desc">{error}</p>
-            <p className="ig-empty-desc">
-              人员治理查看仅对总经理 / 咨询总监开放；可经 <code>VITE_DEV_USER_ID</code>{" "}
-              切换授权身份。
-            </p>
             <button className="btn-small" onClick={() => void load()}>
               重试
             </button>
@@ -531,7 +556,7 @@ export default function AdminPeoplePage() {
               <thead>
                 <tr>
                   <th>姓名</th>
-                  <th>邮箱</th>
+                  <th>企微绑定</th>
                   <th>公司角色</th>
                   <th>项目成员关系</th>
                   <th>状态</th>
@@ -543,14 +568,14 @@ export default function AdminPeoplePage() {
                 {people.map((u) => (
                   <tr key={u.user_id} className={u.status === "inactive" ? "pp-row-disabled" : ""}>
                     <td className="pp-cell-name">{u.name}</td>
-                    <td>{u.email}</td>
+                    <td>{u.wecom_bound ? "已绑定" : "未绑定"}</td>
                     <td>
                       <span className="pp-role-tags">
                         {u.company_roles
                           .filter((c) => c.status === "active")
                           .map((c) => (
                             <span key={c.role_id} className="pp-role-tag">
-                              {companyRoleLabel[c.company_role] ?? c.company_role}
+                              {companyRoleLabel[c.company_role] ?? "其他角色"}
                             </span>
                           ))}
                       </span>
@@ -563,7 +588,7 @@ export default function AdminPeoplePage() {
                             <span key={m.membership_id} className="pp-project-role-item">
                               <span className="pp-pr-project">{m.project_name}</span>
                               <span className="pp-pr-role">
-                                {projectRoleLabel[m.project_role] ?? m.project_role}
+                                {projectRoleLabel[m.project_role] ?? "项目成员"}
                               </span>
                             </span>
                           ))
@@ -573,13 +598,17 @@ export default function AdminPeoplePage() {
                     </td>
                     <td>
                       <span className={`pp-status-pill ${statusCls[u.status] ?? ""}`}>
-                        {statusLabel[u.status] ?? u.status}
+                        {statusLabel[u.status] ?? "状态未知"}
                       </span>
                     </td>
                     <td className="pp-cell-time">{fmtTime(u.recent_session_at)}</td>
                     <td>
-                      <button className="btn-small" onClick={() => void openDetail(u.user_id)}>
-                        查看 / 治理
+                      <button
+                        className="btn-small"
+                        disabled={detailLoading}
+                        onClick={() => void openDetail(u.user_id)}
+                      >
+                        {detailLoading ? "加载中…" : "查看 / 治理"}
                       </button>
                     </td>
                   </tr>
@@ -590,13 +619,52 @@ export default function AdminPeoplePage() {
         )}
       </section>
 
-      <p className="page-help-line">
-        人员 / 公司角色 / 项目成员关系均有权限控制与操作记录；身份与权限边界见{" "}
-        <Link to="/help#identity" className="page-help-link">
-          使用说明 →
-        </Link>
-      </p>
-    </div>
+      {canManageProjects && (
+        <section className="pp-section pp-support-section" aria-labelledby="company-kb-heading">
+          <h3 id="company-kb-heading">公司知识库</h3>
+          <p className="pp-toolbar-hint">
+            {companyKb?.availability_summary ?? "正在读取公司知识库状态…"}
+          </p>
+          {companyKb?.exists && (
+            <div className="pp-role-tags">
+              <span className="pp-role-tag">{companyKb.display_name ?? "公司知识库"}</span>
+              <span
+                className={`pp-status-pill ${companyKb.available ? statusCls.active : statusCls.inactive}`}
+              >
+                {companyKb.available ? "可用" : "暂不可用"}
+              </span>
+              <span className="pp-toolbar-hint">创建于 {fmtTime(companyKb.created_at)}</span>
+            </div>
+          )}
+          {(!companyKb?.exists || !companyKb.available) && (
+            <button
+              className="btn-small btn-small-primary"
+              disabled={companyKbBusy}
+              onClick={async () => {
+                if (
+                  !window.confirm(
+                    companyKb?.exists ? "确认重试初始化公司知识库？" : "确认创建公司知识库？",
+                  )
+                )
+                  return;
+                setCompanyKbBusy(true);
+                setActionError(null);
+                try {
+                  setCompanyKb(await createCompanyKnowledgeBase());
+                  setActionNote("公司知识库状态已更新");
+                } catch (e) {
+                  setActionError(describeError(e, "公司知识库创建失败"));
+                } finally {
+                  setCompanyKbBusy(false);
+                }
+              }}
+            >
+              {companyKbBusy ? "处理中…" : companyKb?.exists ? "重试初始化" : "创建公司知识库"}
+            </button>
+          )}
+        </section>
+      )}
+    </ProductPage>
   );
 }
 
@@ -606,6 +674,7 @@ function SetPasswordForm({ onSubmit }: { onSubmit: (password: string) => Promise
   const [busy, setBusy] = useState(false);
   const submit = async () => {
     if (!pw || busy) return;
+    if (!window.confirm("确认设置或重置该人员的登录密码？")) return;
     setBusy(true);
     try {
       await onSubmit(pw);
@@ -642,11 +711,8 @@ function AddMembershipForm({
   projects: { id: string; name: string }[];
   onSubmit: (projectId: string, role: string) => void;
 }) {
-  const [projectId, setProjectId] = useState("");
+  const [projectIndex, setProjectIndex] = useState(0);
   const [role, setRole] = useState("consultant");
-  useEffect(() => {
-    if (!projectId && projects.length > 0) setProjectId(projects[0].id);
-  }, [projects, projectId]);
   if (projects.length === 0) {
     return (
       <p className="pp-no-project" style={{ marginTop: 8 }}>
@@ -658,11 +724,12 @@ function AddMembershipForm({
     <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
       <select
         className="up-edit-select"
-        value={projectId}
-        onChange={(e) => setProjectId(e.target.value)}
+        aria-label="目标项目"
+        value={projectIndex}
+        onChange={(e) => setProjectIndex(Number(e.target.value))}
       >
-        {projects.map((p) => (
-          <option key={p.id} value={p.id}>
+        {projects.map((p, index) => (
+          <option key={p.id} value={index}>
             {p.name}
           </option>
         ))}
@@ -676,7 +743,7 @@ function AddMembershipForm({
       </select>
       <button
         className="btn-small btn-small-primary"
-        onClick={() => projectId && onSubmit(projectId, role)}
+        onClick={() => projects[projectIndex] && onSubmit(projects[projectIndex].id, role)}
       >
         新增 / 更新成员关系
       </button>
