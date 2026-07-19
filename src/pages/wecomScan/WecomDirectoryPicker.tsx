@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect } from "react";
-import { ApiError } from "../../api/http";
 import { fetchWecomDriveDirectories, fetchWecomDriveSpaces } from "../../api/admin";
 import type { WecomDriveDirectoryDTO, WecomDriveSpaceDTO } from "../../types/wecom";
 
@@ -18,9 +17,6 @@ export default function WecomDirectoryPicker({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const describe = (e: unknown, fallback: string) =>
-    e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : fallback;
-
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -29,9 +25,8 @@ export default function WecomDirectoryPicker({
       .then((d) => {
         if (!cancelled) setSpaces(d.items);
       })
-      .catch((e) => {
-        if (!cancelled)
-          setError(describe(e, "加载微盘空间失败（未配置企微或无权限时不可用，可用高级手动输入）"));
+      .catch(() => {
+        if (!cancelled) setError("微盘空间暂时无法加载，请检查企业微信配置后重试。");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -46,8 +41,8 @@ export default function WecomDirectoryPicker({
     setError(null);
     try {
       setDirs((await fetchWecomDriveDirectories(spaceRef, parentRef)).items);
-    } catch (e) {
-      setError(describe(e, "加载目录失败"));
+    } catch {
+      setError("目录暂时无法加载，请返回上级或稍后重试。");
       setDirs([]);
     } finally {
       setLoading(false);
@@ -91,7 +86,7 @@ export default function WecomDirectoryPicker({
   }, [space, stack, onSelect]);
 
   return (
-    <div className="ws-detail-panel" style={{ marginTop: 8 }}>
+    <div className="ws87-picker">
       {error && (
         <div className="ws-note-hint" style={{ color: "var(--color-danger-fg, #b00)" }}>
           {error}
@@ -105,7 +100,7 @@ export default function WecomDirectoryPicker({
               <div className="ig-empty-title">加载中…</div>
             </div>
           ) : spaces.length === 0 ? (
-            <p className="ws-form-hint">无可用空间（或企微未配置）。可用下方「高级」手动输入。</p>
+            <p className="ws-form-hint">当前没有可选择的微盘空间，请检查企业微信配置后重试。</p>
           ) : (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
               {spaces.map((sp) => (

@@ -25,6 +25,7 @@
     "test:ui:admin-operations": "node scripts/pbc85_admin_operations_closure_ui_qa.mjs",
     "test:ui:admin-operations-closure": "node scripts/pbc85_admin_operations_closure_ui_qa.mjs",
     "test:ui:model-foundation": "node scripts/pbc86_model_foundation_ui_qa.mjs",
+    "test:ui:wecom-scan": "node scripts/pbc87_wecom_scan_ui_qa.mjs",
     "api:export": "python scripts/export_openapi.py"
   },
   "dependencies": {

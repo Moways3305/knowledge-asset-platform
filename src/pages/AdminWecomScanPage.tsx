@@ -1,6 +1,5 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { ApiError } from "../api/http";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { FolderSync, RefreshCw, ShieldCheck } from "lucide-react";
 import {
   fetchWecomScanConfigs,
   fetchWecomScanOwnerOptions,
@@ -9,6 +8,9 @@ import {
   triggerWecomScan,
   updateWecomScanConfig,
 } from "../api/admin";
+import { ApiError } from "../api/http";
+import { useAuth } from "../auth/AuthContext";
+import { PageHeader, ProductPage } from "../components/ProductLayout";
 import type {
   WecomOwnerOptionDTO,
   WecomProjectOptionDTO,
@@ -16,336 +18,376 @@ import type {
   WecomScanRecordDTO,
 } from "../types/wecom";
 import { formatBeijingTime } from "../utils/time";
-import { scanStatusCls, scanStatusLabel, scopeLabel } from "./wecomScan/labels";
 import WecomScanConfigForm from "./wecomScan/WecomScanConfigForm";
 import WecomScanConfigList from "./wecomScan/WecomScanConfigList";
+import { scanStatusCls, scanStatusLabel } from "./wecomScan/labels";
+import "./AdminWecomScanPage.css";
 
-const fmtTime = (iso: string | null) => formatBeijingTime(iso); // 北京时间
+function safeRequestMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError && error.status === 403) return "当前身份没有微盘扫描查看权限。";
+  if (error instanceof ApiError && error.status === 503)
+    return "企业微信微盘尚未配置或暂不可用，请联系系统管理员检查连接。";
+  return fallback;
+}
+
+function safeRecordError(record: WecomScanRecordDTO) {
+  if (!record.error_type) return null;
+  const type = record.error_type.toLowerCase();
+  if (type.includes("owner"))
+    return { category: "业务归属失效", action: "重新选择有效的业务归属人并保存配置。" };
+  if (type.includes("token") || type.includes("auth") || type.includes("credential"))
+    return { category: "企业微信授权失效", action: "请系统管理员检查企业微信授权后重试。" };
+  if (type.includes("timeout") || type.includes("rate") || type.includes("unavailable"))
+    return { category: "企业微信服务暂不可用", action: "稍后重新扫描；持续失败时请检查服务连接。" };
+  return { category: "扫描未完成", action: "请检查扫描配置后重试。" };
+}
 
 export default function AdminWecomScanPage() {
+  const { capabilities } = useAuth();
+  const [accessForbidden, setAccessForbidden] = useState(false);
+  const canEdit = capabilities.isAdmin && !accessForbidden;
   const [configs, setConfigs] = useState<WecomScanConfigDTO[]>([]);
-  const [loadingConfigs, setLoadingConfigs] = useState(true);
+  const [latest, setLatest] = useState<Record<string, WecomScanRecordDTO | null>>({});
+  const [loading, setLoading] = useState(true);
   const [configError, setConfigError] = useState<string | null>(null);
-
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [records, setRecords] = useState<WecomScanRecordDTO[]>([]);
-  const [loadingRecords, setLoadingRecords] = useState(false);
+  const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordError, setRecordError] = useState<string | null>(null);
-
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [scanNote, setScanNote] = useState<string | null>(null);
-
-  // 创建 / 编辑表单：editingConfig=null 表示新建。
+  const [notice, setNotice] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
   const [projectOptions, setProjectOptions] = useState<WecomProjectOptionDTO[]>([]);
   const [ownerOptions, setOwnerOptions] = useState<WecomOwnerOptionDTO[]>([]);
+  const [optionsError, setOptionsError] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editingConfig, setEditingConfig] = useState<WecomScanConfigDTO | null>(null);
 
-  const describeError = (e: unknown, fallback: string) =>
-    e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : fallback;
-
-  const loadConfigs = useCallback(async () => {
-    setLoadingConfigs(true);
-    setConfigError(null);
-    try {
-      const data = await fetchWecomScanConfigs();
-      setConfigs(data.items);
-    } catch (e) {
-      setConfigError(describeError(e, "扫描配置暂时无法加载，请稍后重试"));
-      setConfigs([]);
-    } finally {
-      setLoadingConfigs(false);
-    }
-  }, []);
-
   const loadRecords = useCallback(async (configId: string) => {
-    setLoadingRecords(true);
+    setRecordsLoading(true);
     setRecordError(null);
     try {
-      const data = await fetchWecomScanRecords(configId);
-      setRecords(data.items);
-    } catch (e) {
-      setRecordError(describeError(e, "加载扫描记录失败"));
+      const response = await fetchWecomScanRecords(configId);
+      setRecords(response.items);
+      setLatest((current) => ({ ...current, [configId]: response.items[0] ?? null }));
+    } catch (error) {
       setRecords([]);
+      setRecordError(safeRequestMessage(error, "扫描记录暂时无法加载，请稍后重试。"));
     } finally {
-      setLoadingRecords(false);
+      setRecordsLoading(false);
     }
   }, []);
 
-  const loadProjectOptions = useCallback(async () => {
+  const loadPage = useCallback(async () => {
+    setLoading(true);
+    setConfigError(null);
+    setAccessForbidden(false);
     try {
-      const data = await fetchWecomScanProjectOptions();
-      setProjectOptions(data.items);
-    } catch {
-      // 项目候选加载失败不阻断页面（创建项目级配置时再提示）。
+      const response = await fetchWecomScanConfigs();
+      setConfigs(response.items);
+      setSelectedId((current) =>
+        current && response.items.some((item) => item.id === current)
+          ? current
+          : (response.items[0]?.id ?? null),
+      );
+      const snapshots = await Promise.allSettled(
+        response.items.map(
+          async (config) =>
+            [config.id, (await fetchWecomScanRecords(config.id)).items[0] ?? null] as readonly [
+              string,
+              WecomScanRecordDTO | null,
+            ],
+        ),
+      );
+      setLatest(
+        Object.fromEntries(
+          snapshots
+            .filter(
+              (
+                item,
+              ): item is PromiseFulfilledResult<readonly [string, WecomScanRecordDTO | null]> =>
+                item.status === "fulfilled",
+            )
+            .map((item) => item.value),
+        ),
+      );
+    } catch (error) {
+      setConfigs([]);
+      setSelectedId(null);
+      if (error instanceof ApiError && error.status === 403) {
+        setAccessForbidden(true);
+        setConfigError("当前身份没有微盘扫描管理权限，此区域保持只读。");
+      } else {
+        setConfigError(safeRequestMessage(error, "扫描配置暂时无法加载，请稍后刷新。"));
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loadOptions = useCallback(async () => {
+    if (!canEdit) return;
+    setOptionsError(false);
+    try {
+      const [projects, owners] = await Promise.all([
+        fetchWecomScanProjectOptions(),
+        fetchWecomScanOwnerOptions(),
+      ]);
+      setProjectOptions(projects.items);
+      setOwnerOptions(owners.items);
+    } catch (error) {
       setProjectOptions([]);
-    }
-  }, []);
-
-  const loadOwnerOptions = useCallback(async () => {
-    try {
-      const data = await fetchWecomScanOwnerOptions();
-      setOwnerOptions(data.items);
-    } catch {
       setOwnerOptions([]);
+      setOptionsError(true);
+      if (error instanceof ApiError && error.status === 403) setAccessForbidden(true);
     }
-  }, []);
+  }, [canEdit]);
 
+  useEffect(() => void loadPage(), [loadPage]);
+  useEffect(() => void loadOptions(), [loadOptions]);
   useEffect(() => {
-    void loadConfigs();
-    void loadProjectOptions();
-    void loadOwnerOptions();
-  }, [loadConfigs, loadProjectOptions, loadOwnerOptions]);
+    if (selectedId) void loadRecords(selectedId);
+    else setRecords([]);
+  }, [selectedId, loadRecords]);
 
-  const openCreate = useCallback(() => {
-    setEditingConfig(null);
-    setFormOpen(true);
-  }, []);
+  const selectedConfig = configs.find((item) => item.id === selectedId) ?? null;
+  const summary = useMemo(() => {
+    const enabled = configs.filter((item) => item.enabled).length;
+    const runs = Object.values(latest).filter(Boolean) as WecomScanRecordDTO[];
+    const failed = runs.filter(
+      (item) => item.scan_status === "failed" || item.scan_status === "partial",
+    ).length;
+    const pending = runs.reduce((sum, item) => sum + item.new_count, 0);
+    return { enabled, failed, pending };
+  }, [configs, latest]);
 
-  const openEdit = useCallback((cfg: WecomScanConfigDTO) => {
-    setEditingConfig(cfg);
-    setFormOpen(true);
-  }, []);
+  const mergeConfig = (saved: WecomScanConfigDTO) => {
+    setConfigs((current) => {
+      const exists = current.some((item) => item.id === saved.id);
+      return exists
+        ? current.map((item) => (item.id === saved.id ? saved : item))
+        : [saved, ...current];
+    });
+    setSelectedId(saved.id);
+  };
 
-  const selectConfig = useCallback(
-    (id: string) => {
-      setSelectedId(id);
-      setScanNote(null);
-      void loadRecords(id);
-    },
-    [loadRecords],
-  );
+  const handleToggle = async (config: WecomScanConfigDTO) => {
+    setBusyId(config.id);
+    setNotice(null);
+    try {
+      mergeConfig(await updateWecomScanConfig(config.id, { enabled: !config.enabled }));
+      setNotice({
+        tone: "success",
+        text: config.enabled ? "扫描配置已停用。" : "扫描配置已启用。",
+      });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) setAccessForbidden(true);
+      setNotice({
+        tone: "danger",
+        text: safeRequestMessage(error, "配置状态更新失败，请稍后重试。"),
+      });
+    } finally {
+      setBusyId(null);
+    }
+  };
 
-  const handleToggle = useCallback(
-    async (cfg: WecomScanConfigDTO) => {
-      setBusyId(cfg.id);
-      setActionError(null);
-      try {
-        await updateWecomScanConfig(cfg.id, { enabled: !cfg.enabled });
-        await loadConfigs();
-      } catch (e) {
-        setActionError(describeError(e, "更新配置失败（启停需 admin 权限）"));
-      } finally {
-        setBusyId(null);
-      }
-    },
-    [loadConfigs],
-  );
-
-  const handleScan = useCallback(
-    async (cfg: WecomScanConfigDTO) => {
-      setBusyId(cfg.id);
-      setActionError(null);
-      setScanNote(null);
-      try {
-        const rec = await triggerWecomScan(cfg.id);
-        setScanNote(
-          `扫描完成（${scanStatusLabel[rec.scan_status] ?? rec.scan_status}）：发现 ${rec.discovered_count} · 新增 ${rec.new_count} · 重复 ${rec.duplicate_count} · 失败 ${rec.failed_count}`,
-        );
-        setSelectedId(cfg.id);
-        await Promise.all([loadConfigs(), loadRecords(cfg.id)]);
-      } catch (e) {
-        // 403=无权限；503=企业微信未配置。
-        setActionError(describeError(e, "手动扫描失败"));
-      } finally {
-        setBusyId(null);
-      }
-    },
-    [loadConfigs, loadRecords],
-  );
-
-  const stats = useMemo(() => {
-    const enabled = configs.filter((c) => c.enabled).length;
-    return { enabled, total: configs.length };
-  }, [configs]);
-
-  const selectedConfig = selectedId ? (configs.find((c) => c.id === selectedId) ?? null) : null;
+  const handleScan = async (config: WecomScanConfigDTO) => {
+    if (!config.enabled) return;
+    setBusyId(config.id);
+    setNotice(null);
+    try {
+      const record = await triggerWecomScan(config.id);
+      setLatest((current) => ({ ...current, [config.id]: record }));
+      setSelectedId(config.id);
+      await loadRecords(config.id);
+      setConfigs((current) =>
+        current.map((item) =>
+          item.id === config.id ? { ...item, last_scan_at: record.scan_started_at } : item,
+        ),
+      );
+      setNotice({
+        tone: "success",
+        text: `扫描已结束：发现 ${record.discovered_count}，新增待确认 ${record.new_count}，重复 ${record.duplicate_count}，失败 ${record.failed_count}。`,
+      });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) setAccessForbidden(true);
+      setNotice({
+        tone: "danger",
+        text: safeRequestMessage(error, "扫描未能完成，请检查配置后重试。"),
+      });
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   return (
-    <div className="ws-page">
-      {/* Header */}
-      <div className="kl-header">
-        <div className="kl-header-text">
-          <h2>企微微盘扫描配置</h2>
-          <p>
-            管理企业微信微盘扫描目录，扫描发现的文件会进入资产化确认队列。本页仅展示安全运营状态。
-          </p>
-        </div>
-        <div className="kl-kpis">
-          <div className="kl-kpi">
-            <div className="kl-kpi-value">{stats.enabled}</div>
-            <div className="kl-kpi-label">启用配置</div>
-          </div>
-          <div className="kl-kpi">
-            <div className="kl-kpi-value">{stats.total}</div>
-            <div className="kl-kpi-label">配置总数</div>
-          </div>
-        </div>
-      </div>
+    <ProductPage className="ws87-page">
+      <PageHeader
+        title="微盘扫描"
+        description="扫描文件会进入待确认队列，不会直接入库。"
+        actions={
+          <>
+            {canEdit && (
+              <button
+                className="btn-small-primary ws87-icon-button"
+                onClick={() => {
+                  setEditingConfig(null);
+                  setFormOpen(true);
+                }}
+              >
+                <FolderSync size={14} />
+                新增扫描配置
+              </button>
+            )}
+            <button
+              className="btn-small ws87-icon-button"
+              onClick={() => void loadPage()}
+              disabled={loading}
+            >
+              <RefreshCw size={14} />
+              {loading ? "刷新中…" : "刷新"}
+            </button>
+          </>
+        }
+      />
 
-      {actionError && (
-        <section className="ws-section">
-          <div className="ws-note-hint" style={{ color: "var(--color-danger-fg, #b00)" }}>
-            {actionError}
-          </div>
-        </section>
+      {!canEdit && (
+        <div className="ws87-message">
+          <ShieldCheck size={15} />
+          当前身份为只读模式，可查看扫描配置与运行记录。
+        </div>
       )}
-      {scanNote && (
-        <section className="ws-section">
-          <div className="ws-note-hint" style={{ color: "var(--color-success-fg, #176)" }}>
-            {scanNote}
-          </div>
-        </section>
+      {notice && (
+        <div
+          className={`ws87-message is-${notice.tone}`}
+          role={notice.tone === "danger" ? "alert" : undefined}
+        >
+          {notice.text}
+        </div>
       )}
 
-      {/* Create / edit form */}
       <WecomScanConfigForm
-        open={formOpen}
+        open={formOpen && canEdit}
         editingConfig={editingConfig}
         projectOptions={projectOptions}
         ownerOptions={ownerOptions}
+        optionsError={optionsError}
+        onForbidden={() => {
+          setAccessForbidden(true);
+          setFormOpen(false);
+        }}
         onClose={() => setFormOpen(false)}
-        onSaved={(note) => {
-          setScanNote(note);
-          void loadConfigs();
+        onSaved={(saved, text) => {
+          mergeConfig(saved);
+          setNotice({ tone: "success", text });
         }}
       />
 
-      {/* Config table */}
-      <WecomScanConfigList
-        configs={configs}
-        loading={loadingConfigs}
-        error={configError}
-        busyId={busyId}
-        onReload={() => void loadConfigs()}
-        onCreate={openCreate}
-        onSelect={selectConfig}
-        onEdit={openEdit}
-        onToggle={(cfg) => void handleToggle(cfg)}
-        onScan={(cfg) => void handleScan(cfg)}
-      />
-
-      {/* Detail + records */}
-      {selectedConfig && (
-        <section className="ws-section">
-          <div className="ws-detail-panel">
-            <div className="ws-detail-head">
-              <span className="ws-detail-title">配置详情与扫描记录</span>
-              <button
-                className="btn-small"
-                onClick={() => {
-                  setSelectedId(null);
-                  setRecords([]);
-                }}
-              >
-                关闭
-              </button>
-            </div>
-            <div className="ws-detail-grid">
-              <div className="ws-detail-item">
-                <span className="ws-detail-label">目录归属</span>
-                <span className="ws-detail-value">
-                  <span
-                    className={`ws-scope-tag ${selectedConfig.scope_type === "company" ? "ws-scope-company" : "ws-scope-project"}`}
-                  >
-                    {scopeLabel[selectedConfig.scope_type] ?? selectedConfig.scope_type}
-                  </span>
-                </span>
-              </div>
-              <div className="ws-detail-item">
-                <span className="ws-detail-label">服务端目录配置标识</span>
-                <span className="ws-detail-value ws-detail-path">
-                  <code>{selectedConfig.directory_path}</code>
-                </span>
-              </div>
-              <div className="ws-detail-item ws-detail-full">
-                <span className="ws-detail-label">扫描范围说明</span>
-                <span className="ws-detail-value">
-                  扫描该目录下新增或更新的文件，生成 <code>ingest_task</code> 待确认记录。 Path A
-                  文件不会直接入库，需经业务侧确认后方可进入知识库。
-                </span>
-              </div>
-              <div className="ws-detail-item ws-detail-full">
-                <span className="ws-detail-label">下游流程</span>
-                <span className="ws-detail-value">
-                  <div className="ws-detail-links">
-                    <Link to="/upload" className="ws-detail-link">
-                      资产化确认工作台 →
-                    </Link>
-                    <Link to="/admin/ingest" className="ws-detail-link">
-                      入库管理 →
-                    </Link>
-                  </div>
-                </span>
-              </div>
-            </div>
-
-            <h4 style={{ marginTop: 16 }}>扫描记录</h4>
-            {recordError ? (
-              <div className="ig-empty-state">
-                <div className="ig-empty-title">加载失败</div>
-                <p className="ig-empty-desc">{recordError}</p>
-              </div>
-            ) : loadingRecords ? (
-              <div className="ig-empty-state">
-                <div className="ig-empty-title">加载中…</div>
-              </div>
-            ) : records.length === 0 ? (
-              <div className="ig-empty-state">
-                <div className="ig-empty-title">暂无扫描记录</div>
-                <p className="ig-empty-desc">该配置尚未有扫描记录，可点击「手动扫描」触发一次。</p>
-              </div>
-            ) : (
-              <div className="ws-table-wrap">
-                <table className="ws-table">
-                  <thead>
-                    <tr>
-                      <th>开始时间</th>
-                      <th>完成时间</th>
-                      <th>状态</th>
-                      <th>发现</th>
-                      <th>新增</th>
-                      <th>重复</th>
-                      <th>失败</th>
-                      <th>错误</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {records.map((r) => (
-                      <tr key={r.id}>
-                        <td className="ws-cell-time">{fmtTime(r.scan_started_at)}</td>
-                        <td className="ws-cell-time">{fmtTime(r.scan_completed_at)}</td>
-                        <td>
-                          <span
-                            className={`ws-result-pill ${scanStatusCls[r.scan_status] ?? "ws-result-empty"}`}
-                          >
-                            {scanStatusLabel[r.scan_status] ?? r.scan_status}
-                          </span>
-                        </td>
-                        <td className="ws-cell-num">{r.discovered_count}</td>
-                        <td className="ws-cell-num">{r.new_count}</td>
-                        <td className="ws-cell-num">{r.duplicate_count}</td>
-                        <td className="ws-cell-num">{r.failed_count}</td>
-                        <td className="ws-cell-suggestion">
-                          {r.error_message || r.error_type || "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+      <div className="ws87-console">
+        <aside className="ws87-summary" aria-label="运行摘要">
+          <div className="ws87-panel-heading">
+            <span>RUN CONTROL</span>
+            <h3>运行摘要</h3>
           </div>
-        </section>
-      )}
+          <dl>
+            <div>
+              <dt>启用配置</dt>
+              <dd>{summary.enabled}</dd>
+            </div>
+            <div>
+              <dt>最近异常</dt>
+              <dd className={summary.failed ? "is-danger" : ""}>{summary.failed}</dd>
+            </div>
+            <div>
+              <dt>新增待确认</dt>
+              <dd>{summary.pending}</dd>
+            </div>
+          </dl>
+          <p>统计来自各配置最近一次扫描。扫描只创建待确认任务，入库仍需人工确认。</p>
+        </aside>
 
-      <p className="page-help-line">
-        扫盘只发现文件并生成待确认任务，不直接入库；目标库与分区、权限与企微配置边界见{" "}
-        <Link to="/help#ingest" className="page-help-link">
-          使用说明 →
-        </Link>
-      </p>
-    </div>
+        <main className="ws87-config-panel">
+          <div className="ws87-panel-heading">
+            <span>SCAN CONFIGS</span>
+            <h3>扫描配置</h3>
+          </div>
+          <WecomScanConfigList
+            configs={configs}
+            latest={latest}
+            loading={loading}
+            error={configError}
+            busyId={busyId}
+            selectedId={selectedId}
+            canEdit={canEdit}
+            onReload={() => void loadPage()}
+            onSelect={setSelectedId}
+            onEdit={(config) => {
+              setEditingConfig(config);
+              setFormOpen(true);
+            }}
+            onToggle={(config) => void handleToggle(config)}
+            onScan={(config) => void handleScan(config)}
+          />
+        </main>
+
+        <aside className="ws87-record-panel" aria-label="扫描记录">
+          <div className="ws87-panel-heading">
+            <span>RUN HISTORY</span>
+            <h3>{selectedConfig ? `${selectedConfig.name || "未命名配置"} · 记录` : "扫描记录"}</h3>
+          </div>
+          {!selectedConfig ? (
+            <div className="ws87-empty">选择一项配置查看扫描记录。</div>
+          ) : recordError ? (
+            <div className="ws87-empty is-danger">{recordError}</div>
+          ) : recordsLoading ? (
+            <div className="ws87-empty">正在读取扫描记录…</div>
+          ) : records.length === 0 ? (
+            <div className="ws87-empty">
+              暂无扫描记录。{selectedConfig.enabled && canEdit ? "可从配置列表发起扫描。" : ""}
+            </div>
+          ) : (
+            <div className="ws87-records">
+              {records.map((record, index) => {
+                const safeError = safeRecordError(record);
+                return (
+                  <article className="ws87-record" key={`${record.scan_started_at}-${index}`}>
+                    <div className="ws87-record-head">
+                      <time>{formatBeijingTime(record.scan_started_at)}</time>
+                      <span
+                        className={`ws87-pill ${scanStatusCls[record.scan_status] ?? "ws-result-empty"}`}
+                      >
+                        {scanStatusLabel[record.scan_status] ?? "未知"}
+                      </span>
+                    </div>
+                    <div className="ws87-counts">
+                      <span>
+                        发现 <b>{record.discovered_count}</b>
+                      </span>
+                      <span>
+                        新增 <b>{record.new_count}</b>
+                      </span>
+                      <span>
+                        重复 <b>{record.duplicate_count}</b>
+                      </span>
+                      <span>
+                        失败 <b>{record.failed_count}</b>
+                      </span>
+                    </div>
+                    {record.scan_completed_at && (
+                      <small>完成于 {formatBeijingTime(record.scan_completed_at)}</small>
+                    )}
+                    {safeError && (
+                      <div className="ws87-safe-error">
+                        <strong>{safeError.category}</strong>
+                        <span>{safeError.action}</span>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </aside>
+      </div>
+    </ProductPage>
   );
 }
