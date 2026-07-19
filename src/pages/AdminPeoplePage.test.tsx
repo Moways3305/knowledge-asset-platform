@@ -178,11 +178,17 @@ describe("AdminPeoplePage governance controls", () => {
     );
     expect(await screen.findByText("人员名册")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("人员摘要")).toHaveTextContent("当前加载");
+    const summary = screen.getByLabelText("人员摘要");
+    expect(summary).toHaveClass("gp-summary-panel");
+    expect(summary).toHaveTextContent("当前加载");
+    expect(summary.querySelectorAll(".gp-summary-icon svg")).toHaveLength(4);
+    expect(container.querySelector(".gp-governance-console")?.children).toHaveLength(2);
+    expect(container.querySelector(".gp-summary")).not.toBeInTheDocument();
     expect(container.innerHTML).not.toMatch(
       /person-ref|person@example\.test|membership-ref|project-ref|role-boss/,
     );
     expect(screen.getByText("未绑定")).toBeInTheDocument();
+    expect(container.querySelector(".pp-field-mark svg")).toBeInTheDocument();
   });
 
   it("sends real filters and opens detail only after selection", async () => {
@@ -298,6 +304,8 @@ describe("AdminPeoplePage governance controls", () => {
       </MemoryRouter>,
     );
     expect(await screen.findByText("无匹配用户")).toBeInTheDocument();
+    expect(document.querySelector(".gp-empty-visual svg")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新加载" })).toBeInTheDocument();
   });
 
   it("keeps a failed role update local and hides the raw error", async () => {

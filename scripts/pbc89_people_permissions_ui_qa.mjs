@@ -191,7 +191,9 @@ try {
             const root = document.documentElement;
             const html = root.innerHTML;
             const pageRoot = document.querySelector(target.root);
-            const summary = pageRoot?.querySelector(".gp-summary");
+            const console = pageRoot?.querySelector(".gp-governance-console");
+            const summary = pageRoot?.querySelector(".gp-summary-panel");
+            const main = pageRoot?.querySelector(".gp-main-workspace");
             const primary = pageRoot?.querySelector(
               target.name === "people" ? ".pp-list-section" : ".gp-primary-panel",
             );
@@ -207,15 +209,34 @@ try {
                   ? rows.length === 0 || [...rows].every((row) => row.querySelector(".gp-empty"))
                   : Boolean(pageRoot?.querySelector("[role='alert'], .ig-empty-state, .gp-banner"));
             const summaryRect = summary?.getBoundingClientRect();
+            const mainRect = main?.getBoundingClientRect();
             const primaryRect = primary?.getBoundingClientRect();
             const secondaryRect = secondary?.getBoundingClientRect();
+            const summaryValues = [...(summary?.querySelectorAll(".gp-summary-value") ?? [])];
+            const summaryIcons = [...(summary?.querySelectorAll(".gp-summary-icon svg") ?? [])];
+            const fieldMarks = [
+              ...(primary?.querySelectorAll(
+                ".gp-row-icon svg, .gp-field-mark svg, .pp-field-mark svg, .pp-role-tag svg, .pp-project-role-item > svg, .gp-status svg, .pp-status-pill svg",
+              ) ?? []),
+            ];
+            const emptyState = pageRoot?.querySelector(".gp-empty-content, .ig-empty-state");
+            const emptyRect = emptyState?.getBoundingClientRect();
+            const actionButtons = [...(main?.querySelectorAll("button") ?? [])];
             return {
               overflowX: root.scrollWidth - root.clientWidth,
               safe: secrets.every((secret) => !html.includes(secret)),
-              summaryCompact:
-                Boolean(summaryRect && primaryRect) &&
-                summaryRect.height <= 84 &&
-                summaryRect.width >= primaryRect.width * 0.94,
+              twoColumn:
+                Boolean(console && summaryRect && mainRect && primaryRect) &&
+                console.children.length === 2 &&
+                summaryRect.width >= 220 &&
+                summaryRect.width <= 250 &&
+                mainRect.width >= summaryRect.width * 2.25 &&
+                Math.abs(summaryRect.top - mainRect.top) <= 2,
+              noWideStatusStrip: !pageRoot?.querySelector(".gp-summary"),
+              iconLanguage:
+                summaryValues.length === 4 &&
+                summaryIcons.length === summaryValues.length &&
+                (scenario !== "normal" || fieldMarks.length >= 3),
               listFirst:
                 target.name !== "people" ||
                 (!pageRoot?.querySelector(".pp-detail-section") && Boolean(primary)),
@@ -228,6 +249,20 @@ try {
                   Math.abs(secondaryRect.width - primaryRect.width) <= 2,
                 ),
               noInnerScroll: tableWraps.every((node) => node.scrollWidth - node.clientWidth <= 2),
+              actionsVisible: actionButtons.every((button) => {
+                const rect = button.getBoundingClientRect();
+                return (
+                  !mainRect || (rect.left >= mainRect.left - 1 && rect.right <= mainRect.right + 1)
+                );
+              }),
+              honestEmptyPattern:
+                scenario !== "empty" ||
+                Boolean(
+                  emptyState?.querySelector(".gp-empty-visual svg") &&
+                  emptyState.querySelector("button") &&
+                  emptyRect &&
+                  emptyRect.height <= 260,
+                ),
               noCharts: !pageRoot?.querySelector(
                 "canvas, svg[data-chart], .chart, [class*='trend']",
               ),
@@ -249,10 +284,14 @@ try {
           pass:
             metrics.overflowX <= 2 &&
             metrics.safe &&
-            metrics.summaryCompact &&
+            metrics.twoColumn &&
+            metrics.noWideStatusStrip &&
+            metrics.iconLanguage &&
             metrics.listFirst &&
             metrics.secondaryBelow &&
             metrics.noInnerScroll &&
+            metrics.actionsVisible &&
+            metrics.honestEmptyPattern &&
             metrics.noCharts &&
             metrics.stateOkay &&
             !consoleLeak,

@@ -1,5 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bot, RefreshCw, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import {
+  Bot,
+  BriefcaseBusiness,
+  CircleCheck,
+  CircleOff,
+  Hash,
+  Layers3,
+  LockKeyhole,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  SlidersHorizontal,
+  ToggleLeft,
+} from "lucide-react";
 import {
   fetchAgentRegistry,
   fetchPermissionRules,
@@ -162,262 +175,354 @@ export default function AdminPermissionsPage() {
         title="权限规则"
         description="维护知识流转规则与外部助手接入状态，所有修改仍由服务端权限校验。"
       />
-      <div className="gp-summary" aria-label="权限规则摘要">
-        <span>
-          <strong>{rules.length}</strong>规则总数
-        </span>
-        <span>
-          <strong>{enabledRules}</strong>启用规则
-        </span>
-        <span>
-          <strong>{rules.length - enabledRules}</strong>停用规则
-        </span>
-        <span>
-          <strong>{agents.filter((item) => item.enabled).length}</strong>启用助手
-        </span>
-      </div>
-      {!loading && !error && (
-        <div className={`gp-access-note ${canEditRules ? "is-edit" : "is-readonly"}`}>
-          {canEditRules
-            ? "当前身份可修改业务权限规则。"
-            : "当前身份为只读模式，规则修改需总经理或咨询总监权限。"}
-        </div>
-      )}
-      {error && (
-        <div className="gp-banner is-error" role="alert">
-          {error}
-        </div>
-      )}
-      <PageSection
-        title={
-          <span className="gp-section-title">
-            <ShieldCheck size={17} />
-            权限规则列表
-          </span>
-        }
-        description="编辑仅影响当前规则，其他行保持可用。"
-        className="gp-panel gp-primary-panel"
-      >
-        <PageToolbar
-          className="gp-toolbar"
-          start={
-            <label className="gp-filter">
-              <SlidersHorizontal size={14} />
-              规则分组
-              <select
-                aria-label="规则分组"
-                value={groupFilter}
-                onChange={(event) => setGroupFilter(event.target.value)}
-              >
-                <option value="">全部分组</option>
-                {groups.map((group) => (
-                  <option value={group} key={group}>
-                    {groupLabel[group] ?? "其他治理规则"}
-                  </option>
-                ))}
-              </select>
-            </label>
-          }
-          end={
-            <div className="gp-toolbar-actions">
-              <span>共 {visibleRules.length} 条</span>
-              <button className="btn-small" onClick={() => void load()} disabled={loading}>
-                <RefreshCw size={13} />
-                {loading ? "刷新中…" : "刷新"}
-              </button>
+      <div className="gp-governance-console">
+        <aside className="gp-summary-panel" aria-label="权限规则摘要">
+          <div className="gp-summary-heading">
+            <span className="gp-summary-heading-icon">
+              <ShieldCheck size={16} />
+            </span>
+            规则概览
+          </div>
+          <div className="gp-summary-list">
+            <div className="gp-summary-item">
+              <span className="gp-summary-copy">
+                <span className="gp-summary-icon">
+                  <Layers3 size={14} />
+                </span>
+                <span className="gp-summary-label">规则总数</span>
+              </span>
+              <strong className="gp-summary-value">{rules.length}</strong>
             </div>
-          }
-        />
-        <div className="gp-table-wrap">
-          <table className="gp-table">
-            <thead>
-              <tr>
-                <th>规则</th>
-                <th>分组</th>
-                <th>当前设置</th>
-                <th className="gp-secondary-col">说明</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleRules.map((rule) => (
-                <tr key={rule.rule_id}>
-                  <td>
-                    <strong>{rule.display_name}</strong>
-                    <span className="gp-subline">
-                      {ruleTypeLabel[rule.rule_type] ?? "治理规则"}
-                    </span>
-                  </td>
-                  <td>{groupLabel[rule.rule_group] ?? "其他治理规则"}</td>
-                  <td>
-                    {editingId === rule.rule_id && rule.rule_type === "numeric" ? (
-                      <span className="gp-inline-edit">
-                        <input
-                          aria-label={`${rule.display_name}数值`}
-                          type="number"
-                          min={0}
-                          value={editValue}
-                          onChange={(event) =>
-                            setEditValue(Math.max(0, Number(event.target.value)))
-                          }
-                        />
-                        <span>{rule.unit ?? ""}</span>
-                      </span>
-                    ) : (
-                      <span
-                        className={`gp-status ${rule.rule_type === "toggle" && rule.value_bool ? "is-on" : ""}`}
-                      >
-                        {valueText(rule)}
-                      </span>
-                    )}
-                    {rowErrors[rule.rule_id] && (
-                      <span className="gp-row-error" role="alert">
-                        {rowErrors[rule.rule_id]}
-                      </span>
-                    )}
-                  </td>
-                  <td className="gp-secondary-col">
-                    {rule.description ?? "该规则暂无补充说明"}
-                    {rule.updated_by_name && (
-                      <span className="gp-subline">
-                        最近修改：{rule.updated_by_name} · {formatBeijingTime(rule.updated_at)}
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    <div className="gp-row-actions">
-                      {!rule.editable ? (
-                        <span className="gp-muted">系统固定</span>
-                      ) : !canEditRules ? (
-                        <span className="gp-muted">只读</span>
-                      ) : editingId === rule.rule_id ? (
-                        <>
-                          <button
-                            className="btn-small btn-small-primary"
-                            disabled={savingId === rule.rule_id}
-                            onClick={() => void saveRule(rule, { value_number: editValue })}
+            <div className="gp-summary-item is-success">
+              <span className="gp-summary-copy">
+                <span className="gp-summary-icon">
+                  <CircleCheck size={14} />
+                </span>
+                <span className="gp-summary-label">启用规则</span>
+              </span>
+              <strong className="gp-summary-value">{enabledRules}</strong>
+            </div>
+            <div className="gp-summary-item is-muted">
+              <span className="gp-summary-copy">
+                <span className="gp-summary-icon">
+                  <CircleOff size={14} />
+                </span>
+                <span className="gp-summary-label">停用规则</span>
+              </span>
+              <strong className="gp-summary-value">{rules.length - enabledRules}</strong>
+            </div>
+            <div className="gp-summary-item is-agent">
+              <span className="gp-summary-copy">
+                <span className="gp-summary-icon">
+                  <Bot size={14} />
+                </span>
+                <span className="gp-summary-label">启用助手</span>
+              </span>
+              <strong className="gp-summary-value">
+                {agents.filter((item) => item.enabled).length}
+              </strong>
+            </div>
+          </div>
+        </aside>
+
+        <main className="gp-main-workspace">
+          {!loading && !error && (
+            <div className={`gp-access-note ${canEditRules ? "is-edit" : "is-readonly"}`}>
+              {canEditRules
+                ? "当前身份可修改业务权限规则。"
+                : "当前身份为只读模式，规则修改需总经理或咨询总监权限。"}
+            </div>
+          )}
+          {error && (
+            <div className="gp-banner is-error" role="alert">
+              {error}
+            </div>
+          )}
+          <PageSection
+            title={
+              <span className="gp-section-title">
+                <ShieldCheck size={17} />
+                权限规则列表
+              </span>
+            }
+            description="编辑仅影响当前规则，其他行保持可用。"
+            className="gp-panel gp-primary-panel"
+          >
+            <PageToolbar
+              className="gp-toolbar"
+              start={
+                <label className="gp-filter">
+                  <SlidersHorizontal size={14} />
+                  规则分组
+                  <select
+                    aria-label="规则分组"
+                    value={groupFilter}
+                    onChange={(event) => setGroupFilter(event.target.value)}
+                  >
+                    <option value="">全部分组</option>
+                    {groups.map((group) => (
+                      <option value={group} key={group}>
+                        {groupLabel[group] ?? "其他治理规则"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              }
+              end={
+                <div className="gp-toolbar-actions">
+                  <span>共 {visibleRules.length} 条</span>
+                  <button className="btn-small" onClick={() => void load()} disabled={loading}>
+                    <RefreshCw size={13} />
+                    {loading ? "刷新中…" : "刷新"}
+                  </button>
+                </div>
+              }
+            />
+            <div className="gp-table-wrap">
+              <table className="gp-table">
+                <thead>
+                  <tr>
+                    <th>规则</th>
+                    <th>分组</th>
+                    <th>当前设置</th>
+                    <th className="gp-secondary-col">说明</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleRules.map((rule) => (
+                    <tr key={rule.rule_id}>
+                      <td>
+                        <span className="gp-row-title-mark">
+                          <span className="gp-row-icon">
+                            {rule.rule_type === "numeric" ? (
+                              <Hash size={14} />
+                            ) : rule.rule_type === "toggle" ? (
+                              <ToggleLeft size={14} />
+                            ) : (
+                              <LockKeyhole size={14} />
+                            )}
+                          </span>
+                          <strong>{rule.display_name}</strong>
+                        </span>
+                        <span className="gp-subline">
+                          {ruleTypeLabel[rule.rule_type] ?? "治理规则"}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="gp-field-mark">
+                          <Layers3 size={13} />
+                          {groupLabel[rule.rule_group] ?? "其他治理规则"}
+                        </span>
+                      </td>
+                      <td>
+                        {editingId === rule.rule_id && rule.rule_type === "numeric" ? (
+                          <span className="gp-inline-edit">
+                            <input
+                              aria-label={`${rule.display_name}数值`}
+                              type="number"
+                              min={0}
+                              value={editValue}
+                              onChange={(event) =>
+                                setEditValue(Math.max(0, Number(event.target.value)))
+                              }
+                            />
+                            <span>{rule.unit ?? ""}</span>
+                          </span>
+                        ) : (
+                          <span
+                            className={`gp-status ${rule.rule_type === "toggle" && rule.value_bool ? "is-on" : ""}`}
                           >
-                            {savingId === rule.rule_id ? "保存中…" : "保存"}
+                            <SlidersHorizontal size={12} />
+                            {valueText(rule)}
+                          </span>
+                        )}
+                        {rowErrors[rule.rule_id] && (
+                          <span className="gp-row-error" role="alert">
+                            {rowErrors[rule.rule_id]}
+                          </span>
+                        )}
+                      </td>
+                      <td className="gp-secondary-col">
+                        {rule.description ?? "该规则暂无补充说明"}
+                        {rule.updated_by_name && (
+                          <span className="gp-subline">
+                            最近修改：{rule.updated_by_name} · {formatBeijingTime(rule.updated_at)}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <div className="gp-row-actions">
+                          {!rule.editable ? (
+                            <span className="gp-muted">系统固定</span>
+                          ) : !canEditRules ? (
+                            <span className="gp-muted">只读</span>
+                          ) : editingId === rule.rule_id ? (
+                            <>
+                              <button
+                                className="btn-small btn-small-primary"
+                                disabled={savingId === rule.rule_id}
+                                onClick={() => void saveRule(rule, { value_number: editValue })}
+                              >
+                                {savingId === rule.rule_id ? "保存中…" : "保存"}
+                              </button>
+                              <button className="btn-small" onClick={() => setEditingId(null)}>
+                                取消
+                              </button>
+                            </>
+                          ) : rule.rule_type === "toggle" ? (
+                            <button
+                              className="btn-small"
+                              disabled={savingId === rule.rule_id}
+                              onClick={() => void saveRule(rule, { value_bool: !rule.value_bool })}
+                            >
+                              {savingId === rule.rule_id
+                                ? "保存中…"
+                                : rule.value_bool
+                                  ? "停用"
+                                  : "启用"}
+                            </button>
+                          ) : (
+                            <button
+                              className="btn-small"
+                              onClick={() => {
+                                setEditingId(rule.rule_id);
+                                setEditValue(rule.value_number ?? 0);
+                              }}
+                            >
+                              编辑
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {!loading && visibleRules.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="gp-empty">
+                        <div className="gp-empty-content">
+                          <div className="gp-empty-visual" aria-hidden="true">
+                            <ShieldCheck size={22} />
+                            <span />
+                          </div>
+                          <strong>暂无符合条件的权限规则</strong>
+                          <span>可调整规则分组，或重新读取服务端规则。</span>
+                          <button className="btn-small" onClick={() => void load()}>
+                            <RefreshCw size={13} />
+                            重新加载
                           </button>
-                          <button className="btn-small" onClick={() => setEditingId(null)}>
-                            取消
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  {loading && (
+                    <tr>
+                      <td colSpan={5} className="gp-empty">
+                        正在加载权限规则…
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </PageSection>
+          <PageSection
+            title={
+              <span className="gp-section-title">
+                <Bot size={17} />
+                外部助手白名单
+              </span>
+            }
+            description="仅展示已登记助手的业务名称、能力范围和状态。"
+            className="gp-panel gp-secondary-panel"
+          >
+            {agentError && <div className="gp-banner is-readonly">{agentError}</div>}
+            <div className="gp-table-wrap">
+              <table className="gp-table">
+                <thead>
+                  <tr>
+                    <th>助手名称</th>
+                    <th>能力</th>
+                    <th>范围</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {agents.map((agent) => (
+                    <tr key={agent.id}>
+                      <td>
+                        <span className="gp-row-title-mark">
+                          <span className="gp-row-icon is-agent">
+                            <Bot size={14} />
+                          </span>
+                          <strong>{agent.agent_name}</strong>
+                        </span>
+                      </td>
+                      <td>
+                        <span className="gp-field-mark">
+                          <Search size={13} />
+                          {capabilityLabel[agent.capability] ?? "已登记能力"}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="gp-field-mark">
+                          <BriefcaseBusiness size={13} />
+                          {agent.allowed_scope
+                            ? (scopeLabel[agent.allowed_scope] ?? "受限范围")
+                            : "全部允许范围"}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`gp-status ${agent.enabled ? "is-on" : ""}`}>
+                          {agent.enabled ? <CircleCheck size={12} /> : <CircleOff size={12} />}
+                          {agent.enabled ? "已启用" : "已停用"}
+                        </span>
+                        {rowErrors[agent.id] && (
+                          <span className="gp-row-error" role="alert">
+                            {rowErrors[agent.id]}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        {isAdmin ? (
+                          <button
+                            className="btn-small"
+                            disabled={savingId === agent.id}
+                            onClick={() => void toggleAgent(agent)}
+                          >
+                            {savingId === agent.id ? "保存中…" : agent.enabled ? "停用" : "启用"}
                           </button>
-                        </>
-                      ) : rule.rule_type === "toggle" ? (
-                        <button
-                          className="btn-small"
-                          disabled={savingId === rule.rule_id}
-                          onClick={() => void saveRule(rule, { value_bool: !rule.value_bool })}
-                        >
-                          {savingId === rule.rule_id
-                            ? "保存中…"
-                            : rule.value_bool
-                              ? "停用"
-                              : "启用"}
-                        </button>
-                      ) : (
-                        <button
-                          className="btn-small"
-                          onClick={() => {
-                            setEditingId(rule.rule_id);
-                            setEditValue(rule.value_number ?? 0);
-                          }}
-                        >
-                          编辑
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {!loading && visibleRules.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="gp-empty">
-                    暂无符合条件的权限规则
-                  </td>
-                </tr>
-              )}
-              {loading && (
-                <tr>
-                  <td colSpan={5} className="gp-empty">
-                    正在加载权限规则…
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </PageSection>
-      <PageSection
-        title={
-          <span className="gp-section-title">
-            <Bot size={17} />
-            外部助手白名单
-          </span>
-        }
-        description="仅展示已登记助手的业务名称、能力范围和状态。"
-        className="gp-panel gp-secondary-panel"
-      >
-        {agentError && <div className="gp-banner is-readonly">{agentError}</div>}
-        <div className="gp-table-wrap">
-          <table className="gp-table">
-            <thead>
-              <tr>
-                <th>助手名称</th>
-                <th>能力</th>
-                <th>范围</th>
-                <th>状态</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {agents.map((agent) => (
-                <tr key={agent.id}>
-                  <td>
-                    <strong>{agent.agent_name}</strong>
-                  </td>
-                  <td>{capabilityLabel[agent.capability] ?? "已登记能力"}</td>
-                  <td>
-                    {agent.allowed_scope
-                      ? (scopeLabel[agent.allowed_scope] ?? "受限范围")
-                      : "全部允许范围"}
-                  </td>
-                  <td>
-                    <span className={`gp-status ${agent.enabled ? "is-on" : ""}`}>
-                      {agent.enabled ? "已启用" : "已停用"}
-                    </span>
-                    {rowErrors[agent.id] && (
-                      <span className="gp-row-error" role="alert">
-                        {rowErrors[agent.id]}
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    {isAdmin ? (
-                      <button
-                        className="btn-small"
-                        disabled={savingId === agent.id}
-                        onClick={() => void toggleAgent(agent)}
-                      >
-                        {savingId === agent.id ? "保存中…" : agent.enabled ? "停用" : "启用"}
-                      </button>
-                    ) : (
-                      <span className="gp-muted">只读</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {!loading && !agentError && agents.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="gp-empty">
-                    暂无已登记的外部助手
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </PageSection>
+                        ) : (
+                          <span className="gp-muted">只读</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {!loading && !agentError && agents.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="gp-empty">
+                        <div className="gp-empty-content">
+                          <div className="gp-empty-visual is-agent" aria-hidden="true">
+                            <Bot size={22} />
+                            <span />
+                          </div>
+                          <strong>暂无已登记的外部助手</strong>
+                          <span>白名单为空，可重新读取服务端登记状态。</span>
+                          <button className="btn-small" onClick={() => void load()}>
+                            <RefreshCw size={13} />
+                            重新加载
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </PageSection>
+        </main>
+      </div>
     </ProductPage>
   );
 }
