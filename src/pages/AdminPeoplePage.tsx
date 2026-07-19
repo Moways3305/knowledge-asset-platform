@@ -1,5 +1,6 @@
 ﻿import { useState, useMemo, useCallback, useEffect } from "react";
 import { RefreshCw, Search, UsersRound, X } from "lucide-react";
+import { useRef } from "react";
 import { ApiError } from "../api/http";
 import {
   fetchPeople,
@@ -60,7 +61,9 @@ export default function AdminPeoplePage() {
   const [q, setQ] = useState("");
 
   const [detail, setDetail] = useState<PersonDTO | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
+  const detailRequestVersion = useRef(0);
+  const selectedUserIdRef = useRef<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNote, setActionNote] = useState<string | null>(null);
@@ -108,22 +111,40 @@ export default function AdminPeoplePage() {
   }, [people]);
 
   const openDetail = useCallback(async (userId: string) => {
+    const requestVersion = ++detailRequestVersion.current;
+    selectedUserIdRef.current = userId;
+    setDetail(null);
     setActionError(null);
     setActionNote(null);
-    setDetailLoading(true);
+    setDetailLoadingId(userId);
     try {
-      setDetail(await fetchPerson(userId));
+      const person = await fetchPerson(userId);
+      if (detailRequestVersion.current === requestVersion && selectedUserIdRef.current === userId)
+        setDetail(person);
     } catch (e) {
-      setActionError(describeError(e, "加载用户详情失败"));
+      if (detailRequestVersion.current === requestVersion && selectedUserIdRef.current === userId)
+        setActionError(describeError(e, "加载用户详情失败"));
     } finally {
-      setDetailLoading(false);
+      if (detailRequestVersion.current === requestVersion) setDetailLoadingId(null);
     }
+  }, []);
+
+  const closeDetail = useCallback(() => {
+    detailRequestVersion.current += 1;
+    selectedUserIdRef.current = null;
+    setDetailLoadingId(null);
+    setDetail(null);
+    setActionError(null);
+    setActionNote(null);
   }, []);
 
   const refreshAfterWrite = useCallback(
     async (userId: string) => {
+      const requestVersion = ++detailRequestVersion.current;
       try {
-        setDetail(await fetchPerson(userId));
+        const person = await fetchPerson(userId);
+        if (detailRequestVersion.current === requestVersion && selectedUserIdRef.current === userId)
+          setDetail(person);
       } catch {
         /* 忽略：列表刷新足够 */
       }
@@ -219,11 +240,7 @@ export default function AdminPeoplePage() {
           <div className="pp-detail-panel">
             <div className="pp-detail-head">
               <span className="pp-detail-title">用户详情 · 治理</span>
-              <button
-                className="btn-small"
-                aria-label="关闭人员详情"
-                onClick={() => setDetail(null)}
-              >
+              <button className="btn-small" aria-label="关闭人员详情" onClick={closeDetail}>
                 <X size={14} /> 关闭
               </button>
             </div>
@@ -605,10 +622,10 @@ export default function AdminPeoplePage() {
                     <td>
                       <button
                         className="btn-small"
-                        disabled={detailLoading}
+                        disabled={detailLoadingId === u.user_id}
                         onClick={() => void openDetail(u.user_id)}
                       >
-                        {detailLoading ? "加载中…" : "查看 / 治理"}
+                        {detailLoadingId === u.user_id ? "加载中…" : "查看 / 治理"}
                       </button>
                     </td>
                   </tr>

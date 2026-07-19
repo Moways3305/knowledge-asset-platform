@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -199,6 +199,36 @@ describe("AdminPeoplePage governance controls", () => {
     fireEvent.click(screen.getByRole("button", { name: "查看 / 治理" }));
     expect(await screen.findByRole("dialog", { name: "人员治理详情" })).toBeInTheDocument();
     expect(document.body.innerHTML).not.toContain("person@example.test");
+  });
+
+  it("ignores a stale detail response after selecting another person", async () => {
+    const secondPerson = { ...person, user_id: "person-second", name: "第二人员" };
+    vi.mocked(fetchPeople).mockResolvedValueOnce({ items: [person, secondPerson], total: 2 });
+    let resolveFirst!: (value: PersonDTO) => void;
+    let resolveSecond!: (value: PersonDTO) => void;
+    vi.mocked(fetchPerson).mockImplementation((userId) =>
+      userId === person.user_id
+        ? new Promise<PersonDTO>((resolve) => {
+            resolveFirst = resolve;
+          })
+        : new Promise<PersonDTO>((resolve) => {
+            resolveSecond = resolve;
+          }),
+    );
+    render(
+      <MemoryRouter>
+        <AdminPeoplePage />
+      </MemoryRouter>,
+    );
+    const buttons = await screen.findAllByRole("button", { name: "查看 / 治理" });
+    fireEvent.click(buttons[0]);
+    fireEvent.click(buttons[1]);
+    await act(async () => resolveSecond(secondPerson));
+    const dialog = await screen.findByRole("dialog", { name: "人员治理详情" });
+    expect(within(dialog).getByText("第二人员")).toBeInTheDocument();
+    await act(async () => resolveFirst(person));
+    await waitFor(() => expect(within(dialog).getByText("第二人员")).toBeInTheDocument());
+    expect(within(dialog).queryByText("测试人员")).not.toBeInTheDocument();
   });
 
   it.each([
