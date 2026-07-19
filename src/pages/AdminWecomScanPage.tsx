@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FolderSync, RefreshCw, ShieldCheck } from "lucide-react";
 import {
   fetchWecomScanConfigs,
@@ -61,21 +61,33 @@ export default function AdminWecomScanPage() {
   const [optionsError, setOptionsError] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editingConfig, setEditingConfig] = useState<WecomScanConfigDTO | null>(null);
-
-  const loadRecords = useCallback(async (configId: string) => {
-    setRecordsLoading(true);
-    setRecordError(null);
-    try {
-      const response = await fetchWecomScanRecords(configId);
-      setRecords(response.items);
-      setLatest((current) => ({ ...current, [configId]: response.items[0] ?? null }));
-    } catch (error) {
-      setRecords([]);
-      setRecordError(safeRequestMessage(error, "扫描记录暂时无法加载，请稍后重试。"));
-    } finally {
-      setRecordsLoading(false);
-    }
+  const recordsRequestRef = useRef(0);
+  const enterReadOnly = useCallback(() => {
+    setAccessForbidden(true);
+    setFormOpen(false);
   }, []);
+
+  const loadRecords = useCallback(
+    async (configId: string) => {
+      const requestId = ++recordsRequestRef.current;
+      setRecordsLoading(true);
+      setRecordError(null);
+      try {
+        const response = await fetchWecomScanRecords(configId);
+        if (requestId !== recordsRequestRef.current) return;
+        setRecords(response.items);
+        setLatest((current) => ({ ...current, [configId]: response.items[0] ?? null }));
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 403) enterReadOnly();
+        if (requestId !== recordsRequestRef.current) return;
+        setRecords([]);
+        setRecordError(safeRequestMessage(error, "扫描记录暂时无法加载，请稍后重试。"));
+      } finally {
+        if (requestId === recordsRequestRef.current) setRecordsLoading(false);
+      }
+    },
+    [enterReadOnly],
+  );
 
   const loadPage = useCallback(async () => {
     setLoading(true);
@@ -98,6 +110,16 @@ export default function AdminWecomScanPage() {
             ],
         ),
       );
+      if (
+        snapshots.some(
+          (item) =>
+            item.status === "rejected" &&
+            item.reason instanceof ApiError &&
+            item.reason.status === 403,
+        )
+      ) {
+        enterReadOnly();
+      }
       setLatest(
         Object.fromEntries(
           snapshots
@@ -114,7 +136,7 @@ export default function AdminWecomScanPage() {
       setConfigs([]);
       setSelectedId(null);
       if (error instanceof ApiError && error.status === 403) {
-        setAccessForbidden(true);
+        enterReadOnly();
         setConfigError("当前身份没有微盘扫描管理权限，此区域保持只读。");
       } else {
         setConfigError(safeRequestMessage(error, "扫描配置暂时无法加载，请稍后刷新。"));
@@ -122,7 +144,7 @@ export default function AdminWecomScanPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [enterReadOnly]);
 
   const loadOptions = useCallback(async () => {
     if (!canEdit) return;
@@ -138,15 +160,23 @@ export default function AdminWecomScanPage() {
       setProjectOptions([]);
       setOwnerOptions([]);
       setOptionsError(true);
-      if (error instanceof ApiError && error.status === 403) setAccessForbidden(true);
+      if (error instanceof ApiError && error.status === 403) enterReadOnly();
     }
-  }, [canEdit]);
+  }, [canEdit, enterReadOnly]);
 
   useEffect(() => void loadPage(), [loadPage]);
   useEffect(() => void loadOptions(), [loadOptions]);
   useEffect(() => {
     if (selectedId) void loadRecords(selectedId);
-    else setRecords([]);
+    else {
+      recordsRequestRef.current += 1;
+      setRecords([]);
+      setRecordError(null);
+      setRecordsLoading(false);
+    }
+    return () => {
+      recordsRequestRef.current += 1;
+    };
   }, [selectedId, loadRecords]);
 
   const selectedConfig = configs.find((item) => item.id === selectedId) ?? null;
@@ -180,7 +210,7 @@ export default function AdminWecomScanPage() {
         text: config.enabled ? "扫描配置已停用。" : "扫描配置已启用。",
       });
     } catch (error) {
-      if (error instanceof ApiError && error.status === 403) setAccessForbidden(true);
+      if (error instanceof ApiError && error.status === 403) enterReadOnly();
       setNotice({
         tone: "danger",
         text: safeRequestMessage(error, "配置状态更新失败，请稍后重试。"),
@@ -209,7 +239,7 @@ export default function AdminWecomScanPage() {
         text: `扫描已结束：发现 ${record.discovered_count}，新增待确认 ${record.new_count}，重复 ${record.duplicate_count}，失败 ${record.failed_count}。`,
       });
     } catch (error) {
-      if (error instanceof ApiError && error.status === 403) setAccessForbidden(true);
+      if (error instanceof ApiError && error.status === 403) enterReadOnly();
       setNotice({
         tone: "danger",
         text: safeRequestMessage(error, "扫描未能完成，请检查配置后重试。"),
@@ -271,10 +301,7 @@ export default function AdminWecomScanPage() {
         projectOptions={projectOptions}
         ownerOptions={ownerOptions}
         optionsError={optionsError}
-        onForbidden={() => {
-          setAccessForbidden(true);
-          setFormOpen(false);
-        }}
+        onForbidden={enterReadOnly}
         onClose={() => setFormOpen(false)}
         onSaved={(saved, text) => {
           mergeConfig(saved);

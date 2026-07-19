@@ -60,6 +60,12 @@ const record: WecomScanRecordDTO = {
   error_message: "raw upstream body token=do-not-render",
   created_at: "2026-07-20T01:00:00Z",
 };
+const secondConfig: WecomScanConfigDTO = {
+  ...config,
+  id: "cfg-secret-2",
+  name: "Beta 交付目录",
+  related_project_name: "Beta 项目",
+};
 
 describe("AdminWecomScanPage", () => {
   beforeEach(() => {
@@ -151,6 +157,35 @@ describe("AdminWecomScanPage", () => {
     expect(fetchWecomScanRecords).toHaveBeenCalledWith(config.id);
   });
 
+  it("ignores a late records response after switching configurations", async () => {
+    vi.mocked(fetchWecomScanConfigs).mockResolvedValue({ items: [config, secondConfig] });
+    render(<AdminWecomScanPage />);
+    expect(await screen.findByText("Beta 交付目录")).toBeInTheDocument();
+    await waitFor(() => expect(fetchWecomScanRecords).toHaveBeenCalled());
+
+    let resolveLate: ((value: { items: WecomScanRecordDTO[] }) => void) | undefined;
+    const lateResponse = new Promise<{ items: WecomScanRecordDTO[] }>((resolve) => {
+      resolveLate = resolve;
+    });
+    vi.mocked(fetchWecomScanRecords).mockImplementation((configId) => {
+      if (configId === secondConfig.id) return lateResponse;
+      return Promise.resolve({ items: [{ ...record, discovered_count: 17 }] });
+    });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "查看记录" })[1]);
+    expect(
+      await screen.findByRole("heading", { name: "Beta 交付目录 · 记录" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "查看记录" })[0]);
+    expect(await screen.findByRole("heading", { name: "项目交付目录 · 记录" })).toBeInTheDocument();
+    expect(await screen.findByText("17")).toBeInTheDocument();
+
+    resolveLate?.({ items: [{ ...record, discovered_count: 99 }] });
+    await Promise.resolve();
+    expect(screen.queryByText("99")).not.toBeInTheDocument();
+    expect(screen.getByText("17")).toBeInTheDocument();
+  });
+
   it("updates only the requested configuration state", async () => {
     render(<AdminWecomScanPage />);
     fireEvent.click(await screen.findByRole("button", { name: "停用" }));
@@ -214,6 +249,32 @@ describe("AdminWecomScanPage", () => {
       await screen.findByText("企业微信微盘尚未配置或暂不可用，请联系系统管理员检查连接。"),
     ).toBeInTheDocument();
     expect(screen.queryByText("token leaked")).not.toBeInTheDocument();
+  });
+
+  it("enters read-only mode when records return 403", async () => {
+    vi.mocked(fetchWecomScanRecords).mockRejectedValue(
+      new ApiError(403, "raw records secret", "raw_records_reason"),
+    );
+    render(<AdminWecomScanPage />);
+    expect(
+      await screen.findByText("当前身份为只读模式，可查看扫描配置与运行记录。"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "新增扫描配置" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw records secret|raw_records_reason/)).not.toBeInTheDocument();
+  });
+
+  it("enters read-only mode when directory browsing returns 403", async () => {
+    vi.mocked(fetchWecomDriveSpaces).mockRejectedValue(
+      new ApiError(403, "raw drive secret", "raw_drive_reason"),
+    );
+    render(<AdminWecomScanPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "新增扫描配置" }));
+    fireEvent.click(screen.getByRole("button", { name: "选择微盘目录" }));
+    expect(
+      await screen.findByText("当前身份为只读模式，可查看扫描配置与运行记录。"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "新增扫描配置" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw drive secret|raw_drive_reason/)).not.toBeInTheDocument();
   });
 
   it("keeps a disabled configuration from scanning", async () => {

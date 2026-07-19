@@ -1,13 +1,16 @@
 import { useState, useCallback, useEffect } from "react";
 import { fetchWecomDriveDirectories, fetchWecomDriveSpaces } from "../../api/admin";
+import { ApiError } from "../../api/http";
 import type { WecomDriveDirectoryDTO, WecomDriveSpaceDTO } from "../../types/wecom";
 
 // 微盘目录选择器。先列空间，再浏览子目录并钻取；选中后回填可保存的 directory_ref。
 // 只展示目录名（友好），不要求用户理解 spaceid/fatherid；不展示文件、不下载。
 export default function WecomDirectoryPicker({
   onSelect,
+  onForbidden,
 }: {
   onSelect: (ref: string, label: string) => void;
+  onForbidden: () => void;
 }) {
   const [spaces, setSpaces] = useState<WecomDriveSpaceDTO[]>([]);
   const [space, setSpace] = useState<WecomDriveSpaceDTO | null>(null);
@@ -25,8 +28,11 @@ export default function WecomDirectoryPicker({
       .then((d) => {
         if (!cancelled) setSpaces(d.items);
       })
-      .catch(() => {
-        if (!cancelled) setError("微盘空间暂时无法加载，请检查企业微信配置后重试。");
+      .catch((error) => {
+        if (!cancelled) {
+          if (error instanceof ApiError && error.status === 403) onForbidden();
+          setError("微盘空间暂时无法加载，请检查企业微信配置后重试。");
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -34,20 +40,24 @@ export default function WecomDirectoryPicker({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [onForbidden]);
 
-  const loadDirs = useCallback(async (spaceRef: string, parentRef: string | undefined) => {
-    setLoading(true);
-    setError(null);
-    try {
-      setDirs((await fetchWecomDriveDirectories(spaceRef, parentRef)).items);
-    } catch {
-      setError("目录暂时无法加载，请返回上级或稍后重试。");
-      setDirs([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loadDirs = useCallback(
+    async (spaceRef: string, parentRef: string | undefined) => {
+      setLoading(true);
+      setError(null);
+      try {
+        setDirs((await fetchWecomDriveDirectories(spaceRef, parentRef)).items);
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 403) onForbidden();
+        setError("目录暂时无法加载，请返回上级或稍后重试。");
+        setDirs([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [onForbidden],
+  );
 
   const openSpace = useCallback(
     async (sp: WecomDriveSpaceDTO) => {

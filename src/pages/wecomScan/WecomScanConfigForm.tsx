@@ -167,6 +167,7 @@ export default function WecomScanConfigForm({
             </div>
             {pickerOpen && (
               <WecomDirectoryPicker
+                onForbidden={onForbidden}
                 onSelect={(ref, label) => {
                   setMany({ dir: ref, dirLabel: label });
                   setPickerOpen(false);
