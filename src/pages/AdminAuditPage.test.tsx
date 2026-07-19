@@ -69,8 +69,13 @@ describe("AdminAuditPage", () => {
     const { container } = render(<AdminAuditPage />);
     expect(await screen.findByText("创建项目知识库")).toBeInTheDocument();
     const summary = screen.getByLabelText("审计摘要");
-    expect(within(summary).getAllByText("1", { selector: ".product-status-value" })).toHaveLength(
+    expect(within(summary).getAllByText("1", { selector: ".secops-summary-value" })).toHaveLength(
       4,
+    );
+    const console = container.querySelector(".secops-console");
+    expect(console?.children).toHaveLength(2);
+    expect(container.querySelector(".secops-main-workspace")).toContainElement(
+      container.querySelector(".secops-workspace"),
     );
     const html = container.innerHTML;
     for (const secret of [

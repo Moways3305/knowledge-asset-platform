@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchAuthSecurityOverview, unlockAuthLockout } from "../api/admin";
 import { ApiError } from "../api/http";
-import { PageHeader, PageToolbar, ProductPage, StatusStrip } from "../components/ProductLayout";
+import {
+  OperationsSummary,
+  PageHeader,
+  PageToolbar,
+  ProductPage,
+} from "../components/ProductLayout";
 import type { AuthSecurityEventDTO, AuthSecurityOverviewDTO } from "../types/authSecurity";
 import { formatBeijingTime } from "../utils/time";
 
@@ -89,115 +94,123 @@ export default function AdminAuthSecurityPage() {
         eyebrow="安全运营"
         title="登录安全"
         description="查看选定时间范围内的登录结果，并处理可解锁的账号状态。"
-        actions={
-          <button className="btn-small" onClick={() => void load()} disabled={loading}>
-            {loading ? "刷新中…" : "刷新"}
-          </button>
-        }
       />
-      <StatusStrip
-        label="登录安全摘要"
-        items={[
-          { label: "失败", value: counts?.failed ?? 0, tone: "warning" },
-          { label: "锁定", value: counts?.locked ?? 0, tone: "danger" },
-          { label: "访问限流", value: counts?.rate_limited ?? 0, tone: "danger" },
-          { label: "成功", value: counts?.success ?? 0, tone: "success" },
-          { label: "人工解锁", value: counts?.unlocked ?? 0 },
-          { label: "独立账号", value: counts?.unique_identifier_count ?? 0 },
-          { label: "独立来源", value: counts?.unique_ip_count ?? 0 },
-        ]}
-      />
-      {error && (
-        <div className="secops-banner is-error" role="alert">
-          {error}
-        </div>
-      )}
-      {notice && (
-        <div className="secops-banner is-success" role="status">
-          {notice}
-        </div>
-      )}
-      <section className="secops-workspace" aria-label="最近登录尝试">
-        <PageToolbar
-          className="secops-toolbar"
-          start={
-            <label className="secops-window">
-              时间范围
-              <select
-                aria-label="时间范围"
-                value={windowMinutes}
-                onChange={(event) => setWindowMinutes(Number(event.target.value))}
-              >
-                <option value={30}>最近 30 分钟</option>
-                <option value={60}>最近 1 小时</option>
-                <option value={360}>最近 6 小时</option>
-                <option value={1440}>最近 24 小时</option>
-                <option value={10080}>最近 7 天</option>
-              </select>
-            </label>
-          }
-          end={
-            <span className="secops-count">最近登录尝试 {data?.recent_events.length ?? 0} 条</span>
-          }
+      <div className="secops-console">
+        <OperationsSummary
+          label="登录安全摘要"
+          items={[
+            { label: "失败", value: counts?.failed ?? 0, tone: "warning" },
+            { label: "锁定", value: counts?.locked ?? 0, tone: "danger" },
+            { label: "访问限流", value: counts?.rate_limited ?? 0, tone: "danger" },
+            { label: "成功", value: counts?.success ?? 0, tone: "success" },
+            { label: "人工解锁", value: counts?.unlocked ?? 0 },
+            { label: "独立账号", value: counts?.unique_identifier_count ?? 0 },
+            { label: "独立来源", value: counts?.unique_ip_count ?? 0 },
+          ]}
         />
-        <div className="secops-table-wrap">
-          <table className="secops-table">
-            <thead>
-              <tr>
-                <th>时间</th>
-                <th>结果</th>
-                <th>原因</th>
-                <th>用户</th>
-                <th>账号状态</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(data?.recent_events ?? []).map((event) => (
-                <tr key={event.attempt_id}>
-                  <td className="secops-time">{formatBeijingTime(event.created_at)}</td>
-                  <td>
-                    <span className={`secops-pill result-${event.result}`}>
-                      {resultLabel[event.result] ?? "其他结果"}
-                    </span>
-                  </td>
-                  <td>{reasonLabel[event.reason_code ?? ""] ?? "安全校验未通过"}</td>
-                  <td className="secops-primary">{event.user_name ?? "未识别账号"}</td>
-                  <td>{userStatusLabel[event.user_status ?? ""] ?? "状态未知"}</td>
-                  <td>
-                    {UNLOCKABLE.has(event.result) &&
-                    (event.user_id || event.identifier_hash_prefix) ? (
-                      <button
-                        className="btn-small"
-                        disabled={unlocking === event.attempt_id}
-                        onClick={() => void onUnlock(event)}
-                      >
-                        {unlocking === event.attempt_id ? "解锁中…" : "解除锁定"}
-                      </button>
-                    ) : (
-                      <span className="secops-muted">无需操作</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {!loading && data && data.recent_events.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="secops-empty">
-                    该时间范围内暂无登录尝试
-                  </td>
-                </tr>
-              )}
-              {loading && (
-                <tr>
-                  <td colSpan={6} className="secops-empty">
-                    正在加载登录安全状态…
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+        <main className="secops-main-workspace">
+          {error && (
+            <div className="secops-banner is-error" role="alert">
+              {error}
+            </div>
+          )}
+          {notice && (
+            <div className="secops-banner is-success" role="status">
+              {notice}
+            </div>
+          )}
+          <section className="secops-workspace" aria-label="最近登录尝试">
+            <PageToolbar
+              className="secops-toolbar"
+              start={
+                <label className="secops-window">
+                  时间范围
+                  <select
+                    aria-label="时间范围"
+                    value={windowMinutes}
+                    onChange={(event) => setWindowMinutes(Number(event.target.value))}
+                  >
+                    <option value={30}>最近 30 分钟</option>
+                    <option value={60}>最近 1 小时</option>
+                    <option value={360}>最近 6 小时</option>
+                    <option value={1440}>最近 24 小时</option>
+                    <option value={10080}>最近 7 天</option>
+                  </select>
+                </label>
+              }
+              end={
+                <div className="secops-toolbar-actions">
+                  <span className="secops-count">
+                    最近登录尝试 {data?.recent_events.length ?? 0} 条
+                  </span>
+                  <button className="btn-small" onClick={() => void load()} disabled={loading}>
+                    {loading ? "刷新中…" : "刷新"}
+                  </button>
+                </div>
+              }
+            />
+            <div className="secops-table-wrap">
+              <table className="secops-table">
+                <thead>
+                  <tr>
+                    <th>时间</th>
+                    <th>结果</th>
+                    <th className="secops-col-secondary">原因</th>
+                    <th>用户</th>
+                    <th>账号状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data?.recent_events ?? []).map((event) => (
+                    <tr key={event.attempt_id}>
+                      <td className="secops-time">{formatBeijingTime(event.created_at)}</td>
+                      <td>
+                        <span className={`secops-pill result-${event.result}`}>
+                          {resultLabel[event.result] ?? "其他结果"}
+                        </span>
+                      </td>
+                      <td className="secops-col-secondary">
+                        {reasonLabel[event.reason_code ?? ""] ?? "安全校验未通过"}
+                      </td>
+                      <td className="secops-primary">{event.user_name ?? "未识别账号"}</td>
+                      <td>{userStatusLabel[event.user_status ?? ""] ?? "状态未知"}</td>
+                      <td>
+                        {UNLOCKABLE.has(event.result) &&
+                        (event.user_id || event.identifier_hash_prefix) ? (
+                          <button
+                            className="btn-small"
+                            disabled={unlocking === event.attempt_id}
+                            onClick={() => void onUnlock(event)}
+                          >
+                            {unlocking === event.attempt_id ? "解锁中…" : "解除锁定"}
+                          </button>
+                        ) : (
+                          <span className="secops-muted">无需操作</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {!loading && data && data.recent_events.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="secops-empty">
+                        该时间范围内暂无登录尝试
+                      </td>
+                    </tr>
+                  )}
+                  {loading && (
+                    <tr>
+                      <td colSpan={6} className="secops-empty">
+                        正在加载登录安全状态…
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </main>
+      </div>
     </ProductPage>
   );
 }

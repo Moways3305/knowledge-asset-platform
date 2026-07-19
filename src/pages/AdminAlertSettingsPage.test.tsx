@@ -49,6 +49,14 @@ describe("AdminAlertSettingsPage", () => {
     expect(await screen.findByText("连续登录失败")).toBeInTheDocument();
     const summary = screen.getByLabelText("告警摘要");
     expect(within(summary).getByText("启用规则")).toBeInTheDocument();
+    const main = container.querySelector<HTMLElement>(".secops-main-workspace");
+    const sections = container.querySelectorAll<HTMLElement>(".secops-workspace");
+    expect(container.querySelector(".secops-console")?.children).toHaveLength(2);
+    expect(main).toContainElement(sections[0]);
+    expect(main).toContainElement(sections[1]);
+    expect(
+      sections[0].compareDocumentPosition(sections[1]) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     for (const secret of [
       "rule-secret",
       "notification-secret",

@@ -3,10 +3,10 @@ import { fetchAlertNotifications, fetchAlertRules, updateAlertRule } from "../ap
 import { ApiError } from "../api/http";
 import {
   PageHeader,
+  OperationsSummary,
   PageSection,
   PageToolbar,
   ProductPage,
-  StatusStrip,
 } from "../components/ProductLayout";
 import type { AlertRuleDTO, NotificationDTO } from "../types/alert";
 import { formatBeijingTime } from "../utils/time";
@@ -132,199 +132,212 @@ export default function AdminAlertSettingsPage() {
         eyebrow="安全运营"
         title="告警设置"
         description="维护安全告警触发条件，并核查最近通知的发送状态。"
-        actions={
-          <button className="btn-small" onClick={() => void load()} disabled={loading}>
-            {loading ? "刷新中…" : "刷新"}
-          </button>
-        }
       />
-      <StatusStrip
-        label="告警摘要"
-        items={[
-          { label: "启用规则", value: enabledCount, tone: "success" },
-          { label: "严重规则", value: criticalCount, tone: "danger" },
-          { label: "通知记录", value: notifications.length },
-          { label: "待发送", value: pendingCount, tone: "warning" },
-        ]}
-      />
-      {error && (
-        <div className="secops-banner is-error" role="alert">
-          {error}
-        </div>
-      )}
-      <PageSection
-        title="告警规则"
-        description="修改仅作用于当前规则，保存期间其他规则仍可查看。"
-        className="secops-workspace secops-primary-section"
-      >
-        <PageToolbar
-          className="secops-toolbar"
-          start={
-            <div className="secops-filters">
-              <label>
-                级别
-                <select
-                  aria-label="规则级别"
-                  value={filterLevel}
-                  onChange={(event) => setFilterLevel(event.target.value)}
-                >
-                  <option value="">全部</option>
-                  <option value="critical">严重</option>
-                  <option value="error">错误</option>
-                  <option value="warning">警告</option>
-                </select>
-              </label>
-              <label>
-                状态
-                <select
-                  aria-label="规则状态"
-                  value={filterEnabled}
-                  onChange={(event) => setFilterEnabled(event.target.value)}
-                >
-                  <option value="">全部</option>
-                  <option value="enabled">已启用</option>
-                  <option value="disabled">已停用</option>
-                </select>
-              </label>
-            </div>
-          }
-          end={<span className="secops-count">共 {filteredRules.length} 条规则</span>}
+      <div className="secops-console">
+        <OperationsSummary
+          label="告警摘要"
+          items={[
+            { label: "启用规则", value: enabledCount, tone: "success" },
+            { label: "严重规则", value: criticalCount, tone: "danger" },
+            { label: "通知记录", value: notifications.length },
+            { label: "待发送", value: pendingCount, tone: "warning" },
+          ]}
         />
-        <div className="secops-table-wrap">
-          <table className="secops-table">
-            <thead>
-              <tr>
-                <th>级别</th>
-                <th>规则名称</th>
-                <th>阈值</th>
-                <th>通知渠道</th>
-                <th>防重复</th>
-                <th>更新时间</th>
-                <th>状态</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRules.map((rule) => (
-                <tr key={rule.id} className={!rule.enabled ? "is-disabled" : ""}>
-                  <td>
-                    <span className={`secops-pill severity-${rule.severity}`}>
-                      {severityLabel[rule.severity] ?? "未分级"}
-                    </span>
-                  </td>
-                  <td className="secops-primary">{rule.rule_name}</td>
-                  <td>
-                    <div className="secops-threshold">
-                      <input
-                        aria-label={`${rule.rule_name}阈值`}
-                        type="number"
-                        min={1}
-                        value={drafts[rule.id] ?? ""}
-                        disabled={saving.has(rule.id)}
-                        onChange={(event) =>
-                          setDrafts((current) => ({ ...current, [rule.id]: event.target.value }))
-                        }
-                        onBlur={() => commitThreshold(rule)}
-                      />
-                      <span>{rule.threshold_unit ?? ""}</span>
-                    </div>
-                    {rowErrors[rule.id] && (
-                      <span className="secops-row-error" role="alert">
-                        {rowErrors[rule.id]}
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    {rule.notification_channels.map((channel) => (
-                      <span className="secops-channel" key={channel}>
-                        {channelLabel[channel] ?? "其他渠道"}
-                      </span>
-                    ))}
-                  </td>
-                  <td>{dedupLabel[rule.dedup_strategy ?? ""] ?? "按规则合并"}</td>
-                  <td className="secops-time">{formatBeijingTime(rule.updated_at)}</td>
-                  <td>
-                    <button
-                      className={`secops-toggle ${rule.enabled ? "is-on" : ""}`}
-                      aria-label={`${rule.rule_name}${rule.enabled ? "停用" : "启用"}`}
-                      aria-pressed={rule.enabled}
-                      disabled={saving.has(rule.id)}
-                      onClick={() => void saveRule(rule, { enabled: !rule.enabled })}
+        <main className="secops-main-workspace">
+          {error && (
+            <div className="secops-banner is-error" role="alert">
+              {error}
+            </div>
+          )}
+          <PageSection
+            title="告警规则"
+            description="修改仅作用于当前规则，保存期间其他规则仍可查看。"
+            className="secops-workspace secops-primary-section"
+          >
+            <PageToolbar
+              className="secops-toolbar"
+              start={
+                <div className="secops-filters">
+                  <label>
+                    级别
+                    <select
+                      aria-label="规则级别"
+                      value={filterLevel}
+                      onChange={(event) => setFilterLevel(event.target.value)}
                     >
-                      {saving.has(rule.id) ? "保存中…" : rule.enabled ? "已启用" : "已停用"}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {!loading && filteredRules.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="secops-empty">
-                    暂无符合条件的告警规则
-                  </td>
-                </tr>
-              )}
-              {loading && (
-                <tr>
-                  <td colSpan={7} className="secops-empty">
-                    正在加载告警规则…
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </PageSection>
-      <PageSection
-        title="通知记录"
-        description="仅显示业务可识别的接收人与发送状态。"
-        className="secops-workspace secops-secondary-section"
-      >
-        <div className="secops-table-wrap">
-          <table className="secops-table">
-            <thead>
-              <tr>
-                <th>时间</th>
-                <th>通知</th>
-                <th>接收人</th>
-                <th>渠道</th>
-                <th>状态</th>
-              </tr>
-            </thead>
-            <tbody>
-              {notifications.map((item) => (
-                <tr key={item.id}>
-                  <td className="secops-time">{formatBeijingTime(item.created_at)}</td>
-                  <td className="secops-primary">{item.title}</td>
-                  <td>{item.recipient_name ?? "未指定接收人"}</td>
-                  <td>
-                    <span className="secops-channel">
-                      {channelLabel[item.channel] ?? "其他渠道"}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`secops-pill notification-${item.send_status}`}>
-                      {statusLabel[item.send_status] ?? "状态未知"}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-              {!loading && notifications.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="secops-empty">
-                    暂无通知记录
-                  </td>
-                </tr>
-              )}
-              {loading && (
-                <tr>
-                  <td colSpan={5} className="secops-empty">
-                    正在加载通知记录…
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </PageSection>
+                      <option value="">全部</option>
+                      <option value="critical">严重</option>
+                      <option value="error">错误</option>
+                      <option value="warning">警告</option>
+                    </select>
+                  </label>
+                  <label>
+                    状态
+                    <select
+                      aria-label="规则状态"
+                      value={filterEnabled}
+                      onChange={(event) => setFilterEnabled(event.target.value)}
+                    >
+                      <option value="">全部</option>
+                      <option value="enabled">已启用</option>
+                      <option value="disabled">已停用</option>
+                    </select>
+                  </label>
+                </div>
+              }
+              end={
+                <div className="secops-toolbar-actions">
+                  <span className="secops-count">共 {filteredRules.length} 条规则</span>
+                  <button className="btn-small" onClick={() => void load()} disabled={loading}>
+                    {loading ? "刷新中…" : "刷新"}
+                  </button>
+                </div>
+              }
+            />
+            <div className="secops-table-wrap">
+              <table className="secops-table">
+                <thead>
+                  <tr>
+                    <th>级别</th>
+                    <th>规则名称</th>
+                    <th>阈值</th>
+                    <th className="secops-col-secondary">通知渠道</th>
+                    <th className="secops-col-secondary">防重复</th>
+                    <th className="secops-col-secondary">更新时间</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRules.map((rule) => (
+                    <tr key={rule.id} className={!rule.enabled ? "is-disabled" : ""}>
+                      <td>
+                        <span className={`secops-pill severity-${rule.severity}`}>
+                          {severityLabel[rule.severity] ?? "未分级"}
+                        </span>
+                      </td>
+                      <td className="secops-primary">{rule.rule_name}</td>
+                      <td>
+                        <div className="secops-threshold">
+                          <input
+                            aria-label={`${rule.rule_name}阈值`}
+                            type="number"
+                            min={1}
+                            value={drafts[rule.id] ?? ""}
+                            disabled={saving.has(rule.id)}
+                            onChange={(event) =>
+                              setDrafts((current) => ({
+                                ...current,
+                                [rule.id]: event.target.value,
+                              }))
+                            }
+                            onBlur={() => commitThreshold(rule)}
+                          />
+                          <span>{rule.threshold_unit ?? ""}</span>
+                        </div>
+                        {rowErrors[rule.id] && (
+                          <span className="secops-row-error" role="alert">
+                            {rowErrors[rule.id]}
+                          </span>
+                        )}
+                      </td>
+                      <td className="secops-col-secondary">
+                        {rule.notification_channels.map((channel) => (
+                          <span className="secops-channel" key={channel}>
+                            {channelLabel[channel] ?? "其他渠道"}
+                          </span>
+                        ))}
+                      </td>
+                      <td className="secops-col-secondary">
+                        {dedupLabel[rule.dedup_strategy ?? ""] ?? "按规则合并"}
+                      </td>
+                      <td className="secops-time secops-col-secondary">
+                        {formatBeijingTime(rule.updated_at)}
+                      </td>
+                      <td>
+                        <button
+                          className={`secops-toggle ${rule.enabled ? "is-on" : ""}`}
+                          aria-label={`${rule.rule_name}${rule.enabled ? "停用" : "启用"}`}
+                          aria-pressed={rule.enabled}
+                          disabled={saving.has(rule.id)}
+                          onClick={() => void saveRule(rule, { enabled: !rule.enabled })}
+                        >
+                          {saving.has(rule.id) ? "保存中…" : rule.enabled ? "已启用" : "已停用"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!loading && filteredRules.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="secops-empty">
+                        暂无符合条件的告警规则
+                      </td>
+                    </tr>
+                  )}
+                  {loading && (
+                    <tr>
+                      <td colSpan={7} className="secops-empty">
+                        正在加载告警规则…
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </PageSection>
+          <PageSection
+            title="通知记录"
+            description="仅显示业务可识别的接收人与发送状态。"
+            className="secops-workspace secops-secondary-section"
+          >
+            <div className="secops-table-wrap">
+              <table className="secops-table">
+                <thead>
+                  <tr>
+                    <th>时间</th>
+                    <th>通知</th>
+                    <th>接收人</th>
+                    <th className="secops-col-secondary">渠道</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {notifications.map((item) => (
+                    <tr key={item.id}>
+                      <td className="secops-time">{formatBeijingTime(item.created_at)}</td>
+                      <td className="secops-primary">{item.title}</td>
+                      <td>{item.recipient_name ?? "未指定接收人"}</td>
+                      <td className="secops-col-secondary">
+                        <span className="secops-channel">
+                          {channelLabel[item.channel] ?? "其他渠道"}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`secops-pill notification-${item.send_status}`}>
+                          {statusLabel[item.send_status] ?? "状态未知"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {!loading && notifications.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="secops-empty">
+                        暂无通知记录
+                      </td>
+                    </tr>
+                  )}
+                  {loading && (
+                    <tr>
+                      <td colSpan={5} className="secops-empty">
+                        正在加载通知记录…
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </PageSection>
+        </main>
+      </div>
     </ProductPage>
   );
 }

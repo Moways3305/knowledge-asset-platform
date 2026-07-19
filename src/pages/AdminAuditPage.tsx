@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchAudit, markAuditProcessed } from "../api/admin";
 import { ApiError } from "../api/http";
-import { PageHeader, PageToolbar, ProductPage, StatusStrip } from "../components/ProductLayout";
+import {
+  OperationsSummary,
+  PageHeader,
+  PageToolbar,
+  ProductPage,
+} from "../components/ProductLayout";
 import type { AuditEventDTO } from "../types/audit";
 import { auditActionLabel, auditLoginSummary, auditTargetTypeLabel } from "../utils/auditDisplay";
 import { formatBeijingTime } from "../utils/time";
@@ -119,191 +124,193 @@ export default function AdminAuditPage() {
         eyebrow="安全运营"
         title="审计日志"
         description="核查关键操作、异常处置与登录结果。页面时间均为北京时间。"
-        actions={
-          <button className="btn-small" onClick={() => void load()} disabled={loading}>
-            {loading ? "刷新中…" : "刷新"}
-          </button>
-        }
       />
-      <StatusStrip
-        label="审计摘要"
-        items={[
-          { label: "操作记录", value: operationLogs.length },
-          {
-            label: "未处理异常",
-            value: exceptionLogs.filter((item) => !item.is_processed).length,
-            tone: "warning",
-          },
-          {
-            label: "登录失败",
-            value: loginLogs.filter((item) => item.action === "login.failed").length,
-            tone: "danger",
-          },
-          {
-            label: "严重 / 错误",
-            value: exceptionLogs.filter(
-              (item) => item.severity === "critical" || item.severity === "error",
-            ).length,
-            tone: "danger",
-          },
-        ]}
-      />
-
-      {view === "governance" && !error && (
-        <div className="secops-banner is-readonly">
-          当前为只读审计视图，可核查记录但不能标记处理。
-        </div>
-      )}
-      {error && (
-        <div className="secops-banner is-error" role="alert">
-          {error}
-        </div>
-      )}
-      {notice && (
-        <div className="secops-banner is-success" role="status">
-          {notice}
-        </div>
-      )}
-
-      <section className="secops-workspace" aria-label="审计记录">
-        <PageToolbar
-          className="secops-toolbar"
-          start={
-            <div className="secops-tabs" role="tablist">
-              {(Object.keys(tabLabel) as LogTab[]).map((tab) => (
-                <button
-                  key={tab}
-                  role="tab"
-                  aria-selected={activeTab === tab}
-                  className={activeTab === tab ? "is-active" : ""}
-                  onClick={() => setActiveTab(tab)}
-                >
-                  {tabLabel[tab]}
-                </button>
-              ))}
-            </div>
-          }
-          end={
-            activeTab === "exception" ? (
-              <div className="secops-filters">
-                <label>
-                  级别
-                  <select
-                    aria-label="异常级别"
-                    value={filterSeverity}
-                    onChange={(event) => setFilterSeverity(event.target.value)}
-                  >
-                    <option value="">全部</option>
-                    <option value="critical">严重</option>
-                    <option value="error">错误</option>
-                    <option value="warning">警告</option>
-                  </select>
-                </label>
-                <label>
-                  状态
-                  <select
-                    aria-label="处理状态"
-                    value={filterProcessed}
-                    onChange={(event) => setFilterProcessed(event.target.value)}
-                  >
-                    <option value="">全部</option>
-                    <option value="unprocessed">未处理</option>
-                    <option value="processed">已处理</option>
-                  </select>
-                </label>
-              </div>
-            ) : (
-              <span className="secops-count">共 {logs.length} 条</span>
-            )
-          }
+      <div className="secops-console">
+        <OperationsSummary
+          label="审计摘要"
+          items={[
+            { label: "操作记录", value: operationLogs.length },
+            {
+              label: "未处理异常",
+              value: exceptionLogs.filter((item) => !item.is_processed).length,
+              tone: "warning",
+            },
+            {
+              label: "登录失败",
+              value: loginLogs.filter((item) => item.action === "login.failed").length,
+              tone: "danger",
+            },
+            {
+              label: "严重 / 错误",
+              value: exceptionLogs.filter(
+                (item) => item.severity === "critical" || item.severity === "error",
+              ).length,
+              tone: "danger",
+            },
+          ]}
         />
-        <div className="secops-table-wrap">
-          <table className="secops-table">
-            <thead>
-              <tr>
-                <th>时间</th>
-                <th>{activeTab === "login" ? "用户" : "事项"}</th>
-                <th>{activeTab === "login" ? "结果" : "操作人"}</th>
-                <th>{activeTab === "exception" ? "级别" : "角色"}</th>
-                <th>{activeTab === "exception" ? "状态" : "对象"}</th>
-                {activeTab === "exception" && <th>操作</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {logs.map((item) => (
-                <tr key={item.id}>
-                  <td className="secops-time">{formatBeijingTime(item.created_at)}</td>
-                  <td className="secops-primary">
-                    {activeTab === "login"
-                      ? (item.actor_name ?? "未知用户")
-                      : auditActionLabel(item.action)}
-                  </td>
-                  <td>
-                    {activeTab === "login"
-                      ? auditLoginSummary(item)
-                      : (item.actor_name ?? "系统操作")}
-                  </td>
-                  <td>
-                    {activeTab === "exception" ? (
-                      <span className={`secops-pill severity-${item.severity ?? "unknown"}`}>
-                        {severityLabel[item.severity ?? ""] ?? "未分级"}
-                      </span>
-                    ) : (
-                      safeRole(item)
-                    )}
-                  </td>
-                  <td>
-                    {activeTab === "exception" ? (
-                      <span
-                        className={`secops-pill ${item.is_processed ? "is-done" : "is-pending"}`}
-                      >
-                        {item.is_processed ? "已处理" : "未处理"}
-                      </span>
-                    ) : (
-                      auditTargetTypeLabel(item.target_type)
-                    )}
-                  </td>
-                  {activeTab === "exception" && (
-                    <td>
-                      {!item.is_processed && canProcess ? (
-                        <button
-                          className="btn-small"
-                          disabled={processingId === item.id}
-                          onClick={() => void handleMarkProcessed(item)}
+        <main className="secops-main-workspace">
+          {view === "governance" && !error && (
+            <div className="secops-banner is-readonly">
+              当前为只读审计视图，可核查记录但不能标记处理。
+            </div>
+          )}
+          {error && (
+            <div className="secops-banner is-error" role="alert">
+              {error}
+            </div>
+          )}
+          {notice && (
+            <div className="secops-banner is-success" role="status">
+              {notice}
+            </div>
+          )}
+          <section className="secops-workspace" aria-label="审计记录">
+            <PageToolbar
+              className="secops-toolbar"
+              start={
+                <div className="secops-tabs" role="tablist">
+                  {(Object.keys(tabLabel) as LogTab[]).map((tab) => (
+                    <button
+                      key={tab}
+                      role="tab"
+                      aria-selected={activeTab === tab}
+                      className={activeTab === tab ? "is-active" : ""}
+                      onClick={() => setActiveTab(tab)}
+                    >
+                      {tabLabel[tab]}
+                    </button>
+                  ))}
+                </div>
+              }
+              end={
+                <div className="secops-toolbar-actions">
+                  {activeTab === "exception" ? (
+                    <div className="secops-filters">
+                      <label>
+                        级别
+                        <select
+                          aria-label="异常级别"
+                          value={filterSeverity}
+                          onChange={(event) => setFilterSeverity(event.target.value)}
                         >
-                          {processingId === item.id ? "保存中…" : "标记已处理"}
-                        </button>
-                      ) : (
-                        <span className="secops-muted">
-                          {item.is_processed ? "已完成" : "只读"}
-                        </span>
-                      )}
-                    </td>
+                          <option value="">全部</option>
+                          <option value="critical">严重</option>
+                          <option value="error">错误</option>
+                          <option value="warning">警告</option>
+                        </select>
+                      </label>
+                      <label>
+                        状态
+                        <select
+                          aria-label="处理状态"
+                          value={filterProcessed}
+                          onChange={(event) => setFilterProcessed(event.target.value)}
+                        >
+                          <option value="">全部</option>
+                          <option value="unprocessed">未处理</option>
+                          <option value="processed">已处理</option>
+                        </select>
+                      </label>
+                    </div>
+                  ) : (
+                    <span className="secops-count">共 {logs.length} 条</span>
                   )}
-                </tr>
-              ))}
-              {!loading && logs.length === 0 && (
-                <tr>
-                  <td colSpan={activeTab === "exception" ? 6 : 5} className="secops-empty">
-                    {activeTab === "operation"
-                      ? "暂无操作记录"
-                      : activeTab === "exception"
-                        ? "暂无符合条件的异常记录"
-                        : "暂无登录记录"}
-                  </td>
-                </tr>
-              )}
-              {loading && (
-                <tr>
-                  <td colSpan={activeTab === "exception" ? 6 : 5} className="secops-empty">
-                    正在加载审计记录…
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+                  <button className="btn-small" onClick={() => void load()} disabled={loading}>
+                    {loading ? "刷新中…" : "刷新"}
+                  </button>
+                </div>
+              }
+            />
+            <div className="secops-table-wrap">
+              <table className="secops-table">
+                <thead>
+                  <tr>
+                    <th>时间</th>
+                    <th>{activeTab === "login" ? "用户" : "事项"}</th>
+                    <th>{activeTab === "login" ? "结果" : "操作人"}</th>
+                    <th>{activeTab === "exception" ? "级别" : "角色"}</th>
+                    <th>{activeTab === "exception" ? "状态" : "对象"}</th>
+                    {activeTab === "exception" && <th>操作</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {logs.map((item) => (
+                    <tr key={item.id}>
+                      <td className="secops-time">{formatBeijingTime(item.created_at)}</td>
+                      <td className="secops-primary">
+                        {activeTab === "login"
+                          ? (item.actor_name ?? "未知用户")
+                          : auditActionLabel(item.action)}
+                      </td>
+                      <td>
+                        {activeTab === "login"
+                          ? auditLoginSummary(item)
+                          : (item.actor_name ?? "系统操作")}
+                      </td>
+                      <td>
+                        {activeTab === "exception" ? (
+                          <span className={`secops-pill severity-${item.severity ?? "unknown"}`}>
+                            {severityLabel[item.severity ?? ""] ?? "未分级"}
+                          </span>
+                        ) : (
+                          safeRole(item)
+                        )}
+                      </td>
+                      <td>
+                        {activeTab === "exception" ? (
+                          <span
+                            className={`secops-pill ${item.is_processed ? "is-done" : "is-pending"}`}
+                          >
+                            {item.is_processed ? "已处理" : "未处理"}
+                          </span>
+                        ) : (
+                          auditTargetTypeLabel(item.target_type)
+                        )}
+                      </td>
+                      {activeTab === "exception" && (
+                        <td>
+                          {!item.is_processed && canProcess ? (
+                            <button
+                              className="btn-small"
+                              disabled={processingId === item.id}
+                              onClick={() => void handleMarkProcessed(item)}
+                            >
+                              {processingId === item.id ? "保存中…" : "标记已处理"}
+                            </button>
+                          ) : (
+                            <span className="secops-muted">
+                              {item.is_processed ? "已完成" : "只读"}
+                            </span>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                  {!loading && logs.length === 0 && (
+                    <tr>
+                      <td colSpan={activeTab === "exception" ? 6 : 5} className="secops-empty">
+                        {activeTab === "operation"
+                          ? "暂无操作记录"
+                          : activeTab === "exception"
+                            ? "暂无符合条件的异常记录"
+                            : "暂无登录记录"}
+                      </td>
+                    </tr>
+                  )}
+                  {loading && (
+                    <tr>
+                      <td colSpan={activeTab === "exception" ? 6 : 5} className="secops-empty">
+                        正在加载审计记录…
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </main>
+      </div>
     </ProductPage>
   );
 }

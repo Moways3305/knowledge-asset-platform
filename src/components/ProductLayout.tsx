@@ -117,6 +117,30 @@ export function StatusStrip({ items, label }: { items: StatusStripItem[]; label?
   );
 }
 
+export function OperationsSummary({
+  title = "运行摘要",
+  items,
+  label,
+}: {
+  title?: ReactNode;
+  items: StatusStripItem[];
+  label: string;
+}) {
+  return (
+    <aside className="secops-summary-panel" aria-label={label}>
+      <div className="secops-summary-heading">{title}</div>
+      <div className="secops-summary-list">
+        {items.map((item, index) => (
+          <div className={`secops-summary-item is-${item.tone ?? "neutral"}`} key={index}>
+            <span className="secops-summary-label">{item.label}</span>
+            <strong className="secops-summary-value">{item.value}</strong>
+          </div>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
 export function SettingsRow({
   title,
   description,

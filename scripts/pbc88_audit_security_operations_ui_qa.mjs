@@ -203,13 +203,21 @@ try {
         const screenshot = path.join(outDir, `${target.name}-${scenario}-${viewport.name}.png`);
         await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
         const metrics = await page.evaluate(
-          ({ scenario, secrets }) => {
+          ({ scenario, secrets, targetName }) => {
             const text = document.body.innerText;
             const html = document.documentElement.innerHTML;
             const root = document.documentElement;
-            const summaryValues = [...document.querySelectorAll(".product-status-value")].map(
+            const summaryValues = [...document.querySelectorAll(".secops-summary-value")].map(
               (node) => node.textContent?.trim(),
             );
+            const console = document.querySelector(".secops-console");
+            const summary = document
+              .querySelector(".secops-summary-panel")
+              ?.getBoundingClientRect();
+            const main = document.querySelector(".secops-main-workspace")?.getBoundingClientRect();
+            const workspaces = [...document.querySelectorAll(".secops-workspace")];
+            const tableWraps = [...document.querySelectorAll(".secops-table-wrap")];
+            const actionButtons = [...document.querySelectorAll(".secops-main-workspace button")];
             const expectedState =
               scenario === "normal"
                 ? document.querySelectorAll(".secops-table tbody tr").length > 0
@@ -221,7 +229,28 @@ try {
             return {
               overflowX: root.scrollWidth - root.clientWidth,
               safe: secrets.every((secret) => !html.includes(secret)),
-              hasWorkspace: Boolean(document.querySelector(".secops-workspace")),
+              twoColumn:
+                Boolean(console && summary && main) &&
+                console.children.length === 2 &&
+                summary.width >= 220 &&
+                summary.width <= 250 &&
+                main.width >= summary.width * 2.4 &&
+                Math.abs(summary.y - main.y) <= 2,
+              noStatusStrip: !document.querySelector(".product-status-strip"),
+              noInnerScroll: tableWraps.every((node) => node.scrollWidth - node.clientWidth <= 2),
+              actionsVisible: actionButtons.every((button) => {
+                const rect = button.getBoundingClientRect();
+                return !main || (rect.left >= main.left - 1 && rect.right <= main.right + 1);
+              }),
+              alertsStacked:
+                targetName !== "alerts" ||
+                (workspaces.length === 2 &&
+                  workspaces[1].getBoundingClientRect().top >=
+                    workspaces[0].getBoundingClientRect().bottom + 8 &&
+                  Math.abs(
+                    workspaces[0].getBoundingClientRect().width -
+                      workspaces[1].getBoundingClientRect().width,
+                  ) <= 2),
               noCharts: !document.querySelector(
                 "canvas, svg[data-chart], .chart, [class*='trend']",
               ),
@@ -229,7 +258,7 @@ try {
               expectedState,
             };
           },
-          { scenario, secrets },
+          { scenario, secrets, targetName: target.name },
         );
         const consoleLeak = consoleMessages.some((message) =>
           secrets.some((secret) => message.includes(secret)),
@@ -244,7 +273,11 @@ try {
           pass:
             metrics.overflowX <= 2 &&
             metrics.safe &&
-            metrics.hasWorkspace &&
+            metrics.twoColumn &&
+            metrics.noStatusStrip &&
+            metrics.noInnerScroll &&
+            metrics.actionsVisible &&
+            metrics.alertsStacked &&
             metrics.noCharts &&
             metrics.honestEmpty &&
             metrics.expectedState &&

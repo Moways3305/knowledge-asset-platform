@@ -18,20 +18,76 @@
   letter-spacing: 0.12em;
 }
 
-.secops-page .product-status-strip {
-  margin: 14px 0;
-  border-color: var(--secops-line);
+.secops-console {
+  align-items: start;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: 236px minmax(0, 1fr);
+  margin-top: 18px;
+  width: 100%;
+}
+
+.secops-summary-panel {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--secops-line);
+  border-radius: var(--radius-md);
   box-shadow: inset 3px 0 0 var(--secops-accent);
+  overflow: hidden;
+  width: 236px;
 }
 
-.secops-page .product-status-item {
-  min-width: 112px;
-  padding-block: 9px;
+.secops-summary-heading {
+  background: var(--secops-wash);
+  border-bottom: 1px solid var(--secops-line);
+  color: var(--secops-ink);
+  font-size: 13px;
+  font-weight: 650;
+  padding: 13px 16px;
 }
 
-.secops-page .product-status-value {
+.secops-summary-list {
+  padding: 2px 16px;
+}
+
+.secops-summary-item {
+  align-items: center;
+  border-top: 1px solid var(--color-border-light);
+  display: flex;
+  justify-content: space-between;
+  min-height: 52px;
+}
+
+.secops-summary-item:first-child {
+  border-top: 0;
+}
+
+.secops-summary-label {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.secops-summary-value {
+  color: var(--secops-ink);
   font-family: var(--font-mono);
-  font-size: 17px;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.secops-summary-item.is-danger .secops-summary-value {
+  color: var(--color-danger);
+}
+
+.secops-summary-item.is-warning .secops-summary-value {
+  color: var(--color-warning-text);
+}
+
+.secops-summary-item.is-success .secops-summary-value {
+  color: var(--color-success);
+}
+
+.secops-main-workspace {
+  min-width: 0;
+  width: 100%;
 }
 
 .secops-banner {
@@ -41,7 +97,7 @@
   background: var(--color-info-bg);
   color: var(--color-text-body);
   font-size: 13px;
-  margin: 12px 0;
+  margin: 0 0 12px;
   padding: 10px 13px;
 }
 
@@ -59,7 +115,7 @@
   background: var(--color-bg-surface);
   border: 1px solid var(--secops-line);
   border-radius: var(--radius-md);
-  margin-top: 14px;
+  margin-top: 0;
   overflow: hidden;
 }
 
@@ -93,6 +149,12 @@
 
 .secops-secondary-section {
   margin-top: 18px;
+}
+
+.secops-toolbar-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
 }
 
 .secops-toolbar {
@@ -171,13 +233,13 @@
 
 .secops-table-wrap {
   max-width: 100%;
-  overflow-x: auto;
+  overflow: hidden;
 }
 
 .secops-table {
   border-collapse: collapse;
   font-size: 13px;
-  table-layout: auto;
+  table-layout: fixed;
   width: 100%;
 }
 
@@ -198,6 +260,7 @@
   line-height: 1.45;
   padding: 10px 12px;
   vertical-align: middle;
+  overflow-wrap: anywhere;
 }
 
 .secops-table tr.is-disabled td {
@@ -297,9 +360,28 @@
   text-align: center;
 }
 
-@media (max-width: 760px) {
-  .secops-page .product-status-strip {
+@media (max-width: 1320px) {
+  .secops-col-secondary {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .secops-console {
+    grid-template-columns: 1fr;
+  }
+
+  .secops-summary-panel {
+    width: 100%;
+  }
+
+  .secops-summary-list {
+    display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .secops-summary-item:nth-child(2) {
+    border-top: 0;
   }
 
   .secops-toolbar,
@@ -309,10 +391,6 @@
 
   .secops-toolbar {
     flex-direction: column;
-  }
-
-  .secops-table {
-    min-width: 720px;
   }
 }
 
