@@ -180,6 +180,8 @@ jobs:
         run: npm run test:ui:knowledge-detail
       - name: UI QA (admin operations diagnostics and targeted retry)
         run: npm run test:ui:admin-operations
+      - name: UI QA (model and knowledge foundation security)
+        run: npm run test:ui:model-foundation
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4

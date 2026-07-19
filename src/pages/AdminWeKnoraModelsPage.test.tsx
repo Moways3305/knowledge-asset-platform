@@ -224,6 +224,83 @@ describe("AdminWeKnoraModelsPage", () => {
     expect(screen.queryByText(/SECRET-LIKE/)).not.toBeInTheDocument();
   });
 
+  it("re-reads and renders the saved KB configuration from the server", async () => {
+    const availableModels = [
+      {
+        model_ref: "foundation-chat-ref",
+        name: "底座兼容模型",
+        type: "chat",
+        source: "remote",
+        provider: "provider",
+        enabled: true,
+        is_builtin: false,
+        description: null,
+      },
+      {
+        model_ref: "embedding-ref",
+        name: "底座嵌入模型",
+        type: "embedding",
+        source: "remote",
+        provider: "provider",
+        enabled: true,
+        is_builtin: false,
+        description: null,
+      },
+    ];
+    const initial = {
+      mapping_id: "safe-mapping-ref",
+      scope: "project",
+      kb_name: "交付知识库",
+      project_name: "交付项目",
+      owner_name: null,
+      mapping_status: "init_failed",
+      chat: null,
+      embedding: {
+        model_ref: "embedding-ref",
+        name: "底座嵌入模型",
+        type: "embedding",
+        provider: "provider",
+      },
+      rerank: null,
+      multimodal: null,
+      config_error: "保存前状态",
+    };
+    const refreshed = {
+      ...initial,
+      mapping_status: "active",
+      chat: {
+        model_ref: "foundation-chat-ref",
+        name: "底座兼容模型",
+        type: "chat",
+        provider: "provider",
+      },
+      config_error: null,
+    };
+    vi.mocked(fetchWeknoraModels).mockResolvedValue(availableModels);
+    vi.mocked(fetchWeknoraKbConfigs)
+      .mockResolvedValueOnce([initial])
+      .mockResolvedValueOnce([refreshed]);
+    vi.mocked(updateWeknoraKbInit).mockResolvedValue({
+      mapping_id: initial.mapping_id,
+      mapping_status: "active",
+      updated: true,
+    });
+
+    renderPage();
+    const row = (await screen.findByText("交付知识库")).closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row!).getByText("初始化失败")).toBeInTheDocument();
+    fireEvent.change(within(row!).getByLabelText("交付知识库 底座兼容"), {
+      target: { value: "foundation-chat-ref" },
+    });
+    fireEvent.click(within(row!).getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(fetchWeknoraKbConfigs).toHaveBeenCalledTimes(2));
+    expect(await within(row!).findByText("已初始化")).toBeInTheDocument();
+    expect(within(row!).getByLabelText("交付知识库 底座兼容")).toHaveValue("foundation-chat-ref");
+    expect(screen.queryByText("保存前状态")).not.toBeInTheDocument();
+  });
+
   it("maintains WeKnora foundation defaults through the dedicated bottom-layer API", async () => {
     vi.mocked(fetchWeknoraModels).mockResolvedValue([
       {

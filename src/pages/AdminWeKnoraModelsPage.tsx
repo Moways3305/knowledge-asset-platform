@@ -125,6 +125,27 @@ export default function AdminWeKnoraModelsPage() {
     }
   };
 
+  const refreshSavedKbConfig = async (mappingId: string, message: string) => {
+    setError(null);
+    setNote(null);
+    try {
+      const refreshed = await fetchWeknoraKbConfigs();
+      const savedConfig = refreshed.find((config) => config.mapping_id === mappingId);
+      if (!savedConfig) {
+        setNote(null);
+        setError("知识库配置已保存，但暂时无法读取最新状态，请刷新后确认。");
+        return;
+      }
+      setKbConfigs((current) =>
+        current.map((config) => (config.mapping_id === mappingId ? savedConfig : config)),
+      );
+      setNote(message);
+    } catch {
+      setNote(null);
+      setError("知识库配置已保存，但最新服务端状态读取失败，请刷新后确认。");
+    }
+  };
+
   useEffect(() => {
     void loadKnowledgeConfigs();
   }, [loadKnowledgeConfigs]);
@@ -278,10 +299,7 @@ export default function AdminWeKnoraModelsPage() {
                     cfg={config}
                     models={models}
                     canEdit={canEdit}
-                    onSaved={(message) => {
-                      setNote(message);
-                      setError(null);
-                    }}
+                    onSaved={refreshSavedKbConfig}
                     onError={(message) => {
                       setError(message);
                       setNote(null);
@@ -352,7 +370,7 @@ function KbConfigRow({
   cfg: KbConfigDTO;
   models: ModelDTO[];
   canEdit: boolean;
-  onSaved: (message: string) => void;
+  onSaved: (mappingId: string, message: string) => Promise<void>;
   onError: (message: string) => void;
 }) {
   const [chat, setChat] = useState(cfg.chat?.model_ref ?? "");
@@ -360,6 +378,13 @@ function KbConfigRow({
   const [rerank, setRerank] = useState(cfg.rerank?.model_ref ?? "");
   const [multimodal, setMultimodal] = useState(cfg.multimodal?.model_ref ?? "");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setChat(cfg.chat?.model_ref ?? "");
+    setEmbedding(cfg.embedding?.model_ref ?? "");
+    setRerank(cfg.rerank?.model_ref ?? "");
+    setMultimodal(cfg.multimodal?.model_ref ?? "");
+  }, [cfg.chat, cfg.embedding, cfg.multimodal, cfg.rerank]);
 
   const options = (type: string) => models.filter((model) => model.type === type && model.enabled);
   const selector = (
@@ -398,7 +423,7 @@ function KbConfigRow({
     setBusy(true);
     try {
       await updateWeknoraKbInit(cfg.mapping_id, body);
-      onSaved(`知识库“${cfg.kb_name}”配置已更新。`);
+      await onSaved(cfg.mapping_id, `知识库“${cfg.kb_name}”配置已更新。`);
     } catch (caught) {
       onError(kbUpdateErrorMessage(caught));
     } finally {
