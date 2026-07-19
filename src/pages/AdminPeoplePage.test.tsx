@@ -95,6 +95,7 @@ async function renderDetail() {
 
 describe("AdminPeoplePage governance controls", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     authState.capabilities = {
       isAdmin: true,
       isBoss: false,
@@ -231,6 +232,50 @@ describe("AdminPeoplePage governance controls", () => {
     expect(within(dialog).queryByText("测试人员")).not.toBeInTheDocument();
   });
 
+  it("does not let a completed write for person A cancel person B detail loading", async () => {
+    authState.capabilities = {
+      ...authState.capabilities,
+      isAdmin: false,
+      isBoss: true,
+      isBusinessUser: true,
+      isGovernance: true,
+    };
+    const secondPerson = { ...person, user_id: "person-second", name: "第二人员" };
+    vi.mocked(fetchPeople).mockResolvedValueOnce({ items: [person, secondPerson], total: 2 });
+    let resolveSecond!: (value: PersonDTO) => void;
+    vi.mocked(fetchPerson).mockImplementation((userId) =>
+      userId === person.user_id
+        ? Promise.resolve(person)
+        : new Promise<PersonDTO>((resolve) => {
+            resolveSecond = resolve;
+          }),
+    );
+    let resolveStatus!: (value: PersonDTO) => void;
+    vi.mocked(setUserStatus).mockReturnValueOnce(
+      new Promise<PersonDTO>((resolve) => {
+        resolveStatus = resolve;
+      }),
+    );
+    render(
+      <MemoryRouter>
+        <AdminPeoplePage />
+      </MemoryRouter>,
+    );
+    let buttons = await screen.findAllByRole("button", { name: "查看 / 治理" });
+    fireEvent.click(buttons[0]);
+    await screen.findByRole("dialog", { name: "人员治理详情" });
+    fireEvent.click(screen.getByRole("button", { name: "停用账号" }));
+    fireEvent.click(screen.getByRole("button", { name: "关闭人员详情" }));
+    buttons = screen.getAllByRole("button", { name: "查看 / 治理" });
+    fireEvent.click(buttons[1]);
+
+    await act(async () => resolveStatus(person));
+    expect(fetchPerson).toHaveBeenCalledTimes(2);
+    await act(async () => resolveSecond(secondPerson));
+    const dialog = await screen.findByRole("dialog", { name: "人员治理详情" });
+    expect(within(dialog).getByText("第二人员")).toBeInTheDocument();
+  });
+
   it.each([
     [new ApiError(503, "raw people token"), "人员列表暂时无法加载，请稍后重试"],
     [new ApiError(403, "raw forbidden", "raw_reason"), "当前身份没有执行此操作的权限。"],
@@ -288,7 +333,7 @@ describe("AdminPeoplePage governance controls", () => {
     await renderDetail();
     fireEvent.click(screen.getByRole("button", { name: "停用账号" }));
     expect(screen.getByRole("button", { name: "处理中…" })).toBeDisabled();
-    resolveStatus(person);
+    await act(async () => resolveStatus(person));
     await waitFor(() => expect(setUserStatus).toHaveBeenCalledWith("person-ref", "inactive"));
   });
 

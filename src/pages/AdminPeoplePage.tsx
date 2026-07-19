@@ -140,13 +140,18 @@ export default function AdminPeoplePage() {
 
   const refreshAfterWrite = useCallback(
     async (userId: string) => {
-      const requestVersion = ++detailRequestVersion.current;
-      try {
-        const person = await fetchPerson(userId);
-        if (detailRequestVersion.current === requestVersion && selectedUserIdRef.current === userId)
-          setDetail(person);
-      } catch {
-        /* 忽略：列表刷新足够 */
+      if (selectedUserIdRef.current === userId) {
+        const requestVersion = ++detailRequestVersion.current;
+        try {
+          const person = await fetchPerson(userId);
+          if (
+            detailRequestVersion.current === requestVersion &&
+            selectedUserIdRef.current === userId
+          )
+            setDetail(person);
+        } catch {
+          /* 忽略：列表刷新足够 */
+        }
       }
       void load();
     },
