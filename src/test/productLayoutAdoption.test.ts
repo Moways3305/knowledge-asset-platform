@@ -46,8 +46,17 @@ describe("product layout and route contract", () => {
 
   it("keeps governance model selectors read-only with an explanation", () => {
     const source = read("src/components/UnifiedModelConnectionsSection.tsx");
-    expect(source).toContain("disabled={!canEdit || loading}");
+    expect(source).toContain("disabled={!effectiveCanEdit || loading");
     expect(source).toContain("当前身份仅可查看，修改需系统管理员");
+  });
+
+  it("keeps model administration on the split foundation workspace contract", () => {
+    const page = read("src/pages/AdminWeKnoraModelsPage.tsx");
+    const connections = read("src/components/UnifiedModelConnectionsSection.tsx");
+    expect(page).toContain('className="mf-workspace"');
+    expect(page).toContain('className="mf-foundation-panel"');
+    expect(page).toContain('className="mf-kb-section"');
+    expect(connections).toContain('className="mf-connection-card"');
   });
 
   it("keeps personal knowledge as a compact table with controlled write dialogs", () => {

@@ -4,8 +4,10 @@ import {
   createModelConnection,
   fetchModelConnections,
   fetchModelUsageAssignments,
+  testModelConnection,
   updateModelUsageAssignments,
 } from "../api/modelConnections";
+import { ApiError } from "../api/http";
 import UnifiedModelConnectionsSection from "./UnifiedModelConnectionsSection";
 
 vi.mock("../api/modelConnections", () => ({
@@ -60,9 +62,10 @@ describe("UnifiedModelConnectionsSection", () => {
 
   it("assigns one external LLM as the content generation and project QA default", async () => {
     render(<UnifiedModelConnectionsSection canEdit />);
-    const content = await screen.findByLabelText("内容生成与项目问答默认模型");
+    const content = await screen.findByLabelText("内容生成默认模型");
     fireEvent.change(content, { target: { value: chat.model_ref } });
-    fireEvent.click(screen.getByText("保存外部 LLM 默认连接"));
+    expect(screen.getByLabelText("项目问答默认模型")).toHaveValue(chat.model_ref);
+    fireEvent.click(screen.getByText("保存默认用途"));
     await waitFor(() =>
       expect(updateModelUsageAssignments).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -74,15 +77,16 @@ describe("UnifiedModelConnectionsSection", () => {
 
   it("keeps governance controls read-only and hides management actions", async () => {
     render(<UnifiedModelConnectionsSection canEdit={false} />);
-    expect(await screen.findByLabelText("内容生成与项目问答默认模型")).toBeDisabled();
-    expect(screen.queryByText("新增外部 LLM 连接")).not.toBeInTheDocument();
+    expect(await screen.findByLabelText("内容生成默认模型")).toBeDisabled();
+    expect(screen.getByLabelText("项目问答默认模型")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "新增外部 LLM" })).not.toBeInTheDocument();
     expect(screen.queryByText("编辑")).not.toBeInTheDocument();
     expect(screen.getAllByText("当前身份仅可查看，修改需系统管理员。").length).toBeGreaterThan(0);
   });
 
   it("shows exactly seven labelled business controls without autofill decoys", async () => {
     const { container } = render(<UnifiedModelConnectionsSection canEdit />);
-    fireEvent.click(await screen.findByText("新增外部 LLM 连接"));
+    fireEvent.click(await screen.findByRole("button", { name: "新增外部 LLM" }));
 
     const labels = [
       "显示名称",
@@ -105,7 +109,7 @@ describe("UnifiedModelConnectionsSection", () => {
 
   it("restores controlled values when external autofill mutates the DOM without events", async () => {
     render(<UnifiedModelConnectionsSection canEdit />);
-    fireEvent.click(await screen.findByText("新增外部 LLM 连接"));
+    fireEvent.click(await screen.findByRole("button", { name: "新增外部 LLM" }));
 
     const injected = [
       screen.getByLabelText<HTMLInputElement>("显示名称"),
@@ -117,14 +121,14 @@ describe("UnifiedModelConnectionsSection", () => {
 
     await waitFor(() => expect(injected.every((control) => control.value === "")).toBe(true));
     expect(screen.getByRole("alert")).toHaveTextContent("检测到浏览器自动填充");
-    fireEvent.click(screen.getByText("保存外部 LLM 连接"));
+    fireEvent.click(screen.getByText("保存外部 LLM"));
     expect(createModelConnection).not.toHaveBeenCalled();
   });
 
   it("submits one reviewed payload after normal controlled input", async () => {
     vi.mocked(createModelConnection).mockResolvedValue(chat);
     render(<UnifiedModelConnectionsSection canEdit />);
-    fireEvent.click(await screen.findByText("新增外部 LLM 连接"));
+    fireEvent.click(await screen.findByRole("button", { name: "新增外部 LLM" }));
 
     fireEvent.change(screen.getByLabelText("显示名称"), { target: { value: "主对话模型" } });
     fireEvent.change(screen.getByLabelText("模型名称"), { target: { value: "deepseek-chat" } });
@@ -132,7 +136,7 @@ describe("UnifiedModelConnectionsSection", () => {
       target: { value: "https://api.example.com/v1" },
     });
     fireEvent.change(screen.getByLabelText("API key"), { target: { value: "reviewed-secret" } });
-    fireEvent.click(screen.getByText("保存外部 LLM 连接"));
+    fireEvent.click(screen.getByText("保存外部 LLM"));
 
     await waitFor(() => expect(createModelConnection).toHaveBeenCalledTimes(1));
     expect(createModelConnection).toHaveBeenCalledWith({
@@ -144,5 +148,29 @@ describe("UnifiedModelConnectionsSection", () => {
       api_key: "reviewed-secret",
       enabled: true,
     });
+  });
+
+  it("turns a 403 into a read-only state without rendering management controls", async () => {
+    vi.mocked(fetchModelConnections).mockRejectedValue(
+      new ApiError(403, "SECRET-LIKE", "permission_denied"),
+    );
+    render(<UnifiedModelConnectionsSection canEdit />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("当前身份没有模型管理权限");
+    expect(screen.queryByRole("button", { name: "新增外部 LLM" })).not.toBeInTheDocument();
+    expect(screen.queryByText("SECRET-LIKE")).not.toBeInTheDocument();
+  });
+
+  it("renders only the safe test guidance when a connection test fails", async () => {
+    vi.mocked(testModelConnection).mockRejectedValue(
+      new ApiError(502, "SECRET-LIKE upstream body", "external_llm_test_failed", {
+        remediation_hint: "请检查凭据是否有效。",
+      }),
+    );
+    render(<UnifiedModelConnectionsSection canEdit />);
+    fireEvent.click(await screen.findByRole("button", { name: "测试连接" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("请检查凭据是否有效");
+    expect(screen.queryByText(/SECRET-LIKE/)).not.toBeInTheDocument();
   });
 });
