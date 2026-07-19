@@ -218,6 +218,9 @@ try {
             const workspaces = [...document.querySelectorAll(".secops-workspace")];
             const tableWraps = [...document.querySelectorAll(".secops-table-wrap")];
             const actionButtons = [...document.querySelectorAll(".secops-main-workspace button")];
+            const refreshButton = actionButtons.find((button) =>
+              button.textContent?.includes("刷新"),
+            );
             const expectedState =
               scenario === "normal"
                 ? document.querySelectorAll(".secops-table tbody tr").length > 0
@@ -237,6 +240,15 @@ try {
                 main.width >= summary.width * 2.4 &&
                 Math.abs(summary.y - main.y) <= 2,
               noStatusStrip: !document.querySelector(".product-status-strip"),
+              hasReferenceIconography:
+                document.querySelectorAll(".secops-summary-icon svg").length ===
+                  summaryValues.length &&
+                Boolean(
+                  document.querySelector(
+                    ".secops-main-workspace .secops-workspace-heading-icon svg",
+                  ),
+                ) &&
+                Boolean(refreshButton?.querySelector("svg")),
               noInnerScroll: tableWraps.every((node) => node.scrollWidth - node.clientWidth <= 2),
               actionsVisible: actionButtons.every((button) => {
                 const rect = button.getBoundingClientRect();
@@ -275,6 +287,7 @@ try {
             metrics.safe &&
             metrics.twoColumn &&
             metrics.noStatusStrip &&
+            metrics.hasReferenceIconography &&
             metrics.noInnerScroll &&
             metrics.actionsVisible &&
             metrics.alertsStacked &&

@@ -1,4 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
+import {
+  Ban,
+  CheckCircle2,
+  CircleX,
+  Clock3,
+  LockKeyhole,
+  Network,
+  RefreshCw,
+  ShieldCheck,
+  Unlock,
+  UserRound,
+} from "lucide-react";
 import { fetchAuthSecurityOverview, unlockAuthLockout } from "../api/admin";
 import { ApiError } from "../api/http";
 import {
@@ -98,14 +110,39 @@ export default function AdminAuthSecurityPage() {
       <div className="secops-console">
         <OperationsSummary
           label="登录安全摘要"
+          titleIcon={<ShieldCheck size={15} aria-hidden="true" />}
           items={[
-            { label: "失败", value: counts?.failed ?? 0, tone: "warning" },
-            { label: "锁定", value: counts?.locked ?? 0, tone: "danger" },
-            { label: "访问限流", value: counts?.rate_limited ?? 0, tone: "danger" },
-            { label: "成功", value: counts?.success ?? 0, tone: "success" },
-            { label: "人工解锁", value: counts?.unlocked ?? 0 },
-            { label: "独立账号", value: counts?.unique_identifier_count ?? 0 },
-            { label: "独立来源", value: counts?.unique_ip_count ?? 0 },
+            {
+              label: "失败",
+              value: counts?.failed ?? 0,
+              tone: "warning",
+              icon: <CircleX size={14} />,
+            },
+            {
+              label: "锁定",
+              value: counts?.locked ?? 0,
+              tone: "danger",
+              icon: <LockKeyhole size={14} />,
+            },
+            {
+              label: "访问限流",
+              value: counts?.rate_limited ?? 0,
+              tone: "danger",
+              icon: <Ban size={14} />,
+            },
+            {
+              label: "成功",
+              value: counts?.success ?? 0,
+              tone: "success",
+              icon: <CheckCircle2 size={14} />,
+            },
+            { label: "人工解锁", value: counts?.unlocked ?? 0, icon: <Unlock size={14} /> },
+            {
+              label: "独立账号",
+              value: counts?.unique_identifier_count ?? 0,
+              icon: <UserRound size={14} />,
+            },
+            { label: "独立来源", value: counts?.unique_ip_count ?? 0, icon: <Network size={14} /> },
           ]}
         />
         <main className="secops-main-workspace">
@@ -120,10 +157,20 @@ export default function AdminAuthSecurityPage() {
             </div>
           )}
           <section className="secops-workspace" aria-label="最近登录尝试">
+            <div className="secops-workspace-heading">
+              <span className="secops-workspace-heading-icon">
+                <ShieldCheck size={16} />
+              </span>
+              <div>
+                <strong>最近登录尝试</strong>
+                <span>核查结果并处理可解锁账号</span>
+              </div>
+            </div>
             <PageToolbar
               className="secops-toolbar"
               start={
                 <label className="secops-window">
+                  <Clock3 size={14} aria-hidden="true" />
                   时间范围
                   <select
                     aria-label="时间范围"
@@ -144,7 +191,7 @@ export default function AdminAuthSecurityPage() {
                     最近登录尝试 {data?.recent_events.length ?? 0} 条
                   </span>
                   <button className="btn-small" onClick={() => void load()} disabled={loading}>
-                    {loading ? "刷新中…" : "刷新"}
+                    <RefreshCw size={13} aria-hidden="true" /> {loading ? "刷新中…" : "刷新"}
                   </button>
                 </div>
               }

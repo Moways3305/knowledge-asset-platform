@@ -31,7 +31,9 @@
   background: var(--color-bg-surface);
   border: 1px solid var(--secops-line);
   border-radius: var(--radius-md);
-  box-shadow: inset 3px 0 0 var(--secops-accent);
+  box-shadow:
+    inset 3px 0 0 var(--secops-accent),
+    0 8px 22px rgba(19, 37, 62, 0.06);
   overflow: hidden;
   width: 236px;
 }
@@ -43,6 +45,23 @@
   font-size: 13px;
   font-weight: 650;
   padding: 13px 16px;
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.secops-summary-heading-icon,
+.secops-workspace-heading-icon {
+  align-items: center;
+  background: #e8f2ef;
+  border: 1px solid #cfe1dc;
+  border-radius: 6px;
+  color: var(--secops-accent);
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
 }
 
 .secops-summary-list {
@@ -55,6 +74,40 @@
   display: flex;
   justify-content: space-between;
   min-height: 52px;
+}
+
+.secops-summary-copy {
+  align-items: center;
+  display: flex;
+  gap: 9px;
+  min-width: 0;
+}
+
+.secops-summary-icon {
+  align-items: center;
+  background: var(--secops-wash);
+  border-radius: 5px;
+  color: #667a76;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 26px;
+  justify-content: center;
+  width: 26px;
+}
+
+.secops-summary-item.is-danger .secops-summary-icon {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.secops-summary-item.is-warning .secops-summary-icon {
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+}
+
+.secops-summary-item.is-success .secops-summary-icon {
+  background: var(--color-success-bg);
+  color: var(--color-success);
 }
 
 .secops-summary-item:first-child {
@@ -117,6 +170,38 @@
   border-radius: var(--radius-md);
   margin-top: 0;
   overflow: hidden;
+  box-shadow: 0 8px 22px rgba(19, 37, 62, 0.055);
+}
+
+.secops-workspace-heading {
+  align-items: center;
+  background: var(--secops-wash);
+  border-bottom: 1px solid var(--secops-line);
+  display: flex;
+  gap: 10px;
+  padding: 13px 14px;
+}
+
+.secops-workspace-heading > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.secops-workspace-heading strong {
+  color: var(--secops-ink);
+  font-size: 14px;
+}
+
+.secops-workspace-heading span:not(.secops-workspace-heading-icon) {
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
+.secops-section-title {
+  align-items: center;
+  display: inline-flex;
+  gap: 9px;
 }
 
 .secops-page .secops-workspace.product-section {
@@ -155,6 +240,13 @@
   align-items: center;
   display: flex;
   gap: 10px;
+}
+
+.secops-page .btn-small {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+  justify-content: center;
 }
 
 .secops-toolbar {
@@ -201,6 +293,12 @@
   align-items: center;
   display: flex;
   gap: 8px;
+}
+
+.secops-filters > svg,
+.secops-window > svg {
+  color: var(--secops-accent);
+  flex: 0 0 auto;
 }
 
 .secops-filters label,

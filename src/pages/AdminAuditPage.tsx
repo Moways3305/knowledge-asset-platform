@@ -1,4 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  LogIn,
+  RefreshCw,
+  ScrollText,
+  ShieldAlert,
+  ShieldCheck,
+  SlidersHorizontal,
+  TriangleAlert,
+} from "lucide-react";
 import { fetchAudit, markAuditProcessed } from "../api/admin";
 import { ApiError } from "../api/http";
 import {
@@ -128,17 +137,20 @@ export default function AdminAuditPage() {
       <div className="secops-console">
         <OperationsSummary
           label="审计摘要"
+          titleIcon={<ShieldCheck size={15} aria-hidden="true" />}
           items={[
-            { label: "操作记录", value: operationLogs.length },
+            { label: "操作记录", value: operationLogs.length, icon: <ScrollText size={14} /> },
             {
               label: "未处理异常",
               value: exceptionLogs.filter((item) => !item.is_processed).length,
               tone: "warning",
+              icon: <TriangleAlert size={14} />,
             },
             {
               label: "登录失败",
               value: loginLogs.filter((item) => item.action === "login.failed").length,
               tone: "danger",
+              icon: <LogIn size={14} />,
             },
             {
               label: "严重 / 错误",
@@ -146,6 +158,7 @@ export default function AdminAuditPage() {
                 (item) => item.severity === "critical" || item.severity === "error",
               ).length,
               tone: "danger",
+              icon: <ShieldAlert size={14} />,
             },
           ]}
         />
@@ -166,6 +179,15 @@ export default function AdminAuditPage() {
             </div>
           )}
           <section className="secops-workspace" aria-label="审计记录">
+            <div className="secops-workspace-heading">
+              <span className="secops-workspace-heading-icon">
+                <ScrollText size={16} />
+              </span>
+              <div>
+                <strong>审计记录</strong>
+                <span>按记录类型核查平台安全活动</span>
+              </div>
+            </div>
             <PageToolbar
               className="secops-toolbar"
               start={
@@ -187,6 +209,7 @@ export default function AdminAuditPage() {
                 <div className="secops-toolbar-actions">
                   {activeTab === "exception" ? (
                     <div className="secops-filters">
+                      <SlidersHorizontal size={14} aria-hidden="true" />
                       <label>
                         级别
                         <select
@@ -217,7 +240,7 @@ export default function AdminAuditPage() {
                     <span className="secops-count">共 {logs.length} 条</span>
                   )}
                   <button className="btn-small" onClick={() => void load()} disabled={loading}>
-                    {loading ? "刷新中…" : "刷新"}
+                    <RefreshCw size={13} aria-hidden="true" /> {loading ? "刷新中…" : "刷新"}
                   </button>
                 </div>
               }

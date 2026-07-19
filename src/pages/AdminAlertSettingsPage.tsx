@@ -1,4 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  BellRing,
+  Clock3,
+  Inbox,
+  RefreshCw,
+  ShieldCheck,
+  Siren,
+  SlidersHorizontal,
+} from "lucide-react";
 import { fetchAlertNotifications, fetchAlertRules, updateAlertRule } from "../api/admin";
 import { ApiError } from "../api/http";
 import {
@@ -136,11 +145,17 @@ export default function AdminAlertSettingsPage() {
       <div className="secops-console">
         <OperationsSummary
           label="告警摘要"
+          titleIcon={<ShieldCheck size={15} aria-hidden="true" />}
           items={[
-            { label: "启用规则", value: enabledCount, tone: "success" },
-            { label: "严重规则", value: criticalCount, tone: "danger" },
-            { label: "通知记录", value: notifications.length },
-            { label: "待发送", value: pendingCount, tone: "warning" },
+            {
+              label: "启用规则",
+              value: enabledCount,
+              tone: "success",
+              icon: <BellRing size={14} />,
+            },
+            { label: "严重规则", value: criticalCount, tone: "danger", icon: <Siren size={14} /> },
+            { label: "通知记录", value: notifications.length, icon: <Inbox size={14} /> },
+            { label: "待发送", value: pendingCount, tone: "warning", icon: <Clock3 size={14} /> },
           ]}
         />
         <main className="secops-main-workspace">
@@ -150,7 +165,14 @@ export default function AdminAlertSettingsPage() {
             </div>
           )}
           <PageSection
-            title="告警规则"
+            title={
+              <span className="secops-section-title">
+                <span className="secops-workspace-heading-icon">
+                  <Siren size={16} />
+                </span>
+                告警规则
+              </span>
+            }
             description="修改仅作用于当前规则，保存期间其他规则仍可查看。"
             className="secops-workspace secops-primary-section"
           >
@@ -158,6 +180,7 @@ export default function AdminAlertSettingsPage() {
               className="secops-toolbar"
               start={
                 <div className="secops-filters">
+                  <SlidersHorizontal size={14} aria-hidden="true" />
                   <label>
                     级别
                     <select
@@ -189,7 +212,7 @@ export default function AdminAlertSettingsPage() {
                 <div className="secops-toolbar-actions">
                   <span className="secops-count">共 {filteredRules.length} 条规则</span>
                   <button className="btn-small" onClick={() => void load()} disabled={loading}>
-                    {loading ? "刷新中…" : "刷新"}
+                    <RefreshCw size={13} aria-hidden="true" /> {loading ? "刷新中…" : "刷新"}
                   </button>
                 </div>
               }
@@ -285,7 +308,14 @@ export default function AdminAlertSettingsPage() {
             </div>
           </PageSection>
           <PageSection
-            title="通知记录"
+            title={
+              <span className="secops-section-title">
+                <span className="secops-workspace-heading-icon">
+                  <Inbox size={16} />
+                </span>
+                通知记录
+              </span>
+            }
             description="仅显示业务可识别的接收人与发送状态。"
             className="secops-workspace secops-secondary-section"
           >

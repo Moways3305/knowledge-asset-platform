@@ -102,6 +102,7 @@ export interface StatusStripItem {
   label: ReactNode;
   value: ReactNode;
   tone?: "neutral" | "success" | "warning" | "danger";
+  icon?: ReactNode;
 }
 
 export function StatusStrip({ items, label }: { items: StatusStripItem[]; label?: string }) {
@@ -119,20 +120,28 @@ export function StatusStrip({ items, label }: { items: StatusStripItem[]; label?
 
 export function OperationsSummary({
   title = "运行摘要",
+  titleIcon,
   items,
   label,
 }: {
   title?: ReactNode;
+  titleIcon?: ReactNode;
   items: StatusStripItem[];
   label: string;
 }) {
   return (
     <aside className="secops-summary-panel" aria-label={label}>
-      <div className="secops-summary-heading">{title}</div>
+      <div className="secops-summary-heading">
+        {titleIcon && <span className="secops-summary-heading-icon">{titleIcon}</span>}
+        {title}
+      </div>
       <div className="secops-summary-list">
         {items.map((item, index) => (
           <div className={`secops-summary-item is-${item.tone ?? "neutral"}`} key={index}>
-            <span className="secops-summary-label">{item.label}</span>
+            <span className="secops-summary-copy">
+              {item.icon && <span className="secops-summary-icon">{item.icon}</span>}
+              <span className="secops-summary-label">{item.label}</span>
+            </span>
             <strong className="secops-summary-value">{item.value}</strong>
           </div>
         ))}
