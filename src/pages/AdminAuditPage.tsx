@@ -1,37 +1,19 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { PageHeader, PageToolbar, ProductPage, StatusStrip } from "../components/ProductLayout";
-import { ApiError } from "../api/http";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchAudit, markAuditProcessed } from "../api/admin";
+import { ApiError } from "../api/http";
+import { PageHeader, PageToolbar, ProductPage, StatusStrip } from "../components/ProductLayout";
 import type { AuditEventDTO } from "../types/audit";
+import { auditActionLabel, auditLoginSummary, auditTargetTypeLabel } from "../utils/auditDisplay";
 import { formatBeijingTime } from "../utils/time";
-import {
-  auditActionLabel,
-  auditLoginSummary,
-  auditSnapshotSummary,
-  auditTargetTypeLabel,
-} from "../utils/auditDisplay";
 
 type LogTab = "operation" | "exception" | "login";
 
-const tabLabel: Record<LogTab, string> = {
-  operation: "操作日志",
-  exception: "异常日志",
-  login: "登录日志",
-};
-
+const tabLabel: Record<LogTab, string> = { operation: "操作", exception: "异常", login: "登录" };
 const severityLabel: Record<string, string> = {
   critical: "严重",
   error: "错误",
   warning: "警告",
 };
-
-const severityCls: Record<string, string> = {
-  critical: "au-sev-critical",
-  error: "au-sev-error",
-  warning: "au-sev-warning",
-};
-
 const roleLabel: Record<string, string> = {
   boss: "总经理",
   consulting_director: "咨询总监",
@@ -41,368 +23,287 @@ const roleLabel: Record<string, string> = {
   coach: "辅导老师",
 };
 
+function safeRole(event: AuditEventDTO) {
+  return roleLabel[event.actor_company_role ?? ""] ?? "未标注";
+}
+
 export default function AdminAuditPage() {
   const [activeTab, setActiveTab] = useState<LogTab>("operation");
   const [events, setEvents] = useState<AuditEventDTO[]>([]);
+  const [view, setView] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<string>("");
+  const [notice, setNotice] = useState<string | null>(null);
   const [filterSeverity, setFilterSeverity] = useState("");
-  const [filterResolved, setFilterResolved] = useState("");
+  const [filterProcessed, setFilterProcessed] = useState("");
+  const [processingId, setProcessingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchAudit({ pageSize: 200 });
-      setEvents(data.items);
-      setView(data.view);
-    } catch (e) {
-      const msg =
-        e instanceof ApiError
-          ? `${e.message}（${e.deniedReason ?? e.status}）`
-          : "审计日志加载失败";
-      setError(msg);
+      const response = await fetchAudit({ pageSize: 200 });
+      setEvents(response.items);
+      setView(response.view);
+    } catch (reason) {
       setEvents([]);
+      setView("");
+      setError(
+        reason instanceof ApiError && reason.status === 403
+          ? "当前身份没有审计日志查看权限。"
+          : "审计日志暂时无法加载，请稍后重试。",
+      );
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => void load(), [load]);
 
-  const operationLogs = useMemo(() => events.filter((e) => e.log_type === "operation"), [events]);
-  const exceptionLogs = useMemo(() => events.filter((e) => e.log_type === "exception"), [events]);
-  const loginLogs = useMemo(() => events.filter((e) => e.log_type === "login"), [events]);
-
-  const unresolvedCount = useMemo(
-    () => exceptionLogs.filter((e) => !e.is_processed).length,
-    [exceptionLogs],
+  const operationLogs = useMemo(
+    () => events.filter((item) => item.log_type === "operation"),
+    [events],
   );
-  // 登录失败计数取自真实 login.failed 审计事件（企微 OAuth 会写入）。
-  const loginFailedCount = useMemo(
-    () => loginLogs.filter((e) => e.action === "login.failed").length,
-    [loginLogs],
+  const exceptionLogs = useMemo(
+    () => events.filter((item) => item.log_type === "exception"),
+    [events],
   );
-  const critErrorCount = useMemo(
-    () => exceptionLogs.filter((e) => e.severity === "critical" || e.severity === "error").length,
-    [exceptionLogs],
+  const loginLogs = useMemo(() => events.filter((item) => item.log_type === "login"), [events]);
+  const filteredExceptions = useMemo(
+    () =>
+      exceptionLogs.filter(
+        (item) =>
+          (!filterSeverity || item.severity === filterSeverity) &&
+          (!filterProcessed ||
+            (filterProcessed === "processed" ? item.is_processed : !item.is_processed)),
+      ),
+    [exceptionLogs, filterProcessed, filterSeverity],
   );
-
-  const filteredExceptions = useMemo(() => {
-    let result = exceptionLogs;
-    if (filterSeverity) result = result.filter((e) => e.severity === filterSeverity);
-    if (filterResolved === "resolved") result = result.filter((e) => e.is_processed);
-    if (filterResolved === "unresolved") result = result.filter((e) => !e.is_processed);
-    return result;
-  }, [exceptionLogs, filterSeverity, filterResolved]);
+  const canProcess = view === "admin_metadata";
 
   const handleMarkProcessed = useCallback(
-    async (id: string) => {
+    async (event: AuditEventDTO) => {
+      if (!canProcess || event.is_processed) return;
+      setProcessingId(event.id);
+      setNotice(null);
       try {
-        await markAuditProcessed(id);
-        await load();
-      } catch (e) {
-        const msg =
-          e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "标记失败";
-        setError(msg);
+        await markAuditProcessed(event.id);
+        setEvents((current) =>
+          current.map((item) => (item.id === event.id ? { ...item, is_processed: true } : item)),
+        );
+        setNotice("异常记录已标记为已处理。");
+      } catch (reason) {
+        if (reason instanceof ApiError && reason.status === 403) setView("governance");
+        setError(
+          reason instanceof ApiError && reason.status === 403
+            ? "当前身份仅可查看审计记录，不能标记处理。"
+            : "处理状态保存失败，请稍后重试。",
+        );
+      } finally {
+        setProcessingId(null);
       }
     },
-    [load],
+    [canProcess],
   );
 
-  const roleText = (e: AuditEventDTO) =>
-    roleLabel[e.actor_company_role ?? ""] ?? (e.actor_company_role || "—");
+  const logs =
+    activeTab === "operation"
+      ? operationLogs
+      : activeTab === "login"
+        ? loginLogs
+        : filteredExceptions;
 
   return (
-    <ProductPage className="audit-page">
+    <ProductPage className="secops-page audit-page">
       <PageHeader
+        eyebrow="安全运营"
         title="审计日志"
-        description="查看关键操作记录和安全事件。时间均为北京时间（Asia/Shanghai）。"
+        description="核查关键操作、异常处置与登录结果。页面时间均为北京时间。"
         actions={
           <button className="btn-small" onClick={() => void load()} disabled={loading}>
-            {loading ? "加载中…" : "刷新"}
+            {loading ? "刷新中…" : "刷新"}
           </button>
         }
       />
       <StatusStrip
-        label="审计状态"
+        label="审计摘要"
         items={[
           { label: "操作记录", value: operationLogs.length },
-          { label: "未处理异常", value: unresolvedCount, tone: "warning" },
-          { label: "登录失败", value: loginFailedCount, tone: "danger" },
-          { label: "严重 / 错误", value: critErrorCount, tone: "danger" },
+          {
+            label: "未处理异常",
+            value: exceptionLogs.filter((item) => !item.is_processed).length,
+            tone: "warning",
+          },
+          {
+            label: "登录失败",
+            value: loginLogs.filter((item) => item.action === "login.failed").length,
+            tone: "danger",
+          },
+          {
+            label: "严重 / 错误",
+            value: exceptionLogs.filter(
+              (item) => item.severity === "critical" || item.severity === "error",
+            ).length,
+            tone: "danger",
+          },
         ]}
       />
 
-      {/* 视图档位提示 */}
-      {view && !error && (
-        <div className="au-view-hint">
-          当前审计视图：
-          <strong>
-            {view === "governance"
-              ? "业务治理视图（总经理 / 咨询总监）"
-              : "系统元数据视图（admin，已对 L5 / 业务原文脱敏）"}
-          </strong>
+      {view === "governance" && !error && (
+        <div className="secops-banner is-readonly">
+          当前为只读审计视图，可核查记录但不能标记处理。
         </div>
       )}
-
-      {/* 错误态：非授权角色显示后端业务原因 */}
       {error && (
-        <div className="au-error-banner">
-          <strong>无法加载审计日志</strong>
-          <p>{error}</p>
-          <p className="au-error-hint">
-            审计查询仅对 admin / 总经理 / 咨询总监开放（普通业务用户无全局审计查询权）。可通过{" "}
-            <code>VITE_DEV_USER_ID</code> 切换为授权身份查看。
-          </p>
+        <div className="secops-banner is-error" role="alert">
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="secops-banner is-success" role="status">
+          {notice}
         </div>
       )}
 
-      {/* Tabs */}
-      <PageToolbar
-        start={
-          <div className="au-tabs">
-            {(["operation", "exception", "login"] as LogTab[]).map((tab) => (
-              <button
-                key={tab}
-                className={`au-tab ${activeTab === tab ? "active" : ""}`}
-                onClick={() => setActiveTab(tab)}
-              >
-                {tabLabel[tab]}
-              </button>
-            ))}
-          </div>
-        }
-      />
-
-      {/* Operation logs */}
-      {activeTab === "operation" && (
-        <section className="audit-section">
-          <div className="au-toolbar">
-            <span className="au-toolbar-hint">共 {operationLogs.length} 条操作记录</span>
-          </div>
-          <div className="ingest-table-wrap">
-            <table className="ingest-table">
-              <thead>
-                <tr>
-                  <th>操作</th>
-                  <th>操作者</th>
-                  <th>角色</th>
-                  <th>对象类型</th>
-                  <th>变更 / 结果</th>
-                  <th>技术详情</th>
-                  <th>时间</th>
-                </tr>
-              </thead>
-              <tbody>
-                {operationLogs.map((log) => (
-                  <tr key={log.id}>
-                    <td className="au-cell-action" title={log.action}>
-                      {auditActionLabel(log.action)}
-                    </td>
-                    <td>{log.actor_name ?? "—"}</td>
-                    <td>
-                      <span className="au-role-badge">{roleText(log)}</span>
-                    </td>
-                    <td className="au-cell-target" title={log.target_type ?? ""}>
-                      {auditTargetTypeLabel(log.target_type)}
-                    </td>
-                    <td className="au-cell-state">{auditSnapshotSummary(log)}</td>
-                    <td className="au-cell-trace">
-                      <details>
-                        <summary>展开</summary>
-                        <code>{log.action}</code>
-                        <code>{log.trace_id}</code>
-                      </details>
-                    </td>
-                    <td className="cell-time">{formatBeijingTime(log.created_at)}</td>
-                  </tr>
-                ))}
-                {operationLogs.length === 0 && !loading && (
-                  <tr>
-                    <td colSpan={7} className="au-empty-cell">
-                      暂无操作日志
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {/* Exception logs */}
-      {activeTab === "exception" && (
-        <section className="audit-section">
-          <div className="au-toolbar">
-            <div className="au-toolbar-filters">
-              <select value={filterSeverity} onChange={(e) => setFilterSeverity(e.target.value)}>
-                <option value="">全部级别</option>
-                <option value="critical">严重</option>
-                <option value="error">错误</option>
-                <option value="warning">警告</option>
-              </select>
-              <select value={filterResolved} onChange={(e) => setFilterResolved(e.target.value)}>
-                <option value="">全部状态</option>
-                <option value="unresolved">未处理</option>
-                <option value="resolved">已处理</option>
-              </select>
+      <section className="secops-workspace" aria-label="审计记录">
+        <PageToolbar
+          className="secops-toolbar"
+          start={
+            <div className="secops-tabs" role="tablist">
+              {(Object.keys(tabLabel) as LogTab[]).map((tab) => (
+                <button
+                  key={tab}
+                  role="tab"
+                  aria-selected={activeTab === tab}
+                  className={activeTab === tab ? "is-active" : ""}
+                  onClick={() => setActiveTab(tab)}
+                >
+                  {tabLabel[tab]}
+                </button>
+              ))}
             </div>
-            <span className="au-toolbar-hint">共 {filteredExceptions.length} 条异常记录</span>
-          </div>
-          <div className="ingest-table-wrap">
-            <table className="ingest-table">
-              <thead>
-                <tr>
-                  <th>动作</th>
-                  <th>级别</th>
-                  <th>风险</th>
-                  <th>对象类型</th>
-                  <th>原因</th>
-                  <th>技术详情</th>
-                  <th>状态</th>
-                  <th>时间</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredExceptions.map((log) => (
-                  <tr key={log.id}>
-                    <td className="au-cell-action" title={log.action}>
-                      {auditActionLabel(log.action)}
-                    </td>
-                    <td>
-                      {log.severity ? (
-                        <span className={`au-severity-pill ${severityCls[log.severity] ?? ""}`}>
-                          {severityLabel[log.severity] ?? log.severity}
-                        </span>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td>{log.risk_level ?? "—"}</td>
-                    <td className="au-cell-service" title={log.target_type ?? ""}>
-                      {auditTargetTypeLabel(log.target_type)}
-                    </td>
-                    <td className="au-cell-msg">{log.denied_reason ?? "—"}</td>
-                    <td className="au-cell-trace">
-                      <details>
-                        <summary>展开</summary>
-                        <code>{log.action}</code>
-                        <code>{log.trace_id}</code>
-                      </details>
-                    </td>
-                    <td>
-                      <span
-                        className={`au-resolved-pill ${log.is_processed ? "au-resolved-yes" : "au-resolved-no"}`}
-                      >
-                        {log.is_processed ? "已处理" : "未处理"}
+          }
+          end={
+            activeTab === "exception" ? (
+              <div className="secops-filters">
+                <label>
+                  级别
+                  <select
+                    aria-label="异常级别"
+                    value={filterSeverity}
+                    onChange={(event) => setFilterSeverity(event.target.value)}
+                  >
+                    <option value="">全部</option>
+                    <option value="critical">严重</option>
+                    <option value="error">错误</option>
+                    <option value="warning">警告</option>
+                  </select>
+                </label>
+                <label>
+                  状态
+                  <select
+                    aria-label="处理状态"
+                    value={filterProcessed}
+                    onChange={(event) => setFilterProcessed(event.target.value)}
+                  >
+                    <option value="">全部</option>
+                    <option value="unprocessed">未处理</option>
+                    <option value="processed">已处理</option>
+                  </select>
+                </label>
+              </div>
+            ) : (
+              <span className="secops-count">共 {logs.length} 条</span>
+            )
+          }
+        />
+        <div className="secops-table-wrap">
+          <table className="secops-table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>{activeTab === "login" ? "用户" : "事项"}</th>
+                <th>{activeTab === "login" ? "结果" : "操作人"}</th>
+                <th>{activeTab === "exception" ? "级别" : "角色"}</th>
+                <th>{activeTab === "exception" ? "状态" : "对象"}</th>
+                {activeTab === "exception" && <th>操作</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map((item) => (
+                <tr key={item.id}>
+                  <td className="secops-time">{formatBeijingTime(item.created_at)}</td>
+                  <td className="secops-primary">
+                    {activeTab === "login"
+                      ? (item.actor_name ?? "未知用户")
+                      : auditActionLabel(item.action)}
+                  </td>
+                  <td>
+                    {activeTab === "login"
+                      ? auditLoginSummary(item)
+                      : (item.actor_name ?? "系统操作")}
+                  </td>
+                  <td>
+                    {activeTab === "exception" ? (
+                      <span className={`secops-pill severity-${item.severity ?? "unknown"}`}>
+                        {severityLabel[item.severity ?? ""] ?? "未分级"}
                       </span>
-                    </td>
-                    <td className="cell-time">{formatBeijingTime(log.created_at)}</td>
-                    <td className="cell-actions">
-                      {!log.is_processed && (
+                    ) : (
+                      safeRole(item)
+                    )}
+                  </td>
+                  <td>
+                    {activeTab === "exception" ? (
+                      <span
+                        className={`secops-pill ${item.is_processed ? "is-done" : "is-pending"}`}
+                      >
+                        {item.is_processed ? "已处理" : "未处理"}
+                      </span>
+                    ) : (
+                      auditTargetTypeLabel(item.target_type)
+                    )}
+                  </td>
+                  {activeTab === "exception" && (
+                    <td>
+                      {!item.is_processed && canProcess ? (
                         <button
-                          className="btn-small btn-small-primary"
-                          onClick={() => void handleMarkProcessed(log.id)}
+                          className="btn-small"
+                          disabled={processingId === item.id}
+                          onClick={() => void handleMarkProcessed(item)}
                         >
-                          标记已处理
+                          {processingId === item.id ? "保存中…" : "标记已处理"}
                         </button>
+                      ) : (
+                        <span className="secops-muted">
+                          {item.is_processed ? "已完成" : "只读"}
+                        </span>
                       )}
                     </td>
-                  </tr>
-                ))}
-                {filteredExceptions.length === 0 && !loading && (
-                  <tr>
-                    <td colSpan={9} className="au-empty-cell">
-                      暂无异常记录
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          <details className="product-disclosure">
-            <summary>查看登录审计说明</summary>
-            <p className="au-note">
-              标记已处理仅更新处理状态并追加一条 <code>audit.exception_processed</code> 处理事件，
-              <strong>不修改原始审计事实</strong>（仅 admin 可操作）。
-            </p>
-          </details>
-        </section>
-      )}
-
-      {/* Login logs */}
-      {activeTab === "login" && (
-        <section className="audit-section">
-          <div className="au-toolbar">
-            <span className="au-toolbar-hint">共 {loginLogs.length} 条登录记录</span>
-          </div>
-          <p className="au-note">
-            登录 / 登出审计（<code>login.success</code> / <code>login.failed</code> /{" "}
-            <code>login.logout</code>）已接入，后端记录时即在此展示，
-            <code>login_method</code> 区分 <code>password</code>（密码登录）/{" "}
-            <code>wecom_oauth</code>（企微）/ <code>dev_local</code>（本地开发免密适配器）。
-            <strong>密码凭证登录已实现</strong>（所有环境按 email + password
-            校验）；本地开发使用免密适配器或尚无登录事件时，本表可能为空。
-          </p>
-          {loginLogs.length === 0 ? (
-            <div className="au-empty-state">
-              <p>
-                当前无登录审计事件。经企微 OAuth 登录 / 登出后，<code>login.*</code>{" "}
-                事件将在此出现（本地开发态可能为空）。
-              </p>
-            </div>
-          ) : (
-            <div className="ingest-table-wrap">
-              <table className="ingest-table">
-                <thead>
-                  <tr>
-                    <th>用户</th>
-                    <th>角色</th>
-                    <th>动作</th>
-                    <th>结果 / 原因</th>
-                    <th>技术详情</th>
-                    <th>时间</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loginLogs.map((log) => (
-                    <tr key={log.id}>
-                      <td className="au-cell-user">{log.actor_name ?? "—"}</td>
-                      <td>
-                        <span className="au-role-badge">{roleText(log)}</span>
-                      </td>
-                      <td className="au-cell-action" title={log.action}>
-                        {auditActionLabel(log.action)}
-                      </td>
-                      <td className="au-cell-msg">{auditLoginSummary(log)}</td>
-                      <td className="au-cell-trace">
-                        <details>
-                          <summary>展开</summary>
-                          <code>{log.action}</code>
-                          <code>{log.trace_id}</code>
-                        </details>
-                      </td>
-                      <td className="cell-time">{formatBeijingTime(log.created_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      )}
-
-      <p className="page-help-line">
-        技术详情仅用于管理员排障；详见{" "}
-        <Link to="/help#admin" className="page-help-link">
-          使用说明 →
-        </Link>
-      </p>
+                  )}
+                </tr>
+              ))}
+              {!loading && logs.length === 0 && (
+                <tr>
+                  <td colSpan={activeTab === "exception" ? 6 : 5} className="secops-empty">
+                    {activeTab === "operation"
+                      ? "暂无操作记录"
+                      : activeTab === "exception"
+                        ? "暂无符合条件的异常记录"
+                        : "暂无登录记录"}
+                  </td>
+                </tr>
+              )}
+              {loading && (
+                <tr>
+                  <td colSpan={activeTab === "exception" ? 6 : 5} className="secops-empty">
+                    正在加载审计记录…
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </ProductPage>
   );
 }

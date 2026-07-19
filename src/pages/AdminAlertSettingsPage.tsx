@@ -1,9 +1,6 @@
-﻿import { useState, useMemo, useCallback, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { ApiError } from "../api/http";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchAlertNotifications, fetchAlertRules, updateAlertRule } from "../api/admin";
-import type { AlertRuleDTO, NotificationDTO } from "../types/alert";
-import { formatBeijingTime } from "../utils/time";
+import { ApiError } from "../api/http";
 import {
   PageHeader,
   PageSection,
@@ -11,31 +8,32 @@ import {
   ProductPage,
   StatusStrip,
 } from "../components/ProductLayout";
+import type { AlertRuleDTO, NotificationDTO } from "../types/alert";
+import { formatBeijingTime } from "../utils/time";
 
-const levelLabel: Record<string, string> = {
-  critical: "Critical",
-  error: "Error",
-  warning: "Warning",
-};
-
-const levelCls: Record<string, string> = {
-  critical: "al-level-critical",
-  error: "al-level-error",
-  warning: "al-level-warning",
-};
-
+const severityLabel: Record<string, string> = { critical: "严重", error: "错误", warning: "警告" };
 const statusLabel: Record<string, string> = {
   pending: "待发送",
   sent: "已发送",
   failed: "发送失败",
 };
-
-// 用户可见时间统一北京时间。
-const fmtTime = (iso: string): string => formatBeijingTime(iso);
+const channelLabel: Record<string, string> = {
+  in_app: "站内通知",
+  wecom: "企业微信",
+  email: "邮件",
+};
+const dedupLabel: Record<string, string> = {
+  none: "不合并",
+  cooldown: "冷却期内合并",
+  daily: "每日合并",
+};
 
 export default function AdminAlertSettingsPage() {
   const [rules, setRules] = useState<AlertRuleDTO[]>([]);
   const [notifications, setNotifications] = useState<NotificationDTO[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState<Set<string>>(new Set());
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filterLevel, setFilterLevel] = useState("");
@@ -45,118 +43,155 @@ export default function AdminAlertSettingsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [rulesData, notifData] = await Promise.all([
+      const [ruleResponse, notificationResponse] = await Promise.all([
         fetchAlertRules(),
         fetchAlertNotifications(),
       ]);
-      setRules(rulesData.items);
-      setNotifications(notifData.items);
-    } catch (e) {
-      const msg =
-        e instanceof ApiError
-          ? `${e.message}（${e.deniedReason ?? e.status}）`
-          : "告警设置加载失败";
-      setError(msg);
+      setRules(ruleResponse.items);
+      setNotifications(notificationResponse.items);
+      setDrafts(
+        Object.fromEntries(
+          ruleResponse.items.map((rule) => [rule.id, String(rule.threshold ?? "")]),
+        ),
+      );
+      setRowErrors({});
+    } catch (reason) {
       setRules([]);
       setNotifications([]);
+      setError(
+        reason instanceof ApiError && reason.status === 403
+          ? "当前身份没有告警设置查看权限。"
+          : "告警设置暂时无法加载，请稍后重试。",
+      );
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => void load(), [load]);
 
-  const enabledCount = useMemo(() => rules.filter((r) => r.enabled).length, [rules]);
-  const criticalCount = useMemo(
-    () => rules.filter((r) => r.severity === "critical").length,
-    [rules],
-  );
-  const pendingNotif = useMemo(
-    () => notifications.filter((n) => n.send_status === "pending").length,
-    [notifications],
+  const filteredRules = useMemo(
+    () =>
+      rules.filter(
+        (rule) =>
+          (!filterLevel || rule.severity === filterLevel) &&
+          (!filterEnabled || (filterEnabled === "enabled" ? rule.enabled : !rule.enabled)),
+      ),
+    [filterEnabled, filterLevel, rules],
   );
 
-  const filtered = useMemo(() => {
-    let result = rules;
-    if (filterLevel) result = result.filter((r) => r.severity === filterLevel);
-    if (filterEnabled === "enabled") result = result.filter((r) => r.enabled);
-    if (filterEnabled === "disabled") result = result.filter((r) => !r.enabled);
-    return result;
-  }, [rules, filterLevel, filterEnabled]);
-
-  const patchRule = useCallback(
-    async (id: string, patch: { enabled?: boolean; threshold?: number }) => {
+  const saveRule = useCallback(
+    async (rule: AlertRuleDTO, patch: { enabled?: boolean; threshold?: number }) => {
+      if (saving.has(rule.id)) return;
+      setSaving((current) => new Set(current).add(rule.id));
+      setRowErrors((current) => ({ ...current, [rule.id]: "" }));
       try {
-        const updated = await updateAlertRule(id, patch);
-        setRules((prev) => prev.map((r) => (r.id === id ? updated : r)));
-      } catch (e) {
-        const msg =
-          e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : "更新失败";
-        setError(msg);
+        const updated = await updateAlertRule(rule.id, patch);
+        setRules((current) => current.map((item) => (item.id === rule.id ? updated : item)));
+        setDrafts((current) => ({ ...current, [rule.id]: String(updated.threshold ?? "") }));
+      } catch (reason) {
+        setDrafts((current) => ({ ...current, [rule.id]: String(rule.threshold ?? "") }));
+        setRowErrors((current) => ({
+          ...current,
+          [rule.id]:
+            reason instanceof ApiError && reason.status === 403
+              ? "当前身份不能修改该规则。"
+              : "保存失败，请重试。",
+        }));
+      } finally {
+        setSaving((current) => {
+          const next = new Set(current);
+          next.delete(rule.id);
+          return next;
+        });
       }
     },
-    [],
+    [saving],
   );
 
+  const commitThreshold = useCallback(
+    (rule: AlertRuleDTO) => {
+      const value = Number(drafts[rule.id]);
+      if (!Number.isFinite(value) || value < 1) {
+        setDrafts((current) => ({ ...current, [rule.id]: String(rule.threshold ?? "") }));
+        setRowErrors((current) => ({ ...current, [rule.id]: "阈值必须是不小于 1 的数字。" }));
+        return;
+      }
+      if (value !== rule.threshold) void saveRule(rule, { threshold: value });
+    },
+    [drafts, saveRule],
+  );
+
+  const enabledCount = rules.filter((rule) => rule.enabled).length;
+  const criticalCount = rules.filter((rule) => rule.severity === "critical").length;
+  const pendingCount = notifications.filter((item) => item.send_status === "pending").length;
+
   return (
-    <ProductPage className="alert-settings-page">
+    <ProductPage className="secops-page alert-settings-page">
       <PageHeader
         eyebrow="安全运营"
         title="告警设置"
-        description="管理归档、内容处理和登录安全告警规则及接收方式。"
+        description="维护安全告警触发条件，并核查最近通知的发送状态。"
+        actions={
+          <button className="btn-small" onClick={() => void load()} disabled={loading}>
+            {loading ? "刷新中…" : "刷新"}
+          </button>
+        }
       />
       <StatusStrip
-        label="告警状态"
+        label="告警摘要"
         items={[
           { label: "启用规则", value: enabledCount, tone: "success" },
-          { label: "严重规则", value: criticalCount, tone: criticalCount ? "danger" : "neutral" },
+          { label: "严重规则", value: criticalCount, tone: "danger" },
           { label: "通知记录", value: notifications.length },
-          { label: "待发送", value: pendingNotif, tone: pendingNotif ? "warning" : "neutral" },
+          { label: "待发送", value: pendingCount, tone: "warning" },
         ]}
       />
-
-      {/* 错误态：非授权角色显示后端业务原因 */}
       {error && (
-        <div className="au-error-banner">
-          <strong>无法加载告警设置</strong>
-          <p>{error}</p>
-          <p className="au-error-hint">
-            告警设置仅对 admin 开放。可通过 <code>VITE_DEV_USER_ID</code> 切换为 admin 身份查看。
-          </p>
+        <div className="secops-banner is-error" role="alert">
+          {error}
         </div>
       )}
-
-      {/* Rule list */}
-      <PageSection title="告警规则" className="al-section">
+      <PageSection
+        title="告警规则"
+        description="修改仅作用于当前规则，保存期间其他规则仍可查看。"
+        className="secops-workspace secops-primary-section"
+      >
         <PageToolbar
+          className="secops-toolbar"
           start={
-            <>
-              <select value={filterLevel} onChange={(e) => setFilterLevel(e.target.value)}>
-                <option value="">全部级别</option>
-                <option value="critical">Critical</option>
-                <option value="error">Error</option>
-                <option value="warning">Warning</option>
-              </select>
-              <select value={filterEnabled} onChange={(e) => setFilterEnabled(e.target.value)}>
-                <option value="">全部状态</option>
-                <option value="enabled">已启用</option>
-                <option value="disabled">已停用</option>
-              </select>
-            </>
+            <div className="secops-filters">
+              <label>
+                级别
+                <select
+                  aria-label="规则级别"
+                  value={filterLevel}
+                  onChange={(event) => setFilterLevel(event.target.value)}
+                >
+                  <option value="">全部</option>
+                  <option value="critical">严重</option>
+                  <option value="error">错误</option>
+                  <option value="warning">警告</option>
+                </select>
+              </label>
+              <label>
+                状态
+                <select
+                  aria-label="规则状态"
+                  value={filterEnabled}
+                  onChange={(event) => setFilterEnabled(event.target.value)}
+                >
+                  <option value="">全部</option>
+                  <option value="enabled">已启用</option>
+                  <option value="disabled">已停用</option>
+                </select>
+              </label>
+            </div>
           }
-          end={
-            <>
-              <span className="al-toolbar-hint">共 {filtered.length} 条规则</span>
-              <button className="btn-small" onClick={() => void load()} disabled={loading}>
-                {loading ? "加载中…" : "刷新"}
-              </button>
-            </>
-          }
+          end={<span className="secops-count">共 {filteredRules.length} 条规则</span>}
         />
-        <div className="ingest-table-wrap">
-          <table className="ingest-table">
+        <div className="secops-table-wrap">
+          <table className="secops-table">
             <thead>
               <tr>
                 <th>级别</th>
@@ -165,53 +200,72 @@ export default function AdminAlertSettingsPage() {
                 <th>通知渠道</th>
                 <th>防重复</th>
                 <th>更新时间</th>
-                <th>启用</th>
+                <th>状态</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => (
-                <tr key={r.id} className={r.enabled ? "" : "al-row-disabled"}>
+              {filteredRules.map((rule) => (
+                <tr key={rule.id} className={!rule.enabled ? "is-disabled" : ""}>
                   <td>
-                    <span className={`al-level-pill ${levelCls[r.severity] ?? ""}`}>
-                      {levelLabel[r.severity] ?? r.severity}
+                    <span className={`secops-pill severity-${rule.severity}`}>
+                      {severityLabel[rule.severity] ?? "未分级"}
                     </span>
                   </td>
-                  <td className="al-cell-metric">{r.rule_name}</td>
-                  <td className="al-cell-threshold">
-                    <input
-                      type="number"
-                      className="al-threshold-input"
-                      value={r.threshold ?? 0}
-                      min={1}
-                      onChange={(e) =>
-                        patchRule(r.id, { threshold: Math.max(1, Number(e.target.value)) })
-                      }
-                    />
-                    <span className="al-threshold-unit">{r.threshold_unit ?? ""}</span>
+                  <td className="secops-primary">{rule.rule_name}</td>
+                  <td>
+                    <div className="secops-threshold">
+                      <input
+                        aria-label={`${rule.rule_name}阈值`}
+                        type="number"
+                        min={1}
+                        value={drafts[rule.id] ?? ""}
+                        disabled={saving.has(rule.id)}
+                        onChange={(event) =>
+                          setDrafts((current) => ({ ...current, [rule.id]: event.target.value }))
+                        }
+                        onBlur={() => commitThreshold(rule)}
+                      />
+                      <span>{rule.threshold_unit ?? ""}</span>
+                    </div>
+                    {rowErrors[rule.id] && (
+                      <span className="secops-row-error" role="alert">
+                        {rowErrors[rule.id]}
+                      </span>
+                    )}
                   </td>
-                  <td className="al-cell-channels">
-                    {r.notification_channels.map((ch) => (
-                      <span key={ch} className="al-channel-tag">
-                        {ch}
+                  <td>
+                    {rule.notification_channels.map((channel) => (
+                      <span className="secops-channel" key={channel}>
+                        {channelLabel[channel] ?? "其他渠道"}
                       </span>
                     ))}
                   </td>
-                  <td className="al-cell-cooldown">{r.dedup_strategy ?? "—"}</td>
-                  <td className="cell-time">{fmtTime(r.updated_at)}</td>
+                  <td>{dedupLabel[rule.dedup_strategy ?? ""] ?? "按规则合并"}</td>
+                  <td className="secops-time">{formatBeijingTime(rule.updated_at)}</td>
                   <td>
                     <button
-                      className={`al-toggle ${r.enabled ? "al-toggle-on" : "al-toggle-off"}`}
-                      onClick={() => patchRule(r.id, { enabled: !r.enabled })}
+                      className={`secops-toggle ${rule.enabled ? "is-on" : ""}`}
+                      aria-label={`${rule.rule_name}${rule.enabled ? "停用" : "启用"}`}
+                      aria-pressed={rule.enabled}
+                      disabled={saving.has(rule.id)}
+                      onClick={() => void saveRule(rule, { enabled: !rule.enabled })}
                     >
-                      {r.enabled ? "启用" : "停用"}
+                      {saving.has(rule.id) ? "保存中…" : rule.enabled ? "已启用" : "已停用"}
                     </button>
                   </td>
                 </tr>
               ))}
-              {filtered.length === 0 && !loading && (
+              {!loading && filteredRules.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="au-empty-cell">
-                    暂无告警规则
+                  <td colSpan={7} className="secops-empty">
+                    暂无符合条件的告警规则
+                  </td>
+                </tr>
+              )}
+              {loading && (
+                <tr>
+                  <td colSpan={7} className="secops-empty">
+                    正在加载告警规则…
                   </td>
                 </tr>
               )}
@@ -219,54 +273,58 @@ export default function AdminAlertSettingsPage() {
           </table>
         </div>
       </PageSection>
-
-      {/* Notification records */}
-      <PageSection title="通知记录" className="al-section">
-        <div className="ingest-table-wrap">
-          <table className="ingest-table">
+      <PageSection
+        title="通知记录"
+        description="仅显示业务可识别的接收人与发送状态。"
+        className="secops-workspace secops-secondary-section"
+      >
+        <div className="secops-table-wrap">
+          <table className="secops-table">
             <thead>
               <tr>
-                <th>标题</th>
+                <th>时间</th>
+                <th>通知</th>
                 <th>接收人</th>
                 <th>渠道</th>
                 <th>状态</th>
-                <th>时间</th>
               </tr>
             </thead>
             <tbody>
-              {notifications.map((n) => (
-                <tr key={n.id}>
-                  <td className="al-cell-metric">{n.title}</td>
-                  <td>{n.recipient_name ?? "—"}</td>
+              {notifications.map((item) => (
+                <tr key={item.id}>
+                  <td className="secops-time">{formatBeijingTime(item.created_at)}</td>
+                  <td className="secops-primary">{item.title}</td>
+                  <td>{item.recipient_name ?? "未指定接收人"}</td>
                   <td>
-                    <span className="al-channel-tag">{n.channel}</span>
+                    <span className="secops-channel">
+                      {channelLabel[item.channel] ?? "其他渠道"}
+                    </span>
                   </td>
-                  <td>{statusLabel[n.send_status] ?? n.send_status}</td>
-                  <td className="cell-time">{fmtTime(n.created_at)}</td>
+                  <td>
+                    <span className={`secops-pill notification-${item.send_status}`}>
+                      {statusLabel[item.send_status] ?? "状态未知"}
+                    </span>
+                  </td>
                 </tr>
               ))}
-              {notifications.length === 0 && !loading && (
+              {!loading && notifications.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="au-empty-cell">
-                    暂无通知记录（生命周期归档 / 重新启用确认 / 运维告警信号会生成本地通知）
+                  <td colSpan={5} className="secops-empty">
+                    暂无通知记录
+                  </td>
+                </tr>
+              )}
+              {loading && (
+                <tr>
+                  <td colSpan={5} className="secops-empty">
+                    正在加载通知记录…
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
-        <p className="au-note">
-          当前环境仅记录站内通知，<strong>未配置外部通知通道</strong>（邮件 / 企微 /
-          webhook）；记录仅含安全元数据，新建状态恒为「待发送」。
-        </p>
       </PageSection>
-
-      <p className="page-help-line">
-        设置系统告警接收方式。外部通知通道启用状态请以部署配置为准，详见{" "}
-        <Link to="/help#admin" className="page-help-link">
-          使用说明 →
-        </Link>
-      </p>
     </ProductPage>
   );
 }

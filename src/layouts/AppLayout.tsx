@@ -32,6 +32,7 @@ import { can, type Capability, type Capabilities } from "../auth/permissions";
 import "./AppLayout.css";
 import "../styles/workbench.css";
 import "../styles/workbench-home-admin.css";
+import "../styles/security-operations.css";
 
 // 每个导航项带一个能力谓词 `cap`，与页面级守卫（RouteGuard）共用 `can` 判定，
 // 保证「看得到的入口 = 进得去的页面」。无权入口直接不渲染，而非渲染后再报错。

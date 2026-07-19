@@ -36,12 +36,15 @@ describe("product layout and route contract", () => {
     expect(source).not.toContain("owner_name");
   });
 
-  it("collapses audit action codes and trace identifiers by default", () => {
+  it("keeps audit action codes and trace identifiers out of the rendered workspace", () => {
     const source = read("src/pages/AdminAuditPage.tsx");
     expect(source).not.toContain("au-cell-raw");
-    expect(source.match(/<details>/g)?.length).toBeGreaterThanOrEqual(3);
-    expect(source).toContain("{log.action}");
-    expect(source).toContain("{log.trace_id}");
+    expect(source).not.toContain("<details>");
+    expect(source).not.toContain("trace_id");
+    expect(source).not.toContain("target_id");
+    expect(source).not.toContain("before_snapshot");
+    expect(source).not.toContain("after_snapshot");
+    expect(source).toContain("auditActionLabel(item.action)");
   });
 
   it("keeps governance model selectors read-only with an explanation", () => {

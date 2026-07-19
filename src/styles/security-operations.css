@@ -1,0 +1,324 @@
+/* PBC-88: one compact, ledger-first workspace for audit, auth and alert operations. */
+.secops-page {
+  --secops-ink: #18312d;
+  --secops-line: #d9e1df;
+  --secops-wash: #f4f7f6;
+  --secops-accent: #176b5b;
+  width: 100%;
+  max-width: 1180px;
+}
+
+.secops-page .product-page-header {
+  border-bottom: 1px solid var(--secops-line);
+  padding-bottom: 18px;
+}
+
+.secops-page .product-page-eyebrow {
+  color: var(--secops-accent);
+  letter-spacing: 0.12em;
+}
+
+.secops-page .product-status-strip {
+  margin: 14px 0;
+  border-color: var(--secops-line);
+  box-shadow: inset 3px 0 0 var(--secops-accent);
+}
+
+.secops-page .product-status-item {
+  min-width: 112px;
+  padding-block: 9px;
+}
+
+.secops-page .product-status-value {
+  font-family: var(--font-mono);
+  font-size: 17px;
+}
+
+.secops-banner {
+  border: 1px solid var(--secops-line);
+  border-left: 3px solid var(--color-info);
+  border-radius: var(--radius-sm);
+  background: var(--color-info-bg);
+  color: var(--color-text-body);
+  font-size: 13px;
+  margin: 12px 0;
+  padding: 10px 13px;
+}
+
+.secops-banner.is-error {
+  background: var(--color-danger-bg);
+  border-left-color: var(--color-danger);
+}
+
+.secops-banner.is-success {
+  background: var(--color-success-bg);
+  border-left-color: var(--color-success);
+}
+
+.secops-workspace {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--secops-line);
+  border-radius: var(--radius-md);
+  margin-top: 14px;
+  overflow: hidden;
+}
+
+.secops-page .secops-workspace.product-section {
+  padding: 0;
+}
+
+.secops-page .secops-workspace .product-section-header {
+  background: var(--secops-wash);
+  border-bottom: 1px solid var(--secops-line);
+  padding: 14px 16px;
+}
+
+.secops-page .secops-workspace .product-section-header h3 {
+  color: var(--secops-ink);
+  font-size: 15px;
+}
+
+.secops-page .secops-workspace .product-section-header p {
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.secops-page .secops-workspace .product-section-body {
+  padding: 0;
+}
+
+.secops-primary-section {
+  box-shadow: inset 3px 0 0 var(--secops-accent);
+}
+
+.secops-secondary-section {
+  margin-top: 18px;
+}
+
+.secops-toolbar {
+  background: #fff;
+  border: 0;
+  border-bottom: 1px solid var(--secops-line);
+  border-radius: 0;
+  margin: 0;
+  min-height: 48px;
+  padding: 7px 12px;
+}
+
+.secops-tabs {
+  align-self: stretch;
+  display: flex;
+  gap: 3px;
+}
+
+.secops-tabs button {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 18px;
+}
+
+.secops-tabs button.is-active {
+  border-bottom-color: var(--secops-accent);
+  color: var(--secops-ink);
+}
+
+.secops-tabs button:focus-visible,
+.secops-toggle:focus-visible {
+  outline: 2px solid var(--color-focus, #2d6cdf);
+  outline-offset: 2px;
+}
+
+.secops-filters,
+.secops-window,
+.secops-threshold {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.secops-filters label,
+.secops-window {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.secops-filters select,
+.secops-window select,
+.secops-threshold input {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-body);
+  font-size: 12px;
+  padding: 5px 8px;
+}
+
+.secops-threshold input {
+  font-family: var(--font-mono);
+  width: 74px;
+}
+
+.secops-count,
+.secops-muted {
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+}
+
+.secops-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.secops-table {
+  border-collapse: collapse;
+  font-size: 13px;
+  table-layout: auto;
+  width: 100%;
+}
+
+.secops-table th {
+  background: var(--secops-wash);
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  padding: 9px 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.secops-table td {
+  border-top: 1px solid var(--color-border-light);
+  color: var(--color-text-body);
+  line-height: 1.45;
+  padding: 10px 12px;
+  vertical-align: middle;
+}
+
+.secops-table tr.is-disabled td {
+  color: var(--color-text-tertiary);
+}
+
+.secops-primary {
+  color: var(--secops-ink) !important;
+  font-weight: 600;
+}
+
+.secops-time {
+  color: var(--color-text-tertiary) !important;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.secops-pill,
+.secops-channel {
+  background: var(--color-bg-muted);
+  border: 1px solid var(--color-border-light);
+  border-radius: 999px;
+  color: var(--color-text-secondary);
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.secops-channel + .secops-channel {
+  margin-left: 4px;
+}
+
+.secops-pill.severity-critical,
+.secops-pill.severity-error,
+.secops-pill.result-locked,
+.secops-pill.result-rate_limited,
+.secops-pill.notification-failed,
+.secops-pill.is-pending {
+  background: var(--color-danger-bg);
+  border-color: transparent;
+  color: var(--color-danger);
+}
+
+.secops-pill.severity-warning,
+.secops-pill.result-failed,
+.secops-pill.notification-pending {
+  background: var(--color-warning-bg);
+  border-color: transparent;
+  color: var(--color-warning-text);
+}
+
+.secops-pill.result-success,
+.secops-pill.result-unlocked,
+.secops-pill.notification-sent,
+.secops-pill.is-done {
+  background: var(--color-success-bg);
+  border-color: transparent;
+  color: var(--color-success);
+}
+
+.secops-toggle {
+  background: var(--color-bg-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 64px;
+  padding: 4px 9px;
+}
+
+.secops-toggle.is-on {
+  background: var(--color-success-bg);
+  border-color: transparent;
+  color: var(--color-success);
+}
+
+.secops-toggle:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.secops-row-error {
+  color: var(--color-danger);
+  display: block;
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+.secops-empty {
+  color: var(--color-text-tertiary) !important;
+  padding: 34px 16px !important;
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .secops-page .product-status-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .secops-toolbar,
+  .secops-filters {
+    align-items: flex-start;
+  }
+
+  .secops-toolbar {
+    flex-direction: column;
+  }
+
+  .secops-table {
+    min-width: 720px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .secops-page * {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}
