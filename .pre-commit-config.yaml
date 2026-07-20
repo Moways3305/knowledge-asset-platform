@@ -14,10 +14,10 @@ repos:
       - id: ruff
         name: ruff check --fix (backend)
         args: [--fix]
-        files: ^backend/(app|tests)/.*\.py$
+        files: ^(backend/(app|tests)/|integrations/).*\.py$
       - id: ruff-format
         name: ruff format (backend)
-        files: ^backend/(app|tests)/.*\.py$
+        files: ^(backend/(app|tests)/|integrations/).*\.py$
   # 前端：eslint + prettier（local hook，复用 node_modules 内项目锁定版本）。
   - repo: local
     hooks:

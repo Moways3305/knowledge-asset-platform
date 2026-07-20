@@ -70,4 +70,4 @@ async def list_model_options(
                 "denied_reason": "weknora_call_failed",
                 "message": "底座模型列举失败，请稍后重试",
             },
-        )
+        ) from None

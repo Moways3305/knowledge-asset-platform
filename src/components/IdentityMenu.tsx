@@ -131,6 +131,7 @@ export default function IdentityMenu() {
   return (
     <div className="idm" ref={wrapRef}>
       <button
+        type="button"
         className={`idm-trigger ${open ? "is-open" : ""}`}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
@@ -197,6 +198,7 @@ export default function IdentityMenu() {
                 )}
                 <div className="idm-actions">
                   <button
+                    type="button"
                     className="btn-secondary idm-btn"
                     onClick={() => {
                       setShowSwitchLogin(true);
@@ -207,6 +209,7 @@ export default function IdentityMenu() {
                     切换账号
                   </button>
                   <button
+                    type="button"
                     className="idm-logout"
                     onClick={() => void handleLogout()}
                     disabled={authBusy}
@@ -242,6 +245,7 @@ export default function IdentityMenu() {
                 />
                 <div className="idm-actions">
                   <button
+                    type="button"
                     className="btn-primary idm-btn"
                     onClick={() => void handleLogin()}
                     disabled={authBusy}
@@ -249,6 +253,7 @@ export default function IdentityMenu() {
                     {authBusy ? "登录中…" : "登录"}
                   </button>
                   <button
+                    type="button"
                     className="btn-secondary idm-btn"
                     onClick={() => void handleWecomLogin()}
                     disabled={authBusy}
@@ -257,6 +262,7 @@ export default function IdentityMenu() {
                   </button>
                   {authMe && (
                     <button
+                      type="button"
                       className="btn-secondary idm-btn"
                       onClick={() => {
                         setShowSwitchLogin(false);

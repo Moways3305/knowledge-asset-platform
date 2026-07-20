@@ -45,7 +45,7 @@ testpaths = ["tests"]
 addopts = "-q"
 asyncio_mode = "auto"
 
-# 覆盖率基线（首阶段只观测、不设硬性阈值 fail_under）。
+# 覆盖率基线（fail_under = 70：低于此阈值 CI 阻断，防止覆盖率无声下滑）。
 [tool.coverage.run]
 source = ["app"]
 branch = true
@@ -55,14 +55,16 @@ omit = ["app/seed/*"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
+fail_under = 70
 
-# 类型检查基线（首阶段宽松模式：只抓明显的类型错误，不强制全量注解）。
-# 后续按模块用 per-module overrides 逐步收紧到 --strict 子集。
+# 类型检查基线（收紧模式：强制全量注解 + 检查无注解函数体）。
+# 第三方库缺 stub 不报错（celery / asyncpg 等无完整类型），其余严格。
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
-# 首阶段：第三方库缺 stub 不报错（celery / asyncpg 等无完整类型）。
+disallow_untyped_defs = true
+check_untyped_defs = true
 ignore_missing_imports = true
 
 [tool.ruff]
@@ -81,9 +83,6 @@ ignore = [
     # E501：存量超长行绝大多数是中文注释/用户态文案，逐行折行是纯排版大 diff，
     # 与"不为过 lint 改动业务代码"的边界冲突；显式豁免，新代码仍建议守 100 列。
     "E501",
-    # B904：raise ... from err 改异常链需逐处评审语义（区分 from err / from None），
-    # 属于行为相邻改动，不在 lint 接入任务内批量处理；留待单独任务逐个评审。
-    "B904",
 ]
 
 [tool.ruff.lint.flake8-bugbear]

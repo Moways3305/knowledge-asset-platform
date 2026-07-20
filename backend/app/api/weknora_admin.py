@@ -152,7 +152,7 @@ async def list_providers(
             weknora, model_type=model_type, trace_id=get_trace_id(request)
         )
     except WeKnoraError as exc:
-        raise _wrap_weknora(exc)
+        raise _wrap_weknora(exc) from exc
     return ProviderListResponse(items=items)
 
 
@@ -170,7 +170,7 @@ async def list_models(
             weknora, model_type=type, trace_id=get_trace_id(request)
         )
     except WeKnoraError as exc:
-        raise _wrap_weknora(exc)
+        raise _wrap_weknora(exc) from exc
     return ModelListResponse(items=items)
 
 
@@ -188,7 +188,7 @@ async def create_model(
     try:
         res = await weknora_models.create_model(weknora, req, trace_id=trace_id)
     except WeKnoraError as exc:
-        raise _wrap_weknora(exc)
+        raise _wrap_weknora(exc) from exc
     # 审计只放安全字段（名称 / 类型 / provider），绝不含 api_key / base_url / 真实 id。
     await audit_service.record_event(
         session,
@@ -218,7 +218,7 @@ async def update_model(
     try:
         res = await weknora_models.update_model(weknora, model_ref, req, trace_id=trace_id)
     except WeKnoraError as exc:
-        raise _wrap_weknora(exc)
+        raise _wrap_weknora(exc) from exc
     await audit_service.record_event(
         session,
         caller=caller,
@@ -246,7 +246,7 @@ async def delete_model(
     try:
         await weknora_models.delete_model(weknora, model_ref, trace_id=trace_id)
     except WeKnoraError as exc:
-        raise _wrap_weknora(exc)
+        raise _wrap_weknora(exc) from exc
     await audit_service.record_event(
         session,
         caller=caller,
@@ -271,7 +271,7 @@ async def check_model(
     try:
         return await weknora_models.check_model(weknora, req, trace_id=get_trace_id(request))
     except WeKnoraError as exc:
-        raise _wrap_weknora(exc)
+        raise _wrap_weknora(exc) from exc
 
 
 @router.get("/kb-configs", response_model=KbConfigListResponse)
@@ -288,7 +288,7 @@ async def list_kb_configs(
             session, weknora, trace_id=get_trace_id(request)
         )
     except WeKnoraError as exc:
-        raise _wrap_weknora(exc)
+        raise _wrap_weknora(exc) from exc
     return KbConfigListResponse(items=items)
 
 
@@ -309,7 +309,7 @@ async def update_kb_init(
             session, weknora, mapping_id, req, trace_id=trace_id
         )
     except WeKnoraError as exc:
-        raise _wrap_weknora(exc, kb_update=True)
+        raise _wrap_weknora(exc, kb_update=True) from exc
     # 审计只放安全字段（mapping id / scope / 状态），绝不含 weknora_kb_id / 真实 model_id。
     await audit_service.record_event(
         session,
@@ -341,7 +341,7 @@ async def get_default_models(
             session, weknora, trace_id=get_trace_id(request)
         )
     except WeKnoraError as exc:
-        raise _wrap_weknora(exc)
+        raise _wrap_weknora(exc) from exc
 
 
 @router.put("/default-models", response_model=DefaultModelsOut)
@@ -361,7 +361,7 @@ async def put_default_models(
             session, weknora, req, updated_by=caller.user_id, trace_id=trace_id
         )
     except WeKnoraError as exc:
-        raise _wrap_weknora(exc)
+        raise _wrap_weknora(exc) from exc
     # 审计只放安全 model_ref（对底座 id 不可逆）+ 槽位名，绝不含真实 model_id / api_key / base_url。
     await audit_service.record_event(
         session,

@@ -246,7 +246,8 @@ async def login(
         )
         if guard.blocked:
             # blocked 分支下 guard.result 必为具体状态（locked / rate_limited）。
-            assert guard.result is not None
+            if guard.result is None:
+                raise RuntimeError("login guard blocked but result is None")
             await auth_security.record_login_attempt(
                 session,
                 identifier_hash=identifier_hash,
@@ -280,7 +281,8 @@ async def login(
     try:
         if has_password:
             # has_password = bool(body.password) ⟹ 此分支内 password 必非 None。
-            assert body.password is not None
+            if body.password is None:
+                raise RuntimeError("has_password branch entered with None password")
             user = await session_service.login_with_password(
                 session, email=body.email, password=body.password
             )
@@ -323,7 +325,7 @@ async def login(
                 failed_count=0,
             )
             await session.commit()
-        raise _unified_401
+        raise _unified_401 from exc
 
     raw_token = await session_service.create_session(
         session, user, ip_address=ip, device_info=device, login_method=login_method
@@ -406,7 +408,7 @@ async def wecom_start(
     except WeComError as exc:
         raise HTTPException(
             status_code=503, detail={"denied_reason": exc.code, "message": "企微未配置"}
-        )
+        ) from exc
     _set_oauth_state_cookie(response, state, get_settings())
     # 授权 URL 含 corp_id/redirect/state，但**不含 app_secret**；state 同时在 cookie 里校验。
     return WecomAuthorizeOut(authorize_url=url)
@@ -460,7 +462,7 @@ async def wecom_callback(
         raise HTTPException(
             status_code=401,
             detail={"denied_reason": "oauth_exchange_failed", "message": "企微身份换取失败"},
-        )
+        ) from None
 
     corp_id = _trusted_wecom_corp_id(settings, oauth)
 
@@ -482,7 +484,7 @@ async def wecom_callback(
                 "denied_reason": "wecom_status_check_failed",
                 "message": "企微成员状态核验失败，请稍后重试",
             },
-        )
+        ) from None
     user = await load_user_with_roles(
         session, wecom_corp_id=corp_id, wecom_user_id=identity.wecom_user_id
     )

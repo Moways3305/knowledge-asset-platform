@@ -680,14 +680,24 @@ async def approve_project_ingest_review(
                 rerank_model_ref=req.rerank_model_ref,
             )
         except Exception:
-            _logger.warning("project_ingest_approval_index_failed", extra={"stage": "index"})
+            _logger.warning(
+                "project_ingest_approval_index_failed",
+                extra={"stage": "index"},
+                exc_info=True,
+            )
             await session.rollback()
             index_status = "index_failed"
 
     loaded_review = await session.get(ReviewTask, review_id)
     loaded_asset = await session.get(KnowledgeAsset, asset_id)
     loaded_task = await session.get(IngestTask, ingest_task_id)
-    assert loaded_review is not None and loaded_asset is not None and loaded_task is not None
+    if loaded_review is None or loaded_asset is None or loaded_task is None:
+        raise RuntimeError(
+            "review/asset/task missing after approval: "
+            f"review={loaded_review is not None}, "
+            f"asset={loaded_asset is not None}, "
+            f"task={loaded_task is not None}"
+        )
     review, asset, task = loaded_review, loaded_asset, loaded_task
     if index_status not in {"indexed", "skipped"}:
         review.status = ReviewTaskStatus.approval_failed.value

@@ -99,7 +99,7 @@ async def list_generation_models(
                 "denied_reason": "generation_model_storage_unavailable",
                 "message": "模型列表加载失败，请刷新或检查模型连接",
             },
-        )
+        ) from None
     return GenerationModelAdminListResponse(items=items, total=len(items))
 
 
@@ -124,7 +124,7 @@ async def create_generation_model(
             actor_id=caller.user_id,
         )
     except generation_models.GenerationModelError as exc:
-        raise _wrap(exc)
+        raise _wrap(exc) from exc
     await audit_service.record_event(
         session,
         caller=caller,
@@ -160,7 +160,7 @@ async def update_generation_model(
             actor_id=caller.user_id,
         )
     except generation_models.GenerationModelError as exc:
-        raise _wrap(exc)
+        raise _wrap(exc) from exc
     await audit_service.record_event(
         session,
         caller=caller,
@@ -185,7 +185,7 @@ async def delete_generation_model(
     try:
         await generation_models.delete_model(session, model_ref)
     except generation_models.GenerationModelError as exc:
-        raise _wrap(exc)
+        raise _wrap(exc) from exc
     await audit_service.record_event(
         session,
         caller=caller,
@@ -212,7 +212,7 @@ async def test_generation_model(
     try:
         result = await generation_models.test_model_connection(session, model_ref)
     except generation_models.GenerationModelError as exc:
-        raise _wrap(exc)
+        raise _wrap(exc) from exc
     await session.commit()
     return GenerationModelTestResponse(**result)
 
@@ -230,7 +230,7 @@ async def put_generation_default_model(
             session, body.model_ref, actor_id=caller.user_id
         )
     except generation_models.GenerationModelError as exc:
-        raise _wrap(exc)
+        raise _wrap(exc) from exc
     await audit_service.record_event(
         session,
         caller=caller,

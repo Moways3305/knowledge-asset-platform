@@ -754,7 +754,8 @@ async def create_or_get_project_ingest_review(
         assets, projects = await _aux_maps(session, [existing])
         return _to_list_item(existing, assets, projects)
 
-    assert req.target_project_id is not None
+    if req.target_project_id is None:
+        raise RuntimeError("project ingest review requires target_project_id")
     reviewer_id = await _active_pm_of(session, req.target_project_id)
     task = ReviewTask(
         review_type=ReviewType.project_ingest_approval.value,

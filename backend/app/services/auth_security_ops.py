@@ -196,7 +196,8 @@ async def unlock_identifier(
         identifier_hash = auth_security.hash_login_identifier(identifier, purpose="identifier")
     else:
         # 上方 XOR 校验保证：user_id 为空时 identifier_hash_prefix 必非空。
-        assert body.identifier_hash_prefix is not None
+        if body.identifier_hash_prefix is None:
+            raise RuntimeError("unlock requires user_id or identifier_hash_prefix")
         identifier_hash = await _resolve_identifier_by_prefix(session, body.identifier_hash_prefix)
         # 关联近期已知 user_id（若该 identifier 的近期 attempt 带 user_id），仅作安全元数据。
         target_user_id = (

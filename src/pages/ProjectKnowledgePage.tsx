@@ -396,9 +396,13 @@ function ProjectKnowledgeWorkspace({
         title="项目知识库"
         description={project.projectName}
         actions={
-          <label className="pk-project-switcher">
+          <label className="pk-project-switcher" htmlFor="pk-project-switcher-header">
             <span>切换项目</span>
-            <select value={project.projectId} onChange={(event) => onSwitch(event.target.value)}>
+            <select
+              id="pk-project-switcher-header"
+              value={project.projectId}
+              onChange={(event) => onSwitch(event.target.value)}
+            >
               {projects.map((item) => (
                 <option key={item.projectId} value={item.projectId}>
                   {item.projectName}
@@ -441,9 +445,10 @@ function ProjectKnowledgeWorkspace({
               placeholder="按标题或标签搜索"
             />
           </div>
-          <label className="pk-select-field">
+          <label className="pk-select-field" htmlFor="pk-filter-zone">
             <span className="sr-only">资料区域</span>
             <select
+              id="pk-filter-zone"
               aria-label="资料区域"
               value={zone}
               onChange={(event) => {
@@ -456,9 +461,10 @@ function ProjectKnowledgeWorkspace({
               <option value="asset">区域：资产区</option>
             </select>
           </label>
-          <label className="pk-select-field">
+          <label className="pk-select-field" htmlFor="pk-filter-type">
             <span className="sr-only">资产类型</span>
             <select
+              id="pk-filter-type"
               aria-label="资产类型"
               value={assetType}
               onChange={(event) => {
@@ -474,9 +480,10 @@ function ProjectKnowledgeWorkspace({
               ))}
             </select>
           </label>
-          <label className="pk-select-field">
+          <label className="pk-select-field" htmlFor="pk-filter-status">
             <span className="sr-only">资产状态</span>
             <select
+              id="pk-filter-status"
               aria-label="资产状态"
               value={assetStatus}
               onChange={(event) => {
@@ -492,9 +499,10 @@ function ProjectKnowledgeWorkspace({
               ))}
             </select>
           </label>
-          <label className="pk-select-field">
+          <label className="pk-select-field" htmlFor="pk-filter-confidentiality">
             <span className="sr-only">保密级别</span>
             <select
+              id="pk-filter-confidentiality"
               aria-label="保密级别"
               value={confidentialityLevel}
               onChange={(event) => {
@@ -513,9 +521,10 @@ function ProjectKnowledgeWorkspace({
           <details className="pk-more-filters">
             <summary>更多筛选</summary>
             <div className="pk-more-filter-panel">
-              <label>
+              <label htmlFor="pk-filter-updated-from">
                 <span>更新开始</span>
                 <input
+                  id="pk-filter-updated-from"
                   type="date"
                   value={updatedFrom}
                   onChange={(event) => {
@@ -524,9 +533,10 @@ function ProjectKnowledgeWorkspace({
                   }}
                 />
               </label>
-              <label>
+              <label htmlFor="pk-filter-updated-to">
                 <span>更新结束</span>
                 <input
+                  id="pk-filter-updated-to"
                   type="date"
                   value={updatedTo}
                   onChange={(event) => {
@@ -535,9 +545,10 @@ function ProjectKnowledgeWorkspace({
                   }}
                 />
               </label>
-              <label>
+              <label htmlFor="pk-filter-sort-by">
                 <span>排序字段</span>
                 <select
+                  id="pk-filter-sort-by"
                   aria-label="排序字段"
                   value={sortBy}
                   onChange={(event) => {
@@ -552,9 +563,10 @@ function ProjectKnowledgeWorkspace({
                   <option value="asset_status">状态</option>
                 </select>
               </label>
-              <label>
+              <label htmlFor="pk-filter-sort-direction">
                 <span>排序方向</span>
                 <select
+                  id="pk-filter-sort-direction"
                   aria-label="排序方向"
                   value={sortDirection}
                   onChange={(event) => {
@@ -566,8 +578,9 @@ function ProjectKnowledgeWorkspace({
                   <option value="asc">升序</option>
                 </select>
               </label>
-              <label className="pk-archive-toggle">
+              <label className="pk-archive-toggle" htmlFor="pk-filter-include-archived">
                 <input
+                  id="pk-filter-include-archived"
                   type="checkbox"
                   checked={includeArchived}
                   onChange={(event) => {
@@ -707,9 +720,10 @@ function ProjectKnowledgeWorkspace({
               ) : (
                 <>
                   <div className="pk-qa-controls">
-                    <label>
+                    <label htmlFor="pk-qa-model">
                       <span>问答模型</span>
                       <select
+                        id="pk-qa-model"
                         value={selectedModelIndex}
                         onChange={(event) => setSelectedModelIndex(event.target.value)}
                         disabled={modelsState === "loading" || models.length === 0}
@@ -800,9 +814,13 @@ export default function ProjectKnowledgePage() {
 
   const switcher =
     projects.length > 0 ? (
-      <label className="pk-project-switcher">
+      <label className="pk-project-switcher" htmlFor="pk-project-switcher">
         <span>切换项目</span>
-        <select value="" onChange={(event) => navigate(`/project/${event.target.value}/knowledge`)}>
+        <select
+          id="pk-project-switcher"
+          value=""
+          onChange={(event) => navigate(`/project/${event.target.value}/knowledge`)}
+        >
           <option value="">选择可访问项目</option>
           {projects.map((project) => (
             <option key={project.projectId} value={project.projectId}>

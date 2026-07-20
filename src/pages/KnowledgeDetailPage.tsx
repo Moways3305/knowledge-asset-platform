@@ -340,7 +340,11 @@ export default function KnowledgeDetailPage() {
           <h1>资产详情加载失败</h1>
           <p>请检查网络连接后重试。</p>
           <div className="kdetail-state-actions">
-            <button className="btn-primary" onClick={() => setLoadAttempt((value) => value + 1)}>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => setLoadAttempt((value) => value + 1)}
+            >
               重新加载
             </button>
             <Link to="/knowledge" className="btn-secondary">
@@ -409,6 +413,7 @@ export default function KnowledgeDetailPage() {
         <div className="kdetail-primary-action">
           {canOriginal ? (
             <button
+              type="button"
               className="btn-primary"
               onClick={() => void handlePreviewOriginal()}
               disabled={previewLoading}
@@ -417,11 +422,12 @@ export default function KnowledgeDetailPage() {
               {previewLoading ? "打开中…" : "预览原文"}
             </button>
           ) : pendingOriginal ? (
-            <button className="btn-secondary" disabled>
+            <button type="button" className="btn-secondary" disabled>
               申请审批中
             </button>
           ) : asset.access.canRequestOriginal ? (
             <button
+              type="button"
               className="btn-primary"
               onClick={() => void handleRequestOriginal()}
               disabled={oaBusy}
@@ -559,7 +565,11 @@ export default function KnowledgeDetailPage() {
               ) : lcErr && lcEvents === null ? (
                 <div className="kdetail-retry-state" role="alert">
                   <span>{lcErr}</span>
-                  <button className="btn-small" onClick={() => void loadLifecycleEvents()}>
+                  <button
+                    type="button"
+                    className="btn-small"
+                    onClick={() => void loadLifecycleEvents()}
+                  >
                     重试
                   </button>
                 </div>
@@ -601,6 +611,7 @@ export default function KnowledgeDetailPage() {
                     />
                     <div className="kdetail-ops-buttons">
                       <button
+                        type="button"
                         className="btn-small"
                         onClick={() => void handleArchiveRequest()}
                         disabled={lcBusy}
@@ -608,6 +619,7 @@ export default function KnowledgeDetailPage() {
                         <Archive size={14} aria-hidden="true" /> 发起归档候选
                       </button>
                       <button
+                        type="button"
                         className="btn-small"
                         onClick={() => void handleArchiveConfirm()}
                         disabled={lcBusy}
@@ -620,6 +632,7 @@ export default function KnowledgeDetailPage() {
 
                 {asset.access.canRetryIndex && (
                   <button
+                    type="button"
                     className="btn-small kdetail-full-action"
                     onClick={() => void handleRetryIndex()}
                     disabled={retryBusy}
@@ -633,6 +646,7 @@ export default function KnowledgeDetailPage() {
                   <div className="kdetail-danger-zone">
                     {!confirmDelete ? (
                       <button
+                        type="button"
                         className="btn-small btn-small-danger"
                         onClick={() => setConfirmDelete(true)}
                       >
@@ -650,6 +664,7 @@ export default function KnowledgeDetailPage() {
                         />
                         <div className="kdetail-ops-buttons">
                           <button
+                            type="button"
                             className="btn-small btn-small-danger"
                             onClick={() => void handleDelete()}
                             disabled={deleteBusy}
@@ -657,6 +672,7 @@ export default function KnowledgeDetailPage() {
                             {deleteBusy ? "删除中…" : "确认删除"}
                           </button>
                           <button
+                            type="button"
                             className="btn-small"
                             onClick={() => setConfirmDelete(false)}
                             disabled={deleteBusy}

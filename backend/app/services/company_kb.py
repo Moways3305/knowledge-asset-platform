@@ -144,7 +144,8 @@ async def create_company_kb(
         return _status_out(mapping)
 
     mapping = await _find_mapping(session)
-    assert mapping is not None
+    if mapping is None:
+        raise RuntimeError("company kb mapping missing after ensure-create path")
     await _audit_create(session, caller, mapping, trace_id, ready=True)
     await session.commit()
     return _status_out(mapping)

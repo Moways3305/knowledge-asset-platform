@@ -243,7 +243,8 @@ async def create_model(
     session.add(model)
     await session.flush()
     settings = await _settings(session, create=True)
-    assert settings is not None
+    if settings is None:
+        raise RuntimeError("generation model settings missing after create=True")
     if make_default:
         settings.default_model_id = model.id
         settings.updated_by = actor_id
@@ -267,7 +268,8 @@ async def update_model(
     if model is None:
         raise GenerationModelError("generation_model_not_found", "内容生成模型不存在", 404)
     settings = await _settings(session, create=True)
-    assert settings is not None
+    if settings is None:
+        raise RuntimeError("generation model settings missing after create=True")
     if not enabled and settings.default_model_id == model.id:
         raise GenerationModelError(
             "generation_model_default_disable_denied",
@@ -294,7 +296,8 @@ async def delete_model(session: AsyncSession, model_ref: str) -> None:
     if model is None:
         raise GenerationModelError("generation_model_not_found", "内容生成模型不存在", 404)
     settings = await _settings(session, create=True)
-    assert settings is not None
+    if settings is None:
+        raise RuntimeError("generation model settings missing after create=True")
     if settings.default_model_id == model.id:
         raise GenerationModelError(
             "generation_model_default_delete_denied",
@@ -309,7 +312,8 @@ async def set_default_model(
     session: AsyncSession, model_ref: str | None, *, actor_id: uuid.UUID
 ) -> dict | None:
     settings = await _settings(session, create=True)
-    assert settings is not None
+    if settings is None:
+        raise RuntimeError("generation model settings missing after create=True")
     if not model_ref:
         settings.default_model_id = None
         settings.updated_by = actor_id

@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 
 # ---------------- todos ----------------
-class WorkbenchTodoItem(BaseModel):
+class AgentWorkbenchTodoItem(BaseModel):
     """工作台待办条目（安全聚合）。asset_title 已按权限边界裁剪，无权看标题时为安全占位。"""
 
     todo_id: str
@@ -41,7 +41,7 @@ class WorkbenchTodoCounts(BaseModel):
 
 
 class WorkbenchTodosResponse(BaseModel):
-    items: list[WorkbenchTodoItem]
+    items: list[AgentWorkbenchTodoItem]
     counts: WorkbenchTodoCounts
 
 

@@ -281,7 +281,7 @@ async def _validate_config_fields(
             422,
             "wecom_invalid_directory",
             "扫描目录格式应为 'spaceid:<id>;fatherid:<id>'",
-        )
+        ) from None
 
     if scope_type not in _VALID_SCOPES:
         raise _denied(422, "wecom_scan_invalid_scope", "非法的目标知识库类型")
@@ -622,7 +622,7 @@ async def list_drive_spaces(caller: CallerContext, drive):
     try:
         spaces = await drive.list_spaces()
     except WeComError as exc:
-        raise _wrap_wecom(exc)
+        raise _wrap_wecom(exc) from exc
     from app.schemas.wecom import WecomDriveSpaceOut, WecomDriveSpacesResponse
 
     return WecomDriveSpacesResponse(
@@ -650,14 +650,14 @@ async def list_drive_directories(
         try:
             sp, fid = parse_directory_path(parent_ref)
         except WeComError:
-            raise _denied(422, "wecom_invalid_directory_ref", "目录标识格式非法")
+            raise _denied(422, "wecom_invalid_directory_ref", "目录标识格式非法") from None
         if sp != space:
             raise _denied(422, "wecom_directory_space_mismatch", "目录与所选空间不一致")
         fatherid = fid or None
     try:
         dirs = await drive.list_directories(space, fatherid)
     except WeComError as exc:
-        raise _wrap_wecom(exc)
+        raise _wrap_wecom(exc) from exc
     from app.schemas.wecom import WecomDriveDirectoriesResponse, WecomDriveDirectoryOut
 
     return WecomDriveDirectoriesResponse(
@@ -751,7 +751,7 @@ async def trigger_scan(
         )
         if existing is not None:
             return _record_out(existing)
-        raise _denied(409, "wecom_scan_conflict", "扫描触发冲突，请稍后重试")
+        raise _denied(409, "wecom_scan_conflict", "扫描触发冲突，请稍后重试") from None
     await audit_service.record_event(
         session,
         caller=caller,

@@ -13,10 +13,10 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import denied
 from app.db.utils import utc_now
 from app.models.agent_registry import AgentWhitelistRule
 from app.schemas.enums import AuditAction, AuditLogType
@@ -33,16 +33,10 @@ _MAX_CONF = "L2"
 _MAX_AI = "A2"
 
 
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
-
-
 def _require_business(caller: CallerContext) -> None:
     """仅 active 业务用户可自助接入（禁 pure admin / inactive / 非业务用户）。"""
     if not caller.is_active or not caller.is_business_user:
-        raise _denied(
+        raise denied(
             403, "workbuddy_not_business_user", "仅在职业务用户可自助生成 WorkBuddy 接入配置"
         )
 
