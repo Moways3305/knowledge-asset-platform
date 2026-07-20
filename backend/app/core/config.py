@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 
 class Settings(BaseSettings):
@@ -49,7 +51,26 @@ class Settings(BaseSettings):
 
     # PostgreSQL async connection string, e.g.
     # postgresql+asyncpg://dev:devpassword@localhost:5432/knowledge_platform
+    # 若 DATABASE_URL 的密码含 URL 特殊字符（如 % @ / # 等），可改用独立的
+    # POSTGRES_PASSWORD 环境变量提供原始密码——后端会用 sqlalchemy.engine.URL.create
+    # 正确编码后注入 DATABASE_URL，避免 URL 解析错乱。二者同时配置时后者优先。
     database_url: str = "postgresql+asyncpg://dev:devpassword@localhost:5432/knowledge_platform"
+    # 独立数据库密码（可选）。非空时覆盖 database_url 中的密码部分。
+    # 用于密码含 URL 特殊字符（如 %）的场景，避免在 DATABASE_URL 中拼接。
+    postgres_password: str = ""
+
+    @model_validator(mode="after")
+    def _inject_postgres_password(self) -> Settings:
+        """POSTGRES_PASSWORD 非空时，用 URL.create 重写 database_url 的密码。
+
+        避免密码中的 URL 特殊字符（% @ / # 等）在 DATABASE_URL 中被错误解析。
+        """
+        if self.postgres_password:
+            parsed = make_url(self.database_url)
+            self.database_url = parsed.set(password=self.postgres_password).render_as_string(
+                hide_password=False
+            )
+        return self
 
     # 连接池（生产 PostgreSQL engine）：常驻连接数 / 峰值溢出 / 回收周期（秒，防陈旧连接）。
     db_pool_size: int = 5
