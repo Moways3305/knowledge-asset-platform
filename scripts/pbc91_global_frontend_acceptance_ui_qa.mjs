@@ -3,6 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import {
+  buildRouteCoverage,
+  routeDefinitions,
+} from "./pbc91_global_frontend_acceptance_coverage.mjs";
 
 const base = (process.env.UI_QA_BASE || "http://127.0.0.1:5179").replace(/\/$/, "");
 const rootDir = path.resolve();
@@ -83,93 +87,6 @@ const suites = [
     script: "pbc90_help_global_experience_ui_qa.mjs",
     evidence: "pbc90-help-global",
   },
-];
-
-const routeDefinitions = [
-  { route: "/", suite: "workbench", states: ["normal", "empty", "failure", "forbidden"] },
-  {
-    route: "/knowledge",
-    suite: "knowledge-list",
-    states: ["normal", "project", "empty", "failure", "forbidden"],
-  },
-  {
-    route: "/knowledge/:id",
-    suite: "knowledge-detail",
-    states: ["normal", "restricted", "failure", "forbidden"],
-  },
-  {
-    route: "/my/knowledge",
-    suite: "personal-knowledge",
-    states: ["normal", "empty", "failure", "forbidden"],
-  },
-  { route: "/upload", suite: "upload", states: ["normal", "empty", "failure"] },
-  {
-    route: "/admin/ingest",
-    suite: "admin-ingest",
-    states: ["normal", "empty", "failure", "forbidden"],
-  },
-  {
-    route: "/admin/wecom-scan",
-    suite: "wecom-scan",
-    states: ["normal", "empty", "failure", "forbidden"],
-  },
-  {
-    route: "/admin/weknora-models",
-    suite: "model-foundation",
-    states: ["normal", "empty", "failure", "forbidden"],
-  },
-  {
-    route: "/admin/audit",
-    suite: "security-operations",
-    states: ["normal", "empty", "failure", "forbidden"],
-  },
-  {
-    route: "/admin/auth-security",
-    suite: "security-operations",
-    states: ["normal", "empty", "failure", "forbidden"],
-  },
-  {
-    route: "/admin/alert-settings",
-    suite: "security-operations",
-    states: ["normal", "empty", "failure", "forbidden"],
-  },
-  {
-    route: "/admin/people",
-    suite: "people-permissions",
-    states: ["normal", "empty", "failure", "forbidden"],
-  },
-  {
-    route: "/admin/permissions",
-    suite: "people-permissions",
-    states: ["normal", "empty", "failure", "forbidden"],
-  },
-  {
-    route: "/review",
-    suite: "review-access",
-    states: ["normal", "loading", "empty", "failure", "forbidden"],
-  },
-  {
-    route: "/original-access",
-    suite: "review-access",
-    states: ["normal", "loading", "empty", "failure", "forbidden"],
-  },
-  {
-    route: "/project/:id",
-    suite: "project-space",
-    states: ["normal", "empty", "failure", "forbidden"],
-  },
-  {
-    route: "/project/:id/knowledge",
-    suite: "project-knowledge",
-    states: ["normal", "empty", "failure", "forbidden"],
-  },
-  {
-    route: "/project/:id/settings",
-    suite: "project-settings",
-    states: ["normal", "empty", "failure", "forbidden"],
-  },
-  { route: "/help", suite: "help-global", states: ["normal"] },
-  { route: "*", suite: "help-global", states: ["not-found"] },
 ];
 
 let ownedServer = null;
@@ -291,6 +208,7 @@ try {
             : cases.length || 1,
       durationMs: Date.now() - startedAt,
       reportPath: fs.existsSync(reportPath) ? path.resolve(reportPath) : null,
+      cases,
       screenshots,
       failureOutput: execution.code === 0 ? null : execution.output,
     });
@@ -299,24 +217,14 @@ try {
   await stopOwnedServer();
 }
 
-const routeCoverage = routeDefinitions.map((definition) => {
-  const suite = suiteResults.find((item) => item.name === definition.suite);
-  const status = suite?.status || "failed";
-  return {
-    ...definition,
-    viewports: ["1440", "1280"],
-    status,
-    checks: definition.states.flatMap((state) =>
-      ["1440", "1280"].map((viewport) => ({ state, viewport, status })),
-    ),
-    screenshots: suite?.screenshots || [],
-  };
-});
+const routeCoverage = buildRouteCoverage(routeDefinitions, suiteResults);
 const failedSuites = suiteResults.filter((suite) => suite.status === "failed");
 const skippedRoutes = routeCoverage.filter((route) => route.status === "skipped");
 const passedRoutes = routeCoverage.filter((route) => route.status === "passed");
 const allScreenshots = [...new Set(suiteResults.flatMap((suite) => suite.screenshots))];
-const acceptanceChecks = routeCoverage.flatMap((route) => route.checks);
+const acceptanceChecks = routeCoverage.flatMap((route) =>
+  route.checks.map((check) => ({ route: route.route, ...check })),
+);
 const report = {
   generatedAt: new Date().toISOString(),
   base,
@@ -345,4 +253,14 @@ console.log(
   JSON.stringify({ reportPath: path.resolve(reportPath), summary: report.summary }, null, 2),
 );
 
-if (failedSuites.length > 0 || passedRoutes.length !== routeCoverage.length) process.exitCode = 1;
+const failedAcceptanceChecks = acceptanceChecks.filter((check) => check.status !== "passed");
+if (failedAcceptanceChecks.length > 0) {
+  console.error(JSON.stringify({ failedAcceptanceChecks }, null, 2));
+}
+
+if (
+  failedSuites.length > 0 ||
+  passedRoutes.length !== routeCoverage.length ||
+  failedAcceptanceChecks.length > 0
+)
+  process.exitCode = 1;

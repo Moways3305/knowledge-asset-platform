@@ -29,7 +29,7 @@
     "test:ui:audit-security": "node scripts/pbc88_audit_security_operations_ui_qa.mjs",
     "test:ui:people-permissions": "node scripts/pbc89_people_permissions_ui_qa.mjs",
     "test:ui:help-global": "node scripts/pbc90_help_global_experience_ui_qa.mjs",
-    "test:ui:global-acceptance": "node scripts/pbc91_global_frontend_acceptance_ui_qa.mjs",
+    "test:ui:global-acceptance": "node --test scripts/pbc91_global_frontend_acceptance_coverage.test.mjs && node scripts/pbc91_global_frontend_acceptance_ui_qa.mjs",
     "api:export": "python scripts/export_openapi.py"
   },
   "dependencies": {
