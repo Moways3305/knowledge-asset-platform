@@ -84,18 +84,23 @@ export default function KnowledgeCard({
               <>
                 <span className="dossier-warn">删除后退出检索 / 问答 / 预览，保留审计。确认？</span>
                 <button
+                  type="button"
                   className="btn-small btn-small-danger"
                   disabled={deleteBusyId === asset.id}
                   onClick={() => onConfirmDelete(asset.id)}
                 >
                   {deleteBusyId === asset.id ? "删除中…" : "确认删除"}
                 </button>
-                <button className="btn-small" onClick={onCancelDelete}>
+                <button type="button" className="btn-small" onClick={onCancelDelete}>
                   取消
                 </button>
               </>
             ) : (
-              <button className="btn-small btn-small-danger" onClick={() => onAskDelete(asset.id)}>
+              <button
+                type="button"
+                className="btn-small btn-small-danger"
+                onClick={() => onAskDelete(asset.id)}
+              >
                 <Trash2 size={13} /> 删除 / 撤下
               </button>
             )}

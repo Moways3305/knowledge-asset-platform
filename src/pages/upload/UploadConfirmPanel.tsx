@@ -122,28 +122,38 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
             {summaryStatusText}
           </div>
 
-          <label className="upload77-field upload77-field-wide">
+          <label className="upload77-field upload77-field-wide" htmlFor="upload77-edit-title">
             <span>标题</span>
-            <input value={editTitle} onChange={(event) => setEditTitle(event.target.value)} />
+            <input
+              id="upload77-edit-title"
+              value={editTitle}
+              onChange={(event) => setEditTitle(event.target.value)}
+            />
           </label>
 
-          <label className="upload77-field upload77-field-wide">
+          <label className="upload77-field upload77-field-wide" htmlFor="upload77-edit-one-liner">
             <span>一句话摘要</span>
-            <input value={editOneLiner} onChange={(event) => setEditOneLiner(event.target.value)} />
+            <input
+              id="upload77-edit-one-liner"
+              value={editOneLiner}
+              onChange={(event) => setEditOneLiner(event.target.value)}
+            />
           </label>
 
-          <label className="upload77-field upload77-field-wide">
+          <label className="upload77-field upload77-field-wide" htmlFor="upload77-edit-summary">
             <span>详细摘要</span>
             <textarea
+              id="upload77-edit-summary"
               rows={6}
               value={editSummary}
               onChange={(event) => setEditSummary(event.target.value)}
             />
           </label>
 
-          <label className="upload77-field">
+          <label className="upload77-field" htmlFor="upload77-edit-key-points">
             <span>关键知识点</span>
             <textarea
+              id="upload77-edit-key-points"
               rows={5}
               value={editKeyPoints}
               placeholder="每行一条"
@@ -151,9 +161,10 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
             />
           </label>
 
-          <label className="upload77-field">
+          <label className="upload77-field" htmlFor="upload77-edit-tags">
             <span>标签</span>
             <textarea
+              id="upload77-edit-tags"
               rows={5}
               value={editTags}
               placeholder="使用空格或顿号分隔"
@@ -162,9 +173,10 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
           </label>
 
           <div className="upload77-field-grid">
-            <label className="upload77-field">
+            <label className="upload77-field" htmlFor="upload77-edit-asset-type">
               <span>资产类型</span>
               <select
+                id="upload77-edit-asset-type"
                 value={editAssetType}
                 onChange={(event) => setEditAssetType(event.target.value)}
               >
@@ -175,9 +187,10 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
                 ))}
               </select>
             </label>
-            <label className="upload77-field">
+            <label className="upload77-field" htmlFor="upload77-edit-biz-stage">
               <span>业务阶段</span>
               <select
+                id="upload77-edit-biz-stage"
                 value={editBizStage}
                 onChange={(event) => setEditBizStage(event.target.value)}
               >
@@ -186,9 +199,10 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
                 ))}
               </select>
             </label>
-            <label className="upload77-field">
+            <label className="upload77-field" htmlFor="upload77-edit-visibility">
               <span>可见性</span>
               <select
+                id="upload77-edit-visibility"
                 value={editVisibility}
                 onChange={(event) => setEditVisibility(event.target.value)}
               >
@@ -197,9 +211,10 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
                 ))}
               </select>
             </label>
-            <label className="upload77-field">
+            <label className="upload77-field" htmlFor="upload77-edit-confidentiality">
               <span>保密级别</span>
               <select
+                id="upload77-edit-confidentiality"
                 value={editConfidentiality}
                 onChange={(event) => setEditConfidentiality(event.target.value)}
               >
@@ -208,9 +223,10 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
                 ))}
               </select>
             </label>
-            <label className="upload77-field">
+            <label className="upload77-field" htmlFor="upload77-edit-ai-access">
               <span>自动处理级别</span>
               <select
+                id="upload77-edit-ai-access"
                 value={editAiAccess}
                 onChange={(event) => setEditAiAccess(event.target.value)}
               >
@@ -259,9 +275,10 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
 
           <div className="upload77-targets">
             <h3>入库目标</h3>
-            <label className="upload77-field">
+            <label className="upload77-field" htmlFor="upload77-target-library">
               <span>目标知识库</span>
               <select
+                id="upload77-target-library"
                 value={targetLibrary}
                 onChange={(event) => setTargetLibrary(event.target.value as TargetLibrary)}
               >
@@ -273,10 +290,11 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
               </select>
             </label>
             {targetLibrary === "project" && (
-              <label className="upload77-field">
+              <label className="upload77-field" htmlFor="upload77-target-project">
                 <span>目标项目</span>
                 {projects.length > 0 ? (
                   <select
+                    id="upload77-target-project"
                     value={targetProjectId}
                     onChange={(event) => setTargetProjectId(event.target.value)}
                   >

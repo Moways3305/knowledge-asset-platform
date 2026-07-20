@@ -196,7 +196,8 @@ async def create_personal_kb(
 
     mapping = await _find_personal_mapping(session, caller.user_id)
     # 紧接上面的创建路径，映射必已存在。
-    assert mapping is not None
+    if mapping is None:
+        raise RuntimeError("personal kb mapping missing after ensure-create path")
     await _audit(
         session,
         caller,

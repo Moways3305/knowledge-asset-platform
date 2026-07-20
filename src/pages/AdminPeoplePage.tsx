@@ -109,7 +109,10 @@ export default function AdminPeoplePage() {
     if (!canManageProjects) return;
     void fetchCompanyKnowledgeBase()
       .then(setCompanyKb)
-      .catch(() => setCompanyKb(null));
+      .catch((error: unknown) => {
+        console.error("Failed to load company knowledge base:", error);
+        setCompanyKb(null);
+      });
   }, [canManageProjects]);
 
   // 已知项目（project_id → name），从已拉取人员的成员关系聚合，供"新增成员关系"选择。
@@ -270,7 +273,12 @@ export default function AdminPeoplePage() {
                     if (e.key === "Enter") void load();
                   }}
                 />
-                <button className="btn-small" onClick={() => void load()} disabled={loading}>
+                <button
+                  type="button"
+                  className="btn-small"
+                  onClick={() => void load()}
+                  disabled={loading}
+                >
                   <RefreshCw size={13} /> {loading ? "加载中…" : "搜索 / 刷新"}
                 </button>
               </div>
@@ -290,7 +298,12 @@ export default function AdminPeoplePage() {
               <div className="pp-detail-panel">
                 <div className="pp-detail-head">
                   <span className="pp-detail-title">用户详情 · 治理</span>
-                  <button className="btn-small" aria-label="关闭人员详情" onClick={closeDetail}>
+                  <button
+                    type="button"
+                    className="btn-small"
+                    aria-label="关闭人员详情"
+                    onClick={closeDetail}
+                  >
                     <X size={14} /> 关闭
                   </button>
                 </div>
@@ -360,6 +373,7 @@ export default function AdminPeoplePage() {
                       style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
                     >
                       <button
+                        type="button"
                         disabled={busyKey === "account-status"}
                         onClick={async () => {
                           if (
@@ -435,6 +449,7 @@ export default function AdminPeoplePage() {
                         </span>
                         {allowed ? (
                           <button
+                            type="button"
                             className="btn-small"
                             disabled={busyKey === `company-${role}`}
                             onClick={async () => {
@@ -529,6 +544,7 @@ export default function AdminPeoplePage() {
                         </span>
                         {canManageProjectRole(m.project_role) && (
                           <button
+                            type="button"
                             className="btn-small"
                             disabled={busyKey === `membership-${m.membership_id}`}
                             onClick={async () => {
@@ -618,7 +634,7 @@ export default function AdminPeoplePage() {
                 </div>
                 <div className="ig-empty-title">无法加载</div>
                 <p className="ig-empty-desc">{error}</p>
-                <button className="btn-small" onClick={() => void load()}>
+                <button type="button" className="btn-small" onClick={() => void load()}>
                   重试
                 </button>
               </div>
@@ -634,7 +650,7 @@ export default function AdminPeoplePage() {
                 </div>
                 <div className="ig-empty-title">无匹配用户</div>
                 <p className="ig-empty-desc">尝试调整筛选条件。</p>
-                <button className="btn-small" onClick={() => void load()}>
+                <button type="button" className="btn-small" onClick={() => void load()}>
                   <RefreshCw size={13} />
                   重新加载
                 </button>
@@ -710,6 +726,7 @@ export default function AdminPeoplePage() {
                         <td className="pp-cell-time">{fmtTime(u.recent_session_at)}</td>
                         <td>
                           <button
+                            type="button"
                             className="btn-small"
                             disabled={detailLoadingId === u.user_id}
                             onClick={() => void openDetail(u.user_id)}
@@ -744,6 +761,7 @@ export default function AdminPeoplePage() {
               )}
               {(!companyKb?.exists || !companyKb.available) && (
                 <button
+                  type="button"
                   className="btn-small btn-small-primary"
                   disabled={companyKbBusy}
                   onClick={async () => {
@@ -802,6 +820,7 @@ function SetPasswordForm({ onSubmit }: { onSubmit: (password: string) => Promise
         autoComplete="new-password"
       />
       <button
+        type="button"
         className="btn-small btn-small-primary"
         disabled={busy || !pw}
         onClick={() => void submit()}
@@ -850,6 +869,7 @@ function AddMembershipForm({
         ))}
       </select>
       <button
+        type="button"
         className="btn-small btn-small-primary"
         onClick={() => projects[projectIndex] && onSubmit(projects[projectIndex].id, role)}
       >

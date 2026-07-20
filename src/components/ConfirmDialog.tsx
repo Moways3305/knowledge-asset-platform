@@ -103,13 +103,20 @@ export default function ConfirmDialog({
         )}
         <div className="kl-modal-actions">
           <button
+            type="button"
             className={`btn-small ${danger ? "btn-small-danger" : "btn-small-primary"}`}
             onClick={onConfirm}
             disabled={busy}
           >
             {busy ? busyText : confirmText}
           </button>
-          <button ref={cancelRef} className="btn-small" onClick={onCancel} disabled={busy}>
+          <button
+            type="button"
+            ref={cancelRef}
+            className="btn-small"
+            onClick={onCancel}
+            disabled={busy}
+          >
             {cancelText}
           </button>
         </div>

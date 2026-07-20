@@ -57,7 +57,8 @@ async def reconcile_parse_statuses(
     processed = updated = failed = 0
     for v in rows:
         # 查询已过滤 weknora_doc_id IS NOT NULL（见上方 where），此处必非 None。
-        assert v.weknora_doc_id is not None
+        if v.weknora_doc_id is None:
+            continue
         try:
             data = await weknora.get_knowledge(v.weknora_doc_id, trace_id=trace_id)
         except WeKnoraError:

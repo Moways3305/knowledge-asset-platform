@@ -50,7 +50,12 @@ TODO_FIELDS = (
     "asset_title",
     "created_at",
 )
-TODO_COUNTS_FIELDS = ("reviews", "ingest", "original_access_mine", "original_access_inbox")
+TODO_COUNTS_FIELDS = (
+    "reviews",
+    "ingest",
+    "original_access_mine",
+    "original_access_inbox",
+)
 KNOWLEDGE_CARD_FIELDS = (
     "asset_id",
     "title",
@@ -156,7 +161,9 @@ class KapClient:
             raise KapError(_UNAVAILABLE_MSG) from None
         return self._handle(resp)
 
-    def get(self, path: str, *, params: dict | None = None, bearer: str | None = None) -> dict:
+    def get(
+        self, path: str, *, params: dict | None = None, bearer: str | None = None
+    ) -> dict:
         try:
             resp = self._http.get(
                 path, params=params or None, headers=self._headers(bearer)
@@ -192,7 +199,11 @@ def search_knowledge(
 
 
 def answer_from_knowledge(
-    client: KapClient, query: str, *, scope: str | None = None, bearer: str | None = None
+    client: KapClient,
+    query: str,
+    *,
+    scope: str | None = None,
+    bearer: str | None = None,
 ) -> dict:
     body: dict = {"query": query, "intent": "qa"}
     if scope:
@@ -204,13 +215,17 @@ def answer_from_knowledge(
     }
 
 
-def list_accessible_projects(client: KapClient, *, bearer: str | None = None) -> list[dict]:
+def list_accessible_projects(
+    client: KapClient, *, bearer: str | None = None
+) -> list[dict]:
     data = client.get(_PROJECTS_PATH, bearer=bearer)
     return [_pick(p, PROJECT_FIELDS) for p in data.get("items", [])]
 
 
 # --------------------- 只读工作台工具（PBC-37）---------------------
-def list_my_todos(client: KapClient, *, limit: int | None = None, bearer: str | None = None) -> dict:
+def list_my_todos(
+    client: KapClient, *, limit: int | None = None, bearer: str | None = None
+) -> dict:
     params: dict = {}
     if limit is not None:
         params["limit"] = limit
@@ -240,7 +255,9 @@ def list_recent_knowledge(
     return [_pick(c, KNOWLEDGE_CARD_FIELDS) for c in data.get("items", [])]
 
 
-def get_knowledge_summary(client: KapClient, asset_id: str, *, bearer: str | None = None) -> dict:
+def get_knowledge_summary(
+    client: KapClient, asset_id: str, *, bearer: str | None = None
+) -> dict:
     data = client.get(_SUMMARY_PATH.format(asset_id=asset_id), bearer=bearer)
     return _pick(data, SUMMARY_FIELDS)
 
@@ -262,12 +279,16 @@ def list_project_knowledge(
     if tags:
         params["tags"] = tags
     data = client.get(
-        _PROJECT_KNOWLEDGE_PATH.format(project_id=project_id), params=params, bearer=bearer
+        _PROJECT_KNOWLEDGE_PATH.format(project_id=project_id),
+        params=params,
+        bearer=bearer,
     )
     return [_pick(c, KNOWLEDGE_CARD_FIELDS) for c in data.get("items", [])]
 
 
-def get_project_brief(client: KapClient, project_id: str, *, bearer: str | None = None) -> dict:
+def get_project_brief(
+    client: KapClient, project_id: str, *, bearer: str | None = None
+) -> dict:
     data = client.get(_PROJECT_BRIEF_PATH.format(project_id=project_id), bearer=bearer)
     return _pick(data, PROJECT_BRIEF_FIELDS)
 

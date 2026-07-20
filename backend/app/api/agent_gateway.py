@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import denied
 from app.core.trace import get_trace_id
 from app.db.session import get_db
 from app.models.agent_registry import AgentWhitelistRule
@@ -54,12 +55,6 @@ def _bearer(authorization: str | None) -> str | None:
     return parts[1].strip()
 
 
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
-
-
 async def require_bound_caller(
     authorization: str | None = Header(default=None),
     session: AsyncSession = Depends(get_db),
@@ -70,17 +65,17 @@ async def require_bound_caller(
     """
     token = _bearer(authorization)
     if token is None:
-        raise _denied(401, "agent_unauthenticated", "缺少或非法 Bearer token")
+        raise denied(401, "agent_unauthenticated", "缺少或非法 Bearer token")
     rule = await agent_registry.lookup_enabled_rule(session, token)
     if rule is None:
-        raise _denied(403, "agent_not_whitelisted", "接入未注册或未启用")
+        raise denied(403, "agent_not_whitelisted", "接入未注册或未启用")
     if rule.capability != _REQUIRED_CAPABILITY:
-        raise _denied(403, "agent_capability_denied", "该接入未启用 qa 能力")
+        raise denied(403, "agent_capability_denied", "该接入未启用 qa 能力")
     if rule.bound_user_id is None:
-        raise _denied(403, "caller_unbound", "该 token 未绑定平台用户")
+        raise denied(403, "caller_unbound", "该 token 未绑定平台用户")
     caller = await gateway.resolve_caller(session, rule.bound_user_id)
     if caller is None or not caller.is_business_user:
-        raise _denied(403, "caller_unresolved", "绑定用户无法解析或非业务用户")
+        raise denied(403, "caller_unresolved", "绑定用户无法解析或非业务用户")
     return rule, caller
 
 
@@ -95,9 +90,9 @@ async def knowledge_search(
 ) -> SearchResponse:
     rule, caller = bound
     if not gateway.tool_scope_allowed(rule, req.scope):
-        raise _denied(403, "agent_scope_denied", "请求范围超出该接入允许的 scope")
+        raise denied(403, "agent_scope_denied", "请求范围超出该接入允许的 scope")
     if rule.allowed_project_id is not None:
-        raise _denied(403, "agent_scope_denied", "项目锁定接入不支持统一检索端点")
+        raise denied(403, "agent_scope_denied", "项目锁定接入不支持统一检索端点")
     search_req = SearchRequest(
         query=req.query,
         scope=req.scope,

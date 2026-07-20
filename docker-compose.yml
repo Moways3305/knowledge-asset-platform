@@ -22,7 +22,7 @@ x-backend-env: &backend-env
   APP_NAME: knowledge-asset-platform
   APP_ENV: ${APP_ENV:-prod}
   LOG_LEVEL: INFO
-  DATABASE_URL: postgresql+asyncpg://dev:devpassword@postgres:5432/knowledge_platform
+  DATABASE_URL: postgresql+asyncpg://dev:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (set it in ./.env)}@postgres:5432/knowledge_platform
   # Redis 密码经 compose 变量插值（从 ./.env 读 REDIS_PASSWORD），不在此硬编码密码值。
   # backend/worker/beat/migrate 共用本变量连接同一带密码的 Redis。
   # :? 缺失即 fail-fast（compose 直接报错退出），不静默降级为空密码。
@@ -46,7 +46,9 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: dev
-      POSTGRES_PASSWORD: devpassword
+      # 密码经 compose 变量插值（从 ./.env 读 POSTGRES_PASSWORD），不硬编码；
+      # :? 缺失即 fail-fast（与 REDIS_PASSWORD 一致），避免弱密码误上线。
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (set it in ./.env)}
       POSTGRES_DB: knowledge_platform
     # 仅绑回环：供本机调试连库；不暴露到局域网/公网（生产单机部署可整段删除映射）。
     ports:

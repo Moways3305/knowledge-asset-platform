@@ -107,7 +107,10 @@ def test_projects_safe_fields():
 def test_error_is_sanitized():
     def handler(request):
         return httpx.Response(
-            403, json={"detail": {"denied_reason": "caller_unresolved", "message": "secret"}}
+            403,
+            json={
+                "detail": {"denied_reason": "caller_unresolved", "message": "secret"}
+            },
         )
 
     client = _client(handler)
@@ -256,10 +259,14 @@ def test_knowledge_summary_projection_no_original():
 def test_project_knowledge_passes_tags_and_projects():
     def handler(request):
         assert request.url.params.get_list("tags") == ["供应链", "流程优化"]
-        return httpx.Response(200, json={"items": [{"asset_id": "a1", "title": "T", **_LEAK_EXTRA}]})
+        return httpx.Response(
+            200, json={"items": [{"asset_id": "a1", "title": "T", **_LEAK_EXTRA}]}
+        )
 
     client = _client(handler)
-    out = list_project_knowledge(client, "p1", tags=["供应链", "流程优化"], bearer="kgw_user")
+    out = list_project_knowledge(
+        client, "p1", tags=["供应链", "流程优化"], bearer="kgw_user"
+    )
     assert out[0]["asset_id"] == "a1"
     _assert_no_leak(out)
 
@@ -344,7 +351,13 @@ def test_project_tools_404_is_sanitized():
         with pytest.raises(KapError) as e:
             call()
         msg = str(e.value)
-        for leak in ("project_not_found", "trace-LEAK", "internal_url", "http://", "kap.test"):
+        for leak in (
+            "project_not_found",
+            "trace-LEAK",
+            "internal_url",
+            "http://",
+            "kap.test",
+        ):
             assert leak not in msg
 
 

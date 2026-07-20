@@ -84,7 +84,7 @@ async def get_connections(
     try:
         items, warning = await model_connections.list_connections(session)
     except SQLAlchemyError:
-        raise _safe_dependency_error()
+        raise _safe_dependency_error() from None
     return ModelConnectionListResponse(
         items=[ModelConnectionOut(**item) for item in items],
         total=len(items),
@@ -113,9 +113,9 @@ async def post_connection(
             actor_id=caller.user_id,
         )
     except model_connections.ModelConnectionError as exc:
-        raise _wrap_connection(exc)
+        raise _wrap_connection(exc) from exc
     except generation_models.GenerationModelError as exc:
-        raise _wrap_generation(exc)
+        raise _wrap_generation(exc) from exc
     await audit_service.record_event(
         session,
         caller=caller,
@@ -152,9 +152,9 @@ async def put_connection(
             actor_id=caller.user_id,
         )
     except model_connections.ModelConnectionError as exc:
-        raise _wrap_connection(exc)
+        raise _wrap_connection(exc) from exc
     except generation_models.GenerationModelError as exc:
-        raise _wrap_generation(exc)
+        raise _wrap_generation(exc) from exc
     await audit_service.record_event(
         session,
         caller=caller,
@@ -179,9 +179,9 @@ async def post_connection_test(
     try:
         result = await model_connections.test_connection(session, model_ref)
     except model_connections.ModelConnectionError as exc:
-        raise _wrap_connection(exc)
+        raise _wrap_connection(exc) from exc
     except generation_models.GenerationModelError as exc:
-        raise _wrap_generation(exc)
+        raise _wrap_generation(exc) from exc
     await session.commit()
     return ModelConnectionTestResponse(**result)
 
@@ -196,7 +196,7 @@ async def get_usages(
     try:
         result = await model_connections.get_usage_assignments(session)
     except SQLAlchemyError:
-        raise _safe_dependency_error()
+        raise _safe_dependency_error() from None
     return ModelUsageAssignmentsOut(**result)
 
 
@@ -215,9 +215,9 @@ async def put_usages(
             actor_id=caller.user_id,
         )
     except model_connections.ModelConnectionError as exc:
-        raise _wrap_connection(exc)
+        raise _wrap_connection(exc) from exc
     except generation_models.GenerationModelError as exc:
-        raise _wrap_generation(exc)
+        raise _wrap_generation(exc) from exc
     await audit_service.record_event(
         session,
         caller=caller,

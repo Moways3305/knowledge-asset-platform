@@ -57,11 +57,11 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
         <h2>页面出现了问题</h2>
         <p>此处内容未能正常显示。重新加载页面通常可以恢复，也可以先返回今日工作台。</p>
         <div className="global-state-actions">
-          <button className="btn-small btn-small-primary" onClick={this.handleReload}>
+          <button type="button" className="btn-small btn-small-primary" onClick={this.handleReload}>
             <RefreshCw size={14} aria-hidden="true" />
             重新加载页面
           </button>
-          <button className="btn-small" onClick={this.handleHome}>
+          <button type="button" className="btn-small" onClick={this.handleHome}>
             <House size={14} aria-hidden="true" />
             返回今日工作台
           </button>

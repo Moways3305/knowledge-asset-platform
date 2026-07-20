@@ -16,6 +16,13 @@ import "@fontsource/ibm-plex-mono/latin-400.css";
 import "@fontsource/ibm-plex-mono/latin-500.css";
 import App from "./App";
 
+window.addEventListener("unhandledrejection", (event) => {
+  console.error("Unhandled promise rejection:", event.reason);
+});
+window.addEventListener("error", (event) => {
+  console.error("Uncaught error:", event.error);
+});
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />

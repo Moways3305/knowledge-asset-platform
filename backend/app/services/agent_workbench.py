@@ -29,6 +29,7 @@ from app.db.utils import utc_now
 from app.models.identity import Project
 from app.models.knowledge import KnowledgeAsset
 from app.schemas.agent_workbench import (
+    AgentWorkbenchTodoItem,
     WorkbenchKnowledgeCard,
     WorkbenchKnowledgeListResponse,
     WorkbenchKnowledgeSummary,
@@ -38,7 +39,6 @@ from app.schemas.agent_workbench import (
     WorkbenchReviewItem,
     WorkbenchReviewsResponse,
     WorkbenchTodoCounts,
-    WorkbenchTodoItem,
     WorkbenchTodosResponse,
 )
 from app.schemas.enums import AssetStatus, KnowledgeScope, ReviewTaskStatus
@@ -227,7 +227,7 @@ async def list_todos(
     session: AsyncSession, caller: CallerContext, rule, *, limit: int | None = None
 ) -> WorkbenchTodosResponse:
     lim = _clamp(limit, default=50, lo=1, hi=100)
-    items: list[WorkbenchTodoItem] = []
+    items: list[AgentWorkbenchTodoItem] = []
 
     # 待我审核（reviewer 为本人且非终态）。
     reviews = await review_service.list_reviews(session, caller)
@@ -254,7 +254,7 @@ async def list_todos(
 
     for r in my_reviews:
         items.append(
-            WorkbenchTodoItem(
+            AgentWorkbenchTodoItem(
                 todo_id=f"review:{r.id}",
                 type="review",
                 title="待审核知识资产",
@@ -272,7 +272,7 @@ async def list_todos(
         )
     for it in mine.items:
         items.append(
-            WorkbenchTodoItem(
+            AgentWorkbenchTodoItem(
                 todo_id=f"original_access_mine:{it.request_id}",
                 type="original_access_mine",
                 title="我的原文访问申请",
@@ -285,7 +285,7 @@ async def list_todos(
         )
     for it in inbox.items:
         items.append(
-            WorkbenchTodoItem(
+            AgentWorkbenchTodoItem(
                 todo_id=f"original_access_inbox:{it.request_id}",
                 type="original_access_inbox",
                 title="待我审批的原文访问申请",
@@ -298,7 +298,7 @@ async def list_todos(
         )
     for t in pending_ingest:
         items.append(
-            WorkbenchTodoItem(
+            AgentWorkbenchTodoItem(
                 todo_id=f"ingest:{t.id}",
                 type="ingest",
                 title="待确认入库任务",

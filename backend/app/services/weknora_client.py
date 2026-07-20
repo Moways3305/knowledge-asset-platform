@@ -312,7 +312,11 @@ class WeKnoraClient:
                 await self.delete_knowledge(knowledge_id, trace_id=trace_id)
             except WeKnoraError:
                 # doc 可能已不存在 / 底座删除失败：不阻断重传，继续上传新 doc。
-                pass
+                _logger.warning(
+                    "weknora_reparse_delete_failed",
+                    extra={"knowledge_id": knowledge_id},
+                    exc_info=True,
+                )
         return await self.upload_file(
             kb_id=kb_id,
             content=content,

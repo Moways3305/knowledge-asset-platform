@@ -62,7 +62,13 @@ def _read_bearer(ctx: Context | None) -> str | None:
 def _search_tool(query, scope=None, top_k=None, tags=None, phase=None, *, bearer=None):
     try:
         return search_knowledge(
-            _client, query, scope=scope, top_k=top_k, tags=tags, phase=phase, bearer=bearer
+            _client,
+            query,
+            scope=scope,
+            top_k=top_k,
+            tags=tags,
+            phase=phase,
+            bearer=bearer,
         )
     except KapError as exc:
         return {"error": str(exc)}
@@ -105,7 +111,9 @@ def _knowledge_summary_tool(asset_id, *, bearer=None):
         return {"error": str(exc)}
 
 
-def _project_knowledge_tool(project_id, limit=None, phase=None, tags=None, *, bearer=None):
+def _project_knowledge_tool(
+    project_id, limit=None, phase=None, tags=None, *, bearer=None
+):
     try:
         return list_project_knowledge(
             _client, project_id, limit=limit, phase=phase, tags=tags, bearer=bearer
@@ -130,7 +138,9 @@ def _pending_reviews_tool(limit=None, *, bearer=None):
 
 def _original_access_tool(box="mine", limit=None, *, bearer=None):
     try:
-        return list_original_access_requests(_client, box=box, limit=limit, bearer=bearer)
+        return list_original_access_requests(
+            _client, box=box, limit=limit, bearer=bearer
+        )
     except KapError as exc:
         return {"error": str(exc)}
 
@@ -195,7 +205,9 @@ def kap_list_project_knowledge(
     ctx: Context | None = None,
 ) -> object:
     """列出某项目下我可见的知识资产（先按项目权限校验，再按 decide() 裁剪）。"""
-    return _project_knowledge_tool(project_id, limit, phase, tags, bearer=_read_bearer(ctx))
+    return _project_knowledge_tool(
+        project_id, limit, phase, tags, bearer=_read_bearer(ctx)
+    )
 
 
 @mcp.tool()
@@ -205,7 +217,9 @@ def kap_get_project_brief(project_id: str, ctx: Context | None = None) -> object
 
 
 @mcp.tool()
-def kap_list_pending_reviews(limit: int | None = None, ctx: Context | None = None) -> object:
+def kap_list_pending_reviews(
+    limit: int | None = None, ctx: Context | None = None
+) -> object:
     """列出我可处理 / 可见的待审核事项（只读，不含证据文件 / 原文 / 内部引用）。"""
     return _pending_reviews_tool(limit, bearer=_read_bearer(ctx))
 

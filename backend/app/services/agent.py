@@ -108,7 +108,8 @@ def _layer_and_source(r: retrieval.RecalledAsset) -> tuple[str, str]:
     if r.summary is not None and r.summary.allowed:
         return AccessLayer.summary.value, r.summary.effective_access_source.value
     # recall 已保证发现层放行（见 docstring），discovery 必非 None。
-    assert r.discovery is not None
+    if r.discovery is None:
+        raise RuntimeError("recalled asset discovery layer is None despite recall guarantee")
     return AccessLayer.discovery.value, r.discovery.effective_access_source.value
 
 
@@ -229,7 +230,7 @@ async def run_project_qa(
             extra={"denied_reason": exc.code, "attempted": "agent.qa_model_select"},
             project_id=project_id,
         )
-        raise _denied(exc.status_code, exc.code, exc.message)
+        raise _denied(exc.status_code, exc.code, exc.message) from exc
 
     # ---- 2. 创建 agent_calls ----
     call = AgentCall(

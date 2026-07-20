@@ -36,4 +36,6 @@ def test_base_url_always_required():
 
 def test_invalid_transport_rejected():
     with pytest.raises(RuntimeError):
-        load_config({"KAP_BASE_URL": "http://kap.test", "WORKBUDDY_MCP_TRANSPORT": "ftp"})
+        load_config(
+            {"KAP_BASE_URL": "http://kap.test", "WORKBUDDY_MCP_TRANSPORT": "ftp"}
+        )

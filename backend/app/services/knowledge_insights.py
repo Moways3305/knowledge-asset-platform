@@ -22,10 +22,10 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta
 
-from fastapi import HTTPException
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import denied
 from app.db.utils import utc_now
 from app.models.audit import AuditEvent
 from app.models.indexing_job import IndexingOperationJob
@@ -73,12 +73,6 @@ _MAX_LIMIT = 50
 _SCOPES = {"personal", "project", "company", "all"}
 
 
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
-
-
 def _is_admin(caller: CallerContext) -> bool:
     return CompanyRole.admin.value in caller.active_company_roles
 
@@ -90,7 +84,7 @@ def _is_ops_viewer(caller: CallerContext) -> bool:
 
 def _require_access(caller: CallerContext) -> None:
     if not caller.is_active or not (caller.is_business_user or _is_admin(caller)):
-        raise _denied(403, "insights_forbidden", "无权查看知识运营洞察")
+        raise denied(403, "insights_forbidden", "无权查看知识运营洞察")
 
 
 def _asset_visibility_conditions(caller: CallerContext) -> list:

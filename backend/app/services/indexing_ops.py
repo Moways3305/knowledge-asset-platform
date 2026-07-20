@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.errors import denied
 from app.models.identity import User
 from app.models.indexing_job import IndexingOperationJob
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
@@ -46,17 +47,11 @@ _TARGET_TOKEN_TTL_SECONDS = 15 * 60
 _TARGET_TOKEN_DOMAIN = b"kap:indexing-target-retry:v1:"
 
 
-def _denied(status_code: int, reason: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code, detail={"denied_reason": reason, "message": message}
-    )
-
-
 def _require_ops_viewer(caller: CallerContext) -> None:
     """索引运维：admin（系统运维）或业务治理角色（boss / 咨询总监）可发起。"""
     if CompanyRole.admin.value in caller.active_company_roles or caller.can_discover_l5:
         return
-    raise _denied(403, "ops_viewer_required", "无权发起索引运维作业")
+    raise denied(403, "ops_viewer_required", "无权发起索引运维作业")
 
 
 def _target_token_cipher() -> Fernet:
@@ -82,7 +77,7 @@ def _resolve_targeted_retry_token(operation_target: str) -> uuid.UUID:
         )
         return uuid.UUID(hex=payload.decode("ascii"))
     except (InvalidToken, UnicodeError, ValueError):
-        raise _denied(404, "target_not_actionable", "目标不存在或不可操作") from None
+        raise denied(404, "target_not_actionable", "目标不存在或不可操作") from None
 
 
 def _clamp_limit(limit) -> int:
@@ -99,7 +94,7 @@ def _safe_scope(scope) -> str:
 
 def _resolve_project_id(scope: str, project_id: uuid.UUID | None) -> uuid.UUID | None:
     if scope == KnowledgeScope.project.value and project_id is None:
-        raise _denied(422, "project_id_required", "按项目范围运维必须指定 project_id")
+        raise denied(422, "project_id_required", "按项目范围运维必须指定 project_id")
     # 非 project 范围忽略传入的 project_id（避免无意义过滤）。
     return project_id if scope == KnowledgeScope.project.value else None
 
@@ -142,7 +137,7 @@ async def _create_and_run(
             target_id=None,
             extra={"denied_reason": "target_retry_in_progress", "diagnostic_category": "platform"},
         )
-        raise _denied(409, "target_retry_in_progress", "该任务正在执行，请勿重复提交") from None
+        raise denied(409, "target_retry_in_progress", "该任务正在执行，请勿重复提交") from None
     job_id = job.id
 
     await audit_service.record_event(
@@ -189,7 +184,7 @@ async def _deny_target(
         target_id=None,
         extra={"denied_reason": reason, "diagnostic_category": category},
     )
-    raise _denied(status_code, reason, message)
+    raise denied(status_code, reason, message)
 
 
 async def _target_configuration_ready(session: AsyncSession, asset: KnowledgeAsset) -> bool:

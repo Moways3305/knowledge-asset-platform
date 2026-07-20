@@ -137,9 +137,10 @@ export default function WecomScanConfigForm({
           </button>
         </div>
         <div className="ws-form-grid">
-          <label className="ws-form-field">
+          <label className="ws-form-field" htmlFor="ws-config-name">
             <span className="ws-form-label">配置名称</span>
             <input
+              id="ws-config-name"
               className="ws-form-input"
               value={values.name}
               onChange={(e) => set("name", e.target.value)}
@@ -175,9 +176,10 @@ export default function WecomScanConfigForm({
               />
             )}
           </div>
-          <label className="ws-form-field">
+          <label className="ws-form-field" htmlFor="ws-config-scope">
             <span className="ws-form-label">目标知识库</span>
             <select
+              id="ws-config-scope"
               className="ws-form-input"
               value={values.scope}
               onChange={(e) => {
@@ -196,10 +198,11 @@ export default function WecomScanConfigForm({
             </select>
           </label>
           {values.scope === "project" && (
-            <label className="ws-form-field">
+            <label className="ws-form-field" htmlFor="ws-config-project">
               <span className="ws-form-label">目标项目</span>
               {projectOptions.length > 0 ? (
                 <select
+                  id="ws-config-project"
                   className="ws-form-input"
                   value={values.projectId}
                   onChange={(e) => setMany({ projectId: e.target.value, ownerId: "" })}
@@ -218,10 +221,11 @@ export default function WecomScanConfigForm({
               )}
             </label>
           )}
-          <label className="ws-form-field">
+          <label className="ws-form-field" htmlFor="ws-config-owner">
             <span className="ws-form-label">待确认任务业务归属人</span>
             {(values.scope !== "project" || values.projectId) && ownerCandidates.length > 0 ? (
               <select
+                id="ws-config-owner"
                 className="ws-form-input"
                 value={values.ownerId}
                 onChange={(e) => set("ownerId", e.target.value)}
@@ -248,8 +252,9 @@ export default function WecomScanConfigForm({
               admin）。
             </span>
           </label>
-          <label className="ws-form-field ws-form-checkbox">
+          <label className="ws-form-field ws-form-checkbox" htmlFor="ws-config-enabled">
             <input
+              id="ws-config-enabled"
               type="checkbox"
               checked={values.enabled}
               onChange={(e) => set("enabled", e.target.checked)}

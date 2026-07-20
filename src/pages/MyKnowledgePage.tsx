@@ -201,7 +201,10 @@ export default function MyKnowledgePage() {
     void loadKb();
     void fetchAuthMe()
       .then((me) => setProjects(me.projects))
-      .catch(() => setProjects([]));
+      .catch((error: unknown) => {
+        console.error("Failed to load current user projects:", error);
+        setProjects([]);
+      });
   }, [loadKb]);
 
   useEffect(() => {
@@ -371,6 +374,7 @@ export default function MyKnowledgePage() {
           <>
             <div className="mk83-filter-anchor" onClick={(event) => event.stopPropagation()}>
               <button
+                type="button"
                 className={`btn-small mk83-header-action ${filtered ? "is-active" : ""}`}
                 aria-expanded={filterOpen}
                 onClick={() => setFilterOpen((value) => !value)}
@@ -382,11 +386,16 @@ export default function MyKnowledgePage() {
                 <div className="mk83-filter-panel" role="dialog" aria-label="筛选个人资料">
                   <div className="mk83-filter-head">
                     <strong>筛选与排序</strong>
-                    {filtered && <button onClick={clearFilters}>清除筛选</button>}
+                    {filtered && (
+                      <button type="button" onClick={clearFilters}>
+                        清除筛选
+                      </button>
+                    )}
                   </div>
-                  <label>
+                  <label htmlFor="mk83-filter-asset-type">
                     <span>资料类型</span>
                     <select
+                      id="mk83-filter-asset-type"
                       value={assetType}
                       onChange={(event) => {
                         setAssetType(event.target.value);
@@ -401,9 +410,10 @@ export default function MyKnowledgePage() {
                       ))}
                     </select>
                   </label>
-                  <label>
+                  <label htmlFor="mk83-filter-personal-state">
                     <span>个人状态</span>
                     <select
+                      id="mk83-filter-personal-state"
                       value={personalState}
                       onChange={(event) => {
                         setPersonalState(event.target.value as PersonalKnowledgeState | "");
@@ -418,9 +428,10 @@ export default function MyKnowledgePage() {
                       ))}
                     </select>
                   </label>
-                  <label>
+                  <label htmlFor="mk83-filter-sort">
                     <span>排序方式</span>
                     <select
+                      id="mk83-filter-sort"
                       value={`${sortBy}:${sortDirection}`}
                       onChange={(event) => {
                         const [field, direction] = event.target.value.split(":");
@@ -459,6 +470,7 @@ export default function MyKnowledgePage() {
           <div className="mk83-kb-actions">
             {kb.status === "init_failed" && (
               <button
+                type="button"
                 className="btn-small-primary"
                 disabled={actionBusy}
                 onClick={() => void createKb(false)}
@@ -467,6 +479,7 @@ export default function MyKnowledgePage() {
               </button>
             )}
             <button
+              type="button"
               className="btn-small"
               onClick={() => {
                 setKbName(kb.display_name ?? "");
@@ -486,6 +499,7 @@ export default function MyKnowledgePage() {
             <span>创建后即可集中管理个人资料。</span>
           </div>
           <button
+            type="button"
             className="btn-small-primary"
             onClick={() => {
               setKbName("");
@@ -565,7 +579,7 @@ export default function MyKnowledgePage() {
           <div className="mk83-state">
             <strong>个人资料暂时无法加载</strong>
             <span>请稍后重试。</span>
-            <button className="btn-small" onClick={() => void load()}>
+            <button type="button" className="btn-small" onClick={() => void load()}>
               重新加载
             </button>
           </div>
@@ -580,6 +594,7 @@ export default function MyKnowledgePage() {
             </span>
             {keyword || filtered ? (
               <button
+                type="button"
                 className="btn-small"
                 onClick={() => {
                   setSearchInput("");
@@ -660,6 +675,7 @@ export default function MyKnowledgePage() {
                       <td>
                         {primary === "confirm" && (
                           <button
+                            type="button"
                             className="btn-small-primary"
                             disabled={actionBusy}
                             onClick={() => openItemDialog("confirm", item)}
@@ -669,6 +685,7 @@ export default function MyKnowledgePage() {
                         )}
                         {primary === "submit" && (
                           <button
+                            type="button"
                             className="btn-small-primary"
                             disabled={!hasProjects || actionBusy}
                             title={!hasProjects ? "暂无可提交的项目" : undefined}
@@ -690,6 +707,7 @@ export default function MyKnowledgePage() {
                       <td>
                         <div className="mk83-more" onClick={(event) => event.stopPropagation()}>
                           <button
+                            type="button"
                             className="mk83-more-button"
                             aria-label={`更多操作：${item.title}`}
                             title="更多操作"
@@ -711,6 +729,7 @@ export default function MyKnowledgePage() {
                               </Link>
                               {hasProjects && (
                                 <button
+                                  type="button"
                                   role="menuitem"
                                   onClick={() => openItemDialog("evidence", item)}
                                 >
@@ -720,6 +739,7 @@ export default function MyKnowledgePage() {
                               )}
                               {!isProjectLocked(item) && (
                                 <button
+                                  type="button"
                                   role="menuitem"
                                   onClick={() => openItemDialog("edit", item)}
                                 >
@@ -729,6 +749,7 @@ export default function MyKnowledgePage() {
                               )}
                               {item.access.canDelete && !isProjectLocked(item) && (
                                 <button
+                                  type="button"
                                   role="menuitem"
                                   className="is-danger"
                                   onClick={() => openItemDialog("delete", item)}
@@ -755,6 +776,7 @@ export default function MyKnowledgePage() {
             </span>
             <div>
               <button
+                type="button"
                 aria-label="上一页"
                 className="btn-small"
                 disabled={page === 1}
@@ -763,6 +785,7 @@ export default function MyKnowledgePage() {
                 <ChevronLeft size={16} />
               </button>
               <button
+                type="button"
                 aria-label="下一页"
                 className="btn-small"
                 disabled={!hasNext}
@@ -787,9 +810,10 @@ export default function MyKnowledgePage() {
         onCancel={closeDialog}
         onConfirm={() => void createKb(true)}
       >
-        <label className="mk83-field">
+        <label className="mk83-field" htmlFor="mk83-create-kb-name">
           <span>知识库名称（可选）</span>
           <input
+            id="mk83-create-kb-name"
             value={kbName}
             maxLength={100}
             placeholder="我的知识库"
@@ -808,9 +832,10 @@ export default function MyKnowledgePage() {
         onCancel={closeDialog}
         onConfirm={() => void renameKb()}
       >
-        <label className="mk83-field">
+        <label className="mk83-field" htmlFor="mk83-rename-kb-name">
           <span>知识库名称</span>
           <input
+            id="mk83-rename-kb-name"
             value={kbName}
             maxLength={100}
             onChange={(event) => setKbName(event.target.value)}
@@ -858,9 +883,13 @@ export default function MyKnowledgePage() {
             : setActionError("请选择目标项目")
         }
       >
-        <label className="mk83-field">
+        <label className="mk83-field" htmlFor="mk83-submit-target-project">
           <span>目标项目</span>
-          <select value={targetProject} onChange={(event) => setTargetProject(event.target.value)}>
+          <select
+            id="mk83-submit-target-project"
+            value={targetProject}
+            onChange={(event) => setTargetProject(event.target.value)}
+          >
             {projects.map((project) => (
               <option key={project.projectId} value={project.projectId}>
                 {project.projectName}
@@ -895,9 +924,10 @@ export default function MyKnowledgePage() {
         }
       >
         <div className="mk83-dialog-grid">
-          <label className="mk83-field">
+          <label className="mk83-field" htmlFor="mk83-evidence-target-project">
             <span>目标项目</span>
             <select
+              id="mk83-evidence-target-project"
               value={targetProject}
               onChange={(event) => setTargetProject(event.target.value)}
             >
@@ -908,9 +938,10 @@ export default function MyKnowledgePage() {
               ))}
             </select>
           </label>
-          <label className="mk83-field">
+          <label className="mk83-field" htmlFor="mk83-evidence-type">
             <span>证据类型</span>
             <select
+              id="mk83-evidence-type"
               value={evidenceType}
               onChange={(event) => setEvidenceType(event.target.value as EvidenceType)}
             >
@@ -918,9 +949,10 @@ export default function MyKnowledgePage() {
               <option value="client_validation">客户验证候选</option>
             </select>
           </label>
-          <label className="mk83-field">
+          <label className="mk83-field" htmlFor="mk83-evidence-category">
             <span>证据类别</span>
             <select
+              id="mk83-evidence-category"
               value={evidenceCategory}
               onChange={(event) => setEvidenceCategory(event.target.value)}
             >
@@ -931,9 +963,10 @@ export default function MyKnowledgePage() {
               ))}
             </select>
           </label>
-          <label className="mk83-field mk83-field-wide">
+          <label className="mk83-field mk83-field-wide" htmlFor="mk83-evidence-description">
             <span>补充说明（可选）</span>
             <textarea
+              id="mk83-evidence-description"
               value={evidenceDescription}
               maxLength={500}
               onChange={(event) => setEvidenceDescription(event.target.value)}
@@ -969,17 +1002,22 @@ export default function MyKnowledgePage() {
         }
       >
         <div className="mk83-dialog-grid">
-          <label className="mk83-field mk83-field-wide">
+          <label className="mk83-field mk83-field-wide" htmlFor="mk83-edit-title">
             <span>资料标题</span>
             <input
+              id="mk83-edit-title"
               value={editTitle}
               maxLength={500}
               onChange={(event) => setEditTitle(event.target.value)}
             />
           </label>
-          <label className="mk83-field">
+          <label className="mk83-field" htmlFor="mk83-edit-type">
             <span>资料类型</span>
-            <select value={editType} onChange={(event) => setEditType(event.target.value)}>
+            <select
+              id="mk83-edit-type"
+              value={editType}
+              onChange={(event) => setEditType(event.target.value)}
+            >
               {Object.entries(typeConfig).map(([key, value]) => (
                 <option key={key} value={key}>
                   {value.label}
@@ -987,9 +1025,13 @@ export default function MyKnowledgePage() {
               ))}
             </select>
           </label>
-          <label className="mk83-field">
+          <label className="mk83-field" htmlFor="mk83-edit-tags">
             <span>标签（逗号分隔）</span>
-            <input value={editTags} onChange={(event) => setEditTags(event.target.value)} />
+            <input
+              id="mk83-edit-tags"
+              value={editTags}
+              onChange={(event) => setEditTags(event.target.value)}
+            />
           </label>
         </div>
       </ConfirmDialog>
@@ -1016,9 +1058,10 @@ export default function MyKnowledgePage() {
           )
         }
       >
-        <label className="mk83-field">
+        <label className="mk83-field" htmlFor="mk83-delete-reason">
           <span>删除原因（可选）</span>
           <textarea
+            id="mk83-delete-reason"
             value={deleteReason}
             maxLength={500}
             placeholder="例如：重复上传"
