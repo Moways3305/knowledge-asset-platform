@@ -587,6 +587,7 @@ function ProjectKnowledgeWorkspace({
           <LoadingError
             error={listError}
             errorTitle="项目知识加载失败"
+            errorDescription="项目知识暂时无法加载，请稍后重试。"
             onRetry={() => setListRetryKey((value) => value + 1)}
           />
         ) : (

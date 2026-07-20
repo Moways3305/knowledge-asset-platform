@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Inbox } from "lucide-react";
 
 export function ProductPage({
   children,
@@ -177,13 +178,18 @@ export function EmptyState({
   title,
   description,
   action,
+  icon,
 }: {
   title: ReactNode;
   description?: ReactNode;
   action?: ReactNode;
+  icon?: ReactNode;
 }) {
   return (
     <div className="product-empty-state">
+      <span className="product-empty-icon" aria-hidden="true">
+        {icon ?? <Inbox size={21} />}
+      </span>
       <strong>{title}</strong>
       {description && <p>{description}</p>}
       {action && <div className="product-empty-actions">{action}</div>}

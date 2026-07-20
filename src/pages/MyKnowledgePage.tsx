@@ -783,6 +783,7 @@ export default function MyKnowledgePage() {
         busy={actionBusy}
         busyText="创建中…"
         error={actionError}
+        errorDescription={actionError}
         onCancel={closeDialog}
         onConfirm={() => void createKb(true)}
       >
@@ -803,6 +804,7 @@ export default function MyKnowledgePage() {
         confirmText="保存"
         busy={actionBusy}
         error={actionError}
+        errorDescription={actionError}
         onCancel={closeDialog}
         onConfirm={() => void renameKb()}
       >
@@ -826,6 +828,7 @@ export default function MyKnowledgePage() {
         confirmText="确认资产"
         busy={actionBusy}
         error={actionError}
+        errorDescription={actionError}
         onCancel={closeDialog}
         onConfirm={() =>
           activeItem &&
@@ -843,6 +846,7 @@ export default function MyKnowledgePage() {
         confirmText="提交"
         busy={actionBusy}
         error={actionError}
+        errorDescription={actionError}
         onCancel={closeDialog}
         onConfirm={() =>
           activeItem && targetProject
@@ -872,6 +876,7 @@ export default function MyKnowledgePage() {
         confirmText="登记候选"
         busy={actionBusy}
         error={actionError}
+        errorDescription={actionError}
         onCancel={closeDialog}
         onConfirm={() =>
           activeItem && targetProject
@@ -943,6 +948,7 @@ export default function MyKnowledgePage() {
         confirmText="保存修改"
         busy={actionBusy}
         error={actionError}
+        errorDescription={actionError}
         onCancel={closeDialog}
         onConfirm={() =>
           activeItem && editTitle.trim()
@@ -999,6 +1005,7 @@ export default function MyKnowledgePage() {
         danger
         busy={actionBusy}
         error={actionError}
+        errorDescription={actionError}
         onCancel={closeDialog}
         onConfirm={() =>
           activeItem &&

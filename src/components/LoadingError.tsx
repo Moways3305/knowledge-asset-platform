@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Inbox, LoaderCircle, RefreshCw, ShieldX, TriangleAlert } from "lucide-react";
 import Button from "./Button";
 
 // 统一页面三态骨架：按优先级渲染 加载中 / 无权限(forbidden) / 加载失败 / 空态 中的
@@ -14,7 +15,9 @@ interface LoadingErrorProps {
   loadingTitle?: ReactNode;
   forbiddenTitle?: ReactNode;
   forbiddenDesc?: ReactNode;
+  forbiddenAction?: ReactNode;
   errorTitle?: ReactNode;
+  errorDescription?: ReactNode;
   emptyTitle?: ReactNode;
   emptyDesc?: ReactNode;
 
@@ -36,7 +39,9 @@ export default function LoadingError({
   loadingTitle = "加载中…",
   forbiddenTitle = "无访问权限",
   forbiddenDesc,
+  forbiddenAction,
   errorTitle = "加载失败",
+  errorDescription = "内容暂时无法加载，请稍后重试。",
   emptyTitle = "暂无数据",
   emptyDesc,
   onRetry,
@@ -48,26 +53,41 @@ export default function LoadingError({
 }: LoadingErrorProps) {
   if (loading) {
     return (
-      <div className={wrapperClassName}>
+      <div
+        className={`${wrapperClassName} product-state-shell is-loading`}
+        role="status"
+        aria-live="polite"
+      >
+        <span className="product-state-icon" aria-hidden="true">
+          <LoaderCircle size={20} />
+        </span>
         <div className={titleClassName}>{loadingTitle}</div>
       </div>
     );
   }
   if (forbidden) {
     return (
-      <div className={wrapperClassName}>
+      <div className={`${wrapperClassName} product-state-shell is-forbidden`} role="alert">
+        <span className="product-state-icon" aria-hidden="true">
+          <ShieldX size={20} />
+        </span>
         <div className={titleClassName}>{forbiddenTitle}</div>
         {forbiddenDesc && <p className={descClassName}>{forbiddenDesc}</p>}
+        {forbiddenAction && <div className="product-state-actions">{forbiddenAction}</div>}
       </div>
     );
   }
   if (error) {
     return (
-      <div className={wrapperClassName}>
+      <div className={`${wrapperClassName} product-state-shell is-error`} role="alert">
+        <span className="product-state-icon" aria-hidden="true">
+          <TriangleAlert size={20} />
+        </span>
         <div className={titleClassName}>{errorTitle}</div>
-        <p className={descClassName}>{error}</p>
+        <p className={descClassName}>{errorDescription}</p>
         {onRetry && (
           <Button size="small" onClick={onRetry}>
+            <RefreshCw size={13} aria-hidden="true" />
             {retryText}
           </Button>
         )}
@@ -76,7 +96,10 @@ export default function LoadingError({
   }
   if (empty) {
     return (
-      <div className={wrapperClassName}>
+      <div className={`${wrapperClassName} product-state-shell is-empty`}>
+        <span className="product-state-icon" aria-hidden="true">
+          <Inbox size={20} />
+        </span>
         <div className={titleClassName}>{emptyTitle}</div>
         {emptyDesc && <p className={descClassName}>{emptyDesc}</p>}
         {children}

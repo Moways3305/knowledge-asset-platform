@@ -63,7 +63,14 @@ const draftFromSettings = (settings: ProjectSettingsDTO): SettingsDraft => ({
 });
 
 const safeError = (error: unknown, fallback: string): string => {
-  if (error instanceof ApiError) return error.message || fallback;
+  if (error instanceof ApiError && error.status === 403) {
+    return error.deniedReason === "project_membership_required"
+      ? "当前身份不是该项目成员"
+      : "当前身份无权执行此操作";
+  }
+  if (error instanceof ApiError && error.status === 409) {
+    return "项目状态已变化，请刷新后重试";
+  }
   return fallback;
 };
 
@@ -696,6 +703,7 @@ export default function ProjectSettingsPage() {
         busy={Boolean(rejectTarget && reviewBusy === rejectTarget.id)}
         danger
         error={rejectError}
+        errorDescription={rejectError}
         onConfirm={() => void submitReject()}
         onCancel={() => {
           setRejectTarget(null);

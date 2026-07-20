@@ -1,5 +1,24 @@
 ﻿import { Link } from "react-router-dom";
 
+import { useState } from "react";
+import {
+  BookOpenCheck,
+  BriefcaseBusiness,
+  ChevronRight,
+  CircleHelp,
+  Compass,
+  KeyRound,
+  LibraryBig,
+  Search,
+  Settings2,
+  ShieldCheck,
+  Upload,
+  UserRoundCheck,
+  Workflow,
+  type LucideIcon,
+} from "lucide-react";
+import { PageHeader, ProductPage } from "../components/ProductLayout";
+
 // 统一使用说明。把各功能页原本堆叠的设计/边界/规则/规划说明集中到此处，
 // 按模块分组。内容为前端静态文案，口径对齐当前真实能力；不含任何密钥 / 内部地址 /
 // 内部存储引用 / 外部系统诊断标识。
@@ -291,43 +310,147 @@ const SECTIONS: HelpSection[] = [
   },
 ];
 
+const HELP_GROUPS = [
+  { title: "开始使用", icon: Compass, ids: ["quick-start", "identity"] },
+  {
+    title: "知识资产与项目",
+    icon: LibraryBig,
+    ids: ["knowledge", "ingest", "personal", "project"],
+  },
+  { title: "审核与原文访问", icon: ShieldCheck, ids: ["original-access", "review"] },
+  {
+    title: "管理员治理与安全",
+    icon: Settings2,
+    ids: ["admin", "models", "integration"],
+  },
+  { title: "功能边界", icon: CircleHelp, ids: ["roadmap"] },
+] as const;
+
+const SECTION_ICONS: Record<string, LucideIcon> = {
+  "quick-start": Workflow,
+  identity: UserRoundCheck,
+  knowledge: LibraryBig,
+  ingest: Upload,
+  personal: UserRoundCheck,
+  project: BriefcaseBusiness,
+  "original-access": KeyRound,
+  review: ShieldCheck,
+  admin: Settings2,
+  models: Settings2,
+  integration: Workflow,
+  roadmap: CircleHelp,
+};
+
+const SECTION_BY_ID = new Map(SECTIONS.map((section) => [section.id, section]));
+
 export default function HelpPage() {
+  const [jumpTarget, setJumpTarget] = useState(SECTIONS[0].id);
+
   return (
-    <div className="help-page">
-      <div className="help-header">
-        <h2>使用说明</h2>
-        <p>
-          平台功能、权限边界与外部集成的集中说明。功能界面只保留操作与必要提示，详细说明集中在此。
-        </p>
+    <ProductPage className="help-page help90-page">
+      <PageHeader
+        eyebrow="产品使用与权限边界"
+        title="帮助中心"
+        description="按实际工作流查找平台操作、角色权限与治理说明。"
+      />
+
+      <div className="help-jump-toolbar" role="search" aria-label="帮助内容定位">
+        <label htmlFor="help-section-jump">
+          <Search size={15} aria-hidden="true" />
+          定位章节
+        </label>
+        <select
+          id="help-section-jump"
+          value={jumpTarget}
+          onChange={(event) => setJumpTarget(event.target.value)}
+        >
+          {HELP_GROUPS.map((group) => (
+            <optgroup label={group.title} key={group.title}>
+              {group.ids.map((id) => {
+                const section = SECTION_BY_ID.get(id);
+                return section ? (
+                  <option value={section.id} key={section.id}>
+                    {section.title}
+                  </option>
+                ) : null;
+              })}
+            </optgroup>
+          ))}
+        </select>
+        <a className="btn-small btn-small-primary" href={`#${jumpTarget}`}>
+          跳转到章节
+          <ChevronRight size={14} aria-hidden="true" />
+        </a>
       </div>
 
-      <nav className="help-toc">
-        {SECTIONS.map((s) => (
-          <a key={s.id} href={`#${s.id}`} className="help-toc-link">
-            {s.title}
-          </a>
-        ))}
-      </nav>
-
-      {SECTIONS.map((s) => (
-        <section key={s.id} id={s.id} className="help-section">
-          <h3>{s.title}</h3>
-          {s.intro && <p className="help-section-intro">{s.intro}</p>}
-          <dl className="help-dl">
-            {s.items.map((it, i) => (
-              <div key={i} className="help-dl-row">
-                {it.term && <dt>{it.term}</dt>}
-                <dd>{it.text}</dd>
+      <div className="help-workspace">
+        <aside className="help-directory" aria-label="帮助目录">
+          <div className="help-directory-heading">
+            <BookOpenCheck size={17} aria-hidden="true" />
+            工作流目录
+          </div>
+          {HELP_GROUPS.map((group) => {
+            const GroupIcon = group.icon;
+            return (
+              <div className="help-directory-group" key={group.title}>
+                <div className="help-directory-group-title">
+                  <GroupIcon size={14} aria-hidden="true" />
+                  {group.title}
+                </div>
+                <nav aria-label={`${group.title}目录`}>
+                  {group.ids.map((id) => {
+                    const section = SECTION_BY_ID.get(id);
+                    return section ? (
+                      <a key={section.id} href={`#${section.id}`} className="help-toc-link">
+                        {section.title}
+                        <ChevronRight size={12} aria-hidden="true" />
+                      </a>
+                    ) : null;
+                  })}
+                </nav>
               </div>
-            ))}
-          </dl>
-        </section>
-      ))}
+            );
+          })}
+        </aside>
 
-      <p className="help-footer">
-        返回 <Link to="/knowledge">知识首页</Link>。生产部署 / 运维步骤见仓库 README
-        与运维文档，不在此页。
-      </p>
-    </div>
+        <main className="help-content">
+          {HELP_GROUPS.map((group) => (
+            <div className="help-content-group" key={group.title}>
+              <div className="help-content-group-label">{group.title}</div>
+              {group.ids.map((id) => {
+                const section = SECTION_BY_ID.get(id);
+                if (!section) return null;
+                const SectionIcon = SECTION_ICONS[section.id] ?? BookOpenCheck;
+                return (
+                  <section key={section.id} id={section.id} className="help-section">
+                    <div className="help-section-heading">
+                      <span className="help-section-icon">
+                        <SectionIcon size={17} aria-hidden="true" />
+                      </span>
+                      <h3>{section.title}</h3>
+                    </div>
+                    {section.intro && <p className="help-section-intro">{section.intro}</p>}
+                    <dl className="help-dl">
+                      {section.items.map((item, index) => (
+                        <div key={index} className="help-dl-row">
+                          {item.term && <dt>{item.term}</dt>}
+                          <dd>{item.text}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                );
+              })}
+            </div>
+          ))}
+
+          <p className="help-footer">
+            <BookOpenCheck size={15} aria-hidden="true" />
+            返回 <Link to="/knowledge">知识资产库</Link>。生产部署与运维步骤见仓库 README
+            和运维文档，不在此页展开。
+          </p>
+        </main>
+      </div>
+    </ProductPage>
   );
 }

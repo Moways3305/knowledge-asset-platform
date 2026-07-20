@@ -42,7 +42,7 @@ describe("ProductLayout primitives", () => {
   });
 
   it("provides compact empty and progressive-disclosure states", () => {
-    render(
+    const { container } = render(
       <>
         <EmptyState
           title="暂无内容"
@@ -53,6 +53,7 @@ describe("ProductLayout primitives", () => {
       </>,
     );
     expect(screen.getByRole("button", { name: "上传" })).toBeInTheDocument();
+    expect(container.querySelector(".product-empty-icon svg")).toBeInTheDocument();
     expect(screen.getByText("查看管理说明").closest("details")).not.toHaveAttribute("open");
   });
 

@@ -251,7 +251,8 @@ describe("ProjectSettingsPage reference implementation", () => {
     const route = await screen.findByLabelText("生命周期路线");
     fireEvent.change(route, { target: { value: "route_B" } });
     fireEvent.click(screen.getByRole("button", { name: /保存设置/ }));
-    expect(await screen.findByText("保存服务暂时不可用")).toBeInTheDocument();
+    expect(await screen.findByText("保存失败，未保存内容已保留")).toBeInTheDocument();
+    expect(screen.queryByText("保存服务暂时不可用")).not.toBeInTheDocument();
     expect(route).toHaveValue("route_B");
     expect(screen.getByRole("button", { name: /保存设置/ })).toBeInTheDocument();
   });

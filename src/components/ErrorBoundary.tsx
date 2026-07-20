@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { House, RefreshCw, RotateCcw } from "lucide-react";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -34,8 +35,8 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
     }
   }
 
-  private handleRetry = (): void => {
-    this.setState({ hasError: false });
+  private handleReload = (): void => {
+    window.location.reload();
   };
 
   private handleHome = (): void => {
@@ -47,17 +48,22 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
     if (!this.state.hasError) return this.props.children;
     if (this.props.fallback !== undefined) return this.props.fallback;
     return (
-      <div className="state-box" role="alert">
-        <div className="state-title">页面出现了问题</div>
-        <p className="state-desc">
-          抱歉，此处内容在加载时发生异常。你可以重试，或返回首页后再试一次。
-        </p>
-        <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center" }}>
-          <button className="btn-small" onClick={this.handleRetry}>
-            重试
+      <div className="global-state-page error-boundary-state" role="alert">
+        <div className="global-state-graphic is-recovery" aria-hidden="true">
+          <RotateCcw size={28} />
+          <span className="global-state-recovery-ring" />
+        </div>
+        <div className="global-state-kicker">内容需要恢复</div>
+        <h2>页面出现了问题</h2>
+        <p>此处内容未能正常显示。重新加载页面通常可以恢复，也可以先返回今日工作台。</p>
+        <div className="global-state-actions">
+          <button className="btn-small btn-small-primary" onClick={this.handleReload}>
+            <RefreshCw size={14} aria-hidden="true" />
+            重新加载页面
           </button>
           <button className="btn-small" onClick={this.handleHome}>
-            返回首页
+            <House size={14} aria-hidden="true" />
+            返回今日工作台
           </button>
         </div>
       </div>

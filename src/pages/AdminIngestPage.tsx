@@ -784,6 +784,7 @@ export default function AdminIngestPage() {
         busyText="提交中…"
         busy={targetBusy}
         error={targetError}
+        errorDescription={targetError}
         onConfirm={() => void handleTargetRetry()}
         onCancel={() => {
           setRetryTarget(null);

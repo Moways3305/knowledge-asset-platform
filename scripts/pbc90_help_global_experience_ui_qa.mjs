@@ -1,0 +1,185 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { chromium } from "playwright";
+
+const base = process.env.UI_QA_BASE || "http://localhost:5179";
+const outRoot = process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa");
+const outDir = path.join(outRoot, "pbc90-help-global");
+fs.mkdirSync(outDir, { recursive: true });
+
+const scenarios = ["help", "not-found", "loading", "forbidden", "error", "empty"];
+const viewports = [
+  { name: "1440", width: 1440, height: 1000 },
+  { name: "1280", width: 1280, height: 900 },
+];
+const browser = await chromium.launch({ args: ["--disable-gpu"] });
+const results = [];
+
+for (const scenario of scenarios) {
+  for (const viewport of viewports) {
+    const context = await browser.newContext({ viewport });
+    await context.route("**/api/v1/**", async (route) => {
+      const requestUrl = new URL(route.request().url());
+      const fulfill = (body, status = 200) =>
+        route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+
+      if (requestUrl.pathname === "/api/v1/auth/me") {
+        const pureAdmin = scenario === "forbidden";
+        return fulfill({
+          user_id: "00000000-0000-0000-0000-000000000090",
+          name: pureAdmin ? "系统管理员验收用户" : "帮助体验验收用户",
+          email: "identity-must-not-render@example.test",
+          status: "active",
+          company_roles: pureAdmin ? ["admin"] : ["consultant"],
+          is_business_user: !pureAdmin,
+          can_discover_l5: false,
+          project_memberships: [],
+        });
+      }
+
+      if (requestUrl.pathname === "/api/v1/knowledge") {
+        if (scenario === "loading") {
+          await new Promise((resolve) => setTimeout(resolve, 8000));
+          return fulfill({ items: [], total: 0, page: 1, page_size: 20, has_next: false });
+        }
+        if (scenario === "error") {
+          return fulfill(
+            { detail: { message: "SECRET-LIKE upstream body /internal/knowledge token=unsafe" } },
+            503,
+          );
+        }
+        return fulfill({ items: [], total: 0, page: 1, page_size: 20, has_next: false });
+      }
+
+      return fulfill({ detail: { message: "UI QA route not configured" } }, 404);
+    });
+
+    const page = await context.newPage();
+    const consoleErrors = [];
+    page.on("console", (message) => {
+      if (message.type() === "error" && !message.text().startsWith("Failed to load resource:")) {
+        consoleErrors.push(message.text());
+      }
+    });
+
+    const target =
+      scenario === "help" ? "/help" : scenario === "not-found" ? "/missing-pbc90" : "/knowledge";
+    await page.goto(`${base}${target}`, {
+      waitUntil: scenario === "loading" ? "domcontentloaded" : "networkidle",
+    });
+
+    if (scenario === "help") {
+      await page.getByRole("heading", { name: "帮助中心" }).waitFor();
+      await page.getByLabel("定位章节").selectOption("review");
+      await page.getByRole("link", { name: "跳转到章节" }).click();
+      await page.waitForFunction(() => window.location.hash === "#review");
+      await page.evaluate(() => {
+        window.scrollTo(0, 0);
+        document.querySelector(".app-content")?.scrollTo(0, 0);
+      });
+    } else if (scenario === "not-found") {
+      await page.getByRole("heading", { name: "页面不存在或已不可用" }).waitFor();
+    } else if (scenario === "loading") {
+      await page.locator(".product-state-shell.is-loading").waitFor();
+    } else if (scenario === "forbidden") {
+      await page.getByText("当前账号无此入口").waitFor();
+    } else if (scenario === "error") {
+      await page.getByText("知识资产加载失败").waitFor();
+    } else {
+      await page.getByText("暂无可浏览的知识资产").waitFor();
+    }
+
+    await page.waitForTimeout(160);
+    const metrics = await page.evaluate((currentScenario) => {
+      const root = document.documentElement;
+      const directory = document.querySelector(".help-directory")?.getBoundingClientRect();
+      const content = document.querySelector(".help-content")?.getBoundingClientRect();
+      const state = document
+        .querySelector(
+          ".global-state-page, .product-state-shell, .state-box, .product-empty-state, .product-table-state-content",
+        )
+        ?.getBoundingClientRect();
+      const bodyText = document.body.innerText;
+      const clippedActions = [...document.querySelectorAll("button, a")].filter((element) => {
+        const rect = element.getBoundingClientRect();
+        return (
+          rect.width > 0 &&
+          (element.scrollWidth > element.clientWidth + 2 || rect.right > innerWidth + 2)
+        );
+      }).length;
+      return {
+        scenario: currentScenario,
+        overflowX: root.scrollWidth - root.clientWidth,
+        clippedActions,
+        sensitiveTextVisible:
+          /SECRET-LIKE|upstream body|\/internal\/knowledge|token=unsafe|identity-must-not-render/i.test(
+            bodyText,
+          ),
+        helpDirectoryWidth: directory?.width ?? 0,
+        helpContentRatio: directory && content ? content.width / directory.width : 0,
+        helpSections: document.querySelectorAll(".help-section").length,
+        helpIcons: document.querySelectorAll(".help-section-icon svg").length,
+        jumpWorked: currentScenario !== "help" || window.location.hash === "#review",
+        stateHeight: state?.height ?? 0,
+        stateGraphic: Boolean(
+          document.querySelector(
+            ".global-state-graphic svg, .product-state-icon svg, .product-empty-icon svg, .product-table-state-content svg, .state-box svg",
+          ),
+        ),
+        stateActions: document.querySelectorAll(
+          ".global-state-actions button, .global-state-actions a, .product-state-shell button, .product-state-actions a, .product-empty-actions button",
+        ).length,
+        reachableActions: document.querySelectorAll(
+          ".global-state-actions button, .global-state-actions a, .product-state-shell button, .product-state-actions a, .product-empty-actions button, .product-page-actions a, .product-page-actions button",
+        ).length,
+      };
+    }, scenario);
+
+    await page.screenshot({
+      path: path.join(outDir, `${scenario}-${viewport.name}.png`),
+      fullPage: false,
+      animations: "disabled",
+    });
+    results.push({ viewport: viewport.name, consoleErrors, ...metrics });
+    await context.close();
+  }
+}
+
+await browser.close();
+fs.writeFileSync(path.join(outDir, "report.json"), JSON.stringify(results, null, 2));
+console.log(JSON.stringify({ outDir, results }, null, 2));
+
+const failed = results.some((result) => {
+  const baseFailure =
+    result.overflowX > 2 ||
+    result.clippedActions > 0 ||
+    result.sensitiveTextVisible ||
+    result.consoleErrors.length > 0;
+  if (result.scenario === "help") {
+    return (
+      baseFailure ||
+      result.helpDirectoryWidth < 220 ||
+      result.helpDirectoryWidth > 250 ||
+      result.helpContentRatio < 2.4 ||
+      result.helpSections !== 12 ||
+      result.helpIcons !== 12 ||
+      !result.jumpWorked
+    );
+  }
+  if (result.scenario === "not-found") {
+    return (
+      baseFailure || !result.stateGraphic || result.stateHeight > 420 || result.stateActions !== 2
+    );
+  }
+  if (result.scenario === "loading") {
+    return (
+      baseFailure || !result.stateGraphic || result.stateHeight > 260 || result.stateActions !== 0
+    );
+  }
+  return (
+    baseFailure || !result.stateGraphic || result.stateHeight > 420 || result.reachableActions < 1
+  );
+});
+
+if (failed) process.exit(1);

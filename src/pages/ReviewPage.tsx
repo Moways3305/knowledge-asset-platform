@@ -354,6 +354,7 @@ export default function ReviewPage() {
         busyText="正在提交…"
         danger
         error={rejectError}
+        errorDescription={rejectError}
         onConfirm={() => void submitReject()}
         onCancel={() => {
           setRejectTarget(null);

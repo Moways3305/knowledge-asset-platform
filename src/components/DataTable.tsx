@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Inbox, LoaderCircle } from "lucide-react";
 
 // 通用表格壳：列定义 + 行数据 + 空态 / 加载态。默认使用产品级表格类；尚未逐页迁移
 // 的页面可通过 className 显式兼容旧表皮，避免默认实现依赖某个业务页面。
@@ -51,7 +52,10 @@ export default function DataTable<T>({
           {loading ? (
             <tr>
               <td className="product-table-state" colSpan={columns.length}>
-                {loadingText}
+                <span className="product-table-state-content" role="status" aria-live="polite">
+                  <LoaderCircle className="product-state-spinner" size={18} aria-hidden="true" />
+                  {loadingText}
+                </span>
               </td>
             </tr>
           ) : rows.length > 0 ? (
@@ -67,7 +71,14 @@ export default function DataTable<T>({
           ) : emptyText != null ? (
             <tr>
               <td className="product-table-state" colSpan={columns.length}>
-                {emptyText}
+                {typeof emptyText === "string" || typeof emptyText === "number" ? (
+                  <div className="product-table-state-content is-empty">
+                    <Inbox size={18} aria-hidden="true" />
+                    {emptyText}
+                  </div>
+                ) : (
+                  emptyText
+                )}
               </td>
             </tr>
           ) : null}
