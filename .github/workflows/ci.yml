@@ -190,6 +190,8 @@ jobs:
         run: npm run test:ui:people-permissions
       - name: UI QA (help and global experience)
         run: npm run test:ui:help-global
+      - name: UI QA (global frontend acceptance)
+        run: npm run test:ui:global-acceptance
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4

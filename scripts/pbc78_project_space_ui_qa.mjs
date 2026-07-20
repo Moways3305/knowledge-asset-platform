@@ -31,7 +31,7 @@ const scenarios = [
 ];
 const viewports = [
   { name: "1440", width: 1440, height: 1000 },
-  { name: "1920", width: 1920, height: 1080 },
+  { name: "1280", width: 1280, height: 900 },
 ];
 
 const projectItems = [
@@ -340,8 +340,7 @@ try {
         modelFailureSeen = true;
         await page.getByRole("button", { name: "重试" }).click();
         await page.waitForFunction(
-          (expected) =>
-            document.querySelector('select[aria-label="问答模型"]')?.value === expected,
+          (expected) => document.querySelector('select[aria-label="问答模型"]')?.value === expected,
           modelRef,
         );
         retrySucceeded = true;
@@ -415,8 +414,8 @@ try {
             memberSectionCount: document.querySelectorAll(".project78-members").length,
             memberVisible: bodyText.includes("周项目经理"),
             settingsVisible: Boolean(
-              [...document.querySelectorAll(".project78-context-actions a")].find(
-                (link) => link.textContent?.includes("项目设置"),
+              [...document.querySelectorAll(".project78-context-actions a")].find((link) =>
+                link.textContent?.includes("项目设置"),
               ),
             ),
             reviewActionVisible: Boolean(reviewLink),
@@ -503,6 +502,7 @@ try {
   await previewServer?.close();
 }
 
+fs.writeFileSync(path.join(outDir, "report.json"), JSON.stringify(results, null, 2));
 console.log(JSON.stringify(results, null, 2));
 const failed = results.filter((result) => !result.passed);
 if (failed.length > 0)

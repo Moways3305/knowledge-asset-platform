@@ -317,4 +317,18 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(result.current.taskId).toBeNull();
     expect(result.current.editTitle).toBe("");
   });
+
+  it("keeps the first WeCom view loading until its pending request settles", async () => {
+    const pending = deferred<PendingIngestItemDTO[]>();
+    ingest.fetchPendingIngestTasks.mockReset().mockReturnValueOnce(pending.promise);
+    const { result } = renderHook(() => useUploadFlow());
+
+    expect(result.current.pendingLoading).toBe(true);
+    act(() => result.current.switchPath("a"));
+    expect(result.current.pendingLoading).toBe(true);
+    await waitFor(() => expect(ingest.fetchPendingIngestTasks).toHaveBeenCalledTimes(1));
+
+    await act(async () => pending.resolve([]));
+    await waitFor(() => expect(result.current.pendingLoading).toBe(false));
+  });
 });

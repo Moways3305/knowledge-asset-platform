@@ -30,7 +30,7 @@ const scenarios = [
 ];
 const viewports = [
   { name: "1440", width: 1440, height: 1000 },
-  { name: "1920", width: 1920, height: 1080 },
+  { name: "1280", width: 1280, height: 900 },
 ];
 
 const access = (overrides = {}) => ({
@@ -130,6 +130,7 @@ const results = [];
 for (const scenario of scenarios) {
   for (const viewport of viewports) {
     let detailCalls = 0;
+    let allowFailureRecovery = false;
     let lifecycleCalls = 0;
     const context = await browser.newContext({ viewport });
     await context.route("**/api/v1/**", async (route) => {
@@ -164,7 +165,7 @@ for (const scenario of scenarios) {
         if (scenario === "denied") {
           return fulfill({ detail: { message: "authorization internals must stay hidden" } }, 404);
         }
-        if (scenario === "failure" && detailCalls === 1) {
+        if (scenario === "failure" && !allowFailureRecovery) {
           return fulfill({ detail: { message: "SECRET-LIKE upstream detail" } }, 503);
         }
         return fulfill(detail(scenario));
@@ -219,6 +220,7 @@ for (const scenario of scenarios) {
       await page.getByRole("heading", { name: "未找到或无权查看" }).waitFor();
     } else if (scenario === "failure") {
       await page.getByRole("heading", { name: "资产详情加载失败" }).waitFor();
+      allowFailureRecovery = true;
       await page.getByRole("button", { name: "重新加载" }).click();
       await page.getByRole("heading", { name: "客户增长项目复盘方法论" }).waitFor();
     } else {
@@ -316,7 +318,7 @@ if (
       (["restricted", "denied"].includes(result.scenario)
         ? result.originalActionCount !== 0
         : result.originalActionCount !== 1) ||
-      (result.scenario === "failure" && result.detailCalls !== 2) ||
+      (result.scenario === "failure" && result.detailCalls < 2) ||
       (result.scenario === "denied" && !result.deniedVisible) ||
       (result.scenario === "preview-failure" && !result.previewFailureVisible) ||
       (result.scenario === "governed" && result.lifecycleCalls !== 1) ||

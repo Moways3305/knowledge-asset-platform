@@ -14,7 +14,7 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const viewports = [
   { name: "1440", width: 1440, height: 1100 },
-  { name: "1920", width: 1920, height: 1200 },
+  { name: "1280", width: 1280, height: 960 },
 ];
 const scenarios = [
   "normal-trend",

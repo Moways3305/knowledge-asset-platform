@@ -53,7 +53,9 @@ export function useUploadFlow() {
 
   // Path A：企微微盘待确认任务。
   const [pendingTasks, setPendingTasks] = useState<PendingIngestItemDTO[]>([]);
-  const [pendingLoading, setPendingLoading] = useState(false);
+  // Path A is lazy-mounted. Start in loading state so the first switch cannot
+  // flash an empty result before its effect begins the pending-task request.
+  const [pendingLoading, setPendingLoading] = useState(true);
   const [pendingError, setPendingError] = useState<string | null>(null);
   const [selectedTaskName, setSelectedTaskName] = useState("");
 

@@ -12,7 +12,7 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const viewports = [
   { name: "1440", width: 1440, height: 1100 },
-  { name: "1920", width: 1920, height: 1200 },
+  { name: "1280", width: 1280, height: 960 },
 ];
 const scenarios = [
   "default",
@@ -99,7 +99,11 @@ const allItems = [
     state: "ready_to_submit",
     label: "可提交项目",
     updatedAt: "2026-07-16T07:20:00Z",
-    evidence: { registered_count: 2, latest_status: "candidate", updated_at: "2026-07-16T07:20:00Z" },
+    evidence: {
+      registered_count: 2,
+      latest_status: "candidate",
+      updated_at: "2026-07-16T07:20:00Z",
+    },
   }),
   item({
     id: "00000000-0000-0000-0000-000000000833",
@@ -154,7 +158,10 @@ const results = [];
 
 try {
   await build({ logLevel: "warn" });
-  server = await preview({ preview: { host: "127.0.0.1", port, strictPort: true }, logLevel: "warn" });
+  server = await preview({
+    preview: { host: "127.0.0.1", port, strictPort: true },
+    logLevel: "warn",
+  });
   browser = await chromium.launch({ args: ["--disable-gpu"] });
 
   for (const scenario of scenarios) {
@@ -171,10 +178,16 @@ try {
 
         if (url.pathname === "/api/v1/auth/me") return fulfill(authMe);
         if (url.pathname === "/api/v1/auth/csrf") return fulfill({ csrf_token: "csrf-safe-83" });
-        if (url.pathname === "/api/v1/weknora/model-options") return fulfill({ items: [], default_missing: false });
+        if (url.pathname === "/api/v1/weknora/model-options")
+          return fulfill({ items: [], default_missing: false });
         if (url.pathname === "/api/v1/my/knowledge-base" && method === "GET") {
           if (scenario === "forbidden") return fulfill({ detail: "private_denial" }, 403);
-          return fulfill({ exists: true, display_name: "我的方法知识库", status: "active", knowledge_count: 21 });
+          return fulfill({
+            exists: true,
+            display_name: "我的方法知识库",
+            status: "active",
+            knowledge_count: 21,
+          });
         }
         if (url.pathname === "/api/v1/my/knowledge" && method === "GET") {
           listQueries.push(Object.fromEntries(url.searchParams));
@@ -184,7 +197,8 @@ try {
           const noResults = scenario === "no-results" && url.searchParams.has("keyword");
           const empty = scenario === "empty" || noResults;
           const filtered = scenario === "filter-search" && url.searchParams.has("asset_type");
-          const pageItems = page === 2 ? [pageTwoItem] : filtered ? [allItems[1]] : empty ? [] : allItems;
+          const pageItems =
+            page === 2 ? [pageTwoItem] : filtered ? [allItems[1]] : empty ? [] : allItems;
           return fulfill({
             items: pageItems,
             total: empty ? 0 : page === 2 ? 21 : filtered ? 1 : 21,
@@ -197,7 +211,11 @@ try {
         if (url.pathname.includes("/api/v1/my/knowledge/") && method === "PATCH") {
           return fulfill({ ...allItems[1], title: "更新后的项目复盘模板" });
         }
-        if (url.pathname.includes("/api/v1/knowledge/") && url.pathname.endsWith("/delete") && method === "POST") {
+        if (
+          url.pathname.includes("/api/v1/knowledge/") &&
+          url.pathname.endsWith("/delete") &&
+          method === "POST"
+        ) {
           return fulfill({ status: "deleted" });
         }
         unexpectedCalls += 1;
@@ -222,16 +240,24 @@ try {
         await page.getByRole("button", { name: "搜索", exact: true }).click();
         await page.getByText("没有符合条件的资料").waitFor();
       } else if (scenario === "dialogs") {
-        const row = page.getByRole("link", { name: "项目复盘方法模板" }).locator("xpath=ancestor::tr");
+        const row = page
+          .getByRole("link", { name: "项目复盘方法模板" })
+          .locator("xpath=ancestor::tr");
         await row.getByRole("button", { name: "更多操作：项目复盘方法模板" }).click();
         await page.getByRole("menuitem", { name: "编辑资料" }).click();
         await page.getByRole("dialog").waitFor();
-        await page.screenshot({ path: path.join(outDir, `edit-dialog-${viewport.name}.png`), animations: "disabled" });
+        await page.screenshot({
+          path: path.join(outDir, `edit-dialog-${viewport.name}.png`),
+          animations: "disabled",
+        });
         await page.getByRole("dialog").getByRole("button", { name: "取消" }).click();
         await row.getByRole("button", { name: "更多操作：项目复盘方法模板" }).click();
         await page.getByRole("menuitem", { name: "删除资料" }).click();
         await page.getByRole("dialog").waitFor();
-        await page.screenshot({ path: path.join(outDir, `delete-dialog-${viewport.name}.png`), animations: "disabled" });
+        await page.screenshot({
+          path: path.join(outDir, `delete-dialog-${viewport.name}.png`),
+          animations: "disabled",
+        });
       } else if (scenario === "page-2") {
         await page.getByRole("button", { name: "下一页" }).click();
         await page.getByText("第二页的调研方法").waitFor();
@@ -241,7 +267,9 @@ try {
         const text = document.body.innerText;
         const root = document.documentElement;
         const table = document.querySelector(".mk83-table")?.getBoundingClientRect();
-        const stats = [...document.querySelectorAll(".mk83-stats article")].map((node) => node.getBoundingClientRect());
+        const stats = [...document.querySelectorAll(".mk83-stats article")].map((node) =>
+          node.getBoundingClientRect(),
+        );
         const internalTerms = [
           "awaiting_confirmation",
           "ready_to_submit",
@@ -259,17 +287,28 @@ try {
           clippedControls: [...document.querySelectorAll("a, button")].filter(
             (node) => node.scrollWidth > node.clientWidth + 2,
           ).length,
-          statsReady: scenarioName === "forbidden" || (stats.length === 4 && stats.every((box) => box.height >= 120)),
+          statsReady:
+            scenarioName === "forbidden" ||
+            (stats.length === 4 && stats.every((box) => box.height >= 120)),
           tableReady: !table || table.width >= 820,
-          internalVisible: internalTerms.some((term) => text.toLowerCase().includes(term.toLowerCase())),
-          defaultReady: text.includes("客户访谈洞察整理") && text.includes("待本人确认") && text.includes("上传资料"),
+          internalVisible: internalTerms.some((term) =>
+            text.toLowerCase().includes(term.toLowerCase()),
+          ),
+          defaultReady:
+            text.includes("客户访谈洞察整理") &&
+            text.includes("待本人确认") &&
+            text.includes("上传资料"),
           filterSearchReady: text.includes("项目复盘方法模板") && text.includes("清除搜索"),
           pendingActiveReady: text.includes("待项目经理审批") && text.includes("已进入项目"),
           noResultsReady: text.includes("没有符合条件的资料"),
           emptyReady: text.includes("还没有个人资料"),
-          forbiddenReady: text.includes("当前身份无法使用个人知识") && !text.includes("客户访谈洞察整理"),
+          forbiddenReady:
+            text.includes("当前身份无法使用个人知识") && !text.includes("客户访谈洞察整理"),
           listErrorReady: text.includes("个人资料暂时无法加载") && !text.includes("SECRET-LIKE"),
-          dialogsReady: text.includes("删除个人资料") && text.includes("项目复盘方法模板") && text.includes("删除原因"),
+          dialogsReady:
+            text.includes("删除个人资料") &&
+            text.includes("项目复盘方法模板") &&
+            text.includes("删除原因"),
           page2Ready: text.includes("第二页的调研方法") && text.includes("第 2 页"),
         };
       }, scenario);
@@ -313,4 +352,5 @@ try {
 fs.writeFileSync(path.join(outDir, "report.json"), JSON.stringify(results, null, 2));
 console.log(JSON.stringify({ port, outDir, results }, null, 2));
 const failed = results.filter((result) => !result.passed);
-if (failed.length) throw new Error(`PBC-83 personal knowledge UI QA failed in ${failed.length} scenario(s)`);
+if (failed.length)
+  throw new Error(`PBC-83 personal knowledge UI QA failed in ${failed.length} scenario(s)`);

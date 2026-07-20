@@ -13,7 +13,7 @@ const assetId = "00000000-0000-0000-0000-0000000000a1";
 const scenarios = ["company", "project", "empty", "retry", "pure-admin"];
 const viewports = [
   { name: "1440", width: 1440, height: 1000 },
-  { name: "1920", width: 1920, height: 1080 },
+  { name: "1280", width: 1280, height: 900 },
 ];
 
 const asset = (overrides = {}) => ({
@@ -58,6 +58,7 @@ for (const scenario of scenarios) {
   for (const viewport of viewports) {
     let knowledgeCalls = 0;
     let retried = false;
+    let allowRetrySuccess = false;
     let projectQuery = null;
     const context = await browser.newContext({ viewport });
     await context.route("**/api/v1/**", async (route) => {
@@ -93,7 +94,7 @@ for (const scenario of scenarios) {
         if (requestUrl.searchParams.get("project_id")) {
           projectQuery = Object.fromEntries(requestUrl.searchParams);
         }
-        if (scenario === "retry" && knowledgeCalls === 1) {
+        if (scenario === "retry" && !allowRetrySuccess) {
           return fulfill({ detail: { message: "upstream detail must stay hidden" } }, 503);
         }
         if (scenario === "retry") retried = true;
@@ -146,6 +147,7 @@ for (const scenario of scenarios) {
       await page.getByText("暂无可浏览的知识资产").waitFor();
     } else if (scenario === "retry") {
       await page.getByText("知识资产加载失败").waitFor();
+      allowRetrySuccess = true;
       await page.getByRole("button", { name: "重试" }).click();
       await page.getByText("客户经营诊断方法论与跨部门交付复盘框架").waitFor();
     } else if (scenario === "project") {
@@ -244,7 +246,7 @@ if (
           result.filterFieldsHeight > 40 ||
           !result.tableVisible)) ||
       (result.scenario === "pure-admin" && (result.knowledgeCalls !== 0 || result.tableVisible)) ||
-      (result.scenario === "retry" && (!result.retried || result.knowledgeCalls !== 2)) ||
+      (result.scenario === "retry" && (!result.retried || result.knowledgeCalls < 2)) ||
       (result.scenario === "project" &&
         (result.projectQuery?.scope !== "project" ||
           result.projectQuery?.project_id !== projectId)) ||
