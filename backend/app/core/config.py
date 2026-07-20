@@ -10,7 +10,6 @@ from functools import lru_cache
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sqlalchemy.engine import make_url
 
 
 class Settings(BaseSettings):
@@ -61,15 +60,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _inject_postgres_password(self) -> Settings:
-        """POSTGRES_PASSWORD 非空时，用 URL.create 重写 database_url 的密码。
+        """POSTGRES_PASSWORD 非空时，直接替换 DATABASE_URL 中的密码占位符。
 
-        避免密码中的 URL 特殊字符（% @ / # 等）在 DATABASE_URL 中被错误解析。
+        不经过 render_as_string()，避免对已含 % 等特殊字符的密码做二次 URL 编码。
         """
         if self.postgres_password:
-            parsed = make_url(self.database_url)
-            self.database_url = parsed.set(password=self.postgres_password).render_as_string(
-                hide_password=False
-            )
+            self.database_url = self.database_url.replace("__PG_PASSWORD__", self.postgres_password)
         return self
 
     # 连接池（生产 PostgreSQL engine）：常驻连接数 / 峰值溢出 / 回收周期（秒，防陈旧连接）。
