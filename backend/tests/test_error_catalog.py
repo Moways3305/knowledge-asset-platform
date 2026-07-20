@@ -139,7 +139,13 @@ async def test_ops_operator_diagnostics_and_boundary(client, db_session):
     # 治理角色：可见真实标题 + 运营诊断。
     gov = await client.get(OPS, headers=_hdr(USER_BOSS))
     assert gov.status_code == 200
-    item = next(i for i in gov.json()["recent_failed"] if i["asset_id"] == str(KA_PERSONAL))
+    recent_failed = gov.json()["recent_failed"]
+    assert all("asset_id" not in candidate for candidate in recent_failed)
+    item = next(
+        candidate
+        for candidate in recent_failed
+        if candidate["index_error_code"] == "weknora_embedding_model_missing"
+    )
     assert item["index_error_message"] == error_catalog.user_message(
         "weknora_embedding_model_missing"
     )
@@ -156,7 +162,13 @@ async def test_ops_operator_diagnostics_and_boundary(client, db_session):
     # 纯 admin：标题隐藏（边界不破坏）。
     adm = await client.get(OPS, headers=_hdr(USER_ADMIN_ONLY))
     assert adm.json()["title_visible"] is False
-    aitem = next(i for i in adm.json()["recent_failed"] if i["asset_id"] == str(KA_PERSONAL))
+    admin_recent_failed = adm.json()["recent_failed"]
+    assert all("asset_id" not in candidate for candidate in admin_recent_failed)
+    aitem = next(
+        candidate
+        for candidate in admin_recent_failed
+        if candidate["index_error_code"] == "weknora_embedding_model_missing"
+    )
     assert aitem["title"] == "（业务资产标题已隐藏）"
     assert aitem["operator_error_message"]  # 纯 admin 仍可看运营诊断
     for token in _FORBIDDEN:
@@ -338,7 +350,9 @@ async def test_upstream_leaky_code_not_exposed(client, db_session, monkeypatch):
         for token in _FORBIDDEN:
             assert token not in d.text
         ops = await client.get(OPS, headers=_hdr(USER_BOSS))
-        oitem = next(i for i in ops.json()["recent_failed"] if i["asset_id"] == asset_id)
+        recent_failed = ops.json()["recent_failed"]
+        assert all("asset_id" not in candidate for candidate in recent_failed)
+        oitem = next(candidate for candidate in recent_failed if candidate["title"] == "lc")
         assert oitem["index_error_code"] == "unknown"
         for token in _FORBIDDEN:
             assert token not in ops.text
@@ -373,7 +387,11 @@ async def test_historical_dirty_code_not_exposed(client, db_session):
     for token in _FORBIDDEN + ["mid-chat"]:
         assert token not in d.text
     ops = await client.get(OPS, headers=_hdr(USER_BOSS))
-    item = next(i for i in ops.json()["recent_failed"] if i["asset_id"] == str(KA_PERSONAL))
+    recent_failed = ops.json()["recent_failed"]
+    assert all("asset_id" not in candidate for candidate in recent_failed)
+    item = next(
+        candidate for candidate in recent_failed if candidate["index_error_code"] == "unknown"
+    )
     assert item["index_error_code"] == "unknown"
     assert item["operator_error_message"] == error_catalog.get_error("unknown").operator_message
     assert item["remediation_hint"] == error_catalog.get_error("unknown").remediation_hint
