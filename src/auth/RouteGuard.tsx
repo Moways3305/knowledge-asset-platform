@@ -43,6 +43,8 @@ export default function RouteGuard({ cap, children }: { cap: Capability; childre
         error="identity-unavailable"
         errorTitle="身份加载失败"
         errorDescription="暂时无法确认你的身份，请稍后刷新重试。"
+        onRetry={() => window.location.reload()}
+        retryText="重新加载"
       />
     );
   }

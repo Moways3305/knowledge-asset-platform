@@ -64,4 +64,11 @@ describe("RouteGuard", () => {
     expect(screen.queryByText("受保护内容")).not.toBeInTheDocument();
     expect(screen.getByText("加载中…")).toBeInTheDocument();
   });
+
+  it("provides a real recovery action when identity loading fails", () => {
+    authState.status = "error";
+    renderGuard(() => false);
+    expect(screen.getByText("身份加载失败")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新加载" })).toBeInTheDocument();
+  });
 });
