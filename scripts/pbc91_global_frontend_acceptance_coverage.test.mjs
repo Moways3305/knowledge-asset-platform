@@ -71,6 +71,22 @@ test("fails concrete coverage for a failed case or missing screenshot", () => {
   );
 });
 
+test("fails a legacy child report case that uses pass=false", () => {
+  const complete = suite();
+  const cases = complete.cases.map(({ passed, ...item }) =>
+    item.scenario === "forbidden" && item.viewport === "1280"
+      ? { ...item, pass: false }
+      : { ...item, pass: passed },
+  );
+  const [route] = buildRouteCoverage(definitions, [{ ...complete, cases }]);
+  const failed = route.checks.find(
+    (check) => check.state === "forbidden" && check.viewport === "1280",
+  );
+
+  assert.equal(route.status, "failed");
+  assert.equal(failed?.reason, "case-failed");
+});
+
 test("uses the page discriminator when one suite covers multiple routes", () => {
   const complete = suite();
   const cases = complete.cases.map((item) => ({ ...item, page: "different-page" }));

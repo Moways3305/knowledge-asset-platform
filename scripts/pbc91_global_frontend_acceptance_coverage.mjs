@@ -171,6 +171,12 @@ function matchingScreenshot(screenshots, state, viewport) {
   return screenshots.find((screenshot) => path.basename(screenshot) === baseName) || null;
 }
 
+export function explicitCaseResult(item) {
+  if (item.passed === false || item.pass === false) return false;
+  if (item.passed === true || item.pass === true) return true;
+  return null;
+}
+
 export function buildRouteCoverage(definitions, suiteResults) {
   return definitions.map((definition) => {
     const suite = suiteResults.find((item) => item.name === definition.suite);
@@ -188,7 +194,7 @@ export function buildRouteCoverage(definitions, suiteResults) {
         else if (suite.status !== "passed") reason = "suite-failed";
         else if (matches.length === 0) reason = "missing-case";
         else if (matches.length > 1) reason = "ambiguous-case";
-        else if (matches[0].passed === false) reason = "case-failed";
+        else if (explicitCaseResult(matches[0]) === false) reason = "case-failed";
         else if (!evidence) reason = "missing-screenshot";
 
         return {

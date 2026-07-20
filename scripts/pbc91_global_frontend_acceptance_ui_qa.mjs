@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import {
   buildRouteCoverage,
+  explicitCaseResult,
   routeDefinitions,
 } from "./pbc91_global_frontend_acceptance_coverage.mjs";
 
@@ -186,8 +187,8 @@ try {
       cases = Array.isArray(parsed) ? parsed : parsed.results || [];
     }
     const screenshots = filesRecursively(suiteDir, ".png").map((file) => path.resolve(file));
-    const explicitPassed = cases.filter((item) => item.passed === true).length;
-    const explicitFailed = cases.filter((item) => item.passed === false).length;
+    const explicitPassed = cases.filter((item) => explicitCaseResult(item) === true).length;
+    const explicitFailed = cases.filter((item) => explicitCaseResult(item) === false).length;
     const hasExplicitCaseStatus = explicitPassed + explicitFailed > 0;
     suiteResults.push({
       name: suite.name,
