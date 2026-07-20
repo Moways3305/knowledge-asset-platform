@@ -60,12 +60,18 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _inject_postgres_password(self) -> Settings:
-        """POSTGRES_PASSWORD 非空时，直接替换 DATABASE_URL 中的密码占位符。
+        """POSTGRES_PASSWORD 非空时，对其做 URL 编码后替换 DATABASE_URL 中的占位符。
 
-        不经过 render_as_string()，避免对已含 % 等特殊字符的密码做二次 URL 编码。
+        密码里的特殊字符（% @ / # 等）必须经过 URL 编码才能安全放入 URL，
+        否则 asyncpg 解析 URL 时会误解（如 %40 -> @）。quote() 只做一次编码，
+        asyncpg 解码后还原为原始密码值。
         """
         if self.postgres_password:
-            self.database_url = self.database_url.replace("__PG_PASSWORD__", self.postgres_password)
+            from urllib.parse import quote
+
+            self.database_url = self.database_url.replace(
+                "__PG_PASSWORD__", quote(self.postgres_password, safe="")
+            )
         return self
 
     # 连接池（生产 PostgreSQL engine）：常驻连接数 / 峰值溢出 / 回收周期（秒，防陈旧连接）。
