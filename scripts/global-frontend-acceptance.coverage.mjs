@@ -168,7 +168,10 @@ export const routeDefinitions = [
 
 function matchingScreenshot(screenshots, state, viewport) {
   const baseName = `${state.page ? `${state.page}-` : ""}${state.scenario}-${viewport}.png`;
-  return screenshots.find((screenshot) => path.basename(screenshot) === baseName) || null;
+  return (
+    screenshots.find((screenshot) => path.basename(screenshot.replace(/\\/g, "/")) === baseName) ||
+    null
+  );
 }
 
 export function explicitCaseResult(item) {
