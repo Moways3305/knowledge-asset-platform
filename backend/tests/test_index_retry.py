@@ -429,7 +429,7 @@ async def test_project_pm_retry_and_consultant_forbidden(client, monkeypatch):
         app.dependency_overrides.pop(get_weknora_client, None)
 
 
-async def test_governance_retry_project(client, monkeypatch):
+async def test_governance_cannot_retry_project_without_membership(client, monkeypatch):
     asset_id = await _make_index_failed(
         client,
         monkeypatch,
@@ -442,8 +442,8 @@ async def test_governance_retry_project(client, monkeypatch):
     try:
         _set_client(FakeWK())
         r = await client.post(f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_BOSS))
-        assert r.status_code == 200, r.text
-        assert r.json()["index_status"] == "indexed"
+        assert r.status_code == 404, r.text
+        assert r.json()["detail"]["denied_reason"] == "knowledge_asset_not_found"
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)
 
@@ -462,16 +462,24 @@ async def test_ops_indexing_safe_and_title_boundary(client, monkeypatch):
         body = gov.json()
         assert body["counts"]["index_failed"] >= 1
         assert body["title_visible"] is True
-        assert any(
-            it["asset_id"] == asset_id and it["title"] == "运维面板失败资产"
-            for it in body["recent_failed"]
-        )
+        assert any(it["title"] == "运维面板失败资产" for it in body["recent_failed"])
+        assert asset_id not in gov.text
+        assert all("asset_id" not in it for it in body["recent_failed"])
+        assert any(it["retry_target"] for it in body["recent_failed"])
         # 纯 admin：标题隐藏。
         adm = await client.get("/admin/ops/indexing", headers=_hdr(USER_ADMIN_ONLY))
         assert adm.status_code == 200
         abody = adm.json()
         assert abody["title_visible"] is False
         assert all(it["title"] == "（业务资产标题已隐藏）" for it in abody["recent_failed"])
+        assert all(it["project_name"] is None for it in abody["recent_failed"])
+        assert all(it["owner_name"] is None for it in abody["recent_failed"])
+        assert all(
+            it["diagnostic_label"]
+            in {"配置问题", "外部服务", "文件或内容", "权限或访问", "平台处理", "待确认"}
+            for it in abody["recent_failed"]
+        )
+        assert sum(abody["diagnostic_counts"].values()) == abody["counts"]["index_failed"]
         # 安全：无 WeKnora server-only 字段。
         for token in [
             "weknora_kb_id",

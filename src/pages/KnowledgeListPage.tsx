@@ -1,396 +1,554 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
-import { ShieldAlert } from "lucide-react";
-import { fetchAuthMe, type AuthMeVM } from "../api/auth";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { ChevronLeft, ChevronRight, FileText, Search, Upload } from "lucide-react";
+import { Link } from "react-router-dom";
+import { fetchKnowledgePage } from "../api/knowledge";
+import { useAuth } from "../auth/AuthContext";
+import { can } from "../auth/permissions";
+import DataTable, { type Column } from "../components/DataTable";
+import LoadingError from "../components/LoadingError";
 import {
-  deleteKnowledgeAsset,
-  fetchKnowledgeList,
-  fetchKnowledgeOpsInsights,
-  searchKnowledge,
-} from "../api/knowledge";
-import { ApiError } from "../api/http";
-import type { KnowledgeOpsInsightsDTO } from "../types/insights";
-import type { FrontVisibility, KnowledgeCardVM, KnowledgeScope } from "../types/knowledge";
-import type { SearchResponseDTO } from "../types/search";
-import { scopeLabels } from "../utils/knowledgeLabels";
-import KnowledgeSearchBar from "./knowledge/KnowledgeSearchBar";
-import KnowledgeCardList from "./knowledge/KnowledgeCardList";
-import OpsInsightsPanel from "./knowledge/OpsInsightsPanel";
-import CreateProjectModal from "./knowledge/CreateProjectModal";
-import { ProductPage } from "../components/ProductLayout";
+  EmptyState,
+  FilterBar,
+  PageHeader,
+  PageSection,
+  ProductPage,
+} from "../components/ProductLayout";
+import StatusBadge from "../components/StatusBadge";
+import type {
+  AssetStatus,
+  AssetType,
+  ConfidentialityLevel,
+  KnowledgeCardVM,
+  KnowledgePageVM,
+  KnowledgeQueryParams,
+  KnowledgeScope,
+} from "../types/knowledge";
+import { assetStatusLabel, assetTypeLabel, scopeLabels } from "../utils/knowledgeLabels";
+import "./KnowledgeListPage.css";
 
-const scopes: KnowledgeScope[] = ["company", "project", "personal"];
+const PAGE_SIZE = 20;
 
-type SortKey = "updatedAt" | "confidence";
+const ASSET_TYPES: AssetType[] = ["methodology", "deliverable", "case", "template", "insight"];
+const ASSET_STATUSES: AssetStatus[] = ["active", "needs_update", "deprecated", "archived"];
+const CONFIDENTIALITY_LEVELS: ConfidentialityLevel[] = ["L1", "L2", "L3", "L4", "L5"];
 
-const sortLabels: Record<SortKey, string> = {
-  updatedAt: "更新时间优先",
-  confidence: "置信度优先",
+const confidentialityLabels: Record<ConfidentialityLevel, string> = {
+  L1: "L1 · 公开",
+  L2: "L2 · 内部",
+  L3: "L3 · 受限",
+  L4: "L4 · 机密",
+  L5: "L5 · 高度机密",
 };
 
+const statusTones: Record<AssetStatus, "success" | "warning" | "neutral"> = {
+  active: "success",
+  needs_update: "warning",
+  deprecated: "neutral",
+  archived: "neutral",
+};
+
+const emptyPage = (): KnowledgePageVM => ({
+  items: [],
+  total: 0,
+  page: 1,
+  pageSize: PAGE_SIZE,
+  hasNext: false,
+});
+
+function pageNumbers(current: number, total: number): number[] {
+  return [...new Set([1, current - 1, current, current + 1, total])].filter(
+    (value) => value >= 1 && value <= total,
+  );
+}
+
+function accessLabel(asset: KnowledgeCardVM): string {
+  if (!asset.access.summary) return "仅可发现";
+  if (!asset.access.original) return "可查看摘要，原文受限";
+  return "可查看摘要与原文";
+}
+
 export default function KnowledgeListPage() {
-  const [activeScope, setActiveScope] = useState<KnowledgeScope>("company");
-  const [search, setSearch] = useState("");
-  // committedQuery 非空 = 进入语义搜索模式；为空 = 浏览模式。
-  const [committedQuery, setCommittedQuery] = useState("");
-  const [filterProject, setFilterProject] = useState("");
-  const [filterBizStage, setFilterBizStage] = useState("");
-  const [filterAssetType, setFilterAssetType] = useState("");
-  const [filterVisibility, setFilterVisibility] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("updatedAt");
+  const { authMe, capabilities, status } = useAuth();
+  const [keywordInput, setKeywordInput] = useState("");
+  const [keyword, setKeyword] = useState("");
+  const [scope, setScope] = useState<KnowledgeScope | "">("");
+  const [projectId, setProjectId] = useState("");
+  const [assetType, setAssetType] = useState<AssetType | "">("");
+  const [assetStatus, setAssetStatus] = useState<AssetStatus | "">("");
+  const [confidentialityLevel, setConfidentialityLevel] = useState<ConfidentialityLevel | "">("");
   const [includeArchived, setIncludeArchived] = useState(false);
-
-  // 三个 scope 的列表数据，按 includeArchived 重新拉取。
-  const [byScope, setByScope] = useState<Record<KnowledgeScope, KnowledgeCardVM[]> | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [result, setResult] = useState<KnowledgePageVM>(emptyPage);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+  const requestRef = useRef(0);
 
-  // 语义搜索状态。
-  const [searchResult, setSearchResult] = useState<SearchResponseDTO | null>(null);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
+  const projects = authMe?.projects ?? [];
+  const projectScopeUnavailable = scope === "project" && projects.length === 0;
+  const validProjectId = projects.some((project) => project.projectId === projectId)
+    ? projectId
+    : "";
+  const canLoadBusinessKnowledge =
+    status === "authenticated" && capabilities.isBusinessUser && !projectScopeUnavailable;
 
-  const navigate = useNavigate();
-  // 创建项目知识库：仅 boss / 咨询总监可见入口。
-  const [authMe, setAuthMe] = useState<AuthMeVM | null>(null);
-  const [projFormOpen, setProjFormOpen] = useState(false);
-  // 浏览卡片删除：两步内联确认。
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
-  // 右侧运营洞察。
-  const [insights, setInsights] = useState<KnowledgeOpsInsightsDTO | null>(null);
-  const [insightsErr, setInsightsErr] = useState(false);
-
-  const searchMode = committedQuery.trim().length > 0;
-
-  const loadList = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [company, project, personal] = await Promise.all(
-        scopes.map((s) => fetchKnowledgeList({ scope: s, includeArchived })),
-      );
-      setByScope({ company, project, personal });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "加载失败");
-    } finally {
+  useEffect(() => {
+    const requestId = ++requestRef.current;
+    let active = true;
+    if (!canLoadBusinessKnowledge) {
       setLoading(false);
-    }
-  }, [includeArchived]);
-
-  useEffect(() => {
-    void loadList();
-  }, [loadList]);
-
-  useEffect(() => {
-    fetchAuthMe()
-      .then(setAuthMe)
-      .catch(() => setAuthMe(null));
-  }, []);
-
-  // 按当前 scope 拉取运营洞察。
-  useEffect(() => {
-    let cancelled = false;
-    setInsightsErr(false);
-    fetchKnowledgeOpsInsights({ scope: activeScope })
-      .then((d) => {
-        if (!cancelled) setInsights(d);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setInsights(null);
-          setInsightsErr(true);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeScope]);
-
-  const canCreateProject = useMemo(
-    () => !!authMe && authMe.companyRoles.some((r) => r === "boss" || r === "consulting_director"),
-    [authMe],
-  );
-
-  const openProjectForm = useCallback(() => setProjFormOpen(true), []);
-
-  const handleDeleteCard = useCallback(
-    async (assetId: string) => {
-      setDeleteBusyId(assetId);
-      try {
-        await deleteKnowledgeAsset(assetId);
-        setConfirmDeleteId(null);
-        await loadList();
-      } catch {
-        // 失败保持卡片，错误在确认区提示（保守：仅清 busy）。
-      } finally {
-        setDeleteBusyId(null);
-      }
-    },
-    [loadList],
-  );
-
-  // 语义搜索：committedQuery 非空时调用后端，scope/业务阶段/归档随之重检索。
-  // 后端驱动的过滤项：scope（tab）、phase（业务阶段）、include_archived。
-  useEffect(() => {
-    const q = committedQuery.trim();
-    if (!q) {
-      setSearchResult(null);
-      setSearchError(null);
-      setSearchLoading(false);
+      setError(null);
       return;
     }
-    let cancelled = false;
-    setSearchLoading(true);
-    setSearchError(null);
-    searchKnowledge({
-      query: q,
-      scope: activeScope,
-      filters: {
-        phase: filterBizStage || null,
-        include_archived: includeArchived,
-      },
-    })
-      .then((res) => {
-        if (cancelled) return;
-        setSearchResult(res);
-        setSearchLoading(false);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setSearchError(e instanceof ApiError ? e.message : "搜索暂时无法完成，请稍后重试");
-        setSearchLoading(false);
-      });
-    return () => {
-      cancelled = true;
+
+    const params: KnowledgeQueryParams = {
+      page,
+      pageSize: PAGE_SIZE,
+      sortBy: "updated_at",
+      sortDirection: "desc",
+      includeArchived,
     };
-  }, [committedQuery, activeScope, filterBizStage, includeArchived]);
+    if (keyword) params.keyword = keyword;
+    if (scope) params.scope = scope;
+    if (scope === "project" && validProjectId) params.projectId = validProjectId;
+    if (assetType) params.assetType = assetType;
+    if (assetStatus) params.assetStatus = assetStatus;
+    if (confidentialityLevel) params.confidentialityLevel = confidentialityLevel;
 
-  const allAssets = useMemo(
-    () => (byScope ? [...byScope.company, ...byScope.project, ...byScope.personal] : []),
-    [byScope],
-  );
+    setLoading(true);
+    setError(null);
+    void fetchKnowledgePage(params)
+      .then((nextResult) => {
+        if (!active || requestId !== requestRef.current) return;
+        setResult(nextResult);
+        setHasLoaded(true);
+      })
+      .catch(() => {
+        if (!active || requestId !== requestRef.current) return;
+        setError("知识资产暂时无法加载，请稍后重试。");
+        setHasLoaded(true);
+      })
+      .finally(() => {
+        if (active && requestId === requestRef.current) setLoading(false);
+      });
 
-  const projectOptions = useMemo(
-    () => Array.from(new Set(allAssets.map((a) => a.projectName).filter(Boolean))).sort(),
-    [allAssets],
-  );
-  const bizStageOptions = useMemo(
-    () => Array.from(new Set(allAssets.map((a) => a.lifecyclePhase).filter(Boolean))).sort(),
-    [allAssets],
-  );
-  const assetTypeOptions = useMemo(
-    () => Array.from(new Set(allAssets.map((a) => a.assetType))).sort(),
-    [allAssets],
-  );
-  const visibilityOptions = useMemo(
-    () => Array.from(new Set(allAssets.map((a) => a.visibility))).sort() as FrontVisibility[],
-    [allAssets],
-  );
-
-  // 浏览模式筛选（项目 / 资料类型 / 可见性）。语义搜索模式下这些不由后端搜索驱动。
-  const hasActiveFilters = !!(
-    filterProject ||
-    filterBizStage ||
-    filterAssetType ||
-    filterVisibility
-  );
-
-  const resetFilters = useCallback(() => {
-    setFilterProject("");
-    setFilterBizStage("");
-    setFilterAssetType("");
-    setFilterVisibility("");
-    setSortKey("updatedAt");
-  }, []);
-
-  const runSearch = useCallback(() => setCommittedQuery(search.trim()), [search]);
-
-  const clearSearch = useCallback(() => {
-    setSearch("");
-    setCommittedQuery("");
-  }, []);
-
-  // 浏览模式列表：仅用浏览筛选（项目 / 阶段 / 类型 / 可见性）+ 排序；查询文本只驱动语义搜索。
-  const filtered = useMemo(() => {
-    if (!byScope) return [];
-    let result = [...byScope[activeScope]];
-    if (filterProject) result = result.filter((a) => a.projectName === filterProject);
-    if (filterBizStage) result = result.filter((a) => a.lifecyclePhase === filterBizStage);
-    if (filterAssetType) result = result.filter((a) => a.assetType === filterAssetType);
-    if (filterVisibility) result = result.filter((a) => a.visibility === filterVisibility);
-
-    result.sort((a, b) => {
-      if (sortKey === "confidence") return (b.confidence ?? 0) - (a.confidence ?? 0);
-      return b.updatedAt.localeCompare(a.updatedAt);
-    });
-    return result;
+    return () => {
+      active = false;
+    };
   }, [
-    byScope,
-    activeScope,
-    filterProject,
-    filterBizStage,
-    filterAssetType,
-    filterVisibility,
-    sortKey,
+    assetStatus,
+    assetType,
+    canLoadBusinessKnowledge,
+    confidentialityLevel,
+    includeArchived,
+    keyword,
+    page,
+    retryKey,
+    scope,
+    validProjectId,
   ]);
 
-  const activeAssets = allAssets.filter((a) => a.assetStatus !== "archived");
-  const totalAssets = activeAssets.length;
-  const reusableCount = activeAssets.filter((a) => a.visibility === "public").length;
-  const attentionCount = activeAssets.filter((a) => a.assetStatus === "needs_update").length;
-  const archivedCount = allAssets.filter((a) => a.assetStatus === "archived").length;
+  const resetFilters = () => {
+    setKeywordInput("");
+    setKeyword("");
+    setScope("");
+    setProjectId("");
+    setAssetType("");
+    setAssetStatus("");
+    setConfidentialityLevel("");
+    setIncludeArchived(false);
+    setPage(1);
+  };
 
-  const cards = searchResult?.cards ?? [];
+  const submitKeyword = (event: FormEvent) => {
+    event.preventDefault();
+    setKeyword(keywordInput.trim());
+    setPage(1);
+  };
+
+  const clearKeyword = () => {
+    setKeywordInput("");
+    setKeyword("");
+    setPage(1);
+  };
+
+  const hasActiveFilters = Boolean(
+    keyword ||
+    scope ||
+    validProjectId ||
+    assetType ||
+    assetStatus ||
+    confidentialityLevel ||
+    includeArchived,
+  );
+
+  const columns = useMemo<Column<KnowledgeCardVM>[]>(
+    () => [
+      {
+        key: "asset",
+        header: "资产名称与安全摘要",
+        className: "kbl-asset-cell",
+        render: (asset) => (
+          <div className="kbl-asset">
+            <FileText size={17} aria-hidden="true" />
+            <div>
+              <strong title={asset.title}>{asset.title}</strong>
+              {asset.access.summary && asset.summary ? (
+                <p>{asset.summary}</p>
+              ) : (
+                <p className="kbl-summary-muted">当前身份仅可发现此资产</p>
+              )}
+              <span className={`kbl-access ${asset.access.original ? "is-full" : "is-limited"}`}>
+                {accessLabel(asset)}
+              </span>
+            </div>
+          </div>
+        ),
+      },
+      {
+        key: "source",
+        header: "来源项目 / 所属范围",
+        className: "kbl-source-cell",
+        render: (asset) => (
+          <div>
+            <strong>
+              {asset.scope === "project"
+                ? asset.projectName || "项目知识"
+                : scopeLabels[asset.scope]}
+            </strong>
+            {asset.scope === "project" && <span>{scopeLabels.project}</span>}
+          </div>
+        ),
+      },
+      {
+        key: "type",
+        header: "类型",
+        render: (asset) => assetTypeLabel[asset.assetType] ?? asset.assetType,
+      },
+      {
+        key: "status",
+        header: "状态",
+        render: (asset) => (
+          <StatusBadge
+            label={assetStatusLabel[asset.assetStatus] ?? asset.assetStatus}
+            tone={statusTones[asset.assetStatus] ?? "neutral"}
+          />
+        ),
+      },
+      {
+        key: "confidentiality",
+        header: "保密等级",
+        render: (asset) => (
+          <span className={`kbl-confidentiality is-${asset.confidentialityLevel}`}>
+            {confidentialityLabels[asset.confidentialityLevel] ?? asset.confidentialityLevel}
+          </span>
+        ),
+      },
+      {
+        key: "updated",
+        header: "更新时间",
+        className: "kbl-date-cell",
+        render: (asset) => <time dateTime={asset.updatedAt}>{asset.updatedAt || "未提供"}</time>,
+      },
+      {
+        key: "actions",
+        header: "操作",
+        className: "kbl-action-cell",
+        render: (asset) => (
+          <Link className="product-button is-secondary is-small" to={`/knowledge/${asset.id}`}>
+            查看详情
+          </Link>
+        ),
+      },
+    ],
+    [],
+  );
+
+  const totalPages = Math.max(1, Math.ceil(result.total / result.pageSize));
+  const firstItem = result.total === 0 ? 0 : (result.page - 1) * result.pageSize + 1;
+  const lastItem = Math.min(result.page * result.pageSize, result.total);
+  const initialLoading = status === "loading" || (loading && !hasLoaded);
 
   return (
-    <ProductPage className="kb">
-      <div className="kb-masthead">
-        <div className="kb-masthead-text">
-          <div className="kb-eyebrow">Knowledge Base · 知识资产</div>
-          <h2 className="kb-title">知识资产库</h2>
-          <p className="kb-lead">浏览、语义检索与复用组织沉淀的知识资产</p>
-        </div>
-        <div className="kb-metrics">
-          <div className="kb-metric">
-            <div className="kb-metric-value">{totalAssets}</div>
-            <div className="kb-metric-label">总资产</div>
-          </div>
-          <div className="kb-metric">
-            <div className="kb-metric-value is-success">{reusableCount}</div>
-            <div className="kb-metric-label">可复用</div>
-          </div>
-          <div className="kb-metric">
-            <div className="kb-metric-value is-warning">{attentionCount}</div>
-            <div className="kb-metric-label">需关注</div>
-          </div>
-          <div className="kb-metric">
-            <div className="kb-metric-value is-muted">{archivedCount}</div>
-            <div className="kb-metric-label">已归档</div>
-          </div>
-        </div>
-      </div>
-
-      {/* 纯系统管理身份（admin）非业务身份，后端不放行任何业务知识；短句说明，不展示业务列表。 */}
-      {authMe && !authMe.isBusinessUser && (
-        <div className="kb-identity-note">
-          <ShieldAlert size={16} />
-          <span>
-            当前为系统管理身份，仅显示运营入口；业务知识请使用具备项目或公司角色的账号查看。
-          </span>
-        </div>
-      )}
-
-      <div className="kb-scope">
-        {scopes.map((s) => (
-          <button
-            key={s}
-            className={`kb-scope-btn ${activeScope === s ? "active" : ""}`}
-            onClick={() => setActiveScope(s)}
-          >
-            {scopeLabels[s]}
-            <span className="kb-scope-count">{byScope ? byScope[s].length : 0}</span>
-          </button>
-        ))}
-      </div>
-
-      <KnowledgeSearchBar
-        search={search}
-        setSearch={setSearch}
-        runSearch={runSearch}
-        clearSearch={clearSearch}
-        searchMode={searchMode}
-        filterProject={filterProject}
-        setFilterProject={setFilterProject}
-        filterBizStage={filterBizStage}
-        setFilterBizStage={setFilterBizStage}
-        filterAssetType={filterAssetType}
-        setFilterAssetType={setFilterAssetType}
-        filterVisibility={filterVisibility}
-        setFilterVisibility={setFilterVisibility}
-        projectOptions={projectOptions}
-        bizStageOptions={bizStageOptions}
-        assetTypeOptions={assetTypeOptions}
-        visibilityOptions={visibilityOptions}
-        hasActiveFilters={hasActiveFilters}
-        resetFilters={resetFilters}
+    <ProductPage className="kbl-page">
+      <PageHeader
+        title="知识资产库"
+        description="浏览当前身份有权访问的公司、个人与项目知识资产。"
+        actions={
+          can.viewUpload(capabilities) ? (
+            <Link className="product-button is-primary" to="/upload">
+              <Upload size={16} aria-hidden="true" />
+              上传资产
+            </Link>
+          ) : undefined
+        }
       />
 
-      <div className="kb-body">
-        <div className="kb-main">
-          <div className="kb-toolbar">
-            <span className="kb-result-count">
-              <span className={`kb-mode-tag ${searchMode ? "kb-mode-search" : "kb-mode-browse"}`}>
-                {searchMode ? "语义检索" : "浏览"}
-              </span>
-              {searchMode
-                ? `检索到 ${cards.length} 条结果`
-                : `共 ${filtered.length} 条${scopeLabels[activeScope]}资产`}
-            </span>
-            <div className="kb-toolbar-right">
-              {activeScope === "project" && !searchMode && canCreateProject && (
-                <button className="btn-small btn-small-primary" onClick={openProjectForm}>
-                  新建项目知识库
-                </button>
+      {status !== "loading" && !capabilities.isBusinessUser ? (
+        <PageSection>
+          <LoadingError
+            forbidden
+            forbiddenTitle="当前身份不浏览业务知识"
+            forbiddenDesc="系统管理身份仅使用运营管理入口，不显示任何业务知识资产或资产数量。"
+          />
+        </PageSection>
+      ) : (
+        <>
+          <form className="kbl-filter-form" onSubmit={submitKeyword}>
+            <FilterBar
+              ariaLabel="知识资产筛选"
+              actions={
+                <>
+                  <button className="product-button is-primary is-small" type="submit">
+                    搜索
+                  </button>
+                  {(keywordInput || keyword) && (
+                    <button
+                      className="product-button is-secondary is-small"
+                      type="button"
+                      onClick={clearKeyword}
+                    >
+                      清除
+                    </button>
+                  )}
+                  <button
+                    className="product-button is-ghost is-small"
+                    type="button"
+                    disabled={!hasActiveFilters}
+                    onClick={resetFilters}
+                  >
+                    重置
+                  </button>
+                </>
+              }
+            >
+              <div className="kbl-keyword-field">
+                <Search size={16} aria-hidden="true" />
+                <label className="sr-only" htmlFor="knowledge-keyword">
+                  关键词
+                </label>
+                <input
+                  id="knowledge-keyword"
+                  value={keywordInput}
+                  onChange={(event) => setKeywordInput(event.target.value)}
+                  placeholder="按标题或标签搜索"
+                />
+              </div>
+
+              <label className="kbl-select-field">
+                <span className="sr-only">资产范围</span>
+                <select
+                  aria-label="资产范围"
+                  value={scope}
+                  onChange={(event) => {
+                    setScope(event.target.value as KnowledgeScope | "");
+                    setProjectId("");
+                    setPage(1);
+                  }}
+                >
+                  <option value="">范围：全部</option>
+                  <option value="company">范围：公司</option>
+                  <option value="personal">范围：个人</option>
+                  <option value="project">范围：项目</option>
+                </select>
+              </label>
+
+              {scope === "project" && projects.length > 0 && (
+                <label className="kbl-select-field is-project">
+                  <span className="sr-only">项目</span>
+                  <select
+                    aria-label="项目"
+                    value={validProjectId}
+                    onChange={(event) => {
+                      setProjectId(event.target.value);
+                      setPage(1);
+                    }}
+                  >
+                    <option value="">项目：全部所属项目</option>
+                    {projects.map((project) => (
+                      <option key={project.projectId} value={project.projectId}>
+                        {project.projectName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               )}
-              <label className="kb-archive-toggle">
+
+              <label className="kbl-select-field">
+                <span className="sr-only">资产类型</span>
+                <select
+                  aria-label="资产类型"
+                  value={assetType}
+                  onChange={(event) => {
+                    setAssetType(event.target.value as AssetType | "");
+                    setPage(1);
+                  }}
+                >
+                  <option value="">类型：全部</option>
+                  {ASSET_TYPES.map((value) => (
+                    <option key={value} value={value}>
+                      类型：{assetTypeLabel[value]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="kbl-select-field">
+                <span className="sr-only">资产状态</span>
+                <select
+                  aria-label="资产状态"
+                  value={assetStatus}
+                  onChange={(event) => {
+                    setAssetStatus(event.target.value as AssetStatus | "");
+                    setPage(1);
+                  }}
+                >
+                  <option value="">状态：全部</option>
+                  {ASSET_STATUSES.map((value) => (
+                    <option key={value} value={value}>
+                      状态：{assetStatusLabel[value]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="kbl-select-field">
+                <span className="sr-only">保密等级</span>
+                <select
+                  aria-label="保密等级"
+                  value={confidentialityLevel}
+                  onChange={(event) => {
+                    setConfidentialityLevel(event.target.value as ConfidentialityLevel | "");
+                    setPage(1);
+                  }}
+                >
+                  <option value="">保密：全部</option>
+                  {CONFIDENTIALITY_LEVELS.map((value) => (
+                    <option key={value} value={value}>
+                      保密：{value}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="kbl-archive-toggle">
                 <input
                   type="checkbox"
                   checked={includeArchived}
-                  onChange={(e) => setIncludeArchived(e.target.checked)}
+                  onChange={(event) => {
+                    setIncludeArchived(event.target.checked);
+                    setPage(1);
+                  }}
                 />
                 <span>包含归档</span>
               </label>
-              <select
-                className="kb-sort"
-                value={sortKey}
-                disabled={searchMode}
-                title={searchMode ? "语义搜索按相关度排序" : undefined}
-                onChange={(e) => setSortKey(e.target.value as SortKey)}
-              >
-                {(Object.keys(sortLabels) as SortKey[]).map((k) => (
-                  <option key={k} value={k}>
-                    {sortLabels[k]}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+            </FilterBar>
+          </form>
 
-          <KnowledgeCardList
-            searchMode={searchMode}
-            searchLoading={searchLoading}
-            searchError={searchError}
-            searchResult={searchResult}
-            runSearch={runSearch}
-            loading={loading}
-            error={error}
-            filtered={filtered}
-            activeScope={activeScope}
-            canCreateProject={canCreateProject}
-            openProjectForm={openProjectForm}
-            resetFilters={resetFilters}
-            hasActiveFilters={hasActiveFilters}
-            confirmDeleteId={confirmDeleteId}
-            deleteBusyId={deleteBusyId}
-            onAskDelete={setConfirmDeleteId}
-            onCancelDelete={() => setConfirmDeleteId(null)}
-            onConfirmDelete={(id) => void handleDeleteCard(id)}
-          />
-        </div>
+          <PageSection className="kbl-list-section">
+            {projectScopeUnavailable ? (
+              <EmptyState
+                title="项目范围不可用"
+                description="当前身份没有有效的项目成员关系，无法按项目范围浏览。"
+                action={
+                  <button
+                    className="product-button is-secondary is-small"
+                    type="button"
+                    onClick={resetFilters}
+                  >
+                    返回全部范围
+                  </button>
+                }
+              />
+            ) : error ? (
+              <LoadingError
+                error={error}
+                errorTitle="知识资产加载失败"
+                onRetry={() => setRetryKey((value) => value + 1)}
+              />
+            ) : (
+              <>
+                <div className="kbl-table-status" role="status" aria-live="polite">
+                  {loading && hasLoaded ? "正在更新列表…" : ""}
+                </div>
+                <DataTable
+                  columns={columns}
+                  rows={result.items}
+                  rowKey={(asset) => asset.id}
+                  loading={initialLoading}
+                  loadingText="正在加载知识资产…"
+                  emptyText={
+                    <EmptyState
+                      title={hasActiveFilters ? "当前条件没有匹配资产" : "暂无可浏览的知识资产"}
+                      description={
+                        hasActiveFilters
+                          ? "调整或清除筛选条件后重新查看。"
+                          : "当前身份可访问的知识资产会显示在这里。"
+                      }
+                      action={
+                        hasActiveFilters ? (
+                          <button
+                            className="product-button is-secondary is-small"
+                            type="button"
+                            onClick={resetFilters}
+                          >
+                            清除筛选
+                          </button>
+                        ) : undefined
+                      }
+                    />
+                  }
+                  wrapClassName={`product-table-wrap kbl-table-wrap ${loading ? "is-updating" : ""}`}
+                  tableClassName="product-data-table kbl-table"
+                  ariaLabel="知识资产列表"
+                />
 
-        <OpsInsightsPanel insights={insights} insightsErr={insightsErr} />
-      </div>
-
-      {/* 新建项目知识库：仅 boss / 咨询总监；创建真实 projects + active project_manager。 */}
-      <CreateProjectModal
-        open={projFormOpen}
-        onClose={() => setProjFormOpen(false)}
-        onCreated={(created) => {
-          setProjFormOpen(false);
-          navigate(`/project/${created.id}/settings`);
-        }}
-      />
+                {hasLoaded && result.total > 0 && (
+                  <div className="kbl-pagination" aria-label="知识资产分页">
+                    <span>
+                      显示 {firstItem}-{lastItem} 条，共 {result.total} 条
+                    </span>
+                    <div className="kbl-page-controls">
+                      <button
+                        type="button"
+                        aria-label="上一页"
+                        title="上一页"
+                        disabled={loading || result.page <= 1}
+                        onClick={() => setPage((value) => Math.max(1, value - 1))}
+                      >
+                        <ChevronLeft size={16} aria-hidden="true" />
+                      </button>
+                      {pageNumbers(result.page, totalPages).map((pageNumber) => (
+                        <button
+                          type="button"
+                          key={pageNumber}
+                          className={pageNumber === result.page ? "is-current" : ""}
+                          aria-label={`第 ${pageNumber} 页`}
+                          aria-current={pageNumber === result.page ? "page" : undefined}
+                          disabled={loading}
+                          onClick={() => setPage(pageNumber)}
+                        >
+                          {pageNumber}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        aria-label="下一页"
+                        title="下一页"
+                        disabled={loading || !result.hasNext}
+                        onClick={() => setPage((value) => value + 1)}
+                      >
+                        <ChevronRight size={16} aria-hidden="true" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </PageSection>
+        </>
+      )}
     </ProductPage>
   );
 }

@@ -205,11 +205,11 @@ async def test_consultant_admin_and_other_project_manager_cannot_decide(client, 
 
 
 @pytest.mark.parametrize("approver", [USER_BOSS, USER_DIRECTOR])
-async def test_governance_roles_can_approve_as_fallback(client, approver):
+async def test_governance_roles_cannot_bypass_project_manager(client, approver):
     _, review_id = await _submit(client, title=f"治理兜底审批-{approver}")
     response = await client.post(f"{REVIEWS}/{review_id}/approve", headers=_hdr(approver), json={})
-    assert response.status_code == 200
-    assert response.json()["status"] == "approved"
+    assert response.status_code == 403
+    assert response.json()["detail"]["denied_reason"] == "project_ingest_review_forbidden"
 
 
 async def test_inflight_approval_claim_blocks_competing_decision(client, db_session):

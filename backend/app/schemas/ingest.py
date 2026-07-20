@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from enum import Enum
 
 from pydantic import BaseModel
 
@@ -35,6 +36,54 @@ class IngestUploadResponse(BaseModel):
     upload_url: None = None
 
 
+class IngestTaskStage(str, Enum):
+    upload_saved = "upload_saved"
+    text_extraction = "text_extraction"
+    content_generation = "content_generation"
+    awaiting_confirmation = "awaiting_confirmation"
+    confirmation = "confirmation"
+    indexing_queued = "indexing_queued"
+    indexing_in_progress = "indexing_in_progress"
+    completed = "completed"
+    failed = "failed"
+    degraded_complete = "degraded_complete"
+
+
+class IngestTaskWorkflowStatus(str, Enum):
+    processing = "processing"
+    action_required = "action_required"
+    waiting = "waiting"
+    completed = "completed"
+    degraded = "degraded"
+    failed = "failed"
+
+
+class IngestTaskNextAction(BaseModel):
+    key: str
+    route_key: str | None = None
+    enabled: bool
+
+
+class IngestTaskSafeError(BaseModel):
+    code: str
+    message: str
+    recovery_hint: str
+
+
+class IngestTaskStatusResponse(BaseModel):
+    """Permission-filtered task progress without provider or storage internals."""
+
+    task_id: uuid.UUID
+    stage: IngestTaskStage
+    status: IngestTaskWorkflowStatus
+    updated_at: datetime | None
+    retryable: bool
+    next_action: IngestTaskNextAction | None = None
+    error: IngestTaskSafeError | None = None
+    result_asset_id: uuid.UUID | None = None
+    review_id: uuid.UUID | None = None
+
+
 class IngestAiResultResponse(BaseModel):
     """AI 建议结果（按调用人权限裁剪）。
 
@@ -52,6 +101,8 @@ class IngestAiResultResponse(BaseModel):
     summary: str | None = None
     summary_status: str | None = None
     generation_model_ref: str | None = None
+    generation_error_category: str | None = None
+    generation_recovery_hint: str | None = None
     suggested_key_points: list[str] | None = None
     suggested_tags: list[str] | None = None
     suggested_asset_type: str | None = None

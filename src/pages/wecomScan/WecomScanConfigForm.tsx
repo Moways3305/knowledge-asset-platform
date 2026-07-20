@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { ApiError } from "../../api/http";
 import { createWecomScanConfig, updateWecomScanConfig } from "../../api/admin";
+import { ApiError } from "../../api/http";
 import type {
   WecomOwnerOptionDTO,
   WecomProjectOptionDTO,
@@ -17,8 +17,10 @@ interface WecomScanConfigFormProps {
   editingConfig: WecomScanConfigDTO | null;
   projectOptions: WecomProjectOptionDTO[];
   ownerOptions: WecomOwnerOptionDTO[];
+  optionsError: boolean;
+  onForbidden: () => void;
   onClose: () => void;
-  onSaved: (note: string) => void;
+  onSaved: (config: WecomScanConfigDTO, note: string) => void;
 }
 
 const INITIAL = {
@@ -36,6 +38,8 @@ export default function WecomScanConfigForm({
   editingConfig,
   projectOptions,
   ownerOptions,
+  optionsError,
+  onForbidden,
   onClose,
   onSaved,
 }: WecomScanConfigFormProps) {
@@ -43,9 +47,6 @@ export default function WecomScanConfigForm({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-
-  const describeError = (e: unknown, fallback: string) =>
-    e instanceof ApiError ? `${e.message}（${e.deniedReason ?? e.status}）` : fallback;
 
   // 打开时按新建 / 编辑初始化字段。
   useEffect(() => {
@@ -82,6 +83,10 @@ export default function WecomScanConfigForm({
 
   const handleSave = async () => {
     setSaveError(null);
+    if (optionsError) {
+      setSaveError("项目与业务归属选项加载失败，请刷新页面后再保存。");
+      return;
+    }
     if (!values.name.trim()) {
       setSaveError("请填写配置名称");
       return;
@@ -107,16 +112,14 @@ export default function WecomScanConfigForm({
       task_owner_user_id: values.ownerId,
     };
     try {
-      if (editingConfig) {
-        await updateWecomScanConfig(editingConfig.id, { ...base, enabled: values.enabled });
-        onSaved("配置已更新");
-      } else {
-        await createWecomScanConfig({ ...base, enabled: values.enabled });
-        onSaved("配置已创建");
-      }
+      const saved = editingConfig
+        ? await updateWecomScanConfig(editingConfig.id, { ...base, enabled: values.enabled })
+        : await createWecomScanConfig({ ...base, enabled: values.enabled });
+      onSaved(saved, editingConfig ? "配置已更新。" : "配置已创建。");
       onClose();
-    } catch (e) {
-      setSaveError(describeError(e, "保存配置失败（创建/编辑需 admin 权限）"));
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) onForbidden();
+      setSaveError("配置未保存，请检查目录、目标范围和业务归属后重试。");
     } finally {
       setSaveBusy(false);
     }
@@ -126,9 +129,9 @@ export default function WecomScanConfigForm({
 
   return (
     <section className="ws-section">
-      <div className="ws-detail-panel">
-        <div className="ws-detail-head">
-          <span className="ws-detail-title">{editingConfig ? "编辑扫描配置" : "新增扫描配置"}</span>
+      <div className="ws87-form-panel">
+        <div className="ws87-form-head">
+          <span>{editingConfig ? "编辑扫描配置" : "新增扫描配置"}</span>
           <button className="btn-small" onClick={onClose} disabled={saveBusy}>
             关闭
           </button>
@@ -152,42 +155,25 @@ export default function WecomScanConfigForm({
                 type="button"
                 onClick={() => setPickerOpen((v) => !v)}
               >
-                {pickerOpen ? "收起目录选择" : "选择微盘目录"}
+                {pickerOpen ? "收起目录选择" : editingConfig ? "重新选择目录" : "选择微盘目录"}
               </button>
               <span className="ws-form-hint">
                 {values.dir
                   ? values.dirLabel
                     ? `已选择：${values.dirLabel}`
-                    : "已设置服务端目录配置"
+                    : "已配置微盘目录"
                   : "从微盘空间/目录中选择"}
               </span>
             </div>
             {pickerOpen && (
               <WecomDirectoryPicker
+                onForbidden={onForbidden}
                 onSelect={(ref, label) => {
                   setMany({ dir: ref, dirLabel: label });
                   setPickerOpen(false);
                 }}
               />
             )}
-            <details className="ws-form-advanced" style={{ marginTop: 8 }}>
-              <summary
-                style={{ cursor: "pointer", fontSize: 12, color: "var(--color-text-muted, #888)" }}
-              >
-                高级：手动输入目录标识
-              </summary>
-              <input
-                className="ws-form-input"
-                style={{ marginTop: 6 }}
-                value={values.dir}
-                onChange={(e) => setMany({ dir: e.target.value, dirLabel: "" })}
-                placeholder="spaceid:<id>;fatherid:<id>"
-              />
-              <span className="ws-form-hint">
-                技术详情，格式 <code>spaceid:&lt;id&gt;;fatherid:&lt;id&gt;</code>；fatherid
-                省略表示根目录。
-              </span>
-            </details>
           </div>
           <label className="ws-form-field">
             <span className="ws-form-label">目标知识库</span>
@@ -253,7 +239,7 @@ export default function WecomScanConfigForm({
                 {values.scope === "project" && !values.projectId
                   ? "请先选择目标项目，再选择该项目的业务归属人。"
                   : values.scope === "company"
-                    ? "公司级配置需选择 Boss / 咨询总监作为业务归属人，当前无可选治理角色。"
+                    ? "公司级配置需选择总经理 / 咨询总监作为业务归属人，当前无可选治理角色。"
                     : "暂无可选业务用户作为归属人。"}
               </span>
             )}
@@ -271,6 +257,11 @@ export default function WecomScanConfigForm({
             <span>创建后启用</span>
           </label>
         </div>
+        {optionsError && (
+          <div className="ws-note-hint" role="alert">
+            项目与业务归属选项加载失败，请刷新页面后再配置。
+          </div>
+        )}
         {saveError && (
           <div className="ws-note-hint" style={{ color: "var(--color-danger-fg, #b00)" }}>
             {saveError}
@@ -280,7 +271,7 @@ export default function WecomScanConfigForm({
           <button
             className="btn-small-primary"
             onClick={() => void handleSave()}
-            disabled={saveBusy}
+            disabled={saveBusy || optionsError}
           >
             {saveBusy ? "保存中…" : editingConfig ? "保存修改" : "创建配置"}
           </button>

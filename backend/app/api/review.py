@@ -23,6 +23,7 @@ from app.schemas.review import (
     ReviewListItem,
     ReviewListResponse,
     ReviewRejectRequest,
+    ReviewWithdrawRequest,
 )
 from app.services import review as review_service
 from app.services.storage import LocalFileStorage, get_storage
@@ -87,6 +88,22 @@ async def confirm_asset(
     )
 
 
+@router.post(
+    "/projects/{project_id}/knowledge/{asset_id}/upgrade-company",
+    response_model=ReviewListItem,
+)
+async def request_company_upgrade(
+    project_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> ReviewListItem:
+    return await review_service.create_or_get_company_upgrade(
+        session, caller, project_id, asset_id, get_trace_id(request)
+    )
+
+
 @router.post("/reviews/{review_id}/approve", response_model=ReviewActionResponse)
 async def approve_review(
     review_id: uuid.UUID,
@@ -118,5 +135,18 @@ async def reject_review(
     session: AsyncSession = Depends(get_db),
 ) -> ReviewActionResponse:
     return await review_service.reject(
+        session, caller, review_id, req.review_comment, get_trace_id(request)
+    )
+
+
+@router.post("/reviews/{review_id}/withdraw", response_model=ReviewActionResponse)
+async def withdraw_review_confirmation(
+    review_id: uuid.UUID,
+    req: ReviewWithdrawRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> ReviewActionResponse:
+    return await review_service.withdraw_company_confirmation(
         session, caller, review_id, req.review_comment, get_trace_id(request)
     )

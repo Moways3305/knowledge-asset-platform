@@ -1,70 +1,78 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import ConfirmDialog from "./ConfirmDialog";
 
 describe("ConfirmDialog", () => {
-  it("renders nothing when closed", () => {
+  it("关闭时不渲染", () => {
     const { container } = render(
       <ConfirmDialog open={false} title="删除？" onConfirm={() => {}} onCancel={() => {}} />,
     );
     expect(container.firstChild).toBeNull();
   });
 
-  it("renders title, description and default actions when open", () => {
-    render(
+  it("打开后展示动作图形并优先聚焦取消按钮", () => {
+    const { container } = render(
       <ConfirmDialog
         open
         title="删除资产？"
-        description="此操作保留审计"
+        description="此操作保留审计记录"
+        danger
         onConfirm={() => {}}
         onCancel={() => {}}
       />,
     );
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByText("删除资产？")).toBeInTheDocument();
-    expect(screen.getByText("此操作保留审计")).toBeInTheDocument();
-    expect(screen.getByText("确认")).toBeInTheDocument();
-    expect(screen.getByText("取消")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "删除资产？" })).toBeInTheDocument();
+    expect(container.querySelector(".confirm-dialog-icon svg")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "取消" })).toHaveFocus();
   });
 
-  it("calls onConfirm / onCancel from the action buttons", () => {
+  it("确认、取消和 Escape 均遵循原有交互", () => {
     const onConfirm = vi.fn();
     const onCancel = vi.fn();
     render(
       <ConfirmDialog
         open
-        title="t"
-        confirmText="确认删除"
+        title="确认动作"
+        confirmText="确认执行"
         onConfirm={onConfirm}
         onCancel={onCancel}
       />,
     );
-    fireEvent.click(screen.getByText("确认删除"));
-    fireEvent.click(screen.getByText("取消"));
+    fireEvent.click(screen.getByRole("button", { name: "确认执行" }));
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
-  it("disables buttons and shows busyText while busy", () => {
+  it("忙碌时禁用按钮且 Escape 不关闭", () => {
+    const onCancel = vi.fn();
     render(
       <ConfirmDialog
         open
-        title="t"
+        title="处理中"
         busy
         busyText="删除中…"
+        onConfirm={() => {}}
+        onCancel={onCancel}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "删除中…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it("错误态只展示安全文案", () => {
+    render(
+      <ConfirmDialog
+        open
+        title="确认动作"
+        error="POST /internal failed token=secret"
         onConfirm={() => {}}
         onCancel={() => {}}
       />,
     );
-    const confirmBtn = screen.getByText("删除中…");
-    expect(confirmBtn).toBeDisabled();
-    expect(screen.getByText("取消")).toBeDisabled();
-  });
-
-  it("shows the error message when provided", () => {
-    render(
-      <ConfirmDialog open title="t" error="创建失败" onConfirm={() => {}} onCancel={() => {}} />,
-    );
-    expect(screen.getByText("创建失败")).toBeInTheDocument();
+    expect(screen.getByText("操作未完成，请检查后重试。")).toBeInTheDocument();
+    expect(screen.queryByText(/token=secret/i)).not.toBeInTheDocument();
   });
 });

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { ChevronDown, Plus } from "lucide-react";
 import {
   createModelConnection,
   fetchModelConnections,
@@ -8,18 +10,14 @@ import {
   updateModelUsageAssignments,
 } from "../api/modelConnections";
 import type {
-  ModelCapabilityType,
   ModelConnectionDTO,
   ModelConnectionMutateDTO,
   ModelUsageAssignmentsDTO,
   ModelUsageKey,
 } from "../types/modelConnections";
-import { PageSection, PageToolbar, SettingsRow } from "./ProductLayout";
+import { ApiError } from "../api/http";
 
 const PROVIDERS = ["deepseek", "kimi", "qwen", "glm", "minimax", "openai", "custom"];
-const capabilityLabel: Record<ModelCapabilityType, string> = {
-  chat: "外部对话",
-};
 const usageLabel: Record<ModelUsageKey, string> = {
   content_generation: "内容生成",
   project_qa: "项目问答",
@@ -37,27 +35,66 @@ const emptyForm = (): ModelConnectionMutateDTO => ({
 
 const emptyUsages: ModelUsageAssignmentsDTO = {
   external_llm_default: null,
+  dependency_status: "missing",
+  dependency_message: "未设置外部 LLM 默认连接，内容生成和默认项目问答将不可用。",
+  remediation_hint: "选择一个已启用且测试通过的外部 LLM 连接并保存。",
 };
 
 const autofillWarning = "检测到浏览器自动填充，已恢复表单原值。请手动确认并重新填写连接信息。";
 
-export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: boolean }) {
+type TestNotice = { tone: "busy" | "success" | "danger"; message: string };
+
+function safeActionError(err: unknown, fallback: string): string {
+  if (!(err instanceof ApiError)) return fallback;
+  const hint = err.detail?.remediation_hint;
+  return typeof hint === "string" && hint.trim() ? `${fallback} ${hint}` : fallback;
+}
+
+function providerMark(provider: string | null): string {
+  const normalized = provider?.trim();
+  if (!normalized) return "LL";
+  return normalized.slice(0, 2).toUpperCase();
+}
+
+function formatTestTime(connection: ModelConnectionDTO): string | null {
+  const raw = connection.last_test_succeeded_at ?? connection.last_test_failed_at;
+  if (!raw) return null;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+export default function UnifiedModelConnectionsSection({
+  canEdit,
+  refreshSignal = 0,
+}: {
+  canEdit: boolean;
+  refreshSignal?: number;
+}) {
   const [connections, setConnections] = useState<ModelConnectionDTO[]>([]);
   const [usages, setUsages] = useState<ModelUsageAssignmentsDTO>(emptyUsages);
   const [warning, setWarning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
+  const [forbidden, setForbidden] = useState(false);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editingRef, setEditingRef] = useState<string | null>(null);
   const [form, setForm] = useState<ModelConnectionMutateDTO>(emptyForm());
-  const [tests, setTests] = useState<Record<string, string>>({});
+  const [tests, setTests] = useState<Record<string, TestNotice>>({});
   const panelRef = useRef<HTMLFormElement>(null);
+  const effectiveCanEdit = canEdit && !forbidden;
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setForbidden(false);
     try {
       const [list, assigned] = await Promise.all([
         fetchModelConnections(),
@@ -66,10 +103,16 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
       setConnections(list.items);
       setUsages(assigned);
       setWarning(list.warning);
-    } catch {
+    } catch (caught) {
       setConnections([]);
       setUsages(emptyUsages);
-      setError("外部 LLM 列表加载失败，请刷新或检查连接服务");
+      setWarning(null);
+      if (caught instanceof ApiError && caught.status === 403) {
+        setForbidden(true);
+        setError("当前身份没有模型管理权限，此区域保持只读。");
+      } else {
+        setError("外部 LLM 列表加载失败，请刷新或检查连接服务。");
+      }
     } finally {
       setLoading(false);
     }
@@ -77,10 +120,10 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, refreshSignal]);
 
   useEffect(() => {
-    if (formOpen) panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (formOpen) panelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [formOpen]);
 
   const reconcileExternalValues = useCallback(
@@ -149,18 +192,18 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
   const saveConnection = async () => {
     if (reconcileExternalValues()) return;
     if (!form.display_name.trim() || !form.model_name.trim()) {
-      setError("请填写显示名称和模型名称");
+      setError("请填写显示名称和模型名称。");
       return;
     }
     if (!editingRef && (!form.base_url?.trim() || !form.api_key?.trim())) {
-      setError("新增外部 LLM 连接需要填写 API 地址和 API key");
+      setError("新增外部 LLM 连接需要填写 API 地址和 API key。");
       return;
     }
     if (form.base_url?.trim() && !/^https?:\/\//i.test(form.base_url.trim())) {
-      setError("API 地址必须以 http:// 或 https:// 开头");
+      setError("API 地址必须以 http:// 或 https:// 开头。");
       return;
     }
-    setBusy(true);
+    setBusyAction("form");
     setError(null);
     try {
       const payload = { ...form };
@@ -171,18 +214,19 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
       } else {
         await createModelConnection(payload);
       }
-      setNote(editingRef ? "外部 LLM 连接已更新" : "外部 LLM 连接已创建");
+      setNote(editingRef ? "外部 LLM 连接已更新。" : "外部 LLM 连接已创建。");
       setFormOpen(false);
       await load();
-    } catch {
-      setError("外部 LLM 连接保存失败，请检查连接信息后重试");
+    } catch (caught) {
+      setError(safeActionError(caught, "外部 LLM 连接保存失败，请检查连接信息后重试。"));
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   };
 
   const toggleConnection = async (connection: ModelConnectionDTO) => {
-    setBusy(true);
+    const actionKey = `toggle:${connection.model_ref}`;
+    setBusyAction(actionKey);
     setError(null);
     try {
       await updateModelConnection(connection.model_ref, {
@@ -193,31 +237,47 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
         enabled: !connection.enabled,
       });
       await load();
-    } catch {
-      setError("模型状态更新失败；如该模型正在用于平台默认用途，请先调整用途分配");
+    } catch (caught) {
+      setError(safeActionError(caught, "外部 LLM 状态更新失败，请先处理默认用途依赖后重试。"));
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   };
 
   const runTest = async (connection: ModelConnectionDTO) => {
-    setTests((old) => ({ ...old, [connection.model_ref]: "测试中…" }));
+    const actionKey = `test:${connection.model_ref}`;
+    setBusyAction(actionKey);
+    setTests((old) => ({
+      ...old,
+      [connection.model_ref]: { tone: "busy", message: "正在测试连接…" },
+    }));
     try {
       const result = await testModelConnection(connection.model_ref);
       setTests((old) => ({
         ...old,
-        [connection.model_ref]: `${result.success ? "连接正常" : "连接失败"} · ${result.duration_ms} ms`,
+        [connection.model_ref]: {
+          tone: result.success ? "success" : "danger",
+          message: `${result.message} ${result.remediation_hint} · ${result.duration_ms} ms`,
+        },
       }));
-    } catch {
-      setTests((old) => ({ ...old, [connection.model_ref]: "测试失败，请检查外部 LLM 连接" }));
+    } catch (caught) {
+      setTests((old) => ({
+        ...old,
+        [connection.model_ref]: {
+          tone: "danger",
+          message: safeActionError(caught, "连接测试未完成，请检查连接配置后重试。"),
+        },
+      }));
+    } finally {
+      setBusyAction(null);
     }
   };
 
-  const setUsage = (key: keyof ModelUsageAssignmentsDTO, modelRef: string) => {
+  const setUsage = (modelRef: string) => {
     const selected = connections.find((item) => item.model_ref === modelRef) ?? null;
     setUsages((old) => ({
       ...old,
-      [key]: selected
+      external_llm_default: selected
         ? {
             model_ref: selected.model_ref,
             display_name: selected.display_name,
@@ -228,207 +288,237 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
   };
 
   const saveUsages = async () => {
-    setBusy(true);
+    setBusyAction("usages");
     setError(null);
     try {
       const updated = await updateModelUsageAssignments({
         external_llm_default_ref: usages.external_llm_default?.model_ref,
       });
       setUsages(updated);
-      setNote("外部 LLM 默认连接已保存；WeKnora 底座模型和已有知识库绑定未改变");
-    } catch {
-      setError("模型用途保存失败，请确认所选模型已启用且能力匹配");
+      setNote("外部 LLM 默认连接已保存；WeKnora 底座模型和知识库绑定未改变。");
+    } catch (caught) {
+      setError(safeActionError(caught, "外部 LLM 默认用途保存失败，请确认所选连接已启用。"));
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   };
 
-  const usageRow = (
-    key: keyof ModelUsageAssignmentsDTO,
-    title: string,
-    description: string,
-    usage: ModelUsageKey,
-    optional = false,
-  ) => (
-    <SettingsRow
-      title={title}
-      description={description}
-      disabledReason={!canEdit ? "当前身份仅可查看，修改需系统管理员。" : undefined}
-      control={
-        <select
-          aria-label={title}
-          value={usages[key]?.model_ref ?? ""}
-          disabled={!canEdit || loading}
-          onChange={(event) => setUsage(key, event.target.value)}
-        >
-          <option value="">{optional ? "暂不设置" : "请选择外部 LLM 连接"}</option>
-          {connections
-            .filter((item) => item.enabled && item.available_usages.includes(usage))
-            .map((item) => (
-              <option key={item.model_ref} value={item.model_ref}>
-                {item.display_name} · {item.provider ?? "自定义"}
-              </option>
-            ))}
-        </select>
-      }
-    />
+  const usageSelect = (label: string, usage: ModelUsageKey) => (
+    <label className="mf-usage-field">
+      <span>{label}</span>
+      <select
+        aria-label={label}
+        value={usages.external_llm_default?.model_ref ?? ""}
+        disabled={!effectiveCanEdit || loading || busyAction === "usages"}
+        onChange={(event) => setUsage(event.target.value)}
+      >
+        <option value="">请选择外部 LLM 连接</option>
+        {connections
+          .filter((item) => item.enabled && item.available_usages.includes(usage))
+          .map((item) => (
+            <option key={item.model_ref} value={item.model_ref}>
+              {item.display_name} · {item.provider ?? "自定义"}
+            </option>
+          ))}
+      </select>
+    </label>
   );
 
   return (
-    <>
-      <PageSection
-        title="外部 LLM 默认用途"
-        description="默认连接用于内容生成和项目问答；项目问答也可在安全选项中选择其他已启用外部 LLM。"
-      >
-        {error && (
-          <div className="product-inline-note is-danger" role="alert">
-            {error}
+    <section className="mf-external-panel" aria-labelledby="external-llm-title">
+      <div className="mf-panel-heading">
+        <div>
+          <span className="mf-panel-kicker">KAP DIRECT</span>
+          <h3 id="external-llm-title">外部 LLM 连接</h3>
+        </div>
+        {effectiveCanEdit && (
+          <button className="btn-small-primary mf-add-button" onClick={openCreate} type="button">
+            <Plus size={14} aria-hidden="true" />
+            新增外部 LLM
+          </button>
+        )}
+      </div>
+
+      {!canEdit && !forbidden && (
+        <div className="mf-inline-message">当前身份仅可查看，修改需系统管理员。</div>
+      )}
+      {error && (
+        <div className="mf-inline-message is-danger" role="alert">
+          {error}
+        </div>
+      )}
+      {warning && <div className="mf-inline-message is-warning">{warning}</div>}
+      {note && <div className="mf-inline-message is-success">{note}</div>}
+
+      <div className="mf-usage-card" aria-label="外部 LLM 默认用途">
+        <div className="mf-usage-copy">
+          <strong>默认用途</strong>
+          <span>KAP 直接调用同一条 OpenAI-compatible 连接，不经过 WeKnora。</span>
+        </div>
+        <div className="mf-usage-grid">
+          {usageSelect("内容生成默认模型", "content_generation")}
+          {usageSelect("项目问答默认模型", "project_qa")}
+        </div>
+        {usages.dependency_status === "missing" && (
+          <div className="mf-dependency-note">
+            {usages.dependency_message} {usages.remediation_hint}
           </div>
         )}
-        {warning && <div className="product-inline-note is-warning">{warning}</div>}
-        {note && <div className="product-inline-note">{note}</div>}
-        <div className="product-settings-list">
-          {usageRow(
-            "external_llm_default",
-            "内容生成与项目问答默认模型",
-            "KAP 直接调用该 OpenAI-compatible 连接，不经过 WeKnora。",
-            "content_generation",
-          )}
-        </div>
-        {canEdit && (
-          <PageToolbar
-            end={
-              <button
-                className="btn-small-primary"
-                onClick={() => void saveUsages()}
-                disabled={busy || loading}
-              >
-                {busy ? "保存中…" : "保存外部 LLM 默认连接"}
-              </button>
-            }
-          />
-        )}
-      </PageSection>
-
-      <PageSection
-        title="外部 LLM 连接"
-        description="仅维护 KAP 直接调用的 OpenAI-compatible 对话模型；API 地址与密钥保存后不再显示。"
-        actions={
-          canEdit ? (
-            <button className="btn-small-primary" onClick={openCreate}>
-              新增外部 LLM 连接
+        {effectiveCanEdit && (
+          <div className="mf-usage-actions">
+            <button
+              className="btn-small-primary"
+              onClick={() => void saveUsages()}
+              disabled={loading || busyAction === "usages"}
+              type="button"
+            >
+              {busyAction === "usages" ? "保存中…" : "保存默认用途"}
             </button>
-          ) : undefined
-        }
-      >
+          </div>
+        )}
+      </div>
+
+      <div className="mf-connection-stack">
         {loading ? (
-          <div className="ig-empty-state">正在加载外部 LLM 连接…</div>
+          <div className="mf-empty-state">正在加载外部 LLM 连接…</div>
         ) : connections.length === 0 ? (
-          <div className="ig-empty-state">
-            <div className="ig-empty-title">尚未配置外部 LLM 连接</div>
-            <p className="ig-empty-desc">添加连接后，可将其用于内容生成和项目问答。</p>
+          <div className="mf-empty-state">
+            <strong>尚未配置外部 LLM 连接</strong>
+            <span>新增连接后，可将其用于内容生成和项目问答。</span>
+            {effectiveCanEdit && (
+              <button className="btn-small-primary" onClick={openCreate} type="button">
+                新增外部 LLM
+              </button>
+            )}
           </div>
         ) : (
-          <div className="ws-table-wrap">
-            <table className="ws-table">
-              <thead>
-                <tr>
-                  <th>模型名称</th>
-                  <th>能力</th>
-                  <th>Provider</th>
-                  <th>状态</th>
-                  <th>可用于</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {connections.map((connection) => (
-                  <tr key={connection.model_ref}>
-                    <td>
-                      {connection.display_name}
-                      <div className="ws-cell-project">{connection.model_name}</div>
-                    </td>
-                    <td>{capabilityLabel[connection.capability_type]}</td>
-                    <td>{connection.provider ?? "—"}</td>
-                    <td>
-                      <span
-                        className={`ws-status-pill ${connection.enabled ? "ws-status-on" : "ws-status-off"}`}
+          connections.map((connection, index) => {
+            const time = formatTestTime(connection);
+            const testNotice = tests[connection.model_ref];
+            const status = !connection.enabled
+              ? "已停用"
+              : connection.health_status === "healthy"
+                ? "连接正常"
+                : connection.health_status === "unhealthy"
+                  ? "连接异常"
+                  : "未测试";
+            return (
+              <details className="mf-connection-card" key={connection.model_ref} open={index === 0}>
+                <summary>
+                  <span className="mf-provider-mark" aria-hidden="true">
+                    {providerMark(connection.provider)}
+                  </span>
+                  <span className="mf-connection-title">
+                    <strong>{connection.display_name}</strong>
+                    <small>
+                      {connection.provider ?? "自定义"} · {connection.model_name}
+                    </small>
+                  </span>
+                  <span
+                    className={`mf-health ${connection.enabled && connection.health_status === "healthy" ? "is-healthy" : connection.enabled && connection.health_status === "unhealthy" ? "is-unhealthy" : ""}`}
+                  >
+                    {status}
+                    {time && <small>最近测试 {time}</small>}
+                  </span>
+                  <ChevronDown className="mf-chevron" size={16} aria-hidden="true" />
+                </summary>
+                <div className="mf-connection-body">
+                  <dl className="mf-connection-facts">
+                    <div>
+                      <dt>Provider</dt>
+                      <dd>{connection.provider ?? "自定义"}</dd>
+                    </div>
+                    <div>
+                      <dt>模型名称</dt>
+                      <dd>{connection.model_name}</dd>
+                    </div>
+                    <div>
+                      <dt>API 地址 / API key</dt>
+                      <dd>已安全保存，不回显</dd>
+                    </div>
+                    <div>
+                      <dt>可用于</dt>
+                      <dd>
+                        {connection.available_usages.map((item) => usageLabel[item]).join("、")}
+                      </dd>
+                    </div>
+                  </dl>
+                  {testNotice && (
+                    <div className={`mf-test-result is-${testNotice.tone}`} role="status">
+                      {testNotice.message}
+                    </div>
+                  )}
+                  {effectiveCanEdit && (
+                    <div className="mf-card-actions">
+                      <button
+                        className="btn-small"
+                        onClick={() => void runTest(connection)}
+                        disabled={busyAction === `test:${connection.model_ref}`}
+                        type="button"
                       >
-                        {connection.enabled ? (tests[connection.model_ref] ?? "已启用") : "已停用"}
-                      </span>
-                    </td>
-                    <td>
-                      {connection.available_usages.map((usage) => usageLabel[usage]).join("、")}
-                    </td>
-                    <td className="ws-cell-actions">
-                      {canEdit && (
-                        <>
-                          <button className="btn-small" onClick={() => void runTest(connection)}>
-                            测试连接
-                          </button>
-                          <button className="btn-small" onClick={() => openEdit(connection)}>
-                            编辑
-                          </button>
-                          <button
-                            className="btn-small"
-                            disabled={busy}
-                            onClick={() => void toggleConnection(connection)}
-                          >
-                            {connection.enabled ? "停用" : "启用"}
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                        {busyAction === `test:${connection.model_ref}` ? "测试中…" : "测试连接"}
+                      </button>
+                      <button
+                        className="btn-small"
+                        onClick={() => openEdit(connection)}
+                        type="button"
+                      >
+                        编辑
+                      </button>
+                      <button
+                        className="btn-small"
+                        onClick={() => void toggleConnection(connection)}
+                        disabled={busyAction === `toggle:${connection.model_ref}`}
+                        type="button"
+                      >
+                        {busyAction === `toggle:${connection.model_ref}`
+                          ? "处理中…"
+                          : connection.enabled
+                            ? "停用"
+                            : "启用"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </details>
+            );
+          })
         )}
-      </PageSection>
+      </div>
 
-      {formOpen && (
-        <PageSection
-          className="ws-section"
-          title={editingRef ? "编辑外部 LLM 连接" : "新增外部 LLM 连接"}
-          actions={
-            <button className="btn-small" onClick={() => setFormOpen(false)} disabled={busy}>
+      {formOpen && effectiveCanEdit && (
+        <div className="mf-connection-editor">
+          <div className="mf-editor-heading">
+            <div>
+              <strong>{editingRef ? "编辑外部 LLM" : "新增外部 LLM"}</strong>
+              <span>地址和密钥仅单向写入；编辑时留空即保持原值。</span>
+            </div>
+            <button className="btn-small" onClick={() => setFormOpen(false)} type="button">
               关闭
             </button>
-          }
-        >
+          </div>
           <form
             key={editingRef ?? "create"}
-            className="ws-form-grid"
+            className="ws-form-grid mf-form-grid"
             autoComplete="off"
             onSubmit={(event) => event.preventDefault()}
             ref={panelRef}
           >
-            <label className="ws-form-field">
-              <span className="ws-form-label">显示名称</span>
+            <FormField label="显示名称">
               <input
-                className="ws-form-input"
                 data-model-field="display_name"
                 autoComplete="off"
                 value={form.display_name}
                 onChange={(event) => setForm({ ...form, display_name: event.target.value })}
               />
-            </label>
-            <label className="ws-form-field">
-              <span className="ws-form-label">模型能力</span>
-              <select
-                className="ws-form-input"
-                data-model-field="capability_type"
-                value={form.capability_type}
-                disabled
-              >
+            </FormField>
+            <FormField label="模型能力">
+              <select data-model-field="capability_type" value={form.capability_type} disabled>
                 <option value="chat">对话（OpenAI 兼容）</option>
               </select>
-            </label>
-            <label className="ws-form-field">
-              <span className="ws-form-label">Provider</span>
+            </FormField>
+            <FormField label="Provider">
               <select
-                className="ws-form-input"
                 data-model-field="provider"
                 value={form.provider}
                 onChange={(event) => setForm({ ...form, provider: event.target.value })}
@@ -437,21 +527,17 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
                   <option key={provider}>{provider}</option>
                 ))}
               </select>
-            </label>
-            <label className="ws-form-field">
-              <span className="ws-form-label">模型名称</span>
+            </FormField>
+            <FormField label="模型名称">
               <input
-                className="ws-form-input"
                 data-model-field="model_name"
                 autoComplete="off"
                 value={form.model_name}
                 onChange={(event) => setForm({ ...form, model_name: event.target.value })}
               />
-            </label>
-            <label className="ws-form-field">
-              <span className="ws-form-label">API 地址</span>
+            </FormField>
+            <FormField label="API 地址">
               <input
-                className="ws-form-input"
                 data-model-field="base_url"
                 name="model_connection_endpoint"
                 inputMode="url"
@@ -461,11 +547,9 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
                 placeholder={editingRef ? "留空表示保持原地址" : "https://api.example.com/v1"}
                 onChange={(event) => setForm({ ...form, base_url: event.target.value })}
               />
-            </label>
-            <label className="ws-form-field">
-              <span className="ws-form-label">API key</span>
+            </FormField>
+            <FormField label="API key">
               <input
-                className="ws-form-input"
                 data-model-field="api_key"
                 name="model_connection_secret"
                 type="password"
@@ -476,11 +560,9 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
                 placeholder={editingRef ? "留空表示保持原密钥" : "保存后不再显示"}
                 onChange={(event) => setForm({ ...form, api_key: event.target.value })}
               />
-            </label>
-            <label className="ws-form-field">
-              <span className="ws-form-label">启用状态</span>
+            </FormField>
+            <FormField label="启用状态">
               <select
-                className="ws-form-input"
                 data-model-field="enabled"
                 value={form.enabled ? "enabled" : "disabled"}
                 onChange={(event) =>
@@ -490,26 +572,32 @@ export default function UnifiedModelConnectionsSection({ canEdit }: { canEdit: b
                 <option value="enabled">已启用</option>
                 <option value="disabled">已停用</option>
               </select>
-            </label>
+            </FormField>
           </form>
-          <PageToolbar
-            end={
-              <>
-                <button
-                  className="btn-small-primary"
-                  onClick={() => void saveConnection()}
-                  disabled={busy}
-                >
-                  {busy ? "保存中…" : "保存外部 LLM 连接"}
-                </button>
-                <button className="btn-small" onClick={() => setFormOpen(false)} disabled={busy}>
-                  取消
-                </button>
-              </>
-            }
-          />
-        </PageSection>
+          <div className="mf-editor-actions">
+            <button
+              className="btn-small-primary"
+              onClick={() => void saveConnection()}
+              disabled={busyAction === "form"}
+              type="button"
+            >
+              {busyAction === "form" ? "保存中…" : "保存外部 LLM"}
+            </button>
+            <button className="btn-small" onClick={() => setFormOpen(false)} type="button">
+              取消
+            </button>
+          </div>
+        </div>
       )}
-    </>
+    </section>
+  );
+}
+
+function FormField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="ws-form-field">
+      <span className="ws-form-label">{label}</span>
+      {children}
+    </label>
   );
 }

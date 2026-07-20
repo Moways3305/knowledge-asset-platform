@@ -1,9 +1,9 @@
 """企微微盘扫描 API（Path A）。
 
-- GET   /api/v1/admin/wecom-scan/configs                         （admin / boss / 咨询总监）
+- GET   /api/v1/admin/wecom-scan/configs                         （admin / 总经理 / 咨询总监）
 - PATCH /api/v1/admin/wecom-scan/configs/{config_id}            （admin；启停）
 - POST  /api/v1/admin/wecom-scan/configs/{config_id}/scan       （admin；手动触发，可带 Idempotency-Key）
-- GET   /api/v1/admin/wecom-scan/configs/{config_id}/records    （admin / boss / 咨询总监）
+- GET   /api/v1/admin/wecom-scan/configs/{config_id}/records    （admin / 总经理 / 咨询总监）
 
 权限委托 service；响应只含安全运营元数据，绝不含 storage_ref / 下载 URL / file_id / token。
 """

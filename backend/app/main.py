@@ -25,6 +25,7 @@ from app.api import (
     lifecycle,
     model_connections,
     my_knowledge,
+    notifications,
     ops,
     original_access,
     people,
@@ -37,6 +38,7 @@ from app.api import (
     wecom_scan,
     weknora_admin,
     weknora_options,
+    workbench,
 )
 from app.core.config import get_settings
 from app.core.csrf import CsrfMiddleware
@@ -75,6 +77,7 @@ def create_app() -> FastAPI:
     app.include_router(preview.router)
     app.include_router(generation_models.router)
     app.include_router(model_connections.router)
+    app.include_router(notifications.router)
     app.include_router(agent.router)
     app.include_router(search.router)
     app.include_router(dify.router)
@@ -86,6 +89,7 @@ def create_app() -> FastAPI:
     app.include_router(people.router)
     app.include_router(permissions.router)
     app.include_router(projects.router)
+    app.include_router(workbench.router)
     app.include_router(weknora_admin.router)
     app.include_router(weknora_options.router)
 

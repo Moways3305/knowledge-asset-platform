@@ -8,7 +8,7 @@
 
 权限：仅 `owner_user_id == caller.user_id` 且 `scope=personal` 的资产可操作；他人个人知识 /
 纯 admin 一律 404 `personal_asset_not_owned`（不泄露存在）。提交到项目需调用人为目标项目
-active 成员或治理角色（boss / 咨询总监，提交本人个人知识）。审核仍由项目经理人工确认。
+active 成员。公司层职务不自动授予项目知识提交权，审核仍由项目经理人工确认。
 
 安全：响应 / 审计绝不含原文 / 摘要全文 / storage_ref / source_file_ref / WeKnora id /
 token / 真实附件 URL / provider 内部标识。
@@ -21,9 +21,10 @@ import uuid
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.identity import Project
-from app.models.knowledge import KnowledgeAsset
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetTag
 from app.models.review import (
     PersonalKnowledgeSubmission,
     ReviewTask,
@@ -43,12 +44,15 @@ from app.schemas.enums import (
 )
 from app.schemas.my_knowledge import (
     ConfirmAssetResponse,
+    PersonalKnowledgeItemOut,
     PersonalKnowledgeSubmissionOut,
+    PersonalKnowledgeUpdateRequest,
     SubmitToProjectRequest,
     ValidationCandidateRequest,
 )
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
+from app.services import knowledge as knowledge_service
 from app.services import review as review_service
 
 
@@ -67,13 +71,111 @@ async def _load_owned_personal_asset(
         # admin 系统身份不作为业务个人知识库主体。
         raise not_owned
     asset = (
-        await session.execute(select(KnowledgeAsset).where(KnowledgeAsset.id == asset_id))
+        await session.execute(
+            select(KnowledgeAsset)
+            .where(KnowledgeAsset.id == asset_id)
+            .options(selectinload(KnowledgeAsset.tags))
+        )
     ).scalar_one_or_none()
     if asset is None:
         raise not_owned
     if asset.scope != KnowledgeScope.personal.value or asset.owner_user_id != caller.user_id:
         raise not_owned
     return asset
+
+
+async def _personal_asset_write_locked(session: AsyncSession, asset_id: uuid.UUID) -> bool:
+    pending_task = (
+        await session.execute(
+            select(ReviewTask.id)
+            .join(
+                PersonalKnowledgeSubmission,
+                PersonalKnowledgeSubmission.review_task_id == ReviewTask.id,
+            )
+            .where(
+                PersonalKnowledgeSubmission.source_asset_id == asset_id,
+                PersonalKnowledgeSubmission.submission_type
+                == PersonalSubmissionType.submit_to_project.value,
+                ReviewTask.status.in_(
+                    {
+                        ReviewTaskStatus.pending_evidence.value,
+                        ReviewTaskStatus.pending_reviewer.value,
+                        ReviewTaskStatus.approving.value,
+                        ReviewTaskStatus.approval_failed.value,
+                    }
+                ),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if pending_task is not None:
+        return True
+    project_copy = (
+        await session.execute(
+            select(KnowledgeAsset.id)
+            .where(
+                KnowledgeAsset.source_asset_id == asset_id,
+                KnowledgeAsset.scope == KnowledgeScope.project.value,
+                KnowledgeAsset.asset_status == "active",
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return project_copy is not None
+
+
+async def update_personal_asset(
+    session: AsyncSession,
+    caller: CallerContext,
+    asset_id: uuid.UUID,
+    req: PersonalKnowledgeUpdateRequest,
+    trace_id: str,
+) -> PersonalKnowledgeItemOut:
+    """更新 owner 个人资料安全元数据；项目审核/使用期间后端强制拒绝。"""
+    asset = await _load_owned_personal_asset(session, caller, asset_id)
+    if await _personal_asset_write_locked(session, asset.id):
+        raise _denied(
+            409,
+            "personal_asset_project_locked",
+            "项目审核或项目使用中的资料不可直接修改",
+        )
+    before = {
+        "title": asset.title,
+        "asset_type": asset.asset_type,
+        "tags": [tag.tag_name for tag in asset.tags],
+    }
+    if req.title is not None:
+        asset.title = req.title
+    if req.asset_type is not None:
+        asset.asset_type = req.asset_type.value
+    if req.tags is not None:
+        asset.tags.clear()
+        asset.tags.extend(KnowledgeAssetTag(tag_name=tag) for tag in req.tags)
+    await session.flush()
+    after = {
+        "title": asset.title,
+        "asset_type": asset.asset_type,
+        "tags": [tag.tag_name for tag in asset.tags],
+    }
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.knowledge_asset_metadata_updated.value,
+        trace_id=trace_id,
+        target_type="knowledge_asset",
+        target_id=asset.id,
+        before=before,
+        after=after,
+    )
+    await session.commit()
+    result = await knowledge_service.list_my_knowledge(
+        session, caller, keyword=asset.title, page=1, page_size=100
+    )
+    for item in result.items:
+        if item.id == asset.id:
+            return item
+    raise _denied(404, "personal_asset_not_owned", "个人知识不存在或不可操作")
 
 
 async def _load_target_project(session: AsyncSession, project_id: uuid.UUID) -> Project:
@@ -88,16 +190,10 @@ async def _load_target_project(session: AsyncSession, project_id: uuid.UUID) -> 
 
 
 def _require_can_submit(caller: CallerContext, project: Project) -> None:
-    """提交本人个人知识到项目：目标项目 active 成员，或治理角色（boss / 咨询总监）。
-
-    治理角色（can_discover_l5）的提交权来自公司级知识治理身份，提交的是其本人个人知识；
-    纯 admin 不在 is_business_user 内，已在 owner 校验阶段被 404 拦截，无法绕过。
-    """
+    """提交本人个人知识到项目仅允许目标项目 active 成员。"""
     if project.id in caller.active_project_ids:
         return
-    if caller.can_discover_l5:
-        return
-    raise _denied(403, "project_membership_required", "需为目标项目 active 成员或治理角色")
+    raise _denied(403, "project_membership_required", "需为目标项目 active 成员")
 
 
 async def _find_existing_submission(
@@ -280,6 +376,9 @@ async def submit_to_project(
         },
         project_id=project.id,
     )
+    from app.services.notifications import notify_review_pending
+
+    await notify_review_pending(session, task)
     await session.commit()
     return await _submission_out(session, sub)
 
@@ -384,5 +483,8 @@ async def register_validation_candidate(
         extra={"target_project_id": str(project.id), "evidence_id": str(evidence.id)},
         project_id=project.id,
     )
+    from app.services.notifications import notify_review_pending
+
+    await notify_review_pending(session, task)
     await session.commit()
     return await _submission_out(session, sub)

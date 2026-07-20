@@ -244,6 +244,16 @@ class PersonalSubmissionStatus(str, Enum):
     rejected = "rejected"
 
 
+class PersonalKnowledgeState(str, Enum):
+    """个人知识工作区稳定状态，不直接暴露审核任务内部状态机。"""
+
+    awaiting_confirmation = "awaiting_confirmation"
+    ready_to_submit = "ready_to_submit"
+    pending_project_review = "pending_project_review"
+    active_in_project = "active_in_project"
+    project_rejected = "project_rejected"
+
+
 class ReviewType(str, Enum):
     """审核类型。"""
 
@@ -270,6 +280,12 @@ class ReviewTaskStatus(str, Enum):
     approval_failed = "approval_failed"
     approved = "approved"
     rejected = "rejected"
+
+
+class CompanyAssetDecision(str, Enum):
+    confirmed = "confirmed"
+    rejected = "rejected"
+    withdrawn = "withdrawn"
 
 
 class PreviewType(str, Enum):
@@ -329,7 +345,10 @@ class AuditAction(str, Enum):
     review_approval_failed = "review.approval_failed"
     review_approved = "review.approved"
     review_rejected = "review.rejected"
+    review_company_confirmation_recorded = "review.company_confirmation_recorded"
+    review_company_confirmation_withdrawn = "review.company_confirmation_withdrawn"
     asset_zone_changed = "asset.zone_changed"
+    asset_scope_changed = "asset.scope_changed"
     # 预览
     preview_requested = "preview.requested"
     preview_issued = "preview.issued"
@@ -359,6 +378,7 @@ class AuditAction(str, Enum):
     lifecycle_reenabled = "lifecycle.reenabled"
     # 知识资产受控删除 / 撤下。
     knowledge_asset_deleted = "knowledge.asset_deleted"
+    knowledge_asset_metadata_updated = "knowledge.asset_metadata_updated"
     # 底座索引重试。requested=发起（operation）；retried=成功（operation）；
     # retry_failed=重试后底座仍失败（exception）。区别于 ingest.index_failed（confirm 阶段失败）。
     knowledge_index_retry_requested = "knowledge.index_retry_requested"
@@ -370,6 +390,9 @@ class AuditAction(str, Enum):
     knowledge_index_batch_retry_completed = "knowledge.index_batch_retry_completed"
     knowledge_index_reparse_requested = "knowledge.index_reparse_requested"
     knowledge_index_reparse_completed = "knowledge.index_reparse_completed"
+    knowledge_index_target_retry_requested = "knowledge.index_target_retry_requested"
+    knowledge_index_target_retry_denied = "knowledge.index_target_retry_denied"
+    knowledge_index_target_retry_completed = "knowledge.index_target_retry_completed"
     # WeKnora 模型配置中心。extra 只放安全字段（provider / type / 名称），
     # 绝不含 api_key / base_url / 真实 model_id / weknora_kb_id。
     weknora_model_created = "weknora.model_created"
@@ -424,6 +447,10 @@ class AuditAction(str, Enum):
     # 通知真实下发：发送成功 / 失败（安全元数据，不含正文/密钥）。
     notification_sent = "notification.sent"
     notification_failed = "notification.failed"
+    notification_read = "notification.read"
+    notification_batch_read = "notification.batch_read"
+    notification_business_delivered = "notification.business_delivered"
+    notification_business_delivery_failed = "notification.business_delivery_failed"
     # 运维告警：信号超阈值触发（仅安全元数据：信号/计数/阈值/时间窗/安全 error_code 聚合）。
     ops_alert_triggered = "ops.alert_triggered"
     # 会话 / 登录。真实 OAuth 接入前为本地会话最小闭环。
@@ -454,7 +481,7 @@ class AuditAction(str, Enum):
     # raw wecom_user_id / 通讯录档案字段 / 上游 errmsg。
     identity_wecom_user_synced = "identity.wecom_user_synced"
     identity_user_deactivated_by_wecom_sync = "identity.user_deactivated_by_wecom_sync"
-    # 管理员设置 / 重置用户密码。extra 只放安全元数据，绝不含 password/hash/salt。
+    # 治理角色设置 / 重置用户密码。extra 只放安全元数据，绝不含 password/hash/salt。
     auth_password_set = "auth.password_set"
 
 

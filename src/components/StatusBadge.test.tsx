@@ -21,4 +21,9 @@ describe("StatusBadge", () => {
     render(<StatusBadge label="索引中" title="检索索引状态" />);
     expect(screen.getByText("索引中")).toHaveAttribute("title", "检索索引状态");
   });
+
+  it("maps semantic tone to the shared visual contract", () => {
+    render(<StatusBadge label="已启用" tone="success" />);
+    expect(screen.getByText("已启用")).toHaveClass("status-pill", "is-success");
+  });
 });

@@ -227,6 +227,28 @@ async def test_pure_admin_lifecycle_denied_strong_audit(client):
 
 
 # ---- 8. personal / project / company 权限边界 ----
+async def test_detail_exposes_lifecycle_capability_independently_from_delete(client):
+    maintainer = await client.get(
+        f"/api/v1/knowledge/{KA_PROJECT_ALPHA}", headers=_hdr(USER_CONSULTANT)
+    )
+    assert maintainer.status_code == 200
+    maintainer_access = maintainer.json()["access_info"]
+    assert maintainer_access["can_manage_lifecycle"] is True
+    assert maintainer_access["can_delete"] is False
+
+    project_manager = await client.get(
+        f"/api/v1/knowledge/{KA_PROJECT_ALPHA}", headers=_hdr(USER_PROJECT_MANAGER)
+    )
+    assert project_manager.status_code == 200
+    assert project_manager.json()["access_info"]["can_manage_lifecycle"] is True
+
+    consultant = await client.get(
+        f"/api/v1/knowledge/{KA_COMPANY_L2}", headers=_hdr(USER_CONSULTANT)
+    )
+    assert consultant.status_code == 200
+    assert consultant.json()["access_info"]["can_manage_lifecycle"] is False
+
+
 async def test_personal_only_owner(client):
     # 他人（经理B）对顾问A的个人资产 → 表现为不存在（不泄露）。
     other = await client.post(

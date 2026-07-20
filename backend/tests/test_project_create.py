@@ -102,7 +102,7 @@ async def test_director_creates_with_coach(client, db_session):
         json=_project_body(
             name="带辅导老师项目",
             project_manager_user_id=str(USER_PROJECT_MANAGER),
-            coach_user_id=str(USER_CONSULTANT),
+            coach_user_id=str(USER_BOSS),
         ),
     )
     assert r.status_code == 201, r.text
@@ -277,9 +277,9 @@ async def test_created_project_visible_in_lists(client):
         )
     ).json()
     pid = created["id"]
-    # boss 全量列表可见。
+    # 公司治理身份不扩展项目可见范围；创建人不是成员时不可枚举。
     boss_list = (await client.get(PROJECTS, headers=_hdr(USER_BOSS))).json()["items"]
-    assert any(p["id"] == pid for p in boss_list)
+    assert all(p["id"] != pid for p in boss_list)
     # PM 在自己的项目列表可见，且对项目设置可读。
     pm_list = (await client.get(PROJECTS, headers=_hdr(USER_PROJECT_MANAGER))).json()["items"]
     assert any(p["id"] == pid for p in pm_list)

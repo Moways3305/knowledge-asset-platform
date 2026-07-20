@@ -3,6 +3,7 @@ import type { ChangeEvent } from "react";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useUploadFlow } from "./useUploadFlow";
 import type { ModelSelectionState } from "../../hooks/useModelSelection";
+import type { IngestAiResultDTO, PendingIngestItemDTO } from "../../types/ingest";
 
 // 可变的模型选择状态（驱动「自动选中默认 / 缺默认禁用提交 / 切换后 payload 带 ref」）。
 const modelState: { current: ModelSelectionState } = {
@@ -36,7 +37,7 @@ const ingest = vi.hoisted(() => ({
 }));
 vi.mock("../../api/ingest", () => ingest);
 
-const readyAiResult = {
+const readyAiResult: IngestAiResultDTO = {
   ingest_task_id: "t1",
   status: "ready",
   suggested_title: "渠道转型方法论",
@@ -56,11 +57,15 @@ const readyAiResult = {
   suggested_asset_type: "methodology",
   suggested_confidentiality_level: "L2",
   suggested_ai_access_level: "A2",
+  suggested_phase_key: "行动辅导",
   confidence: 0.9,
+  naming_compliant: true,
   naming_parsed_fields: null,
+  naming_anomalies: [],
   extraction_status: "extracted",
   extracted_text_preview: null,
   extracted_char_count: 100,
+  error_type: null,
   error_message: null,
   is_possible_duplicate: false,
   duplicate_of_task_id: null,
@@ -70,6 +75,35 @@ const readyAiResult = {
 function fileEvent() {
   const file = new File(["bytes"], "doc.pptx", { type: "application/vnd.ms-powerpoint" });
   return { target: { files: [file] } } as unknown as ChangeEvent<HTMLInputElement>;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+function pendingTask(id: string, fileName: string): PendingIngestItemDTO {
+  return {
+    id,
+    source: "path_a_wecom",
+    status: "pending_confirmation",
+    source_file_name: fileName,
+    target_scope: "personal",
+    target_project_id: null,
+    extraction_status: "extracted",
+    error_type: null,
+    error_message: null,
+    suggested_title: null,
+    suggested_one_liner: null,
+    naming_parsed_fields: null,
+    confidence: null,
+    result_asset_id: null,
+    created_at: null,
+    updated_at: null,
+  };
 }
 
 async function driveToReady(result: { current: ReturnType<typeof useUploadFlow> }) {
@@ -163,5 +197,138 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(result.current.awaitingProjectReview).toBe(true);
     expect(result.current.resultAssetId).toBeNull();
     expect(result.current.submitReviewId).toBe("review-1");
+  });
+
+  it("接受真实拖放文件并在重置时清空前一任务状态", async () => {
+    auth.fetchAuthMe.mockResolvedValue({
+      projects: [{ projectId: "project-ready", projectName: "验收项目" }],
+    });
+    const { result } = renderHook(() => useUploadFlow());
+    const file = new File(["markdown"], "复盘.md", { type: "text/markdown" });
+
+    await waitFor(() => expect(result.current.projects).toHaveLength(1));
+    act(() => result.current.handleFileDrop(file));
+    expect(result.current.fileName).toBe("复盘.md");
+    expect(result.current.flowState).toBe("file_selected");
+
+    act(() => result.current.handleReset());
+    expect(result.current.fileName).toBe("");
+    expect(result.current.taskId).toBeNull();
+    expect(result.current.flowState).toBe("idle");
+  });
+
+  it("处理失败时保持不可提交并提供真实恢复状态", async () => {
+    ingest.fetchIngestAiResult.mockResolvedValue({
+      ...readyAiResult,
+      status: "failed",
+      suggested_one_liner: null,
+      suggested_summary: null,
+      summary: null,
+      summary_status: "failed",
+      error_message: "未能生成内容建议",
+    });
+    const { result } = renderHook(() => useUploadFlow());
+
+    await waitFor(() => expect(auth.fetchAuthMe).toHaveBeenCalled());
+    act(() => result.current.handleFileSelect(fileEvent()));
+    await act(async () => result.current.handleStart());
+
+    expect(result.current.flowState).toBe("failed");
+    expect(result.current.canSubmit).toBe(false);
+    expect(result.current.processingNote).toContain("未能生成内容建议");
+  });
+
+  it("忽略 A→B 反序完成中的 A 旧回包", async () => {
+    const responseA = deferred<IngestAiResultDTO>();
+    const responseB = deferred<IngestAiResultDTO>();
+    ingest.fetchIngestAiResult
+      .mockReset()
+      .mockReturnValueOnce(responseA.promise)
+      .mockReturnValueOnce(responseB.promise);
+    const { result } = renderHook(() => useUploadFlow());
+    let runA!: Promise<void>;
+    let runB!: Promise<void>;
+
+    act(() => {
+      runA = result.current.handleSelectPendingTask(pendingTask("task-a", "A.docx"));
+      runB = result.current.handleSelectPendingTask(pendingTask("task-b", "B.docx"));
+    });
+    await act(async () => {
+      responseB.resolve({
+        ...readyAiResult,
+        ingest_task_id: "task-b",
+        suggested_title: "B 任务建议",
+      });
+      await runB;
+    });
+    expect(result.current.taskId).toBe("task-b");
+    expect(result.current.editTitle).toBe("B 任务建议");
+
+    await act(async () => {
+      responseA.resolve({
+        ...readyAiResult,
+        ingest_task_id: "task-a",
+        suggested_title: "A 任务旧建议",
+      });
+      await runA;
+    });
+    expect(result.current.taskId).toBe("task-b");
+    expect(result.current.editTitle).toBe("B 任务建议");
+  });
+
+  it("重置后忽略仍在飞行中的任务回包", async () => {
+    const response = deferred<IngestAiResultDTO>();
+    ingest.fetchIngestAiResult.mockReset().mockReturnValueOnce(response.promise);
+    const { result } = renderHook(() => useUploadFlow());
+    let run!: Promise<void>;
+
+    act(() => {
+      run = result.current.handleSelectPendingTask(pendingTask("task-a", "A.docx"));
+    });
+    act(() => result.current.handleReset());
+    await act(async () => {
+      response.resolve({ ...readyAiResult, suggested_title: "不应写入的建议" });
+      await run;
+    });
+
+    expect(result.current.flowState).toBe("idle");
+    expect(result.current.taskId).toBeNull();
+    expect(result.current.editTitle).toBe("");
+  });
+
+  it("切换来源后忽略旧来源的任务回包", async () => {
+    const response = deferred<IngestAiResultDTO>();
+    ingest.fetchIngestAiResult.mockReset().mockReturnValueOnce(response.promise);
+    const { result } = renderHook(() => useUploadFlow());
+    let run!: Promise<void>;
+
+    act(() => result.current.switchPath("a"));
+    act(() => {
+      run = result.current.handleSelectPendingTask(pendingTask("task-a", "A.docx"));
+    });
+    act(() => result.current.switchPath("b"));
+    await act(async () => {
+      response.resolve({ ...readyAiResult, suggested_title: "不应跨来源写入" });
+      await run;
+    });
+
+    expect(result.current.activePath).toBe("b");
+    expect(result.current.flowState).toBe("idle");
+    expect(result.current.taskId).toBeNull();
+    expect(result.current.editTitle).toBe("");
+  });
+
+  it("keeps the first WeCom view loading until its pending request settles", async () => {
+    const pending = deferred<PendingIngestItemDTO[]>();
+    ingest.fetchPendingIngestTasks.mockReset().mockReturnValueOnce(pending.promise);
+    const { result } = renderHook(() => useUploadFlow());
+
+    expect(result.current.pendingLoading).toBe(true);
+    act(() => result.current.switchPath("a"));
+    expect(result.current.pendingLoading).toBe(true);
+    await waitFor(() => expect(ingest.fetchPendingIngestTasks).toHaveBeenCalledTimes(1));
+
+    await act(async () => pending.resolve([]));
+    await waitFor(() => expect(result.current.pendingLoading).toBe(false));
   });
 });

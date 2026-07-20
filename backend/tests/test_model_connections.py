@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.main import app
 from app.seed.dev_seed import USER_ADMIN_ONLY
 from app.services import generation_models, model_connections
-from app.services.llm_client import LLMClient
+from app.services.llm_client import LLMClient, LLMError
 from app.services.weknora_client import get_weknora_client
 
 BASE = "/api/v1/admin/model-connections"
@@ -139,6 +139,13 @@ async def test_disabled_external_llm_cannot_be_default_or_disable_current_defaul
     blocked = await client.put(f"{BASE}/items/{current['model_ref']}", headers=_hdr(), json=update)
     assert blocked.status_code == 409
     assert blocked.json()["detail"]["denied_reason"] == "model_connection_in_use"
+    assert blocked.json()["detail"] == {
+        "denied_reason": "model_connection_in_use",
+        "message": "当前连接正在承担内容生成和默认项目问答，不能直接停用。",
+        "dependency": "external_llm_default",
+        "remediation_hint": "先选择其他已启用连接作为默认，或明确清空默认用途，再停用当前连接。",
+        "action": "change_or_clear_external_llm_default",
+    }
     assert wk.calls == []
 
 
@@ -157,9 +164,88 @@ async def test_external_llm_connection_test_calls_openai_client_not_weknora(
         f"{BASE}/items/{connection['model_ref']}/test", headers=_hdr(), json={}
     )
     assert response.status_code == 200
-    assert response.json()["success"] is True
+    assert response.json() == {
+        "success": True,
+        "error_category": None,
+        "message": "外部 LLM 连接正常。",
+        "remediation_hint": "无需处理。",
+        "retryable": False,
+        "duration_ms": response.json()["duration_ms"],
+    }
     assert calls == ["business-chat"]
     assert wk.calls == []
+
+    listed = await client.get(BASE, headers=_hdr())
+    diagnostic = listed.json()["items"][0]
+    assert diagnostic["health_status"] == "healthy"
+    assert diagnostic["last_test_succeeded_at"] is not None
+    assert diagnostic["last_test_failed_at"] is None
+    assert diagnostic["last_error_category"] is None
+
+
+@pytest.mark.parametrize(
+    ("code", "category", "retryable"),
+    [
+        ("llm_network_error", "connection_error", True),
+        ("http_401", "authentication_error", False),
+        ("http_404", "model_unavailable", False),
+        ("llm_timeout", "timeout", True),
+        ("http_429", "rate_limited", True),
+        ("http_400", "request_error", False),
+        ("http_500", "server_error", True),
+        ("llm_bad_response", "response_error", False),
+    ],
+)
+async def test_connection_diagnostics_are_classified_persisted_and_redacted(
+    client, wk, monkeypatch, code, category, retryable
+):
+    connection = await _create(client)
+    raw = f"SECRET-LIKE upstream {SECRET} {URL}"
+
+    async def fail(*_args, **_kwargs):
+        raise LLMError(code, raw)
+
+    monkeypatch.setattr(LLMClient, "chat_completion", fail)
+    response = await client.post(
+        f"{BASE}/items/{connection['model_ref']}/test", headers=_hdr(), json={}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is False
+    assert body["error_category"] == category
+    assert body["retryable"] is retryable
+    assert body["message"]
+    assert body["remediation_hint"]
+    assert raw not in response.text
+    assert SECRET not in response.text
+    assert URL not in response.text
+    assert wk.calls == []
+
+    listed = await client.get(BASE, headers=_hdr())
+    diagnostic = listed.json()["items"][0]
+    assert diagnostic["health_status"] == "unhealthy"
+    assert diagnostic["last_test_failed_at"] is not None
+    assert diagnostic["last_error_category"] == category
+    assert raw not in listed.text
+
+
+async def test_default_usage_reports_dependency_status_and_recovery_path(client):
+    missing = await client.get(f"{BASE}/usages/current", headers=_hdr())
+    assert missing.status_code == 200
+    assert missing.json()["dependency_status"] == "missing"
+    assert "内容生成" in missing.json()["dependency_message"]
+    assert missing.json()["remediation_hint"]
+
+    connection = await _create(client)
+    configured = await client.put(
+        f"{BASE}/usages/current",
+        headers=_hdr(),
+        json={"external_llm_default_ref": connection["model_ref"]},
+    )
+    assert configured.status_code == 200
+    assert configured.json()["dependency_status"] == "configured"
+    assert configured.json()["external_llm_default"]["model_ref"] == connection["model_ref"]
 
 
 async def test_weknora_unavailable_does_not_block_external_llm_save(client):

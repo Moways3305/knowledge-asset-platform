@@ -87,6 +87,11 @@
             "title": "Can Delete",
             "type": "boolean"
           },
+          "can_manage_lifecycle": {
+            "default": false,
+            "title": "Can Manage Lifecycle",
+            "type": "boolean"
+          },
           "can_request_original": {
             "default": false,
             "title": "Can Request Original",
@@ -345,7 +350,7 @@
         "type": "object"
       },
       "AgentCallDetailResponse": {
-        "description": "Agent 调用记录详情（本人 / boss / 咨询总监可见）。",
+        "description": "Agent 调用记录详情（本人 / 总经理 / 咨询总监可见）。",
         "properties": {
           "call_id": {
             "format": "uuid",
@@ -836,6 +841,18 @@
         ],
         "title": "ArchiveRequestBody",
         "type": "object"
+      },
+      "AssetStatus": {
+        "description": "资产宏观状态。archived / deprecated 不进入默认检索 / RAG / Agent 上下文。",
+        "enum": [
+          "active",
+          "needs_update",
+          "deprecated",
+          "archived",
+          "deleted"
+        ],
+        "title": "AssetStatus",
+        "type": "string"
       },
       "AssetType": {
         "enum": [
@@ -1483,6 +1500,99 @@
           "file"
         ],
         "title": "Body_create_upload_api_v1_ingest_upload_post",
+        "type": "object"
+      },
+      "BusinessNotificationListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BusinessNotificationOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "BusinessNotificationListResponse",
+        "type": "object"
+      },
+      "BusinessNotificationOut": {
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_type": {
+            "title": "Event Type",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_read": {
+            "title": "Is Read",
+            "type": "boolean"
+          },
+          "read_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read At"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/NotificationTarget"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "event_type",
+          "category",
+          "title",
+          "summary",
+          "created_at",
+          "is_read",
+          "read_at",
+          "target"
+        ],
+        "title": "BusinessNotificationOut",
         "type": "object"
       },
       "CitationOut": {
@@ -2510,9 +2620,29 @@
             "title": "Duration Ms",
             "type": "integer"
           },
+          "error_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Category"
+          },
           "message": {
             "title": "Message",
             "type": "string"
+          },
+          "remediation_hint": {
+            "title": "Remediation Hint",
+            "type": "string"
+          },
+          "retryable": {
+            "default": false,
+            "title": "Retryable",
+            "type": "boolean"
           },
           "success": {
             "title": "Success",
@@ -2522,6 +2652,7 @@
         "required": [
           "success",
           "message",
+          "remediation_hint",
           "duration_ms"
         ],
         "title": "GenerationModelTestResponse",
@@ -2598,6 +2729,131 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "IndexingHealthResponse": {
+        "properties": {
+          "beat": {
+            "$ref": "#/components/schemas/RuntimeHealth"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "insufficient_data": {
+            "title": "Insufficient Data",
+            "type": "boolean"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "queue": {
+            "$ref": "#/components/schemas/QueueHealth"
+          },
+          "trend_points": {
+            "items": {
+              "$ref": "#/components/schemas/IndexingHealthTrendPoint"
+            },
+            "title": "Trend Points",
+            "type": "array"
+          },
+          "window_hours": {
+            "title": "Window Hours",
+            "type": "integer"
+          },
+          "worker": {
+            "$ref": "#/components/schemas/RuntimeHealth"
+          }
+        },
+        "required": [
+          "generated_at",
+          "window_hours",
+          "insufficient_data",
+          "message",
+          "queue",
+          "worker",
+          "beat",
+          "trend_points"
+        ],
+        "title": "IndexingHealthResponse",
+        "type": "object"
+      },
+      "IndexingHealthTrendPoint": {
+        "properties": {
+          "completed_jobs": {
+            "title": "Completed Jobs",
+            "type": "integer"
+          },
+          "failed_jobs": {
+            "title": "Failed Jobs",
+            "type": "integer"
+          },
+          "index_failed": {
+            "title": "Index Failed",
+            "type": "integer"
+          },
+          "indexing": {
+            "title": "Indexing",
+            "type": "integer"
+          },
+          "kb_init_failed": {
+            "title": "Kb Init Failed",
+            "type": "integer"
+          },
+          "not_indexed": {
+            "title": "Not Indexed",
+            "type": "integer"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "oldest_queued_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Queued Seconds"
+          },
+          "parse_pending": {
+            "title": "Parse Pending",
+            "type": "integer"
+          },
+          "parse_processing": {
+            "title": "Parse Processing",
+            "type": "integer"
+          },
+          "queued_jobs": {
+            "title": "Queued Jobs",
+            "type": "integer"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "observed_at",
+          "index_failed",
+          "indexing",
+          "not_indexed",
+          "skipped",
+          "parse_pending",
+          "parse_processing",
+          "kb_init_failed",
+          "completed_jobs",
+          "failed_jobs",
+          "queued_jobs",
+          "oldest_queued_seconds"
+        ],
+        "title": "IndexingHealthTrendPoint",
         "type": "object"
       },
       "IndexingInsights": {
@@ -3017,6 +3273,17 @@
             ],
             "title": "Extraction Status"
           },
+          "generation_error_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation Error Category"
+          },
           "generation_model_ref": {
             "anyOf": [
               {
@@ -3027,6 +3294,17 @@
               }
             ],
             "title": "Generation Model Ref"
+          },
+          "generation_recovery_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation Recovery Hint"
           },
           "ingest_task_id": {
             "format": "uuid",
@@ -3460,6 +3738,171 @@
         ],
         "title": "IngestParseRefreshResponse",
         "type": "object"
+      },
+      "IngestTaskNextAction": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "route_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Route Key"
+          }
+        },
+        "required": [
+          "key",
+          "enabled"
+        ],
+        "title": "IngestTaskNextAction",
+        "type": "object"
+      },
+      "IngestTaskSafeError": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "recovery_hint": {
+            "title": "Recovery Hint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "recovery_hint"
+        ],
+        "title": "IngestTaskSafeError",
+        "type": "object"
+      },
+      "IngestTaskStage": {
+        "enum": [
+          "upload_saved",
+          "text_extraction",
+          "content_generation",
+          "awaiting_confirmation",
+          "confirmation",
+          "indexing_queued",
+          "indexing_in_progress",
+          "completed",
+          "failed",
+          "degraded_complete"
+        ],
+        "title": "IngestTaskStage",
+        "type": "string"
+      },
+      "IngestTaskStatusResponse": {
+        "description": "Permission-filtered task progress without provider or storage internals.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IngestTaskSafeError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IngestTaskNextAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result_asset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Asset Id"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          },
+          "review_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Id"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/IngestTaskStage"
+          },
+          "status": {
+            "$ref": "#/components/schemas/IngestTaskWorkflowStatus"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "task_id",
+          "stage",
+          "status",
+          "updated_at",
+          "retryable"
+        ],
+        "title": "IngestTaskStatusResponse",
+        "type": "object"
+      },
+      "IngestTaskWorkflowStatus": {
+        "enum": [
+          "processing",
+          "action_required",
+          "waiting",
+          "completed",
+          "degraded",
+          "failed"
+        ],
+        "title": "IngestTaskWorkflowStatus",
+        "type": "string"
       },
       "IngestUploadResponse": {
         "properties": {
@@ -4359,12 +4802,27 @@
       },
       "KnowledgeListResponse": {
         "properties": {
+          "has_next": {
+            "default": false,
+            "title": "Has Next",
+            "type": "boolean"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/KnowledgeListItemOut"
             },
             "title": "Items",
             "type": "array"
+          },
+          "page": {
+            "default": 1,
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "default": 50,
+            "title": "Page Size",
+            "type": "integer"
           },
           "total": {
             "title": "Total",
@@ -4445,6 +4903,17 @@
           "company"
         ],
         "title": "KnowledgeScope",
+        "type": "string"
+      },
+      "KnowledgeSortField": {
+        "enum": [
+          "updated_at",
+          "created_at",
+          "title",
+          "confidentiality_level",
+          "asset_status"
+        ],
+        "title": "KnowledgeSortField",
         "type": "string"
       },
       "KnowledgeZone": {
@@ -4722,6 +5191,48 @@
         "title": "MarkProcessedResponse",
         "type": "object"
       },
+      "MarkReadBatchRequest": {
+        "properties": {
+          "notification_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Notification Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "notification_ids"
+        ],
+        "title": "MarkReadBatchRequest",
+        "type": "object"
+      },
+      "MarkReadBatchResponse": {
+        "properties": {
+          "already_read_count": {
+            "title": "Already Read Count",
+            "type": "integer"
+          },
+          "marked_count": {
+            "title": "Marked Count",
+            "type": "integer"
+          },
+          "requested_count": {
+            "title": "Requested Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requested_count",
+          "marked_count",
+          "already_read_count"
+        ],
+        "title": "MarkReadBatchResponse",
+        "type": "object"
+      },
       "MemberStatus": {
         "enum": [
           "active",
@@ -4889,6 +5400,41 @@
             "title": "Health Status",
             "type": "string"
           },
+          "last_error_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Category"
+          },
+          "last_test_failed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Test Failed At"
+          },
+          "last_test_succeeded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Test Succeeded At"
+          },
           "legacy_adapter": {
             "default": false,
             "title": "Legacy Adapter",
@@ -4930,9 +5476,29 @@
             "title": "Duration Ms",
             "type": "integer"
           },
+          "error_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Category"
+          },
           "message": {
             "title": "Message",
             "type": "string"
+          },
+          "remediation_hint": {
+            "title": "Remediation Hint",
+            "type": "string"
+          },
+          "retryable": {
+            "default": false,
+            "title": "Retryable",
+            "type": "boolean"
           },
           "success": {
             "title": "Success",
@@ -4942,6 +5508,7 @@
         "required": [
           "success",
           "message",
+          "remediation_hint",
           "duration_ms"
         ],
         "title": "ModelConnectionTestResponse",
@@ -5368,6 +5935,14 @@
       },
       "ModelUsageAssignmentsOut": {
         "properties": {
+          "dependency_message": {
+            "title": "Dependency Message",
+            "type": "string"
+          },
+          "dependency_status": {
+            "title": "Dependency Status",
+            "type": "string"
+          },
           "external_llm_default": {
             "anyOf": [
               {
@@ -5377,8 +5952,17 @@
                 "type": "null"
               }
             ]
+          },
+          "remediation_hint": {
+            "title": "Remediation Hint",
+            "type": "string"
           }
         },
+        "required": [
+          "dependency_status",
+          "dependency_message",
+          "remediation_hint"
+        ],
         "title": "ModelUsageAssignmentsOut",
         "type": "object"
       },
@@ -5534,6 +6118,25 @@
           "created_at"
         ],
         "title": "NotificationOut",
+        "type": "object"
+      },
+      "NotificationTarget": {
+        "properties": {
+          "resource_id": {
+            "format": "uuid",
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "route_key": {
+            "title": "Route Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "route_key",
+          "resource_id"
+        ],
+        "title": "NotificationTarget",
         "type": "object"
       },
       "NotificationsResponse": {
@@ -6381,6 +6984,41 @@
         "title": "PersonProjectMembershipOut",
         "type": "object"
       },
+      "PersonalEvidenceSummary": {
+        "description": "候选证据安全聚合，不返回正文、附件或内部 ID。",
+        "properties": {
+          "latest_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Status"
+          },
+          "registered_count": {
+            "default": 0,
+            "title": "Registered Count",
+            "type": "integer"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "title": "PersonalEvidenceSummary",
+        "type": "object"
+      },
       "PersonalKbCreateRequest": {
         "description": "显式创建个人知识库。display_name 可选（缺省用「我的知识库」）。\n\nPBC-38：可选模型选择（model_ref，对底座 id 不可逆，绝不接收真实 model_id）。\n缺省走平台默认；显式选择在首建个人 KB 时生效。",
         "properties": {
@@ -6514,6 +7152,277 @@
         "title": "PersonalKbRenameRequest",
         "type": "object"
       },
+      "PersonalKnowledgeItemOut": {
+        "properties": {
+          "access_info": {
+            "$ref": "#/components/schemas/AccessInfoOut"
+          },
+          "ai_access_level": {
+            "title": "Ai Access Level",
+            "type": "string"
+          },
+          "asset_status": {
+            "title": "Asset Status",
+            "type": "string"
+          },
+          "asset_type": {
+            "title": "Asset Type",
+            "type": "string"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "confidentiality_level": {
+            "title": "Confidentiality Level",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "evidence_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonalEvidenceSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "index_error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Error Message"
+          },
+          "index_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Status"
+          },
+          "indexed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Indexed At"
+          },
+          "last_called_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Called At"
+          },
+          "lifecycle_phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifecycle Phase"
+          },
+          "personal_state": {
+            "$ref": "#/components/schemas/PersonalKnowledgeState"
+          },
+          "personal_state_label": {
+            "title": "Personal State Label",
+            "type": "string"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
+          },
+          "project_submission": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonalProjectSubmissionSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "summary_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Text"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          },
+          "weknora_parse_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weknora Parse Status"
+          },
+          "zone": {
+            "title": "Zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "scope",
+          "zone",
+          "asset_type",
+          "confidentiality_level",
+          "ai_access_level",
+          "asset_status",
+          "visibility",
+          "tags",
+          "summary_text",
+          "project_name",
+          "lifecycle_phase",
+          "last_called_at",
+          "updated_at",
+          "access_info",
+          "created_at",
+          "personal_state",
+          "personal_state_label"
+        ],
+        "title": "PersonalKnowledgeItemOut",
+        "type": "object"
+      },
+      "PersonalKnowledgeListResponse": {
+        "properties": {
+          "has_next": {
+            "title": "Has Next",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalKnowledgeItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/PersonalKnowledgeSummary"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "has_next",
+          "summary"
+        ],
+        "title": "PersonalKnowledgeListResponse",
+        "type": "object"
+      },
+      "PersonalKnowledgeState": {
+        "description": "个人知识工作区稳定状态，不直接暴露审核任务内部状态机。",
+        "enum": [
+          "awaiting_confirmation",
+          "ready_to_submit",
+          "pending_project_review",
+          "active_in_project",
+          "project_rejected"
+        ],
+        "title": "PersonalKnowledgeState",
+        "type": "string"
+      },
       "PersonalKnowledgeSubmissionOut": {
         "description": "个人知识提交记录安全视图。",
         "properties": {
@@ -6606,6 +7515,128 @@
           "next_action"
         ],
         "title": "PersonalKnowledgeSubmissionOut",
+        "type": "object"
+      },
+      "PersonalKnowledgeSummary": {
+        "properties": {
+          "active_in_project": {
+            "title": "Active In Project",
+            "type": "integer"
+          },
+          "awaiting_confirmation": {
+            "title": "Awaiting Confirmation",
+            "type": "integer"
+          },
+          "created_this_month": {
+            "title": "Created This Month",
+            "type": "integer"
+          },
+          "pending_project_review": {
+            "title": "Pending Project Review",
+            "type": "integer"
+          },
+          "total_assets": {
+            "title": "Total Assets",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_assets",
+          "awaiting_confirmation",
+          "pending_project_review",
+          "active_in_project",
+          "created_this_month"
+        ],
+        "title": "PersonalKnowledgeSummary",
+        "type": "object"
+      },
+      "PersonalKnowledgeUpdateRequest": {
+        "additionalProperties": false,
+        "description": "仅允许修改个人资料的安全元数据。",
+        "properties": {
+          "asset_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssetType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "title": "PersonalKnowledgeUpdateRequest",
+        "type": "object"
+      },
+      "PersonalProjectSubmissionSummary": {
+        "description": "项目提交的安全摘要，不含任何内部或项目 UUID。",
+        "properties": {
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "submitted_at": {
+            "format": "date-time",
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "target_project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Project Name"
+          }
+        },
+        "required": [
+          "status",
+          "submitted_at"
+        ],
+        "title": "PersonalProjectSubmissionSummary",
         "type": "object"
       },
       "PreviewEntryResponse": {
@@ -6938,6 +7969,10 @@
             "title": "Name",
             "type": "string"
           },
+          "project_role": {
+            "title": "Project Role",
+            "type": "string"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -6947,7 +7982,8 @@
           "id",
           "name",
           "status",
-          "created_at"
+          "created_at",
+          "project_role"
         ],
         "title": "ProjectListItemOut",
         "type": "object"
@@ -6966,6 +8002,29 @@
           "items"
         ],
         "title": "ProjectListResponse",
+        "type": "object"
+      },
+      "ProjectMemberCreateRequest": {
+        "description": "新增或恢复项目成员；项目 ID 只取可信路由参数。",
+        "properties": {
+          "project_role": {
+            "$ref": "#/components/schemas/ProjectRole"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MemberStatus",
+            "default": "active"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "project_role"
+        ],
+        "title": "ProjectMemberCreateRequest",
         "type": "object"
       },
       "ProjectMemberOut": {
@@ -7164,6 +8223,270 @@
           }
         },
         "title": "ProjectMembershipPatchRequest",
+        "type": "object"
+      },
+      "ProjectOverviewActivity": {
+        "properties": {
+          "asset_id": {
+            "format": "uuid",
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "asset_type": {
+            "title": "Asset Type",
+            "type": "string"
+          },
+          "confidentiality_level": {
+            "title": "Confidentiality Level",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "zone": {
+            "title": "Zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id",
+          "title",
+          "zone",
+          "asset_type",
+          "confidentiality_level"
+        ],
+        "title": "ProjectOverviewActivity",
+        "type": "object"
+      },
+      "ProjectOverviewCapabilities": {
+        "properties": {
+          "can_confirm_assets": {
+            "default": false,
+            "title": "Can Confirm Assets",
+            "type": "boolean"
+          },
+          "can_manage_kb": {
+            "default": false,
+            "title": "Can Manage Kb",
+            "type": "boolean"
+          },
+          "can_manage_members": {
+            "default": false,
+            "title": "Can Manage Members",
+            "type": "boolean"
+          },
+          "can_upload_material": {
+            "default": true,
+            "title": "Can Upload Material",
+            "type": "boolean"
+          },
+          "can_view_knowledge": {
+            "default": true,
+            "title": "Can View Knowledge",
+            "type": "boolean"
+          }
+        },
+        "title": "ProjectOverviewCapabilities",
+        "type": "object"
+      },
+      "ProjectOverviewCounts": {
+        "properties": {
+          "asset_count": {
+            "default": 0,
+            "title": "Asset Count",
+            "type": "integer"
+          },
+          "material_count": {
+            "default": 0,
+            "title": "Material Count",
+            "type": "integer"
+          },
+          "original_access_request_count": {
+            "default": 0,
+            "title": "Original Access Request Count",
+            "type": "integer"
+          },
+          "pending_confirmation_count": {
+            "default": 0,
+            "title": "Pending Confirmation Count",
+            "type": "integer"
+          },
+          "pending_review_count": {
+            "default": 0,
+            "title": "Pending Review Count",
+            "type": "integer"
+          }
+        },
+        "title": "ProjectOverviewCounts",
+        "type": "object"
+      },
+      "ProjectOverviewHeader": {
+        "properties": {
+          "can_manage": {
+            "default": false,
+            "title": "Can Manage",
+            "type": "boolean"
+          },
+          "client_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Name"
+          },
+          "lifecycle_phase_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifecycle Phase Key"
+          },
+          "lifecycle_route_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifecycle Route Key"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_role": {
+            "title": "Project Role",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "name",
+          "status",
+          "project_role"
+        ],
+        "title": "ProjectOverviewHeader",
+        "type": "object"
+      },
+      "ProjectOverviewKbStatus": {
+        "properties": {
+          "configured": {
+            "default": false,
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "title": "ProjectOverviewKbStatus",
+        "type": "object"
+      },
+      "ProjectOverviewMember": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_role": {
+            "title": "Project Role",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "name",
+          "project_role",
+          "status"
+        ],
+        "title": "ProjectOverviewMember",
+        "type": "object"
+      },
+      "ProjectOverviewResponse": {
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/ProjectOverviewCapabilities"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/ProjectOverviewCounts"
+          },
+          "knowledge_base": {
+            "$ref": "#/components/schemas/ProjectOverviewKbStatus"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectOverviewMember"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "project": {
+            "$ref": "#/components/schemas/ProjectOverviewHeader"
+          },
+          "recent_activity": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectOverviewActivity"
+            },
+            "title": "Recent Activity",
+            "type": "array"
+          }
+        },
+        "required": [
+          "project",
+          "capabilities",
+          "counts",
+          "knowledge_base"
+        ],
+        "title": "ProjectOverviewResponse",
         "type": "object"
       },
       "ProjectQaModelOptionOut": {
@@ -7504,6 +8827,41 @@
           "label"
         ],
         "title": "ProviderOut",
+        "type": "object"
+      },
+      "QueueHealth": {
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "oldest_queued_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Queued Seconds"
+          },
+          "queued_count": {
+            "title": "Queued Count",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "queued_count",
+          "oldest_queued_seconds",
+          "message"
+        ],
+        "title": "QueueHealth",
         "type": "object"
       },
       "Recommendation": {
@@ -8396,6 +9754,22 @@
             "title": "Can Decide",
             "type": "boolean"
           },
+          "can_withdraw": {
+            "default": false,
+            "title": "Can Withdraw",
+            "type": "boolean"
+          },
+          "consulting_director_confirmation_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consulting Director Confirmation Status"
+          },
           "created_at": {
             "anyOf": [
               {
@@ -8418,6 +9792,17 @@
             },
             "title": "Evidences",
             "type": "array"
+          },
+          "general_manager_confirmation_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "General Manager Confirmation Status"
           },
           "id": {
             "format": "uuid",
@@ -8569,6 +9954,22 @@
             "title": "Can Decide",
             "type": "boolean"
           },
+          "can_withdraw": {
+            "default": false,
+            "title": "Can Withdraw",
+            "type": "boolean"
+          },
+          "consulting_director_confirmation_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consulting Director Confirmation Status"
+          },
           "created_at": {
             "anyOf": [
               {
@@ -8584,6 +9985,17 @@
           "evidence_count": {
             "title": "Evidence Count",
             "type": "integer"
+          },
+          "general_manager_confirmation_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "General Manager Confirmation Status"
           },
           "id": {
             "format": "uuid",
@@ -8750,6 +10162,23 @@
         "title": "ReviewRejectRequest",
         "type": "object"
       },
+      "ReviewWithdrawRequest": {
+        "properties": {
+          "review_comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Comment"
+          }
+        },
+        "title": "ReviewWithdrawRequest",
+        "type": "object"
+      },
       "RevokeBody": {
         "properties": {
           "reason": {
@@ -8774,6 +10203,37 @@
         ],
         "title": "RoleStatus",
         "type": "string"
+      },
+      "RuntimeHealth": {
+        "properties": {
+          "last_heartbeat_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Heartbeat At"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "last_heartbeat_at",
+          "message"
+        ],
+        "title": "RuntimeHealth",
+        "type": "object"
       },
       "SearchCardOut": {
         "description": "阶段1摘要卡片（§6.1）。绝不含原文 / kb/doc/chunk id / 客户敏感实体。",
@@ -9230,7 +10690,7 @@
         "type": "object"
       },
       "SetPasswordRequest": {
-        "description": "管理员设置 / 重置用户密码。password 仅入站、绝不回显。",
+        "description": "治理角色设置 / 重置用户密码。password 仅入站、绝不回显。",
         "properties": {
           "password": {
             "title": "Password",
@@ -9279,6 +10739,14 @@
         ],
         "title": "SetPasswordResponse",
         "type": "object"
+      },
+      "SortDirection": {
+        "enum": [
+          "asc",
+          "desc"
+        ],
+        "title": "SortDirection",
+        "type": "string"
       },
       "SubmitToProjectRequest": {
         "description": "个人知识提交到项目资料区。",
@@ -9341,6 +10809,19 @@
           }
         },
         "title": "SummaryOut",
+        "type": "object"
+      },
+      "UnreadCountResponse": {
+        "properties": {
+          "unread_count": {
+            "title": "Unread Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "unread_count"
+        ],
+        "title": "UnreadCountResponse",
         "type": "object"
       },
       "UserSessionItem": {
@@ -10406,6 +11887,122 @@
         "title": "WorkbenchKnowledgeSummary",
         "type": "object"
       },
+      "WorkbenchOperationsIndexing": {
+        "properties": {
+          "index_failed": {
+            "default": 0,
+            "title": "Index Failed",
+            "type": "integer"
+          },
+          "kb_init_failed": {
+            "default": 0,
+            "title": "Kb Init Failed",
+            "type": "integer"
+          },
+          "not_indexed": {
+            "default": 0,
+            "title": "Not Indexed",
+            "type": "integer"
+          },
+          "parse_failed": {
+            "default": 0,
+            "title": "Parse Failed",
+            "type": "integer"
+          },
+          "parse_pending": {
+            "default": 0,
+            "title": "Parse Pending",
+            "type": "integer"
+          },
+          "parse_processing": {
+            "default": 0,
+            "title": "Parse Processing",
+            "type": "integer"
+          },
+          "skipped": {
+            "default": 0,
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "title": "WorkbenchOperationsIndexing",
+        "type": "object"
+      },
+      "WorkbenchOperationsSection": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkbenchOperationsSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "status": {
+            "$ref": "#/components/schemas/WorkbenchSectionStatus"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "WorkbenchOperationsSection",
+        "type": "object"
+      },
+      "WorkbenchOperationsSummary": {
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/AccessInsights"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/InsightCard"
+            },
+            "title": "Cards",
+            "type": "array"
+          },
+          "indexing": {
+            "$ref": "#/components/schemas/WorkbenchOperationsIndexing"
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/LifecycleInsights"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "title_visible": {
+            "title": "Title Visible",
+            "type": "boolean"
+          },
+          "window_days": {
+            "title": "Window Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "title_visible",
+          "scope",
+          "window_days",
+          "indexing",
+          "access",
+          "lifecycle"
+        ],
+        "title": "WorkbenchOperationsSummary",
+        "type": "object"
+      },
       "WorkbenchOriginalAccessItem": {
         "description": "原文访问申请安全视图（只读）。reason 复用现有安全输出口径（创建时已脱敏）。",
         "properties": {
@@ -10544,6 +12141,30 @@
         "title": "WorkbenchOriginalAccessResponse",
         "type": "object"
       },
+      "WorkbenchOverviewResponse": {
+        "properties": {
+          "operations": {
+            "$ref": "#/components/schemas/WorkbenchOperationsSection"
+          },
+          "projects": {
+            "$ref": "#/components/schemas/WorkbenchProjectsSection"
+          },
+          "recent_activity": {
+            "$ref": "#/components/schemas/WorkbenchRecentActivitySection"
+          },
+          "todos": {
+            "$ref": "#/components/schemas/WorkbenchTodosSection"
+          }
+        },
+        "required": [
+          "todos",
+          "operations",
+          "projects",
+          "recent_activity"
+        ],
+        "title": "WorkbenchOverviewResponse",
+        "type": "object"
+      },
       "WorkbenchProjectBrief": {
         "description": "调用人可见的项目概览（不含客户敏感信息 / 成员名单 / 内部配置开关）。",
         "properties": {
@@ -10609,6 +12230,200 @@
           "status"
         ],
         "title": "WorkbenchProjectBrief",
+        "type": "object"
+      },
+      "WorkbenchProjectItem": {
+        "properties": {
+          "lifecycle_phase_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifecycle Phase Key"
+          },
+          "lifecycle_route_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifecycle Route Key"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_role": {
+            "title": "Project Role",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "name",
+          "status",
+          "project_role"
+        ],
+        "title": "WorkbenchProjectItem",
+        "type": "object"
+      },
+      "WorkbenchProjectsSection": {
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkbenchProjectItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/WorkbenchSectionStatus"
+          },
+          "total": {
+            "default": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "WorkbenchProjectsSection",
+        "type": "object"
+      },
+      "WorkbenchRecentActivityItem": {
+        "properties": {
+          "asset_id": {
+            "format": "uuid",
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "asset_type": {
+            "title": "Asset Type",
+            "type": "string"
+          },
+          "confidentiality_level": {
+            "title": "Confidentiality Level",
+            "type": "string"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "zone": {
+            "title": "Zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id",
+          "title",
+          "scope",
+          "zone",
+          "asset_type",
+          "confidentiality_level"
+        ],
+        "title": "WorkbenchRecentActivityItem",
+        "type": "object"
+      },
+      "WorkbenchRecentActivitySection": {
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkbenchRecentActivityItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/WorkbenchSectionStatus"
+          },
+          "total": {
+            "default": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "WorkbenchRecentActivitySection",
         "type": "object"
       },
       "WorkbenchReviewItem": {
@@ -10726,6 +12541,16 @@
         "title": "WorkbenchReviewsResponse",
         "type": "object"
       },
+      "WorkbenchSectionStatus": {
+        "enum": [
+          "available",
+          "empty",
+          "forbidden",
+          "error"
+        ],
+        "title": "WorkbenchSectionStatus",
+        "type": "string"
+      },
       "WorkbenchTodoCounts": {
         "properties": {
           "ingest": {
@@ -10752,98 +12577,6 @@
         "title": "WorkbenchTodoCounts",
         "type": "object"
       },
-      "WorkbenchTodoItem": {
-        "description": "工作台待办条目（安全聚合）。asset_title 已按权限边界裁剪，无权看标题时为安全占位。",
-        "properties": {
-          "asset_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Asset Id"
-          },
-          "asset_title": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Asset Title"
-          },
-          "created_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Created At"
-          },
-          "priority": {
-            "default": "normal",
-            "title": "Priority",
-            "type": "string"
-          },
-          "project_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Project Id"
-          },
-          "project_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Project Name"
-          },
-          "status": {
-            "title": "Status",
-            "type": "string"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "todo_id": {
-            "title": "Todo Id",
-            "type": "string"
-          },
-          "type": {
-            "title": "Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "todo_id",
-          "type",
-          "title",
-          "status"
-        ],
-        "title": "WorkbenchTodoItem",
-        "type": "object"
-      },
       "WorkbenchTodosResponse": {
         "properties": {
           "counts": {
@@ -10851,7 +12584,7 @@
           },
           "items": {
             "items": {
-              "$ref": "#/components/schemas/WorkbenchTodoItem"
+              "$ref": "#/components/schemas/app__schemas__agent_workbench__WorkbenchTodoItem"
             },
             "title": "Items",
             "type": "array"
@@ -10862,6 +12595,41 @@
           "counts"
         ],
         "title": "WorkbenchTodosResponse",
+        "type": "object"
+      },
+      "WorkbenchTodosSection": {
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/app__schemas__workbench__WorkbenchTodoItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/WorkbenchSectionStatus"
+          },
+          "total": {
+            "default": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "WorkbenchTodosSection",
         "type": "object"
       },
       "WorkbuddyTokenCreatedOut": {
@@ -10960,6 +12728,131 @@
           "enabled"
         ],
         "title": "WorkbuddyTokenStatusOut",
+        "type": "object"
+      },
+      "app__schemas__agent_workbench__WorkbenchTodoItem": {
+        "description": "工作台待办条目（安全聚合）。asset_title 已按权限边界裁剪，无权看标题时为安全占位。",
+        "properties": {
+          "asset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Id"
+          },
+          "asset_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Title"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "priority": {
+            "default": "normal",
+            "title": "Priority",
+            "type": "string"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "todo_id": {
+            "title": "Todo Id",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "todo_id",
+          "type",
+          "title",
+          "status"
+        ],
+        "title": "WorkbenchTodoItem",
+        "type": "object"
+      },
+      "app__schemas__workbench__WorkbenchTodoItem": {
+        "properties": {
+          "action_key": {
+            "title": "Action Key",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "route_key": {
+            "title": "Route Key",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "count",
+          "severity",
+          "route_key",
+          "action_key"
+        ],
+        "title": "WorkbenchTodoItem",
         "type": "object"
       }
     }
@@ -11224,6 +13117,155 @@
           }
         },
         "summary": "Ops Indexing",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/admin/ops/indexing/failures/{operation_target}/retry": {
+      "post": {
+        "operationId": "ops_indexing_target_retry_admin_ops_indexing_failures__operation_target__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "operation_target",
+            "required": true,
+            "schema": {
+              "title": "Operation Target",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexingJobSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ops Indexing Target Retry",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/admin/ops/indexing/health": {
+      "get": {
+        "operationId": "ops_indexing_health_admin_ops_indexing_health_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "window_hours",
+            "required": false,
+            "schema": {
+              "default": 24,
+              "title": "Window Hours",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexingHealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ops Indexing Health",
         "tags": [
           "ops"
         ]
@@ -13619,7 +15661,7 @@
     },
     "/api/v1/admin/people/{user_id}/password": {
       "post": {
-        "description": "管理员设置 / 重置用户密码。password 仅入站、绝不回显。\n改密成功后撤销该用户全部活动平台会话（强制重登）。",
+        "description": "治理角色设置 / 重置用户密码。password 仅入站、绝不回显。\n改密成功后撤销该用户全部活动平台会话（强制重登）。",
         "operationId": "set_password_api_v1_admin_people__user_id__password_post",
         "parameters": [
           {
@@ -13962,7 +16004,7 @@
     },
     "/api/v1/admin/people/{user_id}/status": {
       "post": {
-        "description": "启用 / 停用用户。active→inactive 联动撤销其平台会话；\n不能停用自己 / 最后一个可用 admin。",
+        "description": "治理角色启用 / 停用用户。active→inactive 联动撤销其平台会话。",
         "operationId": "set_user_status_api_v1_admin_people__user_id__status_post",
         "parameters": [
           {
@@ -15100,7 +17142,7 @@
     },
     "/api/v1/admin/weknora/default-models": {
       "get": {
-        "description": "读平台默认模型（admin / boss / 咨询总监）。只回安全 model_ref + 名称，无真实 model_id。",
+        "description": "读平台默认模型（admin / 总经理 / 咨询总监）。只回安全 model_ref + 名称，无真实 model_id。",
         "operationId": "get_default_models_api_v1_admin_weknora_default_models_get",
         "parameters": [
           {
@@ -17913,6 +19955,156 @@
         ]
       }
     },
+    "/api/v1/ingest/{task_id}/retry": {
+      "post": {
+        "operationId": "retry_task_api_v1_ingest__task_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestTaskStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retry Task",
+        "tags": [
+          "ingest"
+        ]
+      }
+    },
+    "/api/v1/ingest/{task_id}/status": {
+      "get": {
+        "operationId": "get_task_status_api_v1_ingest__task_id__status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestTaskStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Task Status",
+        "tags": [
+          "ingest"
+        ]
+      }
+    },
     "/api/v1/knowledge": {
       "get": {
         "description": "知识列表：只返回调用人可发现的资产。",
@@ -17920,12 +20112,53 @@
         "parameters": [
           {
             "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "keyword",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Keyword"
+            }
+          },
+          {
+            "in": "query",
             "name": "scope",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/KnowledgeScope"
                 },
                 {
                   "type": "null"
@@ -17949,6 +20182,156 @@
                 }
               ],
               "title": "Project Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "zone",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/KnowledgeZone"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Zone"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AssetType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AssetStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "confidentiality_level",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ConfidentialityLevel"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Confidentiality Level"
+            }
+          },
+          {
+            "in": "query",
+            "name": "created_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "created_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "updated_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updated From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "updated_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updated To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/KnowledgeSortField",
+              "default": "updated_at"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_direction",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/SortDirection",
+              "default": "desc"
             }
           },
           {
@@ -18294,7 +20677,7 @@
     },
     "/api/v1/knowledge/{asset_id}/delete": {
       "post": {
-        "description": "受控删除 / 撤下知识资产。权限：个人 owner / 项目 active\nproject_manager / 公司 boss·咨询总监；纯 admin 不可。删除后资产立即退出\n列表 / 检索 / 问答 / 预览 / Agent / 原文授权运行时。",
+        "description": "受控删除 / 撤下知识资产。权限：个人 owner / 项目 active\nproject_manager / 公司总经理·咨询总监；纯 admin 不可。删除后资产立即退出\n列表 / 检索 / 问答 / 预览 / Agent / 原文授权运行时。",
         "operationId": "delete_knowledge_asset_api_v1_knowledge__asset_id__delete_post",
         "parameters": [
           {
@@ -19069,6 +21452,97 @@
         "operationId": "list_my_knowledge_api_v1_my_knowledge_get",
         "parameters": [
           {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "keyword",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Keyword"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AssetType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "personal_state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/PersonalKnowledgeState"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Personal State"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/KnowledgeSortField",
+              "default": "updated_at"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_direction",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/SortDirection",
+              "default": "desc"
+            }
+          },
+          {
             "in": "header",
             "name": "X-Dev-User-Id",
             "required": false,
@@ -19106,7 +21580,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/KnowledgeListResponse"
+                  "$ref": "#/components/schemas/PersonalKnowledgeListResponse"
                 }
               }
             },
@@ -19337,6 +21811,91 @@
         "summary": "Rename My Kb",
         "tags": [
           "my-knowledge-base"
+        ]
+      }
+    },
+    "/api/v1/my/knowledge/{asset_id}": {
+      "patch": {
+        "operationId": "update_personal_knowledge_api_v1_my_knowledge__asset_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalKnowledgeUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalKnowledgeItemOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Personal Knowledge",
+        "tags": [
+          "my-knowledge"
         ]
       }
     },
@@ -19614,6 +22173,335 @@
         "summary": "Register Validation Candidate",
         "tags": [
           "my-knowledge"
+        ]
+      }
+    },
+    "/api/v1/notifications": {
+      "get": {
+        "operationId": "list_notifications_api_v1_notifications_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "in": "query",
+            "name": "unread_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Unread Only",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BusinessNotificationListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Notifications",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/read-batch": {
+      "post": {
+        "operationId": "mark_read_batch_api_v1_notifications_read_batch_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkReadBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkReadBatchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Mark Read Batch",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/unread-count": {
+      "get": {
+        "operationId": "unread_count_api_v1_notifications_unread_count_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnreadCountResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unread Count",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/{notification_id}/read": {
+      "post": {
+        "operationId": "mark_read_api_v1_notifications__notification_id__read_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "notification_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Notification Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BusinessNotificationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Mark Read",
+        "tags": [
+          "notifications"
         ]
       }
     },
@@ -20093,7 +22981,7 @@
     },
     "/api/v1/projects": {
       "get": {
-        "description": "项目列表：治理角色 / admin 看全部 active 项目；业务用户看本人 active 项目。",
+        "description": "Return switchable projects from the caller's active memberships.",
         "operationId": "list_projects_api_v1_projects_get",
         "parameters": [
           {
@@ -20157,7 +23045,7 @@
         ]
       },
       "post": {
-        "description": "创建项目知识空间（仅 Boss / 咨询总监）。写入真实 projects + active project_manager 成员；\n随后 best-effort 预创建并初始化 project WeKnora KB。",
+        "description": "创建项目知识空间（仅总经理 / 咨询总监）。写入真实 projects + active project_manager 成员；\n随后 best-effort 预创建并初始化 project WeKnora KB。",
         "operationId": "create_project_api_v1_projects_post",
         "parameters": [
           {
@@ -20411,6 +23299,91 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/knowledge/{asset_id}/upgrade-company": {
+      "post": {
+        "operationId": "request_company_upgrade_api_v1_projects__project_id__knowledge__asset_id__upgrade_company_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewListItem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Request Company Upgrade",
+        "tags": [
+          "review"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/members": {
       "get": {
         "operationId": "list_project_members_api_v1_projects__project_id__members_get",
@@ -20481,6 +23454,89 @@
           }
         },
         "summary": "List Project Members",
+        "tags": [
+          "projects"
+        ]
+      },
+      "post": {
+        "operationId": "add_project_member_api_v1_projects__project_id__members_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectMemberCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectMemberOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Project Member",
         "tags": [
           "projects"
         ]
@@ -20576,6 +23632,81 @@
           }
         },
         "summary": "Patch Project Member",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/overview": {
+      "get": {
+        "operationId": "get_project_overview_api_v1_projects__project_id__overview_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectOverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Project Overview",
         "tags": [
           "projects"
         ]
@@ -21248,6 +24379,91 @@
         ]
       }
     },
+    "/api/v1/reviews/{review_id}/withdraw": {
+      "post": {
+        "operationId": "withdraw_review_confirmation_api_v1_reviews__review_id__withdraw_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "review_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Review Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewWithdrawRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewActionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Withdraw Review Confirmation",
+        "tags": [
+          "review"
+        ]
+      }
+    },
     "/api/v1/weknora/model-options": {
       "get": {
         "description": "列可选模型（可按 type 过滤，如 embedding / rerank）。仅安全字段 + is_default + default_missing。",
@@ -21327,6 +24543,72 @@
         "summary": "List Model Options",
         "tags": [
           "weknora-options"
+        ]
+      }
+    },
+    "/api/v1/workbench/overview": {
+      "get": {
+        "description": "Return a session-bound, permission-filtered workbench overview.",
+        "operationId": "get_workbench_overview_api_v1_workbench_overview_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkbenchOverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Workbench Overview",
+        "tags": [
+          "workbench"
         ]
       }
     },

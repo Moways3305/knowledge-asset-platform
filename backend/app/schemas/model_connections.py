@@ -1,4 +1,6 @@
-"""External LLM connection and business default assignment API schemas."""
+"""External LLM connection, diagnostics, and business default assignment schemas."""
+
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
@@ -11,6 +13,9 @@ class ModelConnectionOut(BaseModel):
     model_name: str
     enabled: bool
     health_status: str = "untested"
+    last_test_succeeded_at: datetime | None = None
+    last_test_failed_at: datetime | None = None
+    last_error_category: str | None = None
     available_usages: list[str] = Field(default_factory=list)
     legacy_adapter: bool = False
 
@@ -47,7 +52,10 @@ class ModelConnectionUpdateRequest(BaseModel):
 
 class ModelConnectionTestResponse(BaseModel):
     success: bool
+    error_category: str | None = None
     message: str
+    remediation_hint: str
+    retryable: bool = False
     duration_ms: int
 
 
@@ -59,6 +67,9 @@ class ModelUsageSlotOut(BaseModel):
 
 class ModelUsageAssignmentsOut(BaseModel):
     external_llm_default: ModelUsageSlotOut | None = None
+    dependency_status: str
+    dependency_message: str
+    remediation_hint: str
 
 
 class ModelUsageAssignmentsUpdate(BaseModel):

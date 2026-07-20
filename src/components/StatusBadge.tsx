@@ -8,10 +8,17 @@ interface StatusBadgeProps {
   variant?: string;
   className?: string;
   title?: string;
+  tone?: "neutral" | "info" | "success" | "warning" | "danger";
 }
 
-export default function StatusBadge({ label, variant, className, title }: StatusBadgeProps) {
-  const cls = ["status-pill", variant, className].filter(Boolean).join(" ");
+export default function StatusBadge({
+  label,
+  variant,
+  className,
+  title,
+  tone = "neutral",
+}: StatusBadgeProps) {
+  const cls = ["status-pill", `is-${tone}`, variant, className].filter(Boolean).join(" ");
   return (
     <span className={cls} title={title}>
       {label}

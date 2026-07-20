@@ -69,8 +69,8 @@ export const can = {
   viewUpload: businessOnly,
   viewReview: businessOnly,
   viewOriginalAccess: businessOnly,
-  // 项目看板 / 设置：本项目成员可读；业务治理角色可查看全部项目。
-  viewProject: (c: Capabilities) => c.hasProject || c.isGovernance,
+  // 项目看板 / 设置：仅 active 项目成员可见；公司层职务不自动形成项目访问权。
+  viewProject: (c: Capabilities) => c.hasProject,
 
   // 管理后台（与后端各端点真实放行条件对齐）：
   // 入库管理：list_admin_ingest → admin 或治理角色。
@@ -87,6 +87,6 @@ export const can = {
   viewAlerts: adminOnly,
   // 权限规则：admin / 治理角色可读（写入仅治理角色，由页面内部区分）。
   viewPermissions: adminOrGovernance,
-  // 人员权限：读人员列表 / 详情 → admin 或治理角色（管理 admin 角色仍仅 admin）。
-  viewPeople: adminOrGovernance,
+  // 人员治理：admin 不可见；仅总经理 / 咨询总监。
+  viewPeople: (c: Capabilities) => c.isGovernance,
 } as const;

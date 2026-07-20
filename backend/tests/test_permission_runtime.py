@@ -127,22 +127,26 @@ async def _ctx(db_session, user_id):
     return build_caller_context(u)
 
 
-async def test_cross_project_toggle_off_denies_original_grant_still_works(db_session, client):
+async def test_cross_project_membership_boundary_cannot_be_bypassed_by_toggle_or_grant(
+    db_session, client
+):
     asset = await _asset(db_session, KA_PROJECT_ALPHA)  # 项目 Alpha L2
     boss = await _ctx(db_session, USER_BOSS)  # 非 Alpha 成员业务用户
     # 默认（ON）：跨项目 L1/L2 原文放行。
     p_on = await load_access_policy(db_session)
-    assert decide(boss, asset, AccessLayer.original, policy=p_on).allowed is True
+    assert decide(boss, asset, AccessLayer.original, policy=p_on).allowed is False
+    assert decide(boss, asset, AccessLayer.summary, policy=p_on).allowed is False
+    assert decide(boss, asset, AccessLayer.discovery, policy=p_on).allowed is False
     # 关闭 → 原文被拒，但 summary/discovery 仍可。
     await _set_toggle(db_session, CROSS, value_bool=False)
     p_off = await load_access_policy(db_session)
     assert decide(boss, asset, AccessLayer.original, policy=p_off).allowed is False
-    assert decide(boss, asset, AccessLayer.summary, policy=p_off).allowed is True
-    assert decide(boss, asset, AccessLayer.discovery, policy=p_off).allowed is True
+    assert decide(boss, asset, AccessLayer.summary, policy=p_off).allowed is False
+    assert decide(boss, asset, AccessLayer.discovery, policy=p_off).allowed is False
     # active grant 仍放大到 original。
     assert (
         decide(boss, asset, AccessLayer.original, has_original_grant=True, policy=p_off).allowed
-        is True
+        is False
     )
 
 
@@ -161,10 +165,11 @@ async def test_company_toggle_off_denies_original(db_session):
 # ---------------------------------------------------------------------------
 # API 集成：knowledge 详情 can_view_original 随规则变化
 # ---------------------------------------------------------------------------
-async def test_detail_can_view_original_follows_rule(client, db_session):
+async def test_company_consultant_remains_summary_only_across_legacy_toggle(client, db_session):
     # 默认 ON：公司 L2 业务用户可见原文。
     d_on = await client.get(f"{KN}/{KA_COMPANY_L2}", headers=_hdr(USER_CONSULTANT))
-    assert d_on.json()["access_info"]["original"] is True
+    assert d_on.json()["access_info"]["original"] is False
+    assert d_on.json()["access_info"]["summary"] is True
     # 关闭 company 开关 → 原文层 False，摘要仍 True。
     await _set_toggle(db_session, COMPANY, value_bool=False)
     d_off = await client.get(f"{KN}/{KA_COMPANY_L2}", headers=_hdr(USER_CONSULTANT))

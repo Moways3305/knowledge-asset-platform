@@ -64,7 +64,10 @@ class GenerationModelDeleteResponse(BaseModel):
 
 class GenerationModelTestResponse(BaseModel):
     success: bool
+    error_category: str | None = None
     message: str
+    remediation_hint: str
+    retryable: bool = False
     duration_ms: int
 
 

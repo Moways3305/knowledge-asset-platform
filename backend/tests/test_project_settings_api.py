@@ -1,7 +1,7 @@
 """项目设置 / 项目成员管理 API 测试。
 
-覆盖：读权限（成员 / 非成员 / admin / 治理角色）、写权限（pm / 治理可写，admin 只读，
-consultant 成员只读）、wecom_group_id 安全展示与审计脱敏、成员角色/状态修改与 active
+覆盖：读权限（成员 / 非成员 / admin / 治理角色）、写权限（仅 pm，admin / 治理 / 普通成员拒绝）、
+wecom_group_id 安全展示与审计脱敏、成员角色/状态修改与 active
 成员上下文、最后管理角色保护、未知 project/member 404、写审计安全无泄露。
 """
 
@@ -13,8 +13,11 @@ from sqlalchemy import select
 
 from app.models.audit import AuditEvent
 from app.seed.dev_seed import (
+    KA_PROJECT_ALPHA,
+    KA_PROJECT_BETA_L3,
     PROJECT_ALPHA,
     PROJECT_BETA,
+    REVIEW_SEED,
     USER_ADMIN_ONLY,
     USER_BOSS,
     USER_CONSULTANT,
@@ -75,10 +78,10 @@ async def test_non_member_consultant_forbidden(client):
     assert r.json()["detail"]["denied_reason"] == "project_membership_required"
 
 
-async def test_admin_can_read_but_not_write(client):
+async def test_admin_cannot_read_or_write_business_project(client):
     r = await client.get(_settings(PROJECT_ALPHA), headers=_hdr(USER_ADMIN_ONLY))
-    assert r.status_code == 200, r.text
-    assert r.json()["can_write"] is False
+    assert r.status_code == 403
+    assert r.json()["detail"]["denied_reason"] == "project_membership_required"
     w = await client.patch(
         _settings(PROJECT_ALPHA),
         headers=_hdr(USER_ADMIN_ONLY),
@@ -92,7 +95,7 @@ async def test_governance_can_read(client):
     for uid in (USER_BOSS, USER_DIRECTOR):
         r = await client.get(_settings(PROJECT_ALPHA), headers=_hdr(uid))
         assert r.status_code == 200
-        assert r.json()["can_write"] is True
+        assert r.json()["can_write"] is False
 
 
 # ---------------- 写权限 ----------------
@@ -123,14 +126,15 @@ async def test_consultant_member_cannot_update(client):
     assert r.json()["detail"]["denied_reason"] == "project_settings_write_forbidden"
 
 
-async def test_boss_and_director_can_update(client):
+async def test_governance_cannot_update_project_settings(client):
     for uid, phase in ((USER_BOSS, "阶段评估"), (USER_DIRECTOR, "年度复盘")):
         r = await client.patch(
             _settings(PROJECT_ALPHA),
             headers=_hdr(uid),
             json={"lifecycle_phase_key": phase},
         )
-        assert r.status_code == 200, r.text
+        assert r.status_code == 403
+        assert r.json()["detail"]["denied_reason"] == "project_membership_required"
 
 
 # ---------------- wecom_group_id 安全 + 审计 ----------------
@@ -191,11 +195,11 @@ async def test_list_members_safe_fields(client):
 
 
 async def test_patch_member_then_not_in_active_context(client, db_session):
-    lst = await client.get(_members(PROJECT_ALPHA), headers=_hdr(USER_BOSS))
+    lst = await client.get(_members(PROJECT_ALPHA), headers=_hdr(USER_PROJECT_MANAGER))
     cons = next(m for m in lst.json()["items"] if m["user_id"] == str(USER_CONSULTANT))
     r = await client.patch(
         f"{_members(PROJECT_ALPHA)}/{cons['member_id']}",
-        headers=_hdr(USER_BOSS),
+        headers=_hdr(USER_PROJECT_MANAGER),
         json={"status": "inactive"},
     )
     assert r.status_code == 200, r.text
@@ -215,24 +219,24 @@ async def test_last_management_role_protected(client):
     )
     assert r.status_code == 409
     assert r.json()["detail"]["denied_reason"] == "last_project_manager_protected"
-    # 降级为 consultant 同样被保护。
+    # 治理角色只能任命/撤销项目经理，不把项目经理改成普通项目角色。
     r2 = await client.patch(
         f"{_members(PROJECT_ALPHA)}/{pm['member_id']}",
         headers=_hdr(USER_BOSS),
         json={"project_role": "consultant"},
     )
-    assert r2.status_code == 409
+    assert r2.status_code == 403
+    assert r2.json()["detail"]["denied_reason"] == "project_member_management_forbidden"
 
 
 async def test_member_patch_writes_audit(client, db_session):
-    # 先给 Alpha 加一个第二管理角色（coach），避免触发最后管理角色保护后再降级首个。
-    # 这里直接改 USER_CONSULTANT（consultant）角色为 coach，再断言审计。
-    lst = await client.get(_members(PROJECT_ALPHA), headers=_hdr(USER_BOSS))
+    # 项目经理独立调整本项目顾问状态，并写安全审计。
+    lst = await client.get(_members(PROJECT_ALPHA), headers=_hdr(USER_PROJECT_MANAGER))
     cons = next(m for m in lst.json()["items"] if m["user_id"] == str(USER_CONSULTANT))
     r = await client.patch(
         f"{_members(PROJECT_ALPHA)}/{cons['member_id']}",
-        headers={**_hdr(USER_DIRECTOR), "X-Trace-Id": "trc-project-settings-member"},
-        json={"project_role": "coach"},
+        headers={**_hdr(USER_PROJECT_MANAGER), "X-Trace-Id": "trc-project-settings-member"},
+        json={"status": "inactive"},
     )
     assert r.status_code == 200, r.text
     rows = (
@@ -248,7 +252,43 @@ async def test_member_patch_writes_audit(client, db_session):
     ev = rows[-1]
     assert ev.target_type == "project_member"
     assert (ev.extra or {}).get("target_user_id") == str(USER_CONSULTANT)
-    assert (ev.after_snapshot or {}).get("project_role") == "coach"
+    assert (ev.after_snapshot or {}).get("status") == "inactive"
+
+
+async def test_pm_can_appoint_ordinary_active_user_as_coach_without_expanding_permissions(client):
+    members = await client.get(_members(PROJECT_ALPHA), headers=_hdr(USER_PROJECT_MANAGER))
+    consultant = next(
+        item for item in members.json()["items"] if item["user_id"] == str(USER_CONSULTANT)
+    )
+    appointed = await client.patch(
+        f"{_members(PROJECT_ALPHA)}/{consultant['member_id']}",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={"project_role": "coach", "status": "active"},
+    )
+    assert appointed.status_code == 200, appointed.text
+    assert appointed.json()["project_role"] == "coach"
+
+    own_project = await client.get(
+        f"/api/v1/knowledge/{KA_PROJECT_ALPHA}", headers=_hdr(USER_CONSULTANT)
+    )
+    assert own_project.status_code == 200
+    approval = await client.post(
+        f"/api/v1/reviews/{REVIEW_SEED}/approve", headers=_hdr(USER_CONSULTANT)
+    )
+    assert approval.status_code == 403
+    other_project = await client.get(
+        f"/api/v1/knowledge/{KA_PROJECT_BETA_L3}", headers=_hdr(USER_CONSULTANT)
+    )
+    assert other_project.status_code == 404
+
+
+async def test_governance_appoints_project_manager_not_coach(client):
+    response = await client.post(
+        _members(PROJECT_ALPHA),
+        headers=_hdr(USER_BOSS),
+        json={"user_id": str(USER_DIRECTOR), "project_role": "coach", "status": "active"},
+    )
+    assert response.status_code == 403
 
 
 # ---------------- 404 ----------------

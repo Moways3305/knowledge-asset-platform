@@ -1,5 +1,24 @@
 ﻿import { Link } from "react-router-dom";
 
+import { useState } from "react";
+import {
+  BookOpenCheck,
+  BriefcaseBusiness,
+  ChevronRight,
+  CircleHelp,
+  Compass,
+  KeyRound,
+  LibraryBig,
+  Search,
+  Settings2,
+  ShieldCheck,
+  Upload,
+  UserRoundCheck,
+  Workflow,
+  type LucideIcon,
+} from "lucide-react";
+import { PageHeader, ProductPage } from "../components/ProductLayout";
+
 // 统一使用说明。把各功能页原本堆叠的设计/边界/规则/规划说明集中到此处，
 // 按模块分组。内容为前端静态文案，口径对齐当前真实能力；不含任何密钥 / 内部地址 /
 // 内部存储引用 / 外部系统诊断标识。
@@ -44,7 +63,7 @@ const SECTIONS: HelpSection[] = [
       },
       {
         term: "业务身份",
-        text: "顾问、项目经理、Boss、咨询总监等业务身份拥有相应知识访问范围；系统管理员主要使用运营与配置入口。",
+        text: "顾问、项目经理、总经理、咨询总监等业务身份拥有相应知识访问范围；系统管理员主要使用运营与配置入口。",
       },
       {
         term: "系统管理身份（admin）",
@@ -59,7 +78,7 @@ const SECTIONS: HelpSection[] = [
     items: [
       {
         term: "可见性",
-        text: "个人知识仅 owner 本人可见；项目知识对该项目 active 成员开放摘要与原文；公司知识按保密级别开放发现 / 摘要。L5 仅 Boss / 咨询总监可发现。",
+        text: "个人知识仅 owner 本人可见；项目知识仅对该项目 active 成员开放，公司职务不自动形成项目访问权；公司知识按保密级别开放发现 / 摘要。L5 仅总经理 / 咨询总监可发现。",
       },
       {
         term: "语义检索",
@@ -75,7 +94,7 @@ const SECTIONS: HelpSection[] = [
       },
       {
         term: "删除 / 撤下",
-        text: "受控软删除：删除后资产退出检索 / 问答 / 预览，保留审计追溯。删除权限：个人 owner 本人 / 项目 active 项目经理 / 公司 Boss·咨询总监。",
+        text: "受控软删除：删除后资产退出检索 / 问答 / 预览，保留审计追溯。删除权限：个人 owner 本人 / 项目 active 项目经理 / 公司总经理或咨询总监。",
       },
     ],
   },
@@ -134,7 +153,7 @@ const SECTIONS: HelpSection[] = [
     items: [
       {
         term: "项目创建",
-        text: "由 Boss / 咨询总监创建项目知识空间，需指定 active 业务用户为项目经理（自动建立 active 成员关系）；纯 admin 不可创建业务项目。",
+        text: "由总经理 / 咨询总监创建项目知识空间，需指定 active 业务用户为项目经理（自动建立 active 成员关系）；纯 admin 不可创建业务项目。",
       },
       {
         term: "项目内角色",
@@ -142,7 +161,7 @@ const SECTIONS: HelpSection[] = [
       },
       {
         term: "项目知识提交",
-        text: "普通顾问提交到项目范围后进入待项目经理确认状态；通过前不会形成可检索或可问答的项目知识。目标项目经理可批准或驳回，Boss / 咨询总监可作为治理兜底；项目经理提交自己负责项目的知识可直接确认。",
+        text: "普通顾问提交到项目范围后进入待项目经理确认状态；通过前不会形成可检索或可问答的项目知识。仅目标项目经理可批准或驳回；项目经理提交自己负责项目的知识可直接确认。",
       },
       {
         term: "项目问答",
@@ -150,7 +169,7 @@ const SECTIONS: HelpSection[] = [
       },
       {
         term: "项目设置",
-        text: "项目经理 / 治理角色可改项目设置与成员；企微群配置只存安全标识，响应只回脱敏 label。",
+        text: "仅项目经理可修改本项目设置，并独立管理项目辅导老师与顾问；总经理 / 咨询总监负责任命或撤销项目经理。企微群配置只存安全标识，响应只回脱敏 label。",
       },
     ],
   },
@@ -190,7 +209,7 @@ const SECTIONS: HelpSection[] = [
       },
       {
         term: "边界",
-        text: "项目 material → asset 审核闭环已可用；项目资产 → 公司知识的升格审核暂未开放。",
+        text: "项目 material → asset 由项目经理确认；项目资产升格公司资产需一名总经理与一名咨询总监分别确认，任一方拒绝或撤回均不能完成升格。",
       },
     ],
   },
@@ -201,7 +220,7 @@ const SECTIONS: HelpSection[] = [
     items: [
       {
         term: "入库管理",
-        text: "运营查看入库任务状态、抽取状态、命名合规、错误等元数据（admin / Boss / 咨询总监）。",
+        text: "运营查看入库任务状态、抽取状态、命名合规、错误等元数据（admin / 总经理 / 咨询总监）。",
       },
       {
         term: "检索索引运维",
@@ -217,15 +236,15 @@ const SECTIONS: HelpSection[] = [
       },
       {
         term: "权限规则",
-        text: "permission_rules 配置中心（Boss / 咨询总监可改、admin 只读）。跨项目 / 公司 L1/L2 原文默认放行开关与访问申请自动通过时限已运行时生效：关闭开关即让对应范围 L1/L2 原文回到「需申请」；其余部分规则仍为治理配置视图，运行时接入边界见各规则说明。",
+        text: "permission_rules 配置中心（总经理 / 咨询总监可改、admin 只读）。公司 L1/L2 原文与访问申请自动通过时限按运行时规则生效；项目知识始终要求 active 项目成员关系。",
       },
       {
         term: "人员权限",
-        text: "Boss 可任命或撤销 Boss、咨询总监和顾问；咨询总监只管理顾问。Boss / 咨询总监管理项目成员关系。admin 只维护账号、会话、密码和技术配置，不授予业务角色，也不因此获得业务原文权限。",
+        text: "总经理可管理总经理、咨询总监和顾问；咨询总监可管理咨询总监和顾问，但不可修改总经理。总经理 / 咨询总监任命项目经理，项目经理独立管理本项目辅导老师与顾问。系统管理员仅查看审计与必要运行状态，不进入人员、角色或项目成员治理。",
       },
       {
         term: "公司知识库",
-        text: "Boss / 咨询总监可在人员权限页显式创建并查看公司知识库状态；初始化完成前不能用于公司范围入库。首位 Boss 只由服务器受控的一次性运维命令建立，不提供网页入口。",
+        text: "总经理 / 咨询总监可在人员权限页显式创建并查看公司知识库状态；初始化完成前不能用于公司范围入库。首位总经理只由服务器受控的一次性运维命令建立，不提供网页入口。",
       },
       {
         term: "告警设置",
@@ -291,43 +310,147 @@ const SECTIONS: HelpSection[] = [
   },
 ];
 
+const HELP_GROUPS = [
+  { title: "开始使用", icon: Compass, ids: ["quick-start", "identity"] },
+  {
+    title: "知识资产与项目",
+    icon: LibraryBig,
+    ids: ["knowledge", "ingest", "personal", "project"],
+  },
+  { title: "审核与原文访问", icon: ShieldCheck, ids: ["original-access", "review"] },
+  {
+    title: "管理员治理与安全",
+    icon: Settings2,
+    ids: ["admin", "models", "integration"],
+  },
+  { title: "功能边界", icon: CircleHelp, ids: ["roadmap"] },
+] as const;
+
+const SECTION_ICONS: Record<string, LucideIcon> = {
+  "quick-start": Workflow,
+  identity: UserRoundCheck,
+  knowledge: LibraryBig,
+  ingest: Upload,
+  personal: UserRoundCheck,
+  project: BriefcaseBusiness,
+  "original-access": KeyRound,
+  review: ShieldCheck,
+  admin: Settings2,
+  models: Settings2,
+  integration: Workflow,
+  roadmap: CircleHelp,
+};
+
+const SECTION_BY_ID = new Map(SECTIONS.map((section) => [section.id, section]));
+
 export default function HelpPage() {
+  const [jumpTarget, setJumpTarget] = useState(SECTIONS[0].id);
+
   return (
-    <div className="help-page">
-      <div className="help-header">
-        <h2>使用说明</h2>
-        <p>
-          平台功能、权限边界与外部集成的集中说明。功能界面只保留操作与必要提示，详细说明集中在此。
-        </p>
+    <ProductPage className="help-page help90-page">
+      <PageHeader
+        eyebrow="产品使用与权限边界"
+        title="帮助中心"
+        description="按实际工作流查找平台操作、角色权限与治理说明。"
+      />
+
+      <div className="help-jump-toolbar" role="search" aria-label="帮助内容定位">
+        <label htmlFor="help-section-jump">
+          <Search size={15} aria-hidden="true" />
+          定位章节
+        </label>
+        <select
+          id="help-section-jump"
+          value={jumpTarget}
+          onChange={(event) => setJumpTarget(event.target.value)}
+        >
+          {HELP_GROUPS.map((group) => (
+            <optgroup label={group.title} key={group.title}>
+              {group.ids.map((id) => {
+                const section = SECTION_BY_ID.get(id);
+                return section ? (
+                  <option value={section.id} key={section.id}>
+                    {section.title}
+                  </option>
+                ) : null;
+              })}
+            </optgroup>
+          ))}
+        </select>
+        <a className="btn-small btn-small-primary" href={`#${jumpTarget}`}>
+          跳转到章节
+          <ChevronRight size={14} aria-hidden="true" />
+        </a>
       </div>
 
-      <nav className="help-toc">
-        {SECTIONS.map((s) => (
-          <a key={s.id} href={`#${s.id}`} className="help-toc-link">
-            {s.title}
-          </a>
-        ))}
-      </nav>
-
-      {SECTIONS.map((s) => (
-        <section key={s.id} id={s.id} className="help-section">
-          <h3>{s.title}</h3>
-          {s.intro && <p className="help-section-intro">{s.intro}</p>}
-          <dl className="help-dl">
-            {s.items.map((it, i) => (
-              <div key={i} className="help-dl-row">
-                {it.term && <dt>{it.term}</dt>}
-                <dd>{it.text}</dd>
+      <div className="help-workspace">
+        <aside className="help-directory" aria-label="帮助目录">
+          <div className="help-directory-heading">
+            <BookOpenCheck size={17} aria-hidden="true" />
+            工作流目录
+          </div>
+          {HELP_GROUPS.map((group) => {
+            const GroupIcon = group.icon;
+            return (
+              <div className="help-directory-group" key={group.title}>
+                <div className="help-directory-group-title">
+                  <GroupIcon size={14} aria-hidden="true" />
+                  {group.title}
+                </div>
+                <nav aria-label={`${group.title}目录`}>
+                  {group.ids.map((id) => {
+                    const section = SECTION_BY_ID.get(id);
+                    return section ? (
+                      <a key={section.id} href={`#${section.id}`} className="help-toc-link">
+                        {section.title}
+                        <ChevronRight size={12} aria-hidden="true" />
+                      </a>
+                    ) : null;
+                  })}
+                </nav>
               </div>
-            ))}
-          </dl>
-        </section>
-      ))}
+            );
+          })}
+        </aside>
 
-      <p className="help-footer">
-        返回 <Link to="/knowledge">知识首页</Link>。生产部署 / 运维步骤见仓库 README
-        与运维文档，不在此页。
-      </p>
-    </div>
+        <main className="help-content">
+          {HELP_GROUPS.map((group) => (
+            <div className="help-content-group" key={group.title}>
+              <div className="help-content-group-label">{group.title}</div>
+              {group.ids.map((id) => {
+                const section = SECTION_BY_ID.get(id);
+                if (!section) return null;
+                const SectionIcon = SECTION_ICONS[section.id] ?? BookOpenCheck;
+                return (
+                  <section key={section.id} id={section.id} className="help-section">
+                    <div className="help-section-heading">
+                      <span className="help-section-icon">
+                        <SectionIcon size={17} aria-hidden="true" />
+                      </span>
+                      <h3>{section.title}</h3>
+                    </div>
+                    {section.intro && <p className="help-section-intro">{section.intro}</p>}
+                    <dl className="help-dl">
+                      {section.items.map((item, index) => (
+                        <div key={index} className="help-dl-row">
+                          {item.term && <dt>{item.term}</dt>}
+                          <dd>{item.text}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                );
+              })}
+            </div>
+          ))}
+
+          <p className="help-footer">
+            <BookOpenCheck size={15} aria-hidden="true" />
+            返回 <Link to="/knowledge">知识资产库</Link>。生产部署与运维步骤见仓库 README
+            和运维文档，不在此页展开。
+          </p>
+        </main>
+      </div>
+    </ProductPage>
   );
 }

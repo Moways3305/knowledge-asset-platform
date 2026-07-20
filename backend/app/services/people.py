@@ -4,13 +4,12 @@
 `user_sessions`（仅安全聚合最近会话时间）。不新增 demo-only 字段、不物理删除关系。
 
 权限边界（后端权威）：
-- 读人员列表 / 详情：admin / boss / 咨询总监；consultant → 403。
+- 读人员列表 / 详情：boss / 咨询总监；admin / consultant → 403。
 - 管理业务公司角色：boss 可管理 boss / consulting_director / consultant；咨询总监仅可管理
-  consultant；admin 与 consultant 无权。仅 admin 可分配 / 移除技术 `admin` 角色。
-- 管理项目成员关系：boss / 咨询总监；admin / consultant 无权。
-- 不允许停掉最后一个可用 admin 或最后一个可用 boss。
-- admin 是系统身份：可做人员/角色系统维护，但**不因此获得任何业务原文权限**（原文权限只来自
-  目标用户自己的 active 项目成员关系，由权限服务读取，与本服务的写动作无关）。
+  consulting_director / consultant；咨询总监不可修改总经理。技术 `admin` 角色无 HTTP 管理路径。
+- 总经理 / 咨询总监任命项目经理；项目经理独立管理本项目辅导老师与顾问。
+- 不允许停掉最后一个可用 admin 或最后一个可用总经理。
+- admin 是系统审计/运维身份，不可读取或修改本服务中的人员治理数据。
 
 安全：响应 / 审计绝不含 token / token_hash / OAuth code·state / ip / device_info /
 wecom_user_id 明文 / 业务原文 / provider 内部标识。
@@ -32,6 +31,7 @@ from app.schemas.enums import (
     AuditAction,
     AuditLogType,
     CompanyRole,
+    ProjectRole,
     RoleStatus,
     UserStatus,
 )
@@ -49,8 +49,8 @@ from app.schemas.people import (
 )
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
+from app.services import governance_policy, session_revocation
 from app.services import passwords as password_service
-from app.services import session_revocation
 
 _MAX_LIMIT = 100
 
@@ -62,18 +62,20 @@ def _denied(status_code: int, reason: str, message: str) -> HTTPException:
 
 
 def _is_admin(caller: CallerContext) -> bool:
-    return CompanyRole.admin.value in caller.active_company_roles
+    return governance_policy.is_admin(caller)
 
 
 def _is_governance(caller: CallerContext) -> bool:
-    # 业务治理角色 = boss / consulting_director（与可发现 L5 一致）。
-    return caller.can_discover_l5
+    return governance_policy.is_governance(caller)
 
 
 def _require_read(caller: CallerContext) -> None:
-    """读人员：admin 或治理角色（boss/咨询总监）。consultant / 其他 → 403。"""
-    if not (_is_admin(caller) or _is_governance(caller)):
-        raise _denied(403, "people_admin_forbidden", "无人员治理查看权限")
+    """人员治理数据仅 boss / 咨询总监可读。"""
+    if not _is_governance(caller):
+        reason = (
+            "admin_business_permission_denied" if _is_admin(caller) else "people_admin_forbidden"
+        )
+        raise _denied(403, reason, "无人员治理查看权限")
 
 
 async def _record_governance_denied(
@@ -103,18 +105,10 @@ async def _require_manage_company_role(
     session: AsyncSession, caller: CallerContext, target_role: str, trace_id: str
 ) -> None:
     """可信 CallerContext 授权矩阵；拒绝路径先写安全审计。"""
+    if governance_policy.can_manage_company_role(caller, target_role):
+        return
     if target_role == CompanyRole.admin.value:
-        if caller.is_active and _is_admin(caller):
-            return
-        reason = "admin_role_requires_admin"
-    elif caller.is_active and CompanyRole.boss.value in caller.active_company_roles:
-        return
-    elif (
-        caller.is_active
-        and CompanyRole.consulting_director.value in caller.active_company_roles
-        and target_role == CompanyRole.consultant.value
-    ):
-        return
+        reason = "admin_role_browser_management_forbidden"
     else:
         reason = (
             "admin_business_permission_denied"
@@ -130,7 +124,7 @@ async def _require_manage_company_role(
         target_role=target_role,
     )
     message = (
-        "仅系统管理员可管理技术管理员角色"
+        "技术管理员角色不提供网页管理入口"
         if target_role == CompanyRole.admin.value
         else "当前身份不可管理该业务角色"
     )
@@ -138,16 +132,30 @@ async def _require_manage_company_role(
 
 
 async def _require_manage_membership(
-    session: AsyncSession, caller: CallerContext, trace_id: str
+    session: AsyncSession,
+    caller: CallerContext,
+    trace_id: str,
+    *,
+    project_id: uuid.UUID,
+    current_role: str | None,
+    requested_role: str,
 ) -> None:
-    """人员页项目成员写入仅 boss / 咨询总监；拒绝路径先写安全审计。"""
-    if caller.is_active and _is_governance(caller):
+    """公司治理任命项目经理；项目经理管理本项目辅导老师与顾问。"""
+    if governance_policy.can_assign_project_role(
+        caller,
+        project_id,
+        current_role=current_role,
+        requested_role=requested_role,
+    ):
         return
-    reason = (
-        "admin_business_permission_denied"
-        if _is_admin(caller)
-        else "project_membership_management_forbidden"
-    )
+    elif requested_role == ProjectRole.project_manager.value and not _is_governance(caller):
+        reason = "project_manager_appointment_requires_governance"
+    else:
+        reason = (
+            "admin_business_permission_denied"
+            if _is_admin(caller)
+            else "project_membership_management_forbidden"
+        )
     await _record_governance_denied(
         session,
         caller,
@@ -155,11 +163,49 @@ async def _require_manage_membership(
         reason=reason,
         attempted="people.project_membership.update",
     )
-    raise _denied(403, reason, "当前身份不可管理项目成员关系")
+    raise _denied(403, reason, "当前身份不可管理该项目成员关系")
+
+
+async def _require_governance_account_management(
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    trace_id: str,
+    attempted: str,
+    action: str,
+) -> None:
+    if not _is_governance(caller):
+        reason = (
+            "admin_business_permission_denied"
+            if _is_admin(caller)
+            else "people_governance_required"
+        )
+        await audit_service.record_denied(
+            session,
+            caller=caller,
+            log_type=AuditLogType.exception,
+            action=action,
+            trace_id=trace_id,
+            target_type="people_governance",
+            extra={"denied_reason": reason, "attempted": attempted},
+        )
+        raise _denied(403, reason, "仅总经理或咨询总监可管理人员账号")
+
+
+def _director_cannot_manage_boss(caller: CallerContext, user: User) -> None:
+    if CompanyRole.consulting_director.value in caller.active_company_roles and any(
+        role.company_role == CompanyRole.boss.value and role.status == RoleStatus.active.value
+        for role in user.company_roles
+    ):
+        raise _denied(
+            403,
+            "consulting_director_cannot_manage_general_manager",
+            "咨询总监不可修改总经理",
+        )
 
 
 async def _usable_role_count(session: AsyncSession, role: str) -> int:
-    """锁定并统计可登录的 active 角色持有人，供最后 admin/Boss 保护。"""
+    """锁定并统计可登录的 active 角色持有人，供最后 admin/总经理保护。"""
     rows = (
         (
             await session.execute(
@@ -346,12 +392,26 @@ async def set_company_role(
     target_role = req.company_role.value
     new_status = req.status.value
     await _require_manage_company_role(session, caller, target_role, trace_id)
-
     user = await _load_person(session, user_id)
+    if CompanyRole.consulting_director.value in caller.active_company_roles and any(
+        role.company_role == CompanyRole.boss.value and role.status == RoleStatus.active.value
+        for role in user.company_roles
+    ):
+        await _record_governance_denied(
+            session,
+            caller,
+            trace_id=trace_id,
+            reason="consulting_director_cannot_manage_general_manager",
+            attempted="people.company_role.update",
+            target_role=target_role,
+        )
+        raise _denied(
+            403, "consulting_director_cannot_manage_general_manager", "咨询总监不可修改总经理"
+        )
     existing = next((r for r in user.company_roles if r.company_role == target_role), None)
     old_status = existing.status if existing else None
 
-    # 不允许停掉最后一个可用 admin / Boss。可用必须同时满足 active 用户与 active 角色。
+    # 不允许停掉最后一个可用 admin / 总经理。可用必须同时满足 active 用户与 active 角色。
     if (
         target_role
         in {
@@ -372,7 +432,7 @@ async def set_company_role(
                     if target_role == CompanyRole.admin.value
                     else "last_active_boss_protected"
                 )
-                label = "admin" if target_role == CompanyRole.admin.value else "Boss"
+                label = "admin" if target_role == CompanyRole.admin.value else "总经理"
                 raise _denied(409, reason, f"不能停用最后一个可用 {label}")
 
     if existing is None:
@@ -430,8 +490,18 @@ async def upsert_project_membership(
     trace_id: str,
 ) -> PersonProjectMembershipOut:
     """新增 / 恢复项目成员关系（upsert by user_id + project_id）。"""
-    await _require_manage_membership(session, caller, trace_id)
+    if _is_admin(caller):
+        await _require_manage_membership(
+            session,
+            caller,
+            trace_id,
+            project_id=req.project_id,
+            current_role=None,
+            requested_role=req.project_role.value,
+        )
     user = await _load_person(session, user_id)
+    if req.status.value == "active" and user.status != UserStatus.active.value:
+        raise _denied(422, "active_project_member_required", "仅 active 用户可加入项目")
 
     project = (
         await session.execute(select(Project).where(Project.id == req.project_id))
@@ -443,6 +513,14 @@ async def upsert_project_membership(
     new_status = req.status.value
     existing = next((m for m in user.project_members if m.project_id == req.project_id), None)
     old_status = existing.status if existing else None
+    await _require_manage_membership(
+        session,
+        caller,
+        trace_id,
+        project_id=req.project_id,
+        current_role=existing.project_role if existing else None,
+        requested_role=new_role,
+    )
 
     if existing is None:
         member = ProjectMember(
@@ -495,13 +573,37 @@ async def patch_project_membership(
     trace_id: str,
 ) -> PersonProjectMembershipOut:
     """更新项目成员关系角色 / 状态（禁用用 status=inactive，不物理删除）。"""
-    await _require_manage_membership(session, caller, trace_id)
+    if _is_admin(caller):
+        await _record_governance_denied(
+            session,
+            caller,
+            trace_id=trace_id,
+            reason="admin_business_permission_denied",
+            attempted="people.project_membership.update",
+        )
+        raise _denied(403, "admin_business_permission_denied", "当前身份不可管理项目成员关系")
     user = await _load_person(session, user_id)
+    if (
+        req.status is not None
+        and req.status.value == "active"
+        and user.status != UserStatus.active.value
+    ):
+        raise _denied(422, "active_project_member_required", "仅 active 用户可加入项目")
 
     member = next((m for m in user.project_members if m.id == membership_id), None)
     if member is None:
         # membership 不属于该 user：404，不泄露其它用户关系细节。
         raise _denied(404, "membership_not_found", "项目成员关系不存在")
+
+    requested_role = req.project_role.value if req.project_role is not None else member.project_role
+    await _require_manage_membership(
+        session,
+        caller,
+        trace_id,
+        project_id=member.project_id,
+        current_role=member.project_role,
+        requested_role=requested_role,
+    )
 
     if req.project_role is None and req.status is None:
         raise _denied(422, "no_membership_change", "至少需提供 project_role 或 status")
@@ -545,12 +647,6 @@ async def patch_project_membership(
 # ---------------------------------------------------------------------------
 # 密码设置 / 重置
 # ---------------------------------------------------------------------------
-def _require_admin_only(caller: CallerContext) -> None:
-    """仅 active 系统 admin 可设置 / 重置密码（boss / 咨询总监 / consultant 一律不可）。"""
-    if not (caller.is_active and _is_admin(caller)):
-        raise _denied(403, "password_set_admin_required", "仅系统管理员可设置 / 重置用户密码")
-
-
 async def set_password(
     session: AsyncSession,
     caller: CallerContext,
@@ -558,16 +654,21 @@ async def set_password(
     req: SetPasswordRequest,
     trace_id: str,
 ) -> SetPasswordResponse:
-    """管理员为用户设置 / 重置密码。
+    """治理角色为用户设置 / 重置密码。
 
-    仅 admin；不存在用户 → 404；弱密码 → 422。允许给 inactive 用户设密码（admin 维护），
+    仅总经理 / 咨询总监；不存在用户 → 404；弱密码 → 422。允许给 inactive 用户设密码，
     但 inactive 用户登录仍失败（`login_with_password` 校验 status）。审计只记安全元数据，
     **绝不**含 password / hash / salt / digest。
     """
-    _require_admin_only(caller)
-    user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
-    if user is None:
-        raise _denied(404, "user_not_found", "用户不存在")
+    await _require_governance_account_management(
+        session,
+        caller,
+        trace_id=trace_id,
+        attempted="people.password.set",
+        action=AuditAction.auth_password_set.value,
+    )
+    user = await _load_person(session, user_id)
+    _director_cannot_manage_boss(caller, user)
     err = password_service.validate_password_strength(req.password)
     if err is not None:
         raise _denied(422, "weak_password", err)
@@ -585,10 +686,10 @@ async def set_password(
         extra={
             "password_set": True,
             "target_user_status": user.status,
-            "actor_is_admin": True,
+            "actor_is_governance": True,
         },
     )
-    # 改密后撤销目标用户全部活动平台会话（含其本人若 admin 改自己密码——强制重登）。
+    # 改密后撤销目标用户全部活动平台会话（治理角色改自己密码时同样强制重登）。
     revoked, _ = await session_revocation.revoke_user_sessions(session, user.id)
     if revoked:
         await audit_service.record_event(
@@ -623,22 +724,29 @@ async def set_user_status(
 
     fail-closed：不能停用自己（避免 admin 自锁）；不能停用最后一个可用 admin。停用后该用户
     立即下线（会话撤销）且登录校验 status 失败。审计只记安全元数据。"""
-    _require_admin_only(caller)
+    await _require_governance_account_management(
+        session,
+        caller,
+        trace_id=trace_id,
+        attempted="people.user_status.update",
+        action=AuditAction.config_people_status_updated.value,
+    )
     new_status = req.status.value
     user = await _load_person(session, user_id)  # 预加载 company_roles（避免异步惰性加载）
+    _director_cannot_manage_boss(caller, user)
     if new_status == UserStatus.inactive.value and user.id == caller.user_id:
         raise _denied(409, "cannot_deactivate_self", "不能停用当前登录的自己")
 
     old_status = user.status
     deactivating = old_status == UserStatus.active.value and new_status == UserStatus.inactive.value
-    # 不允许从账号入口停用最后一个可用 admin / Boss（与角色停用同口径）。
+    # 不允许从账号入口停用最后一个可用 admin / 总经理（与角色停用同口径）。
     if deactivating:
         active_roles = {
             r.company_role for r in user.company_roles if r.status == RoleStatus.active.value
         }
         for protected_role, reason, label in (
             (CompanyRole.admin.value, "last_active_admin_protected", "admin"),
-            (CompanyRole.boss.value, "last_active_boss_protected", "Boss"),
+            (CompanyRole.boss.value, "last_active_boss_protected", "总经理"),
         ):
             if (
                 protected_role in active_roles

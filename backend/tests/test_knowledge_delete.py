@@ -223,13 +223,13 @@ async def test_deleted_exits_search(client):
 
 
 async def test_deleted_blocks_preview(client):
-    # 删除前 consultant 可对公司 L2 申请预览；删除后预览失败。
+    # 删除前治理角色可预览公司 L2；删除后预览失败。
     assert (
-        await client.post(f"{KN}/{KA_COMPANY_L2}/preview", headers=_hdr(USER_CONSULTANT))
+        await client.post(f"{KN}/{KA_COMPANY_L2}/preview", headers=_hdr(USER_BOSS))
     ).status_code == 200
     await client.post(_del(KA_COMPANY_L2), headers=_hdr(USER_BOSS), json={})
     assert (
-        await client.post(f"{KN}/{KA_COMPANY_L2}/preview", headers=_hdr(USER_CONSULTANT))
+        await client.post(f"{KN}/{KA_COMPANY_L2}/preview", headers=_hdr(USER_BOSS))
     ).status_code in (403, 404)
 
 

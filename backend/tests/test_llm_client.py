@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 
+import httpx
 import pytest
 
 from app.main import app
@@ -116,6 +117,74 @@ def test_llm_client_minimax_group_id_in_endpoint():
     assert "GroupId=g123" in c._endpoint()
 
 
+class _FakeHttpClient:
+    def __init__(self, *, response: httpx.Response | None = None, error: Exception | None = None):
+        self.response = response
+        self.error = error
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    async def post(self, *_args, **_kwargs):
+        if self.error:
+            raise self.error
+        assert self.response is not None
+        return self.response
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_code"),
+    [
+        (401, "llm_authentication_error"),
+        (404, "llm_model_not_found"),
+        (429, "llm_rate_limited"),
+        (400, "llm_request_error"),
+        (503, "llm_server_error"),
+    ],
+)
+async def test_llm_client_classifies_http_failures_without_response_body(
+    monkeypatch, status, expected_code
+):
+    raw = "SECRET-LIKE provider response"
+    fake = _FakeHttpClient(response=httpx.Response(status, text=raw))
+    monkeypatch.setattr("app.services.llm_client.httpx.AsyncClient", lambda **_kwargs: fake)
+    llm = LLMClient(
+        provider="custom",
+        api_key="SECRET-LIKE-key",
+        base_url="https://models.example.test/v1",
+        model="chat-model",
+    )
+
+    with pytest.raises(LLMError) as captured:
+        await llm.chat_completion([{"role": "user", "content": "test"}])
+
+    assert captured.value.code == expected_code
+    assert raw not in str(captured.value)
+    assert "SECRET-LIKE-key" not in str(captured.value)
+
+
+async def test_llm_client_classifies_timeout_without_endpoint_or_secret(monkeypatch):
+    request = httpx.Request("POST", "https://models.example.test/v1/chat/completions")
+    fake = _FakeHttpClient(error=httpx.ReadTimeout("SECRET-LIKE timeout", request=request))
+    monkeypatch.setattr("app.services.llm_client.httpx.AsyncClient", lambda **_kwargs: fake)
+    llm = LLMClient(
+        provider="custom",
+        api_key="SECRET-LIKE-key",
+        base_url="https://models.example.test/v1",
+        model="chat-model",
+    )
+
+    with pytest.raises(LLMError) as captured:
+        await llm.chat_completion([{"role": "user", "content": "test"}])
+
+    assert captured.value.code == "llm_timeout"
+    assert "SECRET-LIKE" not in str(captured.value)
+    assert "models.example.test" not in str(captured.value)
+
+
 # ---- 内容处理：LLM 成功 ----
 async def test_upload_llm_structured_draft(client, monkeypatch):
     _enable_llm(monkeypatch, FakeLLM(mode="ok"))
@@ -208,6 +277,15 @@ async def test_upload_degraded_on_llm_failure(client, monkeypatch):
     assert body["content_processing_status"] == "degraded"
     assert body["summary_status"] == "failed"
     assert body["summary"] is None
+    assert body["generation_error_category"] == "server_error"
+    assert body["generation_recovery_hint"]
+    assert "LLM 调用失败" not in r.text
+
+    status = await client.get(f"/api/v1/ingest/{task_id}/status", headers=_hdr(USER_CONSULTANT))
+    assert status.status_code == 200
+    assert status.json()["status"] == "degraded"
+    assert status.json()["error"]["code"] == "server_error"
+    assert status.json()["error"]["recovery_hint"] == body["generation_recovery_hint"]
 
 
 async def test_llm_json_without_detailed_does_not_mark_summary_generated(client, monkeypatch):

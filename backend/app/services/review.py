@@ -17,15 +17,25 @@ from sqlalchemy.orm import selectinload
 
 from app.models.identity import Project, ProjectMember
 from app.models.ingest import IngestTask
-from app.models.knowledge import KnowledgeAsset
-from app.models.review import ReviewTask, ReviewTaskEvidence, ValidationEvidence
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetTag
+from app.models.review import (
+    CompanyAssetReviewDecision,
+    PersonalKnowledgeSubmission,
+    ReviewTask,
+    ReviewTaskEvidence,
+    ValidationEvidence,
+)
 from app.schemas.enums import (
     AlertSeverity,
     AuditAction,
     AuditLogType,
     AuditRiskLevel,
+    CompanyAssetDecision,
+    CompanyRole,
     KnowledgeScope,
     MemberStatus,
+    PersonalSubmissionStatus,
+    PersonalSubmissionType,
     ProjectRole,
     ReviewTaskStatus,
     ReviewType,
@@ -40,6 +50,7 @@ from app.schemas.review import (
     ReviewListItem,
 )
 from app.services import audit as audit_service
+from app.services import governance_policy
 
 _TERMINAL = {ReviewTaskStatus.approved.value, ReviewTaskStatus.rejected.value}
 _NON_TERMINAL = {
@@ -57,7 +68,7 @@ def _denied(status_code: int, reason: str, message: str) -> HTTPException:
 
 
 def _is_admin(caller: CallerContext) -> bool:
-    return "admin" in caller.active_company_roles
+    return governance_policy.is_admin(caller)
 
 
 # 附件 metadata 黑名单：禁止携带真实 URL / 文件路径 / 内部存储引用 / 凭证。
@@ -105,7 +116,7 @@ def _validate_attachments(attachments: list[dict] | None) -> None:
 
 
 def _is_governance(caller: CallerContext) -> bool:
-    return caller.can_discover_l5  # boss / consulting_director
+    return governance_policy.is_governance(caller)
 
 
 async def _active_pm_of(session: AsyncSession, project_id: uuid.UUID) -> uuid.UUID | None:
@@ -189,9 +200,69 @@ async def _aux_maps(session: AsyncSession, tasks: list[ReviewTask]):
     return assets, projects
 
 
+async def _decision_states(
+    session: AsyncSession, tasks: list[ReviewTask]
+) -> dict[uuid.UUID, dict[str, CompanyAssetReviewDecision]]:
+    task_ids = [
+        task.id for task in tasks if task.review_type == ReviewType.project_to_company.value
+    ]
+    if not task_ids:
+        return {}
+    rows = list(
+        (
+            await session.execute(
+                select(CompanyAssetReviewDecision)
+                .where(CompanyAssetReviewDecision.review_task_id.in_(task_ids))
+                .order_by(
+                    CompanyAssetReviewDecision.created_at,
+                    CompanyAssetReviewDecision.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    states: dict[uuid.UUID, dict[str, CompanyAssetReviewDecision]] = {}
+    for row in rows:
+        states.setdefault(row.review_task_id, {})[row.required_role] = row
+    return states
+
+
+def _company_can_decide(
+    caller: CallerContext,
+    task: ReviewTask,
+    states: dict[str, CompanyAssetReviewDecision],
+) -> bool:
+    if task.status != ReviewTaskStatus.pending_reviewer.value:
+        return False
+    roles = caller.active_company_roles & governance_policy.GOVERNANCE_COMPANY_ROLES
+    return any(
+        role not in states or states[role].decision != CompanyAssetDecision.confirmed.value
+        for role in roles
+    )
+
+
+def _company_can_withdraw(
+    caller: CallerContext,
+    task: ReviewTask,
+    states: dict[str, CompanyAssetReviewDecision],
+) -> bool:
+    return task.status == ReviewTaskStatus.pending_reviewer.value and any(
+        row.decision == CompanyAssetDecision.confirmed.value and row.actor_user_id == caller.user_id
+        for row in states.values()
+    )
+
+
 def _to_list_item(
-    task: ReviewTask, assets, projects, *, can_decide: bool = False
+    task: ReviewTask,
+    assets,
+    projects,
+    *,
+    can_decide: bool = False,
+    can_withdraw: bool = False,
+    decision_states: dict[str, CompanyAssetReviewDecision] | None = None,
 ) -> ReviewListItem:
+    states = decision_states or {}
     return ReviewListItem(
         id=task.id,
         review_type=task.review_type,
@@ -211,6 +282,15 @@ def _to_list_item(
         reviewer_user_id=task.reviewer_user_id,
         evidence_count=len(task.evidence_links),
         can_decide=can_decide,
+        can_withdraw=can_withdraw,
+        general_manager_confirmation_status=(
+            states[CompanyRole.boss.value].decision if CompanyRole.boss.value in states else None
+        ),
+        consulting_director_confirmation_status=(
+            states[CompanyRole.consulting_director.value].decision
+            if CompanyRole.consulting_director.value in states
+            else None
+        ),
         review_comment=task.review_comment,
         reviewed_at=task.reviewed_at,
         created_at=task.created_at,
@@ -221,7 +301,7 @@ def _can_view(caller: CallerContext, task: ReviewTask, is_pm: bool) -> bool:
     return (
         task.submitted_by == caller.user_id
         or task.reviewer_user_id == caller.user_id
-        or _is_governance(caller)
+        or (task.review_type == ReviewType.project_to_company.value and _is_governance(caller))
         or is_pm
     )
 
@@ -244,7 +324,7 @@ async def list_reviews(
     tasks = list((await session.execute(stmt)).scalars().all())
 
     governance = _is_governance(caller)
-    # 可见性：提交人 / 审核人 / 治理角色可见；治理角色可见全部。
+    # 可见性：提交人 / 审核人 / 项目经理可见；治理角色仅跨项目查看公司资产升格。
     visible = []
     for task in tasks:
         is_project_pm = bool(
@@ -253,32 +333,39 @@ async def list_reviews(
             == ProjectRole.project_manager.value
         )
         if (
-            governance
+            (governance and task.review_type == ReviewType.project_to_company.value)
             or task.submitted_by == caller.user_id
             or task.reviewer_user_id == caller.user_id
             or is_project_pm
         ):
             visible.append(task)
     assets, projects = await _aux_maps(session, visible)
+    decisions = await _decision_states(session, visible)
     return [
         _to_list_item(
             task,
             assets,
             projects,
             can_decide=(
-                task.status
-                in {
-                    ReviewTaskStatus.pending_reviewer.value,
-                    ReviewTaskStatus.approval_failed.value,
-                }
-                and (
-                    (
-                        task.review_type == ReviewType.project_ingest_approval.value
-                        and _can_decide_project_ingest(caller, task)
+                _company_can_decide(caller, task, decisions.get(task.id, {}))
+                if task.review_type == ReviewType.project_to_company.value
+                else (
+                    task.status
+                    in {
+                        ReviewTaskStatus.pending_reviewer.value,
+                        ReviewTaskStatus.approval_failed.value,
+                    }
+                    and (
+                        (
+                            task.review_type == ReviewType.project_ingest_approval.value
+                            and _can_decide_project_ingest(caller, task)
+                        )
+                        or task.reviewer_user_id == caller.user_id
                     )
-                    or task.reviewer_user_id == caller.user_id
                 )
             ),
+            can_withdraw=_company_can_withdraw(caller, task, decisions.get(task.id, {})),
+            decision_states=decisions.get(task.id),
         )
         for task in visible
     ]
@@ -295,24 +382,31 @@ async def get_review(
         raise _denied(403, "review_view_forbidden", "无权查看该审核任务")
 
     assets, projects = await _aux_maps(session, [task])
+    decisions = (await _decision_states(session, [task])).get(task.id, {})
     base = _to_list_item(
         task,
         assets,
         projects,
         can_decide=(
-            task.status
-            in {
-                ReviewTaskStatus.pending_reviewer.value,
-                ReviewTaskStatus.approval_failed.value,
-            }
-            and (
-                (
-                    task.review_type == ReviewType.project_ingest_approval.value
-                    and _can_decide_project_ingest(caller, task)
+            _company_can_decide(caller, task, decisions)
+            if task.review_type == ReviewType.project_to_company.value
+            else (
+                task.status
+                in {
+                    ReviewTaskStatus.pending_reviewer.value,
+                    ReviewTaskStatus.approval_failed.value,
+                }
+                and (
+                    (
+                        task.review_type == ReviewType.project_ingest_approval.value
+                        and _can_decide_project_ingest(caller, task)
+                    )
+                    or task.reviewer_user_id == caller.user_id
                 )
-                or task.reviewer_user_id == caller.user_id
             )
         ),
+        can_withdraw=_company_can_withdraw(caller, task, decisions),
+        decision_states=decisions,
     )
 
     evidence_ids = [link.evidence_id for link in task.evidence_links]
@@ -439,6 +533,10 @@ async def register_evidence(
         },
         project_id=project_id,
     )
+    if open_task is not None and open_task.status == ReviewTaskStatus.pending_reviewer.value:
+        from app.services.notifications import notify_review_pending
+
+        await notify_review_pending(session, open_task)
     await session.commit()
     return EvidenceOut(
         id=evidence.id,
@@ -539,8 +637,101 @@ async def create_or_get_confirm_asset(
         },
         project_id=project_id,
     )
+    if task.status == ReviewTaskStatus.pending_reviewer.value:
+        from app.services.notifications import notify_review_pending
+
+        await notify_review_pending(session, task)
     await session.commit()
 
+    task = await _load_task(session, task.id)
+    assets, projects = await _aux_maps(session, [task])
+    return _to_list_item(task, assets, projects)
+
+
+async def create_or_get_company_upgrade(
+    session: AsyncSession,
+    caller: CallerContext,
+    project_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    trace_id: str,
+) -> ReviewListItem:
+    """项目经理发起项目资产升格；创建后等待两个公司治理角色分别确认。"""
+    if not caller.is_business_user:
+        await audit_service.record_denied(
+            session,
+            caller=caller,
+            log_type=AuditLogType.exception,
+            action=AuditAction.admin_business_denied.value,
+            trace_id=trace_id,
+            target_type="knowledge_asset",
+            target_id=asset_id,
+            extra={
+                "denied_reason": "admin_business_permission_denied",
+                "attempted": "review.company_upgrade.create",
+            },
+        )
+        raise _denied(403, "admin_business_permission_denied", "admin 不可发起公司资产升格")
+    if not governance_policy.is_project_manager(caller, project_id):
+        raise _denied(403, "project_manager_required", "仅目标项目经理可发起公司资产升格")
+    asset = await _load_project_asset(session, project_id, asset_id)
+    if asset.zone != "asset" or asset.asset_status != "active":
+        raise _denied(422, "project_asset_required", "仅 active 项目资产可升格为公司资产")
+
+    existing = (
+        (
+            await session.execute(
+                select(ReviewTask)
+                .where(
+                    ReviewTask.target_asset_id == asset_id,
+                    ReviewTask.review_type == ReviewType.project_to_company.value,
+                    ReviewTask.status.in_(list(_NON_TERMINAL)),
+                )
+                .options(selectinload(ReviewTask.evidence_links))
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if existing is not None:
+        assets, projects = await _aux_maps(session, [existing])
+        states = (await _decision_states(session, [existing])).get(existing.id, {})
+        return _to_list_item(existing, assets, projects, decision_states=states)
+
+    task = ReviewTask(
+        review_type=ReviewType.project_to_company.value,
+        trigger_source="project_manager_upgrade",
+        target_asset_id=asset.id,
+        target_project_id=project_id,
+        target_scope=KnowledgeScope.company.value,
+        status=ReviewTaskStatus.pending_reviewer.value,
+        reviewer_user_id=None,
+        submitted_by=caller.user_id,
+    )
+    session.add(task)
+    await session.flush()
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.review_created.value,
+        trace_id=trace_id,
+        target_type="review_task",
+        target_id=task.id,
+        after={
+            "review_type": task.review_type,
+            "status": task.status,
+            "target_asset_id": str(asset.id),
+            "required_confirmations": [
+                CompanyRole.boss.value,
+                CompanyRole.consulting_director.value,
+            ],
+        },
+        project_id=project_id,
+    )
+    from app.services.notifications import notify_review_pending
+
+    await notify_review_pending(session, task)
+    await session.commit()
     task = await _load_task(session, task.id)
     assets, projects = await _aux_maps(session, [task])
     return _to_list_item(task, assets, projects)
@@ -603,6 +794,9 @@ async def create_or_get_project_ingest_review(
         },
         project_id=req.target_project_id,
     )
+    from app.services.notifications import notify_review_pending
+
+    await notify_review_pending(session, task)
     await session.commit()
     task = await _load_task(session, task.id)
     assets, projects = await _aux_maps(session, [task])
@@ -611,12 +805,131 @@ async def create_or_get_project_ingest_review(
 
 def _can_decide_project_ingest(caller: CallerContext, task: ReviewTask) -> bool:
     return bool(
-        _is_governance(caller)
-        or (
-            task.target_project_id is not None
-            and caller.active_project_roles.get(task.target_project_id)
-            == ProjectRole.project_manager.value
+        task.target_project_id is not None
+        and caller.active_project_roles.get(task.target_project_id)
+        == ProjectRole.project_manager.value
+    )
+
+
+def _select_company_confirmation_role(
+    caller: CallerContext,
+    states: dict[str, CompanyAssetReviewDecision],
+) -> str | None:
+    for role in (CompanyRole.boss.value, CompanyRole.consulting_director.value):
+        if role not in caller.active_company_roles:
+            continue
+        current = states.get(role)
+        if current is not None and current.decision == CompanyAssetDecision.confirmed.value:
+            continue
+        other_role = (
+            CompanyRole.consulting_director.value
+            if role == CompanyRole.boss.value
+            else CompanyRole.boss.value
         )
+        other = states.get(other_role)
+        if (
+            other is not None
+            and other.decision == CompanyAssetDecision.confirmed.value
+            and other.actor_user_id == caller.user_id
+        ):
+            continue
+        return role
+    return None
+
+
+async def _approve_company_upgrade(
+    session: AsyncSession,
+    caller: CallerContext,
+    task: ReviewTask,
+    comment: str | None,
+    trace_id: str,
+) -> ReviewActionResponse:
+    if task.status != ReviewTaskStatus.pending_reviewer.value:
+        raise _denied(409, "review_already_finalized", "审核任务当前不可确认")
+    states = (await _decision_states(session, [task])).get(task.id, {})
+    role = _select_company_confirmation_role(caller, states)
+    if role is None:
+        raise _denied(
+            403,
+            "company_confirmation_role_required",
+            "当前身份没有可提交的公司资产确认席位",
+        )
+    decision = CompanyAssetReviewDecision(
+        review_task_id=task.id,
+        required_role=role,
+        decision=CompanyAssetDecision.confirmed.value,
+        actor_user_id=caller.user_id,
+        comment=comment,
+    )
+    session.add(decision)
+    await session.flush()
+    states[role] = decision
+
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.review_company_confirmation_recorded.value,
+        trace_id=trace_id,
+        target_type="review_task",
+        target_id=task.id,
+        after={"required_role": role, "decision": decision.decision},
+        project_id=task.target_project_id,
+    )
+
+    general = states.get(CompanyRole.boss.value)
+    director = states.get(CompanyRole.consulting_director.value)
+    complete = bool(
+        general
+        and director
+        and general.decision == CompanyAssetDecision.confirmed.value
+        and director.decision == CompanyAssetDecision.confirmed.value
+        and general.actor_user_id != director.actor_user_id
+    )
+    asset = (
+        await session.execute(
+            select(KnowledgeAsset)
+            .where(KnowledgeAsset.id == task.target_asset_id)
+            .with_for_update()
+        )
+    ).scalar_one()
+    if complete:
+        before = {"scope": asset.scope, "project_id": str(asset.project_id)}
+        asset.scope = KnowledgeScope.company.value
+        asset.project_id = None
+        task.status = ReviewTaskStatus.approved.value
+        task.review_comment = comment
+        task.reviewed_at = datetime.now(timezone.utc)
+        await audit_service.record_event(
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.review_approved.value,
+            trace_id=trace_id,
+            target_type="review_task",
+            target_id=task.id,
+            after={"status": task.status, "review_type": task.review_type},
+            project_id=task.target_project_id,
+        )
+        await audit_service.record_event(
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.asset_scope_changed.value,
+            trace_id=trace_id,
+            target_type="knowledge_asset",
+            target_id=asset.id,
+            before=before,
+            after={"scope": asset.scope, "project_id": None},
+            extra={"review_id": str(task.id), "change": "project_to_company"},
+            project_id=task.target_project_id,
+        )
+    await session.commit()
+    return ReviewActionResponse(
+        review_id=task.id,
+        status=task.status,
+        target_asset_id=asset.id,
+        asset_zone=asset.zone,
     )
 
 
@@ -648,6 +961,8 @@ async def approve(
         )
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可审批")
     task = await _load_task(session, review_id, for_update=True)
+    if task.review_type == ReviewType.project_to_company.value:
+        return await _approve_company_upgrade(session, caller, task, comment, trace_id)
     if task.review_type == ReviewType.project_ingest_approval.value:
         target_project_id = task.target_project_id
         if not _can_decide_project_ingest(caller, task):
@@ -665,7 +980,7 @@ async def approve(
                 },
                 project_id=target_project_id,
             )
-            raise _denied(403, "project_ingest_review_forbidden", "仅目标项目经理或治理角色可审批")
+            raise _denied(403, "project_ingest_review_forbidden", "仅目标项目经理可审批")
         claim = await session.execute(
             update(ReviewTask)
             .where(
@@ -720,6 +1035,90 @@ async def approve(
             trace_id,
             storage=storage,
             weknora=weknora,
+        )
+    if task.review_type == ReviewType.personal_to_project.value:
+        if task.reviewer_user_id != caller.user_id:
+            raise _denied(403, "review_action_forbidden", "只有被分配的审核人可审批")
+        if task.status in _TERMINAL:
+            raise _denied(409, "review_already_finalized", "审核任务已是终态，不可重复操作")
+        submission = (
+            await session.execute(
+                select(PersonalKnowledgeSubmission).where(
+                    PersonalKnowledgeSubmission.review_task_id == task.id
+                )
+            )
+        ).scalar_one_or_none()
+        if submission is None:
+            raise _denied(409, "personal_submission_missing", "个人知识提交记录不可用")
+        task.status = ReviewTaskStatus.approved.value
+        task.review_comment = comment
+        task.reviewed_at = datetime.now(timezone.utc)
+        submission.status = PersonalSubmissionStatus.approved.value
+        result_asset = await session.get(KnowledgeAsset, task.target_asset_id)
+        if (
+            submission.submission_type == PersonalSubmissionType.submit_to_project.value
+            and result_asset is not None
+            and task.target_project_id is not None
+        ):
+            existing_copy = (
+                await session.execute(
+                    select(KnowledgeAsset).where(
+                        KnowledgeAsset.source_asset_id == result_asset.id,
+                        KnowledgeAsset.scope == KnowledgeScope.project.value,
+                        KnowledgeAsset.project_id == task.target_project_id,
+                        KnowledgeAsset.asset_status == "active",
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing_copy is None:
+                source = (
+                    await session.execute(
+                        select(KnowledgeAsset)
+                        .where(KnowledgeAsset.id == result_asset.id)
+                        .options(selectinload(KnowledgeAsset.tags))
+                    )
+                ).scalar_one()
+                existing_copy = KnowledgeAsset(
+                    title=source.title,
+                    scope=KnowledgeScope.project.value,
+                    zone="material",
+                    asset_type=source.asset_type,
+                    owner_user_id=source.owner_user_id,
+                    maintainer_user_id=source.maintainer_user_id or source.owner_user_id,
+                    project_id=task.target_project_id,
+                    source_asset_id=source.id,
+                    current_version_id=source.current_version_id,
+                    visibility="project_only",
+                    confidentiality_level=source.confidentiality_level,
+                    ai_access_level=source.ai_access_level,
+                    asset_status="active",
+                )
+                existing_copy.tags.extend(
+                    KnowledgeAssetTag(tag_name=tag.tag_name) for tag in source.tags
+                )
+                session.add(existing_copy)
+                await session.flush()
+            result_asset = existing_copy
+        await audit_service.record_event(
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.review_approved.value,
+            trace_id=trace_id,
+            target_type="review_task",
+            target_id=task.id,
+            after={
+                "status": task.status,
+                "submission_type": submission.submission_type,
+            },
+            project_id=task.target_project_id,
+        )
+        await session.commit()
+        return ReviewActionResponse(
+            review_id=task.id,
+            status=task.status,
+            target_asset_id=result_asset.id if result_asset else task.target_asset_id,
+            asset_zone=result_asset.zone if result_asset else None,
         )
     if task.reviewer_user_id != caller.user_id:
         raise _denied(403, "review_action_forbidden", "只有被分配的审核人可审批")
@@ -795,6 +1194,52 @@ async def reject(
         )
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可审批")
     task = await _load_task(session, review_id, for_update=True)
+    if task.review_type == ReviewType.project_to_company.value:
+        if task.status != ReviewTaskStatus.pending_reviewer.value:
+            raise _denied(409, "review_already_finalized", "审核任务当前不可拒绝")
+        states = (await _decision_states(session, [task])).get(task.id, {})
+        role = _select_company_confirmation_role(caller, states)
+        if role is None:
+            raise _denied(
+                403,
+                "company_confirmation_role_required",
+                "当前身份没有可提交的公司资产确认席位",
+            )
+        session.add(
+            CompanyAssetReviewDecision(
+                review_task_id=task.id,
+                required_role=role,
+                decision=CompanyAssetDecision.rejected.value,
+                actor_user_id=caller.user_id,
+                comment=comment,
+            )
+        )
+        task.status = ReviewTaskStatus.rejected.value
+        task.review_comment = comment
+        task.reviewed_at = datetime.now(timezone.utc)
+        await audit_service.record_event(
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.review_rejected.value,
+            trace_id=trace_id,
+            target_type="review_task",
+            target_id=task.id,
+            after={
+                "status": task.status,
+                "review_type": task.review_type,
+                "required_role": role,
+            },
+            project_id=task.target_project_id,
+        )
+        await session.commit()
+        asset = await session.get(KnowledgeAsset, task.target_asset_id)
+        return ReviewActionResponse(
+            review_id=task.id,
+            status=task.status,
+            target_asset_id=task.target_asset_id,
+            asset_zone=asset.zone if asset is not None else None,
+        )
     if task.review_type == ReviewType.project_ingest_approval.value:
         target_project_id = task.target_project_id
         if not _can_decide_project_ingest(caller, task):
@@ -812,7 +1257,7 @@ async def reject(
                 },
                 project_id=target_project_id,
             )
-            raise _denied(403, "project_ingest_review_forbidden", "仅目标项目经理或治理角色可审批")
+            raise _denied(403, "project_ingest_review_forbidden", "仅目标项目经理可审批")
         claim = await session.execute(
             update(ReviewTask)
             .where(
@@ -873,6 +1318,46 @@ async def reject(
             target_asset_id=task.target_asset_id,
             asset_zone=None,
         )
+    if task.review_type == ReviewType.personal_to_project.value:
+        if task.reviewer_user_id != caller.user_id:
+            raise _denied(403, "review_action_forbidden", "只有被分配的审核人可审批")
+        if task.status in _TERMINAL:
+            raise _denied(409, "review_already_finalized", "审核任务已是终态，不可重复操作")
+        submission = (
+            await session.execute(
+                select(PersonalKnowledgeSubmission).where(
+                    PersonalKnowledgeSubmission.review_task_id == task.id
+                )
+            )
+        ).scalar_one_or_none()
+        if submission is None:
+            raise _denied(409, "personal_submission_missing", "个人知识提交记录不可用")
+        task.status = ReviewTaskStatus.rejected.value
+        task.review_comment = comment
+        task.reviewed_at = datetime.now(timezone.utc)
+        submission.status = PersonalSubmissionStatus.rejected.value
+        await audit_service.record_event(
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.review_rejected.value,
+            trace_id=trace_id,
+            target_type="review_task",
+            target_id=task.id,
+            after={
+                "status": task.status,
+                "submission_type": submission.submission_type,
+            },
+            project_id=task.target_project_id,
+        )
+        await session.commit()
+        asset = await session.get(KnowledgeAsset, task.target_asset_id)
+        return ReviewActionResponse(
+            review_id=task.id,
+            status=task.status,
+            target_asset_id=task.target_asset_id,
+            asset_zone=asset.zone if asset else None,
+        )
     if task.reviewer_user_id != caller.user_id:
         raise _denied(403, "review_action_forbidden", "只有被分配的审核人可审批")
     if task.status in _TERMINAL:
@@ -882,7 +1367,7 @@ async def reject(
     task.review_comment = comment
     task.reviewed_at = datetime.now(timezone.utc)
     # 不改变 asset.zone。
-    asset = (
+    asset_zone = (
         await session.execute(
             select(KnowledgeAsset.zone).where(KnowledgeAsset.id == task.target_asset_id)
         )
@@ -904,5 +1389,82 @@ async def reject(
         review_id=task.id,
         status=task.status,
         target_asset_id=task.target_asset_id,
-        asset_zone=asset,
+        asset_zone=asset_zone,
+    )
+
+
+async def withdraw_company_confirmation(
+    session: AsyncSession,
+    caller: CallerContext,
+    review_id: uuid.UUID,
+    comment: str | None,
+    trace_id: str,
+) -> ReviewActionResponse:
+    if not caller.is_business_user:
+        await audit_service.record_denied(
+            session,
+            caller=caller,
+            log_type=AuditLogType.exception,
+            action=AuditAction.admin_business_denied.value,
+            trace_id=trace_id,
+            target_type="review_task",
+            target_id=review_id,
+            extra={
+                "denied_reason": "admin_business_permission_denied",
+                "attempted": "review.company_confirmation.withdraw",
+            },
+        )
+        raise _denied(403, "admin_business_permission_denied", "admin 不可撤回业务确认")
+    task = await _load_task(session, review_id, for_update=True)
+    if task.review_type != ReviewType.project_to_company.value:
+        raise _denied(422, "withdraw_not_supported", "该审核类型不支持撤回确认")
+    if task.status != ReviewTaskStatus.pending_reviewer.value:
+        raise _denied(409, "review_already_finalized", "已完成或已拒绝的升格不可撤回")
+    states = (await _decision_states(session, [task])).get(task.id, {})
+    owned = next(
+        (
+            row
+            for row in states.values()
+            if row.decision == CompanyAssetDecision.confirmed.value
+            and row.actor_user_id == caller.user_id
+            and row.required_role in caller.active_company_roles
+        ),
+        None,
+    )
+    if owned is None:
+        raise _denied(403, "confirmation_withdraw_forbidden", "只能撤回本人当前有效的确认")
+    session.add(
+        CompanyAssetReviewDecision(
+            review_task_id=task.id,
+            required_role=owned.required_role,
+            decision=CompanyAssetDecision.withdrawn.value,
+            actor_user_id=caller.user_id,
+            comment=comment,
+        )
+    )
+    task.status = ReviewTaskStatus.rejected.value
+    task.review_comment = comment
+    task.reviewed_at = datetime.now(timezone.utc)
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.review_company_confirmation_withdrawn.value,
+        trace_id=trace_id,
+        target_type="review_task",
+        target_id=task.id,
+        after={
+            "required_role": owned.required_role,
+            "decision": "withdrawn",
+            "status": task.status,
+        },
+        project_id=task.target_project_id,
+    )
+    await session.commit()
+    asset = await session.get(KnowledgeAsset, task.target_asset_id)
+    return ReviewActionResponse(
+        review_id=task.id,
+        status=task.status,
+        target_asset_id=task.target_asset_id,
+        asset_zone=asset.zone if asset is not None else None,
     )

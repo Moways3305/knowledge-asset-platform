@@ -22,7 +22,9 @@ describe("DataTable", () => {
     expect(screen.getByText("名称")).toBeInTheDocument();
     expect(screen.getByText("甲")).toBeInTheDocument();
     expect(screen.getByText("乙")).toBeInTheDocument();
-    expect(container.querySelector("table.ingest-table")).toBeInTheDocument();
+    expect(
+      container.querySelector(".product-table-wrap table.product-data-table"),
+    ).toBeInTheDocument();
     expect(container.querySelectorAll("tbody tr")).toHaveLength(2);
   });
 
@@ -32,12 +34,15 @@ describe("DataTable", () => {
   });
 
   it("shows the empty text as a single spanning row when there are no rows", () => {
-    render(<DataTable columns={columns} rows={[]} rowKey={(r) => r.id} emptyText="暂无数据" />);
+    const { container } = render(
+      <DataTable columns={columns} rows={[]} rowKey={(r) => r.id} emptyText="暂无数据" />,
+    );
     expect(screen.getByText("暂无数据")).toBeInTheDocument();
+    expect(container.querySelector(".product-table-state-content svg")).toBeInTheDocument();
   });
 
   it("shows the loading text instead of rows while loading", () => {
-    render(
+    const { container } = render(
       <DataTable
         columns={columns}
         rows={rows}
@@ -47,6 +52,9 @@ describe("DataTable", () => {
       />,
     );
     expect(screen.getByText("加载中…")).toBeInTheDocument();
+    expect(screen.getByRole("table")).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    expect(container.querySelector(".product-table-state-content svg")).toBeInTheDocument();
     expect(screen.queryByText("甲")).not.toBeInTheDocument();
   });
 });

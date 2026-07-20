@@ -20,11 +20,13 @@ from app.schemas.ingest import (
     IngestConfirmRequest,
     IngestConfirmResponse,
     IngestParseRefreshResponse,
+    IngestTaskStatusResponse,
     IngestUploadResponse,
     PendingIngestListResponse,
 )
 from app.schemas.permission import CallerContext
 from app.services import ingest as ingest_service
+from app.services import ingest_status as ingest_status_service
 from app.services.desensitization import DesensitizationEngine, get_desensitizer
 from app.services.generation_models import get_generation_llm_client
 from app.services.llm_client import LLMClient, NullLLMClient
@@ -100,6 +102,38 @@ async def get_ai_result(
     session: AsyncSession = Depends(get_db),
 ) -> IngestAiResultResponse:
     return await ingest_service.get_ai_result(session, caller, task_id)
+
+
+@router.get("/ingest/{task_id}/status", response_model=IngestTaskStatusResponse)
+async def get_task_status(
+    task_id: uuid.UUID,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> IngestTaskStatusResponse:
+    return await ingest_status_service.get_task_status(session, caller, task_id)
+
+
+@router.post("/ingest/{task_id}/retry", response_model=IngestTaskStatusResponse)
+async def retry_task(
+    task_id: uuid.UUID,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    llm: LLMClient | NullLLMClient = Depends(get_generation_llm_client),
+    desensitizer: DesensitizationEngine = Depends(get_desensitizer),
+    weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
+) -> IngestTaskStatusResponse:
+    return await ingest_status_service.retry_task(
+        session,
+        caller,
+        task_id,
+        storage=storage,
+        llm=llm,
+        desensitizer=desensitizer,
+        weknora=weknora,
+        trace_id=get_trace_id(request),
+    )
 
 
 @router.post("/ingest/{task_id}/confirm", response_model=IngestConfirmResponse)

@@ -1,8 +1,8 @@
 """项目设置 / 项目成员治理服务。
 
 复用既有 `projects` / `project_members` / `users` / `user_company_roles` 表。项目角色只来自
-active `project_members`（与 build_caller_context 一致）；公司治理角色（boss / 咨询总监）可跨项目读写；
-admin 是系统身份——可读安全元数据，但**不**因系统身份获得项目业务管理权（写一律 403）。
+active `project_members`（与 build_caller_context 一致）；公司治理角色可读取成员治理元数据并
+任命项目经理，但不因此获得项目知识库或项目设置写权。admin 不获得项目业务读写权。
 
 安全：响应 / 审计绝不含 wecom_user_id 明文 / token / OAuth code·state / access_token /
 微盘 file_id·download_url / storage_ref / source_file_ref / WeKnora id / provider 内部标识 /
@@ -22,13 +22,14 @@ from app.models.identity import Project, ProjectMember, User
 from app.schemas.enums import (
     AuditAction,
     AuditLogType,
-    CompanyRole,
     MemberStatus,
     ProjectRole,
     RoleStatus,
+    UserStatus,
 )
 from app.schemas.permission import CallerContext
 from app.schemas.project_settings import (
+    ProjectMemberCreateRequest,
     ProjectMemberOut,
     ProjectMemberPatchRequest,
     ProjectMembersResponse,
@@ -36,9 +37,10 @@ from app.schemas.project_settings import (
     ProjectSettingsUpdateRequest,
 )
 from app.services import audit as audit_service
+from app.services import governance_policy
 
 # 拥有项目设置写权的项目角色。
-_MANAGEMENT_ROLES = {ProjectRole.project_manager.value, ProjectRole.coach.value}
+_MANAGEMENT_ROLES = {ProjectRole.project_manager.value}
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
@@ -48,12 +50,11 @@ def _denied(status_code: int, reason: str, message: str) -> HTTPException:
 
 
 def _is_admin(caller: CallerContext) -> bool:
-    return CompanyRole.admin.value in caller.active_company_roles
+    return governance_policy.is_admin(caller)
 
 
 def _is_governance(caller: CallerContext) -> bool:
-    # 业务治理角色 = boss / consulting_director（与可发现 L5 一致），可跨项目读写项目设置。
-    return caller.can_discover_l5
+    return governance_policy.is_governance(caller)
 
 
 def _caller_role(caller: CallerContext, project_id: uuid.UUID) -> str | None:
@@ -79,8 +80,8 @@ async def _load_project(session: AsyncSession, project_id: uuid.UUID) -> Project
 
 
 async def _require_read(caller: CallerContext, project_id: uuid.UUID) -> None:
-    """读项目设置 / 成员：admin / 治理角色 / 本项目 active 成员。其余 → 403 membership_required。"""
-    if _is_admin(caller) or _is_governance(caller):
+    """读项目治理元数据：治理角色或本项目 active 成员；纯 admin 无业务读取权。"""
+    if _is_governance(caller):
         return
     if _caller_role(caller, project_id) is not None:
         return
@@ -88,10 +89,12 @@ async def _require_read(caller: CallerContext, project_id: uuid.UUID) -> None:
 
 
 def _can_write(caller: CallerContext, project_id: uuid.UUID) -> bool:
-    """是否有项目设置 / 成员写权：治理角色 或 本项目 project_manager/coach。"""
-    if _is_governance(caller):
-        return True
-    return _caller_role(caller, project_id) in _MANAGEMENT_ROLES
+    """项目设置写权只来自本项目 active project_manager。"""
+    return governance_policy.is_project_manager(caller, project_id)
+
+
+def _can_manage_members(caller: CallerContext, project_id: uuid.UUID) -> bool:
+    return _is_governance(caller) or governance_policy.is_project_manager(caller, project_id)
 
 
 def _require_write(caller: CallerContext, project_id: uuid.UUID) -> None:
@@ -262,8 +265,93 @@ async def list_members(
         for m in rows
     ]
     return ProjectMembersResponse(
-        items=items, total=len(items), can_manage=_can_write(caller, project_id)
+        items=items, total=len(items), can_manage=_can_manage_members(caller, project_id)
     )
+
+
+def _member_out(member: ProjectMember) -> ProjectMemberOut:
+    return ProjectMemberOut(
+        member_id=member.id,
+        user_id=member.user_id,
+        name=member.user.name,
+        email=member.user.email,
+        company_roles=[
+            role.company_role
+            for role in member.user.company_roles
+            if role.status == RoleStatus.active.value
+        ],
+        project_role=member.project_role,
+        status=member.status,
+        joined_at=member.joined_at,
+        wecom_bound=member.user.wecom_user_id is not None,
+    )
+
+
+async def add_member(
+    session: AsyncSession,
+    caller: CallerContext,
+    project_id: uuid.UUID,
+    req: ProjectMemberCreateRequest,
+    trace_id: str,
+) -> ProjectMemberOut:
+    await _load_project(session, project_id)
+    user = await _load_active_business_user(session, req.user_id, role_field="project_member")
+    current = (
+        await session.execute(
+            select(ProjectMember)
+            .where(ProjectMember.project_id == project_id, ProjectMember.user_id == req.user_id)
+            .options(selectinload(ProjectMember.user).selectinload(User.company_roles))
+        )
+    ).scalar_one_or_none()
+    requested_role = req.project_role.value
+    if not governance_policy.can_assign_project_role(
+        caller,
+        project_id,
+        current_role=current.project_role if current else None,
+        requested_role=requested_role,
+    ):
+        reason = (
+            "admin_business_permission_denied"
+            if _is_admin(caller)
+            else "project_member_management_forbidden"
+        )
+        raise _denied(403, reason, "当前身份不可新增该项目成员")
+    old = None
+    if current is None:
+        current = ProjectMember(
+            project_id=project_id,
+            user_id=user.id,
+            project_role=requested_role,
+            status=req.status.value,
+        )
+        session.add(current)
+    else:
+        old = {"project_role": current.project_role, "status": current.status}
+        current.project_role = requested_role
+        current.status = req.status.value
+    await session.flush()
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.project_member_updated.value,
+        trace_id=trace_id,
+        target_type="project_member",
+        target_id=current.id,
+        before=old,
+        after={"project_role": current.project_role, "status": current.status},
+        extra={"target_user_id": str(user.id)},
+        project_id=project_id,
+    )
+    await session.commit()
+    current = (
+        await session.execute(
+            select(ProjectMember)
+            .where(ProjectMember.id == current.id)
+            .options(selectinload(ProjectMember.user).selectinload(User.company_roles))
+        )
+    ).scalar_one()
+    return _member_out(current)
 
 
 async def patch_member(
@@ -275,8 +363,6 @@ async def patch_member(
     trace_id: str,
 ) -> ProjectMemberOut:
     await _load_project(session, project_id)
-    _require_write(caller, project_id)
-
     if req.project_role is None and req.status is None:
         raise _denied(422, "no_member_change", "至少需提供 project_role 或 status")
 
@@ -294,9 +380,22 @@ async def patch_member(
     old_role, old_status = member.project_role, member.status
     new_role = req.project_role.value if req.project_role is not None else old_role
     new_status = req.status.value if req.status is not None else old_status
+    if new_status == MemberStatus.active.value and member.user.status != UserStatus.active.value:
+        raise _denied(422, "active_project_member_required", "仅 active 用户可加入项目")
 
-    # 保护：变更后项目仍须至少有一个 active 管理角色（project_manager / coach），
-    # 否则项目失去资产确认 / 入库策略治理能力。
+    if not governance_policy.can_assign_project_role(
+        caller,
+        project_id,
+        current_role=old_role,
+        requested_role=new_role,
+    ):
+        reason = (
+            "admin_business_permission_denied"
+            if _is_admin(caller)
+            else "project_member_management_forbidden"
+        )
+        raise _denied(403, reason, "当前身份不可调整该项目成员")
+    # 保护：变更后项目仍须至少有一个 active 项目经理。
     if (old_role in _MANAGEMENT_ROLES and old_status == MemberStatus.active.value) and not (
         new_role in _MANAGEMENT_ROLES and new_status == MemberStatus.active.value
     ):
@@ -318,7 +417,7 @@ async def patch_member(
             raise _denied(
                 409,
                 "last_project_manager_protected",
-                "不能停用 / 降级项目最后一个管理角色（project_manager / coach）",
+                "不能停用 / 降级项目最后一个项目经理",
             )
 
     member.project_role = new_role
@@ -339,19 +438,7 @@ async def patch_member(
         project_id=project_id,
     )
     await session.commit()
-    return ProjectMemberOut(
-        member_id=member.id,
-        user_id=member.user_id,
-        name=member.user.name,
-        email=member.user.email,
-        company_roles=[
-            c.company_role for c in member.user.company_roles if c.status == RoleStatus.active.value
-        ],
-        project_role=member.project_role,
-        status=member.status,
-        joined_at=member.joined_at,
-        wecom_bound=member.user.wecom_user_id is not None,
-    )
+    return _member_out(member)
 
 
 # ----- 项目列表 / 创建 -----
@@ -380,7 +467,7 @@ async def _load_active_business_user(session: AsyncSession, user_id: uuid.UUID, 
     return user
 
 
-def _list_item_out(project: Project, can_manage: bool):
+def _list_item_out(project: Project, project_role: str):
     from app.schemas.project_settings import ProjectListItemOut
 
     return ProjectListItemOut(
@@ -391,40 +478,30 @@ def _list_item_out(project: Project, can_manage: bool):
         lifecycle_route_key=project.lifecycle_route_key,
         lifecycle_phase_key=project.lifecycle_phase_key,
         created_at=project.created_at,
-        can_manage=can_manage,
+        project_role=project_role,
+        can_manage=project_role == ProjectRole.project_manager.value,
     )
 
 
 async def list_projects(session: AsyncSession, caller: CallerContext):
-    """项目列表：治理角色 / admin 看全部 active 项目；普通业务用户看本人 active 项目。"""
+    """Return active projects from active membership only."""
     from app.schemas.project_settings import ProjectListResponse
 
-    if _is_governance(caller) or _is_admin(caller):
-        rows = list(
-            (
-                await session.execute(
-                    select(Project).where(Project.status == "active").order_by(Project.name)
-                )
+    rows = (
+        await session.execute(
+            select(ProjectMember, Project)
+            .join(Project, Project.id == ProjectMember.project_id)
+            .where(
+                ProjectMember.user_id == caller.user_id,
+                ProjectMember.status == MemberStatus.active.value,
+                Project.status == "active",
             )
-            .scalars()
-            .all()
+            .order_by(Project.name, Project.id)
         )
-    else:
-        pids = caller.active_project_ids
-        if not pids:
-            return ProjectListResponse(items=[])
-        rows = list(
-            (
-                await session.execute(
-                    select(Project)
-                    .where(Project.status == "active", Project.id.in_(pids))
-                    .order_by(Project.name)
-                )
-            )
-            .scalars()
-            .all()
-        )
-    return ProjectListResponse(items=[_list_item_out(p, _can_write(caller, p.id)) for p in rows])
+    ).all()
+    return ProjectListResponse(
+        items=[_list_item_out(project, membership.project_role) for membership, project in rows]
+    )
 
 
 async def create_project(
@@ -435,7 +512,7 @@ async def create_project(
     *,
     weknora=None,
 ):
-    """创建项目知识空间（仅 boss / 咨询总监）。
+    """创建项目知识空间（仅总经理 / 咨询总监）。
 
     写入真实 `projects` 行 + 至少一条 active project_manager `project_members`（可选 coach）。
     纯 admin 不可创建业务项目。
@@ -448,7 +525,7 @@ async def create_project(
     if not _is_governance(caller):
         if _is_admin(caller):
             raise _denied(403, "admin_business_permission_denied", "admin 不可创建业务项目")
-        raise _denied(403, "project_create_forbidden", "仅 Boss / 咨询总监可创建项目知识库")
+        raise _denied(403, "project_create_forbidden", "仅总经理或咨询总监可创建项目知识库")
 
     name = (req.name or "").strip()
     if not name:

@@ -62,3 +62,42 @@ class IndexingJobSummary(BaseModel):
 class IndexingJobListResponse(BaseModel):
     items: list[IndexingJobSummary]
     total: int
+
+
+class IndexingHealthTrendPoint(BaseModel):
+    observed_at: datetime
+    index_failed: int
+    indexing: int
+    not_indexed: int
+    skipped: int
+    parse_pending: int
+    parse_processing: int
+    kb_init_failed: int
+    completed_jobs: int
+    failed_jobs: int
+    queued_jobs: int
+    oldest_queued_seconds: int | None
+
+
+class RuntimeHealth(BaseModel):
+    status: str  # healthy | stale | unknown
+    last_heartbeat_at: datetime | None
+    message: str
+
+
+class QueueHealth(BaseModel):
+    status: str  # healthy | degraded | unknown
+    queued_count: int
+    oldest_queued_seconds: int | None
+    message: str
+
+
+class IndexingHealthResponse(BaseModel):
+    generated_at: datetime
+    window_hours: int
+    insufficient_data: bool
+    message: str
+    queue: QueueHealth
+    worker: RuntimeHealth
+    beat: RuntimeHealth
+    trend_points: list[IndexingHealthTrendPoint]

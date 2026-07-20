@@ -193,7 +193,37 @@ def test_bootstrap_command_output_never_echoes_target(monkeypatch, capsys):
 
     monkeypatch.setenv("KAP_BOOTSTRAP_BOSS_TARGET_USER_ID", str(target))
     monkeypatch.setattr(bootstrap_command, "_run", _fake_run)
-    assert bootstrap_command.main() == 3
+    assert bootstrap_command.main([]) == 3
     output = capsys.readouterr().out
     assert output.strip() == BossBootstrapResult.already_configured.value
     assert str(target) not in output
+
+
+def test_bootstrap_command_accepts_cli_target_and_prefers_it(monkeypatch, capsys):
+    target = uuid.uuid4()
+    captured = None
+
+    async def _fake_run(target_user_id):
+        nonlocal captured
+        captured = target_user_id
+        return BossBootstrapResult.created
+
+    monkeypatch.setenv("KAP_BOOTSTRAP_BOSS_TARGET_USER_ID", str(uuid.uuid4()))
+    monkeypatch.setattr(bootstrap_command, "_run", _fake_run)
+
+    assert bootstrap_command.main(["--user-id", str(target)]) == 0
+    assert captured == target
+    output = capsys.readouterr().out
+    assert output.strip() == BossBootstrapResult.created.value
+    assert str(target) not in output
+
+
+def test_bootstrap_command_rejects_invalid_cli_target_without_database_access(monkeypatch, capsys):
+    async def _unexpected_run(_target_user_id):
+        raise AssertionError("invalid target must not access the database")
+
+    monkeypatch.setenv("KAP_BOOTSTRAP_BOSS_TARGET_USER_ID", str(uuid.uuid4()))
+    monkeypatch.setattr(bootstrap_command, "_run", _unexpected_run)
+
+    assert bootstrap_command.main(["--user-id", "not-a-uuid"]) == 2
+    assert capsys.readouterr().out.strip() == "boss_bootstrap_invalid_target"

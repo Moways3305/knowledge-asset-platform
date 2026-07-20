@@ -62,7 +62,7 @@ def _require_admin(caller: CallerContext) -> None:
 
 
 def _require_admin_or_governance(caller: CallerContext) -> None:
-    """读平台默认模型：admin 或业务治理角色（boss / 咨询总监）。普通顾问无权。"""
+    """读平台默认模型：admin 或业务治理角色（总经理 / 咨询总监）。普通顾问无权。"""
     roles = set(caller.active_company_roles)
     allowed = {
         CompanyRole.admin.value,
@@ -333,7 +333,7 @@ async def get_default_models(
     session: AsyncSession = Depends(get_db),
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> DefaultModelsOut:
-    """读平台默认模型（admin / boss / 咨询总监）。只回安全 model_ref + 名称，无真实 model_id。"""
+    """读平台默认模型（admin / 总经理 / 咨询总监）。只回安全 model_ref + 名称，无真实 model_id。"""
     _require_admin_or_governance(caller)
     _require_enabled()
     try:

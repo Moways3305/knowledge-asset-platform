@@ -5,6 +5,7 @@ import type {
   ProjectCreateRequestDTO,
   ProjectCreateResponseDTO,
   ProjectListResponseDTO,
+  ProjectOverviewDTO,
 } from "../types/project";
 import type {
   ProjectMemberDTO,
@@ -15,12 +16,16 @@ import type {
 } from "../types/projectSettings";
 import type { ProjectQaModelOptionsResponseDTO, ProjectQaResponseDTO } from "../types/agent";
 
-// 项目列表（治理角色 / admin 看全部 active；业务用户看本人 active 项目）。
+// 可切换项目只来自当前用户的 active 项目成员关系，公司角色不扩展项目范围。
 export async function fetchProjects(): Promise<ProjectListResponseDTO> {
   return apiGet<ProjectListResponseDTO>(`/api/v1/projects`);
 }
 
-// 创建项目知识空间（仅 Boss / 咨询总监）。写真实 projects + active project_manager 成员。
+export async function fetchProjectOverview(projectId: string): Promise<ProjectOverviewDTO> {
+  return apiGet<ProjectOverviewDTO>(`/api/v1/projects/${projectId}/overview`);
+}
+
+// 创建项目知识空间（仅总经理 / 咨询总监）。写真实 projects + active project_manager 成员。
 export async function createProject(
   body: ProjectCreateRequestDTO,
 ): Promise<ProjectCreateResponseDTO> {
@@ -46,7 +51,7 @@ export async function fetchProjectQaModelOptions(
 }
 
 // ---- 项目设置 / 项目成员 ----
-// 读：admin / 治理角色 / 本项目成员；写：项目经理 / 治理角色。
+// 读：治理角色 / 本项目 active 成员；项目设置写：本项目项目经理。pure admin 无业务权限。
 // 响应只含安全治理元数据；企微群只回 bound + 脱敏 label（不回全文）；前端不展示任何内部标识。
 export async function fetchProjectSettings(projectId: string): Promise<ProjectSettingsDTO> {
   return apiGet<ProjectSettingsDTO>(`/api/v1/projects/${projectId}/settings`);

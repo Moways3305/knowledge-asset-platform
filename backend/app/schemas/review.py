@@ -46,6 +46,9 @@ class ReviewListItem(BaseModel):
     reviewer_user_id: uuid.UUID | None
     evidence_count: int
     can_decide: bool = False
+    can_withdraw: bool = False
+    general_manager_confirmation_status: str | None = None
+    consulting_director_confirmation_status: str | None = None
     review_comment: str | None
     reviewed_at: datetime | None
     created_at: datetime | None
@@ -74,3 +77,7 @@ class ReviewActionResponse(BaseModel):
     target_asset_id: uuid.UUID | None
     asset_zone: str | None
     index_status: str | None = None
+
+
+class ReviewWithdrawRequest(BaseModel):
+    review_comment: str | None = None

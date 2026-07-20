@@ -21,7 +21,7 @@ from app.models.identity import (
     User,
     UserCompanyRole,
 )
-from app.models.indexing_job import IndexingOperationJob
+from app.models.indexing_job import IndexingOperationJob, IndexingOpsSnapshot, OpsRuntimeHeartbeat
 from app.models.ingest import IngestTask, IngestTaskAiResult
 from app.models.knowledge import (
     KnowledgeAsset,
@@ -36,10 +36,12 @@ from app.models.lifecycle import (
     AssetLifecycleEvent,
     NotificationRecord,
 )
+from app.models.notification import BusinessNotification
 from app.models.original_access import AccessGrant, OriginalAccessRequest
 from app.models.permission_rule import PermissionRule
 from app.models.preview import PreviewCredential
 from app.models.review import (
+    CompanyAssetReviewDecision,
     PersonalKnowledgeSubmission,
     ReviewTask,
     ReviewTaskEvidence,
@@ -63,7 +65,10 @@ __all__ = [
     "IngestTask",
     "IngestTaskAiResult",
     "IndexingOperationJob",
+    "IndexingOpsSnapshot",
+    "OpsRuntimeHeartbeat",
     "ValidationEvidence",
+    "CompanyAssetReviewDecision",
     "ReviewTask",
     "ReviewTaskEvidence",
     "PersonalKnowledgeSubmission",
@@ -80,6 +85,7 @@ __all__ = [
     "AssetLifecycleEvent",
     "AlertRule",
     "NotificationRecord",
+    "BusinessNotification",
     "UserSession",
     "AuthLoginAttempt",
     "ContentGenerationModel",

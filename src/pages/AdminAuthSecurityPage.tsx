@@ -1,162 +1,263 @@
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCw, Unlock } from "lucide-react";
-import { ApiError } from "../api/http";
+import {
+  Ban,
+  CheckCircle2,
+  CircleX,
+  Clock3,
+  LockKeyhole,
+  Network,
+  RefreshCw,
+  ShieldCheck,
+  Unlock,
+  UserRound,
+} from "lucide-react";
 import { fetchAuthSecurityOverview, unlockAuthLockout } from "../api/admin";
+import { ApiError } from "../api/http";
+import {
+  OperationsSummary,
+  PageHeader,
+  PageToolbar,
+  ProductPage,
+} from "../components/ProductLayout";
 import type { AuthSecurityEventDTO, AuthSecurityOverviewDTO } from "../types/authSecurity";
 import { formatBeijingTime } from "../utils/time";
 
-// 登录风控运维。仅 admin 可见；展示安全聚合 + 最近事件 + 手动解锁入口。
-// 全部为不可逆 hash 前缀 / 安全用户元数据；不展示 raw email / raw IP / 完整 hash / token。
 const resultLabel: Record<string, string> = {
   failed: "失败",
   locked: "已锁定",
-  rate_limited: "IP 限流",
+  rate_limited: "已限流",
   success: "成功",
   unlocked: "已解锁",
 };
 const reasonLabel: Record<string, string> = {
-  invalid_credentials: "凭证错误",
+  invalid_credentials: "凭证校验失败",
   identifier_locked: "账号短时锁定",
-  ip_rate_limited: "IP 限流",
+  ip_rate_limited: "访问频率受限",
   manual_unlock: "人工解锁",
-  success: "成功",
+  success: "验证通过",
 };
-
-// 可唯一定位、可解锁的事件（账号短时锁定 / 失败累积）。
+const userStatusLabel: Record<string, string> = {
+  active: "正常",
+  disabled: "已停用",
+  locked: "已锁定",
+  inactive: "未启用",
+};
 const UNLOCKABLE = new Set(["locked", "failed", "rate_limited"]);
-
-type Sev = "danger" | "warning" | "success" | "info";
 
 export default function AdminAuthSecurityPage() {
   const [data, setData] = useState<AuthSecurityOverviewDTO | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
   const [windowMinutes, setWindowMinutes] = useState(60);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [unlocking, setUnlocking] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       setData(await fetchAuthSecurityOverview({ windowMinutes, limit: 50 }));
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "加载登录风控数据失败");
+    } catch (reason) {
+      setData(null);
+      setError(
+        reason instanceof ApiError && reason.status === 403
+          ? "当前身份没有登录安全运营权限。"
+          : "登录安全状态暂时无法加载，请稍后重试。",
+      );
     } finally {
       setLoading(false);
     }
   }, [windowMinutes]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => void load(), [load]);
 
   const onUnlock = useCallback(
-    async (ev: AuthSecurityEventDTO) => {
-      setNotice(null);
+    async (event: AuthSecurityEventDTO) => {
+      if (!UNLOCKABLE.has(event.result) || (!event.user_id && !event.identifier_hash_prefix))
+        return;
+      setUnlocking(event.attempt_id);
       setError(null);
+      setNotice(null);
       try {
-        const body = ev.user_id
-          ? { user_id: ev.user_id }
-          : { identifier_hash_prefix: ev.identifier_hash_prefix ?? "" };
-        const res = await unlockAuthLockout(body);
-        setNotice(res.unlocked ? "已解除该账号的短时锁定。" : "未发生解锁。");
+        const response = await unlockAuthLockout(
+          event.user_id
+            ? { user_id: event.user_id }
+            : { identifier_hash_prefix: event.identifier_hash_prefix ?? "" },
+        );
+        setNotice(response.unlocked ? "账号短时锁定已解除。" : "该账号当前无需解锁。");
         await load();
-      } catch (e) {
-        setError(e instanceof ApiError ? e.message : "解锁失败，请稍后重试");
+      } catch (reason) {
+        setError(
+          reason instanceof ApiError && reason.status === 403
+            ? "当前身份不能执行解锁操作。"
+            : "解锁失败，请稍后重试。",
+        );
+      } finally {
+        setUnlocking(null);
       }
     },
     [load],
   );
 
-  const c = data?.counts;
-  const risks: { label: string; value: number; sev: Sev }[] = c
-    ? [
-        { label: "失败", value: c.failed, sev: "warning" },
-        { label: "锁定", value: c.locked, sev: "danger" },
-        { label: "IP 限流", value: c.rate_limited, sev: "danger" },
-        { label: "成功", value: c.success, sev: "success" },
-        { label: "人工解锁", value: c.unlocked, sev: "info" },
-        { label: "独立账号", value: c.unique_identifier_count, sev: "info" },
-        { label: "独立 IP", value: c.unique_ip_count, sev: "info" },
-      ]
-    : [];
-
+  const counts = data?.counts;
   return (
-    <div className="cockpit">
-      <div className="kb-masthead">
-        <div>
-          <div className="kb-eyebrow">Auth Security · 登录风控</div>
-          <h2 className="kb-title">登录风控运营台</h2>
-          <p className="kb-lead">查看近期登录风险和异常账号状态。</p>
-        </div>
-      </div>
-
-      <div className="cockpit-bar">
-        <label>
-          时间窗口（分钟）
-          <input
-            type="number"
-            min={1}
-            max={10080}
-            value={windowMinutes}
-            onChange={(e) => setWindowMinutes(Math.max(1, Number(e.target.value) || 60))}
-          />
-        </label>
-        <span className="cockpit-bar-spacer" />
-        <button className="btn-small" onClick={() => void load()} disabled={loading}>
-          <RefreshCw size={13} /> {loading ? "刷新中…" : "刷新"}
-        </button>
-      </div>
-
-      {error && <div className="adminx-banner is-error">{error}</div>}
-      {notice && <div className="adminx-banner is-ok">{notice}</div>}
-
-      {risks.length > 0 && (
-        <div className="cockpit-risks">
-          {risks.map((r) => (
-            <div key={r.label} className={`cockpit-risk sev-${r.sev}`}>
-              <div className="cockpit-risk-value">{r.value}</div>
-              <div className="cockpit-risk-label">{r.label}</div>
+    <ProductPage className="secops-page auth-security-page">
+      <PageHeader
+        eyebrow="安全运营"
+        title="登录安全"
+        description="查看选定时间范围内的登录结果，并处理可解锁的账号状态。"
+      />
+      <div className="secops-console">
+        <OperationsSummary
+          label="登录安全摘要"
+          titleIcon={<ShieldCheck size={15} aria-hidden="true" />}
+          items={[
+            {
+              label: "失败",
+              value: counts?.failed ?? 0,
+              tone: "warning",
+              icon: <CircleX size={14} />,
+            },
+            {
+              label: "锁定",
+              value: counts?.locked ?? 0,
+              tone: "danger",
+              icon: <LockKeyhole size={14} />,
+            },
+            {
+              label: "访问限流",
+              value: counts?.rate_limited ?? 0,
+              tone: "danger",
+              icon: <Ban size={14} />,
+            },
+            {
+              label: "成功",
+              value: counts?.success ?? 0,
+              tone: "success",
+              icon: <CheckCircle2 size={14} />,
+            },
+            { label: "人工解锁", value: counts?.unlocked ?? 0, icon: <Unlock size={14} /> },
+            {
+              label: "独立账号",
+              value: counts?.unique_identifier_count ?? 0,
+              icon: <UserRound size={14} />,
+            },
+            { label: "独立来源", value: counts?.unique_ip_count ?? 0, icon: <Network size={14} /> },
+          ]}
+        />
+        <main className="secops-main-workspace">
+          {error && (
+            <div className="secops-banner is-error" role="alert">
+              {error}
             </div>
-          ))}
-        </div>
-      )}
-
-      <div className="cockpit-events">
-        <div className="cockpit-events-head">最近登录尝试</div>
-        {(data?.recent_events ?? []).map((ev) => (
-          <div key={ev.attempt_id} className="cockpit-event">
-            <span className="cockpit-event-time">{formatBeijingTime(ev.created_at)}</span>
-            <span className={`authres authres-${ev.result}`}>
-              {resultLabel[ev.result] ?? ev.result}
-            </span>
-            <span className="cockpit-event-user">
-              {ev.user_name ? `${ev.user_name}（${ev.user_status ?? ""}）` : "未知账号"}
-              <span className="cockpit-event-reason">
-                {" "}
-                · {ev.reason_code ? (reasonLabel[ev.reason_code] ?? ev.reason_code) : "—"}
+          )}
+          {notice && (
+            <div className="secops-banner is-success" role="status">
+              {notice}
+            </div>
+          )}
+          <section className="secops-workspace" aria-label="最近登录尝试">
+            <div className="secops-workspace-heading">
+              <span className="secops-workspace-heading-icon">
+                <ShieldCheck size={16} />
               </span>
-            </span>
-            <span className="cockpit-event-hash" title="账号标识前缀（不可逆）">
-              {ev.identifier_hash_prefix ?? "—"}
-            </span>
-            <span className="cockpit-event-hash" title="IP 前缀（不可逆）">
-              {ev.ip_hash_prefix ?? "—"}
-            </span>
-            <span>
-              {UNLOCKABLE.has(ev.result) && (ev.user_id || ev.identifier_hash_prefix) ? (
-                <button className="cockpit-unlock" onClick={() => void onUnlock(ev)}>
-                  <Unlock size={12} /> 解锁
-                </button>
-              ) : null}
-            </span>
-          </div>
-        ))}
-        {data && data.recent_events.length === 0 && (
-          <div className="cockpit-empty">该时间窗口内暂无登录尝试。</div>
-        )}
-        {!data && loading && <div className="cockpit-empty">加载中…</div>}
+              <div>
+                <strong>最近登录尝试</strong>
+                <span>核查结果并处理可解锁账号</span>
+              </div>
+            </div>
+            <PageToolbar
+              className="secops-toolbar"
+              start={
+                <label className="secops-window">
+                  <Clock3 size={14} aria-hidden="true" />
+                  时间范围
+                  <select
+                    aria-label="时间范围"
+                    value={windowMinutes}
+                    onChange={(event) => setWindowMinutes(Number(event.target.value))}
+                  >
+                    <option value={30}>最近 30 分钟</option>
+                    <option value={60}>最近 1 小时</option>
+                    <option value={360}>最近 6 小时</option>
+                    <option value={1440}>最近 24 小时</option>
+                    <option value={10080}>最近 7 天</option>
+                  </select>
+                </label>
+              }
+              end={
+                <div className="secops-toolbar-actions">
+                  <span className="secops-count">
+                    最近登录尝试 {data?.recent_events.length ?? 0} 条
+                  </span>
+                  <button className="btn-small" onClick={() => void load()} disabled={loading}>
+                    <RefreshCw size={13} aria-hidden="true" /> {loading ? "刷新中…" : "刷新"}
+                  </button>
+                </div>
+              }
+            />
+            <div className="secops-table-wrap">
+              <table className="secops-table">
+                <thead>
+                  <tr>
+                    <th>时间</th>
+                    <th>结果</th>
+                    <th className="secops-col-secondary">原因</th>
+                    <th>用户</th>
+                    <th>账号状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data?.recent_events ?? []).map((event) => (
+                    <tr key={event.attempt_id}>
+                      <td className="secops-time">{formatBeijingTime(event.created_at)}</td>
+                      <td>
+                        <span className={`secops-pill result-${event.result}`}>
+                          {resultLabel[event.result] ?? "其他结果"}
+                        </span>
+                      </td>
+                      <td className="secops-col-secondary">
+                        {reasonLabel[event.reason_code ?? ""] ?? "安全校验未通过"}
+                      </td>
+                      <td className="secops-primary">{event.user_name ?? "未识别账号"}</td>
+                      <td>{userStatusLabel[event.user_status ?? ""] ?? "状态未知"}</td>
+                      <td>
+                        {UNLOCKABLE.has(event.result) &&
+                        (event.user_id || event.identifier_hash_prefix) ? (
+                          <button
+                            className="btn-small"
+                            disabled={unlocking === event.attempt_id}
+                            onClick={() => void onUnlock(event)}
+                          >
+                            {unlocking === event.attempt_id ? "解锁中…" : "解除锁定"}
+                          </button>
+                        ) : (
+                          <span className="secops-muted">无需操作</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {!loading && data && data.recent_events.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="secops-empty">
+                        该时间范围内暂无登录尝试
+                      </td>
+                    </tr>
+                  )}
+                  {loading && (
+                    <tr>
+                      <td colSpan={6} className="secops-empty">
+                        正在加载登录安全状态…
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </main>
       </div>
-    </div>
+    </ProductPage>
   );
 }

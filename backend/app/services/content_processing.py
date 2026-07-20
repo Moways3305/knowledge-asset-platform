@@ -38,7 +38,12 @@ from datetime import datetime, timezone
 from app.schemas.enums import AiAccessLevel, AssetType, ConfidentialityLevel
 from app.services.desensitization import DesensitizationEngine
 from app.services.extraction import ExtractionResult
-from app.services.llm_client import LLMClient, LLMError, NullLLMClient
+from app.services.llm_client import (
+    LLMClient,
+    LLMError,
+    NullLLMClient,
+    safe_llm_diagnostic,
+)
 
 # 建议草稿安全上限。
 _MAX_KEY_POINTS = 8
@@ -351,6 +356,9 @@ async def process_content(
     # LLM 未配置 → 降级（脱敏不参与链路，无脱敏元数据需保留）。
     if isinstance(llm, NullLLMClient) or not getattr(llm, "provider", ""):
         base["naming_parsed_fields"]["generation_status"] = "pending_model_config"
+        diagnostic = safe_llm_diagnostic("llm_not_configured")
+        base["naming_parsed_fields"]["generation_error_category"] = diagnostic.category
+        base["naming_parsed_fields"]["generation_recovery_hint"] = diagnostic.remediation_hint
         return base, {
             "status": "degraded",
             "reason": "llm_not_configured",
@@ -372,10 +380,12 @@ async def process_content(
         parsed = _parse_llm_json(raw)
     except (LLMError, json.JSONDecodeError, ValueError, TypeError) as exc:
         base["naming_parsed_fields"]["generation_status"] = "failed"
-        reason = getattr(exc, "code", None) or "llm_parse_failed"
+        diagnostic = safe_llm_diagnostic(getattr(exc, "code", None) or "llm_bad_response")
+        base["naming_parsed_fields"]["generation_error_category"] = diagnostic.category
+        base["naming_parsed_fields"]["generation_recovery_hint"] = diagnostic.remediation_hint
         return base, {
             "status": "degraded",
-            "reason": str(reason),
+            "reason": diagnostic.category,
             "provider": None,
             "model": None,
             "desensitization_status": "not_applicable",
@@ -406,6 +416,10 @@ async def process_content(
     naming = _build_naming(file_name, components, level_v, ai_v)
     naming["summary_generated"] = summary_generated
     naming["generation_status"] = "generated" if summary_generated else "failed"
+    if not summary_generated:
+        diagnostic = safe_llm_diagnostic("llm_bad_response")
+        naming["generation_error_category"] = diagnostic.category
+        naming["generation_recovery_hint"] = diagnostic.remediation_hint
 
     draft = dict(base)
     draft.update(

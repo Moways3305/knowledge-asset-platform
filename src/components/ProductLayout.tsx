@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Inbox } from "lucide-react";
 
 export function ProductPage({
   children,
@@ -66,15 +67,34 @@ export function PageToolbar({
   start,
   end,
   className = "",
+  ariaLabel = "页面工具栏",
 }: {
   start?: ReactNode;
   end?: ReactNode;
   className?: string;
+  ariaLabel?: string;
 }) {
   return (
-    <div className={`product-toolbar ${className}`.trim()}>
+    <div className={`product-toolbar ${className}`.trim()} role="toolbar" aria-label={ariaLabel}>
       <div className="product-toolbar-start">{start}</div>
       <div className="product-toolbar-end">{end}</div>
+    </div>
+  );
+}
+
+export function FilterBar({
+  children,
+  actions,
+  ariaLabel = "筛选条件",
+}: {
+  children: ReactNode;
+  actions?: ReactNode;
+  ariaLabel?: string;
+}) {
+  return (
+    <div className="product-filter-bar" role="search" aria-label={ariaLabel}>
+      <div className="product-filter-fields">{children}</div>
+      {actions && <div className="product-filter-actions">{actions}</div>}
     </div>
   );
 }
@@ -83,6 +103,7 @@ export interface StatusStripItem {
   label: ReactNode;
   value: ReactNode;
   tone?: "neutral" | "success" | "warning" | "danger";
+  icon?: ReactNode;
 }
 
 export function StatusStrip({ items, label }: { items: StatusStripItem[]; label?: string }) {
@@ -95,6 +116,38 @@ export function StatusStrip({ items, label }: { items: StatusStripItem[]; label?
         </div>
       ))}
     </div>
+  );
+}
+
+export function OperationsSummary({
+  title = "运行摘要",
+  titleIcon,
+  items,
+  label,
+}: {
+  title?: ReactNode;
+  titleIcon?: ReactNode;
+  items: StatusStripItem[];
+  label: string;
+}) {
+  return (
+    <aside className="secops-summary-panel" aria-label={label}>
+      <div className="secops-summary-heading">
+        {titleIcon && <span className="secops-summary-heading-icon">{titleIcon}</span>}
+        {title}
+      </div>
+      <div className="secops-summary-list">
+        {items.map((item, index) => (
+          <div className={`secops-summary-item is-${item.tone ?? "neutral"}`} key={index}>
+            <span className="secops-summary-copy">
+              {item.icon && <span className="secops-summary-icon">{item.icon}</span>}
+              <span className="secops-summary-label">{item.label}</span>
+            </span>
+            <strong className="secops-summary-value">{item.value}</strong>
+          </div>
+        ))}
+      </div>
+    </aside>
   );
 }
 
@@ -125,13 +178,18 @@ export function EmptyState({
   title,
   description,
   action,
+  icon,
 }: {
   title: ReactNode;
   description?: ReactNode;
   action?: ReactNode;
+  icon?: ReactNode;
 }) {
   return (
     <div className="product-empty-state">
+      <span className="product-empty-icon" aria-hidden="true">
+        {icon ?? <Inbox size={21} />}
+      </span>
       <strong>{title}</strong>
       {description && <p>{description}</p>}
       {action && <div className="product-empty-actions">{action}</div>}

@@ -1,706 +1,796 @@
-﻿import { useState, useMemo, useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import {
+  Activity,
+  AlertTriangle,
+  BarChart3,
+  CheckCircle2,
+  Clock3,
+  Database,
+  FileSearch,
+  ListFilter,
+  HeartPulse,
+  RefreshCw,
+  RotateCw,
+  ScanLine,
+  ShieldCheck,
+} from "lucide-react";
+import {
+  fetchIndexingJobs,
+  fetchIndexingHealth,
+  fetchOpsIndexing,
+  triggerIndexingReparse,
+  triggerIndexingRetry,
+  triggerTargetedIndexingRetry,
+} from "../api/admin";
 import { ApiError } from "../api/http";
 import { fetchAdminIngest } from "../api/ingest";
-import {
-  fetchOpsIndexing,
-  fetchIndexingJobs,
-  triggerIndexingRetry,
-  triggerIndexingReparse,
-} from "../api/admin";
-import type { AdminIngestItemDTO } from "../types/ingest";
-import type { OpsIndexingDTO, IndexingJobSummaryDTO } from "../types/ops";
-import { formatBeijingTime } from "../utils/time";
 import IndexDistribution from "../components/IndexDistribution";
-import { PageHeader, PageToolbar, ProductPage, StatusStrip } from "../components/ProductLayout";
+import ConfirmDialog from "../components/ConfirmDialog";
+import { PageHeader, ProductPage } from "../components/ProductLayout";
+import type { AdminIngestItemDTO } from "../types/ingest";
+import type {
+  IndexingHealthDTO,
+  IndexingJobSummaryDTO,
+  OpsIndexingDTO,
+  OpsIndexingFailedItemDTO,
+} from "../types/ops";
+import { formatBeijingTime } from "../utils/time";
+import "./AdminIngestPage.css";
 
-// 索引运维作业状态 / 类型的安全中文标签。
+type LoadState = "loading" | "ready" | "error";
+type DiagnosticCategory = OpsIndexingFailedItemDTO["diagnostic_category"];
+type FailureFilter = "all" | DiagnosticCategory;
+
 const jobOpLabel: Record<string, string> = {
   retry_index: "批量重试索引",
   reparse: "重新解析",
 };
+
 const jobStatusLabel: Record<string, string> = {
-  queued: "已入队",
+  queued: "等待执行",
   running: "执行中",
   completed: "已完成",
-  completed_with_errors: "完成（部分失败）",
-  failed: "作业失败",
+  completed_with_errors: "完成，部分未成功",
+  failed: "执行失败",
 };
 
-// 状态 / 来源 / 目标库 / 抽取状态的安全标签（运营元数据，非业务原文）。
-const statusLabel: Record<string, string> = {
+const ingestStatusLabel: Record<string, string> = {
   processing: "处理中",
-  pending_confirmation: "待确认",
+  pending_confirmation: "待业务确认",
   completed: "已完成",
-  failed: "失败",
-};
-const statusCls: Record<string, string> = {
-  processing: "ig-status-processing",
-  pending_confirmation: "ig-status-pending",
-  completed: "ig-status-completed",
-  failed: "ig-status-failed",
+  failed: "处理失败",
 };
 
-const sourceLabel: Record<string, string> = {
-  path_a_wecom: "企业微信微盘",
-  path_b_upload: "本地上传",
-};
-const sourceCls: Record<string, string> = {
-  path_a_wecom: "ig-src-wecom",
-  path_b_upload: "ig-src-local",
-};
-
-const scopeLabel: Record<string, string> = {
-  personal: "个人知识库",
-  project: "项目知识库",
-  company: "公司知识库候选",
-};
-const scopeCls: Record<string, string> = {
-  personal: "ig-target-personal",
-  project: "ig-target-project",
-  company: "ig-target-company",
+const urgentSeverities = new Set(["critical", "error"]);
+const diagnosticLabels: Record<DiagnosticCategory, string> = {
+  configuration: "配置问题",
+  external_service: "外部服务",
+  source_content: "文件或内容",
+  permission: "权限或访问",
+  platform: "平台处理",
+  unknown: "待确认",
 };
 
-const extractionLabel: Record<string, string> = {
-  extracted: "抽取成功",
-  unsupported: "暂不支持",
-  empty: "未抽取到文本",
-  failed: "抽取失败",
+const healthLabels = {
+  healthy: "正常",
+  degraded: "需关注",
+  stale: "心跳过期",
+  unknown: "待确认",
 };
 
-const confidentialityLabel: Record<string, string> = {
-  L1: "L1 公开级",
-  L2: "L2 内部参考级",
-  L3: "L3 受限级",
-  L4: "L4 商业秘密级",
-  L5: "L5 严格商业秘密级",
-};
-const aiAccessLabel: Record<string, string> = {
-  A1: "A1 可直接调用",
-  A2: "A2 脱敏后调用",
-  A3: "A3 摘要后调用",
-  A4: "A4 禁止调用",
-};
+function trendPointLabel(point: IndexingHealthDTO["trend_points"][number]): string {
+  return `${formatBeijingTime(point.observed_at)}，已完成作业 ${point.completed_jobs}，失败或部分失败作业 ${point.failed_jobs}，排队作业 ${point.queued_jobs}，索引失败存量 ${point.index_failed}`;
+}
 
-const fmtTime = (iso: string | null) => formatBeijingTime(iso); // 北京时间
-const fmtConfidence = (c: number | null) => (c == null ? "—" : `${Math.round(c * 100)}%`);
-const fmtNaming = (n: boolean | null) => (n == null ? "—" : n ? "合规" : "命名异常");
+function trendTickLabel(points: IndexingHealthDTO["trend_points"], index: number): string {
+  const current = formatBeijingTime(points[index]?.observed_at);
+  const previous = index > 0 ? formatBeijingTime(points[index - 1]?.observed_at) : null;
+  const time = current.slice(11, 16);
+  return previous && previous.slice(0, 10) !== current.slice(0, 10)
+    ? `${current.slice(5, 10).replace("-", "/")} ${time}`
+    : time;
+}
+
+function trendTickIndexes(points: IndexingHealthDTO["trend_points"]): Set<number> {
+  if (points.length < 8) return new Set(points.map((_, index) => index));
+  const indexes = new Set<number>();
+  if (points.length === 24) {
+    for (let index = 0; index < points.length; index += 3) indexes.add(index);
+  } else {
+    const last = points.length - 1;
+    for (let tick = 0; tick < 8; tick += 1) indexes.add(Math.round((last * tick) / 7));
+  }
+  const dateBoundaries: number[] = [];
+  for (let index = 1; index < points.length; index += 1) {
+    const previousDate = formatBeijingTime(points[index - 1].observed_at).slice(0, 10);
+    const currentDate = formatBeijingTime(points[index].observed_at).slice(0, 10);
+    if (currentDate !== previousDate) dateBoundaries.push(index);
+  }
+  for (const boundary of dateBoundaries) {
+    for (const index of [...indexes]) {
+      if (Math.abs(index - boundary) < 3) indexes.delete(index);
+    }
+    indexes.add(boundary);
+  }
+  indexes.add(points.length - 1);
+  while (indexes.size < 8) {
+    let candidate = -1;
+    let candidateDistance = -1;
+    for (let index = 0; index < points.length; index += 1) {
+      if (indexes.has(index)) continue;
+      const distance = Math.min(...[...indexes].map((existing) => Math.abs(existing - index)));
+      if (distance > candidateDistance) {
+        candidate = index;
+        candidateDistance = distance;
+      }
+    }
+    if (candidate < 0) break;
+    indexes.add(candidate);
+  }
+  return indexes;
+}
+
+function jobTone(status: string) {
+  if (status === "completed") return "success";
+  if (status === "failed" || status === "completed_with_errors") return "danger";
+  return "pending";
+}
+
+function safeJobStatus(status: string) {
+  return jobStatusLabel[status] ?? "状态待确认";
+}
+
+function safeJobOperation(operation: string) {
+  return jobOpLabel[operation] ?? "索引维护作业";
+}
+
+function failureTone(item: OpsIndexingFailedItemDTO) {
+  return urgentSeverities.has(item.severity ?? "") ? "danger" : "warning";
+}
+
+function safeFailureMessage(item: OpsIndexingFailedItemDTO) {
+  return item.operator_error_message || item.index_error_message || "索引处理异常";
+}
 
 export default function AdminIngestPage() {
-  const [items, setItems] = useState<AdminIngestItemDTO[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [filterStatus, setFilterStatus] = useState("");
-  const [filterSource, setFilterSource] = useState("");
-  const [viewingId, setViewingId] = useState<string | null>(null);
-  // 索引运维面板数据（安全计数 + 最近失败列表）。
+  const [ingestItems, setIngestItems] = useState<AdminIngestItemDTO[]>([]);
+  const [ingestState, setIngestState] = useState<LoadState>("loading");
   const [opsIndex, setOpsIndex] = useState<OpsIndexingDTO | null>(null);
-  // 批量运维控件状态 + 最近作业列表。
+  const [opsState, setOpsState] = useState<LoadState>("loading");
   const [opsJobs, setOpsJobs] = useState<IndexingJobSummaryDTO[]>([]);
+  const [jobsState, setJobsState] = useState<LoadState>("loading");
+  const [health, setHealth] = useState<IndexingHealthDTO | null>(null);
+  const [healthState, setHealthState] = useState<LoadState>("loading");
+  const [failureFilter, setFailureFilter] = useState<FailureFilter>("all");
   const [retryIncludeSkipped, setRetryIncludeSkipped] = useState(false);
   const [retryIncludeNotIndexed, setRetryIncludeNotIndexed] = useState(false);
   const [opsLimit, setOpsLimit] = useState(50);
   const [opsBusy, setOpsBusy] = useState(false);
   const [opsNote, setOpsNote] = useState<string | null>(null);
+  const [opsNoteTone, setOpsNoteTone] = useState<"success" | "danger">("success");
+  const [retryTarget, setRetryTarget] = useState<OpsIndexingFailedItemDTO | null>(null);
+  const [targetBusy, setTargetBusy] = useState(false);
+  const [targetError, setTargetError] = useState<string | null>(null);
 
-  const loadOpsJobs = useCallback(async () => {
+  const loadIngest = useCallback(async () => {
+    setIngestState("loading");
     try {
-      setOpsJobs((await fetchIndexingJobs()).items);
+      setIngestItems((await fetchAdminIngest()).items);
+      setIngestState("ready");
     } catch {
-      setOpsJobs([]); // 无权 / 未就绪：静默。
+      setIngestItems([]);
+      setIngestState("error");
     }
   }, []);
 
   const loadOpsIndex = useCallback(async () => {
+    setOpsState("loading");
     try {
       setOpsIndex(await fetchOpsIndexing());
+      setOpsState("ready");
     } catch {
-      setOpsIndex(null); // 无权 / 后端未就绪：面板静默隐藏，不阻断入库列表。
+      setOpsIndex(null);
+      setOpsState("error");
     }
-    void loadOpsJobs();
-  }, [loadOpsJobs]);
+  }, []);
+
+  const loadOpsJobs = useCallback(async () => {
+    setJobsState("loading");
+    try {
+      setOpsJobs((await fetchIndexingJobs()).items);
+      setJobsState("ready");
+    } catch {
+      setOpsJobs([]);
+      setJobsState("error");
+    }
+  }, []);
+
+  const loadHealth = useCallback(async () => {
+    setHealthState("loading");
+    try {
+      setHealth(await fetchIndexingHealth(24));
+      setHealthState("ready");
+    } catch {
+      setHealth(null);
+      setHealthState("error");
+    }
+  }, []);
+
+  const refreshAll = useCallback(async () => {
+    setOpsNote(null);
+    await Promise.all([loadIngest(), loadOpsIndex(), loadOpsJobs(), loadHealth()]);
+  }, [loadHealth, loadIngest, loadOpsIndex, loadOpsJobs]);
+
+  useEffect(() => {
+    void refreshAll();
+  }, [refreshAll]);
+
+  const activeJob = opsJobs.some((job) => ["queued", "running"].includes(job.status));
+  const actionLocked = opsBusy || activeJob || opsState !== "ready";
+  const refreshing =
+    ingestState === "loading" ||
+    opsState === "loading" ||
+    jobsState === "loading" ||
+    healthState === "loading";
+
+  const recordJob = useCallback((job: IndexingJobSummaryDTO, operationLabel?: string) => {
+    setOpsJobs((current) => [job, ...current.filter((item) => item.job_id !== job.job_id)]);
+    setJobsState("ready");
+    setOpsNoteTone("success");
+    setOpsNote(
+      `${operationLabel ?? safeJobOperation(job.operation_type)}已提交：共 ${job.total_count} 项，成功 ${job.success_count} 项，失败 ${job.failed_count} 项，跳过 ${job.skipped_count} 项。`,
+    );
+  }, []);
 
   const handleBatchRetry = useCallback(async () => {
+    if (actionLocked) return;
     setOpsBusy(true);
     setOpsNote(null);
     try {
       const statuses = ["index_failed"];
       if (retryIncludeSkipped) statuses.push("skipped");
       if (retryIncludeNotIndexed) statuses.push("not_indexed");
-      const job = await triggerIndexingRetry({ scope: "all", statuses, limit: opsLimit });
-      setOpsNote(
-        `已入队批量重试（作业 ${jobStatusLabel[job.status] ?? job.status}）：共 ${job.total_count}，成功 ${job.success_count}，失败 ${job.failed_count}，跳过 ${job.skipped_count}。`,
-      );
+      recordJob(await triggerIndexingRetry({ scope: "all", statuses, limit: opsLimit }));
       await loadOpsIndex();
-    } catch (e) {
-      setOpsNote(e instanceof ApiError ? `发起失败：${e.message}` : "发起批量重试失败");
+    } catch {
+      setOpsNoteTone("danger");
+      setOpsNote("批量重试未能发起，请稍后重试。");
     } finally {
       setOpsBusy(false);
     }
-  }, [retryIncludeSkipped, retryIncludeNotIndexed, opsLimit, loadOpsIndex]);
+  }, [
+    actionLocked,
+    loadOpsIndex,
+    opsLimit,
+    recordJob,
+    retryIncludeNotIndexed,
+    retryIncludeSkipped,
+  ]);
 
   const handleReparse = useCallback(async () => {
+    if (actionLocked) return;
     setOpsBusy(true);
     setOpsNote(null);
     try {
-      const job = await triggerIndexingReparse({
-        scope: "all",
-        parse_statuses: ["failed", "pending"],
-        limit: opsLimit,
-      });
-      setOpsNote(
-        `已入队重新解析（作业 ${jobStatusLabel[job.status] ?? job.status}）：共 ${job.total_count}，成功 ${job.success_count}，失败 ${job.failed_count}。`,
+      recordJob(
+        await triggerIndexingReparse({
+          scope: "all",
+          parse_statuses: ["failed", "pending"],
+          limit: opsLimit,
+        }),
       );
       await loadOpsIndex();
-    } catch (e) {
-      setOpsNote(e instanceof ApiError ? `发起失败：${e.message}` : "发起重新解析失败");
+    } catch {
+      setOpsNoteTone("danger");
+      setOpsNote("重新解析未能发起，请稍后重试。");
     } finally {
       setOpsBusy(false);
     }
-  }, [opsLimit, loadOpsIndex]);
+  }, [actionLocked, loadOpsIndex, opsLimit, recordJob]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const handleTargetRetry = useCallback(async () => {
+    if (!retryTarget || targetBusy) return;
+    setTargetBusy(true);
+    setTargetError(null);
     try {
-      const data = await fetchAdminIngest();
-      setItems(data.items);
-    } catch (e) {
-      setError(
-        e instanceof ApiError
-          ? `${e.message}（${e.deniedReason ?? e.status}）`
-          : "入库运营列表暂时无法加载，请稍后重试",
-      );
-      setItems([]);
+      if (!retryTarget.retry_target) return;
+      recordJob(await triggerTargetedIndexingRetry(retryTarget.retry_target), "单条索引重试");
+      setRetryTarget(null);
+      await Promise.all([loadOpsIndex(), loadOpsJobs(), loadHealth()]);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) {
+        setTargetError("当前身份无权执行此操作。");
+      } else if (error instanceof ApiError && error.status === 409) {
+        setTargetError("任务状态已变化或正在执行，请刷新后重试。");
+      } else {
+        setTargetError("单条重试未能发起，请稍后重试。");
+      }
     } finally {
-      setLoading(false);
+      setTargetBusy(false);
     }
-  }, []);
+  }, [loadHealth, loadOpsIndex, loadOpsJobs, recordJob, retryTarget, targetBusy]);
 
-  useEffect(() => {
-    void load();
-    void loadOpsIndex();
-  }, [load, loadOpsIndex]);
+  const ingestCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of ingestItems) counts.set(item.status, (counts.get(item.status) ?? 0) + 1);
+    return counts;
+  }, [ingestItems]);
 
-  const countByStatus = useCallback(
-    (s: string) => items.filter((t) => t.status === s).length,
-    [items],
+  const failedItems = useMemo(() => {
+    const items = opsIndex?.recent_failed ?? [];
+    return failureFilter === "all"
+      ? items
+      : items.filter((item) => item.diagnostic_category === failureFilter);
+  }, [failureFilter, opsIndex]);
+
+  const trendMax = useMemo(
+    () =>
+      Math.max(
+        1,
+        ...(health?.trend_points.flatMap((point) => [point.completed_jobs, point.failed_jobs]) ??
+          []),
+      ),
+    [health],
   );
-
-  const filtered = useMemo(() => {
-    let result = items;
-    if (filterStatus) result = result.filter((t) => t.status === filterStatus);
-    if (filterSource) result = result.filter((t) => t.source === filterSource);
-    return result;
-  }, [items, filterStatus, filterSource]);
-
-  const viewingTask = viewingId ? (items.find((t) => t.id === viewingId) ?? null) : null;
+  const visibleTrendTicks = useMemo(() => trendTickIndexes(health?.trend_points ?? []), [health]);
+  const healthCards: Array<{
+    label: string;
+    status: keyof typeof healthLabels;
+    lastHeartbeat: string | null;
+    detail: string | null;
+  }> = health
+    ? [
+        {
+          label: "任务进程",
+          status: health.worker.status,
+          lastHeartbeat: health.worker.last_heartbeat_at,
+          detail: null,
+        },
+        {
+          label: "定时调度",
+          status: health.beat.status,
+          lastHeartbeat: health.beat.last_heartbeat_at,
+          detail: null,
+        },
+        {
+          label: "作业队列",
+          status: health.queue.status,
+          lastHeartbeat: null,
+          detail: `等待 ${health.queue.queued_count} 项`,
+        },
+      ]
+    : [];
 
   return (
-    <ProductPage className="ingest-page">
+    <ProductPage className="ao84-page">
       <PageHeader
-        title="知识入库管理"
-        description="查看入库任务、处理失败项，并跟踪文件进入知识库的状态。"
+        title="管理员运维"
+        description="查看索引运行、扫描任务和安全审计状态。"
         actions={
-          <button className="btn-small" onClick={() => void load()} disabled={loading}>
-            {loading ? "加载中…" : "刷新任务"}
+          <button
+            className="btn-small ao84-refresh"
+            onClick={() => void refreshAll()}
+            disabled={refreshing || opsBusy}
+          >
+            <RefreshCw size={15} aria-hidden="true" />
+            {refreshing ? "刷新中…" : "刷新"}
           </button>
         }
       />
-      <StatusStrip
-        label="入库任务状态"
-        items={[
-          { label: "处理中", value: countByStatus("processing") },
-          { label: "待确认", value: countByStatus("pending_confirmation"), tone: "warning" },
-          { label: "已完成", value: countByStatus("completed"), tone: "success" },
-          { label: "失败", value: countByStatus("failed"), tone: "danger" },
-        ]}
-      />
 
-      {/* 企业微信微盘配置入口 */}
-      <section className="ingest-section">
-        <div className="ig-alert ig-alert-info">
-          <span className="ig-alert-indicator" />
-          <span className="ig-alert-text">
-            <strong>企业微信微盘</strong> — 扫描目录配置、启停与运行记录见{" "}
-            <Link to="/admin/wecom-scan">微盘扫描</Link>
-            。微盘任务与本地上传任务一并在下方队列展示；需经{" "}
-            <Link to="/upload">资产化确认工作台</Link> 人工确认才进入知识库。
-          </span>
-        </div>
-      </section>
+      <nav className="ao84-tabs" aria-label="管理员运维页面">
+        <Link className="is-active" to="/admin/ingest" aria-current="page">
+          <Database size={16} aria-hidden="true" />
+          索引维护
+        </Link>
+        <Link to="/admin/wecom-scan">
+          <ScanLine size={16} aria-hidden="true" />
+          微盘扫描
+        </Link>
+        <Link to="/admin/audit">
+          <ShieldCheck size={16} aria-hidden="true" />
+          安全日志
+        </Link>
+      </nav>
 
-      {/* 检索索引运维面板（安全计数 + 最近失败列表 + 重试入口在详情页） */}
-      {opsIndex && (
-        <section className="ingest-section">
-          <div className="ig-detail-panel">
-            <div className="ig-detail-head">
-              <span className="ig-detail-title">检索索引运维</span>
-              <button className="btn-small" onClick={() => void loadOpsIndex()}>
-                刷新
-              </button>
+      <div className="ao84-console">
+        <section className="ao84-panel ao84-summary" aria-labelledby="ao84-summary-title">
+          <header className="ao84-panel-head">
+            <div>
+              <span className="ao84-eyebrow">索引维护</span>
+              <h2 id="ao84-summary-title">全局索引队列</h2>
             </div>
-            <div style={{ marginTop: 8 }}>
-              <IndexDistribution counts={opsIndex.counts} />
+            <Activity size={19} aria-hidden="true" />
+          </header>
+
+          {opsState === "loading" ? (
+            <div className="ao84-panel-state" role="status">
+              正在读取索引运行状态…
             </div>
-            {/* 批量运维控件（批量重试 / 重新解析）。 */}
-            <PageToolbar
-              start={
-                <>
-                  <label className="ig-ops-check">
-                    <input
-                      type="checkbox"
-                      checked={retryIncludeSkipped}
-                      onChange={(e) => setRetryIncludeSkipped(e.target.checked)}
-                    />{" "}
-                    含已跳过
-                  </label>
-                  <label className="ig-ops-check">
-                    <input
-                      type="checkbox"
-                      checked={retryIncludeNotIndexed}
-                      onChange={(e) => setRetryIncludeNotIndexed(e.target.checked)}
-                    />{" "}
-                    含待索引
-                  </label>
-                  <label className="ig-ops-check">
-                    上限
-                    <select
-                      value={opsLimit}
-                      onChange={(e) => setOpsLimit(Number(e.target.value))}
-                      style={{ marginLeft: 4 }}
-                    >
-                      {[20, 50, 100, 200].map((n) => (
-                        <option key={n} value={n}>
-                          {n}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </>
-              }
-              end={
-                <>
-                  <button
-                    className="btn-small"
-                    onClick={() => void handleBatchRetry()}
-                    disabled={opsBusy}
-                  >
-                    {opsBusy ? "处理中…" : "批量重试索引"}
-                  </button>
-                  <button
-                    className="btn-small"
-                    onClick={() => void handleReparse()}
-                    disabled={opsBusy}
-                  >
-                    {opsBusy ? "处理中…" : "重新解析"}
-                  </button>
-                </>
-              }
-            />
-            <details className="product-disclosure">
-              <summary>查看批量操作说明</summary>
-              <p>
-                批量重试默认处理索引失败项；重新解析处理解析失败或滞留资产。操作不会改变权限放行，仅返回安全统计。
-              </p>
-            </details>
-            {opsNote && (
-              <p className="au-note" style={{ marginTop: 6 }}>
-                {opsNote}
-              </p>
-            )}
-            {!opsIndex.title_visible && (
-              <p className="au-note" style={{ marginTop: 8 }}>
-                当前为系统管理身份，业务资产标题已隐藏；批量重试 /
-                重新解析为运维动作，只回安全统计，不展示业务原文 / 标题。
-              </p>
-            )}
-            {/* 最近运维作业列表（安全统计；无标题 / 原文 / WeKnora id / 存储引用）。 */}
-            {opsJobs.length > 0 && (
-              <details className="product-disclosure">
-                <summary>最近运维作业（{opsJobs.length}）</summary>
-                <div className="ws-table-wrap">
-                  <table className="ws-table">
-                    <thead>
-                      <tr>
-                        <th>类型</th>
-                        <th>状态</th>
-                        <th>共/成/败/跳</th>
-                        <th>发起人</th>
-                        <th>发起时间</th>
-                        <th>诊断</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {opsJobs.map((j) => (
-                        <tr key={j.job_id}>
-                          <td>{jobOpLabel[j.operation_type] ?? j.operation_type}</td>
-                          <td>
-                            <span
-                              className={`ws-status-pill ${j.status === "failed" ? "ws-status-off" : "ws-status-on"}`}
-                            >
-                              {jobStatusLabel[j.status] ?? j.status}
-                            </span>
-                          </td>
-                          <td>
-                            {j.total_count} / {j.success_count} / {j.failed_count} /{" "}
-                            {j.skipped_count}
-                          </td>
-                          <td>{j.requested_by_name ?? "—"}</td>
-                          <td className="ws-cell-time">{fmtTime(j.requested_at)}</td>
-                          <td className="ws-cell-suggestion">{j.error_message ?? "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+          ) : opsState === "error" || !opsIndex ? (
+            <div className="ao84-panel-state is-error" role="alert">
+              <AlertTriangle size={20} aria-hidden="true" />
+              <strong>索引状态暂时无法加载</strong>
+              <span>入库运行概览仍可独立查看。</span>
+            </div>
+          ) : (
+            <>
+              <div
+                className={`ao84-health ${opsIndex.counts.index_failed ? "is-warning" : "is-clear"}`}
+              >
+                {opsIndex.counts.index_failed ? (
+                  <AlertTriangle size={18} aria-hidden="true" />
+                ) : (
+                  <CheckCircle2 size={18} aria-hidden="true" />
+                )}
+                <div>
+                  <strong>
+                    {opsIndex.counts.index_failed
+                      ? `${opsIndex.counts.index_failed} 项索引失败`
+                      : "当前没有索引失败项"}
+                  </strong>
+                  <span>状态来自平台索引安全统计</span>
                 </div>
-              </details>
-            )}
-            {opsIndex.recent_failed.length > 0 ? (
-              <div className="ws-table-wrap" style={{ marginTop: 8 }}>
-                <table className="ws-table">
-                  <thead>
-                    <tr>
-                      <th>资产</th>
-                      <th>范围 / 项目</th>
-                      <th>负责人</th>
-                      <th>诊断（运营态）</th>
-                      <th>处理建议</th>
-                      <th>级别</th>
-                      <th>更新时间</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {opsIndex.recent_failed.map((it) => (
-                      <tr key={it.asset_id}>
-                        <td>{it.title}</td>
-                        <td>
-                          {scopeLabel[it.scope] ?? it.scope}
-                          {it.project_name ? ` · ${it.project_name}` : ""}
-                        </td>
-                        <td>{it.owner_name ?? "—"}</td>
-                        <td className="ws-cell-suggestion">
-                          {it.operator_error_message || it.index_error_code || "—"}
-                        </td>
-                        <td className="ws-cell-suggestion">{it.remediation_hint ?? "—"}</td>
-                        <td>
-                          <span
-                            className={`ws-status-pill ${it.severity === "critical" || it.severity === "error" ? "ws-status-off" : "ws-status-on"}`}
-                          >
-                            {it.severity ?? "—"}
-                          </span>
-                        </td>
-                        <td className="ws-cell-time">{fmtTime(it.updated_at)}</td>
-                        <td>
-                          {opsIndex.title_visible && (
-                            <Link className="btn-small" to={`/knowledge/${it.asset_id}`}>
-                              详情 / 重试
-                            </Link>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <p className="au-note" style={{ marginTop: 8 }}>
-                  诊断为安全运营态文案（含配置项名，不含配置值 /
-                  密钥）。业务用户在资产详情页只看到「资产已保存、可重试」的用户态提示。
-                </p>
               </div>
+              <IndexDistribution counts={opsIndex.counts} className="ao84-index-grid" />
+            </>
+          )}
+
+          <div className="ao84-ingest-overview" aria-label="入库运行概览">
+            <div className="ao84-subhead">
+              <FileSearch size={16} aria-hidden="true" />
+              <strong>入库运行概览</strong>
+              {ingestState === "ready" && <span>共 {ingestItems.length} 项</span>}
+            </div>
+            {ingestState === "loading" ? (
+              <p>正在读取入库队列…</p>
+            ) : ingestState === "error" ? (
+              <p className="is-error">入库概览暂时无法加载。</p>
             ) : (
-              <p className="au-note" style={{ marginTop: 8 }}>
-                当前无索引失败资产。
-              </p>
+              <div className="ao84-ingest-counts">
+                {Object.entries(ingestStatusLabel).map(([status, label]) => (
+                  <span key={status}>
+                    <strong>{ingestCounts.get(status) ?? 0}</strong>
+                    {label}
+                  </span>
+                ))}
+              </div>
             )}
           </div>
-        </section>
-      )}
 
-      {/* Queue toolbar */}
-      <section className="ingest-section">
-        <PageToolbar
-          start={
-            <div className="ig-toolbar-filters">
-              <span className="ig-toolbar-label">队列筛选</span>
-              <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-                <option value="">全部状态</option>
-                <option value="processing">处理中</option>
-                <option value="pending_confirmation">待确认</option>
-                <option value="completed">已完成</option>
-                <option value="failed">失败</option>
-              </select>
-              <select value={filterSource} onChange={(e) => setFilterSource(e.target.value)}>
-                <option value="">全部来源</option>
-                <option value="path_a_wecom">企业微信微盘</option>
-                <option value="path_b_upload">本地上传</option>
-              </select>
+          <div className="ao84-actions" aria-label="索引批量操作">
+            <div className="ao84-action-options">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={retryIncludeSkipped}
+                  onChange={(event) => setRetryIncludeSkipped(event.target.checked)}
+                />
+                包含已跳过
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={retryIncludeNotIndexed}
+                  onChange={(event) => setRetryIncludeNotIndexed(event.target.checked)}
+                />
+                包含未索引
+              </label>
+              <label className="ao84-limit">
+                处理上限
+                <select
+                  value={opsLimit}
+                  onChange={(event) => setOpsLimit(Number(event.target.value))}
+                >
+                  {[20, 50, 100, 200].map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
-          }
-          end={
-            <div className="ig-toolbar-actions">
-              <span className="ig-toolbar-hint">共 {filtered.length} 条任务</span>
-              <button className="btn-small" onClick={() => void load()} disabled={loading}>
-                {loading ? "加载中…" : "刷新"}
+            <div className="ao84-action-buttons">
+              <button
+                className="btn-small-primary"
+                disabled={actionLocked}
+                onClick={() => void handleBatchRetry()}
+              >
+                <RotateCw size={15} aria-hidden="true" />
+                {opsBusy ? "提交中…" : activeJob ? "作业执行中" : "批量重试索引"}
+              </button>
+              <button
+                className="btn-small"
+                disabled={actionLocked}
+                onClick={() => void handleReparse()}
+              >
+                <FileSearch size={15} aria-hidden="true" />
+                重新解析
               </button>
             </div>
-          }
-        />
-      </section>
-
-      {/* Detail panel */}
-      {viewingTask && (
-        <section className="ingest-section">
-          <div className="ig-detail-panel">
-            <div className="ig-detail-head">
-              <span className="ig-detail-title">任务详情（运营元数据）</span>
-              <button className="btn-small" onClick={() => setViewingId(null)}>
-                关闭
-              </button>
-            </div>
-            <div className="ig-detail-grid">
-              <div className="ig-detail-item">
-                <span className="ig-detail-label">文件名</span>
-                <span className="ig-detail-value ig-detail-mono">
-                  {viewingTask.source_file_name}
-                </span>
-              </div>
-              <div className="ig-detail-item">
-                <span className="ig-detail-label">来源渠道</span>
-                <span className="ig-detail-value">
-                  <span className={`ig-src-badge ${sourceCls[viewingTask.source] ?? ""}`}>
-                    {sourceLabel[viewingTask.source] ?? viewingTask.source}
-                  </span>
-                </span>
-              </div>
-              <div className="ig-detail-item">
-                <span className="ig-detail-label">状态</span>
-                <span className="ig-detail-value">
-                  <span className={`status-pill ${statusCls[viewingTask.status] ?? ""}`}>
-                    {statusLabel[viewingTask.status] ?? viewingTask.status}
-                  </span>
-                </span>
-              </div>
-              <div className="ig-detail-item">
-                <span className="ig-detail-label">目标知识库</span>
-                <span className="ig-detail-value">
-                  {viewingTask.target_scope ? (
-                    <>
-                      <span
-                        className={`ig-target-badge ${scopeCls[viewingTask.target_scope] ?? ""}`}
-                      >
-                        {scopeLabel[viewingTask.target_scope] ?? viewingTask.target_scope}
-                      </span>
-                      {viewingTask.target_scope === "project" && (
-                        <span className="ig-zone-hint">zone = material</span>
-                      )}
-                    </>
-                  ) : (
-                    "—"
-                  )}
-                </span>
-              </div>
-              <div className="ig-detail-item">
-                <span className="ig-detail-label">命名状态</span>
-                <span className="ig-detail-value">{fmtNaming(viewingTask.naming_compliant)}</span>
-              </div>
-              <div className="ig-detail-item">
-                <span className="ig-detail-label">抽取状态</span>
-                <span className="ig-detail-value">
-                  {viewingTask.extraction_status
-                    ? (extractionLabel[viewingTask.extraction_status] ??
-                      viewingTask.extraction_status)
-                    : "—"}
-                </span>
-              </div>
-              <div className="ig-detail-item">
-                <span className="ig-detail-label">保密级别</span>
-                <span className="ig-detail-value">
-                  {viewingTask.confidentiality_level ? (
-                    <span
-                      className={`confidentiality-badge confidentiality-${viewingTask.confidentiality_level}`}
-                    >
-                      {confidentialityLabel[viewingTask.confidentiality_level] ??
-                        viewingTask.confidentiality_level}
-                    </span>
-                  ) : (
-                    "—"
-                  )}
-                </span>
-              </div>
-              <div className="ig-detail-item">
-                <span className="ig-detail-label">自动处理级别</span>
-                <span className="ig-detail-value">
-                  {viewingTask.ai_access_level ? (
-                    <span className={`ai-access-badge ai-access-${viewingTask.ai_access_level}`}>
-                      {aiAccessLabel[viewingTask.ai_access_level] ?? viewingTask.ai_access_level}
-                    </span>
-                  ) : (
-                    "—"
-                  )}
-                </span>
-              </div>
-              <div className="ig-detail-item">
-                <span className="ig-detail-label">置信度</span>
-                <span className="ig-detail-value">{fmtConfidence(viewingTask.confidence)}</span>
-              </div>
-              <div className="ig-detail-item">
-                <span className="ig-detail-label">创建时间</span>
-                <span className="ig-detail-value">{fmtTime(viewingTask.created_at)}</span>
-              </div>
-              <div className="ig-detail-item">
-                <span className="ig-detail-label">入库资产</span>
-                <span className="ig-detail-value">
-                  {viewingTask.result_asset_id ? (
-                    <Link to={`/knowledge/${viewingTask.result_asset_id}`}>查看资产 →</Link>
-                  ) : (
-                    "—"
-                  )}
-                </span>
-              </div>
-              {(viewingTask.confidentiality_level === "L4" ||
-                viewingTask.confidentiality_level === "L5") && (
-                <div className="ig-detail-item ig-detail-full">
-                  <span className="ig-detail-label">保密边界提示</span>
-                  <span className="ig-detail-value confidentiality-l45-detail">
-                    高保密级别内容仅在授权范围内查看和处理。
-                  </span>
-                </div>
-              )}
-              {(viewingTask.error_type || viewingTask.error_message) && (
-                <div className="ig-detail-item ig-detail-full">
-                  <span className="ig-detail-label">错误</span>
-                  <span className="ig-detail-value">
-                    {viewingTask.error_type ?? ""} {viewingTask.error_message ?? ""}
-                  </span>
-                </div>
-              )}
-            </div>
           </div>
+
+          {opsNote && (
+            <div
+              className={`ao84-action-note is-${opsNoteTone}`}
+              role={opsNoteTone === "danger" ? "alert" : "status"}
+            >
+              {opsNote}
+            </div>
+          )}
+
+          <details className="ao84-jobs">
+            <summary>
+              <Clock3 size={16} aria-hidden="true" />
+              最近作业
+              <span>{opsJobs.length} 项</span>
+            </summary>
+            {jobsState === "loading" ? (
+              <p>正在读取作业状态…</p>
+            ) : jobsState === "error" ? (
+              <p className="is-error">最近作业暂时无法加载。</p>
+            ) : opsJobs.length === 0 ? (
+              <p>当前没有索引维护作业。</p>
+            ) : (
+              <ul>
+                {opsJobs.map((job) => (
+                  <li key={job.job_id}>
+                    <div>
+                      <strong>{safeJobOperation(job.operation_type)}</strong>
+                      <time>
+                        {formatBeijingTime(job.finished_at || job.started_at || job.requested_at)}
+                      </time>
+                    </div>
+                    <span className={`ao84-status is-${jobTone(job.status)}`}>
+                      {safeJobStatus(job.status)}
+                    </span>
+                    <small>
+                      共 {job.total_count} · 成功 {job.success_count} · 失败 {job.failed_count} ·
+                      跳过 {job.skipped_count}
+                    </small>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </details>
         </section>
-      )}
 
-      {/* Task list */}
-      <section className="ingest-section">
-        <h3>入库任务列表</h3>
-        {error ? (
-          <div className="ig-empty-state">
-            <div className="ig-empty-title">加载失败</div>
-            <p className="ig-empty-desc">{error}</p>
-            <button className="btn-small" onClick={() => void load()}>
-              重试
-            </button>
-          </div>
-        ) : loading ? (
-          <div className="ig-empty-state">
-            <div className="ig-empty-title">加载中…</div>
-            <p className="ig-empty-desc">正在加载入库运营队列。</p>
-          </div>
-        ) : filtered.length > 0 ? (
-          <div className="ingest-table-wrap">
-            <table className="ingest-table">
+        <section className="ao84-panel ao84-failures" aria-labelledby="ao84-failures-title">
+          <header className="ao84-panel-head">
+            <div>
+              <span className="ao84-eyebrow">安全任务摘要</span>
+              <h2 id="ao84-failures-title">失败索引任务</h2>
+            </div>
+            <label className="ao84-failure-filter">
+              <ListFilter size={15} aria-hidden="true" />
+              <span className="sr-only">当前失败列表筛选</span>
+              <select
+                value={failureFilter}
+                onChange={(event) => setFailureFilter(event.target.value as FailureFilter)}
+              >
+                <option value="all">全部失败任务</option>
+                {Object.entries(diagnosticLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </header>
+
+          {opsState === "ready" && opsIndex && (
+            <div className="ao85-diagnostics" aria-label="失败诊断分类数量">
+              {Object.entries(diagnosticLabels).map(([category, label]) => (
+                <button
+                  key={category}
+                  type="button"
+                  className={failureFilter === category ? "is-active" : ""}
+                  onClick={() => setFailureFilter(category as DiagnosticCategory)}
+                >
+                  <span>{label}</span>
+                  <strong>{opsIndex.diagnostic_counts[category as DiagnosticCategory] ?? 0}</strong>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="ao84-table-wrap">
+            <table className="ao84-table">
               <thead>
                 <tr>
-                  <th>文件名</th>
-                  <th>来源</th>
-                  <th>目标库</th>
+                  <th>错误类型</th>
+                  <th>最后尝试时间</th>
                   <th>状态</th>
-                  <th>创建时间</th>
-                  <th>操作</th>
+                  <th>处理方式</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((t) => (
-                  <tr key={t.id} className={`ig-row ${statusCls[t.status] ?? ""}`}>
-                    <td className="cell-filename">{t.source_file_name}</td>
-                    <td>
-                      <span className={`ig-src-badge ${sourceCls[t.source] ?? ""}`}>
-                        {sourceLabel[t.source] ?? t.source}
-                      </span>
-                    </td>
-                    <td>
-                      {t.target_scope ? (
-                        <>
-                          <span className={`ig-target-badge ${scopeCls[t.target_scope] ?? ""}`}>
-                            {scopeLabel[t.target_scope] ?? t.target_scope}
-                          </span>
-                          {t.target_scope === "project" && (
-                            <span className="ig-zone-hint">zone = material</span>
-                          )}
-                        </>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td>
-                      <span className={`status-pill ${statusCls[t.status] ?? ""}`}>
-                        {statusLabel[t.status] ?? t.status}
-                      </span>
-                    </td>
-                    <td className="cell-time">{fmtTime(t.created_at)}</td>
-                    <td className="cell-actions">
-                      <button className="btn-small" onClick={() => setViewingId(t.id)}>
-                        查看
-                      </button>
-                      {t.result_asset_id && (
-                        <Link className="btn-small" to={`/knowledge/${t.result_asset_id}`}>
-                          资产
-                        </Link>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {opsState === "ready" &&
+                  failedItems.map((item) => (
+                    <tr key={item.retry_target ?? `${item.scope}-${item.updated_at}`}>
+                      <td>
+                        <div className="ao84-failure-kind">
+                          <AlertTriangle size={16} aria-hidden="true" />
+                          <div>
+                            <strong>{item.diagnostic_label}</strong>
+                            <span>{safeFailureMessage(item)}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <time>{formatBeijingTime(item.updated_at)}</time>
+                      </td>
+                      <td>
+                        <span className={`ao84-status is-${failureTone(item)}`}>索引失败</span>
+                      </td>
+                      <td>
+                        {item.retry_eligible && item.retry_target ? (
+                          <button
+                            type="button"
+                            className="btn-small ao85-target-retry"
+                            onClick={() => {
+                              setTargetError(null);
+                              setRetryTarget(item);
+                            }}
+                          >
+                            <RotateCw size={14} aria-hidden="true" />
+                            重试索引
+                          </button>
+                        ) : (
+                          <span className="ao84-batch-hint">通过左侧批量重试处理</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
-          </div>
-        ) : (
-          <div className="ig-empty-state">
-            <div className="ig-empty-title">暂无入库任务</div>
-            <p className="ig-empty-desc">
-              {items.length === 0
-                ? "入库队列为空。可前往资产化确认工作台上传文件，或触发微盘扫描后再查看。"
-                : "当前筛选条件下没有任务。尝试调整状态或来源筛选。"}
-            </p>
-            {items.length === 0 ? (
-              <div className="product-empty-actions">
-                <Link className="btn-small-primary" to="/upload">
-                  前往资产化确认
-                </Link>
-                <Link className="btn-small" to="/admin/wecom-scan">
-                  配置微盘扫描
-                </Link>
+
+            {opsState === "loading" && (
+              <div className="ao84-table-state" role="status">
+                正在读取失败任务…
               </div>
-            ) : (
-              <button
-                className="btn-small"
-                onClick={() => {
-                  setFilterStatus("");
-                  setFilterSource("");
-                }}
-              >
-                清除筛选
-              </button>
+            )}
+            {opsState === "error" && (
+              <div className="ao84-table-state is-error" role="alert">
+                <AlertTriangle size={21} aria-hidden="true" />
+                <strong>失败任务暂时无法加载</strong>
+                <span>刷新后可重新获取安全任务摘要。</span>
+              </div>
+            )}
+            {opsState === "ready" && failedItems.length === 0 && (
+              <div className="ao84-table-state">
+                <CheckCircle2 size={22} aria-hidden="true" />
+                <strong>当前没有索引失败任务</strong>
+                <span>
+                  {failureFilter === "all" ? "索引失败列表为空。" : "当前筛选条件下没有任务。"}
+                </span>
+              </div>
             )}
           </div>
-        )}
-      </section>
 
-      {(countByStatus("failed") > 0 || Boolean(opsIndex?.recent_failed.length)) && (
-        <details className="product-disclosure">
-          <summary>查看异常处理说明</summary>
-          <p>
-            内容提取失败时可由上传人补全后重新确认；检索索引失败不会删除资产，可在资产详情单条重试或使用上方批量操作。
-          </p>
-        </details>
-      )}
+          <section className="ao85-runtime" aria-labelledby="ao85-runtime-title">
+            <div className="ao85-runtime-head">
+              <div>
+                <HeartPulse size={17} aria-hidden="true" />
+                <h3 id="ao85-runtime-title">运行健康</h3>
+              </div>
+              <span>最近 24 小时</span>
+            </div>
+            {healthState === "loading" ? (
+              <div className="ao85-runtime-state" role="status">
+                正在读取运行健康…
+              </div>
+            ) : healthState === "error" || !health ? (
+              <div className="ao85-runtime-state is-error" role="alert">
+                运行健康暂时无法加载。
+              </div>
+            ) : (
+              <>
+                <div className="ao85-runtime-statuses">
+                  {healthCards.map((card) => (
+                    <div key={card.label}>
+                      <span>{card.label}</span>
+                      <strong className={`is-${card.status}`}>{healthLabels[card.status]}</strong>
+                      {card.lastHeartbeat && <time>{formatBeijingTime(card.lastHeartbeat)}</time>}
+                      {card.detail && <small>{card.detail}</small>}
+                    </div>
+                  ))}
+                </div>
+                {health.insufficient_data ? (
+                  <div className="ao85-trend-empty">
+                    <BarChart3 size={18} aria-hidden="true" />
+                    <strong>正在积累运维数据</strong>
+                    <span>形成至少两个真实小时快照后展示趋势。</span>
+                  </div>
+                ) : (
+                  <div className="ao85-trend-block">
+                    <div className="ao85-trend-heading">
+                      <strong>近 24 小时索引运维趋势</strong>
+                      <div className="ao85-trend-legend" aria-label="趋势图例">
+                        <span>
+                          <i className="is-completed" aria-hidden="true" />
+                          深蓝：已完成索引运维作业数
+                        </span>
+                        <span>
+                          <i className="is-failed" aria-hidden="true" />
+                          红色：失败或部分失败的索引运维作业数
+                        </span>
+                      </div>
+                    </div>
+                    <div className="ao85-trend" aria-label="近 24 小时索引运维趋势">
+                      {health.trend_points.map((point, index) => {
+                        const label = trendPointLabel(point);
+                        const tooltipId = `ao85-trend-tooltip-${index}`;
+                        return (
+                          <div
+                            key={point.observed_at}
+                            className={`ao85-trend-point${index < 3 ? " is-near-start" : ""}${index >= health.trend_points.length - 3 ? " is-near-end" : ""}`}
+                            role="img"
+                            tabIndex={0}
+                            aria-label={label}
+                            aria-describedby={tooltipId}
+                          >
+                            <div className="ao85-trend-bars" aria-hidden="true">
+                              <span
+                                className="is-completed"
+                                style={{
+                                  height:
+                                    point.completed_jobs === 0
+                                      ? "0%"
+                                      : `${Math.max(2, (point.completed_jobs / trendMax) * 100)}%`,
+                                }}
+                              />
+                              <span
+                                className="is-failed"
+                                style={{
+                                  height:
+                                    point.failed_jobs === 0
+                                      ? "0%"
+                                      : `${Math.max(2, (point.failed_jobs / trendMax) * 100)}%`,
+                                }}
+                              />
+                            </div>
+                            <time
+                              className={`ao85-trend-tick${visibleTrendTicks.has(index) ? "" : " is-hidden"}`}
+                              aria-hidden="true"
+                            >
+                              {trendTickLabel(health.trend_points, index)}
+                            </time>
+                            <div id={tooltipId} className="ao85-trend-tooltip" role="tooltip">
+                              <strong>{formatBeijingTime(point.observed_at)}</strong>
+                              <span>已完成作业 {point.completed_jobs}</span>
+                              <span>失败或部分失败作业 {point.failed_jobs}</span>
+                              <span>排队作业 {point.queued_jobs}</span>
+                              <span>索引失败存量 {point.index_failed}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </section>
+        </section>
+      </div>
 
-      <p className="page-help-line">
-        本页仅运营队列监控，不承担业务确认（业务确认在资产化确认工作台完成），仅展示安全运营元数据。目标库
-        / 分区规则与职责边界见{" "}
-        <Link to="/help#ingest" className="page-help-link">
-          使用说明 →
-        </Link>
-      </p>
+      <ConfirmDialog
+        open={retryTarget !== null}
+        title="确认重试这项索引？"
+        description="此操作仅重新尝试索引，不查看、不下载、不修改原文。"
+        confirmText="确认重试"
+        busyText="提交中…"
+        busy={targetBusy}
+        error={targetError}
+        errorDescription={targetError}
+        onConfirm={() => void handleTargetRetry()}
+        onCancel={() => {
+          setRetryTarget(null);
+          setTargetError(null);
+        }}
+      />
     </ProductPage>
   );
 }

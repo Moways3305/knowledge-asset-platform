@@ -48,9 +48,14 @@ def _require_reader(caller: CallerContext) -> None:
 
 
 def _wrap_connection(exc: model_connections.ModelConnectionError) -> HTTPException:
-    return HTTPException(
-        exc.status_code, detail={"denied_reason": exc.code, "message": exc.message}
-    )
+    detail = {"denied_reason": exc.code, "message": exc.message}
+    if exc.dependency:
+        detail["dependency"] = exc.dependency
+    if exc.remediation_hint:
+        detail["remediation_hint"] = exc.remediation_hint
+    if exc.action:
+        detail["action"] = exc.action
+    return HTTPException(exc.status_code, detail=detail)
 
 
 def _wrap_generation(exc: generation_models.GenerationModelError) -> HTTPException:
@@ -177,6 +182,7 @@ async def post_connection_test(
         raise _wrap_connection(exc)
     except generation_models.GenerationModelError as exc:
         raise _wrap_generation(exc)
+    await session.commit()
     return ModelConnectionTestResponse(**result)
 
 

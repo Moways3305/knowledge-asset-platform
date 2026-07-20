@@ -110,7 +110,7 @@ async def test_boss_can_update_numeric(client):
     )
     assert r.status_code == 200, r.text
     assert r.json()["value_number"] == 72
-    assert r.json()["updated_by_name"] == "老板C"
+    assert r.json()["updated_by_name"] == "总经理C"
 
 
 async def test_director_can_update_toggle(client):

@@ -3,7 +3,7 @@ import fs from "node:fs";
 
 const base = process.env.UI_QA_BASE || "http://127.0.0.1:5180";
 const outDir =
-  process.env.UI_QA_OUT_DIR || `${process.env.TEMP || "/tmp"}/kap-ui-qa/pbc52-model-autofill`;
+  process.env.UI_QA_OUT_DIR || `${process.env.TEMP || "/tmp"}/kap-ui-qa/model-autofill`;
 fs.mkdirSync(outDir, { recursive: true });
 
 const assert = (condition, message) => {
@@ -63,12 +63,15 @@ async function prepareContext(viewport) {
   return context;
 }
 
+async function openCreateForm(page) {
+  await page.getByRole("button", { name: "新增外部 LLM", exact: true }).first().click();
+  await page.locator('[data-model-field="display_name"]').waitFor();
+}
+
 const desktop = await prepareContext({ width: 1440, height: 900 });
 const page = await desktop.newPage();
 await page.goto(`${base}/admin/weknora-models`, { waitUntil: "networkidle" });
-await page.locator("button.btn-small-primary").nth(1).click();
-const form = page.locator(".ws-form-grid");
-await form.waitFor();
+await openCreateForm(page);
 
 await page.evaluate(() => {
   const values = {
@@ -110,7 +113,10 @@ await page.getByLabel("模型名称").fill("deepseek-chat");
 await page.getByLabel("API 地址").fill("https://api.example.com/v1");
 await page.getByLabel("API key").fill("reviewed-secret");
 await page.getByLabel("启用状态").selectOption("enabled");
-await page.getByRole("button", { name: "保存外部 LLM 连接" }).click();
+await page
+  .locator(".mf-connection-editor")
+  .getByRole("button", { name: /^保存外部 LLM/ })
+  .click();
 await page.waitForTimeout(250);
 assert(postCount === 1, `manual create sent ${postCount} POST requests`);
 assert(
@@ -127,14 +133,14 @@ assert(
   "manual create payload did not match reviewed state",
 );
 
-await page.locator(".ws-cell-actions button").nth(1).click();
-await page.locator(".ws-form-grid").waitFor();
+await page.getByRole("button", { name: "编辑", exact: true }).click();
+await page.locator('[data-model-field="display_name"]').waitFor();
 assert((await page.getByLabel("API 地址").inputValue()) === "", "edit form exposed endpoint");
 assert((await page.getByLabel("API key").inputValue()) === "", "edit form exposed API key");
 await page.screenshot({ path: `${outDir}/desktop-edit-secure.png`, fullPage: true });
 
 await page.getByRole("button", { name: "关闭" }).last().click();
-await page.getByRole("button", { name: "新增外部 LLM 连接" }).click();
+await openCreateForm(page);
 assert((await page.getByLabel("显示名称").inputValue()) === "", "new form retained display name");
 assert((await page.getByLabel("模型名称").inputValue()) === "", "new form retained model name");
 assert((await page.getByLabel("API 地址").inputValue()) === "", "new form retained endpoint");
@@ -145,8 +151,7 @@ connections = [];
 const mobile = await prepareContext({ width: 390, height: 844 });
 const mobilePage = await mobile.newPage();
 await mobilePage.goto(`${base}/admin/weknora-models`, { waitUntil: "networkidle" });
-await mobilePage.locator("button.btn-small-primary").nth(1).click();
-await mobilePage.locator(".ws-form-grid").waitFor();
+await openCreateForm(mobilePage);
 const mobileMetrics = await mobilePage.evaluate(() => ({
   overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
   decoys: document.querySelectorAll(".form-decoy").length,

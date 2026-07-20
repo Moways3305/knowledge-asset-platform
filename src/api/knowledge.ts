@@ -12,6 +12,8 @@ import type {
   KnowledgeDetailDTO,
   KnowledgeDetailVM,
   KnowledgeListItemDTO,
+  KnowledgePageVM,
+  KnowledgeQueryParams,
   KnowledgeListResponseDTO,
   RetryIndexResponseDTO,
 } from "../types/knowledge";
@@ -39,6 +41,7 @@ function mapAccess(a: AccessInfoDTO): AccessInfoVM {
     existingRequestStatus: a.existing_request_status,
     existingGrantExpiresAt: a.existing_grant_expires_at,
     canDelete: a.can_delete,
+    canManageLifecycle: a.can_manage_lifecycle ?? false,
     canRetryIndex: a.can_retry_index ?? false,
   };
 }
@@ -90,17 +93,43 @@ function mapDetail(d: KnowledgeDetailDTO): KnowledgeDetailVM {
 }
 
 // ---- 列表 / 详情 ----
-export async function fetchKnowledgeList(params: {
-  scope?: string;
-  projectId?: string;
-  includeArchived?: boolean;
-}): Promise<KnowledgeCardVM[]> {
+export async function fetchKnowledgePage(
+  params: KnowledgeQueryParams = {},
+): Promise<KnowledgePageVM> {
   const qs = new URLSearchParams();
+  if (params.page != null) qs.set("page", String(params.page));
+  if (params.pageSize != null) qs.set("page_size", String(params.pageSize));
+  if (params.keyword) qs.set("keyword", params.keyword);
   if (params.scope) qs.set("scope", params.scope);
   if (params.projectId) qs.set("project_id", params.projectId);
+  if (params.zone) qs.set("zone", params.zone);
+  if (params.assetType) qs.set("asset_type", params.assetType);
+  if (params.assetStatus) qs.set("asset_status", params.assetStatus);
+  if (params.confidentialityLevel) qs.set("confidentiality_level", params.confidentialityLevel);
+  if (params.createdFrom) qs.set("created_from", params.createdFrom);
+  if (params.createdTo) qs.set("created_to", params.createdTo);
+  if (params.updatedFrom) qs.set("updated_from", params.updatedFrom);
+  if (params.updatedTo) qs.set("updated_to", params.updatedTo);
+  if (params.sortBy) qs.set("sort_by", params.sortBy);
+  if (params.sortDirection) qs.set("sort_direction", params.sortDirection);
   if (params.includeArchived) qs.set("include_archived", "true");
-  const data = await apiGet<KnowledgeListResponseDTO>(`/api/v1/knowledge?${qs.toString()}`);
-  return data.items.map(mapCard);
+  const query = qs.toString();
+  const data = await apiGet<KnowledgeListResponseDTO>(
+    `/api/v1/knowledge${query ? `?${query}` : ""}`,
+  );
+  return {
+    items: data.items.map(mapCard),
+    total: data.total,
+    page: data.page,
+    pageSize: data.page_size,
+    hasNext: data.has_next,
+  };
+}
+
+// Legacy list consumers keep their array contract but now receive the server's
+// bounded first page when they do not pass explicit pagination parameters.
+export async function fetchKnowledgeList(params: KnowledgeQueryParams): Promise<KnowledgeCardVM[]> {
+  return (await fetchKnowledgePage(params)).items;
 }
 
 export async function fetchKnowledgeDetail(id: string): Promise<KnowledgeDetailVM> {

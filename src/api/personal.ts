@@ -1,19 +1,60 @@
-// 个人知识库领域：本人个人知识列表与写动作（资产确认 / 提交到项目 / 登记验证证据）。
-// 仅 owner 本人可操作；提交/候选支持 Idempotency-Key 防重复。响应只含安全治理元数据；
-// 提交=待审核，候选=用户登记证据线索（系统不自动证明分享/客户验证真实发生）。
-import { apiGet, apiPost, apiPut, createIdempotencyKey } from "./http";
+import { apiGet, apiPatch, apiPost, apiPut, createIdempotencyKey } from "./http";
 import { mapCard } from "./knowledge";
-import type { KnowledgeCardVM, KnowledgeListResponseDTO } from "../types/knowledge";
 import type {
   ConfirmAssetResponseDTO,
+  PersonalKnowledgeItemDTO,
+  PersonalKnowledgeItemVM,
+  PersonalKnowledgeListDTO,
+  PersonalKnowledgePageVM,
+  PersonalKnowledgeQuery,
   PersonalKnowledgeSubmissionDTO,
+  PersonalKnowledgeUpdateRequestDTO,
   SubmitToProjectRequestDTO,
   ValidationCandidateRequestDTO,
 } from "../types/myKnowledge";
 
-export async function fetchMyKnowledge(): Promise<KnowledgeCardVM[]> {
-  const data = await apiGet<KnowledgeListResponseDTO>(`/api/v1/my/knowledge`);
-  return data.items.map(mapCard);
+function mapPersonalItem(data: PersonalKnowledgeItemDTO): PersonalKnowledgeItemVM {
+  return {
+    ...mapCard(data),
+    updatedAt: data.updated_at ?? "",
+    createdAt: data.created_at,
+    personalState: data.personal_state,
+    personalStateLabel: data.personal_state_label,
+    projectSubmission: data.project_submission,
+    evidenceSummary: data.evidence_summary,
+  };
+}
+
+export async function fetchMyKnowledge(
+  query: PersonalKnowledgeQuery = {},
+): Promise<PersonalKnowledgePageVM> {
+  const params = new URLSearchParams();
+  if (query.page) params.set("page", String(query.page));
+  if (query.pageSize) params.set("page_size", String(query.pageSize));
+  if (query.keyword) params.set("keyword", query.keyword);
+  if (query.assetType) params.set("asset_type", query.assetType);
+  if (query.personalState) params.set("personal_state", query.personalState);
+  if (query.sortBy) params.set("sort_by", query.sortBy);
+  if (query.sortDirection) params.set("sort_direction", query.sortDirection);
+  const suffix = params.size ? `?${params.toString()}` : "";
+  const data = await apiGet<PersonalKnowledgeListDTO>(`/api/v1/my/knowledge${suffix}`);
+  return {
+    items: data.items.map(mapPersonalItem),
+    total: data.total,
+    page: data.page,
+    pageSize: data.page_size,
+    hasNext: data.has_next,
+    summary: data.summary,
+  };
+}
+
+export async function updatePersonalKnowledge(
+  assetId: string,
+  body: PersonalKnowledgeUpdateRequestDTO,
+): Promise<PersonalKnowledgeItemVM> {
+  return mapPersonalItem(
+    await apiPatch<PersonalKnowledgeItemDTO>(`/api/v1/my/knowledge/${assetId}`, body),
+  );
 }
 
 export async function confirmPersonalAsset(assetId: string): Promise<ConfirmAssetResponseDTO> {
@@ -42,7 +83,6 @@ export async function registerPersonalKnowledgeEvidence(
   );
 }
 
-// ---- 个人知识库管理（PBC-29；owner-only，仅安全元数据）----
 export interface PersonalKbDTO {
   exists: boolean;
   display_name?: string | null;
@@ -62,7 +102,6 @@ export async function fetchMyKnowledgeBase(): Promise<PersonalKbDTO> {
 
 export async function createMyKnowledgeBase(input?: {
   displayName?: string;
-  // PBC-38：仅传安全 model_ref；缺省则后端走平台默认 embedding。绝不发送真实 model_id。
   embeddingModelRef?: string;
   rerankModelRef?: string;
 }): Promise<PersonalKbDTO> {

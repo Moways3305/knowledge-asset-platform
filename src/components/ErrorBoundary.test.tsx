@@ -33,8 +33,8 @@ describe("ErrorBoundary", () => {
     );
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(screen.getByText("页面出现了问题")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "返回首页" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新加载页面" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "返回今日工作台" })).toBeInTheDocument();
     // 不得把内部错误 message 暴露到用户 UI。
     expect(screen.queryByText(/boom/i)).not.toBeInTheDocument();
   });

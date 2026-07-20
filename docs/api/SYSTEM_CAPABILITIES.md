@@ -21,9 +21,9 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 |---|---|---|---|
 | 个人知识库 | 个人资料/草稿/摘录 | 本人整理确认的个人知识资产（仅本人可见） | 知识所有者**本人** |
 | 项目知识库 | 项目过程材料 | 经验证的可复用知识资产 | **项目经理**（需真实分享/客户验证证据） |
-| 公司知识库 | 公司级资料/候选/待治理 | 公司级知识资产 | **Boss / 咨询总监** |
+| 公司知识库 | 公司级资料/候选/待治理 | 公司级知识资产 | **总经理 / 咨询总监** |
 
-- 个人知识库可由 Boss / 咨询总监 / 顾问拥有；仅本人使用，不参与他人检索；进项目须本人主动提交。
+- 个人知识库可由总经理 / 咨询总监 / 顾问拥有；仅本人使用，不参与他人检索；进项目须本人主动提交且本人须为目标项目 active 成员。
 - 资料区与资产区**不是两个物理知识库**，是同一库内的 `zone` 标签。
 
 ---
@@ -35,10 +35,10 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 | 顾问 | `consultant` | 个人知识管理、资料贡献、提交候选、项目问答 |
 | 项目经理 | `project_manager` | 项目知识运营、个人到项目提交审核、项目资产区确认 |
 | 辅导老师 | `coach` | 现场教学/陪跑/进度观察；**不**做资产区确认 |
-| Boss | `boss` | 公司级决策、公司知识资产审核 |
+| 总经理 | `boss` | 公司级决策、公司知识资产审核 |
 | 咨询总监 | `consulting_director` | 公司级知识治理、权限规则、跨项目治理 |
 
-`admin` 是系统管理身份，**不**作为业务个人知识库主体，也**不**因系统身份自动获得业务原文授权或 L5 发现权。
+公司角色与项目角色分别存储、分别判定；公司职务不自动形成任何项目成员关系。`admin` 是系统管理身份，**不**作为业务个人知识库主体，也**不**因系统身份自动获得业务知识、审批或成员管理权。
 
 ---
 
@@ -50,7 +50,7 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
    （发现/摘要层召回 + 原文层受权限网关约束）。
 3. **问答（QA）**：项目问答经外部 Agent 网关，**完全跟随调用人权限**取上下文。
 4. **资产化确认**：material → asset 按上表规则由对应确认人完成（项目资产需验证证据）。
-5. **公司库升格**：项目资产经跨项目复用信号**推荐**为公司候选 → Boss / 咨询总监审核。
+5. **公司库升格**：项目经理发起项目资产升格 → 一名总经理与一名咨询总监分别确认；任一方拒绝或撤回均不升格，任一角色缺失则保持待确认。
 6. **生命周期**：知识可归档 / 重启用（archive / reenable，带申请—确认）。
 7. **原文访问**：跨项目 / 公司 L3/L4 原文经申请—审批生成授权后方可访问；全程审计。
 
@@ -58,7 +58,7 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 
 ## 4. API 路由概览
 
-后端注册 **21 个业务 router**（共约 95 个 endpoint）。除健康探针与少数集成回调外，
+后端注册 **22 个业务 router**（共约 98 个 endpoint）。除健康探针与少数集成回调外，
 默认需认证会话；写操作在 cookie 会话下受 CSRF 保护；管理类路由额外要求对应治理角色。
 
 > 认证标注：🔓 无需会话；🔐 需登录会话；🛡️ 需登录 + 治理/管理角色。
@@ -77,25 +77,35 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 - 密码登录带失败风控（锁定/限流）；企微 OAuth 走 Path A 身份；会话为 httpOnly cookie。
 
 ### 4.3 知识读 / 检索 / 生命周期 / 预览（knowledge, search, lifecycle, preview）
+- 🔐 `GET /api/v1/workbench/overview` — 第一方浏览器会话工作台聚合；待办、运营摘要、active 成员项目和近期知识动态分别报告可用、空、无权或失败状态。该路由不使用 Agent Gateway，项目与知识字段均按调用人权限裁剪。
 - 🔐 `GET /api/v1/knowledge`、`GET /api/v1/knowledge/{asset_id}`、`GET /api/v1/knowledge/ops-insights`。
+  - 列表查询先在数据库层应用调用人的发现权限，再执行关键词、scope、项目、资料/资产区、资产类型、状态、保密等级和创建/更新时间筛选；`total` 仅统计有权发现的资产。
+  - 支持白名单字段稳定排序及 `page/page_size` 分页，响应包含 `total/page/page_size/has_next`。旧客户端不传分页参数时使用第 1 页、每页 50 条的安全默认值，不再返回无限列表。
+  - 关键词只匹配资产标题和标签，不转发给 WeKnora、不写入日志；L3/L4 列表摘要仅投影 safe/redacted 变体。`include_archived` 为旧参数兼容位，不会绕过既有归档资产不可发现规则。
 - 🔐 `POST /api/v1/knowledge/search`、`POST /api/v1/knowledge/{asset_id}/preview`。
 - 🔐 `POST /api/v1/knowledge/{asset_id}/lifecycle/{archive|reenable}-{request|confirm}`、`GET .../lifecycle/events`。
 - 🔐 `POST /api/v1/knowledge/{asset_id}/original-access/request`、`/retry-index`、`/delete`。
 - 🔐 `GET /api/v1/preview/{credential_id}`(+`/file`) — ONLYOFFICE 受控只读预览（凭据制，取件 URL server-only）。
 
 ### 4.4 个人知识库（my_knowledge, personal_kb）
-- 🔐 `GET /api/v1/my/knowledge`、`GET/POST/PUT /api/v1/my/knowledge-base` — 个人库显式创建/改名/状态。
+- 🔐 `GET /api/v1/my/knowledge` — owner-only 分页读模型；支持 `page/page_size`、标题与安全标签关键词、资料类型、个人状态以及创建/更新时间或标题排序。响应包含安全资料项、分页信息和同一 owner 数据集计算的汇总，不返回项目/审核/提交 UUID、原文、存储引用或底座标识。
+- 🔐 `PATCH /api/v1/my/knowledge/{asset_id}` — owner-only 安全元数据修改，仅允许标题、资料类型和标签；待项目审批或已进入项目资料区时由后端拒绝修改。
+- 🔐 `GET/POST/PUT /api/v1/my/knowledge-base` — 个人库显式创建/改名/状态。
 - 🔐 `POST /api/v1/my/knowledge/{asset_id}/{confirm-asset|submit-to-project|validation-evidence}`。
-- 边界：他人个人知识**不可发现、不可摘要**；进项目须本人主动提交。
+- 个人状态稳定为：待本人确认、可提交项目、待项目经理审批、已进入项目、项目未通过；候选证据仅作为安全汇总提示，不等同于已验证或已采纳。项目审批结果会同步个人提交状态，批准后生成可发现的项目资料副本。只要任一有效项目副本仍存在，“已进入项目”就具有最高优先级，不会被后续其他项目的待审或驳回结果解锁。
+- 列表总数、状态筛选与汇总在数据库内计算，资料查询使用稳定排序及 `LIMIT/OFFSET`，服务层只加载和投影当前页资产。
+- 边界：他人个人知识**不可发现、不可摘要**；进项目须本人主动提交。待审批或已进入项目的个人资料不可直接编辑或删除，保护规则由后端写接口再次强制执行。
 
 ### 4.5 入库与审核（ingest, review）
 - 🔐 `POST /api/v1/ingest/upload`、`GET /api/v1/ingest/pending`、`GET .../{task_id}/ai-result`、`POST .../{task_id}/{confirm|refresh-parse}`。
-- 🛡️ `GET /api/v1/reviews`、`GET /api/v1/reviews/{review_id}`、`POST .../{approve|reject}` — 升格/提交审核。
+- 🔐 `GET /api/v1/ingest/{task_id}/status`、`POST .../{task_id}/retry` — 第一方单任务进度与安全恢复契约；区分上传、抽取、内容生成、人工确认、审核、索引及完成/降级/失败阶段，只返回白名单错误码、修复建议和安全动作键。无权任务与不存在任务统一不可枚举。
+- 🛡️ `GET /api/v1/reviews`、`GET /api/v1/reviews/{review_id}`、`POST .../{approve|reject|withdraw}` — 升格/提交审核。
+- 🔐 `POST /api/v1/projects/{project_id}/knowledge/{asset_id}/upgrade-company` — 仅项目经理发起公司资产升格双确认。
 
 ### 4.6 项目（projects）
 - 🔐 `GET/POST /api/v1/projects`、`GET/PATCH /api/v1/projects/{project_id}/settings`。
 - 🔐 `POST /api/v1/projects/{project_id}/qa` — 项目问答（经 Agent 网关 + 权限）。
-- 🛡️ `GET/PATCH /api/v1/projects/{project_id}/members/...` — 成员协同。
+- 🛡️ `GET/POST/PATCH /api/v1/projects/{project_id}/members/...` — 总经理/咨询总监任命项目经理，项目经理管理本项目辅导老师与顾问。
 - 🛡️ `POST /api/v1/projects/{project_id}/knowledge/{asset_id}/{confirm-asset|evidence}` — 项目资产确认（项目经理）。
 
 ### 4.7 原文访问授权（original_access）
@@ -121,8 +131,8 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 ### 4.9 治理与管理后台（audit, alert, people, permissions, wecom_scan, weknora_admin）
 - 🛡️ 审计：`GET /api/v1/admin/audit`(+`/trace/{trace_id}`,`/{event_id}/mark-processed`)。
 - 🛡️ 告警：`GET /api/v1/admin/alerts/{rules|notifications}`、`PATCH .../rules/{rule_id}`。
-- 🛡️ 人员：`/api/v1/admin/people/...`。Boss 可管理 Boss / 咨询总监 / 顾问，咨询总监仅管理顾问；Boss / 咨询总监管理项目成员关系。admin 仅管理 admin 角色及账号、会话、密码，不得写业务角色或项目成员关系。
-- 🛡️ 公司知识库：`GET|POST /api/v1/company/knowledge-base` 仅 Boss / 咨询总监可用；显式创建复用受控 WeKnora 适配层且幂等，响应只含安全名称、状态、创建时间与可用性。非 `active` 公司库不能用于公司范围入库。
+- 🛡️ 人员：`/api/v1/admin/people/...` 仅总经理 / 咨询总监可读。总经理可管理总经理 / 咨询总监 / 顾问；咨询总监可管理咨询总监 / 顾问，但不可修改总经理。总经理 / 咨询总监任命或撤销项目经理；项目经理独立管理本项目任意 active 用户的辅导老师与顾问关系。技术 `admin` 角色不提供浏览器维护路径；admin 仅保留审计与必要系统运行视图。
+- 🛡️ 公司知识库：`GET|POST /api/v1/company/knowledge-base` 仅总经理 / 咨询总监可用；显式创建复用受控 WeKnora 适配层且幂等，响应只含安全名称、状态、创建时间与可用性。非 `active` 公司库不能用于公司范围入库。
 - 🛡️ 权限规则：`/api/v1/admin/permissions/{rules|agent-whitelist}`。
 - 🛡️ 微盘扫描：`/api/v1/admin/wecom-scan/...`（配置、扫描、目录/空间、归属选项）。
 - 🛡️ WeKnora 管理：`/api/v1/admin/weknora/{models|kb-configs|providers}`（模型经不可逆 `model_ref` 对前端暴露，内部 model id 不外泄）。
@@ -144,8 +154,9 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 关键规则：
 - 无项目身份用户**也可**查看公司知识库中允许发现的知识摘要（无项目身份 ≠ 只能看个人知识）。
 - 项目组人员对**所在项目**知识库拥有摘要与原文（含客户数据原文）权限，行为受审计、无需额外原文申请。
-- 跨项目 / 公司知识库的 L3/L4 原文需原文审核 / 授权。
-- L5 仅 Boss / 咨询总监可发现；admin **不**自动发现 L5。
+- 非 active 项目成员不可发现对应项目知识，公司职务不能绕过此边界。
+- 公司顾问可访问公司知识的发现层与安全摘要层；公司原文默认仅总经理 / 咨询总监可访问，并继续遵守保密级别与受控预览规则。
+- L5 仅总经理 / 咨询总监可发现；admin **不**自动发现 L5。
 - L3/L4 摘要必须是脱敏摘要，不得含客户敏感数据。L2 是内部一般资料，不强制脱敏，不比 L3/L4 更严格。
 - `preview_type` 由保密等级 + 访问场景 + 调用人授权**共同**决定，不固定对应某一保密级别。
 - Agent 跟随调用人权限：调用人能看摘要则 Agent 可用同范围摘要；调用人有原文授权则 Agent 同步具备该范围原文能力；调用人无权发现 L5，Agent 亦不能。Agent 只能推荐候选，不自动完成审核 / 验证 / 资产确认 / 公司库升格。

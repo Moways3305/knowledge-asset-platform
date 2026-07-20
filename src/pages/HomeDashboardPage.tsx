@@ -1,468 +1,451 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
-  ClipboardList,
-  FileCheck2,
-  ShieldCheck,
-  KeyRound,
-  Clock,
-  AlertTriangle,
-  RefreshCw,
-  Gauge,
-  Rocket,
-  LibraryBig,
-  UploadCloud,
+  Archive,
+  ArrowRight,
+  ArrowUpRight,
+  BriefcaseBusiness,
+  Clock3,
+  DatabaseZap,
+  FileWarning,
   FolderKanban,
-  UserRound,
-  ScrollText,
+  LibraryBig,
+  ListChecks,
+  RefreshCw,
+  SearchX,
   ShieldAlert,
-  Users,
-  Inbox,
-  ChevronRight,
-  Building2,
-  Lightbulb,
+  UploadCloud,
+  type LucideIcon,
 } from "lucide-react";
-import { fetchAuthMe, type AuthMeVM } from "../api/auth";
-import { fetchKnowledgeOpsInsights, fetchOriginalAccessRequests } from "../api/knowledge";
-import { fetchReviews } from "../api/review";
-import { fetchPendingIngestTasks } from "../api/ingest";
-import { fetchProjects } from "../api/project";
-import type { KnowledgeOpsInsightsDTO } from "../types/insights";
-import type { ProjectListItemDTO } from "../types/project";
+import { fetchWorkbenchOverview } from "../api/workbench";
+import { useAuth } from "../auth/AuthContext";
+import { can } from "../auth/permissions";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
+import type {
+  WorkbenchOperationCardDTO,
+  WorkbenchOverviewDTO,
+  WorkbenchSectionStatus,
+  WorkbenchTodoItemDTO,
+} from "../types/workbench";
+import { formatBeijingTime } from "../utils/time";
+import "./HomeDashboardPage.css";
 
-const roleLabel: Record<string, string> = {
-  boss: "Boss",
+const SAFE_FALLBACK = "信息待确认";
+
+const COMPANY_ROLE: Record<string, string> = {
+  admin: "系统管理员",
+  boss: "总经理",
   consulting_director: "咨询总监",
   consultant: "顾问",
-  admin: "管理员",
-};
-const projectRoleLabel: Record<string, string> = {
-  project_manager: "项目经理",
-  consultant: "顾问",
-  coach: "辅导老师",
 };
 
-function greeting(): string {
-  const h = new Date().getHours();
-  if (h < 6) return "夜深了";
-  if (h < 11) return "上午好";
-  if (h < 13) return "中午好";
-  if (h < 18) return "下午好";
-  return "晚上好";
-}
+const PROJECT_ROLE: Record<string, string> = {
+  project_manager: "项目经理",
+  coach: "辅导老师",
+  consultant: "顾问",
+};
+
+const PROJECT_STATUS: Record<string, string> = {
+  active: "进行中",
+  inactive: "已停用",
+  archived: "已归档",
+};
+
+const SCOPE_LABEL: Record<string, string> = {
+  personal: "个人知识",
+  project: "项目知识",
+  company: "公司知识",
+};
+
+const TODO_LABEL: Record<string, string> = {
+  review_approval_failed: "处理失败审核",
+  review_pending: "处理知识审核",
+  ingest_pending: "确认待入库资料",
+  original_access_pending: "审批原文访问",
+};
+
+const TODO_ACTION: Record<string, string> = {
+  resolve_review: "重新处理未完成的知识审核",
+  decide_review: "确认当前由你负责的审核事项",
+  confirm_ingest: "补充信息并确认知识资产入库",
+  decide_original_access: "处理当前由你负责的原文访问申请",
+};
+
+const TODO_ROUTE: Record<string, string> = {
+  reviews: "/review",
+  upload: "/upload",
+  original_access: "/original-access",
+  ingest: "/admin/ingest",
+  admin_ingest: "/admin/ingest",
+};
+
+const OPERATION_LABEL: Record<string, string> = {
+  index_failed: "索引失败",
+  parse_failed: "解析失败",
+  kb_init_failed: "知识库初始化失败",
+  pending_original_requests: "原文申请待处理",
+  overdue_original_requests: "原文申请超时",
+  archive_candidates: "归档候选",
+  reuse_upgrade_candidates: "升格推荐",
+};
+
+const OPERATION_ICON: Record<string, LucideIcon> = {
+  index_failed: SearchX,
+  parse_failed: FileWarning,
+  kb_init_failed: DatabaseZap,
+  pending_original_requests: Clock3,
+  overdue_original_requests: ShieldAlert,
+  archive_candidates: Archive,
+  reuse_upgrade_candidates: ArrowUpRight,
+};
+
+type PageState = "loading" | "ready" | "error";
+type UiSectionStatus = WorkbenchSectionStatus | "loading";
 
 function todayLabel(): string {
-  try {
-    return new Intl.DateTimeFormat("zh-CN", {
-      timeZone: "Asia/Shanghai",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      weekday: "long",
-    }).format(new Date());
-  } catch {
-    return "";
-  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "long",
+  }).format(new Date());
 }
 
-// allSettled 友好包装：失败（含 403）返回 null，让对应待办自然隐藏，不造假。
-async function attempt<T>(p: Promise<T>): Promise<T | null> {
-  try {
-    return await p;
-  } catch {
-    return null;
-  }
+function safeTone(value: string): string {
+  if (value === "error") return "is-critical";
+  if (value === "warning") return "is-attention";
+  return "is-standard";
 }
 
-type Todo = {
-  key: string;
-  label: string;
-  desc: string;
-  count: number;
-  to: string;
-  severity: "default" | "warning" | "danger";
-  icon: typeof FileCheck2;
-};
+function WorkbenchPanel({
+  title,
+  icon,
+  meta,
+  className = "",
+  children,
+}: {
+  title: string;
+  icon: ReactNode;
+  meta?: ReactNode;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className={`wb81-panel ${className}`.trim()}>
+      <header className="wb81-panel-header">
+        <span className="wb81-panel-icon" aria-hidden="true">
+          {icon}
+        </span>
+        <h2>{title}</h2>
+        {meta && <span className="wb81-panel-meta">{meta}</span>}
+      </header>
+      <div className="wb81-panel-body">{children}</div>
+    </section>
+  );
+}
+
+function SectionMessage({
+  status,
+  emptyText,
+  loadingText,
+  onRetry,
+  emptyAction,
+}: {
+  status: UiSectionStatus;
+  emptyText: string;
+  loadingText: string;
+  onRetry: () => void;
+  emptyAction?: ReactNode;
+}) {
+  if (status === "loading") {
+    return (
+      <div className="wb81-section-state is-loading" data-section-state="loading">
+        {loadingText}
+      </div>
+    );
+  }
+  if (status === "forbidden") {
+    return (
+      <div className="wb81-section-state is-forbidden" data-section-state="forbidden">
+        当前身份暂无访问权限
+      </div>
+    );
+  }
+  if (status === "error") {
+    return (
+      <div className="wb81-section-state is-error" data-section-state="error" role="alert">
+        <span>内容暂时未能加载</span>
+        <button type="button" onClick={onRetry}>
+          重新加载
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="wb81-section-state is-empty" data-section-state="empty">
+      <span>{emptyText}</span>
+      {emptyAction}
+    </div>
+  );
+}
+
+function TodoRow({ item }: { item: WorkbenchTodoItemDTO }) {
+  if (item.count <= 0) return null;
+  const title = TODO_LABEL[item.key] ?? "待处理事项";
+  const description = TODO_ACTION[item.action_key] ?? SAFE_FALLBACK;
+  const route = TODO_ROUTE[item.route_key];
+  const content = (
+    <>
+      <span className={`wb81-todo-marker ${safeTone(item.severity)}`} aria-hidden="true" />
+      <span className="wb81-todo-copy">
+        <strong>{title}</strong>
+        <small>{description}</small>
+      </span>
+      <span className="wb81-todo-count">{item.count}</span>
+      {route && <ArrowRight size={15} aria-hidden="true" />}
+    </>
+  );
+  return route ? (
+    <Link className="wb81-todo-row" to={route}>
+      {content}
+    </Link>
+  ) : (
+    <div className="wb81-todo-row is-readonly">{content}</div>
+  );
+}
+
+function OperationCard({ item }: { item: WorkbenchOperationCardDTO }) {
+  const Icon = OPERATION_ICON[item.key] ?? BriefcaseBusiness;
+  return (
+    <div className={`wb81-operation ${safeTone(item.severity)}`}>
+      <div className="wb81-operation-heading">
+        <span>{OPERATION_LABEL[item.key] ?? SAFE_FALLBACK}</span>
+        <span className="wb81-operation-icon" aria-hidden="true">
+          <Icon size={17} />
+        </span>
+      </div>
+      <strong>{item.count}</strong>
+    </div>
+  );
+}
 
 export default function HomeDashboardPage() {
-  const [me, setMe] = useState<AuthMeVM | null>(null);
-  const [insights, setInsights] = useState<KnowledgeOpsInsightsDTO | null>(null);
-  const [pendingIngest, setPendingIngest] = useState<number | null>(null);
-  const [pendingReviews, setPendingReviews] = useState<number | null>(null);
-  const [originalInbox, setOriginalInbox] = useState<number | null>(null);
-  const [originalMine, setOriginalMine] = useState<number | null>(null);
-  const [projects, setProjects] = useState<ProjectListItemDTO[] | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { authMe, capabilities } = useAuth();
+  const [overview, setOverview] = useState<WorkbenchOverviewDTO | null>(null);
+  const [pageState, setPageState] = useState<PageState>("loading");
+  const requestRef = useRef(0);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const meRes = await attempt(fetchAuthMe());
-      if (cancelled) return;
-      setMe(meRes);
-
-      const [ins, ingest, reviews, inbox, mine, projs] = await Promise.all([
-        attempt(fetchKnowledgeOpsInsights({ scope: "company" })),
-        attempt(fetchPendingIngestTasks()),
-        attempt(fetchReviews({})),
-        attempt(fetchOriginalAccessRequests("inbox")),
-        attempt(fetchOriginalAccessRequests("mine")),
-        attempt(fetchProjects()),
-      ]);
-      if (cancelled) return;
-      setInsights(ins);
-      setPendingIngest(ingest ? ingest.length : null);
-      setPendingReviews(
-        reviews ? reviews.filter((r) => r.status.startsWith("pending")).length : null,
-      );
-      setOriginalInbox(inbox ? inbox.items.filter((r) => r.status === "pending").length : null);
-      setOriginalMine(mine ? mine.items.filter((r) => r.status === "pending").length : null);
-      setProjects(projs ? projs.items : null);
-      setLoading(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const load = useCallback(async () => {
+    const requestId = ++requestRef.current;
+    setPageState("loading");
+    try {
+      const next = await fetchWorkbenchOverview();
+      if (requestId !== requestRef.current) return;
+      setOverview(next);
+      setPageState("ready");
+    } catch {
+      if (requestId !== requestRef.current) return;
+      setOverview(null);
+      setPageState("error");
+    }
   }, []);
 
-  const roles = me?.companyRoles ?? [];
-  const isGovernance = roles.includes("boss") || roles.includes("consulting_director");
-  const isAdmin = roles.includes("admin");
-  const idxFailed = insights?.indexing.index_failed ?? 0;
-  const idxSkipped = (insights?.indexing.skipped ?? 0) + (insights?.indexing.not_indexed ?? 0);
-  const needsUpdate = insights?.lifecycle.needs_update ?? 0;
-  const archiveCandidates = insights?.lifecycle.archive_candidates ?? 0;
-  const reuseCandidates = insights?.lifecycle.reuse_upgrade_candidates ?? 0;
-  const pendingOriginal = insights?.access.pending_original_requests ?? 0;
-  const overdueOriginal = insights?.access.overdue_original_requests ?? 0;
+  useEffect(() => {
+    void load();
+    return () => {
+      requestRef.current += 1;
+    };
+  }, [load]);
 
-  // 待办：仅显示 count>0 的真实项；调用失败/无权的项自然不出现。
-  const todos: Todo[] = [];
-  const push = (t: Todo) => {
-    if (t.count > 0) todos.push(t);
-  };
-  if (pendingIngest != null)
-    push({
-      key: "ingest",
-      label: "待确认入库任务",
-      desc: "微盘扫描产生、等待资产化确认",
-      count: pendingIngest,
-      to: "/upload",
-      severity: "default",
-      icon: FileCheck2,
-    });
-  if (pendingReviews != null)
-    push({
-      key: "review",
-      label: "待我审核",
-      desc: "升级 / 资产化确认审核",
-      count: pendingReviews,
-      to: "/review",
-      severity: "default",
-      icon: ShieldCheck,
-    });
-  if (originalInbox != null)
-    push({
-      key: "oa-inbox",
-      label: "待处理原文访问申请",
-      desc: "需我审批的原文授权",
-      count: originalInbox,
-      to: "/original-access",
-      severity: "warning",
-      icon: KeyRound,
-    });
-  if (originalMine != null)
-    push({
-      key: "oa-mine",
-      label: "我发起的原文申请",
-      desc: "处理中的原文访问申请",
-      count: originalMine,
-      to: "/original-access",
-      severity: "default",
-      icon: Clock,
-    });
-  push({
-    key: "idx",
-    label: "索引失败待处理",
-    desc: "检索索引失败，可重试",
-    count: idxFailed,
-    to: isAdmin || isGovernance ? "/admin/ingest" : "/knowledge",
-    severity: "danger",
-    icon: AlertTriangle,
-  });
-  push({
-    key: "overdue",
-    label: "原文申请已超时",
-    desc: "超过自动通过时限仍待处理",
-    count: overdueOriginal,
-    to: "/original-access",
-    severity: "warning",
-    icon: Clock,
-  });
-  push({
-    key: "update",
-    label: "资产待更新",
-    desc: "标记为需更新的知识资产",
-    count: needsUpdate,
-    to: "/knowledge",
-    severity: "warning",
-    icon: RefreshCw,
-  });
+  const fallbackStatus: UiSectionStatus = pageState === "loading" ? "loading" : "error";
+  const todosStatus = overview?.todos.status ?? fallbackStatus;
+  const operationsStatus = overview?.operations.status ?? fallbackStatus;
+  const projectsStatus = overview?.projects.status ?? fallbackStatus;
+  const recentStatus = overview?.recent_activity.status ?? fallbackStatus;
+  const todoItems = overview?.todos.items.filter((item) => item.count > 0) ?? [];
+  const operationCards =
+    overview?.operations.data?.cards.filter((item) => item.count > 0).slice(0, 3) ?? [];
+  const canShowAssetTitles =
+    overview?.operations.status === "available" && overview.operations.data?.title_visible === true;
 
-  // 今日状态指标（来自真实运营洞察，按角色后端已裁剪）。
-  const stats = insights
-    ? [
-        {
-          key: "failed",
-          label: "索引失败",
-          value: idxFailed,
-          tone: idxFailed > 0 ? "is-danger" : "",
-          to: isAdmin || isGovernance ? "/admin/ingest" : "/knowledge",
-        },
-        { key: "skipped", label: "未索引", value: idxSkipped, tone: "", to: "/knowledge" },
-        {
-          key: "pending-oa",
-          label: "原文待处理",
-          value: pendingOriginal,
-          tone: pendingOriginal > 0 ? "is-warning" : "",
-          to: "/original-access",
-        },
-        {
-          key: "update",
-          label: "待更新",
-          value: needsUpdate,
-          tone: needsUpdate > 0 ? "is-warning" : "",
-          to: "/knowledge",
-        },
-        { key: "archive", label: "归档候选", value: archiveCandidates, tone: "", to: "/knowledge" },
-        {
-          key: "reuse",
-          label: "复用升格候选",
-          value: reuseCandidates,
-          tone: reuseCandidates > 0 ? "is-success" : "",
-          to: "/knowledge",
-        },
-      ]
-    : [];
-
-  const businessQuick = [
-    { to: "/knowledge", label: "知识资产库", icon: LibraryBig },
-    { to: "/upload", label: "上传资产化", icon: UploadCloud },
-    { to: "/review", label: "升级审核", icon: ShieldCheck },
-    { to: "/original-access", label: "原文访问", icon: KeyRound },
-    ...(me?.projects[0]
-      ? [
-          {
-            to: `/project/${me.projects[0].projectId}/knowledge`,
-            label: "项目看板",
-            icon: FolderKanban,
-          },
-        ]
-      : []),
-    { to: "/my/knowledge", label: "个人知识", icon: UserRound },
-  ];
-  const adminQuick = [
-    { to: "/admin/ingest", label: "入库管理", icon: Inbox },
-    { to: "/admin/audit", label: "审计日志", icon: ScrollText },
-    { to: "/admin/auth-security", label: "登录风控", icon: ShieldAlert },
-    { to: "/admin/people", label: "人员权限", icon: Users },
-  ];
+  const roleText =
+    authMe?.companyRoles.map((role) => COMPANY_ROLE[role] ?? SAFE_FALLBACK).join(" / ") ||
+    SAFE_FALLBACK;
+  const displayName = authMe?.name?.trim() || "同事";
+  const todoCount = todoItems.reduce((total, item) => total + item.count, 0);
 
   return (
-    <ProductPage className="home">
+    <ProductPage className="today-workbench wb81-workbench">
       <PageHeader
-        eyebrow="今日工作台"
         title={
           <>
-            {greeting()}，<span className="accent">{me?.name ?? "同事"}</span>
+            你好，<span className="wb81-user-name">{displayName}</span>
           </>
         }
-        description={
-          <>
-            平台身份：{roles.map((r) => roleLabel[r] ?? r).join(" / ") || "—"}
-            {me && !me.isBusinessUser && " · 系统管理身份（仅运营视图）"}
-          </>
+        description={`${roleText} · ${todayLabel()}`}
+        actions={
+          <div className="wb81-header-tools">
+            {(can.viewKnowledge(capabilities) || can.viewUpload(capabilities)) && (
+              <nav className="wb81-shortcuts" aria-label="快捷入口">
+                {can.viewKnowledge(capabilities) && (
+                  <Link to="/knowledge">
+                    <LibraryBig size={15} aria-hidden="true" />
+                    知识资产库
+                  </Link>
+                )}
+                {can.viewUpload(capabilities) && (
+                  <Link to="/upload">
+                    <UploadCloud size={15} aria-hidden="true" />
+                    上传资产化
+                  </Link>
+                )}
+              </nav>
+            )}
+            <button
+              className="wb81-refresh"
+              type="button"
+              disabled={pageState === "loading"}
+              onClick={() => void load()}
+            >
+              <RefreshCw size={15} aria-hidden="true" />
+              刷新
+            </button>
+          </div>
         }
-        actions={<div className="home-date">{todayLabel()}</div>}
       />
 
-      <div className="home-grid">
-        <div className="home-col">
-          {/* 我的待办 */}
-          <section className="home-section">
-            <div className="home-section-head">
-              <span className="home-section-title">
-                <ClipboardList size={16} /> 我的待办
-              </span>
-              <span className="home-section-eyebrow">Action items</span>
-            </div>
-            {loading ? (
-              <div className="kb-state">
-                <div className="kb-state-icon">
-                  <ClipboardList size={20} />
-                </div>
-                <div className="kb-state-title">加载中…</div>
-              </div>
-            ) : todos.length > 0 ? (
-              <div className="home-todos">
-                {todos.map((t) => {
-                  const Icon = t.icon;
-                  return (
-                    <Link key={t.key} to={t.to} className={`home-todo sev-${t.severity}`}>
-                      <span className="home-todo-icon">
-                        <Icon size={18} />
-                      </span>
-                      <span className="home-todo-body">
-                        <span className="home-todo-label">{t.label}</span>
-                        <span className="home-todo-desc">{t.desc}</span>
-                      </span>
-                      <span className="home-todo-count">{t.count}</span>
-                      <ChevronRight size={18} className="home-todo-go" />
-                    </Link>
-                  );
-                })}
+      <div className="wb81-dashboard">
+        <div className="wb81-secondary-column">
+          <WorkbenchPanel
+            title="我的待办"
+            icon={<ListChecks size={17} />}
+            meta={todosStatus === "available" ? `${todoCount} 项` : undefined}
+            className="is-todos"
+          >
+            {todosStatus === "available" && todoItems.length > 0 ? (
+              <div className="wb81-todo-list">
+                {todoItems.map((item, index) => (
+                  <TodoRow key={`${item.key}-${index}`} item={item} />
+                ))}
               </div>
             ) : (
-              <div className="kb-state">
-                <div className="kb-state-icon">
-                  <ShieldCheck size={20} />
-                </div>
-                <div className="kb-state-title">今日暂无待办</div>
-                <p className="kb-state-desc">
-                  没有需要你处理的入库确认、审核或原文申请。可从右侧快捷入口进入日常工作。
-                </p>
-              </div>
+              <SectionMessage
+                status={todosStatus === "available" ? "empty" : todosStatus}
+                loadingText="正在加载待办事项…"
+                emptyText="今天没有待处理事项"
+                onRetry={() => void load()}
+                emptyAction={
+                  can.viewKnowledge(capabilities) ? <Link to="/knowledge">浏览知识资产</Link> : null
+                }
+              />
             )}
-          </section>
+          </WorkbenchPanel>
 
-          {/* 今日状态 */}
-          {insights && (
-            <section className="home-section">
-              <div className="home-section-head">
-                <span className="home-section-title">
-                  <Gauge size={16} /> 今日状态
-                </span>
-                <span className="home-section-eyebrow">
-                  {insights.window_days} 天窗口{!insights.title_visible && " · 运营视图"}
-                </span>
-              </div>
-              <div className="home-stats">
-                {stats.map((s) => (
-                  <Link key={s.key} to={s.to} className="home-stat">
-                    <div className={`home-stat-value ${s.tone}`}>{s.value}</div>
-                    <div className="home-stat-label">{s.label}</div>
+          <WorkbenchPanel
+            title="最近动态"
+            icon={<LibraryBig size={17} />}
+            meta={
+              recentStatus === "available" && overview
+                ? `${overview.recent_activity.items.length} 条更新`
+                : undefined
+            }
+            className="is-recent"
+          >
+            {recentStatus === "available" &&
+            overview &&
+            overview.recent_activity.items.length > 0 ? (
+              <div className="wb81-recent-list">
+                {overview.recent_activity.items.map((item) => (
+                  <Link key={item.asset_id} to={`/knowledge/${encodeURIComponent(item.asset_id)}`}>
+                    <span className="wb81-activity-copy">
+                      <strong>
+                        {canShowAssetTitles ? item.title.trim() || "待确认资产" : "业务标题已隐藏"}
+                      </strong>
+                      <small>
+                        {SCOPE_LABEL[item.scope] ?? SAFE_FALLBACK}
+                        {item.project_name?.trim() ? ` · ${item.project_name}` : ""}
+                      </small>
+                    </span>
+                    <time>{formatBeijingTime(item.updated_at)}</time>
+                    <ArrowRight size={15} aria-hidden="true" />
                   </Link>
                 ))}
               </div>
-            </section>
-          )}
-
-          {/* 运营建议（平台记录推荐，非业务结论） */}
-          {insights && insights.recommendations.length > 0 && (
-            <section className="home-section">
-              <div className="home-section-head">
-                <span className="home-section-title">
-                  <Lightbulb size={16} /> 运营建议
-                </span>
-              </div>
-              <div className="home-panel">
-                <ul className="intel-recos">
-                  {insights.recommendations.map((r) => (
-                    <li key={r.key} className={`intel-reco sev-${r.severity}`}>
-                      {r.target ? <Link to={r.target}>{r.message}</Link> : <span>{r.message}</span>}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </section>
-          )}
+            ) : (
+              <SectionMessage
+                status={recentStatus === "available" ? "empty" : recentStatus}
+                loadingText="正在加载最近动态…"
+                emptyText="当前没有最近更新的资产"
+                onRetry={() => void load()}
+              />
+            )}
+          </WorkbenchPanel>
         </div>
 
-        {/* 侧栏：快捷入口 + 范围 + 最近动态 */}
-        <aside className="home-aside">
-          <div className="home-panel">
-            <h4 className="home-panel-title">
-              <Rocket size={13} /> 快捷入口
-            </h4>
-            <div className="home-quick">
-              {businessQuick.map((q) => {
-                const Icon = q.icon;
-                return (
-                  <Link key={q.to} to={q.to} className="home-quick-tile">
-                    <Icon size={18} strokeWidth={1.75} />
-                    <span className="home-quick-label">{q.label}</span>
-                  </Link>
-                );
-              })}
-            </div>
-            {(isAdmin || isGovernance) && (
-              <>
-                <h4 className="home-panel-title" style={{ marginTop: 16 }}>
-                  <ShieldAlert size={13} /> 管理后台
-                </h4>
-                <div className="home-quick">
-                  {adminQuick.map((q) => {
-                    const Icon = q.icon;
-                    return (
-                      <Link key={q.to} to={q.to} className="home-quick-tile">
-                        <Icon size={18} strokeWidth={1.75} />
-                        <span className="home-quick-label">{q.label}</span>
-                      </Link>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </div>
-
-          <div className="home-panel">
-            <h4 className="home-panel-title">
-              <Building2 size={13} /> 我的项目范围
-            </h4>
-            {projects && projects.length > 0 ? (
-              projects.slice(0, 6).map((p) => (
-                <Link key={p.id} to={`/project/${p.id}/knowledge`} className="home-scope-item">
-                  <span className="home-scope-name">{p.name}</span>
-                  <span className="home-scope-role">
-                    {p.status === "active" ? "进行中" : p.status}
-                  </span>
-                </Link>
-              ))
-            ) : me && me.projects.length > 0 ? (
-              me.projects.map((p) => (
-                <div key={p.projectId} className="home-scope-item">
-                  <span className="home-scope-name">{p.projectName}</span>
-                  <span className="home-scope-role">
-                    {projectRoleLabel[p.projectRole] ?? p.projectRole}
-                  </span>
-                </div>
-              ))
+        <div className="wb81-primary-column">
+          <WorkbenchPanel
+            title="资产运行概览"
+            icon={<BriefcaseBusiness size={17} />}
+            className="is-operations"
+          >
+            {operationsStatus === "available" && operationCards.length > 0 ? (
+              <div className="wb81-operation-grid">
+                {operationCards.map((item, index) => (
+                  <OperationCard key={`${item.key}-${index}`} item={item} />
+                ))}
+              </div>
             ) : (
-              <p className="home-scope-empty">
-                暂无项目身份。可发现的公司知识仍可在知识资产库浏览。
-              </p>
+              <SectionMessage
+                status={operationsStatus === "available" ? "empty" : operationsStatus}
+                loadingText="正在加载资产运行状态…"
+                emptyText="当前没有需要处理的运营事项"
+                onRetry={() => void load()}
+              />
             )}
-          </div>
+          </WorkbenchPanel>
 
-          {insights && insights.recent_items.length > 0 && (
-            <div className="home-panel">
-              <h4 className="home-panel-title">
-                <Clock size={13} /> 最近运营动态
-              </h4>
-              {insights.recent_items.slice(0, 5).map((it) => (
-                <div key={it.asset_id} className="home-recent-item">
-                  {insights.title_visible && it.title ? (
-                    <Link to={`/knowledge/${it.asset_id}`}>{it.title}</Link>
-                  ) : (
-                    <span className="home-scope-empty">（业务标题已隐藏）</span>
-                  )}
-                  {it.message && <span className="home-recent-msg">{it.message}</span>}
-                </div>
-              ))}
-            </div>
-          )}
-        </aside>
+          <WorkbenchPanel
+            title="项目概览"
+            icon={<FolderKanban size={17} />}
+            meta={
+              projectsStatus === "available" && overview
+                ? `${overview.projects.items.length} 个项目`
+                : undefined
+            }
+            className="is-projects"
+          >
+            {projectsStatus === "available" && overview && overview.projects.items.length > 0 ? (
+              <div className="wb81-project-list">
+                {overview.projects.items.map((project) => (
+                  <Link
+                    key={project.project_id}
+                    to={`/project/${encodeURIComponent(project.project_id)}`}
+                  >
+                    <span className="wb81-project-copy">
+                      <strong>{project.name.trim() || "待确认项目"}</strong>
+                      <span className="wb81-project-facts">
+                        <small>{PROJECT_ROLE[project.project_role] ?? SAFE_FALLBACK}</small>
+                        <small>{PROJECT_STATUS[project.status] ?? SAFE_FALLBACK}</small>
+                      </span>
+                    </span>
+                    <span className="wb81-project-entry">
+                      进入项目
+                      <ArrowRight size={15} aria-hidden="true" />
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <SectionMessage
+                status={projectsStatus === "available" ? "empty" : projectsStatus}
+                loadingText="正在加载协作空间…"
+                emptyText="当前没有可访问的项目"
+                onRetry={() => void load()}
+              />
+            )}
+          </WorkbenchPanel>
+        </div>
       </div>
     </ProductPage>
   );

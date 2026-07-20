@@ -41,6 +41,8 @@ class IngestTask(Base):
     # 文件内容 sha256。
     source_file_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
+    # Safe workflow marker used by the first-party status API. It never stores provider details.
+    processing_stage: Mapped[str | None] = mapped_column(String(40), nullable=True)
     target_scope: Mapped[str | None] = mapped_column(String(20), nullable=True)
     target_project_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("projects.id"), nullable=True

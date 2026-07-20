@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from enum import Enum
 
 from pydantic import BaseModel
 
@@ -27,6 +28,8 @@ class AccessInfoOut(BaseModel):
     existing_grant_expires_at: datetime | None = None
     # 调用人是否有权对该资产执行受控删除 / 撤下（后端权威，前端据此显示按钮）。
     can_delete: bool = False
+    # 生命周期治理权限独立于删除权限；项目维护人可治理但不一定可删除。
+    can_manage_lifecycle: bool = False
     # 调用人是否有权对该资产重试底座索引（仅在可重试状态 + 有业务管理权时为 True）。
     can_retry_index: bool = False
 
@@ -60,9 +63,28 @@ class KnowledgeListItemOut(BaseModel):
     indexed_at: datetime | None = None
 
 
-class KnowledgeListResponse(BaseModel):
+class KnowledgeSortField(str, Enum):
+    updated_at = "updated_at"
+    created_at = "created_at"
+    title_ = "title"
+    confidentiality_level = "confidentiality_level"
+    asset_status = "asset_status"
+
+
+class SortDirection(str, Enum):
+    asc = "asc"
+    desc = "desc"
+
+
+class KnowledgeItemsResponse(BaseModel):
     items: list[KnowledgeListItemOut]
     total: int
+
+
+class KnowledgeListResponse(KnowledgeItemsResponse):
+    page: int = 1
+    page_size: int = 50
+    has_next: bool = False
 
 
 class MaintainerOut(BaseModel):

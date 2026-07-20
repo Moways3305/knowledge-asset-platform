@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import UploadPage from "./UploadPage";
 
 const flow = vi.hoisted(() => ({
@@ -8,31 +8,51 @@ const flow = vi.hoisted(() => ({
     activePath: "b",
     switchPath: vi.fn(),
     confirmReady: false,
-    confirmSubmitted: true,
-    awaitingProjectReview: true,
-    flowState: "submitted",
-    naming: null,
+    confirmSubmitted: false,
+    awaitingProjectReview: false,
   },
 }));
 
 vi.mock("./upload/useUploadFlow", () => ({ useUploadFlow: () => flow.current }));
-vi.mock("./upload/UploadStepA", () => ({ default: () => null }));
-vi.mock("./upload/UploadStepB", () => ({ default: () => null }));
-vi.mock("./upload/UploadNamingCard", () => ({ default: () => null }));
+vi.mock("./upload/UploadStepA", () => ({ default: () => <div>企微待确认列表</div> }));
+vi.mock("./upload/UploadStepB", () => ({ default: () => <div>本地文件上传区</div> }));
 vi.mock("./upload/UploadConfirmPanel", () => ({
-  default: () => <div>已提交，待项目经理确认</div>,
+  default: () => <div>已提交，等待项目经理确认</div>,
 }));
 
-describe("UploadPage project approval progress", () => {
+function renderPage() {
+  return render(
+    <MemoryRouter>
+      <UploadPage />
+    </MemoryRouter>,
+  );
+}
+
+describe("UploadPage reference workflow", () => {
+  beforeEach(() => {
+    flow.current.activePath = "b";
+    flow.current.confirmReady = false;
+    flow.current.confirmSubmitted = false;
+    flow.current.awaitingProjectReview = false;
+    flow.current.switchPath.mockReset();
+  });
+
+  it("starts with the local upload workspace and switches source through the flow", () => {
+    renderPage();
+
+    expect(screen.getByRole("heading", { name: "上传与入库" })).toBeInTheDocument();
+    expect(screen.getByText("本地文件上传区")).toBeInTheDocument();
+    expect(screen.queryByText("企微待确认列表")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "企微微盘待确认" }));
+    expect(flow.current.switchPath).toHaveBeenCalledWith("a");
+  });
+
   it("does not present a pending project submission as already in the knowledge base", () => {
-    render(
-      <MemoryRouter>
-        <UploadPage />
-      </MemoryRouter>,
-    );
-    const approvalStep = screen.getByText("项目审批").closest("li");
-    expect(approvalStep).toHaveClass("is-active");
-    expect(approvalStep).not.toHaveClass("is-done");
-    expect(screen.getByText("已提交，待项目经理确认")).toBeInTheDocument();
+    flow.current.confirmSubmitted = true;
+    flow.current.awaitingProjectReview = true;
+    renderPage();
+
+    expect(screen.getByText("已提交，等待项目经理确认")).toBeInTheDocument();
+    expect(screen.queryByText("已进入知识库")).not.toBeInTheDocument();
   });
 });

@@ -1,0 +1,412 @@
+.gw-page {
+  width: 100%;
+  max-width: 1480px;
+  min-width: 0;
+}
+
+.gw-page .product-page-header {
+  align-items: center;
+  margin-bottom: 10px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #dfe4ed;
+}
+
+.gw-page .product-page-heading h2 {
+  font-size: 24px;
+}
+
+.gw-refresh {
+  gap: 7px;
+}
+
+.gw-route-tabs {
+  display: flex;
+  min-height: 40px;
+  margin-bottom: 14px;
+  gap: 26px;
+  border-bottom: 1px solid #dfe4ed;
+}
+
+.gw-route-tabs a {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 2px 11px;
+  color: #667085;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.gw-route-tabs a::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  background: transparent;
+  content: "";
+}
+
+.gw-route-tabs a:hover,
+.gw-route-tabs a.is-active {
+  color: #1f2d75;
+}
+
+.gw-route-tabs a.is-active::after {
+  background: #c9a962;
+}
+
+.gw-route-tabs a:focus-visible,
+.gw-page button:focus-visible,
+.gw-page select:focus-visible,
+.gw-page textarea:focus-visible {
+  outline: 2px solid #4a6fa5;
+  outline-offset: 2px;
+}
+
+.gw-workspace {
+  min-width: 0;
+}
+
+.gw-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 52px;
+  padding: 8px 12px;
+  gap: 12px;
+  border: 1px solid #dfe4ed;
+  border-radius: 4px 4px 0 0;
+  background: #fff;
+}
+
+.gw-toolbar-fields,
+.gw-toolbar-actions,
+.gw-box-switch {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.gw-filter-label {
+  display: grid;
+  grid-template-columns: auto minmax(130px, 168px);
+  align-items: center;
+  gap: 7px;
+  color: #667085;
+  font-size: 12px;
+}
+
+.gw-filter-label select {
+  min-height: 34px;
+  padding: 0 28px 0 9px;
+  border: 1px solid #d7dde8;
+  border-radius: 4px;
+  background: #f8f9fb;
+  color: #263047;
+  font: inherit;
+}
+
+.gw-total {
+  color: #667085;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.gw-box-switch {
+  padding: 3px;
+  border: 1px solid #d7dde8;
+  border-radius: 5px;
+  background: #f6f7fa;
+}
+
+.gw-box-switch button {
+  min-height: 30px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.gw-box-switch button.is-active {
+  background: #fff;
+  color: #1f2d75;
+  box-shadow: 0 1px 2px rgb(31 45 117 / 10%);
+}
+
+.gw-feedback {
+  min-height: 38px;
+  padding: 9px 12px;
+  border-right: 1px solid #dfe4ed;
+  border-left: 1px solid #dfe4ed;
+  font-size: 12px;
+}
+
+.gw-feedback.is-success {
+  background: #f1f8f3;
+  color: #23633b;
+}
+
+.gw-feedback.is-error {
+  background: #fff4f4;
+  color: #963f3f;
+}
+
+.gw-table-wrap {
+  min-height: 430px;
+  overflow-x: auto;
+  border: 1px solid #dfe4ed;
+  border-top: 0;
+  border-radius: 0 0 4px 4px;
+  background: #fff;
+}
+
+.gw-feedback + .gw-table-wrap {
+  border-radius: 0 0 4px 4px;
+}
+
+.gw-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.gw-table th {
+  height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid #dfe4ed;
+  background: #f6f7fa;
+  color: #667085;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.gw-table td {
+  height: 58px;
+  padding: 9px 12px;
+  border-bottom: 1px solid #e8ebf0;
+  color: #263047;
+  font-size: 12px;
+  line-height: 1.45;
+  vertical-align: middle;
+}
+
+.gw-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.gw-table tbody tr:hover td {
+  background: #fafbfc;
+}
+
+.gw-title-cell {
+  color: #1f2d75;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.gw-muted,
+.gw-time,
+.gw-reason {
+  color: #667085;
+}
+
+.gw-reason {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.gw-status,
+.gw-type-tag,
+.gw-scope-tag {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid #d7dde8;
+  border-radius: 999px;
+  background: #f6f7fa;
+  color: #4b5565;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.gw-status.is-pending {
+  border-color: #ead9a1;
+  background: #fff8e6;
+  color: #826200;
+}
+
+.gw-status.is-success {
+  border-color: #bfe2cb;
+  background: #edf8f1;
+  color: #23633b;
+}
+
+.gw-status.is-danger {
+  border-color: #efc7c7;
+  background: #fff1f1;
+  color: #963f3f;
+}
+
+.gw-status.is-neutral {
+  border-color: #d7dde8;
+  background: #f6f7fa;
+  color: #667085;
+}
+
+.gw-actions {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.gw-action {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid #cbd3df;
+  border-radius: 4px;
+  background: #fff;
+  color: #4a6fa5;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.gw-action.is-primary {
+  border-color: #1f2d75;
+  background: #1f2d75;
+  color: #fff;
+}
+
+.gw-action.is-danger {
+  border-color: #dfb6b6;
+  color: #963f3f;
+}
+
+.gw-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.gw-table .product-table-state {
+  height: 300px;
+  padding: 28px;
+  text-align: center;
+}
+
+.gw-col-review-title {
+  width: 22%;
+}
+
+.gw-col-review-type {
+  width: 14%;
+}
+
+.gw-col-review-project {
+  width: 14%;
+}
+
+.gw-col-review-evidence {
+  width: 11%;
+}
+
+.gw-col-review-status {
+  width: 11%;
+}
+
+.gw-col-review-time {
+  width: 15%;
+}
+
+.gw-col-review-actions {
+  width: 13%;
+}
+
+.gw-col-access-title {
+  width: 18%;
+}
+
+.gw-col-access-scope {
+  width: 10%;
+}
+
+.gw-col-access-requester {
+  width: 11%;
+}
+
+.gw-col-access-reason {
+  width: 23%;
+}
+
+.gw-col-access-status {
+  width: 10%;
+}
+
+.gw-col-access-time {
+  width: 15%;
+}
+
+.gw-col-access-actions,
+.gw-col-access-reviewed {
+  width: 13%;
+}
+
+.gw-state {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  color: #667085;
+}
+
+.gw-state strong {
+  color: #263047;
+  font-size: 14px;
+}
+
+.gw-state p {
+  max-width: 420px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.gw-reject-field {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  color: #4b5565;
+  font-size: 12px;
+}
+
+.gw-reject-field textarea {
+  width: 100%;
+  min-height: 88px;
+  padding: 9px 10px;
+  border: 1px solid #cbd3df;
+  border-radius: 4px;
+  resize: vertical;
+}
+
+@media (max-width: 900px) {
+  .gw-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .gw-toolbar-fields {
+    flex-wrap: wrap;
+  }
+}

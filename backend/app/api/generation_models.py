@@ -213,6 +213,7 @@ async def test_generation_model(
         result = await generation_models.test_model_connection(session, model_ref)
     except generation_models.GenerationModelError as exc:
         raise _wrap(exc)
+    await session.commit()
     return GenerationModelTestResponse(**result)
 
 

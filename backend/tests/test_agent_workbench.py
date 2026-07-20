@@ -238,12 +238,13 @@ async def test_project_knowledge_non_member_not_enumerable(client, db_session):
     _no_leak(text)
 
 
-async def test_project_knowledge_governance_can_view(client, db_session):
+async def test_project_knowledge_governance_without_membership_is_hidden(client, db_session):
     await _insert_rule(db_session, bound_user_id=USER_BOSS)
     r = await client.get(
         f"/api/v1/agent-gateway/projects/{PROJECT_BETA}/knowledge", headers=_bearer()
     )
-    assert r.status_code == 200
+    assert r.status_code == 404
+    assert r.json()["detail"]["denied_reason"] == "project_not_found"
 
 
 async def test_project_knowledge_unknown_project_404(client, db_session):

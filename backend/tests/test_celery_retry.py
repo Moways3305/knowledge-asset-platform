@@ -33,6 +33,10 @@ class _Coded(Exception):
         _Coded("http_429"),  # rate limited → 退避后重试
         _Coded("weknora_network_error"),
         _Coded("llm_network_error"),
+        _Coded("llm_connection_error"),
+        _Coded("llm_timeout"),
+        _Coded("llm_rate_limited"),
+        _Coded("llm_server_error"),
         _Coded("wecom_network_error"),
     ],
 )
@@ -48,6 +52,9 @@ def test_retryable(exc):
         _Coded("http_404"),
         _Coded("wecom_bad_response"),
         _Coded("llm_bad_response"),
+        _Coded("llm_authentication_error"),
+        _Coded("llm_model_not_found"),
+        _Coded("llm_request_error"),
         _Coded("knowledge_delete_forbidden"),  # 权限拒绝
         _Coded("extraction_failed"),  # 文件格式不支持
         OSError("no such file"),  # 文件读写错误：不无脑重试

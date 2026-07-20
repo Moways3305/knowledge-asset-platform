@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.session import get_db
+from app.db.utils import utc_now
 from app.models.generation_model import ContentGenerationModel, ContentGenerationSettings
 from app.services.llm_client import (
     PROVIDER_REGISTRY,
@@ -27,6 +28,7 @@ from app.services.llm_client import (
     NullLLMClient,
     get_llm_client,
     llm_enabled,
+    safe_llm_diagnostic,
 )
 
 
@@ -153,6 +155,12 @@ async def _resolve_ref(session: AsyncSession, model_ref: str) -> ContentGenerati
 
 
 def _safe_model(model: ContentGenerationModel, default_id: uuid.UUID | None) -> dict:
+    if model.last_error_category:
+        health_status = "unhealthy"
+    elif model.last_test_succeeded_at:
+        health_status = "healthy"
+    else:
+        health_status = "untested"
     return {
         "model_ref": _model_ref(model.id),
         "display_name": model.display_name,
@@ -160,6 +168,10 @@ def _safe_model(model: ContentGenerationModel, default_id: uuid.UUID | None) -> 
         "model_name": model.model_name,
         "enabled": model.enabled,
         "is_default": model.id == default_id,
+        "health_status": health_status,
+        "last_test_succeeded_at": model.last_test_succeeded_at,
+        "last_test_failed_at": model.last_test_failed_at,
+        "last_error_category": model.last_error_category,
     }
 
 
@@ -336,16 +348,39 @@ async def test_model_connection(session: AsyncSession, model_ref: str) -> dict:
             json_object=False,
             trace_id=None,
         )
-    except (LLMError, GenerationModelError):
+    except (LLMError, GenerationModelError) as exc:
+        diagnostic = safe_llm_diagnostic(getattr(exc, "code", None))
+        model.last_test_failed_at = utc_now()
+        model.last_error_category = diagnostic.category
+        await session.flush()
         return {
             "success": False,
-            "message": "连接测试失败，请检查内容生成模型配置",
+            "error_category": diagnostic.category,
+            "message": diagnostic.message,
+            "remediation_hint": diagnostic.remediation_hint,
+            "retryable": diagnostic.retryable,
             "duration_ms": round((time.monotonic() - started) * 1000),
         }
+    model.last_test_succeeded_at = utc_now()
+    model.last_error_category = None
+    await session.flush()
     return {
         "success": True,
-        "message": "连接测试成功",
+        "error_category": None,
+        "message": "外部 LLM 连接正常。",
+        "remediation_hint": "无需处理。",
+        "retryable": False,
         "duration_ms": round((time.monotonic() - started) * 1000),
+    }
+
+
+def safe_connection_diagnostics(model: ContentGenerationModel) -> dict:
+    safe = _safe_model(model, None)
+    return {
+        "health_status": safe["health_status"],
+        "last_test_succeeded_at": safe["last_test_succeeded_at"],
+        "last_test_failed_at": safe["last_test_failed_at"],
+        "last_error_category": safe["last_error_category"],
     }
 
 

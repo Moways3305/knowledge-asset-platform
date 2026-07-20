@@ -77,9 +77,7 @@ describe("IdentityMenu", () => {
       expect(screen.getByPlaceholderText("登录邮箱")).toBeInTheDocument();
       expect(screen.getByPlaceholderText("密码")).toBeInTheDocument();
     });
-    expect(
-      screen.getByText("使用企业微信登录 Kivo，或使用管理员提供的账号密码。"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("使用企业微信登录 Kivo，或使用已分配的账号密码。")).toBeInTheDocument();
   });
 
   it("keeps 企业微信 as the login method and starts web QR mode in normal browsers", async () => {

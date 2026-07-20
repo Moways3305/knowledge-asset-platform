@@ -24,43 +24,59 @@ describe("product layout and route contract", () => {
     }
   });
 
-  it("keeps ingest provenance visible while moving technical fields into details", () => {
+  it("keeps the admin operations page on the safe two-column reference contract", () => {
     const source = read("src/pages/AdminIngestPage.tsx");
-    expect(source).toContain('path_a_wecom: "企业微信微盘"');
-    expect(source).toContain('path_b_upload: "本地上传"');
-    expect(source).toContain("任务详情（运营元数据）");
-    expect(source).toContain('<details className="product-disclosure"');
-    expect(source).not.toContain("ig-exception-grid");
+    expect(source).toContain('className="ao84-console"');
+    expect(source).toContain('className="ao84-panel ao84-summary"');
+    expect(source).toContain('className="ao84-panel ao84-failures"');
+    expect(source).toContain('aria-current="page"');
+    expect(source).toContain("当前没有索引失败任务");
+    expect(source).not.toContain("source_file_name");
+    expect(source).not.toContain("project_name");
+    expect(source).not.toContain("owner_name");
   });
 
-  it("collapses audit action codes and trace identifiers by default", () => {
+  it("keeps audit action codes and trace identifiers out of the rendered workspace", () => {
     const source = read("src/pages/AdminAuditPage.tsx");
     expect(source).not.toContain("au-cell-raw");
-    expect(source.match(/<details>/g)?.length).toBeGreaterThanOrEqual(3);
-    expect(source).toContain("{log.action}");
-    expect(source).toContain("{log.trace_id}");
+    expect(source).not.toContain("<details>");
+    expect(source).not.toContain("trace_id");
+    expect(source).not.toContain("target_id");
+    expect(source).not.toContain("before_snapshot");
+    expect(source).not.toContain("after_snapshot");
+    expect(source).toContain("auditActionLabel(item.action)");
   });
 
   it("keeps governance model selectors read-only with an explanation", () => {
     const source = read("src/components/UnifiedModelConnectionsSection.tsx");
-    expect(source).toContain("disabled={!canEdit || loading}");
+    expect(source).toContain("disabled={!effectiveCanEdit || loading");
     expect(source).toContain("当前身份仅可查看，修改需系统管理员");
   });
 
-  it("keeps personal knowledge guidance compact and WorkBuddy row-based", () => {
+  it("keeps model administration on the split foundation workspace contract", () => {
+    const page = read("src/pages/AdminWeKnoraModelsPage.tsx");
+    const connections = read("src/components/UnifiedModelConnectionsSection.tsx");
+    expect(page).toContain('className="mf-workspace"');
+    expect(page).toContain('className="mf-foundation-panel"');
+    expect(page).toContain('className="mf-kb-section"');
+    expect(connections).toContain('className="mf-connection-card"');
+  });
+
+  it("keeps personal knowledge as a compact table with controlled write dialogs", () => {
     const personal = read("src/pages/MyKnowledgePage.tsx");
-    const workbuddy = read("src/components/WorkbuddyAccessCard.tsx");
-    expect(personal).toContain('<Disclosure summary="个人知识管理说明">');
-    expect(personal).not.toContain('className="mk-principle-card"');
-    expect(workbuddy).toContain("<SettingsRow");
+    expect(personal).toContain('className="mk83-table"');
+    expect(personal).toContain("<ConfirmDialog");
+    expect(personal).toContain('"已提交，等待项目经理确认"');
+    expect(personal).not.toContain("<Disclosure");
+    expect(personal).not.toContain("<WorkbuddyAccessCard");
   });
 
   it("shows a continuous, product-facing upload flow", () => {
     const source = read("src/pages/UploadPage.tsx");
-    for (const label of ["上传", "提取", "确认", "进入知识库"]) {
-      expect(source).toContain(`label: "${label}"`);
-    }
-    expect(source).toContain('className="product-flow-steps"');
+    expect(source).toContain("本地上传");
+    expect(source).toContain("企微微盘待确认");
+    expect(source).toContain("confirmReady || confirmSubmitted");
+    expect(source).toContain("<UploadConfirmPanel");
     expect(source).not.toContain("storage_ref");
     expect(source).not.toContain("weknora_kb_id");
   });
@@ -75,6 +91,7 @@ describe("product layout and route contract", () => {
       "/upload",
       "/review",
       "/original-access",
+      "/project/:id",
       "/project/:id/knowledge",
       "/project/:id/settings",
       "/admin/ingest",
@@ -103,11 +120,14 @@ describe("product layout and route contract", () => {
   it("keeps the upload empty state to one bordered input control", () => {
     const page = read("src/pages/UploadPage.tsx");
     const localUpload = read("src/pages/upload/UploadStepB.tsx");
-    expect(page).toContain("{flow.naming && (");
-    expect(page).toContain('flowState === "processing"');
-    expect(localUpload).toContain('className="upload-dropzone"');
-    expect(localUpload).toContain('className="upload-inline-info"');
+    const confirmation = read("src/pages/upload/UploadConfirmPanel.tsx");
+    expect(page).toContain('title="上传与入库"');
+    expect(page).not.toContain("UploadNamingCard");
+    expect(localUpload).toContain('className="upload-dropzone upload77-dropzone"');
+    expect(localUpload).toContain("className={`upload-inline-info");
     expect(localUpload).not.toContain("dropzone-security");
     expect(localUpload).not.toContain("<section");
+    expect(confirmation).not.toContain("保存草稿");
+    expect(confirmation).not.toContain("Import from URL");
   });
 });

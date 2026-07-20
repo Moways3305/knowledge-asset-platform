@@ -177,3 +177,31 @@ class ReviewTaskEvidence(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     review_task: Mapped[ReviewTask] = relationship(back_populates="evidence_links")
+
+
+class CompanyAssetReviewDecision(Base):
+    """项目资产升格公司的追加式双人决定。
+
+    required_role 使用内部稳定键 boss / consulting_director；每次确认、拒绝、撤回均追加新行，
+    当前有效状态由各角色最新一行推导，历史决定不会被覆盖。
+    """
+
+    __tablename__ = "company_asset_review_decisions"
+    __table_args__ = (
+        Index(
+            "ix_company_asset_review_decisions_task_role_created",
+            "review_task_id",
+            "required_role",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    review_task_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("review_tasks.id"), nullable=False
+    )
+    required_role: Mapped[str] = mapped_column(String(40), nullable=False)
+    decision: Mapped[str] = mapped_column(String(20), nullable=False)
+    actor_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

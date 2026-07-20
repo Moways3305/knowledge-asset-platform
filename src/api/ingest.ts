@@ -1,12 +1,21 @@
 // 入库流水线：Path B 真实文件上传、AI 处理结果轮询、Path A（企微微盘）待确认任务、
 // 统一确认入库，以及 admin 入库运营列表。响应只含安全元数据（不含任何存储引用 / 路径 / URL）。
-import { apiGet, apiPost, csrfHeaders, handleResponse, withCsrfRetry, BASE_URL } from "./http";
+import {
+  apiGet,
+  apiPost,
+  apiPostNoBody,
+  csrfHeaders,
+  handleResponse,
+  withCsrfRetry,
+  BASE_URL,
+} from "./http";
 import type {
   AdminIngestListResponseDTO,
   IngestAiResultDTO,
   IngestConfirmRequestDTO,
   IngestConfirmResponseDTO,
   IngestUploadResponseDTO,
+  IngestTaskStatusDTO,
   PendingIngestItemDTO,
   PendingIngestListResponseDTO,
 } from "../types/ingest";
@@ -33,6 +42,14 @@ export async function createIngestUpload(input: {
 
 export async function fetchIngestAiResult(taskId: string): Promise<IngestAiResultDTO> {
   return apiGet<IngestAiResultDTO>(`/api/v1/ingest/${taskId}/ai-result`);
+}
+
+export async function fetchIngestTaskStatus(taskId: string): Promise<IngestTaskStatusDTO> {
+  return apiGet<IngestTaskStatusDTO>(`/api/v1/ingest/${taskId}/status`);
+}
+
+export async function retryIngestTask(taskId: string): Promise<IngestTaskStatusDTO> {
+  return apiPostNoBody<IngestTaskStatusDTO>(`/api/v1/ingest/${taskId}/retry`);
 }
 
 // Path A（企微微盘）待确认任务列表。后端按权限只返回调用人可确认的任务，

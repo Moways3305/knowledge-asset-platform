@@ -48,12 +48,18 @@ const connection: ModelConnectionDTO = {
   provider: "deepseek",
   model_name: "deepseek-chat",
   enabled: true,
-  health_status: "configured",
+  health_status: "untested",
+  last_test_succeeded_at: null,
+  last_test_failed_at: null,
+  last_error_category: null,
   available_usages: ["content_generation", "project_qa"],
   legacy_adapter: false,
 };
 const emptyUsages = {
   external_llm_default: null,
+  dependency_status: "missing" as const,
+  dependency_message: "未设置外部 LLM 默认连接，内容生成和默认项目问答将不可用。",
+  remediation_hint: "选择一个已启用且测试通过的外部 LLM 连接并保存。",
 };
 
 function renderPage() {
@@ -94,18 +100,25 @@ describe("AdminWeKnoraModelsPage", () => {
     vi.mocked(updateModelUsageAssignments).mockResolvedValue(emptyUsages);
     vi.mocked(testModelConnection).mockResolvedValue({
       success: true,
-      message: "连接测试成功",
+      error_category: null,
+      message: "外部 LLM 连接正常。",
+      remediation_hint: "无需处理。",
+      retryable: false,
       duration_ms: 18,
     });
     Element.prototype.scrollIntoView = vi.fn();
   });
 
   it("shows external LLM separately from WeKnora foundation configuration", async () => {
-    renderPage();
+    const { container } = renderPage();
     expect(await screen.findByText("DeepSeek 对话")).toBeInTheDocument();
-    expect(screen.getByText("已启用")).toBeInTheDocument();
-    expect(screen.getAllByText("新增外部 LLM 连接")).toHaveLength(1);
-    expect(screen.getByText("WeKnora 底座默认模型")).toBeInTheDocument();
+    expect(screen.getByText("未测试")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "新增外部 LLM" })).toHaveLength(1);
+    expect(screen.getByText("知识库底座")).toBeInTheDocument();
+    expect(container.querySelector(".mf-workspace")).toBeInTheDocument();
+    expect(container.querySelector(".mf-connection-card")).toBeInTheDocument();
+    expect(container.querySelector(".mf-foundation-panel")).toBeInTheDocument();
+    expect(container.querySelector(".mf-kb-section")).toBeInTheDocument();
     expect(screen.queryByText("新增内容生成模型")).not.toBeInTheDocument();
   });
 
@@ -126,20 +139,22 @@ describe("AdminWeKnoraModelsPage", () => {
   it("blocks an invalid API URL before saving", async () => {
     vi.mocked(fetchModelConnections).mockResolvedValue({ items: [], total: 0, warning: null });
     renderPage();
-    fireEvent.click((await screen.findAllByText("新增外部 LLM 连接"))[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "新增外部 LLM" }));
     fireEvent.change(screen.getByLabelText("显示名称"), { target: { value: "Qwen" } });
     fireEvent.change(screen.getByLabelText("模型名称"), { target: { value: "qwen-plus" } });
     fireEvent.change(screen.getByLabelText("API 地址"), { target: { value: "alice@example.com" } });
     fireEvent.change(screen.getByLabelText("API key"), { target: { value: "secret" } });
-    fireEvent.click(screen.getByText("保存外部 LLM 连接"));
-    expect(await screen.findByText("API 地址必须以 http:// 或 https:// 开头")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("保存外部 LLM"));
+    expect(
+      await screen.findByText("API 地址必须以 http:// 或 https:// 开头。"),
+    ).toBeInTheDocument();
     expect(createModelConnection).not.toHaveBeenCalled();
   });
 
   it("omits blank endpoint and key while editing", async () => {
     renderPage();
     fireEvent.click(await screen.findByText("编辑"));
-    fireEvent.click(screen.getByText("保存外部 LLM 连接"));
+    fireEvent.click(screen.getByText("保存外部 LLM"));
     await waitFor(() => expect(updateModelConnection).toHaveBeenCalled());
     expect(updateModelConnection).toHaveBeenCalledWith(
       connection.model_ref,
@@ -150,7 +165,7 @@ describe("AdminWeKnoraModelsPage", () => {
   it("tests a saved connection and renders safe duration", async () => {
     renderPage();
     fireEvent.click(await screen.findByText("测试连接"));
-    expect(await screen.findByText("连接正常 · 18 ms")).toBeInTheDocument();
+    expect(await screen.findByText("外部 LLM 连接正常。 无需处理。 · 18 ms")).toBeInTheDocument();
     expect(testModelConnection).toHaveBeenCalledWith(connection.model_ref);
   });
 
@@ -158,7 +173,7 @@ describe("AdminWeKnoraModelsPage", () => {
     vi.mocked(fetchModelConnections).mockRejectedValue(new Error("500 SECRET-LIKE"));
     renderPage();
     expect(
-      await screen.findByText("外部 LLM 列表加载失败，请刷新或检查连接服务"),
+      await screen.findByText("外部 LLM 列表加载失败，请刷新或检查连接服务。"),
     ).toBeInTheDocument();
     expect(screen.queryByText(/500|SECRET-LIKE/)).not.toBeInTheDocument();
   });
@@ -204,9 +219,86 @@ describe("AdminWeKnoraModelsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     expect(
-      await screen.findByText("知识库配置被底座拒绝，请检查所选模型是否兼容"),
+      await screen.findByText("知识库配置被底座拒绝，请检查所选模型是否兼容。"),
     ).toBeInTheDocument();
     expect(screen.queryByText(/SECRET-LIKE/)).not.toBeInTheDocument();
+  });
+
+  it("re-reads and renders the saved KB configuration from the server", async () => {
+    const availableModels = [
+      {
+        model_ref: "foundation-chat-ref",
+        name: "底座兼容模型",
+        type: "chat",
+        source: "remote",
+        provider: "provider",
+        enabled: true,
+        is_builtin: false,
+        description: null,
+      },
+      {
+        model_ref: "embedding-ref",
+        name: "底座嵌入模型",
+        type: "embedding",
+        source: "remote",
+        provider: "provider",
+        enabled: true,
+        is_builtin: false,
+        description: null,
+      },
+    ];
+    const initial = {
+      mapping_id: "safe-mapping-ref",
+      scope: "project",
+      kb_name: "交付知识库",
+      project_name: "交付项目",
+      owner_name: null,
+      mapping_status: "init_failed",
+      chat: null,
+      embedding: {
+        model_ref: "embedding-ref",
+        name: "底座嵌入模型",
+        type: "embedding",
+        provider: "provider",
+      },
+      rerank: null,
+      multimodal: null,
+      config_error: "保存前状态",
+    };
+    const refreshed = {
+      ...initial,
+      mapping_status: "active",
+      chat: {
+        model_ref: "foundation-chat-ref",
+        name: "底座兼容模型",
+        type: "chat",
+        provider: "provider",
+      },
+      config_error: null,
+    };
+    vi.mocked(fetchWeknoraModels).mockResolvedValue(availableModels);
+    vi.mocked(fetchWeknoraKbConfigs)
+      .mockResolvedValueOnce([initial])
+      .mockResolvedValueOnce([refreshed]);
+    vi.mocked(updateWeknoraKbInit).mockResolvedValue({
+      mapping_id: initial.mapping_id,
+      mapping_status: "active",
+      updated: true,
+    });
+
+    renderPage();
+    const row = (await screen.findByText("交付知识库")).closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row!).getByText("初始化失败")).toBeInTheDocument();
+    fireEvent.change(within(row!).getByLabelText("交付知识库 底座兼容"), {
+      target: { value: "foundation-chat-ref" },
+    });
+    fireEvent.click(within(row!).getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(fetchWeknoraKbConfigs).toHaveBeenCalledTimes(2));
+    expect(await within(row!).findByText("已初始化")).toBeInTheDocument();
+    expect(within(row!).getByLabelText("交付知识库 底座兼容")).toHaveValue("foundation-chat-ref");
+    expect(screen.queryByText("保存前状态")).not.toBeInTheDocument();
   });
 
   it("maintains WeKnora foundation defaults through the dedicated bottom-layer API", async () => {
@@ -236,10 +328,10 @@ describe("AdminWeKnoraModelsPage", () => {
     fireEvent.change(await screen.findByLabelText("默认嵌入模型"), {
       target: { value: "embedding-ref" },
     });
-    fireEvent.change(screen.getByLabelText("底座兼容配置（LLM 槽位）"), {
+    fireEvent.change(screen.getByLabelText("底座兼容 LLM"), {
       target: { value: "foundation-chat-ref" },
     });
-    fireEvent.click(screen.getByText("保存 WeKnora 底座默认模型"));
+    fireEvent.click(screen.getByText("保存底座配置"));
 
     await waitFor(() =>
       expect(updateWeknoraDefaultModels).toHaveBeenCalledWith({
@@ -259,8 +351,6 @@ describe("AdminWeKnoraModelsPage", () => {
 
     expect(await screen.findByText("DeepSeek 对话")).toBeInTheDocument();
     expect(screen.getByText("WeKnora 尚未配置")).toBeInTheDocument();
-    expect(
-      screen.getByText("此状态不影响上方外部 LLM 连接的创建、编辑和测试。"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("这不会影响左侧外部 LLM 的创建、编辑和测试。")).toBeInTheDocument();
   });
 });

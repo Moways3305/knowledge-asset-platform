@@ -61,7 +61,7 @@ def _status_out(mapping: WeknoraKbMapping | None) -> CompanyKbOut:
 
 def _require_read(caller: CallerContext) -> None:
     if not _is_governance(caller):
-        raise _denied(403, "company_kb_governance_required", "仅 Boss / 咨询总监可查看公司知识库")
+        raise _denied(403, "company_kb_governance_required", "仅总经理 / 咨询总监可查看公司知识库")
 
 
 async def _require_create(session: AsyncSession, caller: CallerContext, trace_id: str) -> None:
@@ -81,7 +81,7 @@ async def _require_create(session: AsyncSession, caller: CallerContext, trace_id
         target_type="company_knowledge_base",
         extra={"denied_reason": reason, "attempted": "company_kb.create"},
     )
-    raise _denied(403, reason, "仅 Boss / 咨询总监可创建公司知识库")
+    raise _denied(403, reason, "仅总经理 / 咨询总监可创建公司知识库")
 
 
 async def get_company_kb(session: AsyncSession, caller: CallerContext) -> CompanyKbOut:

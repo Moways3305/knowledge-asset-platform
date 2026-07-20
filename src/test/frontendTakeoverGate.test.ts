@@ -25,22 +25,22 @@ const routes: RouteContract[] = [
     component: "HomeDashboardPage",
     guard: "public",
     owners: ["pages/HomeDashboardPage.tsx"],
-    apiModules: ["auth", "ingest", "knowledge", "project", "review"],
+    apiModules: ["workbench"],
   },
   {
     route: "/knowledge",
     component: "KnowledgeListPage",
     guard: "viewKnowledge",
-    owners: ["pages/KnowledgeListPage.tsx", "pages/knowledge/CreateProjectModal.tsx"],
-    apiModules: ["admin", "auth", "http", "knowledge", "project"],
+    owners: ["pages/KnowledgeListPage.tsx"],
+    apiModules: ["knowledge"],
   },
   {
     route: "/knowledge/:id",
     component: "KnowledgeDetailPage",
     guard: "viewKnowledge",
-    owners: ["pages/KnowledgeDetailPage.tsx"],
+    owners: ["pages/KnowledgeDetailPage.tsx", "pages/knowledge/OnlyOfficePreview.tsx"],
     apiModules: ["http", "knowledge"],
-    allowedTimerOwners: ["pages/KnowledgeDetailPage.tsx"],
+    allowedTimerOwners: ["pages/knowledge/OnlyOfficePreview.tsx"],
   },
   {
     route: "/my/knowledge",
@@ -51,7 +51,7 @@ const routes: RouteContract[] = [
       "hooks/useModelSelection.ts",
       "components/WorkbuddyAccessCard.tsx",
     ],
-    apiModules: ["auth", "http", "personal", "weknoraModels", "workbuddy"],
+    apiModules: ["auth", "http", "knowledge", "personal", "weknoraModels", "workbuddy"],
   },
   {
     route: "/upload",
@@ -125,7 +125,7 @@ const routes: RouteContract[] = [
     component: "ReviewPage",
     guard: "viewReview",
     owners: ["pages/ReviewPage.tsx"],
-    apiModules: ["review"],
+    apiModules: ["http", "review"],
   },
   {
     route: "/original-access",
@@ -135,18 +135,25 @@ const routes: RouteContract[] = [
     apiModules: ["http", "knowledge"],
   },
   {
+    route: "/project/:id",
+    component: "ProjectOverviewPage",
+    guard: "viewProject",
+    owners: ["pages/ProjectOverviewPage.tsx"],
+    apiModules: ["project"],
+  },
+  {
     route: "/project/:id/knowledge",
     component: "ProjectKnowledgePage",
     guard: "viewProject",
     owners: ["pages/ProjectKnowledgePage.tsx"],
-    apiModules: ["http", "knowledge", "project"],
+    apiModules: ["knowledge", "project", "review"],
   },
   {
     route: "/project/:id/settings",
     component: "ProjectSettingsPage",
     guard: "viewProject",
     owners: ["pages/ProjectSettingsPage.tsx"],
-    apiModules: ["auth", "http", "project"],
+    apiModules: ["http", "project", "review"],
   },
   {
     route: "/help",
@@ -158,6 +165,18 @@ const routes: RouteContract[] = [
 ];
 
 const businessOptions: BusinessOptionContract[] = [
+  {
+    route: "/project/:id",
+    owner: "pages/ProjectOverviewPage.tsx",
+    option: "project",
+    source: { kind: "runtime", symbol: "fetchProjects" },
+  },
+  {
+    route: "/knowledge",
+    owner: "pages/KnowledgeListPage.tsx",
+    option: "project",
+    source: { kind: "runtime", symbol: "useAuth" },
+  },
   {
     route: "/project/:id/knowledge",
     owner: "pages/ProjectKnowledgePage.tsx",
@@ -209,6 +228,23 @@ const repairedBusinessOptionDefects = [
     forbiddenValues: ["deepseek-r1", "qwen-enterprise", "DeepSeek-R1 内网版", "通义千问企业版"],
   },
 ];
+
+const forbiddenParallelModules = import.meta.glob(
+  ["../legacy/**/*", "../new-*/**/*", "../v2/**/*"],
+  { eager: true, query: "?raw", import: "default" },
+);
+
+const productionUiModules = import.meta.glob(["../{pages,components,auth}/**/*.{ts,tsx}"], {
+  eager: true,
+  query: "?raw",
+  import: "default",
+}) as Record<string, string>;
+
+const styleModules = import.meta.glob(["../{layouts,styles}/**/*.css"], {
+  eager: true,
+  query: "?raw",
+  import: "default",
+}) as Record<string, string>;
 
 const sourceModules = import.meta.glob(
   ["../App.tsx", "../{pages,components,hooks}/**/*.{ts,tsx}"],
@@ -299,7 +335,7 @@ function appRouteOwnership() {
 describe("frontend route takeover gate", () => {
   it("assigns every formal App route to the registered page and capability", () => {
     const actual = appRouteOwnership();
-    expect(actual.size).toBe(18);
+    expect(actual.size).toBe(19);
     expect([...actual.keys()].sort()).toEqual(routes.map((item) => item.route).sort());
     for (const contract of routes) {
       expect(actual.get(contract.route), contract.route).toEqual({
@@ -380,5 +416,49 @@ describe("frontend route takeover gate", () => {
         expect(ownerSource, `${defect.id}:${value}`).not.toContain(value);
       }
     }
+  });
+
+  it("forbids parallel legacy, new-* and v2 frontend directories", () => {
+    expect(Object.keys(forbiddenParallelModules)).toEqual([]);
+  });
+
+  it("keeps the application shell owned by AppLayout only", () => {
+    for (const [file, moduleSource] of Object.entries(productionUiModules)) {
+      expect(moduleSource, file).not.toContain('className="app-layout"');
+      expect(moduleSource, file).not.toContain('className="rail-nav"');
+      expect(moduleSource, file).not.toContain("<Outlet");
+    }
+  });
+
+  it("keeps retired topbar and sidebar shell selectors out of active styles", () => {
+    const styles = Object.values(styleModules).join("\n");
+    expect(styles).not.toContain(".app-topbar");
+    expect(styles).not.toContain(".app-sidebar");
+    expect(styles).not.toContain(".sidebar-brand");
+  });
+
+  it("does not cache identity or permission state in browser storage", () => {
+    const scannedFiles = Object.keys(productionUiModules);
+    expect(scannedFiles.some((file) => file.endsWith("/auth/AuthContext.tsx"))).toBe(true);
+    expect(scannedFiles.some((file) => file.endsWith("/auth/permissions.ts"))).toBe(true);
+    for (const [file, moduleSource] of Object.entries(productionUiModules)) {
+      expect(moduleSource, file).not.toMatch(/\b(?:localStorage|sessionStorage)\b/);
+    }
+  });
+
+  it("keeps project settings on real APIs without retired identity-bearing UI", () => {
+    const projectSettingsSource = productionUiModules["../pages/ProjectSettingsPage.tsx"];
+    const styles = Object.values(styleModules).join("\n");
+    expect(projectSettingsSource).toBeDefined();
+    expect(projectSettingsSource).toContain("fetchProjectSettings");
+    expect(projectSettingsSource).toContain("fetchProjectMembers");
+    expect(projectSettingsSource).toContain("fetchReviews");
+    expect(projectSettingsSource).not.toContain('className="kl-header"');
+    expect(projectSettingsSource).not.toContain('className="ps-page"');
+    expect(projectSettingsSource).not.toContain("member.email");
+    expect(projectSettingsSource).not.toContain("member.company_roles");
+    expect(styles).not.toContain(".ps-page");
+    expect(styles).not.toContain(".ps-kpi-on");
+    expect(styles).not.toContain(".ps-table");
   });
 });

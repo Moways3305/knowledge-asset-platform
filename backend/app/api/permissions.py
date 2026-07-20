@@ -1,7 +1,7 @@
 """权限规则配置中心 API。
 
-- GET   /api/v1/admin/permissions/rules           （admin / boss / 咨询总监 可读）
-- PATCH /api/v1/admin/permissions/rules/{rule_id}  （仅 boss / 咨询总监；admin 只读 → 403）
+- GET   /api/v1/admin/permissions/rules           （admin / 总经理 / 咨询总监可读）
+- PATCH /api/v1/admin/permissions/rules/{rule_id}  （仅总经理 / 咨询总监；admin 只读 → 403）
 
 权限委托 service；响应只含安全治理元数据，写动作写 config.permission_rule_updated 审计。
 外部 Agent 接入注册（Agent Registry）的兼容路径 /admin/permissions/agent-whitelist 仍由

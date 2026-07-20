@@ -1,9 +1,8 @@
-import { Link } from "react-router-dom";
+import { RefreshCw } from "lucide-react";
 import { formatBeijingTime } from "../../utils/time";
 import { pendingStatusLabel } from "./uploadConstants";
 import type { UploadFlow } from "./useUploadFlow";
 
-// 企业微信微盘待确认文件列表。
 export default function UploadStepA({ flow }: { flow: UploadFlow }) {
   const {
     pendingTasks,
@@ -16,73 +15,84 @@ export default function UploadStepA({ flow }: { flow: UploadFlow }) {
   } = flow;
 
   return (
-    <section className="upload-section">
-      <div className="up-agent-head">
-        <h3>企微微盘待确认文件</h3>
+    <section className="upload77-wecom" aria-labelledby="wecom-pending-title">
+      <div className="upload77-section-head">
+        <div>
+          <h2 id="wecom-pending-title">企微微盘待确认</h2>
+          <p>选择一项待确认资料，进入同一核对与入库流程。</p>
+        </div>
         <button
-          className="btn-secondary"
+          className="btn-secondary upload77-icon-button"
           onClick={() => void loadPending()}
           disabled={pendingLoading}
+          type="button"
         >
-          {pendingLoading ? "刷新中…" : "刷新"}
+          <RefreshCw size={15} aria-hidden="true" />
+          {pendingLoading ? "刷新中" : "刷新"}
         </button>
       </div>
-      <p className="correction-hint">
-        以下文件来自企业微信微盘待确认队列，请选择一项进行人工校正与确认入库。
-      </p>
 
       {pendingLoading ? (
-        <div className="up-agent-state up-agent-loading">正在加载企微微盘待确认任务…</div>
+        <div className="upload77-state" role="status">
+          正在加载待确认资料…
+        </div>
       ) : pendingError ? (
-        <div className="up-agent-state up-agent-error">
+        <div className="upload77-state upload77-state-error" role="alert">
           <span>{pendingError}</span>
-          <button className="btn-secondary" onClick={() => void loadPending()}>
+          <button className="btn-secondary" onClick={() => void loadPending()} type="button">
             重试
           </button>
         </div>
       ) : pendingTasks.length === 0 ? (
-        <div className="up-agent-state up-agent-empty">
-          <div className="up-agent-empty-title">暂无待确认的企微微盘文件</div>
-          <p>企微微盘扫描尚未产出待确认任务，或你对现有任务没有确认权限。</p>
-          <Link to="/admin/wecom-scan" className="up-path-a-queue-link">
-            前往企微微盘扫描配置 / 手动扫描 →
-          </Link>
+        <div className="upload77-state">
+          <strong>暂无待确认资料</strong>
+          <span>当前没有需要你处理的企微微盘文件。</span>
         </div>
       ) : (
-        <div className="up-agent-file-list">
-          {pendingTasks.map((t) => {
-            const selected = taskId === t.id;
-            const loadingThis = selected && flowState === "processing";
-            return (
-              <button
-                key={t.id}
-                className={`up-agent-file-item ${selected ? "active" : ""} ${t.status === "failed" ? "failed" : ""}`}
-                onClick={() => {
-                  if (!loadingThis) void handleSelectPendingTask(t);
-                }}
-                disabled={loadingThis}
-              >
-                <div className="up-agent-file-main">
-                  <span className="up-agent-file-name">{t.source_file_name}</span>
-                  <span className="ig-src-badge ig-src-wecom">企微微盘</span>
-                  <span className={`up-agent-status up-agent-status-${t.status}`}>
-                    {pendingStatusLabel[t.status] ?? t.status}
-                  </span>
-                </div>
-                {t.suggested_title && (
-                  <div className="up-agent-file-suggest">建议标题：{t.suggested_title}</div>
-                )}
-                <div className="up-agent-file-meta">
-                  {t.confidence != null && <span>置信度 {Math.round(t.confidence * 100)}%</span>}
-                  {t.created_at && <span>检测时间：{formatBeijingTime(t.created_at)}</span>}
-                  {loadingThis && <span>正在加载 AI 建议…</span>}
-                </div>
-                {t.error_message && (
-                  <div className="up-agent-file-error">处理异常：{t.error_message}</div>
-                )}
-              </button>
-            );
-          })}
+        <div className="upload77-table-wrap">
+          <table className="upload77-table">
+            <thead>
+              <tr>
+                <th>文件</th>
+                <th>状态</th>
+                <th>建议标题</th>
+                <th>置信度</th>
+                <th>时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pendingTasks.map((task) => {
+                const selected = taskId === task.id;
+                const loadingThis = selected && flowState === "processing";
+                return (
+                  <tr key={task.id} className={selected ? "is-selected" : ""}>
+                    <td>
+                      <button
+                        className="upload77-task-select"
+                        onClick={() => {
+                          if (!loadingThis) void handleSelectPendingTask(task);
+                        }}
+                        disabled={loadingThis}
+                        type="button"
+                      >
+                        {task.source_file_name}
+                      </button>
+                    </td>
+                    <td>
+                      <span className={`upload77-status upload77-status-${task.status}`}>
+                        {pendingStatusLabel[task.status] ?? "待处理"}
+                      </span>
+                    </td>
+                    <td>{task.suggested_title || "—"}</td>
+                    <td>
+                      {task.confidence == null ? "—" : `${Math.round(task.confidence * 100)}%`}
+                    </td>
+                    <td>{task.created_at ? formatBeijingTime(task.created_at) : "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </section>

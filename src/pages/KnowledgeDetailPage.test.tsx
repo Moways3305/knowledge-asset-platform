@@ -49,6 +49,7 @@ const baseAsset: KnowledgeDetailVM = {
     existingRequestStatus: null,
     existingGrantExpiresAt: null,
     canDelete: false,
+    canManageLifecycle: false,
     canRetryIndex: false,
   },
   indexStatus: "indexed",
@@ -137,14 +138,14 @@ describe("KnowledgeDetailPage", () => {
 
     renderDetail();
 
-    expect(await screen.findByText("知识卡片")).toBeInTheDocument();
-    expect(screen.getByText("处理进度")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "申请原文访问" }).length).toBeGreaterThan(0);
+    expect(await screen.findByRole("heading", { name: "项目复盘方法论" })).toBeInTheDocument();
+    expect(screen.queryByText("处理进度")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "申请原文访问" })).toHaveLength(1);
 
-    fireEvent.click(screen.getAllByRole("button", { name: "申请原文访问" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "申请原文访问" }));
     await waitFor(() => expect(requestOriginalAccess).toHaveBeenCalledWith("asset-1"));
     expect(await screen.findByText("原文访问申请已提交，待审批。")).toBeInTheDocument();
-    expect(screen.getByText("来源与治理状态")).not.toBeVisible();
+    expect(screen.queryByText("原文入口")).not.toBeInTheDocument();
   });
 });
 

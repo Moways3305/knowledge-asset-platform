@@ -1,7 +1,7 @@
-"""密码凭证登录 + 管理员设置密码测试。
+"""密码凭证登录 + 治理角色设置密码测试。
 
 覆盖：prod email+password 成功 / email-only 拒绝；错密码·未知 email·未设密码·inactive 统一 401；
-登录审计 login_method；admin 设置/重置密码、非 admin 拒绝、弱密码 422、重置后旧密码失效；
+登录审计 login_method；治理角色设置/重置密码、admin/顾问拒绝、弱密码 422、重置后旧密码失效；
 dev_local 仍可用；people 只回 password_set/password_set_at；无 password/hash/salt/token 泄露。
 """
 
@@ -223,12 +223,12 @@ async def test_dev_local_email_only_still_works(client):
 
 
 # ---------------------------------------------------------------------------
-# admin 设置 / 重置密码
+# 治理角色设置 / 重置密码
 # ---------------------------------------------------------------------------
-async def test_admin_sets_password_then_login(client, monkeypatch):
+async def test_governance_sets_password_then_login(client, monkeypatch):
     r = await client.post(
         f"{PEOPLE}/{USER_CONSULTANT}/password",
-        headers=_hdr(USER_ADMIN_ONLY),
+        headers=_hdr(USER_BOSS),
         json={"password": "newpass1234"},
     )
     assert r.status_code == 200, r.text
@@ -244,19 +244,24 @@ async def test_admin_sets_password_then_login(client, monkeypatch):
     assert old.status_code == 401
 
 
-@pytest.mark.parametrize("user", [USER_BOSS, USER_CONSULTANT])
-async def test_non_admin_cannot_set_password(client, user):
+@pytest.mark.parametrize("user", [USER_ADMIN_ONLY, USER_CONSULTANT])
+async def test_non_governance_cannot_set_password(client, user):
     r = await client.post(
         f"{PEOPLE}/{USER_CONSULTANT}/password", headers=_hdr(user), json={"password": "newpass1234"}
     )
     assert r.status_code == 403
-    assert r.json()["detail"]["denied_reason"] == "password_set_admin_required"
+    expected = (
+        "admin_business_permission_denied"
+        if user == USER_ADMIN_ONLY
+        else "people_governance_required"
+    )
+    assert r.json()["detail"]["denied_reason"] == expected
 
 
 async def test_set_weak_password_422(client):
     r = await client.post(
         f"{PEOPLE}/{USER_CONSULTANT}/password",
-        headers=_hdr(USER_ADMIN_ONLY),
+        headers=_hdr(USER_BOSS),
         json={"password": "short"},
     )
     assert r.status_code == 422
@@ -268,7 +273,7 @@ async def test_set_password_unknown_user_404(client):
 
     r = await client.post(
         f"{PEOPLE}/{_uuid.uuid4()}/password",
-        headers=_hdr(USER_ADMIN_ONLY),
+        headers=_hdr(USER_BOSS),
         json={"password": "newpass1234"},
     )
     assert r.status_code == 404
@@ -277,7 +282,7 @@ async def test_set_password_unknown_user_404(client):
 async def test_password_set_audit_safe(client, db_session):
     await client.post(
         f"{PEOPLE}/{USER_CONSULTANT}/password",
-        headers=_hdr(USER_ADMIN_ONLY),
+        headers=_hdr(USER_BOSS),
         json={"password": "auditpass123"},
     )
     ev = (
@@ -300,13 +305,13 @@ async def test_password_set_audit_safe(client, db_session):
 # people 安全字段
 # ---------------------------------------------------------------------------
 async def test_people_returns_only_safe_password_fields(client):
-    d = await client.get(f"{PEOPLE}/{USER_CONSULTANT}", headers=_hdr(USER_ADMIN_ONLY))
+    d = await client.get(f"{PEOPLE}/{USER_CONSULTANT}", headers=_hdr(USER_BOSS))
     assert d.status_code == 200
     body = d.json()
     assert body["password_set"] is True
     assert "password_set_at" in body
     for token in ["password_hash", "salt", "digest", "pbkdf2", DEV_PASSWORD]:
         assert token not in d.text
-    lst = await client.get(PEOPLE, headers=_hdr(USER_ADMIN_ONLY))
+    lst = await client.get(PEOPLE, headers=_hdr(USER_BOSS))
     for token in ["password_hash", "salt", "digest", "pbkdf2"]:
         assert token not in lst.text

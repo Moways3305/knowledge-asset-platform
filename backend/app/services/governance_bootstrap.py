@@ -1,4 +1,4 @@
-"""首位 Boss 的一次性、非 HTTP 初始化服务。"""
+"""首位总经理的一次性、非 HTTP 初始化服务。"""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ async def _lock_bootstrap(session: AsyncSession) -> None:
 async def bootstrap_first_boss(
     session: AsyncSession, *, target_user_id: uuid.UUID, trace_id: str
 ) -> BossBootstrapResult:
-    """仅在没有可用 Boss 时，把一个已存在的 active 用户设为 Boss。"""
+    """仅在没有可用总经理时，把一个已存在的 active 用户设为总经理。"""
     await _lock_bootstrap(session)
     active_boss = (
         await session.execute(

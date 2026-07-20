@@ -17,6 +17,9 @@ export interface ReviewItemDTO {
   reviewed_at: string | null;
   created_at: string | null;
   can_decide: boolean;
+  can_withdraw: boolean;
+  general_manager_confirmation_status: string | null;
+  consulting_director_confirmation_status: string | null;
 }
 
 export interface ReviewListResponseDTO {

@@ -13,13 +13,13 @@ describe("FormField", () => {
     expect(screen.getByDisplayValue("甲项目")).toBeInTheDocument();
   });
 
-  it("uses the kl-modal-field class by default", () => {
+  it("uses the product form-field class by default", () => {
     const { container } = render(
       <FormField label="x">
         <input />
       </FormField>,
     );
-    expect(container.querySelector("label.kl-modal-field")).toBeInTheDocument();
+    expect(container.querySelector("label.form-field")).toBeInTheDocument();
   });
 
   it("renders hint and error text when provided", () => {
@@ -30,5 +30,15 @@ describe("FormField", () => {
     );
     expect(screen.getByText("可选")).toBeInTheDocument();
     expect(screen.getByText("必填")).toBeInTheDocument();
+  });
+
+  it("marks required labels without changing the control value", () => {
+    render(
+      <FormField label="模型名称" required>
+        <input defaultValue="qa-chat" />
+      </FormField>,
+    );
+    expect(screen.getByText("*")).toHaveClass("form-field-required");
+    expect(screen.getByDisplayValue("qa-chat")).toBeInTheDocument();
   });
 });

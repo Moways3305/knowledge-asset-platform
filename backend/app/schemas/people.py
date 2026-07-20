@@ -61,7 +61,7 @@ class PeopleListResponse(BaseModel):
 
 
 class SetPasswordRequest(BaseModel):
-    """管理员设置 / 重置用户密码。password 仅入站、绝不回显。"""
+    """治理角色设置 / 重置用户密码。password 仅入站、绝不回显。"""
 
     password: str
 

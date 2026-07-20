@@ -88,14 +88,11 @@ async def test_l5_detail_404_for_consultant(client):
     assert resp.status_code == 404
 
 
-async def test_project_non_member_l3_summary_only(client):
-    """consultant 非 Beta 成员：Beta L3 详情可发现/脱敏摘要，但 original=false。"""
+async def test_project_non_member_l3_is_not_discoverable(client):
+    """consultant 非 Beta active 成员，不能发现 Beta L3。"""
     resp = await client.get(f"{KN}/{KA_PROJECT_BETA_L3}", headers=_hdr(USER_CONSULTANT))
-    assert resp.status_code == 200
-    info = resp.json()["access_info"]
-    assert info["discovery"] is True
-    assert info["summary"] is True
-    assert info["original"] is False
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["denied_reason"] == "knowledge_asset_not_found"
 
 
 async def test_project_member_can_get_original(client):

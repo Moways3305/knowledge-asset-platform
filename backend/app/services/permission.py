@@ -20,6 +20,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, replace
 
+from sqlalchemy import and_, false, or_, true
+from sqlalchemy.sql.elements import ColumnElement
+
 from app.models.identity import User
 from app.models.knowledge import KnowledgeAsset
 from app.schemas.enums import (
@@ -113,7 +116,7 @@ def _base_profile(
     1. inactive 用户全部拒绝；
     2. 纯系统身份（非业务用户，如仅 admin）不浏览任何业务知识内容（发现/摘要/原文全拒）；
     3. personal：非本人（或本人但非业务用户）一律 personal_asset_not_owned，不泄露；
-    4. 非 personal 的 L5：非 Boss/咨询总监 l5_not_discoverable（连存在信息都不给）；
+    4. 非 personal 的 L5：非总经理/咨询总监 l5_not_discoverable（连存在信息都不给）；
     5. archived/deprecated 读侧默认不可发现（asset_not_active）；
     6. 其余按 scope + 保密级别给出可达层级。
     """
@@ -145,13 +148,18 @@ def _base_profile(
             source=EffectiveAccessSource.owner,
         )
 
-    # ---- 非 personal 的 L5：发现需 Boss/咨询总监 ----
+    # 公司层角色不产生项目成员关系。所有项目知识先校验 active project_members，
+    # 再进入保密等级判定；治理角色也不能跨项目绕过。
+    if scope == KnowledgeScope.project.value and asset.project_id not in caller.active_project_ids:
+        return _profile_none(DeniedReason.no_project_membership)
+
+    # ---- 非 personal 的 L5：发现需总经理/咨询总监 ----
     if level == ConfidentialityLevel.L5.value:
         if not caller.can_discover_l5:
             return _profile_none(DeniedReason.l5_not_discoverable)
         if asset.asset_status in _INACTIVE_ASSET_STATUSES:
             return _profile_none(DeniedReason.asset_not_active)
-        # Boss / 咨询总监：原文需强审计，来源为公司角色。
+        # 总经理 / 咨询总监：原文需强审计，来源为公司角色。
         return _AccessProfile(
             max_layer=AccessLayer.original,
             exceed_reason=DeniedReason.allowed,
@@ -169,59 +177,28 @@ def _base_profile(
     )
 
     if scope == KnowledgeScope.project.value:
-        is_member = asset.project_id in caller.active_project_ids
-        if is_member:
-            # 本项目成员：三层全开（含客户数据原文），原文需审计；摘要不强制脱敏。
-            return _AccessProfile(
-                max_layer=AccessLayer.original,
-                exceed_reason=DeniedReason.allowed,
-                source=EffectiveAccessSource.project_member,
-                original_audit_required=True,
-            )
-        # 非本项目成员：
-        if level in _REDACTED_SUMMARY_LEVELS:
-            # L3/L4：发现 + 脱敏摘要；原文需申请。
-            return _AccessProfile(
-                max_layer=AccessLayer.summary,
-                exceed_reason=DeniedReason.original_requires_request,
-                source=EffectiveAccessSource.system_rule,
-                summary_variant=summary_variant,
-            )
-        # L1/L2：默认策略 + 业务用户可得原文；非业务用户只到摘要。
-        if caller.is_business_user and policy.cross_project_l1_l2_original_for_business_user:
-            return _AccessProfile(
-                max_layer=AccessLayer.original,
-                exceed_reason=DeniedReason.allowed,
-                source=EffectiveAccessSource.system_rule,
-                original_audit_required=True,
-            )
+        # 已在上方完成 active 成员校验；项目角色与公司职务分别存储，成员公司角色不影响读取。
         return _AccessProfile(
-            max_layer=AccessLayer.summary,
-            exceed_reason=DeniedReason.no_project_membership,
-            source=EffectiveAccessSource.system_rule,
+            max_layer=AccessLayer.original,
+            exceed_reason=DeniedReason.allowed,
+            source=EffectiveAccessSource.project_member,
+            original_audit_required=True,
         )
 
     if scope == KnowledgeScope.company.value:
-        # 公司知识：发现/摘要面较宽（无项目身份用户也可看允许发现的摘要）。
-        if level in _REDACTED_SUMMARY_LEVELS:
-            return _AccessProfile(
-                max_layer=AccessLayer.summary,
-                exceed_reason=DeniedReason.original_requires_request,
-                source=EffectiveAccessSource.system_rule,
-                summary_variant=summary_variant,
-            )
-        # L1/L2：业务用户默认可得原文（需审计）；非业务用户只到摘要、原文需申请。
-        if caller.is_business_user and policy.company_l1_l2_original_for_business_user:
+        # 公司知识：治理角色默认可访问原文；顾问只到安全摘要。L5 已在上方保持原有强边界。
+        if caller.can_discover_l5:
             return _AccessProfile(
                 max_layer=AccessLayer.original,
                 exceed_reason=DeniedReason.allowed,
-                source=EffectiveAccessSource.system_rule,
+                source=EffectiveAccessSource.company_role,
                 original_audit_required=True,
             )
         return _AccessProfile(
             max_layer=AccessLayer.summary,
             exceed_reason=DeniedReason.original_requires_request,
             source=EffectiveAccessSource.system_rule,
+            summary_variant=summary_variant,
         )
 
     # 兜底：未知 scope，保守拒绝。
@@ -340,6 +317,36 @@ def decide(
         strong_audit_required=False,
         summary_variant=summary_variant,
     )
+
+
+def discovery_filter(caller: CallerContext) -> ColumnElement[bool]:
+    """Return the SQL predicate equivalent of ``decide(..., discovery)``.
+
+    List/count queries must apply this predicate before pagination so totals never
+    reveal assets outside the caller's discovery boundary. ``decide`` remains the
+    authoritative per-asset decision and is still used while projecting DTOs.
+    """
+    if not caller.is_active or not caller.is_business_user:
+        return false()
+
+    active = KnowledgeAsset.asset_status.notin_(_INACTIVE_ASSET_STATUSES)
+    personal = and_(
+        KnowledgeAsset.scope == KnowledgeScope.personal.value,
+        KnowledgeAsset.owner_user_id == caller.user_id,
+    )
+
+    l5_visible = (
+        KnowledgeAsset.confidentiality_level != ConfidentialityLevel.L5.value
+        if not caller.can_discover_l5
+        else true()
+    )
+    company = and_(KnowledgeAsset.scope == KnowledgeScope.company.value, l5_visible)
+    project = and_(
+        KnowledgeAsset.scope == KnowledgeScope.project.value,
+        KnowledgeAsset.project_id.in_(caller.active_project_ids),
+        l5_visible,
+    )
+    return and_(active, or_(personal, project, company))
 
 
 # ============================================================

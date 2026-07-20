@@ -22,3 +22,20 @@ export async function approveReview(reviewId: string, comment?: string): Promise
 export async function rejectReview(reviewId: string, comment: string): Promise<void> {
   await apiPost(`/api/v1/reviews/${reviewId}/reject`, { review_comment: comment });
 }
+
+export async function withdrawReviewConfirmation(
+  reviewId: string,
+  comment?: string,
+): Promise<void> {
+  await apiPost(`/api/v1/reviews/${reviewId}/withdraw`, { review_comment: comment ?? null });
+}
+
+export async function requestCompanyUpgrade(
+  projectId: string,
+  assetId: string,
+): Promise<ReviewItemDTO> {
+  return apiPost<ReviewItemDTO>(
+    `/api/v1/projects/${projectId}/knowledge/${assetId}/upgrade-company`,
+    {},
+  );
+}

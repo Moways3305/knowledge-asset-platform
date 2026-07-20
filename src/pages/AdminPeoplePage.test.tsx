@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -6,7 +6,11 @@ import {
   fetchCompanyKnowledgeBase,
   fetchPeople,
   fetchPerson,
+  patchProjectMembership,
+  setCompanyRole,
+  setUserStatus,
 } from "../api/admin";
+import { ApiError } from "../api/http";
 import type { Capabilities } from "../auth/permissions";
 import type { PersonDTO } from "../types/people";
 import AdminPeoplePage from "./AdminPeoplePage";
@@ -91,6 +95,7 @@ async function renderDetail() {
 
 describe("AdminPeoplePage governance controls", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     authState.capabilities = {
       isAdmin: true,
       isBoss: false,
@@ -111,20 +116,27 @@ describe("AdminPeoplePage governance controls", () => {
       availability_summary: "尚未创建",
     });
     vi.mocked(createCompanyKnowledgeBase).mockReset();
+    vi.mocked(setCompanyRole).mockResolvedValue(person);
+    vi.mocked(setUserStatus).mockResolvedValue(person);
+    vi.mocked(patchProjectMembership).mockResolvedValue(person.project_memberships[0]);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
   });
 
-  it("keeps technical controls for admin while business governance stays read-only", async () => {
+  it("does not expose personnel management controls to pure admin", async () => {
     await renderDetail();
-    expect(screen.getByRole("button", { name: "撤销全部会话" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "设置 / 重置密码" })).toBeInTheDocument();
-    expect(roleRow("Boss").queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "撤销全部会话" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "设置 / 重置密码" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "停用账号" })).not.toBeInTheDocument();
+    expect(roleRow("总经理").queryByRole("button")).not.toBeInTheDocument();
     expect(roleRow("顾问").queryByRole("button")).not.toBeInTheDocument();
     expect(screen.queryByText("新增 / 更新成员关系")).not.toBeInTheDocument();
-    expect(screen.getByText("项目成员关系由 Boss 或咨询总监维护。")).toBeInTheDocument();
+    expect(
+      screen.getByText("总经理或咨询总监任命项目经理；项目经理在本项目内维护辅导老师与顾问。"),
+    ).toBeInTheDocument();
     expect(fetchCompanyKnowledgeBase).not.toHaveBeenCalled();
   });
 
-  it("lets Boss manage every business role and project membership, but not admin", async () => {
+  it("lets the general manager govern business roles and appoint project leaders", async () => {
     authState.capabilities = {
       ...authState.capabilities,
       isAdmin: false,
@@ -133,16 +145,17 @@ describe("AdminPeoplePage governance controls", () => {
       isGovernance: true,
     };
     await renderDetail();
-    expect(screen.queryByRole("button", { name: "撤销全部会话" })).not.toBeInTheDocument();
-    expect(roleRow("Boss").getByRole("button", { name: "停用" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "停用账号" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "设置 / 重置密码" })).toBeInTheDocument();
+    expect(roleRow("总经理").getByRole("button", { name: "停用" })).toBeInTheDocument();
     expect(roleRow("咨询总监").getByRole("button", { name: "授予" })).toBeInTheDocument();
     expect(roleRow("顾问").getByRole("button", { name: "恢复" })).toBeInTheDocument();
-    expect(roleRow("管理员").queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByText("管理员")).not.toBeInTheDocument();
     expect(screen.getByText("新增 / 更新成员关系")).toBeInTheDocument();
     await waitFor(() => expect(fetchCompanyKnowledgeBase).toHaveBeenCalled());
   });
 
-  it("limits consulting director to consultant and project membership controls", async () => {
+  it("lets consulting directors manage director and consultant roles but not general managers", async () => {
     authState.capabilities = {
       ...authState.capabilities,
       isAdmin: false,
@@ -151,9 +164,211 @@ describe("AdminPeoplePage governance controls", () => {
       isGovernance: true,
     };
     await renderDetail();
-    expect(roleRow("Boss").queryByRole("button")).not.toBeInTheDocument();
-    expect(roleRow("咨询总监").queryByRole("button")).not.toBeInTheDocument();
+    expect(roleRow("总经理").queryByRole("button")).not.toBeInTheDocument();
+    expect(roleRow("咨询总监").getByRole("button", { name: "授予" })).toBeInTheDocument();
     expect(roleRow("顾问").getByRole("button", { name: "恢复" })).toBeInTheDocument();
     expect(screen.getByText("新增 / 更新成员关系")).toBeInTheDocument();
+  });
+
+  it("renders a list-first workspace without sensitive identity fields", async () => {
+    const { container } = render(
+      <MemoryRouter>
+        <AdminPeoplePage />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("人员名册")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    const summary = screen.getByLabelText("人员摘要");
+    expect(summary).toHaveClass("gp-summary-panel");
+    expect(summary).toHaveTextContent("当前加载");
+    expect(summary.querySelectorAll(".gp-summary-icon svg")).toHaveLength(4);
+    expect(container.querySelector(".gp-governance-console")?.children).toHaveLength(2);
+    expect(container.querySelector(".gp-summary")).not.toBeInTheDocument();
+    expect(container.innerHTML).not.toMatch(
+      /person-ref|person@example\.test|membership-ref|project-ref|role-boss/,
+    );
+    expect(screen.getByText("未绑定")).toBeInTheDocument();
+    expect(container.querySelector(".pp-field-mark svg")).toBeInTheDocument();
+  });
+
+  it("sends real filters and opens detail only after selection", async () => {
+    render(
+      <MemoryRouter>
+        <AdminPeoplePage />
+      </MemoryRouter>,
+    );
+    await screen.findByText("人员名册");
+    fireEvent.change(screen.getByLabelText("搜索姓名"), { target: { value: "测试" } });
+    fireEvent.click(screen.getByRole("button", { name: "搜索 / 刷新" }));
+    await waitFor(() =>
+      expect(fetchPeople).toHaveBeenLastCalledWith(expect.objectContaining({ q: "测试" })),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "查看 / 治理" }));
+    expect(await screen.findByRole("dialog", { name: "人员治理详情" })).toBeInTheDocument();
+    expect(document.body.innerHTML).not.toContain("person@example.test");
+  });
+
+  it("ignores a stale detail response after selecting another person", async () => {
+    const secondPerson = { ...person, user_id: "person-second", name: "第二人员" };
+    vi.mocked(fetchPeople).mockResolvedValueOnce({ items: [person, secondPerson], total: 2 });
+    let resolveFirst!: (value: PersonDTO) => void;
+    let resolveSecond!: (value: PersonDTO) => void;
+    vi.mocked(fetchPerson).mockImplementation((userId) =>
+      userId === person.user_id
+        ? new Promise<PersonDTO>((resolve) => {
+            resolveFirst = resolve;
+          })
+        : new Promise<PersonDTO>((resolve) => {
+            resolveSecond = resolve;
+          }),
+    );
+    render(
+      <MemoryRouter>
+        <AdminPeoplePage />
+      </MemoryRouter>,
+    );
+    const buttons = await screen.findAllByRole("button", { name: "查看 / 治理" });
+    fireEvent.click(buttons[0]);
+    fireEvent.click(buttons[1]);
+    await act(async () => resolveSecond(secondPerson));
+    const dialog = await screen.findByRole("dialog", { name: "人员治理详情" });
+    expect(within(dialog).getByText("第二人员")).toBeInTheDocument();
+    await act(async () => resolveFirst(person));
+    await waitFor(() => expect(within(dialog).getByText("第二人员")).toBeInTheDocument());
+    expect(within(dialog).queryByText("测试人员")).not.toBeInTheDocument();
+  });
+
+  it("does not let a completed write for person A cancel person B detail loading", async () => {
+    authState.capabilities = {
+      ...authState.capabilities,
+      isAdmin: false,
+      isBoss: true,
+      isBusinessUser: true,
+      isGovernance: true,
+    };
+    const secondPerson = { ...person, user_id: "person-second", name: "第二人员" };
+    vi.mocked(fetchPeople).mockResolvedValueOnce({ items: [person, secondPerson], total: 2 });
+    let resolveSecond!: (value: PersonDTO) => void;
+    vi.mocked(fetchPerson).mockImplementation((userId) =>
+      userId === person.user_id
+        ? Promise.resolve(person)
+        : new Promise<PersonDTO>((resolve) => {
+            resolveSecond = resolve;
+          }),
+    );
+    let resolveStatus!: (value: PersonDTO) => void;
+    vi.mocked(setUserStatus).mockReturnValueOnce(
+      new Promise<PersonDTO>((resolve) => {
+        resolveStatus = resolve;
+      }),
+    );
+    render(
+      <MemoryRouter>
+        <AdminPeoplePage />
+      </MemoryRouter>,
+    );
+    let buttons = await screen.findAllByRole("button", { name: "查看 / 治理" });
+    fireEvent.click(buttons[0]);
+    await screen.findByRole("dialog", { name: "人员治理详情" });
+    fireEvent.click(screen.getByRole("button", { name: "停用账号" }));
+    fireEvent.click(screen.getByRole("button", { name: "关闭人员详情" }));
+    buttons = screen.getAllByRole("button", { name: "查看 / 治理" });
+    fireEvent.click(buttons[1]);
+
+    await act(async () => resolveStatus(person));
+    expect(fetchPerson).toHaveBeenCalledTimes(2);
+    await act(async () => resolveSecond(secondPerson));
+    const dialog = await screen.findByRole("dialog", { name: "人员治理详情" });
+    expect(within(dialog).getByText("第二人员")).toBeInTheDocument();
+  });
+
+  it.each([
+    [new ApiError(503, "raw people token"), "人员列表暂时无法加载，请稍后重试"],
+    [new ApiError(403, "raw forbidden", "raw_reason"), "当前身份没有执行此操作的权限。"],
+  ])("maps list failures safely", async (reason, expected) => {
+    vi.mocked(fetchPeople).mockRejectedValueOnce(reason);
+    const { container } = render(
+      <MemoryRouter>
+        <AdminPeoplePage />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText(expected)).toBeInTheDocument();
+    expect(container.innerHTML).not.toMatch(/raw people token|raw forbidden|raw_reason/);
+  });
+
+  it("uses a compact empty state", async () => {
+    vi.mocked(fetchPeople).mockResolvedValueOnce({ items: [], total: 0 });
+    render(
+      <MemoryRouter>
+        <AdminPeoplePage />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("无匹配用户")).toBeInTheDocument();
+    expect(document.querySelector(".gp-empty-visual svg")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新加载" })).toBeInTheDocument();
+  });
+
+  it("keeps a failed role update local and hides the raw error", async () => {
+    authState.capabilities = {
+      ...authState.capabilities,
+      isAdmin: false,
+      isBoss: true,
+      isBusinessUser: true,
+      isGovernance: true,
+    };
+    vi.mocked(setCompanyRole).mockRejectedValueOnce(new ApiError(500, "raw role secret"));
+    await renderDetail();
+    fireEvent.click(roleRow("总经理").getByRole("button", { name: "停用" }));
+    expect(await screen.findByText("更新公司角色失败")).toBeInTheDocument();
+    expect(document.body.innerHTML).not.toContain("raw role secret");
+    expect(screen.getByText("人员名册")).toBeInTheDocument();
+  });
+
+  it("shows local loading while an account status update is pending", async () => {
+    authState.capabilities = {
+      ...authState.capabilities,
+      isAdmin: false,
+      isBoss: true,
+      isBusinessUser: true,
+      isGovernance: true,
+    };
+    let resolveStatus!: (value: PersonDTO) => void;
+    vi.mocked(setUserStatus).mockReturnValueOnce(
+      new Promise<PersonDTO>((resolve) => {
+        resolveStatus = resolve;
+      }),
+    );
+    await renderDetail();
+    fireEvent.click(screen.getByRole("button", { name: "停用账号" }));
+    expect(screen.getByRole("button", { name: "处理中…" })).toBeDisabled();
+    await act(async () => resolveStatus(person));
+    await waitFor(() => expect(setUserStatus).toHaveBeenCalledWith("person-ref", "inactive"));
+  });
+
+  it("recovers only the failed membership row and hides the raw error", async () => {
+    authState.capabilities = {
+      ...authState.capabilities,
+      isAdmin: false,
+      isBoss: true,
+      isBusinessUser: true,
+      isGovernance: true,
+    };
+    vi.mocked(fetchPerson).mockResolvedValue({
+      ...person,
+      project_memberships: [{ ...person.project_memberships[0], project_role: "project_manager" }],
+    });
+    vi.mocked(patchProjectMembership).mockRejectedValueOnce(
+      new ApiError(500, "raw membership secret"),
+    );
+    await renderDetail();
+    const projectRow = screen
+      .getAllByText("示例项目")
+      .map((node) => node.closest<HTMLElement>(".pp-project-role-item"))
+      .find((row) => row && within(row).queryByRole("button", { name: "停用" }));
+    expect(projectRow).not.toBeNull();
+    fireEvent.click(within(projectRow!).getByRole("button", { name: "停用" }));
+    expect(await screen.findByText("更新成员状态失败")).toBeInTheDocument();
+    expect(within(projectRow!).getByRole("button", { name: "停用" })).toBeEnabled();
+    expect(document.body.innerHTML).not.toContain("raw membership secret");
   });
 });

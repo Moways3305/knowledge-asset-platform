@@ -252,7 +252,7 @@ async def test_stage1_cards_company_scope_l4_redacted_l5_hidden(client):
     # L2 卡片：有 one_liner、可见摘要。
     l2 = cards[str(KA_COMPANY_L2)]
     assert l2["one_liner"]
-    assert l2["can_view_original"] is True  # 业务用户公司 L2 默认可得原文
+    assert l2["can_view_original"] is False
     # L4 卡片：detailed 取脱敏摘要、key_points 置空、不可得原文。
     l4 = cards[str(KA_COMPANY_L4)]
     assert "脱敏" in (l4["detailed"] or "")

@@ -15,6 +15,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+DIAGNOSTIC_LABELS: dict[str, str] = {
+    "configuration": "配置问题",
+    "external_service": "外部服务",
+    "source_content": "文件或内容",
+    "permission": "权限或访问",
+    "platform": "平台处理",
+    "unknown": "待确认",
+}
+
 
 @dataclass(frozen=True)
 class ErrorInfo:
@@ -98,6 +107,22 @@ _ALIASES: dict[str, str] = {
     "create_kb_no_id": "weknora_init_failed",
 }
 
+_DIAGNOSTIC_CATEGORIES: dict[str, str] = {
+    "weknora_not_configured": "configuration",
+    "weknora_embedding_model_missing": "configuration",
+    "weknora_init_failed": "configuration",
+    "weknora_model_not_found": "configuration",
+    "weknora_default_model_not_configured": "configuration",
+    "weknora_kb_embedding_model_locked": "configuration",
+    "weknora_call_failed": "external_service",
+    "source_file_unreadable": "source_content",
+    "wecom_scan_failed": "external_service",
+    "unknown": "unknown",
+}
+
+# 单条索引重试只对明确的瞬时外部服务失败开放。未知、配置、权限和源文件问题 fail closed。
+_TARGET_RETRY_ELIGIBLE = {"weknora_call_failed"}
+
 
 def _resolve_key(code: str | None) -> str:
     raw = (code or "").strip() or "unknown"
@@ -129,3 +154,13 @@ def safe_code(code: str | None) -> str:
     一律映射为目录分类 code：已知→自身、别名→目录 code、未知/不可信→`unknown`。幂等。
     """
     return _resolve_key(code)
+
+
+def diagnostic(code: str | None) -> tuple[str, str]:
+    """由安全目录键推导稳定诊断；未知/历史脏码统一回退，不回显输入。"""
+    category = _DIAGNOSTIC_CATEGORIES.get(_resolve_key(code), "unknown")
+    return category, DIAGNOSTIC_LABELS[category]
+
+
+def targeted_retry_eligible(code: str | None) -> bool:
+    return _resolve_key(code) in _TARGET_RETRY_ELIGIBLE

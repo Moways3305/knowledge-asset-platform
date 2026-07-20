@@ -1,8 +1,8 @@
 ﻿// 审计展示中文化。
 //
 // 后端审计事实保持机器可读（action / target_type / log_type / snapshot 原始英文枚举不变，
-// 用于筛选、接口稳定、排障）。此处只把高频枚举翻译为中文供展示；未映射的值一律回退原值，
-// 绝不丢弃、绝不臆造错误中文。原始 action / trace_id 仍由页面以小字 / tooltip 保留可排障。
+// 用于筛选、接口稳定、排障）。页面只能使用这里的安全业务文案；未映射值使用中性文案，
+// 不回显原始枚举、内部标识或快照内容。
 
 import type { AuditEventDTO } from "../types/audit";
 
@@ -179,16 +179,16 @@ const VALUE_LABELS: Record<string, string> = {
 };
 
 export function auditActionLabel(action: string): string {
-  return ACTION_LABELS[action] ?? action;
+  return ACTION_LABELS[action] ?? "其他审计操作";
 }
 
 export function auditTargetTypeLabel(targetType?: string | null): string {
   if (!targetType) return "—";
-  return TARGET_TYPE_LABELS[targetType] ?? targetType;
+  return TARGET_TYPE_LABELS[targetType] ?? "其他业务对象";
 }
 
 export function auditLogTypeLabel(logType: string): string {
-  return LOG_TYPE_LABELS[logType] ?? logType;
+  return LOG_TYPE_LABELS[logType] ?? "其他";
 }
 
 function _keyLabel(key: string): string {
@@ -201,12 +201,15 @@ export function auditValueLabel(_key: string, value: unknown): string {
   if (typeof value === "boolean") return value ? "是" : "否";
   if (typeof value === "object") return JSON.stringify(value);
   const s = String(value);
-  return VALUE_LABELS[s] ?? s;
+  return VALUE_LABELS[s] ?? "已记录";
 }
 
 // 把 after_snapshot（无则 denied_reason）压成一行中文摘要，未映射回退原值。
 export function auditSnapshotSummary(event: AuditEventDTO): string {
-  const snap = event.after_snapshot ?? event.extra;
+  const source = event.after_snapshot ?? event.extra;
+  const snap = source
+    ? Object.fromEntries(Object.entries(source).filter(([key]) => key in KEY_LABELS))
+    : null;
   if (snap && Object.keys(snap).length > 0) {
     return Object.entries(snap)
       .map(([k, v]) => `${_keyLabel(k)}：${auditValueLabel(k, v)}`)

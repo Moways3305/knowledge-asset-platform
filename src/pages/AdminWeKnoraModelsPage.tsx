@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Database, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
   fetchWeknoraDefaultModels,
@@ -9,9 +10,10 @@ import {
 } from "../api/admin";
 import { ApiError } from "../api/http";
 import { useAuth } from "../auth/AuthContext";
-import { PageHeader, PageSection, ProductPage, SettingsRow } from "../components/ProductLayout";
+import { PageHeader, PageSection, ProductPage } from "../components/ProductLayout";
 import UnifiedModelConnectionsSection from "../components/UnifiedModelConnectionsSection";
 import type { KbConfigDTO, ModelDTO } from "../types/weknoraAdmin";
+import "./AdminWeKnoraModelsPage.css";
 
 const scopeLabel: Record<string, string> = {
   company: "公司库",
@@ -26,20 +28,20 @@ const mappingStatusLabel: Record<string, string> = {
 function kbUpdateErrorMessage(caught: unknown): string {
   if (caught instanceof ApiError) {
     const messages: Record<string, string> = {
-      weknora_kb_config_rejected: "知识库配置被底座拒绝，请检查所选模型是否兼容",
-      weknora_embedding_locked: "知识库已有文件，不能更换嵌入模型",
-      weknora_model_type_mismatch: "所选模型类型与配置项不匹配",
-      weknora_model_slot_unsupported: "当前底座不支持按知识库更新该模型",
-      weknora_kb_chat_model_missing: "知识库当前未配置问答模型，请先选择问答模型",
+      weknora_kb_config_rejected: "知识库配置被底座拒绝，请检查所选模型是否兼容。",
+      weknora_embedding_locked: "知识库已有文件，不能更换嵌入模型。",
+      weknora_model_type_mismatch: "所选模型类型与配置项不匹配。",
+      weknora_model_slot_unsupported: "当前底座不支持按知识库更新该模型。",
+      weknora_kb_chat_model_missing: "知识库尚未配置问答模型，请先选择问答模型。",
     };
     if (caught.deniedReason && messages[caught.deniedReason]) {
       return messages[caught.deniedReason];
     }
     if (caught.status >= 400 && caught.status < 500) {
-      return "知识库配置未保存，请检查所选模型";
+      return "知识库配置未保存，请检查所选模型。";
     }
   }
-  return "模型连接服务暂不可用，请稍后重试";
+  return "知识库配置服务暂不可用，请稍后重试。";
 }
 
 export default function AdminWeKnoraModelsPage() {
@@ -48,6 +50,7 @@ export default function AdminWeKnoraModelsPage() {
   const [kbConfigs, setKbConfigs] = useState<KbConfigDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [notConfigured, setNotConfigured] = useState(false);
+  const [weknoraForbidden, setWeknoraForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [defaultChatRef, setDefaultChatRef] = useState("");
@@ -55,11 +58,14 @@ export default function AdminWeKnoraModelsPage() {
   const [defaultRerankRef, setDefaultRerankRef] = useState("");
   const [defaultMultimodalRef, setDefaultMultimodalRef] = useState("");
   const [defaultsBusy, setDefaultsBusy] = useState(false);
+  const [refreshSignal, setRefreshSignal] = useState(0);
+  const canEdit = capabilities.isAdmin && !weknoraForbidden;
 
   const loadKnowledgeConfigs = useCallback(async () => {
     setLoading(true);
     setError(null);
     setNotConfigured(false);
+    setWeknoraForbidden(false);
     try {
       const [availableModels, configs, defaults] = await Promise.all([
         fetchWeknoraModels(),
@@ -77,17 +83,25 @@ export default function AdminWeKnoraModelsPage() {
       setKbConfigs([]);
       if (caught instanceof ApiError && caught.status === 503) {
         setNotConfigured(true);
+      } else if (caught instanceof ApiError && caught.status === 403) {
+        setWeknoraForbidden(true);
+        setError("当前身份没有 WeKnora 管理权限，此区域保持只读。");
       } else {
-        setError("知识库配置暂时无法加载，请刷新或检查 WeKnora 连接");
+        setError("知识库底座暂时无法加载，请刷新或检查 WeKnora 连接。");
       }
     } finally {
       setLoading(false);
     }
   }, []);
 
+  const refreshAll = () => {
+    setRefreshSignal((value) => value + 1);
+    void loadKnowledgeConfigs();
+  };
+
   const saveFoundationDefaults = async () => {
     if (!defaultEmbeddingRef || !defaultChatRef) {
-      setError("请配置底座默认嵌入模型和底座兼容 LLM 槽位");
+      setError("请配置默认嵌入模型和底座兼容 LLM。");
       return;
     }
     setDefaultsBusy(true);
@@ -103,11 +117,32 @@ export default function AdminWeKnoraModelsPage() {
       setDefaultEmbeddingRef(updated.embedding?.model_ref ?? "");
       setDefaultRerankRef(updated.rerank?.model_ref ?? "");
       setDefaultMultimodalRef(updated.multimodal?.model_ref ?? "");
-      setNote("WeKnora 底座默认模型已更新；外部 LLM 默认连接未改变");
+      setNote("WeKnora 底座默认模型已更新；外部 LLM 默认连接未改变。");
     } catch {
-      setError("WeKnora 底座默认模型保存失败，请检查模型类型和底座连接");
+      setError("WeKnora 底座默认模型保存失败，请检查模型类型和底座连接。");
     } finally {
       setDefaultsBusy(false);
+    }
+  };
+
+  const refreshSavedKbConfig = async (mappingId: string, message: string) => {
+    setError(null);
+    setNote(null);
+    try {
+      const refreshed = await fetchWeknoraKbConfigs();
+      const savedConfig = refreshed.find((config) => config.mapping_id === mappingId);
+      if (!savedConfig) {
+        setNote(null);
+        setError("知识库配置已保存，但暂时无法读取最新状态，请刷新后确认。");
+        return;
+      }
+      setKbConfigs((current) =>
+        current.map((config) => (config.mapping_id === mappingId ? savedConfig : config)),
+      );
+      setNote(message);
+    } catch {
+      setNote(null);
+      setError("知识库配置已保存，但最新服务端状态读取失败，请刷新后确认。");
     }
   };
 
@@ -116,121 +151,140 @@ export default function AdminWeKnoraModelsPage() {
   }, [loadKnowledgeConfigs]);
 
   return (
-    <ProductPage className="ws-page">
+    <ProductPage className="ws-page mf-page">
       <PageHeader
-        title="外部 LLM 与知识库底座"
-        description="外部 LLM 由 KAP 直接调用；WeKnora 模型仅服务知识库初始化、检索与底座兼容。"
+        title="模型与知识库底座"
+        description="外部 LLM 由 KAP 直接调用；WeKnora 用于知识库底座。"
         actions={
-          <button
-            className="btn-small"
-            onClick={() => void loadKnowledgeConfigs()}
-            disabled={loading}
-          >
-            {loading ? "加载中…" : "刷新"}
+          <button className="btn-small mf-refresh" onClick={refreshAll} disabled={loading}>
+            <RefreshCw size={14} aria-hidden="true" />
+            {loading ? "刷新中…" : "刷新"}
           </button>
         }
       />
 
-      <UnifiedModelConnectionsSection canEdit={capabilities.isAdmin} />
+      <div className="mf-workspace">
+        <UnifiedModelConnectionsSection
+          canEdit={capabilities.isAdmin}
+          refreshSignal={refreshSignal}
+        />
 
-      <PageSection
-        title="WeKnora 底座默认模型"
-        description="用于新知识库初始化和检索底座。修改默认值不会重建知识库，也不会改变已有库的嵌入绑定。"
-      >
-        {notConfigured ? (
-          <div className="ig-empty-state">
-            <div className="ig-empty-title">WeKnora 尚未配置</div>
-            <p className="ig-empty-desc">此状态不影响上方外部 LLM 连接的创建、编辑和测试。</p>
+        <aside className="mf-foundation-panel" aria-labelledby="weknora-foundation-title">
+          <div className="mf-panel-heading">
+            <div>
+              <span className="mf-panel-kicker">WEKNORA BASE</span>
+              <h3 id="weknora-foundation-title">知识库底座</h3>
+            </div>
+            <span className="mf-foundation-mark" aria-hidden="true">
+              <Database size={17} />
+            </span>
           </div>
-        ) : loading ? (
-          <div className="ig-empty-state">正在加载底座默认模型…</div>
-        ) : (
-          <div className="product-settings-list">
-            <FoundationModelSelect
-              label="默认嵌入模型"
-              description="新知识库的向量化模型；已有知识库保持原绑定。"
-              value={defaultEmbeddingRef}
-              type="embedding"
-              models={models}
-              disabled={!capabilities.isAdmin || defaultsBusy}
-              onChange={setDefaultEmbeddingRef}
-            />
-            <FoundationModelSelect
-              label="底座兼容配置（LLM 槽位）"
-              description="满足当前 WeKnora 初始化契约，不控制 KAP 内容生成或项目问答。"
-              value={defaultChatRef}
-              type="chat"
-              models={models}
-              disabled={!capabilities.isAdmin || defaultsBusy}
-              onChange={setDefaultChatRef}
-            />
-            <FoundationModelSelect
-              label="默认重排模型"
-              description="用于改善底座检索排序，可按部署能力选择。"
-              value={defaultRerankRef}
-              type="rerank"
-              models={models}
-              disabled={!capabilities.isAdmin || defaultsBusy}
-              onChange={setDefaultRerankRef}
-              optional
-            />
-            <FoundationModelSelect
-              label="默认多模态模型"
-              description="仅用于底座支持的多模态解析能力。"
-              value={defaultMultimodalRef}
-              type="vllm"
-              models={models}
-              disabled={!capabilities.isAdmin || defaultsBusy}
-              onChange={setDefaultMultimodalRef}
-              optional
-            />
-            {capabilities.isAdmin && (
-              <div>
+
+          {!capabilities.isAdmin && !weknoraForbidden && (
+            <div className="mf-inline-message">当前身份仅可查看，修改需系统管理员。</div>
+          )}
+          {error && (
+            <div className="mf-inline-message is-danger" role="alert">
+              {error}
+            </div>
+          )}
+          {note && <div className="mf-inline-message is-success">{note}</div>}
+
+          {notConfigured ? (
+            <div className="mf-foundation-empty">
+              <strong>WeKnora 尚未配置</strong>
+              <span>这不会影响左侧外部 LLM 的创建、编辑和测试。</span>
+            </div>
+          ) : loading ? (
+            <div className="mf-foundation-empty">正在加载底座模型…</div>
+          ) : error && models.length === 0 ? (
+            <div className="mf-foundation-empty">
+              <strong>底座配置不可用</strong>
+              <span>外部 LLM 管理仍可独立使用。</span>
+            </div>
+          ) : (
+            <div className="mf-foundation-fields">
+              <FoundationModelSelect
+                label="默认嵌入模型"
+                description="用于新知识库向量化；已有库保持原绑定。"
+                value={defaultEmbeddingRef}
+                type="embedding"
+                models={models}
+                disabled={!canEdit || defaultsBusy}
+                onChange={setDefaultEmbeddingRef}
+              />
+              <FoundationModelSelect
+                label="底座兼容 LLM"
+                description="仅满足 WeKnora 初始化与检索契约。"
+                value={defaultChatRef}
+                type="chat"
+                models={models}
+                disabled={!canEdit || defaultsBusy}
+                onChange={setDefaultChatRef}
+              />
+              <FoundationModelSelect
+                label="默认重排模型"
+                description="可选，用于改善检索排序。"
+                value={defaultRerankRef}
+                type="rerank"
+                models={models}
+                disabled={!canEdit || defaultsBusy}
+                onChange={setDefaultRerankRef}
+                optional
+              />
+              <FoundationModelSelect
+                label="默认多模态模型"
+                description="可选，仅用于底座支持的多模态解析。"
+                value={defaultMultimodalRef}
+                type="vllm"
+                models={models}
+                disabled={!canEdit || defaultsBusy}
+                onChange={setDefaultMultimodalRef}
+                optional
+              />
+              {canEdit && (
                 <button
-                  className="btn-small-primary"
+                  className="btn-small-primary mf-foundation-save"
                   onClick={() => void saveFoundationDefaults()}
                   disabled={defaultsBusy}
                 >
-                  {defaultsBusy ? "保存中…" : "保存 WeKnora 底座默认模型"}
+                  {defaultsBusy ? "保存中…" : "保存底座配置"}
                 </button>
-              </div>
-            )}
-          </div>
-        )}
-      </PageSection>
+              )}
+            </div>
+          )}
+        </aside>
+      </div>
 
       <PageSection
+        className="mf-kb-section"
         title="知识库配置"
-        description="查看每个知识库当前绑定模型；已有库的嵌入模型锁定和失败恢复规则保持不变。"
+        description="已有知识库保留嵌入锁定、模型类型校验与初始化失败恢复规则。"
       >
-        {note && <div className="product-inline-note">{note}</div>}
-        {error && (
-          <div className="product-inline-note is-danger" role="alert">
-            {error}
-          </div>
-        )}
         {notConfigured ? (
-          <div className="ig-empty-state">
-            <div className="ig-empty-title">知识库连接尚未配置</div>
-            <p className="ig-empty-desc">
-              内容生成连接仍可管理；完成 WeKnora 部署配置后刷新本页即可查看知识库。
-            </p>
+          <div className="mf-empty-state">
+            <strong>知识库连接尚未配置</strong>
+            <span>完成 WeKnora 部署配置后刷新，即可查看知识库。</span>
           </div>
         ) : loading ? (
-          <div className="ig-empty-state">正在加载知识库配置…</div>
+          <div className="mf-empty-state">正在加载知识库配置…</div>
+        ) : error && kbConfigs.length === 0 ? (
+          <div className="mf-empty-state">
+            <strong>知识库配置不可用</strong>
+            <span>请刷新或检查当前管理权限与 WeKnora 连接。</span>
+          </div>
         ) : kbConfigs.length === 0 ? (
-          <div className="ig-empty-state">
-            <div className="ig-empty-title">暂无知识库</div>
-            <p className="ig-empty-desc">入库或创建项目后，会在此显示各知识库当前绑定的模型。</p>
+          <div className="mf-empty-state">
+            <strong>暂无知识库</strong>
+            <span>创建公司、项目或个人知识库后，会在此显示底座绑定。</span>
           </div>
         ) : (
-          <div className="ws-table-wrap">
-            <table className="ws-table">
+          <div className="ws-table-wrap mf-kb-table-wrap">
+            <table className="ws-table mf-kb-table">
               <thead>
                 <tr>
                   <th>知识库</th>
-                  <th>范围</th>
-                  <th>状态</th>
+                  <th>范围 / 状态</th>
                   <th>底座兼容</th>
                   <th>嵌入</th>
                   <th>重排</th>
@@ -244,20 +298,21 @@ export default function AdminWeKnoraModelsPage() {
                     key={config.mapping_id}
                     cfg={config}
                     models={models}
-                    onSaved={(message) => {
-                      setNote(message);
-                      void loadKnowledgeConfigs();
+                    canEdit={canEdit}
+                    onSaved={refreshSavedKbConfig}
+                    onError={(message) => {
+                      setError(message);
+                      setNote(null);
                     }}
-                    onError={setError}
                   />
                 ))}
               </tbody>
             </table>
           </div>
         )}
-        <p className="au-note" style={{ margin: 12 }}>
-          初始化失败的知识库可在此调整兼容模型后恢复；索引失败资产仍在{" "}
-          <Link to="/admin/ingest">入库管理</Link>或资产详情中重试。
+        <p className="mf-kb-footnote">
+          初始化失败可在此调整兼容模型；索引失败资产仍在 <Link to="/admin/ingest">入库管理</Link>
+          或资产详情中重试。
         </p>
       </PageSection>
     </ProductPage>
@@ -285,37 +340,37 @@ function FoundationModelSelect({
 }) {
   const options = models.filter((model) => model.type === type && model.enabled);
   return (
-    <SettingsRow
-      title={label}
-      description={description}
-      control={
-        <select
-          aria-label={label}
-          value={value}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.value)}
-        >
-          <option value="">{optional ? "暂不设置" : "请选择底座模型"}</option>
-          {options.map((model) => (
-            <option key={model.model_ref} value={model.model_ref}>
-              {model.name}
-            </option>
-          ))}
-        </select>
-      }
-    />
+    <label className="mf-foundation-field">
+      <span>{label}</span>
+      <small>{description}</small>
+      <select
+        aria-label={label}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">{optional ? "暂不设置" : "请选择底座模型"}</option>
+        {options.map((model) => (
+          <option key={model.model_ref} value={model.model_ref}>
+            {model.name}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
 function KbConfigRow({
   cfg,
   models,
+  canEdit,
   onSaved,
   onError,
 }: {
   cfg: KbConfigDTO;
   models: ModelDTO[];
-  onSaved: (message: string) => void;
+  canEdit: boolean;
+  onSaved: (mappingId: string, message: string) => Promise<void>;
   onError: (message: string) => void;
 }) {
   const [chat, setChat] = useState(cfg.chat?.model_ref ?? "");
@@ -324,8 +379,16 @@ function KbConfigRow({
   const [multimodal, setMultimodal] = useState(cfg.multimodal?.model_ref ?? "");
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    setChat(cfg.chat?.model_ref ?? "");
+    setEmbedding(cfg.embedding?.model_ref ?? "");
+    setRerank(cfg.rerank?.model_ref ?? "");
+    setMultimodal(cfg.multimodal?.model_ref ?? "");
+  }, [cfg.chat, cfg.embedding, cfg.multimodal, cfg.rerank]);
+
   const options = (type: string) => models.filter((model) => model.type === type && model.enabled);
   const selector = (
+    label: string,
     value: string,
     setter: (value: string) => void,
     type: string,
@@ -333,10 +396,12 @@ function KbConfigRow({
   ) => (
     <select
       className="ws-form-input"
+      aria-label={`${cfg.kb_name} ${label}`}
       value={value}
+      disabled={!canEdit || busy}
       onChange={(event) => setter(event.target.value)}
     >
-      <option value="">{current?.name ? `保持（${current.name}）` : "（未设置）"}</option>
+      <option value="">{current?.name ? `保持：${current.name}` : "（未设置）"}</option>
       {options(type).map((model) => (
         <option key={model.model_ref} value={model.model_ref}>
           {model.name}
@@ -352,13 +417,13 @@ function KbConfigRow({
     if (rerank) body.rerank_model_ref = rerank;
     if (multimodal) body.multimodal_ref = multimodal;
     if (Object.keys(body).length === 0) {
-      onError("请至少选择一个模型");
+      onError("请至少选择一个模型。");
       return;
     }
     setBusy(true);
     try {
       await updateWeknoraKbInit(cfg.mapping_id, body);
-      onSaved(`知识库「${cfg.kb_name}」配置已更新`);
+      await onSaved(cfg.mapping_id, `知识库“${cfg.kb_name}”配置已更新。`);
     } catch (caught) {
       onError(kbUpdateErrorMessage(caught));
     } finally {
@@ -369,26 +434,29 @@ function KbConfigRow({
   return (
     <tr className={cfg.mapping_status === "init_failed" ? "ws-row-disabled" : ""}>
       <td>
-        {cfg.kb_name}
-        {cfg.project_name ? ` · ${cfg.project_name}` : ""}
-        {cfg.owner_name ? ` · ${cfg.owner_name}` : ""}
+        <strong className="mf-kb-name">{cfg.kb_name}</strong>
+        {(cfg.project_name || cfg.owner_name) && (
+          <span className="mf-kb-context">{cfg.project_name ?? cfg.owner_name}</span>
+        )}
       </td>
-      <td>{scopeLabel[cfg.scope] ?? cfg.scope}</td>
       <td>
+        <span className="mf-kb-scope">{scopeLabel[cfg.scope] ?? cfg.scope}</span>
         <span
           className={`ws-status-pill ${cfg.mapping_status === "active" ? "ws-status-on" : "ws-status-off"}`}
         >
           {mappingStatusLabel[cfg.mapping_status] ?? cfg.mapping_status}
         </span>
       </td>
-      <td>{selector(chat, setChat, "chat", cfg.chat)}</td>
-      <td>{selector(embedding, setEmbedding, "embedding", cfg.embedding)}</td>
-      <td>{selector(rerank, setRerank, "rerank", cfg.rerank)}</td>
-      <td>{selector(multimodal, setMultimodal, "vllm", cfg.multimodal)}</td>
+      <td>{selector("底座兼容", chat, setChat, "chat", cfg.chat)}</td>
+      <td>{selector("嵌入", embedding, setEmbedding, "embedding", cfg.embedding)}</td>
+      <td>{selector("重排", rerank, setRerank, "rerank", cfg.rerank)}</td>
+      <td>{selector("多模态", multimodal, setMultimodal, "vllm", cfg.multimodal)}</td>
       <td>
-        <button className="btn-small-primary" onClick={() => void save()} disabled={busy}>
-          {busy ? "保存中…" : "保存"}
-        </button>
+        {canEdit && (
+          <button className="btn-small-primary" onClick={() => void save()} disabled={busy}>
+            {busy ? "保存中…" : "保存"}
+          </button>
+        )}
         {cfg.config_error && <div className="ws-cell-suggestion">{cfg.config_error}</div>}
       </td>
     </tr>

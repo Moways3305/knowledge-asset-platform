@@ -7,6 +7,15 @@ export type ConfidentialityLevel = "L1" | "L2" | "L3" | "L4" | "L5";
 export type AiAccessLevel = "A1" | "A2" | "A3" | "A4";
 export type AssetStatus = "active" | "needs_update" | "deprecated" | "archived";
 export type KnowledgeScope = "personal" | "project" | "company";
+export type KnowledgeZone = "material" | "asset";
+export type AssetType = "methodology" | "deliverable" | "case" | "template" | "insight";
+export type KnowledgeSortField =
+  | "updated_at"
+  | "created_at"
+  | "title"
+  | "confidentiality_level"
+  | "asset_status";
+export type SortDirection = "asc" | "desc";
 
 // ---- 后端 DTO ----
 export interface AccessInfoDTO {
@@ -18,6 +27,7 @@ export interface AccessInfoDTO {
   existing_request_status: string | null;
   existing_grant_expires_at: string | null;
   can_delete: boolean;
+  can_manage_lifecycle: boolean;
   can_retry_index?: boolean;
 }
 
@@ -64,9 +74,34 @@ export interface KnowledgeListItemDTO {
   indexed_at?: string | null;
 }
 
-export interface KnowledgeListResponseDTO {
+export interface KnowledgeItemsResponseDTO {
   items: KnowledgeListItemDTO[];
   total: number;
+}
+
+export interface KnowledgeListResponseDTO extends KnowledgeItemsResponseDTO {
+  page: number;
+  page_size: number;
+  has_next: boolean;
+}
+
+export interface KnowledgeQueryParams {
+  page?: number;
+  pageSize?: number;
+  keyword?: string;
+  scope?: KnowledgeScope;
+  projectId?: string;
+  zone?: KnowledgeZone;
+  assetType?: AssetType;
+  assetStatus?: AssetStatus;
+  confidentialityLevel?: ConfidentialityLevel;
+  createdFrom?: string;
+  createdTo?: string;
+  updatedFrom?: string;
+  updatedTo?: string;
+  sortBy?: KnowledgeSortField;
+  sortDirection?: SortDirection;
+  includeArchived?: boolean;
 }
 
 export interface KnowledgeDetailDTO {
@@ -109,6 +144,7 @@ export interface AccessInfoVM {
   existingRequestStatus: string | null;
   existingGrantExpiresAt: string | null;
   canDelete: boolean;
+  canManageLifecycle: boolean;
   canRetryIndex: boolean;
 }
 
@@ -134,6 +170,14 @@ export interface KnowledgeCardVM {
   parseStatus: string | null;
   indexErrorMessage: string | null;
   indexedAt: string | null;
+}
+
+export interface KnowledgePageVM {
+  items: KnowledgeCardVM[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasNext: boolean;
 }
 
 export interface KnowledgeDetailVM extends KnowledgeCardVM {
