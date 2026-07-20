@@ -113,7 +113,10 @@ await page.getByLabel("模型名称").fill("deepseek-chat");
 await page.getByLabel("API 地址").fill("https://api.example.com/v1");
 await page.getByLabel("API key").fill("reviewed-secret");
 await page.getByLabel("启用状态").selectOption("enabled");
-await page.getByRole("button", { name: "保存外部 LLM 连接" }).click();
+await page
+  .locator(".mf-connection-editor")
+  .getByRole("button", { name: /^保存外部 LLM/ })
+  .click();
 await page.waitForTimeout(250);
 assert(postCount === 1, `manual create sent ${postCount} POST requests`);
 assert(
