@@ -58,5 +58,5 @@ def run_indexing_operation(self, job_id_str: str, trace_id: str | None = None) -
                 retry=self.request.retries + 1,
                 countdown=countdown,
             )
-            raise self.retry(exc=exc, countdown=countdown)
+            raise self.retry(exc=exc, countdown=countdown) from exc
         raise  # 不可重试 / 重试耗尽：原样抛出（终态失败按 service 层已记录处理）

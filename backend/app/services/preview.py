@@ -450,5 +450,5 @@ async def serve_preview_file(
         data = storage.resolve_path(storage_ref).read_bytes()
     except (OSError, ValueError):
         # 不回显 storage_ref / 真实路径。
-        raise _denied(404, "preview_source_unavailable", "原文读取失败")
+        raise _denied(404, "preview_source_unavailable", "原文读取失败") from None
     return data, (mime or "application/octet-stream"), safe_filename(file_name)
