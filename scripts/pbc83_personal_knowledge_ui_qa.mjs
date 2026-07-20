@@ -233,7 +233,17 @@ try {
         const panel = page.getByRole("dialog", { name: "筛选个人资料" });
         await panel.getByLabel("资料类型").selectOption("template");
         await page.getByRole("textbox", { name: "搜索个人资料" }).fill("复盘");
+        const filteredResponse = page.waitForResponse((response) => {
+          const url = new URL(response.url());
+          return (
+            url.pathname === "/api/v1/my/knowledge" &&
+            url.searchParams.get("asset_type") === "template" &&
+            url.searchParams.get("keyword") === "复盘"
+          );
+        });
         await page.getByRole("button", { name: "搜索", exact: true }).click();
+        await filteredResponse;
+        await page.getByRole("button", { name: "清除搜索" }).waitFor();
         await page.getByText("项目复盘方法模板").waitFor();
       } else if (scenario === "no-results") {
         await page.getByRole("textbox", { name: "搜索个人资料" }).fill("不存在的资料");

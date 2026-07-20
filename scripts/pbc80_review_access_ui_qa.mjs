@@ -333,6 +333,14 @@ try {
       const browserMessages = [];
       page.on("console", (message) => browserMessages.push(message.text()));
       page.on("pageerror", (error) => browserMessages.push(error.message));
+      const emptyResponse = ["review-empty", "access-empty"].includes(scenario.name)
+        ? page.waitForResponse((response) => {
+            const pathname = new URL(response.url()).pathname;
+            return scenario.name === "review-empty"
+              ? pathname === "/api/v1/reviews"
+              : pathname === "/api/v1/original-access/requests";
+          })
+        : null;
       await page.goto(`${base}${scenario.path}`, { waitUntil: "domcontentloaded" });
 
       let routeRoundTrip = false;
@@ -356,9 +364,17 @@ try {
         releaseLoading();
         await page.getByText("客户访谈原文").waitFor();
       } else if (scenario.name === "review-empty") {
+        await emptyResponse;
+        await page.waitForFunction(
+          () => document.querySelector("table")?.getAttribute("aria-busy") === "false",
+        );
         await page.getByText("暂无审核事项").waitFor();
         emptySeen = true;
       } else if (scenario.name === "access-empty") {
+        await emptyResponse;
+        await page.waitForFunction(
+          () => document.querySelector("table")?.getAttribute("aria-busy") === "false",
+        );
         await page.getByText("暂无待审批申请").waitFor();
         emptySeen = true;
       } else if (scenario.name === "review-forbidden") {

@@ -3,13 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { createServer } from "node:net";
 import {
   buildRouteCoverage,
   explicitCaseResult,
   routeDefinitions,
 } from "./pbc91_global_frontend_acceptance_coverage.mjs";
 
-const base = (process.env.UI_QA_BASE || "http://127.0.0.1:5179").replace(/\/$/, "");
+const configuredBase = process.env.UI_QA_BASE?.replace(/\/$/, "") || null;
+let base = configuredBase || "";
 const rootDir = path.resolve();
 const outRoot = process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa");
 const outDir = path.join(outRoot, "pbc91-global-acceptance");
@@ -94,6 +96,7 @@ let ownedServer = null;
 let serverOutput = "";
 
 async function isServerReady() {
+  if (!base) return false;
   try {
     const response = await fetch(base, { signal: AbortSignal.timeout(1000) });
     return response.ok;
@@ -102,9 +105,29 @@ async function isServerReady() {
   }
 }
 
+function availablePort() {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const port = typeof address === "object" && address ? address.port : null;
+      server.close((error) => {
+        if (error) reject(error);
+        else if (port) resolve(port);
+        else reject(new Error("Unable to allocate a UI QA port."));
+      });
+    });
+  });
+}
+
 async function ensureServer() {
   if (await isServerReady()) return;
-  if (process.env.UI_QA_BASE) throw new Error(`UI_QA_BASE is not reachable: ${base}`);
+  if (configuredBase) throw new Error(`UI_QA_BASE is not reachable: ${base}`);
+  if (ownedServer?.exitCode === null) await stopOwnedServer();
+
+  const port = await availablePort();
+  base = `http://127.0.0.1:${port}`;
 
   ownedServer = spawn(
     process.execPath,
@@ -113,7 +136,7 @@ async function ensureServer() {
       "--host",
       "127.0.0.1",
       "--port",
-      "5179",
+      String(port),
       "--strictPort",
     ],
     { cwd: rootDir, stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
@@ -177,6 +200,7 @@ const suiteResults = [];
 try {
   await ensureServer();
   for (const suite of suites) {
+    await ensureServer();
     const startedAt = Date.now();
     const execution = await runSuite(suite);
     const suiteDir = path.join(evidenceDir, suite.evidence);
