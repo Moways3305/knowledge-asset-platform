@@ -562,6 +562,98 @@
         "title": "AgentToolSearchRequest",
         "type": "object"
       },
+      "AgentWorkbenchTodoItem": {
+        "description": "工作台待办条目（安全聚合）。asset_title 已按权限边界裁剪，无权看标题时为安全占位。",
+        "properties": {
+          "asset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Id"
+          },
+          "asset_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Title"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "priority": {
+            "default": "normal",
+            "title": "Priority",
+            "type": "string"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "todo_id": {
+            "title": "Todo Id",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "todo_id",
+          "type",
+          "title",
+          "status"
+        ],
+        "title": "AgentWorkbenchTodoItem",
+        "type": "object"
+      },
       "AiAccessLevel": {
         "description": "AI 调用级别 A1-A4。A4 资产不进入 Agent 原文上下文（与人工预览是不同边界）。",
         "enum": [
@@ -12577,6 +12669,39 @@
         "title": "WorkbenchTodoCounts",
         "type": "object"
       },
+      "WorkbenchTodoItem": {
+        "properties": {
+          "action_key": {
+            "title": "Action Key",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "route_key": {
+            "title": "Route Key",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "count",
+          "severity",
+          "route_key",
+          "action_key"
+        ],
+        "title": "WorkbenchTodoItem",
+        "type": "object"
+      },
       "WorkbenchTodosResponse": {
         "properties": {
           "counts": {
@@ -12584,7 +12709,7 @@
           },
           "items": {
             "items": {
-              "$ref": "#/components/schemas/app__schemas__agent_workbench__WorkbenchTodoItem"
+              "$ref": "#/components/schemas/AgentWorkbenchTodoItem"
             },
             "title": "Items",
             "type": "array"
@@ -12612,7 +12737,7 @@
           },
           "items": {
             "items": {
-              "$ref": "#/components/schemas/app__schemas__workbench__WorkbenchTodoItem"
+              "$ref": "#/components/schemas/WorkbenchTodoItem"
             },
             "title": "Items",
             "type": "array"
@@ -12728,131 +12853,6 @@
           "enabled"
         ],
         "title": "WorkbuddyTokenStatusOut",
-        "type": "object"
-      },
-      "app__schemas__agent_workbench__WorkbenchTodoItem": {
-        "description": "工作台待办条目（安全聚合）。asset_title 已按权限边界裁剪，无权看标题时为安全占位。",
-        "properties": {
-          "asset_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Asset Id"
-          },
-          "asset_title": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Asset Title"
-          },
-          "created_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Created At"
-          },
-          "priority": {
-            "default": "normal",
-            "title": "Priority",
-            "type": "string"
-          },
-          "project_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Project Id"
-          },
-          "project_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Project Name"
-          },
-          "status": {
-            "title": "Status",
-            "type": "string"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "todo_id": {
-            "title": "Todo Id",
-            "type": "string"
-          },
-          "type": {
-            "title": "Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "todo_id",
-          "type",
-          "title",
-          "status"
-        ],
-        "title": "WorkbenchTodoItem",
-        "type": "object"
-      },
-      "app__schemas__workbench__WorkbenchTodoItem": {
-        "properties": {
-          "action_key": {
-            "title": "Action Key",
-            "type": "string"
-          },
-          "count": {
-            "title": "Count",
-            "type": "integer"
-          },
-          "key": {
-            "title": "Key",
-            "type": "string"
-          },
-          "route_key": {
-            "title": "Route Key",
-            "type": "string"
-          },
-          "severity": {
-            "title": "Severity",
-            "type": "string"
-          }
-        },
-        "required": [
-          "key",
-          "count",
-          "severity",
-          "route_key",
-          "action_key"
-        ],
-        "title": "WorkbenchTodoItem",
         "type": "object"
       }
     }
