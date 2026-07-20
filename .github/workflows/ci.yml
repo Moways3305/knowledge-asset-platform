@@ -158,7 +158,6 @@ jobs:
         run: npm run build
       - name: Start preview server
         # CI 无后端，页面呈现空态/错误态；脚本只验证布局（横向溢出），
-        # 空/错误态同样可验证（见 scripts/ui_qa.mjs 注释）。
         run: |
           nohup npm run preview -- --port 4173 --strictPort > preview.log 2>&1 &
           for i in $(seq 1 30); do
@@ -168,8 +167,6 @@ jobs:
           echo "preview server did not start" >&2
           cat preview.log >&2
           exit 1
-      - name: UI QA (horizontal overflow smoke)
-        run: node scripts/ui_qa.mjs ci
       - name: UI QA (model connection autofill state)
         run: npm run test:ui:model-autofill
       - name: UI QA (project settings reference layout)

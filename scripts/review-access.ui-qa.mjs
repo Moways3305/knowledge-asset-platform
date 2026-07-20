@@ -7,7 +7,7 @@ import { build, preview } from "vite";
 const port = Number(process.env.UI_QA_PORT || 5195);
 const base = `http://127.0.0.1:${port}`;
 const outRoot = process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa");
-const outDir = path.join(outRoot, "pbc80-review-access");
+const outDir = path.join(outRoot, "review-access");
 fs.mkdirSync(outDir, { recursive: true });
 
 const viewports = [

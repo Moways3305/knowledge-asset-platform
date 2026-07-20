@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildRouteCoverage } from "./pbc91_global_frontend_acceptance_coverage.mjs";
+import { buildRouteCoverage } from "./global-frontend-acceptance.coverage.mjs";
 
 const definitions = [
   {

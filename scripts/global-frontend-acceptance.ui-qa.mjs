@@ -8,15 +8,15 @@ import {
   buildRouteCoverage,
   explicitCaseResult,
   routeDefinitions,
-} from "./pbc91_global_frontend_acceptance_coverage.mjs";
+} from "./global-frontend-acceptance.coverage.mjs";
 
 const configuredBase = process.env.UI_QA_BASE?.replace(/\/$/, "") || null;
 let base = configuredBase || "";
 const rootDir = path.resolve();
 const outRoot = process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa");
-const outDir = path.join(outRoot, "pbc91-global-acceptance");
+const outDir = path.join(outRoot, "global-frontend-acceptance");
 const evidenceDir = path.join(outDir, "evidence");
-if (path.basename(outDir) !== "pbc91-global-acceptance") {
+if (path.basename(outDir) !== "global-frontend-acceptance") {
   throw new Error(`Refusing to reset unexpected UI QA output path: ${outDir}`);
 }
 fs.rmSync(outDir, { recursive: true, force: true });
@@ -25,70 +25,70 @@ fs.mkdirSync(evidenceDir, { recursive: true });
 const suites = [
   {
     name: "project-settings",
-    script: "pbc74_project_settings_ui_qa.mjs",
-    evidence: "pbc74-project-settings",
+    script: "project-settings.ui-qa.mjs",
+    evidence: "project-settings",
   },
   {
     name: "knowledge-list",
-    script: "pbc75_knowledge_list_ui_qa.mjs",
-    evidence: "pbc75-knowledge-list",
+    script: "knowledge-list.ui-qa.mjs",
+    evidence: "knowledge-list",
   },
   {
     name: "knowledge-detail",
-    script: "pbc76_knowledge_detail_ui_qa.mjs",
-    evidence: "pbc76-knowledge-detail",
+    script: "knowledge-detail.ui-qa.mjs",
+    evidence: "knowledge-detail",
   },
-  { name: "upload", script: "pbc77_upload_ingest_ui_qa.mjs", evidence: "pbc77-upload-ingest" },
+  { name: "upload", script: "upload-ingest.ui-qa.mjs", evidence: "upload-ingest" },
   {
     name: "project-space",
-    script: "pbc78_project_space_ui_qa.mjs",
-    evidence: "pbc78-project-space",
+    script: "project-space.ui-qa.mjs",
+    evidence: "project-space",
   },
   {
     name: "project-knowledge",
-    script: "pbc79_project_knowledge_ui_qa.mjs",
-    evidence: "pbc79-project-knowledge",
+    script: "project-knowledge.ui-qa.mjs",
+    evidence: "project-knowledge",
   },
   {
     name: "review-access",
-    script: "pbc80_review_access_ui_qa.mjs",
-    evidence: "pbc80-review-access",
+    script: "review-access.ui-qa.mjs",
+    evidence: "review-access",
   },
-  { name: "workbench", script: "pbc81_workbench_ui_qa.mjs", evidence: "pbc81-workbench" },
+  { name: "workbench", script: "workbench.ui-qa.mjs", evidence: "workbench" },
   {
     name: "personal-knowledge",
-    script: "pbc83_personal_knowledge_ui_qa.mjs",
-    evidence: "pbc83-personal-knowledge",
+    script: "personal-knowledge.ui-qa.mjs",
+    evidence: "personal-knowledge",
   },
   {
     name: "admin-ingest",
-    script: "pbc85_admin_operations_closure_ui_qa.mjs",
-    evidence: "pbc85-admin-operations-closure",
+    script: "admin-operations.ui-qa.mjs",
+    evidence: "admin-operations",
   },
   {
     name: "model-foundation",
-    script: "pbc86_model_foundation_ui_qa.mjs",
-    evidence: "pbc86-model-foundation",
+    script: "model-foundation.ui-qa.mjs",
+    evidence: "model-foundation",
   },
   {
     name: "wecom-scan",
-    script: "pbc87_wecom_scan_ui_qa.mjs",
-    evidence: "pbc87-wecom-scan",
+    script: "wecom-scan.ui-qa.mjs",
+    evidence: "wecom-scan",
   },
   {
     name: "security-operations",
-    script: "pbc88_audit_security_operations_ui_qa.mjs",
-    evidence: "pbc88-security-operations",
+    script: "security-operations.ui-qa.mjs",
+    evidence: "security-operations",
   },
   {
     name: "people-permissions",
-    script: "pbc89_people_permissions_ui_qa.mjs",
-    evidence: "pbc89-people-permissions",
+    script: "people-permissions.ui-qa.mjs",
+    evidence: "people-permissions",
   },
   {
     name: "help-global",
-    script: "pbc90_help_global_experience_ui_qa.mjs",
-    evidence: "pbc90-help-global",
+    script: "help-global-experience.ui-qa.mjs",
+    evidence: "help-global-experience",
   },
 ];
 

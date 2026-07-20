@@ -3,7 +3,7 @@ import fs from "node:fs";
 
 const base = process.env.UI_QA_BASE || "http://127.0.0.1:5180";
 const outDir =
-  process.env.UI_QA_OUT_DIR || `${process.env.TEMP || "/tmp"}/kap-ui-qa/pbc52-model-autofill`;
+  process.env.UI_QA_OUT_DIR || `${process.env.TEMP || "/tmp"}/kap-ui-qa/model-autofill`;
 fs.mkdirSync(outDir, { recursive: true });
 
 const assert = (condition, message) => {

@@ -8,7 +8,7 @@ const port = Number(process.env.UI_QA_PORT || 5200);
 const base = `http://127.0.0.1:${port}`;
 const outDir = path.join(
   process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa"),
-  "pbc85-admin-operations-closure",
+  "admin-operations",
 );
 fs.mkdirSync(outDir, { recursive: true });
 

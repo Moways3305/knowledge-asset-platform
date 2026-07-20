@@ -8,7 +8,7 @@ const port = Number(process.env.UI_QA_PORT || 5203);
 const base = `http://127.0.0.1:${port}`;
 const outDir = path.join(
   process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa"),
-  "pbc88-security-operations",
+  "security-operations",
 );
 const viewports = [
   { name: "1440", width: 1440, height: 1050 },

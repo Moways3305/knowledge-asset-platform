@@ -7,7 +7,7 @@ import { chromium } from "playwright";
 
 const base = (process.env.UI_QA_BASE || "http://127.0.0.1:5179").replace(/\/$/, "");
 const outRoot = process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa");
-const outDir = path.join(outRoot, "pbc90-help-global");
+const outDir = path.join(outRoot, "help-global-experience");
 fs.mkdirSync(outDir, { recursive: true });
 
 let ownedServer = null;

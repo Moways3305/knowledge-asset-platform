@@ -5,7 +5,7 @@ import { chromium } from "playwright";
 
 const base = process.env.UI_QA_BASE || "http://localhost:5179";
 const outRoot = process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa");
-const outDir = path.join(outRoot, "pbc76-knowledge-detail");
+const outDir = path.join(outRoot, "knowledge-detail");
 fs.mkdirSync(outDir, { recursive: true });
 
 const assetId = "00000000-0000-0000-0000-000000000076";
