@@ -22,7 +22,12 @@ x-backend-env: &backend-env
   APP_NAME: knowledge-asset-platform
   APP_ENV: ${APP_ENV:-prod}
   LOG_LEVEL: INFO
-  DATABASE_URL: postgresql+asyncpg://dev:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (set it in ./.env)}@postgres:5432/knowledge_platform
+  # DATABASE_URL 的密码部分不在此拼接——避免密码含 URL 特殊字符（% @ / # 等）
+  # 时被 URL 解析器误处理。POSTGRES_PASSWORD 作为独立变量，postgres 服务用它
+  # 初始化数据库，后端用它经 sqlalchemy URL.create 正确编码后构建连接串。
+  # 下列占位密码会被 POSTGRES_PASSWORD 覆盖（见 config.py _inject_postgres_password）。
+  DATABASE_URL: postgresql+asyncpg://dev:__PG_PASSWORD__@postgres:5432/knowledge_platform
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (set it in ./.env)}
   # Redis 密码经 compose 变量插值（从 ./.env 读 REDIS_PASSWORD），不在此硬编码密码值。
   # backend/worker/beat/migrate 共用本变量连接同一带密码的 Redis。
   # :? 缺失即 fail-fast（compose 直接报错退出），不静默降级为空密码。
