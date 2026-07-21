@@ -113,20 +113,18 @@ export function useUploadFlow() {
       .catch(() => setProjects([]));
   }, []);
 
-  // 企业微信待确认：拉取当前用户可处理的待确认任务。
+  // 待确认入库：拉取当前用户可处理的全部待确认任务（不再按来源过滤）。
   const loadPending = useCallback(async () => {
     const requestId = ++pendingRequestRef.current;
     setPendingLoading(true);
     setPendingError(null);
     try {
-      const tasks = await fetchPendingIngestTasks("path_a_wecom");
+      const tasks = await fetchPendingIngestTasks();
       if (pendingRequestRef.current !== requestId) return;
       setPendingTasks(tasks);
     } catch (e) {
       if (pendingRequestRef.current !== requestId) return;
-      setPendingError(
-        e instanceof ApiError ? e.message : "企业微信待确认任务暂时无法加载，请稍后重试",
-      );
+      setPendingError(e instanceof ApiError ? e.message : "待确认任务暂时无法加载，请稍后重试");
     } finally {
       if (pendingRequestRef.current === requestId) setPendingLoading(false);
     }

@@ -68,6 +68,20 @@ export async function fetchProjectMembers(projectId: string): Promise<ProjectMem
   return apiGet<ProjectMembersResponseDTO>(`/api/v1/projects/${projectId}/members`);
 }
 
+// 可被添加为项目成员的候选用户列表（active 业务用户，排除已 active 成员）。
+// 读权限同项目成员列表：治理角色或本项目 active 成员可读。
+export interface CandidateMemberDTO {
+  user_id: string;
+  name: string;
+  email: string;
+}
+
+export async function fetchCandidateMembers(
+  projectId: string,
+): Promise<{ items: CandidateMemberDTO[] }> {
+  return apiGet<{ items: CandidateMemberDTO[] }>(`/api/v1/projects/${projectId}/candidate-members`);
+}
+
 export async function patchProjectMember(
   projectId: string,
   memberId: string,

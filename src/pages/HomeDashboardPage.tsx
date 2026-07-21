@@ -21,6 +21,7 @@ import { fetchWorkbenchOverview } from "../api/workbench";
 import { useAuth } from "../auth/AuthContext";
 import { can } from "../auth/permissions";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
+import WorkbuddyAccessCard from "../components/WorkbuddyAccessCard";
 import type {
   WorkbenchOperationCardDTO,
   WorkbenchOverviewDTO,
@@ -382,6 +383,16 @@ export default function HomeDashboardPage() {
               />
             )}
           </WorkbenchPanel>
+
+          {capabilities.isBusinessUser && (
+            <WorkbenchPanel
+              title="WorkBuddy 接入"
+              icon={<BriefcaseBusiness size={17} />}
+              className="is-workbuddy"
+            >
+              <WorkbuddyAccessCard />
+            </WorkbenchPanel>
+          )}
         </div>
 
         <div className="wb81-primary-column">

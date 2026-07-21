@@ -244,6 +244,10 @@
   overflow: hidden;
 }
 
+.people89-page .pp-table-wrap {
+  overflow-x: auto;
+}
+
 .gp-table {
   border-collapse: collapse;
   table-layout: fixed;
@@ -516,7 +520,7 @@
 }
 
 .people89-page .pp-table {
-  table-layout: fixed;
+  table-layout: auto;
 }
 
 .people89-page .pp-table th,

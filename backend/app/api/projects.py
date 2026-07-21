@@ -28,6 +28,7 @@ from app.core.trace import get_trace_id
 from app.db.session import get_db
 from app.schemas.permission import CallerContext
 from app.schemas.project_settings import (
+    CandidateMembersResponse,
     ProjectCreateRequest,
     ProjectCreateResponse,
     ProjectListResponse,
@@ -114,6 +115,19 @@ async def list_project_members(
     session: AsyncSession = Depends(get_db),
 ) -> ProjectMembersResponse:
     return await projects_service.list_members(session, caller, project_id)
+
+
+@router.get("/{project_id}/candidate-members", response_model=CandidateMembersResponse)
+async def list_candidate_members(
+    project_id: uuid.UUID,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> CandidateMembersResponse:
+    """列出可被添加为项目成员的候选用户（active 业务用户，排除已 active 成员）。
+
+    读权限同 list_members：治理角色或本项目 active 成员可读。
+    """
+    return await projects_service.list_candidate_members(session, caller, project_id)
 
 
 @router.patch("/{project_id}/members/{member_id}", response_model=ProjectMemberOut)

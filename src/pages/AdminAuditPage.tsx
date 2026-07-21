@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ChevronDown,
+  ChevronRight,
   LogIn,
   RefreshCw,
   ScrollText,
@@ -51,6 +53,7 @@ export default function AdminAuditPage() {
   const [filterSeverity, setFilterSeverity] = useState("");
   const [filterProcessed, setFilterProcessed] = useState("");
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -259,56 +262,151 @@ export default function AdminAuditPage() {
                 </thead>
                 <tbody>
                   {logs.map((item) => (
-                    <tr key={item.id}>
-                      <td className="secops-time">{formatBeijingTime(item.created_at)}</td>
-                      <td className="secops-primary">
-                        {activeTab === "login"
-                          ? (item.actor_name ?? "未知用户")
-                          : auditActionLabel(item.action)}
-                      </td>
-                      <td>
-                        {activeTab === "login"
-                          ? auditLoginSummary(item)
-                          : (item.actor_name ?? "系统操作")}
-                      </td>
-                      <td>
-                        {activeTab === "exception" ? (
-                          <span className={`secops-pill severity-${item.severity ?? "unknown"}`}>
-                            {severityLabel[item.severity ?? ""] ?? "未分级"}
-                          </span>
-                        ) : (
-                          safeRole(item)
-                        )}
-                      </td>
-                      <td>
-                        {activeTab === "exception" ? (
-                          <span
-                            className={`secops-pill ${item.is_processed ? "is-done" : "is-pending"}`}
-                          >
-                            {item.is_processed ? "已处理" : "未处理"}
-                          </span>
-                        ) : (
-                          auditTargetTypeLabel(item.target_type)
-                        )}
-                      </td>
-                      {activeTab === "exception" && (
+                    <Fragment key={item.id}>
+                      <tr>
+                        <td className="secops-time">{formatBeijingTime(item.created_at)}</td>
+                        <td className="secops-primary">
+                          {activeTab === "login"
+                            ? (item.actor_name ?? "未知用户")
+                            : auditActionLabel(item.action)}
+                        </td>
                         <td>
-                          {!item.is_processed && canProcess ? (
-                            <button
-                              className="btn-small"
-                              disabled={processingId === item.id}
-                              onClick={() => void handleMarkProcessed(item)}
-                            >
-                              {processingId === item.id ? "保存中…" : "标记已处理"}
-                            </button>
-                          ) : (
-                            <span className="secops-muted">
-                              {item.is_processed ? "已完成" : "只读"}
+                          {activeTab === "login"
+                            ? auditLoginSummary(item)
+                            : (item.actor_name ?? "系统操作")}
+                        </td>
+                        <td>
+                          {activeTab === "exception" ? (
+                            <span className={`secops-pill severity-${item.severity ?? "unknown"}`}>
+                              {severityLabel[item.severity ?? ""] ?? "未分级"}
                             </span>
+                          ) : (
+                            safeRole(item)
                           )}
                         </td>
+                        <td>
+                          {activeTab === "exception" ? (
+                            <span
+                              className={`secops-pill ${item.is_processed ? "is-done" : "is-pending"}`}
+                            >
+                              {item.is_processed ? "已处理" : "未处理"}
+                            </span>
+                          ) : (
+                            auditTargetTypeLabel(item.target_type)
+                          )}
+                        </td>
+                        {activeTab === "exception" && (
+                          <td>
+                            <div className="secops-row-actions">
+                              <button
+                                className="btn-small secops-detail-toggle"
+                                onClick={() =>
+                                  setExpandedId(expandedId === item.id ? null : item.id)
+                                }
+                                aria-expanded={expandedId === item.id}
+                                aria-label="展开详情"
+                              >
+                                {expandedId === item.id ? (
+                                  <ChevronDown size={13} aria-hidden="true" />
+                                ) : (
+                                  <ChevronRight size={13} aria-hidden="true" />
+                                )}
+                                详情
+                              </button>
+                              {!item.is_processed && canProcess ? (
+                                <button
+                                  className="btn-small"
+                                  disabled={processingId === item.id}
+                                  onClick={() => void handleMarkProcessed(item)}
+                                >
+                                  {processingId === item.id ? "保存中…" : "标记已处理"}
+                                </button>
+                              ) : (
+                                <span className="secops-muted">
+                                  {item.is_processed ? "已完成" : "只读"}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                      {activeTab === "exception" && expandedId === item.id && (
+                        <tr className="secops-detail-row">
+                          <td colSpan={6}>
+                            <div className="secops-detail-grid">
+                              {item.trace_id && (
+                                <div className="secops-detail-item">
+                                  <span className="secops-detail-label">追踪 ID</span>
+                                  <code className="secops-detail-value">{item.trace_id}</code>
+                                </div>
+                              )}
+                              {item.denied_reason && (
+                                <div className="secops-detail-item">
+                                  <span className="secops-detail-label">拒绝原因</span>
+                                  <code className="secops-detail-value">{item.denied_reason}</code>
+                                </div>
+                              )}
+                              {item.risk_level && (
+                                <div className="secops-detail-item">
+                                  <span className="secops-detail-label">风险等级</span>
+                                  <span className="secops-detail-value">{item.risk_level}</span>
+                                </div>
+                              )}
+                              {item.actor_user_id && (
+                                <div className="secops-detail-item">
+                                  <span className="secops-detail-label">操作人 ID</span>
+                                  <code className="secops-detail-value">{item.actor_user_id}</code>
+                                </div>
+                              )}
+                              {item.target_id && (
+                                <div className="secops-detail-item">
+                                  <span className="secops-detail-label">目标 ID</span>
+                                  <code className="secops-detail-value">{item.target_id}</code>
+                                </div>
+                              )}
+                              {item.processed_at && (
+                                <div className="secops-detail-item">
+                                  <span className="secops-detail-label">处理时间</span>
+                                  <span className="secops-detail-value">
+                                    {formatBeijingTime(item.processed_at)}
+                                  </span>
+                                </div>
+                              )}
+                              {item.processed_by && (
+                                <div className="secops-detail-item">
+                                  <span className="secops-detail-label">处理人 ID</span>
+                                  <code className="secops-detail-value">{item.processed_by}</code>
+                                </div>
+                              )}
+                              {item.before_snapshot && (
+                                <div className="secops-detail-item secops-detail-snapshot">
+                                  <span className="secops-detail-label">变更前</span>
+                                  <pre className="secops-detail-value">
+                                    {JSON.stringify(item.before_snapshot, null, 2)}
+                                  </pre>
+                                </div>
+                              )}
+                              {item.after_snapshot && (
+                                <div className="secops-detail-item secops-detail-snapshot">
+                                  <span className="secops-detail-label">变更后</span>
+                                  <pre className="secops-detail-value">
+                                    {JSON.stringify(item.after_snapshot, null, 2)}
+                                  </pre>
+                                </div>
+                              )}
+                              {item.extra && (
+                                <div className="secops-detail-item secops-detail-snapshot">
+                                  <span className="secops-detail-label">附加信息</span>
+                                  <pre className="secops-detail-value">
+                                    {JSON.stringify(item.extra, null, 2)}
+                                  </pre>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
                       )}
-                    </tr>
+                    </Fragment>
                   ))}
                   {!loading && logs.length === 0 && (
                     <tr>

@@ -1687,6 +1687,47 @@
         "title": "BusinessNotificationOut",
         "type": "object"
       },
+      "CandidateMemberOut": {
+        "description": "候选项目成员（可被添加到项目的 active 业务用户）。",
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "name",
+          "email"
+        ],
+        "title": "CandidateMemberOut",
+        "type": "object"
+      },
+      "CandidateMembersResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateMemberOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "CandidateMembersResponse",
+        "type": "object"
+      },
       "CitationOut": {
         "description": "安全引用结构（不暴露内部标识）。\n\nseq（安全序号，非 WeKnora 内部 id）+ snippet（已脱敏的引用片段）。\nWeKnora chunk 引用是 server-only（存 cited_weknora_chunk_ref），**绝不**进本响应。",
         "properties": {
@@ -23457,6 +23498,82 @@
           }
         },
         "summary": "Archive Project",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/candidate-members": {
+      "get": {
+        "description": "列出可被添加为项目成员的候选用户（active 业务用户，排除已 active 成员）。\n\n读权限同 list_members：治理角色或本项目 active 成员可读。",
+        "operationId": "list_candidate_members_api_v1_projects__project_id__candidate_members_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidateMembersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Candidate Members",
         "tags": [
           "projects"
         ]

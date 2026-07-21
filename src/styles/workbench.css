@@ -512,6 +512,79 @@
   background: var(--color-info-bg);
   color: var(--color-info);
 }
+.idm-panel-email {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  overflow-wrap: anywhere;
+  margin-top: 1px;
+}
+.idm-role-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.idm-role-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--color-bg-muted);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-light);
+}
+.idm-role-boss {
+  background: var(--color-danger-bg, #fde8e8);
+  color: var(--color-danger, #b00);
+  border-color: transparent;
+}
+.idm-role-consulting_director {
+  background: var(--color-warning-bg, #fef3cd);
+  color: var(--color-warning-text, #856404);
+  border-color: transparent;
+}
+.idm-role-consultant {
+  background: var(--color-success-bg, #e8f5e9);
+  color: var(--color-success, #2e7d32);
+  border-color: transparent;
+}
+.idm-role-admin {
+  background: var(--color-info-bg, #e3f2fd);
+  color: var(--color-info, #01579b);
+  border-color: transparent;
+}
+.idm-role-none {
+  background: var(--color-bg-muted);
+  color: var(--color-text-tertiary);
+}
+.idm-project-current {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--color-bg-muted);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  margin-bottom: 6px;
+}
+.idm-project-current .idm-project-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-heading);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.idm-project-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-success, #2e7d32);
+  flex-shrink: 0;
+}
 .idm-divider {
   height: 1px;
   background: var(--color-border-light);

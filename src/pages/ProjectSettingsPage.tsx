@@ -8,6 +8,7 @@ import {
   addProjectMember,
   archiveProject,
   deleteProject,
+  fetchCandidateMembers,
   fetchProjectMembers,
   fetchProjectSettings,
   fetchProjects,
@@ -16,10 +17,9 @@ import {
   removeProjectMember,
   updateProjectSettings,
 } from "../api/project";
-import { fetchPeople } from "../api/admin";
+import type { CandidateMemberDTO } from "../api/project";
 import { approveReview, fetchReviews, rejectReview } from "../api/review";
 import type { ProjectMemberDTO, ProjectSettingsDTO } from "../types/projectSettings";
-import type { PersonDTO } from "../types/people";
 import type { ProjectListItemDTO } from "../types/project";
 import type { ReviewItemDTO } from "../types/review";
 import { formatBeijingTime } from "../utils/time";
@@ -108,7 +108,8 @@ export default function ProjectSettingsPage() {
 
   // 新增成员内联表单状态（仅项目经理可用）。
   const [addMemberOpen, setAddMemberOpen] = useState(false);
-  const [addMemberCandidates, setAddMemberCandidates] = useState<PersonDTO[]>([]);
+  const [allCandidates, setAllCandidates] = useState<CandidateMemberDTO[]>([]);
+  const [addMemberCandidates, setAddMemberCandidates] = useState<CandidateMemberDTO[]>([]);
   const [addMemberUserId, setAddMemberUserId] = useState("");
   const [addMemberRole, setAddMemberRole] = useState("coach");
   const [addMemberQuery, setAddMemberQuery] = useState("");
@@ -235,26 +236,38 @@ export default function ProjectSettingsPage() {
     }
   };
 
-  // 新增成员表单：搜索候选用户（复用 /admin/people 搜索；无治理权限时给出错误提示）。
-  const searchAddMemberCandidates = useCallback(
-    async (query: string) => {
-      setAddMemberError(null);
-      try {
-        const response = await fetchPeople({ q: query });
-        // 排除已经是本项目成员的用户，避免重复添加。
-        const existing = new Set(members.map((m) => m.user_id));
-        setAddMemberCandidates(response.items.filter((p) => !existing.has(p.user_id)));
-        if (response.items.length === 0) setAddMemberError("没有匹配的用户");
-      } catch (e) {
-        setAddMemberCandidates([]);
-        setAddMemberError(
-          e instanceof ApiError && e.status === 403
-            ? "当前身份无权搜索用户，请联系治理角色添加成员"
-            : "用户列表加载失败，请稍后重试",
-        );
+  // 新增成员表单：加载候选用户（项目经理可读，无需治理角色）。
+  const loadCandidateMembers = useCallback(async (pid: string) => {
+    setAddMemberError(null);
+    try {
+      const response = await fetchCandidateMembers(pid);
+      setAllCandidates(response.items);
+      setAddMemberCandidates(response.items);
+    } catch (e) {
+      setAllCandidates([]);
+      setAddMemberCandidates([]);
+      setAddMemberError(
+        e instanceof ApiError && e.status === 403
+          ? "当前身份无权查看候选用户"
+          : "用户列表加载失败，请稍后重试",
+      );
+    }
+  }, []);
+
+  const filterCandidates = useCallback(
+    (query: string) => {
+      const trimmed = query.trim().toLowerCase();
+      if (!trimmed) {
+        setAddMemberCandidates(allCandidates);
+        return;
       }
+      setAddMemberCandidates(
+        allCandidates.filter(
+          (c) => c.name.toLowerCase().includes(trimmed) || c.email.toLowerCase().includes(trimmed),
+        ),
+      );
     },
-    [members],
+    [allCandidates],
   );
 
   const openAddMemberForm = () => {
@@ -264,7 +277,7 @@ export default function ProjectSettingsPage() {
     setAddMemberQuery("");
     setAddMemberCandidates([]);
     setAddMemberError(null);
-    void searchAddMemberCandidates("");
+    if (projectId) void loadCandidateMembers(projectId);
   };
 
   const submitAddMember = async () => {
@@ -286,6 +299,7 @@ export default function ProjectSettingsPage() {
       setAddMemberUserId("");
       setAddMemberQuery("");
       setAddMemberCandidates([]);
+      setAllCandidates([]);
     } catch (e) {
       setAddMemberError(safeError(e, "添加成员失败"));
     } finally {
@@ -652,6 +666,8 @@ export default function ProjectSettingsPage() {
                 <input
                   value={draft.lifecyclePhaseKey}
                   disabled={!canWrite || saving}
+                  autoComplete="off"
+                  name="lifecycle-phase-key"
                   onChange={(event) =>
                     setDraft((current) =>
                       current ? { ...current, lifecyclePhaseKey: event.target.value } : current,
@@ -690,7 +706,8 @@ export default function ProjectSettingsPage() {
                       <span className="sr-only">新的企微群绑定标识</span>
                       <input
                         type="password"
-                        autoComplete="off"
+                        autoComplete="new-password"
+                        name="wecom-binding-token"
                         placeholder="输入新的企微群绑定标识"
                         value={draft.wecomGroupId ?? ""}
                         disabled={saving}
@@ -835,9 +852,10 @@ export default function ProjectSettingsPage() {
                           type="text"
                           placeholder="输入姓名搜索"
                           value={addMemberQuery}
+                          autoComplete="off"
                           onChange={(event) => {
                             setAddMemberQuery(event.target.value);
-                            void searchAddMemberCandidates(event.target.value);
+                            filterCandidates(event.target.value);
                           }}
                         />
                       </label>

@@ -20,6 +20,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.identity import Project, ProjectMember, User
 from app.schemas.enums import (
+    BUSINESS_COMPANY_ROLES,
     AuditAction,
     AuditLogType,
     CompanyRole,
@@ -32,6 +33,8 @@ from app.schemas.enums import (
 )
 from app.schemas.permission import CallerContext
 from app.schemas.project_settings import (
+    CandidateMemberOut,
+    CandidateMembersResponse,
     ProjectMemberCreateRequest,
     ProjectMemberOut,
     ProjectMemberPatchRequest,
@@ -270,6 +273,56 @@ async def list_members(
     return ProjectMembersResponse(
         items=items, total=len(items), can_manage=_can_manage_members(caller, project_id)
     )
+
+
+async def list_candidate_members(
+    session: AsyncSession, caller: CallerContext, project_id: uuid.UUID
+) -> CandidateMembersResponse:
+    """列出可被添加为项目成员的候选用户（active 业务用户，排除已 active 成员）。
+
+    读权限同 list_members：治理角色或本项目 active 成员可读。
+    """
+    await _load_project(session, project_id)
+    await _require_read(caller, project_id)
+
+    # 已是本项目 active 成员的 user_id 集合。
+    existing = set(
+        row[0]
+        for row in (
+            await session.execute(
+                select(ProjectMember.user_id).where(
+                    ProjectMember.project_id == project_id,
+                    ProjectMember.status == MemberStatus.active.value,
+                )
+            )
+        ).all()
+    )
+
+    users = list(
+        (
+            await session.execute(
+                select(User)
+                .where(User.status == UserStatus.active.value)
+                .options(selectinload(User.company_roles))
+                .order_by(User.name)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    items: list[CandidateMemberOut] = []
+    for user in users:
+        if user.id in existing:
+            continue
+        active_roles = [
+            r.company_role for r in user.company_roles if r.status == RoleStatus.active.value
+        ]
+        is_business = any(role in BUSINESS_COMPANY_ROLES for role in active_roles)
+        if not is_business:
+            continue
+        items.append(CandidateMemberOut(user_id=user.id, name=user.name, email=user.email))
+    return CandidateMembersResponse(items=items)
 
 
 def _member_out(member: ProjectMember) -> ProjectMemberOut:

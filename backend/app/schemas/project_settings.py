@@ -70,6 +70,18 @@ class ProjectMembersResponse(BaseModel):
     can_manage: bool = False
 
 
+class CandidateMemberOut(BaseModel):
+    """候选项目成员（可被添加到项目的 active 业务用户）。"""
+
+    user_id: uuid.UUID
+    name: str
+    email: str
+
+
+class CandidateMembersResponse(BaseModel):
+    items: list[CandidateMemberOut]
+
+
 class ProjectMemberPatchRequest(BaseModel):
     """更新项目成员角色 / 状态（至少一项）。"""
 

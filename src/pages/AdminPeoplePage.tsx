@@ -60,7 +60,7 @@ export default function AdminPeoplePage() {
   const canManageCompanyRole = (role: string) =>
     role === "consultant" || role === "consulting_director"
       ? canManageProjects
-      : capabilities.isBoss;
+      : capabilities.isGovernance;
   const canManageProjectRole = (role: string) => canManageProjects && role === "project_manager";
   const [people, setPeople] = useState<PersonDTO[]>([]);
   const [total, setTotal] = useState(0);

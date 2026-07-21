@@ -79,6 +79,12 @@ const navGroups: NavGroup[] = [
         cap: can.viewProject,
       },
       {
+        to: "/project/:projectId/knowledge",
+        label: "项目知识库",
+        icon: LibraryBig,
+        cap: can.viewProject,
+      },
+      {
         to: "/project/:projectId/settings",
         label: "项目设置",
         icon: SlidersHorizontal,
