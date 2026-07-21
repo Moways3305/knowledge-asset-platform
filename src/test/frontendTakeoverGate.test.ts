@@ -160,7 +160,7 @@ const routes: RouteContract[] = [
     component: "ProjectSettingsPage",
     guard: "viewProject",
     owners: ["pages/ProjectSettingsPage.tsx"],
-    apiModules: ["admin", "http", "project", "review"],
+    apiModules: ["http", "project", "review"],
   },
   {
     route: "/help",

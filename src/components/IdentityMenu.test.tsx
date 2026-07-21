@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import IdentityMenu, { wecomOAuthModeForUserAgent } from "./IdentityMenu";
 import { login, logout } from "../api/auth";
 import { startWecomOAuth } from "../api/admin";
@@ -56,12 +57,18 @@ describe("IdentityMenu", () => {
   });
 
   it("hides the login form by default after the user is logged in", async () => {
-    render(<IdentityMenu />);
+    render(
+      <MemoryRouter>
+        <IdentityMenu />
+      </MemoryRouter>,
+    );
 
     fireEvent.click(screen.getByText("Alice"));
 
-    expect(screen.getByText("平台身份：管理员")).toBeInTheDocument();
+    expect(screen.getByText("平台身份：")).toBeInTheDocument();
+    expect(screen.getAllByText("管理员").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("Alpha 项目")).toBeInTheDocument();
+    expect(screen.getByText("alice@example.com")).toBeInTheDocument();
     expect(screen.queryByPlaceholderText("登录邮箱")).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText("密码")).not.toBeInTheDocument();
     expect(screen.queryByText(/开发环境/)).not.toBeInTheDocument();
@@ -74,7 +81,11 @@ describe("IdentityMenu", () => {
     authState.authMe = null;
     authState.status = "anonymous";
 
-    render(<IdentityMenu />);
+    render(
+      <MemoryRouter>
+        <IdentityMenu />
+      </MemoryRouter>,
+    );
     fireEvent.click(screen.getByText("未登录"));
 
     expect(screen.getByPlaceholderText("登录邮箱")).toBeInTheDocument();
@@ -91,7 +102,11 @@ describe("IdentityMenu", () => {
       authorize_url: "/auth-started",
     });
 
-    render(<IdentityMenu />);
+    render(
+      <MemoryRouter>
+        <IdentityMenu />
+      </MemoryRouter>,
+    );
     fireEvent.click(screen.getByText("未登录"));
     fireEvent.click(screen.getByText("企业微信"));
 

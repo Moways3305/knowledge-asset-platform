@@ -28,6 +28,11 @@ const auth = vi.hoisted(() => ({
 
 vi.mock("../auth/AuthContext", () => ({ useAuth: () => auth }));
 vi.mock("../api/workbench", () => ({ fetchWorkbenchOverview: vi.fn() }));
+vi.mock("../api/workbuddy", () => ({
+  fetchWorkbuddyToken: vi.fn().mockResolvedValue({ enabled: false, has_token: false }),
+  regenerateWorkbuddyToken: vi.fn(),
+  revokeWorkbuddyToken: vi.fn(),
+}));
 
 function overview(overrides: Partial<WorkbenchOverviewDTO> = {}): WorkbenchOverviewDTO {
   return {
