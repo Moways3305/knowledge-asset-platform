@@ -1,6 +1,6 @@
 // 项目领域：项目列表 / 创建、项目设置与成员、项目 Q&A。响应只含安全治理元数据；
 // 前端绝不直连外部 Agent / provider，也不拼接任何 provider 内部标识，一律经平台权限网关。
-import { apiGet, apiPost, apiPatch } from "./http";
+import { apiGet, apiPost, apiPatch, apiDelete } from "./http";
 import type {
   ProjectCreateRequestDTO,
   ProjectCreateResponseDTO,
@@ -74,4 +74,33 @@ export async function patchProjectMember(
   body: ProjectMemberPatchDTO,
 ): Promise<ProjectMemberDTO> {
   return apiPatch<ProjectMemberDTO>(`/api/v1/projects/${projectId}/members/${memberId}`, body);
+}
+
+// 新增项目成员（治理角色 / 本项目经理按权限矩阵新增）。status 默认 active。
+export async function addProjectMember(
+  projectId: string,
+  body: { user_id: string; project_role: string; status?: string },
+): Promise<ProjectMemberDTO> {
+  return apiPost<ProjectMemberDTO>(`/api/v1/projects/${projectId}/members`, body);
+}
+
+// 物理删除项目成员关系（区别于 status=inactive 的软停用）。
+// 后端保护：不可删自己、不可删最后一个项目经理。
+export async function removeProjectMember(projectId: string, memberId: string): Promise<void> {
+  await apiDelete<void>(`/api/v1/projects/${projectId}/members/${memberId}`);
+}
+
+// 归档项目（仅总经理 / 咨询总监）。status → archived；成员关系 → inactive。
+export async function archiveProject(projectId: string): Promise<ProjectSettingsDTO> {
+  return apiPost<ProjectSettingsDTO>(`/api/v1/projects/${projectId}/archive`, {});
+}
+
+// 重新激活已归档项目（仅总经理 / 咨询总监）。
+export async function reactivateProject(projectId: string): Promise<ProjectSettingsDTO> {
+  return apiPost<ProjectSettingsDTO>(`/api/v1/projects/${projectId}/reactivate`, {});
+}
+
+// 删除项目（仅总经理）。前置：必须先归档 + 无资产。
+export async function deleteProject(projectId: string): Promise<void> {
+  await apiDelete<void>(`/api/v1/projects/${projectId}`);
 }

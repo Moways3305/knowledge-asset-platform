@@ -135,6 +135,31 @@ async def create_rule(session: AsyncSession, caller: CallerContext, req, trace_i
 
     _require_admin(caller)
     bound_user = await _validate_binding(session, req)
+
+    # workbuddy 自助接入每用户仅允许一枚注册行（agent_identifier 约定为
+    # "workbuddy:self:{bound_user_id}"）。管理端创建路径需在落库前显式校验，
+    # 避免重复创建导致 (provider, bound_user_id) 冲突（即便有 DB 唯一索引，
+    # 此处也提前返回语义清晰的 409，而非让 IntegrityError 冒泡成 500）。
+    if req.provider == "workbuddy" and bound_user is not None:
+        existing = (
+            (
+                await session.execute(
+                    select(AgentWhitelistRule).where(
+                        AgentWhitelistRule.provider == "workbuddy",
+                        AgentWhitelistRule.bound_user_id == bound_user.id,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if existing is not None:
+            raise _denied(
+                409,
+                "workbuddy_rule_already_exists",
+                "该业务用户已存在 WorkBuddy 接入注册，请使用更新 / 重置而非重复创建",
+            )
+
     token = generate_token()
     rule = AgentWhitelistRule(
         provider=req.provider,

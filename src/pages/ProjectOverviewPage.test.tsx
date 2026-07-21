@@ -8,9 +8,30 @@ const api = vi.hoisted(() => ({
   fetchProjectOverview: vi.fn(),
   fetchProjectQaModelOptions: vi.fn(),
   projectQa: vi.fn(),
+  createProject: vi.fn(),
+}));
+
+const adminApi = vi.hoisted(() => ({
+  fetchPeople: vi.fn(),
+}));
+
+const authState = vi.hoisted(() => ({
+  capabilities: {
+    isAdmin: false,
+    isBoss: false,
+    isConsultingDirector: false,
+    isBusinessUser: true,
+    isGovernance: false,
+    hasProject: true,
+    isProjectManager: false,
+  },
 }));
 
 vi.mock("../api/project", () => api);
+vi.mock("../api/admin", () => adminApi);
+vi.mock("../auth/AuthContext", () => ({
+  useAuth: () => ({ capabilities: authState.capabilities }),
+}));
 
 const PROJECT_A = "00000000-0000-0000-0000-000000000078";
 const PROJECT_B = "00000000-0000-0000-0000-000000000079";

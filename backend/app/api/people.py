@@ -1,11 +1,12 @@
 """人员 / 公司角色 / 项目成员关系管理 API。
 
-- GET   /api/v1/admin/people                                         （总经理 / 咨询总监）
-- GET   /api/v1/admin/people/{user_id}                               （同上）
-- POST  /api/v1/admin/people/{user_id}/company-roles                 （管理公司角色）
-- GET   /api/v1/admin/people/{user_id}/project-memberships           （读，含 inactive）
-- POST  /api/v1/admin/people/{user_id}/project-memberships           （upsert 项目成员关系）
-- PATCH /api/v1/admin/people/{user_id}/project-memberships/{id}      （更新角色 / 状态）
+- GET    /api/v1/admin/people                                         （总经理 / 咨询总监）
+- GET    /api/v1/admin/people/{user_id}                               （同上）
+- POST   /api/v1/admin/people/{user_id}/company-roles                 （管理公司角色）
+- GET    /api/v1/admin/people/{user_id}/project-memberships           （读，含 inactive）
+- POST   /api/v1/admin/people/{user_id}/project-memberships           （upsert 项目成员关系）
+- PATCH  /api/v1/admin/people/{user_id}/project-memberships/{id}      （更新角色 / 状态）
+- DELETE /api/v1/admin/people/{user_id}/project-memberships/{id}      （物理删除关系）
 
 权限委托 service；响应只含安全身份/治理元数据，写动作均写审计。
 """
@@ -14,7 +15,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_caller_context
@@ -146,3 +147,24 @@ async def patch_project_membership(
     return await people_service.patch_project_membership(
         session, caller, user_id, membership_id, req, get_trace_id(request)
     )
+
+
+@router.delete(
+    "/{user_id}/project-memberships/{membership_id}",
+    status_code=204,
+)
+async def remove_project_membership(
+    user_id: uuid.UUID,
+    membership_id: uuid.UUID,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    """物理删除项目成员关系（区别于 status=inactive 的软停用）。
+
+    权限沿用 can_assign_project_role；保护：不可删自己、不可删最后一个项目经理。
+    """
+    await people_service.remove_project_membership(
+        session, caller, user_id, membership_id, get_trace_id(request)
+    )
+    return Response(status_code=204)

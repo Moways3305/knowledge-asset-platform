@@ -65,19 +65,23 @@ describe("IdentityMenu", () => {
     expect(screen.queryByPlaceholderText("登录邮箱")).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText("密码")).not.toBeInTheDocument();
     expect(screen.queryByText(/开发环境/)).not.toBeInTheDocument();
+    // 登录后保留"登出当前会话"入口，不再展示切换账号按钮。
+    expect(screen.getByText("登出当前会话")).toBeInTheDocument();
+    expect(screen.queryByText("切换账号")).not.toBeInTheDocument();
   });
 
-  it("reveals the login form only after an explicit switch-account action", async () => {
+  it("only renders the login form when the user is not authenticated", async () => {
+    authState.authMe = null;
+    authState.status = "anonymous";
+
     render(<IdentityMenu />);
+    fireEvent.click(screen.getByText("未登录"));
 
-    fireEvent.click(screen.getByText("Alice"));
-    fireEvent.click(screen.getByText("切换账号"));
-
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText("登录邮箱")).toBeInTheDocument();
-      expect(screen.getByPlaceholderText("密码")).toBeInTheDocument();
-    });
+    expect(screen.getByPlaceholderText("登录邮箱")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("密码")).toBeInTheDocument();
     expect(screen.getByText("使用企业微信登录 Kivo，或使用已分配的账号密码。")).toBeInTheDocument();
+    expect(screen.queryByText("切换账号")).not.toBeInTheDocument();
+    expect(screen.queryByText("登出当前会话")).not.toBeInTheDocument();
   });
 
   it("keeps 企业微信 as the login method and starts web QR mode in normal browsers", async () => {

@@ -37,9 +37,11 @@ type PreviewPhase =
   | "ready"
   | "script-failed"
   | "editor-failed"
-  | "timed-out";
+  | "timed-out"
+  | "not-configured"
+  | "misconfigured";
 
-const PREVIEW_LOAD_TIMEOUT_MS = 20_000;
+const PREVIEW_LOAD_TIMEOUT_MS = 15_000;
 
 export function OnlyOfficePreview({ entry }: { entry: PreviewEntryVM }) {
   const holderId = useMemo(() => `oo-preview-${Math.random().toString(36).slice(2)}`, []);
@@ -49,6 +51,9 @@ export function OnlyOfficePreview({ entry }: { entry: PreviewEntryVM }) {
   const config = entry.onlyofficeConfig;
   const serverUrl = config ? previewConfigServer(config) : null;
 
+  // 可达性预检：在加载 api.js 脚本前判定配置是否有效。
+  // - serverUrl 为空 → 在线预览服务未配置
+  // - serverUrl 与 window.location.origin 同源 → 指向前端本身（配置错误）
   useEffect(() => {
     if (!config || !serverUrl) return;
 
@@ -150,25 +155,49 @@ export function OnlyOfficePreview({ entry }: { entry: PreviewEntryVM }) {
     );
   }
 
+  // 可达性预检：serverUrl 指向前端本身说明配置错误（会命中 SPA 路由的 404）。
+  const isSameOrigin = (() => {
+    try {
+      const parsed = new URL(serverUrl);
+      return parsed.origin === window.location.origin;
+    } catch {
+      return false;
+    }
+  })();
+
   return (
     <div className="preview-modal-frame-wrap">
       <div id={holderId} className="preview-modal-frame" aria-label="原文在线预览" />
-      {(phase === "loading-script" || phase === "creating-editor") && (
-        <div className="preview-modal-loading">文档预览正在打开，请稍候。</div>
-      )}
-      {(phase === "script-failed" || phase === "editor-failed" || phase === "timed-out") && (
+      {isSameOrigin ? (
         <div className="preview-modal-failure" role="alert">
-          <p>
-            {phase === "script-failed"
-              ? "在线预览服务不可达或被浏览器策略阻止。"
-              : phase === "timed-out"
-                ? "预览超时，请重新打开预览。"
-                : "文档加载失败，请关闭后重试。"}
-          </p>
+          <p>预览服务地址配置错误，可联系管理员检查 OnlyOffice Document Server 配置。</p>
           <button className="btn-small-primary" onClick={() => setAttempt((value) => value + 1)}>
             重新打开预览
           </button>
         </div>
+      ) : (
+        <>
+          {(phase === "loading-script" || phase === "creating-editor") && (
+            <div className="preview-modal-loading">文档预览正在打开，请稍候。</div>
+          )}
+          {(phase === "script-failed" || phase === "editor-failed" || phase === "timed-out") && (
+            <div className="preview-modal-failure" role="alert">
+              <p>
+                {phase === "script-failed"
+                  ? "在线预览服务不可达或被浏览器策略阻止。"
+                  : phase === "timed-out"
+                    ? "预览超时，请重新打开预览。"
+                    : "文档加载失败，请关闭后重试。"}
+              </p>
+              <button
+                className="btn-small-primary"
+                onClick={() => setAttempt((value) => value + 1)}
+              >
+                重新打开预览
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

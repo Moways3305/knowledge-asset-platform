@@ -410,15 +410,23 @@ class AuditAction(str, Enum):
     config_personal_kb_created = "config.personal_kb_created"
     config_personal_kb_updated = "config.personal_kb_updated"
     config_company_kb_created = "config.company_kb_created"
+    config_company_kb_deleted = "config.company_kb_deleted"
     governance_boss_bootstrapped = "governance.boss_bootstrapped"
     # 项目知识库（项目空间）创建。
     project_created = "project.created"
+    # 项目归档 / 重新激活 / 删除（operation）。归档联动停用全部 project_members；
+    # 删除仅在已归档且无项目资产时由总经理执行，物理删除项目行 + 成员关系 + KB 映射。
+    project_archived = "project.archived"
+    project_reactivated = "project.reactivated"
+    project_deleted = "project.deleted"
     config_alert_rule_updated = "config.alert_rule_updated"
     # Dify 接入注册变更：创建 / 启停 / 更新 capability·scope·token（config）。
     config_agent_registry_updated = "config.agent_registry_updated"
     # 人员治理：公司角色 / 项目成员关系 upsert（config）。
     config_people_company_role_updated = "config.people_company_role_updated"
     config_people_project_membership_updated = "config.people_project_membership_updated"
+    # 项目成员关系物理删除（operation）。区别于 status=inactive 的软停用：彻底移除关系行。
+    config_people_project_membership_removed = "people.project_membership_removed"
     # 权限规则配置：阈值 / 开关规则更新（config）。只记安全配置值，不含 secret。
     config_permission_rule_updated = "config.permission_rule_updated"
     # 项目设置：项目设置更新 / 项目成员角色·状态更新（operation）。

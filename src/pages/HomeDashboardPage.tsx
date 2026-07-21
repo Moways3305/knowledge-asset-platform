@@ -61,6 +61,7 @@ const TODO_LABEL: Record<string, string> = {
   review_approval_failed: "处理失败审核",
   review_pending: "处理知识审核",
   ingest_pending: "确认待入库资料",
+  ingest_failed: "处理失败入库任务",
   original_access_pending: "审批原文访问",
 };
 

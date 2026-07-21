@@ -1,17 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { Check, ClipboardCheck, RotateCcw, Save, X } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { Archive, Check, ClipboardCheck, RotateCcw, Save, Trash2, X } from "lucide-react";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { useAuth } from "../auth/AuthContext";
 import { ApiError } from "../api/http";
 import {
+  addProjectMember,
+  archiveProject,
+  deleteProject,
   fetchProjectMembers,
   fetchProjectSettings,
+  fetchProjects,
   patchProjectMember,
+  reactivateProject,
+  removeProjectMember,
   updateProjectSettings,
 } from "../api/project";
+import { fetchPeople } from "../api/admin";
 import { approveReview, fetchReviews, rejectReview } from "../api/review";
 import type { ProjectMemberDTO, ProjectSettingsDTO } from "../types/projectSettings";
+import type { PersonDTO } from "../types/people";
+import type { ProjectListItemDTO } from "../types/project";
 import type { ReviewItemDTO } from "../types/review";
 import { formatBeijingTime } from "../utils/time";
 import "./ProjectSettingsPage.css";
@@ -76,7 +85,8 @@ const safeError = (error: unknown, fallback: string): string => {
 
 export default function ProjectSettingsPage() {
   const { id } = useParams<{ id: string }>();
-  const { authMe } = useAuth();
+  const navigate = useNavigate();
+  const { authMe, capabilities } = useAuth();
   const projectId = id && UUID_RE.test(id) ? id : null;
   const authProjectRole = authMe?.projects.find(
     (project) => project.projectId === projectId,
@@ -92,6 +102,23 @@ export default function ProjectSettingsPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNote, setActionNote] = useState<string | null>(null);
   const [memberBusy, setMemberBusy] = useState<string | null>(null);
+
+  // 项目切换器（参考 ProjectOverviewPage / ProjectKnowledgePage 的 ProjectPicker）。
+  const [switchProjects, setSwitchProjects] = useState<ProjectListItemDTO[]>([]);
+
+  // 新增成员内联表单状态（仅项目经理可用）。
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [addMemberCandidates, setAddMemberCandidates] = useState<PersonDTO[]>([]);
+  const [addMemberUserId, setAddMemberUserId] = useState("");
+  const [addMemberRole, setAddMemberRole] = useState("coach");
+  const [addMemberQuery, setAddMemberQuery] = useState("");
+  const [addMemberBusy, setAddMemberBusy] = useState(false);
+  const [addMemberError, setAddMemberError] = useState<string | null>(null);
+
+  // 危险操作区：归档 / 恢复 / 删除项目。
+  const [dangerBusy, setDangerBusy] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [dangerError, setDangerError] = useState<string | null>(null);
 
   const [reviews, setReviews] = useState<ReviewItemDTO[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
@@ -187,8 +214,174 @@ export default function ProjectSettingsPage() {
     return invalidateRequests;
   }, [invalidateRequests, loadProject, projectId]);
 
+  // 顶部项目切换器：复用 /api/v1/projects 列表（与 ProjectOverviewPage 一致）。
+  useEffect(() => {
+    let cancelled = false;
+    void fetchProjects()
+      .then((response) => {
+        if (!cancelled) setSwitchProjects(response.items);
+      })
+      .catch(() => {
+        if (!cancelled) setSwitchProjects([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const switchToProject = (targetProjectId: string) => {
+    if (targetProjectId && targetProjectId !== projectId) {
+      navigate(`/project/${targetProjectId}/settings`);
+    }
+  };
+
+  // 新增成员表单：搜索候选用户（复用 /admin/people 搜索；无治理权限时给出错误提示）。
+  const searchAddMemberCandidates = useCallback(
+    async (query: string) => {
+      setAddMemberError(null);
+      try {
+        const response = await fetchPeople({ q: query });
+        // 排除已经是本项目成员的用户，避免重复添加。
+        const existing = new Set(members.map((m) => m.user_id));
+        setAddMemberCandidates(response.items.filter((p) => !existing.has(p.user_id)));
+        if (response.items.length === 0) setAddMemberError("没有匹配的用户");
+      } catch (e) {
+        setAddMemberCandidates([]);
+        setAddMemberError(
+          e instanceof ApiError && e.status === 403
+            ? "当前身份无权搜索用户，请联系治理角色添加成员"
+            : "用户列表加载失败，请稍后重试",
+        );
+      }
+    },
+    [members],
+  );
+
+  const openAddMemberForm = () => {
+    setAddMemberOpen(true);
+    setAddMemberUserId("");
+    setAddMemberRole("coach");
+    setAddMemberQuery("");
+    setAddMemberCandidates([]);
+    setAddMemberError(null);
+    void searchAddMemberCandidates("");
+  };
+
+  const submitAddMember = async () => {
+    if (!projectId || !addMemberUserId) {
+      setAddMemberError("请选择要添加的用户");
+      return;
+    }
+    setAddMemberBusy(true);
+    setAddMemberError(null);
+    try {
+      const added = await addProjectMember(projectId, {
+        user_id: addMemberUserId,
+        project_role: addMemberRole,
+        status: "active",
+      });
+      setMembers((current) => [...current, added]);
+      setActionNote("项目成员已添加");
+      setAddMemberOpen(false);
+      setAddMemberUserId("");
+      setAddMemberQuery("");
+      setAddMemberCandidates([]);
+    } catch (e) {
+      setAddMemberError(safeError(e, "添加成员失败"));
+    } finally {
+      setAddMemberBusy(false);
+    }
+  };
+
+  const handleRemoveMember = async (member: ProjectMemberDTO) => {
+    if (!projectId || !canEditProjectRoles) return;
+    // 保护：不能移除自己。
+    if (authMe && member.user_id === authMe.userId) {
+      setActionError("不能移除自己");
+      return;
+    }
+    // 保护：不能移除项目经理（后端也会校验最后一个项目经理）。
+    if (member.project_role === "project_manager") {
+      setActionError("项目经理关系请由治理角色在人员权限页调整");
+      return;
+    }
+    if (!window.confirm(`确认移除成员“${member.name}”？此操作不可恢复。`)) return;
+    setMemberBusy(member.member_id);
+    setActionError(null);
+    setActionNote(null);
+    try {
+      await removeProjectMember(projectId, member.member_id);
+      setMembers((current) => current.filter((item) => item.member_id !== member.member_id));
+      setActionNote("成员已移除");
+    } catch (e) {
+      setActionError(safeError(e, "移除成员失败"));
+    } finally {
+      setMemberBusy(null);
+    }
+  };
+
+  const handleArchive = async () => {
+    if (!projectId || !canArchive) return;
+    if (!window.confirm("确认归档此项目？归档后项目将变为只读，所有成员关系停用。")) return;
+    setDangerBusy(true);
+    setDangerError(null);
+    try {
+      const updated = await archiveProject(projectId);
+      setSettings(updated);
+      setDraft(draftFromSettings(updated));
+      setActionNote("项目已归档");
+    } catch (e) {
+      setDangerError(safeError(e, "归档失败，请稍后重试"));
+    } finally {
+      setDangerBusy(false);
+    }
+  };
+
+  const handleReactivate = async () => {
+    if (!projectId || !canArchive) return;
+    if (!window.confirm("确认重新激活此项目？成员关系需手动重新启用。")) return;
+    setDangerBusy(true);
+    setDangerError(null);
+    try {
+      const updated = await reactivateProject(projectId);
+      setSettings(updated);
+      setDraft(draftFromSettings(updated));
+      setActionNote("项目已重新激活");
+    } catch (e) {
+      setDangerError(safeError(e, "恢复失败，请稍后重试"));
+    } finally {
+      setDangerBusy(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!projectId || !canDelete || !settings) return;
+    if (!isArchived) {
+      setDangerError("删除前请先归档项目");
+      return;
+    }
+    if (deleteConfirmName.trim() !== settings.name) {
+      setDangerError("输入的项目名称不匹配");
+      return;
+    }
+    setDangerBusy(true);
+    setDangerError(null);
+    try {
+      await deleteProject(projectId);
+      navigate("/");
+    } catch (e) {
+      setDangerError(safeError(e, "删除失败，请检查项目是否仍有资产后重试"));
+    } finally {
+      setDangerBusy(false);
+    }
+  };
+
   const canWrite = settings?.can_write ?? false;
   const canEditProjectRoles = canManageMembers && authProjectRole === "project_manager";
+  // 归档 / 恢复：总经理或咨询总监；删除：仅总经理。
+  const canArchive = capabilities.isBoss || capabilities.isConsultingDirector;
+  const canDelete = capabilities.isBoss;
+  const isArchived = settings?.status === "archived";
   const routeOptions = useMemo(() => {
     const current = settings?.lifecycle_route_key;
     return current && !ROUTE_OPTIONS.includes(current)
@@ -354,6 +547,18 @@ export default function ProjectSettingsPage() {
           </div>
           <h1>{settings.name}</h1>
           <p>管理项目入库策略、企微群绑定与项目成员关系。</p>
+          {switchProjects.length > 1 && (
+            <label className="ps74-project-switcher">
+              <span>切换项目</span>
+              <select value={projectId} onChange={(event) => switchToProject(event.target.value)}>
+                {switchProjects.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
         {canWrite && dirty && (
           <div className="ps74-header-actions" aria-label="未保存设置操作">
@@ -571,19 +776,28 @@ export default function ProjectSettingsPage() {
                         <td>{memberStatusLabel[member.status] ?? "状态未知"}</td>
                         <td>{formatBeijingTime(member.joined_at)}</td>
                         {canEditProjectRoles && (
-                          <td>
+                          <td className="ps74-member-actions">
                             {editable ? (
-                              <button
-                                className="product-button is-secondary is-small"
-                                disabled={busy}
-                                onClick={() =>
-                                  void changeMember(member, {
-                                    status: member.status === "active" ? "inactive" : "active",
-                                  })
-                                }
-                              >
-                                {member.status === "active" ? "停用" : "启用"}
-                              </button>
+                              <>
+                                <button
+                                  className="product-button is-secondary is-small"
+                                  disabled={busy}
+                                  onClick={() =>
+                                    void changeMember(member, {
+                                      status: member.status === "active" ? "inactive" : "active",
+                                    })
+                                  }
+                                >
+                                  {member.status === "active" ? "停用" : "启用"}
+                                </button>
+                                <button
+                                  className="ps74-remove-btn"
+                                  disabled={busy}
+                                  onClick={() => void handleRemoveMember(member)}
+                                >
+                                  移除
+                                </button>
+                              </>
                             ) : (
                               <span className="ps74-locked-role">由治理角色任命</span>
                             )}
@@ -602,6 +816,84 @@ export default function ProjectSettingsPage() {
                 </tbody>
               </table>
             </div>
+            {canEditProjectRoles && (
+              <div className="ps74-add-member">
+                {!addMemberOpen ? (
+                  <button
+                    type="button"
+                    className="product-button is-secondary is-small"
+                    onClick={openAddMemberForm}
+                  >
+                    添加成员
+                  </button>
+                ) : (
+                  <div className="ps74-add-member-form">
+                    <div className="ps74-add-member-fields">
+                      <label>
+                        <span>搜索用户</span>
+                        <input
+                          type="text"
+                          placeholder="输入姓名搜索"
+                          value={addMemberQuery}
+                          onChange={(event) => {
+                            setAddMemberQuery(event.target.value);
+                            void searchAddMemberCandidates(event.target.value);
+                          }}
+                        />
+                      </label>
+                      <label>
+                        <span>选择用户</span>
+                        <select
+                          value={addMemberUserId}
+                          onChange={(event) => setAddMemberUserId(event.target.value)}
+                        >
+                          <option value="">请选择用户</option>
+                          {addMemberCandidates.map((person) => (
+                            <option key={person.user_id} value={person.user_id}>
+                              {person.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>项目内角色</span>
+                        <select
+                          value={addMemberRole}
+                          onChange={(event) => setAddMemberRole(event.target.value)}
+                        >
+                          {PROJECT_ROLE_OPTIONS.map((role) => (
+                            <option key={role} value={role}>
+                              {projectRoleLabel[role]}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    {addMemberError && (
+                      <div className="ps74-feedback is-error">{addMemberError}</div>
+                    )}
+                    <div className="ps74-add-member-actions">
+                      <button
+                        type="button"
+                        className="product-button is-primary is-small"
+                        disabled={addMemberBusy || !addMemberUserId}
+                        onClick={() => void submitAddMember()}
+                      >
+                        {addMemberBusy ? "添加中…" : "确认添加"}
+                      </button>
+                      <button
+                        type="button"
+                        className="product-button is-secondary is-small"
+                        disabled={addMemberBusy}
+                        onClick={() => setAddMemberOpen(false)}
+                      >
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </section>
         </div>
 
@@ -690,6 +982,65 @@ export default function ProjectSettingsPage() {
           )}
         </aside>
       </div>
+
+      {(canArchive || canDelete) && (
+        <section className="ps74-section ps74-danger-zone" aria-labelledby="project-danger-heading">
+          <div className="ps74-section-header">
+            <div>
+              <h2 id="project-danger-heading">危险操作</h2>
+              <p>归档与删除不可轻易执行；删除前必须先归档且项目下无资产。</p>
+            </div>
+          </div>
+          {dangerError && <div className="ps74-feedback is-error">{dangerError}</div>}
+          <div className="ps74-danger-actions">
+            {canArchive &&
+              (isArchived ? (
+                <button
+                  type="button"
+                  className="product-button is-secondary"
+                  disabled={dangerBusy}
+                  onClick={() => void handleReactivate()}
+                >
+                  {dangerBusy ? "处理中…" : "重新激活项目"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="product-button is-danger"
+                  disabled={dangerBusy}
+                  onClick={() => void handleArchive()}
+                >
+                  <Archive size={16} aria-hidden="true" />
+                  {dangerBusy ? "处理中…" : "归档项目"}
+                </button>
+              ))}
+            {canDelete && isArchived && (
+              <div className="ps74-delete-form">
+                <label>
+                  <span>输入项目名称“{settings.name}”以确认删除</span>
+                  <input
+                    type="text"
+                    value={deleteConfirmName}
+                    disabled={dangerBusy}
+                    onChange={(event) => setDeleteConfirmName(event.target.value)}
+                    placeholder={settings.name}
+                    autoComplete="off"
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="product-button is-danger"
+                  disabled={dangerBusy || deleteConfirmName.trim() !== settings.name}
+                  onClick={() => void handleDelete()}
+                >
+                  <Trash2 size={16} aria-hidden="true" />
+                  {dangerBusy ? "删除中…" : "删除项目"}
+                </button>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
       <ConfirmDialog
         open={Boolean(rejectTarget)}
         title="驳回项目知识"

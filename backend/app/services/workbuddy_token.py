@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import denied
@@ -47,14 +47,23 @@ def _identifier(user_id) -> str:
 
 
 async def _find_rule(session: AsyncSession, user_id) -> AgentWhitelistRule | None:
+    # 容错：历史上可能存在 (provider, bound_user_id) 重复行，scalar_one_or_none()
+    # 在多行时会抛 MultipleResultsFound → 自助端点全 500。改用 first() + 排序：
+    # enabled 优先、最新优先，确保即便有重复行也能稳定返回一行，先止血。
     return (
-        await session.execute(
-            select(AgentWhitelistRule).where(
-                AgentWhitelistRule.provider == _PROVIDER,
-                AgentWhitelistRule.bound_user_id == user_id,
+        (
+            await session.execute(
+                select(AgentWhitelistRule)
+                .where(
+                    AgentWhitelistRule.provider == _PROVIDER,
+                    AgentWhitelistRule.bound_user_id == user_id,
+                )
+                .order_by(desc(AgentWhitelistRule.enabled), desc(AgentWhitelistRule.created_at))
             )
         )
-    ).scalar_one_or_none()
+        .scalars()
+        .first()
+    )
 
 
 def _mcp_config(base_url: str, token: str) -> dict:

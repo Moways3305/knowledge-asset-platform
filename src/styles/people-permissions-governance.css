@@ -537,6 +537,14 @@
   flex: 0 0 auto;
 }
 
+.people89-page .pp-remove-btn {
+  color: var(--color-danger-fg, #b00);
+}
+
+.people89-page .pp-remove-btn:hover:not(:disabled) {
+  background: var(--color-danger-bg, #fde8e8);
+}
+
 .people89-page .ig-empty-state {
   min-height: 190px;
 }

@@ -22,6 +22,7 @@ const AdminAuditPage = lazy(() => import("./pages/AdminAuditPage"));
 const AdminAuthSecurityPage = lazy(() => import("./pages/AdminAuthSecurityPage"));
 const AdminAlertSettingsPage = lazy(() => import("./pages/AdminAlertSettingsPage"));
 const AdminPeoplePage = lazy(() => import("./pages/AdminPeoplePage"));
+const AdminCompanyKbPage = lazy(() => import("./pages/AdminCompanyKbPage"));
 const AdminPermissionsPage = lazy(() => import("./pages/AdminPermissionsPage"));
 const ReviewPage = lazy(() => import("./pages/ReviewPage"));
 const OriginalAccessPage = lazy(() => import("./pages/OriginalAccessPage"));
@@ -125,6 +126,14 @@ export default function App() {
               element={
                 <RouteGuard cap={can.viewPeople}>
                   <AdminPeoplePage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="admin/company-kb"
+              element={
+                <RouteGuard cap={can.viewCompanyKnowledge}>
+                  <AdminCompanyKbPage />
                 </RouteGuard>
               }
             />

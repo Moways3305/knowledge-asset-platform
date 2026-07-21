@@ -331,3 +331,49 @@ async def test_legacy_non_chat_rows_are_preserved_but_hidden_from_external_api(d
     items, warning = await model_connections.list_connections(db_session)
     assert items == []
     assert warning is None
+
+
+async def test_delete_connection_requires_admin(client, wk):
+    from app.seed.dev_seed import USER_BOSS
+
+    connection = await _create(client)
+    resp = await client.delete(
+        f"{BASE}/items/{connection['model_ref']}", headers={"X-Dev-User-Id": str(USER_BOSS)}
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["denied_reason"] == "model_connection_admin_required"
+
+
+async def test_delete_connection_succeeds_when_not_default(client, wk):
+    connection = await _create(client)
+    resp = await client.delete(f"{BASE}/items/{connection['model_ref']}", headers=_hdr())
+    assert resp.status_code == 204
+    assert resp.content == b""
+    listed = await client.get(BASE, headers=_hdr())
+    assert listed.json()["total"] == 0
+
+
+async def test_delete_default_connection_is_denied(client, wk):
+    connection = await _create(client)
+    assigned = await client.put(
+        f"{BASE}/usages/current",
+        headers=_hdr(),
+        json={"external_llm_default_ref": connection["model_ref"]},
+    )
+    assert assigned.status_code == 200
+
+    resp = await client.delete(f"{BASE}/items/{connection['model_ref']}", headers=_hdr())
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["denied_reason"] == "model_connection_in_use"
+    assert resp.json()["detail"]["dependency"] == "external_llm_default"
+    for forbidden in (SECRET, URL, "ciphertext"):
+        assert forbidden not in resp.text
+    # 未删除：仍在列表。
+    listed = await client.get(BASE, headers=_hdr())
+    assert listed.json()["total"] == 1
+
+
+async def test_delete_unknown_connection_returns_404(client, wk):
+    resp = await client.delete(f"{BASE}/items/nonexistent-ref", headers=_hdr())
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["denied_reason"] == "model_connection_not_found"

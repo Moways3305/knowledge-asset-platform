@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ChevronLeft, ChevronRight, FileText, Search, Upload } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { fetchKnowledgePage } from "../api/knowledge";
 import { useAuth } from "../auth/AuthContext";
 import { can } from "../auth/permissions";
@@ -67,11 +67,20 @@ function accessLabel(asset: KnowledgeCardVM): string {
   return "可查看摘要与原文";
 }
 
+const SCOPE_TABS: Array<{ value: KnowledgeScope | ""; label: string }> = [
+  { value: "", label: "全部" },
+  { value: "company", label: "公司" },
+  { value: "personal", label: "个人" },
+  { value: "project", label: "项目" },
+];
+
 export default function KnowledgeListPage() {
   const { authMe, capabilities, status } = useAuth();
+  const [searchParams] = useSearchParams();
+  const initialScope = (searchParams.get("scope") as KnowledgeScope | null) ?? "";
   const [keywordInput, setKeywordInput] = useState("");
   const [keyword, setKeyword] = useState("");
-  const [scope, setScope] = useState<KnowledgeScope | "">("");
+  const [scope, setScope] = useState<KnowledgeScope | "">(initialScope);
   const [projectId, setProjectId] = useState("");
   const [assetType, setAssetType] = useState<AssetType | "">("");
   const [assetStatus, setAssetStatus] = useState<AssetStatus | "">("");
@@ -295,6 +304,28 @@ export default function KnowledgeListPage() {
         </PageSection>
       ) : (
         <>
+          <div className="kbl-scope-tabs" role="tablist" aria-label="知识范围">
+            {SCOPE_TABS.map((tab) => {
+              const active = scope === tab.value;
+              return (
+                <button
+                  key={tab.value || "all"}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  className={`kbl-scope-tab ${active ? "is-active" : ""}`}
+                  onClick={() => {
+                    setScope(tab.value);
+                    setProjectId("");
+                    setPage(1);
+                  }}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+
           <form className="kbl-filter-form" onSubmit={submitKeyword}>
             <FilterBar
               ariaLabel="知识资产筛选"
@@ -335,24 +366,6 @@ export default function KnowledgeListPage() {
                   placeholder="按标题或标签搜索"
                 />
               </div>
-
-              <label className="kbl-select-field">
-                <span className="sr-only">资产范围</span>
-                <select
-                  aria-label="资产范围"
-                  value={scope}
-                  onChange={(event) => {
-                    setScope(event.target.value as KnowledgeScope | "");
-                    setProjectId("");
-                    setPage(1);
-                  }}
-                >
-                  <option value="">范围：全部</option>
-                  <option value="company">范围：公司</option>
-                  <option value="personal">范围：个人</option>
-                  <option value="project">范围：项目</option>
-                </select>
-              </label>
 
               {scope === "project" && projects.length > 0 && (
                 <label className="kbl-select-field is-project">

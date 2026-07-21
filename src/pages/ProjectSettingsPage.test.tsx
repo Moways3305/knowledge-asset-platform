@@ -12,18 +12,33 @@ const projectApi = vi.hoisted(() => ({
   updateProjectSettings: vi.fn(),
   fetchProjectMembers: vi.fn(),
   patchProjectMember: vi.fn(),
+  fetchProjects: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+  addProjectMember: vi.fn(),
+  removeProjectMember: vi.fn(),
+  archiveProject: vi.fn(),
+  reactivateProject: vi.fn(),
+  deleteProject: vi.fn(),
 }));
 const reviewApi = vi.hoisted(() => ({
   fetchReviews: vi.fn(),
   approveReview: vi.fn(),
   rejectReview: vi.fn(),
 }));
+const adminApi = vi.hoisted(() => ({
+  fetchPeople: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+}));
 const auth = vi.hoisted(() => ({
   projectRole: "project_manager",
+  capabilities: {
+    isBoss: false,
+    isConsultingDirector: false,
+    isGovernance: false,
+  },
 }));
 
 vi.mock("../api/project", () => projectApi);
 vi.mock("../api/review", () => reviewApi);
+vi.mock("../api/admin", () => adminApi);
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({
     authMe: {
@@ -46,6 +61,7 @@ vi.mock("../auth/AuthContext", () => ({
         },
       ],
     },
+    capabilities: auth.capabilities,
   }),
 }));
 

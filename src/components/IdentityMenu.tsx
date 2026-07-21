@@ -31,7 +31,6 @@ export default function IdentityMenu() {
   // 身份来自全局 AuthProvider（与导航过滤、页面守卫共享同一份 /auth/me）。
   const { authMe, status, setAuthMe, reload } = useAuth();
   const [open, setOpen] = useState(false);
-  const [showSwitchLogin, setShowSwitchLogin] = useState(false);
   const [projectIndex, setProjectIndex] = useState(0);
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -44,7 +43,6 @@ export default function IdentityMenu() {
     setAuthError(status === "error" ? "身份加载失败" : null);
     if (status === "authenticated") {
       setProjectIndex(0);
-      setShowSwitchLogin(false);
     }
   }, [status]);
 
@@ -76,7 +74,6 @@ export default function IdentityMenu() {
       const me = await login(loginEmail.trim(), loginPassword || undefined);
       setAuthMe(me);
       setProjectIndex(0);
-      setShowSwitchLogin(false);
       setLoginEmail("");
       setLoginPassword(""); // 登录后立即清空密码，绝不回显
     } catch (e) {
@@ -126,7 +123,7 @@ export default function IdentityMenu() {
   const rolesText = (authMe?.companyRoles ?? []).map((r) => roleLabel[r] ?? r).join(" / ") || "—";
   const name = authMe?.name ?? "未登录";
   const initial = (authMe?.name ?? "·").trim().charAt(0) || "·";
-  const showLoginForm = !authMe || showSwitchLogin;
+  const showLoginForm = !authMe;
 
   return (
     <div className="idm" ref={wrapRef}>
@@ -189,7 +186,7 @@ export default function IdentityMenu() {
           <div className="idm-divider" />
 
           <div className="idm-auth">
-            {authMe && !showSwitchLogin ? (
+            {authMe ? (
               <>
                 {authError && (
                   <div className="idm-error" role="alert">
@@ -197,17 +194,6 @@ export default function IdentityMenu() {
                   </div>
                 )}
                 <div className="idm-actions">
-                  <button
-                    type="button"
-                    className="btn-secondary idm-btn"
-                    onClick={() => {
-                      setShowSwitchLogin(true);
-                      setAuthError(null);
-                    }}
-                    disabled={authBusy}
-                  >
-                    切换账号
-                  </button>
                   <button
                     type="button"
                     className="idm-logout"
@@ -220,28 +206,47 @@ export default function IdentityMenu() {
               </>
             ) : (
               <>
-                <div className="idm-field-label">{authMe ? "切换账号" : "登录"}</div>
+                <div className="idm-field-label">登录</div>
+                {/* 隐藏假字段，干扰浏览器基于历史会话的账密自动填充 */}
+                <input
+                  type="text"
+                  name="kap-switch-field"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  aria-hidden="true"
+                  style={{ display: "none" }}
+                />
+                <input
+                  type="password"
+                  name="kap-switch-code"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  aria-hidden="true"
+                  style={{ display: "none" }}
+                />
                 <input
                   className="idm-input"
                   type="email"
+                  name="kap-switch-field"
                   placeholder="登录邮箱"
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") void handleLogin();
                   }}
-                  autoComplete="username"
+                  autoComplete="off"
                 />
                 <input
                   className="idm-input"
                   type="password"
+                  name="kap-switch-code"
                   placeholder="密码"
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") void handleLogin();
                   }}
-                  autoComplete="current-password"
+                  autoComplete="new-password"
                 />
                 <div className="idm-actions">
                   <button
@@ -260,19 +265,6 @@ export default function IdentityMenu() {
                   >
                     企业微信
                   </button>
-                  {authMe && (
-                    <button
-                      type="button"
-                      className="btn-secondary idm-btn"
-                      onClick={() => {
-                        setShowSwitchLogin(false);
-                        setAuthError(null);
-                      }}
-                      disabled={authBusy}
-                    >
-                      取消
-                    </button>
-                  )}
                 </div>
                 {authError && (
                   <div className="idm-error" role="alert">

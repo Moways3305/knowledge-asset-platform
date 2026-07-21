@@ -43,3 +43,19 @@ async def create_company_kb(
         display_name=req.display_name,
         trace_id=get_trace_id(request),
     )
+
+
+@router.delete("", status_code=204)
+async def delete_company_kb(
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
+):
+    await company_kb_service.delete_company_kb(
+        session,
+        weknora,
+        caller,
+        trace_id=get_trace_id(request),
+    )
+    return None

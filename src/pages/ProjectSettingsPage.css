@@ -377,6 +377,134 @@
   text-align: center;
 }
 
+.ps74-member-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ps74-remove-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--color-danger-fg, #b00);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ps74-remove-btn:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ps74-remove-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ps74-project-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.ps74-project-switcher span {
+  font-weight: 600;
+}
+
+.ps74-project-switcher select {
+  min-width: 180px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-bg);
+  color: var(--color-text-body);
+  font-size: 13px;
+}
+
+.ps74-add-member {
+  margin-top: 14px;
+}
+
+.ps74-add-member-form {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  padding: 14px;
+  background: var(--color-bg-muted, #fafafa);
+}
+
+.ps74-add-member-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.ps74-add-member-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.ps74-add-member-fields input,
+.ps74-add-member-fields select {
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-bg);
+  color: var(--color-text-body);
+  font-size: 13px;
+}
+
+.ps74-add-member-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ps74-danger-zone {
+  border-color: var(--color-danger-border, #f0c4c4);
+  margin-top: 28px;
+}
+
+.ps74-danger-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.ps74-delete-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 240px;
+}
+
+.ps74-delete-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.ps74-delete-form input {
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-bg);
+  color: var(--color-text-body);
+  font-size: 13px;
+}
+
 .ps74-review-column {
   position: sticky;
   top: 0;

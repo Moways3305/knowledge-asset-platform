@@ -177,7 +177,7 @@ describe("KnowledgeListPage reference implementation", () => {
       ),
     );
 
-    fireEvent.change(screen.getByLabelText("资产范围"), { target: { value: "project" } });
+    fireEvent.click(screen.getByRole("tab", { name: "项目" }));
     const projectSelect = await screen.findByLabelText("项目");
     expect(projectSelect).toHaveTextContent("华东交付项目");
     expect(projectSelect).toHaveTextContent("供应链优化项目");
@@ -215,7 +215,7 @@ describe("KnowledgeListPage reference implementation", () => {
       }),
     );
     expect(screen.getByLabelText("关键词")).toHaveValue("");
-    expect(screen.getByLabelText("资产范围")).toHaveValue("");
+    expect(screen.getByRole("tab", { name: "全部" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("does not request a project scope when the identity has no active project relationship", async () => {
@@ -225,7 +225,7 @@ describe("KnowledgeListPage reference implementation", () => {
     await screen.findByText(restrictedAsset.title);
     expect(fetchKnowledgePage).toHaveBeenCalledTimes(1);
 
-    fireEvent.change(screen.getByLabelText("资产范围"), { target: { value: "project" } });
+    fireEvent.click(screen.getByRole("tab", { name: "项目" }));
 
     expect(await screen.findByText("项目范围不可用")).toBeInTheDocument();
     expect(screen.queryByLabelText("项目")).not.toBeInTheDocument();
@@ -306,7 +306,7 @@ describe("KnowledgeListPage reference implementation", () => {
     renderPage();
     await waitFor(() => expect(fetchKnowledgePage).toHaveBeenCalledTimes(1));
 
-    fireEvent.change(screen.getByLabelText("资产范围"), { target: { value: "company" } });
+    fireEvent.click(screen.getByRole("tab", { name: "公司" }));
     await waitFor(() => expect(fetchKnowledgePage).toHaveBeenCalledTimes(2));
     await act(async () => {
       company.resolve(response([{ ...restrictedAsset, title: "公司范围新响应" }]));

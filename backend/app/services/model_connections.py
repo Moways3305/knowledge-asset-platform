@@ -161,6 +161,28 @@ async def test_connection(session: AsyncSession, model_ref: str) -> dict:
     return await generation_models.test_model_connection(session, model_ref)
 
 
+async def delete_model_connection(session: AsyncSession, model_ref: str) -> None:
+    """删除外部 LLM 连接。
+
+    关联检查：若该连接当前承担 external_llm_default 用途，拒绝删除（提示先切换默认）。
+    默认模型的硬保护由底层 `generation_models.delete_model` 负责（409
+    generation_model_default_delete_denied），此处不重复实现。
+    """
+    record = await _resolve(session, model_ref)
+    defaults = await get_usage_assignments(session)
+    current = defaults.get("external_llm_default")
+    if current and current.get("model_ref") == record.model_ref:
+        raise ModelConnectionError(
+            "model_connection_in_use",
+            "当前连接正在承担内容生成和默认项目问答，不能直接删除。",
+            409,
+            dependency="external_llm_default",
+            remediation_hint="先选择其他已启用连接作为默认，或明确清空默认用途，再删除当前连接。",
+            action="change_or_clear_external_llm_default",
+        )
+    await generation_models.delete_model(session, model_ref)
+
+
 def _usage_slot(record: ConnectionRecord | None) -> dict | None:
     if record is None:
         return None

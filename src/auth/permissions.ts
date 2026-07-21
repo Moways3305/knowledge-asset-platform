@@ -65,6 +65,8 @@ export const can = {
 
   // 业务功能：业务用户可见；纯 admin / 匿名不显示业务知识入口。
   viewKnowledge: businessOnly,
+  // 公司知识库入口：仅治理角色（boss / 咨询总监）可见。
+  viewCompanyKnowledge: (c: Capabilities) => c.isBoss || c.isConsultingDirector,
   viewMyKnowledge: businessOnly,
   viewUpload: businessOnly,
   viewReview: businessOnly,

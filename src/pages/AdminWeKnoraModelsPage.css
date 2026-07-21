@@ -356,6 +356,14 @@
   gap: 7px;
 }
 
+.mf-delete-btn {
+  color: var(--color-danger-fg, #b00);
+}
+
+.mf-delete-btn:hover:not(:disabled) {
+  background: var(--color-danger-bg, #fde8e8);
+}
+
 .mf-empty-state,
 .mf-foundation-empty {
   min-height: 118px;
