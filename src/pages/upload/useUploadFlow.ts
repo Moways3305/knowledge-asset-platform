@@ -119,7 +119,7 @@ export function useUploadFlow() {
     setPendingLoading(true);
     setPendingError(null);
     try {
-      const tasks = await fetchPendingIngestTasks();
+      const tasks = await fetchPendingIngestTasks("path_a_wecom");
       if (pendingRequestRef.current !== requestId) return;
       setPendingTasks(tasks);
     } catch (e) {

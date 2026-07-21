@@ -60,13 +60,6 @@ const navGroups: NavGroup[] = [
         end: true,
         cap: can.viewKnowledge,
       },
-      {
-        to: "/knowledge?scope=company",
-        label: "公司知识库",
-        icon: LibraryBig,
-        end: true,
-        cap: can.viewCompanyKnowledge,
-      },
       { to: "/my/knowledge", label: "个人知识", icon: UserRound, cap: can.viewMyKnowledge },
       { to: "/upload", label: "资产化确认", icon: FileCheck2, cap: can.viewUpload },
       { to: "/review", label: "升级审核", icon: ShieldCheck, cap: can.viewReview },

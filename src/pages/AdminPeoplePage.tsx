@@ -56,7 +56,7 @@ const fmtTime = (iso: string | null): string => formatBeijingTime(iso);
 
 export default function AdminPeoplePage() {
   const { capabilities } = useAuth();
-  const canManageProjects = capabilities.isBoss || capabilities.isConsultingDirector;
+  const canManageProjects = capabilities.isGovernance;
   const canManageCompanyRole = (role: string) =>
     role === "consultant" || role === "consulting_director"
       ? canManageProjects

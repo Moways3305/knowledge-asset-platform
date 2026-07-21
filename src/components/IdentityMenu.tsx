@@ -135,9 +135,7 @@ export default function IdentityMenu() {
   const showLoginForm = !authMe;
 
   // 区分当前项目和其他项目，便于用户理解"当前在哪个项目"。
-  const activeProject = urlProjectId
-    ? (projects.find((p) => p.projectId === urlProjectId) ?? currentProject)
-    : currentProject;
+  const activeProject = currentProject;
   const rolesText = roles.map((r) => roleLabel[r] ?? r).join(" / ") || "—";
 
   return (
