@@ -414,8 +414,8 @@ class AuditAction(str, Enum):
     governance_boss_bootstrapped = "governance.boss_bootstrapped"
     # 项目知识库（项目空间）创建。
     project_created = "project.created"
-    # 项目归档 / 重新激活 / 删除（operation）。归档联动停用全部 project_members；
-    # 删除仅在已归档且无项目资产时由总经理执行，物理删除项目行 + 成员关系 + KB 映射。
+    # 历史项目归档事件键仅供已有审计记录兼容；当前项目删除不再依赖归档状态。
+    # 删除由本项目有效项目经理执行，物理删除项目行 + 成员关系 + KB 映射。
     project_archived = "project.archived"
     project_reactivated = "project.reactivated"
     project_deleted = "project.deleted"

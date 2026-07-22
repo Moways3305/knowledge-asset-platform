@@ -143,6 +143,8 @@ export default function KnowledgeDetailPage() {
   const [retryBusy, setRetryBusy] = useState(false);
   const [retryNote, setRetryNote] = useState<string | null>(null);
   const [retryErr, setRetryErr] = useState<string | null>(null);
+  const backPath = asset?.projectId ? `/project/${asset.projectId}/knowledge` : "/knowledge";
+  const backLabel = asset?.projectId ? "返回项目知识库" : "返回知识资产库";
 
   async function reloadAsset() {
     if (!id) return;
@@ -276,7 +278,7 @@ export default function KnowledgeDetailPage() {
     setDeleteErr(null);
     try {
       await deleteKnowledgeAsset(id, deleteReason.trim());
-      navigate("/knowledge");
+      navigate(backPath);
     } catch (error) {
       setDeleteErr(safeActionError(error, "删除失败，请重试。"));
       setDeleteBusy(false);
@@ -384,8 +386,8 @@ export default function KnowledgeDetailPage() {
 
   return (
     <main className="product-page kdetail-page">
-      <Link to="/knowledge" className="kdetail-back">
-        <ArrowLeft size={15} aria-hidden="true" /> 返回知识资产库
+      <Link to={backPath} className="kdetail-back">
+        <ArrowLeft size={15} aria-hidden="true" /> {backLabel}
       </Link>
 
       <header className="kdetail-header">

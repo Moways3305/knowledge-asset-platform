@@ -103,9 +103,11 @@ describe("KnowledgeDetailPage", () => {
       onlyofficeConfig: null,
       message: "onlyoffice_not_configured",
     });
-
     renderDetail();
-
+    expect(await screen.findByRole("link", { name: "返回项目知识库" })).toHaveAttribute(
+      "href",
+      "/project/project-1/knowledge",
+    );
     fireEvent.click((await screen.findAllByRole("button", { name: "预览原文" }))[0]);
 
     expect(await screen.findByRole("dialog", { name: "原文预览" })).toBeInTheDocument();

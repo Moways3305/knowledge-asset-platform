@@ -26,7 +26,6 @@ export interface ProjectSettingsUpdateDTO {
 
 export interface ProjectDeletionReadinessDTO {
   can_delete: boolean;
-  is_archived: boolean;
   asset_count: number;
   member_count: number;
   blockers: string[];

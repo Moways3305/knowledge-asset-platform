@@ -143,6 +143,10 @@ describe("ProjectKnowledgePage reference workspace", () => {
 
     expect(await screen.findByRole("table", { name: "项目知识列表" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "项目知识库" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "返回项目空间" })).toHaveAttribute(
+      "href",
+      `/project/${PROJECT_A}`,
+    );
     expect(screen.getByText("甲项目", { selector: ".product-page-heading p" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "知识名称" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "最后更新" })).toBeInTheDocument();
