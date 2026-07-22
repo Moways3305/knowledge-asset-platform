@@ -260,7 +260,7 @@ async def test_existing_external_and_weknora_models_remain_separate_without_dupl
     monkeypatch.setattr("app.api.weknora_admin.weknora_enabled", lambda: True)
     wk.models[RAW_ID] = {
         "id": RAW_ID,
-        "name": "foundation-chat",
+        "name": "qwen-foundation",
         "type": "KnowledgeQA",
         "source": "remote",
         "status": "active",
@@ -280,7 +280,7 @@ async def test_existing_external_and_weknora_models_remain_separate_without_dupl
 
     foundation = await client.get(WK_MODELS, headers=_hdr())
     assert foundation.status_code == 200
-    assert foundation.json()["items"][0]["name"] == "foundation-chat"
+    assert foundation.json()["items"][0]["name"] == "qwen-foundation"
     assert wk.calls == ["list_models"]
     assert RAW_ID not in foundation.text
 

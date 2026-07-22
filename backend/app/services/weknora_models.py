@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import re
 import uuid
 from typing import TYPE_CHECKING, Any, TypeAlias
 
@@ -149,7 +148,7 @@ def _is_http_url(value: str | None) -> bool:
 
 
 # 已知合法模型名称前缀（白名单），防止拼写错误（如 deepsekk）进入系统。
-_KNOWN_MODEL_NAME_PREFIXES: list[str] = [
+_APPROVED_MODEL_NAME_PREFIXES: tuple[str, ...] = (
     "deepseek-",
     "qwen-",
     "kimi-",
@@ -169,20 +168,14 @@ _KNOWN_MODEL_NAME_PREFIXES: list[str] = [
     "moonshot-",
     "baichuan-",
     "llama",
-]
-
-# 模型名称宽松回退正则：至少以字母开头，由字母/数字/横杠/下划线组成，2-48 字符。
-_MODEL_NAME_LOOSE_RE = re.compile(r"^[a-z][a-z0-9\-_]{1,47}$")
+)
 
 
 def _validate_model_name(name: str, context: str = "create") -> None:
     """校验模型名称是否符合已知格式，阻止拼写错误（如 deepsekk）注入 WeKnora。
 
     规则：
-    1. 名称非空且至少 2 个字符。
-    2. 优先按已知前缀白名单匹配。
-    3. 未命中白名单时走宽松回退校验（字母/数字/横杠/下划线）。
-    4. 都不满足则拒绝。
+    只有明确配置的模型家族前缀可通过；未知名称没有语法回退或隐式 custom escape hatch。
     """
     if _is_valid_model_name(name):
         return
@@ -200,10 +193,7 @@ def _is_valid_model_name(name: str | None) -> bool:
     lowered = (name or "").strip().lower()
     if not lowered:
         return False
-    for prefix in _KNOWN_MODEL_NAME_PREFIXES:
-        if lowered.startswith(prefix):
-            return True
-    return bool(_MODEL_NAME_LOOSE_RE.match(lowered))
+    return any(lowered.startswith(prefix) for prefix in _APPROVED_MODEL_NAME_PREFIXES)
 
 
 def _validate_remote_secret_inputs(req: ModelMutateRequest) -> None:

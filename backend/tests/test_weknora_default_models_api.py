@@ -51,7 +51,7 @@ class FakeWK:
             },
             "mid-rerank": {
                 "id": "mid-rerank",
-                "name": "gte-rerank",
+                "name": "rerank-v3",
                 "type": "Rerank",
                 "source": "remote",
                 "status": "active",
