@@ -122,7 +122,7 @@ describe("product layout and route contract", () => {
     expect(localUpload).toContain('className="upload-dropzone upload77-dropzone"');
     expect(localUpload).toContain("className={`upload-inline-info");
     expect(localUpload).not.toContain("dropzone-security");
-    expect(localUpload).not.toContain("<section");
+    expect(localUpload).toContain('aria-labelledby="local-pending-title"');
     expect(confirmation).not.toContain("保存草稿");
     expect(confirmation).not.toContain("Import from URL");
   });

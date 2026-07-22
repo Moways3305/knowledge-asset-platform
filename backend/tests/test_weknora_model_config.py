@@ -495,7 +495,7 @@ async def test_model_create_upstream_error_no_leak(client, monkeypatch, db_sessi
             f"{BASE}/models",
             headers=_hdr(USER_ADMIN_ONLY),
             json={
-                "name": "x",
+                "name": "deepseek-v4",
                 "type": "chat",
                 "source": "remote",
                 "base_url": _URL,
