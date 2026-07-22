@@ -40,9 +40,9 @@ export function deriveCapabilities(me: AuthMeVM | null): Capabilities {
     };
   }
   return {
-    isAdmin: me.companyRoles.includes(ADMIN_ROLE),
-    isBoss: me.companyRoles.includes(BOSS_ROLE),
-    isConsultingDirector: me.companyRoles.includes(CONSULTING_DIRECTOR_ROLE),
+    isAdmin: me.activeCompanyRole === ADMIN_ROLE,
+    isBoss: me.activeCompanyRole === BOSS_ROLE,
+    isConsultingDirector: me.activeCompanyRole === CONSULTING_DIRECTOR_ROLE,
     isBusinessUser: me.isBusinessUser,
     isGovernance: me.canDiscoverL5,
     hasProject: me.projects.length > 0,

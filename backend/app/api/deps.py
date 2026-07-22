@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from fastapi import Cookie, Depends, Header
+from fastapi import Cookie, Depends, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -19,11 +19,17 @@ from app.db.session import get_db
 from app.schemas.permission import CallerContext
 from app.services.auth_session import SESSION_COOKIE_NAME, resolve_current_user
 from app.services.permission import build_caller_context
+from app.services.work_identity import (
+    ACTIVE_ROLE_COOKIE_NAME,
+    InvalidActiveRoleCookie,
+    resolve_active_role,
+)
 
 
 async def get_caller_context(
     x_dev_user_id: str | None = Header(default=None, alias="X-Dev-User-Id"),
     kap_session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+    kap_active_company_role: str | None = Cookie(default=None, alias=ACTIVE_ROLE_COOKIE_NAME),
     session: AsyncSession = Depends(get_db),
 ) -> CallerContext:
     """解析当前调用人并构建权限上下文。
@@ -37,4 +43,19 @@ async def get_caller_context(
         session_token=kap_session,
         dev_user_id=x_dev_user_id,
     )
-    return build_caller_context(user)
+    try:
+        active_role = resolve_active_role(
+            user=user,
+            session_token=kap_session,
+            cookie_value=kap_active_company_role,
+            settings=settings,
+        )
+    except InvalidActiveRoleCookie as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "denied_reason": "active_company_role_cookie_invalid",
+                "message": "工作身份凭证无效，请重新登录",
+            },
+        ) from exc
+    return build_caller_context(user, active_company_role=active_role)

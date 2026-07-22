@@ -26,6 +26,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from app.models.identity import User
 from app.models.knowledge import KnowledgeAsset
 from app.schemas.enums import (
+    BUSINESS_COMPANY_ROLES,
     AiAccessLevel,
     AssetStatus,
     ConfidentialityLevel,
@@ -46,6 +47,7 @@ from app.schemas.permission import (
     PermissionDecision,
     layer_rank,
 )
+from app.services.work_identity import default_active_role
 
 # 读侧默认不可进入检索/访问的资产状态。
 _INACTIVE_ASSET_STATUSES = {
@@ -63,15 +65,21 @@ _REDACTED_SUMMARY_LEVELS = {ConfidentialityLevel.L3.value, ConfidentialityLevel.
 _logger = logging.getLogger(__name__)
 
 
-def build_caller_context(user: User) -> CallerContext:
+def build_caller_context(user: User, *, active_company_role: str | None = None) -> CallerContext:
     """从 User（需已加载 company_roles / project_members）构建调用人上下文。
 
     只统计 active 的公司角色与项目成员关系。
     """
-    active_roles = {
+    assigned_roles = {
         r.company_role for r in user.company_roles if r.status == RoleStatus.active.value
     }
-    active_members = [m for m in user.project_members if m.status == MemberStatus.active.value]
+    selected_role = active_company_role or default_active_role(user)
+    active_roles = {selected_role} if selected_role in assigned_roles else set()
+    active_members = (
+        [m for m in user.project_members if m.status == MemberStatus.active.value]
+        if selected_role in BUSINESS_COMPANY_ROLES
+        else []
+    )
     active_projects = {m.project_id for m in active_members}
     active_project_roles = {m.project_id: m.project_role for m in active_members}
     return CallerContext(

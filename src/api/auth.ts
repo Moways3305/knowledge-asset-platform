@@ -7,6 +7,7 @@ import {
   ensureCsrfToken,
   handleResponse,
   apiGet,
+  apiPost,
   apiPostNoBody,
 } from "./http";
 
@@ -16,6 +17,7 @@ export interface AuthMeVM {
   name: string;
   email: string;
   companyRoles: string[];
+  activeCompanyRole: string | null;
   isBusinessUser: boolean;
   canDiscoverL5: boolean;
   projects: { projectId: string; projectName: string; projectRole: string }[];
@@ -27,6 +29,7 @@ interface AuthMeDTO {
   email: string;
   status: string;
   company_roles: string[];
+  active_company_role: string | null;
   is_business_user: boolean;
   can_discover_l5: boolean;
   project_memberships: {
@@ -43,6 +46,7 @@ function mapAuthMe(data: AuthMeDTO): AuthMeVM {
     name: data.name,
     email: data.email,
     companyRoles: data.company_roles,
+    activeCompanyRole: data.active_company_role,
     isBusinessUser: data.is_business_user,
     canDiscoverL5: data.can_discover_l5,
     projects: data.project_memberships
@@ -57,6 +61,14 @@ function mapAuthMe(data: AuthMeDTO): AuthMeVM {
 
 export async function fetchAuthMe(): Promise<AuthMeVM> {
   return mapAuthMe(await apiGet<AuthMeDTO>(`/api/v1/auth/me`));
+}
+
+export async function switchActiveCompanyRole(companyRole: string): Promise<AuthMeVM> {
+  return mapAuthMe(
+    await apiPost<AuthMeDTO>(`/api/v1/auth/active-company-role`, {
+      company_role: companyRole,
+    }),
+  );
 }
 
 // 会话登录。提供 password → 所有环境密码登录；不提供 → 仅开发环境无凭证适配器。

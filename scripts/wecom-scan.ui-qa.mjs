@@ -24,6 +24,7 @@ const scenarios = [
   "records-empty",
   "forbidden",
   "unconfigured",
+  "browse-failure",
 ];
 const secrets = [
   "SECRET_CONFIG_87",
@@ -40,6 +41,7 @@ const authMe = {
   email: "qa@example.test",
   status: "active",
   company_roles: ["admin"],
+  active_company_role: "admin",
   is_business_user: false,
   can_discover_l5: false,
   project_memberships: [],
@@ -141,7 +143,17 @@ try {
           });
         if (url.pathname.endsWith("/drive/spaces")) {
           if (scenario === "unconfigured")
-            return fulfill({ detail: { message: "SECRET_TOKEN_87" } }, 503);
+            return fulfill(
+              {
+                detail: {
+                  message: "SECRET_TOKEN_87",
+                  missing_config: ["WECOM_CORP_ID", "WECOM_APP_SECRET"],
+                },
+              },
+              503,
+            );
+          if (scenario === "browse-failure")
+            return fulfill({ detail: { message: "SECRET_UPSTREAM_87" } }, 502);
           return fulfill({ items: [{ space_ref: "SECRET_SPACE_87", name: "项目空间" }] });
         }
         if (url.pathname.includes("/drive/directories"))
@@ -157,10 +169,16 @@ try {
         await page.getByRole("button", { name: "扫描", exact: true }).click();
         await page.getByText(scenario === "scan-success" ? /扫描已结束/ : /扫描未能完成/).waitFor();
       }
-      if (scenario === "unconfigured") {
+      if (scenario === "unconfigured" || scenario === "browse-failure") {
         await page.getByRole("button", { name: "新增扫描配置" }).click();
         await page.getByRole("button", { name: "选择微盘目录" }).click();
-        await page.getByText("微盘空间暂时无法加载，请检查企业微信配置后重试。").waitFor();
+        await page
+          .getByText(
+            scenario === "unconfigured"
+              ? /企业微信连接尚未配置/
+              : /微盘访问暂时失败/,
+          )
+          .waitFor();
       }
       const screenshot = path.join(outDir, `${scenario}-${viewport.name}.png`);
       await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
@@ -217,7 +235,10 @@ try {
               empty: text.includes("尚未配置微盘扫描"),
               disabled: text.includes("停用"),
               "records-empty": text.includes("尚未运行"),
-              unconfigured: text.includes("微盘空间暂时无法加载"),
+              unconfigured:
+                text.includes("企业微信连接尚未配置") && text.includes("WECOM_CORP_ID"),
+              "browse-failure":
+                text.includes("微盘访问暂时失败") && text.includes("重试加载"),
               normal: text.includes("Alpha 交付资料"),
               "scan-success": text.includes("扫描已结束"),
               "scan-failure": text.includes("扫描未能完成"),

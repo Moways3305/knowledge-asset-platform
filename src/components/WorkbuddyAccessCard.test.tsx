@@ -75,4 +75,21 @@ describe("WorkbuddyAccessCard", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("{}"));
     expect(screen.getByText("已复制")).toBeInTheDocument();
   });
+
+  it("已启用时可重置并撤销配置", async () => {
+    api.fetchWorkbuddyToken.mockResolvedValue({
+      enabled: true,
+      boundUserName: "张三",
+      lastRotatedAt: "2026-07-22T08:00:00Z",
+    });
+    api.regenerateWorkbuddyToken.mockResolvedValue({ token: "kgw_new", mcpConfigJson: "{}" });
+    api.revokeWorkbuddyToken.mockResolvedValue(undefined);
+    render(<WorkbuddyAccessCard />);
+    await userEvent.click(await screen.findByRole("button", { name: "重置配置" }));
+    expect(await screen.findByLabelText("mcp.json 配置")).toBeInTheDocument();
+    expect(api.regenerateWorkbuddyToken).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole("button", { name: "撤销配置" }));
+    await waitFor(() => expect(api.revokeWorkbuddyToken).toHaveBeenCalledTimes(1));
+    expect(screen.queryByLabelText("mcp.json 配置")).not.toBeInTheDocument();
+  });
 });

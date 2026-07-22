@@ -195,9 +195,17 @@ async def test_consultant_admin_and_other_project_manager_cannot_decide(client, 
         )
     )
     await db_session.commit()
+    await client.post("/api/v1/auth/login", json={"email": "dual.f@dev.local"})
+    csrf = (await client.get("/api/v1/auth/csrf")).json()["csrf_token"]
+    switched = await client.post(
+        "/api/v1/auth/active-company-role",
+        headers={"X-CSRF-Token": csrf},
+        json={"company_role": "consultant"},
+    )
+    assert switched.status_code == 200
     other_manager = await client.post(
         f"{REVIEWS}/{review_id}/approve",
-        headers=_hdr(USER_CONSULTANT_ADMIN),
+        headers={"X-CSRF-Token": csrf},
         json={},
     )
     assert other_manager.status_code == 403

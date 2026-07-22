@@ -91,6 +91,12 @@ class CallerContext(BaseModel):
     active_project_roles: dict[uuid.UUID, str] = {}
 
     @property
+    def active_company_role(self) -> str | None:
+        return (
+            next(iter(self.active_company_roles)) if len(self.active_company_roles) == 1 else None
+        )
+
+    @property
     def is_business_user(self) -> bool:
         return any(r in BUSINESS_COMPANY_ROLES for r in self.active_company_roles)
 

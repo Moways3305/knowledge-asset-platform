@@ -157,6 +157,7 @@ describe("MyKnowledgePage complete personal workflow", () => {
       name: "林顾问",
       email: "lin@example.test",
       companyRoles: ["consultant"],
+      activeCompanyRole: "consultant",
       isBusinessUser: true,
       canDiscoverL5: false,
       projects: [

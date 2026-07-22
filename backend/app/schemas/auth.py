@@ -33,6 +33,10 @@ class LogoutResponse(BaseModel):
     ok: bool
 
 
+class ActiveCompanyRoleRequest(BaseModel):
+    company_role: str
+
+
 class CsrfTokenOut(BaseModel):
     """CSRF token 下发响应。
 
@@ -65,6 +69,7 @@ class AuthMeOut(BaseModel):
     email: str
     status: str
     company_roles: list[str]
+    active_company_role: str | None
     is_business_user: bool
     can_discover_l5: bool
     project_memberships: list[ProjectMembershipOut]

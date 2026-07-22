@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { ChevronDown, LogOut, UserRound, Building2, Check } from "lucide-react";
 import { ApiError } from "../api/http";
-import { login, logout } from "../api/auth";
+import { login, logout, switchActiveCompanyRole } from "../api/auth";
 import { useAuth } from "../auth/AuthContext";
 import { startWecomOAuth } from "../api/admin";
 
@@ -126,6 +126,28 @@ export default function IdentityMenu() {
     }
   }, [reload]);
 
+  const handleRoleSwitch = useCallback(
+    async (role: string) => {
+      if (!authMe || role === authMe.activeCompanyRole) return;
+      setAuthBusy(true);
+      setAuthError(null);
+      try {
+        const me = await switchActiveCompanyRole(role);
+        setAuthMe(me);
+        setOpen(false);
+      } catch (error) {
+        setAuthError(
+          error instanceof ApiError && error.status === 403
+            ? "无法切换到未分配的身份"
+            : "身份切换失败，请重试",
+        );
+      } finally {
+        setAuthBusy(false);
+      }
+    },
+    [authMe, setAuthMe],
+  );
+
   const projects = authMe?.projects ?? [];
   const currentProject = projects[projectIndex];
   const roles = authMe?.companyRoles ?? [];
@@ -136,7 +158,9 @@ export default function IdentityMenu() {
 
   // 区分当前项目和其他项目，便于用户理解"当前在哪个项目"。
   const activeProject = currentProject;
-  const rolesText = roles.map((r) => roleLabel[r] ?? r).join(" / ") || "—";
+  const activeRoleLabel = authMe?.activeCompanyRole
+    ? (roleLabel[authMe.activeCompanyRole] ?? authMe.activeCompanyRole)
+    : "未分配";
 
   return (
     <div className="idm" ref={wrapRef}>
@@ -149,7 +173,9 @@ export default function IdentityMenu() {
         <span className={`idm-avatar ${authMe ? "" : "idm-avatar-anon"}`}>{initial}</span>
         <span className="idm-trigger-text">
           <span className="idm-trigger-name">{name}</span>
-          <span className="idm-trigger-role">{authMe ? rolesText : "点击登录"}</span>
+          <span className="idm-trigger-role">
+            {authMe ? `当前：${activeRoleLabel}` : "点击登录"}
+          </span>
         </span>
         <ChevronDown size={15} className="idm-chevron" />
       </button>
@@ -164,19 +190,33 @@ export default function IdentityMenu() {
               <div className="idm-panel-name">{name}</div>
               {email && <div className="idm-panel-email">{email}</div>}
               <div className="idm-panel-roles">
-                <UserRound size={12} /> 平台身份：
-                <span className="idm-role-badges">
-                  {roles.length > 0 ? (
-                    roles.map((r) => (
-                      <span key={r} className={`idm-role-badge idm-role-${r}`}>
-                        {roleLabel[r] ?? r}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="idm-role-badge idm-role-none">无</span>
-                  )}
-                </span>
+                <UserRound size={12} /> 当前工作身份：
+                <strong>{activeRoleLabel}</strong>
               </div>
+              {roles.length > 1 && (
+                <div className="idm-role-switch" aria-label="切换工作身份">
+                  <span className="idm-field-label">切换身份</span>
+                  <div className="idm-role-options">
+                    {roles.length > 0 ? (
+                      roles.map((r) => (
+                        <button
+                          type="button"
+                          key={r}
+                          className={`idm-role-option ${r === authMe?.activeCompanyRole ? "is-active" : ""}`}
+                          disabled={authBusy || r === authMe?.activeCompanyRole}
+                          onClick={() => void handleRoleSwitch(r)}
+                        >
+                          {r === authMe?.activeCompanyRole && <Check size={12} />}
+                          {roleLabel[r] ?? r}
+                        </button>
+                      ))
+                    ) : (
+                      <span className="idm-role-badge idm-role-none">无</span>
+                    )}
+                  </div>
+                  <small>切换后将按新身份重新计算导航与操作权限。</small>
+                </div>
+              )}
             </div>
           </div>
 

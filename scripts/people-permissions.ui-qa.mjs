@@ -43,6 +43,7 @@ const authMe = {
   email: "secret-person@example.test",
   status: "active",
   company_roles: ["admin"],
+  active_company_role: "admin",
   is_business_user: false,
   can_discover_l5: false,
   project_memberships: [],
@@ -136,6 +137,7 @@ try {
                 ? {
                     ...authMe,
                     company_roles: ["boss"],
+                    active_company_role: "boss",
                     is_business_user: true,
                     can_discover_l5: true,
                   }
@@ -167,6 +169,7 @@ try {
               items: scenario === "empty" ? [] : [person],
               total: scenario === "empty" ? 0 : 1,
             });
+          if (url.pathname === `/api/v1/admin/people/${person.user_id}`) return fulfill(person);
           if (isRules)
             return fulfill({
               items: scenario === "empty" ? [] : [rule],
@@ -183,6 +186,10 @@ try {
         page.on("pageerror", (error) => consoleMessages.push(error.message));
         await page.goto(`${base}${target.path}`, { waitUntil: "networkidle" });
         await page.locator(target.root).waitFor();
+        if (target.name === "people" && scenario === "normal") {
+          await page.getByRole("button", { name: "查看 / 治理" }).click();
+          await page.getByRole("dialog", { name: "人员治理详情" }).waitFor();
+        }
         const screenshot = path.join(outDir, `${target.name}-${scenario}-${viewport.name}.png`);
         await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
 
@@ -222,6 +229,12 @@ try {
             const emptyState = pageRoot?.querySelector(".gp-empty-content, .ig-empty-state");
             const emptyRect = emptyState?.getBoundingClientRect();
             const actionButtons = [...(main?.querySelectorAll("button") ?? [])];
+            const drawer = pageRoot?.querySelector(".pp-detail-panel")?.getBoundingClientRect();
+            const governanceRows = [
+              ...(pageRoot?.querySelectorAll(
+                ".pp-detail-panel .pp-project-role-list > .pp-project-role-item",
+              ) ?? []),
+            ];
             return {
               overflowX: root.scrollWidth - root.clientWidth,
               safe: secrets.every((secret) => !html.includes(secret)),
@@ -238,8 +251,17 @@ try {
                 summaryIcons.length === summaryValues.length &&
                 (scenario !== "normal" || fieldMarks.length >= 3),
               listFirst:
+                target.name !== "people" || Boolean(primary),
+              drawerStructured:
                 target.name !== "people" ||
-                (!pageRoot?.querySelector(".pp-detail-section") && Boolean(primary)),
+                scenario !== "normal" ||
+                Boolean(
+                  drawer &&
+                    drawer.width <= root.clientWidth * 0.84 &&
+                    drawer.right <= root.clientWidth + 1 &&
+                    governanceRows.length > 0 &&
+                    governanceRows.every((row) => row.scrollWidth <= row.clientWidth + 2),
+                ),
               secondaryBelow:
                 target.name !== "permissions" ||
                 Boolean(
@@ -251,8 +273,12 @@ try {
               noInnerScroll: tableWraps.every((node) => node.scrollWidth - node.clientWidth <= 2),
               actionsVisible: actionButtons.every((button) => {
                 const rect = button.getBoundingClientRect();
+                const drawerBounds = button
+                  .closest(".pp-detail-panel")
+                  ?.getBoundingClientRect();
+                const bounds = drawerBounds || mainRect;
                 return (
-                  !mainRect || (rect.left >= mainRect.left - 1 && rect.right <= mainRect.right + 1)
+                  !bounds || (rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1)
                 );
               }),
               honestEmptyPattern:
@@ -288,6 +314,7 @@ try {
             metrics.noWideStatusStrip &&
             metrics.iconLanguage &&
             metrics.listFirst &&
+            metrics.drawerStructured &&
             metrics.secondaryBelow &&
             metrics.noInnerScroll &&
             metrics.actionsVisible &&

@@ -31,6 +31,7 @@ from app.services.identity import load_user_with_roles
 from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.permission import build_caller_context
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
+from app.services.work_identity import default_active_business_role
 
 # 保密 / AI 级别序（用于注册行 max_* 天花板裁剪，作权限网关之上的额外收口）。
 _CONF_RANK = {"L1": 1, "L2": 2, "L3": 3, "L4": 4, "L5": 5}
@@ -46,7 +47,10 @@ async def resolve_caller(
     user = await load_user_with_roles(session, user_id=caller_user_id)
     if user is None or user.status != "active":
         return None
-    return build_caller_context(user)
+    business_role = default_active_business_role(user)
+    if business_role is None:
+        return None
+    return build_caller_context(user, active_company_role=business_role)
 
 
 def parse_knowledge_selector(
