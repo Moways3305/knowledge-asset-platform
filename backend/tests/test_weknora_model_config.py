@@ -16,6 +16,7 @@ from app.models.audit import AuditEvent
 from app.models.weknora import WeknoraKbMapping
 from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT
 from app.services.weknora_client import WeKnoraError, get_weknora_client
+from app.services.weknora_models import _model_ref
 
 BASE = "/api/v1/admin/weknora"
 _SECRET = "sk-secret-xyz-123"
@@ -53,6 +54,7 @@ class FakeModelsWK:
         self.last_update: dict | None = None
         self.deleted: list[str] = []
         self.last_init: dict | None = None
+        self.list_calls = 0
         self.kb_configs: dict[str, dict] = {}
         self._n = 0
 
@@ -67,6 +69,7 @@ class FakeModelsWK:
         ]
 
     async def list_models(self, *, trace_id=None):
+        self.list_calls += 1
         return list(self.models.values())
 
     async def get_model(self, model_id, *, trace_id=None):
@@ -297,6 +300,7 @@ async def test_create_model_rejects_unknown_name_without_upstream_call(client, w
 
 async def test_update_model_rejects_unknown_name_without_upstream_call(client, wk):
     models = (await client.get(f"{BASE}/models", headers=_hdr(USER_ADMIN_ONLY))).json()["items"]
+    wk.list_calls = 0
     response = await client.put(
         f"{BASE}/models/{models[0]['model_ref']}",
         headers=_hdr(USER_ADMIN_ONLY),
@@ -312,6 +316,7 @@ async def test_update_model_rejects_unknown_name_without_upstream_call(client, w
     assert response.status_code == 422
     assert response.json()["detail"]["denied_reason"] == "weknora_model_name_invalid"
     assert wk.last_update is None
+    assert wk.list_calls == 0
 
 
 async def test_list_models_excludes_unknown_upstream_names(client, wk):
@@ -332,6 +337,36 @@ async def test_list_models_excludes_unknown_upstream_names(client, wk):
     listed_names = {item["name"] for item in response.json()["items"]}
     assert listed_names == {"qwen-plus", "text-embedding-v3"}
     assert listed_names.isdisjoint(invalid_names)
+
+
+async def test_kb_config_rejects_unknown_model_family(client, wk, db_session):
+    mapping = WeknoraKbMapping(
+        scope="company",
+        weknora_kb_id="kb-invalid-model-family",
+        kb_name="company-invalid-model-family",
+        status="active",
+    )
+    db_session.add(mapping)
+    await db_session.commit()
+    await db_session.refresh(mapping)
+    wk.models["mid-invalid-kb"] = {
+        "id": "mid-invalid-kb",
+        "name": "random-model",
+        "type": "Embedding",
+        "source": "remote",
+        "status": "active",
+        "parameters": {"provider": "aliyun"},
+    }
+
+    response = await client.put(
+        f"{BASE}/kb-configs/{mapping.id}/initialization",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"embedding_model_ref": _model_ref("mid-invalid-kb")},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["denied_reason"] == "weknora_model_name_invalid"
+    assert wk.last_init is None
 
 
 async def test_delete_model_uses_server_id_no_leak(client, wk):

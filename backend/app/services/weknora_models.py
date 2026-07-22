@@ -264,11 +264,11 @@ async def create_model(
 async def update_model(
     client: _CheckClient, model_ref: str, req: ModelMutateRequest, *, trace_id: str | None
 ) -> ModelMutateResponse:
+    _validate_model_name(req.name, context="更新模型")
     model_id = await _resolve_ref(client, model_ref, trace_id)
     if model_id is None:
         raise _denied(404, "weknora_model_not_found", "模型不存在")
     _validate_update_sensitive_inputs(req)
-    _validate_model_name(req.name, context="更新模型")
     await client.update_model(
         model_id, _build_model_payload(req, keep_blank_sensitive=False), trace_id=trace_id
     )
@@ -483,6 +483,7 @@ async def update_kb_init(
         model = ref_map.get(ref)
         if model is None:
             raise _denied(404, "weknora_model_not_found", "所选模型不存在")
+        _validate_model_name(str(model.get("name") or ""), context="配置知识库模型")
         if _alias(model.get("type")) != slot:
             raise _denied(422, "weknora_model_type_mismatch", "所选模型类型与配置项不匹配")
         resolved[slot] = str(model["id"])
@@ -603,13 +604,13 @@ async def set_default_models(
     - 类型与槽位不匹配（如把 chat 模型设为默认 embedding）→ 422 `weknora_model_type_mismatch`；
     - 校验通过后存 server-only id；返回安全视图（只含 model_ref，绝不回真实 id）。
     """
-    # 一次列模型，建 ref → (server-only id, 前端类型别名)。
+    # 一次列模型，建 ref → (server-only id, 前端类型别名, 模型名称)。
     raw = await client.list_models(trace_id=trace_id)
-    entries: dict[str, tuple[str, str]] = {}
+    entries: dict[str, tuple[str, str, str]] = {}
     for m in raw:
         if isinstance(m, dict) and m.get("id"):
             mid = str(m["id"])
-            entries[_model_ref(mid)] = (mid, _alias(m.get("type")))
+            entries[_model_ref(mid)] = (mid, _alias(m.get("type")), str(m.get("name") or ""))
 
     def _resolve(ref: str | None, slot: str) -> str | None:
         if not ref:
@@ -617,7 +618,8 @@ async def set_default_models(
         entry = entries.get(ref)
         if entry is None:
             raise _denied(404, "weknora_model_not_found", "所选模型不存在")
-        mid, alias = entry
+        mid, alias, name = entry
+        _validate_model_name(name, context="配置默认模型")
         expected = _DEFAULT_SLOT_TYPES[slot]
         if alias != expected:
             raise _denied(422, "weknora_model_type_mismatch", "所选模型类型与该默认槽位不匹配")
