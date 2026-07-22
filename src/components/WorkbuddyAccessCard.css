@@ -1,50 +1,90 @@
+/* 卡片容器由外层 wb81-panel 接管，此处只负责内部排版，不下发 margin/padding。 */
 .wb-card {
-  margin: 1.5rem 0;
-  padding: 1.25rem 1.5rem;
-  border: 1px solid var(--border, #e2e2e2);
-  border-radius: 12px;
-  background: var(--surface, #fff);
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
 }
+
 .wb-card h3 {
   margin: 0 0 0.5rem;
+  color: var(--color-text-heading);
+  font-size: 15px;
 }
+
 .wb-desc {
   margin: 0 0 0.75rem;
-  color: var(--text-muted, #555);
-  font-size: 0.9rem;
+  color: var(--color-text-secondary);
+  font-size: 13px;
 }
+
 .wb-status {
   margin: 0 0 0.75rem;
-  font-size: 0.9rem;
+  color: var(--color-text-secondary);
+  font-size: 13px;
 }
+
 .wb-error {
   margin: 0 0 0.75rem;
-  color: var(--danger, #b00020);
-  font-size: 0.9rem;
+  color: var(--color-danger, #b42318);
+  font-size: 13px;
 }
+
 .wb-actions {
   display: flex;
-  gap: 0.75rem;
+  gap: 8px;
   align-items: center;
   flex-wrap: wrap;
 }
-.wb-onetime {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px dashed var(--border, #e2e2e2);
+
+/* WorkBuddy 接入 / 取消等操作按钮：与 product-setting-control 风格一致 */
+.wb-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 5px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg-surface);
+  color: var(--color-primary, #1f2d75);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
 }
+
+.wb-actions button:hover:not(:disabled) {
+  border-color: var(--color-accent-1, #1f2d75);
+  color: var(--color-primary, #1f2d75);
+}
+
+.wb-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.wb-onetime {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--color-border);
+}
+
 .wb-warn {
   margin: 0 0 0.5rem;
-  color: var(--warning, #8a6d00);
-  font-size: 0.9rem;
+  color: var(--color-warning, #b28a24);
+  font-size: 13px;
 }
+
 .wb-config {
   width: 100%;
-  font-family: var(--font-mono, monospace);
-  font-size: 0.8rem;
+  font-family: var(--font-mono, Consolas, monospace);
+  font-size: 12px;
   resize: vertical;
 }
+
 .wb-copied {
-  color: var(--success, #1a7f37);
-  font-size: 0.85rem;
+  color: var(--color-success, #1a7f37);
+  font-size: 13px;
 }

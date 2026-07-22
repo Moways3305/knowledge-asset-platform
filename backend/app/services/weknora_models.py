@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 import uuid
 from typing import TYPE_CHECKING, Any, TypeAlias
 
@@ -125,6 +126,8 @@ async def list_models(
         item = _to_model_out(m)
         if model_type and item.type != model_type:
             continue
+        if not _is_valid_model_name(item.name):
+            continue
         out.append(item)
     return out
 
@@ -143,6 +146,64 @@ async def _resolve_ref(client: _CheckClient, ref: str, trace_id: str | None) -> 
 
 def _is_http_url(value: str | None) -> bool:
     return str(value or "").strip().lower().startswith(("http://", "https://"))
+
+
+# 已知合法模型名称前缀（白名单），防止拼写错误（如 deepsekk）进入系统。
+_KNOWN_MODEL_NAME_PREFIXES: list[str] = [
+    "deepseek-",
+    "qwen-",
+    "kimi-",
+    "glm-",
+    "minimax-",
+    "gpt-",
+    "text-embedding-",
+    "embedding-",
+    "bge-",
+    "rerank",
+    "whisper-",
+    "funasr",
+    "sensenova-",
+    "ernie-",
+    "hunyuan-",
+    "yi-",
+    "moonshot-",
+    "baichuan-",
+    "llama",
+]
+
+# 模型名称宽松回退正则：至少以字母开头，由字母/数字/横杠/下划线组成，2-48 字符。
+_MODEL_NAME_LOOSE_RE = re.compile(r"^[a-z][a-z0-9\-_]{1,47}$")
+
+
+def _validate_model_name(name: str, context: str = "create") -> None:
+    """校验模型名称是否符合已知格式，阻止拼写错误（如 deepsekk）注入 WeKnora。
+
+    规则：
+    1. 名称非空且至少 2 个字符。
+    2. 优先按已知前缀白名单匹配。
+    3. 未命中白名单时走宽松回退校验（字母/数字/横杠/下划线）。
+    4. 都不满足则拒绝。
+    """
+    if _is_valid_model_name(name):
+        return
+    raise _denied(
+        422,
+        "weknora_model_name_invalid",
+        f"模型名称 '{name}' 不符合已知模型命名规范，{context} 被拒绝",
+    )
+
+
+def _is_valid_model_name(name: str | None) -> bool:
+    """检查模型名称是否合法（不抛异常，供列表过滤使用）。"""
+    if not name:
+        return False
+    lowered = (name or "").strip().lower()
+    if not lowered:
+        return False
+    for prefix in _KNOWN_MODEL_NAME_PREFIXES:
+        if lowered.startswith(prefix):
+            return True
+    return bool(_MODEL_NAME_LOOSE_RE.match(lowered))
 
 
 def _validate_remote_secret_inputs(req: ModelMutateRequest) -> None:
@@ -194,6 +255,7 @@ async def create_model(
     client: _CheckClient, req: ModelMutateRequest, *, trace_id: str | None
 ) -> ModelMutateResponse:
     _validate_remote_secret_inputs(req)
+    _validate_model_name(req.name, context="创建模型")
     created = await client.create_model(_build_model_payload(req), trace_id=trace_id)
     mid = created.get("id") if isinstance(created, dict) else None
     if not mid:
@@ -216,6 +278,7 @@ async def update_model(
     if model_id is None:
         raise _denied(404, "weknora_model_not_found", "模型不存在")
     _validate_update_sensitive_inputs(req)
+    _validate_model_name(req.name, context="更新模型")
     await client.update_model(
         model_id, _build_model_payload(req, keep_blank_sensitive=False), trace_id=trace_id
     )
