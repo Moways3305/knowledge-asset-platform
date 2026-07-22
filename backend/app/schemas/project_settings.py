@@ -37,6 +37,16 @@ class ProjectSettingsOut(BaseModel):
     can_write: bool = False
 
 
+class ProjectDeletionReadinessOut(BaseModel):
+    """Safe projection of the server-side project deletion prerequisites."""
+
+    can_delete: bool = False
+    is_archived: bool = False
+    asset_count: int = 0
+    member_count: int = 0
+    blockers: list[str] = Field(default_factory=list)
+
+
 class ProjectSettingsUpdateRequest(BaseModel):
     """更新项目设置（至少一项）。wecom_group_id 接收全文、只存 DB；空串视为解绑。"""
 

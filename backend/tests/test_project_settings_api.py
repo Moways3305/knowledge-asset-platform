@@ -61,6 +61,10 @@ def _members(pid):
     return f"/api/v1/projects/{pid}/members"
 
 
+def _deletion_readiness(pid):
+    return f"/api/v1/projects/{pid}/deletion-readiness"
+
+
 # ---------------- 读权限 ----------------
 async def test_member_can_read_settings(client):
     r = await client.get(_settings(PROJECT_ALPHA), headers=_hdr(USER_CONSULTANT))
@@ -69,6 +73,22 @@ async def test_member_can_read_settings(client):
     assert body["project_id"] == str(PROJECT_ALPHA)
     assert body["can_write"] is False  # consultant 成员只读
     _assert_no_leak(r.text)
+
+
+async def test_deletion_readiness_projects_real_prerequisites_without_granting_permission(client):
+    member = await client.get(_deletion_readiness(PROJECT_ALPHA), headers=_hdr(USER_CONSULTANT))
+    assert member.status_code == 200
+    assert member.json()["can_delete"] is False
+    assert "project_delete_forbidden" in member.json()["blockers"]
+    assert member.json()["member_count"] > 0
+    assert member.json()["asset_count"] > 0
+    _assert_no_leak(member.text)
+
+    boss = await client.get(_deletion_readiness(PROJECT_ALPHA), headers=_hdr(USER_BOSS))
+    assert boss.status_code == 200
+    assert boss.json()["can_delete"] is True
+    assert "project_delete_forbidden" not in boss.json()["blockers"]
+    assert "project_not_archived" in boss.json()["blockers"]
 
 
 async def test_non_member_consultant_forbidden(client):

@@ -31,6 +31,7 @@ from app.schemas.project_settings import (
     CandidateMembersResponse,
     ProjectCreateRequest,
     ProjectCreateResponse,
+    ProjectDeletionReadinessOut,
     ProjectListResponse,
     ProjectMemberCreateRequest,
     ProjectMemberOut,
@@ -93,6 +94,16 @@ async def get_project_settings(
     session: AsyncSession = Depends(get_db),
 ) -> ProjectSettingsOut:
     return await projects_service.get_settings(session, caller, project_id)
+
+
+@router.get("/{project_id}/deletion-readiness", response_model=ProjectDeletionReadinessOut)
+async def get_project_deletion_readiness(
+    project_id: uuid.UUID,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> ProjectDeletionReadinessOut:
+    """Return safe prerequisite counts and authorization state for the lifecycle UI."""
+    return await projects_service.get_deletion_readiness(session, caller, project_id)
 
 
 @router.patch("/{project_id}/settings", response_model=ProjectSettingsOut)

@@ -237,6 +237,14 @@ describe("HomeDashboardPage overview workbench", () => {
     ).toBeInTheDocument();
     expect(container.querySelectorAll(".wb81-operation")).toHaveLength(3);
     expect(container.querySelectorAll(".wb81-operation-icon svg")).toHaveLength(3);
+    expect(screen.getByText("索引失败").closest("a")).toHaveAttribute(
+      "href",
+      "/admin/ops/indexing",
+    );
+    expect(screen.getByText("知识库初始化失败").closest("a")).toHaveAttribute(
+      "href",
+      "/admin/company-kb",
+    );
     expect(screen.queryByText("归档候选")).not.toBeInTheDocument();
     expect(screen.queryByText("原文申请待处理")).not.toBeInTheDocument();
   });

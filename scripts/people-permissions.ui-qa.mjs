@@ -15,12 +15,25 @@ const viewports = [
   { name: "1280", width: 1280, height: 960 },
 ];
 const targets = [
-  { name: "people", path: "/admin/people", root: ".people89-page", table: ".pp-table" },
+  {
+    name: "people",
+    path: "/admin/people",
+    root: ".people89-page",
+    table: ".pp-table",
+    scenarios: ["normal", "relations-1", "relations-2", "empty", "failure", "forbidden"],
+  },
   {
     name: "permissions",
     path: "/admin/permissions",
     root: ".permissions89-page",
     table: ".gp-primary-panel .gp-table",
+  },
+  {
+    name: "company-kb",
+    path: "/admin/company-kb",
+    root: ".company-kb-page",
+    table: ".ckb-empty-card",
+    scenarios: ["normal"],
   },
 ];
 const scenarios = ["normal", "empty", "failure", "forbidden"];
@@ -61,17 +74,21 @@ const person = {
   active_session_count: 2,
   password_set: true,
   password_set_at: "2026-07-20T01:00:00Z",
-  company_roles: [{ role_id: "SECRET_RULE_89", company_role: "consultant", status: "active" }],
-  project_memberships: [
-    {
-      membership_id: "SECRET_MEMBERSHIP_89",
-      project_id: "SECRET_PROJECT_89",
-      project_name: "交付提升项目",
-      project_role: "consultant",
+  company_roles: [
+    { role_id: "SECRET_RULE_89", company_role: "consultant", status: "active" },
+    { role_id: "role-boss-qa", company_role: "boss", status: "active" },
+    { role_id: "role-director-qa", company_role: "consulting_director", status: "active" },
+  ],
+  project_memberships: ["交付提升项目", "客户运营项目", "组织能力项目", "知识治理项目"].map(
+    (project_name, index) => ({
+      membership_id: index === 0 ? "SECRET_MEMBERSHIP_89" : `membership-qa-${index}`,
+      project_id: index === 0 ? "SECRET_PROJECT_89" : `project-qa-${index}`,
+      project_name,
+      project_role: index === 1 ? "coach" : "consultant",
       status: "active",
       joined_at: "2026-07-20T01:00:00Z",
-    },
-  ],
+    }),
+  ),
 };
 const rule = {
   rule_id: "SECRET_RULE_89",
@@ -123,7 +140,7 @@ try {
   browser = await chromium.launch({ args: ["--disable-gpu"] });
 
   for (const target of targets) {
-    for (const scenario of scenarios) {
+    for (const scenario of target.scenarios ?? scenarios) {
       for (const viewport of viewports) {
         const context = await browser.newContext({ viewport });
         const consoleMessages = [];
@@ -133,7 +150,7 @@ try {
             route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
           if (url.pathname === "/api/v1/auth/me")
             return fulfill(
-              target.name === "people"
+              ["people", "company-kb"].includes(target.name)
                 ? {
                     ...authMe,
                     company_roles: ["boss"],
@@ -166,7 +183,20 @@ try {
           }
           if (isPeople)
             return fulfill({
-              items: scenario === "empty" ? [] : [person],
+              items:
+                scenario === "empty"
+                  ? []
+                  : [
+                      {
+                        ...person,
+                        project_memberships:
+                          scenario === "relations-1"
+                            ? person.project_memberships.slice(0, 1)
+                            : scenario === "relations-2"
+                              ? person.project_memberships.slice(0, 2)
+                              : person.project_memberships,
+                      },
+                    ],
               total: scenario === "empty" ? 0 : 1,
             });
           if (url.pathname === `/api/v1/admin/people/${person.user_id}`) return fulfill(person);
@@ -209,12 +239,19 @@ try {
               ...(pageRoot?.querySelectorAll(".pp-table-wrap, .gp-table-wrap") ?? []),
             ];
             const rows = pageRoot?.querySelectorAll(`${target.table} tbody tr`) ?? [];
+            const isPeopleDataScenario = ["normal", "relations-1", "relations-2"].includes(
+              scenario,
+            );
             const stateOkay =
-              scenario === "normal"
-                ? rows.length > 0
-                : scenario === "empty"
-                  ? rows.length === 0 || [...rows].every((row) => row.querySelector(".gp-empty"))
-                  : Boolean(pageRoot?.querySelector("[role='alert'], .ig-empty-state, .gp-banner"));
+              target.name === "company-kb"
+                ? Boolean(pageRoot?.querySelector(".ckb-empty-card"))
+                : isPeopleDataScenario
+                  ? rows.length > 0
+                  : scenario === "empty"
+                    ? rows.length === 0 || [...rows].every((row) => row.querySelector(".gp-empty"))
+                    : Boolean(
+                        pageRoot?.querySelector("[role='alert'], .ig-empty-state, .gp-banner"),
+                      );
             const summaryRect = summary?.getBoundingClientRect();
             const mainRect = main?.getBoundingClientRect();
             const primaryRect = primary?.getBoundingClientRect();
@@ -235,33 +272,59 @@ try {
                 ".pp-detail-panel .pp-project-role-list > .pp-project-role-item",
               ) ?? []),
             ];
+            const relationCell = pageRoot?.querySelector(".pp-cell-projects");
+            const relationSummaries =
+              relationCell?.querySelectorAll(".pp-project-role-item").length;
+            const relationTrigger = relationCell?.querySelector(".pp-detail-link");
+            const roleCell = pageRoot?.querySelector(".pp-table tbody td:nth-child(3)");
+            const roleSummaries = roleCell?.querySelectorAll(".pp-role-tag").length;
+            const roleTrigger = roleCell?.querySelector(".pp-detail-link");
             return {
               overflowX: root.scrollWidth - root.clientWidth,
               safe: secrets.every((secret) => !html.includes(secret)),
               twoColumn:
-                Boolean(console && summaryRect && mainRect && primaryRect) &&
-                console.children.length === 2 &&
-                summaryRect.width >= 220 &&
-                summaryRect.width <= 250 &&
-                mainRect.width >= summaryRect.width * 2.25 &&
-                Math.abs(summaryRect.top - mainRect.top) <= 2,
+                target.name === "company-kb" ||
+                (Boolean(console && summaryRect && mainRect && primaryRect) &&
+                  console.children.length === 2 &&
+                  summaryRect.width >= 220 &&
+                  summaryRect.width <= 250 &&
+                  mainRect.width >= summaryRect.width * 2.25 &&
+                  Math.abs(summaryRect.top - mainRect.top) <= 2),
               noWideStatusStrip: !pageRoot?.querySelector(".gp-summary"),
               iconLanguage:
-                summaryValues.length === 4 &&
-                summaryIcons.length === summaryValues.length &&
-                (scenario !== "normal" || fieldMarks.length >= 3),
-              listFirst:
-                target.name !== "people" || Boolean(primary),
+                target.name === "company-kb"
+                  ? Boolean(pageRoot?.querySelector(".ckb-empty-icon svg"))
+                  : summaryValues.length === 4 &&
+                    summaryIcons.length === summaryValues.length &&
+                    (scenario !== "normal" || fieldMarks.length >= 3),
+              listFirst: target.name !== "people" || Boolean(primary),
               drawerStructured:
                 target.name !== "people" ||
                 scenario !== "normal" ||
                 Boolean(
                   drawer &&
-                    drawer.width <= root.clientWidth * 0.84 &&
-                    drawer.right <= root.clientWidth + 1 &&
-                    governanceRows.length > 0 &&
-                    governanceRows.every((row) => row.scrollWidth <= row.clientWidth + 2),
+                  drawer.width <= root.clientWidth * 0.84 &&
+                  drawer.right <= root.clientWidth + 1 &&
+                  governanceRows.length > 0 &&
+                  governanceRows.every((row) => row.scrollWidth <= row.clientWidth + 2),
                 ),
+              progressiveRelations:
+                target.name !== "people" ||
+                (scenario === "normal"
+                  ? Boolean(
+                      relationSummaries === 2 &&
+                      relationTrigger?.textContent?.includes("+2") &&
+                      roleSummaries === 2 &&
+                      roleTrigger?.textContent?.includes("+1") &&
+                      pageRoot
+                        ?.querySelector(".pp-detail-panel")
+                        ?.textContent?.includes("知识治理项目"),
+                    )
+                  : scenario === "relations-1"
+                    ? relationSummaries === 1 && !relationTrigger
+                    : scenario === "relations-2"
+                      ? relationSummaries === 2 && !relationTrigger
+                      : true),
               secondaryBelow:
                 target.name !== "permissions" ||
                 Boolean(
@@ -273,13 +336,9 @@ try {
               noInnerScroll: tableWraps.every((node) => node.scrollWidth - node.clientWidth <= 2),
               actionsVisible: actionButtons.every((button) => {
                 const rect = button.getBoundingClientRect();
-                const drawerBounds = button
-                  .closest(".pp-detail-panel")
-                  ?.getBoundingClientRect();
+                const drawerBounds = button.closest(".pp-detail-panel")?.getBoundingClientRect();
                 const bounds = drawerBounds || mainRect;
-                return (
-                  !bounds || (rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1)
-                );
+                return !bounds || (rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1);
               }),
               honestEmptyPattern:
                 scenario !== "empty" ||
@@ -292,6 +351,14 @@ try {
               noCharts: !pageRoot?.querySelector(
                 "canvas, svg[data-chart], .chart, [class*='trend']",
               ),
+              compactCompanyKb:
+                target.name !== "company-kb" ||
+                Boolean(
+                  pageRoot?.querySelector(".pp-support-section.is-empty") &&
+                  pageRoot.querySelector(".ckb-empty-card")?.getBoundingClientRect().width <= 680 &&
+                  pageRoot.querySelector(".ckb-empty-card button")?.getBoundingClientRect().width <
+                    220,
+                ),
               stateOkay,
             };
           },
@@ -315,11 +382,13 @@ try {
             metrics.iconLanguage &&
             metrics.listFirst &&
             metrics.drawerStructured &&
+            metrics.progressiveRelations &&
             metrics.secondaryBelow &&
             metrics.noInnerScroll &&
             metrics.actionsVisible &&
             metrics.honestEmptyPattern &&
             metrics.noCharts &&
+            metrics.compactCompanyKb &&
             metrics.stateOkay &&
             !consoleLeak,
         });

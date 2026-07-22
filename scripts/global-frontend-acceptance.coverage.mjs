@@ -109,6 +109,11 @@ export const routeDefinitions = [
     })),
   })),
   {
+    route: "/admin/company-kb",
+    suite: "people-permissions",
+    states: [{ name: "empty", scenario: "normal", page: "company-kb" }],
+  },
+  {
     route: "/review",
     suite: "review-access",
     states: ["normal", "loading", "empty", "list-failure", "forbidden"].map((name) => ({
@@ -152,6 +157,9 @@ export const routeDefinitions = [
       { name: "empty", scenario: "manager-empty" },
       { name: "failure", scenario: "review-error" },
       { name: "readonly", scenario: "member-readonly" },
+      { name: "delete-ready", scenario: "delete-ready" },
+      { name: "delete-blocked", scenario: "delete-blocked" },
+      { name: "delete-forbidden", scenario: "delete-unauthorized" },
     ],
   },
   {

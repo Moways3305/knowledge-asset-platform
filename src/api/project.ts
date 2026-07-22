@@ -11,6 +11,7 @@ import type {
   ProjectMemberDTO,
   ProjectMemberPatchDTO,
   ProjectMembersResponseDTO,
+  ProjectDeletionReadinessDTO,
   ProjectSettingsDTO,
   ProjectSettingsUpdateDTO,
 } from "../types/projectSettings";
@@ -55,6 +56,12 @@ export async function fetchProjectQaModelOptions(
 // 响应只含安全治理元数据；企微群只回 bound + 脱敏 label（不回全文）；前端不展示任何内部标识。
 export async function fetchProjectSettings(projectId: string): Promise<ProjectSettingsDTO> {
   return apiGet<ProjectSettingsDTO>(`/api/v1/projects/${projectId}/settings`);
+}
+
+export async function fetchProjectDeletionReadiness(
+  projectId: string,
+): Promise<ProjectDeletionReadinessDTO> {
+  return apiGet<ProjectDeletionReadinessDTO>(`/api/v1/projects/${projectId}/deletion-readiness`);
 }
 
 export async function updateProjectSettings(

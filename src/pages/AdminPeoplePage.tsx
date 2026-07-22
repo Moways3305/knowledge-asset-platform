@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { useRef } from "react";
+import { Link } from "react-router-dom";
 import { ApiError } from "../api/http";
 import {
   fetchPeople,
@@ -74,9 +75,15 @@ export default function AdminPeoplePage() {
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const detailRequestVersion = useRef(0);
   const selectedUserIdRef = useRef<string | null>(null);
+  const detailTriggerRef = useRef<HTMLElement | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNote, setActionNote] = useState<string | null>(null);
+  const [membershipError, setMembershipError] = useState<{
+    message: string;
+    projectId: string;
+    projectName: string;
+  } | null>(null);
 
   const describeError = (e: unknown, fallback: string) => {
     if (!(e instanceof ApiError)) return fallback;
@@ -126,12 +133,14 @@ export default function AdminPeoplePage() {
     return Array.from(map, ([id, name]) => ({ id, name }));
   }, [people]);
 
-  const openDetail = useCallback(async (userId: string) => {
+  const openDetail = useCallback(async (userId: string, trigger?: HTMLElement) => {
     const requestVersion = ++detailRequestVersion.current;
+    if (trigger) detailTriggerRef.current = trigger;
     selectedUserIdRef.current = userId;
     setDetail(null);
     setActionError(null);
     setActionNote(null);
+    setMembershipError(null);
     setDetailLoadingId(userId);
     try {
       const person = await fetchPerson(userId);
@@ -146,12 +155,16 @@ export default function AdminPeoplePage() {
   }, []);
 
   const closeDetail = useCallback(() => {
+    const trigger = detailTriggerRef.current;
     detailRequestVersion.current += 1;
     selectedUserIdRef.current = null;
     setDetailLoadingId(null);
     setDetail(null);
     setActionError(null);
     setActionNote(null);
+    setMembershipError(null);
+    detailTriggerRef.current = null;
+    window.requestAnimationFrame(() => trigger?.focus());
   }, []);
 
   const refreshAfterWrite = useCallback(
@@ -512,6 +525,14 @@ export default function AdminPeoplePage() {
                 <p className="pp-toolbar-hint" style={{ marginBottom: 8 }}>
                   此处仅管理项目经理任命；项目内角色（辅导老师/顾问）请到项目设置页管理。
                 </p>
+                {membershipError && (
+                  <div className="pp-membership-inline-error" role="alert">
+                    <span>{membershipError.message}</span>
+                    <Link to={`/project/${membershipError.projectId}/settings`}>
+                      前往“{membershipError.projectName}”项目设置
+                    </Link>
+                  </div>
+                )}
                 <div className="pp-project-role-list">
                   {detail.project_memberships.length > 0 ? (
                     detail.project_memberships.map((m) => (
@@ -608,12 +629,25 @@ export default function AdminPeoplePage() {
                                 setBusyKey(`membership-remove-${m.membership_id}`);
                                 setActionError(null);
                                 setActionNote(null);
+                                setMembershipError(null);
                                 try {
                                   await removeProjectMembership(detail.user_id, m.membership_id);
                                   setActionNote("项目成员关系已移除");
                                   await refreshAfterWrite(detail.user_id);
                                 } catch (err) {
-                                  setActionError(describeError(err, "移除成员关系失败"));
+                                  if (
+                                    err instanceof ApiError &&
+                                    err.deniedReason === "last_project_manager_protected"
+                                  ) {
+                                    setMembershipError({
+                                      message:
+                                        "该项目仍然存在，且这是最后一位有效项目经理，不能单独移除。请先在项目设置中完成项目收尾。",
+                                      projectId: m.project_id,
+                                      projectName: m.project_name,
+                                    });
+                                  } else {
+                                    setActionError(describeError(err, "移除成员关系失败"));
+                                  }
                                 } finally {
                                   setBusyKey(null);
                                 }
@@ -715,72 +749,100 @@ export default function AdminPeoplePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {people.map((u) => (
-                      <tr
-                        key={u.user_id}
-                        className={u.status === "inactive" ? "pp-row-disabled" : ""}
-                      >
-                        <td className="pp-cell-name">{u.name}</td>
-                        <td>
-                          <span
-                            className={`pp-field-mark ${u.wecom_bound ? "is-linked" : "is-muted"}`}
-                          >
-                            <Link2 size={13} />
-                            {u.wecom_bound ? "已绑定" : "未绑定"}
-                          </span>
-                        </td>
-                        <td>
-                          <span className="pp-role-tags">
-                            {u.company_roles
-                              .filter((c) => c.status === "active")
-                              .map((c) => (
+                    {people.map((u) => {
+                      const activeCompanyRoles = u.company_roles.filter(
+                        (role) => role.status === "active",
+                      );
+                      const activeMemberships = u.project_memberships.filter(
+                        (membership) => membership.status === "active",
+                      );
+                      return (
+                        <tr
+                          key={u.user_id}
+                          className={u.status === "inactive" ? "pp-row-disabled" : ""}
+                        >
+                          <td className="pp-cell-name">{u.name}</td>
+                          <td>
+                            <span
+                              className={`pp-field-mark ${u.wecom_bound ? "is-linked" : "is-muted"}`}
+                            >
+                              <Link2 size={13} />
+                              {u.wecom_bound ? "已绑定" : "未绑定"}
+                            </span>
+                          </td>
+                          <td>
+                            <span className="pp-role-tags">
+                              {activeCompanyRoles.slice(0, 2).map((c) => (
                                 <span key={c.role_id} className="pp-role-tag">
                                   <ShieldCheck size={12} />
                                   {companyRoleLabel[c.company_role] ?? "其他角色"}
                                 </span>
                               ))}
-                          </span>
-                        </td>
-                        <td className="pp-cell-projects">
-                          {u.project_memberships.filter((m) => m.status === "active").length > 0 ? (
-                            u.project_memberships
-                              .filter((m) => m.status === "active")
-                              .map((m) => (
-                                <span key={m.membership_id} className="pp-project-role-item">
-                                  <BriefcaseBusiness size={12} />
-                                  <span className="pp-pr-project">{m.project_name}</span>
-                                  <span className="pp-pr-role">
-                                    {projectRoleLabel[m.project_role] ?? "项目成员"}
+                              {activeCompanyRoles.length > 2 && (
+                                <button
+                                  type="button"
+                                  className="pp-detail-link"
+                                  onClick={(event) =>
+                                    void openDetail(u.user_id, event.currentTarget)
+                                  }
+                                >
+                                  +{activeCompanyRoles.length - 2} 查看全部
+                                </button>
+                              )}
+                            </span>
+                          </td>
+                          <td className="pp-cell-projects">
+                            {activeMemberships.length > 0 ? (
+                              <span className="pp-project-summary">
+                                {activeMemberships.slice(0, 2).map((m) => (
+                                  <span key={m.membership_id} className="pp-project-role-item">
+                                    <BriefcaseBusiness size={12} />
+                                    <span className="pp-pr-project">{m.project_name}</span>
+                                    <span className="pp-pr-role">
+                                      {projectRoleLabel[m.project_role] ?? "项目成员"}
+                                    </span>
                                   </span>
-                                </span>
-                              ))
-                          ) : (
-                            <span className="pp-no-project">—</span>
-                          )}
-                        </td>
-                        <td>
-                          <span className={`pp-status-pill ${statusCls[u.status] ?? ""}`}>
-                            {u.status === "active" ? (
-                              <CircleCheck size={12} />
+                                ))}
+                                {activeMemberships.length > 2 && (
+                                  <button
+                                    type="button"
+                                    className="pp-detail-link"
+                                    onClick={(event) =>
+                                      void openDetail(u.user_id, event.currentTarget)
+                                    }
+                                  >
+                                    +{activeMemberships.length - 2} 查看全部
+                                  </button>
+                                )}
+                              </span>
                             ) : (
-                              <CircleOff size={12} />
+                              <span className="pp-no-project">—</span>
                             )}
-                            {statusLabel[u.status] ?? "状态未知"}
-                          </span>
-                        </td>
-                        <td className="pp-cell-time">{fmtTime(u.recent_session_at)}</td>
-                        <td>
-                          <button
-                            type="button"
-                            className="btn-small"
-                            disabled={detailLoadingId === u.user_id}
-                            onClick={() => void openDetail(u.user_id)}
-                          >
-                            {detailLoadingId === u.user_id ? "加载中…" : "查看 / 治理"}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td>
+                            <span className={`pp-status-pill ${statusCls[u.status] ?? ""}`}>
+                              {u.status === "active" ? (
+                                <CircleCheck size={12} />
+                              ) : (
+                                <CircleOff size={12} />
+                              )}
+                              {statusLabel[u.status] ?? "状态未知"}
+                            </span>
+                          </td>
+                          <td className="pp-cell-time">{fmtTime(u.recent_session_at)}</td>
+                          <td>
+                            <button
+                              type="button"
+                              className="btn-small"
+                              disabled={detailLoadingId === u.user_id}
+                              onClick={(event) => void openDetail(u.user_id, event.currentTarget)}
+                            >
+                              {detailLoadingId === u.user_id ? "加载中…" : "查看 / 治理"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

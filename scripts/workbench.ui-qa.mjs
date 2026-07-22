@@ -229,11 +229,14 @@ function accepted(result) {
     result.overflowX <= 2 &&
     result.shellOverlap <= 1 &&
     result.clippedControls === 0 &&
-    result.panelCount >= 4 && result.panelCount <= 6 &&
+    result.panelCount >= 4 &&
+    result.panelCount <= 6 &&
     result.actionQueuePrimary &&
     result.healthFullWidth &&
     result.projectRecentBalanced &&
     result.workbuddyDedicated &&
+    result.operationsCompact &&
+    result.operationActionsReachable &&
     result.projectStateCompact &&
     result.compactHeader &&
     !result.staleFourPanelGrid &&
@@ -329,6 +332,7 @@ try {
             element.getBoundingClientRect(),
           );
           const operationIconCount = document.querySelectorAll(".wb81-operation-icon svg").length;
+          const operationActionCount = document.querySelectorAll("a.wb81-operation[href]").length;
           const secondary = document
             .querySelector(".wb81-secondary-column")
             ?.getBoundingClientRect();
@@ -381,16 +385,30 @@ try {
               Math.abs(operations.left - projects.left) <= 1,
             ),
             actionQueuePrimary: Boolean(
-              todos && operations && todos.top < operations.top && todos.width >= operations.width - 2,
+              todos &&
+              operations &&
+              todos.top < operations.top &&
+              todos.width >= operations.width - 2,
             ),
             healthFullWidth: Boolean(
-              operations && todos && Math.abs(operations.left - todos.left) <= 1 && Math.abs(operations.width - todos.width) <= 2,
+              operations &&
+              todos &&
+              Math.abs(operations.left - todos.left) <= 1 &&
+              Math.abs(operations.width - todos.width) <= 2,
             ),
             projectRecentBalanced: Boolean(
-              projects && recent && Math.abs(projects.top - recent.top) <= 2 && projects.width >= recent.width,
+              projects &&
+              recent &&
+              Math.abs(projects.top - recent.top) <= 2 &&
+              projects.width >= recent.width,
             ),
             workbuddyDedicated: Boolean(
-              workbuddy && projects && recent && workbuddy.top >= Math.max(projects.bottom, recent.bottom) && todos && Math.abs(workbuddy.width - todos.width) <= 2,
+              workbuddy &&
+              projects &&
+              recent &&
+              workbuddy.top >= Math.max(projects.bottom, recent.bottom) &&
+              todos &&
+              Math.abs(workbuddy.width - todos.width) <= 2,
             ),
             todoColumnNarrower: Boolean(
               todos &&
@@ -413,6 +431,12 @@ try {
               operationCards.every((card) => card.width <= 190) &&
               operationIconCount === operationCardCount,
             ),
+            operationActionsReachable:
+              operationCardCount > 0 &&
+              operationActionCount === operationCardCount &&
+              [...document.querySelectorAll("a.wb81-operation")].every((card) =>
+                card.textContent?.includes("查看"),
+              ),
             compactHeader: Boolean(pageHeader && pageHeader.height <= 72),
             staleFourPanelGrid: Boolean(document.querySelector(".wb81-grid")),
             oldSurfaceVisible: Boolean(

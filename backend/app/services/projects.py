@@ -35,6 +35,7 @@ from app.schemas.permission import CallerContext
 from app.schemas.project_settings import (
     CandidateMemberOut,
     CandidateMembersResponse,
+    ProjectDeletionReadinessOut,
     ProjectMemberCreateRequest,
     ProjectMemberOut,
     ProjectMemberPatchRequest,
@@ -162,6 +163,58 @@ async def get_settings(
     await _require_read(caller, project_id)
     coach = await _coach_name(session, project)
     return _settings_out(project, coach, _can_write(caller, project_id))
+
+
+async def _count_project_asset_references(session: AsyncSession, project_id: uuid.UUID) -> int:
+    """Count every asset row that still holds the project's foreign key.
+
+    Soft-deleted assets remain in ``knowledge_assets`` for auditability and therefore still
+    prevent the project row from being physically deleted.  Readiness and DELETE must share
+    this exact predicate so the UI can never advertise a deletion that the database rejects.
+    """
+    from app.models.knowledge import KnowledgeAsset
+
+    return (
+        await session.execute(
+            select(func.count())
+            .select_from(KnowledgeAsset)
+            .where(
+                KnowledgeAsset.scope == KnowledgeScope.project.value,
+                KnowledgeAsset.project_id == project_id,
+            )
+        )
+    ).scalar_one()
+
+
+async def get_deletion_readiness(
+    session: AsyncSession, caller: CallerContext, project_id: uuid.UUID
+) -> ProjectDeletionReadinessOut:
+    """Return safe, read-only deletion prerequisites without weakening DELETE authorization."""
+    project = await _load_project(session, project_id)
+    await _require_read(caller, project_id)
+    asset_count = await _count_project_asset_references(session, project_id)
+    member_count = (
+        await session.execute(
+            select(func.count())
+            .select_from(ProjectMember)
+            .where(ProjectMember.project_id == project_id)
+        )
+    ).scalar_one()
+    can_delete = caller.is_active and CompanyRole.boss.value in caller.active_company_roles
+    blockers: list[str] = []
+    if not can_delete:
+        blockers.append("project_delete_forbidden")
+    if project.status != ProjectStatus.archived.value:
+        blockers.append("project_not_archived")
+    if asset_count > 0:
+        blockers.append("project_has_assets")
+    return ProjectDeletionReadinessOut(
+        can_delete=can_delete,
+        is_archived=project.status == ProjectStatus.archived.value,
+        asset_count=asset_count,
+        member_count=member_count,
+        blockers=blockers,
+    )
 
 
 async def update_settings(
@@ -818,7 +871,7 @@ async def delete_project(
 
     前置检查：
     1. 项目必须先归档（status == archived），否则 409。
-    2. 项目下无 KnowledgeAsset（scope=project 且 project_id 匹配 且 deleted_at IS NULL），否则 409。
+    2. 项目下无任何仍引用项目的 KnowledgeAsset（含软删除记录），否则 409。
 
     执行：
     1. 删除所有 project_members 关系（物理删除）。
@@ -829,7 +882,6 @@ async def delete_project(
     """
     import logging
 
-    from app.models.knowledge import KnowledgeAsset
     from app.models.weknora import WeknoraKbMapping
     from app.schemas.enums import AuditRiskLevel
 
@@ -840,18 +892,8 @@ async def delete_project(
     if project.status != ProjectStatus.archived.value:
         raise _denied(409, "project_not_archived", "请先归档项目")
 
-    # 前置检查 2：项目下无未删除资产。
-    asset_count = (
-        await session.execute(
-            select(func.count())
-            .select_from(KnowledgeAsset)
-            .where(
-                KnowledgeAsset.scope == KnowledgeScope.project.value,
-                KnowledgeAsset.project_id == project_id,
-                KnowledgeAsset.deleted_at.is_(None),
-            )
-        )
-    ).scalar_one()
+    # 前置检查 2：项目下无仍持有外键的资产，包括为审计保留的软删除记录。
+    asset_count = await _count_project_asset_references(session, project_id)
     if asset_count > 0:
         raise _denied(
             409,

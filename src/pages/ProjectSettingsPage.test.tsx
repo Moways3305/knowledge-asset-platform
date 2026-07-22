@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/http";
@@ -9,6 +9,7 @@ const OTHER_PROJECT_ID = "00000000-0000-0000-0000-000000000075";
 
 const projectApi = vi.hoisted(() => ({
   fetchProjectSettings: vi.fn(),
+  fetchProjectDeletionReadiness: vi.fn(),
   updateProjectSettings: vi.fn(),
   fetchProjectMembers: vi.fn(),
   patchProjectMember: vi.fn(),
@@ -162,7 +163,17 @@ describe("ProjectSettingsPage reference implementation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     auth.projectRole = "project_manager";
+    auth.capabilities.isBoss = false;
+    auth.capabilities.isConsultingDirector = false;
+    auth.capabilities.isGovernance = false;
     projectApi.fetchProjectSettings.mockResolvedValue({ ...settings });
+    projectApi.fetchProjectDeletionReadiness.mockResolvedValue({
+      can_delete: false,
+      is_archived: false,
+      asset_count: 2,
+      member_count: members.length,
+      blockers: ["project_delete_forbidden", "project_not_archived", "project_has_assets"],
+    });
     projectApi.fetchProjectMembers.mockResolvedValue({
       items: members.map((member) => ({ ...member })),
       total: members.length,
@@ -216,6 +227,39 @@ describe("ProjectSettingsPage reference implementation", () => {
     expect(screen.queryByText("review-secret-id")).not.toBeInTheDocument();
     expect(screen.queryByText(PROJECT_ID)).not.toBeInTheDocument();
     expect(screen.getByText("由治理角色任命")).toBeInTheDocument();
+    expect(screen.getByText("先归档项目")).toBeInTheDocument();
+    expect(screen.getByText("仍有 2 个项目资产")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "删除项目" })).toBeDisabled();
+  });
+
+  it("opens an explicit irreversible deletion confirmation only when server prerequisites pass", async () => {
+    auth.capabilities.isBoss = true;
+    auth.capabilities.isGovernance = true;
+    projectApi.fetchProjectSettings.mockResolvedValue({ ...settings, status: "archived" });
+    projectApi.fetchProjectDeletionReadiness.mockResolvedValue({
+      can_delete: true,
+      is_archived: true,
+      asset_count: 0,
+      member_count: 3,
+      blockers: [],
+    });
+    projectApi.deleteProject.mockResolvedValue(undefined);
+
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "删除项目" }));
+    const dialog = screen.getByRole("dialog", { name: `删除项目“${settings.name}”` });
+    expect(dialog).toHaveTextContent("此操作不可恢复");
+    expect(dialog).toHaveTextContent("一并移除 3 条项目成员关系");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "删除项目" }));
+    expect(await within(dialog).findByText("输入的项目名称不匹配")).toBeInTheDocument();
+    expect(projectApi.deleteProject).not.toHaveBeenCalled();
+
+    fireEvent.change(within(dialog).getByRole("textbox"), {
+      target: { value: settings.name },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "删除项目" }));
+    await waitFor(() => expect(projectApi.deleteProject).toHaveBeenCalledWith(PROJECT_ID));
   });
 
   it("keeps a coach read-only and does not fetch a decision queue", async () => {
