@@ -520,7 +520,8 @@
 }
 
 .people89-page .pp-table {
-  table-layout: auto;
+  table-layout: fixed;
+  width: 100%;
 }
 
 .people89-page .pp-table th,
@@ -533,6 +534,91 @@
   align-items: center;
   display: inline-flex;
   gap: 4px;
+}
+
+.people89-page .pp-role-tags,
+.people89-page .pp-project-summary {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.people89-page .pp-cell-projects .pp-project-role-item {
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+
+.people89-page .pp-cell-projects .pp-pr-project {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.people89-page .pp-detail-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-info);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.people89-page .pp-detail-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.people89-page .pp-detail-link:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid color-mix(in srgb, var(--color-info) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.people89-page .pp-membership-inline-error {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 9px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 24%, var(--gp-line));
+  border-left: 3px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.people89-page .pp-membership-inline-error a {
+  flex: 0 0 auto;
+  color: var(--color-danger);
+  font-weight: 700;
+}
+
+.people89-page .pp-table th:nth-child(1) {
+  width: 10%;
+}
+.people89-page .pp-table th:nth-child(2) {
+  width: 11%;
+}
+.people89-page .pp-table th:nth-child(3) {
+  width: 15%;
+}
+.people89-page .pp-table th:nth-child(4) {
+  width: 24%;
+}
+.people89-page .pp-table th:nth-child(5) {
+  width: 10%;
+}
+.people89-page .pp-table th:nth-child(6) {
+  width: 17%;
+}
+.people89-page .pp-table th:nth-child(7) {
+  width: 13%;
 }
 
 .people89-page .pp-role-tag svg,
@@ -668,10 +754,34 @@
     display: none;
   }
 
-  .people89-page .pp-table th:nth-child(4),
-  .people89-page .pp-table td:nth-child(4),
   .people89-page .pp-table th:nth-child(6),
   .people89-page .pp-table td:nth-child(6) {
+    display: none;
+  }
+
+  .people89-page .pp-table th:nth-child(1) {
+    width: 12%;
+  }
+  .people89-page .pp-table th:nth-child(2) {
+    width: 13%;
+  }
+  .people89-page .pp-table th:nth-child(3) {
+    width: 18%;
+  }
+  .people89-page .pp-table th:nth-child(4) {
+    width: 30%;
+  }
+  .people89-page .pp-table th:nth-child(5) {
+    width: 12%;
+  }
+  .people89-page .pp-table th:nth-child(7) {
+    width: 15%;
+  }
+}
+
+@media (max-width: 1040px) {
+  .people89-page .pp-table th:nth-child(4),
+  .people89-page .pp-table td:nth-child(4) {
     display: none;
   }
 }

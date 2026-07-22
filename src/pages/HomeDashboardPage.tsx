@@ -101,6 +101,16 @@ const OPERATION_ICON: Record<string, LucideIcon> = {
   reuse_upgrade_candidates: ArrowUpRight,
 };
 
+const OPERATION_ROUTE: Record<string, string> = {
+  index_failed: "/admin/ops/indexing",
+  parse_failed: "/admin/ops/indexing",
+  kb_init_failed: "/admin/company-kb",
+  pending_original_requests: "/original-access",
+  overdue_original_requests: "/original-access",
+  archive_candidates: "/knowledge",
+  reuse_upgrade_candidates: "/knowledge",
+};
+
 type PageState = "loading" | "ready" | "error";
 type UiSectionStatus = WorkbenchSectionStatus | "loading";
 
@@ -153,12 +163,14 @@ function SectionMessage({
   loadingText,
   onRetry,
   emptyAction,
+  errorText,
 }: {
   status: UiSectionStatus;
   emptyText: string;
   loadingText: string;
   onRetry: () => void;
   emptyAction?: ReactNode;
+  errorText?: string;
 }) {
   if (status === "loading") {
     return (
@@ -177,7 +189,7 @@ function SectionMessage({
   if (status === "error") {
     return (
       <div className="wb81-section-state is-error" data-section-state="error" role="alert">
-        <span>内容暂时未能加载</span>
+        <span>{errorText ?? "内容暂时未能加载"}</span>
         <button type="button" onClick={onRetry}>
           重新加载
         </button>
@@ -219,16 +231,32 @@ function TodoRow({ item }: { item: WorkbenchTodoItemDTO }) {
 
 function OperationCard({ item }: { item: WorkbenchOperationCardDTO }) {
   const Icon = OPERATION_ICON[item.key] ?? BriefcaseBusiness;
-  return (
-    <div className={`wb81-operation ${safeTone(item.severity)}`}>
+  const route = OPERATION_ROUTE[item.key];
+  const content = (
+    <>
       <div className="wb81-operation-heading">
         <span>{OPERATION_LABEL[item.key] ?? SAFE_FALLBACK}</span>
         <span className="wb81-operation-icon" aria-hidden="true">
           <Icon size={17} />
         </span>
       </div>
-      <strong>{item.count}</strong>
-    </div>
+      <div className="wb81-operation-footer">
+        <strong>{item.count}</strong>
+        {route && (
+          <span>
+            查看
+            <ArrowRight size={14} aria-hidden="true" />
+          </span>
+        )}
+      </div>
+    </>
+  );
+  return route ? (
+    <Link className={`wb81-operation ${safeTone(item.severity)}`} to={route}>
+      {content}
+    </Link>
+  ) : (
+    <div className={`wb81-operation ${safeTone(item.severity)}`}>{content}</div>
   );
 }
 
@@ -412,6 +440,7 @@ export default function HomeDashboardPage() {
                 status={operationsStatus === "available" ? "empty" : operationsStatus}
                 loadingText="正在加载资产运行状态…"
                 emptyText="当前没有需要处理的运营事项"
+                errorText="运行数据暂时不可用，请重新加载"
                 onRetry={() => void load()}
               />
             )}

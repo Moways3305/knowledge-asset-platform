@@ -16,16 +16,61 @@ const scenarios = [
   { name: "member-readonly", role: "coach", canWrite: false, review: "forbidden" },
   { name: "manager-empty", role: "project_manager", canWrite: true, review: "empty" },
   { name: "review-error", role: "project_manager", canWrite: true, review: "error" },
+  {
+    name: "delete-ready",
+    role: "consultant",
+    companyRole: "boss",
+    canWrite: false,
+    review: "forbidden",
+    projectStatus: "archived",
+    deletion: {
+      can_delete: true,
+      is_archived: true,
+      asset_count: 0,
+      member_count: 2,
+      blockers: [],
+    },
+  },
+  {
+    name: "delete-blocked",
+    role: "consultant",
+    companyRole: "boss",
+    canWrite: false,
+    review: "forbidden",
+    projectStatus: "active",
+    deletion: {
+      can_delete: true,
+      is_archived: false,
+      asset_count: 3,
+      member_count: 2,
+      blockers: ["project_not_archived", "project_has_assets"],
+    },
+  },
+  {
+    name: "delete-unauthorized",
+    role: "project_manager",
+    companyRole: "consultant",
+    canWrite: true,
+    review: "empty",
+    projectStatus: "archived",
+    deletion: {
+      can_delete: false,
+      is_archived: true,
+      asset_count: 0,
+      member_count: 2,
+      blockers: ["project_delete_forbidden"],
+    },
+  },
 ];
 const viewports = [
   { name: "1440", width: 1440, height: 1000 },
   { name: "1280", width: 1280, height: 900 },
 ];
 
-const settings = (canWrite) => ({
+const settings = (canWrite, status = "active") => ({
   project_id: projectId,
   name: "客户交付体系优化",
-  status: "active",
+  status,
   client_name: "客户运营中心",
   coach_name: "项目辅导老师",
   lifecycle_route_key: "route_A",
@@ -125,30 +170,44 @@ for (const scenario of scenarios) {
         route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
       if (requestUrl.pathname === "/api/v1/auth/me") {
+        const companyRole = scenario.companyRole ?? "consultant";
         return fulfill({
           user_id: "00000000-0000-0000-0000-000000000074",
           name: scenario.role === "project_manager" ? "项目经理验收用户" : "项目成员验收用户",
           email: "identity-not-shown@example.test",
           status: "active",
-          company_roles: ["consultant"],
-          active_company_role: "consultant",
+          company_roles: [companyRole],
+          active_company_role: companyRole,
           is_business_user: true,
           can_discover_l5: false,
-          project_memberships: [
-            {
-              project_id: projectId,
-              project_name: "客户交付体系优化",
-              project_role: scenario.role,
-              status: "active",
-            },
-          ],
+          project_memberships: scenario.role
+            ? [
+                {
+                  project_id: projectId,
+                  project_name: "客户交付体系优化",
+                  project_role: scenario.role,
+                  status: "active",
+                },
+              ]
+            : [],
         });
       }
       if (requestUrl.pathname === `/api/v1/projects/${projectId}/settings`) {
-        return fulfill(settings(scenario.canWrite));
+        return fulfill(settings(scenario.canWrite, scenario.projectStatus));
       }
       if (requestUrl.pathname === `/api/v1/projects/${projectId}/members`) {
         return fulfill(members(scenario.role === "project_manager"));
+      }
+      if (requestUrl.pathname === `/api/v1/projects/${projectId}/deletion-readiness`) {
+        return fulfill(
+          scenario.deletion ?? {
+            can_delete: false,
+            is_archived: false,
+            asset_count: 2,
+            member_count: 2,
+            blockers: ["project_delete_forbidden", "project_not_archived", "project_has_assets"],
+          },
+        );
       }
       if (requestUrl.pathname === "/api/v1/reviews") {
         if (scenario.review === "error") {
@@ -190,6 +249,9 @@ for (const scenario of scenarios) {
       const clippedButtons = [...document.querySelectorAll("button, a.product-button")].filter(
         (element) => element.scrollWidth > element.clientWidth + 2,
       ).length;
+      const deleteButton = [...document.querySelectorAll("button")].find(
+        (element) => element.textContent?.trim() === "删除项目",
+      );
       return {
         overflowX: root.scrollWidth - root.clientWidth,
         shellOverlap: rail && deck ? Math.max(0, rail.right - deck.left) : 1,
@@ -203,6 +265,8 @@ for (const scenario of scenarios) {
           bodyText.includes("00000000-0000-0000-0000-000000000074"),
         uncontractedHeaderAction: /搜索|导出|新建项目|通知/.test(deckText),
         clippedButtons,
+        lifecycleGateCount: document.querySelectorAll(".ps74-lifecycle-gates > div").length,
+        deleteButtonDisabled: deleteButton?.disabled ?? true,
       };
     });
 
@@ -211,6 +275,24 @@ for (const scenario of scenarios) {
       fullPage: false,
       animations: "disabled",
     });
+    let deletionEvidence = {};
+    if (scenario.name === "delete-ready") {
+      const deleteButton = page.getByRole("button", { name: "删除项目" });
+      await deleteButton.click();
+      const dialog = page.getByRole("dialog", { name: /删除项目“客户交付体系优化”/ });
+      await dialog.waitFor();
+      await page.screenshot({
+        path: path.join(outDir, `${scenario.name}-confirmation-${viewport.name}.png`),
+        fullPage: false,
+        animations: "disabled",
+      });
+      deletionEvidence = {
+        deleteConfirmationVisible: await dialog.isVisible(),
+        irreversibleCopyVisible: (await dialog.textContent()).includes("不可恢复"),
+        memberRemovalCopyVisible: (await dialog.textContent()).includes("2 条项目成员关系"),
+      };
+      await dialog.getByRole("button", { name: "取消" }).click();
+    }
     let collapsedMetrics = {};
     if (scenario.name === "manager-pending" && viewport.name === "1440") {
       await page.getByRole("button", { name: "折叠主导航" }).click();
@@ -232,6 +314,7 @@ for (const scenario of scenarios) {
       scenario: scenario.name,
       viewport: viewport.name,
       ...metrics,
+      ...deletionEvidence,
       ...collapsedMetrics,
     });
     await context.close();
@@ -239,26 +322,34 @@ for (const scenario of scenarios) {
 }
 
 await browser.close();
+for (const result of results) {
+  result.pass = !(
+    result.overflowX > 2 ||
+    result.shellOverlap > 1 ||
+    result.reviewOutsideLayout ||
+    !result.collapseInsideBrand ||
+    result.collapseName !== "折叠主导航" ||
+    result.moduleTitle !== "项目设置" ||
+    result.internalIdentityVisible ||
+    result.uncontractedHeaderAction ||
+    (typeof result.collapsedBoundaryOffset === "number" &&
+      (result.collapsedBoundaryOffset > 2 ||
+        result.collapsedButtonName !== "展开主导航" ||
+        result.collapsedProjectTooltip !== "项目设置")) ||
+    result.clippedButtons > 0 ||
+    result.lifecycleGateCount !== 3 ||
+    (result.scenario === "delete-ready" && result.deleteButtonDisabled) ||
+    (["delete-blocked", "delete-unauthorized"].includes(result.scenario) &&
+      !result.deleteButtonDisabled) ||
+    (result.scenario === "delete-ready" &&
+      (!result.deleteConfirmationVisible ||
+        !result.irreversibleCopyVisible ||
+        !result.memberRemovalCopyVisible))
+  );
+}
 fs.writeFileSync(path.join(outDir, "report.json"), JSON.stringify(results, null, 2));
 console.log(JSON.stringify({ outDir, results }, null, 2));
 
-if (
-  results.some(
-    (result) =>
-      result.overflowX > 2 ||
-      result.shellOverlap > 1 ||
-      result.reviewOutsideLayout ||
-      !result.collapseInsideBrand ||
-      result.collapseName !== "折叠主导航" ||
-      result.moduleTitle !== "项目设置" ||
-      result.internalIdentityVisible ||
-      result.uncontractedHeaderAction ||
-      (typeof result.collapsedBoundaryOffset === "number" &&
-        (result.collapsedBoundaryOffset > 2 ||
-          result.collapsedButtonName !== "展开主导航" ||
-          result.collapsedProjectTooltip !== "项目设置")) ||
-      result.clippedButtons > 0,
-  )
-) {
+if (results.some((result) => !result.pass)) {
   process.exit(1);
 }

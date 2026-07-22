@@ -130,16 +130,41 @@ export default function AdminCompanyKbPage() {
           <div className="ig-empty-title">加载中…</div>
         </div>
       ) : (
-        <section className="pp-section pp-support-section" aria-labelledby="company-kb-heading">
+        <section
+          className={`pp-section pp-support-section ${companyKb?.exists ? "" : "is-empty"}`}
+          aria-labelledby="company-kb-heading"
+        >
           <div className="gp-panel-heading">
             <span>
               <LibraryBig size={17} />
               <h3 id="company-kb-heading">公司知识库状态</h3>
             </span>
           </div>
-          <p className="pp-toolbar-hint">
-            {companyKb?.availability_summary ?? "暂无公司知识库信息"}
-          </p>
+          {companyKb?.exists ? (
+            <p className="pp-toolbar-hint">
+              {companyKb.availability_summary ?? "暂无公司知识库信息"}
+            </p>
+          ) : (
+            <div className="ckb-empty-card">
+              <span className="ckb-empty-icon" aria-hidden="true">
+                <LibraryBig size={22} />
+              </span>
+              <div>
+                <strong>尚未创建</strong>
+                <p>创建后可统一承载公司范围知识；初始化完成前不会用于公司知识入库。</p>
+              </div>
+              {canCreate && (
+                <button
+                  type="button"
+                  className="btn-small btn-small-primary"
+                  disabled={actionBusy}
+                  onClick={() => void handleCreate()}
+                >
+                  {actionBusy ? "处理中…" : "创建公司知识库"}
+                </button>
+              )}
+            </div>
+          )}
 
           {companyKb?.exists && (
             <div className="pp-role-tags">
@@ -175,45 +200,47 @@ export default function AdminCompanyKbPage() {
             </div>
           )}
 
-          <div className="ckb-actions">
-            {canCreate && (!companyKb?.exists || !companyKb.available) && (
-              <button
-                type="button"
-                className="btn-small btn-small-primary"
-                disabled={actionBusy}
-                onClick={() => void handleCreate()}
-              >
-                {actionBusy ? "处理中…" : companyKb?.exists ? "重试初始化" : "创建公司知识库"}
-              </button>
-            )}
-
-            {canDelete && companyKb?.exists && (
-              <div className="ckb-delete-form">
-                <label>
-                  <span>输入“{companyKb.display_name ?? "公司知识库"}”以确认删除</span>
-                  <input
-                    type="text"
-                    value={deleteConfirmName}
-                    disabled={actionBusy}
-                    onChange={(event) => setDeleteConfirmName(event.target.value)}
-                    placeholder={companyKb.display_name ?? "公司知识库"}
-                    autoComplete="off"
-                  />
-                </label>
+          {companyKb?.exists && (
+            <div className="ckb-actions">
+              {canCreate && companyKb?.exists && !companyKb.available && (
                 <button
                   type="button"
-                  className="btn-small pp-remove-btn ckb-delete-btn"
-                  disabled={
-                    actionBusy ||
-                    deleteConfirmName.trim() !== (companyKb.display_name ?? "公司知识库")
-                  }
-                  onClick={() => void handleDelete()}
+                  className="btn-small btn-small-primary"
+                  disabled={actionBusy}
+                  onClick={() => void handleCreate()}
                 >
-                  <Trash2 size={13} /> {actionBusy ? "删除中…" : "删除公司知识库"}
+                  {actionBusy ? "处理中…" : "重试初始化"}
                 </button>
-              </div>
-            )}
-          </div>
+              )}
+
+              {canDelete && companyKb?.exists && (
+                <div className="ckb-delete-form">
+                  <label>
+                    <span>输入“{companyKb.display_name ?? "公司知识库"}”以确认删除</span>
+                    <input
+                      type="text"
+                      value={deleteConfirmName}
+                      disabled={actionBusy}
+                      onChange={(event) => setDeleteConfirmName(event.target.value)}
+                      placeholder={companyKb.display_name ?? "公司知识库"}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="btn-small pp-remove-btn ckb-delete-btn"
+                    disabled={
+                      actionBusy ||
+                      deleteConfirmName.trim() !== (companyKb.display_name ?? "公司知识库")
+                    }
+                    onClick={() => void handleDelete()}
+                  >
+                    <Trash2 size={13} /> {actionBusy ? "删除中…" : "删除公司知识库"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </section>
       )}
     </ProductPage>

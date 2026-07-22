@@ -15,6 +15,7 @@ import uuid
 
 from sqlalchemy import select
 
+from app.db.utils import utc_now
 from app.main import app
 from app.models.audit import AuditEvent
 from app.models.identity import Project, ProjectMember, UserCompanyRole
@@ -221,6 +222,44 @@ async def test_delete_with_assets_409(client, db_session):
     r = await client.delete(f"{PROJECTS}/{pid}", headers=_hdr(USER_BOSS))
     assert r.status_code == 409
     assert r.json()["detail"]["denied_reason"] == "project_has_assets"
+
+
+async def test_soft_deleted_asset_blocks_readiness_and_project_delete(client, db_session):
+    """软删除行仍持有项目外键，readiness 与 DELETE 都必须 fail closed。"""
+    from app.models.knowledge import KnowledgeAsset
+
+    r = await client.post(
+        PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body("软删除资产项目")
+    )
+    pid = uuid.UUID(r.json()["id"])
+    await _archive_project(client, pid)
+    asset = KnowledgeAsset(
+        title="已撤下测试资产",
+        scope=KnowledgeScope.project.value,
+        zone="material",
+        asset_type="deliverable",
+        owner_user_id=USER_BOSS,
+        project_id=pid,
+        visibility="project_only",
+        confidentiality_level="L2",
+        ai_access_level="A2",
+        asset_status="deleted",
+        deleted_at=utc_now(),
+        deleted_by=USER_BOSS,
+        delete_reason="回归测试",
+    )
+    db_session.add(asset)
+    await db_session.commit()
+
+    readiness = await client.get(f"{PROJECTS}/{pid}/deletion-readiness", headers=_hdr(USER_BOSS))
+    assert readiness.status_code == 200, readiness.text
+    assert readiness.json()["asset_count"] == 1
+    assert "project_has_assets" in readiness.json()["blockers"]
+
+    deleted = await client.delete(f"{PROJECTS}/{pid}", headers=_hdr(USER_BOSS))
+    assert deleted.status_code == 409, deleted.text
+    assert deleted.json()["detail"]["denied_reason"] == "project_has_assets"
+    assert await db_session.get(Project, pid) is not None
 
 
 async def test_delete_director_forbidden(client):

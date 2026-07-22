@@ -24,6 +24,14 @@ export interface ProjectSettingsUpdateDTO {
   wecom_group_id?: string;
 }
 
+export interface ProjectDeletionReadinessDTO {
+  can_delete: boolean;
+  is_archived: boolean;
+  asset_count: number;
+  member_count: number;
+  blockers: string[];
+}
+
 export interface ProjectMemberDTO {
   member_id: string;
   user_id: string;

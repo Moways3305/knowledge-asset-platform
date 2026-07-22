@@ -7,6 +7,7 @@ import {
   fetchPeople,
   fetchPerson,
   patchProjectMembership,
+  removeProjectMembership,
   setCompanyRole,
   setUserStatus,
 } from "../api/admin";
@@ -193,6 +194,42 @@ describe("AdminPeoplePage governance controls", () => {
     expect(container.querySelector(".pp-field-mark svg")).toBeInTheDocument();
   });
 
+  it("summarizes 3+ project relationships and exposes the complete list in the governance drawer", async () => {
+    const densePerson: PersonDTO = {
+      ...person,
+      company_roles: [
+        ...person.company_roles,
+        { role_id: "role-director", company_role: "consulting_director", status: "active" },
+        { role_id: "role-third", company_role: "consultant", status: "active" },
+      ],
+      project_memberships: ["甲项目", "乙项目", "丙项目", "丁项目"].map((name, index) => ({
+        ...person.project_memberships[0],
+        membership_id: `membership-${index}`,
+        project_id: `project-${index}`,
+        project_name: name,
+      })),
+    };
+    vi.mocked(fetchPeople).mockResolvedValue({ items: [densePerson], total: 1 });
+    vi.mocked(fetchPerson).mockResolvedValue(densePerson);
+
+    const { container } = render(
+      <MemoryRouter>
+        <AdminPeoplePage />
+      </MemoryRouter>,
+    );
+    const relationCell = await screen.findByRole("button", { name: "+2 查看全部" });
+    expect(container.querySelectorAll(".pp-cell-projects .pp-project-role-item")).toHaveLength(2);
+    expect(screen.queryByText("丙项目")).not.toBeInTheDocument();
+
+    fireEvent.click(relationCell);
+    const dialog = await screen.findByRole("dialog", { name: "人员治理详情" });
+    expect(within(dialog).getByText("甲项目")).toBeInTheDocument();
+    expect(within(dialog).getByText("丁项目")).toBeInTheDocument();
+    expect(dialog.innerHTML).not.toMatch(/membership-3|project-3/);
+    fireEvent.click(within(dialog).getByRole("button", { name: "关闭人员详情" }));
+    await waitFor(() => expect(relationCell).toHaveFocus());
+  });
+
   it("sends real filters and opens detail only after selection", async () => {
     render(
       <MemoryRouter>
@@ -372,5 +409,32 @@ describe("AdminPeoplePage governance controls", () => {
     expect(await screen.findByText("更新成员状态失败")).toBeInTheDocument();
     expect(within(projectRow!).getByRole("button", { name: "停用" })).toBeEnabled();
     expect(document.body.innerHTML).not.toContain("raw membership secret");
+  });
+
+  it("turns last project manager protection into inline guidance to project settings", async () => {
+    authState.capabilities = {
+      ...authState.capabilities,
+      isAdmin: false,
+      isBoss: true,
+      isBusinessUser: true,
+      isGovernance: true,
+    };
+    vi.mocked(fetchPerson).mockResolvedValue({
+      ...person,
+      project_memberships: [{ ...person.project_memberships[0], project_role: "project_manager" }],
+    });
+    vi.mocked(removeProjectMembership).mockRejectedValueOnce(
+      new ApiError(409, "raw project manager detail", "last_project_manager_protected"),
+    );
+    await renderDetail();
+    fireEvent.click(screen.getByRole("button", { name: "移除" }));
+
+    const guidance = await screen.findByRole("alert");
+    expect(guidance).toHaveTextContent("这是最后一位有效项目经理");
+    expect(guidance).not.toHaveTextContent("raw project manager detail");
+    expect(within(guidance).getByRole("link", { name: /前往.*项目设置/ })).toHaveAttribute(
+      "href",
+      "/project/project-ref/settings",
+    );
   });
 });
