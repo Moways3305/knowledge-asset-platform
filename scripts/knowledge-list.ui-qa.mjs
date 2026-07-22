@@ -74,6 +74,7 @@ for (const scenario of scenarios) {
           email: "identity-not-rendered@example.test",
           status: "active",
           company_roles: pureAdmin ? ["admin"] : ["consultant"],
+          active_company_role: pureAdmin ? "admin" : "consultant",
           is_business_user: !pureAdmin,
           can_discover_l5: false,
           project_memberships: pureAdmin

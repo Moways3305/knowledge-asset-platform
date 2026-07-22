@@ -32,6 +32,7 @@ const authMe = {
   email: "personal-qa@example.test",
   status: "active",
   company_roles: ["consultant"],
+  active_company_role: "consultant",
   is_business_user: true,
   can_discover_l5: false,
   project_memberships: [

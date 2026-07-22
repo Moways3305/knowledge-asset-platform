@@ -31,6 +31,7 @@ async function prepareContext(viewport) {
       email: "autofill-qa@example.test",
       status: "active",
       company_roles: ["admin", "boss"],
+      active_company_role: "admin",
       is_business_user: true,
       can_discover_l5: true,
       project_memberships: [],

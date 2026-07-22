@@ -130,7 +130,8 @@ for (const scenario of scenarios) {
           name: scenario.role === "project_manager" ? "项目经理验收用户" : "项目成员验收用户",
           email: "identity-not-shown@example.test",
           status: "active",
-          company_roles: [],
+          company_roles: ["consultant"],
+          active_company_role: "consultant",
           is_business_user: true,
           can_discover_l5: false,
           project_memberships: [
