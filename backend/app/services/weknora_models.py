@@ -125,6 +125,8 @@ async def list_models(
         item = _to_model_out(m)
         if model_type and item.type != model_type:
             continue
+        if not _is_valid_model_name(item.name):
+            continue
         out.append(item)
     return out
 
@@ -143,6 +145,55 @@ async def _resolve_ref(client: _CheckClient, ref: str, trace_id: str | None) -> 
 
 def _is_http_url(value: str | None) -> bool:
     return str(value or "").strip().lower().startswith(("http://", "https://"))
+
+
+# 已知合法模型名称前缀（白名单），防止拼写错误（如 deepsekk）进入系统。
+_APPROVED_MODEL_NAME_PREFIXES: tuple[str, ...] = (
+    "deepseek-",
+    "qwen-",
+    "kimi-",
+    "glm-",
+    "minimax-",
+    "gpt-",
+    "text-embedding-",
+    "embedding-",
+    "bge-",
+    "rerank",
+    "whisper-",
+    "funasr",
+    "sensenova-",
+    "ernie-",
+    "hunyuan-",
+    "yi-",
+    "moonshot-",
+    "baichuan-",
+    "llama",
+)
+
+
+def _validate_model_name(name: str, context: str = "create") -> None:
+    """校验模型名称是否符合已知格式，阻止拼写错误（如 deepsekk）注入 WeKnora。
+
+    规则：
+    只有明确配置的模型家族前缀可通过；未知名称没有语法回退或隐式 custom escape hatch。
+    """
+    if _is_valid_model_name(name):
+        return
+    raise _denied(
+        422,
+        "weknora_model_name_invalid",
+        f"模型名称 '{name}' 不符合已知模型命名规范，{context} 被拒绝",
+    )
+
+
+def _is_valid_model_name(name: str | None) -> bool:
+    """检查模型名称是否合法（不抛异常，供列表过滤使用）。"""
+    if not name:
+        return False
+    lowered = (name or "").strip().lower()
+    if not lowered:
+        return False
+    return any(lowered.startswith(prefix) for prefix in _APPROVED_MODEL_NAME_PREFIXES)
 
 
 def _validate_remote_secret_inputs(req: ModelMutateRequest) -> None:
@@ -194,6 +245,7 @@ async def create_model(
     client: _CheckClient, req: ModelMutateRequest, *, trace_id: str | None
 ) -> ModelMutateResponse:
     _validate_remote_secret_inputs(req)
+    _validate_model_name(req.name, context="创建模型")
     created = await client.create_model(_build_model_payload(req), trace_id=trace_id)
     mid = created.get("id") if isinstance(created, dict) else None
     if not mid:
@@ -212,6 +264,7 @@ async def create_model(
 async def update_model(
     client: _CheckClient, model_ref: str, req: ModelMutateRequest, *, trace_id: str | None
 ) -> ModelMutateResponse:
+    _validate_model_name(req.name, context="更新模型")
     model_id = await _resolve_ref(client, model_ref, trace_id)
     if model_id is None:
         raise _denied(404, "weknora_model_not_found", "模型不存在")
@@ -430,6 +483,7 @@ async def update_kb_init(
         model = ref_map.get(ref)
         if model is None:
             raise _denied(404, "weknora_model_not_found", "所选模型不存在")
+        _validate_model_name(str(model.get("name") or ""), context="配置知识库模型")
         if _alias(model.get("type")) != slot:
             raise _denied(422, "weknora_model_type_mismatch", "所选模型类型与配置项不匹配")
         resolved[slot] = str(model["id"])
@@ -550,13 +604,13 @@ async def set_default_models(
     - 类型与槽位不匹配（如把 chat 模型设为默认 embedding）→ 422 `weknora_model_type_mismatch`；
     - 校验通过后存 server-only id；返回安全视图（只含 model_ref，绝不回真实 id）。
     """
-    # 一次列模型，建 ref → (server-only id, 前端类型别名)。
+    # 一次列模型，建 ref → (server-only id, 前端类型别名, 模型名称)。
     raw = await client.list_models(trace_id=trace_id)
-    entries: dict[str, tuple[str, str]] = {}
+    entries: dict[str, tuple[str, str, str]] = {}
     for m in raw:
         if isinstance(m, dict) and m.get("id"):
             mid = str(m["id"])
-            entries[_model_ref(mid)] = (mid, _alias(m.get("type")))
+            entries[_model_ref(mid)] = (mid, _alias(m.get("type")), str(m.get("name") or ""))
 
     def _resolve(ref: str | None, slot: str) -> str | None:
         if not ref:
@@ -564,7 +618,8 @@ async def set_default_models(
         entry = entries.get(ref)
         if entry is None:
             raise _denied(404, "weknora_model_not_found", "所选模型不存在")
-        mid, alias = entry
+        mid, alias, name = entry
+        _validate_model_name(name, context="配置默认模型")
         expected = _DEFAULT_SLOT_TYPES[slot]
         if alias != expected:
             raise _denied(422, "weknora_model_type_mismatch", "所选模型类型与该默认槽位不匹配")

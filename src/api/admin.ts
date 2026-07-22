@@ -1,7 +1,15 @@
 // 管理与运营领域：索引运维 / 登录风控 / 会话运维 / 企微身份对账 / WeKnora 模型配置 /
 // 审计 / 告警 / 人员与角色 / 权限规则 / 外部 Agent 注册 / 企微微盘扫描 / 企微 OAuth 启动。
 // 所有响应只含安全运营/治理元数据；前端不构造、不展示任何内部标识（后端本就不返回）。
-import { apiGet, apiPost, apiPatch, apiPut, apiPostNoBody, createIdempotencyKey } from "./http";
+import {
+  apiGet,
+  apiPost,
+  apiPatch,
+  apiPut,
+  apiDelete,
+  apiPostNoBody,
+  createIdempotencyKey,
+} from "./http";
 import type {
   IndexingJobListResponseDTO,
   IndexingJobSummaryDTO,
@@ -286,12 +294,23 @@ export async function patchProjectMembership(
   );
 }
 
+// 物理删除项目成员关系（区别于 status=inactive 的软停用）。
+// 用于治理角色在此处移除项目经理任命。
+export async function removeProjectMembership(userId: string, membershipId: string): Promise<void> {
+  await apiDelete<void>(`/api/v1/admin/people/${userId}/project-memberships/${membershipId}`);
+}
+
 export async function fetchCompanyKnowledgeBase(): Promise<CompanyKnowledgeBaseDTO> {
   return apiGet<CompanyKnowledgeBaseDTO>(`/api/v1/company/knowledge-base`);
 }
 
 export async function createCompanyKnowledgeBase(): Promise<CompanyKnowledgeBaseDTO> {
   return apiPost<CompanyKnowledgeBaseDTO>(`/api/v1/company/knowledge-base`, {});
+}
+
+// 删除公司知识库（仅总经理）。后端前置检查无资产。
+export async function deleteCompanyKnowledgeBase(): Promise<void> {
+  await apiDelete<void>(`/api/v1/company/knowledge-base`);
 }
 
 // ---- 权限规则配置中心 ----

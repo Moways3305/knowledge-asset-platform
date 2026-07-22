@@ -310,6 +310,8 @@ async def record_denied(
 # ============================================================
 
 # admin 元数据视图允许从 extra 透出的安全子集（denied_reason / risk_level 等）。
+# 登录审计（login_result / login_method）也属安全元数据，需在 admin 视图可见，
+# 否则审计日志"结果"列会显示"—"。注意：ip_address 属敏感字段，不在此处放行。
 _ADMIN_EXTRA_WHITELIST = {
     "denied_reason",
     "risk_level",
@@ -317,6 +319,8 @@ _ADMIN_EXTRA_WHITELIST = {
     "returned_layer",
     "used_access_layer",
     "effective_access_source",
+    "login_result",
+    "login_method",
 }
 # 触及 L5 的事件：admin 视图须隐藏 target_id（避免反查 L5 资产存在性）。
 _L5_ACTIONS = {

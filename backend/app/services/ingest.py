@@ -928,6 +928,7 @@ async def list_pending(
     caller: CallerContext,
     *,
     source: str | None = None,
+    statuses: set[str] | None = None,
 ) -> list[PendingIngestItem]:
     """业务侧待确认任务列表。
 
@@ -938,6 +939,9 @@ async def list_pending(
 
     响应只含安全元数据，绝不含 source_file_ref / storage_ref / WeCom file_id /
     下载 URL / token / WeKnora id / 抽取全文。
+
+    ``statuses`` 可选地按状态过滤；为 ``None`` 时保持原有行为（返回所有待确认任务，
+    状态覆盖 pending_confirmation / failed / rejected）。
     """
     if not caller.is_business_user:
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可查看待确认入库任务")
@@ -956,6 +960,8 @@ async def list_pending(
     )
     if source is not None:
         stmt = stmt.where(IngestTask.source == source)
+    if statuses is not None:
+        stmt = stmt.where(IngestTask.status.in_(statuses))
 
     tasks = list((await session.execute(stmt)).scalars().all())
     is_gov = _is_governance(caller)

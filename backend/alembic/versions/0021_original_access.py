@@ -9,11 +9,13 @@ Revises: 0020_personal_submissions
 Create Date: 2026-06-02
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0021_original_access"
@@ -44,10 +46,14 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_oar_asset_status", "original_access_requests", ["asset_id", "status"])
-    op.create_index("ix_oar_reviewer_status", "original_access_requests", ["reviewer_user_id", "status"])
     op.create_index(
-        "uq_oar_one_pending", "original_access_requests",
-        ["requester_user_id", "asset_id"], unique=True,
+        "ix_oar_reviewer_status", "original_access_requests", ["reviewer_user_id", "status"]
+    )
+    op.create_index(
+        "uq_oar_one_pending",
+        "original_access_requests",
+        ["requester_user_id", "asset_id"],
+        unique=True,
         sqlite_where=sa.text("status = 'pending'"),
         postgresql_where=sa.text("status = 'pending'"),
     )
@@ -75,12 +81,15 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(
-        "ix_grant_grantee_asset_status", "access_grants",
+        "ix_grant_grantee_asset_status",
+        "access_grants",
         ["grantee_user_id", "asset_id", "status"],
     )
     op.create_index(
-        "uq_grant_one_active", "access_grants",
-        ["grantee_user_id", "asset_id", "grant_type"], unique=True,
+        "uq_grant_one_active",
+        "access_grants",
+        ["grantee_user_id", "asset_id", "grant_type"],
+        unique=True,
         sqlite_where=sa.text("status = 'active'"),
         postgresql_where=sa.text("status = 'active'"),
     )

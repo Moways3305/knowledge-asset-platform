@@ -13,11 +13,13 @@ Revises: 0001_identity
 Create Date: 2026-05-29
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -75,9 +77,7 @@ def upgrade() -> None:
         sa.Column("activated_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(["asset_id"], ["knowledge_assets.id"]),
         sa.ForeignKeyConstraint(["created_by"], ["users.id"]),
-        sa.ForeignKeyConstraint(
-            ["supersedes_version_id"], ["knowledge_asset_versions.id"]
-        ),
+        sa.ForeignKeyConstraint(["supersedes_version_id"], ["knowledge_asset_versions.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("asset_id", "version_no", name="uq_asset_version_no"),
     )
@@ -111,9 +111,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["asset_id"], ["knowledge_assets.id"]),
         sa.ForeignKeyConstraint(["version_id"], ["knowledge_asset_versions.id"]),
         sa.ForeignKeyConstraint(["invalidated_by"], ["users.id"]),
-        sa.ForeignKeyConstraint(
-            ["replaced_by_chunk_id"], ["knowledge_asset_chunks.id"]
-        ),
+        sa.ForeignKeyConstraint(["replaced_by_chunk_id"], ["knowledge_asset_chunks.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("version_id", "chunk_index", name="uq_version_chunk_index"),
     )

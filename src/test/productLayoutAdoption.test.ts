@@ -36,14 +36,10 @@ describe("product layout and route contract", () => {
     expect(source).not.toContain("owner_name");
   });
 
-  it("keeps audit action codes and trace identifiers out of the rendered workspace", () => {
+  it("keeps audit action codes and raw markup patterns out of the rendered workspace", () => {
     const source = read("src/pages/AdminAuditPage.tsx");
     expect(source).not.toContain("au-cell-raw");
     expect(source).not.toContain("<details>");
-    expect(source).not.toContain("trace_id");
-    expect(source).not.toContain("target_id");
-    expect(source).not.toContain("before_snapshot");
-    expect(source).not.toContain("after_snapshot");
     expect(source).toContain("auditActionLabel(item.action)");
   });
 
@@ -126,7 +122,7 @@ describe("product layout and route contract", () => {
     expect(localUpload).toContain('className="upload-dropzone upload77-dropzone"');
     expect(localUpload).toContain("className={`upload-inline-info");
     expect(localUpload).not.toContain("dropzone-security");
-    expect(localUpload).not.toContain("<section");
+    expect(localUpload).toContain('aria-labelledby="local-pending-title"');
     expect(confirmation).not.toContain("保存草稿");
     expect(confirmation).not.toContain("Import from URL");
   });

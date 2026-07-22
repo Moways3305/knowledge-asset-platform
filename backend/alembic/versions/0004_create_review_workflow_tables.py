@@ -9,11 +9,13 @@ Revises: 0003_ingest
 Create Date: 2026-05-29
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0004_review"
@@ -67,9 +69,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["submitted_by"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(
-        "ix_review_tasks_type_status", "review_tasks", ["review_type", "status"]
-    )
+    op.create_index("ix_review_tasks_type_status", "review_tasks", ["review_type", "status"])
     op.create_index(
         "ix_review_tasks_reviewer_status", "review_tasks", ["reviewer_user_id", "status"]
     )

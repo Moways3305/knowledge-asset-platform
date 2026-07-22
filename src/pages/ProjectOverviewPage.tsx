@@ -1,16 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BookOpen, Bot, CheckSquare, RefreshCw, Send, Settings, Upload } from "lucide-react";
+import { BookOpen, Bot, CheckSquare, Plus, RefreshCw, Send, Settings, Upload } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  createProject,
   fetchProjectOverview,
   fetchProjectQaModelOptions,
   fetchProjects,
   projectQa,
 } from "../api/project";
+import { fetchPeople } from "../api/admin";
+import { useAuth } from "../auth/AuthContext";
+import { ApiError } from "../api/http";
 import LoadingError from "../components/LoadingError";
 import { ProductPage } from "../components/ProductLayout";
 import type { ProjectQaModelOptionDTO, ProjectQaResponseDTO } from "../types/agent";
-import type { ProjectListItemDTO, ProjectOverviewDTO } from "../types/project";
+import type {
+  ProjectCreateResponseDTO,
+  ProjectListItemDTO,
+  ProjectOverviewDTO,
+} from "../types/project";
+import type { PersonDTO } from "../types/people";
 import "./ProjectOverviewPage.css";
 
 const PROJECT_STATUS: Record<string, string> = {
@@ -96,10 +105,14 @@ function ProjectWorkspace({
   selectedProject,
   projects,
   onSwitch,
+  onCreateClick,
+  canCreate,
 }: {
   selectedProject: ProjectListItemDTO;
   projects: ProjectListItemDTO[];
   onSwitch: (projectId: string) => void;
+  onCreateClick?: () => void;
+  canCreate?: boolean;
 }) {
   const projectId = selectedProject.id;
   const overviewRequest = useRef(0);
@@ -214,7 +227,15 @@ function ProjectWorkspace({
           <span>项目协作空间</span>
           <strong>{selectedProject.name}</strong>
         </div>
-        <ProjectPicker projects={projects} value={projectId} onChange={onSwitch} />
+        <div className="project78-switchbar-actions">
+          {canCreate && onCreateClick && (
+            <button type="button" className="project78-create-btn" onClick={onCreateClick}>
+              <Plus size={14} aria-hidden="true" />
+              新建项目
+            </button>
+          )}
+          <ProjectPicker projects={projects} value={projectId} onChange={onSwitch} />
+        </div>
       </header>
 
       <div className="project78-workspace">
@@ -489,8 +510,19 @@ function ProjectWorkspace({
 export default function ProjectOverviewPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
+  const { capabilities } = useAuth();
   const listRequest = useRef(0);
   const [listState, setListState] = useState<ListState>({ status: "loading" });
+
+  // 新建项目模态框状态（仅治理角色可用）。
+  const canCreate = capabilities.isGovernance;
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createClient, setCreateClient] = useState("");
+  const [createManagerId, setCreateManagerId] = useState("");
+  const [createCandidates, setCreateCandidates] = useState<PersonDTO[]>([]);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const loadProjects = useCallback(async () => {
     const request = ++listRequest.current;
@@ -511,6 +543,52 @@ export default function ProjectOverviewPage() {
       listRequest.current += 1;
     };
   }, [loadProjects]);
+
+  const openCreateModal = useCallback(async () => {
+    setCreateOpen(true);
+    setCreateName("");
+    setCreateClient("");
+    setCreateManagerId("");
+    setCreateError(null);
+    try {
+      const response = await fetchPeople();
+      setCreateCandidates(response.items);
+    } catch (e) {
+      setCreateCandidates([]);
+      setCreateError(
+        e instanceof ApiError && e.status === 403
+          ? "当前身份无权加载用户列表"
+          : "用户列表加载失败，请稍后重试",
+      );
+    }
+  }, []);
+
+  const submitCreateProject = useCallback(async () => {
+    if (!createName.trim() || !createManagerId) {
+      setCreateError("请填写项目名称并选择项目经理");
+      return;
+    }
+    setCreateBusy(true);
+    setCreateError(null);
+    try {
+      const created: ProjectCreateResponseDTO = await createProject({
+        name: createName.trim(),
+        client_name: createClient.trim() || null,
+        project_manager_user_id: createManagerId,
+      });
+      setCreateOpen(false);
+      await loadProjects();
+      navigate(`/project/${created.id}`);
+    } catch (e) {
+      setCreateError(
+        e instanceof ApiError && e.status === 403
+          ? "当前身份无权创建项目"
+          : "项目创建失败，请稍后重试",
+      );
+    } finally {
+      setCreateBusy(false);
+    }
+  }, [createName, createClient, createManagerId, loadProjects, navigate]);
 
   if (listState.status === "loading") {
     return (
@@ -533,7 +611,7 @@ export default function ProjectOverviewPage() {
   }
 
   const projects = listState.items;
-  if (projects.length === 0) {
+  if (projects.length === 0 && !canCreate) {
     return (
       <ProductPage className="project78-page">
         <LoadingError empty emptyTitle="暂无可访问项目" emptyDesc="当前身份尚未加入有效项目。">
@@ -541,6 +619,43 @@ export default function ProjectOverviewPage() {
             返回今日工作台
           </Link>
         </LoadingError>
+      </ProductPage>
+    );
+  }
+
+  if (projects.length === 0 && canCreate) {
+    return (
+      <ProductPage className="project78-page">
+        <LoadingError
+          empty
+          emptyTitle="暂无可访问项目"
+          emptyDesc="当前身份尚未加入有效项目，可新建项目。"
+        >
+          <button
+            type="button"
+            className="project78-state-link product-button is-primary"
+            onClick={() => void openCreateModal()}
+          >
+            新建项目
+          </button>
+          <Link className="project78-state-link" to="/">
+            返回今日工作台
+          </Link>
+        </LoadingError>
+        <CreateProjectModal
+          open={createOpen}
+          name={createName}
+          client={createClient}
+          managerId={createManagerId}
+          candidates={createCandidates}
+          busy={createBusy}
+          error={createError}
+          onNameChange={setCreateName}
+          onClientChange={setCreateClient}
+          onManagerChange={setCreateManagerId}
+          onSubmit={() => void submitCreateProject()}
+          onClose={() => setCreateOpen(false)}
+        />
       </ProductPage>
     );
   }
@@ -568,11 +683,128 @@ export default function ProjectOverviewPage() {
   }
 
   return (
-    <ProjectWorkspace
-      key={selectedProject.id}
-      selectedProject={selectedProject}
-      projects={projects}
-      onSwitch={switchProject}
-    />
+    <>
+      <ProjectWorkspace
+        key={selectedProject.id}
+        selectedProject={selectedProject}
+        projects={projects}
+        onSwitch={switchProject}
+        canCreate={canCreate}
+        onCreateClick={() => void openCreateModal()}
+      />
+      <CreateProjectModal
+        open={createOpen}
+        name={createName}
+        client={createClient}
+        managerId={createManagerId}
+        candidates={createCandidates}
+        busy={createBusy}
+        error={createError}
+        onNameChange={setCreateName}
+        onClientChange={setCreateClient}
+        onManagerChange={setCreateManagerId}
+        onSubmit={() => void submitCreateProject()}
+        onClose={() => setCreateOpen(false)}
+      />
+    </>
+  );
+}
+
+function CreateProjectModal({
+  open,
+  name,
+  client,
+  managerId,
+  candidates,
+  busy,
+  error,
+  onNameChange,
+  onClientChange,
+  onManagerChange,
+  onSubmit,
+  onClose,
+}: {
+  open: boolean;
+  name: string;
+  client: string;
+  managerId: string;
+  candidates: PersonDTO[];
+  busy: boolean;
+  error: string | null;
+  onNameChange: (value: string) => void;
+  onClientChange: (value: string) => void;
+  onManagerChange: (value: string) => void;
+  onSubmit: () => void;
+  onClose: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div className="project78-modal-overlay" role="dialog" aria-modal="true" aria-label="新建项目">
+      <div className="project78-modal">
+        <div className="project78-modal-head">
+          <h3>新建项目</h3>
+          <button
+            type="button"
+            className="project78-modal-close"
+            onClick={onClose}
+            aria-label="关闭"
+          >
+            ×
+          </button>
+        </div>
+        {error && <div className="project78-modal-error">{error}</div>}
+        <div className="project78-modal-body">
+          <label className="project78-modal-field">
+            <span>项目名称</span>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => onNameChange(e.target.value)}
+              placeholder="输入项目名称"
+              autoComplete="off"
+            />
+          </label>
+          <label className="project78-modal-field">
+            <span>客户名称（可选）</span>
+            <input
+              type="text"
+              value={client}
+              onChange={(e) => onClientChange(e.target.value)}
+              placeholder="输入客户名称"
+              autoComplete="off"
+            />
+          </label>
+          <label className="project78-modal-field">
+            <span>项目经理</span>
+            <select value={managerId} onChange={(e) => onManagerChange(e.target.value)}>
+              <option value="">请选择项目经理</option>
+              {candidates.map((person) => (
+                <option key={person.user_id} value={person.user_id}>
+                  {person.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="project78-modal-actions">
+          <button
+            type="button"
+            className="product-button is-primary"
+            disabled={busy || !name.trim() || !managerId}
+            onClick={onSubmit}
+          >
+            {busy ? "创建中…" : "创建项目"}
+          </button>
+          <button
+            type="button"
+            className="product-button is-secondary"
+            disabled={busy}
+            onClick={onClose}
+          >
+            取消
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -9,7 +9,7 @@ import {
 } from "react";
 import { Bot, ChevronLeft, ChevronRight, FileText, MoreHorizontal, Search } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
-import { fetchKnowledgePage } from "../api/knowledge";
+import { deleteKnowledgeAsset, fetchKnowledgePage } from "../api/knowledge";
 import { fetchProjectQaModelOptions, projectQa } from "../api/project";
 import { requestCompanyUpgrade } from "../api/review";
 import { useAuth } from "../auth/AuthContext";
@@ -134,6 +134,12 @@ function ProjectKnowledgeWorkspace({
 
   const [upgradeBusyId, setUpgradeBusyId] = useState<string | null>(null);
   const [upgradeNotice, setUpgradeNotice] = useState<{
+    tone: "success" | "error";
+    text: string;
+  } | null>(null);
+  const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleteNotice, setDeleteNotice] = useState<{
     tone: "success" | "error";
     text: string;
   } | null>(null);
@@ -309,6 +315,20 @@ function ProjectKnowledgeWorkspace({
     },
     [project.projectId, project.projectRole, upgradeBusyId],
   );
+  const handleDelete = useCallback(async (assetId: string) => {
+    setDeleteBusyId(assetId);
+    setDeleteNotice(null);
+    try {
+      await deleteKnowledgeAsset(assetId);
+      setConfirmDeleteId(null);
+      setDeleteNotice({ tone: "success", text: "已删除，资产移出项目知识库。" });
+      setListRetryKey((value) => value + 1);
+    } catch {
+      setDeleteNotice({ tone: "error", text: "删除失败，请稍后重试。" });
+    } finally {
+      setDeleteBusyId(null);
+    }
+  }, []);
 
   const columns = useMemo<Column<KnowledgeCardVM>[]>(
     () => [
@@ -376,13 +396,22 @@ function ProjectKnowledgeWorkspace({
                 >
                   {upgradeBusyId === asset.id ? "提交中…" : "申请升格公司资产"}
                 </button>
+                {asset.access.canDelete && asset.assetStatus !== "archived" && (
+                  <button
+                    type="button"
+                    disabled={deleteBusyId === asset.id}
+                    onClick={() => setConfirmDeleteId(asset.id)}
+                  >
+                    {deleteBusyId === asset.id ? "删除中…" : "删除"}
+                  </button>
+                )}
               </details>
             )}
           </div>
         ),
       },
     ],
-    [navigate, project.projectRole, requestUpgrade, upgradeBusyId],
+    [navigate, project.projectRole, requestUpgrade, upgradeBusyId, deleteBusyId],
   );
 
   const totalPages = Math.max(1, Math.ceil(result.total / result.pageSize));
@@ -613,6 +642,11 @@ function ProjectKnowledgeWorkspace({
                 {upgradeNotice.text}
               </div>
             )}
+            {deleteNotice && (
+              <div className={`pk-delete-notice is-${deleteNotice.tone}`} role="status">
+                {deleteNotice.text}
+              </div>
+            )}
             <DataTable
               columns={columns}
               rows={result.items}
@@ -681,6 +715,44 @@ function ProjectKnowledgeWorkspace({
                   >
                     <ChevronRight size={16} aria-hidden="true" />
                   </button>
+                </div>
+              </div>
+            )}
+            {confirmDeleteId && (
+              <div
+                className="pk-delete-overlay"
+                role="dialog"
+                aria-modal="true"
+                aria-label="删除确认"
+              >
+                <div className="pk-delete-confirm">
+                  <p>
+                    确定要删除{" "}
+                    <strong>
+                      "{result.items.find((item) => item.id === confirmDeleteId)?.title ?? "该资产"}
+                      "
+                    </strong>{" "}
+                    吗？
+                  </p>
+                  <p className="pk-delete-hint">删除后将无法恢复，关联的知识引用也会失效。</p>
+                  <div className="pk-delete-actions">
+                    <button
+                      className="product-button is-secondary is-small"
+                      type="button"
+                      disabled={deleteBusyId === confirmDeleteId}
+                      onClick={() => setConfirmDeleteId(null)}
+                    >
+                      取消
+                    </button>
+                    <button
+                      className="product-button is-danger is-small"
+                      type="button"
+                      disabled={deleteBusyId === confirmDeleteId}
+                      onClick={() => void handleDelete(confirmDeleteId)}
+                    >
+                      {deleteBusyId === confirmDeleteId ? "删除中…" : "确认删除"}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}

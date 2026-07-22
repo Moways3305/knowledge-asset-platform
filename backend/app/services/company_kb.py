@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.knowledge import KnowledgeAsset
 from app.models.weknora import WeknoraKbMapping
 from app.schemas.company_kb import CompanyKbOut
 from app.schemas.enums import AuditAction, AuditLogType, CompanyRole, KnowledgeScope
@@ -175,3 +176,91 @@ async def _audit_create(
         target_type="company_knowledge_base",
         extra={"ready": ready, "status": mapping.status},
     )
+
+
+def _require_boss(caller: CallerContext) -> None:
+    """删除公司库仅总经理可执行：consulting_director / admin 一律拒绝。"""
+    if caller.is_active and CompanyRole.boss.value in caller.active_company_roles:
+        return
+    raise _denied(
+        403,
+        "company_kb_delete_governance_only",
+        "仅总经理可删除公司知识库",
+    )
+
+
+async def _count_company_assets(session: AsyncSession) -> int:
+    """统计未删除的公司范围知识资产数量（scope=company 且 deleted_at IS NULL）。"""
+    return int(
+        (
+            await session.execute(
+                select(func.count(KnowledgeAsset.id)).where(
+                    KnowledgeAsset.scope == KnowledgeScope.company.value,
+                    KnowledgeAsset.deleted_at.is_(None),
+                )
+            )
+        ).scalar()
+        or 0
+    )
+
+
+async def delete_company_kb(
+    session: AsyncSession,
+    client: WeKnoraClient | NullWeKnoraClient,
+    caller: CallerContext,
+    *,
+    trace_id: str,
+) -> None:
+    """删除公司知识库：仅 boss 可执行，且前置检查公司库下无未删除资产。
+
+    执行流程：
+    1. 权限：仅 boss，consulting_director / admin 拒绝（403
+       company_kb_delete_governance_only）。
+    2. 前置检查：公司库下若有未删除 KnowledgeAsset（scope=company 且
+       deleted_at IS NULL），返回 409 提示先清空。
+    3. 执行：调 weknora_client.delete_kb 清理底座 → 删除 weknora_kb_mappings 映射行。
+    4. 记审计：config_company_kb_deleted。
+    """
+    _require_boss(caller)
+    mapping = await _find_mapping(session)
+    if mapping is None:
+        raise _denied(404, "company_kb_not_found", "公司知识库尚未创建")
+
+    asset_count = await _count_company_assets(session)
+    if asset_count > 0:
+        raise _denied(
+            409,
+            "company_kb_not_empty",
+            f"请先清空 {asset_count} 个公司资产后再删除公司知识库",
+        )
+
+    if isinstance(client, NullWeKnoraClient):
+        raise _denied(503, "company_kb_unavailable", "知识库底座未配置，暂无法删除公司知识库")
+
+    try:
+        await client.delete_kb(mapping.weknora_kb_id, trace_id=trace_id)
+    except WeKnoraError as exc:
+        await session.rollback()
+        await audit_service.record_event(
+            session,
+            caller=caller,
+            log_type=AuditLogType.exception,
+            action=AuditAction.config_company_kb_deleted.value,
+            trace_id=trace_id,
+            target_type="company_knowledge_base",
+            extra={"result": "unavailable"},
+        )
+        await session.commit()
+        raise _denied(503, "company_kb_unavailable", "知识库底座暂不可用，请稍后重试") from exc
+
+    await session.delete(mapping)
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.config_company_kb_deleted.value,
+        trace_id=trace_id,
+        target_type="company_knowledge_base",
+        extra={"result": "deleted"},
+    )
+    await session.commit()

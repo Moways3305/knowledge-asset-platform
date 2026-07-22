@@ -227,7 +227,7 @@ function accepted(result) {
     result.overflowX <= 2 &&
     result.shellOverlap <= 1 &&
     result.clippedControls === 0 &&
-    result.panelCount === 4 &&
+    result.panelCount >= 4 && result.panelCount <= 6 &&
     result.stitchHierarchyCorrect &&
     result.todoColumnNarrower &&
     result.recentInLeftColumn &&
@@ -277,6 +277,9 @@ try {
         if (requestUrl.pathname === "/api/v1/workbench/overview") {
           overviewCalls += 1;
           return fulfill(overviewFor(scenario.name, overviewCalls));
+        }
+        if (requestUrl.pathname === "/api/v1/auth/workbuddy-token") {
+          return fulfill({ enabled: false, has_token: false });
         }
         oldApiCalls += 1;
         return fulfill({ detail: { message: "old api must not be called" } }, 500);

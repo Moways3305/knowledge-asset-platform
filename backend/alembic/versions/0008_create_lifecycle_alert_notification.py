@@ -8,11 +8,13 @@ Revises: 0007_audit
 Create Date: 2026-05-30
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0008_lifecycle"
@@ -44,9 +46,7 @@ def upgrade() -> None:
         "asset_lifecycle_events",
         ["asset_id", "created_at"],
     )
-    op.create_index(
-        "ix_asset_lifecycle_events_trace", "asset_lifecycle_events", ["trace_id"]
-    )
+    op.create_index("ix_asset_lifecycle_events_trace", "asset_lifecycle_events", ["trace_id"])
 
     op.create_table(
         "alert_rules",
@@ -89,15 +89,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "ix_notification_records_recipient", table_name="notification_records"
-    )
+    op.drop_index("ix_notification_records_recipient", table_name="notification_records")
     op.drop_table("notification_records")
     op.drop_table("alert_rules")
-    op.drop_index(
-        "ix_asset_lifecycle_events_trace", table_name="asset_lifecycle_events"
-    )
-    op.drop_index(
-        "ix_asset_lifecycle_events_asset", table_name="asset_lifecycle_events"
-    )
+    op.drop_index("ix_asset_lifecycle_events_trace", table_name="asset_lifecycle_events")
+    op.drop_index("ix_asset_lifecycle_events_asset", table_name="asset_lifecycle_events")
     op.drop_table("asset_lifecycle_events")

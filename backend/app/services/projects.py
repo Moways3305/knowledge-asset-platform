@@ -14,21 +14,27 @@ from __future__ import annotations
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.identity import Project, ProjectMember, User
 from app.schemas.enums import (
+    BUSINESS_COMPANY_ROLES,
     AuditAction,
     AuditLogType,
+    CompanyRole,
+    KnowledgeScope,
     MemberStatus,
     ProjectRole,
+    ProjectStatus,
     RoleStatus,
     UserStatus,
 )
 from app.schemas.permission import CallerContext
 from app.schemas.project_settings import (
+    CandidateMemberOut,
+    CandidateMembersResponse,
     ProjectMemberCreateRequest,
     ProjectMemberOut,
     ProjectMemberPatchRequest,
@@ -267,6 +273,56 @@ async def list_members(
     return ProjectMembersResponse(
         items=items, total=len(items), can_manage=_can_manage_members(caller, project_id)
     )
+
+
+async def list_candidate_members(
+    session: AsyncSession, caller: CallerContext, project_id: uuid.UUID
+) -> CandidateMembersResponse:
+    """列出可被添加为项目成员的候选用户（active 业务用户，排除已 active 成员）。
+
+    读权限同 list_members：治理角色或本项目 active 成员可读。
+    """
+    await _load_project(session, project_id)
+    await _require_read(caller, project_id)
+
+    # 已是本项目 active 成员的 user_id 集合。
+    existing = set(
+        row[0]
+        for row in (
+            await session.execute(
+                select(ProjectMember.user_id).where(
+                    ProjectMember.project_id == project_id,
+                    ProjectMember.status == MemberStatus.active.value,
+                )
+            )
+        ).all()
+    )
+
+    users = list(
+        (
+            await session.execute(
+                select(User)
+                .where(User.status == UserStatus.active.value)
+                .options(selectinload(User.company_roles))
+                .order_by(User.name)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    items: list[CandidateMemberOut] = []
+    for user in users:
+        if user.id in existing:
+            continue
+        active_roles = [
+            r.company_role for r in user.company_roles if r.status == RoleStatus.active.value
+        ]
+        is_business = any(role in BUSINESS_COMPANY_ROLES for role in active_roles)
+        if not is_business:
+            continue
+        items.append(CandidateMemberOut(user_id=user.id, name=user.name, email=user.email))
+    return CandidateMembersResponse(items=items)
 
 
 def _member_out(member: ProjectMember) -> ProjectMemberOut:
@@ -618,3 +674,327 @@ async def create_project(
         await ensure_project_kb(session, weknora, project_id=response.id, trace_id=trace_id)
 
     return response
+
+
+# ============================================================
+# 项目归档 / 重新激活 / 删除
+# ============================================================
+
+
+def _require_governance_for_lifecycle(caller: CallerContext) -> None:
+    """项目生命周期治理：仅总经理 / 咨询总监。admin 系统身份无此权限。"""
+    if _is_governance(caller):
+        return
+    if _is_admin(caller):
+        raise _denied(403, "admin_business_permission_denied", "admin 不可管理项目生命周期")
+    raise _denied(403, "project_lifecycle_forbidden", "仅总经理或咨询总监可管理项目生命周期")
+
+
+def _require_boss_for_delete(caller: CallerContext) -> None:
+    """项目删除：仅总经理。咨询总监 / admin / 普通成员均不可。"""
+    if not caller.is_active or CompanyRole.boss.value not in caller.active_company_roles:
+        if _is_admin(caller):
+            raise _denied(403, "admin_business_permission_denied", "admin 不可删除项目")
+        raise _denied(403, "project_delete_forbidden", "仅总经理可删除项目")
+
+
+async def archive_project(
+    session: AsyncSession,
+    caller: CallerContext,
+    project_id: uuid.UUID,
+    trace_id: str,
+) -> ProjectSettingsOut:
+    """归档项目（仅总经理 / 咨询总监）。
+
+    - project.status → archived
+    - 全部 project_members.status → inactive（保留行用于审计，不物理删除）
+    - 记审计 project.archived
+    """
+    _require_governance_for_lifecycle(caller)
+    project = await _load_project(session, project_id)
+    if project.status == ProjectStatus.archived.value:
+        raise _denied(409, "project_already_archived", "项目已归档")
+
+    old_status = project.status
+    project.status = ProjectStatus.archived.value
+
+    # 全部成员关系 → inactive（保留行用于审计追溯，不物理删除）。
+    members = list(
+        (await session.execute(select(ProjectMember).where(ProjectMember.project_id == project_id)))
+        .scalars()
+        .all()
+    )
+    member_changes: list[dict] = []
+    for m in members:
+        if m.status != MemberStatus.inactive.value:
+            member_changes.append(
+                {"membership_id": str(m.id), "user_id": str(m.user_id), "old_status": m.status}
+            )
+            m.status = MemberStatus.inactive.value
+    await session.flush()
+
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.project_archived.value,
+        trace_id=trace_id,
+        target_type="project",
+        target_id=project.id,
+        before={"status": old_status},
+        after={"status": project.status},
+        extra={
+            "members_deactivated_count": len(member_changes),
+        },
+        project_id=project.id,
+    )
+    await session.commit()
+    coach = await _coach_name(session, project)
+    return _settings_out(project, coach, _can_write(caller, project_id))
+
+
+async def reactivate_project(
+    session: AsyncSession,
+    caller: CallerContext,
+    project_id: uuid.UUID,
+    trace_id: str,
+) -> ProjectSettingsOut:
+    """重新激活已归档项目（仅总经理 / 咨询总监）。
+
+    - project.status → active
+    - 成员关系保持 inactive（需手动重新启用，避免自动恢复权限）
+    - 记审计 project.reactivated
+    """
+    _require_governance_for_lifecycle(caller)
+    project = await _load_project(session, project_id)
+    if project.status != ProjectStatus.archived.value:
+        raise _denied(409, "project_not_archived", "项目未归档，无需重新激活")
+
+    old_status = project.status
+    project.status = ProjectStatus.active.value
+    await session.flush()
+
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.project_reactivated.value,
+        trace_id=trace_id,
+        target_type="project",
+        target_id=project.id,
+        before={"status": old_status},
+        after={"status": project.status},
+        extra={"note": "members_kept_inactive"},
+        project_id=project.id,
+    )
+    await session.commit()
+    coach = await _coach_name(session, project)
+    return _settings_out(project, coach, _can_write(caller, project_id))
+
+
+async def delete_project(
+    session: AsyncSession,
+    caller: CallerContext,
+    project_id: uuid.UUID,
+    trace_id: str,
+    *,
+    weknora=None,
+) -> None:
+    """删除项目（仅总经理）。
+
+    前置检查：
+    1. 项目必须先归档（status == archived），否则 409。
+    2. 项目下无 KnowledgeAsset（scope=project 且 project_id 匹配 且 deleted_at IS NULL），否则 409。
+
+    执行：
+    1. 删除所有 project_members 关系（物理删除）。
+    2. 删除 weknora_kb_mappings 映射行（scope=project）。
+    3. best-effort 调 weknora.delete_kb 清理底座（失败记日志不阻断）。
+    4. 删除 project 行。
+    5. 记审计 project.deleted。
+    """
+    import logging
+
+    from app.models.knowledge import KnowledgeAsset
+    from app.models.weknora import WeknoraKbMapping
+    from app.schemas.enums import AuditRiskLevel
+
+    _require_boss_for_delete(caller)
+    project = await _load_project(session, project_id)
+
+    # 前置检查 1：必须先归档。
+    if project.status != ProjectStatus.archived.value:
+        raise _denied(409, "project_not_archived", "请先归档项目")
+
+    # 前置检查 2：项目下无未删除资产。
+    asset_count = (
+        await session.execute(
+            select(func.count())
+            .select_from(KnowledgeAsset)
+            .where(
+                KnowledgeAsset.scope == KnowledgeScope.project.value,
+                KnowledgeAsset.project_id == project_id,
+                KnowledgeAsset.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one()
+    if asset_count > 0:
+        raise _denied(
+            409,
+            "project_has_assets",
+            f"请先清空 {asset_count} 个项目资产",
+        )
+
+    # 执行 1：物理删除所有 project_members 关系。
+    await session.execute(delete(ProjectMember).where(ProjectMember.project_id == project_id))
+
+    # 执行 2：删除 weknora_kb_mappings 映射行（scope=project）。
+    mapping_rows = list(
+        (
+            await session.execute(
+                select(WeknoraKbMapping).where(
+                    WeknoraKbMapping.scope == KnowledgeScope.project.value,
+                    WeknoraKbMapping.project_id == project_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for mapping in mapping_rows:
+        # 执行 3：best-effort 调 weknora 删除底座 KB（失败不阻断）。
+        if weknora is not None and mapping.weknora_kb_id:
+            try:
+                _delete_kb = getattr(weknora, "delete_kb", None)
+                if callable(_delete_kb):
+                    await _delete_kb(mapping.weknora_kb_id, trace_id=trace_id)
+            except Exception as exc:  # noqa: BLE001  # best-effort，不阻断
+                logging.getLogger(__name__).warning(
+                    "project_kb_delete_failed",
+                    extra={"error_code": getattr(exc, "code", "unknown")},
+                )
+        await session.execute(delete(WeknoraKbMapping).where(WeknoraKbMapping.id == mapping.id))
+
+    # 记审计（在删除 project 行之前，确保 target_id 可用）。
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.project_deleted.value,
+        trace_id=trace_id,
+        target_type="project",
+        target_id=project.id,
+        before={"name": project.name, "status": project.status},
+        after={"deleted": True},
+        extra={
+            "kb_mappings_removed": len(mapping_rows),
+        },
+        risk_level=AuditRiskLevel.high.value,
+    )
+
+    # 执行 4：物理删除 project 行（cascade 会自动清理关系，但前面已显式删除）。
+    await session.execute(delete(Project).where(Project.id == project_id))
+
+    await session.commit()
+    return None
+
+
+# ============================================================
+# 项目域：成员关系物理删除
+# ============================================================
+
+
+async def remove_member(
+    session: AsyncSession,
+    caller: CallerContext,
+    project_id: uuid.UUID,
+    member_id: uuid.UUID,
+    trace_id: str,
+) -> None:
+    """项目域物理删除成员关系。
+
+    权限沿用 can_assign_project_role：项目经理可删除本项目 coach/consultant，
+    总经理 / 咨询总监可删除 project_manager。保护规则同 people.remove_project_membership：
+    不能删除自己、不能删除最后一个 active 项目经理（项目仍 active 时）。
+    """
+    await _load_project(session, project_id)
+
+    member = (
+        await session.execute(
+            select(ProjectMember).where(
+                ProjectMember.id == member_id,
+                ProjectMember.project_id == project_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if member is None:
+        raise _denied(404, "member_not_found", "项目成员不存在")
+
+    # 不能删除自己。
+    if member.user_id == caller.user_id:
+        raise _denied(409, "cannot_remove_self", "不能删除当前登录的自己")
+
+    # 权限校验：复用 can_assign_project_role 语义（删除 = 管辖该角色）。
+    # 治理角色可删 project_manager；项目经理可删本项目 coach/consultant。
+    if not governance_policy.can_assign_project_role(
+        caller,
+        project_id,
+        current_role=member.project_role,
+        requested_role=member.project_role,
+    ):
+        if _is_admin(caller):
+            raise _denied(403, "admin_business_permission_denied", "admin 不可删除项目成员")
+        if member.project_role == ProjectRole.project_manager.value:
+            raise _denied(
+                403,
+                "project_manager_removal_requires_governance",
+                "仅总经理 / 咨询总监可删除项目经理",
+            )
+        raise _denied(403, "project_member_management_forbidden", "当前身份不可删除该成员")
+
+    # 保护：不能删除最后一个 active 项目经理（项目仍 active 时）。
+    project = await _load_project(session, project_id)
+    if (
+        project.status == ProjectStatus.active.value
+        and member.project_role == ProjectRole.project_manager.value
+        and member.status == MemberStatus.active.value
+    ):
+        remaining = (
+            (
+                await session.execute(
+                    select(ProjectMember.id).where(
+                        ProjectMember.project_id == project_id,
+                        ProjectMember.id != member_id,
+                        ProjectMember.project_role == ProjectRole.project_manager.value,
+                        ProjectMember.status == MemberStatus.active.value,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if remaining is None:
+            raise _denied(
+                409,
+                "last_project_manager_protected",
+                "不能删除项目最后一个项目经理",
+            )
+
+    old_role, old_status = member.project_role, member.status
+    await session.execute(delete(ProjectMember).where(ProjectMember.id == member_id))
+
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.config_people_project_membership_removed.value,
+        trace_id=trace_id,
+        target_type="project_member",
+        target_id=member_id,
+        before={"project_role": old_role, "status": old_status},
+        after={"removed": True},
+        extra={"target_user_id": str(member.user_id)},
+        project_id=project_id,
+    )
+    await session.commit()
+    return None

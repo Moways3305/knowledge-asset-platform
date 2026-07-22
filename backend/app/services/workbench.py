@@ -40,10 +40,13 @@ _TODO_DEFINITIONS = {
     "review_approval_failed": ("error", "reviews", "resolve_review"),
     "review_pending": ("warning", "reviews", "decide_review"),
     "ingest_pending": ("warning", "upload", "confirm_ingest"),
+    "ingest_failed": ("error", "upload", "retry_ingest"),
     "original_access_pending": ("info", "original_access", "decide_original_access"),
 }
 _SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
-_ACTIONABLE_INGEST_STATUSES = {"pending_confirmation", "failed", "rejected"}
+# 待确认口径收窄：只统计真正需要用户确认的任务；失败 / 被拒归入独立待办。
+_INGEST_PENDING_STATUSES = {"pending_confirmation"}
+_INGEST_FAILED_STATUSES = {"failed", "rejected"}
 
 
 async def _rollback_safely(session: AsyncSession, section: str) -> None:
@@ -112,10 +115,14 @@ async def build_todos(session: AsyncSession, caller: CallerContext) -> Workbench
     reviews = await review_service.list_reviews(session, caller)
     pending_reviews = sum(item.can_decide and item.status == "pending_reviewer" for item in reviews)
     failed_reviews = sum(item.can_decide and item.status == "approval_failed" for item in reviews)
-    pending_ingest = sum(
-        item.status in _ACTIONABLE_INGEST_STATUSES
-        for item in await ingest_service.list_pending(session, caller)
+    pending_ingest_items = await ingest_service.list_pending(
+        session, caller, statuses=_INGEST_PENDING_STATUSES
     )
+    failed_ingest_items = await ingest_service.list_pending(
+        session, caller, statuses=_INGEST_FAILED_STATUSES
+    )
+    pending_ingest = len(pending_ingest_items)
+    failed_ingest = len(failed_ingest_items)
     access_inbox = await original_access_service.list_requests(
         session, caller, box="inbox", status="pending"
     )
@@ -124,6 +131,7 @@ async def build_todos(session: AsyncSession, caller: CallerContext) -> Workbench
         "review_approval_failed": failed_reviews,
         "review_pending": pending_reviews,
         "ingest_pending": pending_ingest,
+        "ingest_failed": failed_ingest,
         "original_access_pending": access_inbox.total,
     }
     items = [_todo_item(key, count) for key, count in counts.items() if count > 0]

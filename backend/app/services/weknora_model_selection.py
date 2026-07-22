@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import weknora_defaults
 from app.services.weknora_client import WeKnoraError
-from app.services.weknora_models import _alias, _model_ref
+from app.services.weknora_models import _alias, _is_valid_model_name, _model_ref
 
 if TYPE_CHECKING:
     from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
@@ -85,6 +85,8 @@ def _require_model(
     meta = models_by_id.get(model_id)
     if meta is None:
         raise WeKnoraError("weknora_model_not_found", "所选模型不存在")
+    if not _is_valid_model_name(meta.model_name):
+        raise WeKnoraError("weknora_model_name_invalid", "所选模型名称不属于允许的模型家族")
     if meta.type != expected_type:
         raise WeKnoraError("weknora_model_type_mismatch", "所选模型类型与用途不匹配")
     return meta
@@ -116,19 +118,21 @@ async def resolve_models_for_kb(
         )
 
     raw_models = await client.list_models(trace_id=trace_id)
-    models_by_id = {
+    discovered_models_by_id = {
         meta.model_id: meta
         for meta in (_safe_model_meta(m) for m in raw_models if isinstance(m, dict))
         if meta is not None
     }
-    ref_map: dict[str, str] = {_model_ref(model_id): model_id for model_id in models_by_id.keys()}
+    ref_map: dict[str, str] = {
+        _model_ref(model_id): model_id for model_id in discovered_models_by_id.keys()
+    }
 
     if embedding_model_ref:
         embedding_id = _resolve_ref(ref_map, embedding_model_ref)
     else:
         embedding_id = default_embedding_id
-    embedding = _require_model(models_by_id, embedding_id, expected_type="embedding")
-    chat = _require_model(models_by_id, chat_id, expected_type="chat")
+    embedding = _require_model(discovered_models_by_id, embedding_id, expected_type="embedding")
+    chat = _require_model(discovered_models_by_id, chat_id, expected_type="chat")
 
     rerank_id: str | None = None
     if rerank_model_ref:
@@ -136,15 +140,25 @@ async def resolve_models_for_kb(
     else:
         rerank_id = (defaults.default_rerank_model_id if defaults else None) or None
     if rerank_id:
-        _require_model(models_by_id, rerank_id, expected_type="rerank")
+        _require_model(discovered_models_by_id, rerank_id, expected_type="rerank")
+
+    multimodal_id = (defaults.default_multimodal_model_id if defaults else None) or None
+    if multimodal_id:
+        _require_model(discovered_models_by_id, multimodal_id, expected_type="vllm")
+
+    approved_models_by_id = {
+        model_id: meta
+        for model_id, meta in discovered_models_by_id.items()
+        if _is_valid_model_name(meta.model_name)
+    }
 
     return ResolvedModels(
         embedding_model_id=embedding_id,
         explicit_embedding=explicit_embedding,
         chat_model_id=chat_id,
         rerank_model_id=rerank_id,
-        multimodal_id=(defaults.default_multimodal_model_id if defaults else None) or None,
+        multimodal_id=multimodal_id,
         embedding=embedding,
         chat=chat,
-        models_by_id=models_by_id,
+        models_by_id=approved_models_by_id,
     )

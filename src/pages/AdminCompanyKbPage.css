@@ -1,0 +1,61 @@
+.company-kb-page .pp-support-section {
+  margin-top: 18px;
+}
+
+.company-kb-page .gp-panel-heading span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.company-kb-page .gp-panel-heading h3 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--color-text-heading);
+}
+
+.company-kb-page .pp-role-tags {
+  margin-top: 12px;
+}
+
+.ckb-actions {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ckb-delete-form {
+  border-top: 1px solid var(--color-border);
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 420px;
+}
+
+.ckb-delete-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.ckb-delete-form input {
+  padding: 7px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-bg, #fff);
+  color: var(--color-text-body);
+  font-size: 13px;
+}
+
+.ckb-delete-btn {
+  color: var(--color-danger-fg, #b00);
+  align-self: flex-start;
+}
+
+.ckb-delete-btn:hover:not(:disabled) {
+  background: var(--color-danger-bg, #fde8e8);
+}

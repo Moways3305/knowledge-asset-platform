@@ -32,8 +32,8 @@ class FakeWK:
         self.models = {
             "mid-emb": _m("mid-emb", "text-embedding-v3", "Embedding"),
             "mid-emb2": _m("mid-emb2", "bge-large", "Embedding"),
-            "mid-rerank": _m("mid-rerank", "gte-rerank", "Rerank"),
-            "mid-disabled": _m("mid-disabled", "old-embedding", "Embedding", status="inactive"),
+            "mid-rerank": _m("mid-rerank", "rerank-v3", "Rerank"),
+            "mid-disabled": _m("mid-disabled", "embedding-legacy", "Embedding", status="inactive"),
             "mid-chat": _m("mid-chat", "deepseek-chat", "KnowledgeQA"),
         }
 

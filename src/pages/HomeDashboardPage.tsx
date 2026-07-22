@@ -21,6 +21,7 @@ import { fetchWorkbenchOverview } from "../api/workbench";
 import { useAuth } from "../auth/AuthContext";
 import { can } from "../auth/permissions";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
+import WorkbuddyAccessCard from "../components/WorkbuddyAccessCard";
 import type {
   WorkbenchOperationCardDTO,
   WorkbenchOverviewDTO,
@@ -61,6 +62,7 @@ const TODO_LABEL: Record<string, string> = {
   review_approval_failed: "处理失败审核",
   review_pending: "处理知识审核",
   ingest_pending: "确认待入库资料",
+  ingest_failed: "处理失败入库任务",
   original_access_pending: "审批原文访问",
 };
 
@@ -381,6 +383,16 @@ export default function HomeDashboardPage() {
               />
             )}
           </WorkbenchPanel>
+
+          {capabilities.isBusinessUser && (
+            <WorkbenchPanel
+              title="WorkBuddy 接入"
+              icon={<BriefcaseBusiness size={17} />}
+              className="is-workbuddy"
+            >
+              <WorkbuddyAccessCard />
+            </WorkbenchPanel>
+          )}
         </div>
 
         <div className="wb81-primary-column">

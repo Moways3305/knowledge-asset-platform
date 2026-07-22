@@ -14,6 +14,18 @@ import { ApiError } from "../api/http";
 import { fetchModelOptions } from "../api/weknoraModels";
 import type { ModelOptionDTO } from "../types/weknoraAdmin";
 
+// WeKnora 底座可能返回重复的 stale 模型记录；按 model_ref 去重，优先保留 is_default 的项。
+function dedupByModelRef(items: ModelOptionDTO[]): ModelOptionDTO[] {
+  const seen = new Map<string, ModelOptionDTO>();
+  for (const item of items) {
+    const existing = seen.get(item.model_ref);
+    if (!existing || (!existing.is_default && item.is_default)) {
+      seen.set(item.model_ref, item);
+    }
+  }
+  return Array.from(seen.values());
+}
+
 export interface ModelSelectionState {
   loading: boolean;
   loaded: boolean;
@@ -47,8 +59,8 @@ export function useModelSelection(): ModelSelectionState {
     setLoading(true);
     try {
       const res = await fetchModelOptions();
-      const emb = res.items.filter((m) => m.type === "embedding");
-      const rer = res.items.filter((m) => m.type === "rerank");
+      const emb = dedupByModelRef(res.items.filter((m) => m.type === "embedding"));
+      const rer = dedupByModelRef(res.items.filter((m) => m.type === "rerank"));
       setEmbeddingOptions(emb);
       setRerankOptions(rer);
       setDefaultMissing(res.default_missing);

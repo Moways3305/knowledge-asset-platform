@@ -373,6 +373,57 @@
   opacity: 0.42;
 }
 
+.pk-delete-notice {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-left: 3px solid #2f8f6b;
+  background: #eff8f4;
+  color: #226b50;
+  font-size: 12px;
+}
+
+.pk-delete-notice.is-error {
+  border-left-color: #b24747;
+  background: #fff2f2;
+  color: #8f3434;
+}
+
+.pk-delete-overlay {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(31 45 117 / 45%);
+}
+
+.pk-delete-confirm {
+  width: min(420px, 90vw);
+  padding: 22px 24px;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 16px 40px rgb(31 45 117 / 18%);
+}
+
+.pk-delete-confirm p {
+  margin: 0 0 8px;
+  color: #1f2d75;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.pk-delete-hint {
+  color: #7b8498;
+  font-size: 12px;
+}
+
+.pk-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
 .pk-qa-section {
   margin-top: 22px;
   border-top: 1px solid #dfe4ed;

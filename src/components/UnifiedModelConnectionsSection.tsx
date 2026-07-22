@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { ChevronDown, Plus } from "lucide-react";
 import {
   createModelConnection,
+  deleteModelConnection,
   fetchModelConnections,
   fetchModelUsageAssignments,
   testModelConnection,
@@ -244,6 +245,25 @@ export default function UnifiedModelConnectionsSection({
     }
   };
 
+  const deleteConnection = async (connection: ModelConnectionDTO) => {
+    const actionKey = `delete:${connection.model_ref}`;
+    setBusyAction(actionKey);
+    setError(null);
+    try {
+      await deleteModelConnection(connection.model_ref);
+      setNote("连接已删除。");
+      await load();
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 409) {
+        setError("该模型正承担默认用途，请先更换默认模型后再删除。");
+      } else {
+        setError(safeActionError(caught, "删除失败，请稍后重试。"));
+      }
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   const runTest = async (connection: ModelConnectionDTO) => {
     const actionKey = `test:${connection.model_ref}`;
     setBusyAction(actionKey);
@@ -476,6 +496,18 @@ export default function UnifiedModelConnectionsSection({
                           : connection.enabled
                             ? "停用"
                             : "启用"}
+                      </button>
+                      <button
+                        className="btn-small mf-delete-btn"
+                        onClick={() => {
+                          if (window.confirm("确认删除此模型连接？删除后不可恢复。")) {
+                            void deleteConnection(connection);
+                          }
+                        }}
+                        disabled={busyAction === `delete:${connection.model_ref}`}
+                        type="button"
+                      >
+                        {busyAction === `delete:${connection.model_ref}` ? "删除中…" : "删除"}
                       </button>
                     </div>
                   )}

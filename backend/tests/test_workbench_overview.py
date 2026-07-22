@@ -203,6 +203,55 @@ async def test_only_confirm_ready_ingest_is_an_actionable_todo(client, db_sessio
     assert "server-only" not in response.text
 
 
+async def test_failed_and_rejected_ingest_appear_as_separate_ingest_failed_todo(client, db_session):
+    """收窄口径：failed / rejected 任务归入独立 ingest_failed 待办（error），不混入 ingest_pending。"""
+    user_id = await _create_business_user(db_session)
+    db_session.add_all(
+        [
+            IngestTask(
+                source="path_b_upload",
+                source_file_ref="server-only/pending.txt",
+                source_file_name="pending.txt",
+                status="pending_confirmation",
+                created_by=user_id,
+            ),
+            IngestTask(
+                source="path_b_upload",
+                source_file_ref="server-only/failed.txt",
+                source_file_name="failed.txt",
+                status="failed",
+                created_by=user_id,
+            ),
+            IngestTask(
+                source="path_b_upload",
+                source_file_ref="server-only/rejected.txt",
+                source_file_name="rejected.txt",
+                status="rejected",
+                created_by=user_id,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    response = await client.get(OVERVIEW, headers=_headers(user_id))
+
+    assert response.status_code == 200
+    todos = response.json()["todos"]
+    keys = {item["key"]: item for item in todos["items"]}
+    # pending_confirmation → ingest_pending（1）
+    assert keys["ingest_pending"]["count"] == 1
+    assert keys["ingest_pending"]["severity"] == "warning"
+    assert keys["ingest_pending"]["action_key"] == "confirm_ingest"
+    # failed + rejected → ingest_failed（2，error）
+    assert keys["ingest_failed"]["count"] == 2
+    assert keys["ingest_failed"]["severity"] == "error"
+    assert keys["ingest_failed"]["route_key"] == "upload"
+    assert keys["ingest_failed"]["action_key"] == "retry_ingest"
+    # ingest_failed 排在 ingest_pending 之前（error < warning）。
+    assert todos["items"][0]["key"] == "ingest_failed"
+    assert "server-only" not in response.text
+
+
 async def test_one_section_failure_is_explicit_and_does_not_zero_other_sections(
     client, monkeypatch
 ):

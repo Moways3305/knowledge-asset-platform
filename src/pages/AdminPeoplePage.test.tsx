@@ -38,6 +38,7 @@ vi.mock("../api/admin", () => ({
   fetchPerson: vi.fn(),
   patchProjectMembership: vi.fn(),
   reconcileWecomIdentity: vi.fn(),
+  removeProjectMembership: vi.fn(),
   revokeUserSessions: vi.fn(),
   setCompanyRole: vi.fn(),
   setUserPassword: vi.fn(),
@@ -152,10 +153,11 @@ describe("AdminPeoplePage governance controls", () => {
     expect(roleRow("顾问").getByRole("button", { name: "恢复" })).toBeInTheDocument();
     expect(screen.queryByText("管理员")).not.toBeInTheDocument();
     expect(screen.getByText("新增 / 更新成员关系")).toBeInTheDocument();
-    await waitFor(() => expect(fetchCompanyKnowledgeBase).toHaveBeenCalled());
+    // 公司知识库已迁移到独立页面 /admin/company-kb，此处不再加载。
+    expect(screen.queryByText("公司知识库")).not.toBeInTheDocument();
   });
 
-  it("lets consulting directors manage director and consultant roles but not general managers", async () => {
+  it("lets consulting directors with governance rights manage all company roles including boss", async () => {
     authState.capabilities = {
       ...authState.capabilities,
       isAdmin: false,
@@ -164,7 +166,7 @@ describe("AdminPeoplePage governance controls", () => {
       isGovernance: true,
     };
     await renderDetail();
-    expect(roleRow("总经理").queryByRole("button")).not.toBeInTheDocument();
+    expect(roleRow("总经理").getByRole("button", { name: "停用" })).toBeInTheDocument();
     expect(roleRow("咨询总监").getByRole("button", { name: "授予" })).toBeInTheDocument();
     expect(roleRow("顾问").getByRole("button", { name: "恢复" })).toBeInTheDocument();
     expect(screen.getByText("新增 / 更新成员关系")).toBeInTheDocument();

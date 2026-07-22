@@ -53,7 +53,13 @@ const navGroups: NavGroup[] = [
   {
     label: "业务功能",
     items: [
-      { to: "/knowledge", label: "知识资产库", icon: LibraryBig, cap: can.viewKnowledge },
+      {
+        to: "/knowledge",
+        label: "知识资产库",
+        icon: LibraryBig,
+        end: true,
+        cap: can.viewKnowledge,
+      },
       { to: "/my/knowledge", label: "个人知识", icon: UserRound, cap: can.viewMyKnowledge },
       { to: "/upload", label: "资产化确认", icon: FileCheck2, cap: can.viewUpload },
       { to: "/review", label: "升级审核", icon: ShieldCheck, cap: can.viewReview },
@@ -63,6 +69,12 @@ const navGroups: NavGroup[] = [
         label: "项目空间",
         icon: FolderKanban,
         end: true,
+        cap: can.viewProject,
+      },
+      {
+        to: "/project/:projectId/knowledge",
+        label: "项目知识库",
+        icon: LibraryBig,
         cap: can.viewProject,
       },
       {
@@ -89,6 +101,12 @@ const navGroups: NavGroup[] = [
       { to: "/admin/alert-settings", label: "告警设置", icon: BellRing, cap: can.viewAlerts },
       { to: "/admin/permissions", label: "权限规则", icon: KeySquare, cap: can.viewPermissions },
       { to: "/admin/people", label: "人员权限", icon: Users, cap: can.viewPeople },
+      {
+        to: "/admin/company-kb",
+        label: "公司知识库",
+        icon: LibraryBig,
+        cap: can.viewCompanyKnowledge,
+      },
     ],
   },
 ];
@@ -108,6 +126,7 @@ const moduleTitles: Array<[prefix: string, title: string]> = [
   ["/admin/alert-settings", "告警设置"],
   ["/admin/permissions", "权限规则"],
   ["/admin/people", "人员权限"],
+  ["/admin/company-kb", "公司知识库"],
   ["/help", "帮助"],
   ["/", "今日工作台"],
 ];

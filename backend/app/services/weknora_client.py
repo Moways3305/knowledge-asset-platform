@@ -422,6 +422,74 @@ class WeKnoraClient:
             )
         self._unwrap(resp)
 
+    async def delete_kb(self, kb_id: str, *, trace_id: str | None = None) -> None:
+        """删除整库：先尝试 WeKnora `DELETE /knowledge-bases/{kb_id}`，整库删除接口
+        不可用（404/405）时降级为逐 doc 删除。
+
+        逐 doc 降级路径：从 `GET /knowledge-bases/{kb_id}/knowledge` 拉取所有 doc id
+        后逐个调用 `delete_knowledge`。失败 doc 不阻断整体清理（记录 warning 后继续）。
+        kb_id / doc id 视同 storage_ref，绝不写日志。
+        """
+        start = time.perf_counter()
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.delete(
+                f"{self._base}/knowledge-bases/{kb_id}", headers=self._headers(trace_id)
+            )
+        _logger.info(
+            "weknora_call",
+            extra={
+                "method": "DELETE",
+                "resource": "/knowledge-bases",
+                "status": resp.status_code,
+                "latency_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+        if resp.status_code in (404, 405):
+            # 整库删除不可用 → 降级逐 doc 清理。
+            _logger.info(
+                "weknora_delete_kb_fallback_to_per_doc",
+                extra={"reason": f"http_{resp.status_code}"},
+            )
+            await self._delete_kb_by_docs(kb_id, trace_id=trace_id)
+            return
+        self._unwrap(resp)
+
+    async def _delete_kb_by_docs(self, kb_id: str, *, trace_id: str | None = None) -> None:
+        """逐 doc 清理库下内容（整库删除不可用时的降级路径）。"""
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.get(
+                f"{self._base}/knowledge-bases/{kb_id}/knowledge",
+                headers=self._headers(trace_id),
+            )
+        try:
+            data = self._unwrap(resp)
+        except WeKnoraError as exc:
+            # 库本身可能已不存在：记录后视为清理完成。
+            _logger.warning(
+                "weknora_delete_kb_list_failed",
+                extra={"code": exc.code},
+            )
+            return
+        items = (
+            data
+            if isinstance(data, list)
+            else (data.get("items") if isinstance(data, dict) else None) or []
+        )
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            doc_id = it.get("id") or it.get("knowledge_id")
+            if not doc_id:
+                continue
+            try:
+                await self.delete_knowledge(str(doc_id), trace_id=trace_id)
+            except WeKnoraError:
+                _logger.warning(
+                    "weknora_delete_kb_doc_failed",
+                    extra={"code": "delete_doc_failed"},
+                    exc_info=True,
+                )
+
     # ---- 模型与初始化配置管理（管理面）----
     # 这些方法返回 WeKnora 原始 dict（含 server-only id / 已脱敏 key），**上层 service 负责
     # 再脱敏 / 映射 model_ref 后才出 API**——本层只保证错误经 `_unwrap` 不带 api_key。
@@ -601,6 +669,9 @@ class NullWeKnoraClient:
         raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
 
     async def delete_knowledge(self, *_: Any, **__: Any) -> None:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
+    async def delete_kb(self, *_: Any, **__: Any) -> None:
         raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
 
     async def search(self, **_: Any) -> list[dict[str, Any]]:

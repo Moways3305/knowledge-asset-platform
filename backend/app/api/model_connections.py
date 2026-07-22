@@ -186,6 +186,33 @@ async def post_connection_test(
     return ModelConnectionTestResponse(**result)
 
 
+@router.delete("/items/{model_ref}", status_code=204)
+async def delete_connection(
+    model_ref: str,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+):
+    _require_admin(caller)
+    try:
+        await model_connections.delete_model_connection(session, model_ref)
+    except model_connections.ModelConnectionError as exc:
+        raise _wrap_connection(exc) from exc
+    except generation_models.GenerationModelError as exc:
+        raise _wrap_generation(exc) from exc
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.generation_model_deleted.value,
+        trace_id=get_trace_id(request),
+        target_type="model_connection",
+        extra={"model_ref": model_ref},
+    )
+    await session.commit()
+    return None
+
+
 @router.get("/usages/current", response_model=ModelUsageAssignmentsOut)
 async def get_usages(
     request: Request,

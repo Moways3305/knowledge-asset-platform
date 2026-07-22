@@ -294,3 +294,94 @@ async def test_env_fallback_stops_after_product_configuration_exists(db_session,
     await db_session.commit()
     resolved = await generation_models.resolve_generation_llm_client(db_session)
     assert isinstance(resolved, NullLLMClient)
+
+
+async def test_safe_project_qa_options_lists_default_model_with_suffix_and_system_default(
+    db_session, monkeypatch
+):
+    """默认模型作为独立选项列出并标注（默认）；"系统默认模型"作为跟随平台默认的选项保留。"""
+    env_client = LLMClient(
+        provider="deepseek",
+        api_key="env-secret",
+        base_url="https://env.example.test/v1",
+        model="env-model",
+    )
+    monkeypatch.setattr(generation_models, "get_llm_client", lambda: env_client)
+
+    default = await generation_models.create_model(
+        db_session,
+        display_name="deepseek-v4-flash",
+        provider="deepseek",
+        model_name="deepseek-v4-flash",
+        base_url=URL,
+        api_key=SECRET,
+        enabled=True,
+        make_default=True,
+        actor_id=USER_ADMIN_ONLY,
+    )
+    other = await generation_models.create_model(
+        db_session,
+        display_name="备用模型",
+        provider="deepseek",
+        model_name="backup-chat",
+        base_url=URL,
+        api_key=SECRET,
+        enabled=True,
+        make_default=False,
+        actor_id=USER_ADMIN_ONLY,
+    )
+    await db_session.commit()
+
+    items = await generation_models.safe_project_qa_options(db_session, env_client)
+
+    # 第一项：系统默认模型（跟随平台默认）。
+    assert items[0]["model_ref"] == "system_default"
+    assert items[0]["display_name"] == "系统默认模型"
+    assert items[0]["is_default"] is True
+    # 默认模型作为独立选项列出，标注（默认）后缀。
+    default_item = next(it for it in items if it["model_ref"] == default["model_ref"])
+    assert default_item["display_name"] == "deepseek-v4-flash（默认）"
+    assert default_item["is_default"] is True
+    # 非默认模型也列出。
+    other_item = next(it for it in items if it["model_ref"] == other["model_ref"])
+    assert other_item["display_name"] == "备用模型"
+    assert other_item["is_default"] is False
+    # 默认模型没有被跳过：列表含 1 个 system_default + 2 个具体模型 = 3 项。
+    assert len(items) == 3
+    for forbidden in (SECRET, URL, "ciphertext", "api_key"):
+        assert forbidden not in json.dumps(items, ensure_ascii=False)
+
+
+async def test_safe_project_qa_options_without_default_model_still_lists_enabled_chat(
+    db_session, monkeypatch
+):
+    """无默认模型配置时（settings 存在但 default_model_id 为空），不出现"系统默认模型"
+    选项；仍列出所有 enabled chat 模型（无（默认）后缀，is_default=False）。"""
+    env_client = LLMClient(
+        provider="deepseek",
+        api_key="env-secret",
+        base_url="https://env.example.test/v1",
+        model="env-model",
+    )
+    monkeypatch.setattr(generation_models, "get_llm_client", lambda: env_client)
+
+    created = await generation_models.create_model(
+        db_session,
+        display_name="仅启用非默认",
+        provider="deepseek",
+        model_name="non-default-chat",
+        base_url=URL,
+        api_key=SECRET,
+        enabled=True,
+        make_default=False,
+        actor_id=USER_ADMIN_ONLY,
+    )
+    await db_session.commit()
+
+    items = await generation_models.safe_project_qa_options(db_session, env_client)
+    # settings 已建但 default_model_id=None → 无"系统默认模型"选项，列表仅含具体模型。
+    assert len(items) == 1
+    assert items[0]["model_ref"] == created["model_ref"]
+    assert items[0]["display_name"] == "仅启用非默认"
+    assert items[0]["is_default"] is False
+    assert "（默认）" not in items[0]["display_name"]

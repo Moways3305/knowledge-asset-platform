@@ -47,14 +47,14 @@ class FullFakeWK:
         return [
             {
                 "id": "emb-A",
-                "name": "embed-a",
+                "name": "embedding-a",
                 "type": "Embedding",
                 "source": "remote",
                 "status": "active",
             },
             {
                 "id": "emb-B",
-                "name": "embed-b",
+                "name": "embedding-b",
                 "type": "Embedding",
                 "source": "remote",
                 "status": "active",
@@ -68,7 +68,7 @@ class FullFakeWK:
             },
             {
                 "id": "chat-1",
-                "name": "chat-1",
+                "name": "qwen-plus",
                 "type": "KnowledgeQA",
                 "source": "remote",
                 "status": "active",

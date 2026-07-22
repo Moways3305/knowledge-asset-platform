@@ -1,7 +1,8 @@
 """人员 / 公司角色 / 项目成员关系治理服务。
 
 复用既有表 `users` / `user_company_roles` / `projects` / `project_members` /
-`user_sessions`（仅安全聚合最近会话时间）。不新增 demo-only 字段、不物理删除关系。
+`user_sessions`（仅安全聚合最近会话时间）。不新增 demo-only 字段；项目成员关系
+默认走 status=inactive 软停用，`remove_project_membership` 提供显式物理删除入口。
 
 权限边界（后端权威）：
 - 读人员列表 / 详情：boss / 咨询总监；admin / consultant → 403。
@@ -21,7 +22,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -31,7 +32,9 @@ from app.schemas.enums import (
     AuditAction,
     AuditLogType,
     CompanyRole,
+    MemberStatus,
     ProjectRole,
+    ProjectStatus,
     RoleStatus,
     UserStatus,
 )
@@ -799,3 +802,104 @@ async def set_user_status(
             )
     await session.commit()
     return await get_person(session, caller, user_id)
+
+
+# ============================================================
+# 项目成员关系物理删除
+# ============================================================
+
+
+async def remove_project_membership(
+    session: AsyncSession,
+    caller: CallerContext,
+    user_id: uuid.UUID,
+    membership_id: uuid.UUID,
+    trace_id: str,
+) -> None:
+    """物理删除项目成员关系（区别于 status=inactive 的软停用）。
+
+    权限沿用 ``can_assign_project_role``：
+    - 项目经理可删除本项目 coach/consultant；
+    - 总经理 / 咨询总监可删除 project_manager；
+    - admin 无业务管理权。
+
+    保护：
+    - 不能删除自己；
+    - 项目仍 active 时不能删除最后一个 active 项目经理。
+    """
+    if _is_admin(caller):
+        await _record_governance_denied(
+            session,
+            caller,
+            trace_id=trace_id,
+            reason="admin_business_permission_denied",
+            attempted="people.project_membership.remove",
+        )
+        raise _denied(403, "admin_business_permission_denied", "当前身份不可删除项目成员关系")
+
+    user = await _load_person(session, user_id)
+    member = next((m for m in user.project_members if m.id == membership_id), None)
+    if member is None:
+        raise _denied(404, "membership_not_found", "项目成员关系不存在")
+
+    # 保护 1：不能删除自己。
+    if member.user_id == caller.user_id:
+        raise _denied(409, "cannot_remove_self", "不能删除当前登录的自己")
+
+    # 权限校验：复用 can_assign_project_role（删除 = 管辖权）。
+    await _require_manage_membership(
+        session,
+        caller,
+        trace_id,
+        project_id=member.project_id,
+        current_role=member.project_role,
+        requested_role=member.project_role,
+    )
+
+    # 保护 2：项目仍 active 时不能删除最后一个 active 项目经理。
+    project = member.project
+    if (
+        project is not None
+        and project.status == ProjectStatus.active.value
+        and member.project_role == ProjectRole.project_manager.value
+        and member.status == MemberStatus.active.value
+    ):
+        remaining = (
+            (
+                await session.execute(
+                    select(ProjectMember.id).where(
+                        ProjectMember.project_id == member.project_id,
+                        ProjectMember.id != membership_id,
+                        ProjectMember.project_role == ProjectRole.project_manager.value,
+                        ProjectMember.status == MemberStatus.active.value,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if remaining is None:
+            raise _denied(
+                409,
+                "last_project_manager_protected",
+                "不能删除项目最后一个项目经理",
+            )
+
+    old_role, old_status = member.project_role, member.status
+    await session.execute(delete(ProjectMember).where(ProjectMember.id == membership_id))
+
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.config_people_project_membership_removed.value,
+        trace_id=trace_id,
+        target_type="project_member",
+        target_id=membership_id,
+        before={"project_role": old_role, "status": old_status},
+        after={"removed": True},
+        extra={"target_user_id": str(user_id)},
+        project_id=member.project_id,
+    )
+    await session.commit()
+    return None

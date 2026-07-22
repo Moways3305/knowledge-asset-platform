@@ -13,11 +13,13 @@ Revises: 0011_weknora
 Create Date: 2026-05-31
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0012_llm_draft"

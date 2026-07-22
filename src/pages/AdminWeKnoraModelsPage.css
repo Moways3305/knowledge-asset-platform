@@ -248,10 +248,9 @@
 }
 
 .mf-health {
-  display: flex;
-  align-items: flex-end;
-  flex-direction: column;
-  gap: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--color-text-secondary);
   font-size: 11px;
   font-weight: 650;
@@ -262,8 +261,7 @@
   content: "";
   width: 6px;
   height: 6px;
-  position: absolute;
-  margin: 4px 0 0 -11px;
+  flex-shrink: 0;
   background: var(--color-text-tertiary);
   border-radius: 50%;
 }
@@ -354,6 +352,14 @@
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 7px;
+}
+
+.mf-delete-btn {
+  color: var(--color-danger-fg, #b00);
+}
+
+.mf-delete-btn:hover:not(:disabled) {
+  background: var(--color-danger-bg, #fde8e8);
 }
 
 .mf-empty-state,

@@ -119,6 +119,30 @@ export default function AdminPermissionsPage() {
   const groups = useMemo(() => Array.from(new Set(rules.map((rule) => rule.rule_group))), [rules]);
   const enabledRules = rules.filter((rule) => rule.enabled).length;
 
+  // 外部助手白名单去重：按 (provider, capability, allowed_scope, allowed_project_id) 分组，
+  // 同组只保留一行（enabled 优先），并记录是否发生过去重以提示用户。
+  const { dedupedAgents, hasDuplicates } = useMemo(() => {
+    const groups = new Map<string, AgentRegistryRuleDTO>();
+    let duplicates = 0;
+    for (const agent of agents) {
+      const key = `${agent.provider}::${agent.capability}::${agent.allowed_scope ?? ""}::${agent.allowed_project_id ?? ""}`;
+      const existing = groups.get(key);
+      if (!existing) {
+        groups.set(key, agent);
+        continue;
+      }
+      duplicates += 1;
+      // enabled 优先；同为 enabled/disabled 时保留先出现的（更早登记）。
+      if (!existing.enabled && agent.enabled) {
+        groups.set(key, agent);
+      }
+    }
+    return {
+      dedupedAgents: Array.from(groups.values()),
+      hasDuplicates: duplicates > 0,
+    };
+  }, [agents]);
+
   const saveRule = useCallback(
     async (rule: PermissionRuleDTO, patch: { value_number?: number; value_bool?: boolean }) => {
       if (savingId) return;
@@ -219,7 +243,7 @@ export default function AdminPermissionsPage() {
                 <span className="gp-summary-label">启用助手</span>
               </span>
               <strong className="gp-summary-value">
-                {agents.filter((item) => item.enabled).length}
+                {dedupedAgents.filter((item) => item.enabled).length}
               </strong>
             </div>
           </div>
@@ -437,6 +461,11 @@ export default function AdminPermissionsPage() {
             className="gp-panel gp-secondary-panel"
           >
             {agentError && <div className="gp-banner is-readonly">{agentError}</div>}
+            {hasDuplicates && !agentError && (
+              <div className="gp-banner is-readonly" role="status">
+                检测到重复配置，已自动去重展示。
+              </div>
+            )}
             <div className="gp-table-wrap">
               <table className="gp-table">
                 <thead>
@@ -449,7 +478,7 @@ export default function AdminPermissionsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {agents.map((agent) => (
+                  {dedupedAgents.map((agent) => (
                     <tr key={agent.id}>
                       <td>
                         <span className="gp-row-title-mark">
@@ -499,7 +528,7 @@ export default function AdminPermissionsPage() {
                       </td>
                     </tr>
                   ))}
-                  {!loading && !agentError && agents.length === 0 && (
+                  {!loading && !agentError && dedupedAgents.length === 0 && (
                     <tr>
                       <td colSpan={5} className="gp-empty">
                         <div className="gp-empty-content">

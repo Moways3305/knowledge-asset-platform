@@ -8,11 +8,13 @@ Revises: 0006_agent
 Create Date: 2026-05-29
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0007_audit"
@@ -49,12 +51,8 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_audit_events_trace", "audit_events", ["trace_id"])
-    op.create_index(
-        "ix_audit_events_logtype_created", "audit_events", ["log_type", "created_at"]
-    )
-    op.create_index(
-        "ix_audit_events_action_created", "audit_events", ["action", "created_at"]
-    )
+    op.create_index("ix_audit_events_logtype_created", "audit_events", ["log_type", "created_at"])
+    op.create_index("ix_audit_events_action_created", "audit_events", ["action", "created_at"])
     op.create_index("ix_audit_events_actor", "audit_events", ["actor_user_id"])
 
 

@@ -9,11 +9,13 @@ Revises: 0015_wecom
 Create Date: 2026-06-01
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0016_wecom_idem"

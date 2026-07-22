@@ -16,6 +16,7 @@ from app.models.audit import AuditEvent
 from app.models.weknora import WeknoraKbMapping
 from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT
 from app.services.weknora_client import WeKnoraError, get_weknora_client
+from app.services.weknora_models import _model_ref
 
 BASE = "/api/v1/admin/weknora"
 _SECRET = "sk-secret-xyz-123"
@@ -53,6 +54,7 @@ class FakeModelsWK:
         self.last_update: dict | None = None
         self.deleted: list[str] = []
         self.last_init: dict | None = None
+        self.list_calls = 0
         self.kb_configs: dict[str, dict] = {}
         self._n = 0
 
@@ -67,6 +69,7 @@ class FakeModelsWK:
         ]
 
     async def list_models(self, *, trace_id=None):
+        self.list_calls += 1
         return list(self.models.values())
 
     async def get_model(self, model_id, *, trace_id=None):
@@ -186,7 +189,7 @@ async def test_consultant_forbidden(client, wk):
 # ---------------------------------------------------------------------------
 async def test_create_model_secret_upstream_not_in_response_or_audit(client, wk, db_session):
     body = {
-        "name": "new-chat",
+        "name": "qwen-max",
         "type": "chat",
         "source": "remote",
         "provider": "aliyun",
@@ -199,6 +202,7 @@ async def test_create_model_secret_upstream_not_in_response_or_audit(client, wk,
     # fake（底座）确实收到了 secret。
     assert wk.last_create["parameters"]["api_key"] == _SECRET
     assert wk.last_create["parameters"]["base_url"] == _URL
+    assert wk.last_create["name"] == "qwen-max"
     assert wk.last_create["type"] == "KnowledgeQA"  # alias→WeKnora 枚举
     # 平台响应不回显 secret / base_url / 真实 id。
     for token in [_SECRET, _URL, "sk-", "mid-new", "api_key", "base_url"]:
@@ -225,7 +229,7 @@ async def test_update_model_no_secret_leak(client, wk):
     models = (await client.get(f"{BASE}/models", headers=_hdr(USER_ADMIN_ONLY))).json()["items"]
     ref = models[0]["model_ref"]
     body = {
-        "name": "renamed",
+        "name": "deepseek-chat",
         "type": "chat",
         "source": "remote",
         "api_key": _SECRET,
@@ -235,6 +239,7 @@ async def test_update_model_no_secret_leak(client, wk):
     assert r.status_code == 200, r.text
     # 底座收到 server-only id（非 ref）+ secret。
     assert wk.last_update["id"] in wk.models
+    assert wk.last_update["payload"]["name"] == "deepseek-chat"
     assert wk.last_update["payload"]["parameters"]["api_key"] == _SECRET
     for token in [_SECRET, _URL, "sk-"]:
         assert token not in r.text
@@ -243,7 +248,13 @@ async def test_update_model_no_secret_leak(client, wk):
 async def test_update_model_blank_secret_fields_are_omitted(client, wk):
     models = (await client.get(f"{BASE}/models", headers=_hdr(USER_ADMIN_ONLY))).json()["items"]
     ref = models[0]["model_ref"]
-    body = {"name": "renamed", "type": "chat", "source": "remote", "api_key": "", "base_url": ""}
+    body = {
+        "name": "qwen-turbo",
+        "type": "chat",
+        "source": "remote",
+        "api_key": "",
+        "base_url": "",
+    }
     r = await client.put(f"{BASE}/models/{ref}", headers=_hdr(USER_ADMIN_ONLY), json=body)
     assert r.status_code == 200, r.text
     params = wk.last_update["payload"]["parameters"]
@@ -255,7 +266,7 @@ async def test_update_model_rejects_email_shaped_base_url_without_upstream_call(
     models = (await client.get(f"{BASE}/models", headers=_hdr(USER_ADMIN_ONLY))).json()["items"]
     ref = models[0]["model_ref"]
     body = {
-        "name": "renamed",
+        "name": "qwen-plus",
         "type": "chat",
         "source": "remote",
         "api_key": _SECRET,
@@ -265,6 +276,97 @@ async def test_update_model_rejects_email_shaped_base_url_without_upstream_call(
     assert r.status_code == 422, r.text
     assert r.json()["detail"]["denied_reason"] == "weknora_model_base_url_invalid"
     assert wk.last_update is None
+
+
+@pytest.mark.parametrize("invalid_name", ["deepsekk", "deepsekk-v3", "random-model"])
+async def test_create_model_rejects_unknown_name_without_upstream_call(client, wk, invalid_name):
+    response = await client.post(
+        f"{BASE}/models",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={
+            "name": invalid_name,
+            "type": "chat",
+            "source": "remote",
+            "provider": "aliyun",
+            "base_url": _URL,
+            "api_key": _SECRET,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["denied_reason"] == "weknora_model_name_invalid"
+    assert wk.last_create is None
+
+
+async def test_update_model_rejects_unknown_name_without_upstream_call(client, wk):
+    models = (await client.get(f"{BASE}/models", headers=_hdr(USER_ADMIN_ONLY))).json()["items"]
+    wk.list_calls = 0
+    response = await client.put(
+        f"{BASE}/models/{models[0]['model_ref']}",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={
+            "name": "deepsekk-v3",
+            "type": "chat",
+            "source": "remote",
+            "api_key": "",
+            "base_url": "",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["denied_reason"] == "weknora_model_name_invalid"
+    assert wk.last_update is None
+    assert wk.list_calls == 0
+
+
+async def test_list_models_excludes_unknown_upstream_names(client, wk):
+    invalid_names = ["deepsekk", "deepsekk-v3", "random-model"]
+    for index, name in enumerate(invalid_names):
+        wk.models[f"mid-invalid-{index}"] = {
+            "id": f"mid-invalid-{index}",
+            "name": name,
+            "type": "KnowledgeQA",
+            "source": "remote",
+            "status": "active",
+            "parameters": {"provider": "aliyun"},
+        }
+
+    response = await client.get(f"{BASE}/models", headers=_hdr(USER_ADMIN_ONLY))
+
+    assert response.status_code == 200
+    listed_names = {item["name"] for item in response.json()["items"]}
+    assert listed_names == {"qwen-plus", "text-embedding-v3"}
+    assert listed_names.isdisjoint(invalid_names)
+
+
+async def test_kb_config_rejects_unknown_model_family(client, wk, db_session):
+    mapping = WeknoraKbMapping(
+        scope="company",
+        weknora_kb_id="kb-invalid-model-family",
+        kb_name="company-invalid-model-family",
+        status="active",
+    )
+    db_session.add(mapping)
+    await db_session.commit()
+    await db_session.refresh(mapping)
+    wk.models["mid-invalid-kb"] = {
+        "id": "mid-invalid-kb",
+        "name": "random-model",
+        "type": "Embedding",
+        "source": "remote",
+        "status": "active",
+        "parameters": {"provider": "aliyun"},
+    }
+
+    response = await client.put(
+        f"{BASE}/kb-configs/{mapping.id}/initialization",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"embedding_model_ref": _model_ref("mid-invalid-kb")},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["denied_reason"] == "weknora_model_name_invalid"
+    assert wk.last_init is None
 
 
 async def test_delete_model_uses_server_id_no_leak(client, wk):
@@ -336,7 +438,7 @@ async def test_update_kb_init_merges_chat_and_embedding_after_upstream_success(
 ):
     wk.models["server-chat-next"] = {
         "id": "server-chat-next",
-        "name": "chat-next",
+        "name": "qwen-next",
         "type": "KnowledgeQA",
         "source": "remote",
         "status": "active",
@@ -366,7 +468,7 @@ async def test_update_kb_init_merges_chat_and_embedding_after_upstream_success(
         f"{BASE}/kb-configs/{mp.id}/initialization",
         headers=_hdr(USER_ADMIN_ONLY),
         json={
-            "chat_model_ref": refs["chat-next"],
+            "chat_model_ref": refs["qwen-next"],
             "embedding_model_ref": refs["embedding-next"],
         },
     )
@@ -495,7 +597,7 @@ async def test_model_create_upstream_error_no_leak(client, monkeypatch, db_sessi
             f"{BASE}/models",
             headers=_hdr(USER_ADMIN_ONLY),
             json={
-                "name": "x",
+                "name": "deepseek-v4",
                 "type": "chat",
                 "source": "remote",
                 "base_url": _URL,
@@ -601,7 +703,7 @@ async def test_create_model_missing_id_fails_closed(client, monkeypatch, db_sess
             f"{BASE}/models",
             headers=_hdr(USER_ADMIN_ONLY),
             json={
-                "name": "no-id-model",
+                "name": "qwen-plus",
                 "type": "chat",
                 "source": "remote",
                 "base_url": _URL,

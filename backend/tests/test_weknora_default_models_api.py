@@ -18,6 +18,7 @@ from app.seed.dev_seed import (
     USER_DIRECTOR,
 )
 from app.services.weknora_client import get_weknora_client
+from app.services.weknora_models import _model_ref
 
 BASE = "/api/v1/admin/weknora/default-models"
 MODELS = "/api/v1/admin/weknora/models"
@@ -51,7 +52,7 @@ class FakeWK:
             },
             "mid-rerank": {
                 "id": "mid-rerank",
-                "name": "gte-rerank",
+                "name": "rerank-v3",
                 "type": "Rerank",
                 "source": "remote",
                 "status": "active",
@@ -157,6 +158,30 @@ async def test_rerank_type_mismatch_returns_422(client, wk):
     )
     assert r.status_code == 422
     assert r.json()["detail"]["denied_reason"] == "weknora_model_type_mismatch"
+
+
+async def test_unknown_model_family_cannot_be_saved_as_default(client, wk):
+    wk.models["mid-invalid-default"] = {
+        "id": "mid-invalid-default",
+        "name": "random-model",
+        "type": "Embedding",
+        "source": "remote",
+        "status": "active",
+        "parameters": {"provider": "aliyun"},
+    }
+
+    response = await client.put(
+        BASE,
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"embedding_model_ref": _model_ref("mid-invalid-default")},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["denied_reason"] == "weknora_model_name_invalid"
+
+    defaults = await client.get(BASE, headers=_hdr(USER_ADMIN_ONLY))
+    assert defaults.status_code == 200
+    assert defaults.json()["embedding"] is None
 
 
 # ---------------------------------------------------------------------------

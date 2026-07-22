@@ -59,6 +59,11 @@ export function useUploadFlow() {
   const [pendingError, setPendingError] = useState<string | null>(null);
   const [selectedTaskName, setSelectedTaskName] = useState("");
 
+  // Path B：本地上传待确认任务（历史上传未确认的，展示在拖放区下方）。
+  const [localPendingTasks, setLocalPendingTasks] = useState<PendingIngestItemDTO[]>([]);
+  const [localPendingLoading, setLocalPendingLoading] = useState(true);
+  const [localPendingError, setLocalPendingError] = useState<string | null>(null);
+
   // Shared confirmation fields
   const [editTitle, setEditTitle] = useState("");
   const [editOneLiner, setEditOneLiner] = useState("");
@@ -113,7 +118,7 @@ export function useUploadFlow() {
       .catch(() => setProjects([]));
   }, []);
 
-  // 企业微信待确认：拉取当前用户可处理的待确认任务。
+  // 待确认入库：拉取当前用户可处理的全部待确认任务（不再按来源过滤）。
   const loadPending = useCallback(async () => {
     const requestId = ++pendingRequestRef.current;
     setPendingLoading(true);
@@ -124,9 +129,7 @@ export function useUploadFlow() {
       setPendingTasks(tasks);
     } catch (e) {
       if (pendingRequestRef.current !== requestId) return;
-      setPendingError(
-        e instanceof ApiError ? e.message : "企业微信待确认任务暂时无法加载，请稍后重试",
-      );
+      setPendingError(e instanceof ApiError ? e.message : "待确认任务暂时无法加载，请稍后重试");
     } finally {
       if (pendingRequestRef.current === requestId) setPendingLoading(false);
     }
@@ -135,6 +138,29 @@ export function useUploadFlow() {
   useEffect(() => {
     if (activePath === "a") void loadPending();
   }, [activePath, loadPending]);
+
+  // 本地上传待确认任务（Path B 专属，按来源过滤到 path_b_upload）。
+  const loadLocalPending = useCallback(async () => {
+    const requestId = ++pendingRequestRef.current;
+    setLocalPendingLoading(true);
+    setLocalPendingError(null);
+    try {
+      const tasks = await fetchPendingIngestTasks("path_b_upload");
+      if (pendingRequestRef.current !== requestId) return;
+      setLocalPendingTasks(tasks);
+    } catch (e) {
+      if (pendingRequestRef.current !== requestId) return;
+      setLocalPendingError(
+        e instanceof ApiError ? e.message : "待确认任务暂时无法加载，请稍后重试",
+      );
+    } finally {
+      if (pendingRequestRef.current === requestId) setLocalPendingLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activePath === "b") void loadLocalPending();
+  }, [activePath, loadLocalPending]);
 
   // 把一次 ai-result 的建议填入人工校正区（Path A / Path B 共用）。
   const applyAiResult = useCallback((ai: IngestAiResultDTO, fallbackTitle: string) => {
@@ -386,6 +412,7 @@ export function useUploadFlow() {
       setSubmitIndexStatus(res.index_status ?? null);
       setFlowState("submitted");
       if (activePath === "a") void loadPending();
+      if (activePath === "b") void loadLocalPending();
     } catch (e) {
       if (!isCurrent()) return;
       setApiError(e instanceof ApiError ? e.message : "提交入库失败");
@@ -408,6 +435,7 @@ export function useUploadFlow() {
     beginWorkflowRun,
     isCurrentWorkflowRun,
     loadPending,
+    loadLocalPending,
     models.embeddingRef,
     models.rerankRef,
   ]);
@@ -496,6 +524,10 @@ export function useUploadFlow() {
     pendingLoading,
     pendingError,
     loadPending,
+    localPendingTasks,
+    localPendingLoading,
+    localPendingError,
+    loadLocalPending,
     handleSelectPendingTask,
     taskId,
     editTitle,

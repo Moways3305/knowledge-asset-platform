@@ -152,7 +152,7 @@ for (const scenario of scenarios) {
       await page.getByText("客户经营诊断方法论与跨部门交付复盘框架").waitFor();
     } else if (scenario === "project") {
       await page.getByText("客户经营诊断方法论与跨部门交付复盘框架").waitFor();
-      await page.getByLabel("资产范围").selectOption("project");
+      await page.getByRole("tab", { name: "项目" }).click();
       await page.getByLabel("项目", { exact: true }).selectOption(projectId);
       await page.waitForFunction(() => document.body.innerText.includes("可查看摘要与原文"));
     } else {

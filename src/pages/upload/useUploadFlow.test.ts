@@ -320,13 +320,20 @@ describe("useUploadFlow model selection (PBC-38)", () => {
 
   it("keeps the first WeCom view loading until its pending request settles", async () => {
     const pending = deferred<PendingIngestItemDTO[]>();
-    ingest.fetchPendingIngestTasks.mockReset().mockReturnValueOnce(pending.promise);
+    // Path "b" 初始加载会立即 resolved；Path "a" 切换到 WeCom 时才用延迟 promise。
+    ingest.fetchPendingIngestTasks
+      .mockReset()
+      .mockResolvedValueOnce([]) // path "b"（本地上传待确认）
+      .mockReturnValueOnce(pending.promise); // path "a"（企微待确认）
     const { result } = renderHook(() => useUploadFlow());
+
+    // 等初始 path "b" 加载完毕
+    await waitFor(() => expect(result.current.localPendingLoading).toBe(false));
 
     expect(result.current.pendingLoading).toBe(true);
     act(() => result.current.switchPath("a"));
     expect(result.current.pendingLoading).toBe(true);
-    await waitFor(() => expect(ingest.fetchPendingIngestTasks).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(ingest.fetchPendingIngestTasks).toHaveBeenCalledTimes(2));
 
     await act(async () => pending.resolve([]));
     await waitFor(() => expect(result.current.pendingLoading).toBe(false));

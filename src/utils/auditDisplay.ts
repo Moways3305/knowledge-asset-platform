@@ -222,6 +222,18 @@ export function auditSnapshotSummary(event: AuditEventDTO): string {
 
 // 登录结果 / 原因中文摘要（登录 tab 用）。
 export function auditLoginSummary(event: AuditEventDTO): string {
-  if (event.denied_reason) return `原因：${auditValueLabel("denied_reason", event.denied_reason)}`;
+  // 失败：有 denied_reason 显示原因
+  if (event.denied_reason) {
+    return `失败：${VALUE_LABELS[event.denied_reason] ?? event.denied_reason}`;
+  }
+  // 成功：从 extra 读 login_result
+  if (event.extra?.login_result === "success") {
+    const method = event.extra?.login_method ? `（${event.extra.login_method}）` : "";
+    return `成功${method}`;
+  }
+  if (event.extra?.login_result === "failed") {
+    return "失败";
+  }
+  // 回退
   return auditSnapshotSummary(event);
 }

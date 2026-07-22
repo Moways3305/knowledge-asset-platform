@@ -244,6 +244,10 @@
   overflow: hidden;
 }
 
+.people89-page .pp-table-wrap {
+  overflow-x: auto;
+}
+
 .gp-table {
   border-collapse: collapse;
   table-layout: fixed;
@@ -516,7 +520,7 @@
 }
 
 .people89-page .pp-table {
-  table-layout: fixed;
+  table-layout: auto;
 }
 
 .people89-page .pp-table th,
@@ -535,6 +539,14 @@
 .people89-page .pp-project-role-item > svg {
   color: #54736e;
   flex: 0 0 auto;
+}
+
+.people89-page .pp-remove-btn {
+  color: var(--color-danger-fg, #b00);
+}
+
+.people89-page .pp-remove-btn:hover:not(:disabled) {
+  background: var(--color-danger-bg, #fde8e8);
 }
 
 .people89-page .ig-empty-state {

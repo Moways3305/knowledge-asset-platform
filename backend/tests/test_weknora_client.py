@@ -541,3 +541,75 @@ async def test_admin_business_boundary_unchanged(client, weknora):
         "ingest_confirm_forbidden",
     }
     assert weknora.uploads == []
+
+
+# ---- delete_kb（整库删除 + 降级逐 doc 清理） ----
+class _RecordingAsyncClient:
+    """记录 delete/get 请求的 fake httpx.AsyncClient（无网络）。"""
+
+    def __init__(self, *, delete_status=204, list_data=None, list_status=200):
+        self.delete_status = delete_status
+        self.list_data = list_data
+        self.list_status = list_status
+        self.deleted_kbs: list[str] = []
+        self.deleted_docs: list[str] = []
+        self.listed_kbs: list[str] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        return None
+
+    async def delete(self, url, headers):
+        # /knowledge-bases/{kb_id} 或 /knowledge/{doc_id}
+        if "/knowledge-bases/" in url:
+            self.deleted_kbs.append(url.rsplit("/", 1)[-1])
+            return httpx.Response(self.delete_status, json={"success": True, "data": {}})
+        # doc 删除
+        self.deleted_docs.append(url.rsplit("/", 1)[-1])
+        return httpx.Response(204, json={"success": True, "data": {}})
+
+    async def get(self, url, headers):
+        self.listed_kbs.append(url.split("/knowledge-bases/")[1].split("/")[0])
+        return httpx.Response(
+            self.list_status,
+            json={"success": True, "data": self.list_data or []},
+        )
+
+
+async def test_delete_kb_calls_whole_kb_delete_endpoint(monkeypatch):
+    fake = _RecordingAsyncClient(delete_status=204)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *_, **__: fake)
+    c = WeKnoraClient(base_url="http://wk", api_key="sk-test")
+    await c.delete_kb("kb-secret-1", trace_id="trc-del")
+    assert fake.deleted_kbs == ["kb-secret-1"]
+    # 整库删除成功 → 不走降级路径，不拉 doc 列表。
+    assert fake.listed_kbs == []
+    assert fake.deleted_docs == []
+
+
+async def test_delete_kb_falls_back_to_per_doc_when_endpoint_unavailable(monkeypatch):
+    docs = [
+        {"id": "doc-1"},
+        {"id": "doc-2"},
+    ]
+    fake = _RecordingAsyncClient(delete_status=405, list_data=docs)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *_, **__: fake)
+    c = WeKnoraClient(base_url="http://wk", api_key="sk-test")
+    await c.delete_kb("kb-secret-2", trace_id="trc-del")
+    # 整库删除尝试过（405）→ 降级逐 doc 删除。
+    assert fake.deleted_kbs == ["kb-secret-2"]
+    assert fake.listed_kbs == ["kb-secret-2"]
+    assert fake.deleted_docs == ["doc-1", "doc-2"]
+
+
+async def test_delete_kb_fallback_tolerates_doc_list_failure(monkeypatch):
+    # 库已不存在：list 接口返回错误 → 视为清理完成，不抛。
+    fake = _RecordingAsyncClient(delete_status=404, list_data=None, list_status=404)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *_, **__: fake)
+    c = WeKnoraClient(base_url="http://wk", api_key="sk-test")
+    # 不应抛错。
+    await c.delete_kb("kb-gone", trace_id="trc-del")
+    assert fake.deleted_kbs == ["kb-gone"]
+    assert fake.deleted_docs == []

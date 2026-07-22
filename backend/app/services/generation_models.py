@@ -453,7 +453,11 @@ def _client_for_model(model: ContentGenerationModel) -> LLMClient:
 async def safe_project_qa_options(
     session: AsyncSession, fallback: LLMClient | NullLLMClient
 ) -> list[dict]:
-    """Return only runnable project-QA choices and irreversible references."""
+    """Return only runnable project-QA choices and irreversible references.
+
+    列表顺序：第一项是"系统默认模型"（跟随平台默认），然后是所有 enabled chat 模型，
+    其中默认模型标注"（默认）"后缀，让用户能看到具体的默认模型名。
+    """
     settings = await _settings(session)
     default_id = settings.default_model_id if settings else None
     default_model = await session.get(ContentGenerationModel, default_id) if default_id else None
@@ -471,14 +475,19 @@ async def safe_project_qa_options(
             }
         )
     for model in await all_connection_models(session):
-        if model.enabled and model.capability_type == "chat" and model.id != default_id:
-            items.append(
-                {
-                    "model_ref": _model_ref(model.id),
-                    "display_name": model.display_name,
-                    "is_default": False,
-                }
-            )
+        if not (model.enabled and model.capability_type == "chat"):
+            continue
+        is_default = model.id == default_id
+        display_name = model.display_name
+        if is_default:
+            display_name = f"{display_name}（默认）"
+        items.append(
+            {
+                "model_ref": _model_ref(model.id),
+                "display_name": display_name,
+                "is_default": is_default,
+            }
+        )
     return items
 
 

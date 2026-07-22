@@ -128,7 +128,7 @@ function assertResult(result) {
   if (result.scenario === "wecom-list") return result.wecomRowVisible;
   if (result.scenario === "wecom-empty") return result.wecomEmptyVisible;
   if (result.scenario === "wecom-failure") return result.wecomRetryVisible;
-  if (result.scenario === "wecom-selected") return result.confirmVisible && result.wecomCalls === 1;
+  if (result.scenario === "wecom-selected") return result.confirmVisible && result.wecomCalls === 2;
   return false;
 }
 
