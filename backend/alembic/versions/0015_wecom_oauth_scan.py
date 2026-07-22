@@ -11,11 +11,13 @@ Revises: 0014_agent_whitelist
 Create Date: 2026-06-01
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0015_wecom"
@@ -25,9 +27,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "users", sa.Column("wecom_user_id", sa.String(length=100), nullable=True)
-    )
+    op.add_column("users", sa.Column("wecom_user_id", sa.String(length=100), nullable=True))
     # 用唯一索引（CREATE UNIQUE INDEX）而非 ALTER ADD CONSTRAINT——后者 SQLite 不支持。
     # 语义等价（唯一、可空），PostgreSQL / SQLite 均可。
     op.create_index("uq_users_wecom_user_id", "users", ["wecom_user_id"], unique=True)

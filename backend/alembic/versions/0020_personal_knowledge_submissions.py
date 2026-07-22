@@ -12,11 +12,13 @@ Revises: 0019_project_settings
 Create Date: 2026-06-02
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0020_personal_submissions"
@@ -55,7 +57,13 @@ def upgrade() -> None:
     op.create_index(
         "uq_pks_idempotency",
         "personal_knowledge_submissions",
-        ["submitter_user_id", "source_asset_id", "submission_type", "target_project_id", "idempotency_key"],
+        [
+            "submitter_user_id",
+            "source_asset_id",
+            "submission_type",
+            "target_project_id",
+            "idempotency_key",
+        ],
         unique=True,
         sqlite_where=sa.text("idempotency_key IS NOT NULL"),
         postgresql_where=sa.text("idempotency_key IS NOT NULL"),

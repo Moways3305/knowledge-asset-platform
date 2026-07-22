@@ -9,11 +9,13 @@ Revises: 0021_original_access
 Create Date: 2026-06-03
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0022_wecom_scan_config_name"

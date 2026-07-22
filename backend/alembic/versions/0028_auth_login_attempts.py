@@ -14,11 +14,13 @@ Revises: 0027_indexing_operation_jobs
 Create Date: 2026-06-05
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0028_auth_login_attempts"
@@ -42,14 +44,12 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
     op.create_index(
-        "ix_auth_login_attempts_identifier", "auth_login_attempts", ["identifier_hash", "created_at"]
+        "ix_auth_login_attempts_identifier",
+        "auth_login_attempts",
+        ["identifier_hash", "created_at"],
     )
-    op.create_index(
-        "ix_auth_login_attempts_ip", "auth_login_attempts", ["ip_hash", "created_at"]
-    )
-    op.create_index(
-        "ix_auth_login_attempts_user", "auth_login_attempts", ["user_id", "created_at"]
-    )
+    op.create_index("ix_auth_login_attempts_ip", "auth_login_attempts", ["ip_hash", "created_at"])
+    op.create_index("ix_auth_login_attempts_user", "auth_login_attempts", ["user_id", "created_at"])
 
 
 def downgrade() -> None:

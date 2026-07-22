@@ -14,11 +14,13 @@ Revises: 0028_auth_login_attempts
 Create Date: 2026-06-15
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0029_weknora_kb_display_name"

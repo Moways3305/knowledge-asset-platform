@@ -12,11 +12,13 @@ Revises: 0005_preview
 Create Date: 2026-05-29
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0006_agent"
@@ -67,9 +69,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["caller_user_id"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(
-        "ix_agent_decisions_call", "agent_gateway_decisions", ["call_id"]
-    )
+    op.create_index("ix_agent_decisions_call", "agent_gateway_decisions", ["call_id"])
 
     op.create_table(
         "agent_gateway_decision_items",
@@ -98,9 +98,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["target_project_id"], ["projects.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(
-        "ix_agent_items_decision", "agent_gateway_decision_items", ["decision_id"]
-    )
+    op.create_index("ix_agent_items_decision", "agent_gateway_decision_items", ["decision_id"])
     op.create_index("ix_agent_items_call", "agent_gateway_decision_items", ["call_id"])
 
     op.create_table(
@@ -115,9 +113,7 @@ def upgrade() -> None:
         sa.Column("citation_order", sa.Integer(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["call_id"], ["agent_calls.id"]),
-        sa.ForeignKeyConstraint(
-            ["decision_item_id"], ["agent_gateway_decision_items.id"]
-        ),
+        sa.ForeignKeyConstraint(["decision_item_id"], ["agent_gateway_decision_items.id"]),
         sa.ForeignKeyConstraint(["cited_asset_id"], ["knowledge_assets.id"]),
         sa.ForeignKeyConstraint(["cited_chunk_id"], ["knowledge_asset_chunks.id"]),
         sa.PrimaryKeyConstraint("id"),

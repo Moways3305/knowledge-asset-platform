@@ -9,6 +9,7 @@ Revises: 0030_high_frequency_query_indexes
 Create Date: 2026-06-22
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

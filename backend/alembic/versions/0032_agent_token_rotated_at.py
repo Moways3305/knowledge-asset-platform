@@ -9,6 +9,7 @@ Revises: 0031_agent_rule_bound_user
 Create Date: 2026-06-22
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

@@ -13,11 +13,13 @@ Revises: 0024_version_index_status
 Create Date: 2026-06-04
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0025_user_password_credentials"

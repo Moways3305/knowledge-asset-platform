@@ -15,11 +15,13 @@ Revises: 0026_ingest_desensitization_metadata
 Create Date: 2026-06-05
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0027_indexing_operation_jobs"

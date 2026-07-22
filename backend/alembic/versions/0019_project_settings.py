@@ -8,11 +8,13 @@ Revises: 0018_permission_rules
 Create Date: 2026-06-02
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0019_project_settings"
@@ -25,14 +27,16 @@ def upgrade() -> None:
     op.add_column("projects", sa.Column("client_name", sa.String(length=200), nullable=True))
     op.add_column(
         "projects",
-        sa.Column("lifecycle_route_key", sa.String(length=20), nullable=True,
-                  server_default="route_A"),
+        sa.Column(
+            "lifecycle_route_key", sa.String(length=20), nullable=True, server_default="route_A"
+        ),
     )
     op.add_column("projects", sa.Column("lifecycle_phase_key", sa.String(length=50), nullable=True))
     op.add_column(
         "projects",
-        sa.Column("force_review_on_ingest", sa.Boolean(), nullable=False,
-                  server_default=sa.false()),
+        sa.Column(
+            "force_review_on_ingest", sa.Boolean(), nullable=False, server_default=sa.false()
+        ),
     )
     op.add_column("projects", sa.Column("wecom_group_id", sa.String(length=100), nullable=True))
 

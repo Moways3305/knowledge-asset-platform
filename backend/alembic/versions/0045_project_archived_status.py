@@ -14,9 +14,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-import sqlalchemy as sa
-from alembic import op
-
 revision: str = "0045_project_archived_status"
 down_revision: str | None = "0044_agent_whitelist_unique_provider_user"
 branch_labels: str | Sequence[str] | None = None

@@ -11,16 +11,15 @@ from __future__ import annotations
 import asyncio
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.core.config import get_settings
-from app.db.base import Base
-
 # 导入模型以填充 Base.metadata（供未来 autogenerate 使用）。
 import app.models  # noqa: E402,F401
+from alembic import context
+from app.core.config import get_settings
+from app.db.base import Base
 
 config = context.config
 
@@ -58,14 +57,16 @@ def _ensure_version_table_width(connection: Connection) -> None:
     """
     if connection.dialect.name != "postgresql":
         return
-    connection.execute(text(
-        "CREATE TABLE IF NOT EXISTS alembic_version ("
-        "version_num VARCHAR(64) NOT NULL, "
-        "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
-    ))
-    connection.execute(text(
-        "ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(64)"
-    ))
+    connection.execute(
+        text(
+            "CREATE TABLE IF NOT EXISTS alembic_version ("
+            "version_num VARCHAR(64) NOT NULL, "
+            "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
+        )
+    )
+    connection.execute(
+        text("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(64)")
+    )
     # 立即提交：SQLAlchemy 2.0 下上面的 execute 会在连接上自动开启事务；若不提交，
     # alembic 随后的迁移事务会嵌在这个外层事务里、连接关闭时整体回滚（迁移白跑）。
     connection.commit()

@@ -8,11 +8,13 @@ Revises: 0013_agent_chunk_refs
 Create Date: 2026-06-01
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0014_agent_whitelist"

@@ -17,11 +17,13 @@ Revises: 0023_knowledge_delete
 Create Date: 2026-06-04
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0024_version_index_status"
