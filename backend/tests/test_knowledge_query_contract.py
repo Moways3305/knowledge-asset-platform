@@ -235,20 +235,27 @@ async def test_project_membership_filters_rows_before_count(client, db_session):
     assert alpha_member.json()["total"] == 1
     assert alpha_member.json()["items"][0]["id"] == str(alpha.id)
 
-    beta_member = await client.get(
-        KNOWLEDGE,
-        params={"scope": "project", "keyword": "PBC67-PROJECT"},
-        headers=_headers(USER_CONSULTANT_ADMIN),
-    )
-    assert beta_member.json()["total"] == 1
-    assert beta_member.json()["items"][0]["id"] == str(beta.id)
-
     denied_context = await client.get(
         KNOWLEDGE,
         params={"scope": "project", "project_id": str(PROJECT_BETA)},
         headers=_headers(USER_CONSULTANT),
     )
     assert denied_context.status_code == 403
+
+    await client.post("/api/v1/auth/login", json={"email": "dual.f@dev.local"})
+    csrf = (await client.get("/api/v1/auth/csrf")).json()["csrf_token"]
+    switched = await client.post(
+        "/api/v1/auth/active-company-role",
+        headers={"X-CSRF-Token": csrf},
+        json={"company_role": "consultant"},
+    )
+    assert switched.status_code == 200
+    beta_member = await client.get(
+        KNOWLEDGE,
+        params={"scope": "project", "keyword": "PBC67-PROJECT"},
+    )
+    assert beta_member.json()["total"] == 1
+    assert beta_member.json()["items"][0]["id"] == str(beta.id)
 
 
 async def test_redacted_summary_projection_never_loads_ordinary_summary(client, db_session):

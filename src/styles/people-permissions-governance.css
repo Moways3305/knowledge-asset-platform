@@ -579,14 +579,88 @@
   background: var(--color-bg-surface);
   box-shadow: -12px 0 35px rgba(14, 30, 50, 0.16);
   height: 100%;
-  max-width: 460px;
+  max-width: 720px;
   overflow-y: auto;
   padding: 18px;
-  width: min(460px, 92vw);
+  width: min(720px, 78vw);
 }
 
 .people89-page .pp-detail-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.people89-page .pp-active-identity {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 12px;
+  margin: 12px 0 16px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--color-info);
+  background: var(--color-info-bg);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.people89-page .pp-active-identity strong {
+  color: var(--color-text-heading);
+}
+.people89-page .pp-active-identity small {
+  min-width: 0;
+  color: var(--color-text-tertiary);
+}
+.people89-page .pp-active-identity.is-governance {
+  border-left-color: var(--color-success);
+}
+
+.people89-page .pp-detail-panel .pp-project-role-list {
+  gap: 7px;
+}
+.people89-page .pp-detail-panel .pp-project-role-list > .pp-project-role-item {
+  display: grid !important;
+  grid-template-columns: minmax(160px, 1fr) minmax(112px, auto) auto auto auto;
+  gap: 8px !important;
+  align-items: center !important;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--gp-line);
+  border-radius: var(--radius-sm);
+  background: var(--gp-wash);
+}
+.people89-page .pp-detail-panel .pp-pr-project {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.people89-page .pp-detail-panel .up-edit-select {
+  min-width: 0;
+  width: 100%;
+}
+
+@media (max-width: 1320px) {
+  .people89-page .pp-detail-panel {
+    width: min(660px, 82vw);
+  }
+  .people89-page .pp-detail-panel .pp-project-role-list > .pp-project-role-item {
+    grid-template-columns: minmax(150px, 1fr) minmax(110px, auto) auto;
+  }
+  .people89-page .pp-detail-panel .pp-project-role-list > .pp-project-role-item > button {
+    justify-self: start;
+  }
+}
+
+@media (max-width: 760px) {
+  .people89-page .pp-detail-panel {
+    width: 94vw;
+  }
+  .people89-page .pp-active-identity {
+    grid-template-columns: 1fr auto;
+  }
+  .people89-page .pp-active-identity small {
+    grid-column: 1 / -1;
+  }
+  .people89-page .pp-detail-panel .pp-project-role-list > .pp-project-role-item {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 1320px) {

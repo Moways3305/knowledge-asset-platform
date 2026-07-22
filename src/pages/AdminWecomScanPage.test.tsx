@@ -152,6 +152,7 @@ describe("AdminWecomScanPage", () => {
     render(<AdminWecomScanPage />);
     fireEvent.click(await screen.findByRole("button", { name: "新增扫描配置" }));
     fireEvent.change(screen.getByLabelText("配置名称"), { target: { value: "新增目录" } });
+    expect(screen.getByRole("button", { name: "创建配置" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "选择微盘目录" }));
     fireEvent.click(await screen.findByRole("button", { name: "项目空间" }));
     fireEvent.click(await screen.findByRole("button", { name: "使用当前目录" }));
@@ -169,6 +170,32 @@ describe("AdminWecomScanPage", () => {
       }),
     );
     expect(screen.queryByText(/高级|fatherid|spaceid/)).not.toBeInTheDocument();
+  });
+
+  it("distinguishes unconfigured and retryable directory failures with safe recovery", async () => {
+    vi.mocked(fetchWecomDriveSpaces)
+      .mockRejectedValueOnce(
+        new ApiError(503, "raw secret", undefined, {
+          missing_config: ["WECOM_CORP_ID", "WECOM_APP_SECRET"],
+        }),
+      )
+      .mockResolvedValueOnce({ items: [{ space_ref: "space-secret", name: "项目空间" }] });
+    const { unmount } = render(<AdminWecomScanPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "新增扫描配置" }));
+    fireEvent.click(screen.getByRole("button", { name: "选择微盘目录" }));
+    expect(await screen.findByText(/企业微信连接尚未配置/)).toBeInTheDocument();
+    expect(screen.getByText(/WECOM_CORP_ID、WECOM_APP_SECRET/)).toBeInTheDocument();
+    expect(screen.queryByText("raw secret")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重试加载" }));
+    expect(await screen.findByRole("button", { name: "项目空间" })).toBeInTheDocument();
+    unmount();
+
+    vi.mocked(fetchWecomDriveSpaces).mockRejectedValueOnce(new ApiError(502, "raw upstream"));
+    render(<AdminWecomScanPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "新增扫描配置" }));
+    fireEvent.click(screen.getByRole("button", { name: "选择微盘目录" }));
+    expect(await screen.findByText(/微盘访问暂时失败/)).toBeInTheDocument();
+    expect(screen.queryByText("raw upstream")).not.toBeInTheDocument();
   });
 
   it("runs only the selected row and refreshes its records", async () => {

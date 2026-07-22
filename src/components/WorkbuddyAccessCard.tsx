@@ -9,9 +9,8 @@ import {
   type WorkbuddyConfigVM,
   type WorkbuddyTokenStatusVM,
 } from "../api/workbuddy";
-import { SettingsRow } from "./ProductLayout";
-
-const DESCRIPTION = "连接 WorkBuddy 后，它只能访问你在平台内有权限的知识。";
+const DESCRIPTION =
+  "WorkBuddy 仅可读取你有权限的待办、最近知识、项目知识与简报、待审核事项和原文访问状态，不具备写入或越权访问能力。";
 
 // 安全文案：不暴露后端路径 / HTTP code / denied_reason；ApiError.message 已是安全文案。
 function safeMessage(err: unknown): string {
@@ -99,31 +98,32 @@ export default function WorkbuddyAccessCard() {
 
   return (
     <section className="wb-card" aria-label="WorkBuddy 接入">
-      <SettingsRow
-        title="WorkBuddy 接入"
-        description={
-          loading
-            ? "正在加载接入状态…"
-            : `${DESCRIPTION}${enabled ? " 当前已启用。" : " 当前未启用。"}`
-        }
-        control={
-          <div className="wb-actions">
-            <button type="button" onClick={onGenerate} disabled={busy || loading}>
-              {enabled ? "重置配置" : "生成配置"}
+      <div className="wb-integration-head">
+        <div>
+          <span className={`wb-status-pill ${enabled ? "is-enabled" : ""}`}>
+            {loading ? "状态加载中" : enabled ? "已启用" : "未启用"}
+          </span>
+          <p>{DESCRIPTION}</p>
+        </div>
+        <div className="wb-actions">
+          <button type="button" onClick={onGenerate} disabled={busy || loading}>
+            {enabled ? "重置配置" : "生成配置"}
+          </button>
+          {enabled && (
+            <button type="button" onClick={onRevoke} disabled={busy}>
+              撤销配置
             </button>
-            {enabled && (
-              <button type="button" onClick={onRevoke} disabled={busy}>
-                撤销配置
-              </button>
-            )}
-          </div>
-        }
-      />
+          )}
+        </div>
+      </div>
 
       {error && (
-        <p className="wb-error" role="alert">
-          {error}
-        </p>
+        <div className="wb-error" role="alert">
+          <span>{error}</span>
+          <button type="button" onClick={() => void load()} disabled={loading}>
+            重试
+          </button>
+        </div>
       )}
 
       {oneTime && (

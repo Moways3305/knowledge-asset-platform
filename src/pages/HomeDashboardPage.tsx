@@ -271,9 +271,9 @@ export default function HomeDashboardPage() {
   const canShowAssetTitles =
     overview?.operations.status === "available" && overview.operations.data?.title_visible === true;
 
-  const roleText =
-    authMe?.companyRoles.map((role) => COMPANY_ROLE[role] ?? SAFE_FALLBACK).join(" / ") ||
-    SAFE_FALLBACK;
+  const roleText = authMe?.activeCompanyRole
+    ? (COMPANY_ROLE[authMe.activeCompanyRole] ?? SAFE_FALLBACK)
+    : SAFE_FALLBACK;
   const displayName = authMe?.name?.trim() || "同事";
   const todoCount = todoItems.reduce((total, item) => total + item.count, 0);
 

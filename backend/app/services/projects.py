@@ -228,7 +228,10 @@ async def update_settings(
         before=before,
         after=after,
         # extra 只含安全字段名；绝不含 wecom_group_id 全文。
-        extra={"changed_fields": changed_fields},
+        extra={
+            "changed_fields": changed_fields,
+            "active_work_identity": caller.active_company_role,
+        },
         project_id=project.id,
     )
     await session.commit()
@@ -396,7 +399,10 @@ async def add_member(
         target_id=current.id,
         before=old,
         after={"project_role": current.project_role, "status": current.status},
-        extra={"target_user_id": str(user.id)},
+        extra={
+            "target_user_id": str(user.id),
+            "active_work_identity": caller.active_company_role,
+        },
         project_id=project_id,
     )
     await session.commit()
@@ -490,7 +496,10 @@ async def patch_member(
         target_id=member.id,
         before={"project_role": old_role, "status": old_status},
         after={"project_role": new_role, "status": new_status},
-        extra={"target_user_id": str(member.user_id)},
+        extra={
+            "target_user_id": str(member.user_id),
+            "active_work_identity": caller.active_company_role,
+        },
         project_id=project_id,
     )
     await session.commit()
@@ -648,6 +657,7 @@ async def create_project(
             "project_manager_user_id": str(pm.id),
             "coach_user_id": str(coach.id) if coach is not None else None,
         },
+        extra={"active_work_identity": caller.active_company_role},
         project_id=project.id,
     )
     await session.commit()
@@ -745,6 +755,7 @@ async def archive_project(
         after={"status": project.status},
         extra={
             "members_deactivated_count": len(member_changes),
+            "active_work_identity": caller.active_company_role,
         },
         project_id=project.id,
     )
@@ -784,7 +795,10 @@ async def reactivate_project(
         target_id=project.id,
         before={"status": old_status},
         after={"status": project.status},
-        extra={"note": "members_kept_inactive"},
+        extra={
+            "note": "members_kept_inactive",
+            "active_work_identity": caller.active_company_role,
+        },
         project_id=project.id,
     )
     await session.commit()
@@ -888,6 +902,7 @@ async def delete_project(
         after={"deleted": True},
         extra={
             "kb_mappings_removed": len(mapping_rows),
+            "active_work_identity": caller.active_company_role,
         },
         risk_level=AuditRiskLevel.high.value,
     )
@@ -943,7 +958,11 @@ async def remove_member(
         requested_role=member.project_role,
     ):
         if _is_admin(caller):
-            raise _denied(403, "admin_business_permission_denied", "admin 不可删除项目成员")
+            raise _denied(
+                403,
+                "admin_business_permission_denied",
+                "当前为管理员身份；请在左下角身份菜单切换为总经理或咨询总监",
+            )
         if member.project_role == ProjectRole.project_manager.value:
             raise _denied(
                 403,
@@ -977,7 +996,7 @@ async def remove_member(
             raise _denied(
                 409,
                 "last_project_manager_protected",
-                "不能删除项目最后一个项目经理",
+                "该成员是此项目最后一位有效项目经理，无法移除",
             )
 
     old_role, old_status = member.project_role, member.status
@@ -993,7 +1012,10 @@ async def remove_member(
         target_id=member_id,
         before={"project_role": old_role, "status": old_status},
         after={"removed": True},
-        extra={"target_user_id": str(member.user_id)},
+        extra={
+            "target_user_id": str(member.user_id),
+            "active_work_identity": caller.active_company_role,
+        },
         project_id=project_id,
     )
     await session.commit()

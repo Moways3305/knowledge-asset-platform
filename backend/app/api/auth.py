@@ -23,6 +23,7 @@ from app.core.config import get_settings, session_cookie_secure
 from app.core.trace import get_trace_id
 from app.db.session import get_db
 from app.schemas.auth import (
+    ActiveCompanyRoleRequest,
     AuthMeOut,
     CsrfTokenOut,
     LoginRequest,
@@ -36,7 +37,7 @@ from app.services import audit as audit_service
 from app.services import auth_security as auth_security
 from app.services import auth_session as session_service
 from app.services import csrf as csrf_service
-from app.services import wecom_identity
+from app.services import wecom_identity, work_identity
 from app.services import workbuddy_token as workbuddy_token_service
 from app.services.auth_session import SESSION_COOKIE_NAME
 from app.services.identity import (
@@ -71,6 +72,28 @@ def _set_session_cookie(response: Response, raw_token: str, settings) -> None:
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=raw_token,
+        max_age=_COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=session_cookie_secure(settings),
+        path="/",
+    )
+
+
+def _set_active_role_cookie(
+    response: Response, *, raw_token: str, user, role: str | None, settings
+) -> None:
+    if role is None:
+        response.delete_cookie(key=work_identity.ACTIVE_ROLE_COOKIE_NAME, path="/")
+        return
+    response.set_cookie(
+        key=work_identity.ACTIVE_ROLE_COOKIE_NAME,
+        value=work_identity.issue_role_cookie_value(
+            session_token=raw_token,
+            user=user,
+            role=role,
+            settings=settings,
+        ),
         max_age=_COOKIE_MAX_AGE,
         httponly=True,
         samesite="lax",
@@ -350,7 +373,11 @@ async def login(
     await session.commit()
 
     _set_session_cookie(response, raw_token, settings)
-    return build_auth_me(user)
+    active_role = work_identity.default_active_role(user)
+    _set_active_role_cookie(
+        response, raw_token=raw_token, user=user, role=active_role, settings=settings
+    )
+    return build_auth_me(user, active_company_role=active_role)
 
 
 @router.get("/csrf", response_model=CsrfTokenOut)
@@ -392,6 +419,7 @@ async def logout(
     if revoked:
         await session.commit()
     response.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
+    response.delete_cookie(key=work_identity.ACTIVE_ROLE_COOKIE_NAME, path="/")
     return LogoutResponse(ok=revoked)
 
 
@@ -571,6 +599,10 @@ async def wecom_callback(
     redirect = RedirectResponse(url="/", status_code=303)
     redirect.delete_cookie(key=_OAUTH_STATE_COOKIE, path="/")
     _set_session_cookie(redirect, raw_token, settings)
+    active_role = work_identity.default_active_role(user)
+    _set_active_role_cookie(
+        redirect, raw_token=raw_token, user=user, role=active_role, settings=settings
+    )
     return redirect
 
 
@@ -578,6 +610,9 @@ async def wecom_callback(
 async def auth_me(
     x_dev_user_id: str | None = Header(default=None, alias="X-Dev-User-Id"),
     kap_session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+    kap_active_company_role: str | None = Cookie(
+        default=None, alias=work_identity.ACTIVE_ROLE_COOKIE_NAME
+    ),
     session: AsyncSession = Depends(get_db),
 ) -> AuthMeOut:
     """返回当前用户身份上下文（会话优先；开发环境回退 X-Dev-User-Id / 默认开发用户）。"""
@@ -588,7 +623,87 @@ async def auth_me(
         session_token=kap_session,
         dev_user_id=x_dev_user_id,
     )
-    return build_auth_me(user)
+    try:
+        active_role = work_identity.resolve_active_role(
+            user=user,
+            session_token=kap_session,
+            cookie_value=kap_active_company_role,
+            settings=settings,
+        )
+    except work_identity.InvalidActiveRoleCookie as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "denied_reason": "active_company_role_cookie_invalid",
+                "message": "工作身份凭证无效，请重新登录",
+            },
+        ) from exc
+    return build_auth_me(user, active_company_role=active_role)
+
+
+@router.post("/active-company-role", response_model=AuthMeOut)
+async def switch_active_company_role(
+    body: ActiveCompanyRoleRequest,
+    request: Request,
+    response: Response,
+    kap_session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+    kap_active_company_role: str | None = Cookie(
+        default=None, alias=work_identity.ACTIVE_ROLE_COOKIE_NAME
+    ),
+    session: AsyncSession = Depends(get_db),
+) -> AuthMeOut:
+    """Switch the active work identity for the authenticated server-side session."""
+    settings = get_settings()
+    user = await session_service.resolve_session_user(session, kap_session)
+    if user is None or kap_session is None:
+        raise HTTPException(
+            status_code=401,
+            detail={"denied_reason": "not_authenticated", "message": "请先登录后再切换身份"},
+        )
+    if body.company_role not in work_identity.assigned_active_roles(user):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "denied_reason": "active_company_role_not_assigned",
+                "message": "只能切换到已分配且有效的工作身份",
+            },
+        )
+    try:
+        previous_role = work_identity.resolve_active_role(
+            user=user,
+            session_token=kap_session,
+            cookie_value=kap_active_company_role,
+            settings=settings,
+        )
+    except work_identity.InvalidActiveRoleCookie as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "denied_reason": "active_company_role_cookie_invalid",
+                "message": "工作身份凭证无效，请重新登录",
+            },
+        ) from exc
+    _set_active_role_cookie(
+        response,
+        raw_token=kap_session,
+        user=user,
+        role=body.company_role,
+        settings=settings,
+    )
+    caller = build_caller_context(user, active_company_role=body.company_role)
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.login,
+        action="auth.active_company_role_switched",
+        trace_id=get_trace_id(request),
+        target_type="user",
+        target_id=user.id,
+        before={"active_company_role": previous_role},
+        after={"active_company_role": body.company_role},
+    )
+    await session.commit()
+    return build_auth_me(user, active_company_role=body.company_role)
 
 
 # ---------------------------------------------------------------------------

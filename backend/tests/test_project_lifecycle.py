@@ -17,13 +17,14 @@ from sqlalchemy import select
 
 from app.main import app
 from app.models.audit import AuditEvent
-from app.models.identity import Project, ProjectMember
+from app.models.identity import Project, ProjectMember, UserCompanyRole
 from app.models.weknora import WeknoraKbMapping
 from app.schemas.enums import KnowledgeScope
 from app.seed.dev_seed import (
     USER_ADMIN_ONLY,
     USER_BOSS,
     USER_CONSULTANT,
+    USER_CONSULTANT_ADMIN,
     USER_DIRECTOR,
     USER_PROJECT_MANAGER,
 )
@@ -519,6 +520,75 @@ async def test_people_domain_admin_forbidden(client):
     )
     assert r.status_code == 403
     assert r.json()["detail"]["denied_reason"] == "admin_business_permission_denied"
+
+
+async def test_multi_role_session_uses_only_active_identity_for_manager_removal(client, db_session):
+    """admin+boss defaults to admin; only an explicit server-side boss switch enables governance."""
+    db_session.add(
+        UserCompanyRole(
+            user_id=USER_CONSULTANT_ADMIN,
+            company_role="boss",
+            status="active",
+        )
+    )
+    await db_session.commit()
+
+    created = await client.post(
+        PROJECTS,
+        headers=_hdr(USER_BOSS),
+        json=_create_project_body("活动身份删项目经理"),
+    )
+    assert created.status_code == 201, created.text
+    project_id = created.json()["id"]
+    added = await client.post(
+        f"{PROJECTS}/{project_id}/members",
+        headers=_hdr(USER_BOSS),
+        json={
+            "user_id": str(USER_CONSULTANT),
+            "project_role": "project_manager",
+            "status": "active",
+        },
+    )
+    assert added.status_code in (200, 201), added.text
+    member_id = added.json()["member_id"]
+
+    login = await client.post("/api/v1/auth/login", json={"email": "dual.f@dev.local"})
+    assert login.status_code == 200
+    assert login.json()["active_company_role"] == "admin"
+    csrf = (await client.get("/api/v1/auth/csrf")).json()["csrf_token"]
+    denied = await client.delete(
+        f"{PEOPLE}/{USER_CONSULTANT}/project-memberships/{member_id}",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["denied_reason"] == "admin_business_permission_denied"
+
+    switched = await client.post(
+        "/api/v1/auth/active-company-role",
+        headers={"X-CSRF-Token": csrf},
+        json={"company_role": "boss"},
+    )
+    assert switched.status_code == 200, switched.text
+    assert switched.json()["active_company_role"] == "boss"
+    removed = await client.delete(
+        f"{PEOPLE}/{USER_CONSULTANT}/project-memberships/{member_id}",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert removed.status_code == 204, removed.text
+
+    event = (
+        (
+            await db_session.execute(
+                select(AuditEvent)
+                .where(AuditEvent.action == "people.project_membership_removed")
+                .order_by(AuditEvent.created_at.desc())
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert event is not None
+    assert event.extra["active_work_identity"] == "boss"
 
 
 async def test_people_domain_membership_not_found(client):

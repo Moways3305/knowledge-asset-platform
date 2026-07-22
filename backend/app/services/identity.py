@@ -235,7 +235,7 @@ async def resolve_dev_user(
     return user
 
 
-def build_auth_me(user: User) -> AuthMeOut:
+def build_auth_me(user: User, *, active_company_role: str | None = None) -> AuthMeOut:
     """把 User 组装为 `/auth/me` 响应。
 
     - company_roles 只取 active 角色。
@@ -249,8 +249,13 @@ def build_auth_me(user: User) -> AuthMeOut:
         r.company_role for r in user.company_roles if r.status == RoleStatus.active.value
     ]
 
-    is_business_user = any(role in BUSINESS_COMPANY_ROLES for role in active_company_roles)
-    can_discover_l5 = any(role in L5_DISCOVERY_ROLES for role in active_company_roles)
+    from app.services.work_identity import default_active_role
+
+    selected_role = active_company_role or default_active_role(user)
+    if selected_role not in active_company_roles:
+        selected_role = None
+    is_business_user = selected_role in BUSINESS_COMPANY_ROLES
+    can_discover_l5 = selected_role in L5_DISCOVERY_ROLES
 
     memberships = [
         ProjectMembershipOut(
@@ -260,7 +265,7 @@ def build_auth_me(user: User) -> AuthMeOut:
             status=m.status,
         )
         for m in user.project_members
-        if m.status == MemberStatus.active.value
+        if m.status == MemberStatus.active.value and selected_role in BUSINESS_COMPANY_ROLES
     ]
 
     return AuthMeOut(
@@ -269,6 +274,7 @@ def build_auth_me(user: User) -> AuthMeOut:
         email=user.email,
         status=user.status,
         company_roles=active_company_roles,
+        active_company_role=selected_role,
         is_business_user=is_business_user,
         can_discover_l5=can_discover_l5,
         project_memberships=memberships,

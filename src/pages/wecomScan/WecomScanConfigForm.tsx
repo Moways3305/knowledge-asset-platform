@@ -276,7 +276,7 @@ export default function WecomScanConfigForm({
           <button
             className="btn-small-primary"
             onClick={() => void handleSave()}
-            disabled={saveBusy || optionsError}
+            disabled={saveBusy || optionsError || (!editingConfig && !values.dir.trim())}
           >
             {saveBusy ? "保存中…" : editingConfig ? "保存修改" : "创建配置"}
           </button>

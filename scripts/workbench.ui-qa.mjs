@@ -22,6 +22,7 @@ const scenarios = [
   { name: "projects-forbidden" },
   { name: "recent-error-retry" },
   { name: "titles-hidden" },
+  { name: "workbuddy-enabled" },
 ];
 
 const authMe = {
@@ -30,6 +31,7 @@ const authMe = {
   email: "workbench-qa@example.test",
   status: "active",
   company_roles: ["consultant"],
+  active_company_role: "consultant",
   is_business_user: true,
   can_discover_l5: false,
   project_memberships: [
@@ -228,10 +230,10 @@ function accepted(result) {
     result.shellOverlap <= 1 &&
     result.clippedControls === 0 &&
     result.panelCount >= 4 && result.panelCount <= 6 &&
-    result.stitchHierarchyCorrect &&
-    result.todoColumnNarrower &&
-    result.recentInLeftColumn &&
-    result.operationsCompact &&
+    result.actionQueuePrimary &&
+    result.healthFullWidth &&
+    result.projectRecentBalanced &&
+    result.workbuddyDedicated &&
     result.projectStateCompact &&
     result.compactHeader &&
     !result.staleFourPanelGrid &&
@@ -248,6 +250,7 @@ function accepted(result) {
   if (result.scenario === "projects-forbidden") return result.forbiddenState;
   if (result.scenario === "recent-error-retry") return result.retrySucceeded;
   if (result.scenario === "titles-hidden") return result.hiddenTitleSafe;
+  if (result.scenario === "workbuddy-enabled") return result.workbuddyLifecycleVisible;
   return false;
 }
 
@@ -279,7 +282,11 @@ try {
           return fulfill(overviewFor(scenario.name, overviewCalls));
         }
         if (requestUrl.pathname === "/api/v1/auth/workbuddy-token") {
-          return fulfill({ enabled: false, has_token: false });
+          return fulfill({
+            enabled: scenario.name === "workbuddy-enabled",
+            bound_user_name: "工作台验收用户",
+            last_rotated_at: null,
+          });
         }
         oldApiCalls += 1;
         return fulfill({ detail: { message: "old api must not be called" } }, 500);
@@ -314,6 +321,9 @@ try {
             .querySelector(".wb81-panel.is-projects")
             ?.getBoundingClientRect();
           const recent = document.querySelector(".wb81-panel.is-recent")?.getBoundingClientRect();
+          const workbuddy = document
+            .querySelector(".wb81-panel.is-workbuddy")
+            ?.getBoundingClientRect();
           const operationCardCount = document.querySelectorAll(".wb81-operation").length;
           const operationCards = [...document.querySelectorAll(".wb81-operation")].map((element) =>
             element.getBoundingClientRect(),
@@ -370,6 +380,18 @@ try {
               operations.bottom < projects.top &&
               Math.abs(operations.left - projects.left) <= 1,
             ),
+            actionQueuePrimary: Boolean(
+              todos && operations && todos.top < operations.top && todos.width >= operations.width - 2,
+            ),
+            healthFullWidth: Boolean(
+              operations && todos && Math.abs(operations.left - todos.left) <= 1 && Math.abs(operations.width - todos.width) <= 2,
+            ),
+            projectRecentBalanced: Boolean(
+              projects && recent && Math.abs(projects.top - recent.top) <= 2 && projects.width >= recent.width,
+            ),
+            workbuddyDedicated: Boolean(
+              workbuddy && projects && recent && workbuddy.top >= Math.max(projects.bottom, recent.bottom) && todos && Math.abs(workbuddy.width - todos.width) <= 2,
+            ),
             todoColumnNarrower: Boolean(
               todos &&
               operations &&
@@ -412,6 +434,8 @@ try {
               bodyText.includes("业务标题已隐藏") &&
               !bodyText.includes("绝不能越权显示的资产标题") &&
               !bodyText.includes("项目复盘方法"),
+            workbuddyLifecycleVisible:
+              bodyText.includes("重置配置") && bodyText.includes("撤销配置"),
           };
         },
         { scenarioName: scenario.name },
@@ -427,7 +451,7 @@ try {
       });
       await page.screenshot({
         path: path.join(outDir, `${scenario.name}-${viewport.name}.png`),
-        fullPage: false,
+        fullPage: true,
         animations: "disabled",
       });
       results.push({ viewport: viewport.name, ...result });

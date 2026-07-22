@@ -295,6 +295,22 @@
   background: var(--color-bg-muted);
   border: 1px solid var(--color-border-light);
 }
+.ws87-picker-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--color-danger);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-fg, #b00);
+  font-size: 12px;
+}
+.ws87-picker-error span {
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
 @media (max-width: 900px) {
   .ws87-console {
     grid-template-columns: 1fr;

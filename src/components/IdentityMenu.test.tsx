@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import IdentityMenu, { wecomOAuthModeForUserAgent } from "./IdentityMenu";
-import { login, logout } from "../api/auth";
+import { login, logout, switchActiveCompanyRole } from "../api/auth";
 import { startWecomOAuth } from "../api/admin";
 
 const me = {
@@ -10,6 +10,7 @@ const me = {
   name: "Alice",
   email: "alice@example.com",
   companyRoles: ["admin"],
+  activeCompanyRole: "admin",
   isBusinessUser: true,
   canDiscoverL5: true,
   projects: [{ projectId: "p1", projectName: "Alpha 项目", projectRole: "project_manager" }],
@@ -39,6 +40,7 @@ vi.mock("../auth/AuthContext", () => ({
 vi.mock("../api/auth", () => ({
   login: vi.fn(),
   logout: vi.fn(),
+  switchActiveCompanyRole: vi.fn(),
 }));
 
 vi.mock("../api/admin", () => ({
@@ -53,6 +55,7 @@ describe("IdentityMenu", () => {
     authState.reload.mockReset();
     vi.mocked(login).mockReset();
     vi.mocked(logout).mockReset();
+    vi.mocked(switchActiveCompanyRole).mockReset();
     vi.mocked(startWecomOAuth).mockReset();
   });
 
@@ -65,8 +68,8 @@ describe("IdentityMenu", () => {
 
     fireEvent.click(screen.getByText("Alice"));
 
-    expect(screen.getByText("平台身份：")).toBeInTheDocument();
-    expect(screen.getAllByText("管理员").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(/当前工作身份/)).toBeInTheDocument();
+    expect(screen.getByText("管理员")).toBeInTheDocument();
     expect(screen.getByText("Alpha 项目")).toBeInTheDocument();
     expect(screen.getByText("alice@example.com")).toBeInTheDocument();
     expect(screen.queryByPlaceholderText("登录邮箱")).not.toBeInTheDocument();
@@ -75,6 +78,28 @@ describe("IdentityMenu", () => {
     // 登录后保留"登出当前会话"入口，不再展示切换账号按钮。
     expect(screen.getByText("登出当前会话")).toBeInTheDocument();
     expect(screen.queryByText("切换账号")).not.toBeInTheDocument();
+  });
+
+  it("switches only among assigned roles and replaces the capability identity", async () => {
+    authState.authMe = { ...me, companyRoles: ["admin", "boss"], activeCompanyRole: "admin" };
+    vi.mocked(switchActiveCompanyRole).mockResolvedValue({
+      ...me,
+      companyRoles: ["admin", "boss"],
+      activeCompanyRole: "boss",
+      isBusinessUser: true,
+      canDiscoverL5: true,
+    });
+    render(
+      <MemoryRouter>
+        <IdentityMenu />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByText("Alice"));
+    fireEvent.click(screen.getByRole("button", { name: "总经理" }));
+    await waitFor(() => expect(switchActiveCompanyRole).toHaveBeenCalledWith("boss"));
+    expect(authState.setAuthMe).toHaveBeenCalledWith(
+      expect.objectContaining({ activeCompanyRole: "boss" }),
+    );
   });
 
   it("only renders the login form when the user is not authenticated", async () => {

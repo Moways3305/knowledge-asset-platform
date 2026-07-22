@@ -78,9 +78,9 @@ export default function AdminPermissionsPage() {
     try {
       const me = await fetchAuthMe();
       setCanEditRules(
-        me.companyRoles.includes("boss") || me.companyRoles.includes("consulting_director"),
+        me.activeCompanyRole === "boss" || me.activeCompanyRole === "consulting_director",
       );
-      setIsAdmin(me.companyRoles.includes("admin"));
+      setIsAdmin(me.activeCompanyRole === "admin");
     } catch {
       setCanEditRules(false);
       setIsAdmin(false);

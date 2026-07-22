@@ -19,28 +19,42 @@ export default function WecomDirectoryPicker({
   const [dirs, setDirs] = useState<WecomDriveDirectoryDTO[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [missingConfig, setMissingConfig] = useState<string[]>([]);
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadSpaces = useCallback(async () => {
     setLoading(true);
     setError(null);
-    fetchWecomDriveSpaces()
-      .then((d) => {
-        if (!cancelled) setSpaces(d.items);
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          if (error instanceof ApiError && error.status === 403) onForbidden();
-          setError("微盘空间暂时无法加载，请检查企业微信配置后重试。");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+    setMissingConfig([]);
+    try {
+      setSpaces((await fetchWecomDriveSpaces()).items);
+    } catch (error) {
+      setSpaces([]);
+      if (error instanceof ApiError && error.status === 403) {
+        onForbidden();
+        setError("当前身份不能查看企业微信连接配置。");
+      } else if (error instanceof ApiError && error.status === 503) {
+        const missing = Array.isArray(error.detail?.missing_config)
+          ? error.detail.missing_config.filter((item): item is string => typeof item === "string")
+          : [];
+        setMissingConfig(missing);
+        setError("企业微信连接尚未配置，请由系统管理员完成以下配置后重试。");
+      } else {
+        setError("微盘访问暂时失败，请检查网络或企业微信服务状态后重试。");
+      }
+    } finally {
+      setLoading(false);
+    }
   }, [onForbidden]);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      if (active) await loadSpaces();
+    })();
+    return () => {
+      active = false;
+    };
+  }, [loadSpaces]);
 
   const loadDirs = useCallback(
     async (spaceRef: string, parentRef: string | undefined) => {
@@ -98,8 +112,12 @@ export default function WecomDirectoryPicker({
   return (
     <div className="ws87-picker">
       {error && (
-        <div className="ws-note-hint" style={{ color: "var(--color-danger-fg, #b00)" }}>
-          {error}
+        <div className="ws87-picker-error" role="alert">
+          <strong>{error}</strong>
+          {missingConfig.length > 0 && <span>缺少：{missingConfig.join("、")}</span>}
+          <button className="btn-small" type="button" onClick={() => void loadSpaces()}>
+            重试加载
+          </button>
         </div>
       )}
       {!space ? (

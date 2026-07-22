@@ -22,6 +22,7 @@ AUDIT = "/api/v1/admin/audit"
 BOSS_EMAIL = "boss.c@dev.local"
 CONSULTANT_EMAIL = "consultant.a@dev.local"
 ADMIN_EMAIL = "admin.e@dev.local"
+DUAL_EMAIL = "dual.f@dev.local"
 
 
 async def _csrf(client):
@@ -123,3 +124,49 @@ async def test_pure_admin_business_write_boundary_holds_via_session(client):
     )
     assert resp.status_code == 403
     assert resp.json()["detail"]["denied_reason"] == "admin_business_permission_denied"
+
+
+async def test_multi_role_session_switches_only_to_assigned_active_identity(client):
+    login_response = await client.post(LOGIN, json={"email": DUAL_EMAIL})
+    assert login_response.status_code == 200
+    assert login_response.json()["active_company_role"] == "admin"
+    assert login_response.json()["is_business_user"] is False
+
+    switched = await client.post(
+        "/api/v1/auth/active-company-role",
+        headers=await _csrf(client),
+        json={"company_role": "consultant"},
+    )
+    assert switched.status_code == 200, switched.text
+    assert switched.json()["active_company_role"] == "consultant"
+    assert switched.json()["is_business_user"] is True
+
+    refreshed = await client.get(ME)
+    assert refreshed.json()["active_company_role"] == "consultant"
+    assert set(refreshed.json()["company_roles"]) == {"admin", "consultant"}
+
+
+async def test_multi_role_session_rejects_forged_unassigned_identity(client):
+    await client.post(LOGIN, json={"email": DUAL_EMAIL})
+    forged = await client.post(
+        "/api/v1/auth/active-company-role",
+        headers=await _csrf(client),
+        json={"company_role": "boss"},
+    )
+    assert forged.status_code == 403
+    assert forged.json()["detail"]["denied_reason"] == "active_company_role_not_assigned"
+    assert (await client.get(ME)).json()["active_company_role"] == "admin"
+
+
+async def test_tampered_active_role_cookie_is_rejected_instead_of_downgraded(client):
+    await client.post(LOGIN, json={"email": DUAL_EMAIL})
+    client.cookies.delete("kap_active_company_role")
+    client.cookies.set("kap_active_company_role", "consultant.tampered")
+
+    me = await client.get(ME)
+    assert me.status_code == 403
+    assert me.json()["detail"]["denied_reason"] == "active_company_role_cookie_invalid"
+
+    protected = await client.get("/api/v1/knowledge")
+    assert protected.status_code == 403
+    assert protected.json()["detail"]["denied_reason"] == "active_company_role_cookie_invalid"

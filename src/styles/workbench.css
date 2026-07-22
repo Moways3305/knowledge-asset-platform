@@ -464,6 +464,42 @@
   color: var(--color-text-tertiary);
   flex-shrink: 0;
 }
+.idm-role-switch {
+  margin-top: 14px;
+  padding: 10px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-muted);
+}
+.idm-role-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.idm-role-option {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 7px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.idm-role-option.is-active {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+.idm-role-switch small {
+  display: block;
+  margin-top: 7px;
+  color: var(--color-text-tertiary);
+  line-height: 1.45;
+}
 
 .idm-project {
   margin-top: 14px;

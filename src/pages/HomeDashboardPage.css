@@ -1,5 +1,6 @@
 .wb81-workbench {
-  width: min(100%, 1240px);
+  width: 100%;
+  max-width: none;
   gap: 14px;
 }
 
@@ -75,22 +76,24 @@
 
 .wb81-dashboard {
   display: grid;
-  grid-template-columns: minmax(330px, 0.47fr) minmax(0, 1fr);
+  grid-template-areas:
+    "todos todos"
+    "operations operations"
+    "projects recent"
+    "workbuddy workbuddy";
+  grid-template-columns: minmax(0, 1.15fr) minmax(340px, 0.85fr);
   gap: 18px;
   align-items: start;
 }
 
 .wb81-secondary-column,
 .wb81-primary-column {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 12px;
+  display: contents;
 }
 
 .wb81-panel {
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border);
   border-radius: 4px;
@@ -98,15 +101,22 @@
 }
 
 .wb81-panel.is-todos {
-  min-height: 260px;
+  grid-area: todos;
+  min-height: 0;
 }
 
 .wb81-panel.is-projects {
+  grid-area: projects;
   min-height: 0;
 }
 
 .wb81-panel.is-recent {
+  grid-area: recent;
   min-height: 0;
+}
+
+.wb81-panel.is-workbuddy {
+  grid-area: workbuddy;
 }
 
 .wb81-panel-header {
@@ -153,6 +163,7 @@
 }
 
 .wb81-panel.is-operations {
+  grid-area: operations;
   overflow: visible;
   background: transparent;
   border: 0;
@@ -259,9 +270,9 @@
 
 .wb81-operation-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 188px));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 9px;
-  justify-content: start;
+  justify-content: stretch;
 }
 
 .wb81-operation {
@@ -514,6 +525,12 @@
 
 @media (max-width: 960px) {
   .wb81-dashboard {
+    grid-template-areas:
+      "todos"
+      "operations"
+      "projects"
+      "recent"
+      "workbuddy";
     grid-template-columns: 1fr;
   }
 

@@ -14,6 +14,7 @@ from app.seed.dev_seed import (
     KA_PROJECT_ALPHA,
     PROJECT_ALPHA,
     USER_CONSULTANT,
+    USER_CONSULTANT_ADMIN,
 )
 from app.services.agent_registry import hash_token
 from app.services.llm_client import get_llm_client
@@ -149,6 +150,20 @@ async def test_search_runs_via_agent_channel(client, db_session):
     assert len(r.json()["cards"]) >= 1
     for t in _LEAK_TOKENS:
         assert t not in r.text
+
+
+async def test_bearer_bound_dual_role_user_keeps_business_identity(client, db_session):
+    await _insert_rule(db_session, bound_user_id=USER_CONSULTANT_ADMIN)
+    _install([_doc(KA_COMPANY_L2, _COMPANY_KB, "公司业务知识")])
+
+    response = await client.post(
+        SEARCH,
+        headers=_bearer(),
+        json={"query": "业务", "scope": "company"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert str(KA_COMPANY_L2) in {card["asset_id"] for card in response.json()["cards"]}
 
 
 async def test_client_supplied_user_id_is_ignored(client, db_session):

@@ -6,7 +6,10 @@ consultant+admin 双角色。
 
 from __future__ import annotations
 
+import uuid
+
 from app.core.config import Settings
+from app.models.identity import User, UserCompanyRole
 from app.seed.dev_seed import (
     USER_ADMIN_ONLY,
     USER_BOSS,
@@ -15,6 +18,7 @@ from app.seed.dev_seed import (
     USER_DIRECTOR,
     USER_PROJECT_MANAGER,
 )
+from app.services.permission import build_caller_context
 
 ME_URL = "/api/v1/auth/me"
 
@@ -74,13 +78,25 @@ async def test_director_can_discover_l5(client):
     assert resp.json()["can_discover_l5"] is True
 
 
-async def test_consultant_plus_admin_is_business_user(client):
-    """consultant + admin 双角色：是业务用户（来自 consultant），但不能发现 L5。"""
+async def test_consultant_plus_admin_defaults_to_admin_identity(client):
+    """多角色不再求并集；安全默认到管理员身份，需经会话主动切换后才有业务能力。"""
     resp = await client.get(ME_URL, headers={"X-Dev-User-Id": str(USER_CONSULTANT_ADMIN)})
     body = resp.json()
-    assert body["is_business_user"] is True
+    assert body["is_business_user"] is False
     assert body["can_discover_l5"] is False
     assert set(body["company_roles"]) == {"consultant", "admin"}
+    assert body["active_company_role"] == "admin"
+    assert body["project_memberships"] == []
+
+
+def test_business_identity_without_any_project_membership_is_valid():
+    """A project-free system/user is valid; no synthetic manager membership is required."""
+    user = User(id=uuid.uuid4(), name="无项目用户", email="none@example.test", status="active")
+    user.company_roles.append(UserCompanyRole(company_role="boss", status="active"))
+    caller = build_caller_context(user, active_company_role="boss")
+    assert caller.is_business_user is True
+    assert caller.active_project_ids == set()
+    assert caller.active_project_roles == {}
 
 
 async def test_project_manager_role_from_membership(client):

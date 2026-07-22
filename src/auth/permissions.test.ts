@@ -8,6 +8,7 @@ function me(over: Partial<AuthMeVM> = {}): AuthMeVM {
     name: "Tester",
     email: "t@dev.local",
     companyRoles: [],
+    activeCompanyRole: null,
     isBusinessUser: false,
     canDiscoverL5: false,
     projects: [],
@@ -30,7 +31,9 @@ describe("deriveCapabilities", () => {
   });
 
   it("marks pure admin without business roles", () => {
-    const c = deriveCapabilities(me({ companyRoles: ["admin"], isBusinessUser: false }));
+    const c = deriveCapabilities(
+      me({ companyRoles: ["admin"], activeCompanyRole: "admin", isBusinessUser: false }),
+    );
     expect(c.isAdmin).toBe(true);
     expect(c.isBusinessUser).toBe(false);
     expect(c.isGovernance).toBe(false);
@@ -38,7 +41,12 @@ describe("deriveCapabilities", () => {
 
   it("marks governance from canDiscoverL5 (boss / consulting_director)", () => {
     const c = deriveCapabilities(
-      me({ companyRoles: ["boss"], isBusinessUser: true, canDiscoverL5: true }),
+      me({
+        companyRoles: ["boss"],
+        activeCompanyRole: "boss",
+        isBusinessUser: true,
+        canDiscoverL5: true,
+      }),
     );
     expect(c.isGovernance).toBe(true);
     expect(c.isBoss).toBe(true);
@@ -49,7 +57,12 @@ describe("deriveCapabilities", () => {
 
   it("distinguishes consulting director from Boss for governance writes", () => {
     const c = deriveCapabilities(
-      me({ companyRoles: ["consulting_director"], isBusinessUser: true, canDiscoverL5: true }),
+      me({
+        companyRoles: ["consulting_director"],
+        activeCompanyRole: "consulting_director",
+        isBusinessUser: true,
+        canDiscoverL5: true,
+      }),
     );
     expect(c.isBoss).toBe(false);
     expect(c.isConsultingDirector).toBe(true);
@@ -80,10 +93,17 @@ describe("deriveCapabilities", () => {
 
 describe("can (nav / route capability predicates)", () => {
   const anon = deriveCapabilities(null);
-  const admin = deriveCapabilities(me({ companyRoles: ["admin"] }));
-  const consultant = deriveCapabilities(me({ companyRoles: ["consultant"], isBusinessUser: true }));
+  const admin = deriveCapabilities(me({ companyRoles: ["admin"], activeCompanyRole: "admin" }));
+  const consultant = deriveCapabilities(
+    me({ companyRoles: ["consultant"], activeCompanyRole: "consultant", isBusinessUser: true }),
+  );
   const governance = deriveCapabilities(
-    me({ companyRoles: ["boss"], isBusinessUser: true, canDiscoverL5: true }),
+    me({
+      companyRoles: ["boss"],
+      activeCompanyRole: "boss",
+      isBusinessUser: true,
+      canDiscoverL5: true,
+    }),
   );
 
   it("shows business knowledge entries to business users, not pure admin", () => {

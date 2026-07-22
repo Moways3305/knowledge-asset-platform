@@ -55,7 +55,7 @@ const USER_STATUS_OPTIONS = ["active", "inactive"];
 const fmtTime = (iso: string | null): string => formatBeijingTime(iso);
 
 export default function AdminPeoplePage() {
-  const { capabilities } = useAuth();
+  const { capabilities, authMe } = useAuth();
   const canManageProjects = capabilities.isGovernance;
   const canManageCompanyRole = (role: string) =>
     role === "consultant" || role === "consulting_director"
@@ -78,8 +78,23 @@ export default function AdminPeoplePage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNote, setActionNote] = useState<string | null>(null);
 
-  const describeError = (e: unknown, fallback: string) =>
-    e instanceof ApiError && e.status === 403 ? "当前身份没有执行此操作的权限。" : fallback;
+  const describeError = (e: unknown, fallback: string) => {
+    if (!(e instanceof ApiError)) return fallback;
+    if (
+      [
+        "admin_business_permission_denied",
+        "project_manager_removal_requires_governance",
+        "last_project_manager_protected",
+        "cannot_remove_self",
+      ].includes(e.deniedReason ?? "")
+    )
+      return e.message;
+    return e.status === 403 ? "当前身份没有执行此操作的权限。" : fallback;
+  };
+  const activeIdentityLabel = authMe?.activeCompanyRole
+    ? (companyRoleLabel[authMe.activeCompanyRole] ??
+      (authMe.activeCompanyRole === "admin" ? "管理员" : authMe.activeCompanyRole))
+    : "未分配";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -310,6 +325,15 @@ export default function AdminPeoplePage() {
                     {actionNote}
                   </div>
                 )}
+                <div className={`pp-active-identity ${canManageProjects ? "is-governance" : ""}`}>
+                  <span>当前工作身份</span>
+                  <strong>{activeIdentityLabel}</strong>
+                  <small>
+                    {canManageProjects
+                      ? "可按治理规则管理项目经理"
+                      : "如需治理人员，请在左下角身份菜单切换为总经理或咨询总监"}
+                  </small>
+                </div>
                 <div className="pp-detail-grid">
                   <div className="pp-detail-item">
                     <span className="pp-detail-label">姓名</span>

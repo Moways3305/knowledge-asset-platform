@@ -60,6 +60,7 @@ const me = {
   name: "安全管理员",
   email: "admin@example.test",
   companyRoles: ["admin"],
+  activeCompanyRole: "admin",
   isBusinessUser: false,
   canDiscoverL5: false,
   projects: [],
@@ -125,7 +126,11 @@ describe("AdminPermissionsPage", () => {
   });
 
   it("edits a numeric rule for governance and recovers a local failure", async () => {
-    vi.mocked(fetchAuthMe).mockResolvedValue({ ...me, companyRoles: ["boss"] });
+    vi.mocked(fetchAuthMe).mockResolvedValue({
+      ...me,
+      companyRoles: ["boss"],
+      activeCompanyRole: "boss",
+    });
     vi.mocked(updatePermissionRule).mockRejectedValueOnce(
       new ApiError(500, "raw permission token"),
     );

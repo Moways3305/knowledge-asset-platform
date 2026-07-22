@@ -90,7 +90,11 @@ async def _record_governance_denied(
     attempted: str,
     target_role: str | None = None,
 ) -> None:
-    extra = {"denied_reason": reason, "attempted": attempted}
+    extra = {
+        "denied_reason": reason,
+        "attempted": attempted,
+        "active_work_identity": caller.active_company_role,
+    }
     if target_role is not None:
         extra["company_role"] = target_role
     await audit_service.record_denied(
@@ -190,7 +194,11 @@ async def _require_governance_account_management(
             action=action,
             trace_id=trace_id,
             target_type="people_governance",
-            extra={"denied_reason": reason, "attempted": attempted},
+            extra={
+                "denied_reason": reason,
+                "attempted": attempted,
+                "active_work_identity": caller.active_company_role,
+            },
         )
         raise _denied(403, reason, "仅总经理或咨询总监可管理人员账号")
 
@@ -460,6 +468,7 @@ async def set_company_role(
             "company_role": target_role,
             "old_status": old_status,
             "new_status": new_status,
+            "active_work_identity": caller.active_company_role,
         },
     )
     await session.commit()
@@ -553,6 +562,7 @@ async def upsert_project_membership(
             "project_role": new_role,
             "old_status": old_status,
             "new_status": new_status,
+            "active_work_identity": caller.active_company_role,
         },
         project_id=req.project_id,
     )
@@ -632,6 +642,7 @@ async def patch_project_membership(
             "old_role": old_role,
             "old_status": old_status,
             "new_status": member.status,
+            "active_work_identity": caller.active_company_role,
         },
         project_id=member.project_id,
     )
@@ -690,6 +701,7 @@ async def set_password(
             "password_set": True,
             "target_user_status": user.status,
             "actor_is_governance": True,
+            "active_work_identity": caller.active_company_role,
         },
     )
     # 改密后撤销目标用户全部活动平台会话（治理角色改自己密码时同样强制重登）。
@@ -708,6 +720,7 @@ async def set_password(
                 "revoked_count": revoked,
                 "trigger": "password_reset",
                 "preserved_current_session": False,
+                "active_work_identity": caller.active_company_role,
             },
         )
     await session.commit()
@@ -765,6 +778,7 @@ async def set_user_status(
                     extra={
                         "denied_reason": reason,
                         "attempted": "people.user_status.deactivate",
+                        "active_work_identity": caller.active_company_role,
                     },
                 )
                 raise _denied(409, reason, f"不能停用最后一个可用 {label}")
@@ -779,7 +793,12 @@ async def set_user_status(
         trace_id=trace_id,
         target_type="user",
         target_id=user.id,
-        extra={"target_user_id": str(user.id), "old_status": old_status, "new_status": new_status},
+        extra={
+            "target_user_id": str(user.id),
+            "old_status": old_status,
+            "new_status": new_status,
+            "active_work_identity": caller.active_company_role,
+        },
     )
     # 停用 → 撤销目标用户全部活动平台会话（强制下线）。
     if deactivating:
@@ -798,6 +817,7 @@ async def set_user_status(
                     "revoked_count": revoked,
                     "trigger": "user_deactivated",
                     "preserved_current_session": False,
+                    "active_work_identity": caller.active_company_role,
                 },
             )
     await session.commit()
@@ -835,7 +855,11 @@ async def remove_project_membership(
             reason="admin_business_permission_denied",
             attempted="people.project_membership.remove",
         )
-        raise _denied(403, "admin_business_permission_denied", "当前身份不可删除项目成员关系")
+        raise _denied(
+            403,
+            "admin_business_permission_denied",
+            "当前为管理员身份；请在左下角身份菜单切换为总经理或咨询总监",
+        )
 
     user = await _load_person(session, user_id)
     member = next((m for m in user.project_members if m.id == membership_id), None)
@@ -882,7 +906,7 @@ async def remove_project_membership(
             raise _denied(
                 409,
                 "last_project_manager_protected",
-                "不能删除项目最后一个项目经理",
+                "该成员是此项目最后一位有效项目经理，无法移除",
             )
 
     old_role, old_status = member.project_role, member.status
@@ -898,7 +922,10 @@ async def remove_project_membership(
         target_id=membership_id,
         before={"project_role": old_role, "status": old_status},
         after={"removed": True},
-        extra={"target_user_id": str(user_id)},
+        extra={
+            "target_user_id": str(user_id),
+            "active_work_identity": caller.active_company_role,
+        },
         project_id=member.project_id,
     )
     await session.commit()
