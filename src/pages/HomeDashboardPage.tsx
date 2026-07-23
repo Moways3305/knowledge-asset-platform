@@ -307,7 +307,7 @@ export default function HomeDashboardPage() {
     setCreatePmId(authMe?.userId ?? "");
     setCreateError("");
     setCreateOpen(true);
-    fetchPeople({ page: 1, pageSize: 200 })
+    fetchPeople()
       .then((res) => setCreatePeople(res.items))
       .catch(() => {});
   }, [authMe?.userId]);
