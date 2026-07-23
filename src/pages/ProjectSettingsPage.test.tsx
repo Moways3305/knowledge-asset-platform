@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/http";
 import ProjectSettingsPage from "./ProjectSettingsPage";
@@ -148,13 +148,34 @@ function ProjectSwitcher() {
   );
 }
 
-function renderPage() {
+function LocationProbe() {
+  return <output aria-label="当前路径">{useLocation().pathname}</output>;
+}
+
+function HomeRoute() {
+  const navigate = useNavigate();
+  return (
+    <>
+      <div>今日工作台</div>
+      <button onClick={() => navigate(-1)}>返回上一页</button>
+    </>
+  );
+}
+
+function renderPage(withPreviousEntry = false) {
+  const settingsPath = `/project/${PROJECT_ID}/settings`;
   return render(
-    <MemoryRouter initialEntries={[`/project/${PROJECT_ID}/settings`]}>
+    <MemoryRouter
+      initialEntries={withPreviousEntry ? ["/previous", settingsPath] : [settingsPath]}
+      initialIndex={withPreviousEntry ? 1 : 0}
+    >
+      <LocationProbe />
       <ProjectSwitcher />
       <Routes>
         <Route path="/project/:id/settings" element={<ProjectSettingsPage />} />
         <Route path="/review" element={<div>审核页</div>} />
+        <Route path="/" element={<HomeRoute />} />
+        <Route path="/previous" element={<div>先前页面</div>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -168,6 +189,7 @@ describe("ProjectSettingsPage reference implementation", () => {
     auth.capabilities.isConsultingDirector = false;
     auth.capabilities.isGovernance = false;
     auth.reload.mockClear();
+    projectApi.deleteProject.mockReset().mockResolvedValue(undefined);
     projectApi.fetchProjectSettings.mockResolvedValue({ ...settings });
     projectApi.fetchProjectDeletionReadiness.mockResolvedValue({
       can_delete: true,
@@ -247,16 +269,14 @@ describe("ProjectSettingsPage reference implementation", () => {
     expect(screen.queryByRole("button", { name: "删除项目" })).not.toBeInTheDocument();
   });
 
-  it("opens an explicit irreversible deletion confirmation only when server prerequisites pass", async () => {
+  it("closes the dialog, refreshes identity and replace-navigates after deletion succeeds", async () => {
     projectApi.fetchProjectDeletionReadiness.mockResolvedValue({
       can_delete: true,
       asset_count: 0,
       member_count: 3,
       blockers: [],
     });
-    projectApi.deleteProject.mockResolvedValue(undefined);
-
-    renderPage();
+    renderPage(true);
     fireEvent.click(await screen.findByRole("button", { name: "删除项目" }));
     const dialog = screen.getByRole("dialog", { name: `删除项目“${settings.name}”` });
     expect(dialog).toHaveTextContent("此操作不可恢复");
@@ -271,6 +291,109 @@ describe("ProjectSettingsPage reference implementation", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "删除项目" }));
     await waitFor(() => expect(projectApi.deleteProject).toHaveBeenCalledWith(PROJECT_ID));
     await waitFor(() => expect(auth.reload).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("今日工作台")).toBeInTheDocument();
+    expect(screen.getByLabelText("当前路径")).toHaveTextContent("/");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByText(settings.name)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "返回上一页" }));
+    expect(await screen.findByText("先前页面")).toBeInTheDocument();
+    expect(screen.queryByText(settings.name)).not.toBeInTheDocument();
+  });
+
+  it("treats a delete-target 404 as an idempotent exit without a failure message", async () => {
+    projectApi.fetchProjectDeletionReadiness.mockResolvedValue({
+      can_delete: true,
+      asset_count: 0,
+      member_count: 2,
+      blockers: [],
+    });
+    projectApi.deleteProject.mockRejectedValue(
+      new ApiError(404, "项目不存在", "project_not_found"),
+    );
+
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "删除项目" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByRole("textbox"), {
+      target: { value: settings.name },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "删除项目" }));
+
+    expect(await screen.findByText("今日工作台")).toBeInTheDocument();
+    expect(auth.reload).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/删除失败/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("uses a synchronous in-flight lock so rapid confirmation sends one delete request", async () => {
+    const pendingDelete = deferred<void>();
+    projectApi.fetchProjectDeletionReadiness.mockResolvedValue({
+      can_delete: true,
+      asset_count: 0,
+      member_count: 2,
+      blockers: [],
+    });
+    projectApi.deleteProject.mockReturnValue(pendingDelete.promise);
+
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "删除项目" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByRole("textbox"), {
+      target: { value: settings.name },
+    });
+    const confirm = within(dialog).getByRole("button", { name: "删除项目" });
+    act(() => {
+      confirm.click();
+      confirm.click();
+    });
+
+    expect(projectApi.deleteProject).toHaveBeenCalledTimes(1);
+    pendingDelete.resolve();
+    expect(await screen.findByText("今日工作台")).toBeInTheDocument();
+  });
+
+  it("keeps asset, permission, unrelated 404 and network failures visible without leaving", async () => {
+    projectApi.fetchProjectDeletionReadiness.mockResolvedValue({
+      can_delete: true,
+      asset_count: 0,
+      member_count: 2,
+      blockers: [],
+    });
+    const failures = [
+      {
+        error: new ApiError(409, "仍有资产", "project_has_assets"),
+        message: "项目中仍有资产，请先前往项目知识库清空资产后再删除。",
+      },
+      {
+        error: new ApiError(403, "禁止", "project_delete_forbidden"),
+        message: "当前身份无权执行此操作",
+      },
+      {
+        error: new ApiError(404, "依赖资源不存在", "dependent_resource_not_found"),
+        message: "删除失败，请刷新项目状态后重试",
+      },
+      { error: new Error("network unavailable"), message: "删除失败，请刷新项目状态后重试" },
+    ];
+
+    for (const failure of failures) {
+      projectApi.deleteProject.mockRejectedValueOnce(failure.error);
+      const view = renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: "删除项目" }));
+      const dialog = screen.getByRole("dialog");
+      fireEvent.change(within(dialog).getByRole("textbox"), {
+        target: { value: settings.name },
+      });
+      fireEvent.click(within(dialog).getByRole("button", { name: "删除项目" }));
+
+      expect(await screen.findByText(failure.message)).toBeInTheDocument();
+      expect(screen.getByLabelText("当前路径")).toHaveTextContent(
+        `/project/${PROJECT_ID}/settings`,
+      );
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(auth.reload).not.toHaveBeenCalled();
+      view.unmount();
+    }
   });
 
   it("keeps a coach read-only and does not fetch a decision queue", async () => {

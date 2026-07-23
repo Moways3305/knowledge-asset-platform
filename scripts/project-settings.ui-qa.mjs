@@ -157,12 +157,19 @@ const results = [];
 
 for (const scenario of scenarios) {
   for (const viewport of viewports) {
+    let projectDeleted = false;
+    let deleteRequestCount = 0;
+    let documentRequestCount = 0;
     const context = await browser.newContext({ viewport });
     await context.route("**/api/v1/**", async (route) => {
       const requestUrl = new URL(route.request().url());
+      const method = route.request().method();
       const fulfill = (body, status = 200) =>
         route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
+      if (requestUrl.pathname === "/api/v1/auth/csrf") {
+        return fulfill({ csrf_token: "ui-qa-csrf-value" });
+      }
       if (requestUrl.pathname === "/api/v1/auth/me") {
         const companyRole = scenario.companyRole ?? "consultant";
         return fulfill({
@@ -174,17 +181,23 @@ for (const scenario of scenarios) {
           active_company_role: companyRole,
           is_business_user: true,
           can_discover_l5: false,
-          project_memberships: scenario.role
-            ? [
-                {
-                  project_id: projectId,
-                  project_name: "客户交付体系优化",
-                  project_role: scenario.role,
-                  status: "active",
-                },
-              ]
-            : [],
+          project_memberships:
+            scenario.role && !projectDeleted
+              ? [
+                  {
+                    project_id: projectId,
+                    project_name: "客户交付体系优化",
+                    project_role: scenario.role,
+                    status: "active",
+                  },
+                ]
+              : [],
         });
+      }
+      if (requestUrl.pathname === `/api/v1/projects/${projectId}` && method === "DELETE") {
+        deleteRequestCount += 1;
+        projectDeleted = true;
+        return route.fulfill({ status: 204, body: "" });
       }
       if (requestUrl.pathname === `/api/v1/projects/${projectId}/settings`) {
         return fulfill(settings(scenario.canWrite, scenario.projectStatus));
@@ -219,10 +232,13 @@ for (const scenario of scenarios) {
         }
         return fulfill({ items: scenario.review === "pending" ? pendingReviews : [], total: 0 });
       }
-      return fulfill({ detail: { message: "UI QA route not configured" } }, 404);
+      return fulfill({ detail: { message: "内容暂时不可用" } }, 404);
     });
 
     const page = await context.newPage();
+    page.on("request", (request) => {
+      if (request.resourceType() === "document") documentRequestCount += 1;
+    });
     await page.goto(`${base}/project/${projectId}/settings`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "客户交付体系优化" }).waitFor();
 
@@ -414,7 +430,36 @@ for (const scenario of scenarios) {
           .getByRole("button", { name: "删除项目" })
           .isDisabled(),
       };
-      await dialog.getByRole("button", { name: "取消" }).click();
+      await dialog.getByRole("textbox").fill("客户交付体系优化");
+      const confirmDeleteButton = dialog.getByRole("button", { name: "删除项目" });
+      await confirmDeleteButton.click({ trial: true });
+      await confirmDeleteButton.evaluate((button) => {
+        button.click();
+        button.click();
+      });
+      await page.waitForURL((url) => url.pathname === "/");
+      await page.waitForTimeout(100);
+      deletionEvidence = {
+        ...deletionEvidence,
+        deleteRequestCount,
+        postDeletePath: new URL(page.url()).pathname,
+        postDeleteDialogVisible: await page
+          .getByRole("dialog")
+          .isVisible()
+          .catch(() => false),
+        postDeleteProjectNameVisible: (await page.locator("body").innerText()).includes(
+          "客户交付体系优化",
+        ),
+        postDeleteOverflowX: await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        ),
+        documentRequestCount,
+      };
+      await page.screenshot({
+        path: path.join(outDir, `${scenario.name}-post-success-${viewport.name}.png`),
+        fullPage: false,
+        animations: "disabled",
+      });
     }
     let collapsedMetrics = {};
     if (scenario.name === "manager-pending" && viewport.name === "1440") {
@@ -487,7 +532,13 @@ for (const result of results) {
       (!result.deleteConfirmationVisible ||
         !result.irreversibleCopyVisible ||
         !result.memberRemovalCopyVisible ||
-        !result.confirmInitiallyDisabled))
+        !result.confirmInitiallyDisabled ||
+        result.deleteRequestCount !== 1 ||
+        result.postDeletePath !== "/" ||
+        result.postDeleteDialogVisible ||
+        result.postDeleteProjectNameVisible ||
+        result.postDeleteOverflowX > 2 ||
+        result.documentRequestCount !== 1))
   );
 }
 fs.writeFileSync(path.join(outDir, "report.json"), JSON.stringify(results, null, 2));

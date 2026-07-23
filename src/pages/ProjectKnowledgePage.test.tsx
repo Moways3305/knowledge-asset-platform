@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -76,12 +77,34 @@ function LocationProbe() {
   return <output aria-label="当前路径">{useLocation().pathname}</output>;
 }
 
-function renderPage(path = `/project/${PROJECT_A}/knowledge`) {
+function AuthRefreshHarness() {
+  const [, forceRender] = useState(0);
+  return (
+    <>
+      <button
+        onClick={() => {
+          authState.authMe.projects = authState.authMe.projects.filter(
+            (project) => project.projectId !== PROJECT_A,
+          );
+          forceRender((value) => value + 1);
+        }}
+      >
+        模拟身份刷新移除当前项目
+      </button>
+      <ProjectKnowledgePage />
+    </>
+  );
+}
+
+function renderPage(path = `/project/${PROJECT_A}/knowledge`, withAuthRefresh = false) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <LocationProbe />
       <Routes>
-        <Route path="/project/:id/knowledge" element={<ProjectKnowledgePage />} />
+        <Route
+          path="/project/:id/knowledge"
+          element={withAuthRefresh ? <AuthRefreshHarness /> : <ProjectKnowledgePage />}
+        />
         <Route path="/knowledge/:id" element={<div>知识详情</div>} />
       </Routes>
     </MemoryRouter>,
@@ -428,5 +451,19 @@ describe("ProjectKnowledgePage reference workspace", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "搜索" }));
     expect(await screen.findByText("当前条件没有匹配内容")).toBeInTheDocument();
+  });
+
+  it("drops the stale project workspace immediately after refreshed auth removes membership", async () => {
+    renderPage(`/project/${PROJECT_A}/knowledge`, true);
+    expect(await screen.findByRole("table", { name: "项目知识列表" })).toBeInTheDocument();
+    expect(screen.getByText("甲项目", { selector: ".product-page-heading p" })).toBeInTheDocument();
+    expect(fetchKnowledgePage).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "模拟身份刷新移除当前项目" }));
+
+    expect(await screen.findByText("项目不可访问")).toBeInTheDocument();
+    expect(screen.queryByText("甲项目")).not.toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "项目知识列表" })).not.toBeInTheDocument();
+    expect(fetchKnowledgePage).toHaveBeenCalledTimes(1);
   });
 });

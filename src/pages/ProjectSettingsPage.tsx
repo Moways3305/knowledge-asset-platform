@@ -123,11 +123,12 @@ export default function ProjectSettingsPage() {
   const [addMemberBusy, setAddMemberBusy] = useState(false);
   const [addMemberError, setAddMemberError] = useState<string | null>(null);
 
-  // 危险操作区：归档 / 恢复 / 删除项目。
+  // 危险操作区：删除项目。
   const [dangerBusy, setDangerBusy] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [dangerError, setDangerError] = useState<string | null>(null);
+  const deleteInFlightRef = useRef(false);
 
   const [reviews, setReviews] = useState<ReviewItemDTO[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
@@ -346,28 +347,49 @@ export default function ProjectSettingsPage() {
   };
 
   const handleDelete = async () => {
-    if (!projectId || !canDelete || !settings) return;
+    if (!projectId || !canDelete || !settings || deleteInFlightRef.current) return;
     if (deleteConfirmName.trim() !== settings.name) {
       setDangerError("输入的项目名称不匹配");
       return;
     }
+    deleteInFlightRef.current = true;
     setDangerBusy(true);
     setDangerError(null);
+
+    const exitDeletedProject = async () => {
+      invalidateRequests();
+      setDeleteDialogOpen(false);
+      setDeleteConfirmName("");
+      setDangerError(null);
+      setDangerBusy(false);
+      try {
+        await reloadAuth();
+      } catch {
+        // 删除已经成为终态；身份刷新失败不能把成功删除误报为失败。
+      }
+      navigate("/", { replace: true });
+    };
+
     try {
       await deleteProject(projectId);
-      setDeleteDialogOpen(false);
-      await reloadAuth();
-      navigate("/");
+      await exitDeletedProject();
     } catch (e) {
-      if (e instanceof ApiError && e.deniedReason === "project_has_assets") {
+      const projectAlreadyGone =
+        e instanceof ApiError && e.status === 404 && e.deniedReason === "project_not_found";
+      if (projectAlreadyGone) {
+        await exitDeletedProject();
+      } else if (e instanceof ApiError && e.deniedReason === "project_has_assets") {
         setDangerError("项目中仍有资产，请先前往项目知识库清空资产后再删除。");
       } else {
         setDangerError(safeError(e, "删除失败，请刷新项目状态后重试"));
       }
-      void fetchProjectDeletionReadiness(projectId)
-        .then(setDeletionReadiness)
-        .catch(() => undefined);
+      if (!projectAlreadyGone) {
+        void fetchProjectDeletionReadiness(projectId)
+          .then(setDeletionReadiness)
+          .catch(() => undefined);
+      }
     } finally {
+      deleteInFlightRef.current = false;
       setDangerBusy(false);
     }
   };
@@ -1008,7 +1030,9 @@ export default function ProjectSettingsPage() {
               <p>项目经理可删除没有知识资产的项目；此操作不可恢复。</p>
             </div>
           </div>
-          {dangerError && <div className="ps74-feedback is-error">{dangerError}</div>}
+          {dangerError && !deleteDialogOpen && (
+            <div className="ps74-feedback is-error">{dangerError}</div>
+          )}
           {assetCount > 0 ? (
             <div className="ps74-delete-blocker" role="status">
               <AlertTriangle size={18} aria-hidden="true" />

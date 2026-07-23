@@ -114,6 +114,7 @@ export async function handleResponse<T>(resp: Response): Promise<T> {
     }
     throw new ApiError(resp.status, message, deniedReason, detailObj);
   }
+  if (resp.status === 204) return undefined as T;
   return (await resp.json()) as T;
 }
 
