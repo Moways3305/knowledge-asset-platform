@@ -148,7 +148,7 @@ describe("can (nav / route capability predicates)", () => {
     expect(can.viewPeople(consultant)).toBe(false);
   });
 
-  it("shows project board only to active project members", () => {
+  it("shows project board to project members and governance roles", () => {
     const member = deriveCapabilities(
       me({
         isBusinessUser: true,
@@ -156,7 +156,7 @@ describe("can (nav / route capability predicates)", () => {
       }),
     );
     expect(can.viewProject(member)).toBe(true);
-    expect(can.viewProject(governance)).toBe(false);
+    expect(can.viewProject(governance)).toBe(true);
     expect(can.viewProject(consultant)).toBe(false);
   });
 

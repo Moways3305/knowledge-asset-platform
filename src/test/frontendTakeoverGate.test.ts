@@ -25,7 +25,7 @@ const routes: RouteContract[] = [
     component: "HomeDashboardPage",
     guard: "public",
     owners: ["pages/HomeDashboardPage.tsx"],
-    apiModules: ["workbench"],
+    apiModules: ["workbench", "admin", "project"],
   },
   {
     route: "/knowledge",

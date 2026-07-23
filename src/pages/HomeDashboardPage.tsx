@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Archive,
   ArrowRight,
@@ -11,17 +11,22 @@ import {
   FolderKanban,
   LibraryBig,
   ListChecks,
+  Plus,
   RefreshCw,
   SearchX,
   ShieldAlert,
   UploadCloud,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { fetchWorkbenchOverview } from "../api/workbench";
+import { fetchPeople } from "../api/admin";
+import { createProject } from "../api/project";
 import { useAuth } from "../auth/AuthContext";
 import { can } from "../auth/permissions";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
 import WorkbuddyAccessCard from "../components/WorkbuddyAccessCard";
+import type { PersonDTO } from "../types/people";
 import type {
   WorkbenchOperationCardDTO,
   WorkbenchOverviewDTO,
@@ -261,7 +266,8 @@ function OperationCard({ item }: { item: WorkbenchOperationCardDTO }) {
 }
 
 export default function HomeDashboardPage() {
-  const { authMe, capabilities } = useAuth();
+  const { authMe, capabilities, reload } = useAuth();
+  const navigate = useNavigate();
   const [overview, setOverview] = useState<WorkbenchOverviewDTO | null>(null);
   const [pageState, setPageState] = useState<PageState>("loading");
   const requestRef = useRef(0);
@@ -287,6 +293,50 @@ export default function HomeDashboardPage() {
       requestRef.current += 1;
     };
   }, [load]);
+
+  // --- create project modal (governance users with no projects) ---
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createPmId, setCreatePmId] = useState("");
+  const [createPeople, setCreatePeople] = useState<PersonDTO[]>([]);
+  const [createSaving, setCreateSaving] = useState(false);
+  const [createError, setCreateError] = useState("");
+
+  const openCreate = useCallback(() => {
+    setCreateName("");
+    setCreatePmId(authMe?.userId ?? "");
+    setCreateError("");
+    setCreateOpen(true);
+    fetchPeople()
+      .then((res) => setCreatePeople(res.items))
+      .catch(() => {});
+  }, [authMe?.userId]);
+
+  const submitCreate = useCallback(async () => {
+    if (!createName.trim()) {
+      setCreateError("请填写项目名称");
+      return;
+    }
+    if (!createPmId) {
+      setCreateError("请选择项目经理");
+      return;
+    }
+    setCreateSaving(true);
+    setCreateError("");
+    try {
+      const created = await createProject({
+        name: createName.trim(),
+        project_manager_user_id: createPmId,
+      });
+      setCreateOpen(false);
+      await reload();
+      navigate(`/project/${encodeURIComponent(created.id)}`);
+    } catch {
+      setCreateError("创建失败，请重试");
+    } finally {
+      setCreateSaving(false);
+    }
+  }, [createName, createPmId, reload, navigate]);
 
   const fallbackStatus: UiSectionStatus = pageState === "loading" ? "loading" : "error";
   const todosStatus = overview?.todos.status ?? fallbackStatus;
@@ -482,12 +532,79 @@ export default function HomeDashboardPage() {
                 status={projectsStatus === "available" ? "empty" : projectsStatus}
                 loadingText="正在加载协作空间…"
                 emptyText="当前没有可访问的项目"
+                emptyAction={
+                  capabilities.isGovernance ? (
+                    <button type="button" className="wb81-empty-action" onClick={openCreate}>
+                      <Plus size={16} />
+                      新建项目
+                    </button>
+                  ) : undefined
+                }
                 onRetry={() => void load()}
               />
             )}
           </WorkbenchPanel>
         </div>
       </div>
+
+      {createOpen && (
+        <div className="wb81-modal" role="dialog" aria-label="新建项目">
+          <div className="wb81-modal-panel">
+            <header className="wb81-modal-header">
+              <h3>新建项目</h3>
+              <button
+                type="button"
+                className="wb81-modal-close"
+                onClick={() => setCreateOpen(false)}
+                aria-label="关闭"
+              >
+                <X size={18} />
+              </button>
+            </header>
+            <div className="wb81-modal-body">
+              <label className="wb81-field">
+                <span>项目名称</span>
+                <input
+                  value={createName}
+                  onChange={(e) => setCreateName(e.target.value)}
+                  placeholder="输入项目名称"
+                  maxLength={100}
+                />
+              </label>
+              <label className="wb81-field">
+                <span>项目经理</span>
+                <select value={createPmId} onChange={(e) => setCreatePmId(e.target.value)}>
+                  <option value="">选择人员</option>
+                  {createPeople.map((p) => (
+                    <option key={p.user_id} value={p.user_id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {createError && <p className="wb81-field-error">{createError}</p>}
+            </div>
+            <footer className="wb81-modal-footer">
+              <button
+                type="button"
+                className="wb81-btn-secondary"
+                onClick={() => setCreateOpen(false)}
+                disabled={createSaving}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="wb81-btn-primary"
+                onClick={submitCreate}
+                disabled={createSaving || !createName.trim() || !createPmId}
+              >
+                {createSaving ? "创建中…" : "创建项目"}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
     </ProductPage>
   );
 }
