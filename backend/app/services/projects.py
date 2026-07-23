@@ -849,13 +849,13 @@ async def delete_project(
         result = await session.execute(
             update(model).where(column == project_id).values({column.key: None})
         )
-        detached_history_count += result.rowcount or 0
+        detached_history_count += int(getattr(result, "rowcount", 0) or 0)
     disabled_scan_configs = await session.execute(
         update(WecomScanConfig)
         .where(WecomScanConfig.related_project_id == project_id)
         .values(related_project_id=None, enabled=False)
     )
-    detached_history_count += disabled_scan_configs.rowcount or 0
+    detached_history_count += int(getattr(disabled_scan_configs, "rowcount", 0) or 0)
 
     # Q&A 调用与验证证据的 project_id 不可空，属于随项目移除的项目运行记录。
     call_ids = select(AgentCall.id).where(AgentCall.project_id == project_id)
@@ -924,7 +924,7 @@ async def delete_project(
         after={"deleted": True},
         extra={
             "kb_mappings_removed": len(mapping_rows),
-            "soft_deleted_assets_detached": detached_assets.rowcount or 0,
+            "soft_deleted_assets_detached": int(getattr(detached_assets, "rowcount", 0) or 0),
             "historical_project_refs_detached": detached_history_count,
             "active_work_identity": caller.active_company_role,
         },
