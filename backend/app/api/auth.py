@@ -662,7 +662,7 @@ async def switch_active_company_role(
     user = await session_service.resolve_session_user(session, kap_session)
     if user is None or kap_session is None:
         _identity_log.warning(
-            "[identity] switch-role denied: not_authenticated | trace=%s", trace_id
+            "identity.role_switch_denied reason=not_authenticated trace=%s", trace_id
         )
         raise HTTPException(
             status_code=401,
@@ -670,10 +670,8 @@ async def switch_active_company_role(
         )
     if body.company_role not in work_identity.assigned_active_roles(user):
         _identity_log.warning(
-            "[identity] switch-role denied: role=%s not in assigned=%s | user=%s trace=%s",
+            "identity.role_switch_denied reason=role_not_assigned role=%s trace=%s",
             body.company_role,
-            work_identity.assigned_active_roles(user),
-            user.id,
             trace_id,
         )
         raise HTTPException(
@@ -692,7 +690,7 @@ async def switch_active_company_role(
         )
     except work_identity.InvalidActiveRoleCookie as exc:
         _identity_log.warning(
-            "[identity] switch-role cookie invalid for user=%s trace=%s", user.id, trace_id
+            "identity.role_switch_denied reason=active_role_cookie_invalid trace=%s", trace_id
         )
         raise HTTPException(
             status_code=403,
@@ -721,13 +719,7 @@ async def switch_active_company_role(
         after={"active_company_role": body.company_role},
     )
     await session.commit()
-    _identity_log.info(
-        "[identity] role switched: user=%s %s -> %s | trace=%s",
-        user.id,
-        previous_role,
-        body.company_role,
-        trace_id,
-    )
+    _identity_log.info("identity.role_switched role=%s trace=%s", body.company_role, trace_id)
     return build_auth_me(user, active_company_role=body.company_role)
 
 

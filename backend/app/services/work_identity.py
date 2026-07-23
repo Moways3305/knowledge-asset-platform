@@ -83,16 +83,11 @@ def resolve_active_role(
     if not session_token or cookie_value is None:
         return fallback
     if "." not in cookie_value:
-        _log.warning("[identity] resolve-active-role cookie malformed (no dot) | user=%s", user.id)
+        _log.warning("identity.active_role_cookie_invalid reason=malformed")
         raise InvalidActiveRoleCookie("active_company_role_cookie_invalid")
     role, provided = cookie_value.rsplit(".", 1)
     if role not in assigned_active_roles(user):
-        _log.warning(
-            "[identity] resolve-active-role cookie role=%s not in assigned=%s | user=%s",
-            role,
-            assigned_active_roles(user),
-            user.id,
-        )
+        _log.warning("identity.active_role_cookie_invalid reason=role_not_assigned role=%s", role)
         raise InvalidActiveRoleCookie("active_company_role_cookie_invalid")
     expected = _signature(
         session_token=session_token,
@@ -101,8 +96,6 @@ def resolve_active_role(
         settings=settings,
     )
     if not hmac.compare_digest(provided, expected):
-        _log.warning(
-            "[identity] resolve-active-role signature mismatch | user=%s role=%s", user.id, role
-        )
+        _log.warning("identity.active_role_cookie_invalid reason=signature_mismatch role=%s", role)
         raise InvalidActiveRoleCookie("active_company_role_cookie_invalid")
     return role
