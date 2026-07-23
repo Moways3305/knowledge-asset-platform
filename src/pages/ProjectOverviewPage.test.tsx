@@ -339,4 +339,15 @@ describe("ProjectOverviewPage project assistant workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(await screen.findByRole("heading", { name: "项目 AI 助手" })).toBeInTheDocument();
   });
+
+  it("does not load or display a deleted project missing from the refreshed project list", async () => {
+    api.fetchProjects.mockResolvedValue({ items: [projects[1]] });
+
+    renderPage(`/project/${PROJECT_A}`);
+
+    expect(await screen.findByText("项目不可访问")).toBeInTheDocument();
+    expect(screen.queryByText(projects[0].name)).not.toBeInTheDocument();
+    expect(api.fetchProjectOverview).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: "返回今日工作台" })).toHaveAttribute("href", "/");
+  });
 });
