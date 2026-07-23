@@ -328,6 +328,7 @@ class AuditAction(str, Enum):
     # 入库
     ingest_task_created = "ingest.task_created"
     ingest_confirmed = "ingest.confirmed"
+    ingest_task_deleted = "ingest.task_deleted"
     # 入库失败（含抽取失败/空文件/WeKnora 写入失败），exception。
     ingest_failed = "ingest.failed"
     # 原文已推进 WeKnora 底座并回写 doc id，operation。

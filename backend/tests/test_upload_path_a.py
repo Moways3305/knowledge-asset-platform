@@ -2,7 +2,7 @@
 
 验证：
 - 业务用户只看到自己有权确认的 path_a_wecom 待确认任务；
-- 非创建人、非治理业务用户看不到他人任务；治理角色可见全部；
+- 非创建人用户看不到他人任务（包括治理角色），仅创建人本人可见；
 - 纯 admin 不因系统身份获得业务查看 / 确认权（403）；
 - 列表响应不泄露 source_file_ref / storage_ref / WeCom file_id / 下载 URL / token / WeKnora id；
 - path_a_wecom 任务可走与 Path B 完全相同的 confirm 链路生成资产，确认后退出待确认列表；
@@ -90,20 +90,26 @@ async def test_business_user_sees_own_path_a_pending(client, db_session):
     assert item["target_scope"] == "personal"
 
 
-async def test_other_non_governance_user_cannot_see_others_task(client, db_session):
-    """非创建人、非治理业务用户（经理 B）看不到顾问的 Path A 任务（过滤，不泄露存在）。"""
+async def test_other_user_cannot_see_others_task(client, db_session):
+    """非创建人用户看不到他人任务（过滤，不泄露存在）。"""
     await _make_path_a_task(db_session, created_by=USER_CONSULTANT)
     resp = await client.get(f"{PENDING}?source=path_a_wecom", headers=_hdr(USER_PROJECT_MANAGER))
     assert resp.status_code == 200
     assert resp.json()["items"] == []
 
 
-async def test_governance_sees_others_path_a_task(client, db_session):
-    """业务治理角色（boss）可看到他人创建的 Path A 待确认任务（与可代确认一致）。"""
-    task_id = await _make_path_a_task(db_session, created_by=USER_CONSULTANT)
+async def test_governance_sees_only_own_path_a_tasks(client, db_session):
+    """治理角色（boss）也只能看到自己创建的待确认任务，不泄露他人任务。"""
+    # boss 自己创建的任务应该可见。
+    boss_task_id = await _make_path_a_task(db_session, created_by=USER_BOSS)
+    # 别人的任务对 boss 不可见。
+    other_task_id = await _make_path_a_task(db_session, created_by=USER_CONSULTANT)
     resp = await client.get(f"{PENDING}?source=path_a_wecom", headers=_hdr(USER_BOSS))
     assert resp.status_code == 200
-    assert str(task_id) in [i["id"] for i in resp.json()["items"]]
+    items = resp.json()["items"]
+    ids = {str(i["id"]) for i in items}
+    assert str(boss_task_id) in ids, "boss 应能看到自己创建的任务"
+    assert str(other_task_id) not in ids, "boss 不应看到他人创建的待确认任务"
 
 
 async def test_pure_admin_forbidden(client, db_session):

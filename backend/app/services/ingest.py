@@ -933,9 +933,8 @@ async def list_pending(
     """业务侧待确认任务列表。
 
     用于 `/upload` Path A 面板：拉取尚未入库（result_asset_id 为空）的入库任务。
-    与 confirm 的归属规则**完全一致**——只返回调用人确实有权确认的任务：
-    任务创建人本人，或业务治理角色（boss / 咨询总监）。无权任务直接从列表过滤，
-    不泄露其存在。纯 admin 不是业务用户 → 403（不因系统身份获得业务确认 / 查看权）。
+    只返回调用人本人创建的待确认任务。权限由 SQL WHERE 子句直接过滤，杜绝任何
+    跨用户数据泄露。纯 admin 不是业务用户 → 403（不因系统身份获得业务确认 / 查看权）。
 
     响应只含安全元数据，绝不含 source_file_ref / storage_ref / WeCom file_id /
     下载 URL / token / WeKnora id / 抽取全文。
@@ -950,8 +949,8 @@ async def list_pending(
 
     stmt = (
         select(IngestTask)
-        # 待确认 = 尚未生成资产（已 confirm 的任务有 result_asset_id，不再属待确认）。
-        .where(IngestTask.result_asset_id.is_(None))
+        # 仅返回当前用户的待确认任务：result_asset_id 为空 且 created_by 匹配。
+        .where(IngestTask.result_asset_id.is_(None), IngestTask.created_by == caller.user_id)
         .options(
             # 列表不返回抽取全文：defer extracted_text 避免查询放大与内容外泄。
             selectinload(IngestTask.ai_result).options(defer(IngestTaskAiResult.extracted_text))
@@ -964,12 +963,8 @@ async def list_pending(
         stmt = stmt.where(IngestTask.status.in_(statuses))
 
     tasks = list((await session.execute(stmt)).scalars().all())
-    is_gov = _is_governance(caller)
     items: list[PendingIngestItem] = []
     for t in tasks:
-        # 归属过滤：仅创建人本人或治理角色可见，与 confirm 放行条件一致。
-        if not (is_gov or t.created_by == caller.user_id):
-            continue
         ai = t.ai_result
         items.append(
             PendingIngestItem(
@@ -992,6 +987,76 @@ async def list_pending(
             )
         )
     return items
+
+
+# ---------- 可删除的待确认任务状态（仅未确认的非中间态，processing 不允许删） ----------
+_DELETABLE_PENDING_STATUSES: set[str] = {
+    IngestStatus.pending_confirmation.value,
+    IngestStatus.failed.value,
+    IngestStatus.rejected.value,
+    IngestStatus.waiting_review.value,
+}
+
+
+async def delete_pending_task(
+    session: AsyncSession, caller: CallerContext, task_id: uuid.UUID, trace_id: str = ""
+) -> None:
+    """删除/取消待确认入库任务。
+
+    规则：
+    - 仅创建人本人可删除（治理角色也不能代删他人任务）。
+    - 仅未确认（result_asset_id IS NULL）且状态可中断的任务可删；
+      processing / pending 状态的任务不在此列——可能在流水线中途。
+    - 删除数据库记录（级联删除 ai_result 关联）并清理存储文件。
+    - 审计写入 ingest.task_deleted。
+    """
+    task = await _load_task(session, task_id)
+
+    # 仅创建人本人
+    if task.created_by != caller.user_id:
+        raise _denied(403, "ingest_delete_forbidden", "仅创建人可删除自己的待确认任务")
+
+    if task.result_asset_id is not None:
+        raise _denied(409, "ingest_already_confirmed", "已确认入库的任务不可删除")
+
+    if task.status not in _DELETABLE_PENDING_STATUSES:
+        raise _denied(
+            409,
+            "ingest_delete_not_allowed",
+            f"当前状态 {task.status} 不允许删除（仅在确认前/失败/驳回状态可删）",
+        )
+
+    # 清理存储文件（best-effort；文件缺失不影响 DB 清理）。
+    from app.services.storage import get_storage
+
+    try:
+        storage = get_storage()
+        if task.source_file_ref:
+            storage.delete(task.source_file_ref)
+    except Exception:
+        _logger.warning("ingest_delete_file_cleanup_failed task_id=%s", str(task_id), exc_info=True)
+
+    # ---- 永存区：持久化删除 + 审计 ----
+    source = task.source
+    source_file_name = task.source_file_name
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.ingest_task_deleted.value,
+        trace_id=trace_id,
+        target_type="ingest_task",
+        target_id=task_id,
+        before={
+            "source": source,
+            "source_file_name": source_file_name,
+            "status": task.status,
+        },
+    )
+
+    # 级联删除 ai_result（ORM relationship cascade="all, delete-orphan"）。
+    await session.delete(task)
+    await session.commit()
 
 
 async def list_admin_ingest(session: AsyncSession, caller: CallerContext) -> list[AdminIngestItem]:

@@ -102,6 +102,23 @@ class LocalFileStorage:
         except StorageError:
             return False
 
+    def delete(self, ref: str) -> bool:
+        """删除存储引用对应的文件；成功返回 True，不存在或无效引用返回 False。"""
+        try:
+            path = self.resolve_path(ref)
+            if path.is_file():
+                path.unlink()
+                # 清理可能为空的父目录。
+                parent = path.parent
+                try:
+                    parent.rmdir()
+                except OSError:
+                    pass  # 目录非空，保留
+                return True
+            return False
+        except StorageError:
+            return False
+
 
 def get_storage() -> LocalFileStorage:
     """FastAPI 依赖：返回按配置 root 初始化的本地存储后端。

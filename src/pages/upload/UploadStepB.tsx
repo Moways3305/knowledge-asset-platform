@@ -17,6 +17,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
     handleStart,
     handleRefreshProcessing,
     handleReset,
+    handleDeletePending,
     apiError,
     processingNote,
     localPendingTasks,
@@ -87,7 +88,14 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                     重新检查
                   </button>
                 )}
-                <button className="upload77-remove" onClick={handleReset} type="button">
+                <button
+                  className="upload77-remove"
+                  onClick={() => {
+                    if (taskId) void handleDeletePending(taskId);
+                    else handleReset();
+                  }}
+                  type="button"
+                >
                   <X size={15} aria-hidden="true" />
                   移除
                 </button>
