@@ -88,11 +88,28 @@ async def list_pending(
 ) -> PendingIngestListResponse:
     """业务侧待确认任务列表。
 
-    `?source=path_a_wecom` 拉取企微微盘扫描创建的待确认任务。权限与 confirm 一致：
-    只返回调用人有权确认的任务（创建人本人或业务治理角色）；纯 admin → 403。
+    `?source=path_a_wecom` 拉取企微微盘扫描创建的待确认任务。
+    只返回调用人本人创建的待确认任务；纯 admin → 403。
     """
     items = await ingest_service.list_pending(session, caller, source=source)
     return PendingIngestListResponse(items=items, total=len(items))
+
+
+@router.delete("/ingest/{task_id}")
+async def delete_pending_task(
+    task_id: uuid.UUID,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """删除/取消待确认入库任务。
+
+    仅创建人本人可删除，仅未确认的非中间态任务可删。
+    会清理关联的存储文件和 AI 结果，并写入审计。
+    """
+    trace_id = get_trace_id(request)
+    await ingest_service.delete_pending_task(session, caller, task_id, trace_id=trace_id)
+    return {"ok": True}
 
 
 @router.get("/ingest/{task_id}/ai-result", response_model=IngestAiResultResponse)

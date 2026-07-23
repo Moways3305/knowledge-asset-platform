@@ -4,6 +4,7 @@ import { fetchAuthMe } from "../../api/auth";
 import {
   confirmIngest,
   createIngestUpload,
+  deletePendingTask,
   fetchIngestAiResult,
   fetchPendingIngestTasks,
 } from "../../api/ingest";
@@ -480,6 +481,22 @@ export function useUploadFlow() {
     setApiError(null);
   }, [beginWorkflowRun]);
 
+  // 删除待确认入库任务并清理 UI 状态，完成后刷新列表。
+  const handleDeletePending = useCallback(
+    async (tid: string) => {
+      handleReset();
+      try {
+        await deletePendingTask(tid);
+      } catch {
+        // 删除失败时不阻断 UI 重置，但可静默忽略。
+      }
+      // 重新加载待确认列表（两支来源都刷新）。
+      void loadPending();
+      void loadLocalPending();
+    },
+    [handleReset, loadPending, loadLocalPending],
+  );
+
   // 切换来源时清空当前流程 / 选中态，避免一处来源的校正数据残留到另一处。
   const switchPath = useCallback(
     (p: PathBranch) => {
@@ -520,6 +537,7 @@ export function useUploadFlow() {
     handleStart,
     handleRefreshProcessing,
     handleReset,
+    handleDeletePending,
     pendingTasks,
     pendingLoading,
     pendingError,

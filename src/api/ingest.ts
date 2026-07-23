@@ -1,6 +1,7 @@
 // 入库流水线：Path B 真实文件上传、AI 处理结果轮询、Path A（企微微盘）待确认任务、
 // 统一确认入库，以及 admin 入库运营列表。响应只含安全元数据（不含任何存储引用 / 路径 / URL）。
 import {
+  apiDelete,
   apiGet,
   apiPost,
   apiPostNoBody,
@@ -63,6 +64,10 @@ export async function fetchPendingIngestTasks(source?: string): Promise<PendingI
     `/api/v1/ingest/pending${query ? `?${query}` : ""}`,
   );
   return data.items;
+}
+
+export async function deletePendingTask(taskId: string): Promise<void> {
+  await apiDelete<{ ok: boolean }>(`/api/v1/ingest/${taskId}`);
 }
 
 export async function confirmIngest(

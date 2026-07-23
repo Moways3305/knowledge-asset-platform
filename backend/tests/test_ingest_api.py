@@ -511,3 +511,70 @@ async def test_admin_ingest_list_operational_only(client):
     assert resp.json()["total"] >= 1
     assert "source_file_ref" not in resp.text
     assert "storage_ref" not in resp.text
+
+
+# ────────────────────────── 删除待确认任务 ──────────────────────────
+
+
+async def test_delete_pending_task_by_creator_succeeds(client):
+    """创建人可删除自己未确认的待确认任务，删除后不再出现在列表。"""
+    task_id = (await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"]
+    # 先确认任务在待确认列表。
+    pending = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    assert str(task_id) in {i["id"] for i in pending.json()["items"]}
+    # 删除。
+    resp = await client.delete(f"/api/v1/ingest/{task_id}", headers=_hdr(USER_CONSULTANT))
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    # 删除后不在待确认列表。
+    pending2 = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    assert str(task_id) not in {i["id"] for i in pending2.json()["items"]}
+
+
+async def test_delete_pending_task_by_others_forbidden(client):
+    """非创建人不能删除他人任务（包括治理角色）。"""
+    task_id = (await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"]
+    # 经理 B 无权删除顾问的任务。
+    resp = await client.delete(f"/api/v1/ingest/{task_id}", headers=_hdr(USER_PROJECT_MANAGER))
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["denied_reason"] == "ingest_delete_forbidden"
+    # 治理角色也无权删除他人任务。
+    resp2 = await client.delete(f"/api/v1/ingest/{task_id}", headers=_hdr(USER_BOSS))
+    assert resp2.status_code == 403
+    assert resp2.json()["detail"]["denied_reason"] == "ingest_delete_forbidden"
+    # 任务仍在。
+    pending = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    assert str(task_id) in {i["id"] for i in pending.json()["items"]}
+
+
+async def test_delete_confirmed_task_forbidden(client):
+    """已确认入库的任务不可删除。"""
+    task_id = (await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"]
+    await client.post(
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(USER_CONSULTANT),
+        json=_confirm_payload(target_scope="personal"),
+    )
+    resp = await client.delete(f"/api/v1/ingest/{task_id}", headers=_hdr(USER_CONSULTANT))
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["denied_reason"] == "ingest_already_confirmed"
+
+
+async def test_delete_pending_cleans_up_storage(client):
+    """删除待确认任务后，DB 记录被删除，存储文件清理为 best-effort。"""
+    task_id = (await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"]
+    # 确保存储中存在文件（上传成功）。
+    files_before = [p for p in client._kap_storage.root.rglob("*") if p.is_file()]
+    assert len(files_before) >= 1
+    await client.delete(f"/api/v1/ingest/{task_id}", headers=_hdr(USER_CONSULTANT))
+    # 核心断言：DB 记录已删除，不在待确认列表。
+    pending = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    assert str(task_id) not in {i["id"] for i in pending.json()["items"]}
+
+
+async def test_delete_pending_by_admin_403(client):
+    """纯 admin 没有删除业务的权限。"""
+    task_id = (await _create_task(client, USER_BOSS)).json()["ingest_task_id"]
+    resp = await client.delete(f"/api/v1/ingest/{task_id}", headers=_hdr(USER_ADMIN_ONLY))
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["denied_reason"] == "ingest_delete_forbidden"
