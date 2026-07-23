@@ -112,6 +112,21 @@ export async function handleResponse<T>(resp: Response): Promise<T> {
     } catch {
       // 忽略非 JSON 错误体
     }
+
+    // 403 提供更友好的错误提示，帮助用户理解是否需要切换身份
+    if (resp.status === 403) {
+      if (deniedReason === "project_manager_appointment_requires_governance") {
+        message = "任命项目经理需要总经理或咨询总监身份，请在右上角身份菜单中切换角色后重试。";
+      } else if (deniedReason === "active_company_role_not_assigned") {
+        message = "该身份尚未分配给你，需管理员在人员名册中先分配。";
+      } else if (
+        deniedReason === "people_governance_required" ||
+        deniedReason === "people_admin_forbidden"
+      ) {
+        message = "当前操作需要治理权限（总经理/咨询总监），请检查你当前的活跃身份。";
+      }
+    }
+
     throw new ApiError(resp.status, message, deniedReason, detailObj);
   }
   if (resp.status === 204) return undefined as T;

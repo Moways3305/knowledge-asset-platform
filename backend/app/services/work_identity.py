@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 
 from app.core.config import Settings, get_settings
 from app.models.identity import User
 from app.schemas.enums import CompanyRole, RoleStatus
+
+_log = logging.getLogger("auth.identity")
 
 ACTIVE_ROLE_COOKIE_NAME = "kap_active_company_role"
 _FALLBACK_SECRET = "kap-dev-active-work-identity-hmac-fallback"
@@ -80,9 +83,16 @@ def resolve_active_role(
     if not session_token or cookie_value is None:
         return fallback
     if "." not in cookie_value:
+        _log.warning("[identity] resolve-active-role cookie malformed (no dot) | user=%s", user.id)
         raise InvalidActiveRoleCookie("active_company_role_cookie_invalid")
     role, provided = cookie_value.rsplit(".", 1)
     if role not in assigned_active_roles(user):
+        _log.warning(
+            "[identity] resolve-active-role cookie role=%s not in assigned=%s | user=%s",
+            role,
+            assigned_active_roles(user),
+            user.id,
+        )
         raise InvalidActiveRoleCookie("active_company_role_cookie_invalid")
     expected = _signature(
         session_token=session_token,
@@ -91,5 +101,8 @@ def resolve_active_role(
         settings=settings,
     )
     if not hmac.compare_digest(provided, expected):
+        _log.warning(
+            "[identity] resolve-active-role signature mismatch | user=%s role=%s", user.id, role
+        )
         raise InvalidActiveRoleCookie("active_company_role_cookie_invalid")
     return role

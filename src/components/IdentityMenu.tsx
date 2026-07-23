@@ -132,15 +132,22 @@ export default function IdentityMenu() {
       setAuthBusy(true);
       setAuthError(null);
       try {
+        // switchActiveCompanyRole now internally calls /auth/me after the POST
+        // to confirm the cookie is synced, using /auth/me as single source of truth.
         const me = await switchActiveCompanyRole(role);
         setAuthMe(me);
         setOpen(false);
       } catch (error) {
-        setAuthError(
-          error instanceof ApiError && error.status === 403
-            ? "无法切换到未分配的身份"
-            : "身份切换失败，请重试",
-        );
+        if (error instanceof ApiError && error.status === 403) {
+          const denied = error.deniedReason ?? "";
+          if (denied === "active_company_role_not_assigned") {
+            setAuthError("该身份尚未分配给你，需管理员在人员名册中先分配。");
+          } else {
+            setAuthError("身份切换被拒绝，你可能不再拥有该角色。请刷新页面重试。");
+          }
+        } else {
+          setAuthError("身份切换失败，请稍后重试");
+        }
       } finally {
         setAuthBusy(false);
       }

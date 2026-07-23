@@ -64,11 +64,28 @@ export async function fetchAuthMe(): Promise<AuthMeVM> {
 }
 
 export async function switchActiveCompanyRole(companyRole: string): Promise<AuthMeVM> {
-  return mapAuthMe(
-    await apiPost<AuthMeDTO>(`/api/v1/auth/active-company-role`, {
-      company_role: companyRole,
-    }),
-  );
+  // 1. POST to set the active-company-role cookie on the backend
+  const switchResp = await apiPost<AuthMeDTO>(`/api/v1/auth/active-company-role`, {
+    company_role: companyRole,
+  });
+
+  // 2. The backend sets kap_active_company_role via Set-Cookie;
+  //    immediately call /auth/me to confirm the cookie took effect
+  //    and use it as the single source of truth.
+  const confirmed = await apiGet<AuthMeDTO>("/api/v1/auth/me");
+
+  if (confirmed.active_company_role !== companyRole) {
+    console.warn(
+      `[identity] 角色切换未生效：期望 ${companyRole}，/auth/me 返回 ${confirmed.active_company_role}。` +
+        `可能 cookie 未及时同步，将使用 /auth/me 作为最终状态。`,
+      { switchResp, confirmed },
+    );
+  }
+
+  // 3. Clear CSRF token so the next unsafe call fetches a fresh one
+  clearCsrfToken();
+
+  return mapAuthMe(confirmed);
 }
 
 // 会话登录。提供 password → 所有环境密码登录；不提供 → 仅开发环境无凭证适配器。

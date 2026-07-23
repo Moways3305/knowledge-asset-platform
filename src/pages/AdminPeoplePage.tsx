@@ -1,6 +1,8 @@
 ﻿import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   BriefcaseBusiness,
+  ChevronDown,
+  ChevronUp,
   CircleCheck,
   CircleOff,
   Link2,
@@ -85,6 +87,10 @@ export default function AdminPeoplePage() {
     projectName: string;
   } | null>(null);
 
+  // 项目成员关系列的展开/收起状态（按 user_id 索引）
+  const [expandedMemberships, setExpandedMemberships] = useState<Set<string>>(new Set());
+  const [expandedRoles, setExpandedRoles] = useState<Set<string>>(new Set());
+
   const describeError = (e: unknown, fallback: string) => {
     if (!(e instanceof ApiError)) return fallback;
     if (
@@ -102,6 +108,24 @@ export default function AdminPeoplePage() {
     ? (companyRoleLabel[authMe.activeCompanyRole] ??
       (authMe.activeCompanyRole === "admin" ? "管理员" : authMe.activeCompanyRole))
     : "未分配";
+
+  const toggleMembershipExpand = useCallback((userId: string) => {
+    setExpandedMemberships((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  }, []);
+
+  const toggleRoleExpand = useCallback((userId: string) => {
+    setExpandedRoles((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -770,9 +794,12 @@ export default function AdminPeoplePage() {
                               {u.wecom_bound ? "已绑定" : "未绑定"}
                             </span>
                           </td>
-                          <td>
+                          <td className="pp-cell-roles">
                             <span className="pp-role-tags">
-                              {activeCompanyRoles.slice(0, 2).map((c) => (
+                              {(expandedRoles.has(u.user_id)
+                                ? activeCompanyRoles
+                                : activeCompanyRoles.slice(0, 2)
+                              ).map((c) => (
                                 <span key={c.role_id} className="pp-role-tag">
                                   <ShieldCheck size={12} />
                                   {companyRoleLabel[c.company_role] ?? "其他角色"}
@@ -781,12 +808,22 @@ export default function AdminPeoplePage() {
                               {activeCompanyRoles.length > 2 && (
                                 <button
                                   type="button"
-                                  className="pp-detail-link"
-                                  onClick={(event) =>
-                                    void openDetail(u.user_id, event.currentTarget)
-                                  }
+                                  className="pp-expand-toggle"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleRoleExpand(u.user_id);
+                                  }}
                                 >
-                                  +{activeCompanyRoles.length - 2} 查看全部
+                                  {expandedRoles.has(u.user_id) ? (
+                                    <>
+                                      <ChevronUp size={12} /> 收起
+                                    </>
+                                  ) : (
+                                    <>
+                                      +{activeCompanyRoles.length - 2} 查看全部{" "}
+                                      <ChevronDown size={12} />
+                                    </>
+                                  )}
                                 </button>
                               )}
                             </span>
@@ -794,7 +831,10 @@ export default function AdminPeoplePage() {
                           <td className="pp-cell-projects">
                             {activeMemberships.length > 0 ? (
                               <span className="pp-project-summary">
-                                {activeMemberships.slice(0, 2).map((m) => (
+                                {(expandedMemberships.has(u.user_id)
+                                  ? activeMemberships
+                                  : activeMemberships.slice(0, 2)
+                                ).map((m) => (
                                   <span key={m.membership_id} className="pp-project-role-item">
                                     <BriefcaseBusiness size={12} />
                                     <span className="pp-pr-project">{m.project_name}</span>
@@ -806,12 +846,22 @@ export default function AdminPeoplePage() {
                                 {activeMemberships.length > 2 && (
                                   <button
                                     type="button"
-                                    className="pp-detail-link"
-                                    onClick={(event) =>
-                                      void openDetail(u.user_id, event.currentTarget)
-                                    }
+                                    className="pp-expand-toggle"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleMembershipExpand(u.user_id);
+                                    }}
                                   >
-                                    +{activeMemberships.length - 2} 查看全部
+                                    {expandedMemberships.has(u.user_id) ? (
+                                      <>
+                                        <ChevronUp size={12} /> 收起
+                                      </>
+                                    ) : (
+                                      <>
+                                        +{activeMemberships.length - 2} 查看全部{" "}
+                                        <ChevronDown size={12} />
+                                      </>
+                                    )}
                                   </button>
                                 )}
                               </span>
