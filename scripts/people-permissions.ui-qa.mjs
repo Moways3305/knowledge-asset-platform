@@ -275,10 +275,10 @@ try {
             const relationCell = pageRoot?.querySelector(".pp-cell-projects");
             const relationSummaries =
               relationCell?.querySelectorAll(".pp-project-role-item").length;
-            const relationTrigger = relationCell?.querySelector(".pp-detail-link");
+            const relationTrigger = relationCell?.querySelector(".pp-expand-toggle");
             const roleCell = pageRoot?.querySelector(".pp-table tbody td:nth-child(3)");
             const roleSummaries = roleCell?.querySelectorAll(".pp-role-tag").length;
-            const roleTrigger = roleCell?.querySelector(".pp-detail-link");
+            const roleTrigger = roleCell?.querySelector(".pp-expand-toggle");
             return {
               overflowX: root.scrollWidth - root.clientWidth,
               safe: secrets.every((secret) => !html.includes(secret)),
