@@ -949,7 +949,7 @@ function AddMembershipForm({
   onSubmit: (projectId: string, role: string) => void;
 }) {
   const [projectIndex, setProjectIndex] = useState(0);
-  const [role, setRole] = useState("consultant");
+  const [role, setRole] = useState(PROJECT_ROLE_OPTIONS[0] ?? "project_manager");
   if (projects.length === 0) {
     return (
       <p className="pp-no-project" style={{ marginTop: 8 }}>

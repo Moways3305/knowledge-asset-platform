@@ -546,6 +546,168 @@
   }
 }
 
+/* ---- create project modal ---- */
+.wb81-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(2px);
+}
+
+.wb81-modal-panel {
+  width: min(460px, 92vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+}
+
+.wb81-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 0;
+}
+
+.wb81-modal-header h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text-heading);
+}
+
+.wb81-modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--color-text-tertiary);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.wb81-modal-close:hover {
+  background: var(--color-bg-subtle);
+  color: var(--color-text);
+}
+
+.wb81-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 20px;
+}
+
+.wb81-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.wb81-field span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.wb81-field input,
+.wb81-field select {
+  padding: 8px 11px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-text);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: 6px;
+  outline: none;
+}
+
+.wb81-field input:focus,
+.wb81-field select:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 15%, transparent);
+}
+
+.wb81-field-error {
+  margin: 0;
+  padding: 7px 11px;
+  font-size: 12px;
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 7%, var(--color-bg-surface));
+  border-radius: 5px;
+}
+
+.wb81-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 20px 16px;
+}
+
+.wb81-btn-primary,
+.wb81-btn-secondary {
+  padding: 7px 18px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.wb81-btn-primary {
+  color: #fff;
+  background: var(--color-primary);
+}
+
+.wb81-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.wb81-btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.wb81-btn-secondary {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-surface);
+  border-color: var(--color-border-light);
+}
+
+.wb81-btn-secondary:hover:not(:disabled) {
+  background: var(--color-bg-subtle);
+}
+
+/* ---- empty-action button in project section ---- */
+.wb81-empty-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  color: #fff;
+  background: var(--color-primary);
+  border: none;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wb81-empty-action:hover {
+  filter: brightness(1.08);
+}
+
 @media (max-width: 960px) {
   .wb81-dashboard {
     grid-template-areas:
