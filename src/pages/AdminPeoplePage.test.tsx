@@ -194,7 +194,7 @@ describe("AdminPeoplePage governance controls", () => {
     expect(container.querySelector(".pp-field-mark svg")).toBeInTheDocument();
   });
 
-  it("summarizes 3+ project relationships and exposes the complete list in the governance drawer", async () => {
+  it("summarizes 3+ project relationships and exposes the complete list inline", async () => {
     const densePerson: PersonDTO = {
       ...person,
       company_roles: [
@@ -217,17 +217,26 @@ describe("AdminPeoplePage governance controls", () => {
         <AdminPeoplePage />
       </MemoryRouter>,
     );
-    const relationCell = await screen.findByRole("button", { name: "+2 查看全部" });
+    const expandBtn = await screen.findByRole("button", { name: "+2 查看全部" });
     expect(container.querySelectorAll(".pp-cell-projects .pp-project-role-item")).toHaveLength(2);
     expect(screen.queryByText("丙项目")).not.toBeInTheDocument();
 
-    fireEvent.click(relationCell);
-    const dialog = await screen.findByRole("dialog", { name: "人员治理详情" });
-    expect(within(dialog).getByText("甲项目")).toBeInTheDocument();
-    expect(within(dialog).getByText("丁项目")).toBeInTheDocument();
-    expect(dialog.innerHTML).not.toMatch(/membership-3|project-3/);
-    fireEvent.click(within(dialog).getByRole("button", { name: "关闭人员详情" }));
-    await waitFor(() => expect(relationCell).toHaveFocus());
+    // 点击展开，所有 4 个项目关系应内联显示
+    fireEvent.click(expandBtn);
+    const projectsCell = container.querySelector(".pp-cell-projects")!;
+    const allItems = projectsCell.querySelectorAll(".pp-project-role-item");
+    expect(allItems).toHaveLength(4);
+    expect(screen.getByText("甲项目")).toBeInTheDocument();
+    expect(screen.getByText("丁项目")).toBeInTheDocument();
+    // 不应泄露 session 敏感数据
+    expect(container.innerHTML).not.toMatch(/membership-3|project-3/);
+    // 展开后按钮文字应为"收起"
+    expect(screen.getByRole("button", { name: "收起" })).toBeInTheDocument();
+
+    // 再次点击收起
+    fireEvent.click(screen.getByRole("button", { name: "收起" }));
+    expect(container.querySelectorAll(".pp-cell-projects .pp-project-role-item")).toHaveLength(2);
+    expect(screen.queryByText("丙项目")).not.toBeInTheDocument();
   });
 
   it("sends real filters and opens detail only after selection", async () => {
