@@ -18,14 +18,12 @@ const scenarios = [
   { name: "review-error", role: "project_manager", canWrite: true, review: "error" },
   {
     name: "delete-ready",
-    role: "consultant",
-    companyRole: "boss",
-    canWrite: false,
-    review: "forbidden",
-    projectStatus: "archived",
+    role: "project_manager",
+    companyRole: "consultant",
+    canWrite: true,
+    review: "empty",
     deletion: {
       can_delete: true,
-      is_archived: true,
       asset_count: 0,
       member_count: 2,
       blockers: [],
@@ -33,29 +31,25 @@ const scenarios = [
   },
   {
     name: "delete-blocked",
-    role: "consultant",
-    companyRole: "boss",
-    canWrite: false,
-    review: "forbidden",
-    projectStatus: "active",
-    deletion: {
-      can_delete: true,
-      is_archived: false,
-      asset_count: 3,
-      member_count: 2,
-      blockers: ["project_not_archived", "project_has_assets"],
-    },
-  },
-  {
-    name: "delete-unauthorized",
     role: "project_manager",
     companyRole: "consultant",
     canWrite: true,
     review: "empty",
-    projectStatus: "archived",
+    deletion: {
+      can_delete: true,
+      asset_count: 3,
+      member_count: 2,
+      blockers: ["project_has_assets"],
+    },
+  },
+  {
+    name: "delete-unauthorized",
+    role: "consultant",
+    companyRole: "boss",
+    canWrite: false,
+    review: "forbidden",
     deletion: {
       can_delete: false,
-      is_archived: true,
       asset_count: 0,
       member_count: 2,
       blockers: ["project_delete_forbidden"],
@@ -198,14 +192,24 @@ for (const scenario of scenarios) {
       if (requestUrl.pathname === `/api/v1/projects/${projectId}/members`) {
         return fulfill(members(scenario.role === "project_manager"));
       }
+      if (requestUrl.pathname === `/api/v1/projects/${projectId}/candidate-members`) {
+        return fulfill({
+          items: [
+            {
+              user_id: "00000000-0000-0000-0000-0000000000b3",
+              name: "候选辅导老师",
+              email: "candidate-not-rendered@example.test",
+            },
+          ],
+        });
+      }
       if (requestUrl.pathname === `/api/v1/projects/${projectId}/deletion-readiness`) {
         return fulfill(
           scenario.deletion ?? {
             can_delete: false,
-            is_archived: false,
             asset_count: 2,
             member_count: 2,
-            blockers: ["project_delete_forbidden", "project_not_archived", "project_has_assets"],
+            blockers: ["project_delete_forbidden", "project_has_assets"],
           },
         );
       }
@@ -252,6 +256,40 @@ for (const scenario of scenarios) {
       const deleteButton = [...document.querySelectorAll("button")].find(
         (element) => element.textContent?.trim() === "删除项目",
       );
+      const memberSection = document
+        .querySelector('[aria-labelledby="project-members-heading"]')
+        ?.getBoundingClientRect();
+      const memberActionRow = document
+        .querySelector(".ps74-member-action-row")
+        ?.getBoundingClientRect();
+      const addMemberEntry = [...document.querySelectorAll("button")]
+        .find((element) => element.textContent?.trim() === "添加成员")
+        ?.getBoundingClientRect();
+      const memberActionCell = document
+        .querySelector(".ps74-member-actions")
+        ?.getBoundingClientRect();
+      const memberTableViewport = document
+        .querySelector(".ps74-table-wrap")
+        ?.getBoundingClientRect();
+      const memberActionCellStyle = document.querySelector(".ps74-member-actions")
+        ? getComputedStyle(document.querySelector(".ps74-member-actions"))
+        : null;
+      const memberActionControls = document
+        .querySelector(".ps74-member-action-controls")
+        ?.getBoundingClientRect();
+      const memberRow = document
+        .querySelector(".ps74-members-table tbody tr")
+        ?.getBoundingClientRect();
+      const actionRowStyle = document.querySelector(".ps74-member-action-row")
+        ? getComputedStyle(document.querySelector(".ps74-member-action-row"))
+        : null;
+      const memberActionButtonsClipped = [
+        ...document.querySelectorAll(".ps74-member-action-controls button"),
+      ].filter(
+        (element) =>
+          element.scrollWidth > element.clientWidth + 2 ||
+          element.scrollHeight > element.clientHeight + 2,
+      ).length;
       return {
         overflowX: root.scrollWidth - root.clientWidth,
         shellOverlap: rail && deck ? Math.max(0, rail.right - deck.left) : 1,
@@ -266,7 +304,48 @@ for (const scenario of scenarios) {
         uncontractedHeaderAction: /搜索|导出|新建项目|通知/.test(deckText),
         clippedButtons,
         lifecycleGateCount: document.querySelectorAll(".ps74-lifecycle-gates > div").length,
-        deleteButtonDisabled: deleteButton?.disabled ?? true,
+        deleteButtonVisible: Boolean(deleteButton),
+        deleteBlockerVisible: Boolean(document.querySelector(".ps74-delete-blocker")),
+        dangerZoneVisible: Boolean(document.querySelector(".ps74-danger-zone")),
+        memberEntryCenterDelta:
+          memberSection && addMemberEntry
+            ? Math.abs(
+                addMemberEntry.left +
+                  addMemberEntry.width / 2 -
+                  (memberSection.left + memberSection.width / 2),
+              )
+            : null,
+        memberActionRowCentered:
+          memberSection && memberActionRow
+            ? Math.abs(
+                memberActionRow.left +
+                  memberActionRow.width / 2 -
+                  (memberSection.left + memberSection.width / 2),
+              ) <= 2
+            : false,
+        memberDividerVisible:
+          Boolean(actionRowStyle) &&
+          Number.parseFloat(actionRowStyle.borderTopWidth) >= 1 &&
+          actionRowStyle.borderTopStyle !== "none" &&
+          actionRowStyle.borderTopColor !== "rgba(0, 0, 0, 0)",
+        memberActionColumnWaste:
+          memberActionCell && memberActionControls && memberActionCellStyle
+            ? memberActionCell.width -
+              memberActionControls.width -
+              Number.parseFloat(memberActionCellStyle.paddingLeft) -
+              Number.parseFloat(memberActionCellStyle.paddingRight) -
+              Number.parseFloat(memberActionCellStyle.borderLeftWidth) -
+              Number.parseFloat(memberActionCellStyle.borderRightWidth)
+            : null,
+        memberRowHeight: memberRow?.height ?? null,
+        memberActionButtonsClipped,
+        memberActionColumnFullyVisible:
+          memberTableViewport && memberActionCell && memberActionControls
+            ? memberActionCell.left >= memberTableViewport.left - 1 &&
+              memberActionCell.right <= memberTableViewport.right + 1 &&
+              memberActionControls.left >= memberTableViewport.left - 1 &&
+              memberActionControls.right <= memberTableViewport.right + 1
+            : false,
       };
     });
 
@@ -276,6 +355,47 @@ for (const scenario of scenarios) {
       animations: "disabled",
     });
     let deletionEvidence = {};
+    let memberActionEvidence = {};
+    if (scenario.name === "manager-pending") {
+      const memberSection = page.locator('[aria-labelledby="project-members-heading"]');
+      await memberSection.scrollIntoViewIfNeeded();
+      await memberSection.screenshot({
+        path: path.join(outDir, `${scenario.name}-member-action-collapsed-${viewport.name}.png`),
+        animations: "disabled",
+      });
+      await page.getByRole("button", { name: "添加成员" }).click();
+      const addMemberForm = page.locator(".ps74-add-member-form");
+      await addMemberForm.waitFor();
+      await memberSection.screenshot({
+        path: path.join(outDir, `${scenario.name}-member-action-expanded-${viewport.name}.png`),
+        animations: "disabled",
+      });
+      memberActionEvidence = await page.evaluate(() => {
+        const section = document
+          .querySelector('[aria-labelledby="project-members-heading"]')
+          ?.getBoundingClientRect();
+        const form = document.querySelector(".ps74-add-member-form")?.getBoundingClientRect();
+        const confirm = [...document.querySelectorAll("button")].find(
+          (element) => element.textContent?.trim() === "确认添加",
+        );
+        const cancel = [...document.querySelectorAll("button")].find(
+          (element) => element.textContent?.trim() === "取消",
+        );
+        return {
+          memberFormCenterDelta:
+            section && form
+              ? Math.abs(form.left + form.width / 2 - (section.left + section.width / 2))
+              : null,
+          memberFormActionsReachable:
+            Boolean(confirm && cancel) &&
+            confirm.getBoundingClientRect().width > 0 &&
+            cancel.getBoundingClientRect().width > 0,
+        };
+      });
+      await page.getByRole("button", { name: "取消" }).click();
+      await page.getByRole("button", { name: "添加成员" }).waitFor();
+      memberActionEvidence.memberEntryRestoredAfterCancel = true;
+    }
     if (scenario.name === "delete-ready") {
       const deleteButton = page.getByRole("button", { name: "删除项目" });
       await deleteButton.click();
@@ -290,6 +410,9 @@ for (const scenario of scenarios) {
         deleteConfirmationVisible: await dialog.isVisible(),
         irreversibleCopyVisible: (await dialog.textContent()).includes("不可恢复"),
         memberRemovalCopyVisible: (await dialog.textContent()).includes("2 条项目成员关系"),
+        confirmInitiallyDisabled: await dialog
+          .getByRole("button", { name: "删除项目" })
+          .isDisabled(),
       };
       await dialog.getByRole("button", { name: "取消" }).click();
     }
@@ -314,6 +437,7 @@ for (const scenario of scenarios) {
       scenario: scenario.name,
       viewport: viewport.name,
       ...metrics,
+      ...memberActionEvidence,
       ...deletionEvidence,
       ...collapsedMetrics,
     });
@@ -337,14 +461,33 @@ for (const result of results) {
         result.collapsedButtonName !== "展开主导航" ||
         result.collapsedProjectTooltip !== "项目设置")) ||
     result.clippedButtons > 0 ||
-    result.lifecycleGateCount !== 3 ||
-    (result.scenario === "delete-ready" && result.deleteButtonDisabled) ||
-    (["delete-blocked", "delete-unauthorized"].includes(result.scenario) &&
-      !result.deleteButtonDisabled) ||
+    result.lifecycleGateCount !== 0 ||
+    (result.scenario === "delete-ready" && !result.deleteButtonVisible) ||
+    (result.scenario === "manager-pending" &&
+      (result.memberEntryCenterDelta === null ||
+        result.memberEntryCenterDelta > 2 ||
+        !result.memberActionRowCentered ||
+        !result.memberDividerVisible ||
+        result.memberActionColumnWaste === null ||
+        // Chromium table-width rounding differs between local Windows and CI Linux.
+        // A 24px residual is still smaller than a control gap and does not create a blank column.
+        result.memberActionColumnWaste > 24 ||
+        result.memberRowHeight === null ||
+        result.memberRowHeight > 64 ||
+        result.memberActionButtonsClipped > 0 ||
+        !result.memberActionColumnFullyVisible ||
+        result.memberFormCenterDelta === null ||
+        result.memberFormCenterDelta > 2 ||
+        !result.memberFormActionsReachable ||
+        !result.memberEntryRestoredAfterCancel)) ||
+    (result.scenario === "delete-blocked" &&
+      (!result.deleteBlockerVisible || result.deleteButtonVisible || !result.dangerZoneVisible)) ||
+    (result.scenario === "delete-unauthorized" && result.dangerZoneVisible) ||
     (result.scenario === "delete-ready" &&
       (!result.deleteConfirmationVisible ||
         !result.irreversibleCopyVisible ||
-        !result.memberRemovalCopyVisible))
+        !result.memberRemovalCopyVisible ||
+        !result.confirmInitiallyDisabled))
   );
 }
 fs.writeFileSync(path.join(outDir, "report.json"), JSON.stringify(results, null, 2));

@@ -25,6 +25,14 @@
   font-weight: 600;
 }
 
+.pk-header-actions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .pk-project-switcher {
   display: flex;
   align-items: center;

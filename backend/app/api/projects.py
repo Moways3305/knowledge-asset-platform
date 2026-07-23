@@ -9,9 +9,7 @@
 - POST   /api/v1/projects/{project_id}/members                  （治理角色 / 本项目经理按矩阵新增）
 - PATCH  /api/v1/projects/{project_id}/members/{member_id}      （治理角色 / 本项目经理按矩阵调整）
 - DELETE /api/v1/projects/{project_id}/members/{member_id}      （同上权限，物理删除关系）
-- POST   /api/v1/projects/{project_id}/archive                  （总经理 / 咨询总监）
-- POST   /api/v1/projects/{project_id}/reactivate               （总经理 / 咨询总监）
-- DELETE /api/v1/projects/{project_id}                          （仅总经理，需先归档+清空资产）
+- DELETE /api/v1/projects/{project_id}                          （本项目有效项目经理，需清空资产）
 
 权限委托 service；响应只含安全治理元数据，写动作均写审计。
 """
@@ -187,38 +185,6 @@ async def remove_project_member(
     return Response(status_code=204)
 
 
-@router.post("/{project_id}/archive", response_model=ProjectSettingsOut)
-async def archive_project(
-    project_id: uuid.UUID,
-    request: Request,
-    caller: CallerContext = Depends(get_caller_context),
-    session: AsyncSession = Depends(get_db),
-) -> ProjectSettingsOut:
-    """归档项目（仅总经理 / 咨询总监）。
-
-    project.status → archived；全部 project_members → inactive（保留行用于审计）。
-    """
-    return await projects_service.archive_project(
-        session, caller, project_id, get_trace_id(request)
-    )
-
-
-@router.post("/{project_id}/reactivate", response_model=ProjectSettingsOut)
-async def reactivate_project(
-    project_id: uuid.UUID,
-    request: Request,
-    caller: CallerContext = Depends(get_caller_context),
-    session: AsyncSession = Depends(get_db),
-) -> ProjectSettingsOut:
-    """重新激活已归档项目（仅总经理 / 咨询总监）。
-
-    project.status → active；成员关系保持 inactive（需手动重新启用）。
-    """
-    return await projects_service.reactivate_project(
-        session, caller, project_id, get_trace_id(request)
-    )
-
-
 @router.delete("/{project_id}", status_code=204)
 async def delete_project(
     project_id: uuid.UUID,
@@ -227,9 +193,9 @@ async def delete_project(
     session: AsyncSession = Depends(get_db),
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ):
-    """删除项目（仅总经理）。
+    """删除项目（仅本项目有效项目经理）。
 
-    前置：项目必须先归档 + 项目下无未删除 KnowledgeAsset。
+    前置：项目下无未删除 KnowledgeAsset。
     执行：物理删除成员关系 + KB 映射 + 项目行；best-effort 清理底座 KB。
     """
     await projects_service.delete_project(

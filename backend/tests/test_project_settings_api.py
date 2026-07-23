@@ -86,9 +86,15 @@ async def test_deletion_readiness_projects_real_prerequisites_without_granting_p
 
     boss = await client.get(_deletion_readiness(PROJECT_ALPHA), headers=_hdr(USER_BOSS))
     assert boss.status_code == 200
-    assert boss.json()["can_delete"] is True
-    assert "project_delete_forbidden" not in boss.json()["blockers"]
-    assert "project_not_archived" in boss.json()["blockers"]
+    assert boss.json()["can_delete"] is False
+    assert "project_delete_forbidden" in boss.json()["blockers"]
+
+    project_manager = await client.get(
+        _deletion_readiness(PROJECT_ALPHA), headers=_hdr(USER_PROJECT_MANAGER)
+    )
+    assert project_manager.status_code == 200
+    assert project_manager.json()["can_delete"] is True
+    assert "project_delete_forbidden" not in project_manager.json()["blockers"]
 
 
 async def test_non_member_consultant_forbidden(client):
@@ -134,6 +140,15 @@ async def test_project_manager_can_update(client):
     assert body["lifecycle_route_key"] == "route_B"
     assert body["force_review_on_ingest"] is True
     assert body["can_write"] is True
+
+
+async def test_project_phase_rejects_free_text(client):
+    r = await client.patch(
+        _settings(PROJECT_ALPHA),
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={"lifecycle_phase_key": "自定义阶段"},
+    )
+    assert r.status_code == 422
 
 
 async def test_consultant_member_cannot_update(client):

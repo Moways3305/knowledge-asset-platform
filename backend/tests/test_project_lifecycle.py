@@ -1,9 +1,8 @@
-"""项目归档 / 重新激活 / 删除 + 成员关系物理删除测试。
+"""项目删除 + 成员关系物理删除测试。
 
 覆盖：
-- 归档：仅总经理 / 咨询总监；归档联动停用全部成员；重复归档 409。
-- 重新激活：仅治理；未归档时 409；成员保持 inactive。
-- 删除：仅总经理；未归档 409；有资产 409；归档后空资产可删；物理删除关系 + KB 映射 + 项目行。
+- 删除：仅有效项目经理；有资产 409；空项目可直接删除；物理删除关系 + KB 映射 + 项目行。
+- 软删除资产不制造虚假计数，审计墓碑解绑后项目可删除。
 - 成员删除（项目域 + 人员域）：权限矩阵、保护规则（自己 / 最后一个 PM）、审计留痕。
 
 不依赖真实外部系统；WeKnora 通过 dependency_overrides 注入 fake。
@@ -42,7 +41,7 @@ def _hdr(uid, trace=None):
     return h
 
 
-def _create_project_body(name="归档测试项目", **over):
+def _create_project_body(name="项目删除测试", **over):
     base = {
         "name": name,
         "client_name": "示例客户",
@@ -65,145 +64,27 @@ class _FakeKbClient:
         self.deleted.append(kb_id)
 
 
-# ===================== 归档 =====================
-
-
-async def test_boss_archives_project(client, db_session):
-    r = await client.post(PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body())
-    assert r.status_code == 201, r.text
-    pid = uuid.UUID(r.json()["id"])
-
-    r = await client.post(f"{PROJECTS}/{pid}/archive", headers=_hdr(USER_BOSS))
-    assert r.status_code == 200, r.text
-    assert r.json()["status"] == "archived"
-    # 全部成员 → inactive。
-    members = list(
-        (await db_session.execute(select(ProjectMember).where(ProjectMember.project_id == pid)))
-        .scalars()
-        .all()
-    )
-    assert members and all(m.status == "inactive" for m in members)
-
-
-async def test_director_archives_project(client):
-    r = await client.post(
-        PROJECTS, headers=_hdr(USER_DIRECTOR), json=_create_project_body("总监归档")
-    )
-    assert r.status_code == 201
-    pid = uuid.UUID(r.json()["id"])
-    r = await client.post(f"{PROJECTS}/{pid}/archive", headers=_hdr(USER_DIRECTOR))
-    assert r.status_code == 200, r.text
-
-
-async def test_consultant_cannot_archive(client):
-    r = await client.post(
-        PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body("顾问无权归档")
-    )
-    pid = uuid.UUID(r.json()["id"])
-    r = await client.post(f"{PROJECTS}/{pid}/archive", headers=_hdr(USER_CONSULTANT))
-    assert r.status_code == 403
-    assert r.json()["detail"]["denied_reason"] == "project_lifecycle_forbidden"
-
-
-async def test_admin_cannot_archive(client):
-    r = await client.post(
-        PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body("admin无权归档")
-    )
-    pid = uuid.UUID(r.json()["id"])
-    r = await client.post(f"{PROJECTS}/{pid}/archive", headers=_hdr(USER_ADMIN_ONLY))
-    assert r.status_code == 403
-    assert r.json()["detail"]["denied_reason"] == "admin_business_permission_denied"
-
-
-async def test_archive_already_archived_409(client):
-    r = await client.post(PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body("重复归档"))
-    pid = uuid.UUID(r.json()["id"])
-    assert (
-        await client.post(f"{PROJECTS}/{pid}/archive", headers=_hdr(USER_BOSS))
-    ).status_code == 200
-    r = await client.post(f"{PROJECTS}/{pid}/archive", headers=_hdr(USER_BOSS))
-    assert r.status_code == 409
-    assert r.json()["detail"]["denied_reason"] == "project_already_archived"
-
-
-async def test_archive_audit(client, db_session):
-    r = await client.post(
-        PROJECTS,
-        headers={**_hdr(USER_BOSS), "X-Trace-Id": "trc-arc"},
-        json=_create_project_body("归档审计"),
-    )
-    pid = uuid.UUID(r.json()["id"])
-    await client.post(f"{PROJECTS}/{pid}/archive", headers=_hdr(USER_BOSS))
-    evt = (
-        (
-            await db_session.execute(
-                select(AuditEvent).where(AuditEvent.action == "project.archived")
-            )
-        )
-        .scalars()
-        .first()
-    )
-    assert evt is not None and evt.actor_user_id == USER_BOSS
-    assert evt.before_snapshot["status"] == "active"
-    assert evt.after_snapshot["status"] == "archived"
-
-
-# ===================== 重新激活 =====================
-
-
-async def test_reactivate_after_archive(client, db_session):
-    r = await client.post(PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body("重新激活"))
-    pid = uuid.UUID(r.json()["id"])
-    await client.post(f"{PROJECTS}/{pid}/archive", headers=_hdr(USER_BOSS))
-    r = await client.post(f"{PROJECTS}/{pid}/reactivate", headers=_hdr(USER_BOSS))
-    assert r.status_code == 200, r.text
-    assert r.json()["status"] == "active"
-    # 成员保持 inactive。
-    members = list(
-        (await db_session.execute(select(ProjectMember).where(ProjectMember.project_id == pid)))
-        .scalars()
-        .all()
-    )
-    assert members and all(m.status == "inactive" for m in members)
-
-
-async def test_reactivate_not_archived_409(client):
-    r = await client.post(
-        PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body("未归档激活")
-    )
-    pid = uuid.UUID(r.json()["id"])
-    r = await client.post(f"{PROJECTS}/{pid}/reactivate", headers=_hdr(USER_BOSS))
-    assert r.status_code == 409
-    assert r.json()["detail"]["denied_reason"] == "project_not_archived"
-
-
 # ===================== 删除 =====================
 
 
-async def _archive_project(client, pid):
-    r = await client.post(f"{PROJECTS}/{pid}/archive", headers=_hdr(USER_BOSS))
-    assert r.status_code == 200, r.text
-
-
-async def test_delete_not_archived_409(client):
+async def test_boss_non_member_cannot_delete_project(client):
     r = await client.post(
-        PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body("未归档删除")
+        PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body("总经理非项目经理")
     )
     pid = uuid.UUID(r.json()["id"])
     r = await client.delete(f"{PROJECTS}/{pid}", headers=_hdr(USER_BOSS))
-    assert r.status_code == 409
-    assert r.json()["detail"]["denied_reason"] == "project_not_archived"
+    assert r.status_code == 403
+    assert r.json()["detail"]["denied_reason"] == "project_delete_forbidden"
 
 
 async def test_delete_with_assets_409(client, db_session):
-    """项目下有未删除资产时拒绝删除（即使已归档）。"""
+    """项目下有未删除资产时拒绝项目经理删除。"""
     from app.models.knowledge import KnowledgeAsset
 
     r = await client.post(
         PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body("带资产删除")
     )
     pid = uuid.UUID(r.json()["id"])
-    await _archive_project(client, pid)
     # 手动插入一条 project scope 资产（未删除）。
     asset = KnowledgeAsset(
         title="测试资产",
@@ -219,20 +100,20 @@ async def test_delete_with_assets_409(client, db_session):
     )
     db_session.add(asset)
     await db_session.commit()
-    r = await client.delete(f"{PROJECTS}/{pid}", headers=_hdr(USER_BOSS))
+    r = await client.delete(f"{PROJECTS}/{pid}", headers=_hdr(USER_PROJECT_MANAGER))
     assert r.status_code == 409
     assert r.json()["detail"]["denied_reason"] == "project_has_assets"
 
 
-async def test_soft_deleted_asset_blocks_readiness_and_project_delete(client, db_session):
-    """软删除行仍持有项目外键，readiness 与 DELETE 都必须 fail closed。"""
+async def test_soft_deleted_asset_does_not_block_readiness_or_project_delete(client, db_session):
+    """软删除行已退出项目知识库，不再制造 0/1 计数矛盾或外键失败。"""
+    from app.models.ingest import IngestTask
     from app.models.knowledge import KnowledgeAsset
 
     r = await client.post(
         PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body("软删除资产项目")
     )
     pid = uuid.UUID(r.json()["id"])
-    await _archive_project(client, pid)
     asset = KnowledgeAsset(
         title="已撤下测试资产",
         scope=KnowledgeScope.project.value,
@@ -249,17 +130,35 @@ async def test_soft_deleted_asset_blocks_readiness_and_project_delete(client, db
         delete_reason="回归测试",
     )
     db_session.add(asset)
+    await db_session.flush()
+    ingest = IngestTask(
+        source="local_upload",
+        source_file_ref="audit-only/source.docx",
+        source_file_name="source.docx",
+        status="completed",
+        target_scope=KnowledgeScope.project.value,
+        target_project_id=pid,
+        result_asset_id=asset.id,
+        created_by=USER_PROJECT_MANAGER,
+    )
+    db_session.add(ingest)
     await db_session.commit()
 
-    readiness = await client.get(f"{PROJECTS}/{pid}/deletion-readiness", headers=_hdr(USER_BOSS))
+    readiness = await client.get(
+        f"{PROJECTS}/{pid}/deletion-readiness", headers=_hdr(USER_PROJECT_MANAGER)
+    )
     assert readiness.status_code == 200, readiness.text
-    assert readiness.json()["asset_count"] == 1
-    assert "project_has_assets" in readiness.json()["blockers"]
+    assert readiness.json()["asset_count"] == 0
+    assert readiness.json()["can_delete"] is True
+    assert "project_has_assets" not in readiness.json()["blockers"]
 
-    deleted = await client.delete(f"{PROJECTS}/{pid}", headers=_hdr(USER_BOSS))
-    assert deleted.status_code == 409, deleted.text
-    assert deleted.json()["detail"]["denied_reason"] == "project_has_assets"
-    assert await db_session.get(Project, pid) is not None
+    deleted = await client.delete(f"{PROJECTS}/{pid}", headers=_hdr(USER_PROJECT_MANAGER))
+    assert deleted.status_code == 204, deleted.text
+    assert await db_session.get(Project, pid) is None
+    await db_session.refresh(asset)
+    assert asset.project_id is None
+    await db_session.refresh(ingest)
+    assert ingest.target_project_id is None
 
 
 async def test_delete_director_forbidden(client):
@@ -267,7 +166,6 @@ async def test_delete_director_forbidden(client):
         PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body("总监无权删")
     )
     pid = uuid.UUID(r.json()["id"])
-    await _archive_project(client, pid)
     r = await client.delete(f"{PROJECTS}/{pid}", headers=_hdr(USER_DIRECTOR))
     assert r.status_code == 403
     assert r.json()["detail"]["denied_reason"] == "project_delete_forbidden"
@@ -278,21 +176,21 @@ async def test_delete_admin_forbidden(client):
         PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body("admin无权删")
     )
     pid = uuid.UUID(r.json()["id"])
-    await _archive_project(client, pid)
     r = await client.delete(f"{PROJECTS}/{pid}", headers=_hdr(USER_ADMIN_ONLY))
     assert r.status_code == 403
     assert r.json()["detail"]["denied_reason"] == "admin_business_permission_denied"
 
 
-async def test_delete_archived_no_assets(client, db_session, monkeypatch):
+async def test_project_manager_deletes_active_project_without_assets(
+    client, db_session, monkeypatch
+):
     fake = _FakeKbClient()
     # 项目创建时不预建 KB（底座未启用），故无映射行；delete 仍应成功。
     r = await client.post(PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body("可删项目"))
     pid = uuid.UUID(r.json()["id"])
-    await _archive_project(client, pid)
     app.dependency_overrides[get_weknora_client] = lambda: fake
     try:
-        r = await client.delete(f"{PROJECTS}/{pid}", headers=_hdr(USER_BOSS))
+        r = await client.delete(f"{PROJECTS}/{pid}", headers=_hdr(USER_PROJECT_MANAGER))
         assert r.status_code == 204, r.text
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)
@@ -314,10 +212,9 @@ async def test_delete_audit_recorded(client, db_session, monkeypatch):
         json=_create_project_body("删除审计"),
     )
     pid = uuid.UUID(r.json()["id"])
-    await _archive_project(client, pid)
     app.dependency_overrides[get_weknora_client] = lambda: fake
     try:
-        await client.delete(f"{PROJECTS}/{pid}", headers=_hdr(USER_BOSS))
+        await client.delete(f"{PROJECTS}/{pid}", headers=_hdr(USER_PROJECT_MANAGER))
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)
     evt = (
@@ -325,16 +222,15 @@ async def test_delete_audit_recorded(client, db_session, monkeypatch):
         .scalars()
         .first()
     )
-    assert evt is not None and evt.actor_user_id == USER_BOSS
+    assert evt is not None and evt.actor_user_id == USER_PROJECT_MANAGER
     assert evt.after_snapshot == {"deleted": True}
 
 
 async def test_delete_clears_kb_mapping(client, db_session, monkeypatch):
-    """归档项目删除后，weknora_kb_mappings（scope=project）行被清理；best-effort 调底座 delete_kb。"""
+    """项目删除后，weknora_kb_mappings（scope=project）行被清理；best-effort 调底座 delete_kb。"""
     fake = _FakeKbClient()
     r = await client.post(PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body("删KB映射"))
     pid = uuid.UUID(r.json()["id"])
-    await _archive_project(client, pid)
     # 手动插入一条 project KB 映射（绕过真实底座建库）。
     mapping = WeknoraKbMapping(
         scope=KnowledgeScope.project.value,
@@ -349,7 +245,7 @@ async def test_delete_clears_kb_mapping(client, db_session, monkeypatch):
     await db_session.commit()
     app.dependency_overrides[get_weknora_client] = lambda: fake
     try:
-        r = await client.delete(f"{PROJECTS}/{pid}", headers=_hdr(USER_BOSS))
+        r = await client.delete(f"{PROJECTS}/{pid}", headers=_hdr(USER_PROJECT_MANAGER))
         assert r.status_code == 204, r.text
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)
@@ -374,7 +270,6 @@ async def test_delete_kb_failure_does_not_block(client, db_session, monkeypatch)
         PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body("底座删失败仍删")
     )
     pid = uuid.UUID(r.json()["id"])
-    await _archive_project(client, pid)
     mapping = WeknoraKbMapping(
         scope=KnowledgeScope.project.value,
         owner_user_id=None,
@@ -388,7 +283,7 @@ async def test_delete_kb_failure_does_not_block(client, db_session, monkeypatch)
     await db_session.commit()
     app.dependency_overrides[get_weknora_client] = lambda: fake
     try:
-        r = await client.delete(f"{PROJECTS}/{pid}", headers=_hdr(USER_BOSS))
+        r = await client.delete(f"{PROJECTS}/{pid}", headers=_hdr(USER_PROJECT_MANAGER))
         assert r.status_code == 204, r.text  # best-effort，不阻断
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)
@@ -450,22 +345,6 @@ async def test_pm_cannot_remove_pm_project_domain(client):
     assert r.json()["detail"]["denied_reason"] == "project_manager_removal_requires_governance"
 
 
-async def test_boss_removes_pm_project_domain(client, db_session):
-    """归档后 boss 可删除项目经理（项目 inactive 时不受最后一个 PM 保护）。"""
-    r = await client.post(
-        PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body("boss删PM域")
-    )
-    pid = uuid.UUID(r.json()["id"])
-    await _archive_project(client, pid)
-    lst = (await client.get(f"{PROJECTS}/{pid}/members", headers=_hdr(USER_BOSS))).json()
-    pm_member = next(m for m in lst["items"] if m["project_role"] == "project_manager")
-    r = await client.delete(
-        f"{PROJECTS}/{pid}/members/{pm_member['member_id']}", headers=_hdr(USER_BOSS)
-    )
-    assert r.status_code == 204, r.text
-    assert await db_session.get(ProjectMember, uuid.UUID(pm_member["member_id"])) is None
-
-
 async def test_cannot_remove_last_pm_when_active_project(client):
     r = await client.post(
         PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body("最后一个PM保护")
@@ -478,20 +357,6 @@ async def test_cannot_remove_last_pm_when_active_project(client):
     )
     assert r.status_code == 409
     assert r.json()["detail"]["denied_reason"] == "last_project_manager_protected"
-
-
-async def test_can_remove_last_pm_after_archive(client):
-    r = await client.post(
-        PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body("归档后删PM")
-    )
-    pid = uuid.UUID(r.json()["id"])
-    await _archive_project(client, pid)
-    lst = (await client.get(f"{PROJECTS}/{pid}/members", headers=_hdr(USER_BOSS))).json()
-    pm_member = next(m for m in lst["items"] if m["project_role"] == "project_manager")
-    r = await client.delete(
-        f"{PROJECTS}/{pid}/members/{pm_member['member_id']}", headers=_hdr(USER_BOSS)
-    )
-    assert r.status_code == 204, r.text
 
 
 async def test_member_removal_audit(client, db_session):
@@ -637,17 +502,3 @@ async def test_people_domain_membership_not_found(client):
     )
     assert r.status_code == 404
     assert r.json()["detail"]["denied_reason"] == "membership_not_found"
-
-
-# ===================== 归档影响 list_projects =====================
-
-
-async def test_archived_project_not_in_list(client):
-    r = await client.post(
-        PROJECTS, headers=_hdr(USER_BOSS), json=_create_project_body("归档不可见")
-    )
-    pid = uuid.UUID(r.json()["id"])
-    await _archive_project(client, pid)
-    # PM 重新激活前不在列表（status != active 过滤）。
-    lst = (await client.get(PROJECTS, headers=_hdr(USER_PROJECT_MANAGER))).json()["items"]
-    assert all(p["id"] != str(pid) for p in lst)

@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { Bot, ChevronLeft, ChevronRight, FileText, MoreHorizontal, Search } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { deleteKnowledgeAsset, fetchKnowledgePage } from "../api/knowledge";
 import { fetchProjectQaModelOptions, projectQa } from "../api/project";
 import { requestCompanyUpgrade } from "../api/review";
@@ -380,7 +380,14 @@ function ProjectKnowledgeWorkspace({
             <button
               className="pk-detail-link"
               type="button"
-              onClick={() => navigate(`/knowledge/${asset.id}`)}
+              onClick={() =>
+                navigate(`/knowledge/${asset.id}`, {
+                  state: {
+                    backTo: `/project/${project.projectId}/knowledge`,
+                    backLabel: "返回项目知识库",
+                  },
+                })
+              }
             >
               查看详情
             </button>
@@ -411,7 +418,7 @@ function ProjectKnowledgeWorkspace({
         ),
       },
     ],
-    [navigate, project.projectRole, requestUpgrade, upgradeBusyId, deleteBusyId],
+    [navigate, project.projectId, project.projectRole, requestUpgrade, upgradeBusyId, deleteBusyId],
   );
 
   const totalPages = Math.max(1, Math.ceil(result.total / result.pageSize));
@@ -425,20 +432,28 @@ function ProjectKnowledgeWorkspace({
         title="项目知识库"
         description={project.projectName}
         actions={
-          <label className="pk-project-switcher" htmlFor="pk-project-switcher-header">
-            <span>切换项目</span>
-            <select
-              id="pk-project-switcher-header"
-              value={project.projectId}
-              onChange={(event) => onSwitch(event.target.value)}
+          <div className="pk-header-actions">
+            <Link
+              className="product-button is-secondary is-small"
+              to={`/project/${project.projectId}`}
             >
-              {projects.map((item) => (
-                <option key={item.projectId} value={item.projectId}>
-                  {item.projectName}
-                </option>
-              ))}
-            </select>
-          </label>
+              返回项目空间
+            </Link>
+            <label className="pk-project-switcher" htmlFor="pk-project-switcher-header">
+              <span>切换项目</span>
+              <select
+                id="pk-project-switcher-header"
+                value={project.projectId}
+                onChange={(event) => onSwitch(event.target.value)}
+              >
+                {projects.map((item) => (
+                  <option key={item.projectId} value={item.projectId}>
+                    {item.projectName}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         }
       />
 

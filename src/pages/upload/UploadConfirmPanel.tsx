@@ -19,7 +19,13 @@ const indexStatusLabel: Record<string, string> = {
   skipped: "资产已保存，未启用问答索引",
 };
 
-export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
+export default function UploadConfirmPanel({
+  flow,
+  onCancel,
+}: {
+  flow: UploadFlow;
+  onCancel: () => void;
+}) {
   const {
     sourceLabel,
     sourceFile,
@@ -91,7 +97,7 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
             </p>
           )}
           <div className="upload77-result-actions">
-            {awaitingProjectReview && <Link to="/reviews">查看审批状态</Link>}
+            {awaitingProjectReview && <Link to="/review">查看审批状态</Link>}
             {!awaitingProjectReview && resultAssetId && (
               <Link to={`/knowledge/${resultAssetId}`}>
                 查看资产 <ArrowRight size={14} aria-hidden="true" />
@@ -326,7 +332,7 @@ export default function UploadConfirmPanel({ flow }: { flow: UploadFlow }) {
           >
             确认入库
           </button>
-          <button className="upload77-cancel" onClick={handleReset} type="button">
+          <button className="upload77-cancel" onClick={onCancel} type="button">
             取消
           </button>
         </aside>

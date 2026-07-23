@@ -11,6 +11,7 @@ interface ConfirmDialogProps {
   confirmText?: string;
   cancelText?: string;
   busy?: boolean;
+  confirmDisabled?: boolean;
   busyText?: string;
   danger?: boolean;
   error?: string | null;
@@ -29,6 +30,7 @@ export default function ConfirmDialog({
   confirmText = "确认",
   cancelText = "取消",
   busy = false,
+  confirmDisabled = false,
   busyText = "处理中…",
   danger = false,
   error,
@@ -106,7 +108,7 @@ export default function ConfirmDialog({
             type="button"
             className={`btn-small ${danger ? "btn-small-danger" : "btn-small-primary"}`}
             onClick={onConfirm}
-            disabled={busy}
+            disabled={busy || confirmDisabled}
           >
             {busy ? busyText : confirmText}
           </button>

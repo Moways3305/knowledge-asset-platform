@@ -7,7 +7,23 @@ import "./UploadPage.css";
 
 export default function UploadPage() {
   const flow = useUploadFlow();
+  const navigate = useNavigate();
   const { activePath, switchPath, confirmReady, confirmSubmitted } = flow;
+  const confirmationOpen = confirmReady || confirmSubmitted;
+
+  const cancelConfirmation = () => {
+    const historyIndex = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+    if (historyIndex > 0) {
+      flow.handleReset();
+      navigate(-1);
+      return;
+    }
+    if (activePath === "a") {
+      flow.handleReset();
+    } else {
+      switchPath("a");
+    }
+  };
 
   return (
     <ProductPage className="upload-page upload77-page">
@@ -34,9 +50,10 @@ export default function UploadPage() {
         </button>
       </div>
 
-      {activePath === "a" && <UploadStepA flow={flow} />}
-      {activePath === "b" && !confirmReady && !confirmSubmitted && <UploadStepB flow={flow} />}
-      {(confirmReady || confirmSubmitted) && <UploadConfirmPanel flow={flow} />}
+      {activePath === "a" && !confirmationOpen && <UploadStepA flow={flow} />}
+      {activePath === "b" && !confirmationOpen && <UploadStepB flow={flow} />}
+      {confirmationOpen && <UploadConfirmPanel flow={flow} onCancel={cancelConfirmation} />}
     </ProductPage>
   );
 }
+import { useNavigate } from "react-router-dom";

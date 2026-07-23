@@ -8073,7 +8073,7 @@
         "type": "object"
       },
       "ProjectDeletionReadinessOut": {
-        "description": "Safe projection of the server-side project deletion prerequisites.",
+        "description": "Safe projection of the server-side project deletion gate.",
         "properties": {
           "asset_count": {
             "default": 0,
@@ -8090,11 +8090,6 @@
           "can_delete": {
             "default": false,
             "title": "Can Delete",
-            "type": "boolean"
-          },
-          "is_archived": {
-            "default": false,
-            "title": "Is Archived",
             "type": "boolean"
           },
           "member_count": {
@@ -25319,7 +25314,7 @@
     },
     "/api/v1/projects/{project_id}": {
       "delete": {
-        "description": "删除项目（仅总经理）。\n\n前置：项目必须先归档 + 项目下无未删除 KnowledgeAsset。\n执行：物理删除成员关系 + KB 映射 + 项目行；best-effort 清理底座 KB。",
+        "description": "删除项目（仅本项目有效项目经理）。\n\n前置：项目下无未删除 KnowledgeAsset。\n执行：物理删除成员关系 + KB 映射 + 项目行；best-effort 清理底座 KB。",
         "operationId": "delete_project_api_v1_projects__project_id__delete",
         "parameters": [
           {
@@ -25397,98 +25392,6 @@
           }
         },
         "summary": "Delete Project",
-        "tags": [
-          "projects"
-        ]
-      }
-    },
-    "/api/v1/projects/{project_id}/archive": {
-      "post": {
-        "description": "归档项目（仅总经理 / 咨询总监）。\n\nproject.status → archived；全部 project_members → inactive（保留行用于审计）。",
-        "operationId": "archive_project_api_v1_projects__project_id__archive_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Dev-User-Id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Dev-User-Id"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Session"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_active_company_role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Active Company Role"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectSettingsOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Archive Project",
         "tags": [
           "projects"
         ]
@@ -26665,98 +26568,6 @@
         "summary": "Project Qa Model Options",
         "tags": [
           "agent"
-        ]
-      }
-    },
-    "/api/v1/projects/{project_id}/reactivate": {
-      "post": {
-        "description": "重新激活已归档项目（仅总经理 / 咨询总监）。\n\nproject.status → active；成员关系保持 inactive（需手动重新启用）。",
-        "operationId": "reactivate_project_api_v1_projects__project_id__reactivate_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Dev-User-Id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Dev-User-Id"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Session"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_active_company_role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Active Company Role"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectSettingsOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Reactivate Project",
-        "tags": [
-          "projects"
         ]
       }
     },

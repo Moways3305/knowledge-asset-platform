@@ -12,12 +12,11 @@ const projectApi = vi.hoisted(() => ({
   fetchProjectDeletionReadiness: vi.fn(),
   updateProjectSettings: vi.fn(),
   fetchProjectMembers: vi.fn(),
+  fetchCandidateMembers: vi.fn(),
   patchProjectMember: vi.fn(),
   fetchProjects: vi.fn().mockResolvedValue({ items: [], total: 0 }),
   addProjectMember: vi.fn(),
   removeProjectMember: vi.fn(),
-  archiveProject: vi.fn(),
-  reactivateProject: vi.fn(),
   deleteProject: vi.fn(),
 }));
 const reviewApi = vi.hoisted(() => ({
@@ -29,6 +28,7 @@ const adminApi = vi.hoisted(() => ({
   fetchPeople: vi.fn().mockResolvedValue({ items: [], total: 0 }),
 }));
 const auth = vi.hoisted(() => ({
+  reload: vi.fn().mockResolvedValue(undefined),
   projectRole: "project_manager",
   capabilities: {
     isBoss: false,
@@ -63,6 +63,7 @@ vi.mock("../auth/AuthContext", () => ({
       ],
     },
     capabilities: auth.capabilities,
+    reload: auth.reload,
   }),
 }));
 
@@ -166,18 +167,27 @@ describe("ProjectSettingsPage reference implementation", () => {
     auth.capabilities.isBoss = false;
     auth.capabilities.isConsultingDirector = false;
     auth.capabilities.isGovernance = false;
+    auth.reload.mockClear();
     projectApi.fetchProjectSettings.mockResolvedValue({ ...settings });
     projectApi.fetchProjectDeletionReadiness.mockResolvedValue({
-      can_delete: false,
-      is_archived: false,
+      can_delete: true,
       asset_count: 2,
       member_count: members.length,
-      blockers: ["project_delete_forbidden", "project_not_archived", "project_has_assets"],
+      blockers: ["project_has_assets"],
     });
     projectApi.fetchProjectMembers.mockResolvedValue({
       items: members.map((member) => ({ ...member })),
       total: members.length,
       can_manage: true,
+    });
+    projectApi.fetchCandidateMembers.mockResolvedValue({
+      items: [
+        {
+          user_id: "candidate-coach",
+          name: "候选辅导老师",
+          email: "candidate@example.test",
+        },
+      ],
     });
     projectApi.updateProjectSettings.mockImplementation(async (_projectId, body) => ({
       ...settings,
@@ -227,18 +237,19 @@ describe("ProjectSettingsPage reference implementation", () => {
     expect(screen.queryByText("review-secret-id")).not.toBeInTheDocument();
     expect(screen.queryByText(PROJECT_ID)).not.toBeInTheDocument();
     expect(screen.getByText("由治理角色任命")).toBeInTheDocument();
-    expect(screen.getByText("先归档项目")).toBeInTheDocument();
-    expect(screen.getByText("仍有 2 个项目资产")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "删除项目" })).toBeDisabled();
+    expect(screen.getByRole("option", { name: "历史阶段：诊断阶段" })).toBeInTheDocument();
+    expect(screen.queryByText("先归档项目")).not.toBeInTheDocument();
+    expect(screen.getByText(/仍有\s*2\s*个项目知识资产/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "前往项目知识库" })).toHaveAttribute(
+      "href",
+      `/project/${PROJECT_ID}/knowledge`,
+    );
+    expect(screen.queryByRole("button", { name: "删除项目" })).not.toBeInTheDocument();
   });
 
   it("opens an explicit irreversible deletion confirmation only when server prerequisites pass", async () => {
-    auth.capabilities.isBoss = true;
-    auth.capabilities.isGovernance = true;
-    projectApi.fetchProjectSettings.mockResolvedValue({ ...settings, status: "archived" });
     projectApi.fetchProjectDeletionReadiness.mockResolvedValue({
       can_delete: true,
-      is_archived: true,
       asset_count: 0,
       member_count: 3,
       blockers: [],
@@ -251,8 +262,7 @@ describe("ProjectSettingsPage reference implementation", () => {
     expect(dialog).toHaveTextContent("此操作不可恢复");
     expect(dialog).toHaveTextContent("一并移除 3 条项目成员关系");
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "删除项目" }));
-    expect(await within(dialog).findByText("输入的项目名称不匹配")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "删除项目" })).toBeDisabled();
     expect(projectApi.deleteProject).not.toHaveBeenCalled();
 
     fireEvent.change(within(dialog).getByRole("textbox"), {
@@ -260,6 +270,7 @@ describe("ProjectSettingsPage reference implementation", () => {
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "删除项目" }));
     await waitFor(() => expect(projectApi.deleteProject).toHaveBeenCalledWith(PROJECT_ID));
+    await waitFor(() => expect(auth.reload).toHaveBeenCalledTimes(1));
   });
 
   it("keeps a coach read-only and does not fetch a decision queue", async () => {
@@ -270,6 +281,12 @@ describe("ProjectSettingsPage reference implementation", () => {
       total: members.length,
       can_manage: false,
     });
+    projectApi.fetchProjectDeletionReadiness.mockResolvedValue({
+      can_delete: false,
+      asset_count: 2,
+      member_count: members.length,
+      blockers: ["project_delete_forbidden", "project_has_assets"],
+    });
     renderPage();
     expect(
       await screen.findByText("当前身份可查看项目设置，修改仅由本项目经理完成。"),
@@ -277,6 +294,7 @@ describe("ProjectSettingsPage reference implementation", () => {
     expect(screen.getByText("当前身份无确认权限")).toBeInTheDocument();
     expect(reviewApi.fetchReviews).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "保存设置" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "删除项目" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("调整交付顾问的项目内角色")).not.toBeInTheDocument();
   });
 
@@ -303,6 +321,19 @@ describe("ProjectSettingsPage reference implementation", () => {
     );
     expect(await screen.findByText("项目设置已保存")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /保存设置/ })).not.toBeInTheDocument();
+  });
+
+  it("replaces a historical phase only after an explicit supported selection", async () => {
+    renderPage();
+    const phase = await screen.findByLabelText("当前阶段");
+    expect(phase).toHaveValue("诊断阶段");
+    fireEvent.change(phase, { target: { value: "诊断" } });
+    fireEvent.click(screen.getByRole("button", { name: /保存设置/ }));
+    await waitFor(() =>
+      expect(projectApi.updateProjectSettings).toHaveBeenCalledWith(PROJECT_ID, {
+        lifecycle_phase_key: "诊断",
+      }),
+    );
   });
 
   it("retains the draft after save failure so the user can retry", async () => {
@@ -337,6 +368,23 @@ describe("ProjectSettingsPage reference implementation", () => {
       }),
     );
     expect(screen.queryByLabelText("调整项目负责人的项目内角色")).not.toBeInTheDocument();
+  });
+
+  it("opens the add-member form and cancel restores the centered entry", async () => {
+    const { container } = renderPage();
+    const entry = await screen.findByRole("button", { name: "添加成员" });
+    expect(container.querySelector(".ps74-member-action-row")).toContainElement(entry);
+
+    fireEvent.click(entry);
+    expect(await screen.findByLabelText("搜索用户")).toBeInTheDocument();
+    expect(screen.getByLabelText("选择用户")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "确认添加" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "取消" })).toBeEnabled();
+    expect(projectApi.fetchCandidateMembers).toHaveBeenCalledWith(PROJECT_ID);
+
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(screen.queryByLabelText("搜索用户")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "添加成员" })).toBeInTheDocument();
   });
 
   it("refreshes the exact-project queue after an authorized decision", async () => {

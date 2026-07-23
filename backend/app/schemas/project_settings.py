@@ -12,9 +12,27 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.enums import MemberStatus, ProjectRole
+
+PROJECT_BIZ_STAGES = {
+    "售前",
+    "诊断",
+    "启动共识",
+    "定题",
+    "目标计划",
+    "行动辅导",
+    "阶段评估",
+    "年度复盘",
+    "专项诊断",
+}
+
+
+def _validate_project_phase(value: str | None) -> str | None:
+    if value in (None, "") or value in PROJECT_BIZ_STAGES:
+        return value
+    raise ValueError("unsupported project lifecycle phase")
 
 
 class ProjectSettingsOut(BaseModel):
@@ -38,10 +56,9 @@ class ProjectSettingsOut(BaseModel):
 
 
 class ProjectDeletionReadinessOut(BaseModel):
-    """Safe projection of the server-side project deletion prerequisites."""
+    """Safe projection of the server-side project deletion gate."""
 
     can_delete: bool = False
-    is_archived: bool = False
     asset_count: int = 0
     member_count: int = 0
     blockers: list[str] = Field(default_factory=list)
@@ -54,6 +71,8 @@ class ProjectSettingsUpdateRequest(BaseModel):
     lifecycle_phase_key: str | None = None
     force_review_on_ingest: bool | None = None
     wecom_group_id: str | None = None
+
+    _phase_validator = field_validator("lifecycle_phase_key")(_validate_project_phase)
 
 
 class ProjectMemberOut(BaseModel):
@@ -193,6 +212,8 @@ class ProjectCreateRequest(BaseModel):
     coach_user_id: uuid.UUID | None = None
     lifecycle_route_key: str | None = None
     lifecycle_phase_key: str | None = None
+
+    _phase_validator = field_validator("lifecycle_phase_key")(_validate_project_phase)
 
 
 class ProjectCreateResponse(BaseModel):

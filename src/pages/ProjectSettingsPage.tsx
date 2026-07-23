@@ -1,23 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import {
-  AlertTriangle,
-  Archive,
-  Check,
-  CheckCircle2,
-  ClipboardCheck,
-  LockKeyhole,
-  RotateCcw,
-  Save,
-  Trash2,
-  X,
-} from "lucide-react";
+import { AlertTriangle, Check, ClipboardCheck, RotateCcw, Save, Trash2, X } from "lucide-react";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { useAuth } from "../auth/AuthContext";
 import { ApiError } from "../api/http";
 import {
   addProjectMember,
-  archiveProject,
   deleteProject,
   fetchCandidateMembers,
   fetchProjectDeletionReadiness,
@@ -25,7 +13,6 @@ import {
   fetchProjectSettings,
   fetchProjects,
   patchProjectMember,
-  reactivateProject,
   removeProjectMember,
   updateProjectSettings,
 } from "../api/project";
@@ -39,6 +26,7 @@ import type {
 import type { ProjectListItemDTO } from "../types/project";
 import type { ReviewItemDTO } from "../types/review";
 import { formatBeijingTime } from "../utils/time";
+import { bizStageOptions } from "./upload/uploadConstants";
 import "./ProjectSettingsPage.css";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -102,7 +90,7 @@ const safeError = (error: unknown, fallback: string): string => {
 export default function ProjectSettingsPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { authMe, capabilities } = useAuth();
+  const { authMe, reload: reloadAuth } = useAuth();
   const projectId = id && UUID_RE.test(id) ? id : null;
   const authProjectRole = authMe?.projects.find(
     (project) => project.projectId === projectId,
@@ -357,64 +345,8 @@ export default function ProjectSettingsPage() {
     }
   };
 
-  const handleArchive = async () => {
-    if (!projectId || !canArchive) return;
-    if (!window.confirm("确认归档此项目？归档后项目将变为只读，所有成员关系停用。")) return;
-    setDangerBusy(true);
-    setDangerError(null);
-    try {
-      const updated = await archiveProject(projectId);
-      setSettings(updated);
-      setDeletionReadiness((current) =>
-        current
-          ? {
-              ...current,
-              is_archived: true,
-              blockers: current.blockers.filter((blocker) => blocker !== "project_not_archived"),
-            }
-          : current,
-      );
-      setDraft(draftFromSettings(updated));
-      setActionNote("项目已归档");
-    } catch (e) {
-      setDangerError(safeError(e, "归档失败，请稍后重试"));
-    } finally {
-      setDangerBusy(false);
-    }
-  };
-
-  const handleReactivate = async () => {
-    if (!projectId || !canArchive) return;
-    if (!window.confirm("确认重新激活此项目？成员关系需手动重新启用。")) return;
-    setDangerBusy(true);
-    setDangerError(null);
-    try {
-      const updated = await reactivateProject(projectId);
-      setSettings(updated);
-      setDeletionReadiness((current) =>
-        current
-          ? {
-              ...current,
-              is_archived: false,
-              blockers: [...new Set([...current.blockers, "project_not_archived"])],
-            }
-          : current,
-      );
-      setDraft(draftFromSettings(updated));
-      setActionNote("项目已重新激活");
-    } catch (e) {
-      setDangerError(safeError(e, "恢复失败，请稍后重试"));
-    } finally {
-      setDangerBusy(false);
-    }
-  };
-
   const handleDelete = async () => {
     if (!projectId || !canDelete || !settings) return;
-    if (!isArchived) {
-      setDangerError("删除前请先归档项目");
-      return;
-    }
     if (deleteConfirmName.trim() !== settings.name) {
       setDangerError("输入的项目名称不匹配");
       return;
@@ -424,11 +356,10 @@ export default function ProjectSettingsPage() {
     try {
       await deleteProject(projectId);
       setDeleteDialogOpen(false);
+      await reloadAuth();
       navigate("/");
     } catch (e) {
-      if (e instanceof ApiError && e.deniedReason === "project_not_archived") {
-        setDangerError("项目状态已变化，请先归档项目后再删除。");
-      } else if (e instanceof ApiError && e.deniedReason === "project_has_assets") {
+      if (e instanceof ApiError && e.deniedReason === "project_has_assets") {
         setDangerError("项目中仍有资产，请先前往项目知识库清空资产后再删除。");
       } else {
         setDangerError(safeError(e, "删除失败，请刷新项目状态后重试"));
@@ -443,13 +374,13 @@ export default function ProjectSettingsPage() {
 
   const canWrite = settings?.can_write ?? false;
   const canEditProjectRoles = canManageMembers && authProjectRole === "project_manager";
-  // 归档 / 恢复：总经理或咨询总监；删除：仅总经理。
-  const canArchive = capabilities.isBoss || capabilities.isConsultingDirector;
   const canDelete = deletionReadiness?.can_delete ?? false;
-  const isArchived = deletionReadiness?.is_archived ?? settings?.status === "archived";
   const assetCount = deletionReadiness?.asset_count ?? 0;
   const memberCount = deletionReadiness?.member_count ?? members.length;
-  const deleteReady = canDelete && isArchived && assetCount === 0;
+  const historicalPhase =
+    settings?.lifecycle_phase_key && !bizStageOptions.includes(settings.lifecycle_phase_key)
+      ? settings.lifecycle_phase_key
+      : null;
   const routeOptions = useMemo(() => {
     const current = settings?.lifecycle_route_key;
     return current && !ROUTE_OPTIONS.includes(current)
@@ -717,17 +648,26 @@ export default function ProjectSettingsPage() {
               </label>
               <label>
                 <span>当前阶段</span>
-                <input
+                <select
                   value={draft.lifecyclePhaseKey}
                   disabled={!canWrite || saving}
-                  autoComplete="off"
                   name="lifecycle-phase-key"
                   onChange={(event) =>
                     setDraft((current) =>
                       current ? { ...current, lifecyclePhaseKey: event.target.value } : current,
                     )
                   }
-                />
+                >
+                  <option value="">未设置</option>
+                  {historicalPhase && (
+                    <option value={historicalPhase}>历史阶段：{historicalPhase}</option>
+                  )}
+                  {bizStageOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="ps74-switch-row">
                 <span>
@@ -808,7 +748,7 @@ export default function ProjectSettingsPage() {
                     <th>项目内角色</th>
                     <th>成员状态</th>
                     <th>加入时间</th>
-                    {canEditProjectRoles && <th>操作</th>}
+                    {canEditProjectRoles && <th className="ps74-member-actions-heading">操作</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -848,30 +788,32 @@ export default function ProjectSettingsPage() {
                         <td>{formatBeijingTime(member.joined_at)}</td>
                         {canEditProjectRoles && (
                           <td className="ps74-member-actions">
-                            {editable ? (
-                              <>
-                                <button
-                                  className="product-button is-secondary is-small"
-                                  disabled={busy}
-                                  onClick={() =>
-                                    void changeMember(member, {
-                                      status: member.status === "active" ? "inactive" : "active",
-                                    })
-                                  }
-                                >
-                                  {member.status === "active" ? "停用" : "启用"}
-                                </button>
-                                <button
-                                  className="ps74-remove-btn"
-                                  disabled={busy}
-                                  onClick={() => void handleRemoveMember(member)}
-                                >
-                                  移除
-                                </button>
-                              </>
-                            ) : (
-                              <span className="ps74-locked-role">由治理角色任命</span>
-                            )}
+                            <div className="ps74-member-action-controls">
+                              {editable ? (
+                                <>
+                                  <button
+                                    className="product-button is-secondary is-small"
+                                    disabled={busy}
+                                    onClick={() =>
+                                      void changeMember(member, {
+                                        status: member.status === "active" ? "inactive" : "active",
+                                      })
+                                    }
+                                  >
+                                    {member.status === "active" ? "停用" : "启用"}
+                                  </button>
+                                  <button
+                                    className="ps74-remove-btn"
+                                    disabled={busy}
+                                    onClick={() => void handleRemoveMember(member)}
+                                  >
+                                    移除
+                                  </button>
+                                </>
+                              ) : (
+                                <span className="ps74-locked-role">由治理角色任命</span>
+                              )}
+                            </div>
                           </td>
                         )}
                       </tr>
@@ -888,7 +830,7 @@ export default function ProjectSettingsPage() {
               </table>
             </div>
             {canEditProjectRoles && (
-              <div className="ps74-add-member">
+              <div className="ps74-member-action-row">
                 {!addMemberOpen ? (
                   <button
                     type="button"
@@ -957,7 +899,10 @@ export default function ProjectSettingsPage() {
                         type="button"
                         className="product-button is-secondary is-small"
                         disabled={addMemberBusy}
-                        onClick={() => setAddMemberOpen(false)}
+                        onClick={() => {
+                          setAddMemberOpen(false);
+                          setAddMemberError(null);
+                        }}
                       >
                         取消
                       </button>
@@ -1055,95 +1000,57 @@ export default function ProjectSettingsPage() {
         </aside>
       </div>
 
-      <section className="ps74-section ps74-danger-zone" aria-labelledby="project-danger-heading">
-        <div className="ps74-section-header">
-          <div>
-            <h2 id="project-danger-heading">项目生命周期与删除</h2>
-            <p>删除只在服务端确认项目已归档且资产为零后开放。</p>
+      {canDelete && (
+        <section className="ps74-section ps74-danger-zone" aria-labelledby="project-danger-heading">
+          <div className="ps74-section-header">
+            <div>
+              <h2 id="project-danger-heading">删除项目</h2>
+              <p>项目经理可删除没有知识资产的项目；此操作不可恢复。</p>
+            </div>
           </div>
-        </div>
-        {dangerError && <div className="ps74-feedback is-error">{dangerError}</div>}
-        <div className="ps74-lifecycle-gates" aria-label="项目删除前置条件">
-          <div className={isArchived ? "is-ready" : "is-blocked"}>
-            {isArchived ? <CheckCircle2 size={17} /> : <Archive size={17} />}
-            <span>
-              <strong>{isArchived ? "项目已归档" : "先归档项目"}</strong>
-              <small>{isArchived ? "生命周期已收口" : "进行中的项目不能删除"}</small>
-            </span>
-          </div>
-          <div className={assetCount === 0 ? "is-ready" : "is-blocked"}>
-            {assetCount === 0 ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
-            <span>
-              <strong>
-                {assetCount === 0 ? "项目资产已清空" : `仍有 ${assetCount} 个项目资产`}
-              </strong>
-              <small>
-                {assetCount === 0 ? (
-                  "资产前置条件已满足"
-                ) : (
-                  <Link to={`/project/${projectId}/knowledge`}>前往项目知识库清理</Link>
-                )}
-              </small>
-            </span>
-          </div>
-          <div className={canDelete ? "is-ready" : "is-blocked"}>
-            {canDelete ? <CheckCircle2 size={17} /> : <LockKeyhole size={17} />}
-            <span>
-              <strong>{canDelete ? "当前为总经理身份" : "仅总经理可删除"}</strong>
-              <small>后端会在每次删除请求中重新校验工作身份</small>
-            </span>
-          </div>
-        </div>
-        <div className="ps74-danger-actions">
-          {canArchive &&
-            (isArchived ? (
-              <button
-                type="button"
-                className="product-button is-secondary"
-                disabled={dangerBusy}
-                onClick={() => void handleReactivate()}
-              >
-                {dangerBusy ? "处理中…" : "重新激活项目"}
-              </button>
-            ) : (
+          {dangerError && <div className="ps74-feedback is-error">{dangerError}</div>}
+          {assetCount > 0 ? (
+            <div className="ps74-delete-blocker" role="status">
+              <AlertTriangle size={18} aria-hidden="true" />
+              <div>
+                <strong>仍有 {assetCount} 个项目知识资产</strong>
+                <p>先清理项目知识资产后再删除，避免误删仍在使用的内容。</p>
+              </div>
+              <Link className="product-button is-secondary" to={`/project/${projectId}/knowledge`}>
+                前往项目知识库
+              </Link>
+            </div>
+          ) : (
+            <div className="ps74-danger-actions">
               <button
                 type="button"
                 className="product-button is-danger"
                 disabled={dangerBusy}
-                onClick={() => void handleArchive()}
+                aria-describedby="project-delete-readiness"
+                onClick={() => {
+                  setDeleteConfirmName("");
+                  setDangerError(null);
+                  setDeleteDialogOpen(true);
+                }}
               >
-                <Archive size={16} aria-hidden="true" />
-                {dangerBusy ? "处理中…" : "归档项目"}
+                <Trash2 size={16} aria-hidden="true" />
+                删除项目
               </button>
-            ))}
-          <button
-            type="button"
-            className="product-button is-danger"
-            disabled={!deleteReady || dangerBusy}
-            aria-describedby="project-delete-readiness"
-            onClick={() => {
-              setDeleteConfirmName("");
-              setDangerError(null);
-              setDeleteDialogOpen(true);
-            }}
-          >
-            <Trash2 size={16} aria-hidden="true" />
-            删除项目
-          </button>
-          <p id="project-delete-readiness" className="ps74-delete-readiness">
-            {deleteReady
-              ? `删除将一并移除 ${memberCount} 条项目成员关系。`
-              : "完成上方全部前置条件后才可删除项目。"}
-          </p>
-        </div>
-      </section>
+              <p id="project-delete-readiness" className="ps74-delete-readiness">
+                删除将一并移除 {memberCount} 条项目成员关系。
+              </p>
+            </div>
+          )}
+        </section>
+      )}
       <ConfirmDialog
         open={deleteDialogOpen}
         title={`删除项目“${settings.name}”`}
-        description={`此操作不可恢复，并会一并移除 ${memberCount} 条项目成员关系。服务端将在执行前再次校验归档状态、资产数量和总经理工作身份。`}
+        description={`此操作不可恢复，并会一并移除 ${memberCount} 条项目成员关系。服务端将在执行前再次校验资产数量和有效项目经理身份。`}
         confirmText="删除项目"
         busyText="删除中…"
         busy={dangerBusy}
+        confirmDisabled={deleteConfirmName.trim() !== settings.name}
         danger
         error={dangerError}
         errorDescription={dangerError}

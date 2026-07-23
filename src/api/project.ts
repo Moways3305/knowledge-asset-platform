@@ -111,17 +111,7 @@ export async function removeProjectMember(projectId: string, memberId: string): 
   await apiDelete<void>(`/api/v1/projects/${projectId}/members/${memberId}`);
 }
 
-// 归档项目（仅总经理 / 咨询总监）。status → archived；成员关系 → inactive。
-export async function archiveProject(projectId: string): Promise<ProjectSettingsDTO> {
-  return apiPost<ProjectSettingsDTO>(`/api/v1/projects/${projectId}/archive`, {});
-}
-
-// 重新激活已归档项目（仅总经理 / 咨询总监）。
-export async function reactivateProject(projectId: string): Promise<ProjectSettingsDTO> {
-  return apiPost<ProjectSettingsDTO>(`/api/v1/projects/${projectId}/reactivate`, {});
-}
-
-// 删除项目（仅总经理）。前置：必须先归档 + 无资产。
+// 删除项目：仅本项目有效项目经理；有未删除资产时服务端拒绝。
 export async function deleteProject(projectId: string): Promise<void> {
   await apiDelete<void>(`/api/v1/projects/${projectId}`);
 }
