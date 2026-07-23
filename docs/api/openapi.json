@@ -21133,7 +21133,7 @@
     },
     "/api/v1/ingest/pending": {
       "get": {
-        "description": "业务侧待确认任务列表。\n\n`?source=path_a_wecom` 拉取企微微盘扫描创建的待确认任务。权限与 confirm 一致：\n只返回调用人有权确认的任务（创建人本人或业务治理角色）；纯 admin → 403。",
+        "description": "业务侧待确认任务列表。\n\n`?source=path_a_wecom` 拉取企微微盘扫描创建的待确认任务。\n只返回调用人本人创建的待确认任务；纯 admin → 403。",
         "operationId": "list_pending_api_v1_ingest_pending_get",
         "parameters": [
           {
@@ -21316,6 +21316,100 @@
           }
         },
         "summary": "Create Upload",
+        "tags": [
+          "ingest"
+        ]
+      }
+    },
+    "/api/v1/ingest/{task_id}": {
+      "delete": {
+        "description": "删除/取消待确认入库任务。\n\n仅创建人本人可删除，仅未确认的非中间态任务可删。\n会清理关联的存储文件和 AI 结果，并写入审计。",
+        "operationId": "delete_pending_task_api_v1_ingest__task_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Pending Task Api V1 Ingest  Task Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Pending Task",
         "tags": [
           "ingest"
         ]
