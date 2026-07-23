@@ -1034,7 +1034,7 @@ async def delete_pending_task(
         if task.source_file_ref:
             storage.delete(task.source_file_ref)
     except Exception:
-        _logger.warning("ingest_delete_file_cleanup_failed", task_id=str(task_id), exc_info=True)
+        _logger.warning("ingest_delete_file_cleanup_failed task_id=%s", str(task_id), exc_info=True)
 
     # ---- 永存区：持久化删除 + 审计 ----
     source = task.source
