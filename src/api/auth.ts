@@ -23,6 +23,17 @@ export interface AuthMeVM {
   projects: { projectId: string; projectName: string; projectRole: string }[];
 }
 
+/**
+ * The role-switch POST succeeded but the authoritative follow-up /auth/me did
+ * not confirm the requested role.  Keep the freshly read server identity so
+ * callers can fail closed without reverting to a stale, more privileged UI.
+ */
+export class ActiveCompanyRoleSyncError extends Error {
+  constructor(readonly confirmed: AuthMeVM) {
+    super("active_company_role_not_confirmed");
+  }
+}
+
 interface AuthMeDTO {
   user_id: string;
   name: string;
@@ -65,7 +76,7 @@ export async function fetchAuthMe(): Promise<AuthMeVM> {
 
 export async function switchActiveCompanyRole(companyRole: string): Promise<AuthMeVM> {
   // 1. POST to set the active-company-role cookie on the backend
-  const switchResp = await apiPost<AuthMeDTO>(`/api/v1/auth/active-company-role`, {
+  await apiPost<AuthMeDTO>(`/api/v1/auth/active-company-role`, {
     company_role: companyRole,
   });
 
@@ -73,19 +84,19 @@ export async function switchActiveCompanyRole(companyRole: string): Promise<Auth
   //    immediately call /auth/me to confirm the cookie took effect
   //    and use it as the single source of truth.
   const confirmed = await apiGet<AuthMeDTO>("/api/v1/auth/me");
+  const confirmedMe = mapAuthMe(confirmed);
 
-  if (confirmed.active_company_role !== companyRole) {
-    console.warn(
-      `[identity] 角色切换未生效：期望 ${companyRole}，/auth/me 返回 ${confirmed.active_company_role}。` +
-        `可能 cookie 未及时同步，将使用 /auth/me 作为最终状态。`,
-      { switchResp, confirmed },
-    );
-  }
-
-  // 3. Clear CSRF token so the next unsafe call fetches a fresh one
+  // The session may have changed even when confirmation reveals a mismatch.
+  // Never reuse a CSRF token bound to the pre-switch identity.
   clearCsrfToken();
 
-  return mapAuthMe(confirmed);
+  if (confirmed.active_company_role !== companyRole) {
+    // Do not expose the response or identity payload in the browser console.
+    // The caller must replace its state with `confirmed` and show recovery UI.
+    throw new ActiveCompanyRoleSyncError(confirmedMe);
+  }
+
+  return confirmedMe;
 }
 
 // 会话登录。提供 password → 所有环境密码登录；不提供 → 仅开发环境无凭证适配器。

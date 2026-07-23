@@ -58,7 +58,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [reload]);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ authMe, status, capabilities: deriveCapabilities(authMe), reload, setAuthMe }),
+    // A failed identity refresh is intentionally fail-closed for navigation and
+    // mutation affordances.  We may retain the last display identity for a
+    // recovery prompt, but it must not continue to expose governance controls.
+    () => ({
+      authMe,
+      status,
+      capabilities: deriveCapabilities(status === "authenticated" ? authMe : null),
+      reload,
+      setAuthMe,
+    }),
     [authMe, status, reload, setAuthMe],
   );
 

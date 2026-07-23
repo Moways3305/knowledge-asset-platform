@@ -2853,9 +2853,10 @@ body {
 }
 
 .pp-cell-projects {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  /* Keep the table cell as a table-cell.  Turning a <td> into flex makes its
+     row borders and height independent from neighbouring columns.  The inner
+     .pp-project-summary owns the compact vertical relation preview instead. */
+  vertical-align: middle;
 }
 
 .pp-cell-visibility {

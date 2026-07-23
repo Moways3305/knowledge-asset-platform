@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import IdentityMenu, { wecomOAuthModeForUserAgent } from "./IdentityMenu";
-import { login, logout, switchActiveCompanyRole } from "../api/auth";
+import { ActiveCompanyRoleSyncError, login, logout, switchActiveCompanyRole } from "../api/auth";
 import { startWecomOAuth } from "../api/admin";
 
 const me = {
@@ -37,11 +37,15 @@ vi.mock("../auth/AuthContext", () => ({
   }),
 }));
 
-vi.mock("../api/auth", () => ({
-  login: vi.fn(),
-  logout: vi.fn(),
-  switchActiveCompanyRole: vi.fn(),
-}));
+vi.mock("../api/auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../api/auth")>();
+  return {
+    ...actual,
+    login: vi.fn(),
+    logout: vi.fn(),
+    switchActiveCompanyRole: vi.fn(),
+  };
+});
 
 vi.mock("../api/admin", () => ({
   startWecomOAuth: vi.fn(),
@@ -99,6 +103,30 @@ describe("IdentityMenu", () => {
     await waitFor(() => expect(switchActiveCompanyRole).toHaveBeenCalledWith("boss"));
     expect(authState.setAuthMe).toHaveBeenCalledWith(
       expect.objectContaining({ activeCompanyRole: "boss" }),
+    );
+  });
+
+  it("fails closed when the refreshed server identity does not confirm the selected role", async () => {
+    authState.authMe = { ...me, companyRoles: ["admin", "boss"], activeCompanyRole: "admin" };
+    const serverConfirmed = {
+      ...authState.authMe,
+      activeCompanyRole: "admin",
+      canDiscoverL5: false,
+    };
+    vi.mocked(switchActiveCompanyRole).mockRejectedValue(
+      new ActiveCompanyRoleSyncError(serverConfirmed),
+    );
+    render(
+      <MemoryRouter>
+        <IdentityMenu />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByText("Alice"));
+    fireEvent.click(screen.getByRole("button", { name: "总经理" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("身份切换尚未由服务端确认");
+    expect(authState.setAuthMe).toHaveBeenCalledWith(
+      expect.objectContaining({ activeCompanyRole: "admin", canDiscoverL5: false }),
     );
   });
 

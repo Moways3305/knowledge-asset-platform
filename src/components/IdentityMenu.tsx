@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { ChevronDown, LogOut, UserRound, Building2, Check } from "lucide-react";
 import { ApiError } from "../api/http";
-import { login, logout, switchActiveCompanyRole } from "../api/auth";
+import { ActiveCompanyRoleSyncError, login, logout, switchActiveCompanyRole } from "../api/auth";
 import { useAuth } from "../auth/AuthContext";
 import { startWecomOAuth } from "../api/admin";
 
@@ -138,7 +138,12 @@ export default function IdentityMenu() {
         setAuthMe(me);
         setOpen(false);
       } catch (error) {
-        if (error instanceof ApiError && error.status === 403) {
+        if (error instanceof ActiveCompanyRoleSyncError) {
+          // /auth/me is the authority.  Replace the old UI identity even when
+          // it differs from the requested role, then keep a recovery path open.
+          setAuthMe(error.confirmed);
+          setAuthError("身份切换尚未由服务端确认，请刷新身份后再进行治理操作。");
+        } else if (error instanceof ApiError && error.status === 403) {
           const denied = error.deniedReason ?? "";
           if (denied === "active_company_role_not_assigned") {
             setAuthError("该身份尚未分配给你，需管理员在人员名册中先分配。");
@@ -146,13 +151,16 @@ export default function IdentityMenu() {
             setAuthError("身份切换被拒绝，你可能不再拥有该角色。请刷新页面重试。");
           }
         } else {
+          // The POST may already have changed the httpOnly cookie.  Re-read
+          // when possible; AuthContext fails closed if that refresh also fails.
+          await reload();
           setAuthError("身份切换失败，请稍后重试");
         }
       } finally {
         setAuthBusy(false);
       }
     },
-    [authMe, setAuthMe],
+    [authMe, reload, setAuthMe],
   );
 
   const projects = authMe?.projects ?? [];
@@ -275,6 +283,16 @@ export default function IdentityMenu() {
                   <div className="idm-error" role="alert">
                     {authError}
                   </div>
+                )}
+                {status === "error" && (
+                  <button
+                    type="button"
+                    className="btn-secondary idm-btn"
+                    onClick={() => void reload()}
+                    disabled={authBusy}
+                  >
+                    刷新身份
+                  </button>
                 )}
                 <div className="idm-actions">
                   <button
