@@ -527,6 +527,7 @@
 .people89-page .pp-table th,
 .people89-page .pp-table td {
   padding: 10px 12px;
+  vertical-align: top;
 }
 
 .people89-page .pp-role-tag,
@@ -577,6 +578,37 @@
   outline-offset: 2px;
 }
 
+/* 内联展开/收起按钮 */
+.people89-page .pp-expand-toggle {
+  align-items: center;
+  display: inline-flex;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-info);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+  line-height: 1.3;
+}
+
+.people89-page .pp-expand-toggle:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.people89-page .pp-expand-toggle:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid color-mix(in srgb, var(--color-info) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.people89-page .pp-expand-toggle svg {
+  flex-shrink: 0;
+}
+
 .people89-page .pp-membership-inline-error {
   display: flex;
   align-items: flex-start;
@@ -600,22 +632,22 @@
 }
 
 .people89-page .pp-table th:nth-child(1) {
-  width: 10%;
+  width: 9%;
 }
 .people89-page .pp-table th:nth-child(2) {
-  width: 11%;
-}
-.people89-page .pp-table th:nth-child(3) {
-  width: 15%;
-}
-.people89-page .pp-table th:nth-child(4) {
-  width: 24%;
-}
-.people89-page .pp-table th:nth-child(5) {
   width: 10%;
 }
+.people89-page .pp-table th:nth-child(3) {
+  width: 14%;
+}
+.people89-page .pp-table th:nth-child(4) {
+  width: 27%;
+}
+.people89-page .pp-table th:nth-child(5) {
+  width: 9%;
+}
 .people89-page .pp-table th:nth-child(6) {
-  width: 17%;
+  width: 18%;
 }
 .people89-page .pp-table th:nth-child(7) {
   width: 13%;

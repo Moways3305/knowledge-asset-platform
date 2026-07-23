@@ -20,7 +20,7 @@ interface AuthContextValue {
   status: AuthStatus;
   capabilities: Capabilities;
   reload: () => Promise<void>;
-  // 登录 / 登出后由 IdentityMenu 直接写入最新身份（或置空），无需再次往返。
+  // 供给 IdentityMenu 在登录 / 登出后直接写入或清空。
   setAuthMe: (me: AuthMeVM | null) => void;
 }
 
@@ -37,9 +37,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAuthMeState(me);
       setStatus("authenticated");
     } catch (e) {
-      setAuthMeState(null);
-      // 401 / 鉴权类失败 → 视为未登录（匿名）；其余（网络 / 服务端）→ 错误态。
-      setStatus(e instanceof ApiError && e.status === 401 ? "anonymous" : "error");
+      if (e instanceof ApiError && e.status === 401) {
+        // 确实未登录：清空状态，UI 显示登录入口
+        setAuthMeState(null);
+        setStatus("anonymous");
+      } else {
+        // 网络 / 服务端临时故障：保留上次已知身份，显示错误 banner 供用户重试
+        setStatus("error");
+      }
     }
   }, []);
 

@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 from typing import Literal
 
@@ -641,6 +642,9 @@ async def auth_me(
     return build_auth_me(user, active_company_role=active_role)
 
 
+_identity_log = logging.getLogger("auth.identity")
+
+
 @router.post("/active-company-role", response_model=AuthMeOut)
 async def switch_active_company_role(
     body: ActiveCompanyRoleRequest,
@@ -654,13 +658,24 @@ async def switch_active_company_role(
 ) -> AuthMeOut:
     """Switch the active work identity for the authenticated server-side session."""
     settings = get_settings()
+    trace_id = get_trace_id(request)
     user = await session_service.resolve_session_user(session, kap_session)
     if user is None or kap_session is None:
+        _identity_log.warning(
+            "[identity] switch-role denied: not_authenticated | trace=%s", trace_id
+        )
         raise HTTPException(
             status_code=401,
             detail={"denied_reason": "not_authenticated", "message": "请先登录后再切换身份"},
         )
     if body.company_role not in work_identity.assigned_active_roles(user):
+        _identity_log.warning(
+            "[identity] switch-role denied: role=%s not in assigned=%s | user=%s trace=%s",
+            body.company_role,
+            work_identity.assigned_active_roles(user),
+            user.id,
+            trace_id,
+        )
         raise HTTPException(
             status_code=403,
             detail={
@@ -676,6 +691,9 @@ async def switch_active_company_role(
             settings=settings,
         )
     except work_identity.InvalidActiveRoleCookie as exc:
+        _identity_log.warning(
+            "[identity] switch-role cookie invalid for user=%s trace=%s", user.id, trace_id
+        )
         raise HTTPException(
             status_code=403,
             detail={
@@ -703,6 +721,13 @@ async def switch_active_company_role(
         after={"active_company_role": body.company_role},
     )
     await session.commit()
+    _identity_log.info(
+        "[identity] role switched: user=%s %s -> %s | trace=%s",
+        user.id,
+        previous_role,
+        body.company_role,
+        trace_id,
+    )
     return build_auth_me(user, active_company_role=body.company_role)
 
 
