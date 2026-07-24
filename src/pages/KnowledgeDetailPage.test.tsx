@@ -272,4 +272,36 @@ describe("OnlyOfficePreview", () => {
     expect(screen.queryByText("文档预览正在打开，请稍候。")).not.toBeInTheDocument();
     expect(destroyEditor).toHaveBeenCalled();
   });
+
+  it("reuses the loaded api.js script and keeps DocsAPI working after reopening", () => {
+    const editors: { holder: string; config: Record<string, unknown> }[] = [];
+    let events: PreviewEvents | null = null;
+
+    class ReusableEditor {
+      destroyEditor = vi.fn();
+      constructor(holder: string, config: Record<string, unknown>) {
+        editors.push({ holder, config });
+        events = config.events as PreviewEvents;
+      }
+    }
+
+    const { unmount } = render(<OnlyOfficePreview entry={controlledPreviewEntry("first-open")} />);
+    const script = document.querySelector<HTMLScriptElement>("script[data-onlyoffice-preview]");
+    expect(script).not.toBeNull();
+    window.DocsAPI = { DocEditor: ReusableEditor };
+    fireEvent.load(script!);
+
+    expect(editors).toHaveLength(1);
+    act(() => events?.onDocumentReady());
+    expect(screen.getByLabelText("原文在线预览")).toBeVisible();
+
+    unmount();
+
+    render(<OnlyOfficePreview entry={controlledPreviewEntry("second-open")} />);
+    expect(document.querySelectorAll("script[data-onlyoffice-preview]")).toHaveLength(1);
+    expect(editors).toHaveLength(2);
+    expect(editors[1].holder).not.toBe(editors[0].holder);
+    act(() => events?.onDocumentReady());
+    expect(screen.getByLabelText("原文在线预览")).toBeVisible();
+  });
 });
