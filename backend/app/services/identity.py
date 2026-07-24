@@ -265,7 +265,7 @@ def build_auth_me(user: User, *, active_company_role: str | None = None) -> Auth
             status=m.status,
         )
         for m in user.project_members
-        if m.status == MemberStatus.active.value and selected_role in BUSINESS_COMPANY_ROLES
+        if m.status == MemberStatus.active.value
     ]
 
     return AuthMeOut(

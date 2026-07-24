@@ -93,12 +93,18 @@ def can_assign_project_role(
     current_role: str | None,
     requested_role: str,
 ) -> bool:
-    """治理角色任命项目经理；项目经理独立管理辅导老师与项目顾问。"""
+    """项目内项目经理可管理辅导老师与顾问；治理角色可任命项目经理。
+
+    当用户在某项目内具有 project_manager 角色时，无论当前 active 公司角色是
+    否为治理角色，均优先按该项目经理权限处理，保证项目层面的自治。
+    """
+    if is_project_manager(caller, project_id):
+        if requested_role == ProjectRole.project_manager.value:
+            return False
+        return (
+            requested_role in PROJECT_MANAGER_MANAGED_ROLES
+            and current_role != ProjectRole.project_manager.value
+        )
     if is_governance(caller):
         return requested_role == ProjectRole.project_manager.value
-    if not is_project_manager(caller, project_id):
-        return False
-    return (
-        requested_role in PROJECT_MANAGER_MANAGED_ROLES
-        and current_role != ProjectRole.project_manager.value
-    )
+    return False
