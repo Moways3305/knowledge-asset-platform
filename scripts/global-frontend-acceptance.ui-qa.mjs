@@ -281,12 +281,6 @@ console.log(
 const failedAcceptanceChecks = acceptanceChecks.filter((check) => check.status !== "passed");
 if (failedAcceptanceChecks.length > 0) {
   console.error(JSON.stringify({ failedAcceptanceChecks }, null, 2));
-  for (const suite of failedSuites) {
-    if (suite.failureOutput) {
-      console.error(`\n--- FAILURE OUTPUT: ${suite.name} ---`);
-      console.error(suite.failureOutput.slice(-12000));
-    }
-  }
 }
 
 if (
