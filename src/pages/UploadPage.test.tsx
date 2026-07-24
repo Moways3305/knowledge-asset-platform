@@ -8,9 +8,11 @@ const flow = vi.hoisted(() => ({
     activePath: "b",
     switchPath: vi.fn(),
     handleReset: vi.fn(),
+    handleDeletePending: vi.fn().mockResolvedValue(undefined),
     confirmReady: false,
     confirmSubmitted: false,
     awaitingProjectReview: false,
+    taskId: "test-task-id",
   },
 }));
 
@@ -18,10 +20,11 @@ vi.mock("./upload/useUploadFlow", () => ({ useUploadFlow: () => flow.current }))
 vi.mock("./upload/UploadStepA", () => ({ default: () => <div>企微待确认列表</div> }));
 vi.mock("./upload/UploadStepB", () => ({ default: () => <div>本地文件上传区</div> }));
 vi.mock("./upload/UploadConfirmPanel", () => ({
-  default: ({ onCancel }: { onCancel: () => void }) => (
+  default: ({ onExit, onReject }: { onExit: () => void; onReject: () => void }) => (
     <div>
       已提交，等待项目经理确认
-      <button onClick={onCancel}>取消确认</button>
+      <button onClick={onExit}>退出</button>
+      <button onClick={onReject}>拒绝入库</button>
     </div>
   ),
 }));
@@ -68,17 +71,21 @@ describe("UploadPage reference workflow", () => {
     flow.current.confirmReady = true;
     renderPage();
 
-    fireEvent.click(screen.getByRole("button", { name: "取消确认" }));
+    fireEvent.click(screen.getByRole("button", { name: "退出" }));
+    expect(flow.current.handleReset).toHaveBeenCalledTimes(1);
     expect(flow.current.switchPath).toHaveBeenCalledWith("a");
   });
 
-  it("uses browser history when the confirmation has a previous page", () => {
-    window.history.replaceState({ idx: 1 }, "");
+  it("rejects a confirmation and deletes the pending task", async () => {
     flow.current.confirmReady = true;
     renderPage();
 
-    fireEvent.click(screen.getByRole("button", { name: "取消确认" }));
+    fireEvent.click(screen.getByRole("button", { name: "拒绝入库" }));
+    // 需要等待异步删除完成
+    await vi.waitFor(() => {
+      expect(flow.current.handleDeletePending).toHaveBeenCalledWith("test-task-id");
+    });
     expect(flow.current.handleReset).toHaveBeenCalledTimes(1);
-    expect(flow.current.switchPath).not.toHaveBeenCalled();
+    expect(flow.current.switchPath).toHaveBeenCalledWith("a");
   });
 });

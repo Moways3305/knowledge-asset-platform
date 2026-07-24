@@ -7,22 +7,32 @@ import "./UploadPage.css";
 
 export default function UploadPage() {
   const flow = useUploadFlow();
-  const navigate = useNavigate();
-  const { activePath, switchPath, confirmReady, confirmSubmitted } = flow;
+  const {
+    activePath,
+    switchPath,
+    confirmReady,
+    confirmSubmitted,
+    handleDeletePending,
+    taskId,
+    handleReset,
+  } = flow;
   const confirmationOpen = confirmReady || confirmSubmitted;
 
-  const cancelConfirmation = () => {
-    const historyIndex = (window.history.state as { idx?: number } | null)?.idx ?? 0;
-    if (historyIndex > 0) {
-      flow.handleReset();
-      navigate(-1);
-      return;
+  const exitConfirmation = () => {
+    handleReset();
+    switchPath("a");
+  };
+
+  const rejectConfirmation = async () => {
+    if (taskId) {
+      try {
+        await handleDeletePending(taskId);
+      } catch {
+        // 删除失败仍允许退出
+      }
     }
-    if (activePath === "a") {
-      flow.handleReset();
-    } else {
-      switchPath("a");
-    }
+    handleReset();
+    switchPath("a");
   };
 
   return (
@@ -52,8 +62,9 @@ export default function UploadPage() {
 
       {activePath === "a" && !confirmationOpen && <UploadStepA flow={flow} />}
       {activePath === "b" && !confirmationOpen && <UploadStepB flow={flow} />}
-      {confirmationOpen && <UploadConfirmPanel flow={flow} onCancel={cancelConfirmation} />}
+      {confirmationOpen && (
+        <UploadConfirmPanel flow={flow} onExit={exitConfirmation} onReject={rejectConfirmation} />
+      )}
     </ProductPage>
   );
 }
-import { useNavigate } from "react-router-dom";

@@ -12,6 +12,7 @@ import { ApiError } from "../api/http";
 import { useAuth } from "../auth/AuthContext";
 import { PageHeader, PageSection, ProductPage } from "../components/ProductLayout";
 import UnifiedModelConnectionsSection from "../components/UnifiedModelConnectionsSection";
+import WeknoraModelsSection from "../components/WeknoraModelsSection";
 import type { KbConfigDTO, ModelDTO } from "../types/weknoraAdmin";
 import "./AdminWeKnoraModelsPage.css";
 
@@ -164,10 +165,13 @@ export default function AdminWeKnoraModelsPage() {
       />
 
       <div className="mf-workspace">
-        <UnifiedModelConnectionsSection
-          canEdit={capabilities.isAdmin}
-          refreshSignal={refreshSignal}
-        />
+        <div className="mf-model-panels">
+          <UnifiedModelConnectionsSection
+            canEdit={capabilities.isAdmin}
+            refreshSignal={refreshSignal}
+          />
+          <WeknoraModelsSection canEdit={capabilities.isAdmin} refreshSignal={refreshSignal} />
+        </div>
 
         <aside className="mf-foundation-panel" aria-labelledby="weknora-foundation-title">
           <div className="mf-panel-heading">

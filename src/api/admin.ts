@@ -27,6 +27,11 @@ import type {
   ModelDTO,
   WeknoraDefaultModelsDTO,
   WeknoraDefaultModelsUpdateDTO,
+  WeknoraModelMutateDTO,
+  WeknoraModelMutateResponseDTO,
+  WeknoraModelCheckDTO,
+  WeknoraModelCheckResponseDTO,
+  WeknoraModelDeleteResponseDTO,
 } from "../types/weknoraAdmin";
 import type { AuditListResponseDTO, MarkProcessedResponseDTO } from "../types/audit";
 import type {
@@ -170,6 +175,33 @@ export async function updateWeknoraDefaultModels(
   body: WeknoraDefaultModelsUpdateDTO,
 ): Promise<WeknoraDefaultModelsDTO> {
   return apiPut<WeknoraDefaultModelsDTO>(`${WK}/default-models`, body);
+}
+
+// ---- WeKnora 模型 CRUD ----
+export async function createWeknoraModel(
+  body: WeknoraModelMutateDTO,
+): Promise<WeknoraModelMutateResponseDTO> {
+  return apiPost<WeknoraModelMutateResponseDTO>(`${WK}/models`, body);
+}
+
+export async function updateWeknoraModel(
+  modelRef: string,
+  body: WeknoraModelMutateDTO,
+): Promise<WeknoraModelMutateResponseDTO> {
+  return apiPut<WeknoraModelMutateResponseDTO>(
+    `${WK}/models/${encodeURIComponent(modelRef)}`,
+    body,
+  );
+}
+
+export async function deleteWeknoraModel(modelRef: string): Promise<WeknoraModelDeleteResponseDTO> {
+  return apiDelete<WeknoraModelDeleteResponseDTO>(`${WK}/models/${encodeURIComponent(modelRef)}`);
+}
+
+export async function checkWeknoraModel(
+  body: WeknoraModelCheckDTO,
+): Promise<WeknoraModelCheckResponseDTO> {
+  return apiPost<WeknoraModelCheckResponseDTO>(`${WK}/models/check`, body);
 }
 
 export async function updateWeknoraKbInit(

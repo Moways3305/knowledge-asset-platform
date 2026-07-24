@@ -60,6 +60,7 @@ export function OnlyOfficePreview({ entry }: { entry: PreviewEntryVM }) {
     let active = true;
     let terminal = false;
     let documentReady = false;
+    let scriptLoaded = false;
     let script: HTMLScriptElement | null = null;
     let timeoutId: number | null = null;
 
@@ -127,13 +128,17 @@ export function OnlyOfficePreview({ entry }: { entry: PreviewEntryVM }) {
     }, PREVIEW_LOAD_TIMEOUT_MS);
 
     if (window.DocsAPI) {
+      scriptLoaded = true;
       openEditor();
     } else {
       script = document.createElement("script");
       script.src = `${serverUrl}/web-apps/apps/api/documents/api.js`;
       script.async = true;
       script.dataset.onlyofficePreview = "true";
-      script.onload = openEditor;
+      script.onload = () => {
+        scriptLoaded = true;
+        openEditor();
+      };
       script.onerror = () => fail("script-failed");
       document.body.appendChild(script);
     }
@@ -141,7 +146,9 @@ export function OnlyOfficePreview({ entry }: { entry: PreviewEntryVM }) {
     return () => {
       active = false;
       clearLoadTimeout();
-      script?.remove();
+      // 脚本成功加载后保持留在 DOM 中，否则 DocsAPI 内部可能丢失 document server
+      // origin，下次打开时 iframe 会 fallback 到前端路由导致 404。
+      if (!scriptLoaded) script?.remove();
       destroyEditor();
       document.getElementById(holderId)?.replaceChildren();
     };

@@ -1,6 +1,7 @@
-import { ArrowRight, CheckCircle2 } from "lucide-react";
+import { ArrowRight, CheckCircle2, XCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 import ModelAdvancedSettings from "../../components/ModelAdvancedSettings";
+import LevelInfoCard from "./LevelInfoTooltip";
 import {
   aiAccessOptions,
   assetTypeOptions,
@@ -21,10 +22,12 @@ const indexStatusLabel: Record<string, string> = {
 
 export default function UploadConfirmPanel({
   flow,
-  onCancel,
+  onExit,
+  onReject,
 }: {
   flow: UploadFlow;
-  onCancel: () => void;
+  onExit: () => void;
+  onReject: () => void;
 }) {
   const {
     sourceLabel,
@@ -269,6 +272,7 @@ export default function UploadConfirmPanel({
                 <dd>{desensitization?.message ?? desensitization?.status ?? "未返回状态"}</dd>
               </div>
             </dl>
+            <LevelInfoCard />
           </div>
 
           {naming && (
@@ -332,8 +336,12 @@ export default function UploadConfirmPanel({
           >
             确认入库
           </button>
-          <button className="upload77-cancel" onClick={onCancel} type="button">
-            取消
+          <button className="upload77-reject" onClick={onReject} type="button">
+            <XCircle size={14} aria-hidden="true" />
+            拒绝入库
+          </button>
+          <button className="upload77-exit" onClick={onExit} type="button">
+            退出
           </button>
         </aside>
       </div>

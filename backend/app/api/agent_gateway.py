@@ -89,13 +89,17 @@ async def knowledge_search(
     llm=Depends(get_llm_client),
 ) -> SearchResponse:
     rule, caller = bound
-    if not gateway.tool_scope_allowed(rule, req.scope):
+    # 请求未指定 scope 时自动收窄到注册行允许的范围（天花板语义，不拒绝未指定请求）
+    effective_scope: str | None = req.scope
+    if not effective_scope and rule.allowed_scope not in (None, "all"):
+        effective_scope = rule.allowed_scope
+    if not gateway.tool_scope_allowed(rule, effective_scope):
         raise denied(403, "agent_scope_denied", "请求范围超出该接入允许的 scope")
     if rule.allowed_project_id is not None:
         raise denied(403, "agent_scope_denied", "项目锁定接入不支持统一检索端点")
     search_req = SearchRequest(
         query=req.query,
-        scope=req.scope,
+        scope=effective_scope,
         intent=req.intent,
         filters=SearchFilters(**(req.filters or {})),
         want_original=False,  # agent-gateway 永不取原文
