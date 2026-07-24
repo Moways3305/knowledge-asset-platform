@@ -38,7 +38,10 @@ type TestNotice = { tone: "busy" | "success" | "danger"; message: string };
 function safeActionError(err: unknown, fallback: string): string {
   if (!(err instanceof ApiError)) return fallback;
   const hint = err.detail?.remediation_hint;
-  return typeof hint === "string" && hint.trim() ? `${fallback} ${hint}` : fallback;
+  if (typeof hint === "string" && hint.trim()) return `${fallback} ${hint}`;
+  // 422 多为字段校验错误，消息安全且可帮助用户定位问题
+  if (err.status === 422) return err.message?.trim() || fallback;
+  return fallback;
 }
 
 export default function WeknoraModelsSection({

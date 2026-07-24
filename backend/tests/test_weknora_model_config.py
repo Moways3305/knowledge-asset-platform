@@ -278,6 +278,34 @@ async def test_update_model_rejects_email_shaped_base_url_without_upstream_call(
     assert wk.last_update is None
 
 
+@pytest.mark.parametrize(
+    "valid_name",
+    [
+        "qwen-plus",  # 旧命名
+        "qwen3.6-plus",  # 新 Qwen3.x 命名（官方）
+        "qwen3.7-max",
+        "qwen2.5-plus",
+        "qwq-32b",
+    ],
+)
+async def test_create_model_accepts_official_qwen_names(client, wk, valid_name):
+    response = await client.post(
+        f"{BASE}/models",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={
+            "name": valid_name,
+            "type": "chat",
+            "source": "remote",
+            "provider": "aliyun",
+            "base_url": _URL,
+            "api_key": _SECRET,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert wk.last_create is not None
+    assert wk.last_create["name"] == valid_name
+
+
 @pytest.mark.parametrize("invalid_name", ["deepsekk", "deepsekk-v3", "random-model"])
 async def test_create_model_rejects_unknown_name_without_upstream_call(client, wk, invalid_name):
     response = await client.post(
