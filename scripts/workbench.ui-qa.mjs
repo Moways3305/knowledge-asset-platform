@@ -333,10 +333,10 @@ try {
           );
           const operationIconCount = document.querySelectorAll(".wb81-operation-icon svg").length;
           const operationActionCount = document.querySelectorAll("a.wb81-operation[href]").length;
-          const secondary = document
-            .querySelector(".wb81-secondary-column")
+          const primaryRow = document.querySelector(".wb81-row-primary")?.getBoundingClientRect();
+          const secondaryRow = document
+            .querySelector(".wb81-row-secondary")
             ?.getBoundingClientRect();
-          const primary = document.querySelector(".wb81-primary-column")?.getBoundingClientRect();
           const pageHeader = document
             .querySelector(".wb81-workbench .product-page-header")
             ?.getBoundingClientRect();
@@ -377,51 +377,52 @@ try {
               operations &&
               projects &&
               recent &&
-              secondary &&
-              primary &&
-              Math.abs(secondary.top - primary.top) <= 1 &&
-              recent.top > todos.bottom &&
-              operations.bottom < projects.top &&
-              Math.abs(operations.left - projects.left) <= 1,
+              workbuddy &&
+              primaryRow &&
+              secondaryRow &&
+              primaryRow.top < secondaryRow.top &&
+              Math.abs(todos.top - operations.top) <= 1 &&
+              Math.abs(todos.top - projects.top) <= 1 &&
+              Math.abs(workbuddy.top - recent.top) <= 1,
             ),
             actionQueuePrimary: Boolean(
               todos &&
               operations &&
-              todos.top < operations.top &&
-              todos.width >= operations.width - 2,
+              Math.abs(todos.top - operations.top) <= 1 &&
+              todos.left < operations.left &&
+              todos.width >= 260,
             ),
             healthFullWidth: Boolean(
               operations &&
               todos &&
-              Math.abs(operations.left - todos.left) <= 1 &&
-              Math.abs(operations.width - todos.width) <= 2,
+              Math.abs(operations.top - todos.top) <= 1 &&
+              operations.width >= 220,
             ),
             projectRecentBalanced: Boolean(
-              projects &&
-              recent &&
-              Math.abs(projects.top - recent.top) <= 2 &&
-              projects.width >= recent.width,
+              projects && recent && projects.top < recent.top && projects.width >= 260,
             ),
             workbuddyDedicated: Boolean(
               workbuddy &&
-              projects &&
-              recent &&
-              workbuddy.top >= Math.max(projects.bottom, recent.bottom) &&
               todos &&
-              Math.abs(workbuddy.width - todos.width) <= 2,
+              recent &&
+              operations &&
+              projects &&
+              workbuddy.top > Math.max(todos.bottom, operations.bottom, projects.bottom) &&
+              Math.abs(workbuddy.top - recent.top) <= 1 &&
+              workbuddy.left < recent.left,
             ),
             todoColumnNarrower: Boolean(
               todos &&
               operations &&
-              todos.width >= 320 &&
-              operations.width > todos.width * 1.8 &&
-              operations.width < todos.width * 2.4,
+              todos.width >= 260 &&
+              operations.width >= 240 &&
+              Math.abs(todos.top - operations.top) <= 1,
             ),
             recentInLeftColumn: Boolean(
-              todos &&
+              workbuddy &&
               recent &&
-              Math.abs(todos.left - recent.left) <= 1 &&
-              Math.abs(todos.width - recent.width) <= 1,
+              Math.abs(workbuddy.top - recent.top) <= 1 &&
+              workbuddy.left < recent.left,
             ),
             operationsCompact: Boolean(
               operations &&
