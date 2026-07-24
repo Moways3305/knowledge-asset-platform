@@ -401,14 +401,14 @@ try {
               projects && recent && projects.top < recent.top && projects.width >= 260,
             ),
             workbuddyDedicated: Boolean(
-              workbuddy &&
-              todos &&
-              recent &&
-              operations &&
-              projects &&
-              workbuddy.top > Math.max(todos.bottom, operations.bottom, projects.bottom) &&
-              Math.abs(workbuddy.top - recent.top) <= 1 &&
-              workbuddy.left < recent.left,
+              !workbuddy ||
+                (todos &&
+                  recent &&
+                  operations &&
+                  projects &&
+                  workbuddy.top > Math.max(todos.bottom, operations.bottom, projects.bottom) &&
+                  Math.abs(workbuddy.top - recent.top) <= 1 &&
+                  workbuddy.left < recent.left),
             ),
             todoColumnNarrower: Boolean(
               todos &&
