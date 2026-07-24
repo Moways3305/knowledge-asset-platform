@@ -89,6 +89,7 @@ export default function UnifiedModelConnectionsSection({
   const [editingRef, setEditingRef] = useState<string | null>(null);
   const [form, setForm] = useState<ModelConnectionMutateDTO>(emptyForm());
   const [tests, setTests] = useState<Record<string, TestNotice>>({});
+  const [connectionsExpanded, setConnectionsExpanded] = useState(true);
   const panelRef = useRef<HTMLFormElement>(null);
   const effectiveCanEdit = canEdit && !forbidden;
 
@@ -412,109 +413,139 @@ export default function UnifiedModelConnectionsSection({
             )}
           </div>
         ) : (
-          connections.map((connection, index) => {
-            const time = formatTestTime(connection);
-            const testNotice = tests[connection.model_ref];
-            const status = !connection.enabled
-              ? "已停用"
-              : connection.health_status === "healthy"
-                ? "连接正常"
-                : connection.health_status === "unhealthy"
-                  ? "连接异常"
-                  : "未测试";
-            return (
-              <details className="mf-connection-card" key={connection.model_ref} open={index === 0}>
-                <summary>
-                  <span className="mf-provider-mark" aria-hidden="true">
-                    {providerMark(connection.provider)}
-                  </span>
-                  <span className="mf-connection-title">
-                    <strong>{connection.display_name}</strong>
-                    <small>
-                      {connection.provider ?? "自定义"} · {connection.model_name}
-                    </small>
-                  </span>
-                  <span
-                    className={`mf-health ${connection.enabled && connection.health_status === "healthy" ? "is-healthy" : connection.enabled && connection.health_status === "unhealthy" ? "is-unhealthy" : ""}`}
-                  >
-                    {status}
-                    {time && <small>最近测试 {time}</small>}
-                  </span>
-                  <ChevronDown className="mf-chevron" size={16} aria-hidden="true" />
-                </summary>
-                <div className="mf-connection-body">
-                  <dl className="mf-connection-facts">
-                    <div>
-                      <dt>Provider</dt>
-                      <dd>{connection.provider ?? "自定义"}</dd>
-                    </div>
-                    <div>
-                      <dt>模型名称</dt>
-                      <dd>{connection.model_name}</dd>
-                    </div>
-                    <div>
-                      <dt>API 地址 / API key</dt>
-                      <dd>已安全保存，不回显</dd>
-                    </div>
-                    <div>
-                      <dt>可用于</dt>
-                      <dd>
-                        {connection.available_usages.map((item) => usageLabel[item]).join("、")}
-                      </dd>
-                    </div>
-                  </dl>
-                  {testNotice && (
-                    <div className={`mf-test-result is-${testNotice.tone}`} role="status">
-                      {testNotice.message}
-                    </div>
-                  )}
-                  {effectiveCanEdit && (
-                    <div className="mf-card-actions">
-                      <button
-                        className="btn-small"
-                        onClick={() => void runTest(connection)}
-                        disabled={busyAction === `test:${connection.model_ref}`}
-                        type="button"
-                      >
-                        {busyAction === `test:${connection.model_ref}` ? "测试中…" : "测试连接"}
-                      </button>
-                      <button
-                        className="btn-small"
-                        onClick={() => openEdit(connection)}
-                        type="button"
-                      >
-                        编辑
-                      </button>
-                      <button
-                        className="btn-small"
-                        onClick={() => void toggleConnection(connection)}
-                        disabled={busyAction === `toggle:${connection.model_ref}`}
-                        type="button"
-                      >
-                        {busyAction === `toggle:${connection.model_ref}`
-                          ? "处理中…"
-                          : connection.enabled
-                            ? "停用"
-                            : "启用"}
-                      </button>
-                      <button
-                        className="btn-small mf-delete-btn"
-                        onClick={() => {
-                          if (window.confirm("确认删除此模型连接？删除后不可恢复。")) {
-                            void deleteConnection(connection);
-                          }
-                        }}
-                        disabled={busyAction === `delete:${connection.model_ref}`}
-                        type="button"
-                      >
-                        {busyAction === `delete:${connection.model_ref}` ? "删除中…" : "删除"}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </details>
-            );
-          })
+          <>
+            <button
+              className="btn-small mf-collapse-toggle"
+              onClick={() => setConnectionsExpanded(!connectionsExpanded)}
+              type="button"
+              aria-expanded={connectionsExpanded}
+            >
+              <ChevronDown
+                size={16}
+                style={{
+                  transform: connectionsExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                  transition: "transform 0.2s",
+                }}
+              />
+              {connectionsExpanded ? "收起连接列表" : `展开连接列表（${connections.length}）`}
+            </button>
+
+            {connectionsExpanded && (
+              <div className="mf-connection-stack-inner">
+                {connections.map((connection, index) => {
+                  const time = formatTestTime(connection);
+                  const testNotice = tests[connection.model_ref];
+                  const status = !connection.enabled
+                    ? "已停用"
+                    : connection.health_status === "healthy"
+                      ? "连接正常"
+                      : connection.health_status === "unhealthy"
+                        ? "连接异常"
+                        : "未测试";
+                  return (
+                    <details
+                      className="mf-connection-card"
+                      key={connection.model_ref}
+                      open={index === 0}
+                    >
+                      <summary>
+                        <span className="mf-provider-mark" aria-hidden="true">
+                          {providerMark(connection.provider)}
+                        </span>
+                        <span className="mf-connection-title">
+                          <strong>{connection.display_name}</strong>
+                          <small>
+                            {connection.provider ?? "自定义"} · {connection.model_name}
+                          </small>
+                        </span>
+                        <span
+                          className={`mf-health ${connection.enabled && connection.health_status === "healthy" ? "is-healthy" : connection.enabled && connection.health_status === "unhealthy" ? "is-unhealthy" : ""}`}
+                        >
+                          {status}
+                          {time && <small>最近测试 {time}</small>}
+                        </span>
+                        <ChevronDown className="mf-chevron" size={16} aria-hidden="true" />
+                      </summary>
+                      <div className="mf-connection-body">
+                        <dl className="mf-connection-facts">
+                          <div>
+                            <dt>Provider</dt>
+                            <dd>{connection.provider ?? "自定义"}</dd>
+                          </div>
+                          <div>
+                            <dt>模型名称</dt>
+                            <dd>{connection.model_name}</dd>
+                          </div>
+                          <div>
+                            <dt>API 地址 / API key</dt>
+                            <dd>已安全保存，不回显</dd>
+                          </div>
+                          <div>
+                            <dt>可用于</dt>
+                            <dd>
+                              {connection.available_usages
+                                .map((item) => usageLabel[item])
+                                .join("、")}
+                            </dd>
+                          </div>
+                        </dl>
+                        {testNotice && (
+                          <div className={`mf-test-result is-${testNotice.tone}`} role="status">
+                            {testNotice.message}
+                          </div>
+                        )}
+                        {effectiveCanEdit && (
+                          <div className="mf-card-actions">
+                            <button
+                              className="btn-small"
+                              onClick={() => void runTest(connection)}
+                              disabled={busyAction === `test:${connection.model_ref}`}
+                              type="button"
+                            >
+                              {busyAction === `test:${connection.model_ref}`
+                                ? "测试中…"
+                                : "测试连接"}
+                            </button>
+                            <button
+                              className="btn-small"
+                              onClick={() => openEdit(connection)}
+                              type="button"
+                            >
+                              编辑
+                            </button>
+                            <button
+                              className="btn-small"
+                              onClick={() => void toggleConnection(connection)}
+                              disabled={busyAction === `toggle:${connection.model_ref}`}
+                              type="button"
+                            >
+                              {busyAction === `toggle:${connection.model_ref}`
+                                ? "处理中…"
+                                : connection.enabled
+                                  ? "停用"
+                                  : "启用"}
+                            </button>
+                            <button
+                              className="btn-small mf-delete-btn"
+                              onClick={() => {
+                                if (window.confirm("确认删除此模型连接？删除后不可恢复。")) {
+                                  void deleteConnection(connection);
+                                }
+                              }}
+                              disabled={busyAction === `delete:${connection.model_ref}`}
+                              type="button"
+                            >
+                              {busyAction === `delete:${connection.model_ref}` ? "删除中…" : "删除"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </details>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
       </div>
 

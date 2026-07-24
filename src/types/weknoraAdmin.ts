@@ -75,3 +75,40 @@ export interface ModelOptionsResponseDTO {
   items: ModelOptionDTO[];
   default_missing: boolean;
 }
+
+// ---- WeKnora 模型 CRUD ----
+export interface WeknoraModelMutateDTO {
+  name: string;
+  type: string;
+  source?: string;
+  provider?: string | null;
+  base_url?: string | null;
+  api_key?: string | null;
+  description?: string | null;
+  dimension?: number | null;
+  enabled?: boolean | null;
+}
+
+export interface WeknoraModelMutateResponseDTO {
+  model_ref: string;
+  name: string;
+  type: string;
+  provider: string | null;
+  status: string;
+}
+
+export interface WeknoraModelCheckDTO {
+  model_type: string;
+  api_url: string;
+  api_key: string;
+  model: string;
+}
+
+export interface WeknoraModelCheckResponseDTO {
+  success: boolean;
+  message: string;
+}
+
+export interface WeknoraModelDeleteResponseDTO {
+  deleted: boolean;
+}

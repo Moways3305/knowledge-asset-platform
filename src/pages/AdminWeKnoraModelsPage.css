@@ -21,6 +21,13 @@
   min-width: 0;
 }
 
+.mf-model-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
 .mf-external-panel,
 .mf-foundation-panel {
   min-width: 0;
@@ -177,6 +184,35 @@
   display: grid;
   gap: 10px;
   padding: 0 16px 16px;
+}
+
+.mf-collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-muted);
+  border: 1px solid var(--color-border-light);
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 7px 10px;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.mf-collapse-toggle:hover {
+  color: var(--color-text-heading);
+  background: var(--color-bg-surface);
+}
+
+.mf-connection-stack-inner {
+  display: grid;
+  gap: 10px;
 }
 
 .mf-connection-card {
