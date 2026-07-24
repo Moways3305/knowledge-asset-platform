@@ -592,7 +592,7 @@ class WeKnoraClient:
     async def _model_check(
         self, path: str, *, api_url: str, api_key: str, model: str, trace_id: str | None
     ) -> dict[str, Any]:
-        body = {"api_url": api_url, "api_key": api_key, "model": model}
+        body = {"api_url": api_url, "api_key": api_key, "ModelName": model}
         result: dict[str, Any] = await self._call("POST", path, json=body, trace_id=trace_id)
         return result
 
