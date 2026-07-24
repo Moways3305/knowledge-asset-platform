@@ -180,14 +180,15 @@ describe("HomeDashboardPage overview workbench", () => {
     expect(screen.getByRole("link", { name: "上传资产化" })).toBeInTheDocument();
 
     const dashboard = container.querySelector(".wb81-dashboard");
-    const secondaryColumn = container.querySelector(".wb81-secondary-column");
-    const primaryColumn = container.querySelector(".wb81-primary-column");
-    expect(dashboard?.children[0]).toBe(secondaryColumn);
-    expect(dashboard?.children[1]).toBe(primaryColumn);
-    expect(secondaryColumn?.children[0]).toHaveClass("is-todos");
-    expect(secondaryColumn?.children[1]).toHaveClass("is-recent");
-    expect(primaryColumn?.children[0]).toHaveClass("is-operations");
-    expect(primaryColumn?.children[1]).toHaveClass("is-projects");
+    const primaryRow = container.querySelector(".wb81-row-primary");
+    const secondaryRow = container.querySelector(".wb81-row-secondary");
+    expect(dashboard?.children[0]).toBe(primaryRow);
+    expect(dashboard?.children[1]).toBe(secondaryRow);
+    expect(primaryRow?.querySelector(".wb81-panel.is-todos")).toBeInTheDocument();
+    expect(primaryRow?.querySelector(".wb81-panel.is-operations")).toBeInTheDocument();
+    expect(primaryRow?.querySelector(".wb81-panel.is-projects")).toBeInTheDocument();
+    expect(secondaryRow?.querySelector(".wb81-panel.is-workbuddy")).toBeInTheDocument();
+    expect(secondaryRow?.querySelector(".wb81-panel.is-recent")).toBeInTheDocument();
     expect(container.querySelector(".wb81-grid")).not.toBeInTheDocument();
 
     expect(document.body.textContent).not.toMatch(

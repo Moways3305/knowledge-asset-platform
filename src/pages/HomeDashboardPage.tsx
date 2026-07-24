@@ -302,6 +302,10 @@ export default function HomeDashboardPage() {
   const [createSaving, setCreateSaving] = useState(false);
   const [createError, setCreateError] = useState("");
 
+  // 窄屏时同一行内多个面板通过下拉框切换显示。
+  const [primaryTab, setPrimaryTab] = useState<"todos" | "operations" | "projects">("todos");
+  const [secondaryTab, setSecondaryTab] = useState<"workbuddy" | "recent">("workbuddy");
+
   const openCreate = useCallback(() => {
     setCreateName("");
     setCreatePmId(authMe?.userId ?? "");
@@ -396,12 +400,23 @@ export default function HomeDashboardPage() {
       />
 
       <div className="wb81-dashboard">
-        <div className="wb81-secondary-column">
+        <div className="wb81-row wb81-row-primary">
+          <div className="wb81-row-tabs" aria-label="工作台主栏切换">
+            <select
+              value={primaryTab}
+              onChange={(e) => setPrimaryTab(e.target.value as typeof primaryTab)}
+            >
+              <option value="todos">我的待办</option>
+              <option value="operations">资产运行概览</option>
+              <option value="projects">项目概览</option>
+            </select>
+          </div>
+
           <WorkbenchPanel
             title="我的待办"
             icon={<ListChecks size={17} />}
             meta={todosStatus === "available" ? `${todoCount} 项` : undefined}
-            className="is-todos"
+            className={`is-todos ${primaryTab === "todos" ? "is-active-mobile" : ""}`}
           >
             {todosStatus === "available" && todoItems.length > 0 ? (
               <div className="wb81-todo-list">
@@ -423,61 +438,9 @@ export default function HomeDashboardPage() {
           </WorkbenchPanel>
 
           <WorkbenchPanel
-            title="最近动态"
-            icon={<LibraryBig size={17} />}
-            meta={
-              recentStatus === "available" && overview
-                ? `${overview.recent_activity.items.length} 条更新`
-                : undefined
-            }
-            className="is-recent"
-          >
-            {recentStatus === "available" &&
-            overview &&
-            overview.recent_activity.items.length > 0 ? (
-              <div className="wb81-recent-list">
-                {overview.recent_activity.items.map((item) => (
-                  <Link key={item.asset_id} to={`/knowledge/${encodeURIComponent(item.asset_id)}`}>
-                    <span className="wb81-activity-copy">
-                      <strong>
-                        {canShowAssetTitles ? item.title.trim() || "待确认资产" : "业务标题已隐藏"}
-                      </strong>
-                      <small>
-                        {SCOPE_LABEL[item.scope] ?? SAFE_FALLBACK}
-                        {item.project_name?.trim() ? ` · ${item.project_name}` : ""}
-                      </small>
-                    </span>
-                    <time>{formatBeijingTime(item.updated_at)}</time>
-                    <ArrowRight size={15} aria-hidden="true" />
-                  </Link>
-                ))}
-              </div>
-            ) : (
-              <SectionMessage
-                status={recentStatus === "available" ? "empty" : recentStatus}
-                loadingText="正在加载最近动态…"
-                emptyText="当前没有最近更新的资产"
-                onRetry={() => void load()}
-              />
-            )}
-          </WorkbenchPanel>
-
-          {capabilities.isBusinessUser && (
-            <WorkbenchPanel
-              title="WorkBuddy 接入"
-              icon={<BriefcaseBusiness size={17} />}
-              className="is-workbuddy"
-            >
-              <WorkbuddyAccessCard />
-            </WorkbenchPanel>
-          )}
-        </div>
-
-        <div className="wb81-primary-column">
-          <WorkbenchPanel
             title="资产运行概览"
             icon={<BriefcaseBusiness size={17} />}
-            className="is-operations"
+            className={`is-operations ${primaryTab === "operations" ? "is-active-mobile" : ""}`}
           >
             {operationsStatus === "available" && operationCards.length > 0 ? (
               <div className="wb81-operation-grid">
@@ -504,7 +467,7 @@ export default function HomeDashboardPage() {
                 ? `${overview.projects.items.length} 个项目`
                 : undefined
             }
-            className="is-projects"
+            className={`is-projects ${primaryTab === "projects" ? "is-active-mobile" : ""}`}
           >
             {projectsStatus === "available" && overview && overview.projects.items.length > 0 ? (
               <div className="wb81-project-list">
@@ -540,6 +503,68 @@ export default function HomeDashboardPage() {
                     </button>
                   ) : undefined
                 }
+                onRetry={() => void load()}
+              />
+            )}
+          </WorkbenchPanel>
+        </div>
+
+        <div className="wb81-row wb81-row-secondary">
+          <div className="wb81-row-tabs" aria-label="工作台副栏切换">
+            <select
+              value={secondaryTab}
+              onChange={(e) => setSecondaryTab(e.target.value as typeof secondaryTab)}
+            >
+              {capabilities.isBusinessUser && <option value="workbuddy">WorkBuddy 接入</option>}
+              <option value="recent">最近动态</option>
+            </select>
+          </div>
+
+          {capabilities.isBusinessUser && (
+            <WorkbenchPanel
+              title="WorkBuddy 接入"
+              icon={<BriefcaseBusiness size={17} />}
+              className={`is-workbuddy ${secondaryTab === "workbuddy" ? "is-active-mobile" : ""}`}
+            >
+              <WorkbuddyAccessCard />
+            </WorkbenchPanel>
+          )}
+
+          <WorkbenchPanel
+            title="最近动态"
+            icon={<LibraryBig size={17} />}
+            meta={
+              recentStatus === "available" && overview
+                ? `${overview.recent_activity.items.length} 条更新`
+                : undefined
+            }
+            className={`is-recent ${secondaryTab === "recent" ? "is-active-mobile" : ""}`}
+          >
+            {recentStatus === "available" &&
+            overview &&
+            overview.recent_activity.items.length > 0 ? (
+              <div className="wb81-recent-list">
+                {overview.recent_activity.items.map((item) => (
+                  <Link key={item.asset_id} to={`/knowledge/${encodeURIComponent(item.asset_id)}`}>
+                    <span className="wb81-activity-copy">
+                      <strong>
+                        {canShowAssetTitles ? item.title.trim() || "待确认资产" : "业务标题已隐藏"}
+                      </strong>
+                      <small>
+                        {SCOPE_LABEL[item.scope] ?? SAFE_FALLBACK}
+                        {item.project_name?.trim() ? ` · ${item.project_name}` : ""}
+                      </small>
+                    </span>
+                    <time>{formatBeijingTime(item.updated_at)}</time>
+                    <ArrowRight size={15} aria-hidden="true" />
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <SectionMessage
+                status={recentStatus === "available" ? "empty" : recentStatus}
+                loadingText="正在加载最近动态…"
+                emptyText="当前没有最近更新的资产"
                 onRetry={() => void load()}
               />
             )}

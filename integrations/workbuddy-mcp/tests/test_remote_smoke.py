@@ -69,15 +69,17 @@ def test_streamable_http_forwards_per_request_bearer(monkeypatch):
 
     async def drive() -> tuple[list[str], str]:
         url = f"http://127.0.0.1:{port}/mcp"
-        async with streamablehttp_client(
-            url, headers={"Authorization": "Bearer kgw_USER_ALICE"}
-        ) as (r, w, _):
-            async with ClientSession(r, w) as s:
-                await s.initialize()
-                tools = await s.list_tools()
-                names = [t.name for t in tools.tools]
-                res = await s.call_tool("kap_search_knowledge", {"query": "test"})
-                return names, str(res.content)
+        async with (
+            streamablehttp_client(
+                url, headers={"Authorization": "Bearer kgw_USER_ALICE"}
+            ) as (r, w, _),
+            ClientSession(r, w) as s,
+        ):
+            await s.initialize()
+            tools = await s.list_tools()
+            names = [t.name for t in tools.tools]
+            res = await s.call_tool("kap_search_knowledge", {"query": "test"})
+            return names, str(res.content)
 
     try:
         names, _ = asyncio.run(drive())
