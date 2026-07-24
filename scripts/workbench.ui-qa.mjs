@@ -496,6 +496,45 @@ for (const result of results) {
       ? Boolean(normal && result.projectPanelHeight < normal.projectPanelHeight * 0.7)
       : true;
   result.passed = accepted(result);
+  if (!result.passed) {
+    const breakdown = {
+      scenario: result.scenario,
+      viewport: result.viewport,
+      overflowX: result.overflowX,
+      overflowCheck: result.overflowX <= 2,
+      shellOverlap: result.shellOverlap,
+      shellOverlapCheck: result.shellOverlap <= 1,
+      clippedControls: result.clippedControls,
+      clippedCheck: result.clippedControls === 0,
+      panelCount: result.panelCount,
+      panelCountCheck: result.panelCount >= 4 && result.panelCount <= 6,
+      actionQueuePrimary: result.actionQueuePrimary,
+      healthFullWidth: result.healthFullWidth,
+      projectRecentBalanced: result.projectRecentBalanced,
+      workbuddyDedicated: result.workbuddyDedicated,
+      operationsCompact: result.operationsCompact,
+      operationActionsReachable: result.operationActionsReachable,
+      projectStateCompact: result.projectStateCompact,
+      compactHeader: result.compactHeader,
+      staleFourPanelGrid: result.staleFourPanelGrid,
+      oldSurfaceVisible: result.oldSurfaceVisible,
+      fakeFeatureVisible: result.fakeFeatureVisible,
+      sensitiveVisible: result.sensitiveVisible,
+      consoleLeak: result.consoleLeak,
+      overviewCalls: result.overviewCalls,
+      overviewCheck: result.overviewCalls >= 1,
+      oldApiCalls: result.oldApiCalls,
+      oldApiCheck: result.oldApiCalls === 0,
+      normalContent: result.normalContent,
+      zeroState: result.zeroState,
+      projectEmptyState: result.projectEmptyState,
+      forbiddenState: result.forbiddenState,
+      hiddenTitleSafe: result.hiddenTitleSafe,
+      workbuddyLifecycleVisible: result.workbuddyLifecycleVisible,
+      retrySucceeded: result.retrySucceeded,
+    };
+    console.error(JSON.stringify(breakdown, null, 2));
+  }
 }
 
 fs.writeFileSync(path.join(outDir, "report.json"), JSON.stringify(results, null, 2));
