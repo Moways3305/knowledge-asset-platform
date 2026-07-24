@@ -116,7 +116,7 @@
 }
 
 .upload77-remove,
-.upload77-cancel {
+.upload77-exit {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -130,8 +130,8 @@
 }
 
 .upload77-remove:hover,
-.upload77-cancel:hover {
-  color: var(--color-danger, #b42318);
+.upload77-exit:hover {
+  color: var(--color-text-heading);
 }
 
 .upload77-page .upload77-flow {
@@ -510,7 +510,30 @@
   width: 100%;
 }
 
-.upload77-cancel {
+.upload77-reject {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 12px;
+  margin-top: 6px;
+  border: 1px solid #b42318;
+  border-radius: 5px;
+  background: #fff;
+  color: #b42318;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.upload77-reject:hover {
+  background: #fff3f2;
+}
+
+.upload77-exit {
   width: 100%;
   justify-content: center;
   margin-top: 6px;
@@ -581,4 +604,111 @@
   .upload77-table {
     min-width: 760px;
   }
+}
+
+/* ---------- 级别说明卡片（资料信息底部） ---------- */
+
+.up-level-info-card {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.up-level-info-title {
+  margin: 0 0 10px;
+  color: var(--color-text-heading);
+  font-size: 13px;
+}
+
+.up-level-info-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.up-level-info-label {
+  color: var(--color-text-secondary);
+}
+
+/* ---------- 级别说明 tooltip ---------- */
+
+.lv-tip-wrapper {
+  position: relative;
+}
+
+.lv-tip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+  font-style: normal;
+  cursor: help;
+  transition: color 0.15s;
+  user-select: none;
+}
+
+.lv-tip-icon:hover,
+.lv-tip-icon:focus {
+  color: #1f2d75;
+  background: rgba(31, 45, 117, 0.07);
+}
+
+.lv-tip-popup {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 9999;
+  min-width: 420px;
+  max-width: 520px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.lv-tip-popup::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 100%;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid #fff;
+}
+
+.lv-tip-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.lv-tip-table th {
+  padding: 5px 7px;
+  border-bottom: 1px solid var(--color-border);
+  background: #f7f8fb;
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.lv-tip-table td {
+  padding: 5px 7px;
+  border-bottom: 1px solid #eceef4;
+  color: var(--color-text-body);
+  vertical-align: top;
+}
+
+.lv-tip-table tbody tr:last-child td {
+  border-bottom: 0;
 }
