@@ -496,7 +496,6 @@ for (const result of results) {
   result.projectStateCompact = true;
   result.passed = accepted(result);
 }
-}
 
 fs.writeFileSync(path.join(outDir, "report.json"), JSON.stringify(results, null, 2));
 console.log(JSON.stringify({ port, outDir, results }, null, 2));
