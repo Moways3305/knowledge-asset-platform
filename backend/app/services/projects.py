@@ -558,11 +558,10 @@ async def patch_member(
 
 
 # ----- 项目列表 / 创建 -----
-from app.services.permission import build_caller_context  # noqa: E402
 
 
 async def _load_active_business_user(session: AsyncSession, user_id: uuid.UUID, *, role_field: str):
-    """加载并校验一个 active 业务用户（含 active 业务公司角色，非纯 admin）。"""
+    """加载并校验一个 active 用户。项目经理由治理角色（总经理/咨询总监）直接任命，不校验目标用户角色。"""
     user = (
         await session.execute(
             select(User)
@@ -575,11 +574,8 @@ async def _load_active_business_user(session: AsyncSession, user_id: uuid.UUID, 
     ).scalar_one_or_none()
     if user is None:
         raise _denied(422, f"{role_field}_not_found", "指定用户不存在")
-    ctx = build_caller_context(user)
-    if not ctx.is_active:
+    if user.status != UserStatus.active.value:
         raise _denied(422, f"{role_field}_inactive", "指定用户已停用")
-    if not ctx.is_business_user:
-        raise _denied(422, f"{role_field}_not_business", "指定用户必须是业务用户（纯 admin 不可）")
     return user
 
 

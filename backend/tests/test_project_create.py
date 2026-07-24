@@ -135,13 +135,16 @@ async def test_admin_cannot_create(client):
 
 
 async def test_pm_not_business_422(client):
+    """纯 admin 用户也可被任命为项目经理（由治理角色直接任命，不再校验业务角色）。"""
     r = await client.post(
         PROJECTS,
         headers=_hdr(USER_BOSS),
         json=_project_body(project_manager_user_id=str(USER_ADMIN_ONLY)),
     )
-    assert r.status_code == 422
-    assert r.json()["detail"]["denied_reason"] == "project_manager_not_business"
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["name"] == _project_body()["name"]
+    assert str(body["project_manager_user_id"]) == str(USER_ADMIN_ONLY)
 
 
 async def test_pm_not_found_422(client):

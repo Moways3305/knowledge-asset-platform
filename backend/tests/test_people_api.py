@@ -132,14 +132,15 @@ async def test_boss_can_set_business_role_but_not_admin(client):
     assert r.status_code == 200, r.text
     roles = {(c["company_role"], c["status"]) for c in r.json()["company_roles"]}
     assert ("consulting_director", "active") in roles
-    # boss 不能分配 admin。
+    # boss 可以分配 admin。
     r2 = await client.post(
         f"{PEOPLE}/{USER_PROJECT_MANAGER}/company-roles",
         headers=_hdr(USER_BOSS),
         json={"company_role": "admin", "status": "active"},
     )
-    assert r2.status_code == 403
-    assert r2.json()["detail"]["denied_reason"] == "admin_role_browser_management_forbidden"
+    assert r2.status_code == 200, r2.text
+    roles2 = {(c["company_role"], c["status"]) for c in r2.json()["company_roles"]}
+    assert ("admin", "active") in roles2
 
 
 async def test_consultant_cannot_manage_roles(client):
@@ -164,14 +165,30 @@ async def test_company_role_upsert_no_duplicate(client):
 
 
 async def test_admin_role_has_no_browser_management_path(client):
-    for actor in (USER_ADMIN_ONLY, USER_BOSS, USER_DIRECTOR):
-        r = await client.post(
-            f"{PEOPLE}/{USER_BOSS}/company-roles",
-            headers=_hdr(actor),
-            json={"company_role": "admin", "status": "active"},
-        )
-        assert r.status_code == 403
-        assert r.json()["detail"]["denied_reason"] == "admin_role_browser_management_forbidden"
+    """admin-only 用户不可管理任何角色；治理角色（boss/director）可管理 admin。"""
+    # admin-only 不可管理。
+    r = await client.post(
+        f"{PEOPLE}/{USER_BOSS}/company-roles",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"company_role": "admin", "status": "active"},
+    )
+    assert r.status_code == 403
+    assert r.json()["detail"]["denied_reason"] == "admin_business_permission_denied"
+    # boss / director 可管理 admin。
+    # boss 可对任意用户设置 admin。
+    r = await client.post(
+        f"{PEOPLE}/{USER_BOSS}/company-roles",
+        headers=_hdr(USER_BOSS),
+        json={"company_role": "admin", "status": "active"},
+    )
+    assert r.status_code == 200, r.text
+    # director 不能管理 boss 用户，但对非 boss 用户可设 admin。
+    r = await client.post(
+        f"{PEOPLE}/{USER_PROJECT_MANAGER}/company-roles",
+        headers=_hdr(USER_DIRECTOR),
+        json={"company_role": "admin", "status": "active"},
+    )
+    assert r.status_code == 200, r.text
 
 
 async def test_company_role_authorization_matrix(client):
@@ -205,11 +222,7 @@ async def test_company_role_authorization_matrix(client):
             json={"company_role": role, "status": "active"},
         )
         assert denied.status_code == 403
-        expected = (
-            "admin_role_browser_management_forbidden"
-            if role == "admin"
-            else "admin_business_permission_denied"
-        )
+        expected = "admin_business_permission_denied"
         assert denied.json()["detail"]["denied_reason"] == expected
 
 
