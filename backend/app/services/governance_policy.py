@@ -51,16 +51,20 @@ def governance_confirmation_role(caller: CallerContext) -> str | None:
 
 
 def can_manage_company_role(caller: CallerContext, target_role: str) -> bool:
-    """公司业务角色层级；技术 admin 角色没有浏览器治理路径。"""
+    """公司角色管理层级。总经理可管理 admin / 总经理 / 咨询总监 / 顾问；咨询总监可管理 admin / 咨询总监 / 顾问。"""
     if not caller.is_active:
         return False
     roles = caller.active_company_roles
-    if target_role == CompanyRole.admin.value:
-        return False
     if CompanyRole.boss.value in roles:
-        return target_role in BUSINESS_COMPANY_ROLES
+        return target_role in {
+            CompanyRole.admin.value,
+            CompanyRole.boss.value,
+            CompanyRole.consulting_director.value,
+            CompanyRole.consultant.value,
+        }
     if CompanyRole.consulting_director.value in roles:
         return target_role in {
+            CompanyRole.admin.value,
             CompanyRole.consulting_director.value,
             CompanyRole.consultant.value,
         }

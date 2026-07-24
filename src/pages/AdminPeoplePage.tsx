@@ -32,6 +32,7 @@ import { useAuth } from "../auth/AuthContext";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
 
 const companyRoleLabel: Record<string, string> = {
+  admin: "管理员",
   boss: "总经理",
   consulting_director: "咨询总监",
   consultant: "顾问",
@@ -50,7 +51,7 @@ const statusCls: Record<string, string> = {
   inactive: "pp-status-disabled",
 };
 
-const COMPANY_ROLE_OPTIONS = ["boss", "consulting_director", "consultant"];
+const COMPANY_ROLE_OPTIONS = ["admin", "boss", "consulting_director", "consultant"];
 const PROJECT_ROLE_OPTIONS = ["project_manager"];
 const USER_STATUS_OPTIONS = ["active", "inactive"];
 

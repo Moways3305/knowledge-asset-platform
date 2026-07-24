@@ -114,14 +114,11 @@ async def _require_manage_company_role(
     """可信 CallerContext 授权矩阵；拒绝路径先写安全审计。"""
     if governance_policy.can_manage_company_role(caller, target_role):
         return
-    if target_role == CompanyRole.admin.value:
-        reason = "admin_role_browser_management_forbidden"
-    else:
-        reason = (
-            "admin_business_permission_denied"
-            if _is_admin(caller)
-            else "company_role_management_forbidden"
-        )
+    reason = (
+        "admin_business_permission_denied"
+        if _is_admin(caller)
+        else "company_role_management_forbidden"
+    )
     await _record_governance_denied(
         session,
         caller,
@@ -130,12 +127,7 @@ async def _require_manage_company_role(
         attempted="people.company_role.update",
         target_role=target_role,
     )
-    message = (
-        "技术管理员角色不提供网页管理入口"
-        if target_role == CompanyRole.admin.value
-        else "当前身份不可管理该业务角色"
-    )
-    raise _denied(403, reason, message)
+    raise _denied(403, reason, "当前身份不可管理该角色")
 
 
 async def _require_manage_membership(
