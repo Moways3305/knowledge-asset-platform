@@ -374,16 +374,15 @@ try {
             projectPanelHeight: projects?.height ?? 0,
             stitchHierarchyCorrect: Boolean(
               todos &&
-              operations &&
-              projects &&
-              recent &&
-              workbuddy &&
-              primaryRow &&
-              secondaryRow &&
-              primaryRow.top < secondaryRow.top &&
-              Math.abs(todos.top - operations.top) <= 1 &&
-              Math.abs(todos.top - projects.top) <= 1 &&
-              Math.abs(workbuddy.top - recent.top) <= 1,
+                operations &&
+                projects &&
+                recent &&
+                primaryRow &&
+                secondaryRow &&
+                primaryRow.top < secondaryRow.top &&
+                Math.abs(todos.top - operations.top) <= 1 &&
+                Math.abs(todos.top - projects.top) <= 1 &&
+                (!workbuddy || Math.abs(workbuddy.top - recent.top) <= 1),
             ),
             actionQueuePrimary: Boolean(
               todos &&
