@@ -144,7 +144,7 @@ export default function WeknoraModelsSection({
     setForm({
       name: model.name,
       type: model.type,
-      source: model.source,
+      source: model.source ?? undefined,
       provider: model.provider ?? "",
       base_url: "",
       api_key: "",

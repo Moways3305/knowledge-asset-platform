@@ -13,6 +13,7 @@ export interface ModelDTO {
   enabled: boolean;
   is_builtin: boolean;
   description: string | null;
+  dimension?: number | null;
 }
 
 export interface ModelSlotDTO {
