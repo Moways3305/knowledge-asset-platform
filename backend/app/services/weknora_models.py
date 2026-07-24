@@ -148,9 +148,15 @@ def _is_http_url(value: str | None) -> bool:
 
 
 # 已知合法模型名称前缀（白名单），防止拼写错误（如 deepsekk）进入系统。
+# 来源：各厂商官方文档（DashScope/百炼、DeepSeek、Moonshot 等）。
+# Qwen 系列同时存在旧命名 qwen-plus/qwen-turbo/qwen-max 与新命名 qwen3.x-plus/qwen3.x-max。
 _APPROVED_MODEL_NAME_PREFIXES: tuple[str, ...] = (
     "deepseek-",
     "qwen-",
+    "qwen2-",
+    "qwen2.5-",
+    "qwen3",
+    "qwq-",
     "kimi-",
     "glm-",
     "minimax-",
