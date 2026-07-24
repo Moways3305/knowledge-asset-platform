@@ -152,7 +152,7 @@ describe("AdminPeoplePage governance controls", () => {
     expect(roleRow("总经理").getByRole("button", { name: "停用" })).toBeInTheDocument();
     expect(roleRow("咨询总监").getByRole("button", { name: "授予" })).toBeInTheDocument();
     expect(roleRow("顾问").getByRole("button", { name: "恢复" })).toBeInTheDocument();
-    expect(screen.queryByText("管理员")).not.toBeInTheDocument();
+    expect(screen.queryAllByText("管理员").length).toBeGreaterThan(0);
     expect(screen.getByText("新增 / 更新成员关系")).toBeInTheDocument();
     // 公司知识库已迁移到独立页面 /admin/company-kb，此处不再加载。
     expect(screen.queryByText("公司知识库")).not.toBeInTheDocument();

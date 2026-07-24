@@ -132,14 +132,15 @@ async def test_boss_can_set_business_role_but_not_admin(client):
     assert r.status_code == 200, r.text
     roles = {(c["company_role"], c["status"]) for c in r.json()["company_roles"]}
     assert ("consulting_director", "active") in roles
-    # boss 不能分配 admin。
+    # boss 可以分配 admin。
     r2 = await client.post(
         f"{PEOPLE}/{USER_PROJECT_MANAGER}/company-roles",
         headers=_hdr(USER_BOSS),
         json={"company_role": "admin", "status": "active"},
     )
-    assert r2.status_code == 403
-    assert r2.json()["detail"]["denied_reason"] == "admin_role_browser_management_forbidden"
+    assert r2.status_code == 200, r2.text
+    roles2 = {(c["company_role"], c["status"]) for c in r2.json()["company_roles"]}
+    assert ("admin", "active") in roles2
 
 
 async def test_consultant_cannot_manage_roles(client):
@@ -205,11 +206,7 @@ async def test_company_role_authorization_matrix(client):
             json={"company_role": role, "status": "active"},
         )
         assert denied.status_code == 403
-        expected = (
-            "admin_role_browser_management_forbidden"
-            if role == "admin"
-            else "admin_business_permission_denied"
-        )
+        expected = "admin_business_permission_denied"
         assert denied.json()["detail"]["denied_reason"] == expected
 
 
