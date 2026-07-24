@@ -144,7 +144,7 @@ async def test_pm_not_business_422(client):
     assert r.status_code == 201, r.text
     body = r.json()
     assert body["name"] == _project_body()["name"]
-    assert str(body["project_manager"]["user_id"]) == str(USER_ADMIN_ONLY)
+    assert str(body["project_manager_user_id"]) == str(USER_ADMIN_ONLY)
 
 
 async def test_pm_not_found_422(client):

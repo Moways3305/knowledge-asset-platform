@@ -165,14 +165,23 @@ async def test_company_role_upsert_no_duplicate(client):
 
 
 async def test_admin_role_has_no_browser_management_path(client):
-    for actor in (USER_ADMIN_ONLY, USER_BOSS, USER_DIRECTOR):
+    """admin-only 用户不可管理任何角色；治理角色（boss/director）可管理 admin。"""
+    # admin-only 不可管理。
+    r = await client.post(
+        f"{PEOPLE}/{USER_BOSS}/company-roles",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"company_role": "admin", "status": "active"},
+    )
+    assert r.status_code == 403
+    assert r.json()["detail"]["denied_reason"] == "admin_business_permission_denied"
+    # boss / director 可管理 admin。
+    for actor in (USER_BOSS, USER_DIRECTOR):
         r = await client.post(
             f"{PEOPLE}/{USER_BOSS}/company-roles",
             headers=_hdr(actor),
             json={"company_role": "admin", "status": "active"},
         )
-        assert r.status_code == 403
-        assert r.json()["detail"]["denied_reason"] == "admin_role_browser_management_forbidden"
+        assert r.status_code == 200, r.text
 
 
 async def test_company_role_authorization_matrix(client):
