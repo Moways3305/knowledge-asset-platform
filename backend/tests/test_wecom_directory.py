@@ -1,6 +1,6 @@
 """WeCom 微盘目录浏览测试。
 
-覆盖：admin-only 权限；未配置安全 503；spaces/directories 只回安全字段；目录归一只留文件夹；
+覆盖：治理身份可操作、顾问拒绝；未配置安全 503；spaces/directories 只回安全字段；目录归一只留文件夹；
 非法 ref 安全失败；选择器生成的 directory_ref 可直接用于现有 create config；上游 leaky 错误不泄露。
 归一静态方法（_to_spaces/_to_directories）直接单测（不打网络）。
 """
@@ -126,15 +126,24 @@ async def test_admin_can_browse(client):
         app.dependency_overrides.pop(get_wecom_drive_client, None)
 
 
-@pytest.mark.parametrize("user", [USER_BOSS, USER_DIRECTOR, USER_CONSULTANT])
-async def test_non_admin_forbidden(client, user):
+@pytest.mark.parametrize("user", [USER_BOSS, USER_DIRECTOR])
+async def test_governance_can_browse(client, user):
     _install(FakeDrive())
     try:
         s = await client.get(SPACES, headers=_hdr(user))
-        assert s.status_code == 403
-        assert s.json()["detail"]["denied_reason"] == "wecom_scan_admin_required"
+        assert s.status_code == 200
         d = await client.get(f"{DIRS}?space_ref=sp-1", headers=_hdr(user))
-        assert d.status_code == 403
+        assert d.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_wecom_drive_client, None)
+
+
+async def test_consultant_cannot_browse(client):
+    _install(FakeDrive())
+    try:
+        s = await client.get(SPACES, headers=_hdr(USER_CONSULTANT))
+        assert s.status_code == 403
+        assert s.json()["detail"]["denied_reason"] == "wecom_scan_operator_required"
     finally:
         app.dependency_overrides.pop(get_wecom_drive_client, None)
 
@@ -196,7 +205,7 @@ async def test_upstream_leaky_error_not_exposed(client):
     try:
         s = await client.get(SPACES, headers=_hdr(USER_ADMIN_ONLY))
         assert s.status_code == 502
-        assert s.json()["detail"]["denied_reason"] == "wecom_drive_browse_failed"
+        assert s.json()["detail"]["denied_reason"] == "wecom_api_40058"
         for token in _FORBIDDEN + ["XYZ", "http://x"]:
             assert token not in s.text
         d = await client.get(f"{DIRS}?space_ref=sp-1", headers=_hdr(USER_ADMIN_ONLY))

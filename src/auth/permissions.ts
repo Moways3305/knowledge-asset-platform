@@ -77,16 +77,16 @@ export const can = {
   // 管理后台（与后端各端点真实放行条件对齐）：
   // 入库管理：list_admin_ingest → admin 或治理角色。
   viewIngestAdmin: adminOrGovernance,
-  // 微盘扫描：读配置/记录 → admin 或治理角色（启停/触发仍需 admin，由页面内部区分）。
+  // 微盘扫描：当前工作身份为治理角色或兼容系统治理身份均可维护。
   viewWecomScan: adminOrGovernance,
-  // 模型配置：纯系统 admin。
-  viewModels: adminOnly,
+  // 模型配置：治理角色可维护；后端仍以会话当前工作身份复核。
+  viewModels: adminOrGovernance,
   // 审计日志：admin 或 boss / 咨询总监（按角色脱敏，页面内部区分视图档位）。
   viewAudit: adminOrGovernance,
   // 登录风控：admin-only 运维面板。
   viewAuthSecurity: adminOnly,
-  // 告警设置：三个告警 API 均要求 admin。
-  viewAlerts: adminOnly,
+  // 告警设置：治理角色可维护。
+  viewAlerts: adminOrGovernance,
   // 权限规则：admin / 治理角色可读（写入仅治理角色，由页面内部区分）。
   viewPermissions: adminOrGovernance,
   // 人员治理：admin 不可见；仅总经理 / 咨询总监。

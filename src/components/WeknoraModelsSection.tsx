@@ -223,10 +223,7 @@ export default function WeknoraModelsSection({
     }));
     try {
       const result = await checkWeknoraModel({
-        model_type: model.type,
-        api_url: "", // WeKnora managed models use platform config
-        api_key: "",
-        model: model.name,
+        model_ref: model.model_ref,
       });
       setTests((old) => ({
         ...old,

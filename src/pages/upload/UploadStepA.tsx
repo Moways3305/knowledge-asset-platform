@@ -1,6 +1,7 @@
 import { RefreshCw } from "lucide-react";
 import { formatBeijingTime } from "../../utils/time";
 import { pendingStatusLabel } from "./uploadConstants";
+import BatchTaskProgress from "./BatchTaskProgress";
 import type { UploadFlow } from "./useUploadFlow";
 
 export default function UploadStepA({ flow }: { flow: UploadFlow }) {
@@ -12,6 +13,11 @@ export default function UploadStepA({ flow }: { flow: UploadFlow }) {
     handleSelectPendingTask,
     taskId,
     flowState,
+    batchSelection,
+    batchStatus,
+    batchBusy,
+    toggleBatchTask,
+    handleBatchConfirm,
   } = flow;
 
   return (
@@ -30,6 +36,20 @@ export default function UploadStepA({ flow }: { flow: UploadFlow }) {
           <RefreshCw size={15} aria-hidden="true" />
           {pendingLoading ? "刷新中" : "刷新"}
         </button>
+        {batchSelection.length > 0 && (
+          <button
+            className="btn-primary"
+            disabled={batchBusy}
+            onClick={() =>
+              void handleBatchConfirm(
+                pendingTasks.filter((task) => batchSelection.includes(task.id)),
+              )
+            }
+            type="button"
+          >
+            {batchBusy ? "正在逐条确认" : `批量确认入库（${batchSelection.length}）`}
+          </button>
+        )}
       </div>
 
       {pendingLoading ? (
@@ -53,6 +73,7 @@ export default function UploadStepA({ flow }: { flow: UploadFlow }) {
           <table className="upload77-table">
             <thead>
               <tr>
+                <th className="upload77-batch-col">批量</th>
                 <th>文件</th>
                 <th>状态</th>
                 <th>建议标题</th>
@@ -64,15 +85,36 @@ export default function UploadStepA({ flow }: { flow: UploadFlow }) {
               {pendingTasks.map((task) => {
                 const selected = taskId === task.id;
                 const loadingThis = selected && flowState === "processing";
+                const itemStatus = batchStatus[task.id];
                 return (
                   <tr key={task.id} className={selected ? "is-selected" : ""}>
+                    <td className="upload77-batch-col">
+                      <input
+                        aria-label={`选择 ${task.source_file_name}`}
+                        checked={batchSelection.includes(task.id)}
+                        disabled={batchBusy || itemStatus === "success"}
+                        onChange={() => toggleBatchTask(task.id)}
+                        type="checkbox"
+                      />
+                      {itemStatus && <BatchTaskProgress state={itemStatus} />}
+                      {itemStatus === "failed" && (
+                        <button
+                          className="upload77-retry-link"
+                          disabled={batchBusy}
+                          onClick={() => void handleBatchConfirm([task])}
+                          type="button"
+                        >
+                          重试
+                        </button>
+                      )}
+                    </td>
                     <td>
                       <button
                         className="upload77-task-select"
                         onClick={() => {
-                          if (!loadingThis) void handleSelectPendingTask(task);
+                          if (!loadingThis && !batchBusy) void handleSelectPendingTask(task);
                         }}
-                        disabled={loadingThis}
+                        disabled={loadingThis || batchBusy}
                         type="button"
                       >
                         {task.source_file_name}

@@ -109,13 +109,12 @@ async def test_admin_put_then_get_no_raw_id(client, wk):
 # ---------------------------------------------------------------------------
 # 治理角色可 GET，不可 PUT；顾问全 403
 # ---------------------------------------------------------------------------
-async def test_governance_can_get_cannot_put(client, wk):
+async def test_governance_can_get_and_put(client, wk):
     for uid in (USER_BOSS, USER_DIRECTOR):
         g = await client.get(BASE, headers=_hdr(uid))
         assert g.status_code == 200, g.text
         p = await client.put(BASE, headers=_hdr(uid), json={})
-        assert p.status_code == 403
-        assert p.json()["detail"]["denied_reason"] == "weknora_admin_required"
+        assert p.status_code == 200
 
 
 async def test_consultant_forbidden_get_and_put(client, wk):
@@ -124,7 +123,7 @@ async def test_consultant_forbidden_get_and_put(client, wk):
     assert g.json()["detail"]["denied_reason"] == "weknora_admin_required"
     p = await client.put(BASE, headers=_hdr(USER_CONSULTANT), json={})
     assert p.status_code == 403
-    assert p.json()["detail"]["denied_reason"] == "weknora_admin_required"
+    assert p.json()["detail"]["denied_reason"] == "weknora_operator_required"
 
 
 # ---------------------------------------------------------------------------

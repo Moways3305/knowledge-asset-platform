@@ -327,9 +327,9 @@ async def test_l5_lifecycle_no_leak(client):
 
 # ---- 10. 告警规则列表 / 更新（admin）+ config.alert_rule_updated 审计 ----
 async def test_alert_rules_list_and_update(client):
-    # 非 admin（boss）→ 403。
-    forbidden = await client.get(f"{ALERTS}/rules", headers=_hdr(USER_BOSS))
-    assert forbidden.status_code == 403
+    # 当前治理身份可读取告警规则。
+    governance = await client.get(f"{ALERTS}/rules", headers=_hdr(USER_BOSS))
+    assert governance.status_code == 200
 
     rules = await client.get(f"{ALERTS}/rules", headers=_hdr(USER_ADMIN_ONLY))
     assert rules.status_code == 200
@@ -348,6 +348,11 @@ async def test_alert_rules_list_and_update(client):
     assert patched.status_code == 200
     assert patched.json()["enabled"] is False
     assert patched.json()["threshold"] == 365
+
+    governance_patch = await client.patch(
+        f"{ALERTS}/rules/{rid}", headers=_hdr(USER_BOSS), json={"enabled": True}
+    )
+    assert governance_patch.status_code == 200
 
     audit = await client.get(f"{AUDIT}/trace/trc-rule", headers=_hdr(USER_DIRECTOR))
     assert "config.alert_rule_updated" in {e["action"] for e in audit.json()["items"]}

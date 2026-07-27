@@ -74,12 +74,13 @@ class ModelDeleteResponse(BaseModel):
 
 
 class ModelCheckRequest(BaseModel):
-    """连通性测试：api_url / api_key 仅上送，结果只回 success + 安全文案。"""
+    """已保存模型的连通性测试：浏览器只能提交不可逆 ``model_ref``。
 
-    model_type: str  # chat|embedding|rerank|vllm
-    api_url: str
-    api_key: str
-    model: str
+    模型类型、名称及连接参数必须由服务端重新从 WeKnora 已保存配置解析，避免浏览器
+    伪造类型或传入空的 api_url/api_key。
+    """
+
+    model_ref: str
 
 
 class ModelCheckResponse(BaseModel):

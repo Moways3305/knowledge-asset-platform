@@ -60,7 +60,7 @@ export default function AdminWeKnoraModelsPage() {
   const [defaultMultimodalRef, setDefaultMultimodalRef] = useState("");
   const [defaultsBusy, setDefaultsBusy] = useState(false);
   const [refreshSignal, setRefreshSignal] = useState(0);
-  const canEdit = capabilities.isAdmin && !weknoraForbidden;
+  const canEdit = (capabilities.isAdmin || capabilities.isGovernance) && !weknoraForbidden;
 
   const loadKnowledgeConfigs = useCallback(async () => {
     setLoading(true);
@@ -167,10 +167,13 @@ export default function AdminWeKnoraModelsPage() {
       <div className="mf-workspace">
         <div className="mf-model-panels">
           <UnifiedModelConnectionsSection
-            canEdit={capabilities.isAdmin}
+            canEdit={capabilities.isAdmin || capabilities.isGovernance}
             refreshSignal={refreshSignal}
           />
-          <WeknoraModelsSection canEdit={capabilities.isAdmin} refreshSignal={refreshSignal} />
+          <WeknoraModelsSection
+            canEdit={capabilities.isAdmin || capabilities.isGovernance}
+            refreshSignal={refreshSignal}
+          />
         </div>
 
         <aside className="mf-foundation-panel" aria-labelledby="weknora-foundation-title">
@@ -184,7 +187,7 @@ export default function AdminWeKnoraModelsPage() {
             </span>
           </div>
 
-          {!capabilities.isAdmin && !weknoraForbidden && (
+          {!capabilities.isAdmin && !capabilities.isGovernance && !weknoraForbidden && (
             <div className="mf-inline-message">当前身份仅可查看，修改需系统管理员。</div>
           )}
           {error && (

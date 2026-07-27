@@ -267,13 +267,13 @@ async def test_scan_config_permissions(client, db_session):
     _assert_no_leak((await client.get(CONFIGS, headers=_hdr(USER_ADMIN_ONLY))).text)
 
 
-async def test_scan_config_update_admin_only(client, db_session):
+async def test_scan_config_update_allows_governance(client, db_session):
     config = await _new_config(db_session)
     url = f"{CONFIGS}/{config.id}"
-    # 治理角色（非 admin）不能启停。
+    # 治理角色（非 admin）可启停。
     assert (
         await client.patch(url, headers=_hdr(USER_DIRECTOR), json={"enabled": False})
-    ).status_code == 403
+    ).status_code == 200
     ok = await client.patch(url, headers=_hdr(USER_ADMIN_ONLY), json={"enabled": False})
     assert ok.status_code == 200
     assert ok.json()["enabled"] is False

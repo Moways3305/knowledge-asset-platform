@@ -45,6 +45,8 @@ describe("UploadPage reference workflow", () => {
     flow.current.awaitingProjectReview = false;
     flow.current.switchPath.mockReset();
     flow.current.handleReset.mockReset();
+    flow.current.handleDeletePending.mockReset();
+    flow.current.handleDeletePending.mockResolvedValue(undefined);
     window.history.replaceState({ idx: 0 }, "");
   });
 
@@ -67,13 +69,13 @@ describe("UploadPage reference workflow", () => {
     expect(screen.queryByText("已进入知识库")).not.toBeInTheDocument();
   });
 
-  it("returns a directly opened confirmation to the real pending list", () => {
+  it("returns a local confirmation to its local pending list", () => {
     flow.current.confirmReady = true;
     renderPage();
 
     fireEvent.click(screen.getByRole("button", { name: "退出" }));
     expect(flow.current.handleReset).toHaveBeenCalledTimes(1);
-    expect(flow.current.switchPath).toHaveBeenCalledWith("a");
+    expect(flow.current.switchPath).toHaveBeenCalledWith("b");
   });
 
   it("rejects a confirmation and deletes the pending task", async () => {
@@ -86,6 +88,18 @@ describe("UploadPage reference workflow", () => {
       expect(flow.current.handleDeletePending).toHaveBeenCalledWith("test-task-id");
     });
     expect(flow.current.handleReset).toHaveBeenCalledTimes(1);
-    expect(flow.current.switchPath).toHaveBeenCalledWith("a");
+    expect(flow.current.switchPath).toHaveBeenCalledWith("b");
+  });
+
+  it("keeps the confirmation open when permanent rejection fails", async () => {
+    flow.current.confirmReady = true;
+    flow.current.handleDeletePending.mockRejectedValueOnce(new Error("network"));
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "拒绝入库" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("拒绝入库失败");
+    expect(flow.current.handleReset).not.toHaveBeenCalled();
+    expect(flow.current.switchPath).not.toHaveBeenCalled();
+    expect(screen.getByText("已提交，等待项目经理确认")).toBeInTheDocument();
   });
 });

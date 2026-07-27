@@ -259,19 +259,81 @@
   font-weight: 600;
 }
 
-.upload77-table th:first-child {
-  width: 24%;
+.upload77-batch-col {
+  width: 104px;
+}
+
+.upload77-batch-col input {
+  margin: 0 6px 0 0;
+}
+
+.upload77-batch-state {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.upload77-batch-progress {
+  display: block;
+  margin-top: 5px;
+}
+
+.upload77-batch-progress progress {
+  display: block;
+  width: 86px;
+  height: 5px;
+  margin: 0 0 4px;
+  accent-color: #72809d;
+}
+
+.upload77-batch-progress.is-processing progress {
+  accent-color: #1f5f9f;
+}
+
+.upload77-batch-progress.is-success progress {
+  accent-color: #16794b;
+}
+
+.upload77-batch-progress.is-failed progress {
+  accent-color: #a12c26;
+}
+
+.upload77-batch-progress.is-processing .upload77-batch-state {
+  color: #1f5f9f;
+}
+.upload77-batch-progress.is-success .upload77-batch-state {
+  color: #16794b;
+}
+.upload77-batch-progress.is-failed .upload77-batch-state {
+  color: #a12c26;
+}
+
+.upload77-retry-link {
+  display: block;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1f2d75;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  text-decoration: underline;
 }
 
 .upload77-table th:nth-child(2) {
-  width: 12%;
+  width: 20%;
 }
 
 .upload77-table th:nth-child(3) {
-  width: 28%;
+  width: 12%;
 }
 
 .upload77-table th:nth-child(4) {
+  width: 28%;
+}
+
+.upload77-table th:nth-child(5) {
   width: 12%;
 }
 
@@ -644,7 +706,9 @@
   justify-content: center;
   width: 18px;
   height: 18px;
+  border: 0;
   border-radius: 9px;
+  background: transparent;
   color: var(--color-text-tertiary);
   font-size: 12px;
   font-style: normal;
@@ -660,12 +724,10 @@
 }
 
 .lv-tip-popup {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 8px);
+  position: fixed;
   z-index: 9999;
-  min-width: 420px;
-  max-width: 520px;
+  width: min(520px, calc(100vw - 32px));
+  transform: translateY(-100%);
   padding: 12px;
   border: 1px solid var(--color-border);
   border-radius: 6px;
@@ -674,15 +736,11 @@
 }
 
 .lv-tip-popup::after {
-  content: "";
-  position: absolute;
-  left: 12px;
-  top: 100%;
-  width: 0;
-  height: 0;
-  border-left: 6px solid transparent;
-  border-right: 6px solid transparent;
-  border-top: 6px solid #fff;
+  display: none;
+}
+
+.lv-tip-popup.is-bottom {
+  transform: none;
 }
 
 .lv-tip-table {

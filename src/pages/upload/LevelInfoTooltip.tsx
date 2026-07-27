@@ -1,121 +1,128 @@
-import { useState, useRef, useEffect } from "react";
-import { confidentialityLevelDescriptions, aiAccessLevelDescriptions } from "./uploadConstants";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { aiAccessLevelDescriptions, confidentialityLevelDescriptions } from "./uploadConstants";
 
 interface LevelTooltipProps {
   type: "confidentiality" | "aiAccess";
 }
 
+interface PopupPosition {
+  left: number;
+  top: number;
+  placement: "top" | "bottom";
+}
+
 function LevelTooltip({ type }: LevelTooltipProps) {
   const [visible, setVisible] = useState(false);
-  const triggerRef = useRef<HTMLSpanElement>(null);
+  const [position, setPosition] = useState<PopupPosition | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
+  const label = type === "confidentiality" ? "查看保密级别说明" : "查看自动处理级别说明";
+
+  useLayoutEffect(() => {
+    if (!visible || !triggerRef.current) return;
+    const updatePosition = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = Math.min(520, window.innerWidth - 32);
+      const estimatedHeight = type === "confidentiality" ? 290 : 180;
+      const placeBelow = rect.top < estimatedHeight + 16;
+      setPosition({
+        left: Math.max(16, Math.min(rect.left, window.innerWidth - width - 16)),
+        top: placeBelow ? rect.bottom + 8 : rect.top - 8,
+        placement: placeBelow ? "bottom" : "top",
+      });
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [type, visible]);
 
   useEffect(() => {
     if (!visible) return;
-    function onClickOutside(e: MouseEvent) {
-      if (
-        popupRef.current &&
-        !popupRef.current.contains(e.target as Node) &&
-        triggerRef.current &&
-        !triggerRef.current.contains(e.target as Node)
-      ) {
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!triggerRef.current?.contains(target) && !popupRef.current?.contains(target))
         setVisible(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setVisible(false);
+        triggerRef.current?.focus();
       }
-    }
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, [visible]);
 
-  if (type === "confidentiality") {
-    return (
-      <span className="lv-tip-wrapper">
-        <span
-          ref={triggerRef}
-          className="lv-tip-icon"
-          tabIndex={0}
-          role="button"
-          aria-label="查看保密级别说明"
-          onMouseEnter={() => setVisible(true)}
-          onMouseLeave={() => setVisible(false)}
-          onFocus={() => setVisible(true)}
-          onBlur={() => setVisible(false)}
-          onClick={() => setVisible((v) => !v)}
-        >
-          ⓘ
-        </span>
-        {visible && (
-          <div ref={popupRef} className="lv-tip-popup">
-            <table className="lv-tip-table">
-              <thead>
-                <tr>
-                  <th>级别</th>
-                  <th>定义</th>
-                  <th>典型资料</th>
-                  <th>AI 调用建议</th>
+  const popup = visible && position && (
+    <div
+      ref={popupRef}
+      className={`lv-tip-popup is-${position.placement}`}
+      role="dialog"
+      aria-label={label}
+      style={{ left: position.left, top: position.top }}
+    >
+      <table className="lv-tip-table">
+        <thead>
+          <tr>
+            <th>级别</th>
+            <th>{type === "confidentiality" ? "定义" : "AI 调用说明"}</th>
+            {type === "confidentiality" && <th>典型资料</th>}
+            {type === "confidentiality" && <th>AI 调用建议</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {type === "confidentiality"
+            ? confidentialityLevelDescriptions.map((level) => (
+                <tr key={level.level}>
+                  <td>
+                    <strong>{level.level}</strong>
+                  </td>
+                  <td>{level.summary}</td>
+                  <td>{level.examples}</td>
+                  <td>{level.aiSuggestion}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {confidentialityLevelDescriptions.map((l) => (
-                  <tr key={l.level}>
-                    <td>
-                      <strong>{l.level}</strong>
-                    </td>
-                    <td>{l.summary}</td>
-                    <td>{l.examples}</td>
-                    <td>{l.aiSuggestion}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </span>
-    );
-  }
+              ))
+            : aiAccessLevelDescriptions.map((level) => (
+                <tr key={level.level}>
+                  <td>
+                    <strong>{level.level}</strong>
+                  </td>
+                  <td>{level.description}</td>
+                </tr>
+              ))}
+        </tbody>
+      </table>
+    </div>
+  );
 
   return (
     <span className="lv-tip-wrapper">
-      <span
+      <button
         ref={triggerRef}
         className="lv-tip-icon"
-        tabIndex={0}
-        role="button"
-        aria-label="查看自动处理级别说明"
-        onMouseEnter={() => setVisible(true)}
-        onMouseLeave={() => setVisible(false)}
-        onFocus={() => setVisible(true)}
-        onBlur={() => setVisible(false)}
-        onClick={() => setVisible((v) => !v)}
+        aria-expanded={visible}
+        aria-haspopup="dialog"
+        aria-label={label}
+        onClick={() => setVisible((current) => !current)}
+        type="button"
       >
         ⓘ
-      </span>
-      {visible && (
-        <div ref={popupRef} className="lv-tip-popup">
-          <table className="lv-tip-table">
-            <thead>
-              <tr>
-                <th>级别</th>
-                <th>AI 调用说明</th>
-              </tr>
-            </thead>
-            <tbody>
-              {aiAccessLevelDescriptions.map((a) => (
-                <tr key={a.level}>
-                  <td>
-                    <strong>{a.level}</strong>
-                  </td>
-                  <td>{a.description}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      </button>
+      {popup && createPortal(popup, document.body)}
     </span>
   );
 }
 
-/** 在资料信息卡片底部展示保密级别和自动处理级别的说明入口。 */
 export default function LevelInfoCard() {
   return (
     <div className="up-level-info-card">
