@@ -146,23 +146,22 @@ class FakeModelsWK:
         }
         return {"success": True}
 
-    async def check_remote_model(self, *, api_url, api_key, model, trace_id=None):
-        self.last_check = {"type": "chat", "api_url": api_url, "api_key": api_key, "model": model}
+    async def check_remote_model(self, *, model_id, model, trace_id=None):
+        self.last_check = {"type": "chat", "model_id": model_id, "model": model}
         return {"success": True, "message": "模型可用"}
 
-    async def test_embedding_model(self, *, api_url, api_key, model, trace_id=None):
+    async def test_embedding_model(self, *, model_id, model, trace_id=None):
         self.last_check = {
             "type": "embedding",
-            "api_url": api_url,
-            "api_key": api_key,
+            "model_id": model_id,
             "model": model,
         }
         return {"success": True, "message": "嵌入模型测试通过"}
 
-    async def check_rerank_model(self, *, api_url, api_key, model, trace_id=None):
+    async def check_rerank_model(self, *, model_id, model, trace_id=None):
         return {"success": True, "message": "重排序模型可用"}
 
-    async def test_multimodal_model(self, *, api_url, api_key, model, trace_id=None):
+    async def test_multimodal_model(self, *, model_id, model, trace_id=None):
         return {"success": True, "message": "多模态模型测试通过"}
 
 
@@ -553,24 +552,28 @@ async def test_check_model_no_secret_in_response(client, wk):
     assert wk.list_calls == 1
     assert wk.last_check == {
         "type": "embedding",
-        "api_url": _URL,
-        "api_key": _SECRET,
+        "model_id": "mid-emb",
         "model": "text-embedding-v3",
     }
-    for token in [_SECRET, _URL, "sk-"]:
+    for token in [_SECRET, _URL, "sk-", "mid-emb"]:
         assert token not in r.text
 
 
-async def test_check_model_rejects_missing_saved_connection_before_upstream_call(client, wk):
+async def test_check_model_uses_native_stored_credentials_when_model_details_redact_them(
+    client, wk
+):
     wk.models["mid-emb"]["parameters"] = {"provider": "aliyun"}
     r = await client.post(
         f"{BASE}/models/check",
         headers=_hdr(USER_ADMIN_ONLY),
         json={"model_ref": _model_ref("mid-emb")},
     )
-    assert r.status_code == 422
-    assert r.json()["detail"]["denied_reason"] == "weknora_model_connection_config_missing"
-    assert wk.last_check is None
+    assert r.status_code == 200
+    assert wk.last_check == {
+        "type": "embedding",
+        "model_id": "mid-emb",
+        "model": "text-embedding-v3",
+    }
 
 
 async def test_not_configured_returns_safe_503(client, monkeypatch):
@@ -604,7 +607,7 @@ class _LeakyCreateWK(FakeModelsWK):
 
 
 class _LeakyCheckWK(FakeModelsWK):
-    async def test_embedding_model(self, *, api_url, api_key, model, trace_id=None):
+    async def test_embedding_model(self, *, model_id, model, trace_id=None):
         raise WeKnoraError("upstream_400", f"reject {_SECRET} {_URL} mid-emb")
 
 
