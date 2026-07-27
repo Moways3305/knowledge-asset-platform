@@ -93,7 +93,11 @@ class MaintainerOut(BaseModel):
 
 
 class SummaryOut(BaseModel):
-    """详情摘要对象（按权限过滤；L3/L4 仅给安全/脱敏文本，不暴露 key_points）。"""
+    """详情摘要对象。
+
+    按权限过滤；L3/L4 的 one_liner / detailed 分别使用短版与完整版安全脱敏文本，
+    且不暴露 key_points。
+    """
 
     one_liner: str | None = None
     detailed: str | None = None

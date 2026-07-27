@@ -5,8 +5,8 @@
 
 摘要与字段口径说明：
 - summaries 为窄表（summary_type + content）。L3/L4 摘要使用
-  `redacted_summary` / `safe_summary` 行作为安全摘要；若 seed 未提供，则回退
-  为 None（不暴露普通摘要）。
+  `redacted_one_liner` + `redacted_summary` / `safe_summary` 行作为短摘要与详细安全摘要；
+  若未提供则回退为 None（不暴露普通摘要）。
 - `confidence` 未在 knowledge_assets 落地，统一返回 None。
 - include_archived=true 当前不额外放行归档资产：权限服务对 archived/deprecated
   作 asset_not_active 处理（发现层拒绝），治理归档视图当前不包含。
@@ -173,14 +173,21 @@ def _denied(status_code: int, reason: str, message: str) -> HTTPException:
 
 
 def _summary_map(asset: KnowledgeAsset) -> dict[str, str | None]:
-    """把资产的 summaries（窄表）整理为 {summary_type: content}。"""
-    return {s.summary_type: s.content for s in asset.summaries}
+    """把当前版本 summaries（窄表）整理为 {summary_type: content}。"""
+    if asset.current_version_id is None:
+        return {}
+    return {
+        summary.summary_type: summary.content
+        for summary in asset.summaries
+        if summary.version_id == asset.current_version_id
+    }
 
 
 def _select_summary_text(level: str, smap: dict[str, str | None]) -> str | None:
     """列表用的单段摘要文本（按保密级别选择安全摘要）。"""
     if level in _REDACTED_LEVELS:
-        return smap.get("redacted_summary") or smap.get("safe_summary")
+        full = smap.get("redacted_summary") or smap.get("safe_summary")
+        return smap.get("redacted_one_liner") or (full[:200] if full else None)
     return smap.get("one_liner") or smap.get("detailed")
 
 
@@ -336,11 +343,12 @@ async def _list_summary_maps(
             .join(KnowledgeAsset, KnowledgeAsset.id == KnowledgeAssetSummary.asset_id)
             .where(
                 KnowledgeAssetSummary.asset_id.in_(asset_ids),
+                KnowledgeAssetSummary.version_id == KnowledgeAsset.current_version_id,
                 or_(
                     and_(
                         KnowledgeAsset.confidentiality_level.in_(_REDACTED_LEVELS),
                         KnowledgeAssetSummary.summary_type.in_(
-                            ["redacted_summary", "safe_summary"]
+                            ["redacted_one_liner", "redacted_summary", "safe_summary"]
                         ),
                     ),
                     and_(
@@ -527,8 +535,15 @@ async def get_detail(
     summary_obj: SummaryOut | None = None
     if access.summary:
         if asset.confidentiality_level in _REDACTED_LEVELS:
-            safe = smap.get("redacted_summary") or smap.get("safe_summary")
-            summary_obj = SummaryOut(one_liner=safe, detailed=safe, key_points=[])
+            safe_detailed = smap.get("redacted_summary") or smap.get("safe_summary")
+            safe_one_liner = smap.get("redacted_one_liner") or (
+                safe_detailed[:200] if safe_detailed else None
+            )
+            summary_obj = SummaryOut(
+                one_liner=safe_one_liner,
+                detailed=safe_detailed,
+                key_points=[],
+            )
         else:
             kp_raw = smap.get("key_points")
             key_points = (

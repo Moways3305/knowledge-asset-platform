@@ -297,3 +297,55 @@ async def test_redacted_summary_projection_never_loads_ordinary_summary(client, 
     assert response.status_code == 200
     assert response.json()["items"][0]["summary_text"] == "PBC67 safe summary"
     assert "PBC67-UNSAFE-SUMMARY" not in response.text
+
+
+async def test_missing_current_version_never_falls_back_to_historical_summaries(client, db_session):
+    asset = _asset("PBC67-NO-CURRENT", confidentiality_level="L4")
+    db_session.add(asset)
+    await db_session.flush()
+    historical_version = KnowledgeAssetVersion(
+        asset_id=asset.id,
+        version_no="v0",
+        version_status="superseded",
+        created_by=USER_CONSULTANT,
+    )
+    db_session.add(historical_version)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            KnowledgeAssetSummary(
+                asset_id=asset.id,
+                version_id=historical_version.id,
+                summary_type="detailed",
+                content="PBC67-HISTORICAL-ORDINARY-MUST-NOT-RENDER",
+            ),
+            KnowledgeAssetSummary(
+                asset_id=asset.id,
+                version_id=historical_version.id,
+                summary_type="redacted_summary",
+                content="PBC67-HISTORICAL-REDACTED-MUST-NOT-RENDER",
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    detail = await client.get(
+        f"{KNOWLEDGE}/{asset.id}",
+        headers=_headers(USER_CONSULTANT),
+    )
+    assert detail.status_code == 200
+    assert detail.json()["summary"] == {
+        "one_liner": None,
+        "detailed": None,
+        "key_points": [],
+    }
+    assert "PBC67-HISTORICAL" not in detail.text
+
+    listing = await client.get(
+        KNOWLEDGE,
+        params={"keyword": "PBC67-NO-CURRENT"},
+        headers=_headers(USER_CONSULTANT),
+    )
+    assert listing.status_code == 200
+    assert listing.json()["items"][0]["summary_text"] is None
+    assert "PBC67-HISTORICAL" not in listing.text

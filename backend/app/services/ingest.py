@@ -48,6 +48,7 @@ from app.schemas.permission import CallerContext
 from app.schemas.review import ReviewActionResponse
 from app.services import audit as audit_service
 from app.services import error_catalog, indexing
+from app.services.authorized_summary import build_authorized_summary_variants
 from app.services.desensitization import DesensitizationEngine
 from app.services.generation_models import generation_model_ref
 from app.services.llm_client import LLMClient, NullLLMClient
@@ -331,12 +332,24 @@ def _build_summaries(
         # key_points 每条一行存于同一 summary 行（读侧按行拆分，沿用既有口径）。
         rows.append(KnowledgeAssetSummary(summary_type="key_points", content="\n".join(pts)))
     if level in _REDACTED_LEVELS:
-        rows.append(
-            KnowledgeAssetSummary(
-                summary_type="redacted_summary",
-                content="（脱敏）" + detailed[:200],
-            )
+        redacted_one_liner, redacted_detailed = build_authorized_summary_variants(
+            one_liner=one_liner,
+            detailed=detailed,
         )
+        if redacted_one_liner:
+            rows.append(
+                KnowledgeAssetSummary(
+                    summary_type="redacted_one_liner",
+                    content=redacted_one_liner,
+                )
+            )
+        if redacted_detailed:
+            rows.append(
+                KnowledgeAssetSummary(
+                    summary_type="redacted_summary",
+                    content=redacted_detailed,
+                )
+            )
     return rows
 
 

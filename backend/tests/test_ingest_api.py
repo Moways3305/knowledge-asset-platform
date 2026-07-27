@@ -211,13 +211,25 @@ async def test_company_confirm_requires_ready_company_kb(client, db_session):
 
 
 async def test_confirm_l4_redacted_summary_no_key_points(client):
-    """L4 confirm 后创建脱敏摘要；detail 不返回 key_points 敏感内容。"""
+    """L4 detail returns a complete redacted detailed summary and a distinct short variant."""
+    sensitive_customer = "测试敏感客户"
+    sensitive_email = "hidden@example.com"
+    sensitive_phone = "13812345678"
+    safe_tail = "AUTHORIZED-SUMMARY-END"
+    detailed = (
+        f"客户名称：{sensitive_customer}，联系人邮箱 {sensitive_email}，电话 {sensitive_phone}。"
+        + "这是经过授权后可以完整展示的业务方法说明。" * 20
+        + safe_tail
+    )
     task_id = (await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"]
     r = await client.post(
         f"/api/v1/ingest/{task_id}/confirm",
         headers=_hdr(USER_CONSULTANT),
         json=_confirm_payload(
             title="个人 L4 资产",
+            one_liner=f"客户名称：{sensitive_customer}的安全短摘要",
+            summary=detailed,
+            key_points=["不得返回的敏感要点"],
             target_scope="personal",
             confidentiality_level="L4",
             ai_access_level="A4",
@@ -227,7 +239,14 @@ async def test_confirm_l4_redacted_summary_no_key_points(client):
     detail = (await client.get(f"{KN}/{asset_id}", headers=_hdr(USER_CONSULTANT))).json()
     assert detail["summary"] is not None
     assert detail["summary"]["one_liner"].startswith("（脱敏）")
+    assert len(detail["summary"]["one_liner"]) <= 204
+    assert len(detail["summary"]["detailed"]) > 200
+    assert detail["summary"]["detailed"].endswith(safe_tail)
+    assert detail["summary"]["one_liner"] != detail["summary"]["detailed"]
     assert detail["summary"]["key_points"] == []
+    for sensitive in (sensitive_customer, sensitive_email, sensitive_phone, "不得返回的敏感要点"):
+        assert sensitive not in detail["summary"]["one_liner"]
+        assert sensitive not in detail["summary"]["detailed"]
 
 
 async def test_second_confirm_returns_409(client):
