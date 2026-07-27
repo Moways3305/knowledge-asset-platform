@@ -6,6 +6,7 @@ import {
   createIngestUpload,
   deletePendingTask,
   fetchIngestAiResult,
+  fetchIngestTaskStatus,
   fetchPendingIngestTasks,
 } from "../../api/ingest";
 import type { IngestAiResultDTO, NamingFields, PendingIngestItemDTO } from "../../types/ingest";
@@ -20,7 +21,12 @@ import {
   type TargetLibrary,
 } from "./uploadConstants";
 
-export type LocalUploadQueueState = "queued" | "uploading" | "awaiting_confirmation" | "failed";
+export type LocalUploadQueueState =
+  | "queued"
+  | "uploading"
+  | "processing"
+  | "awaiting_confirmation"
+  | "failed";
 
 export interface LocalUploadQueueItem {
   id: string;
@@ -30,6 +36,8 @@ export interface LocalUploadQueueItem {
   fileType: string;
   status: LocalUploadQueueState;
   error: string | null;
+  ingestTaskId: string | null;
+  pollAttempts: number;
 }
 
 const LOCAL_UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
@@ -71,6 +79,8 @@ export function useUploadFlow() {
   const [localUploadQueue, setLocalUploadQueue] = useState<LocalUploadQueueItem[]>([]);
   const localUploadQueueRef = useRef<LocalUploadQueueItem[]>([]);
   const localUploadWorkerRef = useRef(false);
+  const localStatusPollingRef = useRef(false);
+  const localStatusPollRunRef = useRef(0);
   const localUploadSequenceRef = useRef(0);
   const [extraction, setExtraction] = useState<{
     status: string | null;
@@ -150,6 +160,7 @@ export function useUploadFlow() {
       batchRunRef.current = null;
       pendingRequestRef.current += 1;
       localPendingRequestRef.current += 1;
+      localStatusPollRunRef.current += 1;
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, []);
@@ -233,15 +244,20 @@ export function useUploadFlow() {
           ),
         );
         try {
-          await createIngestUpload({ file: item.file });
+          const upload = await createIngestUpload({ file: item.file });
           updateLocalUploadQueue((items) =>
             items.map((candidate) =>
               candidate.id === item.id
-                ? { ...candidate, status: "awaiting_confirmation", error: null }
+                ? {
+                    ...candidate,
+                    ingestTaskId: upload.ingest_task_id,
+                    pollAttempts: 0,
+                    status: "processing",
+                    error: null,
+                  }
                 : candidate,
             ),
           );
-          void loadLocalPending();
         } catch (error) {
           updateLocalUploadQueue((items) =>
             items.map((candidate) =>
@@ -259,7 +275,129 @@ export function useUploadFlow() {
     } finally {
       localUploadWorkerRef.current = false;
     }
+  }, [updateLocalUploadQueue]);
+
+  const reconcileLocalUploadQueue = useCallback(async () => {
+    if (localStatusPollingRef.current) return;
+    const runId = localStatusPollRunRef.current;
+    const processing = localUploadQueueRef.current.filter(
+      (item) => item.status === "processing" && item.ingestTaskId,
+    );
+    if (!processing.length) return;
+    localStatusPollingRef.current = true;
+    try {
+      let refreshPending = false;
+      for (const item of processing) {
+        if (localStatusPollRunRef.current !== runId) return;
+        try {
+          const status = await fetchIngestTaskStatus(item.ingestTaskId!);
+          if (localStatusPollRunRef.current !== runId) return;
+          const current = localUploadQueueRef.current.find(
+            (candidate) =>
+              candidate.id === item.id &&
+              candidate.status === "processing" &&
+              candidate.ingestTaskId === item.ingestTaskId,
+          );
+          if (!current) continue;
+          const pollAttempts = current.pollAttempts + 1;
+          const failed = status.status === "failed" || status.stage === "failed";
+          const readyForConfirmation =
+            status.stage === "awaiting_confirmation" ||
+            status.next_action?.key === "review_and_confirm";
+          if (failed) {
+            updateLocalUploadQueue((items) =>
+              items.map((candidate) =>
+                candidate.id === item.id
+                  ? {
+                      ...candidate,
+                      pollAttempts,
+                      status: "failed",
+                      error: status.error?.message ?? "文件处理失败，请检查文件后重试",
+                    }
+                  : candidate,
+              ),
+            );
+          } else if (readyForConfirmation) {
+            refreshPending = true;
+            updateLocalUploadQueue((items) =>
+              items.map((candidate) =>
+                candidate.id === item.id
+                  ? {
+                      ...candidate,
+                      pollAttempts,
+                      status: "awaiting_confirmation",
+                      error:
+                        status.status === "degraded"
+                          ? (status.error?.message ?? "文件已完成安全降级处理，请核对后确认入库")
+                          : null,
+                    }
+                  : candidate,
+              ),
+            );
+          } else if (pollAttempts >= POLL_MAX_ATTEMPTS) {
+            updateLocalUploadQueue((items) =>
+              items.map((candidate) =>
+                candidate.id === item.id
+                  ? {
+                      ...candidate,
+                      pollAttempts,
+                      status: "failed",
+                      error: "文件处理超时，请稍后重试",
+                    }
+                  : candidate,
+              ),
+            );
+          } else {
+            updateLocalUploadQueue((items) =>
+              items.map((candidate) =>
+                candidate.id === item.id ? { ...candidate, pollAttempts } : candidate,
+              ),
+            );
+          }
+        } catch {
+          if (localStatusPollRunRef.current !== runId) return;
+          updateLocalUploadQueue((items) =>
+            items.map((candidate) => {
+              if (
+                candidate.id !== item.id ||
+                candidate.status !== "processing" ||
+                candidate.ingestTaskId !== item.ingestTaskId
+              ) {
+                return candidate;
+              }
+              const pollAttempts = candidate.pollAttempts + 1;
+              return pollAttempts >= POLL_MAX_ATTEMPTS
+                ? {
+                    ...candidate,
+                    pollAttempts,
+                    status: "failed",
+                    error: "文件状态暂时无法同步，请稍后重试",
+                  }
+                : { ...candidate, pollAttempts };
+            }),
+          );
+        }
+      }
+      if (refreshPending && localStatusPollRunRef.current === runId) void loadLocalPending();
+    } finally {
+      localStatusPollingRef.current = false;
+    }
   }, [loadLocalPending, updateLocalUploadQueue]);
+
+  const hasLocalProcessing = localUploadQueue.some((item) => item.status === "processing");
+
+  useEffect(() => {
+    if (activePath !== "b" || !hasLocalProcessing) {
+      return;
+    }
+    const runId = ++localStatusPollRunRef.current;
+    void reconcileLocalUploadQueue();
+    const timer = window.setInterval(() => void reconcileLocalUploadQueue(), POLL_INTERVAL_MS);
+    return () => {
+      window.clearInterval(timer);
+      if (localStatusPollRunRef.current === runId) localStatusPollRunRef.current += 1;
+    };
+  }, [activePath, hasLocalProcessing, reconcileLocalUploadQueue]);
 
   const enqueueLocalFiles = useCallback(
     (files: Iterable<File>) => {
@@ -273,6 +411,8 @@ export function useUploadFlow() {
           fileType: file.name.split(".").pop()?.toUpperCase() || file.type || "未知",
           status: error ? "failed" : "queued",
           error,
+          ingestTaskId: null,
+          pollAttempts: 0,
         } satisfies LocalUploadQueueItem;
       });
       if (!items.length) return;
@@ -285,7 +425,17 @@ export function useUploadFlow() {
   const retryLocalUpload = useCallback(
     (id: string) => {
       updateLocalUploadQueue((items) =>
-        items.map((item) => (item.id === id ? { ...item, status: "queued", error: null } : item)),
+        items.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                status: "queued",
+                error: null,
+                ingestTaskId: null,
+                pollAttempts: 0,
+              }
+            : item,
+        ),
       );
       void processLocalUploadQueue();
     },
@@ -671,6 +821,8 @@ export function useUploadFlow() {
     setBatchStatus({});
     pendingRequestRef.current += 1;
     localPendingRequestRef.current += 1;
+    setPendingLoading(false);
+    setLocalPendingLoading(false);
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
@@ -716,11 +868,12 @@ export function useUploadFlow() {
       // a failed delete leaves the current editor and source context available.
       await deletePendingTask(tid);
       handleReset();
-      // 重新加载待确认列表（两支来源都刷新）。
-      void loadPending();
-      void loadLocalPending();
+      // Refresh only the active source. The two lists have independent request
+      // tokens, so a local action cannot leave the WeCom list loading (or vice versa).
+      if (activePath === "a") void loadPending();
+      else void loadLocalPending();
     },
-    [handleReset, loadPending, loadLocalPending],
+    [activePath, handleReset, loadPending, loadLocalPending],
   );
 
   // 切换来源时清空当前流程 / 选中态，避免一处来源的校正数据残留到另一处。
@@ -728,6 +881,10 @@ export function useUploadFlow() {
     (p: PathBranch) => {
       if (p === activePath) return;
       handleReset();
+      // Keep the destination in an honest loading state between the source
+      // switch render and the destination effect starting its request.
+      if (p === "a") setPendingLoading(true);
+      else setLocalPendingLoading(true);
       setActivePath(p);
     },
     [activePath, handleReset],

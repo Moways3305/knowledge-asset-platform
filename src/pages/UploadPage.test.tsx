@@ -87,8 +87,8 @@ describe("UploadPage reference workflow", () => {
     await vi.waitFor(() => {
       expect(flow.current.handleDeletePending).toHaveBeenCalledWith("test-task-id");
     });
-    expect(flow.current.handleReset).toHaveBeenCalledTimes(1);
-    expect(flow.current.switchPath).toHaveBeenCalledWith("b");
+    expect(flow.current.handleReset).not.toHaveBeenCalled();
+    expect(flow.current.switchPath).not.toHaveBeenCalled();
   });
 
   it("keeps the confirmation open when permanent rejection fails", async () => {

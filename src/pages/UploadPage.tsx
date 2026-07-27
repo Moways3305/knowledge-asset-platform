@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
 import UploadConfirmPanel from "./upload/UploadConfirmPanel";
 import UploadStepA from "./upload/UploadStepA";
@@ -37,8 +38,6 @@ export default function UploadPage() {
       setRejectError("拒绝入库失败，资料尚未删除。请重试或返回后继续处理。");
       return;
     }
-    handleReset();
-    switchPath(activePath);
   };
 
   return (
@@ -81,4 +80,3 @@ export default function UploadPage() {
     </ProductPage>
   );
 }
-import { useState } from "react";

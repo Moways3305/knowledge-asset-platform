@@ -3,7 +3,11 @@ import type { ChangeEvent } from "react";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useUploadFlow } from "./useUploadFlow";
 import type { ModelSelectionState } from "../../hooks/useModelSelection";
-import type { IngestAiResultDTO, PendingIngestItemDTO } from "../../types/ingest";
+import type {
+  IngestAiResultDTO,
+  IngestTaskStatusDTO,
+  PendingIngestItemDTO,
+} from "../../types/ingest";
 
 // 可变的模型选择状态（驱动「自动选中默认 / 缺默认禁用提交 / 切换后 payload 带 ref」）。
 const modelState: { current: ModelSelectionState } = {
@@ -32,10 +36,17 @@ vi.mock("../../api/auth", () => auth);
 const ingest = vi.hoisted(() => ({
   createIngestUpload: vi.fn(),
   fetchIngestAiResult: vi.fn(),
+  fetchIngestTaskStatus: vi.fn(),
   fetchPendingIngestTasks: vi.fn(),
   confirmIngest: vi.fn(),
+  deletePendingTask: vi.fn(),
 }));
 vi.mock("../../api/ingest", () => ingest);
+
+vi.mock("./uploadConstants", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./uploadConstants")>();
+  return { ...actual, POLL_INTERVAL_MS: 10, POLL_MAX_ATTEMPTS: 3 };
+});
 
 const readyAiResult: IngestAiResultDTO = {
   ingest_task_id: "t1",
@@ -71,6 +82,24 @@ const readyAiResult: IngestAiResultDTO = {
   duplicate_of_task_id: null,
   duplicate_of_asset_id: null,
 };
+
+function taskStatus(
+  taskId: string,
+  stage: IngestTaskStatusDTO["stage"] = "awaiting_confirmation",
+  status: IngestTaskStatusDTO["status"] = "action_required",
+): IngestTaskStatusDTO {
+  return {
+    task_id: taskId,
+    stage,
+    status,
+    updated_at: null,
+    retryable: status === "failed",
+    next_action: null,
+    error: null,
+    result_asset_id: null,
+    review_id: null,
+  };
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -117,6 +146,9 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     auth.fetchAuthMe.mockReset().mockResolvedValue({ projects: [] });
     ingest.createIngestUpload.mockReset().mockResolvedValue({ ingest_task_id: "t1" });
     ingest.fetchIngestAiResult.mockReset().mockResolvedValue(readyAiResult);
+    ingest.fetchIngestTaskStatus
+      .mockReset()
+      .mockImplementation((taskId: string) => Promise.resolve(taskStatus(taskId)));
     ingest.fetchPendingIngestTasks.mockReset().mockResolvedValue([]);
     ingest.confirmIngest.mockReset().mockResolvedValue({
       task_id: "t1",
@@ -125,6 +157,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       review_id: null,
       index_status: "indexed",
     });
+    ingest.deletePendingTask.mockReset().mockResolvedValue(undefined);
     modelState.current = {
       ...modelState.current,
       blockSubmit: false,
@@ -268,13 +301,270 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       } as unknown as ChangeEvent<HTMLInputElement>),
     );
     await waitFor(() => expect(ingest.createIngestUpload).toHaveBeenCalledTimes(1));
-    expect(result.current.localUploadQueue.map((item) => item.status)).toEqual([
-      "awaiting_confirmation",
-      "failed",
-      "failed",
-    ]);
+    await waitFor(() =>
+      expect(result.current.localUploadQueue.map((item) => item.status)).toEqual([
+        "awaiting_confirmation",
+        "failed",
+        "failed",
+      ]),
+    );
     expect(result.current.localUploadQueue[1].error).toBe("该文件类型暂不支持上传");
     expect(result.current.localUploadQueue[2].error).toBe("文件超过 25 MiB 大小上限");
+  });
+
+  it("三个本地文件按各自服务端状态独立收敛，并刷新待确认列表", async () => {
+    const taskPolls = new Map<string, number>();
+    ingest.createIngestUpload.mockImplementation(({ file }: { file: File }) =>
+      Promise.resolve({ ingest_task_id: file.name.replace(".pdf", "") }),
+    );
+    ingest.fetchIngestTaskStatus.mockImplementation((taskId: string) => {
+      const attempt = (taskPolls.get(taskId) ?? 0) + 1;
+      taskPolls.set(taskId, attempt);
+      if (taskId === "second" && attempt === 1) {
+        return Promise.resolve(taskStatus(taskId, "content_generation", "processing"));
+      }
+      if (taskId === "third") {
+        return Promise.resolve({
+          ...taskStatus(taskId, "failed", "failed"),
+          error: {
+            code: "processing_failed",
+            message: "文件内容无法处理，请检查后重试",
+            recovery_hint: "retry",
+          },
+        });
+      }
+      return Promise.resolve(taskStatus(taskId));
+    });
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(auth.fetchAuthMe).toHaveBeenCalled());
+
+    act(() =>
+      result.current.handleFileDrop([
+        new File(["a"], "first.pdf", { type: "application/pdf" }),
+        new File(["b"], "second.pdf", { type: "application/pdf" }),
+        new File(["c"], "third.pdf", { type: "application/pdf" }),
+      ]),
+    );
+
+    await waitFor(() =>
+      expect(result.current.localUploadQueue.map((item) => item.status)).toEqual([
+        "awaiting_confirmation",
+        "awaiting_confirmation",
+        "failed",
+      ]),
+    );
+    expect(result.current.localUploadQueue[2].error).toBe("文件内容无法处理，请检查后重试");
+    expect(taskPolls).toEqual(
+      new Map([
+        ["first", 1],
+        ["second", 2],
+        ["third", 1],
+      ]),
+    );
+    expect(ingest.fetchPendingIngestTasks).toHaveBeenCalledWith("path_b_upload");
+    const terminalCallCount = ingest.fetchIngestTaskStatus.mock.calls.length;
+    await new Promise((resolve) => window.setTimeout(resolve, 35));
+    expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(terminalCallCount);
+  });
+
+  it("安全降级完成后进入人工确认并停止轮询，不误报处理超时", async () => {
+    ingest.fetchIngestTaskStatus.mockResolvedValue({
+      ...taskStatus("t1", "degraded_complete", "degraded"),
+      next_action: {
+        key: "review_and_confirm",
+        route_key: "upload_task",
+        enabled: true,
+      },
+      error: {
+        code: "content_generation_unavailable",
+        message: "内容建议暂不可用，请人工核对后继续",
+        recovery_hint: "review_and_confirm",
+      },
+    });
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(auth.fetchAuthMe).toHaveBeenCalled());
+
+    act(() =>
+      result.current.handleFileDrop([new File(["a"], "degraded.pdf", { type: "application/pdf" })]),
+    );
+
+    await waitFor(() =>
+      expect(result.current.localUploadQueue[0]).toMatchObject({
+        status: "awaiting_confirmation",
+        error: "内容建议暂不可用，请人工核对后继续",
+      }),
+    );
+    expect(ingest.fetchPendingIngestTasks).toHaveBeenCalledWith("path_b_upload");
+    await new Promise((resolve) => window.setTimeout(resolve, 35));
+    expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(1);
+    expect(result.current.localUploadQueue[0]?.error).not.toContain("超时");
+  });
+
+  it("失败状态优先于待确认 stage 与 action，矛盾组合必须 fail closed", async () => {
+    ingest.createIngestUpload.mockImplementation(({ file }: { file: File }) =>
+      Promise.resolve({ ingest_task_id: file.name.replace(".pdf", "") }),
+    );
+    ingest.fetchIngestTaskStatus.mockImplementation((taskId: string) =>
+      Promise.resolve({
+        ...taskStatus(
+          taskId,
+          taskId === "failed-status" ? "awaiting_confirmation" : "failed",
+          taskId === "failed-status" ? "failed" : "action_required",
+        ),
+        next_action: {
+          key: "review_and_confirm",
+          route_key: "upload_task",
+          enabled: true,
+        },
+        error: {
+          code: "processing_failed",
+          message: `${taskId} 安全失败提示`,
+          recovery_hint: "retry",
+        },
+      }),
+    );
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(auth.fetchAuthMe).toHaveBeenCalled());
+
+    act(() =>
+      result.current.handleFileDrop([
+        new File(["a"], "failed-status.pdf", { type: "application/pdf" }),
+        new File(["b"], "failed-stage.pdf", { type: "application/pdf" }),
+      ]),
+    );
+
+    await waitFor(() =>
+      expect(result.current.localUploadQueue.map((item) => item.status)).toEqual([
+        "failed",
+        "failed",
+      ]),
+    );
+    expect(result.current.localUploadQueue.map((item) => item.error)).toEqual([
+      "failed-status 安全失败提示",
+      "failed-stage 安全失败提示",
+    ]);
+    expect(ingest.fetchPendingIngestTasks).toHaveBeenCalledTimes(1);
+    const terminalCallCount = ingest.fetchIngestTaskStatus.mock.calls.length;
+    await new Promise((resolve) => window.setTimeout(resolve, 35));
+    expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(terminalCallCount);
+  });
+
+  it("状态轮询同一时刻只允许一个请求批次在飞行", async () => {
+    const firstStatus = deferred<IngestTaskStatusDTO>();
+    ingest.fetchIngestTaskStatus.mockReset().mockReturnValue(firstStatus.promise);
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(auth.fetchAuthMe).toHaveBeenCalled());
+
+    act(() =>
+      result.current.handleFileDrop([new File(["a"], "single.pdf", { type: "application/pdf" })]),
+    );
+    await waitFor(() => expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => window.setTimeout(resolve, 35));
+    expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(1);
+
+    await act(async () => firstStatus.resolve(taskStatus("t1")));
+    await waitFor(() =>
+      expect(result.current.localUploadQueue[0]?.status).toBe("awaiting_confirmation"),
+    );
+  });
+
+  it("来源切换后停止轮询并忽略晚到的状态响应", async () => {
+    const firstStatus = deferred<IngestTaskStatusDTO>();
+    ingest.fetchIngestTaskStatus.mockReset().mockReturnValue(firstStatus.promise);
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(auth.fetchAuthMe).toHaveBeenCalled());
+    act(() =>
+      result.current.handleFileDrop([new File(["a"], "switch.pdf", { type: "application/pdf" })]),
+    );
+    await waitFor(() => expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(1));
+
+    act(() => result.current.switchPath("a"));
+    await act(async () => firstStatus.resolve(taskStatus("t1")));
+    await new Promise((resolve) => window.setTimeout(resolve, 25));
+
+    expect(result.current.activePath).toBe("a");
+    expect(result.current.localUploadQueue[0]?.status).toBe("processing");
+    expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it("卸载后停止轮询并忽略晚到的状态响应", async () => {
+    const firstStatus = deferred<IngestTaskStatusDTO>();
+    ingest.fetchIngestTaskStatus.mockReset().mockReturnValue(firstStatus.promise);
+    const { result, unmount } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(auth.fetchAuthMe).toHaveBeenCalled());
+    act(() =>
+      result.current.handleFileDrop([new File(["a"], "unmount.pdf", { type: "application/pdf" })]),
+    );
+    await waitFor(() => expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(1));
+
+    unmount();
+    firstStatus.resolve(taskStatus("t1"));
+    await new Promise((resolve) => window.setTimeout(resolve, 25));
+    expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it("处理状态持续不收敛时在有限次数后变为可重试失败", async () => {
+    ingest.fetchIngestTaskStatus
+      .mockReset()
+      .mockImplementation((taskId: string) =>
+        Promise.resolve(taskStatus(taskId, "content_generation", "processing")),
+      );
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(auth.fetchAuthMe).toHaveBeenCalled());
+    act(() =>
+      result.current.handleFileDrop([new File(["a"], "timeout.pdf", { type: "application/pdf" })]),
+    );
+
+    await waitFor(() => expect(result.current.localUploadQueue[0]?.status).toBe("failed"));
+    expect(result.current.localUploadQueue[0]?.error).toBe("文件处理超时，请稍后重试");
+    expect(ingest.fetchIngestTaskStatus).toHaveBeenCalledTimes(3);
+  });
+
+  it("reset 立即收敛 loading，旧请求晚到也不能恢复旧列表", async () => {
+    const initialLocalPending = deferred<PendingIngestItemDTO[]>();
+    ingest.fetchPendingIngestTasks.mockReset().mockReturnValue(initialLocalPending.promise);
+    const { result } = renderHook(() => useUploadFlow());
+    expect(result.current.localPendingLoading).toBe(true);
+
+    act(() => result.current.handleReset());
+    expect(result.current.localPendingLoading).toBe(false);
+    await act(async () =>
+      initialLocalPending.resolve([
+        { ...pendingTask("stale", "stale.pdf"), source: "path_b_upload" },
+      ]),
+    );
+
+    expect(result.current.localPendingLoading).toBe(false);
+    expect(result.current.localPendingTasks).toEqual([]);
+  });
+
+  it("删除成功由 hook 唯一 reset 并只刷新当前来源，失败时保留编辑态", async () => {
+    ingest.fetchPendingIngestTasks
+      .mockReset()
+      .mockResolvedValueOnce([{ ...pendingTask("local", "local.pdf"), source: "path_b_upload" }])
+      .mockResolvedValueOnce([]);
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(result.current.localPendingTasks).toHaveLength(1));
+    await act(async () => result.current.handleDeletePending("local"));
+    await waitFor(() => expect(result.current.localPendingLoading).toBe(false));
+
+    expect(ingest.deletePendingTask).toHaveBeenCalledWith("local");
+    expect(result.current.localPendingTasks).toEqual([]);
+    expect(ingest.fetchPendingIngestTasks.mock.calls).toEqual([
+      ["path_b_upload"],
+      ["path_b_upload"],
+    ]);
+
+    await act(async () => {
+      await result.current.handleSelectPendingTask({
+        ...pendingTask("keep", "keep.pdf"),
+        source: "path_b_upload",
+      });
+    });
+    ingest.deletePendingTask.mockRejectedValueOnce(new Error("network"));
+    await expect(result.current.handleDeletePending("keep")).rejects.toThrow("network");
+    expect(result.current.taskId).toBe("keep");
+    expect(result.current.flowState).toBe("ready");
   });
 
   it("忽略 A→B 反序完成中的 A 旧回包", async () => {
