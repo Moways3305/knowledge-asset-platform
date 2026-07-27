@@ -15,9 +15,8 @@ const projectId = "project-secret-77";
 const assetId = "asset-result-77";
 const scenarios = [
   "local-empty",
-  "local-selected",
-  "processing",
-  "processing-failed",
+  "local-queue",
+  "local-upload-failure-retry",
   "confirm-ready",
   "project-submitted",
   "personal-submitted",
@@ -105,6 +104,12 @@ const pendingTask = {
   updated_at: "2026-07-16T08:05:00Z",
 };
 
+const localPendingTask = {
+  ...pendingTask,
+  source: "path_b_upload",
+  source_file_name: "客户增长复盘.md",
+};
+
 function assertResult(result) {
   const commonFailure =
     result.overflowX > 2 ||
@@ -115,10 +120,10 @@ function assertResult(result) {
     result.sensitiveTextVisible;
   if (commonFailure) return false;
   if (result.scenario === "local-empty") return result.emptyUploadReady;
-  if (result.scenario === "local-selected") return result.selectedFileReady;
-  if (result.scenario === "processing") return result.processingVisible && !result.confirmVisible;
-  if (result.scenario === "processing-failed")
-    return result.failureRecoverable && !result.confirmVisible;
+  if (result.scenario === "local-queue")
+    return result.queueOrderValid && result.serialUploadVerified && result.localPendingRefreshed;
+  if (result.scenario === "local-upload-failure-retry")
+    return result.failureRetried && result.localPendingRefreshed;
   if (result.scenario === "confirm-ready") return result.confirmVisible;
   if (result.scenario === "project-submitted") {
     return result.projectWaiting && !result.claimsProjectComplete && result.confirmPayloadValid;
@@ -150,6 +155,14 @@ try {
       let uploadCalls = 0;
       let aiCalls = 0;
       let wecomCalls = 0;
+      let localPendingCalls = 0;
+      let localPendingAvailable = false;
+      let serialUploadVerified = false;
+      let releaseFirstUpload;
+      let signalFirstUpload;
+      const firstUploadStarted = new Promise((resolve) => {
+        signalFirstUpload = resolve;
+      });
       let confirmPayload = null;
       const context = await browser.newContext({ viewport });
       await context.route("**/api/v1/**", async (route) => {
@@ -168,10 +181,29 @@ try {
           if (scenario === "wecom-failure") {
             return fulfill({ detail: { message: "待确认列表暂时不可用" } }, 503);
           }
-          return fulfill({ items: scenario === "wecom-empty" ? [] : [pendingTask], total: 1 });
+          const local = url.searchParams.get("source") === "path_b_upload";
+          if (local) localPendingCalls += 1;
+          const items = local
+            ? localPendingAvailable
+              ? [localPendingTask]
+              : []
+            : scenario === "wecom-empty"
+              ? []
+              : [pendingTask];
+          return fulfill({ items, total: items.length });
         }
         if (url.pathname === "/api/v1/ingest/upload") {
           uploadCalls += 1;
+          if (scenario === "local-queue" && uploadCalls === 1) {
+            signalFirstUpload();
+            await new Promise((resolve) => {
+              releaseFirstUpload = resolve;
+            });
+          }
+          if (scenario === "local-upload-failure-retry" && uploadCalls === 1) {
+            return fulfill({ detail: { message: "上传暂时失败" } }, 503);
+          }
+          localPendingAvailable = true;
           return fulfill({ ingest_task_id: taskId, status: "processing", upload_url: null });
         }
         if (url.pathname === `/api/v1/ingest/${taskId}/ai-result`) {
@@ -220,20 +252,39 @@ try {
           await page.getByRole("heading", { name: "内容建议预览" }).waitFor();
         }
       } else if (scenario !== "local-empty") {
-        await page.locator('input[type="file"]').setInputFiles({
-          name: "客户增长复盘.md",
-          mimeType: "text/markdown",
-          buffer: Buffer.from("# 客户增长复盘\n安全验收内容"),
-        });
-        if (scenario !== "local-selected") {
-          await page.getByRole("button", { name: "开始处理" }).click();
-          if (scenario === "processing") {
-            await page.getByText("处理中…", { exact: true }).waitFor();
-          } else if (scenario === "processing-failed") {
-            await page.getByRole("button", { name: "重新处理" }).waitFor();
-          } else {
-            await page.getByRole("heading", { name: "内容建议预览" }).waitFor();
-          }
+        const localFiles = [
+          {
+            name: "客户增长复盘.md",
+            mimeType: "text/markdown",
+            buffer: Buffer.from("# 客户增长复盘\n安全验收内容"),
+          },
+        ];
+        if (scenario === "local-queue" || scenario === "local-upload-failure-retry") {
+          localFiles.push({
+            name: "客户访谈纪要.txt",
+            mimeType: "text/plain",
+            buffer: Buffer.from("安全验收内容"),
+          });
+        }
+        await page.locator('input[type="file"]').setInputFiles(localFiles);
+
+        if (scenario === "local-queue") {
+          await firstUploadStarted;
+          await page.waitForTimeout(80);
+          serialUploadVerified = uploadCalls === 1;
+          releaseFirstUpload();
+        }
+
+        if (scenario === "local-upload-failure-retry") {
+          await page.getByText("上传失败", { exact: true }).waitFor();
+          await page.getByRole("button", { name: "重试" }).click();
+          await page.getByText("上传失败", { exact: true }).waitFor({ state: "detached" });
+        }
+        await page.getByText("待确认入库", { exact: true }).first().waitFor();
+
+        if (!scenario.startsWith("local-")) {
+          await page.getByRole("button", { name: "客户增长复盘.md" }).click();
+          await page.getByRole("heading", { name: "内容建议预览" }).waitFor();
         }
       }
 
@@ -264,9 +315,11 @@ try {
             [...document.querySelectorAll("button")].filter(
               (button) => button.textContent?.trim() === "选择文件",
             ).length === 1,
-          selectedFileReady: text.includes("客户增长复盘.md") && text.includes("开始处理"),
-          processingVisible: text.includes("处理中…"),
-          failureRecoverable: text.includes("处理失败") && text.includes("重新处理"),
+          queueOrderValid:
+            text.indexOf("客户增长复盘.md") >= 0 &&
+            text.indexOf("客户访谈纪要.txt") > text.indexOf("客户增长复盘.md"),
+          localPendingVisible: text.includes("待确认入库") && text.includes("客户增长复盘.md"),
+          uploadFailureVisible: text.includes("上传失败"),
           confirmVisible: text.includes("内容建议预览") && text.includes("确认入库"),
           projectWaiting: text.includes("已提交，等待项目经理确认"),
           claimsProjectComplete: text.includes("已进入项目知识库"),
@@ -308,6 +361,15 @@ try {
         confirmPayloadValid,
         screenshot,
         ...metrics,
+        queueOrderValid: metrics.queueOrderValid && uploadCalls === 2,
+        serialUploadVerified,
+        localPendingRefreshed:
+          localPendingCalls >= 2 && localPendingAvailable && metrics.localPendingVisible,
+        failureRetried:
+          scenario === "local-upload-failure-retry" &&
+          metrics.queueOrderValid &&
+          !metrics.uploadFailureVisible &&
+          uploadCalls === 3,
       };
       results.push({ ...result, passed: assertResult(result) });
       await context.close();

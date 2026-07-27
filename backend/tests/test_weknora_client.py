@@ -613,3 +613,53 @@ async def test_delete_kb_fallback_tolerates_doc_list_failure(monkeypatch):
     await c.delete_kb("kb-gone", trace_id="trc-del")
     assert fake.deleted_kbs == ["kb-gone"]
     assert fake.deleted_docs == []
+
+
+@pytest.mark.parametrize(
+    ("method_name", "expected_path"),
+    [
+        ("check_remote_model", "/initialization/remote/check"),
+        ("test_embedding_model", "/initialization/embedding/test"),
+        ("check_rerank_model", "/initialization/rerank/check"),
+    ],
+)
+async def test_saved_model_checks_emit_v071_non_sensitive_payload(method_name, expected_path):
+    client = WeKnoraClient(base_url="http://wk", api_key="sk-platform-only")
+    captured = {}
+
+    async def capture(method, path, *, json=None, trace_id=None, **_):
+        captured.update(method=method, path=path, json=json, trace_id=trace_id)
+        return {"success": True}
+
+    client._call = capture  # type: ignore[method-assign]
+    await getattr(client, method_name)(
+        model_id="saved-model-internal-id",
+        model_name="deepseek-v3",
+        base_url="https://provider.example/v1",
+        source="remote",
+        provider="openai",
+        interface_type="chat",
+        trace_id="trace-safe",
+    )
+
+    assert captured == {
+        "method": "POST",
+        "path": expected_path,
+        "trace_id": "trace-safe",
+        "json": {
+            "modelId": "saved-model-internal-id",
+            "modelName": "deepseek-v3",
+            "baseUrl": "https://provider.example/v1",
+            "source": "remote",
+            "provider": "openai",
+            "interfaceType": "chat",
+        },
+    }
+    assert not {
+        "api_url",
+        "api_key",
+        "ModelName",
+        "apiKey",
+        "appSecret",
+        "credentials",
+    }.intersection(captured["json"])

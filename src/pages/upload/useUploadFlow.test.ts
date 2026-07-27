@@ -72,11 +72,6 @@ const readyAiResult: IngestAiResultDTO = {
   duplicate_of_asset_id: null,
 };
 
-function fileEvent() {
-  const file = new File(["bytes"], "doc.pptx", { type: "application/vnd.ms-powerpoint" });
-  return { target: { files: [file] } } as unknown as ChangeEvent<HTMLInputElement>;
-}
-
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => {
@@ -108,9 +103,11 @@ function pendingTask(id: string, fileName: string): PendingIngestItemDTO {
 
 async function driveToReady(result: { current: ReturnType<typeof useUploadFlow> }) {
   await waitFor(() => expect(auth.fetchAuthMe).toHaveBeenCalled());
-  act(() => result.current.handleFileSelect(fileEvent()));
   await act(async () => {
-    await result.current.handleStart();
+    await result.current.handleSelectPendingTask({
+      ...pendingTask("t1", "doc.pptx"),
+      source: "path_b_upload",
+    });
   });
   await waitFor(() => expect(result.current.flowState).toBe("ready"));
 }
@@ -199,7 +196,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(result.current.submitReviewId).toBe("review-1");
   });
 
-  it("接受真实拖放文件并在重置时清空前一任务状态", async () => {
+  it("多文件拖放按顺序创建独立上传任务", async () => {
     auth.fetchAuthMe.mockResolvedValue({
       projects: [{ projectId: "project-ready", projectName: "验收项目" }],
     });
@@ -207,35 +204,77 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     const file = new File(["markdown"], "复盘.md", { type: "text/markdown" });
 
     await waitFor(() => expect(result.current.projects).toHaveLength(1));
-    act(() => result.current.handleFileDrop(file));
-    expect(result.current.fileName).toBe("复盘.md");
-    expect(result.current.flowState).toBe("file_selected");
-
-    act(() => result.current.handleReset());
-    expect(result.current.fileName).toBe("");
-    expect(result.current.taskId).toBeNull();
-    expect(result.current.flowState).toBe("idle");
+    const second = new File(["text"], "second.txt", { type: "text/plain" });
+    act(() => result.current.handleFileDrop([file, second]));
+    await waitFor(() => expect(ingest.createIngestUpload).toHaveBeenCalledTimes(2));
+    expect(ingest.createIngestUpload.mock.calls.map((call) => call[0].file.name)).toEqual([
+      "复盘.md",
+      "second.txt",
+    ]);
+    expect(result.current.localUploadQueue.map((item) => item.fileName)).toEqual([
+      "复盘.md",
+      "second.txt",
+    ]);
+    expect(
+      result.current.localUploadQueue.every((item) => item.status === "awaiting_confirmation"),
+    ).toBe(true);
   });
 
-  it("处理失败时保持不可提交并提供真实恢复状态", async () => {
-    ingest.fetchIngestAiResult.mockResolvedValue({
-      ...readyAiResult,
-      status: "failed",
-      suggested_one_liner: null,
-      suggested_summary: null,
-      summary: null,
-      summary_status: "failed",
-      error_message: "未能生成内容建议",
-    });
+  it("单条上传失败不阻塞后续文件，并可单独重试", async () => {
+    ingest.createIngestUpload
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValueOnce({ ingest_task_id: "t2" })
+      .mockResolvedValueOnce({ ingest_task_id: "t1-retry" });
     const { result } = renderHook(() => useUploadFlow());
-
     await waitFor(() => expect(auth.fetchAuthMe).toHaveBeenCalled());
-    act(() => result.current.handleFileSelect(fileEvent()));
-    await act(async () => result.current.handleStart());
+    act(() =>
+      result.current.handleFileSelect({
+        target: {
+          files: [
+            new File(["a"], "first.pdf", { type: "application/pdf" }),
+            new File(["b"], "second.pdf", { type: "application/pdf" }),
+          ],
+          value: "",
+        },
+      } as unknown as ChangeEvent<HTMLInputElement>),
+    );
+    await waitFor(() =>
+      expect(result.current.localUploadQueue[1]?.status).toBe("awaiting_confirmation"),
+    );
+    expect(result.current.localUploadQueue[0]).toMatchObject({
+      status: "failed",
+      error: "上传失败，请稍后重试",
+    });
+    act(() => result.current.retryLocalUpload(result.current.localUploadQueue[0].id));
+    await waitFor(() =>
+      expect(result.current.localUploadQueue[0]?.status).toBe("awaiting_confirmation"),
+    );
+  });
 
-    expect(result.current.flowState).toBe("failed");
-    expect(result.current.canSubmit).toBe(false);
-    expect(result.current.processingNote).toContain("未能生成内容建议");
+  it("混合选择时仅有效文件进入上传，非法文件保留各自安全失败原因", async () => {
+    const { result } = renderHook(() => useUploadFlow());
+    const tooLarge = new File(["x"], "large.pdf", { type: "application/pdf" });
+    Object.defineProperty(tooLarge, "size", { value: 26 * 1024 * 1024 });
+    act(() =>
+      result.current.handleFileSelect({
+        target: {
+          files: [
+            new File(["ok"], "valid.txt", { type: "text/plain" }),
+            new File(["bad"], "unsafe.exe", { type: "application/octet-stream" }),
+            tooLarge,
+          ],
+          value: "",
+        },
+      } as unknown as ChangeEvent<HTMLInputElement>),
+    );
+    await waitFor(() => expect(ingest.createIngestUpload).toHaveBeenCalledTimes(1));
+    expect(result.current.localUploadQueue.map((item) => item.status)).toEqual([
+      "awaiting_confirmation",
+      "failed",
+      "failed",
+    ]);
+    expect(result.current.localUploadQueue[1].error).toBe("该文件类型暂不支持上传");
+    expect(result.current.localUploadQueue[2].error).toBe("文件超过 25 MiB 大小上限");
   });
 
   it("忽略 A→B 反序完成中的 A 旧回包", async () => {
