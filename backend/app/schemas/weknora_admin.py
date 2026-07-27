@@ -76,8 +76,8 @@ class ModelDeleteResponse(BaseModel):
 class ModelCheckRequest(BaseModel):
     """已保存模型的连通性测试：浏览器只能提交不可逆 ``model_ref``。
 
-    服务端解析模型类型、真实 ID 和名称，并调用 WeKnora 原生 ``modelId`` 测试契约；
-    WeKnora 使用其已保存的凭证，浏览器不传也不接触 api_url/api_key。
+    模型类型、名称及连接参数必须由服务端重新从 WeKnora 已保存配置解析，避免浏览器
+    伪造类型或传入空的 api_url/api_key。
     """
 
     model_ref: str

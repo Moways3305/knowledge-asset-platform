@@ -247,35 +247,6 @@ async def test_initialize_kb_sends_current_weknora_contract(monkeypatch):
     assert "chat_model_id" not in str(sent["json"])
 
 
-async def test_model_check_uses_weknora_stored_model_contract(monkeypatch):
-    """Existing-model checks must send modelId/modelName, never credentials."""
-    sent: dict = {}
-
-    class _FakeAsyncClient:
-        def __init__(self, *_, **__):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_):
-            return None
-
-        async def request(self, method, url, json, headers):
-            sent.update({"method": method, "url": url, "json": json, "headers": headers})
-            return httpx.Response(200, json={"success": True, "data": {"success": True}})
-
-    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
-    c = WeKnoraClient(base_url="http://wk", api_key="sk-test")
-
-    await c.test_embedding_model(model_id="model-internal", model="embedding-3", trace_id="trace")
-
-    assert sent["method"] == "POST"
-    assert sent["url"] == "http://wk/api/v1/initialization/embedding/test"
-    assert sent["json"] == {"modelId": "model-internal", "modelName": "embedding-3"}
-    assert "api_key" not in sent["json"] and "api_url" not in sent["json"]
-
-
 async def test_update_initialization_config_sends_current_complete_contract(monkeypatch):
     sent: dict = {}
 

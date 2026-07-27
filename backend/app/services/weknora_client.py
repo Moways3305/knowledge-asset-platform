@@ -590,55 +590,52 @@ class WeKnoraClient:
         return result
 
     async def _model_check(
-        self, path: str, *, model_id: str, model: str, trace_id: str | None
+        self, path: str, *, api_url: str, api_key: str, model: str, trace_id: str | None
     ) -> dict[str, Any]:
-        """Test a stored WeKnora model without reading or sending its secret.
-
-        WeKnora's native model-test contract accepts ``modelId`` together with
-        ``modelName``.  It uses the stored model record to fill credentials
-        omitted from the request, so KAP must never attempt to read a redacted
-        ``api_key`` from ``GET /models/{id}``.
-        """
-        body = {"modelId": model_id, "modelName": model}
+        body = {"api_url": api_url, "api_key": api_key, "ModelName": model}
         result: dict[str, Any] = await self._call("POST", path, json=body, trace_id=trace_id)
         return result
 
     async def check_remote_model(
-        self, *, model_id: str, model: str, trace_id: str | None = None
+        self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None
     ) -> dict[str, Any]:
         return await self._model_check(
             "/initialization/remote/check",
-            model_id=model_id,
+            api_url=api_url,
+            api_key=api_key,
             model=model,
             trace_id=trace_id,
         )
 
     async def test_embedding_model(
-        self, *, model_id: str, model: str, trace_id: str | None = None
+        self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None
     ) -> dict[str, Any]:
         return await self._model_check(
             "/initialization/embedding/test",
-            model_id=model_id,
+            api_url=api_url,
+            api_key=api_key,
             model=model,
             trace_id=trace_id,
         )
 
     async def check_rerank_model(
-        self, *, model_id: str, model: str, trace_id: str | None = None
+        self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None
     ) -> dict[str, Any]:
         return await self._model_check(
             "/initialization/rerank/check",
-            model_id=model_id,
+            api_url=api_url,
+            api_key=api_key,
             model=model,
             trace_id=trace_id,
         )
 
     async def test_multimodal_model(
-        self, *, model_id: str, model: str, trace_id: str | None = None
+        self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None
     ) -> dict[str, Any]:
         return await self._model_check(
             "/initialization/multimodal/test",
-            model_id=model_id,
+            api_url=api_url,
+            api_key=api_key,
             model=model,
             trace_id=trace_id,
         )

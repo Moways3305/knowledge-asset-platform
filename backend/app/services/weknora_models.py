@@ -294,16 +294,20 @@ async def check_model(
     if model_id is None:
         raise _denied(404, "weknora_model_not_found", "模型不存在或已被删除")
 
-    # 浏览器只传不可逆 model_ref；服务端读取类型和名称，并以 WeKnora 原生
-    # modelId 测试契约让底座自行使用已保存的凭证。绝不读取或回传 api_key。
+    # 模型详情仅留在服务端，用它重新取得保存时的连接配置；绝不接受浏览器提供的
+    # type/name/url/key，也绝不将详情或上游原始 message 回传。
     saved = await client.get_model(model_id, trace_id=trace_id)
+    params = saved.get("parameters") if isinstance(saved, dict) else {}
+    params = params if isinstance(params, dict) else {}
     model_type = _alias(str(saved.get("type") or "")) if isinstance(saved, dict) else ""
+    api_url = str(params.get("base_url") or params.get("api_url") or "").strip()
+    api_key = str(params.get("api_key") or "").strip()
     model_name = str(saved.get("name") or "").strip() if isinstance(saved, dict) else ""
-    if not model_name:
+    if not api_url or not api_key or not model_name:
         raise _denied(
             422,
-            "weknora_model_name_missing",
-            "该已保存模型缺少模型名称，请更新模型后重试",
+            "weknora_model_connection_config_missing",
+            "该已保存模型缺少可用连接配置，请更新模型后重试",
         )
     fn = {
         "chat": client.check_remote_model,
@@ -313,7 +317,7 @@ async def check_model(
     }.get(model_type)
     if fn is None:
         raise _denied(422, "invalid_model_type", "非法的模型类型")
-    res = await fn(model_id=model_id, model=model_name, trace_id=trace_id)
+    res = await fn(api_url=api_url, api_key=api_key, model=model_name, trace_id=trace_id)
     success = bool(res.get("success", True)) if isinstance(res, dict) else False
     return ModelCheckResponse(
         success=success,
