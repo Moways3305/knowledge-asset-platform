@@ -10947,7 +10947,7 @@
         "type": "object"
       },
       "SummaryOut": {
-        "description": "详情摘要对象（按权限过滤；L3/L4 仅给安全/脱敏文本，不暴露 key_points）。",
+        "description": "详情摘要对象。\n\n按权限过滤；L3/L4 的 one_liner / detailed 分别使用短版与完整版安全脱敏文本，\n且不暴露 key_points。",
         "properties": {
           "detailed": {
             "anyOf": [
