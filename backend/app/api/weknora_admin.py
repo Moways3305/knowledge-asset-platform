@@ -1,4 +1,4 @@
-"""模型配置中心 API（admin-only）。
+"""模型配置中心 API（系统管理员或当前治理身份）。
 
 让 admin 不登 WeKnora 控制台即可管理 provider / 模型 / KB 初始化配置 + 连通性测试。
 
@@ -50,13 +50,13 @@ from app.services.weknora_client import (
 router = APIRouter(prefix="/api/v1/admin/weknora", tags=["weknora-admin"])
 
 
-def _require_admin(caller: CallerContext) -> None:
-    if CompanyRole.admin.value not in caller.active_company_roles:
+def _require_operator(caller: CallerContext) -> None:
+    if CompanyRole.admin.value not in caller.active_company_roles and not caller.can_discover_l5:
         raise HTTPException(
             403,
             detail={
-                "denied_reason": "weknora_admin_required",
-                "message": "仅系统管理员可管理模型配置",
+                "denied_reason": "weknora_operator_required",
+                "message": "仅总经理或咨询总监可管理模型配置",
             },
         )
 
@@ -145,7 +145,7 @@ async def list_providers(
     caller: CallerContext = Depends(get_caller_context),
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> ProviderListResponse:
-    _require_admin(caller)
+    _require_operator(caller)
     _require_enabled()
     try:
         items = await weknora_models.list_providers(
@@ -163,7 +163,7 @@ async def list_models(
     caller: CallerContext = Depends(get_caller_context),
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> ModelListResponse:
-    _require_admin(caller)
+    _require_operator(caller)
     _require_enabled()
     try:
         items = await weknora_models.list_models(
@@ -182,7 +182,7 @@ async def create_model(
     session: AsyncSession = Depends(get_db),
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> ModelMutateResponse:
-    _require_admin(caller)
+    _require_operator(caller)
     _require_enabled()
     trace_id = get_trace_id(request)
     try:
@@ -212,7 +212,7 @@ async def update_model(
     session: AsyncSession = Depends(get_db),
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> ModelMutateResponse:
-    _require_admin(caller)
+    _require_operator(caller)
     _require_enabled()
     trace_id = get_trace_id(request)
     try:
@@ -240,7 +240,7 @@ async def delete_model(
     session: AsyncSession = Depends(get_db),
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> ModelDeleteResponse:
-    _require_admin(caller)
+    _require_operator(caller)
     _require_enabled()
     trace_id = get_trace_id(request)
     try:
@@ -266,7 +266,7 @@ async def check_model(
     caller: CallerContext = Depends(get_caller_context),
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> ModelCheckResponse:
-    _require_admin(caller)
+    _require_operator(caller)
     _require_enabled()
     try:
         return await weknora_models.check_model(weknora, req, trace_id=get_trace_id(request))
@@ -281,7 +281,7 @@ async def list_kb_configs(
     session: AsyncSession = Depends(get_db),
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> KbConfigListResponse:
-    _require_admin(caller)
+    _require_operator(caller)
     _require_enabled()
     try:
         items = await weknora_models.list_kb_configs(
@@ -301,7 +301,7 @@ async def update_kb_init(
     session: AsyncSession = Depends(get_db),
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> KbInitUpdateResponse:
-    _require_admin(caller)
+    _require_operator(caller)
     _require_enabled()
     trace_id = get_trace_id(request)
     try:
@@ -352,8 +352,8 @@ async def put_default_models(
     session: AsyncSession = Depends(get_db),
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> DefaultModelsOut:
-    """改平台默认模型（仅 admin）。前端传 model_ref，后端解析真实 id + 校验类型；响应/审计无真实 id。"""
-    _require_admin(caller)
+    """改平台默认模型（系统管理员或当前治理身份）。前端传 model_ref，后端解析真实 id + 校验类型；响应/审计无真实 id。"""
+    _require_operator(caller)
     _require_enabled()
     trace_id = get_trace_id(request)
     try:

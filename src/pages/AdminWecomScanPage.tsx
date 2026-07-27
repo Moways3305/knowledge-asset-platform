@@ -25,6 +25,10 @@ import "./AdminWecomScanPage.css";
 
 function safeRequestMessage(error: unknown, fallback: string) {
   if (error instanceof ApiError && error.status === 403) return "当前身份没有微盘扫描查看权限。";
+  if (error instanceof ApiError && error.deniedReason?.startsWith("wecom_api_"))
+    return "企业微信拒绝读取微盘。请检查应用微盘权限或目录授权后重试。";
+  if (error instanceof ApiError && error.deniedReason === "wecom_drive_network_unavailable")
+    return "企业微信微盘暂时不可用，请稍后重试。";
   if (error instanceof ApiError && error.status === 503)
     return "企业微信微盘尚未配置或暂不可用，请联系系统管理员检查连接。";
   return fallback;
@@ -45,7 +49,7 @@ function safeRecordError(record: WecomScanRecordDTO) {
 export default function AdminWecomScanPage() {
   const { capabilities } = useAuth();
   const [accessForbidden, setAccessForbidden] = useState(false);
-  const canEdit = capabilities.isAdmin && !accessForbidden;
+  const canEdit = (capabilities.isAdmin || capabilities.isGovernance) && !accessForbidden;
   const [configs, setConfigs] = useState<WecomScanConfigDTO[]>([]);
   const [latest, setLatest] = useState<Record<string, WecomScanRecordDTO | null>>({});
   const [loading, setLoading] = useState(true);

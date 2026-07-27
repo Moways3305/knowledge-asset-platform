@@ -99,10 +99,7 @@ export interface WeknoraModelMutateResponseDTO {
 }
 
 export interface WeknoraModelCheckDTO {
-  model_type: string;
-  api_url: string;
-  api_key: string;
-  model: string;
+  model_ref: string;
 }
 
 export interface WeknoraModelCheckResponseDTO {

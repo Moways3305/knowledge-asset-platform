@@ -338,4 +338,125 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     await act(async () => pending.resolve([]));
     await waitFor(() => expect(result.current.pendingLoading).toBe(false));
   });
+
+  it("confirms a selected batch strictly in order and continues after one failure", async () => {
+    const first = deferred<IngestAiResultDTO>();
+    ingest.fetchIngestAiResult
+      .mockReset()
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce({ ...readyAiResult, ingest_task_id: "task-b" });
+    ingest.confirmIngest
+      .mockReset()
+      .mockRejectedValueOnce(new Error("first failed"))
+      .mockResolvedValueOnce({ task_id: "task-b", status: "completed", result_asset_id: "a2" });
+    const { result } = renderHook(() => useUploadFlow());
+    const a = pendingTask("task-a", "A.docx");
+    const b = pendingTask("task-b", "B.docx");
+    let batch!: Promise<void>;
+
+    act(() => {
+      batch = result.current.handleBatchConfirm([a, b]);
+    });
+    expect(result.current.batchStatus["task-a"]).toBe("processing");
+    expect(ingest.fetchIngestAiResult).toHaveBeenCalledTimes(1);
+    expect(ingest.fetchIngestAiResult).toHaveBeenLastCalledWith("task-a");
+
+    await act(async () => {
+      first.resolve({ ...readyAiResult, ingest_task_id: "task-a" });
+      await batch;
+    });
+    expect(ingest.confirmIngest.mock.calls.map((call) => call[0])).toEqual(["task-a", "task-b"]);
+    expect(result.current.batchStatus["task-a"]).toBe("failed");
+    expect(result.current.batchStatus["task-b"]).toBe("success");
+  });
+
+  it("stops a batch before confirmation when the user switches source", async () => {
+    const firstConfirmation = deferred<{
+      task_id: string;
+      status: string;
+      result_asset_id: string;
+    }>();
+    ingest.fetchIngestAiResult
+      .mockReset()
+      .mockResolvedValueOnce({ ...readyAiResult, ingest_task_id: "task-a" })
+      .mockResolvedValueOnce({ ...readyAiResult, ingest_task_id: "task-b" });
+    ingest.confirmIngest.mockReset().mockReturnValueOnce(firstConfirmation.promise);
+    const { result } = renderHook(() => useUploadFlow());
+    const a = pendingTask("task-a", "A.docx");
+    const b = pendingTask("task-b", "B.docx");
+    let batch!: Promise<void>;
+
+    act(() => {
+      batch = result.current.handleBatchConfirm([a, b]);
+    });
+    await waitFor(() =>
+      expect(ingest.confirmIngest).toHaveBeenCalledWith("task-a", expect.anything()),
+    );
+    act(() => {
+      result.current.switchPath("a");
+    });
+    await act(async () => {
+      firstConfirmation.resolve({ task_id: "task-a", status: "completed", result_asset_id: "a1" });
+      await batch;
+    });
+
+    expect(ingest.confirmIngest).toHaveBeenCalledTimes(1);
+    expect(ingest.fetchIngestAiResult).toHaveBeenCalledTimes(1);
+    expect(result.current.batchBusy).toBe(false);
+  });
+
+  it("stops a batch after unmount without confirming later items", async () => {
+    const first = deferred<IngestAiResultDTO>();
+    ingest.fetchIngestAiResult.mockReset().mockReturnValueOnce(first.promise);
+    const { result, unmount } = renderHook(() => useUploadFlow());
+    const a = pendingTask("task-a", "A.docx");
+    const b = pendingTask("task-b", "B.docx");
+    let batch!: Promise<void>;
+
+    act(() => {
+      batch = result.current.handleBatchConfirm([a, b]);
+    });
+    unmount();
+    await act(async () => {
+      first.resolve({ ...readyAiResult, ingest_task_id: "task-a" });
+      await batch;
+    });
+
+    expect(ingest.confirmIngest).not.toHaveBeenCalled();
+    expect(ingest.fetchIngestAiResult).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the batch lock when another task selection invalidates the batch", async () => {
+    const firstBatchResult = deferred<IngestAiResultDTO>();
+    ingest.fetchIngestAiResult
+      .mockReset()
+      .mockReturnValueOnce(firstBatchResult.promise)
+      .mockResolvedValueOnce({ ...readyAiResult, ingest_task_id: "task-b" })
+      .mockResolvedValueOnce({ ...readyAiResult, ingest_task_id: "task-a" });
+    ingest.confirmIngest.mockReset().mockResolvedValue({
+      task_id: "task-a",
+      status: "completed",
+      result_asset_id: "a1",
+    });
+    const { result } = renderHook(() => useUploadFlow());
+    const a = pendingTask("task-a", "A.docx");
+    const b = pendingTask("task-b", "B.docx");
+    let batch!: Promise<void>;
+
+    act(() => {
+      batch = result.current.handleBatchConfirm([a, b]);
+    });
+    await act(async () => {
+      await result.current.handleSelectPendingTask(b);
+      firstBatchResult.resolve({ ...readyAiResult, ingest_task_id: "task-a" });
+      await batch;
+    });
+    expect(result.current.batchBusy).toBe(false);
+
+    await act(async () => {
+      await result.current.handleBatchConfirm([a]);
+    });
+    expect(ingest.confirmIngest).toHaveBeenCalledTimes(1);
+    expect(ingest.confirmIngest).toHaveBeenLastCalledWith("task-a", expect.anything());
+  });
 });

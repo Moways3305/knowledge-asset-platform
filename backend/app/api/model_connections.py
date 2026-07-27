@@ -24,13 +24,13 @@ from app.services import generation_models, model_connections
 router = APIRouter(prefix="/api/v1/admin/model-connections", tags=["model-connections"])
 
 
-def _require_admin(caller: CallerContext) -> None:
-    if CompanyRole.admin.value not in caller.active_company_roles:
+def _require_operator(caller: CallerContext) -> None:
+    if CompanyRole.admin.value not in caller.active_company_roles and not caller.can_discover_l5:
         raise HTTPException(
             403,
             detail={
-                "denied_reason": "model_connection_admin_required",
-                "message": "仅系统管理员可管理模型连接",
+                "denied_reason": "model_connection_operator_required",
+                "message": "仅总经理或咨询总监可管理模型连接",
             },
         )
 
@@ -99,7 +99,7 @@ async def post_connection(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> ModelConnectionOut:
-    _require_admin(caller)
+    _require_operator(caller)
     try:
         item = await model_connections.create_connection(
             session,
@@ -137,7 +137,7 @@ async def put_connection(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> ModelConnectionOut:
-    _require_admin(caller)
+    _require_operator(caller)
     try:
         item = await model_connections.update_connection(
             session,
@@ -175,7 +175,7 @@ async def post_connection_test(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> ModelConnectionTestResponse:
-    _require_admin(caller)
+    _require_operator(caller)
     try:
         result = await model_connections.test_connection(session, model_ref)
     except model_connections.ModelConnectionError as exc:
@@ -193,7 +193,7 @@ async def delete_connection(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ):
-    _require_admin(caller)
+    _require_operator(caller)
     try:
         await model_connections.delete_model_connection(session, model_ref)
     except model_connections.ModelConnectionError as exc:
@@ -234,7 +234,7 @@ async def put_usages(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> ModelUsageAssignmentsOut:
-    _require_admin(caller)
+    _require_operator(caller)
     try:
         result = await model_connections.set_usage_assignments(
             session,

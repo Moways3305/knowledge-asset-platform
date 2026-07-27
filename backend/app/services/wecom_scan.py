@@ -63,10 +63,10 @@ def _require_reader(caller: CallerContext) -> None:
         raise _denied(403, "wecom_scan_forbidden", "无权查看微盘扫描配置/记录")
 
 
-def _require_admin(caller: CallerContext) -> None:
-    """启停/触发扫描：admin（PATCH/scan 要求 admin；admin 仅运营，不得业务原文）。"""
-    if not _is_admin(caller):
-        raise _denied(403, "wecom_scan_admin_required", "仅 admin 可配置/触发微盘扫描")
+def _require_operator(caller: CallerContext) -> None:
+    """当前治理工作身份（及兼容系统治理身份）可维护微盘扫描。"""
+    if not (_is_admin(caller) or _is_governance(caller)):
+        raise _denied(403, "wecom_scan_operator_required", "仅总经理、咨询总监可维护微盘扫描")
 
 
 async def _owner_actor(session: AsyncSession, config: WecomScanConfig) -> CallerContext:
@@ -306,13 +306,13 @@ async def _validate_config_fields(
 
 
 async def create_config(session: AsyncSession, caller: CallerContext, body, trace_id: str):
-    """创建扫描配置（仅 admin）。
+    """创建扫描配置（系统管理员或当前治理身份）。
 
     配置操作人是当前 admin（审计 actor）；`created_by` 写入校验通过的**业务归属人**
     （body.task_owner_user_id），使扫描产物的 path_a_wecom IngestTask 归属合法业务用户、
     可被其在 `/upload` Path A 确认。纯 admin 不再成为任务归属人。
     """
-    _require_admin(caller)
+    _require_operator(caller)
     name, directory_path, scope_type, project_id = await _validate_config_fields(
         session,
         name=body.name,
@@ -491,9 +491,9 @@ async def list_configs(session: AsyncSession, caller: CallerContext):
 async def update_config(
     session: AsyncSession, caller: CallerContext, config_id: uuid.UUID, body, trace_id: str
 ):
-    """编辑扫描配置（仅 admin）。支持 name / directory_path / target_scope /
+    """编辑扫描配置（系统管理员或当前治理身份）。支持 name / directory_path / target_scope /
     target_project_id / enabled 局部更新；仅启停时不触发字段重校验。"""
-    _require_admin(caller)
+    _require_operator(caller)
     config = await session.get(WecomScanConfig, config_id)
     if config is None:
         raise _denied(404, "wecom_scan_config_not_found", "扫描配置不存在")
@@ -607,6 +607,25 @@ def _wrap_wecom(exc: WeComError) -> HTTPException:
                 "missing_config": miss or ["WECOM_CORP_ID", "WECOM_APP_SECRET"],
             },
         )
+    if exc.code.startswith("wecom_api_"):
+        # WeCom can return HTTP 200 with an application-level errcode.  Keep
+        # that short, safe code for support correlation without exposing its
+        # raw errmsg/payload, token, or request URL.
+        return HTTPException(
+            502,
+            detail={
+                "denied_reason": exc.code,
+                "message": "企业微信拒绝读取微盘，请检查应用的微盘权限或目录授权后重试",
+            },
+        )
+    if exc.code == "wecom_network_error":
+        return HTTPException(
+            503,
+            detail={
+                "denied_reason": "wecom_drive_network_unavailable",
+                "message": "企业微信微盘暂时不可用，请稍后重试",
+            },
+        )
     return HTTPException(
         502,
         detail={
@@ -617,8 +636,8 @@ def _wrap_wecom(exc: WeComError) -> HTTPException:
 
 
 async def list_drive_spaces(caller: CallerContext, drive):
-    """列微盘空间（仅 admin）。返回安全选择元数据（space_ref/name），不含 token/url/file_id。"""
-    _require_admin(caller)
+    """列微盘空间（系统管理员或当前治理身份）。返回安全选择元数据（space_ref/name），不含 token/url/file_id。"""
+    _require_operator(caller)
     try:
         spaces = await drive.list_spaces()
     except WeComError as exc:
@@ -633,14 +652,14 @@ async def list_drive_spaces(caller: CallerContext, drive):
 async def list_drive_directories(
     caller: CallerContext, drive, *, space_ref: str, parent_ref: str | None
 ):
-    """列某空间/父目录下的子目录（仅 admin）。
+    """列某空间/父目录下的子目录（系统管理员或当前治理身份）。
 
     `space_ref`=空间选择引用（spaceid）；`parent_ref`=父目录的 directory_ref（`spaceid:<id>;fatherid:<id>`，
     钻取用）或空（根）。后端把 directory_ref 解析为 fatherid 后调用底层 client。
     """
     from app.services.wecom_client import parse_directory_path
 
-    _require_admin(caller)
+    _require_operator(caller)
     space = (space_ref or "").strip()
     if not space or ":" in space or ";" in space:
         # space_ref 必须是裸 spaceid（不接受 directory_path 整串）。
@@ -710,7 +729,7 @@ async def trigger_scan(
     trace_id: str,
     idempotency_key: str | None,
 ):
-    _require_admin(caller)
+    _require_operator(caller)
     config = await session.get(WecomScanConfig, config_id)
     if config is None:
         raise _denied(404, "wecom_scan_config_not_found", "扫描配置不存在")

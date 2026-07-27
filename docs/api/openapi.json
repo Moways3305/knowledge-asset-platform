@@ -5400,30 +5400,15 @@
         "type": "string"
       },
       "ModelCheckRequest": {
-        "description": "连通性测试：api_url / api_key 仅上送，结果只回 success + 安全文案。",
+        "description": "已保存模型的连通性测试：浏览器只能提交不可逆 ``model_ref``。\n\n模型类型、名称及连接参数必须由服务端重新从 WeKnora 已保存配置解析，避免浏览器\n伪造类型或传入空的 api_url/api_key。",
         "properties": {
-          "api_key": {
-            "title": "Api Key",
-            "type": "string"
-          },
-          "api_url": {
-            "title": "Api Url",
-            "type": "string"
-          },
-          "model": {
-            "title": "Model",
-            "type": "string"
-          },
-          "model_type": {
-            "title": "Model Type",
+          "model_ref": {
+            "title": "Model Ref",
             "type": "string"
           }
         },
         "required": [
-          "model_type",
-          "api_url",
-          "api_key",
-          "model"
+          "model_ref"
         ],
         "title": "ModelCheckRequest",
         "type": "object"
@@ -18339,7 +18324,7 @@
         ]
       },
       "put": {
-        "description": "改平台默认模型（仅 admin）。前端传 model_ref，后端解析真实 id + 校验类型；响应/审计无真实 id。",
+        "description": "改平台默认模型（系统管理员或当前治理身份）。前端传 model_ref，后端解析真实 id + 校验类型；响应/审计无真实 id。",
         "operationId": "put_default_models_api_v1_admin_weknora_default_models_put",
         "parameters": [
           {

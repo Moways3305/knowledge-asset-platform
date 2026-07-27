@@ -39,7 +39,11 @@ class FakeModelsWK:
                 "type": "KnowledgeQA",
                 "source": "remote",
                 "status": "active",
-                "parameters": {"provider": "aliyun"},
+                "parameters": {
+                    "provider": "aliyun",
+                    "base_url": _URL,
+                    "api_key": _SECRET,
+                },
             },
             "mid-emb": {
                 "id": "mid-emb",
@@ -47,13 +51,18 @@ class FakeModelsWK:
                 "type": "Embedding",
                 "source": "remote",
                 "status": "active",
-                "parameters": {"provider": "aliyun"},
+                "parameters": {
+                    "provider": "aliyun",
+                    "base_url": _URL,
+                    "api_key": _SECRET,
+                },
             },
         }
         self.last_create: dict | None = None
         self.last_update: dict | None = None
         self.deleted: list[str] = []
         self.last_init: dict | None = None
+        self.last_check: dict | None = None
         self.list_calls = 0
         self.kb_configs: dict[str, dict] = {}
         self._n = 0
@@ -138,9 +147,16 @@ class FakeModelsWK:
         return {"success": True}
 
     async def check_remote_model(self, *, api_url, api_key, model, trace_id=None):
+        self.last_check = {"type": "chat", "api_url": api_url, "api_key": api_key, "model": model}
         return {"success": True, "message": "模型可用"}
 
     async def test_embedding_model(self, *, api_url, api_key, model, trace_id=None):
+        self.last_check = {
+            "type": "embedding",
+            "api_url": api_url,
+            "api_key": api_key,
+            "model": model,
+        }
         return {"success": True, "message": "嵌入模型测试通过"}
 
     async def check_rerank_model(self, *, api_url, api_key, model, trace_id=None):
@@ -181,7 +197,7 @@ async def test_consultant_forbidden(client, wk):
     for path in ("/providers", "/models", "/kb-configs"):
         r = await client.get(f"{BASE}{path}", headers=_hdr(USER_CONSULTANT))
         assert r.status_code == 403
-        assert r.json()["detail"]["denied_reason"] == "weknora_admin_required"
+        assert r.json()["detail"]["denied_reason"] == "weknora_operator_required"
 
 
 # ---------------------------------------------------------------------------
@@ -554,20 +570,35 @@ async def test_update_kb_init_keeps_embedding_locked_when_files_exist(client, wk
 # 连通性测试 / 未配置
 # ---------------------------------------------------------------------------
 async def test_check_model_no_secret_in_response(client, wk):
+    model_ref = _model_ref("mid-emb")
     r = await client.post(
         f"{BASE}/models/check",
         headers=_hdr(USER_ADMIN_ONLY),
-        json={
-            "model_type": "embedding",
-            "api_url": _URL,
-            "api_key": _SECRET,
-            "model": "text-embedding-v3",
-        },
+        json={"model_ref": model_ref},
     )
     assert r.status_code == 200
     assert r.json()["success"] is True
+    assert wk.list_calls == 1
+    assert wk.last_check == {
+        "type": "embedding",
+        "api_url": _URL,
+        "api_key": _SECRET,
+        "model": "text-embedding-v3",
+    }
     for token in [_SECRET, _URL, "sk-"]:
         assert token not in r.text
+
+
+async def test_check_model_rejects_missing_saved_connection_before_upstream_call(client, wk):
+    wk.models["mid-emb"]["parameters"] = {"provider": "aliyun"}
+    r = await client.post(
+        f"{BASE}/models/check",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"model_ref": _model_ref("mid-emb")},
+    )
+    assert r.status_code == 422
+    assert r.json()["detail"]["denied_reason"] == "weknora_model_connection_config_missing"
+    assert wk.last_check is None
 
 
 async def test_not_configured_returns_safe_503(client, monkeypatch):
@@ -587,7 +618,7 @@ async def test_not_configured_consultant_still_403(client, monkeypatch):
     monkeypatch.setattr("app.api.weknora_admin.weknora_enabled", lambda: False)
     r = await client.get(f"{BASE}/models", headers=_hdr(USER_CONSULTANT))
     assert r.status_code == 403
-    assert r.json()["detail"]["denied_reason"] == "weknora_admin_required"
+    assert r.json()["detail"]["denied_reason"] == "weknora_operator_required"
 
 
 # ---------------------------------------------------------------------------
@@ -657,12 +688,7 @@ async def test_model_check_upstream_error_no_leak(client, monkeypatch):
         r = await client.post(
             f"{BASE}/models/check",
             headers=_hdr(USER_ADMIN_ONLY),
-            json={
-                "model_type": "embedding",
-                "api_url": _URL,
-                "api_key": _SECRET,
-                "model": "text-embedding-v3",
-            },
+            json={"model_ref": _model_ref("mid-emb")},
         )
         assert r.status_code == 502, r.text
         for token in _LEAK_TOKENS:

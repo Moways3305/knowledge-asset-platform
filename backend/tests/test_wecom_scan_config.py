@@ -2,7 +2,7 @@
 
 覆盖：
 - admin 可创建配置（配置操作人 = 审计 actor）；created_by = 业务归属人（task_owner_user_id）。
-- boss / director 可读配置与项目候选，但不可创建 / 编辑。
+- boss / director 可读写配置与项目候选。
 - consultant 不可读（403）。
 - directory_path 格式错误 / scope 非法 / project 缺 id / project 不存在 / name 空 → 422。
 - personal/company scope 携带 project_id → 422（一致拒绝策略）。
@@ -129,16 +129,14 @@ async def test_create_personal_scope_no_project(client):
 
 
 # ---------------- 权限 ----------------
-async def test_governance_can_read_not_write(client):
+async def test_governance_can_manage_configs(client):
     # 先由 admin 建一条。
     await client.post(CONFIGS, headers=_hdr(USER_ADMIN_ONLY), json=_body())
     # boss / director 可读 configs + project-options。
     assert (await client.get(CONFIGS, headers=_hdr(USER_BOSS))).status_code == 200
     assert (await client.get(OPTIONS, headers=_hdr(USER_DIRECTOR))).status_code == 200
-    # 但不可创建。
-    denied = await client.post(CONFIGS, headers=_hdr(USER_BOSS), json=_body(name="x"))
-    assert denied.status_code == 403
-    assert denied.json()["detail"]["denied_reason"] == "wecom_scan_admin_required"
+    created = await client.post(CONFIGS, headers=_hdr(USER_BOSS), json=_body(name="x"))
+    assert created.status_code == 201
 
 
 async def test_consultant_cannot_read(client):
@@ -234,12 +232,13 @@ async def test_patch_edits_enabled_name_scope(client):
     assert r2.json()["created_by"] == str(USER_BOSS)
 
 
-async def test_patch_admin_only(client):
+async def test_governance_can_patch_config(client):
     cid = (await client.post(CONFIGS, headers=_hdr(USER_ADMIN_ONLY), json=_body())).json()["id"]
-    denied = await client.patch(
+    updated = await client.patch(
         f"{CONFIGS}/{cid}", headers=_hdr(USER_DIRECTOR), json={"enabled": False}
     )
-    assert denied.status_code == 403
+    assert updated.status_code == 200
+    assert updated.json()["enabled"] is False
 
 
 async def test_patch_invalid_directory_422(client):

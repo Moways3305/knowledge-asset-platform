@@ -87,6 +87,12 @@ def configure_logging(level: str | None = None) -> None:
         lg.handlers.clear()
         lg.propagate = True
 
+    # httpx/httpcore debug and info records include full request URLs.  WeCom
+    # uses query parameters for corpsecret/access_token, so never let those
+    # library records reach application logs; callers emit only safe codes.
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
 
 # 异常消息清洗规则（按顺序应用；越"包罗"的越先，避免子模式先吃掉外层）。
 # 上游（WeKnora / WeCom / LLM / httpx）异常原文可能含 URL / payload / key / token / header，

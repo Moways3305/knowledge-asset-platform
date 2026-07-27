@@ -64,6 +64,12 @@ export function useUploadFlow() {
   const [localPendingTasks, setLocalPendingTasks] = useState<PendingIngestItemDTO[]>([]);
   const [localPendingLoading, setLocalPendingLoading] = useState(true);
   const [localPendingError, setLocalPendingError] = useState<string | null>(null);
+  const [batchSelection, setBatchSelection] = useState<string[]>([]);
+  const [batchStatus, setBatchStatus] = useState<
+    Record<string, "waiting" | "processing" | "success" | "failed">
+  >({});
+  const [batchBusy, setBatchBusy] = useState(false);
+  const batchRunRef = useRef<number | null>(null);
 
   // Shared confirmation fields
   const [editTitle, setEditTitle] = useState("");
@@ -103,6 +109,7 @@ export function useUploadFlow() {
   useEffect(() => {
     return () => {
       workflowRunRef.current += 1;
+      batchRunRef.current = null;
       pendingRequestRef.current += 1;
       if (timerRef.current) clearTimeout(timerRef.current);
     };
@@ -441,8 +448,120 @@ export function useUploadFlow() {
     models.rerankRef,
   ]);
 
+  const toggleBatchTask = useCallback((id: string) => {
+    setBatchSelection((selected) =>
+      selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id],
+    );
+  }, []);
+
+  // The queue is intentionally awaited one item at a time. Each request uses
+  // that task's own AI result and destination metadata, so fields never leak
+  // from one selected file into another.
+  const handleBatchConfirm = useCallback(
+    async (tasks: PendingIngestItemDTO[]) => {
+      if (batchRunRef.current !== null || tasks.length === 0) return;
+      const runId = beginWorkflowRun();
+      const isCurrent = () => batchRunRef.current === runId && isCurrentWorkflowRun(runId);
+      const updateBatchStatus = (
+        update: (
+          previous: Record<string, "waiting" | "processing" | "success" | "failed">,
+        ) => Record<string, "waiting" | "processing" | "success" | "failed">,
+      ) => {
+        if (!isCurrent()) return;
+        setBatchStatus(update);
+      };
+      batchRunRef.current = runId;
+      setBatchBusy(true);
+      let completed = false;
+      updateBatchStatus((previous) => {
+        const next = { ...previous };
+        tasks.forEach((task) => {
+          next[task.id] = "waiting";
+        });
+        return next;
+      });
+      try {
+        for (const task of tasks) {
+          if (!isCurrent()) return;
+          updateBatchStatus((previous) => ({ ...previous, [task.id]: "processing" }));
+          try {
+            const ai = await pollAiResult(task.id, isCurrent);
+            if (!isCurrent()) return;
+            if (!ai || ai.status === "processing" || ai.status === "failed") {
+              throw new Error("该资料尚未准备好确认入库");
+            }
+            const targetScope =
+              task.target_scope === "project" || task.target_scope === "company"
+                ? task.target_scope
+                : "personal";
+            if (targetScope === "project" && !task.target_project_id) {
+              throw new Error("该项目资料缺少目标项目");
+            }
+            const title = ai.suggested_title?.trim() || task.suggested_title?.trim() || "";
+            const summary = ai.suggested_summary?.trim() || ai.suggested_one_liner?.trim() || "";
+            if (!title || !summary) throw new Error("该资料缺少可确认的标题或摘要");
+            if (!isCurrent()) return;
+            await confirmIngest(task.id, {
+              title,
+              one_liner: ai.suggested_one_liner || undefined,
+              summary,
+              key_points: ai.suggested_key_points?.filter(Boolean) || [],
+              tags: ai.suggested_tags?.filter(Boolean) || [],
+              target_scope: targetScope,
+              target_project_id:
+                targetScope === "project" ? task.target_project_id || undefined : undefined,
+              target_zone: "material",
+              asset_type: ai.suggested_asset_type || "methodology",
+              visibility: "project_only",
+              confidentiality_level: ai.suggested_confidentiality_level || "L2",
+              ai_access_level: ai.suggested_ai_access_level || "A2",
+              lifecycle_phase_key: ai.suggested_phase_key || undefined,
+              embedding_model_ref: models.embeddingRef || undefined,
+              rerank_model_ref: models.rerankRef || undefined,
+            });
+            if (!isCurrent()) return;
+            updateBatchStatus((previous) => ({ ...previous, [task.id]: "success" }));
+          } catch {
+            if (!isCurrent()) return;
+            // One failure is shown on that row and never prevents the next task.
+            updateBatchStatus((previous) => ({ ...previous, [task.id]: "failed" }));
+          }
+        }
+        if (!isCurrent()) return;
+        completed = true;
+        setBatchSelection([]);
+        if (activePath === "a") void loadPending();
+        else void loadLocalPending();
+      } finally {
+        // A single-task selection can invalidate this run without going through
+        // handleReset. Release only this batch's lock, never a newer batch's.
+        if (batchRunRef.current === runId) {
+          batchRunRef.current = null;
+          setBatchBusy(false);
+          if (!completed) {
+            setBatchSelection([]);
+            setBatchStatus({});
+          }
+        }
+      }
+    },
+    [
+      activePath,
+      beginWorkflowRun,
+      isCurrentWorkflowRun,
+      loadLocalPending,
+      loadPending,
+      models.embeddingRef,
+      models.rerankRef,
+      pollAiResult,
+    ],
+  );
+
   const handleReset = useCallback(() => {
     beginWorkflowRun();
+    batchRunRef.current = null;
+    setBatchBusy(false);
+    setBatchStatus({});
     pendingRequestRef.current += 1;
     if (timerRef.current) {
       clearTimeout(timerRef.current);
@@ -479,17 +598,16 @@ export function useUploadFlow() {
     setSubmitReviewId(null);
     setSubmitIndexStatus(null);
     setApiError(null);
+    setBatchSelection([]);
   }, [beginWorkflowRun]);
 
   // 删除待确认入库任务并清理 UI 状态，完成后刷新列表。
   const handleDeletePending = useCallback(
     async (tid: string) => {
+      // Rejecting an ingest item is irreversible. Await it before resetting so
+      // a failed delete leaves the current editor and source context available.
+      await deletePendingTask(tid);
       handleReset();
-      try {
-        await deletePendingTask(tid);
-      } catch {
-        // 删除失败时不阻断 UI 重置，但可静默忽略。
-      }
       // 重新加载待确认列表（两支来源都刷新）。
       void loadPending();
       void loadLocalPending();
@@ -547,6 +665,11 @@ export function useUploadFlow() {
     localPendingError,
     loadLocalPending,
     handleSelectPendingTask,
+    batchSelection,
+    batchStatus,
+    batchBusy,
+    toggleBatchTask,
+    handleBatchConfirm,
     taskId,
     editTitle,
     setEditTitle,

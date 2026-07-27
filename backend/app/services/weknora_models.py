@@ -293,30 +293,42 @@ async def delete_model(client: _CheckClient, model_ref: str, *, trace_id: str | 
     await client.delete_model(model_id, trace_id=trace_id)
 
 
-def _safe_check_message(message: str, req: ModelCheckRequest) -> str:
-    """连通性测试文案兜底脱敏：剔除可能回显的 key / url。"""
-    msg = message
-    for v in (req.api_key, req.api_url):
-        if v and v in msg:
-            msg = msg.replace(v, "[redacted]")
-    return msg
-
-
 async def check_model(
     client: _CheckClient, req: ModelCheckRequest, *, trace_id: str | None
 ) -> ModelCheckResponse:
+    model_id = await _resolve_ref(client, req.model_ref, trace_id)
+    if model_id is None:
+        raise _denied(404, "weknora_model_not_found", "模型不存在或已被删除")
+
+    # 模型详情仅留在服务端，用它重新取得保存时的连接配置；绝不接受浏览器提供的
+    # type/name/url/key，也绝不将详情或上游原始 message 回传。
+    saved = await client.get_model(model_id, trace_id=trace_id)
+    params = saved.get("parameters") if isinstance(saved, dict) else {}
+    params = params if isinstance(params, dict) else {}
+    model_type = _alias(str(saved.get("type") or "")) if isinstance(saved, dict) else ""
+    api_url = str(params.get("base_url") or params.get("api_url") or "").strip()
+    api_key = str(params.get("api_key") or "").strip()
+    model_name = str(saved.get("name") or "").strip() if isinstance(saved, dict) else ""
+    if not api_url or not api_key or not model_name:
+        raise _denied(
+            422,
+            "weknora_model_connection_config_missing",
+            "该已保存模型缺少可用连接配置，请更新模型后重试",
+        )
     fn = {
         "chat": client.check_remote_model,
         "embedding": client.test_embedding_model,
         "rerank": client.check_rerank_model,
         "vllm": client.test_multimodal_model,
-    }.get(req.model_type)
+    }.get(model_type)
     if fn is None:
         raise _denied(422, "invalid_model_type", "非法的模型类型")
-    res = await fn(api_url=req.api_url, api_key=req.api_key, model=req.model, trace_id=trace_id)
+    res = await fn(api_url=api_url, api_key=api_key, model=model_name, trace_id=trace_id)
     success = bool(res.get("success", True)) if isinstance(res, dict) else False
-    message = str((res or {}).get("message") or ("可用" if success else "不可用"))
-    return ModelCheckResponse(success=success, message=_safe_check_message(message, req))
+    return ModelCheckResponse(
+        success=success,
+        message="模型连通性正常" if success else "模型未通过连通性测试，请检查保存配置后重试",
+    )
 
 
 def _slot(model_id: str | None, id_meta: dict[str, ModelOut]) -> ModelSlotOut | None:

@@ -112,9 +112,9 @@ describe("can (nav / route capability predicates)", () => {
     expect(can.viewKnowledge(anon)).toBe(false);
   });
 
-  it("restricts model config to admin only", () => {
+  it("allows governance roles to access model config", () => {
     expect(can.viewModels(admin)).toBe(true);
-    expect(can.viewModels(governance)).toBe(false);
+    expect(can.viewModels(governance)).toBe(true);
     expect(can.viewModels(consultant)).toBe(false);
   });
 
@@ -124,9 +124,10 @@ describe("can (nav / route capability predicates)", () => {
     expect(can.viewAuthSecurity(consultant)).toBe(false);
   });
 
-  it("restricts alert settings to admin only", () => {
+  it("allows governance roles to access alert settings", () => {
     expect(can.viewAlerts(admin)).toBe(true);
-    expect(can.viewAlerts(governance)).toBe(false);
+    expect(can.viewAlerts(governance)).toBe(true);
+    expect(can.viewAlerts(consultant)).toBe(false);
   });
 
   it("shows shared system views to admin or governance", () => {

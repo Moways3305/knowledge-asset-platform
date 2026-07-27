@@ -333,15 +333,15 @@ async def test_legacy_non_chat_rows_are_preserved_but_hidden_from_external_api(d
     assert warning is None
 
 
-async def test_delete_connection_requires_admin(client, wk):
+async def test_governance_can_delete_connection(client, wk):
     from app.seed.dev_seed import USER_BOSS
 
     connection = await _create(client)
     resp = await client.delete(
         f"{BASE}/items/{connection['model_ref']}", headers={"X-Dev-User-Id": str(USER_BOSS)}
     )
-    assert resp.status_code == 403
-    assert resp.json()["detail"]["denied_reason"] == "model_connection_admin_required"
+    assert resp.status_code == 204
+    assert resp.content == b""
 
 
 async def test_delete_connection_succeeds_when_not_default(client, wk):

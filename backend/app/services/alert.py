@@ -112,10 +112,10 @@ def _denied(status_code: int, reason: str, message: str) -> HTTPException:
     )
 
 
-def _require_admin(caller: CallerContext) -> None:
-    """Admin Alert API 仅 admin。"""
-    if CompanyRole.admin.value not in caller.active_company_roles:
-        raise _denied(403, "alert_admin_required", "仅 admin 可访问告警设置")
+def _require_operator(caller: CallerContext) -> None:
+    """告警设置按当前工作身份授权给治理角色与兼容系统治理身份。"""
+    if CompanyRole.admin.value not in caller.active_company_roles and not caller.can_discover_l5:
+        raise _denied(403, "alert_operator_required", "仅总经理或咨询总监可管理告警设置")
 
 
 async def ensure_default_rules(session: AsyncSession) -> None:
@@ -156,7 +156,7 @@ def _rule_out(rule: AlertRule) -> AlertRuleOut:
 
 
 async def list_rules(session: AsyncSession, caller: CallerContext) -> AlertRulesResponse:
-    _require_admin(caller)
+    _require_operator(caller)
     await ensure_default_rules(session)
     rows = list(
         (await session.execute(select(AlertRule).order_by(AlertRule.created_at))).scalars().all()
@@ -172,7 +172,7 @@ async def update_rule(
     trace_id: str,
 ) -> AlertRuleOut:
     """更新规则（enabled / threshold / notification_channels）。写 config.alert_rule_updated。"""
-    _require_admin(caller)
+    _require_operator(caller)
     rule = (
         await session.execute(select(AlertRule).where(AlertRule.id == rule_id))
     ).scalar_one_or_none()
@@ -223,7 +223,7 @@ async def update_rule(
 
 async def list_notifications(session: AsyncSession, caller: CallerContext) -> NotificationsResponse:
     """通知记录查询（admin）。只回安全元数据。"""
-    _require_admin(caller)
+    _require_operator(caller)
     rows = list(
         (
             await session.execute(

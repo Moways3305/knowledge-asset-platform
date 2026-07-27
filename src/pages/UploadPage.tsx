@@ -7,6 +7,7 @@ import "./UploadPage.css";
 
 export default function UploadPage() {
   const flow = useUploadFlow();
+  const [rejectError, setRejectError] = useState<string | null>(null);
   const {
     activePath,
     switchPath,
@@ -19,20 +20,25 @@ export default function UploadPage() {
   const confirmationOpen = confirmReady || confirmSubmitted;
 
   const exitConfirmation = () => {
+    setRejectError(null);
     handleReset();
-    switchPath("a");
+    // Preserve the source context: local upload returns to local, WeCom to WeCom.
+    switchPath(activePath);
   };
 
   const rejectConfirmation = async () => {
-    if (taskId) {
-      try {
-        await handleDeletePending(taskId);
-      } catch {
-        // 删除失败仍允许退出
-      }
+    if (!taskId) return;
+    setRejectError(null);
+    try {
+      // A rejection is permanent only after the server confirms deletion.  Do
+      // not discard the editable form or source context on a failed delete.
+      await handleDeletePending(taskId);
+    } catch {
+      setRejectError("拒绝入库失败，资料尚未删除。请重试或返回后继续处理。");
+      return;
     }
     handleReset();
-    switchPath("a");
+    switchPath(activePath);
   };
 
   return (
@@ -63,8 +69,16 @@ export default function UploadPage() {
       {activePath === "a" && !confirmationOpen && <UploadStepA flow={flow} />}
       {activePath === "b" && !confirmationOpen && <UploadStepB flow={flow} />}
       {confirmationOpen && (
-        <UploadConfirmPanel flow={flow} onExit={exitConfirmation} onReject={rejectConfirmation} />
+        <>
+          {rejectError && (
+            <div className="upload77-confirm-error" role="alert">
+              {rejectError}
+            </div>
+          )}
+          <UploadConfirmPanel flow={flow} onExit={exitConfirmation} onReject={rejectConfirmation} />
+        </>
       )}
     </ProductPage>
   );
 }
+import { useState } from "react";
