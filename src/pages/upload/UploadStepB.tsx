@@ -163,10 +163,15 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
               <tbody>
                 {localUploadQueue.map((item) => {
                   const progress =
-                    item.status === "queued" ? 0 : item.status === "uploading" ? 50 : 100;
+                    item.status === "queued"
+                      ? 0
+                      : item.status === "uploading" || item.status === "processing"
+                        ? 50
+                        : 100;
                   const label = {
                     queued: "已入队",
                     uploading: "上传中",
+                    processing: "处理中",
                     awaiting_confirmation: "待确认入库",
                     failed: "上传失败",
                   }[item.status];

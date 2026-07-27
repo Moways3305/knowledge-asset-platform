@@ -149,6 +149,47 @@ describe("KnowledgeDetailPage", () => {
     expect(await screen.findByText("原文访问申请已提交，待审批。")).toBeInTheDocument();
     expect(screen.queryByText("原文入口")).not.toBeInTheDocument();
   });
+
+  it("renders a complete long authorized summary without frontend truncation", async () => {
+    const tail = "AUTHORIZED-SUMMARY-END";
+    const detailed = `（脱敏）${"完整展示的脱敏摘要段落。".repeat(30)}${tail}`;
+    vi.mocked(fetchKnowledgeDetail).mockResolvedValue({
+      ...baseAsset,
+      confidentialityLevel: "L4",
+      oneLiner: "（脱敏）安全短摘要",
+      detailed,
+      keyPoints: [],
+      access: {
+        ...baseAsset.access,
+        original: false,
+      },
+    });
+
+    renderDetail();
+
+    const fullSummary = await screen.findByText(detailed);
+    expect(fullSummary).toHaveTextContent(tail);
+    expect(fullSummary.textContent).toHaveLength(detailed.length);
+    expect(fullSummary).not.toHaveAttribute("title");
+  });
+
+  it("keeps summary content hidden when summary permission is denied", async () => {
+    vi.mocked(fetchKnowledgeDetail).mockResolvedValue({
+      ...baseAsset,
+      oneLiner: "MUST-NOT-RENDER-ONE-LINER",
+      detailed: "MUST-NOT-RENDER-DETAILED",
+      access: {
+        ...baseAsset.access,
+        summary: false,
+        original: false,
+      },
+    });
+
+    renderDetail();
+
+    expect(await screen.findByText("当前身份不可查看内容摘要。")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/MUST-NOT-RENDER/);
+  });
 });
 
 type PreviewEvents = {

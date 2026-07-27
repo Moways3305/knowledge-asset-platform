@@ -16,6 +16,7 @@ const assetId = "asset-result-77";
 const scenarios = [
   "local-empty",
   "local-queue",
+  "local-degraded",
   "local-upload-failure-retry",
   "confirm-ready",
   "project-submitted",
@@ -122,6 +123,8 @@ function assertResult(result) {
   if (result.scenario === "local-empty") return result.emptyUploadReady;
   if (result.scenario === "local-queue")
     return result.queueOrderValid && result.serialUploadVerified && result.localPendingRefreshed;
+  if (result.scenario === "local-degraded")
+    return result.localPendingRefreshed && result.degradedWarningVisible;
   if (result.scenario === "local-upload-failure-retry")
     return result.failureRetried && result.localPendingRefreshed;
   if (result.scenario === "confirm-ready") return result.confirmVisible;
@@ -212,6 +215,40 @@ try {
           if (scenario === "processing-failed") return fulfill(aiResult("failed"));
           return fulfill(aiResult("ready"));
         }
+        if (url.pathname === `/api/v1/ingest/${taskId}/status`) {
+          if (scenario === "local-degraded") {
+            return fulfill({
+              task_id: taskId,
+              stage: "degraded_complete",
+              status: "degraded",
+              updated_at: null,
+              retryable: false,
+              next_action: {
+                key: "review_and_confirm",
+                route_key: "upload_task",
+                enabled: true,
+              },
+              error: {
+                code: "content_generation_unavailable",
+                message: "内容建议暂不可用，请人工核对后继续",
+                recovery_hint: "review_and_confirm",
+              },
+              result_asset_id: null,
+              review_id: null,
+            });
+          }
+          return fulfill({
+            task_id: taskId,
+            stage: "awaiting_confirmation",
+            status: "action_required",
+            updated_at: null,
+            retryable: false,
+            next_action: null,
+            error: null,
+            result_asset_id: null,
+            review_id: null,
+          });
+        }
         if (url.pathname === `/api/v1/ingest/${taskId}/confirm`) {
           confirmPayload = request.postDataJSON();
           if (scenario === "project-submitted") {
@@ -281,6 +318,9 @@ try {
           await page.getByText("上传失败", { exact: true }).waitFor({ state: "detached" });
         }
         await page.getByText("待确认入库", { exact: true }).first().waitFor();
+        if (scenario === "local-degraded") {
+          await page.getByText("内容建议暂不可用，请人工核对后继续").waitFor();
+        }
 
         if (!scenario.startsWith("local-")) {
           await page.getByRole("button", { name: "客户增长复盘.md" }).click();
@@ -320,6 +360,7 @@ try {
             text.indexOf("客户访谈纪要.txt") > text.indexOf("客户增长复盘.md"),
           localPendingVisible: text.includes("待确认入库") && text.includes("客户增长复盘.md"),
           uploadFailureVisible: text.includes("上传失败"),
+          degradedWarningVisible: text.includes("内容建议暂不可用，请人工核对后继续"),
           confirmVisible: text.includes("内容建议预览") && text.includes("确认入库"),
           projectWaiting: text.includes("已提交，等待项目经理确认"),
           claimsProjectComplete: text.includes("已进入项目知识库"),

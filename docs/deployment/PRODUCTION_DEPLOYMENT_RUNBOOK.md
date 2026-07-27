@@ -77,13 +77,26 @@
 3. **运行 migration**
    - 本仓库由一次性 `migrate` 服务执行 `python -m alembic upgrade head`；`backend` / `worker` / `beat` 依赖其 `service_completed_successfully` 才启动。
    - 不要手动在多个副本各自 `alembic upgrade`。
-4. **启动服务**：`backend` → `worker` → `beat` → `frontend`（compose `depends_on` 已编排：postgres/redis healthy → migrate 完成 → backend/worker/beat → frontend）。
+4. **本版本首次上线时回填 L3/L4 完整授权摘要**
+   - 先 dry-run；输出只有计数与前后长度，不含资产 ID、普通摘要或脱敏摘要正文：
+     ```powershell
+     docker compose run --rm backend python -m app.commands.backfill_authorized_summaries
+     ```
+   - 核对 `pending`（缺少普通详细摘要、不能伪造）与 `regenerated` 后显式应用：
+     ```powershell
+     docker compose run --rm backend python -m app.commands.backfill_authorized_summaries --apply
+     ```
+   - 再执行一次 `--apply` 验证幂等；`regenerated`、`created_rows`、`updated_rows`、
+     `cleared_pending_markers` 应全部为 `0`。`pending` 可非零，需后续补齐源摘要再重跑。
+   - 本回填只更新当前版本摘要行/安全待处理标记，不删除资产，不触发重索引、重新入库或
+     WeKnora 调用。异常时停止放流量并从 §2.2 数据库备份恢复相关摘要数据。
+5. **启动服务**：`backend` → `worker` → `beat` → `frontend`（compose `depends_on` 已编排：postgres/redis healthy → migrate 完成 → backend/worker/beat → frontend）。
    ```powershell
    docker compose up -d
    ```
-5. **执行 health / ready / config**（见 §4.1）。
-6. **执行 live smoke**（见 [`LIVE_SMOKE_CHECKLIST.md`](./LIVE_SMOKE_CHECKLIST.md)）。
-7. **观察日志与关键审计事件**：
+6. **执行 health / ready / config**（见 §4.1）。
+7. **执行 live smoke**（见 [`LIVE_SMOKE_CHECKLIST.md`](./LIVE_SMOKE_CHECKLIST.md)）。
+8. **观察日志与关键审计事件**：
    - worker / beat 是否在消费任务（无堆积、无反复重启）；
    - 关键审计 action 是否正常落库：`login.success` / `login.failed`、`ingest.ai_extracted` / `ingest.failed`、`access.original_*`、`auth.*`（系统安全事件）；
    - 审计与日志**不应**出现 raw email / password / token / cookie / 原始 IP / WeKnora id / 原文。

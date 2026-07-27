@@ -287,7 +287,8 @@ class KnowledgeAssetFileObject(Base):
 class KnowledgeAssetSummary(Base):
     """知识资产摘要（窄表：每种 summary_type 一行 content）。
 
-    L3 / L4 对外展示必须使用脱敏/安全摘要（safe_summary / redacted_summary）；
+    L3 / L4 对外展示必须使用脱敏/安全摘要（redacted_one_liner + redacted_summary，
+    兼容 safe_summary）；redacted_summary_pending 仅是回填待处理状态，不是展示内容；
     L5 不向总经理 / 咨询总监以外用户返回摘要或存在信息（由权限层落实）。
     """
 
