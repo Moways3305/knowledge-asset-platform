@@ -20,6 +20,39 @@ import {
   type TargetLibrary,
 } from "./uploadConstants";
 
+export type LocalUploadQueueState = "queued" | "uploading" | "awaiting_confirmation" | "failed";
+
+export interface LocalUploadQueueItem {
+  id: string;
+  file: File;
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+  status: LocalUploadQueueState;
+  error: string | null;
+}
+
+const LOCAL_UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
+const LOCAL_UPLOAD_EXTENSIONS = new Set([
+  "md",
+  "markdown",
+  "txt",
+  "pdf",
+  "doc",
+  "docx",
+  "ppt",
+  "pptx",
+  "xls",
+  "xlsx",
+]);
+
+function localFileError(file: File): string | null {
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (!LOCAL_UPLOAD_EXTENSIONS.has(extension)) return "该文件类型暂不支持上传";
+  if (file.size > LOCAL_UPLOAD_MAX_BYTES) return "文件超过 25 MiB 大小上限";
+  return null;
+}
+
 // 资产化确认工作台的容器 Hook：收拢企业微信待确认 / 本地上传共享的
 // 全部状态、AI 结果轮询、人工校正字段、确认入库与重置逻辑。页面本体只消费此 hook、
 // 做步骤路由与顶层 state 传递；展示拆到 UploadStepA / UploadStepB / UploadConfirmPanel。
@@ -35,6 +68,10 @@ export function useUploadFlow() {
   const [fileSize, setFileSize] = useState(0);
   const [fileType, setFileType] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [localUploadQueue, setLocalUploadQueue] = useState<LocalUploadQueueItem[]>([]);
+  const localUploadQueueRef = useRef<LocalUploadQueueItem[]>([]);
+  const localUploadWorkerRef = useRef(false);
+  const localUploadSequenceRef = useRef(0);
   const [extraction, setExtraction] = useState<{
     status: string | null;
     charCount: number | null;
@@ -45,6 +82,7 @@ export function useUploadFlow() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const workflowRunRef = useRef(0);
   const pendingRequestRef = useRef(0);
+  const localPendingRequestRef = useRef(0);
 
   const beginWorkflowRun = useCallback(() => {
     workflowRunRef.current += 1;
@@ -111,6 +149,7 @@ export function useUploadFlow() {
       workflowRunRef.current += 1;
       batchRunRef.current = null;
       pendingRequestRef.current += 1;
+      localPendingRequestRef.current += 1;
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, []);
@@ -149,26 +188,109 @@ export function useUploadFlow() {
 
   // 本地上传待确认任务（Path B 专属，按来源过滤到 path_b_upload）。
   const loadLocalPending = useCallback(async () => {
-    const requestId = ++pendingRequestRef.current;
+    const requestId = ++localPendingRequestRef.current;
     setLocalPendingLoading(true);
     setLocalPendingError(null);
     try {
       const tasks = await fetchPendingIngestTasks("path_b_upload");
-      if (pendingRequestRef.current !== requestId) return;
+      if (localPendingRequestRef.current !== requestId) return;
       setLocalPendingTasks(tasks);
     } catch (e) {
-      if (pendingRequestRef.current !== requestId) return;
+      if (localPendingRequestRef.current !== requestId) return;
       setLocalPendingError(
         e instanceof ApiError ? e.message : "待确认任务暂时无法加载，请稍后重试",
       );
     } finally {
-      if (pendingRequestRef.current === requestId) setLocalPendingLoading(false);
+      if (localPendingRequestRef.current === requestId) setLocalPendingLoading(false);
     }
   }, []);
 
   useEffect(() => {
     if (activePath === "b") void loadLocalPending();
   }, [activePath, loadLocalPending]);
+
+  const updateLocalUploadQueue = useCallback(
+    (update: (items: LocalUploadQueueItem[]) => LocalUploadQueueItem[]) => {
+      const next = update(localUploadQueueRef.current);
+      localUploadQueueRef.current = next;
+      setLocalUploadQueue(next);
+    },
+    [],
+  );
+
+  const processLocalUploadQueue = useCallback(async () => {
+    if (localUploadWorkerRef.current) return;
+    localUploadWorkerRef.current = true;
+    try {
+      while (true) {
+        const item = localUploadQueueRef.current.find((candidate) => candidate.status === "queued");
+        if (!item) break;
+        updateLocalUploadQueue((items) =>
+          items.map((candidate) =>
+            candidate.id === item.id
+              ? { ...candidate, status: "uploading", error: null }
+              : candidate,
+          ),
+        );
+        try {
+          await createIngestUpload({ file: item.file });
+          updateLocalUploadQueue((items) =>
+            items.map((candidate) =>
+              candidate.id === item.id
+                ? { ...candidate, status: "awaiting_confirmation", error: null }
+                : candidate,
+            ),
+          );
+          void loadLocalPending();
+        } catch (error) {
+          updateLocalUploadQueue((items) =>
+            items.map((candidate) =>
+              candidate.id === item.id
+                ? {
+                    ...candidate,
+                    status: "failed",
+                    error: error instanceof ApiError ? error.message : "上传失败，请稍后重试",
+                  }
+                : candidate,
+            ),
+          );
+        }
+      }
+    } finally {
+      localUploadWorkerRef.current = false;
+    }
+  }, [loadLocalPending, updateLocalUploadQueue]);
+
+  const enqueueLocalFiles = useCallback(
+    (files: Iterable<File>) => {
+      const items = Array.from(files, (file) => {
+        const error = localFileError(file);
+        return {
+          id: `local-upload-${++localUploadSequenceRef.current}`,
+          file,
+          fileName: file.name,
+          fileSize: file.size,
+          fileType: file.name.split(".").pop()?.toUpperCase() || file.type || "未知",
+          status: error ? "failed" : "queued",
+          error,
+        } satisfies LocalUploadQueueItem;
+      });
+      if (!items.length) return;
+      updateLocalUploadQueue((current) => [...current, ...items]);
+      void processLocalUploadQueue();
+    },
+    [processLocalUploadQueue, updateLocalUploadQueue],
+  );
+
+  const retryLocalUpload = useCallback(
+    (id: string) => {
+      updateLocalUploadQueue((items) =>
+        items.map((item) => (item.id === id ? { ...item, status: "queued", error: null } : item)),
+      );
+      void processLocalUploadQueue();
+    },
+    [processLocalUploadQueue, updateLocalUploadQueue],
+  );
 
   // 把一次 ai-result 的建议填入人工校正区（Path A / Path B 共用）。
   const applyAiResult = useCallback((ai: IngestAiResultDTO, fallbackTitle: string) => {
@@ -264,36 +386,21 @@ export function useUploadFlow() {
     [applyAiResult, beginWorkflowRun, isCurrentWorkflowRun, pollAiResult],
   );
 
-  const selectLocalFile = useCallback(
-    (file: File) => {
-      beginWorkflowRun();
-      setSelectedFile(file);
-      setFileName(file.name);
-      setFileSize(file.size);
-      setFileType(file.name.split(".").pop()?.toUpperCase() || file.type || "未知");
-      setExtraction(null);
-      setNaming(null);
-      setApiError(null);
-      setProcessingNote(null);
-      setFlowState("file_selected");
-    },
-    [beginWorkflowRun],
-  );
-
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) selectLocalFile(file);
+      if (e.target.files?.length) enqueueLocalFiles(e.target.files);
+      // Selecting the same file again must still enqueue a new, independent task.
+      e.target.value = "";
     },
-    [selectLocalFile],
+    [enqueueLocalFiles],
   );
 
   const handleFileDrop = useCallback(
-    (file: File) => {
-      selectLocalFile(file);
+    (files: Iterable<File>) => {
+      enqueueLocalFiles(files);
       if (fileRef.current) fileRef.current.value = "";
     },
-    [selectLocalFile],
+    [enqueueLocalFiles],
   );
 
   // Path B：上传真实文件字节 + 创建入库任务 + 异步轮询内容建议。
@@ -563,6 +670,7 @@ export function useUploadFlow() {
     setBatchBusy(false);
     setBatchStatus({});
     pendingRequestRef.current += 1;
+    localPendingRequestRef.current += 1;
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
@@ -652,6 +760,8 @@ export function useUploadFlow() {
     fileRef,
     handleFileSelect,
     handleFileDrop,
+    localUploadQueue,
+    retryLocalUpload,
     handleStart,
     handleRefreshProcessing,
     handleReset,

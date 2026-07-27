@@ -306,24 +306,43 @@ async def check_model(
     params = saved.get("parameters") if isinstance(saved, dict) else {}
     params = params if isinstance(params, dict) else {}
     model_type = _alias(str(saved.get("type") or "")) if isinstance(saved, dict) else ""
-    api_url = str(params.get("base_url") or params.get("api_url") or "").strip()
-    api_key = str(params.get("api_key") or "").strip()
+    fn = {
+        "chat": client.check_remote_model,
+        "embedding": client.test_embedding_model,
+        "rerank": client.check_rerank_model,
+    }.get(model_type)
+    if fn is None:
+        # Unsupported saved-model types must fail before inspecting optional
+        # connection fields, so the user-visible error remains stable.
+        raise _denied(
+            422,
+            "weknora_saved_model_check_unsupported",
+            "当前知识底座版本不支持该类型的已保存模型连通性测试",
+        )
+    base_url = str(params.get("base_url") or params.get("api_url") or "").strip()
     model_name = str(saved.get("name") or "").strip() if isinstance(saved, dict) else ""
-    if not api_url or not api_key or not model_name:
+    source = str(saved.get("source") or "remote").strip()
+    provider = str(params.get("provider") or "").strip() or None
+    interface_type = (
+        str(params.get("interface_type") or params.get("interfaceType") or "").strip() or None
+    )
+    # Credentials are intentionally absent from list/detail responses.  WeKnora v0.7.1
+    # restores them from modelId; only non-sensitive saved-model metadata is required here.
+    if not base_url or not model_name:
         raise _denied(
             422,
             "weknora_model_connection_config_missing",
             "该已保存模型缺少可用连接配置，请更新模型后重试",
         )
-    fn = {
-        "chat": client.check_remote_model,
-        "embedding": client.test_embedding_model,
-        "rerank": client.check_rerank_model,
-        "vllm": client.test_multimodal_model,
-    }.get(model_type)
-    if fn is None:
-        raise _denied(422, "invalid_model_type", "非法的模型类型")
-    res = await fn(api_url=api_url, api_key=api_key, model=model_name, trace_id=trace_id)
+    res = await fn(
+        model_id=model_id,
+        model_name=model_name,
+        base_url=base_url,
+        source=source,
+        provider=provider,
+        interface_type=interface_type,
+        trace_id=trace_id,
+    )
     success = bool(res.get("success", True)) if isinstance(res, dict) else False
     return ModelCheckResponse(
         success=success,

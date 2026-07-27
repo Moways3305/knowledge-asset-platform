@@ -590,53 +590,98 @@ class WeKnoraClient:
         return result
 
     async def _model_check(
-        self, path: str, *, api_url: str, api_key: str, model: str, trace_id: str | None
+        self,
+        path: str,
+        *,
+        model_id: str,
+        model_name: str,
+        base_url: str,
+        source: str,
+        provider: str | None,
+        interface_type: str | None,
+        trace_id: str | None,
     ) -> dict[str, Any]:
-        body = {"api_url": api_url, "api_key": api_key, "ModelName": model}
+        """Test a WeKnora-saved model without handling its credentials.
+
+        v0.7.1 reloads APIKey/AppSecret from the saved record by ``modelId``.
+        KAP therefore sends only the vendor's non-sensitive saved-model fields.
+        """
+        body: dict[str, Any] = {
+            "modelId": model_id,
+            "modelName": model_name,
+            "baseUrl": base_url,
+            "source": source,
+        }
+        if provider:
+            body["provider"] = provider
+        if interface_type:
+            body["interfaceType"] = interface_type
         result: dict[str, Any] = await self._call("POST", path, json=body, trace_id=trace_id)
         return result
 
     async def check_remote_model(
-        self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None
+        self,
+        *,
+        model_id: str,
+        model_name: str,
+        base_url: str,
+        source: str,
+        provider: str | None = None,
+        interface_type: str | None = None,
+        trace_id: str | None = None,
     ) -> dict[str, Any]:
         return await self._model_check(
             "/initialization/remote/check",
-            api_url=api_url,
-            api_key=api_key,
-            model=model,
+            model_id=model_id,
+            model_name=model_name,
+            base_url=base_url,
+            source=source,
+            provider=provider,
+            interface_type=interface_type,
             trace_id=trace_id,
         )
 
     async def test_embedding_model(
-        self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None
+        self,
+        *,
+        model_id: str,
+        model_name: str,
+        base_url: str,
+        source: str,
+        provider: str | None = None,
+        interface_type: str | None = None,
+        trace_id: str | None = None,
     ) -> dict[str, Any]:
         return await self._model_check(
             "/initialization/embedding/test",
-            api_url=api_url,
-            api_key=api_key,
-            model=model,
+            model_id=model_id,
+            model_name=model_name,
+            base_url=base_url,
+            source=source,
+            provider=provider,
+            interface_type=interface_type,
             trace_id=trace_id,
         )
 
     async def check_rerank_model(
-        self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None
+        self,
+        *,
+        model_id: str,
+        model_name: str,
+        base_url: str,
+        source: str,
+        provider: str | None = None,
+        interface_type: str | None = None,
+        trace_id: str | None = None,
     ) -> dict[str, Any]:
         return await self._model_check(
             "/initialization/rerank/check",
-            api_url=api_url,
-            api_key=api_key,
-            model=model,
-            trace_id=trace_id,
-        )
-
-    async def test_multimodal_model(
-        self, *, api_url: str, api_key: str, model: str, trace_id: str | None = None
-    ) -> dict[str, Any]:
-        return await self._model_check(
-            "/initialization/multimodal/test",
-            api_url=api_url,
-            api_key=api_key,
-            model=model,
+            model_id=model_id,
+            model_name=model_name,
+            base_url=base_url,
+            source=source,
+            provider=provider,
+            interface_type=interface_type,
             trace_id=trace_id,
         )
 
@@ -710,9 +755,6 @@ class NullWeKnoraClient:
         raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
 
     async def check_rerank_model(self, *_: Any, **__: Any) -> dict[str, Any]:
-        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
-
-    async def test_multimodal_model(self, *_: Any, **__: Any) -> dict[str, Any]:
         raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
 
 

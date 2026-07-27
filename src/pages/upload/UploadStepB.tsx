@@ -16,6 +16,8 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
     handleFileSelect,
     handleFileDrop,
     handleStart,
+    localUploadQueue,
+    retryLocalUpload,
     handleRefreshProcessing,
     handleReset,
     handleDeletePending,
@@ -44,6 +46,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
           type="file"
           className="up-file-input"
           accept=".md,.markdown,.txt,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx"
+          multiple
           onChange={handleFileSelect}
         />
 
@@ -53,8 +56,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
             onDragOver={(event) => event.preventDefault()}
             onDrop={(event) => {
               event.preventDefault();
-              const file = event.dataTransfer.files[0];
-              if (file) handleFileDrop(file);
+              if (event.dataTransfer.files.length) handleFileDrop(event.dataTransfer.files);
             }}
           >
             <UploadCloud size={30} strokeWidth={1.7} aria-hidden="true" />
@@ -138,6 +140,72 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
           </div>
         )}
       </div>
+
+      {!hasFile && localUploadQueue.length > 0 && (
+        <section className="upload77-local-queue" aria-labelledby="local-upload-queue-title">
+          <div className="upload77-section-head">
+            <div>
+              <h2 id="local-upload-queue-title">本次上传队列</h2>
+              <p>每份文件独立上传；失败文件不会阻塞后续文件，可单独重试。</p>
+            </div>
+          </div>
+          <div className="upload77-table-wrap">
+            <table className="upload77-table">
+              <thead>
+                <tr>
+                  <th>文件</th>
+                  <th>类型</th>
+                  <th>大小</th>
+                  <th>上传状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {localUploadQueue.map((item) => {
+                  const progress =
+                    item.status === "queued" ? 0 : item.status === "uploading" ? 50 : 100;
+                  const label = {
+                    queued: "已入队",
+                    uploading: "上传中",
+                    awaiting_confirmation: "待确认入库",
+                    failed: "上传失败",
+                  }[item.status];
+                  return (
+                    <tr key={item.id}>
+                      <td>{item.fileName}</td>
+                      <td>{item.fileType}</td>
+                      <td>{formatFileSize(item.fileSize)}</td>
+                      <td>
+                        <div className={`upload77-batch-progress is-${item.status}`}>
+                          <span className="upload77-batch-state">{label}</span>
+                          <progress
+                            aria-label={`上传进度：${item.fileName}`}
+                            className={item.status === "failed" ? "is-failed" : undefined}
+                            max={100}
+                            value={progress}
+                          />
+                          {item.error && <span className="upload77-queue-error">{item.error}</span>}
+                        </div>
+                      </td>
+                      <td>
+                        {item.status === "failed" && (
+                          <button
+                            className="upload77-retry-link"
+                            onClick={() => retryLocalUpload(item.id)}
+                            type="button"
+                          >
+                            重试
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* 本地上传待确认任务：仅在无活跃文件时展示，点击直接进入核对入库流程 */}
       {!hasFile && (
