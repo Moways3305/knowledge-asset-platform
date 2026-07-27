@@ -48,9 +48,9 @@ export const routeDefinitions = [
     route: "/upload",
     suite: "upload",
     states: [
-      { name: "normal", scenario: "local-selected" },
+      { name: "normal", scenario: "local-queue" },
       { name: "empty", scenario: "wecom-empty" },
-      { name: "failure", scenario: "processing-failed" },
+      { name: "failure", scenario: "local-upload-failure-retry" },
     ],
   },
   {
