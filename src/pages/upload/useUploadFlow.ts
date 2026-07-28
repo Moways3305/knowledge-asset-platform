@@ -20,6 +20,7 @@ import {
   type PathBranch,
   type TargetLibrary,
 } from "./uploadConstants";
+import { readDroppedFiles, type DroppedFileCandidate } from "./folderDrop";
 
 export type LocalUploadQueueState =
   | "queued"
@@ -82,6 +83,8 @@ export function useUploadFlow() {
   const localStatusPollingRef = useRef(false);
   const localStatusPollRunRef = useRef(0);
   const localUploadSequenceRef = useRef(0);
+  const directoryReadRunRef = useRef(0);
+  const [folderDropNotice, setFolderDropNotice] = useState<string | null>(null);
   const [extraction, setExtraction] = useState<{
     status: string | null;
     charCount: number | null;
@@ -117,6 +120,8 @@ export function useUploadFlow() {
     Record<string, "waiting" | "processing" | "success" | "failed">
   >({});
   const [batchBusy, setBatchBusy] = useState(false);
+  const [batchOperation, setBatchOperation] = useState<"confirm" | "reject" | null>(null);
+  const [batchErrors, setBatchErrors] = useState<Record<string, string>>({});
   const batchRunRef = useRef<number | null>(null);
 
   // Shared confirmation fields
@@ -161,6 +166,7 @@ export function useUploadFlow() {
       pendingRequestRef.current += 1;
       localPendingRequestRef.current += 1;
       localStatusPollRunRef.current += 1;
+      directoryReadRunRef.current += 1;
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, []);
@@ -400,15 +406,17 @@ export function useUploadFlow() {
   }, [activePath, hasLocalProcessing, reconcileLocalUploadQueue]);
 
   const enqueueLocalFiles = useCallback(
-    (files: Iterable<File>) => {
-      const items = Array.from(files, (file) => {
-        const error = localFileError(file);
+    (files: Iterable<File | DroppedFileCandidate>) => {
+      const items = Array.from(files, (input) => {
+        const candidate = input instanceof File ? { file: input, displayName: input.name } : input;
+        const error = candidate.readError ?? localFileError(candidate.file);
         return {
           id: `local-upload-${++localUploadSequenceRef.current}`,
-          file,
-          fileName: file.name,
-          fileSize: file.size,
-          fileType: file.name.split(".").pop()?.toUpperCase() || file.type || "未知",
+          file: candidate.file,
+          fileName: candidate.displayName,
+          fileSize: candidate.file.size,
+          fileType:
+            candidate.file.name.split(".").pop()?.toUpperCase() || candidate.file.type || "未知",
           status: error ? "failed" : "queued",
           error,
           ingestTaskId: null,
@@ -538,6 +546,7 @@ export function useUploadFlow() {
 
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
+      setFolderDropNotice(null);
       if (e.target.files?.length) enqueueLocalFiles(e.target.files);
       // Selecting the same file again must still enqueue a new, independent task.
       e.target.value = "";
@@ -547,10 +556,27 @@ export function useUploadFlow() {
 
   const handleFileDrop = useCallback(
     (files: Iterable<File>) => {
+      setFolderDropNotice(null);
       enqueueLocalFiles(files);
       if (fileRef.current) fileRef.current.value = "";
     },
     [enqueueLocalFiles],
+  );
+
+  const handleDataTransferDrop = useCallback(
+    async (dataTransfer: DataTransfer) => {
+      const runId = ++directoryReadRunRef.current;
+      setFolderDropNotice(null);
+      const result = await readDroppedFiles(
+        dataTransfer,
+        () => directoryReadRunRef.current === runId && activePath === "b",
+      );
+      if (directoryReadRunRef.current !== runId || activePath !== "b") return;
+      setFolderDropNotice(result.notice);
+      enqueueLocalFiles(result.candidates);
+      if (fileRef.current) fileRef.current.value = "";
+    },
+    [activePath, enqueueLocalFiles],
   );
 
   // Path B：上传真实文件字节 + 创建入库任务 + 异步轮询内容建议。
@@ -729,6 +755,12 @@ export function useUploadFlow() {
       };
       batchRunRef.current = runId;
       setBatchBusy(true);
+      setBatchOperation("confirm");
+      setBatchErrors((previous) => {
+        const next = { ...previous };
+        tasks.forEach((task) => delete next[task.id]);
+        return next;
+      });
       let completed = false;
       updateBatchStatus((previous) => {
         const next = { ...previous };
@@ -795,6 +827,7 @@ export function useUploadFlow() {
         if (batchRunRef.current === runId) {
           batchRunRef.current = null;
           setBatchBusy(false);
+          setBatchOperation(null);
           if (!completed) {
             setBatchSelection([]);
             setBatchStatus({});
@@ -814,11 +847,93 @@ export function useUploadFlow() {
     ],
   );
 
+  // Permanent rejection intentionally reuses the existing one-item DELETE endpoint.
+  // Awaiting each request preserves per-item authorization/audit and prevents parallel deletion.
+  const handleBatchReject = useCallback(
+    async (tasks: PendingIngestItemDTO[]) => {
+      if (batchRunRef.current !== null || tasks.length === 0) return;
+      const sourceAtStart = activePath;
+      const runId = beginWorkflowRun();
+      const isCurrent = () =>
+        batchRunRef.current === runId &&
+        isCurrentWorkflowRun(runId) &&
+        activePath === sourceAtStart;
+      batchRunRef.current = runId;
+      setBatchBusy(true);
+      setBatchOperation("reject");
+      setBatchErrors((previous) => {
+        const next = { ...previous };
+        tasks.forEach((task) => delete next[task.id]);
+        return next;
+      });
+      setBatchStatus((previous) => {
+        const next = { ...previous };
+        tasks.forEach((task) => {
+          next[task.id] = "waiting";
+        });
+        return next;
+      });
+
+      const failed = new Set<string>();
+      let completed = false;
+      try {
+        for (const task of tasks) {
+          if (!isCurrent()) return;
+          setBatchStatus((previous) => ({ ...previous, [task.id]: "processing" }));
+          try {
+            await deletePendingTask(task.id);
+            if (!isCurrent()) return;
+            setBatchStatus((previous) => ({ ...previous, [task.id]: "success" }));
+            const removeTask = (items: PendingIngestItemDTO[]) =>
+              items.filter((item) => item.id !== task.id);
+            if (sourceAtStart === "a") {
+              setPendingTasks(removeTask);
+            } else {
+              setLocalPendingTasks(removeTask);
+            }
+            setBatchSelection((selected) => selected.filter((id) => id !== task.id));
+          } catch {
+            if (!isCurrent()) return;
+            failed.add(task.id);
+            setBatchStatus((previous) => ({ ...previous, [task.id]: "failed" }));
+            setBatchErrors((previous) => ({
+              ...previous,
+              [task.id]: "拒绝失败，任务仍保留，请重试",
+            }));
+          }
+        }
+        if (!isCurrent()) return;
+        completed = true;
+        if (sourceAtStart === "a") {
+          void loadPending();
+        } else {
+          void loadLocalPending();
+        }
+        setBatchSelection((selected) => selected.filter((id) => failed.has(id)));
+      } finally {
+        if (batchRunRef.current === runId) {
+          batchRunRef.current = null;
+          setBatchBusy(false);
+          setBatchOperation(null);
+          if (!completed) {
+            setBatchSelection([]);
+            setBatchStatus({});
+            setBatchErrors({});
+          }
+        }
+      }
+    },
+    [activePath, beginWorkflowRun, isCurrentWorkflowRun, loadLocalPending, loadPending],
+  );
+
   const handleReset = useCallback(() => {
     beginWorkflowRun();
+    directoryReadRunRef.current += 1;
     batchRunRef.current = null;
     setBatchBusy(false);
+    setBatchOperation(null);
     setBatchStatus({});
+    setBatchErrors({});
     pendingRequestRef.current += 1;
     localPendingRequestRef.current += 1;
     setPendingLoading(false);
@@ -829,6 +944,7 @@ export function useUploadFlow() {
     }
     setFlowState("idle");
     setApiError(null);
+    setFolderDropNotice(null);
     setProcessingNote(null);
     setLlmStatus(null);
     setDesensitization(null);
@@ -917,6 +1033,8 @@ export function useUploadFlow() {
     fileRef,
     handleFileSelect,
     handleFileDrop,
+    handleDataTransferDrop,
+    folderDropNotice,
     localUploadQueue,
     retryLocalUpload,
     handleStart,
@@ -935,8 +1053,11 @@ export function useUploadFlow() {
     batchSelection,
     batchStatus,
     batchBusy,
+    batchOperation,
+    batchErrors,
     toggleBatchTask,
     handleBatchConfirm,
+    handleBatchReject,
     taskId,
     editTitle,
     setEditTitle,

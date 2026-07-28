@@ -14,11 +14,21 @@ const labelByState: Record<BatchTaskState, string> = {
   failed: "失败",
 };
 
-export default function BatchTaskProgress({ state }: { state: BatchTaskState }) {
+export default function BatchTaskProgress({
+  state,
+  actionLabel = "批量确认",
+}: {
+  state: BatchTaskState;
+  actionLabel?: string;
+}) {
   const label = labelByState[state];
   return (
     <span className={`upload77-batch-progress is-${state}`}>
-      <progress aria-label={`批量确认进度：${label}`} max={100} value={progressByState[state]} />
+      <progress
+        aria-label={`${actionLabel}进度：${label}`}
+        max={100}
+        value={progressByState[state]}
+      />
       <span className="upload77-batch-state" role="status">
         {label}
       </span>

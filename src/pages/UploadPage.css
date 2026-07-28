@@ -211,6 +211,18 @@
   border-bottom: 1px solid var(--color-border-light);
 }
 
+.upload77-batch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.upload77-batch-reject {
+  border-color: color-mix(in srgb, var(--color-danger, #b42318) 38%, transparent);
+  color: var(--color-danger, #b42318);
+}
+
 .upload77-section-head h2,
 .upload77-confirm-head h2,
 .upload77-result h2 {
