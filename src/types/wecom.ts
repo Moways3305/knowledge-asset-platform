@@ -5,10 +5,11 @@
 export interface WecomScanConfigDTO {
   id: string;
   name: string | null;
-  directory_path: string;
   scope_type: string;
   related_project_id: string | null;
   related_project_name: string | null;
+  scan_space_status: string;
+  manager_access_status: string;
   enabled: boolean;
   // created_by = 待确认任务业务归属人（非配置操作人 admin）。
   created_by: string;
@@ -24,13 +25,10 @@ export interface WecomScanConfigsResponseDTO {
   items: WecomScanConfigDTO[];
 }
 
-// 创建扫描配置请求。directory_path 为内部格式 spaceid:<id>;fatherid:<id>。
-// task_owner_user_id：扫描产物（path_a_wecom 任务）的业务归属人，由后端校验合法性。
+// 创建项目扫描配置。扫描空间和根目录只由后端创建、保存和解析。
 export interface WecomScanConfigCreateBody {
   name: string;
-  directory_path: string;
-  target_scope: string;
-  target_project_id?: string | null;
+  target_project_id: string;
   task_owner_user_id: string;
   enabled: boolean;
 }
@@ -38,9 +36,6 @@ export interface WecomScanConfigCreateBody {
 // 编辑请求（全部可选，仅传入字段更新；含启停 / 改归属人）。
 export interface WecomScanConfigUpdateBody {
   name?: string;
-  directory_path?: string;
-  target_scope?: string;
-  target_project_id?: string | null;
   task_owner_user_id?: string;
   enabled?: boolean;
 }
@@ -48,6 +43,8 @@ export interface WecomScanConfigUpdateBody {
 export interface WecomProjectOptionDTO {
   id: string;
   name: string;
+  scan_space_status: string;
+  manager_access_status: string;
 }
 
 export interface WecomProjectOptionsResponseDTO {
@@ -89,23 +86,4 @@ export interface WecomScanRecordsResponseDTO {
 
 export interface WecomAuthorizeDTO {
   authorize_url: string;
-}
-
-// 目录浏览。directory_ref 即可保存的 directory_path；不含文件 file_id / 下载 URL / token。
-export interface WecomDriveSpaceDTO {
-  space_ref: string;
-  name: string;
-}
-export interface WecomDriveSpacesResponseDTO {
-  items: WecomDriveSpaceDTO[];
-}
-export interface WecomDriveDirectoryDTO {
-  directory_ref: string;
-  name: string;
-  parent_ref: string | null;
-  has_children: boolean | null;
-}
-export interface WecomDriveDirectoriesResponseDTO {
-  space_ref: string;
-  items: WecomDriveDirectoryDTO[];
 }

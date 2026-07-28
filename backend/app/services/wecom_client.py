@@ -32,9 +32,20 @@ _logger = logging.getLogger(__name__)
 class WeComError(Exception):
     """企微调用失败（结构化，不含 secret/token/URL）。"""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        stage: str | None = None,
+        http_status: int | None = None,
+        upstream_errcode: int | None = None,
+    ) -> None:
         self.code = code
         self.message = message
+        self.stage = stage
+        self.http_status = http_status
+        self.upstream_errcode = upstream_errcode
         super().__init__(f"{code}: {message}")
 
 
@@ -147,27 +158,6 @@ class WeComDriveFile:
     mime: str | None
     size: int | None
     content_hash: str | None
-
-
-@dataclass(frozen=True)
-class WeComDriveSpace:
-    """规范化微盘空间。space_ref 为 admin 配置 UI 可用的稳定选择引用。"""
-
-    space_ref: str
-    name: str
-
-
-@dataclass(frozen=True)
-class WeComDriveDirectory:
-    """规范化微盘目录节点。directory_ref 即可保存的配置串 `spaceid:<id>;fatherid:<id>`。
-
-    只承载**目录选择**所需安全字段；绝不含普通文件 file_id / download_url / token / cookie。
-    """
-
-    directory_ref: str
-    name: str
-    parent_ref: str | None
-    has_children: bool | None
 
 
 class WeComOAuthClient:
@@ -347,24 +337,151 @@ class WeComDriveClient:
         self._page_size = max(1, min(page_size, 1000))
         self._timeout = timeout
 
+    _TOKEN_ERRCODES = {40001, 40014, 41001, 42001, 42007, 42009}
+    _PERMISSION_ERRCODES = {48002, 60011, 60020, 301002, 301005}
+
+    @classmethod
+    def _check(cls, data: dict[str, Any], *, stage: str = "unknown") -> dict[str, Any]:
+        """校验 HTTP 200 的企微业务响应，保留安全 errcode 元数据但不回显 errmsg。"""
+        raw_errcode = data.get("errcode", 0)
+        try:
+            errcode = int(raw_errcode or 0)
+        except (TypeError, ValueError):
+            raise WeComError("wecom_drive_bad_response", "企微响应格式异常", stage=stage) from None
+        if errcode in cls._TOKEN_ERRCODES:
+            raise WeComError(
+                "wecom_token_rejected",
+                "企微访问令牌无效或已过期",
+                stage=stage,
+                upstream_errcode=errcode,
+            )
+        if errcode in cls._PERMISSION_ERRCODES:
+            raise WeComError(
+                "wecom_drive_permission_denied",
+                "企业微信应用或成员无微盘访问权限",
+                stage=stage,
+                upstream_errcode=errcode,
+            )
+        if errcode != 0:
+            raise WeComError(
+                "wecom_drive_upstream_rejected",
+                "企业微信微盘拒绝了请求",
+                stage=stage,
+                upstream_errcode=errcode,
+            )
+        return data
+
     @staticmethod
-    def _check(data: dict[str, Any]) -> dict[str, Any]:
-        """校验微盘响应 errcode；非 0 抛安全 WeComError（只带 errcode，不回显 errmsg 原文）。"""
-        errcode = data.get("errcode", 0)
-        if errcode and int(errcode) != 0:
-            raise WeComError(f"wecom_api_{int(errcode)}", "企微微盘接口返回错误")
+    def _response_json(resp: httpx.Response, *, stage: str) -> dict[str, Any]:
+        if resp.status_code < 200 or resp.status_code >= 300:
+            raise WeComError(
+                "wecom_drive_http_error",
+                "企业微信微盘 HTTP 请求失败",
+                stage=stage,
+                http_status=resp.status_code,
+            )
+        try:
+            data = resp.json()
+        except Exception as exc:  # noqa: BLE001
+            raise WeComError(
+                "wecom_drive_bad_response",
+                "企业微信微盘返回了不可解析的响应",
+                stage=stage,
+                http_status=resp.status_code,
+            ) from exc
+        if not isinstance(data, dict):
+            raise WeComError(
+                "wecom_drive_bad_response",
+                "企业微信微盘响应格式异常",
+                stage=stage,
+                http_status=resp.status_code,
+            )
         return data
 
     async def _access_token(self, client: httpx.AsyncClient) -> str:
-        resp = await client.get(
-            f"{self._base}/cgi-bin/gettoken",
-            params={"corpid": self._corp_id, "corpsecret": self._app_secret},
-        )
-        data = WeComOAuthClient._safe_json(resp)
+        try:
+            resp = await client.get(
+                f"{self._base}/cgi-bin/gettoken",
+                params={"corpid": self._corp_id, "corpsecret": self._app_secret},
+            )
+        except httpx.HTTPError as exc:
+            raise WeComError(
+                "wecom_drive_network_unavailable",
+                "企业微信网络连接失败",
+                stage="token",
+            ) from exc
+        data = self._check(self._response_json(resp, stage="token"), stage="token")
         token = data.get("access_token")
-        if not token:
-            raise WeComError("wecom_token_failed", "企微 access_token 获取失败")
+        if not isinstance(token, str) or not token.strip():
+            raise WeComError(
+                "wecom_token_missing",
+                "企业微信未返回访问令牌",
+                stage="token",
+                http_status=resp.status_code,
+            )
         return str(token)
+
+    async def _post_json(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        path: str,
+        token: str,
+        body: dict[str, Any],
+        stage: str,
+    ) -> dict[str, Any]:
+        try:
+            resp = await client.post(
+                f"{self._base}{path}",
+                params={"access_token": token},
+                json=body,
+            )
+        except httpx.HTTPError as exc:
+            raise WeComError(
+                "wecom_drive_network_unavailable",
+                "企业微信网络连接失败",
+                stage=stage,
+            ) from exc
+        return self._check(self._response_json(resp, stage=stage), stage=stage)
+
+    async def create_project_space(
+        self, *, space_name: str, manager_user_ids: list[str]
+    ) -> str:  # pragma: no cover - 真实网络
+        """按企业微信官方 `space_create` 契约创建一项目一共享空间。
+
+        官方文档：https://developer.work.weixin.qq.com/document/path/93655
+        应用本身是创建者；有效项目经理以 auth=7（应用空间管理员）加入，最多 3 人。
+        """
+        if len(manager_user_ids) > 3:
+            raise WeComError(
+                "wecom_space_manager_limit",
+                "项目有效经理超过企业微信空间管理员上限",
+                stage="space_create",
+            )
+        body: dict[str, Any] = {
+            "space_name": space_name,
+            "auth_info": [
+                {"type": 1, "userid": user_id, "auth": 7} for user_id in manager_user_ids
+            ],
+            "space_sub_type": 0,
+        }
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            token = await self._access_token(client)
+            data = await self._post_json(
+                client,
+                path="/cgi-bin/wedrive/space_create",
+                token=token,
+                body=body,
+                stage="space_create",
+            )
+        space_id = data.get("spaceid")
+        if not isinstance(space_id, str) or not space_id.strip():
+            raise WeComError(
+                "wecom_drive_bad_response",
+                "企业微信未返回空间标识",
+                stage="space_create",
+            )
+        return space_id.strip()
 
     async def list_files(
         self, directory_path: str
@@ -372,29 +489,39 @@ class WeComDriveClient:
         """翻页列举目录文件，规范化为 WeComDriveFile（仅安全元数据）。"""
         spaceid, fatherid = parse_directory_path(directory_path)
         out: list[WeComDriveFile] = []
-        try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                token = await self._access_token(client)
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            token = await self._access_token(client)
+            pending_directories = [fatherid]
+            visited_directories: set[str] = set()
+            while pending_directories:
+                current_fatherid = pending_directories.pop(0)
+                if current_fatherid in visited_directories:
+                    continue
+                visited_directories.add(current_fatherid)
                 start = 0
                 while True:
-                    resp = await client.post(
-                        f"{self._base}/cgi-bin/wedrive/file_list",
-                        params={"access_token": token},
-                        json={
+                    data = await self._post_json(
+                        client,
+                        path="/cgi-bin/wedrive/file_list",
+                        token=token,
+                        body={
                             "spaceid": spaceid,
-                            "fatherid": fatherid,
+                            "fatherid": current_fatherid,
                             "sort_type": 1,
                             "start": start,
                             "limit": self._page_size,
                         },
+                        stage="file_list",
                     )
-                    data = self._check(WeComOAuthClient._safe_json(resp))
                     for it in data.get("file_list") or []:
                         if not isinstance(it, dict):
                             continue
                         fid = it.get("fileid") or it.get("file_id")
                         name = it.get("file_name") or it.get("name") or ""
                         if not fid or not name:
+                            continue
+                        if str(it.get("file_type")) == "1" or bool(it.get("is_dir")):
+                            pending_directories.append(str(fid))
                             continue
                         out.append(
                             WeComDriveFile(
@@ -408,101 +535,7 @@ class WeComDriveClient:
                     if not data.get("has_more"):
                         break
                     start = int(data.get("next_start") or (start + self._page_size))
-        except httpx.HTTPError as exc:
-            raise WeComError(
-                "wecom_network_error", f"企微网络错误（{type(exc).__name__}）"
-            ) from exc
         return out
-
-    # ---- 目录浏览（只列空间 / 目录，不列普通文件，不下载）----
-    @staticmethod
-    def _to_spaces(raw_items: Any) -> list[WeComDriveSpace]:
-        """把上游空间列表归一为安全 DTO（只取 spaceid/name）。"""
-        out: list[WeComDriveSpace] = []
-        for it in raw_items or []:
-            if not isinstance(it, dict):
-                continue
-            sid = it.get("spaceid") or it.get("space_id")
-            name = it.get("space_name") or it.get("name") or ""
-            if not sid:
-                continue
-            out.append(WeComDriveSpace(space_ref=str(sid), name=str(name or sid)))
-        return out
-
-    @staticmethod
-    def _to_directories(spaceid: str, raw_items: Any) -> list[WeComDriveDirectory]:
-        """把上游 file_list 归一为安全目录 DTO：**仅保留目录节点**，普通文件全部丢弃。
-
-        directory_ref = 可直接保存的配置串 `spaceid:<id>;fatherid:<folderid>`。绝不外泄上游
-        download_url / cookie / token / 普通文件 file_id / 原始 payload。
-        """
-        out: list[WeComDriveDirectory] = []
-        for it in raw_items or []:
-            if not isinstance(it, dict):
-                continue
-            # 微盘 file_type=1 为文件夹；兼容 is_dir 布尔。仅目录入选。
-            is_dir = str(it.get("file_type")) == "1" or bool(it.get("is_dir"))
-            if not is_dir:
-                continue
-            fid = it.get("fileid") or it.get("file_id")
-            name = it.get("file_name") or it.get("name") or ""
-            if not fid or not name:
-                continue
-            out.append(
-                WeComDriveDirectory(
-                    directory_ref=f"spaceid:{spaceid};fatherid:{fid}",
-                    name=str(name),
-                    parent_ref=None,
-                    has_children=None,
-                )
-            )
-        return out
-
-    async def list_spaces(self) -> list[WeComDriveSpace]:  # pragma: no cover - 真实网络
-        """列当前企业可见的微盘空间（仅安全选择元数据）。"""
-        try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                token = await self._access_token(client)
-                resp = await client.post(
-                    f"{self._base}/cgi-bin/wedrive/space_list",
-                    params={"access_token": token},
-                    json={},
-                )
-                data = self._check(WeComOAuthClient._safe_json(resp))
-        except httpx.HTTPError as exc:
-            raise WeComError(
-                "wecom_network_error", f"企微网络错误（{type(exc).__name__}）"
-            ) from exc
-        return self._to_spaces(data.get("space_list") or data.get("spaces"))
-
-    async def list_directories(  # pragma: no cover - 真实网络
-        self, space_ref: str, parent_ref: str | None = None
-    ) -> list[WeComDriveDirectory]:
-        """列某空间/父目录下的**子目录**（不含普通文件）。space_ref=spaceid，parent_ref=fatherid。"""
-        spaceid = (space_ref or "").strip()
-        if not spaceid:
-            raise WeComError("wecom_invalid_space", "缺少微盘空间标识")
-        fatherid = (parent_ref or "").strip()
-        try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                token = await self._access_token(client)
-                resp = await client.post(
-                    f"{self._base}/cgi-bin/wedrive/file_list",
-                    params={"access_token": token},
-                    json={
-                        "spaceid": spaceid,
-                        "fatherid": fatherid,
-                        "sort_type": 1,
-                        "start": 0,
-                        "limit": self._page_size,
-                    },
-                )
-                data = self._check(WeComOAuthClient._safe_json(resp))
-        except httpx.HTTPError as exc:
-            raise WeComError(
-                "wecom_network_error", f"企微网络错误（{type(exc).__name__}）"
-            ) from exc
-        return self._to_directories(spaceid, data.get("file_list"))
 
     async def download_file(self, file_id: str) -> bytes:  # pragma: no cover - 真实网络
         """两步下载：换临时 URL+cookie → 后端带 cookie GET 取字节。URL/cookie 不外泄。"""
@@ -511,15 +544,20 @@ class WeComDriveClient:
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 token = await self._access_token(client)
-                resp = await client.post(
-                    f"{self._base}/cgi-bin/wedrive/file_download",
-                    params={"access_token": token},
-                    json={"fileid": file_id},
+                data = await self._post_json(
+                    client,
+                    path="/cgi-bin/wedrive/file_download",
+                    token=token,
+                    body={"fileid": file_id},
+                    stage="file_download",
                 )
-                data = self._check(WeComOAuthClient._safe_json(resp))
                 download_url = data.get("download_url")
                 if not download_url:
-                    raise WeComError("wecom_download_no_url", "企微微盘未返回下载地址")
+                    raise WeComError(
+                        "wecom_drive_bad_response",
+                        "企微微盘未返回下载地址",
+                        stage="file_download",
+                    )
                 headers = {}
                 cookie_name = data.get("cookie_name")
                 cookie_value = data.get("cookie_value")
@@ -528,11 +566,18 @@ class WeComDriveClient:
                 file_resp = await client.get(download_url, headers=headers)
                 if file_resp.status_code >= 400:
                     # 不回显 download_url / 状态体（可能含临时签名）。
-                    raise WeComError("wecom_download_failed", "企微微盘文件下载失败")
+                    raise WeComError(
+                        "wecom_drive_http_error",
+                        "企微微盘文件下载失败",
+                        stage="file_download",
+                        http_status=file_resp.status_code,
+                    )
                 return file_resp.content
         except httpx.HTTPError as exc:
             raise WeComError(
-                "wecom_network_error", f"企微网络错误（{type(exc).__name__}）"
+                "wecom_drive_network_unavailable",
+                "企业微信网络连接失败",
+                stage="file_download",
             ) from exc
 
 
@@ -554,12 +599,7 @@ class NullWeComDriveClient:
     async def download_file(self, file_id: str) -> bytes:
         raise WeComError("wecom_not_configured", "企微微盘未配置")
 
-    async def list_spaces(self) -> list[WeComDriveSpace]:
-        raise WeComError("wecom_not_configured", "企微微盘未配置")
-
-    async def list_directories(
-        self, space_ref: str, parent_ref: str | None = None
-    ) -> list[WeComDriveDirectory]:
+    async def create_project_space(self, *, space_name: str, manager_user_ids: list[str]) -> str:
         raise WeComError("wecom_not_configured", "企微微盘未配置")
 
 

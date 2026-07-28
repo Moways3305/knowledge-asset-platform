@@ -24,7 +24,19 @@ import { scanStatusCls, scanStatusLabel } from "./wecomScan/labels";
 import "./AdminWecomScanPage.css";
 
 function safeRequestMessage(error: unknown, fallback: string) {
-  if (error instanceof ApiError && error.status === 403) return "当前身份没有微盘扫描查看权限。";
+  if (
+    error instanceof ApiError &&
+    error.status === 403 &&
+    error.deniedReason !== "wecom_drive_permission_denied"
+  )
+    return "当前身份没有该项目的微盘扫描权限。";
+  if (error instanceof ApiError && error.deniedReason === "wecom_drive_permission_denied")
+    return "企业微信应用未获得微盘权限，请管理员启用“协作-微盘-API”后重试。";
+  if (
+    error instanceof ApiError &&
+    (error.deniedReason === "wecom_token_rejected" || error.deniedReason === "wecom_token_missing")
+  )
+    return "企业微信应用凭证无效，请管理员检查应用凭证后重试。";
   if (error instanceof ApiError && error.deniedReason?.startsWith("wecom_api_"))
     return "企业微信拒绝读取微盘。请检查应用微盘权限或目录授权后重试。";
   if (error instanceof ApiError && error.deniedReason === "wecom_drive_network_unavailable")
@@ -49,7 +61,9 @@ function safeRecordError(record: WecomScanRecordDTO) {
 export default function AdminWecomScanPage() {
   const { capabilities } = useAuth();
   const [accessForbidden, setAccessForbidden] = useState(false);
-  const canEdit = (capabilities.isAdmin || capabilities.isGovernance) && !accessForbidden;
+  const canEdit =
+    (capabilities.isAdmin || capabilities.isGovernance || capabilities.isProjectManager) &&
+    !accessForbidden;
   const [configs, setConfigs] = useState<WecomScanConfigDTO[]>([]);
   const [latest, setLatest] = useState<Record<string, WecomScanRecordDTO | null>>({});
   const [loading, setLoading] = useState(true);
@@ -257,7 +271,7 @@ export default function AdminWecomScanPage() {
     <ProductPage className="ws87-page">
       <PageHeader
         title="微盘扫描"
-        description="扫描文件会进入待确认队列，不会直接入库。"
+        description="递归扫描项目专属空间根目录；文件进入待确认队列，不会直接入库。"
         actions={
           <>
             {canEdit && (

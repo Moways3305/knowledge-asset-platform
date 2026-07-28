@@ -22,7 +22,7 @@ from app.main import app
 from app.models.audit import AuditEvent
 from app.models.identity import User
 from app.models.ingest import IngestTask
-from app.models.wecom import WecomScanConfig, WecomScanRecord
+from app.models.wecom import WecomProjectScanSpace, WecomScanConfig, WecomScanRecord
 from app.seed.dev_seed import (
     PROJECT_ALPHA,
     USER_ADMIN_ONLY,
@@ -253,6 +253,21 @@ async def _new_config(db_session, *, scope_type="project", project_id=PROJECT_AL
         created_by=USER_CONSULTANT,
     )
     db_session.add(config)
+    if scope_type == "project":
+        existing_mapping = (
+            await db_session.execute(
+                select(WecomProjectScanSpace).where(WecomProjectScanSpace.project_id == project_id)
+            )
+        ).scalar_one_or_none()
+        if existing_mapping is None:
+            db_session.add(
+                WecomProjectScanSpace(
+                    project_id=project_id,
+                    space_id="server-project-space",
+                    status="ready",
+                    manager_access_status="identity_link_required",
+                )
+            )
     await db_session.commit()
     return config
 
@@ -372,7 +387,8 @@ def test_drive_check_errcode():
         c._check({"errcode": 40058, "errmsg": "raw upstream msg"})
     # 只暴露 errcode，不回显上游 errmsg 原文。
     assert "raw upstream msg" not in str(ei.value)
-    assert "40058" in ei.value.code
+    assert ei.value.code == "wecom_drive_upstream_rejected"
+    assert ei.value.upstream_errcode == 40058
 
 
 # ---------------- 幂等（DB 级 + API 行为） ----------------

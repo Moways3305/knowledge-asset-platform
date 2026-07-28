@@ -77,8 +77,8 @@ export const can = {
   // 管理后台（与后端各端点真实放行条件对齐）：
   // 入库管理：list_admin_ingest → admin 或治理角色。
   viewIngestAdmin: adminOrGovernance,
-  // 微盘扫描：当前工作身份为治理角色或兼容系统治理身份均可维护。
-  viewWecomScan: adminOrGovernance,
+  // 微盘扫描：项目经理仅访问自己当前管理的项目；治理角色可跨项目。
+  viewWecomScan: (c: Capabilities) => c.isAdmin || c.isGovernance || c.isProjectManager,
   // 模型配置：治理角色可维护；后端仍以会话当前工作身份复核。
   viewModels: adminOrGovernance,
   // 审计日志：admin 或 boss / 咨询总监（按角色脱敏，页面内部区分视图档位）。

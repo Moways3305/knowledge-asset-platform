@@ -47,7 +47,7 @@ from app.models.review import (
     ReviewTaskEvidence,
     ValidationEvidence,
 )
-from app.models.wecom import WecomScanConfig, WecomScanRecord
+from app.models.wecom import WecomProjectScanSpace, WecomScanConfig, WecomScanRecord
 from app.models.weknora import WeknoraKbMapping
 from app.models.weknora_defaults import WeknoraDefaultModels
 
@@ -94,4 +94,5 @@ __all__ = [
     "WeknoraDefaultModels",
     "WecomScanConfig",
     "WecomScanRecord",
+    "WecomProjectScanSpace",
 ]

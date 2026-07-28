@@ -71,11 +71,7 @@ const routes: RouteContract[] = [
     route: "/admin/wecom-scan",
     component: "AdminWecomScanPage",
     guard: "viewWecomScan",
-    owners: [
-      "pages/AdminWecomScanPage.tsx",
-      "pages/wecomScan/WecomDirectoryPicker.tsx",
-      "pages/wecomScan/WecomScanConfigForm.tsx",
-    ],
+    owners: ["pages/AdminWecomScanPage.tsx", "pages/wecomScan/WecomScanConfigForm.tsx"],
     apiModules: ["admin", "http"],
   },
   {
