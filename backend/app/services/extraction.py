@@ -1,10 +1,11 @@
 """文本抽取服务。
 
 输入文件字节 + 文件名 / mime，输出抽取全文草稿 + 状态。纯 Python 抽取库
-（txt/md 直读、pdf 用 pypdf、docx 用 python-docx），Windows 无原生二进制依赖。
+（txt/md 直读、pdf 用 pypdf、docx 用 python-docx、pptx 用 python-pptx），
+Windows 无原生二进制依赖。
 
-边界（本任务不做，见任务说明）：不接真实 LLM / 大模型；不做 OCR；不支持
-xlsx / pptx / 图片（标 `unsupported`，不崩溃、不阻断任务创建）；不做切块 / 向量化。
+边界：不接真实 LLM / 大模型；不做 OCR；不支持 xlsx / 旧二进制 ppt / 图片
+（标 `unsupported`，不崩溃、不阻断任务创建）；不做切块 / 向量化。
 
 安全：抽取全文是**用户业务内容**，可能含 `s3://` / `internal://` / URL 等字样——
 它只准进草稿 / 资产侧，**绝不准进审计 extra/after**（审计只放安全元数据）。
@@ -27,6 +28,7 @@ MAX_EXTRACT_CHARS = 200_000
 _TEXT_EXT = {"txt", "md", "markdown", "csv", "log", "text", "rst"}
 
 _DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+_PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,42 @@ def _extract_docx(content: bytes) -> str:
     return "\n".join(p.text for p in doc.paragraphs)
 
 
+def _pptx_shape_text(shape) -> list[str]:
+    """Extract readable text from one shape while preserving its child order."""
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+    if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+        parts: list[str] = []
+        for child in shape.shapes:
+            parts.extend(_pptx_shape_text(child))
+        return parts
+    if getattr(shape, "has_table", False):
+        rows: list[str] = []
+        for row in shape.table.rows:
+            cells = [cell.text.strip() for cell in row.cells]
+            if any(cells):
+                rows.append(" | ".join(cells))
+        return rows
+    if getattr(shape, "has_text_frame", False):
+        text = shape.text.strip()
+        return [text] if text else []
+    return []
+
+
+def _extract_pptx(content: bytes) -> str:
+    from pptx import Presentation
+
+    presentation = Presentation(io.BytesIO(content))
+    slides: list[str] = []
+    for index, slide in enumerate(presentation.slides, start=1):
+        parts: list[str] = []
+        for shape in slide.shapes:
+            parts.extend(_pptx_shape_text(shape))
+        if parts:
+            slides.append(f"[幻灯片 {index}]\n" + "\n".join(parts))
+    return "\n\n".join(slides)
+
+
 def extract_text(content: bytes, *, file_name: str | None, mime: str | None) -> ExtractionResult:
     """按扩展名 / mime 路由抽取文本，返回结构化结果（绝不抛出到调用方）。"""
     ext = _ext(file_name)
@@ -74,14 +112,19 @@ def extract_text(content: bytes, *, file_name: str | None, mime: str | None) -> 
             text = _extract_pdf(content)
         elif ext == "docx" or mime == _DOCX_MIME:
             text = _extract_docx(content)
+        elif ext == "pptx" or mime == _PPTX_MIME:
+            text = _extract_pptx(content)
         else:
+            unsupported_message = (
+                "当前 .ppt 格式暂不支持自动提取（文件已落盘，请人工补全内容）"
+                if ext == "ppt"
+                else f"暂不支持从 .{ext or '该类型'} 文件抽取文本（文件已落盘，请人工补全内容）"
+            )
             return ExtractionResult(
                 text="",
                 status="unsupported",
                 error_type="extraction_unsupported",
-                error_message=(
-                    f"暂不支持从 .{ext or '该类型'} 文件抽取文本（文件已落盘，请人工补全内容）"
-                ),
+                error_message=unsupported_message,
                 char_count=0,
             )
     except Exception as exc:  # noqa: BLE001 — 损坏 / 格式不符文件：降级为 failed，不崩溃

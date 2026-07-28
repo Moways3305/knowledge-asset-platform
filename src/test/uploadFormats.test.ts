@@ -15,8 +15,10 @@ describe("upload format support copy", () => {
     expect(source).toContain(".txt");
   });
 
-  it("describes Markdown and plain text as supported upload materials", () => {
-    expect(source).toContain("支持 Markdown、PDF、Word、PPT、Excel、纯文本等资料");
+  it("distinguishes PPTX extraction from the legacy PPT fallback", () => {
+    expect(source).toContain("支持 Markdown、PDF、Word、PPTX 自动提取及 Excel、纯文本等资料");
+    expect(source).toContain(".ppt 仅保存，需人工补全");
+    expect(source).not.toContain("支持 Markdown、PDF、Word、PPT、Excel、纯文本等资料");
     expect(source).not.toContain("支持 .pptx .pdf .docx .xlsx 等格式");
   });
 });

@@ -103,10 +103,81 @@ function taskStatus(
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
+}
+
+type TestFileSystemEntry =
+  | {
+      isFile: true;
+      isDirectory: false;
+      name: string;
+      file: (success: (file: File) => void, failure?: () => void) => void;
+    }
+  | {
+      isFile: false;
+      isDirectory: true;
+      name: string;
+      createReader: () => {
+        readEntries: (
+          success: (entries: TestFileSystemEntry[]) => void,
+          failure?: () => void,
+        ) => void;
+      };
+    };
+
+function droppedFile(file: File, options?: { unreadable?: boolean }): TestFileSystemEntry {
+  return {
+    isFile: true,
+    isDirectory: false,
+    name: file.name,
+    file: (success, failure) => {
+      if (options?.unreadable) failure?.();
+      else success(file);
+    },
+  };
+}
+
+function droppedDirectory(
+  name: string,
+  entries: TestFileSystemEntry[],
+  options?: { unreadable?: boolean },
+): TestFileSystemEntry {
+  return {
+    isFile: false,
+    isDirectory: true,
+    name,
+    createReader: () => {
+      let delivered = false;
+      return {
+        readEntries: (success, failure) => {
+          if (options?.unreadable) {
+            failure?.();
+            return;
+          }
+          if (delivered) success([]);
+          else {
+            delivered = true;
+            success(entries);
+          }
+        },
+      };
+    },
+  };
+}
+
+function folderDataTransfer(entries: TestFileSystemEntry[]): DataTransfer {
+  return {
+    items: entries.map((entry) => ({
+      webkitGetAsEntry: () => entry,
+      getAsFile: () => null,
+    })),
+    files: [],
+  } as unknown as DataTransfer;
 }
 
 function pendingTask(id: string, fileName: string): PendingIngestItemDTO {
@@ -251,6 +322,145 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(
       result.current.localUploadQueue.every((item) => item.status === "awaiting_confirmation"),
     ).toBe(true);
+  });
+
+  it("递归读取嵌套目录并按自然顺序隔离无效、超限和不可读文件", async () => {
+    const tooLarge = new File(["x"], "large.pdf", { type: "application/pdf" });
+    Object.defineProperty(tooLarge, "size", { value: 26 * 1024 * 1024 });
+    const transfer = folderDataTransfer([
+      droppedDirectory("客户资料", [
+        droppedFile(new File(["one"], "one.txt", { type: "text/plain" })),
+        droppedDirectory("子目录", [
+          droppedFile(new File(["bad"], "bad.exe")),
+          droppedFile(tooLarge),
+          droppedFile(new File(["two"], "two.pdf", { type: "application/pdf" })),
+          droppedFile(new File([], "locked.docx"), { unreadable: true }),
+        ]),
+      ]),
+    ]);
+    const { result } = renderHook(() => useUploadFlow());
+
+    await act(async () => result.current.handleDataTransferDrop(transfer));
+    await waitFor(() => expect(ingest.createIngestUpload).toHaveBeenCalledTimes(2));
+    expect(ingest.createIngestUpload.mock.calls.map((call) => call[0].file.name)).toEqual([
+      "one.txt",
+      "two.pdf",
+    ]);
+    expect(result.current.localUploadQueue.map((item) => item.fileName)).toEqual([
+      "客户资料/one.txt",
+      "客户资料/子目录/bad.exe",
+      "客户资料/子目录/large.pdf",
+      "客户资料/子目录/two.pdf",
+      "客户资料/子目录/locked.docx",
+    ]);
+    expect(result.current.localUploadQueue.map((item) => item.error)).toEqual([
+      null,
+      "该文件类型暂不支持上传",
+      "文件超过 25 MiB 大小上限",
+      null,
+      "无法读取该文件，请检查本机权限后重试",
+    ]);
+    expect(JSON.stringify(result.current.localUploadQueue)).not.toMatch(
+      /[A-Za-z]:\\|\/Users\/|webkitRelativePath/,
+    );
+  });
+
+  it("目录 API 不可用时回退普通文件并给出可行动提示", async () => {
+    const fallbackFile = new File(["plain"], "fallback.txt", { type: "text/plain" });
+    const transfer = {
+      items: [{ getAsFile: () => fallbackFile }],
+      files: [fallbackFile],
+    } as unknown as DataTransfer;
+    const { result } = renderHook(() => useUploadFlow());
+
+    await act(async () => result.current.handleDataTransferDrop(transfer));
+    await waitFor(() => expect(ingest.createIngestUpload).toHaveBeenCalledTimes(1));
+    expect(result.current.folderDropNotice).toContain("浏览器不支持读取文件夹");
+    expect(result.current.localUploadQueue[0].fileName).toBe("fallback.txt");
+  });
+
+  it("目录 API 降级时仍提示并执行 200 个文件条目上限", async () => {
+    const files = Array.from(
+      { length: 201 },
+      (_, index) => new File(["plain"], `fallback-${index}.txt`, { type: "text/plain" }),
+    );
+    const transfer = {
+      items: files.map((file) => ({ getAsFile: () => file })),
+      files,
+    } as unknown as DataTransfer;
+    const { result } = renderHook(() => useUploadFlow());
+
+    await act(async () => result.current.handleDataTransferDrop(transfer));
+    await waitFor(() => expect(result.current.localUploadQueue).toHaveLength(200));
+    expect(result.current.folderDropNotice).toContain("一次最多添加 200 个文件条目");
+  });
+
+  it("目录文件条目超过 200 时只创建有界失败队列并提示拆分上传", async () => {
+    const entries = Array.from({ length: 201 }, (_, index) =>
+      droppedFile(new File(["bad"], `unsupported-${index}.exe`)),
+    );
+    const { result } = renderHook(() => useUploadFlow());
+
+    await act(async () =>
+      result.current.handleDataTransferDrop(
+        folderDataTransfer([droppedDirectory("huge", entries)]),
+      ),
+    );
+    expect(result.current.localUploadQueue).toHaveLength(200);
+    expect(result.current.localUploadQueue.every((item) => item.status === "failed")).toBe(true);
+    expect(result.current.folderDropNotice).toContain("一次最多添加 200 个文件条目");
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+  });
+
+  it("切换来源后忽略晚到的目录读取结果", async () => {
+    let release!: () => void;
+    const lateEntry: TestFileSystemEntry = {
+      isFile: true,
+      isDirectory: false,
+      name: "late.txt",
+      file: (success) => {
+        release = () => success(new File(["late"], "late.txt", { type: "text/plain" }));
+      },
+    };
+    const { result } = renderHook(() => useUploadFlow());
+    let reading!: Promise<void>;
+
+    act(() => {
+      reading = result.current.handleDataTransferDrop(folderDataTransfer([lateEntry]));
+    });
+    act(() => result.current.switchPath("a"));
+    await act(async () => {
+      release();
+      await reading;
+    });
+
+    expect(result.current.localUploadQueue).toEqual([]);
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
+  });
+
+  it("组件卸载后不上传递归读取的晚到文件", async () => {
+    let release!: () => void;
+    const lateEntry: TestFileSystemEntry = {
+      isFile: true,
+      isDirectory: false,
+      name: "late.txt",
+      file: (success) => {
+        release = () => success(new File(["late"], "late.txt", { type: "text/plain" }));
+      },
+    };
+    const { result, unmount } = renderHook(() => useUploadFlow());
+    let reading!: Promise<void>;
+
+    act(() => {
+      reading = result.current.handleDataTransferDrop(folderDataTransfer([lateEntry]));
+    });
+    unmount();
+    await act(async () => {
+      release();
+      await reading;
+    });
+
+    expect(ingest.createIngestUpload).not.toHaveBeenCalled();
   });
 
   it("单条上传失败不阻塞后续文件，并可单独重试", async () => {
@@ -697,6 +907,164 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(ingest.confirmIngest.mock.calls.map((call) => call[0])).toEqual(["task-a", "task-b"]);
     expect(result.current.batchStatus["task-a"]).toBe("failed");
     expect(result.current.batchStatus["task-b"]).toBe("success");
+  });
+
+  it("本地来源严格串行批量拒绝，失败项保留勾选并可单条重试", async () => {
+    const a = { ...pendingTask("local-a", "A.docx"), source: "path_b_upload" };
+    const b = { ...pendingTask("local-b", "B.docx"), source: "path_b_upload" };
+    const firstDelete = deferred<void>();
+    ingest.fetchPendingIngestTasks
+      .mockReset()
+      .mockResolvedValueOnce([a, b])
+      .mockResolvedValueOnce([a])
+      .mockResolvedValueOnce([]);
+    ingest.deletePendingTask
+      .mockReset()
+      .mockReturnValueOnce(firstDelete.promise)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(result.current.localPendingTasks).toHaveLength(2));
+    act(() => {
+      result.current.toggleBatchTask(a.id);
+      result.current.toggleBatchTask(b.id);
+    });
+
+    let rejecting!: Promise<void>;
+    act(() => {
+      rejecting = result.current.handleBatchReject([a, b]);
+    });
+    expect(ingest.deletePendingTask).toHaveBeenCalledTimes(1);
+    expect(ingest.deletePendingTask).toHaveBeenLastCalledWith("local-a");
+    expect(result.current.batchStatus["local-a"]).toBe("processing");
+
+    await act(async () => {
+      firstDelete.reject(new Error("safe failure"));
+      await rejecting;
+    });
+    expect(ingest.deletePendingTask.mock.calls.map((call) => call[0])).toEqual([
+      "local-a",
+      "local-b",
+    ]);
+    await waitFor(() => expect(result.current.localPendingLoading).toBe(false));
+    expect(result.current.localPendingTasks.map((task) => task.id)).toEqual(["local-a"]);
+    expect(result.current.batchSelection).toEqual(["local-a"]);
+    expect(result.current.batchErrors["local-a"]).toBe("拒绝失败，任务仍保留，请重试");
+    expect(ingest.confirmIngest).not.toHaveBeenCalled();
+
+    await act(async () => result.current.handleBatchReject([a]));
+    await waitFor(() => expect(result.current.localPendingTasks).toEqual([]));
+    expect(result.current.batchSelection).toEqual([]);
+  });
+
+  it("第二项拒绝仍在请求中时第一项成功任务已从本地列表消失", async () => {
+    const a = { ...pendingTask("local-a", "A.docx"), source: "path_b_upload" };
+    const b = { ...pendingTask("local-b", "B.docx"), source: "path_b_upload" };
+    const secondDelete = deferred<void>();
+    ingest.fetchPendingIngestTasks
+      .mockReset()
+      .mockResolvedValueOnce([a, b])
+      .mockResolvedValueOnce([]);
+    ingest.deletePendingTask
+      .mockReset()
+      .mockResolvedValueOnce(undefined)
+      .mockReturnValueOnce(secondDelete.promise);
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(result.current.localPendingTasks).toHaveLength(2));
+    act(() => {
+      result.current.toggleBatchTask(a.id);
+      result.current.toggleBatchTask(b.id);
+    });
+
+    let rejecting!: Promise<void>;
+    act(() => {
+      rejecting = result.current.handleBatchReject([a, b]);
+    });
+    await waitFor(() => expect(ingest.deletePendingTask).toHaveBeenCalledTimes(2));
+
+    expect(result.current.localPendingTasks.map((task) => task.id)).toEqual(["local-b"]);
+    expect(result.current.batchSelection).toEqual(["local-b"]);
+    expect(result.current.batchStatus["local-b"]).toBe("processing");
+    expect(result.current.batchBusy).toBe(true);
+
+    await act(async () => {
+      secondDelete.resolve();
+      await rejecting;
+    });
+    await waitFor(() => expect(result.current.localPendingTasks).toEqual([]));
+  });
+
+  it("企微来源批量拒绝只刷新企微列表且不调用确认入库", async () => {
+    const a = pendingTask("wecom-a", "A.docx");
+    const b = pendingTask("wecom-b", "B.docx");
+    ingest.fetchPendingIngestTasks
+      .mockReset()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([a, b])
+      .mockResolvedValueOnce([]);
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(result.current.localPendingLoading).toBe(false));
+    act(() => result.current.switchPath("a"));
+    await waitFor(() => expect(result.current.pendingTasks).toHaveLength(2));
+
+    await act(async () => result.current.handleBatchReject([a, b]));
+    await waitFor(() => expect(result.current.pendingLoading).toBe(false));
+
+    expect(ingest.deletePendingTask.mock.calls.map((call) => call[0])).toEqual([
+      "wecom-a",
+      "wecom-b",
+    ]);
+    expect(ingest.fetchPendingIngestTasks.mock.calls).toEqual([
+      ["path_b_upload"],
+      ["path_a_wecom"],
+      ["path_a_wecom"],
+    ]);
+    expect(result.current.pendingTasks).toEqual([]);
+    expect(ingest.confirmIngest).not.toHaveBeenCalled();
+  });
+
+  it("来源切换会停止批量拒绝后续条目并忽略晚到响应", async () => {
+    const firstDelete = deferred<void>();
+    ingest.deletePendingTask.mockReset().mockReturnValueOnce(firstDelete.promise);
+    const { result } = renderHook(() => useUploadFlow());
+    const a = { ...pendingTask("local-a", "A.docx"), source: "path_b_upload" };
+    const b = { ...pendingTask("local-b", "B.docx"), source: "path_b_upload" };
+    let rejecting!: Promise<void>;
+
+    act(() => {
+      rejecting = result.current.handleBatchReject([a, b]);
+    });
+    await waitFor(() => expect(ingest.deletePendingTask).toHaveBeenCalledWith("local-a"));
+    act(() => result.current.switchPath("a"));
+    await act(async () => {
+      firstDelete.resolve();
+      await rejecting;
+    });
+
+    expect(ingest.deletePendingTask).toHaveBeenCalledTimes(1);
+    expect(result.current.activePath).toBe("a");
+    expect(result.current.batchBusy).toBe(false);
+  });
+
+  it("组件卸载后停止批量拒绝后续条目", async () => {
+    const firstDelete = deferred<void>();
+    ingest.deletePendingTask.mockReset().mockReturnValueOnce(firstDelete.promise);
+    const { result, unmount } = renderHook(() => useUploadFlow());
+    const a = { ...pendingTask("local-a", "A.docx"), source: "path_b_upload" };
+    const b = { ...pendingTask("local-b", "B.docx"), source: "path_b_upload" };
+    let rejecting!: Promise<void>;
+
+    act(() => {
+      rejecting = result.current.handleBatchReject([a, b]);
+    });
+    await waitFor(() => expect(ingest.deletePendingTask).toHaveBeenCalledWith("local-a"));
+    unmount();
+    await act(async () => {
+      firstDelete.resolve();
+      await rejecting;
+    });
+
+    expect(ingest.deletePendingTask).toHaveBeenCalledTimes(1);
   });
 
   it("stops a batch before confirmation when the user switches source", async () => {

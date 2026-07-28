@@ -1,6 +1,7 @@
 import { FileText, RefreshCw, UploadCloud, X } from "lucide-react";
 import { extractionLabel, flowLabel, formatFileSize, pendingStatusLabel } from "./uploadConstants";
 import BatchTaskProgress from "./BatchTaskProgress";
+import PendingBatchActions from "./PendingBatchActions";
 import { formatBeijingTime } from "../../utils/time";
 import type { UploadFlow } from "./useUploadFlow";
 
@@ -14,7 +15,8 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
     extraction,
     fileRef,
     handleFileSelect,
-    handleFileDrop,
+    handleDataTransferDrop,
+    folderDropNotice,
     handleStart,
     localUploadQueue,
     retryLocalUpload,
@@ -32,11 +34,18 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
     batchSelection,
     batchStatus,
     batchBusy,
+    batchOperation,
+    batchErrors,
     toggleBatchTask,
     handleBatchConfirm,
+    handleBatchReject,
   } = flow;
   const flowMeta = flowLabel(flowState);
   const canRefresh = flowState === "processing" && Boolean(processingNote);
+  const extractionStatusText =
+    /\.ppt$/i.test(fileName) && extraction?.status === "unsupported"
+      ? "当前 .ppt 格式暂不支持自动提取，已保存文件，请人工补全内容"
+      : (extractionLabel[extraction?.status ?? ""] ?? "状态待确认");
 
   return (
     <>
@@ -53,20 +62,28 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
         {!hasFile ? (
           <div
             className="upload-dropzone upload77-dropzone"
+            onDragEnter={(event) => event.preventDefault()}
             onDragOver={(event) => event.preventDefault()}
             onDrop={(event) => {
               event.preventDefault();
-              if (event.dataTransfer.files.length) handleFileDrop(event.dataTransfer.files);
+              event.stopPropagation();
+              void handleDataTransferDrop(event.dataTransfer);
             }}
           >
             <UploadCloud size={30} strokeWidth={1.7} aria-hidden="true" />
             <h2>拖放文件到这里</h2>
             <p className="dropzone-hint">
-              支持 Markdown、PDF、Word、PPT、Excel、纯文本等资料，单文件最大 25 MiB
+              支持 Markdown、PDF、Word、PPTX 自动提取及 Excel、纯文本等资料，单文件最大 25 MiB；旧
+              .ppt 仅保存，需人工补全
             </p>
             <button className="btn-primary" onClick={() => fileRef.current?.click()} type="button">
               选择文件
             </button>
+            {folderDropNotice && (
+              <div className="upload-inline-info" role="status">
+                {folderDropNotice}
+              </div>
+            )}
           </div>
         ) : (
           <div className="upload77-selected-workspace">
@@ -130,7 +147,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
             {extraction && (
               <div className="upload77-extraction">
                 <span>内容提取</span>
-                <strong>{extractionLabel[extraction.status ?? ""] ?? "状态待确认"}</strong>
+                <strong>{extractionStatusText}</strong>
                 {extraction.charCount != null && extraction.status === "extracted" && (
                   <span>{extraction.charCount} 字</span>
                 )}
@@ -229,20 +246,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
               <RefreshCw size={15} aria-hidden="true" />
               {localPendingLoading ? "刷新中" : "刷新"}
             </button>
-            {batchSelection.length > 0 && (
-              <button
-                className="btn-primary"
-                disabled={batchBusy}
-                onClick={() =>
-                  void handleBatchConfirm(
-                    localPendingTasks.filter((task) => batchSelection.includes(task.id)),
-                  )
-                }
-                type="button"
-              >
-                {batchBusy ? "正在逐条确认" : `批量确认入库（${batchSelection.length}）`}
-              </button>
-            )}
+            <PendingBatchActions tasks={localPendingTasks} flow={flow} />
           </div>
 
           {localPendingLoading ? (
@@ -293,12 +297,28 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                             onChange={() => toggleBatchTask(task.id)}
                             type="checkbox"
                           />
-                          {itemStatus && <BatchTaskProgress state={itemStatus} />}
+                          {itemStatus && (
+                            <BatchTaskProgress
+                              state={itemStatus}
+                              actionLabel={
+                                batchOperation === "reject" || batchErrors[task.id]
+                                  ? "批量拒绝"
+                                  : "批量确认"
+                              }
+                            />
+                          )}
+                          {batchErrors[task.id] && (
+                            <span className="upload77-queue-error">{batchErrors[task.id]}</span>
+                          )}
                           {itemStatus === "failed" && (
                             <button
                               className="upload77-retry-link"
                               disabled={batchBusy}
-                              onClick={() => void handleBatchConfirm([task])}
+                              onClick={() =>
+                                void (batchOperation === "reject" || batchErrors[task.id]
+                                  ? handleBatchReject([task])
+                                  : handleBatchConfirm([task]))
+                              }
                               type="button"
                             >
                               重试
