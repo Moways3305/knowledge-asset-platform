@@ -317,15 +317,17 @@ async def _kb_init_failed_cards(
         )
     ).all()
     project_ids = {pid for scope_, pid, _count in rows if scope_ == "project" and pid}
-    project_names = dict(
-        (
-            await session.execute(
-                select(Project.id, Project.name).where(Project.id.in_(project_ids))
+    project_names: dict[uuid.UUID, str] = {}
+    if project_ids:
+        project_names = dict(
+            (
+                await session.execute(
+                    select(Project.id, Project.name).where(Project.id.in_(project_ids))
+                )
             )
-        ).all()
-        if project_ids
-        else []
-    )
+            .tuples()
+            .all()
+        )
     labels = {
         "company": "公司知识库",
         "personal": "个人知识库",

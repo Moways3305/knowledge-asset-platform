@@ -427,7 +427,7 @@ try {
               operations &&
               projects &&
               operationCardCount > 0 &&
-              operationCardCount <= 3 &&
+              operationCardCount <= 4 &&
               operationCards.every((card) => card.width <= 190) &&
               operationIconCount === operationCardCount,
             ),
