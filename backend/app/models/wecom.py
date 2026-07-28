@@ -26,6 +26,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
     text,
 )
@@ -52,6 +53,30 @@ class WecomScanConfig(Base):
     created_by: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
     scan_frequency: Mapped[str | None] = mapped_column(String(30), nullable=True)
     last_scan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
+class WecomProjectScanSpace(Base):
+    """一项目一共享扫描空间映射；真实微盘引用只存在服务端。"""
+
+    __tablename__ = "wecom_project_scan_spaces"
+    __table_args__ = (UniqueConstraint("project_id", name="uq_wecom_project_scan_space_project"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("projects.id"), nullable=False)
+    # 企业微信真实空间标识，server-only；创建失败/进行中时为空。
+    space_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # creating / ready / unavailable
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="creating")
+    # ready / identity_link_required
+    manager_access_status: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="identity_link_required"
+    )
+    manager_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now

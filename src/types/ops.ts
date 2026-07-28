@@ -8,6 +8,7 @@ export interface OpsIndexingCountsDTO {
   skipped: number;
   parse_pending: number;
   parse_processing: number;
+  parse_failed: number;
   kb_init_failed: number;
 }
 
@@ -38,6 +39,7 @@ export interface OpsIndexingFailedItemDTO {
 
 export interface OpsIndexingDTO {
   counts: OpsIndexingCountsDTO;
+  reparse_actionable_count: number;
   recent_failed: OpsIndexingFailedItemDTO[];
   diagnostic_counts: Record<OpsIndexingFailedItemDTO["diagnostic_category"], number>;
   title_visible: boolean;

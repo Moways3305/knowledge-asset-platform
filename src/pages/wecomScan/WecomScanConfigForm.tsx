@@ -1,17 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { createWecomScanConfig, updateWecomScanConfig } from "../../api/admin";
 import { ApiError } from "../../api/http";
+import { useFormState } from "../../hooks/useFormState";
 import type {
   WecomOwnerOptionDTO,
   WecomProjectOptionDTO,
   WecomScanConfigDTO,
 } from "../../types/wecom";
-import { useFormState } from "../../hooks/useFormState";
-import WecomDirectoryPicker from "./WecomDirectoryPicker";
-import { scopeOptions } from "./labels";
 
-// 创建 / 编辑扫描配置表单。自包含表单态（useFormState）与保存调用；
-// editingConfig=null 表示新建。保存成功后回调 onSaved（携带提示文案）并关闭。
 interface WecomScanConfigFormProps {
   open: boolean;
   editingConfig: WecomScanConfigDTO | null;
@@ -25,13 +21,23 @@ interface WecomScanConfigFormProps {
 
 const INITIAL = {
   name: "",
-  dir: "",
-  dirLabel: "",
-  scope: "project",
   projectId: "",
   ownerId: "",
   enabled: true,
 };
+
+function saveFailureMessage(error: unknown) {
+  if (!(error instanceof ApiError)) return "配置未保存，请稍后重试。";
+  if (error.deniedReason === "wecom_drive_permission_denied")
+    return "企业微信应用未获得微盘权限，请管理员启用“协作-微盘-API”后重试。";
+  if (error.deniedReason === "wecom_token_rejected" || error.deniedReason === "wecom_token_missing")
+    return "企业微信应用凭证无效，请管理员检查应用凭证后重试。";
+  if (error.deniedReason === "wecom_drive_network_unavailable")
+    return "企业微信微盘暂时不可用，请稍后重试。";
+  if (error.deniedReason === "wecom_space_manager_limit")
+    return "项目经理人数超过企业微信空间管理员上限，请调整后重试。";
+  return "配置未保存，请检查项目和业务归属人后重试。";
+}
 
 export default function WecomScanConfigForm({
   open,
@@ -44,21 +50,15 @@ export default function WecomScanConfigForm({
   onSaved,
 }: WecomScanConfigFormProps) {
   const { values, set, setMany, reset } = useFormState(INITIAL);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // 打开时按新建 / 编辑初始化字段。
   useEffect(() => {
     if (!open) return;
     setSaveError(null);
-    setPickerOpen(false);
     if (editingConfig) {
       setMany({
         name: editingConfig.name ?? "",
-        dir: editingConfig.directory_path,
-        dirLabel: "",
-        scope: editingConfig.scope_type,
         projectId: editingConfig.related_project_id ?? "",
         ownerId: editingConfig.created_by,
         enabled: editingConfig.enabled,
@@ -68,18 +68,14 @@ export default function WecomScanConfigForm({
     }
   }, [open, editingConfig, reset, setMany]);
 
-  // 业务归属人候选按目标 scope 过滤（后端最终校验为准；前端仅提示合法候选）。
-  const ownerCandidates = useMemo(() => {
-    if (values.scope === "project") {
-      return values.projectId
-        ? ownerOptions.filter((o) => o.project_ids.includes(values.projectId))
-        : [];
-    }
-    if (values.scope === "company") {
-      return ownerOptions.filter((o) => o.is_governance);
-    }
-    return ownerOptions; // personal：任意业务用户
-  }, [ownerOptions, values.scope, values.projectId]);
+  const ownerCandidates = useMemo(
+    () =>
+      values.projectId
+        ? ownerOptions.filter((owner) => owner.project_ids.includes(values.projectId))
+        : [],
+    [ownerOptions, values.projectId],
+  );
+  const selectedProject = projectOptions.find((project) => project.id === values.projectId);
 
   const handleSave = async () => {
     setSaveError(null);
@@ -91,12 +87,8 @@ export default function WecomScanConfigForm({
       setSaveError("请填写配置名称");
       return;
     }
-    if (!values.dir.trim()) {
-      setSaveError("请选择企业微信微盘目录");
-      return;
-    }
-    if (values.scope === "project" && !values.projectId) {
-      setSaveError("项目级配置必须选择目标项目");
+    if (!values.projectId) {
+      setSaveError("请选择目标项目");
       return;
     }
     if (!values.ownerId) {
@@ -104,22 +96,24 @@ export default function WecomScanConfigForm({
       return;
     }
     setSaveBusy(true);
-    const base = {
-      name: values.name.trim(),
-      directory_path: values.dir.trim(),
-      target_scope: values.scope,
-      target_project_id: values.scope === "project" ? values.projectId : null,
-      task_owner_user_id: values.ownerId,
-    };
     try {
       const saved = editingConfig
-        ? await updateWecomScanConfig(editingConfig.id, { ...base, enabled: values.enabled })
-        : await createWecomScanConfig({ ...base, enabled: values.enabled });
-      onSaved(saved, editingConfig ? "配置已更新。" : "配置已创建。");
+        ? await updateWecomScanConfig(editingConfig.id, {
+            name: values.name.trim(),
+            task_owner_user_id: values.ownerId,
+            enabled: values.enabled,
+          })
+        : await createWecomScanConfig({
+            name: values.name.trim(),
+            target_project_id: values.projectId,
+            task_owner_user_id: values.ownerId,
+            enabled: values.enabled,
+          });
+      onSaved(saved, editingConfig ? "配置已更新。" : "项目扫描空间与配置已就绪。");
       onClose();
     } catch (error) {
       if (error instanceof ApiError && error.status === 403) onForbidden();
-      setSaveError("配置未保存，请检查目录、目标范围和业务归属后重试。");
+      setSaveError(saveFailureMessage(error));
     } finally {
       setSaveBusy(false);
     }
@@ -131,7 +125,7 @@ export default function WecomScanConfigForm({
     <section className="ws-section">
       <div className="ws87-form-panel">
         <div className="ws87-form-head">
-          <span>{editingConfig ? "编辑扫描配置" : "新增扫描配置"}</span>
+          <span>{editingConfig ? "编辑扫描配置" : "新增项目扫描配置"}</span>
           <button className="btn-small" onClick={onClose} disabled={saveBusy}>
             关闭
           </button>
@@ -143,113 +137,69 @@ export default function WecomScanConfigForm({
               id="ws-config-name"
               className="ws-form-input"
               value={values.name}
-              onChange={(e) => set("name", e.target.value)}
-              placeholder="如：Alpha 项目交付目录"
+              onChange={(event) => set("name", event.target.value)}
+              placeholder="如：Alpha 项目资料扫描"
               maxLength={200}
             />
           </label>
-          <div className="ws-form-field">
-            <span className="ws-form-label">扫描目录</span>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <button
-                className="btn-small btn-small-primary"
-                type="button"
-                onClick={() => setPickerOpen((v) => !v)}
-              >
-                {pickerOpen ? "收起目录选择" : editingConfig ? "重新选择目录" : "选择微盘目录"}
-              </button>
+          <label className="ws-form-field" htmlFor="ws-config-project">
+            <span className="ws-form-label">目标项目</span>
+            {editingConfig ? (
               <span className="ws-form-hint">
-                {values.dir
-                  ? values.dirLabel
-                    ? `已选择：${values.dirLabel}`
-                    : "已配置微盘目录"
-                  : "从微盘空间/目录中选择"}
+                {editingConfig.related_project_name ?? "当前项目"}（创建后不可更改）
               </span>
-            </div>
-            {pickerOpen && (
-              <WecomDirectoryPicker
-                onForbidden={onForbidden}
-                onSelect={(ref, label) => {
-                  setMany({ dir: ref, dirLabel: label });
-                  setPickerOpen(false);
-                }}
-              />
+            ) : projectOptions.length > 0 ? (
+              <select
+                id="ws-config-project"
+                className="ws-form-input"
+                value={values.projectId}
+                onChange={(event) => setMany({ projectId: event.target.value, ownerId: "" })}
+              >
+                <option value="">请选择项目…</option>
+                {projectOptions.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="ws-form-hint">当前没有可管理的有效项目。</span>
             )}
-          </div>
-          <label className="ws-form-field" htmlFor="ws-config-scope">
-            <span className="ws-form-label">目标知识库</span>
-            <select
-              id="ws-config-scope"
-              className="ws-form-input"
-              value={values.scope}
-              onChange={(e) => {
-                setMany({
-                  scope: e.target.value,
-                  ownerId: "",
-                  ...(e.target.value !== "project" ? { projectId: "" } : {}),
-                });
-              }}
-            >
-              {scopeOptions.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+            <span className="ws-form-hint">
+              文件会递归扫描项目专属扫描空间的根目录；系统不会浏览或选择企业其他空间。
+            </span>
+            {selectedProject?.manager_access_status === "identity_link_required" && (
+              <span className="ws-note-hint" role="status">
+                项目经理尚未绑定企业微信身份。空间仍会创建，但需完成身份绑定后才能在企业微信中管理空间。
+              </span>
+            )}
           </label>
-          {values.scope === "project" && (
-            <label className="ws-form-field" htmlFor="ws-config-project">
-              <span className="ws-form-label">目标项目</span>
-              {projectOptions.length > 0 ? (
-                <select
-                  id="ws-config-project"
-                  className="ws-form-input"
-                  value={values.projectId}
-                  onChange={(e) => setMany({ projectId: e.target.value, ownerId: "" })}
-                >
-                  <option value="">请选择项目…</option>
-                  {projectOptions.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <span className="ws-form-hint">
-                  暂无可选的 active 项目，请先创建项目后再配置项目级扫描。
-                </span>
-              )}
-            </label>
-          )}
           <label className="ws-form-field" htmlFor="ws-config-owner">
             <span className="ws-form-label">待确认任务业务归属人</span>
-            {(values.scope !== "project" || values.projectId) && ownerCandidates.length > 0 ? (
+            {values.projectId && ownerCandidates.length > 0 ? (
               <select
                 id="ws-config-owner"
                 className="ws-form-input"
                 value={values.ownerId}
-                onChange={(e) => set("ownerId", e.target.value)}
+                onChange={(event) => set("ownerId", event.target.value)}
               >
                 <option value="">请选择业务归属人…</option>
-                {ownerCandidates.map((o) => (
-                  <option key={o.user_id} value={o.user_id}>
-                    {o.name}
-                    {o.role_label ? `（${o.role_label}）` : ""}
+                {ownerCandidates.map((owner) => (
+                  <option key={owner.user_id} value={owner.user_id}>
+                    {owner.name}
+                    {owner.role_label ? `（${owner.role_label}）` : ""}
                   </option>
                 ))}
               </select>
             ) : (
               <span className="ws-form-hint">
-                {values.scope === "project" && !values.projectId
-                  ? "请先选择目标项目，再选择该项目的业务归属人。"
-                  : values.scope === "company"
-                    ? "公司级配置需选择总经理 / 咨询总监作为业务归属人，当前无可选治理角色。"
-                    : "暂无可选业务用户作为归属人。"}
+                {values.projectId
+                  ? "该项目暂无可选业务归属人。"
+                  : "请先选择项目，再选择该项目的业务归属人。"}
               </span>
             )}
             <span className="ws-form-hint">
-              扫描发现的文件会生成待确认入库任务，由该业务归属人进入资产化确认工作台处理（配置操作人仍是当前
-              admin）。
+              配置操作人和任务业务归属人相互独立；扫描文件仍需由归属人确认后入库。
             </span>
           </label>
           <label className="ws-form-field ws-form-checkbox" htmlFor="ws-config-enabled">
@@ -257,7 +207,7 @@ export default function WecomScanConfigForm({
               id="ws-config-enabled"
               type="checkbox"
               checked={values.enabled}
-              onChange={(e) => set("enabled", e.target.checked)}
+              onChange={(event) => set("enabled", event.target.checked)}
             />
             <span>创建后启用</span>
           </label>
@@ -268,7 +218,7 @@ export default function WecomScanConfigForm({
           </div>
         )}
         {saveError && (
-          <div className="ws-note-hint" style={{ color: "var(--color-danger-fg, #b00)" }}>
+          <div className="ws-note-hint" role="alert">
             {saveError}
           </div>
         )}
@@ -276,7 +226,7 @@ export default function WecomScanConfigForm({
           <button
             className="btn-small-primary"
             onClick={() => void handleSave()}
-            disabled={saveBusy || optionsError || (!editingConfig && !values.dir.trim())}
+            disabled={saveBusy || optionsError}
           >
             {saveBusy ? "保存中…" : editingConfig ? "保存修改" : "创建配置"}
           </button>

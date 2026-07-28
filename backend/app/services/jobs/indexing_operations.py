@@ -24,15 +24,11 @@ from app.models.identity import ProjectMember, User
 from app.models.indexing_job import IndexingOperationJob
 from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
-from app.schemas.enums import (
-    AssetStatus,
-    AuditAction,
-    AuditLogType,
-    KnowledgeScope,
-)
+from app.schemas.enums import AssetStatus, AuditAction, AuditLogType
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 from app.services import error_catalog, indexing
+from app.services.indexing_candidates import reparse_candidate_conditions, scope_conditions
 from app.services.permission import build_caller_context
 from app.services.storage import LocalFileStorage
 from app.services.weknora_client import (
@@ -43,19 +39,8 @@ from app.services.weknora_client import (
 
 _logger = logging.getLogger(__name__)
 
-_DELETED = AssetStatus.deleted.value
 # 已处理终态（再次入队/重跑直接跳过，保证幂等）。
 _DONE_STATUSES = {"completed", "completed_with_errors", "failed"}
-
-
-def _scope_conditions(scope: str | None, project_id):
-    """把安全 scope_filter 转为查询条件（scope=all / 缺省 → 无 scope 约束）。"""
-    conds = []
-    if scope and scope != "all":
-        conds.append(KnowledgeAsset.scope == scope)
-    if scope == KnowledgeScope.project.value and project_id is not None:
-        conds.append(KnowledgeAsset.project_id == uuid.UUID(str(project_id)))
-    return conds
 
 
 @dataclass
@@ -83,17 +68,20 @@ async def _select_targets(session: AsyncSession, job: IndexingOperationJob) -> l
 
     base_conds = [
         KnowledgeAssetVersion.version_status == "active",
-        KnowledgeAsset.asset_status != _DELETED,
-        *_scope_conditions(scope, project_id),
+        KnowledgeAsset.asset_status != AssetStatus.deleted.value,
+        *scope_conditions(scope, project_id),
     ]
     if job.target_asset_id is not None:
         base_conds.append(KnowledgeAsset.id == job.target_asset_id)
     if job.operation_type == "reparse":
-        parse_statuses = list(sf.get("parse_statuses") or [])
-        base_conds.append(KnowledgeAssetVersion.index_status == "indexed")
-        base_conds.append(KnowledgeAssetVersion.weknora_doc_id.is_not(None))
-        if parse_statuses:
-            base_conds.append(KnowledgeAssetVersion.weknora_parse_status.in_(parse_statuses))
+        parse_statuses = list(sf.get("parse_statuses") or ["failed", "pending"])
+        base_conds = reparse_candidate_conditions(
+            scope=scope,
+            project_id=project_id,
+            parse_statuses=parse_statuses,
+        )
+        if job.target_asset_id is not None:
+            base_conds.append(KnowledgeAsset.id == job.target_asset_id)
     else:  # retry_index
         statuses = list(sf.get("statuses") or ["index_failed"])
         base_conds.append(KnowledgeAssetVersion.index_status.in_(statuses))

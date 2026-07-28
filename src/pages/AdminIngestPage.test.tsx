@@ -33,8 +33,10 @@ const ops: OpsIndexingDTO = {
     skipped: 1,
     parse_pending: 2,
     parse_processing: 1,
+    parse_failed: 5,
     kb_init_failed: 0,
   },
+  reparse_actionable_count: 4,
   recent_failed: [
     {
       retry_target: "opaque-retry-target-84",
@@ -379,7 +381,7 @@ describe("AdminIngestPage operations reference", () => {
     const user = userEvent.setup();
     renderPage();
 
-    const retry = await screen.findByRole("button", { name: "批量重试索引" });
+    const retry = await screen.findByRole("button", { name: /^批量重试索引/ });
     await user.click(screen.getByRole("checkbox", { name: "包含已跳过" }));
     await user.click(screen.getByRole("checkbox", { name: "包含未索引" }));
     await user.selectOptions(screen.getByRole("combobox", { name: "处理上限" }), "100");
@@ -390,11 +392,13 @@ describe("AdminIngestPage operations reference", () => {
       statuses: ["index_failed", "skipped", "not_indexed"],
       limit: 100,
     });
-    expect(screen.getByRole("button", { name: "提交中…" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "重新解析" })).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "正在执行：批量重试索引" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "正在执行：批量重试索引" })[1]).toBeDisabled();
 
     resolveJob({ ...completedJob, status: "running" });
-    await waitFor(() => expect(screen.getByRole("button", { name: "作业执行中" })).toBeDisabled());
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: "正在执行：批量重试索引" })[0]).toBeDisabled(),
+    );
     expect(triggerIndexingRetry).toHaveBeenCalledTimes(1);
   });
 
@@ -402,7 +406,7 @@ describe("AdminIngestPage operations reference", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByRole("button", { name: "重新解析" }));
+    await user.click(await screen.findByRole("button", { name: "重新解析（4 项）" }));
     await waitFor(() =>
       expect(triggerIndexingReparse).toHaveBeenCalledWith({
         scope: "all",
@@ -430,13 +434,40 @@ describe("AdminIngestPage operations reference", () => {
   it("keeps a stable explicit empty state", async () => {
     vi.mocked(fetchOpsIndexing).mockResolvedValue({
       ...ops,
-      counts: { ...ops.counts, index_failed: 0 },
+      counts: { ...ops.counts, index_failed: 0, parse_failed: 0 },
+      reparse_actionable_count: 0,
       recent_failed: [],
     });
     renderPage();
 
     expect(await screen.findByText("当前没有索引失败任务")).toBeInTheDocument();
-    expect(screen.getByText("当前没有索引失败项")).toBeInTheDocument();
+    expect(screen.getByText("当前没有索引或解析失败项")).toBeInTheDocument();
+  });
+
+  it("warns when only parse failures remain and shows the actionable reparse count", async () => {
+    vi.mocked(fetchOpsIndexing).mockResolvedValue({
+      ...ops,
+      counts: { ...ops.counts, index_failed: 0, parse_failed: 5 },
+      reparse_actionable_count: 2,
+      recent_failed: [],
+    });
+    renderPage();
+
+    expect(await screen.findByText("存在 5 项底座解析异常，可重新解析")).toBeInTheDocument();
+    expect(screen.queryByText("当前没有索引失败项")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新解析（2 项）" })).toBeInTheDocument();
+  });
+
+  it("reports action-specific empty results without claiming parse failures were handled", async () => {
+    vi.mocked(triggerIndexingRetry).mockResolvedValue({ ...completedJob, total_count: 0 });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /^批量重试索引/ }));
+    expect(
+      await screen.findByText(/批量重试索引未找到可处理项：本次没有符合条件的索引失败/),
+    ).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("解析失败已处理");
   });
 
   it("does not echo action errors returned by the service", async () => {
@@ -444,7 +475,7 @@ describe("AdminIngestPage operations reference", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByRole("button", { name: "批量重试索引" }));
+    await user.click(await screen.findByRole("button", { name: /^批量重试索引/ }));
     expect(await screen.findByRole("alert")).toHaveTextContent("批量重试未能发起，请稍后重试。");
     expect(document.body).not.toHaveTextContent("SECRET TOKEN IN ERROR");
   });

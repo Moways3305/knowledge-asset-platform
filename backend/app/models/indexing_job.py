@@ -86,6 +86,9 @@ class IndexingOpsSnapshot(Base):
     skipped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     parse_pending: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     parse_processing: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    parse_failed: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     kb_init_failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     completed_jobs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     failed_jobs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

@@ -20,8 +20,6 @@ from app.core.trace import get_trace_id
 from app.db.session import get_db
 from app.schemas.permission import CallerContext
 from app.schemas.wecom import (
-    WecomDriveDirectoriesResponse,
-    WecomDriveSpacesResponse,
     WecomOwnerOptionsResponse,
     WecomProjectOptionsResponse,
     WecomScanConfigCreateBody,
@@ -69,41 +67,18 @@ async def list_owner_options(
     return result
 
 
-@router.get("/drive/spaces", response_model=WecomDriveSpacesResponse)
-async def list_drive_spaces(
-    caller: CallerContext = Depends(get_caller_context),
-    drive=Depends(get_wecom_drive_client),
-) -> WecomDriveSpacesResponse:
-    """微盘空间列表。只回安全选择元数据，未配置 → 安全 503。"""
-    result: WecomDriveSpacesResponse = await scan_service.list_drive_spaces(caller, drive)
-    return result
-
-
-@router.get("/drive/directories", response_model=WecomDriveDirectoriesResponse)
-async def list_drive_directories(
-    space_ref: str,
-    parent_ref: str | None = None,
-    caller: CallerContext = Depends(get_caller_context),
-    drive=Depends(get_wecom_drive_client),
-) -> WecomDriveDirectoriesResponse:
-    """微盘子目录列表。只列目录、不列普通文件；directory_ref 可直接保存。"""
-    result: WecomDriveDirectoriesResponse = await scan_service.list_drive_directories(
-        caller, drive, space_ref=space_ref, parent_ref=parent_ref
-    )
-    return result
-
-
 @router.post("/configs", response_model=WecomScanConfigOut, status_code=201)
 async def create_config(
     body: WecomScanConfigCreateBody,
     request: Request,
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
+    drive=Depends(get_wecom_drive_client),
 ) -> WecomScanConfigOut:
     """创建扫描目录配置（仅 admin，配置操作人 = 审计 actor）。`created_by` 写入校验通过的
     业务归属人（task_owner_user_id），即扫描产物 path_a_wecom 任务的归属人。"""
     result: WecomScanConfigOut = await scan_service.create_config(
-        session, caller, body, get_trace_id(request)
+        session, caller, body, get_trace_id(request), drive=drive
     )
     return result
 
@@ -115,9 +90,10 @@ async def update_config(
     request: Request,
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
+    drive=Depends(get_wecom_drive_client),
 ) -> WecomScanConfigOut:
     result: WecomScanConfigOut = await scan_service.update_config(
-        session, caller, config_id, body, get_trace_id(request)
+        session, caller, config_id, body, get_trace_id(request), drive=drive
     )
     return result
 

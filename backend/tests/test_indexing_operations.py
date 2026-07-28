@@ -368,6 +368,12 @@ async def test_reparse_refreshes_parse_status(client, db_session, monkeypatch):
 
     ok = FakeWK()
     _enable(monkeypatch, ok)
+    listing = await client.get("/admin/ops/indexing", headers=_hdr(USER_ADMIN_ONLY))
+    assert listing.status_code == 200
+    listing_body = listing.json()
+    assert listing_body["counts"]["parse_failed"] >= 1
+    actionable_count = listing_body["reparse_actionable_count"]
+    assert actionable_count >= 1
     r = await client.post(
         REPARSE,
         headers=_hdr(USER_ADMIN_ONLY),
@@ -376,6 +382,8 @@ async def test_reparse_refreshes_parse_status(client, db_session, monkeypatch):
     assert r.status_code == 202, r.text
     body = r.json()
     assert body["operation_type"] == "reparse"
+    assert body["scope_filter"]["parse_statuses"] == ["failed", "pending"]
+    assert body["total_count"] == min(actionable_count, 50)
     assert body["status"] in ("completed", "completed_with_errors")
     assert body["success_count"] >= 1
     # reparse 受控重传：旧 doc 被删、重新上传原文触发解析刷新。
@@ -391,6 +399,41 @@ async def test_reparse_refreshes_parse_status(client, db_session, monkeypatch):
     assert v2.index_status == "indexed"
     # 解析状态已由 failed 刷新为底座新返回的 processing。
     assert v2.weknora_parse_status == "processing"
+
+
+async def test_reparse_count_and_selection_share_fail_closed_eligibility(
+    client, db_session, monkeypatch
+):
+    indexed = await _make_indexed(
+        client, monkeypatch, USER_CONSULTANT, content=b"ineligible reparse target"
+    )
+    version = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == uuid.UUID(indexed)
+            )
+        )
+    ).scalar_one()
+    version.weknora_parse_status = "failed"
+    version.weknora_doc_id = None
+    await db_session.commit()
+
+    listing = await client.get("/admin/ops/indexing", headers=_hdr(USER_ADMIN_ONLY))
+    assert listing.status_code == 200
+    assert listing.json()["counts"]["parse_failed"] >= 1
+    assert listing.json()["reparse_actionable_count"] == 0
+
+    ok = FakeWK()
+    _enable(monkeypatch, ok)
+    response = await client.post(
+        REPARSE,
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"scope": "all", "parse_statuses": ["failed", "pending"], "limit": 50},
+    )
+    assert response.status_code == 202
+    assert response.json()["operation_type"] == "reparse"
+    assert response.json()["total_count"] == 0
+    assert ok.uploads == []
 
 
 async def test_reparse_requires_ops_viewer(client, monkeypatch):

@@ -286,6 +286,23 @@
   padding-top: 13px;
 }
 
+.ao84-action-explanation {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 5px 10px;
+  margin-bottom: 10px;
+  padding: 9px 10px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+  background: var(--color-bg-muted);
+  border-left: 3px solid var(--color-border-strong);
+}
+
+.ao84-action-explanation strong {
+  color: var(--color-text-body);
+}
+
 .ao84-action-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

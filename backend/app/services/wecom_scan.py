@@ -13,7 +13,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import logging
 import uuid
 
 from fastapi import HTTPException
@@ -25,7 +27,7 @@ from sqlalchemy.orm import selectinload
 from app.db.utils import utc_now
 from app.models.identity import Project, ProjectMember, User
 from app.models.ingest import IngestTask
-from app.models.wecom import WecomScanConfig, WecomScanRecord
+from app.models.wecom import WecomProjectScanSpace, WecomScanConfig, WecomScanRecord
 from app.schemas.enums import (
     AuditAction,
     AuditLogType,
@@ -34,6 +36,7 @@ from app.schemas.enums import (
     IngestStatus,
     KnowledgeScope,
     KnowledgeZone,
+    ProjectRole,
 )
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
@@ -41,6 +44,8 @@ from app.services.permission import build_caller_context
 from app.services.storage import LocalFileStorage, StorageError, safe_filename
 from app.services.wecom_client import WeComError
 from app.worker.enqueue import enqueue_ingest_processing
+
+_logger = logging.getLogger(__name__)
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
@@ -57,16 +62,41 @@ def _is_governance(caller: CallerContext) -> bool:
     return caller.can_discover_l5  # boss / consulting_director
 
 
+def _managed_project_ids(caller: CallerContext) -> set[uuid.UUID]:
+    return {
+        project_id
+        for project_id, role in caller.active_project_roles.items()
+        if role == ProjectRole.project_manager.value
+    }
+
+
+def _is_global_operator(caller: CallerContext) -> bool:
+    return _is_admin(caller) or _is_governance(caller)
+
+
 def _require_reader(caller: CallerContext) -> None:
     """读配置/记录：admin 或 boss / 咨询总监。"""
-    if not (_is_admin(caller) or _is_governance(caller)):
+    if not (_is_global_operator(caller) or _managed_project_ids(caller)):
         raise _denied(403, "wecom_scan_forbidden", "无权查看微盘扫描配置/记录")
 
 
 def _require_operator(caller: CallerContext) -> None:
     """当前治理工作身份（及兼容系统治理身份）可维护微盘扫描。"""
-    if not (_is_admin(caller) or _is_governance(caller)):
+    if not (_is_global_operator(caller) or _managed_project_ids(caller)):
         raise _denied(403, "wecom_scan_operator_required", "仅总经理、咨询总监可维护微盘扫描")
+
+
+def _assert_config_access(caller: CallerContext, config: WecomScanConfig) -> None:
+    """Limit a project manager to active configs in projects they manage."""
+    if _is_global_operator(caller):
+        return
+    if (
+        config.scope_type == KnowledgeScope.project.value
+        and config.related_project_id in _managed_project_ids(caller)
+    ):
+        return
+    # Do not disclose whether another project's configuration exists.
+    raise _denied(404, "wecom_scan_config_not_found", "扫描配置不存在")
 
 
 async def _owner_actor(session: AsyncSession, config: WecomScanConfig) -> CallerContext:
@@ -120,13 +150,14 @@ def _config_out(
     project_name: str | None = None,
     owner_name: str | None = None,
     owner_role_label: str | None = None,
+    scan_space_status: str = "unavailable",
+    manager_access_status: str = "identity_link_required",
 ):
     from app.schemas.wecom import WecomScanConfigOut
 
     return WecomScanConfigOut(
         id=c.id,
         name=c.name,
-        directory_path=c.directory_path,
         scope_type=c.scope_type,
         related_project_id=c.related_project_id,
         related_project_name=project_name,
@@ -134,18 +165,14 @@ def _config_out(
         created_by=c.created_by,
         task_owner_name=owner_name,
         task_owner_role_label=owner_role_label,
+        scan_space_status=scan_space_status,
+        manager_access_status=manager_access_status,
         scan_frequency=c.scan_frequency,
         last_scan_at=c.last_scan_at,
         created_at=c.created_at,
         updated_at=c.updated_at,
     )
 
-
-_VALID_SCOPES = {
-    KnowledgeScope.personal.value,
-    KnowledgeScope.project.value,
-    KnowledgeScope.company.value,
-}
 
 # 业务公司角色 → 中文标签（仅展示，安全；admin 是系统身份，不作业务归属人候选）。
 _ROLE_LABELS = {
@@ -251,61 +278,134 @@ async def _project_name(session: AsyncSession, project_id: uuid.UUID | None) -> 
     ).scalar_one_or_none()
 
 
-async def _validate_config_fields(
+async def _validate_project_config(
     session: AsyncSession,
+    caller: CallerContext,
     *,
     name: str | None,
-    directory_path: str | None,
-    scope_type: str | None,
-    related_project_id: uuid.UUID | None,
-) -> tuple[str, str, str, uuid.UUID | None]:
-    """校验扫描配置安全字段，返回归一化后的 (name, directory_path, scope_type, project_id)。
-
-    一致策略：project scope 必须有存在的 target_project_id；personal/company scope
-    **拒绝**携带 project_id（不静默清空，明确 422，便于前端纠正）。directory_path 仅做
-    格式校验，错误信息为安全中文文案，不回显上游敏感载体。
-    """
-    from app.services.wecom_client import parse_directory_path
-
+    project_id: uuid.UUID,
+) -> tuple[str, Project]:
     clean_name = (name or "").strip()
     if not clean_name:
         raise _denied(422, "wecom_scan_name_required", "配置名称不能为空")
     if len(clean_name) > 200:
         raise _denied(422, "wecom_scan_name_too_long", "配置名称过长（最多 200 字）")
+    project = await session.get(Project, project_id)
+    if project is None or project.status != "active":
+        raise _denied(422, "target_project_not_found", "目标项目不存在或已停用")
+    if not _is_global_operator(caller) and project.id not in _managed_project_ids(caller):
+        raise _denied(404, "target_project_not_found", "目标项目不存在或已停用")
+    return clean_name, project
 
-    clean_dir = (directory_path or "").strip()
-    try:
-        parse_directory_path(clean_dir)
-    except WeComError:
-        raise _denied(
-            422,
-            "wecom_invalid_directory",
-            "扫描目录格式应为 'spaceid:<id>;fatherid:<id>'",
-        ) from None
 
-    if scope_type not in _VALID_SCOPES:
-        raise _denied(422, "wecom_scan_invalid_scope", "非法的目标知识库类型")
-
-    if scope_type == KnowledgeScope.project.value:
-        if related_project_id is None:
-            raise _denied(422, "target_project_required", "项目级配置必须指定目标项目")
-        exists = (
-            await session.execute(select(Project.id).where(Project.id == related_project_id))
-        ).scalar_one_or_none()
-        if exists is None:
-            raise _denied(422, "target_project_not_found", "目标项目不存在")
-    else:
-        if related_project_id is not None:
-            raise _denied(
-                422,
-                "target_project_not_allowed",
-                "个人 / 公司级配置不应指定目标项目",
+async def _project_manager_wecom_ids(session: AsyncSession, project_id: uuid.UUID) -> list[str]:
+    rows = (
+        await session.execute(
+            select(User.wecom_user_id)
+            .join(ProjectMember, ProjectMember.user_id == User.id)
+            .where(
+                ProjectMember.project_id == project_id,
+                ProjectMember.project_role == ProjectRole.project_manager.value,
+                ProjectMember.status == "active",
+                User.status == "active",
+                User.wecom_user_id.is_not(None),
             )
+            .order_by(User.id)
+        )
+    ).scalars()
+    return [value.strip() for value in rows if value and value.strip()]
 
-    return clean_name, clean_dir, scope_type, related_project_id
+
+async def _ensure_project_scan_space(
+    session: AsyncSession,
+    *,
+    project: Project,
+    drive,
+    trace_id: str,
+) -> WecomProjectScanSpace:
+    project_id = project.id
+    project_name = project.name
+
+    async def wait_for_claim() -> WecomProjectScanSpace:
+        # A concurrent request owns the upstream create call. Poll only the
+        # server-side mapping; never issue a second space_create while the
+        # claim is in progress.
+        for _ in range(100):
+            await asyncio.sleep(0.05)
+            current = (
+                await session.execute(
+                    select(WecomProjectScanSpace)
+                    .where(WecomProjectScanSpace.project_id == project_id)
+                    .execution_options(populate_existing=True)
+                )
+            ).scalar_one_or_none()
+            if current is not None and current.status == "ready" and current.space_id:
+                return current
+            if current is not None and current.status == "unavailable":
+                raise _denied(
+                    503,
+                    "wecom_project_scan_space_unavailable",
+                    "项目扫描空间创建失败，请检查企业微信应用配置后重试",
+                )
+        raise _denied(
+            409,
+            "wecom_project_scan_space_creating",
+            "项目扫描空间正在创建，请稍后重试",
+        )
+
+    mapping = (
+        await session.execute(
+            select(WecomProjectScanSpace)
+            .where(WecomProjectScanSpace.project_id == project_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if mapping is not None and mapping.status == "ready" and mapping.space_id:
+        return mapping
+    if mapping is not None and mapping.status == "creating":
+        await session.commit()
+        return await wait_for_claim()
+
+    manager_ids = await _project_manager_wecom_ids(session, project_id)
+    manager_access = "ready" if manager_ids else "identity_link_required"
+    if mapping is None:
+        mapping = WecomProjectScanSpace(project_id=project_id)
+        session.add(mapping)
+    mapping.status = "creating"
+    mapping.manager_access_status = manager_access
+    mapping.manager_count = len(manager_ids)
+    mapping.last_error_code = None
+    try:
+        await session.commit()
+    except IntegrityError:
+        # The absent-row race is resolved by the unique project mapping. The
+        # winning request owns creation; this request waits for its terminal
+        # state and must not call the upstream API.
+        await session.rollback()
+        return await wait_for_claim()
+
+    try:
+        space_id = await drive.create_project_space(
+            space_name=f"{project_name} - 项目扫描空间",
+            manager_user_ids=manager_ids,
+        )
+    except WeComError as exc:
+        mapping.status = "unavailable"
+        mapping.space_id = None
+        mapping.last_error_code = exc.code
+        await session.commit()
+        raise _wrap_wecom(exc, trace_id=trace_id, stage="space_create") from exc
+
+    mapping.space_id = space_id
+    mapping.status = "ready"
+    mapping.last_error_code = None
+    await session.commit()
+    return mapping
 
 
-async def create_config(session: AsyncSession, caller: CallerContext, body, trace_id: str):
+async def create_config(
+    session: AsyncSession, caller: CallerContext, body, trace_id: str, *, drive
+):
     """创建扫描配置（系统管理员或当前治理身份）。
 
     配置操作人是当前 admin（审计 actor）；`created_by` 写入校验通过的**业务归属人**
@@ -313,24 +413,24 @@ async def create_config(session: AsyncSession, caller: CallerContext, body, trac
     可被其在 `/upload` Path A 确认。纯 admin 不再成为任务归属人。
     """
     _require_operator(caller)
-    name, directory_path, scope_type, project_id = await _validate_config_fields(
-        session,
-        name=body.name,
-        directory_path=body.directory_path,
-        scope_type=body.target_scope,
-        related_project_id=body.target_project_id,
+    name, project = await _validate_project_config(
+        session, caller, name=body.name, project_id=body.target_project_id
     )
     owner = await _validate_task_owner(
         session,
         owner_user_id=body.task_owner_user_id,
-        scope_type=scope_type,
-        related_project_id=project_id,
+        scope_type=KnowledgeScope.project.value,
+        related_project_id=project.id,
+    )
+    mapping = await _ensure_project_scan_space(
+        session, project=project, drive=drive, trace_id=trace_id
     )
     config = WecomScanConfig(
         name=name,
-        directory_path=directory_path,
-        scope_type=scope_type,
-        related_project_id=project_id,
+        # Server-only compatibility field. Browser/API/audit never receives it.
+        directory_path=f"project-scan-space:{project.id}",
+        scope_type=KnowledgeScope.project.value,
+        related_project_id=project.id,
         enabled=body.enabled,
         created_by=owner.id,
     )
@@ -344,21 +444,24 @@ async def create_config(session: AsyncSession, caller: CallerContext, body, trac
         trace_id=trace_id,
         target_type="wecom_scan_config",
         target_id=config.id,
-        # 安全配置元数据。task_owner_user_id 记录业务归属人；审计 actor 仍是当前 admin
-        # （两者不混淆）。directory_path 只记"已设置"标记，不写原值/上游标识。
+        # 审计 actor 是当前操作人；只记录项目范围与受控空间就绪状态。
         after={
-            "name": name,
-            "enabled": config.enabled,
-            "scope_type": scope_type,
-            "target_project_id": str(project_id) if project_id else None,
-            "task_owner_user_id": str(owner.id),
-            "directory_path_set": True,
+            "scope_type": KnowledgeScope.project.value,
+            "target_project_id": str(project.id),
+            "project_scan_space_ready": mapping.status == "ready",
         },
-        project_id=project_id,
+        project_id=project.id,
     )
     await session.commit()
     owner_name, owner_role = await _owner_meta(session, owner.id)
-    return _config_out(config, await _project_name(session, project_id), owner_name, owner_role)
+    return _config_out(
+        config,
+        project.name,
+        owner_name,
+        owner_role,
+        mapping.status,
+        mapping.manager_access_status,
+    )
 
 
 async def list_project_options(session: AsyncSession, caller: CallerContext):
@@ -366,15 +469,40 @@ async def list_project_options(session: AsyncSession, caller: CallerContext):
     from app.schemas.wecom import WecomProjectOptionOut, WecomProjectOptionsResponse
 
     _require_reader(caller)
-    rows = (
-        await session.execute(
-            select(Project.id, Project.name)
-            .where(Project.status == "active")
-            .order_by(Project.name)
+    query = select(Project.id, Project.name).where(Project.status == "active")
+    if not _is_global_operator(caller):
+        query = query.where(Project.id.in_(_managed_project_ids(caller)))
+    rows = (await session.execute(query.order_by(Project.name))).all()
+    mappings = {
+        item.project_id: item
+        for item in (
+            (
+                await session.execute(
+                    select(WecomProjectScanSpace).where(
+                        WecomProjectScanSpace.project_id.in_([row.id for row in rows])
+                    )
+                )
+            )
+            .scalars()
+            .all()
+            if rows
+            else []
         )
-    ).all()
+    }
     return WecomProjectOptionsResponse(
-        items=[WecomProjectOptionOut(id=r.id, name=r.name) for r in rows]
+        items=[
+            WecomProjectOptionOut(
+                id=r.id,
+                name=r.name,
+                scan_space_status=mappings[r.id].status if r.id in mappings else "not_created",
+                manager_access_status=(
+                    mappings[r.id].manager_access_status
+                    if r.id in mappings
+                    else "identity_link_required"
+                ),
+            )
+            for r in rows
+        ]
     )
 
 
@@ -406,6 +534,10 @@ async def list_owner_options(session: AsyncSession, caller: CallerContext):
     for u in users:
         ctx = build_caller_context(u)
         if not ctx.is_business_user:
+            continue
+        if not _is_global_operator(caller) and not (
+            ctx.active_project_ids & _managed_project_ids(caller)
+        ):
             continue
         items.append(
             WecomOwnerOptionOut(
@@ -443,11 +575,13 @@ async def list_configs(session: AsyncSession, caller: CallerContext):
     from app.schemas.wecom import WecomScanConfigsResponse
 
     _require_reader(caller)
-    rows = list(
-        (await session.execute(select(WecomScanConfig).order_by(WecomScanConfig.created_at)))
-        .scalars()
-        .all()
-    )
+    query = select(WecomScanConfig)
+    if not _is_global_operator(caller):
+        query = query.where(
+            WecomScanConfig.scope_type == KnowledgeScope.project.value,
+            WecomScanConfig.related_project_id.in_(_managed_project_ids(caller)),
+        )
+    rows = list((await session.execute(query.order_by(WecomScanConfig.created_at))).scalars().all())
     # 批量解析关联项目名（仅安全字段）。
     pids = {c.related_project_id for c in rows if c.related_project_id is not None}
     name_map: dict[uuid.UUID, str] = {}
@@ -456,6 +590,18 @@ async def list_configs(session: AsyncSession, caller: CallerContext):
             await session.execute(select(Project.id, Project.name).where(Project.id.in_(pids)))
         ).all():
             name_map[pid] = pname
+    space_map: dict[uuid.UUID, WecomProjectScanSpace] = {}
+    if pids:
+        spaces = (
+            (
+                await session.execute(
+                    select(WecomProjectScanSpace).where(WecomProjectScanSpace.project_id.in_(pids))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        space_map = {space.project_id: space for space in spaces}
     # 批量解析业务归属人姓名 + 角色标签（created_by = 业务归属人）。
     owner_ids = {c.created_by for c in rows}
     owner_map: dict[uuid.UUID, tuple[str | None, str | None]] = {}
@@ -482,6 +628,16 @@ async def list_configs(session: AsyncSession, caller: CallerContext):
                 c,
                 name_map.get(c.related_project_id) if c.related_project_id else None,
                 *owner_map.get(c.created_by, (None, None)),
+                (
+                    space_map[c.related_project_id].status
+                    if c.related_project_id in space_map
+                    else "unavailable"
+                ),
+                (
+                    space_map[c.related_project_id].manager_access_status
+                    if c.related_project_id in space_map
+                    else "identity_link_required"
+                ),
             )
             for c in rows
         ]
@@ -489,68 +645,51 @@ async def list_configs(session: AsyncSession, caller: CallerContext):
 
 
 async def update_config(
-    session: AsyncSession, caller: CallerContext, config_id: uuid.UUID, body, trace_id: str
+    session: AsyncSession,
+    caller: CallerContext,
+    config_id: uuid.UUID,
+    body,
+    trace_id: str,
+    *,
+    drive,
 ):
-    """编辑扫描配置（系统管理员或当前治理身份）。支持 name / directory_path / target_scope /
-    target_project_id / enabled 局部更新；仅启停时不触发字段重校验。"""
     _require_operator(caller)
     config = await session.get(WecomScanConfig, config_id)
     if config is None:
         raise _denied(404, "wecom_scan_config_not_found", "扫描配置不存在")
+    _assert_config_access(caller, config)
+    if config.scope_type != KnowledgeScope.project.value or config.related_project_id is None:
+        raise _denied(409, "wecom_scan_legacy_config_read_only", "历史扫描配置不可编辑")
+    if body.enabled is True:
+        project = await session.get(Project, config.related_project_id)
+        if project is None or project.status != "active":
+            raise _denied(422, "target_project_not_found", "目标项目不存在或已停用")
+        await _ensure_project_scan_space(session, project=project, drive=drive, trace_id=trace_id)
 
-    # 计算生效后的取值（提供则覆盖；scope 改为非项目时清空 project）。
-    new_name = body.name if body.name is not None else config.name
-    new_dir = body.directory_path if body.directory_path is not None else config.directory_path
-    new_scope = body.target_scope if body.target_scope is not None else config.scope_type
-    if body.target_project_id is not None:
-        new_project = body.target_project_id
-    elif body.target_scope is not None and body.target_scope != KnowledgeScope.project.value:
-        new_project = None
-    else:
-        new_project = config.related_project_id
-    new_owner = (
-        body.task_owner_user_id if body.task_owner_user_id is not None else config.created_by
-    )
-
-    # 涉及 name/dir/scope/project 任一变更时做字段组合校验（纯启停 / 仅改归属人时跳过字段校验）。
-    if any(
-        v is not None
-        for v in (body.name, body.directory_path, body.target_scope, body.target_project_id)
-    ):
-        new_name, new_dir, new_scope, new_project = await _validate_config_fields(
-            session,
-            name=new_name,
-            directory_path=new_dir,
-            scope_type=new_scope,
-            related_project_id=new_project,
+    name = config.name
+    if body.name is not None:
+        name, _ = await _validate_project_config(
+            session, caller, name=body.name, project_id=config.related_project_id
         )
-    # 当归属人 / scope / project 任一变更时，重新校验业务归属人与（新）scope 的一致性，
-    # 避免改 scope 后旧归属人无法确认新口径任务。
-    if any(
-        v is not None for v in (body.task_owner_user_id, body.target_scope, body.target_project_id)
-    ):
+    owner_id = body.task_owner_user_id or config.created_by
+    if body.task_owner_user_id is not None:
         await _validate_task_owner(
             session,
-            owner_user_id=new_owner,
-            scope_type=new_scope,
-            related_project_id=new_project,
+            owner_user_id=owner_id,
+            scope_type=KnowledgeScope.project.value,
+            related_project_id=config.related_project_id,
         )
-
-    before = {
-        "name": config.name,
-        "enabled": config.enabled,
-        "scope_type": config.scope_type,
-        "target_project_id": str(config.related_project_id) if config.related_project_id else None,
-        "task_owner_user_id": str(config.created_by),
-    }
-    config.name = new_name
-    config.directory_path = new_dir
-    config.scope_type = new_scope
-    config.related_project_id = new_project
-    config.created_by = new_owner
+    config.name = name
+    config.created_by = owner_id
     if body.enabled is not None:
         config.enabled = body.enabled
-
+    mapping = (
+        await session.execute(
+            select(WecomProjectScanSpace).where(
+                WecomProjectScanSpace.project_id == config.related_project_id
+            )
+        )
+    ).scalar_one_or_none()
     await audit_service.record_event(
         session,
         caller=caller,
@@ -559,34 +698,85 @@ async def update_config(
         trace_id=trace_id,
         target_type="wecom_scan_config",
         target_id=config.id,
-        before=before,
         after={
-            "name": config.name,
-            "enabled": config.enabled,
-            "scope_type": config.scope_type,
-            "target_project_id": str(config.related_project_id)
-            if config.related_project_id
-            else None,
-            "task_owner_user_id": str(config.created_by),
-            "directory_path_changed": body.directory_path is not None,
+            "scope_type": KnowledgeScope.project.value,
+            "target_project_id": str(config.related_project_id),
+            "project_scan_space_ready": bool(
+                mapping and mapping.status == "ready" and mapping.space_id
+            ),
         },
         project_id=config.related_project_id,
     )
     await session.commit()
     owner_name, owner_role = await _owner_meta(session, config.created_by)
     return _config_out(
-        config, await _project_name(session, config.related_project_id), owner_name, owner_role
+        config,
+        await _project_name(session, config.related_project_id),
+        owner_name,
+        owner_role,
+        mapping.status if mapping else "unavailable",
+        mapping.manager_access_status if mapping else "identity_link_required",
     )
 
 
-# ---------------------------------------------------------------------------
-# 微盘目录浏览
-# ---------------------------------------------------------------------------
-def _wrap_wecom(exc: WeComError) -> HTTPException:
+def _wrap_wecom(exc: WeComError, *, trace_id: str = "", stage: str | None = None) -> HTTPException:
     """企微目录浏览错误 → 安全 HTTP：未配置 → 503（只回缺失项名）；其余 → 502 固定安全文案。
 
     **绝不**回显上游 errmsg / payload / token / url（WeComError.message 本就安全，但仍统一固定）。
     """
+    effective_stage = stage or exc.stage or "unknown"
+    status = exc.http_status
+    http_category = f"{status // 100}xx" if isinstance(status, int) else None
+    _logger.warning(
+        "wecom_drive_failure",
+        extra={
+            "stage": effective_stage,
+            "safe_code": exc.code,
+            "http_category": http_category,
+            "upstream_errcode": exc.upstream_errcode,
+            "trace_id": trace_id,
+        },
+    )
+    safe_errors = {
+        "wecom_token_rejected": (
+            503,
+            "企业微信应用凭证或访问令牌无效，请管理员检查应用凭证后重试",
+        ),
+        "wecom_token_missing": (
+            502,
+            "企业微信未返回有效访问令牌，请管理员检查应用配置后重试",
+        ),
+        "wecom_drive_permission_denied": (
+            502,
+            "企业微信应用未获得微盘权限，请管理员在应用权限中启用“协作-微盘-API”后重试",
+        ),
+        "wecom_drive_network_unavailable": (
+            503,
+            "企业微信微盘暂时不可用，请稍后重试",
+        ),
+        "wecom_drive_http_error": (
+            502,
+            "企业微信微盘服务响应异常，请稍后重试",
+        ),
+        "wecom_drive_bad_response": (
+            502,
+            "企业微信微盘返回了无法识别的响应，请稍后重试",
+        ),
+        "wecom_drive_upstream_rejected": (
+            502,
+            "企业微信微盘拒绝了请求，请管理员检查应用授权后重试",
+        ),
+        "wecom_space_manager_limit": (
+            422,
+            "项目经理人数超过企业微信空间管理员上限，请调整后重试",
+        ),
+    }
+    if exc.code in safe_errors:
+        status_code, message = safe_errors[exc.code]
+        return HTTPException(
+            status_code,
+            detail={"denied_reason": exc.code, "message": message},
+        )
     if exc.code == "wecom_not_configured":
         from app.core.config import get_settings
 
@@ -635,64 +825,6 @@ def _wrap_wecom(exc: WeComError) -> HTTPException:
     )
 
 
-async def list_drive_spaces(caller: CallerContext, drive):
-    """列微盘空间（系统管理员或当前治理身份）。返回安全选择元数据（space_ref/name），不含 token/url/file_id。"""
-    _require_operator(caller)
-    try:
-        spaces = await drive.list_spaces()
-    except WeComError as exc:
-        raise _wrap_wecom(exc) from exc
-    from app.schemas.wecom import WecomDriveSpaceOut, WecomDriveSpacesResponse
-
-    return WecomDriveSpacesResponse(
-        items=[WecomDriveSpaceOut(space_ref=s.space_ref, name=s.name) for s in spaces]
-    )
-
-
-async def list_drive_directories(
-    caller: CallerContext, drive, *, space_ref: str, parent_ref: str | None
-):
-    """列某空间/父目录下的子目录（系统管理员或当前治理身份）。
-
-    `space_ref`=空间选择引用（spaceid）；`parent_ref`=父目录的 directory_ref（`spaceid:<id>;fatherid:<id>`，
-    钻取用）或空（根）。后端把 directory_ref 解析为 fatherid 后调用底层 client。
-    """
-    from app.services.wecom_client import parse_directory_path
-
-    _require_operator(caller)
-    space = (space_ref or "").strip()
-    if not space or ":" in space or ";" in space:
-        # space_ref 必须是裸 spaceid（不接受 directory_path 整串）。
-        raise _denied(422, "wecom_invalid_space", "微盘空间标识非法")
-    fatherid: str | None = None
-    if parent_ref:
-        try:
-            sp, fid = parse_directory_path(parent_ref)
-        except WeComError:
-            raise _denied(422, "wecom_invalid_directory_ref", "目录标识格式非法") from None
-        if sp != space:
-            raise _denied(422, "wecom_directory_space_mismatch", "目录与所选空间不一致")
-        fatherid = fid or None
-    try:
-        dirs = await drive.list_directories(space, fatherid)
-    except WeComError as exc:
-        raise _wrap_wecom(exc) from exc
-    from app.schemas.wecom import WecomDriveDirectoriesResponse, WecomDriveDirectoryOut
-
-    return WecomDriveDirectoriesResponse(
-        space_ref=space,
-        items=[
-            WecomDriveDirectoryOut(
-                directory_ref=d.directory_ref,
-                name=d.name,
-                parent_ref=parent_ref,
-                has_children=d.has_children,
-            )
-            for d in dirs
-        ],
-    )
-
-
 async def list_records(session: AsyncSession, caller: CallerContext, config_id: uuid.UUID):
     from app.schemas.wecom import WecomScanRecordsResponse
 
@@ -700,6 +832,7 @@ async def list_records(session: AsyncSession, caller: CallerContext, config_id: 
     config = await session.get(WecomScanConfig, config_id)
     if config is None:
         raise _denied(404, "wecom_scan_config_not_found", "扫描配置不存在")
+    _assert_config_access(caller, config)
     rows = list(
         (
             await session.execute(
@@ -733,6 +866,7 @@ async def trigger_scan(
     config = await session.get(WecomScanConfig, config_id)
     if config is None:
         raise _denied(404, "wecom_scan_config_not_found", "扫描配置不存在")
+    _assert_config_access(caller, config)
     if not config.enabled:
         raise _denied(409, "wecom_scan_disabled", "扫描配置已停用")
 
@@ -842,12 +976,55 @@ async def run_scan(
         return record
 
     owner_actor = await _owner_actor(session, config)
+    mapping = None
+    if config.scope_type == KnowledgeScope.project.value and config.related_project_id is not None:
+        mapping = (
+            await session.execute(
+                select(WecomProjectScanSpace).where(
+                    WecomProjectScanSpace.project_id == config.related_project_id
+                )
+            )
+        ).scalar_one_or_none()
+    if mapping is None or mapping.status != "ready" or not mapping.space_id:
+        # Legacy directory_path is intentionally ignored. Every scan, including
+        # historical project/personal/company configs, requires a ready
+        # server-side project-space mapping and therefore fails closed here.
+        record.scan_status = "failed"
+        record.error_type = "wecom_project_scan_space_unavailable"
+        record.error_message = "项目扫描空间当前不可用，请管理员恢复空间配置后重试"
+        record.scan_completed_at = utc_now()
+        await _scan_terminal_audit(
+            session,
+            actor_caller,
+            AuditAction.wecom_scan_failed.value,
+            config,
+            record,
+            trace_id,
+            extra={
+                "error_code": "wecom_project_scan_space_unavailable",
+                "stage": "space_resolve",
+            },
+        )
+        await session.commit()
+        return record
+    directory_path = f"spaceid:{mapping.space_id};fatherid:"
     zone = KnowledgeZone.material.value  # Path A 入项目/公司库默认 material
 
     # 列目录失败 → 整次扫描 failed（不部分成功）。
     try:
-        files = await drive.list_files(config.directory_path)
+        files = await drive.list_files(directory_path)
     except WeComError as exc:
+        status = exc.http_status
+        _logger.warning(
+            "wecom_drive_failure",
+            extra={
+                "stage": exc.stage or "file_list",
+                "safe_code": exc.code,
+                "http_category": (f"{status // 100}xx" if isinstance(status, int) else None),
+                "upstream_errcode": exc.upstream_errcode,
+                "trace_id": trace_id or "",
+            },
+        )
         record.scan_status = "failed"
         record.error_type = exc.code  # 安全 code，不含上游 payload
         record.error_message = "微盘目录列举失败（详见审计）"

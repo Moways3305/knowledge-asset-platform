@@ -64,6 +64,9 @@ async def indexing_counts(session: AsyncSession) -> dict[str, int]:
         "parse_processing": await count(
             versions(KnowledgeAssetVersion.weknora_parse_status == "processing")
         ),
+        "parse_failed": await count(
+            versions(KnowledgeAssetVersion.weknora_parse_status == "failed")
+        ),
         "kb_init_failed": await count(
             select(func.count())
             .select_from(WeknoraKbMapping)
@@ -250,8 +253,9 @@ async def get_health(
                 indexing=item.indexing,
                 not_indexed=item.not_indexed,
                 skipped=item.skipped,
-                parse_pending=item.parse_pending,
-                parse_processing=item.parse_processing,
+                parse_pending=getattr(item, "parse_pending", 0),
+                parse_processing=getattr(item, "parse_processing", 0),
+                parse_failed=getattr(item, "parse_failed", 0),
                 kb_init_failed=item.kb_init_failed,
                 completed_jobs=item.completed_jobs,
                 failed_jobs=item.failed_jobs,

@@ -2980,6 +2980,11 @@
             ],
             "title": "Oldest Queued Seconds"
           },
+          "parse_failed": {
+            "default": 0,
+            "title": "Parse Failed",
+            "type": "integer"
+          },
           "parse_pending": {
             "title": "Parse Pending",
             "type": "integer"
@@ -11254,101 +11259,6 @@
         "title": "WecomAuthorizeOut",
         "type": "object"
       },
-      "WecomDriveDirectoriesResponse": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/WecomDriveDirectoryOut"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "space_ref": {
-            "title": "Space Ref",
-            "type": "string"
-          }
-        },
-        "required": [
-          "space_ref",
-          "items"
-        ],
-        "title": "WecomDriveDirectoriesResponse",
-        "type": "object"
-      },
-      "WecomDriveDirectoryOut": {
-        "properties": {
-          "directory_ref": {
-            "title": "Directory Ref",
-            "type": "string"
-          },
-          "has_children": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Has Children"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "parent_ref": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Parent Ref"
-          }
-        },
-        "required": [
-          "directory_ref",
-          "name"
-        ],
-        "title": "WecomDriveDirectoryOut",
-        "type": "object"
-      },
-      "WecomDriveSpaceOut": {
-        "properties": {
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "space_ref": {
-            "title": "Space Ref",
-            "type": "string"
-          }
-        },
-        "required": [
-          "space_ref",
-          "name"
-        ],
-        "title": "WecomDriveSpaceOut",
-        "type": "object"
-      },
-      "WecomDriveSpacesResponse": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/WecomDriveSpaceOut"
-            },
-            "title": "Items",
-            "type": "array"
-          }
-        },
-        "required": [
-          "items"
-        ],
-        "title": "WecomDriveSpacesResponse",
-        "type": "object"
-      },
       "WecomOwnerOptionOut": {
         "description": "业务归属人候选（仅安全字段）：active 业务用户。\n\nproject_ids / is_governance 供前端按 target_scope 做候选提示；后端最终校验为准。\n绝不含 token / session / wecom_user_id 明文 / ip / device。",
         "properties": {
@@ -11418,14 +11328,24 @@
             "title": "Id",
             "type": "string"
           },
+          "manager_access_status": {
+            "title": "Manager Access Status",
+            "type": "string"
+          },
           "name": {
             "title": "Name",
+            "type": "string"
+          },
+          "scan_space_status": {
+            "title": "Scan Space Status",
             "type": "string"
           }
         },
         "required": [
           "id",
-          "name"
+          "name",
+          "scan_space_status",
+          "manager_access_status"
         ],
         "title": "WecomProjectOptionOut",
         "type": "object"
@@ -11447,12 +11367,8 @@
         "type": "object"
       },
       "WecomScanConfigCreateBody": {
-        "description": "创建扫描配置请求。\n\ndirectory_path 仍为内部格式 `spaceid:<id>;fatherid:<id>`（server-only 不拆字段外泄）。\n`task_owner_user_id`：扫描产物（path_a_wecom IngestTask）的业务归属人，必须是合法业务\n用户（active、含业务公司角色、非纯 admin），写入 `WecomScanConfig.created_by`；配置操作人\n仍是当前 admin（审计 actor）。",
+        "description": "创建项目扫描配置；扫描根固定为服务端项目扫描空间根目录。",
         "properties": {
-          "directory_path": {
-            "title": "Directory Path",
-            "type": "string"
-          },
           "enabled": {
             "default": true,
             "title": "Enabled",
@@ -11463,19 +11379,8 @@
             "type": "string"
           },
           "target_project_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Target Project Id"
-          },
-          "target_scope": {
-            "title": "Target Scope",
+            "format": "uuid",
+            "title": "Target Project Id",
             "type": "string"
           },
           "task_owner_user_id": {
@@ -11486,8 +11391,7 @@
         },
         "required": [
           "name",
-          "directory_path",
-          "target_scope",
+          "target_project_id",
           "task_owner_user_id"
         ],
         "title": "WecomScanConfigCreateBody",
@@ -11503,10 +11407,6 @@
           "created_by": {
             "format": "uuid",
             "title": "Created By",
-            "type": "string"
-          },
-          "directory_path": {
-            "title": "Directory Path",
             "type": "string"
           },
           "enabled": {
@@ -11529,6 +11429,10 @@
               }
             ],
             "title": "Last Scan At"
+          },
+          "manager_access_status": {
+            "title": "Manager Access Status",
+            "type": "string"
           },
           "name": {
             "anyOf": [
@@ -11575,6 +11479,10 @@
             ],
             "title": "Scan Frequency"
           },
+          "scan_space_status": {
+            "title": "Scan Space Status",
+            "type": "string"
+          },
           "scope_type": {
             "title": "Scope Type",
             "type": "string"
@@ -11610,9 +11518,10 @@
         "required": [
           "id",
           "name",
-          "directory_path",
           "scope_type",
           "related_project_id",
+          "scan_space_status",
+          "manager_access_status",
           "enabled",
           "created_by",
           "scan_frequency",
@@ -11624,19 +11533,8 @@
         "type": "object"
       },
       "WecomScanConfigUpdateBody": {
-        "description": "编辑扫描配置请求。全部可选；仅传入字段被更新（含启停）。",
+        "description": "编辑项目扫描配置；项目和扫描空间不可由浏览器修改。",
         "properties": {
-          "directory_path": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Directory Path"
-          },
           "enabled": {
             "anyOf": [
               {
@@ -11658,29 +11556,6 @@
               }
             ],
             "title": "Name"
-          },
-          "target_project_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Target Project Id"
-          },
-          "target_scope": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Target Scope"
           },
           "task_owner_user_id": {
             "anyOf": [
@@ -17884,195 +17759,6 @@
           }
         },
         "summary": "Trigger Scan",
-        "tags": [
-          "wecom-scan"
-        ]
-      }
-    },
-    "/api/v1/admin/wecom-scan/drive/directories": {
-      "get": {
-        "description": "微盘子目录列表。只列目录、不列普通文件；directory_ref 可直接保存。",
-        "operationId": "list_drive_directories_api_v1_admin_wecom_scan_drive_directories_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "space_ref",
-            "required": true,
-            "schema": {
-              "title": "Space Ref",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "parent_ref",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Parent Ref"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Dev-User-Id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Dev-User-Id"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Session"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_active_company_role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Active Company Role"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WecomDriveDirectoriesResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Drive Directories",
-        "tags": [
-          "wecom-scan"
-        ]
-      }
-    },
-    "/api/v1/admin/wecom-scan/drive/spaces": {
-      "get": {
-        "description": "微盘空间列表。只回安全选择元数据，未配置 → 安全 503。",
-        "operationId": "list_drive_spaces_api_v1_admin_wecom_scan_drive_spaces_get",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-Dev-User-Id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Dev-User-Id"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Session"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_active_company_role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Active Company Role"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WecomDriveSpacesResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Drive Spaces",
         "tags": [
           "wecom-scan"
         ]

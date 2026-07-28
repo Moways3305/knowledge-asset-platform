@@ -14,6 +14,7 @@ export default function IndexDistribution({
     { label: "索引处理中", value: counts.indexing, tone: "blue" },
     { label: "未索引", value: counts.not_indexed, tone: "gold" },
     { label: "已跳过", value: counts.skipped, tone: "neutral" },
+    { label: "解析失败", value: counts.parse_failed, tone: "danger" },
     { label: "解析处理中", value: counts.parse_pending + counts.parse_processing, tone: "violet" },
     { label: "知识库初始化失败", value: counts.kb_init_failed, tone: "danger" },
   ];

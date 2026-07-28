@@ -80,7 +80,7 @@ const healthLabels = {
 };
 
 function trendPointLabel(point: IndexingHealthDTO["trend_points"][number]): string {
-  return `${formatBeijingTime(point.observed_at)}，已完成作业 ${point.completed_jobs}，失败或部分失败作业 ${point.failed_jobs}，排队作业 ${point.queued_jobs}，索引失败存量 ${point.index_failed}`;
+  return `${formatBeijingTime(point.observed_at)}，已完成作业 ${point.completed_jobs}，失败或部分失败作业 ${point.failed_jobs}，排队作业 ${point.queued_jobs}，索引失败存量 ${point.index_failed}，解析失败存量 ${point.parse_failed}`;
 }
 
 function trendTickLabel(points: IndexingHealthDTO["trend_points"], index: number): string {
@@ -167,6 +167,7 @@ export default function AdminIngestPage() {
   const [retryIncludeNotIndexed, setRetryIncludeNotIndexed] = useState(false);
   const [opsLimit, setOpsLimit] = useState(50);
   const [opsBusy, setOpsBusy] = useState(false);
+  const [opsBusyOperation, setOpsBusyOperation] = useState<string | null>(null);
   const [opsNote, setOpsNote] = useState<string | null>(null);
   const [opsNoteTone, setOpsNoteTone] = useState<"success" | "danger">("success");
   const [retryTarget, setRetryTarget] = useState<OpsIndexingFailedItemDTO | null>(null);
@@ -226,8 +227,9 @@ export default function AdminIngestPage() {
     void refreshAll();
   }, [refreshAll]);
 
-  const activeJob = opsJobs.some((job) => ["queued", "running"].includes(job.status));
-  const actionLocked = opsBusy || activeJob || opsState !== "ready";
+  const activeJob = opsJobs.find((job) => ["queued", "running"].includes(job.status));
+  const activeOperation = opsBusyOperation ?? activeJob?.operation_type ?? null;
+  const actionLocked = opsBusy || Boolean(activeJob) || opsState !== "ready";
   const refreshing =
     ingestState === "loading" ||
     opsState === "loading" ||
@@ -235,29 +237,43 @@ export default function AdminIngestPage() {
     healthState === "loading";
 
   const recordJob = useCallback((job: IndexingJobSummaryDTO, operationLabel?: string) => {
+    const label = operationLabel ?? safeJobOperation(job.operation_type);
     setOpsJobs((current) => [job, ...current.filter((item) => item.job_id !== job.job_id)]);
     setJobsState("ready");
     setOpsNoteTone("success");
+    if (job.total_count === 0) {
+      setOpsNote(
+        job.operation_type === "reparse"
+          ? `${label}未找到可处理项：仅处理已索引、已有底座文档且解析失败或待解析的资产。`
+          : `${label}未找到可处理项：本次没有符合条件的索引失败、未索引或已跳过资产。`,
+      );
+      return;
+    }
     setOpsNote(
-      `${operationLabel ?? safeJobOperation(job.operation_type)}已提交：共 ${job.total_count} 项，成功 ${job.success_count} 项，失败 ${job.failed_count} 项，跳过 ${job.skipped_count} 项。`,
+      `${label}已提交：共 ${job.total_count} 项，成功 ${job.success_count} 项，失败 ${job.failed_count} 项，跳过 ${job.skipped_count} 项。`,
     );
   }, []);
 
   const handleBatchRetry = useCallback(async () => {
     if (actionLocked) return;
     setOpsBusy(true);
+    setOpsBusyOperation("retry_index");
     setOpsNote(null);
     try {
       const statuses = ["index_failed"];
       if (retryIncludeSkipped) statuses.push("skipped");
       if (retryIncludeNotIndexed) statuses.push("not_indexed");
-      recordJob(await triggerIndexingRetry({ scope: "all", statuses, limit: opsLimit }));
+      recordJob(
+        await triggerIndexingRetry({ scope: "all", statuses, limit: opsLimit }),
+        "批量重试索引",
+      );
       await loadOpsIndex();
     } catch {
       setOpsNoteTone("danger");
       setOpsNote("批量重试未能发起，请稍后重试。");
     } finally {
       setOpsBusy(false);
+      setOpsBusyOperation(null);
     }
   }, [
     actionLocked,
@@ -271,6 +287,7 @@ export default function AdminIngestPage() {
   const handleReparse = useCallback(async () => {
     if (actionLocked) return;
     setOpsBusy(true);
+    setOpsBusyOperation("reparse");
     setOpsNote(null);
     try {
       recordJob(
@@ -279,6 +296,7 @@ export default function AdminIngestPage() {
           parse_statuses: ["failed", "pending"],
           limit: opsLimit,
         }),
+        "重新解析",
       );
       await loadOpsIndex();
     } catch {
@@ -286,6 +304,7 @@ export default function AdminIngestPage() {
       setOpsNote("重新解析未能发起，请稍后重试。");
     } finally {
       setOpsBusy(false);
+      setOpsBusyOperation(null);
     }
   }, [actionLocked, loadOpsIndex, opsLimit, recordJob]);
 
@@ -323,6 +342,13 @@ export default function AdminIngestPage() {
       ? items
       : items.filter((item) => item.diagnostic_category === failureFilter);
   }, [failureFilter, opsIndex]);
+  const retryActionableCount = Math.min(
+    opsLimit,
+    (opsIndex?.counts.index_failed ?? 0) +
+      (retryIncludeSkipped ? (opsIndex?.counts.skipped ?? 0) : 0) +
+      (retryIncludeNotIndexed ? (opsIndex?.counts.not_indexed ?? 0) : 0),
+  );
+  const reparseActionableCount = Math.min(opsLimit, opsIndex?.reparse_actionable_count ?? 0);
 
   const trendMax = useMemo(
     () =>
@@ -417,9 +443,13 @@ export default function AdminIngestPage() {
           ) : (
             <>
               <div
-                className={`ao84-health ${opsIndex.counts.index_failed ? "is-warning" : "is-clear"}`}
+                className={`ao84-health ${
+                  opsIndex.counts.index_failed || opsIndex.counts.parse_failed
+                    ? "is-warning"
+                    : "is-clear"
+                }`}
               >
-                {opsIndex.counts.index_failed ? (
+                {opsIndex.counts.index_failed || opsIndex.counts.parse_failed ? (
                   <AlertTriangle size={18} aria-hidden="true" />
                 ) : (
                   <CheckCircle2 size={18} aria-hidden="true" />
@@ -428,9 +458,14 @@ export default function AdminIngestPage() {
                   <strong>
                     {opsIndex.counts.index_failed
                       ? `${opsIndex.counts.index_failed} 项索引失败`
-                      : "当前没有索引失败项"}
+                      : opsIndex.counts.parse_failed
+                        ? `存在 ${opsIndex.counts.parse_failed} 项底座解析异常，可重新解析`
+                        : "当前没有索引或解析失败项"}
                   </strong>
-                  <span>状态来自平台索引安全统计</span>
+                  <span>
+                    解析失败为安全可见性统计，其中 {opsIndex.reparse_actionable_count}{" "}
+                    项符合重新解析条件
+                  </span>
                 </div>
               </div>
               <IndexDistribution counts={opsIndex.counts} className="ao84-index-grid" />
@@ -460,6 +495,15 @@ export default function AdminIngestPage() {
           </div>
 
           <div className="ao84-actions" aria-label="索引批量操作">
+            <div className="ao84-action-explanation">
+              <strong>批量重试索引</strong>
+              <span>处理索引失败，可选未索引或已跳过；当前最多 {retryActionableCount} 项。</span>
+              <strong>重新解析</strong>
+              <span>
+                仅处理已索引、已有底座文档且解析失败或待解析的资产；当前最多{" "}
+                {reparseActionableCount} 项。
+              </span>
+            </div>
             <div className="ao84-action-options">
               <label>
                 <input
@@ -498,7 +542,9 @@ export default function AdminIngestPage() {
                 onClick={() => void handleBatchRetry()}
               >
                 <RotateCw size={15} aria-hidden="true" />
-                {opsBusy ? "提交中…" : activeJob ? "作业执行中" : "批量重试索引"}
+                {activeOperation
+                  ? `正在执行：${safeJobOperation(activeOperation)}`
+                  : `批量重试索引（${retryActionableCount} 项）`}
               </button>
               <button
                 className="btn-small"
@@ -506,7 +552,9 @@ export default function AdminIngestPage() {
                 onClick={() => void handleReparse()}
               >
                 <FileSearch size={15} aria-hidden="true" />
-                重新解析
+                {activeOperation
+                  ? `正在执行：${safeJobOperation(activeOperation)}`
+                  : `重新解析（${reparseActionableCount} 项）`}
               </button>
             </div>
           </div>
@@ -763,6 +811,7 @@ export default function AdminIngestPage() {
                               <span>失败或部分失败作业 {point.failed_jobs}</span>
                               <span>排队作业 {point.queued_jobs}</span>
                               <span>索引失败存量 {point.index_failed}</span>
+                              <span>解析失败存量 {point.parse_failed}</span>
                             </div>
                           </div>
                         );

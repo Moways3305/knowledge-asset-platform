@@ -56,8 +56,6 @@ import type {
 } from "../types/permission";
 import type {
   WecomAuthorizeDTO,
-  WecomDriveDirectoriesResponseDTO,
-  WecomDriveSpacesResponseDTO,
   WecomOwnerOptionsResponseDTO,
   WecomProjectOptionsResponseDTO,
   WecomScanConfigCreateBody,
@@ -383,22 +381,6 @@ export async function fetchWecomScanConfigs(): Promise<WecomScanConfigsResponseD
   return apiGet<WecomScanConfigsResponseDTO>(`/api/v1/admin/wecom-scan/configs`);
 }
 
-// 微盘目录浏览（admin-only）。只回安全选择元数据，未配置 → 503。
-export async function fetchWecomDriveSpaces(): Promise<WecomDriveSpacesResponseDTO> {
-  return apiGet<WecomDriveSpacesResponseDTO>(`/api/v1/admin/wecom-scan/drive/spaces`);
-}
-
-export async function fetchWecomDriveDirectories(
-  spaceRef: string,
-  parentRef?: string,
-): Promise<WecomDriveDirectoriesResponseDTO> {
-  const qs = new URLSearchParams({ space_ref: spaceRef });
-  if (parentRef) qs.set("parent_ref", parentRef);
-  return apiGet<WecomDriveDirectoriesResponseDTO>(
-    `/api/v1/admin/wecom-scan/drive/directories?${qs.toString()}`,
-  );
-}
-
 // 目标项目候选（active 项目 id + 名称）。读权限同配置读（admin / boss / 咨询总监）。
 export async function fetchWecomScanProjectOptions(): Promise<WecomProjectOptionsResponseDTO> {
   return apiGet<WecomProjectOptionsResponseDTO>(`/api/v1/admin/wecom-scan/project-options`);
@@ -417,7 +399,7 @@ export async function createWecomScanConfig(
   return apiPost<WecomScanConfigDTO>(`/api/v1/admin/wecom-scan/configs`, body);
 }
 
-// 编辑配置（仅 admin）：局部更新 name / directory_path / target_scope / target_project_id / enabled。
+// 编辑项目配置：项目与服务端扫描空间不可变。
 export async function updateWecomScanConfig(
   configId: string,
   body: WecomScanConfigUpdateBody,

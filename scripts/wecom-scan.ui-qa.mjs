@@ -23,15 +23,13 @@ const scenarios = [
   "scan-failure",
   "records-empty",
   "forbidden",
-  "unconfigured",
-  "browse-failure",
+  "space-unavailable",
+  "identity-missing",
 ];
 const secrets = [
   "SECRET_CONFIG_87",
   "SECRET_RECORD_87",
   "SECRET_TRACE_87",
-  "SECRET_SPACE_87",
-  "SECRET_FOLDER_87",
   "SECRET_UPSTREAM_87",
   "SECRET_TOKEN_87",
 ];
@@ -49,10 +47,11 @@ const authMe = {
 const config = {
   id: "SECRET_CONFIG_87",
   name: "Alpha 交付资料",
-  directory_path: "spaceid:SECRET_SPACE_87;fatherid:SECRET_FOLDER_87",
   scope_type: "project",
   related_project_id: "project-safe",
   related_project_name: "Alpha 项目",
+  scan_space_status: "ready",
+  manager_access_status: "ready",
   enabled: true,
   created_by: "owner-safe",
   task_owner_name: "张经理",
@@ -117,7 +116,19 @@ try {
           return fulfill({ detail: { message: "SECRET_UPSTREAM_87" } }, 403);
         if (url.pathname === "/api/v1/admin/wecom-scan/configs")
           return fulfill({
-            items: scenario === "empty" ? [] : [{ ...config, enabled: scenario !== "disabled" }],
+            items:
+              scenario === "empty"
+                ? []
+                : [
+                    {
+                      ...config,
+                      enabled: scenario !== "disabled",
+                      scan_space_status:
+                        scenario === "space-unavailable" ? "unavailable" : "ready",
+                      manager_access_status:
+                        scenario === "identity-missing" ? "identity_link_required" : "ready",
+                    },
+                  ],
           });
         if (url.pathname.endsWith("/records"))
           return fulfill({ items: scenario === "records-empty" ? [] : [record, earlierRecord] });
@@ -128,7 +139,18 @@ try {
           return fulfill(record);
         }
         if (url.pathname.endsWith("/project-options"))
-          return fulfill({ items: [{ id: "project-safe", name: "Alpha 项目" }] });
+          return fulfill({
+            items: [
+              {
+                id: "project-safe",
+                name: "Alpha 项目",
+                scan_space_status:
+                  scenario === "space-unavailable" ? "unavailable" : "ready",
+                manager_access_status:
+                  scenario === "identity-missing" ? "identity_link_required" : "ready",
+              },
+            ],
+          });
         if (url.pathname.endsWith("/owner-options"))
           return fulfill({
             items: [
@@ -141,23 +163,6 @@ try {
               },
             ],
           });
-        if (url.pathname.endsWith("/drive/spaces")) {
-          if (scenario === "unconfigured")
-            return fulfill(
-              {
-                detail: {
-                  message: "SECRET_TOKEN_87",
-                  missing_config: ["WECOM_CORP_ID", "WECOM_APP_SECRET"],
-                },
-              },
-              503,
-            );
-          if (scenario === "browse-failure")
-            return fulfill({ detail: { message: "SECRET_UPSTREAM_87" } }, 502);
-          return fulfill({ items: [{ space_ref: "SECRET_SPACE_87", name: "项目空间" }] });
-        }
-        if (url.pathname.includes("/drive/directories"))
-          return fulfill({ space_ref: "SECRET_SPACE_87", items: [] });
         return fulfill({ detail: { message: "route missing" } }, 404);
       });
       const page = await context.newPage();
@@ -169,16 +174,10 @@ try {
         await page.getByRole("button", { name: "扫描", exact: true }).click();
         await page.getByText(scenario === "scan-success" ? /扫描已结束/ : /扫描未能完成/).waitFor();
       }
-      if (scenario === "unconfigured" || scenario === "browse-failure") {
+      if (scenario === "identity-missing") {
         await page.getByRole("button", { name: "新增扫描配置" }).click();
-        await page.getByRole("button", { name: "选择微盘目录" }).click();
-        await page
-          .getByText(
-            scenario === "unconfigured"
-              ? /企业微信连接尚未配置/
-              : /微盘访问暂时失败/,
-          )
-          .waitFor();
+        await page.getByRole("combobox", { name: /目标项目/ }).selectOption("project-safe");
+        await page.getByText(/需完成身份绑定后才能在企业微信中管理空间/).waitFor();
       }
       const screenshot = path.join(outDir, `${scenario}-${viewport.name}.png`);
       await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
@@ -235,10 +234,10 @@ try {
               empty: text.includes("尚未配置微盘扫描"),
               disabled: text.includes("停用"),
               "records-empty": text.includes("尚未运行"),
-              unconfigured:
-                text.includes("企业微信连接尚未配置") && text.includes("WECOM_CORP_ID"),
-              "browse-failure":
-                text.includes("微盘访问暂时失败") && text.includes("重试加载"),
+              "space-unavailable": text.includes("项目空间不可用"),
+              "identity-missing":
+                text.includes("项目经理需绑定企微身份") &&
+                text.includes("需完成身份绑定后才能在企业微信中管理空间"),
               normal: text.includes("Alpha 交付资料"),
               "scan-success": text.includes("扫描已结束"),
               "scan-failure": text.includes("扫描未能完成"),

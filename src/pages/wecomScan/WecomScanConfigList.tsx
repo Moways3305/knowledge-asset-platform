@@ -53,7 +53,9 @@ export default function WecomScanConfigList({
       <div className="ws87-table-state">
         <strong>尚未配置微盘扫描</strong>
         <span>
-          {canEdit ? "通过页首“新增扫描配置”选择真实微盘目录。" : "当前没有可查看的扫描配置。"}
+          {canEdit
+            ? "通过页首“新增扫描配置”为项目创建专属扫描空间。"
+            : "当前没有可查看的扫描配置。"}
         </span>
       </div>
     );
@@ -102,6 +104,12 @@ export default function WecomScanConfigList({
                   <span className={`ws87-enabled ${config.enabled ? "is-on" : "is-off"}`}>
                     {config.enabled ? "启用" : "停用"}
                   </span>
+                  <small>
+                    {config.scan_space_status === "ready" ? "项目空间已就绪" : "项目空间不可用"}
+                  </small>
+                  {config.manager_access_status === "identity_link_required" && (
+                    <small>项目经理需绑定企微身份</small>
+                  )}
                 </td>
                 <td>{formatBeijingTime(config.last_scan_at)}</td>
                 <td>{runSummary(latest[config.id])}</td>
