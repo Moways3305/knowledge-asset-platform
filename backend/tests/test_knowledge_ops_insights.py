@@ -14,12 +14,15 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import select
+
 from app.models.identity import User
 from app.models.indexing_job import IndexingOperationJob
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.lifecycle import AssetLifecycleEvent
 from app.models.original_access import OriginalAccessRequest
 from app.models.permission_rule import PermissionRule
+from app.models.weknora import WeknoraKbMapping
 from app.seed.dev_seed import (
     KA_COMPANY_L2,
     PROJECT_ALPHA,
@@ -236,6 +239,27 @@ async def test_indexing_counts_from_real_versions(client, db_session):
     # 卡片来自真实计数（非零才出现）。
     keys = {c["key"] for c in body["cards"]}
     assert "index_failed" in keys
+
+
+async def test_kb_init_failures_are_split_into_safe_scope_drilldowns(client, db_session):
+    mappings = list((await db_session.execute(select(WeknoraKbMapping))).scalars())
+    for mapping in mappings:
+        mapping.status = "init_failed"
+    await db_session.commit()
+
+    response = await client.get(INSIGHTS, headers=_hdr(USER_PROJECT_MANAGER))
+    assert response.status_code == 200
+    cards = [card for card in response.json()["cards"] if card["key"] == "kb_init_failed"]
+    assert {(card["scope"], card["project_id"]) for card in cards} == {
+        ("company", None),
+        ("project", str(PROJECT_ALPHA)),
+    }
+    assert {card["context_label"] for card in cards} == {
+        "公司知识库",
+        "Alpha 项目",
+    }
+    assert str(PROJECT_BETA) not in response.text
+    _assert_no_leak(response.text)
 
 
 async def test_access_stats_pending_and_auto_approved(client, db_session):

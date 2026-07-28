@@ -96,9 +96,22 @@ describe("AppLayout shell contract", () => {
     expect(auth.reload).toHaveBeenCalledTimes(1);
   });
 
-  it("filters navigation with the existing capabilities", () => {
+  it("shows scoped model configuration navigation to project managers", () => {
     auth.capabilities.isAdmin = false;
     auth.capabilities.isGovernance = false;
+    renderLayout();
+    expect(screen.getByRole("link", { name: "知识资产库" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "模型配置" })).toHaveAttribute(
+      "href",
+      "/admin/weknora-models",
+    );
+  });
+
+  it("hides model configuration navigation from ordinary project members", () => {
+    auth.capabilities.isAdmin = false;
+    auth.capabilities.isBoss = false;
+    auth.capabilities.isGovernance = false;
+    auth.capabilities.isProjectManager = false;
     renderLayout();
     expect(screen.getByRole("link", { name: "知识资产库" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "模型配置" })).not.toBeInTheDocument();

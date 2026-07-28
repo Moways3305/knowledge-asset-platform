@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import denied
 from app.db.utils import utc_now
 from app.models.audit import AuditEvent
+from app.models.identity import Project
 from app.models.indexing_job import IndexingOperationJob
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.lifecycle import AssetLifecycleEvent
@@ -244,7 +245,8 @@ async def get_ops_insights(
     recent_items = await _recent_index_failed_items(
         session, vis, scope_conds, item_limit, title_visible=title_visible
     )
-    cards = _build_cards(indexing, access, lifecycle)
+    kb_failure_cards = await _kb_init_failed_cards(session, caller, scope_v, project_id)
+    cards = _build_cards(indexing, access, lifecycle, kb_failure_cards=kb_failure_cards)
     recommendations = _build_recommendations(indexing, access, lifecycle, ops_viewer=ops_viewer)
 
     return KnowledgeOpsInsightsResponse(
@@ -262,6 +264,16 @@ async def get_ops_insights(
 
 def _kb_init_failed_stmt(caller: CallerContext, scope_v: str, project_id: uuid.UUID | None):
     """KB 初始化失败计数（按可见范围限定 mapping）。"""
+    return (
+        select(func.count())
+        .select_from(WeknoraKbMapping)
+        .where(*_kb_init_failed_conditions(caller, scope_v, project_id))
+    )
+
+
+def _kb_init_failed_conditions(
+    caller: CallerContext, scope_v: str, project_id: uuid.UUID | None
+) -> list:
     conds = [WeknoraKbMapping.status == "init_failed"]
     if not _is_admin(caller):
         pids = list(caller.active_project_ids) or [uuid.UUID(int=0)]
@@ -284,7 +296,59 @@ def _kb_init_failed_stmt(caller: CallerContext, scope_v: str, project_id: uuid.U
         conds.append(WeknoraKbMapping.scope == scope_v)
     if scope_v == KnowledgeScope.project.value and project_id is not None:
         conds.append(WeknoraKbMapping.project_id == project_id)
-    return select(func.count()).select_from(WeknoraKbMapping).where(*conds)
+    return conds
+
+
+async def _kb_init_failed_cards(
+    session: AsyncSession,
+    caller: CallerContext,
+    scope_v: str,
+    project_id: uuid.UUID | None,
+) -> list[InsightCard]:
+    rows = (
+        await session.execute(
+            select(
+                WeknoraKbMapping.scope,
+                WeknoraKbMapping.project_id,
+                func.count(),
+            )
+            .where(*_kb_init_failed_conditions(caller, scope_v, project_id))
+            .group_by(WeknoraKbMapping.scope, WeknoraKbMapping.project_id)
+        )
+    ).all()
+    project_ids = {pid for scope_, pid, _count in rows if scope_ == "project" and pid}
+    project_names: dict[uuid.UUID, str] = {}
+    if project_ids:
+        project_names = dict(
+            (
+                await session.execute(
+                    select(Project.id, Project.name).where(Project.id.in_(project_ids))
+                )
+            )
+            .tuples()
+            .all()
+        )
+    labels = {
+        "company": "公司知识库",
+        "personal": "个人知识库",
+        "project": "项目知识库",
+    }
+    return [
+        InsightCard(
+            key="kb_init_failed",
+            label="知识库初始化失败",
+            count=int(count or 0),
+            severity="error",
+            action_hint="检查对应知识库状态与底座模型配置",
+            scope=scope_,
+            project_id=pid if caller.is_business_user else None,
+            context_label=(
+                project_names.get(pid) if pid and caller.is_business_user else labels.get(scope_)
+            ),
+        )
+        for scope_, pid, count in rows
+        if int(count or 0) > 0
+    ]
 
 
 def _request_count(vis: list, scope_conds: list, *extra):
@@ -401,7 +465,11 @@ async def _recent_index_failed_items(
 
 
 def _build_cards(
-    indexing: IndexingInsights, access: AccessInsights, lifecycle: LifecycleInsights
+    indexing: IndexingInsights,
+    access: AccessInsights,
+    lifecycle: LifecycleInsights,
+    *,
+    kb_failure_cards: list[InsightCard],
 ) -> list[InsightCard]:
     """从真实计数构建概要卡片（仅非零信号，空则前端显示「暂无需要处理的运营项」）。"""
     specs = [
@@ -412,13 +480,6 @@ def _build_cards(
             indexing.parse_failed,
             "warning",
             "可在索引运维面板发起重新解析",
-        ),
-        (
-            "kb_init_failed",
-            "知识库初始化失败",
-            indexing.kb_init_failed,
-            "error",
-            "检查底座模型配置后重试",
         ),
         (
             "pending_original_requests",
@@ -449,11 +510,12 @@ def _build_cards(
             "评估项目资产升格为公司资产",
         ),
     ]
-    return [
+    cards = [
         InsightCard(key=k, label=label, count=count, severity=sev, action_hint=hint)
         for (k, label, count, sev, hint) in specs
         if count > 0
     ]
+    return [*cards, *kb_failure_cards]
 
 
 def _build_recommendations(

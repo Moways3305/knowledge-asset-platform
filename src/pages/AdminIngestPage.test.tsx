@@ -375,6 +375,12 @@ describe("AdminIngestPage operations reference", () => {
 
   it("submits the selected bounded batch retry and prevents duplicate actions", async () => {
     let resolveJob!: (job: IndexingJobSummaryDTO) => void;
+    vi.mocked(fetchIndexingJobs)
+      .mockResolvedValueOnce({ items: [], total: 0 })
+      .mockResolvedValue({
+        items: [{ ...completedJob, status: "running" }],
+        total: 1,
+      });
     vi.mocked(triggerIndexingRetry).mockImplementation(
       () => new Promise((resolve) => (resolveJob = resolve)),
     );
@@ -401,6 +407,110 @@ describe("AdminIngestPage operations reference", () => {
     );
     expect(triggerIndexingRetry).toHaveBeenCalledTimes(1);
   });
+
+  it("treats a zero-target reparse as terminal and refreshes every dependent summary", async () => {
+    vi.mocked(triggerIndexingReparse).mockResolvedValue({
+      ...completedJob,
+      operation_type: "reparse",
+      total_count: 0,
+      success_count: 0,
+      failed_count: 0,
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /^重新解析/ }));
+
+    expect(await screen.findByText(/重新解析未找到可处理项/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: /^重新解析（/ })).toBeEnabled());
+    expect(fetchAdminIngest).toHaveBeenCalledTimes(2);
+    expect(fetchOpsIndexing).toHaveBeenCalledTimes(2);
+    expect(fetchIndexingJobs).toHaveBeenCalledTimes(2);
+    expect(fetchIndexingHealth).toHaveBeenCalledTimes(2);
+  });
+
+  it("polls one running job to its terminal state, refreshes summaries, and then stops", async () => {
+    const runningJob = { ...completedJob, status: "running" };
+    vi.mocked(triggerIndexingRetry).mockResolvedValue(runningJob);
+    vi.mocked(fetchIndexingJobs)
+      .mockResolvedValueOnce({ items: [], total: 0 })
+      .mockResolvedValueOnce({ items: [runningJob], total: 1 })
+      .mockResolvedValue({ items: [completedJob], total: 1 });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /^批量重试索引/ }));
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: "正在执行：批量重试索引" })[0]).toBeDisabled(),
+    );
+    await waitFor(() => expect(fetchIndexingJobs).toHaveBeenCalledTimes(3), {
+      timeout: 3_500,
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^批量重试索引（/ })).toBeEnabled(),
+    );
+    expect(fetchAdminIngest).toHaveBeenCalledTimes(3);
+    expect(fetchOpsIndexing).toHaveBeenCalledTimes(3);
+    expect(fetchIndexingHealth).toHaveBeenCalledTimes(3);
+
+    const stoppedAt = vi.mocked(fetchIndexingJobs).mock.calls.length;
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 1_700));
+    });
+    expect(fetchIndexingJobs).toHaveBeenCalledTimes(stoppedAt);
+  }, 7_000);
+
+  it("reuses a slow manual jobs refresh when the polling timer fires", async () => {
+    const runningJob = { ...completedJob, status: "running" };
+    let resolveRefresh!: (value: { items: IndexingJobSummaryDTO[]; total: number }) => void;
+    vi.mocked(fetchIndexingJobs)
+      .mockResolvedValueOnce({ items: [runningJob], total: 1 })
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveRefresh = resolve)));
+    const user = userEvent.setup();
+    const page = renderPage();
+
+    await waitFor(() => expect(fetchIndexingJobs).toHaveBeenCalledTimes(1));
+    await user.click(await screen.findByRole("button", { name: "刷新" }));
+    expect(fetchIndexingJobs).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 1_700));
+    });
+    expect(fetchIndexingJobs).toHaveBeenCalledTimes(2);
+
+    resolveRefresh({ items: [completedJob], total: 1 });
+    await waitFor(() => expect(screen.getByRole("button", { name: "刷新" })).toBeEnabled());
+    page.unmount();
+  }, 7_000);
+
+  it("does not poll while hidden and cancels the single poller on unmount", async () => {
+    const runningJob = { ...completedJob, status: "running" };
+    let visibility: DocumentVisibilityState = "hidden";
+    const visibilitySpy = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockImplementation(() => visibility);
+    vi.mocked(fetchIndexingJobs).mockResolvedValue({ items: [runningJob], total: 1 });
+    const page = renderPage();
+
+    await waitFor(() => expect(fetchIndexingJobs).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 1_700));
+    });
+    expect(fetchIndexingJobs).toHaveBeenCalledTimes(1);
+
+    visibility = "visible";
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(fetchIndexingJobs).toHaveBeenCalledTimes(2), {
+      timeout: 3_000,
+    });
+    page.unmount();
+    const stoppedAt = vi.mocked(fetchIndexingJobs).mock.calls.length;
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 1_700));
+    });
+    expect(fetchIndexingJobs).toHaveBeenCalledTimes(stoppedAt);
+    visibilitySpy.mockRestore();
+  }, 7_000);
 
   it("uses the real reparse contract and reports only safe result counts", async () => {
     const user = userEvent.setup();

@@ -60,7 +60,8 @@ export default function AdminWeKnoraModelsPage() {
   const [defaultMultimodalRef, setDefaultMultimodalRef] = useState("");
   const [defaultsBusy, setDefaultsBusy] = useState(false);
   const [refreshSignal, setRefreshSignal] = useState(0);
-  const canEdit = (capabilities.isAdmin || capabilities.isGovernance) && !weknoraForbidden;
+  const isGlobalOperator = capabilities.isAdmin || capabilities.isGovernance;
+  const canEdit = (isGlobalOperator || capabilities.isProjectManager) && !weknoraForbidden;
 
   const loadKnowledgeConfigs = useCallback(async () => {
     setLoading(true);
@@ -71,7 +72,15 @@ export default function AdminWeKnoraModelsPage() {
       const [availableModels, configs, defaults] = await Promise.all([
         fetchWeknoraModels(),
         fetchWeknoraKbConfigs(),
-        fetchWeknoraDefaultModels(),
+        isGlobalOperator
+          ? fetchWeknoraDefaultModels()
+          : Promise.resolve({
+              embedding: null,
+              rerank: null,
+              chat: null,
+              multimodal: null,
+              updated_at: null,
+            }),
       ]);
       setModels(availableModels);
       setKbConfigs(configs);
@@ -93,7 +102,7 @@ export default function AdminWeKnoraModelsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isGlobalOperator]);
 
   const refreshAll = () => {
     setRefreshSignal((value) => value + 1);
@@ -164,109 +173,109 @@ export default function AdminWeKnoraModelsPage() {
         }
       />
 
-      <div className="mf-workspace">
-        <div className="mf-model-panels">
-          <UnifiedModelConnectionsSection
-            canEdit={capabilities.isAdmin || capabilities.isGovernance}
-            refreshSignal={refreshSignal}
-          />
-          <WeknoraModelsSection
-            canEdit={capabilities.isAdmin || capabilities.isGovernance}
-            refreshSignal={refreshSignal}
-          />
-        </div>
-
-        <aside className="mf-foundation-panel" aria-labelledby="weknora-foundation-title">
-          <div className="mf-panel-heading">
-            <div>
-              <span className="mf-panel-kicker">WEKNORA BASE</span>
-              <h3 id="weknora-foundation-title">知识库底座</h3>
-            </div>
-            <span className="mf-foundation-mark" aria-hidden="true">
-              <Database size={17} />
-            </span>
+      {isGlobalOperator && (
+        <div className="mf-workspace">
+          <div className="mf-model-panels">
+            <UnifiedModelConnectionsSection canEdit refreshSignal={refreshSignal} />
+            <WeknoraModelsSection canEdit refreshSignal={refreshSignal} />
           </div>
 
-          {!capabilities.isAdmin && !capabilities.isGovernance && !weknoraForbidden && (
-            <div className="mf-inline-message">当前身份仅可查看，修改需系统管理员。</div>
-          )}
-          {error && (
-            <div className="mf-inline-message is-danger" role="alert">
-              {error}
+          <aside className="mf-foundation-panel" aria-labelledby="weknora-foundation-title">
+            <div className="mf-panel-heading">
+              <div>
+                <span className="mf-panel-kicker">WEKNORA BASE</span>
+                <h3 id="weknora-foundation-title">知识库底座</h3>
+              </div>
+              <span className="mf-foundation-mark" aria-hidden="true">
+                <Database size={17} />
+              </span>
             </div>
-          )}
-          {note && <div className="mf-inline-message is-success">{note}</div>}
 
-          {notConfigured ? (
-            <div className="mf-foundation-empty">
-              <strong>WeKnora 尚未配置</strong>
-              <span>这不会影响左侧外部 LLM 的创建、编辑和测试。</span>
-            </div>
-          ) : loading ? (
-            <div className="mf-foundation-empty">正在加载底座模型…</div>
-          ) : error && models.length === 0 ? (
-            <div className="mf-foundation-empty">
-              <strong>底座配置不可用</strong>
-              <span>外部 LLM 管理仍可独立使用。</span>
-            </div>
-          ) : (
-            <div className="mf-foundation-fields">
-              <FoundationModelSelect
-                label="默认嵌入模型"
-                description="用于新知识库向量化；已有库保持原绑定。"
-                value={defaultEmbeddingRef}
-                type="embedding"
-                models={models}
-                disabled={!canEdit || defaultsBusy}
-                onChange={setDefaultEmbeddingRef}
-              />
-              <FoundationModelSelect
-                label="底座兼容 LLM"
-                description="仅满足 WeKnora 初始化与检索契约。"
-                value={defaultChatRef}
-                type="chat"
-                models={models}
-                disabled={!canEdit || defaultsBusy}
-                onChange={setDefaultChatRef}
-              />
-              <FoundationModelSelect
-                label="默认重排模型"
-                description="可选，用于改善检索排序。"
-                value={defaultRerankRef}
-                type="rerank"
-                models={models}
-                disabled={!canEdit || defaultsBusy}
-                onChange={setDefaultRerankRef}
-                optional
-              />
-              <FoundationModelSelect
-                label="默认多模态模型"
-                description="可选，仅用于底座支持的多模态解析。"
-                value={defaultMultimodalRef}
-                type="vllm"
-                models={models}
-                disabled={!canEdit || defaultsBusy}
-                onChange={setDefaultMultimodalRef}
-                optional
-              />
-              {canEdit && (
-                <button
-                  className="btn-small-primary mf-foundation-save"
-                  onClick={() => void saveFoundationDefaults()}
-                  disabled={defaultsBusy}
-                >
-                  {defaultsBusy ? "保存中…" : "保存底座配置"}
-                </button>
-              )}
-            </div>
-          )}
-        </aside>
-      </div>
+            {!capabilities.isAdmin && !capabilities.isGovernance && !weknoraForbidden && (
+              <div className="mf-inline-message">当前身份仅可查看，修改需系统管理员。</div>
+            )}
+            {error && (
+              <div className="mf-inline-message is-danger" role="alert">
+                {error}
+              </div>
+            )}
+            {note && <div className="mf-inline-message is-success">{note}</div>}
+
+            {notConfigured ? (
+              <div className="mf-foundation-empty">
+                <strong>WeKnora 尚未配置</strong>
+                <span>这不会影响左侧外部 LLM 的创建、编辑和测试。</span>
+              </div>
+            ) : loading ? (
+              <div className="mf-foundation-empty">正在加载底座模型…</div>
+            ) : error && models.length === 0 ? (
+              <div className="mf-foundation-empty">
+                <strong>底座配置不可用</strong>
+                <span>外部 LLM 管理仍可独立使用。</span>
+              </div>
+            ) : (
+              <div className="mf-foundation-fields">
+                <FoundationModelSelect
+                  label="默认嵌入模型"
+                  description="用于新知识库向量化；已有库保持原绑定。"
+                  value={defaultEmbeddingRef}
+                  type="embedding"
+                  models={models}
+                  disabled={!canEdit || defaultsBusy}
+                  onChange={setDefaultEmbeddingRef}
+                />
+                <FoundationModelSelect
+                  label="底座兼容 LLM"
+                  description="仅满足 WeKnora 初始化与检索契约。"
+                  value={defaultChatRef}
+                  type="chat"
+                  models={models}
+                  disabled={!canEdit || defaultsBusy}
+                  onChange={setDefaultChatRef}
+                />
+                <FoundationModelSelect
+                  label="默认重排模型"
+                  description="可选，用于改善检索排序。"
+                  value={defaultRerankRef}
+                  type="rerank"
+                  models={models}
+                  disabled={!canEdit || defaultsBusy}
+                  onChange={setDefaultRerankRef}
+                  optional
+                />
+                <FoundationModelSelect
+                  label="默认多模态模型"
+                  description="可选，仅用于底座支持的多模态解析。"
+                  value={defaultMultimodalRef}
+                  type="vllm"
+                  models={models}
+                  disabled={!canEdit || defaultsBusy}
+                  onChange={setDefaultMultimodalRef}
+                  optional
+                />
+                {canEdit && (
+                  <button
+                    className="btn-small-primary mf-foundation-save"
+                    onClick={() => void saveFoundationDefaults()}
+                    disabled={defaultsBusy}
+                  >
+                    {defaultsBusy ? "保存中…" : "保存底座配置"}
+                  </button>
+                )}
+              </div>
+            )}
+          </aside>
+        </div>
+      )}
 
       <PageSection
         className="mf-kb-section"
         title="知识库配置"
-        description="已有知识库保留嵌入锁定、模型类型校验与初始化失败恢复规则。"
+        description={
+          isGlobalOperator
+            ? "已有知识库保留嵌入锁定、模型类型校验与初始化失败恢复规则。"
+            : "仅显示你担任项目经理的项目知识库，可在此修复初始化失败配置。"
+        }
       >
         {notConfigured ? (
           <div className="mf-empty-state">

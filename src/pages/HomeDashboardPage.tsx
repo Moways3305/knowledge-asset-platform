@@ -23,7 +23,7 @@ import { fetchWorkbenchOverview } from "../api/workbench";
 import { fetchPeople } from "../api/admin";
 import { createProject } from "../api/project";
 import { useAuth } from "../auth/AuthContext";
-import { can } from "../auth/permissions";
+import { can, type Capabilities } from "../auth/permissions";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
 import WorkbuddyAccessCard from "../components/WorkbuddyAccessCard";
 import type { PersonDTO } from "../types/people";
@@ -107,9 +107,8 @@ const OPERATION_ICON: Record<string, LucideIcon> = {
 };
 
 const OPERATION_ROUTE: Record<string, string> = {
-  index_failed: "/admin/ops/indexing",
-  parse_failed: "/admin/ops/indexing",
-  kb_init_failed: "/admin/company-kb",
+  index_failed: "/admin/ingest",
+  parse_failed: "/admin/ingest",
   pending_original_requests: "/original-access",
   overdue_original_requests: "/original-access",
   archive_candidates: "/knowledge",
@@ -234,13 +233,53 @@ function TodoRow({ item }: { item: WorkbenchTodoItemDTO }) {
   );
 }
 
-function OperationCard({ item }: { item: WorkbenchOperationCardDTO }) {
+function operationRoute(
+  item: WorkbenchOperationCardDTO,
+  capabilities: Capabilities,
+  authMe: ReturnType<typeof useAuth>["authMe"],
+): string | undefined {
+  if (item.key !== "kb_init_failed") return OPERATION_ROUTE[item.key];
+  if (capabilities.isAdmin) return "/admin/weknora-models";
+  if (item.scope === "company") {
+    return capabilities.isGovernance ? "/admin/company-kb" : undefined;
+  }
+  if (item.scope === "personal") return capabilities.isBusinessUser ? "/my/knowledge" : undefined;
+  if (item.scope === "project" && item.project_id) {
+    if (
+      capabilities.isGovernance ||
+      authMe?.projects.some(
+        (project) =>
+          project.projectId === item.project_id && project.projectRole === "project_manager",
+      )
+    ) {
+      return "/admin/weknora-models";
+    }
+    return authMe?.projects.some((project) => project.projectId === item.project_id)
+      ? `/project/${encodeURIComponent(item.project_id)}`
+      : undefined;
+  }
+  return undefined;
+}
+
+function OperationCard({
+  item,
+  capabilities,
+  authMe,
+}: {
+  item: WorkbenchOperationCardDTO;
+  capabilities: Capabilities;
+  authMe: ReturnType<typeof useAuth>["authMe"];
+}) {
   const Icon = OPERATION_ICON[item.key] ?? BriefcaseBusiness;
-  const route = OPERATION_ROUTE[item.key];
+  const route = operationRoute(item, capabilities, authMe);
+  const label = OPERATION_LABEL[item.key] ?? SAFE_FALLBACK;
   const content = (
     <>
       <div className="wb81-operation-heading">
-        <span>{OPERATION_LABEL[item.key] ?? SAFE_FALLBACK}</span>
+        <span>
+          {label}
+          {item.context_label ? ` · ${item.context_label}` : ""}
+        </span>
         <span className="wb81-operation-icon" aria-hidden="true">
           <Icon size={17} />
         </span>
@@ -348,8 +387,7 @@ export default function HomeDashboardPage() {
   const projectsStatus = overview?.projects.status ?? fallbackStatus;
   const recentStatus = overview?.recent_activity.status ?? fallbackStatus;
   const todoItems = overview?.todos.items.filter((item) => item.count > 0) ?? [];
-  const operationCards =
-    overview?.operations.data?.cards.filter((item) => item.count > 0).slice(0, 3) ?? [];
+  const operationCards = overview?.operations.data?.cards.filter((item) => item.count > 0) ?? [];
   const canShowAssetTitles =
     overview?.operations.status === "available" && overview.operations.data?.title_visible === true;
 
@@ -445,7 +483,12 @@ export default function HomeDashboardPage() {
             {operationsStatus === "available" && operationCards.length > 0 ? (
               <div className="wb81-operation-grid">
                 {operationCards.map((item, index) => (
-                  <OperationCard key={`${item.key}-${index}`} item={item} />
+                  <OperationCard
+                    key={`${item.key}-${index}`}
+                    item={item}
+                    capabilities={capabilities}
+                    authMe={authMe}
+                  />
                 ))}
               </div>
             ) : (

@@ -2,8 +2,8 @@
 
 让 admin 不登 WeKnora 控制台即可管理 provider / 模型 / KB 初始化配置 + 连通性测试。
 
-权限：纯系统 admin（company role = admin）。普通业务角色（顾问 / 项目经理 / coach / 治理）
-一律 403——模型配置是底座运营，不是业务知识权限；admin 的此权限**不**等于业务原文权限。
+权限：系统 admin / 治理角色可管理全局配置；项目经理只能查看安全模型选项，并查看、修复
+自己管理项目的 KB 初始化配置。admin 的此权限**不**等于业务原文权限。
 
 安全：响应 / 审计 / 错误**绝不**含 api_key / base_url 真实值 / 真实 model_id / weknora_kb_id /
 内部存储引用 / 原始 payload。WeKnora 未配置 → 安全 503（只回 missing config 项名）。
@@ -21,7 +21,8 @@ from app.api.deps import get_caller_context
 from app.core.config import get_settings
 from app.core.trace import get_trace_id
 from app.db.session import get_db
-from app.schemas.enums import AuditAction, AuditLogType, CompanyRole
+from app.models.weknora import WeknoraKbMapping
+from app.schemas.enums import AuditAction, AuditLogType, CompanyRole, KnowledgeScope, ProjectRole
 from app.schemas.permission import CallerContext
 from app.schemas.weknora_admin import (
     DefaultModelsOut,
@@ -59,6 +60,26 @@ def _require_operator(caller: CallerContext) -> None:
                 "message": "仅总经理或咨询总监可管理模型配置",
             },
         )
+
+
+def _kb_config_project_scope(caller: CallerContext) -> set[uuid.UUID] | None:
+    """None means global operator; a set means project-manager-scoped access."""
+    if CompanyRole.admin.value in caller.active_company_roles or caller.can_discover_l5:
+        return None
+    managed = {
+        project_id
+        for project_id, role in caller.active_project_roles.items()
+        if role == ProjectRole.project_manager.value
+    }
+    if managed:
+        return managed
+    raise HTTPException(
+        403,
+        detail={
+            "denied_reason": "weknora_operator_required",
+            "message": "仅治理角色或项目经理可查看知识库初始化配置",
+        },
+    )
 
 
 def _require_admin_or_governance(caller: CallerContext) -> None:
@@ -163,7 +184,7 @@ async def list_models(
     caller: CallerContext = Depends(get_caller_context),
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> ModelListResponse:
-    _require_operator(caller)
+    _kb_config_project_scope(caller)
     _require_enabled()
     try:
         items = await weknora_models.list_models(
@@ -281,11 +302,14 @@ async def list_kb_configs(
     session: AsyncSession = Depends(get_db),
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> KbConfigListResponse:
-    _require_operator(caller)
+    project_scope = _kb_config_project_scope(caller)
     _require_enabled()
     try:
         items = await weknora_models.list_kb_configs(
-            session, weknora, trace_id=get_trace_id(request)
+            session,
+            weknora,
+            trace_id=get_trace_id(request),
+            project_ids=project_scope,
         )
     except WeKnoraError as exc:
         raise _wrap_weknora(exc) from exc
@@ -301,8 +325,22 @@ async def update_kb_init(
     session: AsyncSession = Depends(get_db),
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
 ) -> KbInitUpdateResponse:
-    _require_operator(caller)
+    project_scope = _kb_config_project_scope(caller)
     _require_enabled()
+    if project_scope is not None:
+        mapping = await session.get(WeknoraKbMapping, mapping_id)
+        if (
+            mapping is None
+            or mapping.scope != KnowledgeScope.project.value
+            or mapping.project_id not in project_scope
+        ):
+            raise HTTPException(
+                404,
+                detail={
+                    "denied_reason": "weknora_kb_mapping_not_found",
+                    "message": "知识库映射不存在",
+                },
+            )
     trace_id = get_trace_id(request)
     try:
         mp = await weknora_models.update_kb_init(

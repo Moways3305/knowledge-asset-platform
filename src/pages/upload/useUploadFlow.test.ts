@@ -772,9 +772,59 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       });
     });
     ingest.deletePendingTask.mockRejectedValueOnce(new Error("network"));
-    await expect(result.current.handleDeletePending("keep")).rejects.toThrow("network");
+    await act(async () => result.current.handleDeletePending("keep"));
     expect(result.current.taskId).toBe("keep");
     expect(result.current.flowState).toBe("ready");
+    expect(result.current.apiError).toBe("拒绝入库失败，任务仍保留，请重试");
+  });
+
+  it("本地单条拒绝成功同时移除待确认列表和本次上传队列，失败则两处均保留", async () => {
+    const local = { ...pendingTask("t1", "local.pdf"), source: "path_b_upload" };
+    ingest.fetchPendingIngestTasks.mockReset().mockResolvedValue([local]);
+    const { result } = renderHook(() => useUploadFlow());
+    act(() =>
+      result.current.handleFileDrop([
+        new File(["local"], "local.pdf", { type: "application/pdf" }),
+      ]),
+    );
+    await waitFor(() =>
+      expect(result.current.localUploadQueue[0]?.status).toBe("awaiting_confirmation"),
+    );
+    await waitFor(() => expect(result.current.localPendingTasks).toHaveLength(1));
+
+    ingest.deletePendingTask.mockRejectedValueOnce(new Error("SECRET upstream"));
+    await act(async () => result.current.handleDeletePending("t1"));
+    expect(result.current.localPendingTasks).toHaveLength(1);
+    expect(result.current.localUploadQueue).toHaveLength(1);
+    expect(result.current.apiError).toBe("拒绝入库失败，任务仍保留，请重试");
+    expect(JSON.stringify(result.current)).not.toContain("SECRET upstream");
+
+    ingest.fetchPendingIngestTasks.mockResolvedValueOnce([]);
+    await act(async () => result.current.handleDeletePending("t1"));
+    expect(result.current.localPendingTasks).toEqual([]);
+    expect(result.current.localUploadQueue).toEqual([]);
+  });
+
+  it("本地单条确认成功从本次上传队列移除服务端任务", async () => {
+    const { result } = renderHook(() => useUploadFlow());
+    act(() =>
+      result.current.handleFileDrop([
+        new File(["local"], "local.pdf", { type: "application/pdf" }),
+      ]),
+    );
+    await waitFor(() =>
+      expect(result.current.localUploadQueue[0]?.status).toBe("awaiting_confirmation"),
+    );
+    await act(async () => {
+      await result.current.handleSelectPendingTask({
+        ...pendingTask("t1", "local.pdf"),
+        source: "path_b_upload",
+      });
+    });
+    await act(async () => result.current.handleSubmit());
+
+    expect(result.current.localUploadQueue).toEqual([]);
+    expect(result.current.flowState).toBe("submitted");
   });
 
   it("忽略 A→B 反序完成中的 A 旧回包", async () => {
@@ -888,9 +938,22 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       .mockReset()
       .mockRejectedValueOnce(new Error("first failed"))
       .mockResolvedValueOnce({ task_id: "task-b", status: "completed", result_asset_id: "a2" });
+    ingest.createIngestUpload
+      .mockReset()
+      .mockResolvedValueOnce({ ingest_task_id: "task-a" })
+      .mockResolvedValueOnce({ ingest_task_id: "task-b" });
     const { result } = renderHook(() => useUploadFlow());
     const a = pendingTask("task-a", "A.docx");
     const b = pendingTask("task-b", "B.docx");
+    act(() =>
+      result.current.handleFileDrop([new File(["a"], "A.docx"), new File(["b"], "B.docx")]),
+    );
+    await waitFor(() =>
+      expect(result.current.localUploadQueue.map((item) => item.status)).toEqual([
+        "awaiting_confirmation",
+        "awaiting_confirmation",
+      ]),
+    );
     let batch!: Promise<void>;
 
     act(() => {
@@ -907,6 +970,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(ingest.confirmIngest.mock.calls.map((call) => call[0])).toEqual(["task-a", "task-b"]);
     expect(result.current.batchStatus["task-a"]).toBe("failed");
     expect(result.current.batchStatus["task-b"]).toBe("success");
+    expect(result.current.localUploadQueue.map((item) => item.ingestTaskId)).toEqual(["task-a"]);
   });
 
   it("本地来源严格串行批量拒绝，失败项保留勾选并可单条重试", async () => {
@@ -964,13 +1028,27 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     ingest.fetchPendingIngestTasks
       .mockReset()
       .mockResolvedValueOnce([a, b])
+      .mockResolvedValueOnce([a, b])
       .mockResolvedValueOnce([]);
     ingest.deletePendingTask
       .mockReset()
       .mockResolvedValueOnce(undefined)
       .mockReturnValueOnce(secondDelete.promise);
+    ingest.createIngestUpload
+      .mockReset()
+      .mockResolvedValueOnce({ ingest_task_id: "local-a" })
+      .mockResolvedValueOnce({ ingest_task_id: "local-b" });
     const { result } = renderHook(() => useUploadFlow());
     await waitFor(() => expect(result.current.localPendingTasks).toHaveLength(2));
+    act(() =>
+      result.current.handleFileDrop([new File(["a"], "A.docx"), new File(["b"], "B.docx")]),
+    );
+    await waitFor(() =>
+      expect(result.current.localUploadQueue.map((item) => item.status)).toEqual([
+        "awaiting_confirmation",
+        "awaiting_confirmation",
+      ]),
+    );
     act(() => {
       result.current.toggleBatchTask(a.id);
       result.current.toggleBatchTask(b.id);
@@ -983,6 +1061,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     await waitFor(() => expect(ingest.deletePendingTask).toHaveBeenCalledTimes(2));
 
     expect(result.current.localPendingTasks.map((task) => task.id)).toEqual(["local-b"]);
+    expect(result.current.localUploadQueue.map((item) => item.ingestTaskId)).toEqual(["local-b"]);
     expect(result.current.batchSelection).toEqual(["local-b"]);
     expect(result.current.batchStatus["local-b"]).toBe("processing");
     expect(result.current.batchBusy).toBe(true);
@@ -992,6 +1071,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       await rejecting;
     });
     await waitFor(() => expect(result.current.localPendingTasks).toEqual([]));
+    expect(result.current.localUploadQueue).toEqual([]);
   });
 
   it("企微来源批量拒绝只刷新企微列表且不调用确认入库", async () => {

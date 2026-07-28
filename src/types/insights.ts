@@ -7,6 +7,9 @@ export interface InsightCardDTO {
   count: number;
   severity: string; // info | warning | error
   action_hint: string | null;
+  scope?: string | null;
+  project_id?: string | null;
+  context_label?: string | null;
 }
 
 export interface InsightJobItemDTO {
