@@ -105,6 +105,14 @@ describe("can (nav / route capability predicates)", () => {
       canDiscoverL5: true,
     }),
   );
+  const projectManager = deriveCapabilities(
+    me({
+      companyRoles: ["consultant"],
+      activeCompanyRole: "consultant",
+      isBusinessUser: true,
+      projects: [{ projectId: "p1", projectName: "P1", projectRole: "project_manager" }],
+    }),
+  );
 
   it("shows business knowledge entries to business users, not pure admin", () => {
     expect(can.viewKnowledge(consultant)).toBe(true);
@@ -112,9 +120,10 @@ describe("can (nav / route capability predicates)", () => {
     expect(can.viewKnowledge(anon)).toBe(false);
   });
 
-  it("allows governance roles to access model config", () => {
+  it("allows governance and project managers to access their model configuration view", () => {
     expect(can.viewModels(admin)).toBe(true);
     expect(can.viewModels(governance)).toBe(true);
+    expect(can.viewModels(projectManager)).toBe(true);
     expect(can.viewModels(consultant)).toBe(false);
   });
 

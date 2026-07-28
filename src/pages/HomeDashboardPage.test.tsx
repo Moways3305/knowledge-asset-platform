@@ -13,7 +13,7 @@ const auth = vi.hoisted(() => ({
     companyRoles: ["consultant"],
     isBusinessUser: true,
     canDiscoverL5: false,
-    projects: [],
+    projects: [{ projectId: "", projectName: "", projectRole: "" }],
   },
   capabilities: {
     isAdmin: false,
@@ -146,10 +146,15 @@ describe("HomeDashboardPage overview workbench", () => {
     auth.authMe.name = "林顾问";
     auth.authMe.companyRoles = ["consultant"];
     auth.authMe.isBusinessUser = true;
+    auth.authMe.projects = [];
     Object.assign(auth.capabilities, {
       isAdmin: false,
+      isBoss: false,
+      isConsultingDirector: false,
       isBusinessUser: true,
+      isGovernance: false,
       hasProject: true,
+      isProjectManager: false,
     });
     vi.mocked(fetchWorkbenchOverview).mockReset().mockResolvedValue(overview());
   });
@@ -197,7 +202,7 @@ describe("HomeDashboardPage overview workbench", () => {
     networkSpy.mockRestore();
   });
 
-  it("keeps project empty state compact and limits operations to three non-zero cards", async () => {
+  it("keeps project empty state compact and shows every non-zero operation signal", async () => {
     vi.mocked(fetchWorkbenchOverview).mockResolvedValue(
       overview({
         operations: {
@@ -207,7 +212,15 @@ describe("HomeDashboardPage overview workbench", () => {
             cards: [
               { key: "index_failed", label: "", count: 4, severity: "warning", action_hint: null },
               { key: "parse_failed", label: "", count: 3, severity: "error", action_hint: null },
-              { key: "kb_init_failed", label: "", count: 2, severity: "error", action_hint: null },
+              {
+                key: "kb_init_failed",
+                label: "",
+                count: 2,
+                severity: "error",
+                action_hint: null,
+                scope: "personal",
+                context_label: "个人知识库",
+              },
               {
                 key: "archive_candidates",
                 label: "",
@@ -236,18 +249,75 @@ describe("HomeDashboardPage overview workbench", () => {
         '.wb81-panel.is-projects .wb81-section-state.is-empty[data-section-state="empty"]',
       ),
     ).toBeInTheDocument();
-    expect(container.querySelectorAll(".wb81-operation")).toHaveLength(3);
-    expect(container.querySelectorAll(".wb81-operation-icon svg")).toHaveLength(3);
-    expect(screen.getByText("索引失败").closest("a")).toHaveAttribute(
+    expect(container.querySelectorAll(".wb81-operation")).toHaveLength(4);
+    expect(container.querySelectorAll(".wb81-operation-icon svg")).toHaveLength(4);
+    expect(screen.getByText("索引失败").closest("a")).toHaveAttribute("href", "/admin/ingest");
+    expect(screen.getByText("解析失败").closest("a")).toHaveAttribute("href", "/admin/ingest");
+    expect(screen.getByText("知识库初始化失败 · 个人知识库").closest("a")).toHaveAttribute(
       "href",
-      "/admin/ops/indexing",
+      "/my/knowledge",
     );
-    expect(screen.getByText("知识库初始化失败").closest("a")).toHaveAttribute(
-      "href",
-      "/admin/company-kb",
-    );
-    expect(screen.queryByText("归档候选")).not.toBeInTheDocument();
+    expect(screen.getByText("归档候选")).toBeInTheDocument();
     expect(screen.queryByText("原文申请待处理")).not.toBeInTheDocument();
+  });
+
+  it("routes each KB failure scope only to a page the current identity can understand", async () => {
+    auth.authMe.projects = [
+      { projectId: "project-managed", projectName: "受管项目", projectRole: "project_manager" },
+    ];
+    auth.capabilities.isProjectManager = true;
+    vi.mocked(fetchWorkbenchOverview).mockResolvedValue(
+      overview({
+        operations: {
+          status: "available",
+          error_code: null,
+          data: {
+            ...overview().operations.data!,
+            cards: [
+              {
+                key: "kb_init_failed",
+                label: "",
+                count: 1,
+                severity: "error",
+                action_hint: null,
+                scope: "company",
+                context_label: "公司知识库",
+              },
+              {
+                key: "kb_init_failed",
+                label: "",
+                count: 1,
+                severity: "error",
+                action_hint: null,
+                scope: "personal",
+                context_label: "个人知识库",
+              },
+              {
+                key: "kb_init_failed",
+                label: "",
+                count: 1,
+                severity: "error",
+                action_hint: null,
+                scope: "project",
+                project_id: "project-managed",
+                context_label: "受管项目",
+              },
+            ],
+          },
+        },
+      }),
+    );
+    renderPage();
+
+    expect((await screen.findByText("知识库初始化失败 · 公司知识库")).closest("a")).toBeNull();
+    expect(screen.getByText("知识库初始化失败 · 个人知识库").closest("a")).toHaveAttribute(
+      "href",
+      "/my/knowledge",
+    );
+    expect(screen.getByText("知识库初始化失败 · 受管项目").closest("a")).toHaveAttribute(
+      "href",
+      "/admin/weknora-models",
+    );
   });
 
   it("renders empty, forbidden and error sections independently and retries overview", async () => {

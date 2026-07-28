@@ -335,6 +335,29 @@ function appRouteOwnership() {
   return ownership;
 }
 
+function staticStringRecordValues(file: string, variableName: string): string[] {
+  const tree = parse(file, source(file));
+  const values: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === variableName &&
+      node.initializer &&
+      ts.isObjectLiteralExpression(node.initializer)
+    ) {
+      for (const property of node.initializer.properties) {
+        if (ts.isPropertyAssignment(property) && ts.isStringLiteral(property.initializer)) {
+          values.push(property.initializer.text);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  return values;
+}
+
 describe("frontend route takeover gate", () => {
   it("assigns every formal App route to the registered page and capability", () => {
     const actual = appRouteOwnership();
@@ -346,6 +369,31 @@ describe("frontend route takeover gate", () => {
         guard: contract.guard,
       });
     }
+  });
+
+  it("keeps every static workbench operation target on a registered App route", () => {
+    const registeredRoutes = appRouteOwnership();
+    const operationTargets = staticStringRecordValues(
+      "pages/HomeDashboardPage.tsx",
+      "OPERATION_ROUTE",
+    );
+
+    expect(operationTargets.length).toBeGreaterThan(0);
+    for (const target of operationTargets) {
+      expect(registeredRoutes.has(target), target).toBe(true);
+    }
+  });
+
+  it("routes cross-scope KB initialization failures to the protected mapping configuration page", () => {
+    const dashboard = source("pages/HomeDashboardPage.tsx");
+    const targetPage = source("pages/AdminWeKnoraModelsPage.tsx");
+
+    expect(dashboard).toContain('item.scope === "company"');
+    expect(dashboard).toContain('item.scope === "personal"');
+    expect(dashboard).toContain('item.scope === "project"');
+    expect(dashboard).toContain('return "/admin/weknora-models"');
+    expect(targetPage).toContain("知识库配置");
+    expect(targetPage).toContain("初始化失败");
   });
 
   it("keeps every top-level production Page reachable or explicitly exempted", () => {

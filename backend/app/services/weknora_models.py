@@ -430,13 +430,19 @@ def _kb_update_config(kb: dict[str, Any]) -> dict[str, Any]:
 
 
 async def list_kb_configs(
-    session: AsyncSession, client: _CheckClient, *, trace_id: str | None
+    session: AsyncSession,
+    client: _CheckClient,
+    *,
+    trace_id: str | None,
+    project_ids: set[uuid.UUID] | None = None,
 ) -> list[KbConfigOut]:
-    mappings = list(
-        (await session.execute(select(WeknoraKbMapping).order_by(WeknoraKbMapping.scope)))
-        .scalars()
-        .all()
-    )
+    statement = select(WeknoraKbMapping).order_by(WeknoraKbMapping.scope)
+    if project_ids is not None:
+        statement = statement.where(
+            WeknoraKbMapping.scope == "project",
+            WeknoraKbMapping.project_id.in_(project_ids),
+        )
+    mappings = list((await session.execute(statement)).scalars().all())
     # id → 安全模型元数据（用于把底座初始化配置里的 server-only id 映射成安全名称）。
     id_meta = await _id_meta_map(client, trace_id)
 

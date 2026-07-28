@@ -21,6 +21,9 @@ export interface WorkbenchOperationCardDTO {
   count: number;
   severity: string;
   action_hint: string | null;
+  scope?: string | null;
+  project_id?: string | null;
+  context_label?: string | null;
 }
 
 export interface WorkbenchOperationsDataDTO {

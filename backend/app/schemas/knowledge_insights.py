@@ -20,6 +20,9 @@ class InsightCard(BaseModel):
     count: int
     severity: str  # info | warning | error
     action_hint: str | None = None
+    scope: str | None = None
+    project_id: uuid.UUID | None = None
+    context_label: str | None = None
 
 
 class InsightJobItem(BaseModel):

@@ -14,7 +14,13 @@ from sqlalchemy import select
 from app.main import app
 from app.models.audit import AuditEvent
 from app.models.weknora import WeknoraKbMapping
-from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT
+from app.seed.dev_seed import (
+    PROJECT_ALPHA,
+    PROJECT_BETA,
+    USER_ADMIN_ONLY,
+    USER_CONSULTANT,
+    USER_PROJECT_MANAGER,
+)
 from app.services.weknora_client import WeKnoraError, get_weknora_client
 from app.services.weknora_models import _model_ref
 
@@ -471,6 +477,55 @@ async def test_kb_configs_no_kb_id_leak(client, wk):
         for slot in ("chat", "embedding", "rerank", "multimodal"):
             if it.get(slot):
                 assert "model_ref" in it[slot]
+
+
+async def test_project_manager_kb_config_access_is_scoped_to_managed_projects(
+    client, wk, db_session
+):
+    models = await client.get(f"{BASE}/models", headers=_hdr(USER_PROJECT_MANAGER))
+    assert models.status_code == 200
+    assert "mid-" not in models.text
+
+    configs = await client.get(f"{BASE}/kb-configs", headers=_hdr(USER_PROJECT_MANAGER))
+    assert configs.status_code == 200
+    items = configs.json()["items"]
+    assert items
+    assert {item["scope"] for item in items} == {"project"}
+    assert {item["project_name"] for item in items} == {"Alpha 项目"}
+    assert "Beta 项目" not in configs.text
+    assert "wk-kb-" not in configs.text
+
+    beta = (
+        await db_session.execute(
+            select(WeknoraKbMapping).where(
+                WeknoraKbMapping.scope == "project",
+                WeknoraKbMapping.project_id == PROJECT_BETA,
+            )
+        )
+    ).scalar_one()
+    denied = await client.put(
+        f"{BASE}/kb-configs/{beta.id}/initialization",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={"embedding_model_ref": _model_ref("mid-emb")},
+    )
+    assert denied.status_code == 404
+    assert denied.json()["detail"]["denied_reason"] == "weknora_kb_mapping_not_found"
+    assert str(PROJECT_BETA) not in denied.text
+
+    alpha = (
+        await db_session.execute(
+            select(WeknoraKbMapping).where(
+                WeknoraKbMapping.scope == "project",
+                WeknoraKbMapping.project_id == PROJECT_ALPHA,
+            )
+        )
+    ).scalar_one()
+    allowed = await client.put(
+        f"{BASE}/kb-configs/{alpha.id}/initialization",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={"embedding_model_ref": _model_ref("mid-emb")},
+    )
+    assert allowed.status_code == 200, allowed.text
 
 
 async def test_update_kb_init_resolves_ref_to_server_id(client, wk, db_session):

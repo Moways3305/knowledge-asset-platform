@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Activity,
@@ -41,6 +41,9 @@ import "./AdminIngestPage.css";
 type LoadState = "loading" | "ready" | "error";
 type DiagnosticCategory = OpsIndexingFailedItemDTO["diagnostic_category"];
 type FailureFilter = "all" | DiagnosticCategory;
+
+const JOB_POLL_INTERVAL_MS = 1_500;
+const JOB_POLL_MAX_ATTEMPTS = 20;
 
 const jobOpLabel: Record<string, string> = {
   retry_index: "批量重试索引",
@@ -173,68 +176,197 @@ export default function AdminIngestPage() {
   const [retryTarget, setRetryTarget] = useState<OpsIndexingFailedItemDTO | null>(null);
   const [targetBusy, setTargetBusy] = useState(false);
   const [targetError, setTargetError] = useState<string | null>(null);
+  const ingestRequestRef = useRef(0);
+  const opsRequestRef = useRef(0);
+  const jobsRequestRef = useRef(0);
+  const jobsFetchInFlightRef = useRef<Promise<IndexingJobSummaryDTO[]> | null>(null);
+  const healthRequestRef = useRef(0);
 
   const loadIngest = useCallback(async () => {
+    const requestId = ++ingestRequestRef.current;
     setIngestState("loading");
     try {
-      setIngestItems((await fetchAdminIngest()).items);
+      const items = (await fetchAdminIngest()).items;
+      if (ingestRequestRef.current !== requestId) return null;
+      setIngestItems(items);
       setIngestState("ready");
+      return items;
     } catch {
+      if (ingestRequestRef.current !== requestId) return null;
       setIngestItems([]);
       setIngestState("error");
+      return null;
     }
   }, []);
 
   const loadOpsIndex = useCallback(async () => {
+    const requestId = ++opsRequestRef.current;
     setOpsState("loading");
     try {
-      setOpsIndex(await fetchOpsIndexing());
+      const index = await fetchOpsIndexing();
+      if (opsRequestRef.current !== requestId) return null;
+      setOpsIndex(index);
       setOpsState("ready");
+      return index;
     } catch {
+      if (opsRequestRef.current !== requestId) return null;
       setOpsIndex(null);
       setOpsState("error");
+      return null;
     }
+  }, []);
+
+  const fetchJobsSerialized = useCallback(() => {
+    const inFlight = jobsFetchInFlightRef.current;
+    if (inFlight) return inFlight;
+
+    const request = fetchIndexingJobs().then((response) => response.items);
+    jobsFetchInFlightRef.current = request;
+    void request.then(
+      () => {
+        if (jobsFetchInFlightRef.current === request) jobsFetchInFlightRef.current = null;
+      },
+      () => {
+        if (jobsFetchInFlightRef.current === request) jobsFetchInFlightRef.current = null;
+      },
+    );
+    return request;
   }, []);
 
   const loadOpsJobs = useCallback(async () => {
+    const requestId = ++jobsRequestRef.current;
     setJobsState("loading");
     try {
-      setOpsJobs((await fetchIndexingJobs()).items);
+      const items = await fetchJobsSerialized();
+      if (jobsRequestRef.current !== requestId) return null;
+      setOpsJobs(items);
       setJobsState("ready");
+      return items;
     } catch {
+      if (jobsRequestRef.current !== requestId) return null;
       setOpsJobs([]);
       setJobsState("error");
+      return null;
     }
-  }, []);
+  }, [fetchJobsSerialized]);
 
   const loadHealth = useCallback(async () => {
+    const requestId = ++healthRequestRef.current;
     setHealthState("loading");
     try {
-      setHealth(await fetchIndexingHealth(24));
+      const nextHealth = await fetchIndexingHealth(24);
+      if (healthRequestRef.current !== requestId) return null;
+      setHealth(nextHealth);
       setHealthState("ready");
+      return nextHealth;
     } catch {
+      if (healthRequestRef.current !== requestId) return null;
       setHealth(null);
       setHealthState("error");
+      return null;
     }
   }, []);
 
-  const refreshAll = useCallback(async () => {
-    setOpsNote(null);
-    await Promise.all([loadIngest(), loadOpsIndex(), loadOpsJobs(), loadHealth()]);
-  }, [loadHealth, loadIngest, loadOpsIndex, loadOpsJobs]);
+  const refreshAll = useCallback(
+    async (clearNote = true) => {
+      if (clearNote) setOpsNote(null);
+      await Promise.all([loadIngest(), loadOpsIndex(), loadOpsJobs(), loadHealth()]);
+    },
+    [loadHealth, loadIngest, loadOpsIndex, loadOpsJobs],
+  );
 
   useEffect(() => {
     void refreshAll();
   }, [refreshAll]);
 
   const activeJob = opsJobs.find((job) => ["queued", "running"].includes(job.status));
-  const activeOperation = opsBusyOperation ?? activeJob?.operation_type ?? null;
-  const actionLocked = opsBusy || Boolean(activeJob) || opsState !== "ready";
+  const activeJobId = activeJob?.job_id ?? null;
+  const activeJobStatus = activeJob?.status ?? null;
+  const activeJobOperation = activeJob?.operation_type ?? null;
+  const activeOperation = opsBusyOperation ?? activeJobOperation;
+  const actionLocked = opsBusy || activeJobId !== null || opsState !== "ready";
   const refreshing =
     ingestState === "loading" ||
     opsState === "loading" ||
     jobsState === "loading" ||
     healthState === "loading";
+
+  useEffect(() => {
+    if (!activeJobId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof window.setTimeout> | null = null;
+    let attempts = 0;
+
+    const schedule = () => {
+      if (
+        cancelled ||
+        timer !== null ||
+        attempts >= JOB_POLL_MAX_ATTEMPTS ||
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
+      timer = window.setTimeout(() => {
+        timer = null;
+        void poll();
+      }, JOB_POLL_INTERVAL_MS);
+    };
+    const poll = async () => {
+      if (cancelled) return;
+      if (document.visibilityState === "hidden") return;
+      attempts += 1;
+      const requestId = ++jobsRequestRef.current;
+      setJobsState("loading");
+      try {
+        const jobs = await fetchJobsSerialized();
+        if (cancelled) return;
+        if (jobsRequestRef.current !== requestId) {
+          schedule();
+          return;
+        }
+        if (jobs.some((job) => ["queued", "running"].includes(job.status))) {
+          setOpsJobs(jobs);
+          setJobsState("ready");
+          schedule();
+          return;
+        }
+        await Promise.all([loadIngest(), loadOpsIndex(), loadHealth()]);
+        if (cancelled || jobsRequestRef.current !== requestId) return;
+        setOpsJobs(jobs);
+        setJobsState("ready");
+      } catch {
+        if (cancelled || jobsRequestRef.current !== requestId) return;
+        setOpsJobs([]);
+        setJobsState("error");
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        if (timer !== null) window.clearTimeout(timer);
+        timer = null;
+        return;
+      }
+      schedule();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    schedule();
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [activeJobId, activeJobStatus, fetchJobsSerialized, loadHealth, loadIngest, loadOpsIndex]);
+
+  useEffect(
+    () => () => {
+      ingestRequestRef.current += 1;
+      opsRequestRef.current += 1;
+      jobsRequestRef.current += 1;
+      healthRequestRef.current += 1;
+    },
+    [],
+  );
 
   const recordJob = useCallback((job: IndexingJobSummaryDTO, operationLabel?: string) => {
     const label = operationLabel ?? safeJobOperation(job.operation_type);
@@ -267,7 +399,7 @@ export default function AdminIngestPage() {
         await triggerIndexingRetry({ scope: "all", statuses, limit: opsLimit }),
         "批量重试索引",
       );
-      await loadOpsIndex();
+      await refreshAll(false);
     } catch {
       setOpsNoteTone("danger");
       setOpsNote("批量重试未能发起，请稍后重试。");
@@ -275,14 +407,7 @@ export default function AdminIngestPage() {
       setOpsBusy(false);
       setOpsBusyOperation(null);
     }
-  }, [
-    actionLocked,
-    loadOpsIndex,
-    opsLimit,
-    recordJob,
-    retryIncludeNotIndexed,
-    retryIncludeSkipped,
-  ]);
+  }, [actionLocked, opsLimit, recordJob, refreshAll, retryIncludeNotIndexed, retryIncludeSkipped]);
 
   const handleReparse = useCallback(async () => {
     if (actionLocked) return;
@@ -298,7 +423,7 @@ export default function AdminIngestPage() {
         }),
         "重新解析",
       );
-      await loadOpsIndex();
+      await refreshAll(false);
     } catch {
       setOpsNoteTone("danger");
       setOpsNote("重新解析未能发起，请稍后重试。");
@@ -306,7 +431,7 @@ export default function AdminIngestPage() {
       setOpsBusy(false);
       setOpsBusyOperation(null);
     }
-  }, [actionLocked, loadOpsIndex, opsLimit, recordJob]);
+  }, [actionLocked, opsLimit, recordJob, refreshAll]);
 
   const handleTargetRetry = useCallback(async () => {
     if (!retryTarget || targetBusy) return;
@@ -316,7 +441,7 @@ export default function AdminIngestPage() {
       if (!retryTarget.retry_target) return;
       recordJob(await triggerTargetedIndexingRetry(retryTarget.retry_target), "单条索引重试");
       setRetryTarget(null);
-      await Promise.all([loadOpsIndex(), loadOpsJobs(), loadHealth()]);
+      await refreshAll(false);
     } catch (error) {
       if (error instanceof ApiError && error.status === 403) {
         setTargetError("当前身份无权执行此操作。");
@@ -328,7 +453,7 @@ export default function AdminIngestPage() {
     } finally {
       setTargetBusy(false);
     }
-  }, [loadHealth, loadOpsIndex, loadOpsJobs, recordJob, retryTarget, targetBusy]);
+  }, [recordJob, refreshAll, retryTarget, targetBusy]);
 
   const ingestCounts = useMemo(() => {
     const counts = new Map<string, number>();

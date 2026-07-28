@@ -59,6 +59,7 @@ docs/*
 !docs/deployment/
 # 版本化的 API 契约（OpenAPI spec + 系统能力清单），供前后端一致性校验与 CI 漂移检测。
 !docs/api/
+!docs/MUTATION_STATE_CONSISTENCY_AUDIT.md
 
 #claude
 CLAUDE.md

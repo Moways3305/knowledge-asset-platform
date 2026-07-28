@@ -235,6 +235,14 @@ export function useUploadFlow() {
     [],
   );
 
+  const removeLocalTaskEverywhere = useCallback(
+    (ingestTaskId: string) => {
+      setLocalPendingTasks((items) => items.filter((item) => item.id !== ingestTaskId));
+      updateLocalUploadQueue((items) => items.filter((item) => item.ingestTaskId !== ingestTaskId));
+    },
+    [updateLocalUploadQueue],
+  );
+
   const processLocalUploadQueue = useCallback(async () => {
     if (localUploadWorkerRef.current) return;
     localUploadWorkerRef.current = true;
@@ -703,7 +711,10 @@ export function useUploadFlow() {
       setSubmitIndexStatus(res.index_status ?? null);
       setFlowState("submitted");
       if (activePath === "a") void loadPending();
-      if (activePath === "b") void loadLocalPending();
+      if (activePath === "b") {
+        removeLocalTaskEverywhere(taskId);
+        void loadLocalPending();
+      }
     } catch (e) {
       if (!isCurrent()) return;
       setApiError(e instanceof ApiError ? e.message : "提交入库失败");
@@ -727,6 +738,7 @@ export function useUploadFlow() {
     isCurrentWorkflowRun,
     loadPending,
     loadLocalPending,
+    removeLocalTaskEverywhere,
     models.embeddingRef,
     models.rerankRef,
   ]);
@@ -809,6 +821,7 @@ export function useUploadFlow() {
               rerank_model_ref: models.rerankRef || undefined,
             });
             if (!isCurrent()) return;
+            if (activePath === "b") removeLocalTaskEverywhere(task.id);
             updateBatchStatus((previous) => ({ ...previous, [task.id]: "success" }));
           } catch {
             if (!isCurrent()) return;
@@ -844,6 +857,7 @@ export function useUploadFlow() {
       models.embeddingRef,
       models.rerankRef,
       pollAiResult,
+      removeLocalTaskEverywhere,
     ],
   );
 
@@ -889,7 +903,7 @@ export function useUploadFlow() {
             if (sourceAtStart === "a") {
               setPendingTasks(removeTask);
             } else {
-              setLocalPendingTasks(removeTask);
+              removeLocalTaskEverywhere(task.id);
             }
             setBatchSelection((selected) => selected.filter((id) => id !== task.id));
           } catch {
@@ -923,7 +937,14 @@ export function useUploadFlow() {
         }
       }
     },
-    [activePath, beginWorkflowRun, isCurrentWorkflowRun, loadLocalPending, loadPending],
+    [
+      activePath,
+      beginWorkflowRun,
+      isCurrentWorkflowRun,
+      loadLocalPending,
+      loadPending,
+      removeLocalTaskEverywhere,
+    ],
   );
 
   const handleReset = useCallback(() => {
@@ -982,14 +1003,20 @@ export function useUploadFlow() {
     async (tid: string) => {
       // Rejecting an ingest item is irreversible. Await it before resetting so
       // a failed delete leaves the current editor and source context available.
-      await deletePendingTask(tid);
-      handleReset();
-      // Refresh only the active source. The two lists have independent request
-      // tokens, so a local action cannot leave the WeCom list loading (or vice versa).
-      if (activePath === "a") void loadPending();
-      else void loadLocalPending();
+      setApiError(null);
+      try {
+        await deletePendingTask(tid);
+        if (activePath === "b") removeLocalTaskEverywhere(tid);
+        handleReset();
+        // Refresh only the active source. The two lists have independent request
+        // tokens, so a local action cannot leave the WeCom list loading (or vice versa).
+        if (activePath === "a") void loadPending();
+        else void loadLocalPending();
+      } catch {
+        setApiError("拒绝入库失败，任务仍保留，请重试");
+      }
     },
-    [activePath, handleReset, loadPending, loadLocalPending],
+    [activePath, handleReset, loadPending, loadLocalPending, removeLocalTaskEverywhere],
   );
 
   // 切换来源时清空当前流程 / 选中态，避免一处来源的校正数据残留到另一处。

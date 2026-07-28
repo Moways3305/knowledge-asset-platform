@@ -20,8 +20,12 @@ import {
 import AdminWeKnoraModelsPage from "./AdminWeKnoraModelsPage";
 import type { ModelConnectionDTO } from "../types/modelConnections";
 
+const auth = vi.hoisted(() => ({
+  capabilities: { isAdmin: true, isGovernance: false, isProjectManager: false },
+}));
+
 vi.mock("../auth/AuthContext", () => ({
-  useAuth: () => ({ capabilities: { isAdmin: true } }),
+  useAuth: () => auth,
 }));
 
 vi.mock("../api/admin", () => ({
@@ -73,6 +77,11 @@ function renderPage() {
 describe("AdminWeKnoraModelsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.assign(auth.capabilities, {
+      isAdmin: true,
+      isGovernance: false,
+      isProjectManager: false,
+    });
     vi.mocked(fetchWeknoraModels).mockResolvedValue([]);
     vi.mocked(fetchWeknoraKbConfigs).mockResolvedValue([]);
     vi.mocked(fetchWeknoraDefaultModels).mockResolvedValue({
@@ -107,6 +116,23 @@ describe("AdminWeKnoraModelsPage", () => {
       duration_ms: 18,
     });
     Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it("gives project managers only their scoped KB initialization workspace", async () => {
+    Object.assign(auth.capabilities, {
+      isAdmin: false,
+      isGovernance: false,
+      isProjectManager: true,
+    });
+    renderPage();
+
+    expect(
+      await screen.findByText("仅显示你担任项目经理的项目知识库，可在此修复初始化失败配置。"),
+    ).toBeInTheDocument();
+    expect(fetchWeknoraModels).toHaveBeenCalledTimes(1);
+    expect(fetchWeknoraKbConfigs).toHaveBeenCalledTimes(1);
+    expect(fetchWeknoraDefaultModels).not.toHaveBeenCalled();
+    expect(screen.queryByText("WEKNORA BASE")).not.toBeInTheDocument();
   });
 
   it("shows external LLM separately from WeKnora foundation configuration", async () => {
