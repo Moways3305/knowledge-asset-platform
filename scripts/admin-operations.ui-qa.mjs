@@ -277,7 +277,10 @@ try {
           await page.getByRole("button", { name: "取消" }).click();
         }
       } else if (scenario === "target-running") {
-        await page.getByRole("button", { name: "作业执行中" }).waitFor();
+        await page
+          .getByRole("button", { name: "正在执行：批量重试索引" })
+          .first()
+          .waitFor();
       } else if (scenario === "insufficient-data") {
         await page.getByText("正在积累运维数据").waitFor();
       } else if (scenario === "worker-stale" || scenario === "beat-stale") {
