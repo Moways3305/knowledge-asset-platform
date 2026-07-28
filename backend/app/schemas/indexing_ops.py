@@ -72,6 +72,7 @@ class IndexingHealthTrendPoint(BaseModel):
     skipped: int
     parse_pending: int
     parse_processing: int
+    parse_failed: int = 0
     kb_init_failed: int
     completed_jobs: int
     failed_jobs: int

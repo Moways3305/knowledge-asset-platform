@@ -68,6 +68,7 @@ from app.services import (
     auth_security_ops,
     error_catalog,
     generation_models,
+    indexing_candidates,
     indexing_health,
     session_revocation,
     wecom_identity,
@@ -423,6 +424,7 @@ async def ops_indexing(
     )
 
     counts = await indexing_health.indexing_counts(session)
+    reparse_actionable_count = await indexing_candidates.count_reparse_candidates(session)
 
     # 最近失败资产（安全摘要，最多 20 条）。
     rows = (
@@ -512,6 +514,7 @@ async def ops_indexing(
 
     return {
         "counts": counts,
+        "reparse_actionable_count": reparse_actionable_count,
         "recent_failed": recent_failed,
         "diagnostic_counts": diagnostic_counts,
         "title_visible": show_title,

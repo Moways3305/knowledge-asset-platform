@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -7,6 +8,7 @@ from sqlalchemy import select
 
 from app.db.utils import utc_now
 from app.models.indexing_job import IndexingOperationJob, IndexingOpsSnapshot, OpsRuntimeHeartbeat
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT
 from app.services import error_catalog, indexing_health
 from app.worker import beat_scheduler
@@ -55,6 +57,57 @@ async def test_snapshot_is_hourly_idempotent_and_contains_real_queue_metrics(db_
     assert second.oldest_queued_seconds == 1920
     rows = list((await db_session.execute(select(IndexingOpsSnapshot))).scalars())
     assert len(rows) == 1
+
+
+async def test_parse_failed_visibility_excludes_deleted_and_inactive_versions(db_session):
+    active_asset_id = uuid.uuid4()
+    active_version_id = uuid.uuid4()
+    deleted_asset_id = uuid.uuid4()
+    deleted_version_id = uuid.uuid4()
+    inactive_asset_id = uuid.uuid4()
+    inactive_version_id = uuid.uuid4()
+    for asset_id, version_id, asset_status, version_status in (
+        (active_asset_id, active_version_id, "active", "active"),
+        (deleted_asset_id, deleted_version_id, "deleted", "active"),
+        (inactive_asset_id, inactive_version_id, "active", "superseded"),
+    ):
+        db_session.add(
+            KnowledgeAsset(
+                id=asset_id,
+                title="安全聚合测试",
+                scope="personal",
+                zone="asset",
+                asset_type="methodology",
+                owner_user_id=USER_CONSULTANT,
+                current_version_id=version_id,
+                visibility="private",
+                confidentiality_level="L2",
+                ai_access_level="A2",
+                asset_status=asset_status,
+            )
+        )
+        db_session.add(
+            KnowledgeAssetVersion(
+                id=version_id,
+                asset_id=asset_id,
+                version_no="v1",
+                version_status=version_status,
+                created_by=USER_CONSULTANT,
+                index_status="indexed",
+                weknora_doc_id=f"server-only-{asset_id}",
+                weknora_parse_status="failed",
+            )
+        )
+    await db_session.commit()
+
+    counts = await indexing_health.indexing_counts(db_session)
+    assert counts["parse_failed"] == 1
+    assert counts["index_failed"] == 0
+
+    snapshot = await indexing_health.capture_snapshot(db_session, observed_at=utc_now())
+    assert snapshot.parse_failed == 1
+    health = await indexing_health.get_health(db_session, now=utc_now())
+    assert health.trend_points[-1].parse_failed == 1
 
 
 async def test_health_reports_real_healthy_stale_and_insufficient_states(db_session, monkeypatch):
