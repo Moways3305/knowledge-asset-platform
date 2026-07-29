@@ -6,10 +6,13 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
+
+WorkbuddyPlatform = Literal["windows", "macos"]
+WorkbuddyArchitecture = Literal["x64", "arm64"]
 
 
 class WorkbuddyTokenStatusOut(BaseModel):
@@ -17,11 +20,15 @@ class WorkbuddyTokenStatusOut(BaseModel):
 
     enabled: bool
     provider: str = "workbuddy"
-    bound_user_id: uuid.UUID | None = None
     bound_user_name: str | None = None
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
     last_rotated_at: datetime | None = None
+    last_connected_at: datetime | None = None
+
+
+class WorkbuddyTokenRegenerateIn(BaseModel):
+    """平台只影响本次下发的本地命令；绑定用户始终从服务端 caller 解析。"""
+
+    platform: WorkbuddyPlatform
 
 
 class WorkbuddyTokenCreatedOut(BaseModel):
@@ -29,3 +36,21 @@ class WorkbuddyTokenCreatedOut(BaseModel):
 
     token: str
     mcp_config: dict
+    platform: WorkbuddyPlatform
+
+
+class WorkbuddyConnectorArtifactOut(BaseModel):
+    platform: WorkbuddyPlatform
+    architecture: WorkbuddyArchitecture
+    version: str
+    filename: str
+    sha256: str
+    download_path: str
+    release_status: Literal["production", "internal"]
+    signed: bool
+    notarized: bool
+
+
+class WorkbuddyConnectorManifestOut(BaseModel):
+    version: str
+    artifacts: list[WorkbuddyConnectorArtifactOut]

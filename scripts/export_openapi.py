@@ -108,7 +108,9 @@ def _response_schema_nodes(spec: dict[str, Any]) -> list[Any]:
 def _response_reachable_components(spec: dict[str, Any]) -> set[str]:
     """从响应 schema 出发，沿 $ref 取传递闭包，返回响应可达的组件名集合。"""
     components = spec.get("components", {}).get("schemas", {})
-    frontier = [name for node in _response_schema_nodes(spec) for name in _iter_component_refs(node)]
+    frontier = [
+        name for node in _response_schema_nodes(spec) for name in _iter_component_refs(node)
+    ]
     reachable: set[str] = set()
     while frontier:
         name = frontier.pop()
@@ -169,14 +171,20 @@ def main() -> int:
             "no-leak 校验失败：响应契约中出现安全红线字段名：" + ", ".join(leaks),
             file=sys.stderr,
         )
-        print("已中止，不写盘。请修正对应响应 schema（server-only 标识不得进入响应模型）。", file=sys.stderr)
+        print(
+            "已中止，不写盘。请修正对应响应 schema（server-only 标识不得进入响应模型）。",
+            file=sys.stderr,
+        )
         return 1
 
     text = serialize(spec)
 
     if args.check:
         if not OUTPUT_PATH.exists():
-            print(f"{OUTPUT_PATH} 不存在；请先运行 `python scripts/export_openapi.py` 生成。", file=sys.stderr)
+            print(
+                f"{OUTPUT_PATH} 不存在；请先运行 `python scripts/export_openapi.py` 生成。",
+                file=sys.stderr,
+            )
             return 1
         if OUTPUT_PATH.read_text(encoding="utf-8") != text:
             print(

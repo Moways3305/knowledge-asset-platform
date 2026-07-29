@@ -1,0 +1,7 @@
+# Production-only overlay. Keep connector packages outside images and expose them only to backend.
+services:
+  backend:
+    environment:
+      WORKBUDDY_CONNECTOR_ARTIFACT_ROOT: /data/workbuddy-connectors
+    volumes:
+      - /data/kap/workbuddy-connectors:/data/workbuddy-connectors:ro

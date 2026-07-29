@@ -16,7 +16,7 @@ import secrets
 from typing import Literal
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_caller_context
@@ -33,12 +33,18 @@ from app.schemas.auth import (
 )
 from app.schemas.enums import AuditAction, AuditLogType
 from app.schemas.permission import CallerContext
-from app.schemas.workbuddy import WorkbuddyTokenCreatedOut, WorkbuddyTokenStatusOut
+from app.schemas.workbuddy import (
+    WorkbuddyConnectorManifestOut,
+    WorkbuddyTokenCreatedOut,
+    WorkbuddyTokenRegenerateIn,
+    WorkbuddyTokenStatusOut,
+)
 from app.services import audit as audit_service
 from app.services import auth_security as auth_security
 from app.services import auth_session as session_service
 from app.services import csrf as csrf_service
 from app.services import wecom_identity, work_identity
+from app.services import workbuddy_connector as workbuddy_connector_service
 from app.services import workbuddy_token as workbuddy_token_service
 from app.services.auth_session import SESSION_COOKIE_NAME
 from app.services.identity import (
@@ -735,8 +741,32 @@ async def get_workbuddy_token(
     return await workbuddy_token_service.get_status(session, caller)
 
 
+@router.get("/workbuddy-connectors", response_model=WorkbuddyConnectorManifestOut)
+async def get_workbuddy_connectors(
+    caller: CallerContext = Depends(get_caller_context),
+) -> WorkbuddyConnectorManifestOut:
+    """返回共享安装产物的安全版本/校验清单；仅在职业务用户可见。"""
+    return workbuddy_connector_service.get_manifest(caller)
+
+
+@router.get("/workbuddy-connectors/{platform}/{architecture}/download")
+async def download_workbuddy_connector(
+    platform: str,
+    architecture: str,
+    caller: CallerContext = Depends(get_caller_context),
+) -> FileResponse:
+    """下载经清单哈希及生产签名状态校验的共享安装包，不携带个人 token。"""
+    artifact = workbuddy_connector_service.resolve_download(caller, platform, architecture)
+    return FileResponse(
+        artifact.path,
+        filename=artifact.descriptor.filename,
+        media_type="application/octet-stream",
+    )
+
+
 @router.post("/workbuddy-token/regenerate", response_model=WorkbuddyTokenCreatedOut)
 async def regenerate_workbuddy_token(
+    body: WorkbuddyTokenRegenerateIn,
     request: Request,
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
@@ -744,7 +774,11 @@ async def regenerate_workbuddy_token(
     """生成 / 重置当前用户自助 token（绑定 caller 本人；明文一次性返回 + 可复制 mcp.json）。"""
     base_url = str(request.base_url).rstrip("/")
     return await workbuddy_token_service.regenerate(
-        session, caller, base_url=base_url, trace_id=get_trace_id(request)
+        session,
+        caller,
+        base_url=base_url,
+        platform=body.platform,
+        trace_id=get_trace_id(request),
     )
 
 

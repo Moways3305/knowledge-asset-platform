@@ -108,9 +108,7 @@ def test_error_is_sanitized():
     def handler(request):
         return httpx.Response(
             403,
-            json={
-                "detail": {"denied_reason": "caller_unresolved", "message": "secret"}
-            },
+            json={"detail": {"denied_reason": "caller_unresolved", "message": "secret"}},
         )
 
     client = _client(handler)
@@ -264,9 +262,7 @@ def test_project_knowledge_passes_tags_and_projects():
         )
 
     client = _client(handler)
-    out = list_project_knowledge(
-        client, "p1", tags=["供应链", "流程优化"], bearer="kgw_user"
-    )
+    out = list_project_knowledge(client, "p1", tags=["供应链", "流程优化"], bearer="kgw_user")
     assert out[0]["asset_id"] == "a1"
     _assert_no_leak(out)
 

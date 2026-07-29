@@ -47,6 +47,11 @@
     Select-String -Path docker-compose.yml -Pattern 'STORAGE_ROOT:\s*/data/uploads'
     ```
 - [ ] 生产可把存储平替为对象存储 / 共享持久卷（S3 / OSS / MinIO），但 `StorageBackend` 边界保持 server-only（存储引用 / 路径绝不进 API 响应）。
+- [ ] WorkBuddy Connector 生产制品使用
+  [`docker-compose.prod.yml`](../../docker-compose.prod.yml) 将宿主机
+  `/data/kap/workbuddy-connectors` 只读挂载到 `backend`；`worker`、`beat`、`frontend`、
+  `postgres`、`redis` 不得访问。下载、校验、原子切换、回滚和双身份烟测见
+  [`WORKBUDDY_CONNECTOR_RELEASE.md`](./WORKBUDDY_CONNECTOR_RELEASE.md)。
 
 ### 1.4 外部依赖连通性（按启用情况）
 
