@@ -1,0 +1,118 @@
+name: WorkBuddy Connector Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic connector version
+        required: true
+        type: string
+      channel:
+        description: Production requires every platform signature and macOS notarization
+        required: true
+        default: internal
+        type: choice
+        options:
+          - internal
+          - production
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  release-policy:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require protected main for production
+        if: inputs.channel == 'production' && github.ref != 'refs/heads/main'
+        run: |
+          echo "Production connector releases must run from protected main." >&2
+          exit 1
+
+  windows:
+    needs: release-policy
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install connector and frozen-build dependencies
+        working-directory: integrations/workbuddy-mcp
+        run: |
+          python -m pip install .
+          python -m pip install pyinstaller
+      - name: Build installer and enforce production signing
+        working-directory: integrations/workbuddy-mcp
+        env:
+          WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: ./connector_build/windows/build.ps1 -Version '${{ inputs.version }}' -Channel '${{ inputs.channel }}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: connector-windows-x64
+          path: integrations/workbuddy-mcp/release/*
+
+  macos:
+    needs: release-policy
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install connector and frozen-build dependencies
+        working-directory: integrations/workbuddy-mcp
+        run: |
+          python -m pip install .
+          python -m pip install pyinstaller
+      - name: Import Developer ID certificates for production
+        if: inputs.channel == 'production'
+        env:
+          APPLE_CERTIFICATES_P12_BASE64: ${{ secrets.APPLE_CERTIFICATES_P12_BASE64 }}
+          APPLE_CERTIFICATES_PASSWORD: ${{ secrets.APPLE_CERTIFICATES_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+        run: |
+          test -n "$APPLE_CERTIFICATES_P12_BASE64"
+          test -n "$APPLE_CERTIFICATES_PASSWORD"
+          test -n "$KEYCHAIN_PASSWORD"
+          KEYCHAIN="$RUNNER_TEMP/kap-signing.keychain-db"
+          echo "$APPLE_CERTIFICATES_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/certificates.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/certificates.p12" -k "$KEYCHAIN" -P "$APPLE_CERTIFICATES_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
+          security list-keychain -d user -s "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          rm -f "$RUNNER_TEMP/certificates.p12"
+      - name: Build package and enforce Developer ID notarization
+        working-directory: integrations/workbuddy-mcp
+        env:
+          APPLE_DEVELOPER_ID_APPLICATION: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
+          APPLE_DEVELOPER_ID_INSTALLER: ${{ secrets.APPLE_DEVELOPER_ID_INSTALLER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: bash ./connector_build/macos/build.sh '${{ inputs.version }}' '${{ inputs.channel }}' '${{ matrix.architecture }}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: connector-macos-${{ matrix.architecture }}
+          path: integrations/workbuddy-mcp/release/*
+
+  trusted-publish:
+    needs: [windows, macos]
+    uses: Moways3305/knowledge-asset-platform/.github/workflows/workbuddy-connector-trusted-builder.yml@main
+    with:
+      version: ${{ inputs.version }}
+      channel: ${{ inputs.channel }}

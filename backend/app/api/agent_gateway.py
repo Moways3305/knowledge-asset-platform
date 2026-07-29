@@ -11,6 +11,7 @@ provider 内部标识 / storage 引用。
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import denied
 from app.core.trace import get_trace_id
 from app.db.session import get_db
+from app.db.utils import utc_now
 from app.models.agent_registry import AgentWhitelistRule
 from app.schemas.agent_workbench import (
     WorkbenchKnowledgeListResponse,
@@ -58,7 +60,7 @@ def _bearer(authorization: str | None) -> str | None:
 async def require_bound_caller(
     authorization: str | None = Header(default=None),
     session: AsyncSession = Depends(get_db),
-) -> tuple[AgentWhitelistRule, CallerContext]:
+) -> AsyncIterator[tuple[AgentWhitelistRule, CallerContext]]:
     """Bearer → 注册行(qa) → bound_user_id → 真实 caller。任一不满足即 fail closed。
 
     绝不读取 X-Platform-User-Id / 任何客户端自报 caller id。
@@ -76,7 +78,16 @@ async def require_bound_caller(
     caller = await gateway.resolve_caller(session, rule.bound_user_id)
     if caller is None or not caller.is_business_user:
         raise denied(403, "caller_unresolved", "绑定用户无法解析或非业务用户")
-    return rule, caller
+    try:
+        yield rule, caller
+    except BaseException:
+        # 鉴权通过但端点失败时也不得制造“已连接”状态。
+        raise
+    else:
+        # 只有完整成功返回的 WorkBuddy 请求才记录活动；不写审计 extra/请求内容。
+        if rule.provider == "workbuddy":
+            rule.last_connected_at = utc_now()
+            await session.commit()
 
 
 @router.post("/tools/knowledge-search", response_model=SearchResponse)
@@ -129,7 +140,7 @@ async def list_accessible_projects(
 
 
 # ---------------------------------------------------------------------------
-# 只读工作台工具（PBC-37）：全部经 require_bound_caller，仅安全白名单字段，绝不写。
+# 只读工作台工具：全部经 require_bound_caller，仅安全白名单字段，绝不写。
 # caller 由 token 绑定解析；权限走 decide() + 注册行天花板。无原文 / 文件 / 预览 URL。
 # ---------------------------------------------------------------------------
 @router.get("/todos", response_model=WorkbenchTodosResponse)

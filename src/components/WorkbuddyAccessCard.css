@@ -1,26 +1,30 @@
-/* 卡片容器由外层 wb81-panel 接管，此处只负责内部排版，不下发 margin/padding。 */
 .wb-card {
   margin: 0;
   padding: 0;
   border: none;
   background: transparent;
 }
+
 .wb-integration-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
 }
+
 .wb-integration-head > div:first-child {
   min-width: 0;
 }
-.wb-integration-head p {
-  max-width: 760px;
-  margin: 8px 0 0;
+
+.wb-integration-head p,
+.wb-step-body p {
+  max-width: 780px;
+  margin: 7px 0 0;
   color: var(--color-text-secondary);
   font-size: 12px;
   line-height: 1.55;
 }
+
 .wb-status-pill {
   display: inline-flex;
   padding: 3px 8px;
@@ -30,30 +34,110 @@
   font-size: 11px;
   font-weight: 700;
 }
+
 .wb-status-pill.is-enabled {
   color: var(--color-success);
   background: var(--color-success-bg);
 }
 
-.wb-card h3 {
-  margin: 0 0 0.5rem;
+.wb-last-connected {
+  color: var(--color-success) !important;
+}
+
+.wb-guide {
+  display: grid;
+  gap: 0;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-guide-step {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.wb-step-number {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--color-primary, #1f2d75);
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.wb-step-body h3 {
+  margin: 3px 0 0;
   color: var(--color-text-heading);
-  font-size: 15px;
+  font-size: 14px;
 }
 
-.wb-desc {
-  margin: 0 0 0.75rem;
+.wb-platforms {
+  display: flex;
+  gap: 18px;
+  margin: 12px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.wb-platforms label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-heading);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wb-architecture {
+  display: flex;
+  max-width: 300px;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 10px;
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: 12px;
 }
 
-.wb-status {
-  margin: 0 0 0.75rem;
+.wb-architecture select {
+  min-height: 32px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg-surface);
+  color: var(--color-text-heading);
+}
+
+.wb-download {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.wb-download a {
+  padding: 7px 12px;
+  border-radius: 4px;
+  background: var(--color-primary, #1f2d75);
+  color: white;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.wb-download code {
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: 11px;
 }
 
-.wb-error {
+.wb-error,
+.wb-inline-recovery {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -62,26 +146,26 @@
   padding: 9px 10px;
   background: var(--color-danger-bg);
   color: var(--color-danger, #b42318);
-  font-size: 13px;
-}
-.wb-error button {
-  flex: 0 0 auto;
+  font-size: 12px;
 }
 
 .wb-actions {
   display: flex;
-  gap: 8px;
   align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
+  margin-top: 10px;
 }
 
-/* WorkBuddy 接入 / 取消等操作按钮：与 product-setting-control 风格一致 */
-.wb-actions button {
+.wb-actions button,
+.wb-error button,
+.wb-inline-recovery button,
+.wb-secondary-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-height: 30px;
-  padding: 5px 14px;
+  padding: 5px 12px;
   border: 1px solid var(--color-border);
   border-radius: 4px;
   background: var(--color-bg-surface);
@@ -90,45 +174,57 @@
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  white-space: nowrap;
 }
 
-.wb-actions button:hover:not(:disabled) {
-  border-color: var(--color-accent-1, #1f2d75);
-  color: var(--color-primary, #1f2d75);
-}
-
-.wb-actions button:disabled {
+.wb-actions button:disabled,
+.wb-secondary-action:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
 
 .wb-onetime {
   margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px dashed var(--color-border);
 }
 
 .wb-warn {
-  margin: 0 0 0.5rem;
-  color: var(--color-warning, #b28a24);
-  font-size: 13px;
+  color: var(--color-warning, #9a6700) !important;
 }
 
 .wb-config {
   width: 100%;
+  margin-top: 8px;
   font-family: var(--font-mono, Consolas, monospace);
   font-size: 12px;
   resize: vertical;
 }
 
-@media (max-width: 760px) {
-  .wb-integration-head {
-    flex-direction: column;
-  }
-}
-
 .wb-copied {
   color: var(--color-success, #1a7f37);
-  font-size: 13px;
+  font-size: 12px;
+}
+
+.wb-connection-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.wb-help-text {
+  max-width: 580px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+@media (max-width: 760px) {
+  .wb-integration-head,
+  .wb-platforms {
+    flex-direction: column;
+  }
+
+  .wb-guide-step {
+    grid-template-columns: 26px minmax(0, 1fr);
+    gap: 9px;
+  }
 }

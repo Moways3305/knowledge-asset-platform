@@ -70,9 +70,11 @@ def test_streamable_http_forwards_per_request_bearer(monkeypatch):
     async def drive() -> tuple[list[str], str]:
         url = f"http://127.0.0.1:{port}/mcp"
         async with (
-            streamablehttp_client(
-                url, headers={"Authorization": "Bearer kgw_USER_ALICE"}
-            ) as (r, w, _),
+            streamablehttp_client(url, headers={"Authorization": "Bearer kgw_USER_ALICE"}) as (
+                r,
+                w,
+                _,
+            ),
             ClientSession(r, w) as s,
         ):
             await s.initialize()

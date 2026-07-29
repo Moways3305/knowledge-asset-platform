@@ -63,6 +63,10 @@ class AgentWhitelistRule(Base):
     token_rotated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # 最近一次成功完成 agent-gateway 调用的时间。只记录成功结果；鉴权/业务失败不更新。
+    last_connected_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now

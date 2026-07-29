@@ -39,9 +39,7 @@ def test_tool_wrappers_sanitize_errors(monkeypatch):
     importlib.reload(server)
 
     def handler(request):
-        return httpx.Response(
-            403, json={"detail": {"denied_reason": "caller_unresolved"}}
-        )
+        return httpx.Response(403, json={"detail": {"denied_reason": "caller_unresolved"}})
 
     # 注入 mock transport 到模块级 client。
     server._client._http = httpx.Client(

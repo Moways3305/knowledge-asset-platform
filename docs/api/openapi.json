@@ -12746,6 +12746,92 @@
         "title": "WorkbenchTodosSection",
         "type": "object"
       },
+      "WorkbuddyConnectorArtifactOut": {
+        "properties": {
+          "architecture": {
+            "enum": [
+              "x64",
+              "arm64"
+            ],
+            "title": "Architecture",
+            "type": "string"
+          },
+          "download_path": {
+            "title": "Download Path",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "notarized": {
+            "title": "Notarized",
+            "type": "boolean"
+          },
+          "platform": {
+            "enum": [
+              "windows",
+              "macos"
+            ],
+            "title": "Platform",
+            "type": "string"
+          },
+          "release_status": {
+            "enum": [
+              "production",
+              "internal"
+            ],
+            "title": "Release Status",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "signed": {
+            "title": "Signed",
+            "type": "boolean"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "platform",
+          "architecture",
+          "version",
+          "filename",
+          "sha256",
+          "download_path",
+          "release_status",
+          "signed",
+          "notarized"
+        ],
+        "title": "WorkbuddyConnectorArtifactOut",
+        "type": "object"
+      },
+      "WorkbuddyConnectorManifestOut": {
+        "properties": {
+          "artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/WorkbuddyConnectorArtifactOut"
+            },
+            "title": "Artifacts",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "artifacts"
+        ],
+        "title": "WorkbuddyConnectorManifestOut",
+        "type": "object"
+      },
       "WorkbuddyTokenCreatedOut": {
         "description": "生成 / 重置结果：明文 token 仅此一次返回，附可直接复制的 mcp.json 配置。",
         "properties": {
@@ -12754,6 +12840,14 @@
             "title": "Mcp Config",
             "type": "object"
           },
+          "platform": {
+            "enum": [
+              "windows",
+              "macos"
+            ],
+            "title": "Platform",
+            "type": "string"
+          },
           "token": {
             "title": "Token",
             "type": "string"
@@ -12761,26 +12855,33 @@
         },
         "required": [
           "token",
-          "mcp_config"
+          "mcp_config",
+          "platform"
         ],
         "title": "WorkbuddyTokenCreatedOut",
+        "type": "object"
+      },
+      "WorkbuddyTokenRegenerateIn": {
+        "description": "平台只影响本次下发的本地命令；绑定用户始终从服务端 caller 解析。",
+        "properties": {
+          "platform": {
+            "enum": [
+              "windows",
+              "macos"
+            ],
+            "title": "Platform",
+            "type": "string"
+          }
+        },
+        "required": [
+          "platform"
+        ],
+        "title": "WorkbuddyTokenRegenerateIn",
         "type": "object"
       },
       "WorkbuddyTokenStatusOut": {
         "description": "当前用户的 WorkBuddy 绑定状态（无 token 明文 / token_hash）。",
         "properties": {
-          "bound_user_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Bound User Id"
-          },
           "bound_user_name": {
             "anyOf": [
               {
@@ -12792,7 +12893,11 @@
             ],
             "title": "Bound User Name"
           },
-          "created_at": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "last_connected_at": {
             "anyOf": [
               {
                 "format": "date-time",
@@ -12802,11 +12907,7 @@
                 "type": "null"
               }
             ],
-            "title": "Created At"
-          },
-          "enabled": {
-            "title": "Enabled",
-            "type": "boolean"
+            "title": "Last Connected At"
           },
           "last_rotated_at": {
             "anyOf": [
@@ -12824,18 +12925,6 @@
             "default": "workbuddy",
             "title": "Provider",
             "type": "string"
-          },
-          "updated_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Updated At"
           }
         },
         "required": [
@@ -20137,6 +20226,186 @@
         ]
       }
     },
+    "/api/v1/auth/workbuddy-connectors": {
+      "get": {
+        "description": "返回共享安装产物的安全版本/校验清单；仅在职业务用户可见。",
+        "operationId": "get_workbuddy_connectors_api_v1_auth_workbuddy_connectors_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkbuddyConnectorManifestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Workbuddy Connectors",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/workbuddy-connectors/{platform}/{architecture}/download": {
+      "get": {
+        "description": "下载经清单哈希及生产签名状态校验的共享安装包，不携带个人 token。",
+        "operationId": "download_workbuddy_connector_api_v1_auth_workbuddy_connectors__platform___architecture__download_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "platform",
+            "required": true,
+            "schema": {
+              "title": "Platform",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "architecture",
+            "required": true,
+            "schema": {
+              "title": "Architecture",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Workbuddy Connector",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/v1/auth/workbuddy-token": {
       "delete": {
         "description": "撤销当前用户自助 token（幂等；旧 token 立即不可用）。",
@@ -20353,6 +20622,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkbuddyTokenRegenerateIn"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {

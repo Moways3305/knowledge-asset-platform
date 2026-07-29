@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """生产部署安全烟测。
 
 对一个**已部署**的实例做只读探活：liveness / readiness / 安全配置诊断 / 前端入口 /
@@ -94,14 +94,12 @@ def safe_config_summary(body_text: str | None) -> dict:
     if isinstance(integ, dict):
         # 只保留布尔启用标记 + provider 名（契约已规定为安全，无值/密钥）。
         summary["integrations"] = {
-            k: v for k, v in integ.items()
-            if isinstance(v, bool) or (k == "llm_provider")
+            k: v for k, v in integ.items() if isinstance(v, bool) or (k == "llm_provider")
         }
         onlyoffice = integ.get("onlyoffice_config")
         if isinstance(onlyoffice, dict):
             summary["integrations"]["onlyoffice_config"] = {
-                key: value for key, value in onlyoffice.items()
-                if isinstance(value, bool)
+                key: value for key, value in onlyoffice.items() if isinstance(value, bool)
             }
     return summary
 
@@ -125,7 +123,9 @@ def safe_status_summary(body_text: str | None) -> dict:
     return out
 
 
-def run_checks(base_url: str, *, opener=urllib.request.urlopen, fail_on_blockers: bool = False) -> dict:
+def run_checks(
+    base_url: str, *, opener=urllib.request.urlopen, fail_on_blockers: bool = False
+) -> dict:
     """跑全部探测并返回**只含安全字段**的结构化结果 + 退出码。"""
     checks: list[dict] = []
     exit_code = 0
@@ -152,19 +152,23 @@ def run_checks(base_url: str, *, opener=urllib.request.urlopen, fail_on_blockers
 
     # 4) 前端入口（部署经反代提供 /）。HTML + 200 视为通过；不阻断退出码（前端 404 仅告警）。
     s, ct, body = _fetch(opener, build_url(base_url, "/"))
-    checks.append({
-        "endpoint": "/",
-        "status": s,
-        "summary": {"html": looks_like_html(ct, body)},
-    })
+    checks.append(
+        {
+            "endpoint": "/",
+            "status": s,
+            "summary": {"html": looks_like_html(ct, body)},
+        }
+    )
 
     # 5) 未登录 admin ops → 期望 401/403（鉴权生效）；不影响退出码。
     s, _ct, _body = _fetch(opener, build_url(base_url, "/admin/ops/summary"))
-    checks.append({
-        "endpoint": "/admin/ops/summary",
-        "status": s,
-        "summary": {"auth_enforced": s in (401, 403)},
-    })
+    checks.append(
+        {
+            "endpoint": "/admin/ops/summary",
+            "status": s,
+            "summary": {"auth_enforced": s in (401, 403)},
+        }
+    )
 
     return {
         "base_url": base_url,
@@ -180,7 +184,9 @@ def format_human(result: dict) -> str:
     lines = [f"production_smoke @ {result['base_url']}"]
     for c in result["checks"]:
         status = c["status"] if c["status"] is not None else "UNREACHABLE"
-        lines.append(f"  {c['endpoint']:<24} {status}  {json.dumps(c['summary'], ensure_ascii=False)}")
+        lines.append(
+            f"  {c['endpoint']:<24} {status}  {json.dumps(c['summary'], ensure_ascii=False)}"
+        )
     pr = result.get("production_ready")
     lines.append(f"  production_ready: {pr}")
     if result.get("production_blockers"):
@@ -222,7 +228,12 @@ def main(argv: list[str] | None = None) -> int:
     result = run_checks(args.base_url, fail_on_blockers=fail_on_blockers_from_args(args))
     if args.json:
         # 仅安全字段（run_checks 已只含安全摘要）。
-        print(json.dumps({k: v for k, v in result.items() if k != "exit_code"}, ensure_ascii=False))
+        print(
+            json.dumps(
+                {k: v for k, v in result.items() if k != "exit_code"},
+                ensure_ascii=False,
+            )
+        )
     else:
         print(format_human(result))
     return result["exit_code"]

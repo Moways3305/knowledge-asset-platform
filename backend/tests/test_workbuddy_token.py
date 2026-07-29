@@ -1,12 +1,9 @@
-"""自助 WorkBuddy token API 测试（/api/v1/auth/workbuddy-token）。
-
-覆盖：业务用户自助生成/重置/撤销；token 明文仅一次；GET 不泄露 token/token_hash；
-重置使旧 token 失效、撤销使 token 不能再调 agent-gateway；请求体 bound_user_id 被忽略；
-pure admin / inactive / 非业务用户 403；审计 action + 无泄露；CSRF 覆盖 POST/DELETE。
-"""
+"""自助 WorkBuddy token、平台配置、连接状态与安装产物授权测试。"""
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 
 from sqlalchemy import select
@@ -17,7 +14,9 @@ from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT
 
 TOKEN_URL = "/api/v1/auth/workbuddy-token"
 REGEN_URL = "/api/v1/auth/workbuddy-token/regenerate"
+CONNECTORS_URL = "/api/v1/auth/workbuddy-connectors"
 SEARCH = "/api/v1/agent-gateway/tools/knowledge-search"
+PROJECTS = "/api/v1/agent-gateway/projects"
 LOGIN = "/api/v1/auth/login"
 CSRF = "/api/v1/auth/csrf"
 BOSS_EMAIL = "boss.c@dev.local"
@@ -31,129 +30,251 @@ def _bearer(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-# ---------------------------------------------------------------------------
-# 状态 + 生成
-# ---------------------------------------------------------------------------
+async def _regen(client, platform="windows"):
+    return await client.post(REGEN_URL, headers=_dev(USER_CONSULTANT), json={"platform": platform})
+
+
 async def test_get_status_none_for_business_user(client):
-    r = await client.get(TOKEN_URL, headers=_dev(USER_CONSULTANT))
-    assert r.status_code == 200, r.text
-    b = r.json()
-    assert b["enabled"] is False
-    assert b["bound_user_id"] == str(USER_CONSULTANT)
-    assert "token" not in b and "token_hash" not in b
+    response = await client.get(TOKEN_URL, headers=_dev(USER_CONSULTANT))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["enabled"] is False
+    assert body["last_connected_at"] is None
+    assert "bound_user_id" not in body
+    assert "token" not in body and "token_hash" not in body
 
 
-async def test_regenerate_returns_token_once_and_config(client):
-    r = await client.post(REGEN_URL, headers=_dev(USER_CONSULTANT))
-    assert r.status_code == 200, r.text
-    b = r.json()
-    assert b["token"].startswith("kgw_")
-    kap = b["mcp_config"]["mcpServers"]["kap"]
-    assert kap["env"]["KAP_AGENT_TOKEN"] == b["token"]
+async def test_regenerate_returns_windows_connector_config(client):
+    response = await _regen(client)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["token"].startswith("kgw_")
+    assert body["platform"] == "windows"
+    kap = body["mcp_config"]["mcpServers"]["kap"]
+    assert kap["env"]["KAP_AGENT_TOKEN"] == body["token"]
     assert kap["env"]["KAP_BASE_URL"]
-    assert "token_hash" not in r.text
+    assert kap["command"].endswith("kap-workbuddy-connector.exe")
+    assert "python" not in json.dumps(kap).lower()
+    assert "token_hash" not in response.text
+
+
+async def test_regenerate_returns_macos_connector_config(client):
+    response = await _regen(client, "macos")
+    assert response.status_code == 200, response.text
+    kap = response.json()["mcp_config"]["mcpServers"]["kap"]
+    assert kap["command"] == (
+        "/Applications/KAP WorkBuddy Connector.app/Contents/MacOS/kap-workbuddy-connector"
+    )
+    assert "python" not in json.dumps(kap).lower()
 
 
 async def test_get_after_regenerate_hides_token(client):
-    await client.post(REGEN_URL, headers=_dev(USER_CONSULTANT))
-    r = await client.get(TOKEN_URL, headers=_dev(USER_CONSULTANT))
-    b = r.json()
-    assert b["enabled"] is True
-    assert b["bound_user_name"]
-    assert b["last_rotated_at"]
-    assert "token" not in b and "token_hash" not in b
-    assert "kgw_" not in r.text
+    await _regen(client)
+    response = await client.get(TOKEN_URL, headers=_dev(USER_CONSULTANT))
+    body = response.json()
+    assert body["enabled"] is True
+    assert body["bound_user_name"]
+    assert body["last_rotated_at"]
+    assert body["last_connected_at"] is None
+    assert "token" not in body and "token_hash" not in body
+    assert "kgw_" not in response.text
 
 
-# ---------------------------------------------------------------------------
-# 重置 / 撤销使旧 token 失效（经 agent-gateway 实证）
-# ---------------------------------------------------------------------------
 async def test_regenerate_rotates_and_invalidates_old(client):
-    t1 = (await client.post(REGEN_URL, headers=_dev(USER_CONSULTANT))).json()["token"]
-    # 旧 token 可用。
-    r_old = await client.post(SEARCH, headers=_bearer(t1), json={"query": "test"})
-    assert r_old.status_code == 200, r_old.text
-    # 重置 → 新 token，与旧不同。
-    t2 = (await client.post(REGEN_URL, headers=_dev(USER_CONSULTANT))).json()["token"]
-    assert t2 != t1
-    # 旧 token 失效，新 token 可用。
+    token_one = (await _regen(client)).json()["token"]
     assert (
-        await client.post(SEARCH, headers=_bearer(t1), json={"query": "test"})
+        await client.post(SEARCH, headers=_bearer(token_one), json={"query": "test"})
+    ).status_code == 200
+    token_two = (await _regen(client, "macos")).json()["token"]
+    assert token_two != token_one
+    assert (
+        await client.post(SEARCH, headers=_bearer(token_one), json={"query": "test"})
     ).status_code == 403
     assert (
-        await client.post(SEARCH, headers=_bearer(t2), json={"query": "test"})
+        await client.post(SEARCH, headers=_bearer(token_two), json={"query": "test"})
     ).status_code == 200
 
 
 async def test_revoke_disables_token(client):
-    t = (await client.post(REGEN_URL, headers=_dev(USER_CONSULTANT))).json()["token"]
+    token = (await _regen(client)).json()["token"]
     assert (
-        await client.post(SEARCH, headers=_bearer(t), json={"query": "test"})
+        await client.post(SEARCH, headers=_bearer(token), json={"query": "test"})
     ).status_code == 200
-    d = await client.delete(TOKEN_URL, headers=_dev(USER_CONSULTANT))
-    assert d.status_code == 200, d.text
+    deleted = await client.delete(TOKEN_URL, headers=_dev(USER_CONSULTANT))
+    assert deleted.status_code == 200, deleted.text
     assert (
-        await client.post(SEARCH, headers=_bearer(t), json={"query": "test"})
+        await client.post(SEARCH, headers=_bearer(token), json={"query": "test"})
     ).status_code == 403
     assert (await client.get(TOKEN_URL, headers=_dev(USER_CONSULTANT))).json()["enabled"] is False
 
 
-# ---------------------------------------------------------------------------
-# 安全：身份强制 + 边界
-# ---------------------------------------------------------------------------
-async def test_body_bound_user_id_ignored(client):
-    other = uuid.uuid4()
-    r = await client.post(
-        REGEN_URL, headers=_dev(USER_CONSULTANT), json={"bound_user_id": str(other)}
+async def test_body_bound_user_id_ignored_and_not_returned(client):
+    response = await client.post(
+        REGEN_URL,
+        headers=_dev(USER_CONSULTANT),
+        json={"platform": "windows", "bound_user_id": str(uuid.uuid4())},
     )
-    assert r.status_code == 200, r.text
-    g = await client.get(TOKEN_URL, headers=_dev(USER_CONSULTANT))
-    assert g.json()["bound_user_id"] == str(USER_CONSULTANT)
+    assert response.status_code == 200, response.text
+    status = (await client.get(TOKEN_URL, headers=_dev(USER_CONSULTANT))).json()
+    assert "bound_user_id" not in status
 
 
 async def test_pure_admin_forbidden(client):
     assert (await client.get(TOKEN_URL, headers=_dev(USER_ADMIN_ONLY))).status_code == 403
-    assert (await client.post(REGEN_URL, headers=_dev(USER_ADMIN_ONLY))).status_code == 403
+    response = await client.post(
+        REGEN_URL, headers=_dev(USER_ADMIN_ONLY), json={"platform": "windows"}
+    )
+    assert response.status_code == 403
 
 
 async def test_inactive_business_user_forbidden(client, db_session):
-    uid = uuid.uuid4()
-    u = User(id=uid, name="停用员工", email=f"x{uid.hex[:6]}@dev.local", status="inactive")
-    u.company_roles.append(UserCompanyRole(company_role="consultant", status="active"))
-    db_session.add(u)
+    user_id = uuid.uuid4()
+    user = User(
+        id=user_id,
+        name="停用员工",
+        email=f"x{user_id.hex[:6]}@dev.local",
+        status="inactive",
+    )
+    user.company_roles.append(UserCompanyRole(company_role="consultant", status="active"))
+    db_session.add(user)
     await db_session.commit()
-    assert (await client.get(TOKEN_URL, headers=_dev(uid))).status_code == 403
+    assert (await client.get(TOKEN_URL, headers=_dev(user_id))).status_code == 403
 
 
-# ---------------------------------------------------------------------------
-# 审计 no-leak
-# ---------------------------------------------------------------------------
 async def test_audit_actions_no_leak(client, db_session):
-    t = (await client.post(REGEN_URL, headers=_dev(USER_CONSULTANT))).json()["token"]
+    token = (await _regen(client)).json()["token"]
     await client.delete(TOKEN_URL, headers=_dev(USER_CONSULTANT))
     logs = (await db_session.execute(select(AuditEvent))).scalars().all()
-    actions = {lg.action for lg in logs}
+    actions = {log.action for log in logs}
     assert "agent.workbuddy_token_rotated" in actions
     assert "agent.workbuddy_token_revoked" in actions
-    import json as _json
-
-    blob = _json.dumps([lg.extra for lg in logs], ensure_ascii=False)
-    assert t not in blob
-    for k in ("token_hash", "kgw_", "Authorization", "cookie"):
-        assert k not in blob
+    blob = json.dumps([log.extra for log in logs], ensure_ascii=False)
+    assert token not in blob
+    for key in ("token_hash", "kgw_", "Authorization", "cookie"):
+        assert key not in blob
 
 
-# ---------------------------------------------------------------------------
-# CSRF（cookie 会话）
-# ---------------------------------------------------------------------------
 async def test_regenerate_requires_csrf_under_cookie_session(client):
     await client.post(LOGIN, json={"email": BOSS_EMAIL})
-    # 无 CSRF token → 403。
-    r = await client.post(REGEN_URL)
-    assert r.status_code == 403
-    assert r.json()["detail"]["denied_reason"] == "csrf_token_missing"
-    # 带 CSRF token → 成功。
+    response = await client.post(REGEN_URL, json={"platform": "windows"})
+    assert response.status_code == 403
+    assert response.json()["detail"]["denied_reason"] == "csrf_token_missing"
     csrf = (await client.get(CSRF)).json()["csrf_token"]
-    r2 = await client.post(REGEN_URL, headers={"X-CSRF-Token": csrf})
-    assert r2.status_code == 200, r2.text
-    assert r2.json()["token"].startswith("kgw_")
+    created = await client.post(
+        REGEN_URL, headers={"X-CSRF-Token": csrf}, json={"platform": "windows"}
+    )
+    assert created.status_code == 200, created.text
+    assert created.json()["token"].startswith("kgw_")
+
+
+async def test_only_successful_gateway_call_updates_last_connected(client):
+    token = (await _regen(client)).json()["token"]
+    initial = (await client.get(TOKEN_URL, headers=_dev(USER_CONSULTANT))).json()
+    assert initial["last_connected_at"] is None
+
+    failed = await client.get(
+        f"/api/v1/agent-gateway/projects/{uuid.uuid4()}/knowledge",
+        headers=_bearer(token),
+    )
+    assert failed.status_code == 404
+    after_failed = (await client.get(TOKEN_URL, headers=_dev(USER_CONSULTANT))).json()
+    assert after_failed["last_connected_at"] is None
+
+    succeeded = await client.get(PROJECTS, headers=_bearer(token))
+    assert succeeded.status_code == 200, succeeded.text
+    after_success = (await client.get(TOKEN_URL, headers=_dev(USER_CONSULTANT))).json()
+    assert after_success["last_connected_at"] is not None
+    assert "token" not in after_success and "token_hash" not in after_success
+
+
+def _write_connector_manifest(tmp_path, monkeypatch, *, channel="internal", signed=False):
+    from app.core.config import get_settings
+
+    root = tmp_path / "connectors"
+    root.mkdir()
+    artifacts = []
+    for platform, architecture, suffix in (
+        ("windows", "x64", ".exe"),
+        ("macos", "arm64", "-arm64.pkg"),
+        ("macos", "x64", "-x64.pkg"),
+    ):
+        filename = f"kap-workbuddy-connector-1.0.0-{platform}-{architecture}{suffix}"
+        payload = f"shared-{platform}-{architecture}".encode()
+        (root / filename).write_bytes(payload)
+        artifacts.append(
+            {
+                "platform": platform,
+                "architecture": architecture,
+                "filename": filename,
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "signed": signed,
+                "notarized": signed and platform == "macos",
+            }
+        )
+    (root / "manifest.json").write_text(
+        json.dumps({"version": "1.0.0", "channel": channel, "artifacts": artifacts}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(get_settings(), "workbuddy_connector_artifact_root", str(root))
+    return artifacts
+
+
+async def test_business_user_can_list_and_download_shared_connector(client, tmp_path, monkeypatch):
+    artifacts = _write_connector_manifest(tmp_path, monkeypatch)
+    token = (await _regen(client)).json()["token"]
+    response = await client.get(CONNECTORS_URL, headers=_dev(USER_CONSULTANT))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["version"] == "1.0.0"
+    assert {(item["platform"], item["architecture"]) for item in body["artifacts"]} == {
+        ("windows", "x64"),
+        ("macos", "arm64"),
+        ("macos", "x64"),
+    }
+    for leak in ("kgw_", "token_hash", "Authorization", str(USER_CONSULTANT)):
+        assert leak not in response.text
+
+    download = await client.get(
+        f"{CONNECTORS_URL}/windows/x64/download",
+        headers=_dev(USER_CONSULTANT),
+    )
+    assert download.status_code == 200
+    assert download.content == b"shared-windows-x64"
+    assert artifacts[0]["filename"] in download.headers["content-disposition"]
+    # 查看清单或下载安装包不轮换个人 token；原配置继续有效。
+    assert (await client.get(PROJECTS, headers=_bearer(token))).status_code == 200
+
+
+async def test_connector_download_requires_business_user(client, tmp_path, monkeypatch):
+    _write_connector_manifest(tmp_path, monkeypatch)
+    assert (await client.get(CONNECTORS_URL, headers=_dev(USER_ADMIN_ONLY))).status_code == 403
+
+
+async def test_connector_download_fails_safely_for_missing_or_tampered_file(
+    client, tmp_path, monkeypatch
+):
+    artifacts = _write_connector_manifest(tmp_path, monkeypatch)
+    root = tmp_path / "connectors"
+    target = root / artifacts[0]["filename"]
+    target.write_bytes(b"tampered")
+    tampered = await client.get(CONNECTORS_URL, headers=_dev(USER_CONSULTANT))
+    assert tampered.status_code == 503
+    assert tampered.json()["detail"]["denied_reason"] == "workbuddy_connector_integrity_failed"
+    assert "tampered" not in tampered.text
+
+    target.unlink()
+    missing = await client.get(CONNECTORS_URL, headers=_dev(USER_CONSULTANT))
+    assert missing.status_code == 503
+    assert missing.json()["detail"]["denied_reason"] == "workbuddy_connector_unavailable"
+    assert artifacts[0]["filename"] not in missing.text
+
+
+async def test_production_manifest_fails_closed_without_signatures(client, tmp_path, monkeypatch):
+    from app.core.config import get_settings
+
+    _write_connector_manifest(tmp_path, monkeypatch, channel="production", signed=False)
+    await client.post(LOGIN, json={"email": BOSS_EMAIL})
+    monkeypatch.setattr(get_settings(), "app_env", "prod")
+    response = await client.get(CONNECTORS_URL)
+    assert response.status_code == 503
+    assert response.json()["detail"]["denied_reason"] == "workbuddy_connector_unsigned"

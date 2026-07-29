@@ -29,7 +29,28 @@ const auth = vi.hoisted(() => ({
 vi.mock("../auth/AuthContext", () => ({ useAuth: () => auth }));
 vi.mock("../api/workbench", () => ({ fetchWorkbenchOverview: vi.fn() }));
 vi.mock("../api/workbuddy", () => ({
-  fetchWorkbuddyToken: vi.fn().mockResolvedValue({ enabled: false, has_token: false }),
+  fetchWorkbuddyConnectors: vi.fn().mockResolvedValue({
+    version: "1.0.0",
+    artifacts: [
+      {
+        platform: "windows",
+        architecture: "x64",
+        version: "1.0.0",
+        filename: "connector.exe",
+        sha256: "a".repeat(64),
+        downloadUrl: "/connector.exe",
+        releaseStatus: "production",
+        signed: true,
+        notarized: false,
+      },
+    ],
+  }),
+  fetchWorkbuddyToken: vi.fn().mockResolvedValue({
+    enabled: false,
+    boundUserName: "测试用户",
+    lastRotatedAt: null,
+    lastConnectedAt: null,
+  }),
   regenerateWorkbuddyToken: vi.fn(),
   revokeWorkbuddyToken: vi.fn(),
 }));

@@ -160,6 +160,11 @@ class Settings(BaseSettings):
     # ONLYOFFICE 受控取件 token 的有效期（分钟）。
     onlyoffice_fetch_ttl_minutes: int = 30
 
+    # WorkBuddy Connector 共享安装产物目录。目录内 manifest.json 只描述版本、平台、
+    # 架构、签名状态和 sha256；绝不含用户 token、身份或私有下载地址。
+    workbuddy_connector_artifact_root: str = "./_connector_artifacts"
+    workbuddy_connector_manifest: str = "manifest.json"
+
 
 @lru_cache
 def get_settings() -> Settings:

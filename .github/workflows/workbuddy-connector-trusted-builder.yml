@@ -1,0 +1,112 @@
+name: WorkBuddy Connector Trusted Builder
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      channel:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  verify-windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: connector-windows-x64
+          path: verified/windows
+      - name: Independently verify Authenticode signature
+        if: inputs.channel == 'production'
+        shell: pwsh
+        run: |
+          $artifact = Get-ChildItem -LiteralPath verified/windows -Filter *-setup.exe
+          if ($artifact.Count -ne 1) {
+            throw "Expected exactly one Windows installer."
+          }
+          $signtool = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $signtool) {
+            throw "Windows SDK signing tool was not found."
+          }
+          & $signtool verify /pa $artifact.FullName
+      - name: Attest independently verified Authenticode signature
+        if: inputs.channel == 'production'
+        uses: actions/attest@v4
+        with:
+          subject-path: verified/windows/*-setup.exe
+          predicate-type: https://github.com/Moways3305/knowledge-asset-platform/attestations/workbuddy-connector-signature/v1
+          predicate: '{"platform":"windows","authenticode_verified":true}'
+
+  verify-macos:
+    strategy:
+      fail-fast: true
+      matrix:
+        architecture: [arm64, x64]
+    runs-on: macos-15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: connector-macos-${{ matrix.architecture }}
+          path: verified/macos-${{ matrix.architecture }}
+      - name: Independently verify Developer ID signature and stapled notarization
+        if: inputs.channel == 'production'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          artifacts=(verified/macos-${{ matrix.architecture }}/*.pkg)
+          if [[ "${#artifacts[@]}" -ne 1 ]]; then
+            echo "Expected exactly one macOS installer." >&2
+            exit 1
+          fi
+          pkgutil --check-signature "${artifacts[0]}"
+          xcrun stapler validate "${artifacts[0]}"
+          spctl --assess --type install --verbose=2 "${artifacts[0]}"
+      - name: Attest independently verified signature and notarization
+        if: inputs.channel == 'production'
+        uses: actions/attest@v4
+        with:
+          subject-path: verified/macos-${{ matrix.architecture }}/*.pkg
+          predicate-type: https://github.com/Moways3305/knowledge-asset-platform/attestations/workbuddy-connector-signature/v1
+          predicate: '{"platform":"macos","developer_id_verified":true,"notarization_stapled_verified":true}'
+
+  publish:
+    needs: [verify-windows, verify-macos]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out trusted manifest builder
+        uses: actions/checkout@v4
+        with:
+          repository: Moways3305/knowledge-asset-platform
+          ref: main
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: connector-*
+          path: downloaded
+      - name: Create complete checksummed manifest
+        run: |
+          python integrations/workbuddy-mcp/connector_build/create_manifest.py \
+            --source downloaded \
+            --output publish \
+            --version '${{ inputs.version }}' \
+            --channel '${{ inputs.channel }}'
+      - name: Attest complete production manifest
+        if: inputs.channel == 'production'
+        uses: actions/attest@v4
+        with:
+          subject-path: publish/manifest.json
+          predicate-type: https://github.com/Moways3305/knowledge-asset-platform/attestations/workbuddy-connector-signature/v1
+          predicate: '{"channel":"production","complete":true}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workbuddy-connector-${{ inputs.version }}-${{ inputs.channel }}
+          path: publish/*

@@ -21,7 +21,11 @@ from app.db.utils import utc_now
 from app.models.agent_registry import AgentWhitelistRule
 from app.schemas.enums import AuditAction, AuditLogType
 from app.schemas.permission import CallerContext
-from app.schemas.workbuddy import WorkbuddyTokenCreatedOut, WorkbuddyTokenStatusOut
+from app.schemas.workbuddy import (
+    WorkbuddyPlatform,
+    WorkbuddyTokenCreatedOut,
+    WorkbuddyTokenStatusOut,
+)
 from app.services import agent_registry
 from app.services import audit as audit_service
 from app.services.identity import load_user_with_roles
@@ -66,13 +70,18 @@ async def _find_rule(session: AsyncSession, user_id) -> AgentWhitelistRule | Non
     )
 
 
-def _mcp_config(base_url: str, token: str) -> dict:
+def _connector_command(platform: WorkbuddyPlatform) -> str:
+    if platform == "windows":
+        return r"C:\Program Files\KAP WorkBuddy Connector\kap-workbuddy-connector.exe"
+    return "/Applications/KAP WorkBuddy Connector.app/Contents/MacOS/kap-workbuddy-connector"
+
+
+def _mcp_config(base_url: str, token: str, platform: WorkbuddyPlatform) -> dict:
     """可直接复制到 WorkBuddy `mcp.json` 的本地 stdio 配置。"""
     return {
         "mcpServers": {
             "kap": {
-                "command": "python",
-                "args": ["-m", "workbuddy_mcp.server"],
+                "command": _connector_command(platform),
                 "env": {"KAP_BASE_URL": base_url, "KAP_AGENT_TOKEN": token},
             }
         }
@@ -85,22 +94,23 @@ async def get_status(session: AsyncSession, caller: CallerContext) -> WorkbuddyT
     name = user.name if user is not None else None
     rule = await _find_rule(session, caller.user_id)
     if rule is None or not rule.enabled:
-        return WorkbuddyTokenStatusOut(
-            enabled=False, bound_user_id=caller.user_id, bound_user_name=name
-        )
+        return WorkbuddyTokenStatusOut(enabled=False, bound_user_name=name)
     return WorkbuddyTokenStatusOut(
         enabled=True,
         provider=rule.provider,
-        bound_user_id=rule.bound_user_id,
         bound_user_name=name,
-        created_at=rule.created_at,
-        updated_at=rule.updated_at,
         last_rotated_at=rule.token_rotated_at,
+        last_connected_at=rule.last_connected_at,
     )
 
 
 async def regenerate(
-    session: AsyncSession, caller: CallerContext, *, base_url: str, trace_id: str | None
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    base_url: str,
+    platform: WorkbuddyPlatform,
+    trace_id: str | None,
 ) -> WorkbuddyTokenCreatedOut:
     """为当前业务用户创建或重置自助 token（绑定 caller 本人；明文一次性返回）。"""
     _require_business(caller)
@@ -127,6 +137,8 @@ async def regenerate(
         rule.enabled = True
         rule.capability = _CAPABILITY
         rule.token_rotated_at = now
+    # 新 token 尚未完成任何真实调用，不能继承旧 token 的连接成功状态。
+    rule.last_connected_at = None
     await session.flush()
     await audit_service.record_event(
         session,
@@ -139,7 +151,11 @@ async def regenerate(
         extra={"provider": _PROVIDER, "bound_user_id": str(caller.user_id), "operation": "rotate"},
     )
     await session.commit()
-    return WorkbuddyTokenCreatedOut(token=token, mcp_config=_mcp_config(base_url, token))
+    return WorkbuddyTokenCreatedOut(
+        token=token,
+        mcp_config=_mcp_config(base_url, token, platform),
+        platform=platform,
+    )
 
 
 async def revoke(
@@ -167,7 +183,5 @@ async def revoke(
     await session.commit()
     user = await load_user_with_roles(session, user_id=caller.user_id)
     return WorkbuddyTokenStatusOut(
-        enabled=False,
-        bound_user_id=caller.user_id,
-        bound_user_name=user.name if user is not None else None,
+        enabled=False, bound_user_name=user.name if user is not None else None
     )

@@ -20,7 +20,30 @@ Exactly two env vars (see `.env.example`):
 Missing either → the server refuses to start (fail closed). There is intentionally
 **no** caller / user-id config: identity comes from the token binding on the backend.
 
-## Generating a per-user token (admin)
+## Employee installation
+
+Business users install the versioned KAP WorkBuddy Connector from the guided card on KAP's
+home dashboard. Windows x64, macOS Apple Silicon and macOS Intel packages bundle the Python
+runtime and this package; employees do not install Python or pip.
+
+The card generates platform-specific `mcp.json` only after the user explicitly requests it.
+The config launches:
+
+- Windows: `C:\Program Files\KAP WorkBuddy Connector\kap-workbuddy-connector.exe`
+- macOS: `/Applications/KAP WorkBuddy Connector.app/Contents/MacOS/kap-workbuddy-connector`
+
+The shared installer never contains a token. `KAP_BASE_URL` and the one user's
+`KAP_AGENT_TOKEN` exist only in that user's imported MCP configuration.
+
+### Upgrading an existing Python configuration
+
+Existing `python -m workbuddy_mcp.server` configurations keep working. Opening the guide,
+selecting a platform or downloading an installer does not rotate or revoke the old token.
+Install the connector first, then explicitly generate a new platform configuration. That
+generation rotates the token, so import the new config immediately and remove the old Python
+entry after the first successful KAP tool call.
+
+## Generating a per-user token (administrative fallback)
 
 An admin registers a WorkBuddy token bound to an active business user via the existing
 whitelist API:
@@ -67,7 +90,7 @@ the original content is never returned over MCP. Backend errors surface as a sin
 (no internal ids / denied_reason / trace / token / URL). Dify stays as a separate legacy adapter
 and is unaffected.
 
-## Run (local stdio — default, per-user token)
+## Developer run (local stdio)
 
 ```bash
 pip install -e .
@@ -106,3 +129,11 @@ not the process token, reaches KAP).
 ```bash
 pip install -e . && python -m pytest tests/ -q
 ```
+
+## Release builds
+
+Use `.github/workflows/workbuddy-connector-release.yml`. `internal` can produce unsigned
+test candidates. `production` fails unless Windows Authenticode signing succeeds and both
+macOS packages receive Developer ID signatures, successful Apple notarization and stapled
+tickets. The final manifest contains only platform, architecture, filename, version, signing
+booleans and SHA-256 values.
