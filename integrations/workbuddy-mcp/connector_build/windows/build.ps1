@@ -9,10 +9,17 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $release = [System.IO.Path]::GetFullPath((Join-Path $root $OutputDir))
 $work = Join-Path $root "build"
 $env:CONNECTOR_ARCH = "x64"
-python (Join-Path $root "connector_build\build_binary.py") --output-dir (Join-Path $work "binary") --work-dir $work
+$binary = [System.IO.Path]::GetFullPath((Join-Path $work "binary\kap-workbuddy-connector.exe"))
+& python (Join-Path $root "connector_build\build_binary.py") --output-dir (Split-Path $binary) --work-dir $work
+if ($LASTEXITCODE -ne 0) {
+  throw "Connector binary build failed for windows-x64."
+}
+if (-not (Test-Path -LiteralPath $binary -PathType Leaf) -or (Get-Item -LiteralPath $binary).Length -eq 0) {
+  throw "Missing or empty connector binary for windows-x64 (build/binary/kap-workbuddy-connector.exe)."
+}
 
 $env:CONNECTOR_VERSION = $Version
-$env:CONNECTOR_BINARY = Join-Path $work "binary\kap-workbuddy-connector.exe"
+$env:CONNECTOR_BINARY = $binary
 $env:CONNECTOR_OUTPUT = $release
 New-Item -ItemType Directory -Force -Path $release | Out-Null
 $isccCommand = Get-Command iscc.exe -ErrorAction SilentlyContinue
@@ -23,9 +30,15 @@ $iscc = if ($isccCommand) {
 }
 if (-not (Test-Path -LiteralPath $iscc)) { throw "Inno Setup compiler was not found." }
 & $iscc (Join-Path $root "connector_build\windows\connector.iss")
+if ($LASTEXITCODE -ne 0) {
+  throw "Inno Setup failed for windows-x64."
+}
 
 $filename = "kap-workbuddy-connector-$Version-windows-x64-setup.exe"
 $artifact = Join-Path $release $filename
+if (-not (Test-Path -LiteralPath $artifact -PathType Leaf) -or (Get-Item -LiteralPath $artifact).Length -eq 0) {
+  throw "Missing or empty installer artifact for windows-x64."
+}
 $signed = $false
 if ($Channel -eq "production") {
   $required = @("WINDOWS_SIGNING_PFX_BASE64", "WINDOWS_SIGNING_PFX_PASSWORD")

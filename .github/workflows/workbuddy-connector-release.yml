@@ -45,12 +45,17 @@ jobs:
         run: |
           python -m pip install .
           python -m pip install pyinstaller
+      - name: Build unsigned internal installer
+        if: inputs.channel == 'internal'
+        working-directory: integrations/workbuddy-mcp
+        run: ./connector_build/windows/build.ps1 -Version '${{ inputs.version }}' -Channel 'internal'
       - name: Build installer and enforce production signing
+        if: inputs.channel == 'production'
         working-directory: integrations/workbuddy-mcp
         env:
           WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
           WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
-        run: ./connector_build/windows/build.ps1 -Version '${{ inputs.version }}' -Channel '${{ inputs.channel }}'
+        run: ./connector_build/windows/build.ps1 -Version '${{ inputs.version }}' -Channel 'production'
       - uses: actions/upload-artifact@v4
         with:
           name: connector-windows-x64
@@ -59,7 +64,7 @@ jobs:
   macos:
     needs: release-policy
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
           - runner: macos-15
@@ -96,7 +101,12 @@ jobs:
           security list-keychain -d user -s "$KEYCHAIN"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           rm -f "$RUNNER_TEMP/certificates.p12"
+      - name: Build unsigned internal package
+        if: inputs.channel == 'internal'
+        working-directory: integrations/workbuddy-mcp
+        run: bash ./connector_build/macos/build.sh '${{ inputs.version }}' 'internal' '${{ matrix.architecture }}'
       - name: Build package and enforce Developer ID notarization
+        if: inputs.channel == 'production'
         working-directory: integrations/workbuddy-mcp
         env:
           APPLE_DEVELOPER_ID_APPLICATION: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
@@ -104,7 +114,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-        run: bash ./connector_build/macos/build.sh '${{ inputs.version }}' '${{ inputs.channel }}' '${{ matrix.architecture }}'
+        run: bash ./connector_build/macos/build.sh '${{ inputs.version }}' 'production' '${{ matrix.architecture }}'
       - uses: actions/upload-artifact@v4
         with:
           name: connector-macos-${{ matrix.architecture }}
