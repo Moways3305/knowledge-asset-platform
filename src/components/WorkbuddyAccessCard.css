@@ -136,6 +136,18 @@
   font-size: 11px;
 }
 
+.wb-internal-warning {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  padding: 9px 10px;
+  border: 1px solid var(--color-warning, #9a6700);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-warning, #9a6700) 10%, transparent);
+  color: var(--color-warning, #9a6700);
+  font-weight: 700;
+  line-height: 1.55;
+}
+
 .wb-error,
 .wb-inline-recovery {
   display: flex;

@@ -20,7 +20,8 @@ KAP WorkBuddy Connector 是共享安装程序，不包含用户身份或凭证�
 
 在 GitHub Actions 手动运行 `WorkBuddy Connector Release`，输入语义化版本号并选择渠道：
 
-- `internal`：允许生成未签名候选物，仅供内部验证；KAP 状态会明确显示为内部候选物。
+- `internal`：生成未签名企业内部版。只有生产管理员显式开启服务器级开关后，KAP 才允许
+  向在职业务用户分发；页面会明确提示仅限公司授权设备，操作系统可能要求确认来源。
 - `production`：任何目标缺失、Windows 签名失败、macOS Developer ID 签名失败、
   notarization 失败或 ticket 无法 staple 时，工作流失败且不生成生产清单。
 
@@ -58,24 +59,54 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml config --service
 - 宿主机 `/data/kap/workbuddy-connectors` 挂载到容器
   `/data/workbuddy-connectors:ro`；
 - `WORKBUDDY_CONNECTOR_ARTIFACT_ROOT=/data/workbuddy-connectors`；
+- `WORKBUDDY_CONNECTOR_ALLOW_INTERNAL` 默认 `false`；选择企业内部分发时才由生产管理员
+  在受控服务器环境中显式设为 `true`；
 - `worker`、`beat`、`frontend`、`postgres`、`redis` 均不可访问该目录；
 - 基础文件中的 `upload_storage`、网络和其他服务配置继续生效。
 
-### 上线前校验与原子替换
+### 上线前校验
 
 从 GitHub Actions 下载 `WorkBuddy Connector Release` 最终的聚合 artifact，在与
 `/data/kap` 相同的文件系统中解压到新的、不可变的版本目录。不要直接覆盖当前正在提供
 下载的目录，也不要把下载凭证、签名证书或 CI 元数据放进制品目录。
+
+先完成公共准备，不要直接覆盖当前正在提供下载的目录：
 
 ```bash
 sudo install -d -m 0755 /data/kap/workbuddy-connectors-releases
 RELEASE_DIR=/data/kap/workbuddy-connectors-releases/<version>
 sudo install -d -m 0755 "$RELEASE_DIR"
 # 将聚合 artifact 只解压到 "$RELEASE_DIR"
+```
+
+然后只能选择以下一条渠道路径。
+
+#### 企业内部版
+
+1. 在 GitHub Actions 运行 `channel=internal`，下载对应聚合 artifact。
+2. 管理员在受控服务器环境中显式设置
+   `WORKBUDDY_CONNECTOR_ALLOW_INTERNAL=true`。该开关在所有环境默认关闭；未设置、空值及
+   其他非真值都会保持拒绝。
+3. 使用显式参数校验未签名内部制品：
+
+   ```bash
+   python scripts/verify_workbuddy_connector_artifacts.py \
+     --root "$RELEASE_DIR" \
+     --allow-internal
+   ```
+
+该路径要求三个目标、版本、文件名边界、SHA-256 和目录内容完整，并要求全部安装包明确
+`signed=false`、`notarized=false`；它不会伪造或要求 production attestation。Windows
+或 macOS 安装时可能显示未知来源、安全保护或确认来源提示，只能在公司授权设备安装。
+关闭服务器开关后，KAP 会以安全的 503 拒绝内部版清单和下载。
+
+#### 正式版
+
+运行 `channel=production`。不要使用 `--allow-internal` 替代任何正式版验证：
+
+```bash
 # gh 必须能读取本仓库 attestation；凭据只通过 GH_TOKEN 或 gh auth 注入，不打印值
 python scripts/verify_workbuddy_connector_artifacts.py --root "$RELEASE_DIR"
-sudo chown -R root:root "$RELEASE_DIR"
-sudo chmod -R a-w "$RELEASE_DIR"
 ```
 
 校验器固定信任
@@ -84,15 +115,24 @@ sudo chmod -R a-w "$RELEASE_DIR"
 身份以及签名验证 predicate。目录中还必须恰好只有三个安装包和 `manifest.json`，并检查：
 
 1. manifest 具有受信工作流签发的完整生产 attestation，且清单
-   `channel=production`；`internal` 产物不得部署；
+   `channel=production`；
 2. Windows x64、macOS arm64、macOS x64 三个目标完整且不重复；
 3. 文件名不能越出制品目录，实际 SHA-256 与清单一致；
 4. Windows 安装包具有 Authenticode 已验证 attestation；macOS 安装包具有 Developer ID
    签名及 stapled notarization 已验证 attestation；清单布尔值不能单独通过校验；
 5. 不存在额外文件或目录。
 
-任一条件失败都必须停止部署。校验通过后，用符号链接在同一文件系统内原子切换固定宿主机
-路径，并只重新创建 `backend`，使 Docker 重新解析链接目标：
+任一渠道的校验失败都必须停止部署。校验通过后统一执行权限收口：
+
+```bash
+sudo chown -R root:root "$RELEASE_DIR"
+sudo chmod -R a-w "$RELEASE_DIR"
+```
+
+### 原子替换
+
+用符号链接在同一文件系统内原子切换固定宿主机路径，并只重新创建 `backend`，使 Docker
+重新解析链接目标：
 
 ```bash
 NEXT_LINK=/data/kap/.workbuddy-connectors.next
@@ -117,13 +157,15 @@ export KAP_SMOKE_UNAUTHORIZED_SESSION_COOKIE='<non-business-session>'
 python scripts/workbuddy_connector_smoke.py \
   --base-url https://<kap-production-host> \
   --platform windows \
-  --architecture x64
+  --architecture x64 \
+  --expected-channel production
 unset KAP_SMOKE_SESSION_COOKIE KAP_SMOKE_UNAUTHORIZED_SESSION_COOKIE
 ```
 
-烟测必须确认：未登录请求被拒绝、无业务权限用户返回 403、业务用户获得恰好三个生产目标、
-任选一个安装包下载成功且 SHA-256 与清单一致。脚本只输出状态码、目标和校验布尔值，不
-输出 cookie、文件内容或内部存储路径。
+企业内部版烟测把最后一个参数改为 `--expected-channel internal`。烟测必须确认：未登录
+请求被拒绝、无业务权限用户返回 403、业务用户获得恰好三个所选渠道目标、任选一个安装包
+下载成功且 SHA-256 与清单一致。脚本只输出状态码、渠道、目标和校验布尔值，不输出
+cookie、文件内容或存储路径。
 
 缺失和篡改的 fail-closed 验证必须在测试目录运行，不得修改生产目录：
 
@@ -132,13 +174,9 @@ python -m pytest backend/tests/test_workbuddy_token.py \
   backend/tests/test_workbuddy_connector_deployment.py -q
 ```
 
-KAP 在每次清单或下载请求时仍会重新校验生产制品；任一条件不满足时下载 fail closed。
+KAP 在每次清单或下载请求时仍会重新校验渠道开关和制品；任一条件不满足时下载 fail closed。
 下载接口还会校验 KAP 登录身份为在职业务用户。安装包、下载 URL、服务日志和清单都不得
 包含 token、token hash、Authorization、cookie、用户 ID、内部存储引用或私有上游 URL。
-
-任一条件不满足时下载 fail closed。下载接口还会校验 KAP 登录身份为在职业务用户。
-安装包、下载 URL、服务日志和清单都不得包含 token、token hash、Authorization、cookie、
-用户 ID、内部存储引用或私有上游 URL。
 
 ## 用户升级
 

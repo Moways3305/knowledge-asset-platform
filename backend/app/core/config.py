@@ -164,6 +164,8 @@ class Settings(BaseSettings):
     # 架构、签名状态和 sha256；绝不含用户 token、身份或私有下载地址。
     workbuddy_connector_artifact_root: str = "./_connector_artifacts"
     workbuddy_connector_manifest: str = "manifest.json"
+    # 是否允许分发未签名的企业内部版。所有环境默认关闭，只有显式 true 才允许。
+    workbuddy_connector_allow_internal: bool = False
 
 
 @lru_cache

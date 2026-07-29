@@ -90,6 +90,27 @@ describe("WorkbuddyAccessCard", () => {
     expect(screen.getByRole("heading", { name: "安装 KAP 连接器" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "生成并导入个人配置" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "验证首次连接" })).toBeInTheDocument();
+    expect(screen.queryByText(/企业内部版，未进行/)).not.toBeInTheDocument();
+  });
+
+  it("只对企业内部版显示未签名安装风险", async () => {
+    api.fetchWorkbuddyConnectors.mockResolvedValue({
+      ...manifest,
+      artifacts: manifest.artifacts.map((item) => ({
+        ...item,
+        releaseStatus: "internal",
+        signed: false,
+        notarized: false,
+      })),
+    });
+    render(<WorkbuddyAccessCard />);
+    expect(
+      await screen.findByText(
+        "企业内部版，未进行 Windows/macOS 发布签名；仅在公司授权设备安装。系统可能要求你确认来源。",
+      ),
+    ).toHaveAttribute("role", "alert");
+    expect(screen.getByText("版本 1.2.3")).toBeInTheDocument();
+    expect(screen.getByText(/SHA-256 aaaaaaaaaaaa/)).toBeInTheDocument();
   });
 
   it("切换平台和 Mac 架构不会轮换 token", async () => {

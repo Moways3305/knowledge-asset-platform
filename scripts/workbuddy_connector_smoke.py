@@ -48,6 +48,7 @@ def run_smoke(
     unauthorized_session_cookie: str,
     platform: str,
     architecture: str,
+    expected_channel: str = "production",
 ) -> dict:
     unauthenticated_status = _status(base_url, _MANIFEST_PATH, session_cookie=None)
     if unauthenticated_status not in {401, 403}:
@@ -66,9 +67,13 @@ def run_smoke(
         manifest = json.load(response)
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, list) or len(artifacts) != 3:
-        raise RuntimeError("production connector manifest is incomplete")
-    if any(item.get("release_status") != "production" for item in artifacts):
-        raise RuntimeError("non-production connector artifact was returned")
+        raise RuntimeError("connector manifest is incomplete")
+    if any(item.get("release_status") != expected_channel for item in artifacts):
+        raise RuntimeError("unexpected connector release channel was returned")
+    if expected_channel == "internal" and any(
+        item.get("signed") is not False or item.get("notarized") is not False for item in artifacts
+    ):
+        raise RuntimeError("internal connector artifact claimed a release signature")
     artifact = next(
         (
             item
@@ -100,6 +105,7 @@ def run_smoke(
         "unauthenticated_status": unauthenticated_status,
         "unauthorized_user_status": unauthorized_user_status,
         "target": f"{platform}-{architecture}",
+        "release_status": expected_channel,
         "download_status": 200,
         "checksum_matches": checksum_matches,
     }
@@ -110,6 +116,11 @@ def main() -> None:
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--platform", choices=("windows", "macos"), default="windows")
     parser.add_argument("--architecture", choices=("x64", "arm64"), default="x64")
+    parser.add_argument(
+        "--expected-channel",
+        choices=("production", "internal"),
+        default="production",
+    )
     parser.add_argument("--session-cookie-env", default="KAP_SMOKE_SESSION_COOKIE")
     parser.add_argument(
         "--unauthorized-session-cookie-env",
@@ -135,6 +146,7 @@ def main() -> None:
                 unauthorized_session_cookie=unauthorized_session_cookie,
                 platform=args.platform,
                 architecture=args.architecture,
+                expected_channel=args.expected_channel,
             ),
             ensure_ascii=False,
         )

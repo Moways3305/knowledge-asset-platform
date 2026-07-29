@@ -221,7 +221,12 @@ export default function WorkbuddyAccessCard() {
                 </a>
                 <span>版本 {artifact.version}</span>
                 <code title={artifact.sha256}>SHA-256 {artifact.sha256.slice(0, 12)}…</code>
-                {artifact.releaseStatus === "internal" && <span>内部测试候选物</span>}
+                {artifact.releaseStatus === "internal" && (
+                  <p className="wb-internal-warning" role="alert">
+                    企业内部版，未进行 Windows/macOS
+                    发布签名；仅在公司授权设备安装。系统可能要求你确认来源。
+                  </p>
+                )}
               </div>
             ) : (
               <div className="wb-inline-recovery">

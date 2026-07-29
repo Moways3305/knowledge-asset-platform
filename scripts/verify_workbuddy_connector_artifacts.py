@@ -1,4 +1,4 @@
-"""Verify a complete production WorkBuddy Connector aggregate artifact.
+"""Verify a production or explicitly allowed internal WorkBuddy Connector artifact set.
 
 The command prints only a safe version/target summary. It never reads application credentials,
 user data or token-bearing MCP configuration.
@@ -86,21 +86,27 @@ def _verify_attestation(
         raise ValueError("trusted release attestation predicate is invalid")
 
 
-def verify_artifact_root(root: Path) -> dict:
+def verify_artifact_root(root: Path, *, allow_internal: bool = False) -> dict:
     root = root.resolve()
     try:
         manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     except (OSError, TypeError, ValueError) as exc:
         raise ValueError("manifest.json is missing or invalid") from exc
+    if not isinstance(manifest, dict):
+        raise ValueError("manifest.json is missing or invalid")
     version = manifest.get("version")
     if not isinstance(version, str) or not _VERSION.fullmatch(version):
         raise ValueError("manifest version is invalid")
-    if manifest.get("channel") != "production":
+    channel = manifest.get("channel")
+    if channel not in {"production", "internal"}:
+        raise ValueError("manifest channel is invalid")
+    if channel == "internal" and not allow_internal:
         raise ValueError("only channel=production may be deployed")
-    _verify_attestation(
-        root / "manifest.json",
-        expected_predicate={"channel": "production", "complete": True},
-    )
+    if channel == "production":
+        _verify_attestation(
+            root / "manifest.json",
+            expected_predicate={"channel": "production", "complete": True},
+        )
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, list):
         raise ValueError("manifest artifacts must be a list")
@@ -125,33 +131,36 @@ def verify_artifact_root(root: Path) -> dict:
             raise ValueError("artifact checksum is invalid")
         if _file_sha256(path) != expected:
             raise ValueError("artifact checksum mismatch")
-        if target[0] == "windows" and artifact.get("signed") is not True:
-            raise ValueError("production Windows artifact is not signed")
-        if target[0] == "macos" and (
-            artifact.get("signed") is not True or artifact.get("notarized") is not True
-        ):
-            raise ValueError("production macOS artifact is not signed and notarized")
-        expected_predicate = (
-            {"platform": "windows", "authenticode_verified": True}
-            if target[0] == "windows"
-            else {
-                "platform": "macos",
-                "developer_id_verified": True,
-                "notarization_stapled_verified": True,
-            }
-        )
-        _verify_attestation(
-            path,
-            expected_predicate=expected_predicate,
-        )
+        if channel == "production":
+            if target[0] == "windows" and artifact.get("signed") is not True:
+                raise ValueError("production Windows artifact is not signed")
+            if target[0] == "macos" and (
+                artifact.get("signed") is not True or artifact.get("notarized") is not True
+            ):
+                raise ValueError("production macOS artifact is not signed and notarized")
+            expected_predicate = (
+                {"platform": "windows", "authenticode_verified": True}
+                if target[0] == "windows"
+                else {
+                    "platform": "macos",
+                    "developer_id_verified": True,
+                    "notarization_stapled_verified": True,
+                }
+            )
+            _verify_attestation(
+                path,
+                expected_predicate=expected_predicate,
+            )
+        elif artifact.get("signed") is not False or artifact.get("notarized") is not False:
+            raise ValueError("internal artifacts must declare signed=false and notarized=false")
         targets.add(target)
     if targets != _TARGETS:
-        raise ValueError("all three production targets are required")
+        raise ValueError("all three connector targets are required")
     if {path.name for path in root.iterdir()} != expected_entries:
         raise ValueError("artifact root must contain only the manifest and three installers")
     return {
         "version": version,
-        "channel": "production",
+        "channel": channel,
         "targets": ["macos-arm64", "macos-x64", "windows-x64"],
     }
 
@@ -159,10 +168,15 @@ def verify_artifact_root(root: Path) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True, type=Path)
+    parser.add_argument(
+        "--allow-internal",
+        action="store_true",
+        help="allow a complete unsigned channel=internal enterprise artifact set",
+    )
     args = parser.parse_args()
     print(
         json.dumps(
-            verify_artifact_root(args.root),
+            verify_artifact_root(args.root, allow_internal=args.allow_internal),
             ensure_ascii=False,
         )
     )
