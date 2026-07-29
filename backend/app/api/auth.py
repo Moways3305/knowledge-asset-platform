@@ -772,11 +772,9 @@ async def regenerate_workbuddy_token(
     session: AsyncSession = Depends(get_db),
 ) -> WorkbuddyTokenCreatedOut:
     """生成 / 重置当前用户自助 token（绑定 caller 本人；明文一次性返回 + 可复制 mcp.json）。"""
-    base_url = str(request.base_url).rstrip("/")
     return await workbuddy_token_service.regenerate(
         session,
         caller,
-        base_url=base_url,
         platform=body.platform,
         trace_id=get_trace_id(request),
     )

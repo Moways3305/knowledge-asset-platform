@@ -116,8 +116,12 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 - 🔐 `GET /api/v1/auth/workbuddy-connectors`、`GET .../{platform}/{architecture}/download` — 在职业务用户获取共享 Windows/macOS 连接器的版本、SHA-256、发布渠道与受鉴权安装包；安装包不含个人 token。正式版维持签名/公证链，未签名企业内部版仅在服务器默认关闭的管理员开关显式开启时分发。
 - 🔐 `GET /api/v1/auth/workbuddy-token`、`POST .../regenerate`、`DELETE ...` — 当前业务用户查看安全连接状态、按平台生成一次性个人配置或撤销。只有主动生成才轮换 token；最近连接时间只由成功的 agent-gateway 调用更新。
 - 🔐 `GET /api/v1/agent-calls/{call_id}`(+`/decision-items`) — Agent 调用记录与候选项。
-- 🔐 `POST /api/v1/agent-gateway/tools/knowledge-search`、`GET /api/v1/agent-gateway/projects` — **provider 中立外部 Agent 网关**（WorkBuddy MCP 经此接入）。Bearer token 绑定唯一 KAP 用户，caller 仅由后端从绑定解析（不读客户端自报 user id）；channel=agent，不取原文。
-- 🔐 WorkBuddy 只读工作台工具（PBC-37，全部经同一 `require_bound_caller`，**只读、不取原文/文件/预览 URL**）：
+- 🔐 `POST /api/v1/agent-gateway/tools/knowledge-search`、`GET /api/v1/agent-gateway/projects` — **provider 中立外部 Agent 网关**（WorkBuddy MCP 经此接入）。Bearer token 绑定唯一 KAP 用户，caller 仅由后端从绑定解析（不读客户端自报 user id）。
+- 🔐 WorkBuddy 只读知识应用工具（全部经同一 `require_bound_caller`，不提供文件、下载或预览 URL）：
+  - `GET /api/v1/agent-gateway/knowledge/personal`、`GET /knowledge` — 按标签、状态、时间、scope 和 offset/limit 列出绑定用户实时可见知识。
+  - `GET /api/v1/agent-gateway/knowledge/{asset_id}` — 安全详情、摘要、标签与可用访问层。
+  - `GET /api/v1/agent-gateway/knowledge/{asset_id}/content` — 每次实时执行 original 权限判断，仅返回当前版本文本；`max_chars` 上限 8000。
+  - `GET /api/v1/agent-gateway/knowledge/tags` — 仅从调用人可见资产聚合标签。
   - `GET /api/v1/agent-gateway/todos` — 我的待办聚合（待我审核 / 我的原文申请 / 待我审批 / 待确认入库）。
   - `GET /api/v1/agent-gateway/knowledge/recent` — 我最近可见的知识资产（安全卡片）。
   - `GET /api/v1/agent-gateway/knowledge/{asset_id}/summary` — 单资产安全摘要（不可发现 → 404，不泄露存在性）。
@@ -125,7 +129,7 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
   - `GET /api/v1/agent-gateway/projects/{project_id}/brief` — 项目安全概览（不含客户名 / 成员名单；无权与不存在统一 404）。
   - `GET /api/v1/agent-gateway/reviews/pending` — 我可处理 / 可见的待审核事项。
   - `GET /api/v1/agent-gateway/original-access/requests?box=mine|inbox` — 原文访问申请（只读）。
-  - 权限走 `decide()` + 注册行 token 天花板（只收紧不放大）；响应为安全白名单字段，绝不含原文 / 文件名 / storage·source ref / 下载·预览 URL / WeKnora id / provider 内部标识 / token。
+  - 仅服务器标记为 `is_self_service` 的自助 WorkBuddy 规则完全跟随绑定用户的实时 `decide()` 权限，不叠加 L2/A2 ceiling；该来源标记不在管理员 CRUD schema 中。管理员创建的 WorkBuddy 规则及其他 provider 仍保留 registry ceiling。响应为安全白名单字段，绝不含文件名 / storage·source ref / 下载·预览 URL / WeKnora id / provider 内部标识 / token。
   - **写操作暂不开放**（无 approve/reject/upload/grant/revoke 类工具）。
 - 🔐 `POST /api/v1/dify/external-knowledge/retrieval`、`POST /api/v1/dify/tools/knowledge-search` — **Dify 兼容适配器（legacy）**，保留可用、不强删；新接入用 agent-gateway。
 - 核心是 **provider 中立网关**；Agent **不**拥有独立权限，完全跟随调用人。

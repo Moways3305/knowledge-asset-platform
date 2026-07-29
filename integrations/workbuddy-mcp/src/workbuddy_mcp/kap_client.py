@@ -16,6 +16,11 @@ _PROJECTS_PATH = "/api/v1/agent-gateway/projects"
 # 只读工作台端点（PBC-37）。
 _TODOS_PATH = "/api/v1/agent-gateway/todos"
 _RECENT_PATH = "/api/v1/agent-gateway/knowledge/recent"
+_KNOWLEDGE_PATH = "/api/v1/agent-gateway/knowledge"
+_PERSONAL_KNOWLEDGE_PATH = "/api/v1/agent-gateway/knowledge/personal"
+_DETAIL_PATH = "/api/v1/agent-gateway/knowledge/{asset_id}"
+_CONTENT_PATH = "/api/v1/agent-gateway/knowledge/{asset_id}/content"
+_TAGS_PATH = "/api/v1/agent-gateway/knowledge/tags"
 _SUMMARY_PATH = "/api/v1/agent-gateway/knowledge/{asset_id}/summary"
 _PROJECT_KNOWLEDGE_PATH = "/api/v1/agent-gateway/projects/{project_id}/knowledge"
 _PROJECT_BRIEF_PATH = "/api/v1/agent-gateway/projects/{project_id}/brief"
@@ -82,9 +87,19 @@ SUMMARY_FIELDS = (
     "project_id",
     "project_name",
     "access_layer",
+    "available_access_layers",
     "can_view_original",
     "existing_original_request_status",
 )
+CONTENT_FIELDS = (
+    "asset_id",
+    "content",
+    "offset",
+    "returned_chars",
+    "next_offset",
+    "has_more",
+)
+TAG_FIELDS = ("name", "count")
 PROJECT_BRIEF_FIELDS = (
     "project_id",
     "name",
@@ -136,7 +151,11 @@ def _pick(obj: dict, fields: tuple[str, ...]) -> dict:
 class KapClient:
     def __init__(self, config: Config, *, client: httpx.Client | None = None) -> None:
         self._cfg = config
-        self._http = client or httpx.Client(base_url=config.base_url, timeout=30.0)
+        self._http = client or httpx.Client(
+            base_url=config.base_url,
+            timeout=30.0,
+            follow_redirects=False,
+        )
 
     def _headers(self, bearer: str | None) -> dict:
         # 远程多用户：bearer 来自本次请求（调用人本人 token）；stdio：用进程级 token。
@@ -146,13 +165,24 @@ class KapClient:
         return {"Authorization": f"Bearer {token}"}
 
     def _handle(self, resp: httpx.Response) -> dict:
+        if 300 <= resp.status_code < 400:
+            raise KapError(_UNAVAILABLE_MSG)
         if resp.status_code in (401, 403):
             raise KapError(_DENIED_MSG)
         if resp.status_code >= 500 or resp.status_code == 404:
             raise KapError(_UNAVAILABLE_MSG)
         if resp.status_code >= 400:
             raise KapError(_DENIED_MSG)
-        return resp.json()
+        content_type = resp.headers.get("content-type", "").lower()
+        if "json" not in content_type:
+            raise KapError(_UNAVAILABLE_MSG)
+        try:
+            data = resp.json()
+        except ValueError:
+            raise KapError(_UNAVAILABLE_MSG) from None
+        if not isinstance(data, dict):
+            raise KapError(_UNAVAILABLE_MSG)
+        return data
 
     def post(self, path: str, body: dict, *, bearer: str | None = None) -> dict:
         try:
@@ -249,9 +279,74 @@ def list_recent_knowledge(
     return [_pick(c, KNOWLEDGE_CARD_FIELDS) for c in data.get("items", [])]
 
 
+def list_accessible_knowledge(
+    client: KapClient,
+    *,
+    scope: str | None = None,
+    tags: list[str] | None = None,
+    asset_status: str | None = None,
+    updated_from: str | None = None,
+    updated_to: str | None = None,
+    offset: int = 0,
+    limit: int = 20,
+    personal_only: bool = False,
+    bearer: str | None = None,
+) -> dict:
+    params: dict = {"offset": offset, "limit": limit}
+    if scope and not personal_only:
+        params["scope"] = scope
+    if tags:
+        params["tags"] = tags
+    if asset_status:
+        params["asset_status"] = asset_status
+    if updated_from:
+        params["updated_from"] = updated_from
+    if updated_to:
+        params["updated_to"] = updated_to
+    path = _PERSONAL_KNOWLEDGE_PATH if personal_only else _KNOWLEDGE_PATH
+    data = client.get(path, params=params, bearer=bearer)
+    return {
+        "items": [_pick(c, KNOWLEDGE_CARD_FIELDS) for c in data.get("items", [])],
+        "total": data.get("total", 0),
+        "offset": data.get("offset", offset),
+        "limit": data.get("limit", limit),
+        "has_more": bool(data.get("has_more", False)),
+    }
+
+
 def get_knowledge_summary(client: KapClient, asset_id: str, *, bearer: str | None = None) -> dict:
     data = client.get(_SUMMARY_PATH.format(asset_id=asset_id), bearer=bearer)
     return _pick(data, SUMMARY_FIELDS)
+
+
+def get_knowledge_detail(client: KapClient, asset_id: str, *, bearer: str | None = None) -> dict:
+    data = client.get(_DETAIL_PATH.format(asset_id=asset_id), bearer=bearer)
+    return _pick(data, SUMMARY_FIELDS)
+
+
+def get_knowledge_content(
+    client: KapClient,
+    asset_id: str,
+    *,
+    offset: int = 0,
+    max_chars: int = 4000,
+    bearer: str | None = None,
+) -> dict:
+    data = client.get(
+        _CONTENT_PATH.format(asset_id=asset_id),
+        params={"offset": offset, "max_chars": max_chars},
+        bearer=bearer,
+    )
+    return _pick(data, CONTENT_FIELDS)
+
+
+def list_tags(client: KapClient, *, scope: str | None = None, bearer: str | None = None) -> dict:
+    params = {"scope": scope} if scope else None
+    data = client.get(_TAGS_PATH, params=params, bearer=bearer)
+    return {
+        "items": [_pick(item, TAG_FIELDS) for item in data.get("items", [])],
+        "total": data.get("total", 0),
+    }
 
 
 def list_project_knowledge(

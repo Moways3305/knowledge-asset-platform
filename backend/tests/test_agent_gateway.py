@@ -8,9 +8,12 @@ import pytest
 
 from app.main import app
 from app.models.agent_registry import AgentWhitelistRule
+from app.models.knowledge import KnowledgeAsset
+from app.models.weknora import WeknoraKbMapping
 from app.seed.dev_seed import (
     KA_COMPANY_L2,
     KA_COMPANY_L5,
+    KA_PERSONAL,
     KA_PROJECT_ALPHA,
     PROJECT_ALPHA,
     USER_CONSULTANT,
@@ -105,17 +108,22 @@ async def _insert_rule(
     enabled=True,
     capability="qa",
     allowed_scope=None,
+    self_service=False,
+    max_conf="L5",
 ):
     rule = AgentWhitelistRule(
         provider="workbuddy",
-        agent_identifier=f"wb-{uuid.uuid4().hex[:8]}",
+        agent_identifier=(
+            f"workbuddy:self:{bound_user_id}" if self_service else f"wb-{uuid.uuid4().hex[:8]}"
+        ),
         agent_name="WorkBuddy 测试",
         capability=capability,
         allowed_scope=allowed_scope,
-        max_confidentiality_level="L5",
+        max_confidentiality_level=max_conf,
         max_ai_access_level="A4",
         token_hash=hash_token(token),
         enabled=enabled,
+        is_self_service=self_service,
         bound_user_id=bound_user_id,
     )
     db_session.add(rule)
@@ -150,6 +158,37 @@ async def test_search_runs_via_agent_channel(client, db_session):
     assert len(r.json()["cards"]) >= 1
     for t in _LEAK_TOKENS:
         assert t not in r.text
+
+
+async def test_self_service_search_follows_owner_for_l3_personal(client, db_session):
+    asset = await db_session.get(KnowledgeAsset, KA_PERSONAL)
+    asset.confidentiality_level = "L3"
+    personal_kb = "wk-kb-personal-self-service"
+    db_session.add(
+        WeknoraKbMapping(
+            scope="personal",
+            owner_user_id=USER_CONSULTANT,
+            project_id=None,
+            weknora_kb_id=personal_kb,
+            embedding_model_id="seed-embed",
+            kb_name="personal_self_service",
+            status="active",
+        )
+    )
+    await _insert_rule(
+        db_session,
+        bound_user_id=USER_CONSULTANT,
+        self_service=True,
+        max_conf="L2",
+    )
+    _install([_doc(KA_PERSONAL, personal_kb, "本人 L3 方法论")])
+    response = await client.post(
+        SEARCH,
+        headers=_bearer(),
+        json={"query": "方法论", "scope": "personal"},
+    )
+    assert response.status_code == 200, response.text
+    assert str(KA_PERSONAL) in {card["asset_id"] for card in response.json()["cards"]}
 
 
 async def test_bearer_bound_dual_role_user_keeps_business_identity(client, db_session):

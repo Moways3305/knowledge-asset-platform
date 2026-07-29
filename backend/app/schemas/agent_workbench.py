@@ -67,6 +67,12 @@ class WorkbenchKnowledgeListResponse(BaseModel):
     total: int
 
 
+class WorkbenchKnowledgePageResponse(WorkbenchKnowledgeListResponse):
+    offset: int
+    limit: int
+    has_more: bool
+
+
 # ---------------- knowledge summary ----------------
 class WorkbenchKnowledgeSummary(BaseModel):
     """单个知识资产的安全摘要（discovery/summary 层）。summary 为安全 / 脱敏摘要。
@@ -86,8 +92,30 @@ class WorkbenchKnowledgeSummary(BaseModel):
     project_id: uuid.UUID | None = None
     project_name: str | None = None
     access_layer: str  # discovery | summary | original（调用人可达最高层级）
+    available_access_layers: list[str] = []
     can_view_original: bool = False
     existing_original_request_status: str | None = None
+
+
+class WorkbenchKnowledgeContent(BaseModel):
+    """逐次通过 original 权限后返回的受控文本页；不含文件或底层存储引用。"""
+
+    asset_id: uuid.UUID
+    content: str
+    offset: int
+    returned_chars: int
+    next_offset: int | None = None
+    has_more: bool = False
+
+
+class WorkbenchTagItem(BaseModel):
+    name: str
+    count: int
+
+
+class WorkbenchTagsResponse(BaseModel):
+    items: list[WorkbenchTagItem]
+    total: int
 
 
 # ---------------- project brief ----------------

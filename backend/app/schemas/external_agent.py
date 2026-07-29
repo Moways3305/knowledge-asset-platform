@@ -36,7 +36,7 @@ class ExternalRetrievalRecord(BaseModel):
 class AgentToolSearchRequest(BaseModel):
     """中立 agent-gateway 检索请求。caller 不在 body（由 token 绑定在后端解析）。"""
 
-    query: str
+    query: str = Field(min_length=1, max_length=2000)
     scope: str | None = None
     intent: str | None = None
     # 复用统一检索过滤项（zone/tags/phase）。

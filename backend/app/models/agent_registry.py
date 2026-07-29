@@ -54,6 +54,11 @@ class AgentWhitelistRule(Base):
     # Bearer token 的 sha256（**绝不存明文**，绝不外泄）。
     token_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # 仅服务器自助 token 服务可写的来源标记。管理员 CRUD schema 不接收/回显该字段；
+    # agent_identifier 是管理员可控文本，绝不能替代此安全边界。
+    is_self_service: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     risk_level: Mapped[str | None] = mapped_column(String(20), nullable=True)
     risk_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Dify 侧内部标识（server-only；绝不进响应 / 审计 / 前端）。

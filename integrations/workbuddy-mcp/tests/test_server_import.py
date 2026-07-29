@@ -13,7 +13,12 @@ _EXPECTED_TOOLS = {
     "kap_list_accessible_projects",
     "kap_list_my_todos",
     "kap_list_recent_knowledge",
+    "kap_list_my_personal_knowledge",
+    "kap_list_accessible_knowledge",
     "kap_get_knowledge_summary",
+    "kap_get_knowledge_detail",
+    "kap_get_knowledge_content",
+    "kap_list_tags",
     "kap_list_project_knowledge",
     "kap_get_project_brief",
     "kap_list_pending_reviews",
@@ -29,7 +34,7 @@ def test_all_readonly_tools_registered(monkeypatch):
     tools = asyncio.run(server.mcp.list_tools())
     names = {t.name for t in tools}
     assert _EXPECTED_TOOLS.issubset(names), _EXPECTED_TOOLS - names
-    assert len(names) == 10  # 实测工具数量从 3 增至 10（全部只读）
+    assert len(names) == 15
 
 
 def test_tool_wrappers_sanitize_errors(monkeypatch):
@@ -49,3 +54,12 @@ def test_tool_wrappers_sanitize_errors(monkeypatch):
     out = server._search_tool("q", scope="project")
     assert "error" in out
     assert "caller_unresolved" not in out["error"]
+
+    def html_handler(request):
+        return httpx.Response(301, text="<html>redirect</html>")
+
+    server._client._http = httpx.Client(
+        base_url="http://kap.test", transport=httpx.MockTransport(html_handler)
+    )
+    redirected = server._knowledge_content_tool("a1")
+    assert redirected == {"error": "知识服务暂不可用，请稍后重试"}

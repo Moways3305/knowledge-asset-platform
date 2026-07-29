@@ -27,22 +27,33 @@ from sqlalchemy.orm import selectinload
 
 from app.db.utils import utc_now
 from app.models.identity import Project
-from app.models.knowledge import KnowledgeAsset
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetChunk
 from app.schemas.agent_workbench import (
     AgentWorkbenchTodoItem,
     WorkbenchKnowledgeCard,
+    WorkbenchKnowledgeContent,
     WorkbenchKnowledgeListResponse,
+    WorkbenchKnowledgePageResponse,
     WorkbenchKnowledgeSummary,
     WorkbenchOriginalAccessItem,
     WorkbenchOriginalAccessResponse,
     WorkbenchProjectBrief,
     WorkbenchReviewItem,
     WorkbenchReviewsResponse,
+    WorkbenchTagItem,
+    WorkbenchTagsResponse,
     WorkbenchTodoCounts,
     WorkbenchTodosResponse,
 )
-from app.schemas.enums import AssetStatus, KnowledgeScope, ReviewTaskStatus
-from app.schemas.permission import AccessLayer, CallerContext
+from app.schemas.enums import (
+    AssetStatus,
+    AuditAction,
+    AuditLogType,
+    KnowledgeScope,
+    ReviewTaskStatus,
+)
+from app.schemas.permission import AccessChannel, AccessLayer, CallerContext
+from app.services import audit as audit_service
 from app.services import external_agent_gateway as gateway
 from app.services import ingest as ingest_service
 from app.services import knowledge as knowledge_service
@@ -120,6 +131,8 @@ def _ceiling_title(title: str | None, conf_level: str | None, rule) -> str | Non
     """资产标题按 token 保密天花板收口：超过天花板 → 安全占位（不泄露真实标题）。"""
     if title is None:
         return None
+    if gateway.is_self_service_workbuddy_rule(rule):
+        return title
     if gateway.conf_rank(conf_level) > gateway.conf_rank(rule.max_confidentiality_level):
         return _RESTRICTED_TITLE
     return title
@@ -196,6 +209,29 @@ async def _visible_cards(
     ]
     cards.sort(key=lambda c: _aware(c.updated_at), reverse=True)
     return cards
+
+
+async def _audit_agent_read(
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    action: AuditAction,
+    target_type: str,
+    target_id: uuid.UUID | None = None,
+    trace_id: str | None = None,
+    extra: dict,
+) -> None:
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=action.value,
+        trace_id=trace_id or uuid.uuid4().hex,
+        target_type=target_type,
+        target_id=target_id,
+        extra={"channel": AccessChannel.agent.value, **extra},
+    )
+    await session.commit()
 
 
 async def _load_visible_project(
@@ -352,11 +388,117 @@ async def list_recent_knowledge(
     return WorkbenchKnowledgeListResponse(items=cards[:lim], total=len(cards))
 
 
+async def list_accessible_knowledge(
+    session: AsyncSession,
+    caller: CallerContext,
+    rule,
+    *,
+    scope: str | None = None,
+    tags: list[str] | None = None,
+    asset_status: str | None = None,
+    updated_from: datetime | None = None,
+    updated_to: datetime | None = None,
+    offset: int = 0,
+    limit: int = 20,
+    personal_only: bool = False,
+    trace_id: str | None = None,
+) -> WorkbenchKnowledgePageResponse:
+    """按绑定用户实时 discovery 权限列出知识，分页前先做权限裁剪。"""
+    if scope not in (None, "all", "personal", "project", "company"):
+        raise _denied(422, "knowledge_scope_invalid", "知识范围参数无效")
+    safe_offset = max(0, int(offset))
+    safe_limit = _clamp(limit, default=20, lo=1, hi=100)
+    stmt = _active_asset_stmt()
+    effective_scope = "personal" if personal_only else scope
+    if effective_scope not in (None, "all"):
+        stmt = stmt.where(KnowledgeAsset.scope == effective_scope)
+    if personal_only:
+        stmt = stmt.where(KnowledgeAsset.owner_user_id == caller.user_id)
+    if asset_status:
+        stmt = stmt.where(KnowledgeAsset.asset_status == asset_status)
+    if updated_from:
+        stmt = stmt.where(KnowledgeAsset.updated_at >= updated_from)
+    if updated_to:
+        stmt = stmt.where(KnowledgeAsset.updated_at <= updated_to)
+    assets = list((await session.execute(stmt)).scalars().all())
+    if tags:
+        wanted = {tag.strip() for tag in tags if tag.strip()}
+        assets = [a for a in assets if wanted.issubset({t.tag_name for t in a.tags})]
+    policy = await load_access_policy(session)
+    cards = await _visible_cards(session, caller, rule, assets, policy)
+    page = cards[safe_offset : safe_offset + safe_limit]
+    await _audit_agent_read(
+        session,
+        caller,
+        action=AuditAction.agent_knowledge_listed,
+        target_type="knowledge_collection",
+        trace_id=trace_id,
+        extra={
+            "scope": effective_scope or "all",
+            "result_count": len(page),
+            "access_layer": AccessLayer.discovery.value,
+        },
+    )
+    return WorkbenchKnowledgePageResponse(
+        items=page,
+        total=len(cards),
+        offset=safe_offset,
+        limit=safe_limit,
+        has_more=safe_offset + len(page) < len(cards),
+    )
+
+
+async def list_visible_tags(
+    session: AsyncSession,
+    caller: CallerContext,
+    rule,
+    *,
+    scope: str | None = None,
+    trace_id: str | None = None,
+) -> WorkbenchTagsResponse:
+    if scope not in (None, "all", "personal", "project", "company"):
+        raise _denied(422, "knowledge_scope_invalid", "知识范围参数无效")
+    stmt = _active_asset_stmt()
+    if scope not in (None, "all"):
+        stmt = stmt.where(KnowledgeAsset.scope == scope)
+    assets = list((await session.execute(stmt)).scalars().all())
+    policy = await load_access_policy(session)
+    visible = [
+        asset
+        for asset in assets
+        if decide(caller, asset, AccessLayer.discovery, policy=policy).allowed
+        and gateway.asset_within_ceiling(rule, asset)
+    ]
+    counts: dict[str, int] = {}
+    for asset in visible:
+        for tag in asset.tags:
+            counts[tag.tag_name] = counts.get(tag.tag_name, 0) + 1
+    items = [WorkbenchTagItem(name=name, count=count) for name, count in sorted(counts.items())]
+    await _audit_agent_read(
+        session,
+        caller,
+        action=AuditAction.agent_knowledge_tags_listed,
+        target_type="knowledge_tags",
+        trace_id=trace_id,
+        extra={
+            "scope": scope or "all",
+            "result_count": len(items),
+            "access_layer": AccessLayer.discovery.value,
+        },
+    )
+    return WorkbenchTagsResponse(items=items, total=len(items))
+
+
 # ---------------------------------------------------------------------------
 # 3) knowledge summary
 # ---------------------------------------------------------------------------
 async def get_knowledge_summary(
-    session: AsyncSession, caller: CallerContext, rule, asset_id: uuid.UUID
+    session: AsyncSession,
+    caller: CallerContext,
+    rule,
+    asset_id: uuid.UUID,
+    *,
+    trace_id: str | None = None,
 ) -> WorkbenchKnowledgeSummary:
     # 复用 knowledge.get_detail：不可发现 → 404（不泄露存在性）；summary 仅在放行时构建。
     detail = await knowledge_service.get_detail(session, caller, asset_id)
@@ -378,7 +520,12 @@ async def get_knowledge_summary(
         summary_text = detail.summary.detailed or detail.summary.one_liner
         key_points = list(detail.summary.key_points)
 
-    return WorkbenchKnowledgeSummary(
+    available_layers = [AccessLayer.discovery.value]
+    if access.summary:
+        available_layers.append(AccessLayer.summary.value)
+    if access.original:
+        available_layers.append(AccessLayer.original.value)
+    result = WorkbenchKnowledgeSummary(
         asset_id=detail.id,
         title=detail.title,
         scope=detail.scope,
@@ -391,9 +538,103 @@ async def get_knowledge_summary(
         project_id=detail.project_id,
         project_name=detail.project_name,
         access_layer=access_layer,
+        available_access_layers=available_layers,
         # 即便 can_view_original=True 也绝不经 MCP 返回原文（见 API 层 / schema 注释）。
         can_view_original=access.original,
         existing_original_request_status=access.existing_request_status,
+    )
+    await _audit_agent_read(
+        session,
+        caller,
+        action=AuditAction.agent_knowledge_detail_viewed,
+        target_type="knowledge_asset",
+        target_id=asset_id,
+        trace_id=trace_id,
+        extra={"result_count": 1, "access_layer": access_layer},
+    )
+    return result
+
+
+async def get_knowledge_content(
+    session: AsyncSession,
+    caller: CallerContext,
+    rule,
+    asset_id: uuid.UUID,
+    *,
+    offset: int = 0,
+    max_chars: int = 4000,
+    trace_id: str | None = None,
+) -> WorkbenchKnowledgeContent:
+    """实时 original 鉴权后返回当前版本文本页；永不读取或返回 file/storage 引用。"""
+    asset = (
+        await session.execute(select(KnowledgeAsset).where(KnowledgeAsset.id == asset_id))
+    ).scalar_one_or_none()
+    not_found = _denied(404, "knowledge_asset_not_found", "知识资产不存在或不可见")
+    if asset is None:
+        raise not_found
+    policy = await load_access_policy(session)
+    if not decide(caller, asset, AccessLayer.discovery, policy=policy).allowed:
+        raise not_found
+    if not gateway.asset_within_ceiling(rule, asset):
+        raise not_found
+    has_grant = await original_access_service.has_active_grant(session, caller.user_id, asset_id)
+    channel = (
+        AccessChannel.human if gateway.is_self_service_workbuddy_rule(rule) else AccessChannel.agent
+    )
+    original = decide(
+        caller,
+        asset,
+        AccessLayer.original,
+        channel=channel,
+        policy=policy,
+        has_original_grant=has_grant,
+    )
+    if not original.allowed:
+        raise _denied(403, "knowledge_original_denied", "无权读取该知识原文")
+
+    chunks: list[KnowledgeAssetChunk] = []
+    if asset.current_version_id is not None:
+        chunks = list(
+            (
+                await session.execute(
+                    select(KnowledgeAssetChunk)
+                    .where(
+                        KnowledgeAssetChunk.asset_id == asset_id,
+                        KnowledgeAssetChunk.version_id == asset.current_version_id,
+                        KnowledgeAssetChunk.chunk_status.in_(("active", "pending_review")),
+                    )
+                    .order_by(KnowledgeAssetChunk.chunk_index)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    text = "\n".join(chunk.content_text for chunk in chunks)
+    safe_offset = max(0, int(offset))
+    safe_max = _clamp(max_chars, default=4000, lo=1, hi=8000)
+    content = text[safe_offset : safe_offset + safe_max]
+    next_offset = safe_offset + len(content)
+    has_more = next_offset < len(text)
+    await _audit_agent_read(
+        session,
+        caller,
+        action=AuditAction.agent_knowledge_content_viewed,
+        target_type="knowledge_asset",
+        target_id=asset_id,
+        trace_id=trace_id,
+        extra={
+            "result_count": 1 if content else 0,
+            "returned_chars": len(content),
+            "access_layer": AccessLayer.original.value,
+        },
+    )
+    return WorkbenchKnowledgeContent(
+        asset_id=asset_id,
+        content=content,
+        offset=safe_offset,
+        returned_chars=len(content),
+        next_offset=next_offset if has_more else None,
+        has_more=has_more,
     )
 
 

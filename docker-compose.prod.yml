@@ -6,5 +6,6 @@ services:
       # Default fail-closed. Set the host value explicitly to true only for approved
       # unsigned enterprise-internal distribution.
       WORKBUDDY_CONNECTOR_ALLOW_INTERNAL: ${WORKBUDDY_CONNECTOR_ALLOW_INTERNAL:-false}
+      KAP_PUBLIC_BASE_URL: ${KAP_PUBLIC_BASE_URL:-}
     volumes:
       - /data/kap/workbuddy-connectors:/data/workbuddy-connectors:ro

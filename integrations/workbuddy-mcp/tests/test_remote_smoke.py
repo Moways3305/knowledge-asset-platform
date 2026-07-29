@@ -91,6 +91,11 @@ def test_streamable_http_forwards_per_request_bearer(monkeypatch):
 
     # 工具可被远程发现。
     assert "kap_search_knowledge" in names
+    assert "kap_list_my_personal_knowledge" in names
+    assert "kap_list_accessible_knowledge" in names
+    assert "kap_get_knowledge_detail" in names
+    assert "kap_get_knowledge_content" in names
+    assert "kap_list_tags" in names
     # 关键：KAP 收到的是**本次请求的用户 token**，不是进程级回退 token。
     assert captured, "工具未实际调用 KAP"
     assert captured[-1] == "Bearer kgw_USER_ALICE"

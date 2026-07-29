@@ -46,6 +46,21 @@ manifest 签发 attestation。清单中的 `signed`、`notarized` 字段只是�
 
 ## 部署到 KAP
 
+### 公网连接 origin
+
+后端必须由部署配置显式注入 `KAP_PUBLIC_BASE_URL`。该值只允许是规范 origin，例如
+`https://knowledge.example.com`：不得包含用户名、密码、path、query 或 fragment，尾部 `/`
+会被移除。生产 `APP_ENV=prod` 下缺失或不是 HTTPS 时，WorkBuddy 配置生成返回安全的 503，
+且不会创建或轮换 token。配置生成不读取客户端 `Host`、`Forwarded`、
+`X-Forwarded-Proto` 或 `request.base_url`。
+
+```bash
+KAP_PUBLIC_BASE_URL=https://<public-kap-host>
+```
+
+连接器默认拒绝重定向；HTTP 降级、跨域跳转、HTML 错误页、无效 JSON、TLS 与网络异常均收口
+为稳定的 MCP 错误对象，不把 URL、响应正文或连接细节写入 stdio 协议。
+
 生产 Compose 必须同时使用基础文件和生产覆盖文件：
 
 ```bash

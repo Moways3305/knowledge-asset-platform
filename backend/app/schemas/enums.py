@@ -359,6 +359,10 @@ class AuditAction(str, Enum):
     l5_original_access = "l5_original_access"
     # 检索（两阶段检索读路径）。
     knowledge_searched = "knowledge.searched"
+    agent_knowledge_listed = "agent.knowledge_listed"
+    agent_knowledge_detail_viewed = "agent.knowledge_detail_viewed"
+    agent_knowledge_content_viewed = "agent.knowledge_content_viewed"
+    agent_knowledge_tags_listed = "agent.knowledge_tags_listed"
     # Agent
     agent_called = "agent.called"
     agent_allowed = "agent.allowed"

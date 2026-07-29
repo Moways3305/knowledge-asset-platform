@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy import select
+
 from app.models.agent_registry import AgentWhitelistRule
+from app.models.audit import AuditEvent
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetChunk
 from app.models.original_access import OriginalAccessRequest
 from app.seed.dev_seed import (
     KA_COMPANY_L2,
@@ -62,10 +66,13 @@ async def _insert_rule(
     enabled=True,
     capability="qa",
     max_conf="L5",
+    self_service=False,
 ):
     rule = AgentWhitelistRule(
         provider="workbuddy",
-        agent_identifier=f"wb-{uuid.uuid4().hex[:8]}",
+        agent_identifier=(
+            f"workbuddy:self:{bound_user_id}" if self_service else f"wb-{uuid.uuid4().hex[:8]}"
+        ),
         agent_name="WorkBuddy 工作台测试",
         capability=capability,
         allowed_scope=None,
@@ -73,6 +80,7 @@ async def _insert_rule(
         max_ai_access_level="A4",
         token_hash=hash_token(token),
         enabled=enabled,
+        is_self_service=self_service,
         bound_user_id=bound_user_id,
     )
     db_session.add(rule)
@@ -183,6 +191,100 @@ async def test_summary_owner_personal_ok(client, db_session):
         f"/api/v1/agent-gateway/knowledge/{KA_PERSONAL}/summary", headers=_bearer()
     )
     assert r.status_code == 200
+
+
+async def test_self_service_l3_personal_list_detail_and_content_follow_owner(client, db_session):
+    asset = await db_session.get(KnowledgeAsset, KA_PERSONAL)
+    asset.confidentiality_level = "L3"
+    asset.ai_access_level = "A4"
+    db_session.add(
+        KnowledgeAssetChunk(
+            asset_id=asset.id,
+            version_id=asset.current_version_id,
+            chunk_index=0,
+            chunk_type="text",
+            content_text="个人原文内容仅本人可见",
+            chunk_status="active",
+        )
+    )
+    await _insert_rule(
+        db_session,
+        bound_user_id=USER_CONSULTANT,
+        max_conf="L2",
+        self_service=True,
+    )
+
+    listed = await client.get(
+        "/api/v1/agent-gateway/knowledge/personal",
+        headers=_bearer(),
+        params={"limit": 10},
+    )
+    assert listed.status_code == 200, listed.text
+    assert str(KA_PERSONAL) in {item["asset_id"] for item in listed.json()["items"]}
+
+    detail = await client.get(f"/api/v1/agent-gateway/knowledge/{KA_PERSONAL}", headers=_bearer())
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["available_access_layers"] == [
+        "discovery",
+        "summary",
+        "original",
+    ]
+
+    first = await client.get(
+        f"/api/v1/agent-gateway/knowledge/{KA_PERSONAL}/content",
+        headers=_bearer(),
+        params={"offset": 0, "max_chars": 5},
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["content"] == "个人原文内"
+    assert first.json()["has_more"] is True
+    second = await client.get(
+        f"/api/v1/agent-gateway/knowledge/{KA_PERSONAL}/content",
+        headers=_bearer(),
+        params={"offset": first.json()["next_offset"], "max_chars": 8000},
+    )
+    assert second.status_code == 200
+    assert second.json()["content"] == "容仅本人可见"
+
+    audits = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.action == "agent.knowledge_content_viewed")
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(audits) == 2
+    audit_blob = str([event.extra for event in audits])
+    assert "个人原文" not in audit_blob
+    assert "returned_chars" in audit_blob
+
+
+async def test_content_denies_hidden_assets_and_missing_original_right(client, db_session):
+    await _insert_rule(db_session, bound_user_id=USER_BOSS, self_service=True)
+    other_personal = await client.get(
+        f"/api/v1/agent-gateway/knowledge/{KA_PERSONAL}/content", headers=_bearer()
+    )
+    nonmember_project = await client.get(
+        f"/api/v1/agent-gateway/knowledge/{KA_PROJECT_ALPHA}/content",
+        headers=_bearer(),
+    )
+    assert other_personal.status_code == 404
+    assert nonmember_project.status_code == 404
+
+    consultant_token = "kgw_workbench_consultant_content"
+    await _insert_rule(
+        db_session,
+        token=consultant_token,
+        bound_user_id=USER_CONSULTANT,
+        self_service=True,
+    )
+    denied = await client.get(
+        f"/api/v1/agent-gateway/knowledge/{KA_COMPANY_L2}/content",
+        headers=_bearer(consultant_token),
+    )
+    assert denied.status_code == 403
 
 
 async def test_summary_others_personal_not_discoverable(client, db_session):
