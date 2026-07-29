@@ -172,6 +172,7 @@ async def create_rule(session: AsyncSession, caller: CallerContext, req, trace_i
         max_ai_access_level=req.max_ai_access_level,
         token_hash=hash_token(token),
         enabled=req.enabled,
+        is_self_service=False,  # 管理员 CRUD 永远不能签发自助来源标记
         risk_level=req.risk_level,
         risk_note=req.risk_note,
         external_app_id=req.external_app_id,

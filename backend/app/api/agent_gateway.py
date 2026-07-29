@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,11 +23,14 @@ from app.db.session import get_db
 from app.db.utils import utc_now
 from app.models.agent_registry import AgentWhitelistRule
 from app.schemas.agent_workbench import (
+    WorkbenchKnowledgeContent,
     WorkbenchKnowledgeListResponse,
+    WorkbenchKnowledgePageResponse,
     WorkbenchKnowledgeSummary,
     WorkbenchOriginalAccessResponse,
     WorkbenchProjectBrief,
     WorkbenchReviewsResponse,
+    WorkbenchTagsResponse,
     WorkbenchTodosResponse,
 )
 from app.schemas.external_agent import (
@@ -167,14 +171,121 @@ async def list_recent_knowledge(
     )
 
 
-@router.get("/knowledge/{asset_id}/summary", response_model=WorkbenchKnowledgeSummary)
-async def get_knowledge_summary(
+@router.get("/knowledge/personal", response_model=WorkbenchKnowledgePageResponse)
+async def list_my_personal_knowledge(
+    request: Request,
+    tags: list[str] | None = Query(default=None),
+    asset_status: str | None = Query(default=None),
+    updated_from: datetime | None = Query(default=None),
+    updated_to: datetime | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=100),
+    bound: tuple[AgentWhitelistRule, CallerContext] = Depends(require_bound_caller),
+    session: AsyncSession = Depends(get_db),
+) -> WorkbenchKnowledgePageResponse:
+    rule, caller = bound
+    return await agent_workbench.list_accessible_knowledge(
+        session,
+        caller,
+        rule,
+        tags=tags,
+        asset_status=asset_status,
+        updated_from=updated_from,
+        updated_to=updated_to,
+        offset=offset,
+        limit=limit,
+        personal_only=True,
+        trace_id=get_trace_id(request),
+    )
+
+
+@router.get("/knowledge", response_model=WorkbenchKnowledgePageResponse)
+async def list_accessible_knowledge(
+    request: Request,
+    scope: str | None = Query(default=None),
+    tags: list[str] | None = Query(default=None),
+    asset_status: str | None = Query(default=None),
+    updated_from: datetime | None = Query(default=None),
+    updated_to: datetime | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=100),
+    bound: tuple[AgentWhitelistRule, CallerContext] = Depends(require_bound_caller),
+    session: AsyncSession = Depends(get_db),
+) -> WorkbenchKnowledgePageResponse:
+    rule, caller = bound
+    return await agent_workbench.list_accessible_knowledge(
+        session,
+        caller,
+        rule,
+        scope=scope,
+        tags=tags,
+        asset_status=asset_status,
+        updated_from=updated_from,
+        updated_to=updated_to,
+        offset=offset,
+        limit=limit,
+        trace_id=get_trace_id(request),
+    )
+
+
+@router.get("/knowledge/tags", response_model=WorkbenchTagsResponse)
+async def list_knowledge_tags(
+    request: Request,
+    scope: str | None = Query(default=None),
+    bound: tuple[AgentWhitelistRule, CallerContext] = Depends(require_bound_caller),
+    session: AsyncSession = Depends(get_db),
+) -> WorkbenchTagsResponse:
+    rule, caller = bound
+    return await agent_workbench.list_visible_tags(
+        session, caller, rule, scope=scope, trace_id=get_trace_id(request)
+    )
+
+
+@router.get("/knowledge/{asset_id}", response_model=WorkbenchKnowledgeSummary)
+async def get_knowledge_detail(
     asset_id: uuid.UUID,
+    request: Request,
     bound: tuple[AgentWhitelistRule, CallerContext] = Depends(require_bound_caller),
     session: AsyncSession = Depends(get_db),
 ) -> WorkbenchKnowledgeSummary:
     rule, caller = bound
-    return await agent_workbench.get_knowledge_summary(session, caller, rule, asset_id)
+    return await agent_workbench.get_knowledge_summary(
+        session, caller, rule, asset_id, trace_id=get_trace_id(request)
+    )
+
+
+@router.get("/knowledge/{asset_id}/content", response_model=WorkbenchKnowledgeContent)
+async def get_knowledge_content(
+    asset_id: uuid.UUID,
+    request: Request,
+    offset: int = Query(default=0, ge=0),
+    max_chars: int = Query(default=4000, ge=1, le=8000),
+    bound: tuple[AgentWhitelistRule, CallerContext] = Depends(require_bound_caller),
+    session: AsyncSession = Depends(get_db),
+) -> WorkbenchKnowledgeContent:
+    rule, caller = bound
+    return await agent_workbench.get_knowledge_content(
+        session,
+        caller,
+        rule,
+        asset_id,
+        offset=offset,
+        max_chars=max_chars,
+        trace_id=get_trace_id(request),
+    )
+
+
+@router.get("/knowledge/{asset_id}/summary", response_model=WorkbenchKnowledgeSummary)
+async def get_knowledge_summary(
+    asset_id: uuid.UUID,
+    request: Request,
+    bound: tuple[AgentWhitelistRule, CallerContext] = Depends(require_bound_caller),
+    session: AsyncSession = Depends(get_db),
+) -> WorkbenchKnowledgeSummary:
+    rule, caller = bound
+    return await agent_workbench.get_knowledge_summary(
+        session, caller, rule, asset_id, trace_id=get_trace_id(request)
+    )
 
 
 @router.get("/projects/{project_id}/knowledge", response_model=WorkbenchKnowledgeListResponse)

@@ -22,14 +22,18 @@ from .kap_client import (
     KapClient,
     KapError,
     answer_from_knowledge,
+    get_knowledge_content,
+    get_knowledge_detail,
     get_knowledge_summary,
     get_project_brief,
     list_accessible_projects,
+    list_accessible_knowledge,
     list_my_todos,
     list_original_access_requests,
     list_pending_reviews,
     list_project_knowledge,
     list_recent_knowledge,
+    list_tags,
     search_knowledge,
 )
 
@@ -111,6 +115,58 @@ def _knowledge_summary_tool(asset_id, *, bearer=None):
         return {"error": str(exc)}
 
 
+def _accessible_knowledge_tool(
+    scope=None,
+    tags=None,
+    asset_status=None,
+    updated_from=None,
+    updated_to=None,
+    offset=0,
+    limit=20,
+    *,
+    personal_only=False,
+    bearer=None,
+):
+    try:
+        return list_accessible_knowledge(
+            _client,
+            scope=scope,
+            tags=tags,
+            asset_status=asset_status,
+            updated_from=updated_from,
+            updated_to=updated_to,
+            offset=offset,
+            limit=limit,
+            personal_only=personal_only,
+            bearer=bearer,
+        )
+    except KapError as exc:
+        return {"error": str(exc)}
+
+
+def _knowledge_detail_tool(asset_id, *, bearer=None):
+    try:
+        return get_knowledge_detail(_client, asset_id, bearer=bearer)
+    except KapError as exc:
+        return {"error": str(exc)}
+
+
+def _knowledge_content_tool(asset_id, offset=0, max_chars=4000, *, bearer=None):
+    try:
+        return get_knowledge_content(
+            _client, asset_id, offset=offset, max_chars=max_chars, bearer=bearer
+        )
+    except KapError as exc:
+        return {"error": str(exc)}
+
+
+def _tags_tool(scope=None, *, bearer=None):
+    try:
+        return list_tags(_client, scope=scope, bearer=bearer)
+    except KapError as exc:
+        return {"error": str(exc)}
+
+
 def _project_knowledge_tool(project_id, limit=None, phase=None, tags=None, *, bearer=None):
     try:
         return list_project_knowledge(
@@ -187,9 +243,79 @@ def kap_list_recent_knowledge(
 
 
 @mcp.tool()
+def kap_list_my_personal_knowledge(
+    tags: list[str] | None = None,
+    asset_status: str | None = None,
+    updated_from: str | None = None,
+    updated_to: str | None = None,
+    offset: int = 0,
+    limit: int = 20,
+    ctx: Context | None = None,
+) -> object:
+    """列出当前绑定用户自己的个人知识；支持标签、状态、时间与分页筛选。"""
+    return _accessible_knowledge_tool(
+        tags=tags,
+        asset_status=asset_status,
+        updated_from=updated_from,
+        updated_to=updated_to,
+        offset=offset,
+        limit=limit,
+        personal_only=True,
+        bearer=_read_bearer(ctx),
+    )
+
+
+@mcp.tool()
+def kap_list_accessible_knowledge(
+    scope: str | None = None,
+    tags: list[str] | None = None,
+    asset_status: str | None = None,
+    updated_from: str | None = None,
+    updated_to: str | None = None,
+    offset: int = 0,
+    limit: int = 20,
+    ctx: Context | None = None,
+) -> object:
+    """列出绑定用户实时可见的个人、项目、公司知识或可见全集。"""
+    return _accessible_knowledge_tool(
+        scope,
+        tags,
+        asset_status,
+        updated_from,
+        updated_to,
+        offset,
+        limit,
+        bearer=_read_bearer(ctx),
+    )
+
+
+@mcp.tool()
 def kap_get_knowledge_summary(asset_id: str, ctx: Context | None = None) -> object:
     """获取某知识资产的安全摘要（discovery/summary 层；即便可看原文也不经此返回原文）。"""
     return _knowledge_summary_tool(asset_id, bearer=_read_bearer(ctx))
+
+
+@mcp.tool()
+def kap_get_knowledge_detail(asset_id: str, ctx: Context | None = None) -> object:
+    """获取知识元数据、安全摘要、标签和当前绑定用户可用的访问层。"""
+    return _knowledge_detail_tool(asset_id, bearer=_read_bearer(ctx))
+
+
+@mcp.tool()
+def kap_get_knowledge_content(
+    asset_id: str,
+    offset: int = 0,
+    max_chars: int = 4000,
+    ctx: Context | None = None,
+) -> object:
+    """逐次实时校验原文权后读取文本；每页最多 8000 字符，不返回文件或存储链接。"""
+    return _knowledge_content_tool(asset_id, offset, max_chars, bearer=_read_bearer(ctx))
+
+
+@mcp.tool()
+def kap_list_tags(scope: str | None = None, ctx: Context | None = None) -> object:
+    """列出当前绑定用户可见知识中的安全标签及计数。"""
+    return _tags_tool(scope, bearer=_read_bearer(ctx))
 
 
 @mcp.tool()

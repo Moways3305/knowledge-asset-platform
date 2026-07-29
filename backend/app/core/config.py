@@ -162,6 +162,9 @@ class Settings(BaseSettings):
 
     # WorkBuddy Connector 共享安装产物目录。目录内 manifest.json 只描述版本、平台、
     # 架构、签名状态和 sha256；绝不含用户 token、身份或私有下载地址。
+    # WorkBuddy 配置使用的服务器受控公网 origin。生产必须显式配置为无 path/query/
+    # fragment 的 HTTPS origin；不从 Host / Forwarded / request.base_url 推导。
+    kap_public_base_url: str = "http://localhost:8000"
     workbuddy_connector_artifact_root: str = "./_connector_artifacts"
     workbuddy_connector_manifest: str = "manifest.json"
     # 是否允许分发未签名的企业内部版。所有环境默认关闭，只有显式 true 才允许。

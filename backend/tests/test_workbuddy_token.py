@@ -6,11 +6,17 @@ import hashlib
 import json
 import uuid
 
+import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 
+from app.core.config import get_settings
+from app.models.agent_registry import AgentWhitelistRule
 from app.models.audit import AuditEvent
 from app.models.identity import User, UserCompanyRole
 from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT
+from app.services import workbuddy_token as workbuddy_token_service
+from app.services.agent_registry import hash_token
 
 TOKEN_URL = "/api/v1/auth/workbuddy-token"
 REGEN_URL = "/api/v1/auth/workbuddy-token/regenerate"
@@ -56,6 +62,106 @@ async def test_regenerate_returns_windows_connector_config(client):
     assert kap["command"].endswith("kap-workbuddy-connector.exe")
     assert "python" not in json.dumps(kap).lower()
     assert "token_hash" not in response.text
+
+
+async def test_public_origin_is_server_controlled_and_normalized(client):
+    settings = get_settings()
+    old_env, old_url = settings.app_env, settings.kap_public_base_url
+    settings.app_env = "local"
+    settings.kap_public_base_url = "https://knowledge.example.test/"
+    try:
+        response = await client.post(
+            REGEN_URL,
+            headers={
+                **_dev(USER_CONSULTANT),
+                "Host": "attacker.invalid",
+                "Forwarded": "host=attacker.invalid;proto=http",
+                "X-Forwarded-Proto": "http",
+            },
+            json={"platform": "windows"},
+        )
+    finally:
+        settings.app_env, settings.kap_public_base_url = old_env, old_url
+    assert response.status_code == 200, response.text
+    env = response.json()["mcp_config"]["mcpServers"]["kap"]["env"]
+    assert env["KAP_BASE_URL"] == "https://knowledge.example.test"
+    assert "attacker.invalid" not in response.text
+
+
+async def test_production_public_origin_fails_closed_before_rotation(
+    client, db_session, monkeypatch
+):
+    settings = get_settings()
+    old_env, old_url = settings.app_env, settings.kap_public_base_url
+    settings.app_env = "prod"
+    settings.kap_public_base_url = "http://knowledge.example.test/path"
+    try:
+        with pytest.raises(HTTPException) as exc:
+            workbuddy_token_service.public_base_url()
+    finally:
+        settings.app_env, settings.kap_public_base_url = old_env, old_url
+    assert exc.value.status_code == 503
+    assert exc.value.detail["denied_reason"] == "workbuddy_public_base_url_invalid"
+
+    def fail_public_origin():
+        raise HTTPException(status_code=503, detail=exc.value.detail)
+
+    monkeypatch.setattr(workbuddy_token_service, "public_base_url", fail_public_origin)
+    response = await _regen(client)
+    assert response.status_code == 503
+    rules = (
+        (
+            await db_session.execute(
+                select(AgentWhitelistRule).where(
+                    AgentWhitelistRule.agent_identifier == f"workbuddy:self:{USER_CONSULTANT}"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rules == []
+
+
+async def test_self_service_rule_uses_bound_user_permission_profile(client, db_session):
+    response = await _regen(client)
+    assert response.status_code == 200
+    rule = (
+        await db_session.execute(
+            select(AgentWhitelistRule).where(
+                AgentWhitelistRule.agent_identifier == f"workbuddy:self:{USER_CONSULTANT}"
+            )
+        )
+    ).scalar_one()
+    assert rule.bound_user_id == USER_CONSULTANT
+    assert rule.is_self_service is True
+    assert rule.max_confidentiality_level == "L5"
+    assert rule.max_ai_access_level == "A4"
+
+
+async def test_regenerate_does_not_modify_admin_created_workbuddy_rule(client, db_session):
+    managed = AgentWhitelistRule(
+        provider="workbuddy",
+        agent_identifier=f"workbuddy:self:{USER_CONSULTANT}",
+        agent_name="管理员规则",
+        capability="qa",
+        max_confidentiality_level="L2",
+        max_ai_access_level="A2",
+        token_hash=hash_token("kgw_admin_managed"),
+        enabled=True,
+        bound_user_id=USER_CONSULTANT,
+    )
+    db_session.add(managed)
+    await db_session.commit()
+
+    response = await _regen(client)
+    assert response.status_code == 409
+    assert response.json()["detail"]["denied_reason"] == "workbuddy_managed_rule_exists"
+    await db_session.refresh(managed)
+    assert managed.agent_identifier == f"workbuddy:self:{USER_CONSULTANT}"
+    assert managed.max_confidentiality_level == "L2"
+    assert managed.max_ai_access_level == "A2"
+    assert managed.is_self_service is False
 
 
 async def test_regenerate_returns_macos_connector_config(client):

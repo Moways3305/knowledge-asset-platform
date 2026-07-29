@@ -13,9 +13,12 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.errors import denied
 from app.db.utils import utc_now
 from app.models.agent_registry import AgentWhitelistRule
@@ -32,9 +35,10 @@ from app.services.identity import load_user_with_roles
 
 _PROVIDER = "workbuddy"
 _CAPABILITY = "qa"
-# 自助 token 固定走最小安全档位；不允许调用方提升。
-_MAX_CONF = "L2"
-_MAX_AI = "A2"
+# 自助 token 完全跟随绑定用户的实时 KAP 权限。字段仍写模型合法最大值以兼容旧表结构，
+# agent gateway 会按精确 self-service identifier 跳过 registry ceiling。
+_MAX_CONF = "L5"
+_MAX_AI = "A4"
 
 
 def _require_business(caller: CallerContext) -> None:
@@ -61,6 +65,7 @@ async def _find_rule(session: AsyncSession, user_id) -> AgentWhitelistRule | Non
                 .where(
                     AgentWhitelistRule.provider == _PROVIDER,
                     AgentWhitelistRule.bound_user_id == user_id,
+                    AgentWhitelistRule.is_self_service.is_(True),
                 )
                 .order_by(desc(AgentWhitelistRule.enabled), desc(AgentWhitelistRule.created_at))
             )
@@ -88,6 +93,42 @@ def _mcp_config(base_url: str, token: str, platform: WorkbuddyPlatform) -> dict:
     }
 
 
+def public_base_url() -> str:
+    """返回服务器控制的规范 origin；生产缺失或非 HTTPS 时 fail closed。"""
+    settings = get_settings()
+    raw = (settings.kap_public_base_url or "").strip()
+    parsed = urlsplit(raw)
+    valid = (
+        parsed.scheme in {"http", "https"}
+        and bool(parsed.hostname)
+        and parsed.username is None
+        and parsed.password is None
+        and parsed.path in {"", "/"}
+        and not parsed.query
+        and not parsed.fragment
+        and not any(char.isspace() for char in raw)
+    )
+    if not valid or (settings.app_env == "prod" and parsed.scheme != "https"):
+        raise denied(
+            503,
+            "workbuddy_public_base_url_invalid",
+            "WorkBuddy 公网连接地址尚未安全配置",
+        )
+    try:
+        parsed_port = parsed.port
+    except ValueError:
+        raise denied(
+            503,
+            "workbuddy_public_base_url_invalid",
+            "WorkBuddy 公网连接地址尚未安全配置",
+        ) from None
+    hostname = parsed.hostname or ""
+    if ":" in hostname:
+        hostname = f"[{hostname}]"
+    port = f":{parsed_port}" if parsed_port is not None else ""
+    return f"{parsed.scheme}://{hostname}{port}"
+
+
 async def get_status(session: AsyncSession, caller: CallerContext) -> WorkbuddyTokenStatusOut:
     _require_business(caller)
     user = await load_user_with_roles(session, user_id=caller.user_id)
@@ -108,17 +149,35 @@ async def regenerate(
     session: AsyncSession,
     caller: CallerContext,
     *,
-    base_url: str,
     platform: WorkbuddyPlatform,
     trace_id: str | None,
 ) -> WorkbuddyTokenCreatedOut:
     """为当前业务用户创建或重置自助 token（绑定 caller 本人；明文一次性返回）。"""
     _require_business(caller)
+    base_url = public_base_url()
     token = agent_registry.generate_token()
     token_hash = agent_registry.hash_token(token)
     now = utc_now()
     rule = await _find_rule(session, caller.user_id)
     if rule is None:
+        managed_rule = (
+            (
+                await session.execute(
+                    select(AgentWhitelistRule).where(
+                        AgentWhitelistRule.provider == _PROVIDER,
+                        AgentWhitelistRule.bound_user_id == caller.user_id,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if managed_rule is not None:
+            raise denied(
+                409,
+                "workbuddy_managed_rule_exists",
+                "该用户已有管理员维护的 WorkBuddy 接入，请联系管理员处理",
+            )
         rule = AgentWhitelistRule(
             provider=_PROVIDER,
             agent_identifier=_identifier(caller.user_id),
@@ -128,6 +187,7 @@ async def regenerate(
             max_ai_access_level=_MAX_AI,
             token_hash=token_hash,
             enabled=True,
+            is_self_service=True,
             bound_user_id=caller.user_id,  # 服务端强制绑定 caller，忽略任何外部输入
             token_rotated_at=now,
         )
@@ -136,6 +196,8 @@ async def regenerate(
         rule.token_hash = token_hash  # 旧 token 立即失效
         rule.enabled = True
         rule.capability = _CAPABILITY
+        rule.max_confidentiality_level = _MAX_CONF
+        rule.max_ai_access_level = _MAX_AI
         rule.token_rotated_at = now
     # 新 token 尚未完成任何真实调用，不能继承旧 token 的连接成功状态。
     rule.last_connected_at = None
@@ -148,7 +210,7 @@ async def regenerate(
         trace_id=trace_id,
         target_type="agent_whitelist_rule",
         target_id=rule.id,
-        extra={"provider": _PROVIDER, "bound_user_id": str(caller.user_id), "operation": "rotate"},
+        extra={"provider": _PROVIDER, "operation": "rotate"},
     )
     await session.commit()
     return WorkbuddyTokenCreatedOut(
@@ -176,7 +238,6 @@ async def revoke(
             target_id=rule.id,
             extra={
                 "provider": _PROVIDER,
-                "bound_user_id": str(caller.user_id),
                 "operation": "revoke",
             },
         )

@@ -98,7 +98,18 @@ def asset_within_ceiling(rule, asset) -> bool:
     工作台只读工具复用此函数，在 `decide()` 权限之上叠加 token 声明的保密 / AI 天花板，
     与统一检索（`run_retrieval`）口径一致——绝不放大 decide() 边界，只会进一步收紧。
     """
+    if is_self_service_workbuddy_rule(rule):
+        return True
     return _within_ceiling(asset, rule.max_confidentiality_level, rule.max_ai_access_level)
+
+
+def is_self_service_workbuddy_rule(rule) -> bool:
+    """仅服务器标记的自助 WorkBuddy 规则跟随绑定用户。"""
+    return (
+        getattr(rule, "provider", None) == "workbuddy"
+        and getattr(rule, "bound_user_id", None) is not None
+        and getattr(rule, "is_self_service", False) is True
+    )
 
 
 def conf_rank(level: str | None) -> int:
@@ -197,10 +208,7 @@ async def run_retrieval(
     )
     # 注册行天花板裁剪 + score 阈值（资产级 score）。
     recalled = [
-        r
-        for r in recalled
-        if _within_ceiling(r.asset, rule.max_confidentiality_level, rule.max_ai_access_level)
-        and r.score >= score_threshold
+        r for r in recalled if asset_within_ceiling(rule, r.asset) and r.score >= score_threshold
     ]
     # 放行+脱敏证据（discovery-only 无证据 → 不出 record；A4 original 降级为 summary 证据）。
     evidences = await retrieval.gather_evidence(recalled, desens, trace_id=trace_id)

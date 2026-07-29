@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy import select
+
+from app.models.agent_registry import AgentWhitelistRule
 from app.models.identity import User, UserCompanyRole
-from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT
+from app.models.knowledge import KnowledgeAsset
+from app.seed.dev_seed import KA_PERSONAL, USER_ADMIN_ONLY, USER_CONSULTANT
 
 WHITELIST = "/api/v1/admin/permissions/agent-whitelist"
 
@@ -86,3 +90,34 @@ async def test_provider_default_is_custom(client):
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["rule"]["provider"] == "custom"
+
+
+async def test_admin_cannot_forge_self_service_source_marker(client, db_session):
+    identifier = f"workbuddy:self:{USER_CONSULTANT}"
+    response = await client.post(
+        WHITELIST,
+        headers=_admin_hdr(),
+        json=_payload(
+            bound_user_id=str(USER_CONSULTANT),
+            agent_identifier=identifier,
+            is_self_service=True,
+        ),
+    )
+    assert response.status_code == 200, response.text
+    rule = (
+        await db_session.execute(
+            select(AgentWhitelistRule).where(AgentWhitelistRule.agent_identifier == identifier)
+        )
+    ).scalar_one()
+    assert rule.is_self_service is False
+    assert rule.max_confidentiality_level == "L2"
+    assert "is_self_service" not in response.text
+
+    asset = await db_session.get(KnowledgeAsset, KA_PERSONAL)
+    asset.confidentiality_level = "L3"
+    await db_session.commit()
+    detail = await client.get(
+        f"/api/v1/agent-gateway/knowledge/{KA_PERSONAL}",
+        headers={"Authorization": f"Bearer {response.json()['token']}"},
+    )
+    assert detail.status_code == 404

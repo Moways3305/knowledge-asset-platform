@@ -10,14 +10,18 @@ from workbuddy_mcp.kap_client import (
     KapClient,
     KapError,
     answer_from_knowledge,
+    get_knowledge_content,
+    get_knowledge_detail,
     get_knowledge_summary,
     get_project_brief,
     list_accessible_projects,
+    list_accessible_knowledge,
     list_my_todos,
     list_original_access_requests,
     list_pending_reviews,
     list_project_knowledge,
     list_recent_knowledge,
+    list_tags,
     search_knowledge,
 )
 
@@ -33,6 +37,17 @@ def test_load_config_fails_closed_when_missing():
     with pytest.raises(RuntimeError) as e:
         load_config({"KAP_BASE_URL": "http://kap.test"})
     assert "KAP_AGENT_TOKEN" in str(e.value)
+
+
+def test_default_http_client_explicitly_disables_redirects():
+    cfg = load_config(
+        {"KAP_BASE_URL": "https://knowledge.example.test", "KAP_AGENT_TOKEN": "kgw_x"}
+    )
+    client = KapClient(cfg)
+    try:
+        assert client._http.follow_redirects is False
+    finally:
+        client._http.close()
 
 
 def test_search_projects_to_safe_card_fields():
@@ -118,6 +133,51 @@ def test_error_is_sanitized():
     assert "无访问权限" in msg
     for leak in ("caller_unresolved", "secret", "kgw_x", "kap.test"):
         assert leak not in msg
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(301, headers={"location": "https://other.example/private"}),
+        httpx.Response(200, text="<html>proxy page</html>", headers={"content-type": "text/html"}),
+        httpx.Response(
+            200,
+            text="{broken",
+            headers={"content-type": "application/json"},
+        ),
+    ],
+)
+def test_redirect_html_and_invalid_json_are_stable_errors(response):
+    client = _client(lambda request: response)
+    with pytest.raises(KapError, match="知识服务暂不可用"):
+        list_accessible_projects(client)
+
+
+def test_tls_or_network_failure_is_stable_error():
+    def handler(request):
+        raise httpx.ConnectError("certificate/network private detail", request=request)
+
+    client = _client(handler)
+    with pytest.raises(KapError) as exc:
+        list_accessible_projects(client)
+    assert str(exc.value) == "知识服务暂不可用，请稍后重试"
+    assert "certificate" not in str(exc.value)
+
+
+def test_successful_empty_collection_is_not_reported_as_denied():
+    client = _client(
+        lambda request: httpx.Response(
+            200,
+            json={"items": [], "total": 0, "offset": 0, "limit": 20, "has_more": False},
+        )
+    )
+    assert list_accessible_knowledge(client) == {
+        "items": [],
+        "total": 0,
+        "offset": 0,
+        "limit": 20,
+        "has_more": False,
+    }
 
 
 # --------------------- 只读工作台工具（PBC-37）---------------------
@@ -252,6 +312,61 @@ def test_knowledge_summary_projection_no_original():
     assert out["summary"] == "safe summary"
     assert "original_text" not in out
     _assert_no_leak(out)
+
+
+def test_expanded_knowledge_tools_project_safe_fields_and_pagination():
+    def handler(request):
+        if request.url.path.endswith("/content"):
+            return httpx.Response(
+                200,
+                json={
+                    "asset_id": "a1",
+                    "content": "authorized text",
+                    "offset": 0,
+                    "returned_chars": 15,
+                    "next_offset": None,
+                    "has_more": False,
+                    **_LEAK_EXTRA,
+                },
+            )
+        if request.url.path.endswith("/tags"):
+            return httpx.Response(
+                200,
+                json={"items": [{"name": "流程", "count": 2, **_LEAK_EXTRA}], "total": 1},
+            )
+        if request.url.path.endswith("/a1"):
+            return httpx.Response(
+                200,
+                json={
+                    "asset_id": "a1",
+                    "title": "T",
+                    "access_layer": "original",
+                    "available_access_layers": ["discovery", "summary", "original"],
+                    **_LEAK_EXTRA,
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "items": [{"asset_id": "a1", "title": "T", **_LEAK_EXTRA}],
+                "total": 1,
+                "offset": 0,
+                "limit": 20,
+                "has_more": False,
+            },
+        )
+
+    client = _client(handler)
+    listed = list_accessible_knowledge(client, scope="all")
+    detail = get_knowledge_detail(client, "a1")
+    content = get_knowledge_content(client, "a1", max_chars=100)
+    tags = list_tags(client)
+    assert listed["total"] == 1 and listed["items"][0]["asset_id"] == "a1"
+    assert detail["available_access_layers"][-1] == "original"
+    assert content["content"] == "authorized text"
+    assert tags == {"items": [{"name": "流程", "count": 2}], "total": 1}
+    for output in (listed, detail, content, tags):
+        _assert_no_leak(output)
 
 
 def test_project_knowledge_passes_tags_and_projects():
