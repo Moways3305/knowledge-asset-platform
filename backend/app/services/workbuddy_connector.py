@@ -11,13 +11,16 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from app.core.config import get_settings
 from app.core.errors import denied
 from app.schemas.permission import CallerContext
 from app.schemas.workbuddy import (
+    WorkbuddyArchitecture,
     WorkbuddyConnectorArtifactOut,
     WorkbuddyConnectorManifestOut,
+    WorkbuddyPlatform,
 )
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -84,6 +87,8 @@ def _read_manifest(caller: CallerContext) -> list[ResolvedArtifact]:
         target = (platform, architecture)
         if target not in _REQUIRED_TARGETS or target in targets:
             raise denied(503, "workbuddy_connector_unavailable", "连接器下载暂不可用")
+        platform = cast(WorkbuddyPlatform, platform)
+        architecture = cast(WorkbuddyArchitecture, architecture)
         if not isinstance(filename, str) or Path(filename).name != filename:
             raise denied(503, "workbuddy_connector_unavailable", "连接器下载暂不可用")
         if not isinstance(sha256, str) or not _SHA256_RE.fullmatch(sha256):

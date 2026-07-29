@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
+
 from connector_build.create_manifest import create_manifest
 
 

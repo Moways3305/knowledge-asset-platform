@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
+
 from workbuddy_mcp.config import load_config
 from workbuddy_mcp.kap_client import (
     KapClient,

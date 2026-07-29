@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from workbuddy_mcp.config import load_config
 
 

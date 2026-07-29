@@ -289,6 +289,47 @@ try {
             enabled: scenario.name === "workbuddy-enabled",
             bound_user_name: "工作台验收用户",
             last_rotated_at: null,
+            last_connected_at: null,
+          });
+        }
+        if (requestUrl.pathname === "/api/v1/auth/workbuddy-connectors") {
+          return fulfill({
+            version: "1.0.0",
+            artifacts: [
+              {
+                platform: "windows",
+                architecture: "x64",
+                version: "1.0.0",
+                filename: "kap-workbuddy-connector-1.0.0-windows-x64.exe",
+                sha256: "a".repeat(64),
+                download_path: "/api/v1/auth/workbuddy-connectors/windows/x64/download",
+                release_status: "production",
+                signed: true,
+                notarized: false,
+              },
+              {
+                platform: "macos",
+                architecture: "arm64",
+                version: "1.0.0",
+                filename: "kap-workbuddy-connector-1.0.0-macos-arm64.pkg",
+                sha256: "b".repeat(64),
+                download_path: "/api/v1/auth/workbuddy-connectors/macos/arm64/download",
+                release_status: "production",
+                signed: true,
+                notarized: true,
+              },
+              {
+                platform: "macos",
+                architecture: "x64",
+                version: "1.0.0",
+                filename: "kap-workbuddy-connector-1.0.0-macos-x64.pkg",
+                sha256: "c".repeat(64),
+                download_path: "/api/v1/auth/workbuddy-connectors/macos/x64/download",
+                release_status: "production",
+                signed: true,
+                notarized: true,
+              },
+            ],
           });
         }
         oldApiCalls += 1;
@@ -459,7 +500,7 @@ try {
               !bodyText.includes("绝不能越权显示的资产标题") &&
               !bodyText.includes("项目复盘方法"),
             workbuddyLifecycleVisible:
-              bodyText.includes("重置配置") && bodyText.includes("撤销配置"),
+              bodyText.includes("生成配置") && bodyText.includes("撤销配置"),
           };
         },
         { scenarioName: scenario.name },
