@@ -11,6 +11,7 @@ APP="$WORK/KAP WorkBuddy Connector.app"
 PAYLOAD="$WORK/payload"
 FILENAME="kap-workbuddy-connector-$VERSION-macos-$ARCH.pkg"
 ARTIFACT="$RELEASE/$FILENAME"
+BINARY="$WORK/binary/kap-workbuddy-connector"
 
 if [[ "$CHANNEL" != "internal" && "$CHANNEL" != "production" ]]; then
   echo "channel must be internal or production" >&2
@@ -18,9 +19,13 @@ if [[ "$CHANNEL" != "internal" && "$CHANNEL" != "production" ]]; then
 fi
 export CONNECTOR_ARCH="$ARCH"
 python "$ROOT/connector_build/build_binary.py" --output-dir "$WORK/binary" --work-dir "$WORK"
+if [[ ! -f "$BINARY" || ! -s "$BINARY" ]]; then
+  echo "Missing or empty connector binary for macos-$ARCH (build-$ARCH/binary/kap-workbuddy-connector)." >&2
+  exit 4
+fi
 rm -rf "$APP" "$PAYLOAD"
 mkdir -p "$APP/Contents/MacOS" "$PAYLOAD/Applications" "$RELEASE"
-cp "$WORK/binary/kap-workbuddy-connector" "$APP/Contents/MacOS/kap-workbuddy-connector"
+cp "$BINARY" "$APP/Contents/MacOS/kap-workbuddy-connector"
 chmod 755 "$APP/Contents/MacOS/kap-workbuddy-connector"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -63,7 +68,15 @@ if [[ "$CHANNEL" == "production" ]]; then
   codesign --verify --deep --strict --verbose=2 "$APP"
 fi
 
+if [[ ! -f "$APP/Contents/MacOS/kap-workbuddy-connector" || ! -s "$APP/Contents/MacOS/kap-workbuddy-connector" ]]; then
+  echo "Missing or empty app binary before payload copy for macos-$ARCH." >&2
+  exit 4
+fi
 cp -R "$APP" "$PAYLOAD/Applications/"
+if [[ ! -f "$PAYLOAD/Applications/KAP WorkBuddy Connector.app/Contents/MacOS/kap-workbuddy-connector" || ! -s "$PAYLOAD/Applications/KAP WorkBuddy Connector.app/Contents/MacOS/kap-workbuddy-connector" ]]; then
+  echo "Missing or empty package input before pkgbuild for macos-$ARCH." >&2
+  exit 4
+fi
 UNSIGNED="$WORK/unsigned.pkg"
 pkgbuild --root "$PAYLOAD" \
   --identifier "com.bowei.kap.workbuddy-connector" \
@@ -87,6 +100,10 @@ else
   mv "$UNSIGNED" "$ARTIFACT"
 fi
 
+if [[ ! -f "$ARTIFACT" || ! -s "$ARTIFACT" ]]; then
+  echo "Missing or empty installer artifact for macos-$ARCH." >&2
+  exit 4
+fi
 python - "$RELEASE/$FILENAME.metadata.json" "$FILENAME" "$ARCH" "$SIGNED" "$NOTARIZED" <<'PY'
 import json
 import sys

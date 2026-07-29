@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import json
+import subprocess
+from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
+from connector_build import build_binary as binary_builder
 from connector_build.create_manifest import create_manifest
+
+PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _target(root, platform, architecture, *, signed, notarized):
@@ -58,3 +65,94 @@ def test_production_manifest_accepts_signed_and_notarized_targets(tmp_path):
     _all_targets(source, signed=True)
     manifest = create_manifest(source, tmp_path / "output", version="1.2.3", channel="production")
     assert manifest["channel"] == "production"
+
+
+@pytest.mark.parametrize(
+    ("system", "filename"),
+    [("Windows", "kap-workbuddy-connector.exe"), ("Darwin", "kap-workbuddy-connector")],
+)
+def test_binary_builder_uses_absolute_platform_contract(monkeypatch, tmp_path, system, filename):
+    output = tmp_path / "dist"
+    work = tmp_path / "work"
+    run = Mock()
+
+    def create_binary(command, **kwargs):
+        Path(command[command.index("--distpath") + 1], filename).write_bytes(b"binary")
+
+    run.side_effect = create_binary
+    monkeypatch.setattr(binary_builder.platform, "system", lambda: system)
+    monkeypatch.setattr(binary_builder.platform, "machine", lambda: "AMD64")
+    monkeypatch.setattr(binary_builder.subprocess, "run", run)
+
+    binary = binary_builder.build_binary(output, work)
+
+    command = run.call_args.args[0]
+    assert Path(command[command.index("--distpath") + 1]).is_absolute()
+    assert binary == output.resolve() / filename
+    assert command[command.index("--collect-submodules") + 1] == "mcp.server"
+    assert "--collect-all" not in command
+    run.assert_called_once_with(
+        command, cwd=Path(binary_builder.__file__).resolve().parents[1], check=True
+    )
+
+
+def test_binary_builder_rejects_missing_output(monkeypatch, tmp_path):
+    monkeypatch.setattr(binary_builder.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(binary_builder.platform, "machine", lambda: "AMD64")
+    monkeypatch.setattr(binary_builder.subprocess, "run", Mock())
+
+    with pytest.raises(SystemExit, match="missing or empty connector binary for windows"):
+        binary_builder.build_binary(tmp_path / "dist", tmp_path / "work")
+
+
+def test_binary_builder_reports_subprocess_failure_without_command_paths(monkeypatch, tmp_path):
+    monkeypatch.setattr(binary_builder.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(binary_builder.platform, "machine", lambda: "AMD64")
+    failure = subprocess.CalledProcessError(1, ["python", "private-path"])
+    monkeypatch.setattr(binary_builder.subprocess, "run", Mock(side_effect=failure))
+
+    with pytest.raises(SystemExit, match=r"^connector binary build failed for windows-native$"):
+        binary_builder.build_binary(tmp_path / "dist", tmp_path / "work")
+
+
+def test_windows_script_stops_before_inno_setup_when_binary_is_missing():
+    script = (PACKAGE_ROOT / "connector_build/windows/build.ps1").read_text(encoding="utf-8")
+    build_check = script.index("$LASTEXITCODE -ne 0")
+    binary_check = script.index("Missing or empty connector binary for windows-x64")
+    inno_call = script.index("& $iscc")
+
+    assert build_check < binary_check < inno_call
+    assert 'Join-Path $work "binary\\kap-workbuddy-connector.exe"' in script
+    assert "$env:CONNECTOR_BINARY = $binary" in script
+    assert "$signed = $false" in script
+    assert "notarized = $false" in script
+
+
+def test_macos_script_checks_each_installer_input():
+    script = (PACKAGE_ROOT / "connector_build/macos/build.sh").read_text(encoding="utf-8")
+    binary_check = script.index("Missing or empty connector binary for macos-$ARCH")
+    copy_call = script.index('cp "$BINARY"')
+    payload_check = script.index("Missing or empty app binary before payload copy")
+    payload_copy = script.index('cp -R "$APP"')
+    package_check = script.index("Missing or empty package input before pkgbuild")
+    pkgbuild_call = script.index("pkgbuild --root")
+
+    assert binary_check < copy_call < payload_check < payload_copy < package_check < pkgbuild_call
+    assert "SIGNED=false" in script
+    assert "NOTARIZED=false" in script
+
+
+def test_internal_workflow_steps_do_not_reference_signing_secrets():
+    workflow = (REPOSITORY_ROOT / ".github/workflows/workbuddy-connector-release.yml").read_text(
+        encoding="utf-8"
+    )
+    windows_internal = workflow.split("- name: Build unsigned internal installer", 1)[1].split(
+        "- name: Build installer and enforce production signing", 1
+    )[0]
+    macos_internal = workflow.split("- name: Build unsigned internal package", 1)[1].split(
+        "- name: Build package and enforce Developer ID notarization", 1
+    )[0]
+
+    assert "secrets." not in windows_internal
+    assert "secrets." not in macos_internal
+    assert "fail-fast: false" in workflow
