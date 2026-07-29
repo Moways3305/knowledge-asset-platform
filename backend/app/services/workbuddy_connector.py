@@ -1,7 +1,7 @@
 """WorkBuddy Connector 共享安装产物清单与受权下载。
 
 清单是部署产物，不含任何用户数据。服务端每次读取时校验路径、目标集合、sha256 和
-生产签名状态；生产环境缺少签名/公证或文件哈希不符时 fail closed。
+发布渠道状态；生产正式版缺少签名/公证、内部版未显式启用或文件哈希不符时 fail closed。
 """
 
 from __future__ import annotations
@@ -62,6 +62,8 @@ def _read_manifest(caller: CallerContext) -> list[ResolvedArtifact]:
         raw = json.loads((root / manifest_name).read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
         raise denied(503, "workbuddy_connector_unavailable", "连接器下载暂不可用") from None
+    if not isinstance(raw, dict):
+        raise denied(503, "workbuddy_connector_unavailable", "连接器下载暂不可用")
 
     version = raw.get("version")
     channel = raw.get("channel")
@@ -70,10 +72,15 @@ def _read_manifest(caller: CallerContext) -> list[ResolvedArtifact]:
         raise denied(503, "workbuddy_connector_unavailable", "连接器下载暂不可用")
     if channel not in {"production", "internal"} or not isinstance(items, list):
         raise denied(503, "workbuddy_connector_unavailable", "连接器下载暂不可用")
-    if settings.app_env == "prod" and channel != "production":
-        raise denied(503, "workbuddy_connector_unsigned", "正式连接器尚未完成签名发布")
+    if channel == "internal" and not settings.workbuddy_connector_allow_internal:
+        raise denied(
+            503,
+            "workbuddy_connector_internal_disabled",
+            "企业内部版连接器暂不可用",
+        )
 
     targets: set[tuple[str, str]] = set()
+    expected_entries = {str(manifest_name)}
     resolved: list[ResolvedArtifact] = []
     for item in items:
         if not isinstance(item, dict):
@@ -91,13 +98,16 @@ def _read_manifest(caller: CallerContext) -> list[ResolvedArtifact]:
         architecture = cast(WorkbuddyArchitecture, architecture)
         if not isinstance(filename, str) or Path(filename).name != filename:
             raise denied(503, "workbuddy_connector_unavailable", "连接器下载暂不可用")
+        expected_entries.add(filename)
         if not isinstance(sha256, str) or not _SHA256_RE.fullmatch(sha256):
             raise denied(503, "workbuddy_connector_unavailable", "连接器下载暂不可用")
-        if settings.app_env == "prod":
+        if channel == "production":
             if platform == "macos" and (not signed or not notarized):
                 raise denied(503, "workbuddy_connector_unsigned", "正式连接器尚未完成签名发布")
             if platform == "windows" and not signed:
                 raise denied(503, "workbuddy_connector_unsigned", "正式连接器尚未完成签名发布")
+        elif item.get("signed") is not False or item.get("notarized") is not False:
+            raise denied(503, "workbuddy_connector_unavailable", "连接器下载暂不可用")
         path = (root / filename).resolve()
         if root not in path.parents or not path.is_file():
             raise denied(503, "workbuddy_connector_unavailable", "连接器下载暂不可用")
@@ -124,6 +134,12 @@ def _read_manifest(caller: CallerContext) -> list[ResolvedArtifact]:
             )
         )
     if targets != _REQUIRED_TARGETS:
+        raise denied(503, "workbuddy_connector_unavailable", "连接器下载暂不可用")
+    try:
+        actual_entries = {path.name for path in root.iterdir()}
+    except OSError:
+        raise denied(503, "workbuddy_connector_unavailable", "连接器下载暂不可用") from None
+    if actual_entries != expected_entries:
         raise denied(503, "workbuddy_connector_unavailable", "连接器下载暂不可用")
     return resolved
 

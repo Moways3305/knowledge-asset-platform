@@ -113,7 +113,7 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 - 授权由审批通过后生成；admin 不因系统身份获得业务原文授权权。
 
 ### 4.8 外部 Agent 网关：WorkBuddy MCP（主） / Dify（legacy）
-- 🔐 `GET /api/v1/auth/workbuddy-connectors`、`GET .../{platform}/{architecture}/download` — 在职业务用户获取共享 Windows/macOS 连接器的版本、SHA-256 与受鉴权安装包；安装包不含个人 token。
+- 🔐 `GET /api/v1/auth/workbuddy-connectors`、`GET .../{platform}/{architecture}/download` — 在职业务用户获取共享 Windows/macOS 连接器的版本、SHA-256、发布渠道与受鉴权安装包；安装包不含个人 token。正式版维持签名/公证链，未签名企业内部版仅在服务器默认关闭的管理员开关显式开启时分发。
 - 🔐 `GET /api/v1/auth/workbuddy-token`、`POST .../regenerate`、`DELETE ...` — 当前业务用户查看安全连接状态、按平台生成一次性个人配置或撤销。只有主动生成才轮换 token；最近连接时间只由成功的 agent-gateway 调用更新。
 - 🔐 `GET /api/v1/agent-calls/{call_id}`(+`/decision-items`) — Agent 调用记录与候选项。
 - 🔐 `POST /api/v1/agent-gateway/tools/knowledge-search`、`GET /api/v1/agent-gateway/projects` — **provider 中立外部 Agent 网关**（WorkBuddy MCP 经此接入）。Bearer token 绑定唯一 KAP 用户，caller 仅由后端从绑定解析（不读客户端自报 user id）；channel=agent，不取原文。

@@ -187,7 +187,14 @@ async def test_only_successful_gateway_call_updates_last_connected(client):
     assert "token" not in after_success and "token_hash" not in after_success
 
 
-def _write_connector_manifest(tmp_path, monkeypatch, *, channel="internal", signed=False):
+def _write_connector_manifest(
+    tmp_path,
+    monkeypatch,
+    *,
+    channel="internal",
+    signed=False,
+    allow_internal=True,
+):
     from app.core.config import get_settings
 
     root = tmp_path / "connectors"
@@ -215,7 +222,9 @@ def _write_connector_manifest(tmp_path, monkeypatch, *, channel="internal", sign
         json.dumps({"version": "1.0.0", "channel": channel, "artifacts": artifacts}),
         encoding="utf-8",
     )
-    monkeypatch.setattr(get_settings(), "workbuddy_connector_artifact_root", str(root))
+    settings = get_settings()
+    monkeypatch.setattr(settings, "workbuddy_connector_artifact_root", str(root))
+    monkeypatch.setattr(settings, "workbuddy_connector_allow_internal", allow_internal)
     return artifacts
 
 
@@ -250,6 +259,72 @@ async def test_connector_download_requires_business_user(client, tmp_path, monke
     assert (await client.get(CONNECTORS_URL, headers=_dev(USER_ADMIN_ONLY))).status_code == 403
 
 
+async def test_internal_distribution_requires_explicit_switch_in_every_environment(
+    client, tmp_path, monkeypatch
+):
+    from app.core.config import get_settings
+
+    _write_connector_manifest(
+        tmp_path,
+        monkeypatch,
+        channel="internal",
+        signed=False,
+        allow_internal=False,
+    )
+    settings = get_settings()
+
+    local_disabled = await client.get(CONNECTORS_URL, headers=_dev(USER_CONSULTANT))
+    assert local_disabled.status_code == 503
+    assert (
+        local_disabled.json()["detail"]["denied_reason"] == "workbuddy_connector_internal_disabled"
+    )
+
+    await client.post(LOGIN, json={"email": BOSS_EMAIL})
+    monkeypatch.setattr(settings, "app_env", "prod")
+
+    disabled = await client.get(CONNECTORS_URL)
+    assert disabled.status_code == 503
+    assert disabled.json()["detail"]["denied_reason"] == "workbuddy_connector_internal_disabled"
+    assert "connectors" not in disabled.text
+
+    monkeypatch.setattr(settings, "workbuddy_connector_allow_internal", True)
+    enabled = await client.get(CONNECTORS_URL)
+    assert enabled.status_code == 200, enabled.text
+    assert len(enabled.json()["artifacts"]) == 3
+    assert all(
+        item["release_status"] == "internal"
+        and item["signed"] is False
+        and item["notarized"] is False
+        for item in enabled.json()["artifacts"]
+    )
+    download = await client.get(f"{CONNECTORS_URL}/windows/x64/download")
+    assert download.status_code == 200
+
+    (tmp_path / "connectors" / "unexpected.txt").write_text(
+        "not distributable",
+        encoding="utf-8",
+    )
+    extra = await client.get(CONNECTORS_URL)
+    assert extra.status_code == 503
+    assert extra.json()["detail"]["denied_reason"] == "workbuddy_connector_unavailable"
+    assert "unexpected" not in extra.text
+
+
+async def test_internal_manifest_cannot_claim_release_signatures(client, tmp_path, monkeypatch):
+    from app.core.config import get_settings
+
+    _write_connector_manifest(tmp_path, monkeypatch, channel="internal", signed=True)
+    settings = get_settings()
+    await client.post(LOGIN, json={"email": BOSS_EMAIL})
+    monkeypatch.setattr(settings, "app_env", "prod")
+    monkeypatch.setattr(settings, "workbuddy_connector_allow_internal", True)
+
+    response = await client.get(CONNECTORS_URL)
+    assert response.status_code == 503
+    assert response.json()["detail"]["denied_reason"] == "workbuddy_connector_unavailable"
+    assert "signed" not in response.text and "notarized" not in response.text
+
+
 async def test_connector_download_fails_safely_for_missing_or_tampered_file(
     client, tmp_path, monkeypatch
 ):
@@ -274,7 +349,9 @@ async def test_production_manifest_fails_closed_without_signatures(client, tmp_p
 
     _write_connector_manifest(tmp_path, monkeypatch, channel="production", signed=False)
     await client.post(LOGIN, json={"email": BOSS_EMAIL})
-    monkeypatch.setattr(get_settings(), "app_env", "prod")
+    settings = get_settings()
+    monkeypatch.setattr(settings, "app_env", "prod")
+    monkeypatch.setattr(settings, "workbuddy_connector_allow_internal", True)
     response = await client.get(CONNECTORS_URL)
     assert response.status_code == 503
     assert response.json()["detail"]["denied_reason"] == "workbuddy_connector_unsigned"

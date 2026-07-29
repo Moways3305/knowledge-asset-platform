@@ -12,6 +12,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 OVERLAY = ROOT / "docker-compose.prod.yml"
+ROOT_ENV_EXAMPLE = ROOT / ".env.example"
+BACKEND_ENV_EXAMPLE = ROOT / "backend" / ".env.example"
 VERIFY_SCRIPT = ROOT / "scripts" / "verify_workbuddy_connector_artifacts.py"
 RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "workbuddy-connector-release.yml"
 TRUSTED_BUILDER = ROOT / ".github" / "workflows" / "workbuddy-connector-trusted-builder.yml"
@@ -54,6 +56,18 @@ def _production_root(root: Path):
     return artifacts
 
 
+def _internal_root(root: Path):
+    artifacts = _production_root(root)
+    for artifact in artifacts:
+        artifact["signed"] = False
+        artifact["notarized"] = False
+    (root / "manifest.json").write_text(
+        json.dumps({"version": "1.2.3", "channel": "internal", "artifacts": artifacts}),
+        encoding="utf-8",
+    )
+    return artifacts
+
+
 def _trust_release_attestations(verifier, monkeypatch):
     verified = []
 
@@ -64,14 +78,23 @@ def _trust_release_attestations(verifier, monkeypatch):
     return verified
 
 
-def _verify_root(verifier, root: Path):
-    return verifier.verify_artifact_root(root)
+def _verify_root(verifier, root: Path, *, allow_internal=False):
+    return verifier.verify_artifact_root(root, allow_internal=allow_internal)
 
 
 def test_production_overlay_mounts_connector_root_read_only_only_on_backend():
     text = OVERLAY.read_text(encoding="utf-8")
     assert "WORKBUDDY_CONNECTOR_ARTIFACT_ROOT: /data/workbuddy-connectors" in text
     assert "/data/kap/workbuddy-connectors:/data/workbuddy-connectors:ro" in text
+    assert (
+        "WORKBUDDY_CONNECTOR_ALLOW_INTERNAL: ${WORKBUDDY_CONNECTOR_ALLOW_INTERNAL:-false}"
+    ) in text
+    assert "WORKBUDDY_CONNECTOR_ALLOW_INTERNAL=false" in ROOT_ENV_EXAMPLE.read_text(
+        encoding="utf-8"
+    )
+    assert "WORKBUDDY_CONNECTOR_ALLOW_INTERNAL=false" in BACKEND_ENV_EXAMPLE.read_text(
+        encoding="utf-8"
+    )
     assert text.count("/data/workbuddy-connectors") == 2
     for service in ("worker:", "beat:", "frontend:", "postgres:", "redis:"):
         assert service not in text
@@ -106,7 +129,7 @@ def test_host_verifier_accepts_complete_attested_production_set(tmp_path, monkey
     artifacts = _production_root(tmp_path)
     verifier = _load_verifier()
     verified = _trust_release_attestations(verifier, monkeypatch)
-    result = _verify_root(verifier, tmp_path)
+    result = _verify_root(verifier, tmp_path, allow_internal=True)
     assert result == {
         "version": "1.2.3",
         "channel": "production",
@@ -136,6 +159,42 @@ def test_host_verifier_rejects_internal_incomplete_and_tampered_sets(tmp_path, m
     (tmp_path / artifacts[0]["filename"]).write_bytes(b"tampered")
     with pytest.raises(ValueError, match="checksum mismatch"):
         _verify_root(verifier, tmp_path)
+
+
+def test_host_verifier_requires_explicit_switch_for_unsigned_internal_set(tmp_path, monkeypatch):
+    artifacts = _internal_root(tmp_path)
+    verifier = _load_verifier()
+    attestation = pytest.fail
+    monkeypatch.setattr(verifier, "_verify_attestation", attestation)
+
+    with pytest.raises(ValueError, match="only channel=production"):
+        _verify_root(verifier, tmp_path)
+
+    result = _verify_root(verifier, tmp_path, allow_internal=True)
+    assert result == {
+        "version": "1.2.3",
+        "channel": "internal",
+        "targets": ["macos-arm64", "macos-x64", "windows-x64"],
+    }
+    assert all(item["signed"] is False for item in artifacts)
+
+    (tmp_path / artifacts[0]["filename"]).write_bytes(b"tampered")
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        _verify_root(verifier, tmp_path, allow_internal=True)
+
+
+def test_host_verifier_rejects_internal_artifact_claiming_signature(tmp_path, monkeypatch):
+    artifacts = _internal_root(tmp_path)
+    artifacts[0]["signed"] = True
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({"version": "1.2.3", "channel": "internal", "artifacts": artifacts}),
+        encoding="utf-8",
+    )
+    verifier = _load_verifier()
+    monkeypatch.setattr(verifier, "_verify_attestation", pytest.fail)
+
+    with pytest.raises(ValueError, match="signed=false"):
+        _verify_root(verifier, tmp_path, allow_internal=True)
 
 
 def test_host_verifier_rejects_extra_files(tmp_path, monkeypatch):

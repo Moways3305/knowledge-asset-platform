@@ -3,5 +3,8 @@ services:
   backend:
     environment:
       WORKBUDDY_CONNECTOR_ARTIFACT_ROOT: /data/workbuddy-connectors
+      # Default fail-closed. Set the host value explicitly to true only for approved
+      # unsigned enterprise-internal distribution.
+      WORKBUDDY_CONNECTOR_ALLOW_INTERNAL: ${WORKBUDDY_CONNECTOR_ALLOW_INTERNAL:-false}
     volumes:
       - /data/kap/workbuddy-connectors:/data/workbuddy-connectors:ro
