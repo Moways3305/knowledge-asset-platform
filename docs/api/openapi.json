@@ -13254,8 +13254,20 @@
         "type": "object"
       },
       "WorkbuddyTokenRegenerateIn": {
-        "description": "平台只影响本次下发的本地命令；绑定用户始终从服务端 caller 解析。",
+        "description": "平台与路径只影响本次下发文本；绑定用户始终从服务端 caller 解析。",
         "properties": {
+          "connector_path": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connector Path"
+          },
           "platform": {
             "enum": [
               "windows",

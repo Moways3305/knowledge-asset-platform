@@ -113,6 +113,94 @@
   color: var(--color-text-heading);
 }
 
+.wb-path-options {
+  display: flex;
+  gap: 18px;
+  margin: 12px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.wb-path-options legend {
+  margin-bottom: 7px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.wb-path-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-heading);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wb-custom-path {
+  display: flex;
+  max-width: 780px;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 12px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.wb-custom-path input {
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg-surface);
+  color: var(--color-text-heading);
+  font-family: var(--font-mono, Consolas, monospace);
+}
+
+.wb-custom-path input[aria-invalid="true"] {
+  border-color: var(--color-danger, #b42318);
+}
+
+.wb-field-error {
+  color: var(--color-danger, #b42318) !important;
+}
+
+.wb-command-preview {
+  display: grid;
+  gap: 6px;
+  max-width: 780px;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg-muted);
+  font-size: 12px;
+}
+
+.wb-command-preview code {
+  overflow-wrap: anywhere;
+  color: var(--color-text-secondary);
+}
+
+.wb-regenerate-confirm {
+  max-width: 780px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--color-warning, #9a6700);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-warning, #9a6700) 10%, transparent);
+}
+
+.wb-client-steps {
+  display: grid;
+  gap: 6px;
+  max-width: 780px;
+  margin: 10px 0 0;
+  padding-left: 20px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .wb-download {
   display: flex;
   align-items: center;
@@ -231,7 +319,8 @@
 
 @media (max-width: 760px) {
   .wb-integration-head,
-  .wb-platforms {
+  .wb-platforms,
+  .wb-path-options {
     flex-direction: column;
   }
 

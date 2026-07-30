@@ -7,6 +7,7 @@ AppId={{38DBEB78-691E-4CFD-B81B-1896A06D2329}
 AppName=KAP WorkBuddy Connector
 AppVersion={#ConnectorVersion}
 DefaultDirName={autopf}\KAP WorkBuddy Connector
+UsePreviousAppDir=yes
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
