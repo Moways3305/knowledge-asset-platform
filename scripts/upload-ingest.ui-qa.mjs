@@ -13,6 +13,7 @@ fs.mkdirSync(outDir, { recursive: true });
 const taskId = "task-secret-77";
 const projectId = "project-secret-77";
 const assetId = "asset-result-77";
+const uploadSessionId = "upload-session-secret-77";
 const scenarios = [
   "local-empty",
   "local-queue",
@@ -122,7 +123,12 @@ function assertResult(result) {
   if (commonFailure) return false;
   if (result.scenario === "local-empty") return result.emptyUploadReady;
   if (result.scenario === "local-queue")
-    return result.queueOrderValid && result.serialUploadVerified && result.localPendingRefreshed;
+    return (
+      result.queueOrderValid &&
+      result.serialUploadVerified &&
+      result.localPendingRefreshed &&
+      result.uploadCalls === 1
+    );
   if (result.scenario === "local-degraded")
     return result.localPendingRefreshed && result.degradedWarningVisible;
   if (result.scenario === "local-upload-failure-retry")
@@ -167,6 +173,47 @@ try {
         signalFirstUpload = resolve;
       });
       let confirmPayload = null;
+      const uploadSession = (state) => {
+        const itemError =
+          state === "failed"
+            ? "上传失败"
+            : scenario === "local-degraded"
+              ? "内容建议暂不可用，请人工核对后继续"
+              : null;
+        const files =
+          scenario === "local-queue"
+            ? [
+                ["upload-item-1", "客户增长复盘.md"],
+                ["upload-item-2", "客户访谈纪要.txt"],
+              ]
+            : [["upload-item-1", "客户增长复盘.md"]];
+        return {
+          id: uploadSessionId,
+          status: state === "failed" ? "active" : "completed",
+          total_files: files.length,
+          completed_files: state === "awaiting_confirmation" ? files.length : 0,
+          processing_files: 0,
+          waiting_files: 0,
+          failed_files: state === "failed" ? files.length : 0,
+          current_batch_number: null,
+          total_batches: 1,
+          created_at: "2026-07-16T08:00:00Z",
+          updated_at: "2026-07-16T08:05:00Z",
+          items: files.map(([id, fileName], index) => ({
+            id,
+            ordinal: index + 1,
+            batch_number: 1,
+            file_name: fileName,
+            file_size: 42,
+            file_type: fileName.endsWith(".txt") ? "TXT" : "MD",
+            status: state,
+            error_code: state === "failed" ? "upload_failed" : null,
+            error_message: itemError,
+            same_name_warning: false,
+            retryable: state === "failed",
+          })),
+        };
+      };
       const context = await browser.newContext({ viewport });
       await context.route("**/api/v1/**", async (route) => {
         const request = route.request();
@@ -194,6 +241,30 @@ try {
               ? []
               : [pendingTask];
           return fulfill({ items, total: items.length });
+        }
+        if (url.pathname === "/api/v1/ingest/upload-sessions" && request.method() === "GET") {
+          return fulfill({ items: [], total: 0 });
+        }
+        if (url.pathname === "/api/v1/ingest/upload-sessions" && request.method() === "POST") {
+          uploadCalls += 1;
+          if (scenario === "local-queue") {
+            signalFirstUpload();
+            await new Promise((resolve) => {
+              releaseFirstUpload = resolve;
+            });
+          }
+          if (scenario === "local-upload-failure-retry") return fulfill(uploadSession("failed"));
+          localPendingAvailable = true;
+          return fulfill(uploadSession("awaiting_confirmation"));
+        }
+        if (
+          url.pathname ===
+            `/api/v1/ingest/upload-sessions/${uploadSessionId}/items/upload-item-1/retry` &&
+          request.method() === "POST"
+        ) {
+          uploadCalls += 1;
+          localPendingAvailable = true;
+          return fulfill(uploadSession("awaiting_confirmation"));
         }
         if (url.pathname === "/api/v1/ingest/upload") {
           uploadCalls += 1;
@@ -313,9 +384,9 @@ try {
         }
 
         if (scenario === "local-upload-failure-retry") {
-          await page.getByText("上传失败", { exact: true }).waitFor();
+          await page.getByText("上传失败", { exact: true }).first().waitFor();
           await page.getByRole("button", { name: "重试" }).click();
-          await page.getByText("上传失败", { exact: true }).waitFor({ state: "detached" });
+          await page.getByText("上传失败", { exact: true }).first().waitFor({ state: "detached" });
         }
         await page.getByText("待确认入库", { exact: true }).first().waitFor();
         if (scenario === "local-degraded") {
@@ -402,15 +473,14 @@ try {
         confirmPayloadValid,
         screenshot,
         ...metrics,
-        queueOrderValid: metrics.queueOrderValid && uploadCalls === 2,
+          queueOrderValid: metrics.queueOrderValid,
         serialUploadVerified,
         localPendingRefreshed:
           localPendingCalls >= 2 && localPendingAvailable && metrics.localPendingVisible,
-        failureRetried:
-          scenario === "local-upload-failure-retry" &&
-          metrics.queueOrderValid &&
-          !metrics.uploadFailureVisible &&
-          uploadCalls === 3,
+          failureRetried:
+            scenario === "local-upload-failure-retry" &&
+            !metrics.uploadFailureVisible &&
+            uploadCalls === 2,
       };
       results.push({ ...result, passed: assertResult(result) });
       await context.close();
