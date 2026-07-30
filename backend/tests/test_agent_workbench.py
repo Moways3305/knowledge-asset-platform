@@ -12,7 +12,8 @@ from sqlalchemy import select
 
 from app.models.agent_registry import AgentWhitelistRule
 from app.models.audit import AuditEvent
-from app.models.knowledge import KnowledgeAsset, KnowledgeAssetChunk
+from app.models.ingest import IngestTask
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.original_access import OriginalAccessRequest
 from app.seed.dev_seed import (
     KA_COMPANY_L2,
@@ -197,14 +198,19 @@ async def test_self_service_l3_personal_list_detail_and_content_follow_owner(cli
     asset = await db_session.get(KnowledgeAsset, KA_PERSONAL)
     asset.confidentiality_level = "L3"
     asset.ai_access_level = "A4"
+    source_ref = client._kap_storage.save(
+        "个人原文内容仅本人可见".encode(), original_name="personal.txt"
+    )
     db_session.add(
-        KnowledgeAssetChunk(
-            asset_id=asset.id,
-            version_id=asset.current_version_id,
-            chunk_index=0,
-            chunk_type="text",
-            content_text="个人原文内容仅本人可见",
-            chunk_status="active",
+        IngestTask(
+            source="path_b_upload",
+            source_file_ref=source_ref,
+            source_file_name="personal.txt",
+            source_file_mime_type="text/plain",
+            status="completed",
+            result_asset_id=asset.id,
+            result_version_id=asset.current_version_id,
+            created_by=USER_CONSULTANT,
         )
     )
     await _insert_rule(
@@ -237,6 +243,8 @@ async def test_self_service_l3_personal_list_detail_and_content_follow_owner(cli
     )
     assert first.status_code == 200, first.text
     assert first.json()["content"] == "个人原文内"
+    assert first.json()["content_available"] is True
+    assert first.json()["content_status"] == "available"
     assert first.json()["has_more"] is True
     second = await client.get(
         f"/api/v1/agent-gateway/knowledge/{KA_PERSONAL}/content",
@@ -259,6 +267,98 @@ async def test_self_service_l3_personal_list_detail_and_content_follow_owner(cli
     audit_blob = str([event.extra for event in audits])
     assert "个人原文" not in audit_blob
     assert "returned_chars" in audit_blob
+    assert "content_status" in audit_blob
+    assert source_ref not in audit_blob
+
+
+async def test_content_statuses_are_explicit_and_safe(client, db_session):
+    asset = await db_session.get(KnowledgeAsset, KA_PERSONAL)
+    version = await db_session.get(KnowledgeAssetVersion, asset.current_version_id)
+    await _insert_rule(db_session, bound_user_id=USER_CONSULTANT, self_service=True)
+    task = IngestTask(
+        source="path_b_upload",
+        source_file_ref=client._kap_storage.save(b"   ", original_name="empty.txt"),
+        source_file_name="empty.txt",
+        source_file_mime_type="text/plain",
+        status="completed",
+        result_asset_id=asset.id,
+        result_version_id=version.id,
+        created_by=USER_CONSULTANT,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    url = f"/api/v1/agent-gateway/knowledge/{KA_PERSONAL}/content"
+
+    empty = await client.get(url, headers=_bearer())
+    assert empty.status_code == 200
+    assert empty.json()["content_status"] == "empty"
+    assert empty.json()["content_available"] is False
+    assert empty.json()["content"] == ""
+
+    task.source_file_ref = client._kap_storage.save(b"legacy", original_name="legacy.ppt")
+    task.source_file_name = "legacy.ppt"
+    task.source_file_mime_type = "application/octet-stream"
+    await db_session.commit()
+    unsupported = await client.get(url, headers=_bearer())
+    assert unsupported.json()["content_status"] == "extraction_unsupported"
+
+    task.source_file_ref = client._kap_storage.save(b"not-a-docx", original_name="broken.docx")
+    task.source_file_name = "broken.docx"
+    task.source_file_mime_type = (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    await db_session.commit()
+    failed = await client.get(url, headers=_bearer())
+    assert failed.json()["content_status"] == "extraction_failed"
+
+    task.source_file_ref = "internal://missing/source.txt"
+    task.source_file_name = "source.txt"
+    task.source_file_mime_type = "text/plain"
+    version.weknora_parse_status = "processing"
+    await db_session.commit()
+    pending = await client.get(url, headers=_bearer())
+    assert pending.json()["content_status"] == "parse_pending"
+    for response in (empty, unsupported, failed, pending):
+        _no_leak(response.text)
+        assert "internal://" not in response.text
+
+
+async def test_content_reads_only_current_version_source(client, db_session):
+    asset = await db_session.get(KnowledgeAsset, KA_PERSONAL)
+    current = await db_session.get(KnowledgeAssetVersion, asset.current_version_id)
+    old = KnowledgeAssetVersion(
+        asset_id=asset.id,
+        version_no="v0",
+        version_status="superseded",
+        created_by=USER_CONSULTANT,
+    )
+    db_session.add(old)
+    await db_session.flush()
+    for version, name, text in (
+        (old, "old.txt", "旧版本正文"),
+        (current, "current.txt", "当前版本正文"),
+    ):
+        db_session.add(
+            IngestTask(
+                source="path_b_upload",
+                source_file_ref=client._kap_storage.save(text.encode(), original_name=name),
+                source_file_name=name,
+                source_file_mime_type="text/plain",
+                status="completed",
+                result_asset_id=asset.id,
+                result_version_id=version.id,
+                created_by=USER_CONSULTANT,
+            )
+        )
+    await _insert_rule(db_session, bound_user_id=USER_CONSULTANT, self_service=True)
+
+    response = await client.get(
+        f"/api/v1/agent-gateway/knowledge/{KA_PERSONAL}/content",
+        headers=_bearer(),
+    )
+    assert response.status_code == 200
+    assert response.json()["content"] == "当前版本正文"
+    assert "旧版本正文" not in response.text
 
 
 async def test_content_denies_hidden_assets_and_missing_original_right(client, db_session):

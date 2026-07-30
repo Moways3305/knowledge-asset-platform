@@ -391,6 +391,38 @@ async def test_index_failure_retry_reuses_authorized_index_contract(client, db_s
     assert "source_file_ref" not in response.text
 
 
+async def test_parse_failure_keeps_indexed_state_and_exposes_reparse_action(client, db_session):
+    task = await _task(db_session, status="completed", asset_id=KA_PERSONAL)
+    version = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == KA_PERSONAL,
+                KnowledgeAssetVersion.version_status == "active",
+            )
+        )
+    ).scalar_one()
+    version.index_status = "indexed"
+    version.weknora_doc_id = "server-only-doc"
+    version.weknora_parse_status = "failed"
+    await db_session.commit()
+
+    response = await client.get(_status_url(task.id), headers=_headers(USER_CONSULTANT))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["stage"] == "failed"
+    assert body["status"] == "failed"
+    assert body["error"]["code"] == "weknora_parse_failed"
+    assert body["next_action"] == {
+        "key": "reparse",
+        "route_key": "ingest_task_retry",
+        "enabled": True,
+    }
+    await db_session.refresh(version)
+    assert version.index_status == "indexed"
+    assert "server-only-doc" not in response.text
+
+
 async def test_status_response_field_whitelist(client, db_session):
     task = await _task(db_session, status="failed", error_type="processing_error")
     response = await client.get(_status_url(task.id), headers=_headers(USER_CONSULTANT))

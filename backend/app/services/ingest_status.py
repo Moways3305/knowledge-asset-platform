@@ -24,11 +24,12 @@ from app.schemas.ingest import (
     IngestTaskWorkflowStatus,
 )
 from app.schemas.permission import CallerContext
-from app.services import error_catalog
+from app.services import error_catalog, indexing
 from app.services import knowledge as knowledge_service
 from app.services.desensitization import DesensitizationEngine
 from app.services.llm_client import LLMClient, NullLLMClient, safe_llm_diagnostic
-from app.services.storage import LocalFileStorage
+from app.services.source_content import resolve_version_source_task
+from app.services.storage import LocalFileStorage, StorageError
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
 from app.worker.enqueue import enqueue_ingest_processing
 
@@ -71,6 +72,10 @@ _SAFE_ERRORS = {
     "indexing_skipped": (
         "资产已保存，但当前未进入知识底座索引。",
         "底座可用后可由具备权限的人员重试索引。",
+    ),
+    "weknora_parse_failed": (
+        "资产已进入知识底座，但正文解析失败。",
+        "可重新解析；若持续失败，请检查源文件格式或联系管理员。",
     ),
 }
 
@@ -236,12 +241,22 @@ def _response(ctx: _TaskContext, caller: CallerContext) -> IngestTaskStatusRespo
             )
             status = IngestTaskWorkflowStatus.processing
             next_action = _action("wait", None, enabled=False)
-        elif version.index_status == "index_failed" or version.weknora_parse_status == "failed":
+        elif version.index_status == "index_failed":
             stage = IngestTaskStage.failed
             status = IngestTaskWorkflowStatus.failed
             retryable = can_retry_index
             error = _index_error(version.index_error_code)
             next_action = _action("retry_index", "ingest_task_retry", enabled=retryable)
+        elif version.weknora_parse_status == "failed":
+            stage = IngestTaskStage.failed
+            status = IngestTaskWorkflowStatus.failed
+            retryable = bool(
+                can_retry_index
+                and version.index_status == "indexed"
+                and version.weknora_doc_id is not None
+            )
+            error = _safe_error("weknora_parse_failed")
+            next_action = _action("reparse", "ingest_task_retry", enabled=retryable)
         elif version.index_status == "skipped":
             stage = IngestTaskStage.degraded_complete
             status = IngestTaskWorkflowStatus.degraded
@@ -348,16 +363,49 @@ async def retry_task(
             await session.commit()
     elif ctx.asset is not None and ctx.version is not None:
         if ctx.version.index_status == "indexed" and ctx.version.weknora_parse_status == "failed":
-            ctx.version.index_status = "index_failed"
-            ctx.version.index_error_code = "weknora_call_failed"
-            ctx.version.index_error_message = error_catalog.user_message("weknora_call_failed")
-            await session.commit()
-        await knowledge_service.retry_index(
-            session,
-            caller,
-            ctx.asset.id,
-            weknora=weknora,
-            storage=storage,
-            trace_id=trace_id,
-        )
+            task = await resolve_version_source_task(
+                session,
+                asset_id=ctx.asset.id,
+                version_id=ctx.version.id,
+            )
+            if task is None:
+                await indexing.mark_index_failed(
+                    session,
+                    version_id=ctx.version.id,
+                    error_code="source_file_unreadable",
+                )
+            else:
+                try:
+                    file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
+                except (OSError, StorageError, ValueError):
+                    await indexing.mark_index_failed(
+                        session,
+                        version_id=ctx.version.id,
+                        error_code="source_file_unreadable",
+                    )
+                else:
+                    await indexing.reparse_asset_version(
+                        session,
+                        weknora,
+                        asset_id=ctx.asset.id,
+                        version_id=ctx.version.id,
+                        scope=ctx.asset.scope,
+                        owner_user_id=ctx.asset.owner_user_id,
+                        project_id=ctx.asset.project_id,
+                        confidentiality=ctx.asset.confidentiality_level,
+                        file_bytes=file_bytes,
+                        source_file_name=task.source_file_name,
+                        source_file_mime=task.source_file_mime_type,
+                        channel=task.source,
+                        trace_id=trace_id,
+                    )
+        else:
+            await knowledge_service.retry_index(
+                session,
+                caller,
+                ctx.asset.id,
+                weknora=weknora,
+                storage=storage,
+                trace_id=trace_id,
+            )
     return await get_task_status(session, caller, task_id)

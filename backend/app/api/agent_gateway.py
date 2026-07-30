@@ -45,6 +45,7 @@ from app.services import external_agent_gateway as gateway
 from app.services import projects as projects_service
 from app.services import search as search_service
 from app.services.llm_client import get_llm_client
+from app.services.storage import LocalFileStorage, get_storage
 from app.services.weknora_client import get_weknora_client
 
 router = APIRouter(prefix="/api/v1/agent-gateway", tags=["agent-gateway"])
@@ -262,6 +263,7 @@ async def get_knowledge_content(
     max_chars: int = Query(default=4000, ge=1, le=8000),
     bound: tuple[AgentWhitelistRule, CallerContext] = Depends(require_bound_caller),
     session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
 ) -> WorkbenchKnowledgeContent:
     rule, caller = bound
     return await agent_workbench.get_knowledge_content(
@@ -269,6 +271,7 @@ async def get_knowledge_content(
         caller,
         rule,
         asset_id,
+        storage=storage,
         offset=offset,
         max_chars=max_chars,
         trace_id=get_trace_id(request),

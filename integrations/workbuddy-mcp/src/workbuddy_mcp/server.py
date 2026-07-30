@@ -308,7 +308,7 @@ def kap_get_knowledge_content(
     max_chars: int = 4000,
     ctx: Context | None = None,
 ) -> object:
-    """逐次实时校验原文权后读取文本；每页最多 8000 字符，不返回文件或存储链接。"""
+    """逐次实时校验原文权后读取文本；有限状态会说明不可读原因，每页最多 8000 字符。"""
     return _knowledge_content_tool(asset_id, offset, max_chars, bearer=_read_bearer(ctx))
 
 

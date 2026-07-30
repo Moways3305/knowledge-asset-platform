@@ -94,6 +94,9 @@ SUMMARY_FIELDS = (
 CONTENT_FIELDS = (
     "asset_id",
     "content",
+    "content_available",
+    "content_status",
+    "message",
     "offset",
     "returned_chars",
     "next_offset",

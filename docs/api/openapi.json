@@ -11850,10 +11850,31 @@
             "title": "Content",
             "type": "string"
           },
+          "content_available": {
+            "title": "Content Available",
+            "type": "boolean"
+          },
+          "content_status": {
+            "enum": [
+              "available",
+              "empty",
+              "source_unavailable",
+              "extraction_unsupported",
+              "extraction_failed",
+              "parse_pending",
+              "parse_failed"
+            ],
+            "title": "Content Status",
+            "type": "string"
+          },
           "has_more": {
             "default": false,
             "title": "Has More",
             "type": "boolean"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
           },
           "next_offset": {
             "anyOf": [
@@ -11878,6 +11899,9 @@
         "required": [
           "asset_id",
           "content",
+          "content_available",
+          "content_status",
+          "message",
           "offset",
           "returned_chars"
         ],

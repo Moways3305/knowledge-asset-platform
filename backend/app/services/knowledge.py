@@ -27,7 +27,6 @@ from sqlalchemy.orm import aliased, selectinload
 from app.core.logging import safe_log_exception
 from app.db.utils import utc_now
 from app.models.identity import Project, User
-from app.models.ingest import IngestTask
 from app.models.knowledge import (
     KnowledgeAsset,
     KnowledgeAssetSummary,
@@ -84,6 +83,7 @@ from app.services.permission import (
     lifecycle_visibility,
 )
 from app.services.permission_rules import load_access_policy
+from app.services.source_content import resolve_version_source_task
 from app.services.storage import LocalFileStorage
 from app.services.weknora_client import (
     NullWeKnoraClient,
@@ -1312,16 +1312,10 @@ async def retry_index(
         )
 
     # 取入库任务的 server-only source_file_ref（只读取 ref，不外泄）。
-    task = (
-        (
-            await session.execute(
-                select(IngestTask)
-                .where(IngestTask.result_asset_id == asset_id)
-                .order_by(IngestTask.created_at.desc())
-            )
-        )
-        .scalars()
-        .first()
+    task = await resolve_version_source_task(
+        session,
+        asset_id=asset_id,
+        version_id=version_id,
     )
     if task is None or not task.source_file_ref:
         raise _denied(

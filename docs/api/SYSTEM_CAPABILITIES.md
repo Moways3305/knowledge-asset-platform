@@ -120,7 +120,7 @@ Agent / 工作流网关**，让 AI 问答与检索在**权限网关**约束下�
 - 🔐 WorkBuddy 只读知识应用工具（全部经同一 `require_bound_caller`，不提供文件、下载或预览 URL）：
   - `GET /api/v1/agent-gateway/knowledge/personal`、`GET /knowledge` — 按标签、状态、时间、scope 和 offset/limit 列出绑定用户实时可见知识。
   - `GET /api/v1/agent-gateway/knowledge/{asset_id}` — 安全详情、摘要、标签与可用访问层。
-  - `GET /api/v1/agent-gateway/knowledge/{asset_id}/content` — 每次实时执行 original 权限判断，仅返回当前版本文本；`max_chars` 上限 8000。
+  - `GET /api/v1/agent-gateway/knowledge/{asset_id}/content` — 每次实时执行 original 权限判断，从当前版本关联的受控源文件集中抽取文本；`max_chars` 上限 8000。响应通过有限 `content_status` 区分可读、真实空文本、源缺失、格式不支持、抽取失败及解析待处理/失败，不以空字符串冒充读取成功。
   - `GET /api/v1/agent-gateway/knowledge/tags` — 仅从调用人可见资产聚合标签。
   - `GET /api/v1/agent-gateway/todos` — 我的待办聚合（待我审核 / 我的原文申请 / 待我审批 / 待确认入库）。
   - `GET /api/v1/agent-gateway/knowledge/recent` — 我最近可见的知识资产（安全卡片）。

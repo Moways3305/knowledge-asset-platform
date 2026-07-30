@@ -51,6 +51,11 @@ class IngestTask(Base):
     result_asset_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("knowledge_assets.id"), nullable=True
     )
+    # 服务端版本级源文件关联。原文字节读取必须按当前版本匹配，不能仅凭 asset_id
+    # 猜测最新入库任务；该字段及其关联的 source_file_ref 均不得进入响应。
+    result_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("knowledge_asset_versions.id"), nullable=True, index=True
+    )
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     error_type: Mapped[str | None] = mapped_column(String(50), nullable=True)

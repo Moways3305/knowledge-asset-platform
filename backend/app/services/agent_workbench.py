@@ -27,7 +27,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.utils import utc_now
 from app.models.identity import Project
-from app.models.knowledge import KnowledgeAsset, KnowledgeAssetChunk
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.schemas.agent_workbench import (
     AgentWorkbenchTodoItem,
     WorkbenchKnowledgeCard,
@@ -61,6 +61,8 @@ from app.services import original_access as original_access_service
 from app.services import review as review_service
 from app.services.permission import decide
 from app.services.permission_rules import load_access_policy
+from app.services.source_content import extract_current_version_text
+from app.services.storage import LocalFileStorage
 
 # 发现层不可见的资产终态（与 /knowledge 列表 / 检索一致）。
 _INACTIVE_STATUSES = (
@@ -561,6 +563,7 @@ async def get_knowledge_content(
     rule,
     asset_id: uuid.UUID,
     *,
+    storage: LocalFileStorage,
     offset: int = 0,
     max_chars: int = 4000,
     trace_id: str | None = None,
@@ -592,24 +595,22 @@ async def get_knowledge_content(
     if not original.allowed:
         raise _denied(403, "knowledge_original_denied", "无权读取该知识原文")
 
-    chunks: list[KnowledgeAssetChunk] = []
-    if asset.current_version_id is not None:
-        chunks = list(
-            (
-                await session.execute(
-                    select(KnowledgeAssetChunk)
-                    .where(
-                        KnowledgeAssetChunk.asset_id == asset_id,
-                        KnowledgeAssetChunk.version_id == asset.current_version_id,
-                        KnowledgeAssetChunk.chunk_status.in_(("active", "pending_review")),
-                    )
-                    .order_by(KnowledgeAssetChunk.chunk_index)
-                )
+    version = (
+        await session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.id == asset.current_version_id,
+                KnowledgeAssetVersion.asset_id == asset.id,
+                KnowledgeAssetVersion.version_status == "active",
             )
-            .scalars()
-            .all()
         )
-    text = "\n".join(chunk.content_text for chunk in chunks)
+    ).scalar_one_or_none()
+    source = await extract_current_version_text(
+        session,
+        storage,
+        asset_id=asset.id,
+        version=version,
+    )
+    text = source.text
     safe_offset = max(0, int(offset))
     safe_max = _clamp(max_chars, default=4000, lo=1, hi=8000)
     content = text[safe_offset : safe_offset + safe_max]
@@ -625,12 +626,16 @@ async def get_knowledge_content(
         extra={
             "result_count": 1 if content else 0,
             "returned_chars": len(content),
+            "content_status": source.status,
             "access_layer": AccessLayer.original.value,
         },
     )
     return WorkbenchKnowledgeContent(
         asset_id=asset_id,
         content=content,
+        content_available=source.available,
+        content_status=source.status,
+        message=source.message,
         offset=safe_offset,
         returned_chars=len(content),
         next_offset=next_offset if has_more else None,

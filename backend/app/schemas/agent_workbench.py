@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -102,6 +103,17 @@ class WorkbenchKnowledgeContent(BaseModel):
 
     asset_id: uuid.UUID
     content: str
+    content_available: bool
+    content_status: Literal[
+        "available",
+        "empty",
+        "source_unavailable",
+        "extraction_unsupported",
+        "extraction_failed",
+        "parse_pending",
+        "parse_failed",
+    ]
+    message: str
     offset: int
     returned_chars: int
     next_offset: int | None = None

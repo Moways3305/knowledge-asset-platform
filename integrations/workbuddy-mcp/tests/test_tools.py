@@ -322,6 +322,9 @@ def test_expanded_knowledge_tools_project_safe_fields_and_pagination():
                 json={
                     "asset_id": "a1",
                     "content": "authorized text",
+                    "content_available": True,
+                    "content_status": "available",
+                    "message": "正文可读取。",
                     "offset": 0,
                     "returned_chars": 15,
                     "next_offset": None,
@@ -364,9 +367,34 @@ def test_expanded_knowledge_tools_project_safe_fields_and_pagination():
     assert listed["total"] == 1 and listed["items"][0]["asset_id"] == "a1"
     assert detail["available_access_layers"][-1] == "original"
     assert content["content"] == "authorized text"
+    assert content["content_available"] is True
+    assert content["content_status"] == "available"
     assert tags == {"items": [{"name": "流程", "count": 2}], "total": 1}
     for output in (listed, detail, content, tags):
         _assert_no_leak(output)
+
+
+def test_content_unavailable_status_is_not_mapped_to_permission_or_connector_error():
+    client = _client(
+        lambda request: httpx.Response(
+            200,
+            json={
+                "asset_id": "a1",
+                "content": "",
+                "content_available": False,
+                "content_status": "source_unavailable",
+                "message": "当前版本的受控源文件不可用。",
+                "offset": 0,
+                "returned_chars": 0,
+                "next_offset": None,
+                "has_more": False,
+            },
+        )
+    )
+    result = get_knowledge_content(client, "a1")
+    assert result["content_status"] == "source_unavailable"
+    assert result["message"] == "当前版本的受控源文件不可用。"
+    assert "error" not in result
 
 
 def test_project_knowledge_passes_tags_and_projects():
