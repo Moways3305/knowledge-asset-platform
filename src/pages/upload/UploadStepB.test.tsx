@@ -40,7 +40,9 @@ function flowFixture(overrides: Record<string, unknown> = {}): UploadFlow {
     folderDropNotice: null,
     handleStart: vi.fn(),
     localUploadQueue: [],
+    uploadSession: null,
     retryLocalUpload: vi.fn(),
+    removeLocalUpload: vi.fn(),
     handleRefreshProcessing: vi.fn(),
     handleReset: vi.fn(),
     handleDeletePending: vi.fn(),
@@ -58,6 +60,7 @@ function flowFixture(overrides: Record<string, unknown> = {}): UploadFlow {
     batchOperation: null,
     batchErrors: {},
     toggleBatchTask: vi.fn(),
+    setBatchTasksSelected: vi.fn(),
     handleBatchConfirm: vi.fn(),
     handleBatchReject: vi.fn(),
     ...overrides,
@@ -144,7 +147,28 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(document.body).not.toHaveTextContent(/task-secret|原始正文|storage_ref/);
   });
 
-  it("keeps upload progress per file and never renders a total progress bar", () => {
+  it("selects all actionable rows, exposes half-selected state, and excludes disabled rows", () => {
+    const first = pending("first", "First.pdf");
+    const second = pending("second", "Second.pdf");
+    const disabled = { ...pending("disabled", "Disabled.pdf"), status: "processing" };
+    const flow = flowFixture({
+      batchSelection: ["first"],
+      localPendingTasks: [first, second, disabled],
+    });
+    render(<UploadStepB flow={flow} />);
+
+    const selectAll = screen.getByRole("checkbox", {
+      name: "全选当前可处理的待确认项",
+    }) as HTMLInputElement;
+    expect(selectAll).not.toBeChecked();
+    expect(selectAll.indeterminate).toBe(true);
+    expect(screen.getByRole("checkbox", { name: "选择 Disabled.pdf" })).toBeDisabled();
+
+    fireEvent.click(selectAll);
+    expect(flow.setBatchTasksSelected).toHaveBeenCalledWith(["first", "second"], true);
+  });
+
+  it("shows real per-file states without inventing percentage progress", () => {
     const queue = [
       {
         id: "queue-a",
@@ -171,9 +195,9 @@ describe("UploadStepB folder drop and batch rejection", () => {
     ];
     render(<UploadStepB flow={flowFixture({ batchSelection: [], localUploadQueue: queue })} />);
 
-    expect(screen.getAllByRole("progressbar")).toHaveLength(2);
-    expect(screen.getByRole("progressbar", { name: "上传进度：folder/a.pdf" })).toBeInTheDocument();
-    expect(screen.getByRole("progressbar", { name: "上传进度：folder/b.pdf" })).toBeInTheDocument();
-    expect(document.body).not.toHaveTextContent("总进度");
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    expect(screen.getByText("上传中")).toBeInTheDocument();
+    expect(screen.getByText("上传失败")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "移除" })).toBeInTheDocument();
   });
 });

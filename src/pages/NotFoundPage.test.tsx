@@ -1,7 +1,12 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { MemoryRouter } from "react-router-dom";
+import { describe, expect, it, vi } from "vitest";
 import NotFoundPage from "./NotFoundPage";
+
+const safeNavigation = vi.hoisted(() => ({ goBack: vi.fn() }));
+vi.mock("../routing/SafeNavigation", () => ({
+  useSafeNavigation: () => safeNavigation,
+}));
 
 describe("NotFoundPage", () => {
   it("提供安全说明和两个真实恢复动作", () => {
@@ -18,17 +23,15 @@ describe("NotFoundPage", () => {
     expect(screen.queryByText(/token-should-not-render/i)).not.toBeInTheDocument();
   });
 
-  it("返回上一页会回到浏览历史中的上一入口", () => {
+  it("返回上一页委托统一安全返回路由", () => {
+    safeNavigation.goBack.mockReset().mockResolvedValue(undefined);
     render(
-      <MemoryRouter initialEntries={["/previous", "/missing"]} initialIndex={1}>
-        <Routes>
-          <Route path="/previous" element={<div>上一入口内容</div>} />
-          <Route path="*" element={<NotFoundPage />} />
-        </Routes>
+      <MemoryRouter initialEntries={["/missing"]}>
+        <NotFoundPage />
       </MemoryRouter>,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "返回上一页" }));
-    expect(screen.getByText("上一入口内容")).toBeInTheDocument();
+    expect(safeNavigation.goBack).toHaveBeenCalledTimes(1);
   });
 });

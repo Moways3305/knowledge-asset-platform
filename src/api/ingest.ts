@@ -19,6 +19,8 @@ import type {
   IngestTaskStatusDTO,
   PendingIngestItemDTO,
   PendingIngestListResponseDTO,
+  UploadSessionDTO,
+  UploadSessionListDTO,
 } from "../types/ingest";
 
 // 真实文件上传：以 multipart/form-data 发送选中的文件字节。后端写入受控存储并
@@ -39,6 +41,53 @@ export async function createIngestUpload(input: {
     });
     return handleResponse<IngestUploadResponseDTO>(resp);
   });
+}
+
+export async function createUploadSession(input: {
+  files: File[];
+  sessionId?: string;
+  targetScope?: string;
+  targetProjectId?: string;
+}): Promise<UploadSessionDTO> {
+  const form = new FormData();
+  input.files.forEach((file) => form.append("files", file, file.name));
+  if (input.sessionId) form.append("session_id", input.sessionId);
+  if (input.targetScope) form.append("target_scope", input.targetScope);
+  if (input.targetProjectId) form.append("target_project_id", input.targetProjectId);
+  return withCsrfRetry(async () => {
+    const resp = await fetch(`${BASE_URL}/api/v1/ingest/upload-sessions`, {
+      method: "POST",
+      headers: await csrfHeaders(),
+      body: form,
+      credentials: "include",
+    });
+    return handleResponse<UploadSessionDTO>(resp);
+  });
+}
+
+export async function fetchUploadSessions(): Promise<UploadSessionDTO[]> {
+  const data = await apiGet<UploadSessionListDTO>("/api/v1/ingest/upload-sessions");
+  return data.items;
+}
+
+export async function fetchUploadSession(sessionId: string): Promise<UploadSessionDTO> {
+  return apiGet<UploadSessionDTO>(`/api/v1/ingest/upload-sessions/${sessionId}`);
+}
+
+export async function retryUploadSessionItem(
+  sessionId: string,
+  itemId: string,
+): Promise<UploadSessionDTO> {
+  return apiPostNoBody<UploadSessionDTO>(
+    `/api/v1/ingest/upload-sessions/${sessionId}/items/${itemId}/retry`,
+  );
+}
+
+export async function removeUploadSessionItem(
+  sessionId: string,
+  itemId: string,
+): Promise<UploadSessionDTO> {
+  return apiDelete<UploadSessionDTO>(`/api/v1/ingest/upload-sessions/${sessionId}/items/${itemId}`);
 }
 
 export async function fetchIngestAiResult(taskId: string): Promise<IngestAiResultDTO> {

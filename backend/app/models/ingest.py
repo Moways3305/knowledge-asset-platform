@@ -73,6 +73,57 @@ class IngestTask(Base):
     )
 
 
+class UploadSession(Base):
+    """A caller-owned, recoverable local-upload submission."""
+
+    __tablename__ = "upload_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    created_by: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    total_files: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_batches: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    items: Mapped[list[UploadSessionItem]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="UploadSessionItem.ordinal",
+    )
+
+
+class UploadSessionItem(Base):
+    """Safe queue metadata; file bytes remain in the task's controlled storage."""
+
+    __tablename__ = "upload_session_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("upload_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    ingest_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("ingest_tasks.id", ondelete="SET NULL"), nullable=True, unique=True
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    batch_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    file_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    file_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="waiting")
+    safe_error_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    safe_error_message: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    same_name_warning: Mapped[bool] = mapped_column(nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    session: Mapped[UploadSession] = relationship(back_populates="items")
+
+
 class IngestTaskAiResult(Base):
     """入库任务的 AI 建议结果（外部 LLM 抽取，未配置 LLM 时回退确定性草稿）。"""
 

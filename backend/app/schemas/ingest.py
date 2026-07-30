@@ -36,6 +36,40 @@ class IngestUploadResponse(BaseModel):
     upload_url: None = None
 
 
+class UploadSessionItemResponse(BaseModel):
+    id: uuid.UUID
+    ordinal: int
+    batch_number: int
+    file_name: str
+    file_size: int
+    file_type: str | None
+    status: str
+    error_code: str | None = None
+    error_message: str | None = None
+    same_name_warning: bool = False
+    retryable: bool = False
+
+
+class UploadSessionResponse(BaseModel):
+    id: uuid.UUID
+    status: str
+    total_files: int
+    completed_files: int
+    processing_files: int
+    waiting_files: int
+    failed_files: int
+    current_batch_number: int | None
+    total_batches: int
+    created_at: datetime
+    updated_at: datetime
+    items: list[UploadSessionItemResponse]
+
+
+class UploadSessionListResponse(BaseModel):
+    items: list[UploadSessionResponse]
+    total: int
+
+
 class IngestTaskStage(str, Enum):
     upload_saved = "upload_saved"
     text_extraction = "text_extraction"

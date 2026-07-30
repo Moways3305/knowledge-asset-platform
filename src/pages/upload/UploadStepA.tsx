@@ -3,6 +3,7 @@ import { formatBeijingTime } from "../../utils/time";
 import { pendingStatusLabel } from "./uploadConstants";
 import BatchTaskProgress from "./BatchTaskProgress";
 import PendingBatchActions from "./PendingBatchActions";
+import PendingSelectAll, { isPendingTaskActionable } from "./PendingSelectAll";
 import type { UploadFlow } from "./useUploadFlow";
 
 export default function UploadStepA({ flow }: { flow: UploadFlow }) {
@@ -64,7 +65,9 @@ export default function UploadStepA({ flow }: { flow: UploadFlow }) {
           <table className="upload77-table">
             <thead>
               <tr>
-                <th className="upload77-batch-col">批量</th>
+                <th className="upload77-batch-col">
+                  <PendingSelectAll tasks={pendingTasks} flow={flow} />
+                </th>
                 <th>文件</th>
                 <th>状态</th>
                 <th>建议标题</th>
@@ -83,7 +86,7 @@ export default function UploadStepA({ flow }: { flow: UploadFlow }) {
                       <input
                         aria-label={`选择 ${task.source_file_name}`}
                         checked={batchSelection.includes(task.id)}
-                        disabled={batchBusy || itemStatus === "success"}
+                        disabled={!isPendingTaskActionable(task, flow)}
                         onChange={() => toggleBatchTask(task.id)}
                         type="checkbox"
                       />
