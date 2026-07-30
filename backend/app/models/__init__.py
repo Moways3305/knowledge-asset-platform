@@ -22,7 +22,7 @@ from app.models.identity import (
     UserCompanyRole,
 )
 from app.models.indexing_job import IndexingOperationJob, IndexingOpsSnapshot, OpsRuntimeHeartbeat
-from app.models.ingest import IngestTask, IngestTaskAiResult
+from app.models.ingest import IngestTask, IngestTaskAiResult, UploadSession, UploadSessionItem
 from app.models.knowledge import (
     KnowledgeAsset,
     KnowledgeAssetChunk,
@@ -64,6 +64,8 @@ __all__ = [
     "KnowledgeAssetTag",
     "IngestTask",
     "IngestTaskAiResult",
+    "UploadSession",
+    "UploadSessionItem",
     "IndexingOperationJob",
     "IndexingOpsSnapshot",
     "OpsRuntimeHeartbeat",

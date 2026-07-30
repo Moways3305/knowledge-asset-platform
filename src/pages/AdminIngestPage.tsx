@@ -56,6 +56,7 @@ const jobStatusLabel: Record<string, string> = {
   completed: "已完成",
   completed_with_errors: "完成，部分未成功",
   failed: "执行失败",
+  no_action: "未找到可处理项",
 };
 
 const ingestStatusLabel: Record<string, string> = {
@@ -137,6 +138,7 @@ function trendTickIndexes(points: IndexingHealthDTO["trend_points"]): Set<number
 function jobTone(status: string) {
   if (status === "completed") return "success";
   if (status === "failed" || status === "completed_with_errors") return "danger";
+  if (status === "no_action") return "warning";
   return "pending";
 }
 
@@ -172,7 +174,7 @@ export default function AdminIngestPage() {
   const [opsBusy, setOpsBusy] = useState(false);
   const [opsBusyOperation, setOpsBusyOperation] = useState<string | null>(null);
   const [opsNote, setOpsNote] = useState<string | null>(null);
-  const [opsNoteTone, setOpsNoteTone] = useState<"success" | "danger">("success");
+  const [opsNoteTone, setOpsNoteTone] = useState<"success" | "warning" | "danger">("success");
   const [retryTarget, setRetryTarget] = useState<OpsIndexingFailedItemDTO | null>(null);
   const [targetBusy, setTargetBusy] = useState(false);
   const [targetError, setTargetError] = useState<string | null>(null);
@@ -372,8 +374,8 @@ export default function AdminIngestPage() {
     const label = operationLabel ?? safeJobOperation(job.operation_type);
     setOpsJobs((current) => [job, ...current.filter((item) => item.job_id !== job.job_id)]);
     setJobsState("ready");
-    setOpsNoteTone("success");
     if (job.total_count === 0) {
+      setOpsNoteTone("warning");
       setOpsNote(
         job.operation_type === "reparse"
           ? `${label}未找到可处理项：仅处理已索引、已有底座文档且解析失败或待解析的资产。`
@@ -381,6 +383,7 @@ export default function AdminIngestPage() {
       );
       return;
     }
+    setOpsNoteTone("success");
     setOpsNote(
       `${label}已提交：共 ${job.total_count} 项，成功 ${job.success_count} 项，失败 ${job.failed_count} 项，跳过 ${job.skipped_count} 项。`,
     );

@@ -24,6 +24,7 @@ interface WorkbuddyTokenStatusDTO {
 // ---- 生成 / 重置结果（一次性 token + 可复制 mcp.json） ----
 export interface WorkbuddyConfigVM {
   platform: WorkbuddyPlatform;
+  command: string;
   mcpConfigJson: string;
 }
 
@@ -97,12 +98,17 @@ export async function fetchWorkbuddyConnectors(): Promise<WorkbuddyConnectorMani
 
 export async function regenerateWorkbuddyToken(
   platform: WorkbuddyPlatform,
+  connectorPath?: string,
 ): Promise<WorkbuddyConfigVM> {
   const data = await apiPost<WorkbuddyConfigDTO>(`/api/v1/auth/workbuddy-token/regenerate`, {
     platform,
+    connector_path: connectorPath,
   });
+  const kap = (data.mcp_config.mcpServers as Record<string, Record<string, unknown>> | undefined)
+    ?.kap;
   return {
     platform: data.platform,
+    command: typeof kap?.command === "string" ? kap.command : "",
     mcpConfigJson: JSON.stringify(data.mcp_config, null, 2),
   };
 }

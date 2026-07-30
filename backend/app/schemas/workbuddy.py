@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 WorkbuddyPlatform = Literal["windows", "macos"]
 WorkbuddyArchitecture = Literal["x64", "arm64"]
@@ -26,9 +26,10 @@ class WorkbuddyTokenStatusOut(BaseModel):
 
 
 class WorkbuddyTokenRegenerateIn(BaseModel):
-    """平台只影响本次下发的本地命令；绑定用户始终从服务端 caller 解析。"""
+    """平台与路径只影响本次下发文本；绑定用户始终从服务端 caller 解析。"""
 
     platform: WorkbuddyPlatform
+    connector_path: str | None = Field(default=None, max_length=2048)
 
 
 class WorkbuddyTokenCreatedOut(BaseModel):

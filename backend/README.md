@@ -36,7 +36,7 @@
 - `people`、`projects`、`permissions`：人员与项目成员、项目设置、权限规则与外部 Agent 接入注册。
 - `ops`：健康探针与运维端点（索引运维、审计、登录风控、会话撤销、企业微信身份对账等，挂在 `/admin/ops` 与 `/health`）。
 - `wecom_scan`、`weknora_admin`、`weknora_options`：微盘扫描配置 / 触发 / 记录；WeKnora 模型与建库配置中心（admin），含平台默认模型读写 `GET|PUT /api/v1/admin/weknora/default-models`（读 admin / 治理，写仅 admin）；以及顾问只读模型选项 `GET /api/v1/weknora/model-options`（业务用户可读，供入库时选模型）。三者对外只用对底座 id 不可逆的 `model_ref`，绝不回真实 `model_id` / `api_key` / `base_url`。
-- `agent_gateway`：provider 中立外部 Agent 网关（**WorkBuddy MCP 主接入面**）——Bearer token 绑定 KAP 用户，caller 仅从 token 绑定解析，channel=agent。检索/问答：`/api/v1/agent-gateway/tools/knowledge-search`、`/projects`。只读工作台工具（PBC-37，全部经同一 `require_bound_caller`，**只读、不取原文/文件/预览 URL**，权限走 `decide()` + 注册行 token 天花板）：`/todos`、`/knowledge/recent`、`/knowledge/{asset_id}/summary`、`/projects/{project_id}/knowledge`、`/projects/{project_id}/brief`、`/reviews/pending`、`/original-access/requests`。
+- `agent_gateway`：provider 中立外部 Agent 网关（**WorkBuddy MCP 主接入面**）——Bearer token 绑定 KAP 用户，caller 仅从 token 绑定解析。检索/问答：`/api/v1/agent-gateway/tools/knowledge-search`、`/projects`。只读知识应用工具全部经同一 `require_bound_caller` 和实时 `decide()`；其中 `/knowledge/{asset_id}/content` 仅在 original 放行后按当前版本受控源文件抽取并分页返回文本，绝不返回文件、存储引用或预览/下载 URL。
 - `dify`：**legacy** 兼容适配器（仅承载 Dify 线缆形态；保留可用、不强删，新接入改用 agent_gateway）。
 
 健康探针：
@@ -47,7 +47,7 @@
 
 - **Celery**（`app/worker/`）：入库处理、解析对账、归档扫描、复用推荐、通知下发、索引批量运维。`CELERY_TASK_ALWAYS_EAGER=true` 时内联同步执行（无需 worker）；接入 worker 时设为 `false` 启用真正异步。生产必须运行 worker 与 beat。
 - **两阶段入库**：人工确认即落库（阶段 1）；推进 WeKnora 索引为阶段 2，建库 / 初始化 / 上传失败不回滚资产，而是标记索引失败并可重试。
-- **索引状态**：`not_indexed | indexing | indexed | index_failed | skipped`，对外为安全业务状态。`/admin/ops/indexing` 提供安全计数与最近失败列表；支持单条 retry-index、批量重试与显式 reparse，批量动作进入后台作业（`indexing_operation_jobs`）。响应 / 审计绝不含 WeKnora kb·doc id / 存储引用 / 原文。
+- **索引与解析状态**：`index_status` 的 `indexed` 只表示底座文档已建立；正文解析可读性另由 `weknora_parse_status` 表达。解析失败保持真实 `indexed + failed` 口径并引导重新解析，不伪装成普通索引成功；0 命中维护作业标为 `no_action`。响应 / 审计绝不含 WeKnora kb·doc id / 存储引用 / 原文。
 - **检索可见性**：检索只映射并使用活动版本 `index_status=indexed` 的底座文档；失败 / 跳过的资产不被召回。
 
 ## 5. 外部集成

@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import re
 from urllib.parse import urlsplit
 
 from sqlalchemy import desc, select
@@ -39,6 +40,17 @@ _CAPABILITY = "qa"
 # agent gateway 会按精确 self-service identifier 跳过 registry ceiling。
 _MAX_CONF = "L5"
 _MAX_AI = "A4"
+_WINDOWS_ABSOLUTE_EXE = re.compile(r"^[A-Za-z]:\\.+\.exe$", re.IGNORECASE)
+_WINDOWS_INVALID_SEGMENT_CHARS = frozenset('<>:"/|?*')
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{index}" for index in range(1, 10)}
+    | {f"LPT{index}" for index in range(1, 10)}
+)
+_DEFAULT_COMMANDS: dict[WorkbuddyPlatform, str] = {
+    "windows": r"C:\Program Files\KAP WorkBuddy Connector\kap-workbuddy-connector.exe",
+    "macos": "/Applications/KAP WorkBuddy Connector.app/Contents/MacOS/kap-workbuddy-connector",
+}
 
 
 def _require_business(caller: CallerContext) -> None:
@@ -75,18 +87,49 @@ async def _find_rule(session: AsyncSession, user_id) -> AgentWhitelistRule | Non
     )
 
 
-def _connector_command(platform: WorkbuddyPlatform) -> str:
+def _connector_command(platform: WorkbuddyPlatform, connector_path: str | None = None) -> str:
+    """Validate a caller-supplied command as text only; never probe or execute it."""
+    if connector_path is None:
+        return _DEFAULT_COMMANDS[platform]
+    command = connector_path.strip()
+    if not command or command != connector_path or any(ord(char) < 32 for char in command):
+        raise denied(
+            422,
+            "workbuddy_connector_path_invalid",
+            "连接器路径格式与所选平台不匹配",
+        )
     if platform == "windows":
-        return r"C:\Program Files\KAP WorkBuddy Connector\kap-workbuddy-connector.exe"
-    return "/Applications/KAP WorkBuddy Connector.app/Contents/MacOS/kap-workbuddy-connector"
+        segments = command[3:].split("\\") if len(command) >= 3 else []
+        valid = bool(_WINDOWS_ABSOLUTE_EXE.fullmatch(command)) and all(
+            segment
+            and not any(char in _WINDOWS_INVALID_SEGMENT_CHARS for char in segment)
+            and not segment.endswith((" ", "."))
+            and segment.split(".", 1)[0].upper() not in _WINDOWS_RESERVED_NAMES
+            for segment in segments
+        )
+    else:
+        valid = (
+            command.startswith("/") and "\\" not in command and not command.lower().endswith(".exe")
+        )
+    if not valid:
+        raise denied(
+            422,
+            "workbuddy_connector_path_invalid",
+            "连接器路径格式与所选平台不匹配",
+        )
+    return command
 
 
-def _mcp_config(base_url: str, token: str, platform: WorkbuddyPlatform) -> dict:
+def _mcp_config(
+    base_url: str,
+    token: str,
+    command: str,
+) -> dict:
     """可直接复制到 WorkBuddy `mcp.json` 的本地 stdio 配置。"""
     return {
         "mcpServers": {
             "kap": {
-                "command": _connector_command(platform),
+                "command": command,
                 "env": {"KAP_BASE_URL": base_url, "KAP_AGENT_TOKEN": token},
             }
         }
@@ -150,11 +193,13 @@ async def regenerate(
     caller: CallerContext,
     *,
     platform: WorkbuddyPlatform,
+    connector_path: str | None = None,
     trace_id: str | None,
 ) -> WorkbuddyTokenCreatedOut:
     """为当前业务用户创建或重置自助 token（绑定 caller 本人；明文一次性返回）。"""
     _require_business(caller)
     base_url = public_base_url()
+    command = _connector_command(platform, connector_path)
     token = agent_registry.generate_token()
     token_hash = agent_registry.hash_token(token)
     now = utc_now()
@@ -215,7 +260,7 @@ async def regenerate(
     await session.commit()
     return WorkbuddyTokenCreatedOut(
         token=token,
-        mcp_config=_mcp_config(base_url, token, platform),
+        mcp_config=_mcp_config(base_url, token, command),
         platform=platform,
     )
 

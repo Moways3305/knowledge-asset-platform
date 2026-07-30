@@ -35,6 +35,11 @@ vi.mock("../../api/auth", () => auth);
 
 const ingest = vi.hoisted(() => ({
   createIngestUpload: vi.fn(),
+  createUploadSession: undefined,
+  fetchUploadSessions: undefined,
+  fetchUploadSession: undefined,
+  retryUploadSessionItem: undefined,
+  removeUploadSessionItem: undefined,
   fetchIngestAiResult: vi.fn(),
   fetchIngestTaskStatus: vi.fn(),
   fetchPendingIngestTasks: vi.fn(),
@@ -379,7 +384,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(result.current.localUploadQueue[0].fileName).toBe("fallback.txt");
   });
 
-  it("目录 API 降级时仍提示并执行 200 个文件条目上限", async () => {
+  it("目录 API 降级时仍接收超过 200 个文件并交给批次队列", async () => {
     const files = Array.from(
       { length: 201 },
       (_, index) => new File(["plain"], `fallback-${index}.txt`, { type: "text/plain" }),
@@ -391,11 +396,12 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     const { result } = renderHook(() => useUploadFlow());
 
     await act(async () => result.current.handleDataTransferDrop(transfer));
-    await waitFor(() => expect(result.current.localUploadQueue).toHaveLength(200));
-    expect(result.current.folderDropNotice).toContain("一次最多添加 200 个文件条目");
+    await waitFor(() => expect(result.current.localUploadQueue).toHaveLength(201));
+    expect(result.current.folderDropNotice).toContain("浏览器不支持读取文件夹");
+    expect(result.current.folderDropNotice).not.toContain("一次最多添加");
   });
 
-  it("目录文件条目超过 200 时只创建有界失败队列并提示拆分上传", async () => {
+  it("目录文件条目超过 200 时保留全部独立失败条目", async () => {
     const entries = Array.from({ length: 201 }, (_, index) =>
       droppedFile(new File(["bad"], `unsupported-${index}.exe`)),
     );
@@ -406,9 +412,9 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         folderDataTransfer([droppedDirectory("huge", entries)]),
       ),
     );
-    expect(result.current.localUploadQueue).toHaveLength(200);
+    expect(result.current.localUploadQueue).toHaveLength(201);
     expect(result.current.localUploadQueue.every((item) => item.status === "failed")).toBe(true);
-    expect(result.current.folderDropNotice).toContain("一次最多添加 200 个文件条目");
+    expect(result.current.folderDropNotice).toBeNull();
     expect(ingest.createIngestUpload).not.toHaveBeenCalled();
   });
 

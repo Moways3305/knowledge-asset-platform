@@ -128,6 +128,18 @@ def test_windows_script_stops_before_inno_setup_when_binary_is_missing():
     assert "notarized = $false" in script
 
 
+def test_windows_installer_preserves_custom_directory_and_stable_process_entry():
+    installer = (PACKAGE_ROOT / "connector_build/windows/connector.iss").read_text(encoding="utf-8")
+    assert "AppId={{38DBEB78-691E-4CFD-B81B-1896A06D2329}" in installer
+    assert r"DefaultDirName={autopf}\KAP WorkBuddy Connector" in installer
+    assert "UsePreviousAppDir=yes" in installer
+    assert "DisableDirPage=yes" not in installer
+    assert (
+        'DestDir: "{app}"; DestName: "kap-workbuddy-connector.exe"; Flags: ignoreversion'
+        in installer
+    )
+
+
 def test_macos_script_checks_each_installer_input():
     script = (PACKAGE_ROOT / "connector_build/macos/build.sh").read_text(encoding="utf-8")
     binary_check = script.index("Missing or empty connector binary for macos-$ARCH")
@@ -140,6 +152,15 @@ def test_macos_script_checks_each_installer_input():
     assert binary_check < copy_call < payload_check < payload_copy < package_check < pkgbuild_call
     assert "SIGNED=false" in script
     assert "NOTARIZED=false" in script
+
+
+def test_macos_packages_reinstall_the_stable_app_executable_for_both_architectures():
+    script = (PACKAGE_ROOT / "connector_build/macos/build.sh").read_text(encoding="utf-8")
+    assert 'FILENAME="kap-workbuddy-connector-$VERSION-macos-$ARCH.pkg"' in script
+    assert 'mkdir -p "$APP/Contents/MacOS" "$PAYLOAD/Applications"' in script
+    assert 'cp "$BINARY" "$APP/Contents/MacOS/kap-workbuddy-connector"' in script
+    assert 'cp -R "$APP" "$PAYLOAD/Applications/"' in script
+    assert '--install-location "/" "$UNSIGNED"' in script
 
 
 def test_internal_workflow_steps_do_not_reference_signing_secrets():

@@ -64,7 +64,7 @@ export interface IndexingReparseRequestDTO {
 export interface IndexingJobSummaryDTO {
   job_id: string;
   operation_type: string; // retry_index | reparse
-  status: string; // queued | running | completed | completed_with_errors | failed
+  status: string; // queued | running | completed | completed_with_errors | failed | no_action
   scope_filter: Record<string, unknown> | null;
   requested_by_name: string | null;
   requested_at: string | null;

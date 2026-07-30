@@ -2,6 +2,7 @@ import { useState } from "react";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import type { PendingIngestItemDTO } from "../../types/ingest";
 import type { UploadFlow } from "./useUploadFlow";
+import { isPendingTaskActionable } from "./PendingSelectAll";
 
 export default function PendingBatchActions({
   tasks,
@@ -11,7 +12,9 @@ export default function PendingBatchActions({
   flow: UploadFlow;
 }) {
   const [rejectOpen, setRejectOpen] = useState(false);
-  const selectedTasks = tasks.filter((task) => flow.batchSelection.includes(task.id));
+  const selectedTasks = tasks.filter(
+    (task) => flow.batchSelection.includes(task.id) && isPendingTaskActionable(task, flow),
+  );
   if (selectedTasks.length === 0) return null;
 
   return (

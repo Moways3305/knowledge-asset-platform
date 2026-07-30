@@ -411,6 +411,7 @@ describe("AdminIngestPage operations reference", () => {
   it("treats a zero-target reparse as terminal and refreshes every dependent summary", async () => {
     vi.mocked(triggerIndexingReparse).mockResolvedValue({
       ...completedJob,
+      status: "no_action",
       operation_type: "reparse",
       total_count: 0,
       success_count: 0,
@@ -421,7 +422,7 @@ describe("AdminIngestPage operations reference", () => {
 
     await user.click(await screen.findByRole("button", { name: /^重新解析/ }));
 
-    expect(await screen.findByText(/重新解析未找到可处理项/)).toBeInTheDocument();
+    expect(await screen.findByText(/重新解析未找到可处理项/)).toHaveClass("is-warning");
     await waitFor(() => expect(screen.getByRole("button", { name: /^重新解析（/ })).toBeEnabled());
     expect(fetchAdminIngest).toHaveBeenCalledTimes(2);
     expect(fetchOpsIndexing).toHaveBeenCalledTimes(2);

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
@@ -23,14 +24,17 @@ from app.schemas.ingest import (
     IngestTaskStatusResponse,
     IngestUploadResponse,
     PendingIngestListResponse,
+    UploadSessionListResponse,
+    UploadSessionResponse,
 )
 from app.schemas.permission import CallerContext
 from app.services import ingest as ingest_service
 from app.services import ingest_status as ingest_status_service
+from app.services import upload_sessions as upload_session_service
 from app.services.desensitization import DesensitizationEngine, get_desensitizer
 from app.services.generation_models import get_generation_llm_client
 from app.services.llm_client import LLMClient, NullLLMClient
-from app.services.storage import MAX_UPLOAD_BYTES, LocalFileStorage, get_storage
+from app.services.storage import MAX_UPLOAD_BYTES, LocalFileStorage, StorageError, get_storage
 from app.services.weknora_client import (
     NullWeKnoraClient,
     WeKnoraClient,
@@ -38,6 +42,19 @@ from app.services.weknora_client import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["ingest"])
+
+_LOCAL_UPLOAD_EXTENSIONS = {
+    "md",
+    "markdown",
+    "txt",
+    "pdf",
+    "doc",
+    "docx",
+    "ppt",
+    "pptx",
+    "xls",
+    "xlsx",
+}
 
 
 @router.post("/ingest/upload", response_model=IngestUploadResponse)
@@ -77,6 +94,185 @@ async def create_upload(
         llm=llm,
         desensitizer=desensitizer,
         trace_id=get_trace_id(request),
+    )
+
+
+@router.post("/ingest/upload-sessions", response_model=UploadSessionResponse)
+async def create_upload_session(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    session_id: uuid.UUID | None = Form(default=None),
+    target_scope: str | None = Form(default=None),
+    target_project_id: uuid.UUID | None = Form(default=None),
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    llm: LLMClient | NullLLMClient = Depends(get_generation_llm_client),
+    desensitizer: DesensitizationEngine = Depends(get_desensitizer),
+) -> UploadSessionResponse:
+    """Persist every submitted file and derive stable, unbounded 200-item batches."""
+    upload_session_service.authorize_create(caller)
+    existing = await upload_session_service.get_session_if_exists(
+        session,
+        caller,
+        session_id,
+        storage=storage,
+        llm=llm,
+        desensitizer=desensitizer,
+        trace_id=get_trace_id(request),
+    )
+    if existing is not None:
+        return existing
+    candidates: list[upload_session_service.UploadCandidate] = []
+    for file in files:
+        file_name = file.filename or "file"
+        content = await file.read(MAX_UPLOAD_BYTES + 1)
+        extension = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
+        if extension not in _LOCAL_UPLOAD_EXTENSIONS:
+            candidates.append(
+                upload_session_service.UploadCandidate(
+                    file_name=file_name,
+                    file_size=len(content),
+                    file_type=file.content_type,
+                    error_code="unsupported_file_type",
+                    error_message="该文件类型暂不支持上传",
+                )
+            )
+        elif len(content) > MAX_UPLOAD_BYTES:
+            candidates.append(
+                upload_session_service.UploadCandidate(
+                    file_name=file_name,
+                    file_size=len(content),
+                    file_type=file.content_type,
+                    error_code="file_too_large",
+                    error_message="文件超过 25 MiB 大小上限",
+                )
+            )
+        elif not content:
+            candidates.append(
+                upload_session_service.UploadCandidate(
+                    file_name=file_name,
+                    file_size=0,
+                    file_type=file.content_type,
+                    error_code="empty_file",
+                    error_message="文件为空，请检查后重试",
+                )
+            )
+        else:
+            try:
+                storage_ref = storage.save(content, original_name=file_name)
+                candidates.append(
+                    upload_session_service.UploadCandidate(
+                        file_name=file_name,
+                        file_size=len(content),
+                        file_type=file.content_type,
+                        storage_ref=storage_ref,
+                        content_hash=hashlib.sha256(content).hexdigest(),
+                    )
+                )
+            except StorageError:
+                candidates.append(
+                    upload_session_service.UploadCandidate(
+                        file_name=file_name,
+                        file_size=len(content),
+                        file_type=file.content_type,
+                        error_code="storage_failed",
+                        error_message="文件暂时无法安全保存，请重试",
+                    )
+                )
+    return await upload_session_service.create_session(
+        session,
+        caller,
+        requested_session_id=session_id,
+        candidates=candidates,
+        target_scope=target_scope,
+        target_project_id=target_project_id,
+        storage=storage,
+        llm=llm,
+        desensitizer=desensitizer,
+        trace_id=get_trace_id(request),
+    )
+
+
+@router.get("/ingest/upload-sessions", response_model=UploadSessionListResponse)
+async def list_upload_sessions(
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    llm: LLMClient | NullLLMClient = Depends(get_generation_llm_client),
+    desensitizer: DesensitizationEngine = Depends(get_desensitizer),
+) -> UploadSessionListResponse:
+    return await upload_session_service.list_sessions(
+        session,
+        caller,
+        storage=storage,
+        llm=llm,
+        desensitizer=desensitizer,
+        trace_id=get_trace_id(request),
+    )
+
+
+@router.get("/ingest/upload-sessions/{session_id}", response_model=UploadSessionResponse)
+async def get_upload_session(
+    session_id: uuid.UUID,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    llm: LLMClient | NullLLMClient = Depends(get_generation_llm_client),
+    desensitizer: DesensitizationEngine = Depends(get_desensitizer),
+) -> UploadSessionResponse:
+    return await upload_session_service.get_session(
+        session,
+        caller,
+        session_id,
+        storage=storage,
+        llm=llm,
+        desensitizer=desensitizer,
+        trace_id=get_trace_id(request),
+    )
+
+
+@router.post(
+    "/ingest/upload-sessions/{session_id}/items/{item_id}/retry",
+    response_model=UploadSessionResponse,
+)
+async def retry_upload_session_item(
+    session_id: uuid.UUID,
+    item_id: uuid.UUID,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    llm: LLMClient | NullLLMClient = Depends(get_generation_llm_client),
+    desensitizer: DesensitizationEngine = Depends(get_desensitizer),
+) -> UploadSessionResponse:
+    return await upload_session_service.retry_item(
+        session,
+        caller,
+        session_id,
+        item_id,
+        storage=storage,
+        llm=llm,
+        desensitizer=desensitizer,
+        trace_id=get_trace_id(request),
+    )
+
+
+@router.delete(
+    "/ingest/upload-sessions/{session_id}/items/{item_id}",
+    response_model=UploadSessionResponse,
+)
+async def remove_upload_session_item(
+    session_id: uuid.UUID,
+    item_id: uuid.UUID,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+) -> UploadSessionResponse:
+    return await upload_session_service.remove_item(
+        session, caller, session_id, item_id, storage=storage
     )
 
 

@@ -501,6 +501,7 @@ async def confirm(
 
     asset.current_version_id = version.id
     task.result_asset_id = asset.id
+    task.result_version_id = version.id
     # task.status=completed 表示「人工确认 + 资产落库完成」，**不含**底座索引完成。
     task.status = IngestStatus.completed.value
     task.target_scope = scope
@@ -648,6 +649,7 @@ async def approve_project_ingest_review(
         asset.current_version_id = version.id
         review.target_asset_id = asset.id
         task.result_asset_id = asset.id
+        task.result_version_id = version.id
         version.index_status = "indexing" if weknora_enabled() else "skipped"
     else:
         asset = (

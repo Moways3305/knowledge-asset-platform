@@ -1,4 +1,4 @@
-export const FOLDER_DROP_FILE_LIMIT = 200;
+export const UPLOAD_BATCH_SIZE = 200;
 
 export interface DroppedFileCandidate {
   file: File;
@@ -88,37 +88,24 @@ export async function readDroppedFiles(
 
   if (!supportsEntries) {
     const files = Array.from(dataTransfer.files ?? []);
-    const limitNotice =
-      files.length > FOLDER_DROP_FILE_LIMIT
-        ? `一次最多添加 ${FOLDER_DROP_FILE_LIMIT} 个文件条目，其余未加入队列，请分批继续上传。`
-        : "";
     return {
-      candidates: files.slice(0, FOLDER_DROP_FILE_LIMIT).map((file) => ({
+      candidates: files.map((file) => ({
         file,
         displayName: safeSegment(file.name),
       })),
-      notice: [
+      notice:
         "当前浏览器不支持读取文件夹，已仅添加可直接读取的文件；请使用最新版 Chrome 或 Edge 拖入文件夹。",
-        limitNotice,
-      ]
-        .filter(Boolean)
-        .join(" "),
     };
   }
 
   const candidates: DroppedFileCandidate[] = [];
-  let limitReached = false;
 
   const append = (candidate: DroppedFileCandidate) => {
-    if (candidates.length >= FOLDER_DROP_FILE_LIMIT) {
-      limitReached = true;
-      return;
-    }
     candidates.push(candidate);
   };
 
   const visit = async (entry: BrowserFileSystemEntry, parent: string): Promise<void> => {
-    if (!isCurrent() || limitReached) return;
+    if (!isCurrent()) return;
     const name = safeSegment(entry.name);
     const displayName = parent ? `${parent}/${name}` : name;
     if (entry.isFile) {
@@ -136,12 +123,12 @@ export async function readDroppedFiles(
     }
     for (const child of children) {
       await visit(child, displayName);
-      if (!isCurrent() || limitReached) return;
+      if (!isCurrent()) return;
     }
   };
 
   for (const item of items) {
-    if (!isCurrent() || limitReached) break;
+    if (!isCurrent()) break;
     const entry = item.webkitGetAsEntry?.() as BrowserFileSystemEntry | null | undefined;
     if (entry) {
       await visit(entry, "");
@@ -153,8 +140,6 @@ export async function readDroppedFiles(
 
   return {
     candidates,
-    notice: limitReached
-      ? `一次最多添加 ${FOLDER_DROP_FILE_LIMIT} 个文件条目，其余未加入队列，请拆分文件夹后继续上传。`
-      : null,
+    notice: null,
   };
 }

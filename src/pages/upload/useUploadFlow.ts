@@ -1,15 +1,25 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { ApiError } from "../../api/http";
+import { ApiError, createClientUuid } from "../../api/http";
 import { fetchAuthMe } from "../../api/auth";
 import {
   confirmIngest,
   createIngestUpload,
+  createUploadSession,
   deletePendingTask,
   fetchIngestAiResult,
   fetchIngestTaskStatus,
   fetchPendingIngestTasks,
+  fetchUploadSession,
+  fetchUploadSessions,
+  removeUploadSessionItem,
+  retryUploadSessionItem,
 } from "../../api/ingest";
-import type { IngestAiResultDTO, NamingFields, PendingIngestItemDTO } from "../../types/ingest";
+import type {
+  IngestAiResultDTO,
+  NamingFields,
+  PendingIngestItemDTO,
+  UploadSessionDTO,
+} from "../../types/ingest";
 import { useModelSelection } from "../../hooks/useModelSelection";
 import {
   POLL_INTERVAL_MS,
@@ -27,11 +37,13 @@ export type LocalUploadQueueState =
   | "uploading"
   | "processing"
   | "awaiting_confirmation"
+  | "completed"
+  | "cancelled"
   | "failed";
 
 export interface LocalUploadQueueItem {
   id: string;
-  file: File;
+  file: File | null;
   fileName: string;
   fileSize: number;
   fileType: string;
@@ -39,6 +51,9 @@ export interface LocalUploadQueueItem {
   error: string | null;
   ingestTaskId: string | null;
   pollAttempts: number;
+  batchNumber?: number;
+  sameNameWarning?: boolean;
+  retryable?: boolean;
 }
 
 const LOCAL_UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
@@ -78,6 +93,7 @@ export function useUploadFlow() {
   const [fileType, setFileType] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [localUploadQueue, setLocalUploadQueue] = useState<LocalUploadQueueItem[]>([]);
+  const [uploadSession, setUploadSession] = useState<UploadSessionDTO | null>(null);
   const localUploadQueueRef = useRef<LocalUploadQueueItem[]>([]);
   const localUploadWorkerRef = useRef(false);
   const localStatusPollingRef = useRef(false);
@@ -191,6 +207,11 @@ export function useUploadFlow() {
       const tasks = await fetchPendingIngestTasks("path_a_wecom");
       if (pendingRequestRef.current !== requestId) return;
       setPendingTasks(tasks);
+      setBatchSelection((selected) =>
+        selected.filter((id) =>
+          tasks.some((task) => task.id === id && task.status === "pending_confirmation"),
+        ),
+      );
     } catch (e) {
       if (pendingRequestRef.current !== requestId) return;
       setPendingError(e instanceof ApiError ? e.message : "待确认任务暂时无法加载，请稍后重试");
@@ -212,6 +233,11 @@ export function useUploadFlow() {
       const tasks = await fetchPendingIngestTasks("path_b_upload");
       if (localPendingRequestRef.current !== requestId) return;
       setLocalPendingTasks(tasks);
+      setBatchSelection((selected) =>
+        selected.filter((id) =>
+          tasks.some((task) => task.id === id && task.status === "pending_confirmation"),
+        ),
+      );
     } catch (e) {
       if (localPendingRequestRef.current !== requestId) return;
       setLocalPendingError(
@@ -234,6 +260,75 @@ export function useUploadFlow() {
     },
     [],
   );
+
+  const applyUploadSession = useCallback((value: UploadSessionDTO) => {
+    setUploadSession(value);
+    const next: LocalUploadQueueItem[] = value.items.map((item) => ({
+      id: item.id,
+      file: null,
+      fileName: item.file_name,
+      fileSize: item.file_size,
+      fileType: item.file_type || item.file_name.split(".").pop()?.toUpperCase() || "未知",
+      status: item.status === "waiting" ? "queued" : item.status,
+      error: item.error_message,
+      ingestTaskId: null,
+      pollAttempts: 0,
+      batchNumber: item.batch_number,
+      sameNameWarning: item.same_name_warning,
+      retryable: item.retryable,
+    }));
+    localUploadQueueRef.current = next;
+    setLocalUploadQueue(next);
+  }, []);
+
+  useEffect(() => {
+    if (activePath !== "b") return;
+    if (typeof fetchUploadSessions !== "function") return;
+    let active = true;
+    void fetchUploadSessions()
+      .then((sessions) => {
+        if (active && sessions[0]) applyUploadSession(sessions[0]);
+      })
+      .catch(() => {
+        // The existing pending list remains available if session recovery is temporarily offline.
+      });
+    return () => {
+      active = false;
+    };
+  }, [activePath, applyUploadSession]);
+
+  useEffect(() => {
+    if (
+      activePath !== "b" ||
+      !uploadSession ||
+      !uploadSession.items.some((item) =>
+        ["waiting", "uploading", "processing"].includes(item.status),
+      )
+    ) {
+      return;
+    }
+    let active = true;
+    let inFlight = false;
+    const refresh = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const next = await fetchUploadSession(uploadSession.id);
+        if (!active) return;
+        applyUploadSession(next);
+        if (next.completed_files > uploadSession.completed_files) void loadLocalPending();
+      } catch {
+        // Keep the last server-confirmed states; a later poll can recover.
+      } finally {
+        inFlight = false;
+      }
+    };
+    const timer = window.setInterval(() => void refresh(), POLL_INTERVAL_MS);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [activePath, applyUploadSession, loadLocalPending, uploadSession]);
 
   const removeLocalTaskEverywhere = useCallback(
     (ingestTaskId: string) => {
@@ -258,6 +353,7 @@ export function useUploadFlow() {
           ),
         );
         try {
+          if (!item.file) throw new Error("源文件不可用，请重新选择文件");
           const upload = await createIngestUpload({ file: item.file });
           updateLocalUploadQueue((items) =>
             items.map((candidate) =>
@@ -415,7 +511,8 @@ export function useUploadFlow() {
 
   const enqueueLocalFiles = useCallback(
     (files: Iterable<File | DroppedFileCandidate>) => {
-      const items = Array.from(files, (input) => {
+      const source = Array.from(files);
+      const items = source.map((input) => {
         const candidate = input instanceof File ? { file: input, displayName: input.name } : input;
         const error = candidate.readError ?? localFileError(candidate.file);
         return {
@@ -433,13 +530,64 @@ export function useUploadFlow() {
       });
       if (!items.length) return;
       updateLocalUploadQueue((current) => [...current, ...items]);
-      void processLocalUploadQueue();
+      if (typeof createUploadSession !== "function") {
+        void processLocalUploadQueue();
+        return;
+      }
+      const uploadFiles = source.map((input) => (input instanceof File ? input : input.file));
+      const requestedSessionId = createClientUuid();
+      void createUploadSession({ files: uploadFiles, sessionId: requestedSessionId })
+        .then((session) => {
+          applyUploadSession(session);
+          void loadLocalPending();
+        })
+        .catch(async (error) => {
+          try {
+            const recovered = await fetchUploadSession(requestedSessionId);
+            applyUploadSession(recovered);
+            return;
+          } catch {
+            // Keep the original safe upload error below.
+          }
+          updateLocalUploadQueue((current) =>
+            current.map((item) =>
+              items.some((created) => created.id === item.id)
+                ? {
+                    ...item,
+                    status: "failed",
+                    error:
+                      error instanceof ApiError
+                        ? error.message
+                        : "上传会话暂时无法创建，请稍后重试",
+                    retryable: false,
+                  }
+                : item,
+            ),
+          );
+        });
     },
-    [processLocalUploadQueue, updateLocalUploadQueue],
+    [applyUploadSession, loadLocalPending, processLocalUploadQueue, updateLocalUploadQueue],
   );
 
   const retryLocalUpload = useCallback(
     (id: string) => {
+      if (uploadSession?.items.some((item) => item.id === id)) {
+        void retryUploadSessionItem(uploadSession.id, id)
+          .then(applyUploadSession)
+          .catch((error) => {
+            updateLocalUploadQueue((items) =>
+              items.map((item) =>
+                item.id === id
+                  ? {
+                      ...item,
+                      error: error instanceof ApiError ? error.message : "重试失败，请稍后再试",
+                    }
+                  : item,
+              ),
+            );
+          });
+        return;
+      }
       updateLocalUploadQueue((items) =>
         items.map((item) =>
           item.id === id
@@ -455,7 +603,34 @@ export function useUploadFlow() {
       );
       void processLocalUploadQueue();
     },
-    [processLocalUploadQueue, updateLocalUploadQueue],
+    [applyUploadSession, processLocalUploadQueue, updateLocalUploadQueue, uploadSession],
+  );
+
+  const removeLocalUpload = useCallback(
+    (id: string) => {
+      if (!uploadSession) {
+        updateLocalUploadQueue((items) => items.filter((item) => item.id !== id));
+        return;
+      }
+      void removeUploadSessionItem(uploadSession.id, id)
+        .then((session) => {
+          applyUploadSession(session);
+          void loadLocalPending();
+        })
+        .catch((error) => {
+          updateLocalUploadQueue((items) =>
+            items.map((item) =>
+              item.id === id
+                ? {
+                    ...item,
+                    error: error instanceof ApiError ? error.message : "移除失败，请稍后再试",
+                  }
+                : item,
+            ),
+          );
+        });
+    },
+    [applyUploadSession, loadLocalPending, updateLocalUploadQueue, uploadSession],
   );
 
   // 把一次 ai-result 的建议填入人工校正区（Path A / Path B 共用）。
@@ -747,6 +922,14 @@ export function useUploadFlow() {
     setBatchSelection((selected) =>
       selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id],
     );
+  }, []);
+
+  const setBatchTasksSelected = useCallback((ids: string[], selected: boolean) => {
+    setBatchSelection((current) => {
+      const target = new Set(ids);
+      if (!selected) return current.filter((id) => !target.has(id));
+      return [...current, ...ids.filter((id) => !current.includes(id))];
+    });
   }, []);
 
   // The queue is intentionally awaited one item at a time. Each request uses
@@ -1063,7 +1246,9 @@ export function useUploadFlow() {
     handleDataTransferDrop,
     folderDropNotice,
     localUploadQueue,
+    uploadSession,
     retryLocalUpload,
+    removeLocalUpload,
     handleStart,
     handleRefreshProcessing,
     handleReset,
@@ -1083,6 +1268,7 @@ export function useUploadFlow() {
     batchOperation,
     batchErrors,
     toggleBatchTask,
+    setBatchTasksSelected,
     handleBatchConfirm,
     handleBatchReject,
     taskId,

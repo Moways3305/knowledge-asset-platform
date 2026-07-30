@@ -2,6 +2,7 @@ import { FileText, RefreshCw, UploadCloud, X } from "lucide-react";
 import { extractionLabel, flowLabel, formatFileSize, pendingStatusLabel } from "./uploadConstants";
 import BatchTaskProgress from "./BatchTaskProgress";
 import PendingBatchActions from "./PendingBatchActions";
+import PendingSelectAll, { isPendingTaskActionable } from "./PendingSelectAll";
 import { formatBeijingTime } from "../../utils/time";
 import type { UploadFlow } from "./useUploadFlow";
 
@@ -19,7 +20,9 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
     folderDropNotice,
     handleStart,
     localUploadQueue,
+    uploadSession,
     retryLocalUpload,
+    removeLocalUpload,
     handleRefreshProcessing,
     handleReset,
     handleDeletePending,
@@ -163,9 +166,40 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
           <div className="upload77-section-head">
             <div>
               <h2 id="local-upload-queue-title">本次上传队列</h2>
-              <p>每份文件独立上传；失败文件不会阻塞后续文件，可单独重试。</p>
+              <p>每批最多 200 项连续推进；失败文件不会阻塞后续文件，可单独重试。</p>
             </div>
           </div>
+          {uploadSession && (
+            <dl className="upload77-queue-summary" aria-label="上传会话进度">
+              <div>
+                <dt>总数</dt>
+                <dd>{uploadSession.total_files}</dd>
+              </div>
+              <div>
+                <dt>已完成</dt>
+                <dd>{uploadSession.completed_files}</dd>
+              </div>
+              <div>
+                <dt>处理中</dt>
+                <dd>{uploadSession.processing_files}</dd>
+              </div>
+              <div>
+                <dt>等待中</dt>
+                <dd>{uploadSession.waiting_files}</dd>
+              </div>
+              <div>
+                <dt>失败</dt>
+                <dd>{uploadSession.failed_files}</dd>
+              </div>
+              <div>
+                <dt>批次</dt>
+                <dd>
+                  {uploadSession.current_batch_number ?? uploadSession.total_batches}/
+                  {uploadSession.total_batches}
+                </dd>
+              </div>
+            </dl>
+          )}
           <div className="upload77-table-wrap">
             <table className="upload77-table">
               <thead>
@@ -179,45 +213,52 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
               </thead>
               <tbody>
                 {localUploadQueue.map((item) => {
-                  const progress =
-                    item.status === "queued"
-                      ? 0
-                      : item.status === "uploading" || item.status === "processing"
-                        ? 50
-                        : 100;
                   const label = {
-                    queued: "已入队",
+                    queued: "等待上传",
                     uploading: "上传中",
                     processing: "处理中",
                     awaiting_confirmation: "待确认入库",
+                    completed: "已完成",
+                    cancelled: "已取消",
                     failed: "上传失败",
                   }[item.status];
                   return (
                     <tr key={item.id}>
-                      <td>{item.fileName}</td>
+                      <td>
+                        {item.fileName}
+                        {item.sameNameWarning && (
+                          <span className="upload77-name-warning">同名，需确认</span>
+                        )}
+                      </td>
                       <td>{item.fileType}</td>
                       <td>{formatFileSize(item.fileSize)}</td>
                       <td>
                         <div className={`upload77-batch-progress is-${item.status}`}>
                           <span className="upload77-batch-state">{label}</span>
-                          <progress
-                            aria-label={`上传进度：${item.fileName}`}
-                            className={item.status === "failed" ? "is-failed" : undefined}
-                            max={100}
-                            value={progress}
-                          />
+                          {item.batchNumber && <span>第 {item.batchNumber} 批</span>}
                           {item.error && <span className="upload77-queue-error">{item.error}</span>}
                         </div>
                       </td>
                       <td>
                         {item.status === "failed" && (
-                          <button
-                            className="upload77-retry-link"
-                            onClick={() => retryLocalUpload(item.id)}
-                            type="button"
-                          >
-                            重试
-                          </button>
+                          <>
+                            {item.retryable !== false && (
+                              <button
+                                className="upload77-retry-link"
+                                onClick={() => retryLocalUpload(item.id)}
+                                type="button"
+                              >
+                                重试
+                              </button>
+                            )}
+                            <button
+                              className="upload77-retry-link"
+                              onClick={() => removeLocalUpload(item.id)}
+                              type="button"
+                            >
+                              移除
+                            </button>
+                          </>
                         )}
                       </td>
                     </tr>
@@ -274,7 +315,9 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
               <table className="upload77-table">
                 <thead>
                   <tr>
-                    <th className="upload77-batch-col">批量</th>
+                    <th className="upload77-batch-col">
+                      <PendingSelectAll tasks={localPendingTasks} flow={flow} />
+                    </th>
                     <th>文件</th>
                     <th>状态</th>
                     <th>建议标题</th>
@@ -293,7 +336,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                           <input
                             aria-label={`选择 ${task.source_file_name}`}
                             checked={batchSelection.includes(task.id)}
-                            disabled={batchBusy || itemStatus === "success"}
+                            disabled={!isPendingTaskActionable(task, flow)}
                             onChange={() => toggleBatchTask(task.id)}
                             type="checkbox"
                           />

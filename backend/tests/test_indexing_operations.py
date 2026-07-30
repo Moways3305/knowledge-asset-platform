@@ -433,6 +433,7 @@ async def test_reparse_count_and_selection_share_fail_closed_eligibility(
     assert response.status_code == 202
     assert response.json()["operation_type"] == "reparse"
     assert response.json()["total_count"] == 0
+    assert response.json()["status"] == "no_action"
     assert ok.uploads == []
 
 

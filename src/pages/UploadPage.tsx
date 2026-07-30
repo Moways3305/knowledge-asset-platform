@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
 import UploadConfirmPanel from "./upload/UploadConfirmPanel";
 import UploadStepA from "./upload/UploadStepA";
@@ -8,6 +9,7 @@ import "./UploadPage.css";
 
 export default function UploadPage() {
   const flow = useUploadFlow();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [rejectError, setRejectError] = useState<string | null>(null);
   const {
     activePath,
@@ -19,6 +21,17 @@ export default function UploadPage() {
     handleReset,
   } = flow;
   const confirmationOpen = confirmReady || confirmSubmitted;
+
+  useEffect(() => {
+    const requested = searchParams.get("source");
+    if (requested === "wecom" && activePath !== "a") switchPath("a");
+    if (requested === "local" && activePath !== "b") switchPath("b");
+  }, [activePath, searchParams, switchPath]);
+
+  const selectSource = (path: "a" | "b") => {
+    setSearchParams({ source: path === "a" ? "wecom" : "local" }, { replace: true });
+    switchPath(path);
+  };
 
   const exitConfirmation = () => {
     setRejectError(null);
@@ -51,14 +64,14 @@ export default function UploadPage() {
       <div className="upload77-source-switch" aria-label="资料来源">
         <button
           className={activePath === "b" ? "is-active" : ""}
-          onClick={() => switchPath("b")}
+          onClick={() => selectSource("b")}
           type="button"
         >
           本地上传
         </button>
         <button
           className={activePath === "a" ? "is-active" : ""}
-          onClick={() => switchPath("a")}
+          onClick={() => selectSource("a")}
           type="button"
         >
           企微微盘待确认

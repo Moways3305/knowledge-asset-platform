@@ -42,7 +42,7 @@ class IndexingJobSummary(BaseModel):
 
     job_id: uuid.UUID
     operation_type: str  # retry_index | reparse
-    status: str  # queued | running | completed | completed_with_errors | failed
+    status: str  # queued | running | completed | completed_with_errors | failed | no_action
     # 安全筛选条件回显（scope / project_id / statuses / limit）。
     scope_filter: dict | None = None
     requested_by_name: str | None = None

@@ -51,6 +51,11 @@ class IngestTask(Base):
     result_asset_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("knowledge_assets.id"), nullable=True
     )
+    # 服务端版本级源文件关联。原文字节读取必须按当前版本匹配，不能仅凭 asset_id
+    # 猜测最新入库任务；该字段及其关联的 source_file_ref 均不得进入响应。
+    result_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("knowledge_asset_versions.id"), nullable=True, index=True
+    )
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     error_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -66,6 +71,57 @@ class IngestTask(Base):
     ai_result: Mapped[IngestTaskAiResult | None] = relationship(
         back_populates="task", cascade="all, delete-orphan", uselist=False
     )
+
+
+class UploadSession(Base):
+    """A caller-owned, recoverable local-upload submission."""
+
+    __tablename__ = "upload_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    created_by: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    total_files: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_batches: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    items: Mapped[list[UploadSessionItem]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="UploadSessionItem.ordinal",
+    )
+
+
+class UploadSessionItem(Base):
+    """Safe queue metadata; file bytes remain in the task's controlled storage."""
+
+    __tablename__ = "upload_session_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("upload_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    ingest_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("ingest_tasks.id", ondelete="SET NULL"), nullable=True, unique=True
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    batch_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    file_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    file_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="waiting")
+    safe_error_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    safe_error_message: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    same_name_warning: Mapped[bool] = mapped_column(nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    session: Mapped[UploadSession] = relationship(back_populates="items")
 
 
 class IngestTaskAiResult(Base):

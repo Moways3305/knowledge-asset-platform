@@ -174,6 +174,146 @@ async def test_regenerate_returns_macos_connector_config(client):
     assert "python" not in json.dumps(kap).lower()
 
 
+@pytest.mark.parametrize(
+    ("platform", "connector_path"),
+    [
+        (
+            "windows",
+            r"D:\Custom Apps\KAP Team\kap-workbuddy-connector.exe",
+        ),
+        (
+            "macos",
+            '/Users/example/Custom "Apps"/KAP WorkBuddy Connector.app/'
+            "Contents/MacOS/kap-workbuddy-connector",
+        ),
+    ],
+)
+async def test_regenerate_uses_custom_connector_path_as_json_text_only(
+    client, platform, connector_path
+):
+    response = await client.post(
+        REGEN_URL,
+        headers=_dev(USER_CONSULTANT),
+        json={"platform": platform, "connector_path": connector_path},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["mcp_config"]["mcpServers"]["kap"]["command"] == connector_path
+    # JSON encoding must preserve spaces, Windows backslashes and valid POSIX quotes.
+    assert json.loads(response.text)["mcp_config"]["mcpServers"]["kap"]["command"] == connector_path
+
+
+async def test_custom_path_is_not_persisted_or_exposed_after_one_time_response(client, db_session):
+    connector_path = r"D:\Private Employee Folder\kap-workbuddy-connector.exe"
+    created = await client.post(
+        REGEN_URL,
+        headers=_dev(USER_CONSULTANT),
+        json={"platform": "windows", "connector_path": connector_path},
+    )
+    assert created.status_code == 200, created.text
+    assert created.json()["mcp_config"]["mcpServers"]["kap"]["command"] == connector_path
+
+    status = await client.get(TOKEN_URL, headers=_dev(USER_CONSULTANT))
+    assert status.status_code == 200
+    assert connector_path not in status.text
+    audit_events = (await db_session.execute(select(AuditEvent))).scalars().all()
+    audit_blob = json.dumps([event.extra for event in audit_events], ensure_ascii=False)
+    assert connector_path not in audit_blob
+
+
+@pytest.mark.parametrize(
+    ("platform", "connector_path"),
+    [
+        ("windows", "/Applications/KAP/kap-workbuddy-connector"),
+        ("windows", r"C:\Apps\kap-workbuddy-connector"),
+        ("macos", r"C:\Apps\kap-workbuddy-connector.exe"),
+        ("macos", "relative/kap-workbuddy-connector"),
+        ("macos", "/Applications/kap-workbuddy-connector.exe"),
+        ("macos", "/Applications/KAP\nConnector"),
+        ("macos", " /Applications/KAP/kap-workbuddy-connector"),
+    ],
+)
+async def test_invalid_custom_path_fails_before_token_rotation(
+    client, db_session, platform, connector_path
+):
+    response = await client.post(
+        REGEN_URL,
+        headers=_dev(USER_CONSULTANT),
+        json={"platform": platform, "connector_path": connector_path},
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["denied_reason"] == "workbuddy_connector_path_invalid"
+    rules = (
+        (
+            await db_session.execute(
+                select(AgentWhitelistRule).where(
+                    AgentWhitelistRule.agent_identifier == f"workbuddy:self:{USER_CONSULTANT}"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rules == []
+
+
+@pytest.mark.parametrize("invalid_char", ["<", ">", ":", '"', "/", "|", "?", "*"])
+async def test_windows_custom_path_rejects_every_invalid_filename_character(
+    client, db_session, invalid_char
+):
+    connector_path = f"C:\\Apps\\bad{invalid_char}name\\kap-workbuddy-connector.exe"
+    response = await client.post(
+        REGEN_URL,
+        headers=_dev(USER_CONSULTANT),
+        json={"platform": "windows", "connector_path": connector_path},
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["denied_reason"] == "workbuddy_connector_path_invalid"
+    rules = (
+        (
+            await db_session.execute(
+                select(AgentWhitelistRule).where(
+                    AgentWhitelistRule.agent_identifier == f"workbuddy:self:{USER_CONSULTANT}"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rules == []
+
+
+@pytest.mark.parametrize(
+    "connector_path",
+    [
+        r"C:\Apps\trailing.\kap-workbuddy-connector.exe",
+        "C:\\Apps\\trailing \\kap-workbuddy-connector.exe",
+        r"C:\Apps\CON\kap-workbuddy-connector.exe",
+        r"C:\Apps\LPT1.txt\kap-workbuddy-connector.exe",
+        r"C:\Apps\\kap-workbuddy-connector.exe",
+    ],
+)
+async def test_windows_custom_path_rejects_invalid_segments(client, db_session, connector_path):
+    response = await client.post(
+        REGEN_URL,
+        headers=_dev(USER_CONSULTANT),
+        json={"platform": "windows", "connector_path": connector_path},
+    )
+    assert response.status_code == 422
+    rules = (
+        (
+            await db_session.execute(
+                select(AgentWhitelistRule).where(
+                    AgentWhitelistRule.agent_identifier == f"workbuddy:self:{USER_CONSULTANT}"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rules == []
+
+
 async def test_get_after_regenerate_hides_token(client):
     await _regen(client)
     response = await client.get(TOKEN_URL, headers=_dev(USER_CONSULTANT))

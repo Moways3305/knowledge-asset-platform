@@ -22,7 +22,6 @@ from app.core.logging import safe_log_exception
 from app.db.utils import utc_now
 from app.models.identity import ProjectMember, User
 from app.models.indexing_job import IndexingOperationJob
-from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.schemas.enums import AssetStatus, AuditAction, AuditLogType
 from app.schemas.permission import CallerContext
@@ -30,6 +29,7 @@ from app.services import audit as audit_service
 from app.services import error_catalog, indexing
 from app.services.indexing_candidates import reparse_candidate_conditions, scope_conditions
 from app.services.permission import build_caller_context
+from app.services.source_content import resolve_version_source_task
 from app.services.storage import LocalFileStorage
 from app.services.weknora_client import (
     NullWeKnoraClient,
@@ -40,7 +40,7 @@ from app.services.weknora_client import (
 _logger = logging.getLogger(__name__)
 
 # 已处理终态（再次入队/重跑直接跳过，保证幂等）。
-_DONE_STATUSES = {"completed", "completed_with_errors", "failed"}
+_DONE_STATUSES = {"completed", "completed_with_errors", "failed", "no_action"}
 
 
 @dataclass
@@ -132,20 +132,6 @@ async def _build_actor(session: AsyncSession, job: IndexingOperationJob) -> Call
     )
 
 
-async def _source_for_asset(session: AsyncSession, asset_id: uuid.UUID) -> IngestTask | None:
-    return (
-        (
-            await session.execute(
-                select(IngestTask)
-                .where(IngestTask.result_asset_id == asset_id)
-                .order_by(IngestTask.created_at.desc())
-            )
-        )
-        .scalars()
-        .first()
-    )
-
-
 async def _process_one(
     session: AsyncSession,
     weknora: WeKnoraClient | NullWeKnoraClient,
@@ -178,7 +164,11 @@ async def _process_one(
         await session.commit()
         return "skipped"
 
-    task = await _source_for_asset(session, asset_id)
+    task = await resolve_version_source_task(
+        session,
+        asset_id=asset_id,
+        version_id=version_id,
+    )
     if task is None or not task.source_file_ref:
         outcome = await indexing.mark_index_failed(
             session, version_id=version_id, error_code="source_file_unreadable"
@@ -320,7 +310,10 @@ async def run_operation_job(
     job.success_count = success
     job.failed_count = failed
     job.skipped_count = skipped
-    job.status = "completed" if failed == 0 else "completed_with_errors"
+    if total == 0:
+        job.status = "no_action"
+    else:
+        job.status = "completed" if failed == 0 else "completed_with_errors"
     job.finished_at = utc_now()
     await session.commit()
 

@@ -6,6 +6,49 @@ export interface IngestUploadResponseDTO {
   upload_url: null;
 }
 
+export type UploadSessionItemState =
+  | "waiting"
+  | "uploading"
+  | "processing"
+  | "awaiting_confirmation"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface UploadSessionItemDTO {
+  id: string;
+  ordinal: number;
+  batch_number: number;
+  file_name: string;
+  file_size: number;
+  file_type: string | null;
+  status: UploadSessionItemState;
+  error_code: string | null;
+  error_message: string | null;
+  same_name_warning: boolean;
+  retryable: boolean;
+}
+
+export interface UploadSessionDTO {
+  id: string;
+  status: string;
+  total_files: number;
+  completed_files: number;
+  processing_files: number;
+  waiting_files: number;
+  failed_files: number;
+  current_batch_number: number | null;
+  total_batches: number;
+  created_at: string;
+  updated_at: string;
+  items: UploadSessionItemDTO[];
+}
+
+export interface UploadSessionListDTO {
+  items: UploadSessionDTO[];
+  total: number;
+}
+
 export type IngestTaskStage =
   | "upload_saved"
   | "text_extraction"

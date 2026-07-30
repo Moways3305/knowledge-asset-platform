@@ -368,6 +368,12 @@
   border-left-color: var(--color-danger);
 }
 
+.ao84-action-note.is-warning {
+  color: var(--color-warning-text);
+  background: var(--color-warning-bg);
+  border-left-color: var(--color-warning-text);
+}
+
 .ao84-jobs {
   padding-top: 12px;
 }

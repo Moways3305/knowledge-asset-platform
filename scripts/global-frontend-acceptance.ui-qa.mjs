@@ -16,6 +16,7 @@ const rootDir = path.resolve();
 const outRoot = process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa");
 const outDir = path.join(outRoot, "global-frontend-acceptance");
 const evidenceDir = path.join(outDir, "evidence");
+const suiteTimeoutMs = Number(process.env.UI_QA_SUITE_TIMEOUT_MS || 90_000);
 if (path.basename(outDir) !== "global-frontend-acceptance") {
   throw new Error(`Refusing to reset unexpected UI QA output path: ${outDir}`);
 }
@@ -179,7 +180,18 @@ function runSuite(suite) {
     };
     child.stdout.on("data", collect);
     child.stderr.on("data", collect);
-    child.on("close", (code) => resolve({ code: code ?? 1, output }));
+    const timeout = setTimeout(() => {
+      child.kill("SIGTERM");
+      resolve({
+        code: 1,
+        output: `${output}\nUI QA suite timed out after ${suiteTimeoutMs}ms: ${suite.name}`,
+        timedOut: true,
+      });
+    }, suiteTimeoutMs);
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      resolve({ code: code ?? 1, output, timedOut: false });
+    });
   });
 }
 
@@ -201,6 +213,7 @@ try {
   await ensureServer();
   for (const suite of suites) {
     await ensureServer();
+    console.log(`UI QA suite started: ${suite.name}`);
     const startedAt = Date.now();
     const execution = await runSuite(suite);
     const suiteDir = path.join(evidenceDir, suite.evidence);
@@ -235,8 +248,12 @@ try {
       reportPath: fs.existsSync(reportPath) ? path.resolve(reportPath) : null,
       cases,
       screenshots,
+      timedOut: execution.timedOut,
       failureOutput: execution.code === 0 ? null : execution.output,
     });
+    console.log(
+      `UI QA suite ${execution.code === 0 ? "passed" : "failed"}: ${suite.name} (${Date.now() - startedAt}ms)`,
+    );
   }
 } finally {
   await stopOwnedServer();
