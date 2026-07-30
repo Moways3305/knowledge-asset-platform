@@ -363,12 +363,12 @@ async def retry_task(
             await session.commit()
     elif ctx.asset is not None and ctx.version is not None:
         if ctx.version.index_status == "indexed" and ctx.version.weknora_parse_status == "failed":
-            task = await resolve_version_source_task(
+            source_task = await resolve_version_source_task(
                 session,
                 asset_id=ctx.asset.id,
                 version_id=ctx.version.id,
             )
-            if task is None:
+            if source_task is None:
                 await indexing.mark_index_failed(
                     session,
                     version_id=ctx.version.id,
@@ -376,7 +376,7 @@ async def retry_task(
                 )
             else:
                 try:
-                    file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
+                    file_bytes = storage.resolve_path(source_task.source_file_ref).read_bytes()
                 except (OSError, StorageError, ValueError):
                     await indexing.mark_index_failed(
                         session,

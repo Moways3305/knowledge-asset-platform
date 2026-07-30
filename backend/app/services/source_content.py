@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from typing import Literal, TypeAlias
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +18,17 @@ from app.models.knowledge import KnowledgeAssetVersion
 from app.services.extraction import extract_text
 from app.services.storage import LocalFileStorage, StorageError
 
-CONTENT_MESSAGES = {
+ContentStatus: TypeAlias = Literal[
+    "available",
+    "empty",
+    "source_unavailable",
+    "extraction_unsupported",
+    "extraction_failed",
+    "parse_pending",
+    "parse_failed",
+]
+
+CONTENT_MESSAGES: dict[ContentStatus, str] = {
     "available": "正文可读取。",
     "empty": "源文件存在，但未提取到可读文本。",
     "source_unavailable": "当前版本的受控源文件不可用。",
@@ -31,7 +42,7 @@ CONTENT_MESSAGES = {
 @dataclass(frozen=True)
 class SourceContent:
     text: str
-    status: str
+    status: ContentStatus
 
     @property
     def available(self) -> bool:
@@ -42,7 +53,7 @@ class SourceContent:
         return CONTENT_MESSAGES[self.status]
 
 
-def _unavailable_status(parse_status: str | None) -> str:
+def _unavailable_status(parse_status: str | None) -> ContentStatus:
     if parse_status == "failed":
         return "parse_failed"
     if parse_status in {"pending", "processing"}:
@@ -130,10 +141,11 @@ async def extract_current_version_text(
         file_name=task.source_file_name,
         mime=task.source_file_mime_type,
     )
-    status = {
+    extraction_statuses: dict[str, ContentStatus] = {
         "extracted": "available",
         "empty": "empty",
         "unsupported": "extraction_unsupported",
         "failed": "extraction_failed",
-    }.get(result.status, "extraction_failed")
+    }
+    status = extraction_statuses.get(result.status, "extraction_failed")
     return SourceContent(text=result.text if status == "available" else "", status=status)

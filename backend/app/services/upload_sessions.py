@@ -297,7 +297,8 @@ async def _reconcile_and_promote(
         else {}
     )
     for item in value.items:
-        task = tasks.get(item.ingest_task_id)
+        task_id = item.ingest_task_id
+        task = tasks.get(task_id) if task_id is not None else None
         if task is not None and item.status != "cancelled":
             item.status = _task_item_state(task)
             if item.status == "failed":
@@ -324,7 +325,10 @@ async def _reconcile_and_promote(
         else []
     )
     for item in promote_items:
-        task = tasks[item.ingest_task_id]
+        task_id = item.ingest_task_id
+        if task_id is None:
+            continue
+        task = tasks[task_id]
         task.status = IngestStatus.processing.value
         task.processing_stage = "upload_saved"
         item.status = "processing"
@@ -332,10 +336,13 @@ async def _reconcile_and_promote(
         await session.commit()
 
     for item in promote_items:
+        task_id = item.ingest_task_id
+        if task_id is None:
+            continue
         try:
             result = await enqueue_ingest_processing(
                 session,
-                item.ingest_task_id,
+                task_id,
                 storage=storage,
                 llm=llm,
                 desensitizer=desensitizer,
@@ -349,7 +356,7 @@ async def _reconcile_and_promote(
                 else "processing"
             )
         except Exception:
-            task = tasks[item.ingest_task_id]
+            task = tasks[task_id]
             task.status = IngestStatus.failed.value
             task.error_type = "queue_unavailable"
             task.error_message = "处理任务暂时无法排队"
