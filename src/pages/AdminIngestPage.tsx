@@ -66,6 +66,14 @@ const ingestStatusLabel: Record<string, string> = {
   failed: "处理失败",
 };
 
+function ingestFailureLabel(errorType: string | null): string {
+  if (errorType === "processing_timeout") return "处理超时";
+  if (errorType?.includes("extract")) return "内容提取失败";
+  if (errorType === "queue_unavailable") return "任务排队失败";
+  if (errorType?.includes("storage")) return "临时文件处理失败";
+  return "文件处理失败";
+}
+
 const urgentSeverities = new Set(["critical", "error"]);
 const diagnosticLabels: Record<DiagnosticCategory, string> = {
   configuration: "配置问题",
@@ -463,6 +471,10 @@ export default function AdminIngestPage() {
     for (const item of ingestItems) counts.set(item.status, (counts.get(item.status) ?? 0) + 1);
     return counts;
   }, [ingestItems]);
+  const failedIngestItems = useMemo(
+    () => ingestItems.filter((item) => item.status === "failed"),
+    [ingestItems],
+  );
 
   const failedItems = useMemo(() => {
     const items = opsIndex?.recent_failed ?? [];
@@ -617,6 +629,18 @@ export default function AdminIngestPage() {
                     <strong>{ingestCounts.get(status) ?? 0}</strong>
                     {label}
                   </span>
+                ))}
+              </div>
+            )}
+            {ingestState === "ready" && failedIngestItems.length > 0 && (
+              <div className="ao84-ingest-failures" aria-label="入库失败恢复建议">
+                {failedIngestItems.slice(0, 10).map((item) => (
+                  <div key={item.id}>
+                    <span>失败入库项</span>
+                    <strong>{ingestFailureLabel(item.error_type)}</strong>
+                    <span>{item.error_message ?? "文件内容无法完成处理"}</span>
+                    <span>恢复建议：由创建人在上传队列中重试或移除失败项。</span>
+                  </div>
                 ))}
               </div>
             )}

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from starlette.datastructures import UploadFile
 
+from app.api import ingest as ingest_api
 from app.models.ingest import IngestTask, UploadSessionItem
 from app.schemas.enums import IngestSource, IngestStatus
 from app.seed.dev_seed import USER_CONSULTANT, USER_PROJECT_MANAGER
@@ -194,3 +198,181 @@ async def test_next_batch_waits_then_advances_when_the_current_batch_releases_ca
     assert all(item["status"] == "awaiting_confirmation" for item in next_body["items"][:200])
     assert all(item["status"] == "processing" for item in next_body["items"][200:400])
     assert next_body["items"][400]["status"] == "waiting"
+
+
+async def test_macos_metadata_is_rejected_before_task_creation_without_false_positives(
+    client, db_session
+):
+    before = (await db_session.execute(select(func.count()).select_from(IngestTask))).scalar_one()
+    response = await client.post(
+        "/api/v1/ingest/upload-sessions",
+        headers=_headers(USER_CONSULTANT),
+        files=[
+            ("files", ("._foo.md", b"apple-double", "text/markdown")),
+            ("files", (".DS_Store", b"finder", "application/octet-stream")),
+            ("files", (".notes.md", b"real hidden note", "text/markdown")),
+            ("files", ("中文 资料.md", b"real chinese note", "text/markdown")),
+        ],
+        data={
+            "client_rejections": (
+                '[{"file_name":"__MACOSX/._archive.md","file_size":12,'
+                '"error_code":"macos_metadata"}]'
+            )
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    failures = {item["file_name"]: item for item in body["items"] if item["status"] == "failed"}
+    assert failures["._foo.md"]["error_code"] == "macos_metadata"
+    assert failures[".DS_Store"]["error_code"] == "macos_metadata"
+    assert failures["._archive.md"]["error_code"] == "macos_metadata"
+    assert "macOS 元数据文件" in failures["._foo.md"]["error_message"]
+    assert all(
+        "/" not in item["file_name"] and "\\" not in item["file_name"] for item in body["items"]
+    )
+    after = (await db_session.execute(select(func.count()).select_from(IngestTask))).scalar_one()
+    assert after - before == 2
+
+
+async def test_legacy_single_upload_rejects_macos_metadata_before_task_creation(client, db_session):
+    before = (await db_session.execute(select(func.count()).select_from(IngestTask))).scalar_one()
+    response = await client.post(
+        "/api/v1/ingest/upload",
+        headers=_headers(USER_CONSULTANT),
+        files={"file": ("._legacy.md", b"metadata", "text/markdown")},
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["denied_reason"] == "macos_metadata"
+    assert "macOS 元数据文件" in response.json()["detail"]["message"]
+    after = (await db_session.execute(select(func.count()).select_from(IngestTask))).scalar_one()
+    assert after == before
+
+
+async def test_unreadable_upload_is_a_terminal_item_without_a_task(client, db_session, monkeypatch):
+    async def unreadable(self, size=-1):
+        raise OSError("private provider detail")
+
+    monkeypatch.setattr(UploadFile, "read", unreadable)
+    before = (await db_session.execute(select(func.count()).select_from(IngestTask))).scalar_one()
+    response = await client.post(
+        "/api/v1/ingest/upload-sessions",
+        headers=_headers(USER_CONSULTANT),
+        files={"files": ("cloud.docx", b"placeholder", "application/octet-stream")},
+    )
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["status"] == "failed"
+    assert item["error_code"] == "file_unreadable"
+    assert item["error_message"] == "文件内容当前不可读取；请先在本机完成下载后重新选择"
+    assert "private provider detail" not in response.text
+    after = (await db_session.execute(select(func.count()).select_from(IngestTask))).scalar_one()
+    assert after == before
+
+
+async def test_upload_read_timeout_is_terminal_without_a_task(client, db_session, monkeypatch):
+    async def slow_read(self, size=-1):
+        await asyncio.sleep(0.05)
+        return b"late"
+
+    monkeypatch.setattr(UploadFile, "read", slow_read)
+    monkeypatch.setattr(ingest_api, "_UPLOAD_READ_TIMEOUT_SECONDS", 0.001)
+    before = (await db_session.execute(select(func.count()).select_from(IngestTask))).scalar_one()
+    response = await client.post(
+        "/api/v1/ingest/upload-sessions",
+        headers=_headers(USER_CONSULTANT),
+        files={"files": ("cloud.docx", b"placeholder", "application/octet-stream")},
+    )
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["status"] == "failed"
+    assert item["error_code"] == "file_read_timeout"
+    after = (await db_session.execute(select(func.count()).select_from(IngestTask))).scalar_one()
+    assert after == before
+
+
+async def test_stale_processing_requires_total_age_and_missing_recent_activity(
+    client, db_session, monkeypatch
+):
+    async def queued_without_worker(*args, **kwargs):
+        return "processing"
+
+    monkeypatch.setattr(upload_sessions, "enqueue_ingest_processing", queued_without_worker)
+    created = await client.post(
+        "/api/v1/ingest/upload-sessions",
+        headers=_headers(USER_CONSULTANT),
+        files=[
+            ("files", ("stale.txt", b"stale", "text/plain")),
+            ("files", ("active.txt", b"active", "text/plain")),
+        ],
+    )
+    assert created.status_code == 200
+    item_task_ids = list(
+        (
+            await db_session.execute(
+                select(UploadSessionItem.ingest_task_id)
+                .where(UploadSessionItem.session_id == uuid.UUID(created.json()["id"]))
+                .order_by(UploadSessionItem.ordinal)
+            )
+        ).scalars()
+    )
+    stale, active = list(
+        (
+            await db_session.execute(
+                select(IngestTask)
+                .where(IngestTask.id.in_(item_task_ids))
+                .order_by(IngestTask.source_file_name.desc())
+            )
+        ).scalars()
+    )
+    now = datetime.now(timezone.utc)
+    stale.created_at = now - timedelta(hours=3)
+    stale.updated_at = now - timedelta(minutes=30)
+    active.created_at = now - timedelta(hours=3)
+    active.updated_at = now - timedelta(minutes=5)
+    await db_session.commit()
+
+    recovered = await client.get(
+        f"/api/v1/ingest/upload-sessions/{created.json()['id']}",
+        headers=_headers(USER_CONSULTANT),
+    )
+    assert recovered.status_code == 200
+    statuses = {item["file_name"]: item for item in recovered.json()["items"]}
+    assert statuses[stale.source_file_name]["status"] == "failed"
+    assert statuses[stale.source_file_name]["error_code"] == "processing_timeout"
+    assert statuses[active.source_file_name]["status"] == "processing"
+
+    repeated = await client.get(
+        f"/api/v1/ingest/upload-sessions/{created.json()['id']}",
+        headers=_headers(USER_CONSULTANT),
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["failed_files"] == 1
+
+
+async def test_bulk_failed_cleanup_is_caller_scoped_and_immediately_hides_items(client):
+    created = await client.post(
+        "/api/v1/ingest/upload-sessions",
+        headers=_headers(USER_CONSULTANT),
+        files={"files": ("unsafe.exe", b"blocked", "application/octet-stream")},
+    )
+    assert created.status_code == 200
+    session_id = created.json()["id"]
+
+    denied = await client.delete(
+        f"/api/v1/ingest/upload-sessions/{session_id}/failed-items",
+        headers=_headers(USER_PROJECT_MANAGER),
+    )
+    assert denied.status_code == 404
+
+    cleaned = await client.delete(
+        f"/api/v1/ingest/upload-sessions/{session_id}/failed-items",
+        headers=_headers(USER_CONSULTANT),
+    )
+    assert cleaned.status_code == 200
+    assert cleaned.json()["items"] == []
+    repeated = await client.delete(
+        f"/api/v1/ingest/upload-sessions/{session_id}/failed-items",
+        headers=_headers(USER_CONSULTANT),
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["items"] == []

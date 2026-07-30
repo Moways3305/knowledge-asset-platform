@@ -5,6 +5,7 @@ from __future__ import annotations
 import unicodedata
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -36,6 +37,10 @@ _PENDING_NAME_WARNING_STATUSES = {
     IngestStatus.rejected.value,
     IngestStatus.waiting_review.value,
 }
+MACOS_METADATA_MESSAGE = "这是 macOS 元数据文件，不是原始资料；请选择不带 `._` 前缀的原文件"
+UNREADABLE_FILE_MESSAGE = "文件内容当前不可读取；请先在本机完成下载后重新选择"
+PROCESSING_MAX_AGE = timedelta(hours=2)
+PROCESSING_ACTIVITY_GRACE = timedelta(minutes=15)
 
 
 @dataclass(frozen=True)
@@ -59,6 +64,89 @@ def _display_name(value: str) -> str:
     """Keep a display basename, never a client absolute/relative path."""
     cleaned = "".join(char for char in value if ord(char) >= 32 and ord(char) != 127)
     return (cleaned.replace("\\", "/").rsplit("/", 1)[-1].strip() or "file")[:500]
+
+
+def macos_metadata_error(value: str) -> str | None:
+    """Recognize only explicit macOS/archive metadata patterns."""
+    normalized = value.replace("\\", "/")
+    segments = [segment for segment in normalized.split("/") if segment]
+    basename = segments[-1] if segments else normalized
+    if (
+        basename.startswith("._")
+        or basename.casefold() == ".ds_store"
+        or any(segment.casefold() == "__macosx" for segment in segments[:-1])
+    ):
+        return MACOS_METADATA_MESSAGE
+    return None
+
+
+def _aware(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+def _is_stale_processing(task: IngestTask, now: datetime) -> bool:
+    return (
+        task.source == IngestSource.path_b_upload.value
+        and task.status == IngestStatus.processing.value
+        and task.result_asset_id is None
+        and _aware(task.created_at) <= now - PROCESSING_MAX_AGE
+        and _aware(task.updated_at) <= now - PROCESSING_ACTIVITY_GRACE
+    )
+
+
+async def expire_stale_tasks(
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    task_ids: list[uuid.UUID] | None = None,
+    trace_id: str,
+    now: datetime | None = None,
+    all_owners: bool = False,
+) -> int:
+    """Fail only caller-owned processing tasks with no recent activity evidence."""
+    if all_owners and not ("admin" in caller.active_company_roles or caller.can_discover_l5):
+        raise _denied(403, "stale_task_recovery_forbidden", "无权执行全局任务收敛")
+    stmt = select(IngestTask).where(
+        IngestTask.source == IngestSource.path_b_upload.value,
+        IngestTask.status == IngestStatus.processing.value,
+        IngestTask.result_asset_id.is_(None),
+    )
+    if not all_owners:
+        stmt = stmt.where(IngestTask.created_by == caller.user_id)
+    if task_ids is not None:
+        if not task_ids:
+            return 0
+        stmt = stmt.where(IngestTask.id.in_(task_ids))
+    tasks = (await session.execute(stmt.with_for_update())).scalars().all()
+    current = now or datetime.now(timezone.utc)
+    expired = 0
+    for task in tasks:
+        if not _is_stale_processing(task, current):
+            continue
+        task.status = IngestStatus.failed.value
+        task.processing_stage = None
+        task.error_type = "processing_timeout"
+        task.error_message = "文件处理超过安全时限且近期无活动"
+        await audit_service.record_event(
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.ingest_failed.value,
+            trace_id=trace_id,
+            target_type="ingest_task",
+            target_id=task.id,
+            after={
+                "status": task.status,
+                "error_type": task.error_type,
+                "processing_timeout_minutes": int(PROCESSING_MAX_AGE.total_seconds() / 60),
+                "activity_grace_minutes": int(PROCESSING_ACTIVITY_GRACE.total_seconds() / 60),
+            },
+            project_id=task.target_project_id,
+        )
+        expired += 1
+    if expired:
+        await session.commit()
+    return expired
 
 
 def _normalized_name(value: str) -> str:
@@ -149,6 +237,22 @@ async def create_session(
         )
         session.add(item)
         if candidate.error_code:
+            await session.flush()
+            await audit_service.record_event(
+                session,
+                caller=caller,
+                log_type=AuditLogType.operation,
+                action=AuditAction.ingest_failed.value,
+                trace_id=trace_id,
+                target_type="upload_session_item",
+                target_id=item.id,
+                after={
+                    "status": "failed",
+                    "error_type": candidate.error_code,
+                    "upload_batch_number": item.batch_index + 1,
+                },
+                project_id=target_project_id,
+            )
             continue
         if candidate.storage_ref is None or candidate.content_hash is None:
             item.status = "failed"
@@ -286,6 +390,13 @@ async def _reconcile_and_promote(
 ) -> None:
     value = await _load_owned_session(session, caller, session_id, lock=True)
     task_ids = [item.ingest_task_id for item in value.items if item.ingest_task_id]
+    await expire_stale_tasks(
+        session,
+        caller,
+        task_ids=task_ids,
+        trace_id=trace_id,
+    )
+    value = await _load_owned_session(session, caller, session_id, lock=True)
     tasks = (
         {
             task.id: task
@@ -303,7 +414,11 @@ async def _reconcile_and_promote(
             item.status = _task_item_state(task)
             if item.status == "failed":
                 item.safe_error_code = task.error_type or "processing_failed"
-                item.safe_error_message = "文件处理失败，请检查文件后重试"
+                item.safe_error_message = (
+                    "文件处理超过安全时限且近期无活动；请重试或移除"
+                    if task.error_type == "processing_timeout"
+                    else "文件处理失败，请检查文件后重试"
+                )
 
     batches = sorted({item.batch_index for item in value.items})
     batch_to_promote: int | None = None
@@ -383,9 +498,10 @@ async def _reconcile_and_promote(
 
 
 def _response(value: UploadSession) -> UploadSessionResponse:
-    states = [item.status for item in value.items]
+    visible_items = [item for item in value.items if item.status != "cancelled"]
+    states = [item.status for item in visible_items]
     active_batches = [
-        item.batch_index for item in value.items if item.status not in _TERMINAL_ITEM_STATES
+        item.batch_index for item in visible_items if item.status not in _TERMINAL_ITEM_STATES
     ]
     completed = sum(state in _COMPLETED_ITEM_STATES for state in states)
     processing = states.count("processing") + states.count("uploading")
@@ -418,7 +534,7 @@ def _response(value: UploadSession) -> UploadSessionResponse:
                 same_name_warning=item.same_name_warning,
                 retryable=item.status == "failed" and item.ingest_task_id is not None,
             )
-            for item in value.items
+            for item in visible_items
         ],
     )
 
@@ -544,25 +660,69 @@ async def remove_item(
     item = next((candidate for candidate in value.items if candidate.id == item_id), None)
     if item is None:
         raise _denied(404, "upload_item_not_found", "上传文件不存在")
-    if item.status in {"processing", "uploading"}:
-        raise _denied(409, "upload_item_in_progress", "文件处理中，暂时不能移除")
+    if item.status != "failed":
+        raise _denied(409, "upload_item_not_failed", "仅可移除终态失败文件")
     if item.ingest_task_id is not None:
         task = (
             await session.execute(
                 select(IngestTask).where(
                     IngestTask.id == item.ingest_task_id,
                     IngestTask.created_by == caller.user_id,
+                    IngestTask.status == IngestStatus.failed.value,
                     IngestTask.result_asset_id.is_(None),
                 )
             )
         ).scalar_one_or_none()
-        if task is not None:
-            storage.delete(task.source_file_ref)
-            await session.delete(task)
-            item.ingest_task_id = None
+        if task is None:
+            raise _denied(
+                409,
+                "upload_item_cleanup_conflict",
+                "该失败项已发生状态变化，请刷新后重试",
+            )
+        storage.delete(task.source_file_ref)
+        await session.delete(task)
+        item.ingest_task_id = None
     item.status = "cancelled"
     item.safe_error_code = None
     item.safe_error_message = None
+    value.status = (
+        "completed"
+        if all(candidate.status in _TERMINAL_ITEM_STATES for candidate in value.items)
+        else "active"
+    )
+    await session.commit()
+    return _response(await _load_owned_session(session, caller, session_id))
+
+
+async def remove_failed_items(
+    session: AsyncSession,
+    caller: CallerContext,
+    session_id: uuid.UUID,
+    *,
+    storage: LocalFileStorage,
+) -> UploadSessionResponse:
+    """Remove only caller-owned failed tasks and controlled temporary data."""
+    value = await _load_owned_session(session, caller, session_id, lock=True)
+    for item in [candidate for candidate in value.items if candidate.status == "failed"]:
+        if item.ingest_task_id is not None:
+            task = (
+                await session.execute(
+                    select(IngestTask).where(
+                        IngestTask.id == item.ingest_task_id,
+                        IngestTask.created_by == caller.user_id,
+                        IngestTask.status == IngestStatus.failed.value,
+                        IngestTask.result_asset_id.is_(None),
+                    )
+                )
+            ).scalar_one_or_none()
+            if task is None:
+                continue
+            storage.delete(task.source_file_ref)
+            await session.delete(task)
+            item.ingest_task_id = None
+        item.status = "cancelled"
+        item.safe_error_code = None
+        item.safe_error_message = None
     value.status = (
         "completed"
         if all(candidate.status in _TERMINAL_ITEM_STATES for candidate in value.items)

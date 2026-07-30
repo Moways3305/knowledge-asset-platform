@@ -40,6 +40,7 @@ const ingest = vi.hoisted(() => ({
   fetchUploadSession: undefined,
   retryUploadSessionItem: undefined,
   removeUploadSessionItem: undefined,
+  removeFailedUploadSessionItems: undefined,
   fetchIngestAiResult: vi.fn(),
   fetchIngestTaskStatus: vi.fn(),
   fetchPendingIngestTasks: vi.fn(),
@@ -352,22 +353,55 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       "two.pdf",
     ]);
     expect(result.current.localUploadQueue.map((item) => item.fileName)).toEqual([
-      "客户资料/one.txt",
-      "客户资料/子目录/bad.exe",
-      "客户资料/子目录/large.pdf",
-      "客户资料/子目录/two.pdf",
-      "客户资料/子目录/locked.docx",
+      "one.txt",
+      "bad.exe",
+      "large.pdf",
+      "two.pdf",
+      "locked.docx",
     ]);
     expect(result.current.localUploadQueue.map((item) => item.error)).toEqual([
       null,
       "该文件类型暂不支持上传",
       "文件超过 25 MiB 大小上限",
       null,
-      "无法读取该文件，请检查本机权限后重试",
+      "文件内容当前不可读取；请先在本机完成下载后重新选择",
     ]);
     expect(JSON.stringify(result.current.localUploadQueue)).not.toMatch(
       /[A-Za-z]:\\|\/Users\/|webkitRelativePath/,
     );
+  });
+
+  it("拒绝 macOS 伴生文件且不误伤普通隐藏文件", async () => {
+    const transfer = folderDataTransfer([
+      droppedDirectory("__MACOSX", [
+        droppedFile(new File(["metadata"], "._archive.md", { type: "text/markdown" })),
+      ]),
+      droppedFile(new File(["finder"], ".DS_Store")),
+      droppedFile(new File(["metadata"], "._foo.md", { type: "text/markdown" })),
+      droppedFile(new File(["real"], ".notes.md", { type: "text/markdown" })),
+      droppedFile(new File(["real"], "中文 资料.md", { type: "text/markdown" })),
+    ]);
+    const { result } = renderHook(() => useUploadFlow());
+
+    await act(async () => result.current.handleDataTransferDrop(transfer));
+    await waitFor(() => expect(result.current.localUploadQueue).toHaveLength(5));
+    expect(result.current.localUploadQueue.map((item) => item.status)).toEqual([
+      "failed",
+      "failed",
+      "failed",
+      "awaiting_confirmation",
+      "awaiting_confirmation",
+    ]);
+    expect(result.current.localUploadQueue.slice(0, 3).map((item) => item.error)).toEqual([
+      "这是 macOS 元数据文件，不是原始资料；请选择不带 `._` 前缀的原文件",
+      "这是 macOS 元数据文件，不是原始资料；请选择不带 `._` 前缀的原文件",
+      "这是 macOS 元数据文件，不是原始资料；请选择不带 `._` 前缀的原文件",
+    ]);
+    expect(ingest.createIngestUpload.mock.calls.map((call) => call[0].file.name)).toEqual([
+      ".notes.md",
+      "中文 资料.md",
+    ]);
+    expect(JSON.stringify(result.current.localUploadQueue)).not.toContain("__MACOSX");
   });
 
   it("目录 API 不可用时回退普通文件并给出可行动提示", async () => {

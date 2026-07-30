@@ -30,6 +30,7 @@ const ingest = vi.hoisted(() => ({
   fetchUploadSession: vi.fn(),
   retryUploadSessionItem: vi.fn(),
   removeUploadSessionItem: vi.fn(),
+  removeFailedUploadSessionItems: vi.fn(),
   fetchPendingIngestTasks: vi.fn(),
   createIngestUpload: vi.fn(),
   fetchIngestAiResult: vi.fn(),
@@ -109,6 +110,26 @@ describe("useUploadFlow persistent upload sessions", () => {
           result.current.localUploadQueue.filter((item) => item.batchNumber === batch).length,
       ),
     ).toEqual([200, 200, 200, 100]);
+    expect(result.current.intakeFeedback?.batchSizes).toEqual([200, 200, 200, 100]);
+  });
+
+  it("does not send macOS metadata bytes and keeps a real hidden document", async () => {
+    ingest.createUploadSession.mockResolvedValue(session(3));
+    const { result } = renderHook(() => useUploadFlow());
+    const files = [
+      new File(["metadata"], "._foo.md", { type: "text/markdown" }),
+      new File(["finder"], ".DS_Store"),
+      new File(["real"], ".notes.md", { type: "text/markdown" }),
+    ];
+
+    act(() => result.current.handleFileDrop(files));
+    await waitFor(() => expect(ingest.createUploadSession).toHaveBeenCalledTimes(1));
+    const request = ingest.createUploadSession.mock.calls[0][0];
+    expect(request.files.map((file: File) => file.name)).toEqual([".notes.md"]);
+    expect(request.rejectedFiles).toEqual([
+      expect.objectContaining({ file_name: "._foo.md", error_code: "macos_metadata" }),
+      expect.objectContaining({ file_name: ".DS_Store", error_code: "macos_metadata" }),
+    ]);
   });
 
   it("recovers the exact idempotent session after a lost create response", async () => {

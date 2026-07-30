@@ -8,6 +8,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -68,6 +69,21 @@ class UploadSessionResponse(BaseModel):
 class UploadSessionListResponse(BaseModel):
     items: list[UploadSessionResponse]
     total: int
+
+
+class UploadClientRejection(BaseModel):
+    """A client-side intake failure. The server revalidates safe claims."""
+
+    file_name: str
+    file_size: int = 0
+    file_type: str | None = None
+    error_code: Literal[
+        "file_unreadable",
+        "file_read_timeout",
+        "macos_metadata",
+        "unsupported_file_type",
+        "file_too_large",
+    ]
 
 
 class IngestTaskStage(str, Enum):

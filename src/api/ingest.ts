@@ -45,12 +45,26 @@ export async function createIngestUpload(input: {
 
 export async function createUploadSession(input: {
   files: File[];
+  rejectedFiles?: Array<{
+    file_name: string;
+    file_size: number;
+    file_type?: string;
+    error_code:
+      | "file_unreadable"
+      | "file_read_timeout"
+      | "macos_metadata"
+      | "unsupported_file_type"
+      | "file_too_large";
+  }>;
   sessionId?: string;
   targetScope?: string;
   targetProjectId?: string;
 }): Promise<UploadSessionDTO> {
   const form = new FormData();
   input.files.forEach((file) => form.append("files", file, file.name));
+  if (input.rejectedFiles?.length) {
+    form.append("client_rejections", JSON.stringify(input.rejectedFiles));
+  }
   if (input.sessionId) form.append("session_id", input.sessionId);
   if (input.targetScope) form.append("target_scope", input.targetScope);
   if (input.targetProjectId) form.append("target_project_id", input.targetProjectId);
@@ -88,6 +102,10 @@ export async function removeUploadSessionItem(
   itemId: string,
 ): Promise<UploadSessionDTO> {
   return apiDelete<UploadSessionDTO>(`/api/v1/ingest/upload-sessions/${sessionId}/items/${itemId}`);
+}
+
+export async function removeFailedUploadSessionItems(sessionId: string): Promise<UploadSessionDTO> {
+  return apiDelete<UploadSessionDTO>(`/api/v1/ingest/upload-sessions/${sessionId}/failed-items`);
 }
 
 export async function fetchIngestAiResult(taskId: string): Promise<IngestAiResultDTO> {

@@ -38,11 +38,13 @@ function flowFixture(overrides: Record<string, unknown> = {}): UploadFlow {
     handleFileSelect: vi.fn(),
     handleDataTransferDrop: vi.fn().mockResolvedValue(undefined),
     folderDropNotice: null,
+    intakeFeedback: null,
     handleStart: vi.fn(),
     localUploadQueue: [],
     uploadSession: null,
     retryLocalUpload: vi.fn(),
     removeLocalUpload: vi.fn(),
+    removeFailedLocalUploads: vi.fn(),
     handleRefreshProcessing: vi.fn(),
     handleReset: vi.fn(),
     handleDeletePending: vi.fn(),
@@ -82,6 +84,32 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(flow.handleDataTransferDrop).toHaveBeenCalledWith(dataTransfer);
     expect(screen.getByText(/PPTX 自动提取/)).toBeInTheDocument();
     expect(screen.getByText(/旧 \.ppt 仅保存，需人工补全/)).toBeInTheDocument();
+  });
+
+  it("shows a distinct drag state and persistent 700-item batch feedback", () => {
+    const flow = flowFixture({
+      batchSelection: [],
+      intakeFeedback: {
+        kind: "accepted",
+        total: 700,
+        accepted: 700,
+        rejected: 0,
+        waitingBatches: 3,
+        batchSizes: [200, 200, 200, 100],
+        message: "全部已接收，后续批次将自动等待（200 + 200 + 200 + 100）。",
+      },
+    });
+    const { container } = render(<UploadStepB flow={flow} />);
+    const dropzone = container.querySelector(".upload77-dropzone")!;
+
+    fireEvent.dragEnter(dropzone);
+    expect(dropzone).toHaveAttribute("data-dragging", "true");
+    expect(screen.getByText("松开即可逐项检查")).toBeInTheDocument();
+    expect(screen.getByLabelText("本次上传接收结果")).toHaveTextContent("检测700");
+    expect(screen.getByLabelText("本次上传接收结果")).toHaveTextContent("等待批次3");
+    expect(screen.getByLabelText("本次上传接收结果")).toHaveTextContent(
+      "批次分布：200 + 200 + 200 + 100",
+    );
   });
 
   it("shows a safe folder fallback notice without rendering an absolute path", () => {

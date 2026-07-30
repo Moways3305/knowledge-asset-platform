@@ -11,6 +11,7 @@ vi.mock("../auth/AuthContext", () => ({ useAuth: () => authState }));
 const api = vi.hoisted(() => ({
   fetchWorkbuddyConnectors: vi.fn(),
   fetchWorkbuddyToken: vi.fn(),
+  downloadWorkbuddyConnector: vi.fn(),
   regenerateWorkbuddyToken: vi.fn(),
   revokeWorkbuddyToken: vi.fn(),
 }));
@@ -67,8 +68,18 @@ describe("WorkbuddyAccessCard", () => {
     authState.authMe = { isBusinessUser: true };
     api.fetchWorkbuddyConnectors.mockReset().mockResolvedValue(manifest);
     api.fetchWorkbuddyToken.mockReset().mockResolvedValue(disabledStatus);
+    api.downloadWorkbuddyConnector.mockReset().mockResolvedValue(new Blob(["connector"]));
     api.regenerateWorkbuddyToken.mockReset();
     api.revokeWorkbuddyToken.mockReset().mockResolvedValue(undefined);
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:connector"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
   });
 
   it("不向非业务用户显示入口或请求接口", () => {
@@ -82,10 +93,10 @@ describe("WorkbuddyAccessCard", () => {
   it("让用户明确确认 Windows 平台、安装包和默认命令", async () => {
     render(<WorkbuddyAccessCard />);
     expect(
-      await screen.findByRole("link", {
+      await screen.findByRole("button", {
         name: "下载 kap-workbuddy-connector-1.2.3-windows-x64-setup.exe",
       }),
-    ).toHaveAttribute("href", "/windows-download");
+    ).toBeEnabled();
     expect(screen.getByText("Windows · x64 · 版本 1.2.3")).toBeInTheDocument();
     expect(screen.getByText("将生成 Windows 配置")).toBeInTheDocument();
     expect(
@@ -95,24 +106,45 @@ describe("WorkbuddyAccessCard", () => {
     ).toBeInTheDocument();
   });
 
+  it("下载开始、失败与重试反馈都不误报安装或连接", async () => {
+    const user = userEvent.setup();
+    api.downloadWorkbuddyConnector.mockRejectedValueOnce(new Error("network"));
+    render(<WorkbuddyAccessCard />);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "下载 kap-workbuddy-connector-1.2.3-windows-x64-setup.exe",
+      }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("下载未完成");
+    expect(screen.getByRole("alert")).toHaveTextContent("重试");
+    expect(screen.getAllByText("未生成").length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "重试下载" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("下载已开始");
+    expect(screen.getByRole("status")).toHaveTextContent("无法确认文件是否已保存或安装");
+    expect(api.downloadWorkbuddyConnector).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("已安装")).not.toBeInTheDocument();
+  });
+
   it("切换 macOS 架构只改变匹配的下载包，不轮换 token", async () => {
     const user = userEvent.setup();
     render(<WorkbuddyAccessCard />);
     await user.click(await screen.findByRole("radio", { name: "macOS" }));
     expect(
-      screen.getByRole("link", {
+      screen.getByRole("button", {
         name: "下载 kap-workbuddy-connector-1.2.3-macos-arm64.pkg",
       }),
-    ).toHaveAttribute("href", "/mac-arm-download");
+    ).toBeEnabled();
     expect(screen.getByText("将生成 macOS 配置")).toBeInTheDocument();
     expect(screen.queryByText(/\.exe$/)).not.toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText("Mac 芯片架构"), "x64");
     expect(
-      screen.getByRole("link", {
+      screen.getByRole("button", {
         name: "下载 kap-workbuddy-connector-1.2.3-macos-x64.pkg",
       }),
-    ).toHaveAttribute("href", "/mac-x64-download");
+    ).toBeEnabled();
     expect(api.regenerateWorkbuddyToken).not.toHaveBeenCalled();
   });
 
@@ -176,7 +208,9 @@ describe("WorkbuddyAccessCard", () => {
 
   it("显示已验证的 v5.3.5 入口并提醒只合并 kap 节点", async () => {
     render(<WorkbuddyAccessCard />);
-    await screen.findByRole("link");
+    await screen.findByRole("button", {
+      name: "下载 kap-workbuddy-connector-1.2.3-windows-x64-setup.exe",
+    });
     expect(screen.getByText(/已验证于 WorkBuddy v5\.3\.5/)).toBeInTheDocument();
     expect(screen.getByText("专家·技能·连接器")).toBeInTheDocument();
     expect(screen.getByText("自定义连接器")).toBeInTheDocument();

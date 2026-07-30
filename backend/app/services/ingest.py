@@ -1074,10 +1074,24 @@ async def delete_pending_task(
     await session.commit()
 
 
-async def list_admin_ingest(session: AsyncSession, caller: CallerContext) -> list[AdminIngestItem]:
+async def list_admin_ingest(
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    trace_id: str = "admin-ingest",
+) -> list[AdminIngestItem]:
     """运营只读列表：admin 或治理角色可看运营元数据（无业务原文 / 内部引用）。"""
     if not (_is_admin(caller) or _is_governance(caller)):
         raise _denied(403, "ingest_admin_forbidden", "无权查看入库运营列表")
+
+    from app.services import upload_sessions
+
+    await upload_sessions.expire_stale_tasks(
+        session,
+        caller,
+        trace_id=trace_id,
+        all_owners=True,
+    )
 
     from sqlalchemy.orm import selectinload
 
@@ -1096,11 +1110,12 @@ async def list_admin_ingest(session: AsyncSession, caller: CallerContext) -> lis
     items: list[AdminIngestItem] = []
     for t in tasks:
         ai = t.ai_result
+        safe_file_name = (t.source_file_name or "file").replace("\\", "/").rsplit("/", 1)[-1]
         items.append(
             AdminIngestItem(
                 id=t.id,
                 source=t.source,
-                source_file_name=t.source_file_name,
+                source_file_name=safe_file_name,
                 status=t.status,
                 target_scope=t.target_scope,
                 confidentiality_level=ai.suggested_confidentiality_level if ai else None,
@@ -1109,7 +1124,13 @@ async def list_admin_ingest(session: AsyncSession, caller: CallerContext) -> lis
                 naming_compliant=ai.naming_compliant if ai else None,
                 extraction_status=ai.extraction_status if ai else None,
                 error_type=t.error_type,
-                error_message=t.error_message,
+                error_message=(
+                    "文件处理超过安全时限且近期无活动"
+                    if t.error_type == "processing_timeout"
+                    else "文件内容无法完成处理"
+                    if t.status == IngestStatus.failed.value
+                    else None
+                ),
                 result_asset_id=t.result_asset_id,
                 created_at=t.created_at,
             )

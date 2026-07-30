@@ -978,3 +978,31 @@
     align-items: flex-start;
   }
 }
+.ao84-ingest-failures {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ao84-ingest-failures > div {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) 110px minmax(180px, 1fr) minmax(240px, 1.3fr);
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 5px;
+  background: var(--color-bg-muted);
+  font-size: 12px;
+}
+
+.ao84-ingest-failures strong {
+  color: #9a3412;
+}
+
+@media (max-width: 900px) {
+  .ao84-ingest-failures > div {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}

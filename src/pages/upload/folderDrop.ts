@@ -1,4 +1,25 @@
 export const UPLOAD_BATCH_SIZE = 200;
+export const MACOS_METADATA_MESSAGE =
+  "这是 macOS 元数据文件，不是原始资料；请选择不带 `._` 前缀的原文件";
+export const UNREADABLE_FILE_MESSAGE = "文件内容当前不可读取；请先在本机完成下载后重新选择";
+
+export function isMacosMetadataPath(value: string): boolean {
+  const segments = value.replace(/\\/g, "/").split("/").filter(Boolean);
+  const basename = segments[segments.length - 1] ?? value;
+  return (
+    basename.startsWith("._") ||
+    basename.toLowerCase() === ".ds_store" ||
+    segments.slice(0, -1).some((segment) => segment.toLowerCase() === "__macosx")
+  );
+}
+
+export function safeRejectedDisplayName(value: string): string {
+  const segments = value.replace(/\\/g, "/").split("/").filter(Boolean);
+  const basename = safeSegment(segments[segments.length - 1] ?? value);
+  return segments.slice(0, -1).some((segment) => segment.toLowerCase() === "__macosx")
+    ? `__MACOSX/${basename}`
+    : basename;
+}
 
 export interface DroppedFileCandidate {
   file: File;
@@ -74,7 +95,7 @@ function unreadableCandidate(displayName: string): DroppedFileCandidate {
   return {
     file: new File([], baseName),
     displayName,
-    readError: "无法读取该文件，请检查本机权限后重试",
+    readError: UNREADABLE_FILE_MESSAGE,
   };
 }
 

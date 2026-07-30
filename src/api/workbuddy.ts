@@ -96,6 +96,26 @@ export async function fetchWorkbuddyConnectors(): Promise<WorkbuddyConnectorMani
   };
 }
 
+export async function downloadWorkbuddyConnector(
+  artifact: WorkbuddyConnectorArtifactVM,
+): Promise<Blob> {
+  const response = await fetch(artifact.downloadUrl, {
+    method: "GET",
+    credentials: "include",
+  });
+  if (!response.ok) throw new Error("connector_download_failed");
+  const blob = await response.blob();
+  if (blob.size === 0) throw new Error("connector_download_empty");
+  const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+  const actualSha256 = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  if (actualSha256 !== artifact.sha256.toLowerCase()) {
+    throw new Error("connector_download_checksum_failed");
+  }
+  return blob;
+}
+
 export async function regenerateWorkbuddyToken(
   platform: WorkbuddyPlatform,
   connectorPath?: string,

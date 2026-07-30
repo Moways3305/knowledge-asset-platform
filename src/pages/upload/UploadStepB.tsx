@@ -1,4 +1,5 @@
 import { FileText, RefreshCw, UploadCloud, X } from "lucide-react";
+import { useState } from "react";
 import { extractionLabel, flowLabel, formatFileSize, pendingStatusLabel } from "./uploadConstants";
 import BatchTaskProgress from "./BatchTaskProgress";
 import PendingBatchActions from "./PendingBatchActions";
@@ -18,11 +19,13 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
     handleFileSelect,
     handleDataTransferDrop,
     folderDropNotice,
+    intakeFeedback,
     handleStart,
     localUploadQueue,
     uploadSession,
     retryLocalUpload,
     removeLocalUpload,
+    removeFailedLocalUploads,
     handleRefreshProcessing,
     handleReset,
     handleDeletePending,
@@ -43,6 +46,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
     handleBatchConfirm,
     handleBatchReject,
   } = flow;
+  const [isDragging, setIsDragging] = useState(false);
   const flowMeta = flowLabel(flowState);
   const canRefresh = flowState === "processing" && Boolean(processingNote);
   const extractionStatusText =
@@ -65,16 +69,29 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
         {!hasFile ? (
           <div
             className="upload-dropzone upload77-dropzone"
-            onDragEnter={(event) => event.preventDefault()}
-            onDragOver={(event) => event.preventDefault()}
+            data-dragging={isDragging ? "true" : "false"}
+            onDragEnter={(event) => {
+              event.preventDefault();
+              setIsDragging(true);
+            }}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                setIsDragging(false);
+              }
+            }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setIsDragging(true);
+            }}
             onDrop={(event) => {
               event.preventDefault();
               event.stopPropagation();
+              setIsDragging(false);
               void handleDataTransferDrop(event.dataTransfer);
             }}
           >
             <UploadCloud size={30} strokeWidth={1.7} aria-hidden="true" />
-            <h2>拖放文件到这里</h2>
+            <h2>{isDragging ? "松开即可逐项检查" : "拖放文件到这里"}</h2>
             <p className="dropzone-hint">
               支持 Markdown、PDF、Word、PPTX 自动提取及 Excel、纯文本等资料，单文件最大 25 MiB；旧
               .ppt 仅保存，需人工补全
@@ -161,6 +178,44 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
         )}
       </div>
 
+      {!hasFile && intakeFeedback && (
+        <section
+          className={`upload77-intake-feedback is-${intakeFeedback.kind}`}
+          role={
+            intakeFeedback.kind === "network_error" || intakeFeedback.kind === "rejected"
+              ? "alert"
+              : "status"
+          }
+          aria-label="本次上传接收结果"
+        >
+          <div>
+            <strong>{intakeFeedback.message}</strong>
+            <span>队列逐项状态为最终依据，刷新后仍会从服务端恢复。</span>
+          </div>
+          <dl>
+            <div>
+              <dt>检测</dt>
+              <dd>{intakeFeedback.total}</dd>
+            </div>
+            <div>
+              <dt>接收</dt>
+              <dd>{intakeFeedback.accepted}</dd>
+            </div>
+            <div>
+              <dt>等待批次</dt>
+              <dd>{intakeFeedback.waitingBatches}</dd>
+            </div>
+            <div>
+              <dt>拒绝</dt>
+              <dd>{intakeFeedback.rejected}</dd>
+            </div>
+          </dl>
+          {intakeFeedback.batchSizes.length > 1 && (
+            <p>批次分布：{intakeFeedback.batchSizes.join(" + ")}</p>
+          )}
+        </section>
+      )}
+
       {!hasFile && localUploadQueue.length > 0 && (
         <section className="upload77-local-queue" aria-labelledby="local-upload-queue-title">
           <div className="upload77-section-head">
@@ -168,6 +223,11 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
               <h2 id="local-upload-queue-title">本次上传队列</h2>
               <p>每批最多 200 项连续推进；失败文件不会阻塞后续文件，可单独重试。</p>
             </div>
+            {localUploadQueue.some((item) => item.status === "failed") && (
+              <button className="btn-secondary" onClick={removeFailedLocalUploads} type="button">
+                清理全部失败项
+              </button>
+            )}
           </div>
           {uploadSession && (
             <dl className="upload77-queue-summary" aria-label="上传会话进度">
