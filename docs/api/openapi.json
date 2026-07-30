@@ -213,6 +213,8 @@
                 "type": "null"
               }
             ],
+            "deprecated": true,
+            "description": "Deprecated compatibility field; never use for UI or decisions.",
             "title": "Confidence"
           },
           "confidentiality_level": {
@@ -311,6 +313,14 @@
             "title": "Status",
             "type": "string"
           },
+          "suggestion_generation_reason": {
+            "title": "Suggestion Generation Reason",
+            "type": "string"
+          },
+          "suggestion_generation_status": {
+            "title": "Suggestion Generation Status",
+            "type": "string"
+          },
           "target_scope": {
             "anyOf": [
               {
@@ -331,7 +341,8 @@
           "target_scope",
           "confidentiality_level",
           "ai_access_level",
-          "confidence",
+          "suggestion_generation_status",
+          "suggestion_generation_reason",
           "naming_compliant",
           "error_type",
           "error_message",
@@ -1686,6 +1697,112 @@
           }
         },
         "title": "Body_create_upload_session_api_v1_ingest_upload_sessions_post",
+        "type": "object"
+      },
+      "BulkItemResult": {
+        "properties": {
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "status": {
+            "enum": [
+              "succeeded",
+              "skipped",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "status"
+        ],
+        "title": "BulkItemResult",
+        "type": "object"
+      },
+      "BulkOperationResponse": {
+        "properties": {
+          "execution_mode": {
+            "enum": [
+              "synchronous",
+              "controlled_batch"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BulkItemResult"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "completed",
+              "completed_with_errors"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "submitted": {
+            "title": "Submitted",
+            "type": "integer"
+          },
+          "succeeded": {
+            "title": "Succeeded",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "operation_id",
+          "status",
+          "execution_mode",
+          "submitted",
+          "succeeded",
+          "skipped",
+          "failed",
+          "items"
+        ],
+        "title": "BulkOperationResponse",
         "type": "object"
       },
       "BusinessNotificationListResponse": {
@@ -3379,6 +3496,8 @@
                 "type": "null"
               }
             ],
+            "deprecated": true,
+            "description": "Deprecated compatibility field; never use for UI or decisions.",
             "title": "Confidence"
           },
           "content_processing_status": {
@@ -3714,6 +3833,14 @@
             ],
             "title": "Suggested Title"
           },
+          "suggestion_generation_reason": {
+            "title": "Suggestion Generation Reason",
+            "type": "string"
+          },
+          "suggestion_generation_status": {
+            "title": "Suggestion Generation Status",
+            "type": "string"
+          },
           "summary": {
             "anyOf": [
               {
@@ -3739,9 +3866,111 @@
         },
         "required": [
           "ingest_task_id",
-          "status"
+          "status",
+          "suggestion_generation_status",
+          "suggestion_generation_reason"
         ],
         "title": "IngestAiResultResponse",
+        "type": "object"
+      },
+      "IngestBulkConfirmItem": {
+        "properties": {
+          "confirmation": {
+            "$ref": "#/components/schemas/IngestConfirmRequest"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "confirmation"
+        ],
+        "title": "IngestBulkConfirmItem",
+        "type": "object"
+      },
+      "IngestBulkConfirmRequest": {
+        "properties": {
+          "client_operation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Operation Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IngestBulkConfirmItem"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "request_count": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Count"
+          },
+          "request_index": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Index"
+          },
+          "target_project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Project Id"
+          },
+          "target_scope": {
+            "$ref": "#/components/schemas/KnowledgeScope"
+          },
+          "total_submitted": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Submitted"
+          }
+        },
+        "required": [
+          "items",
+          "target_scope"
+        ],
+        "title": "IngestBulkConfirmRequest",
         "type": "object"
       },
       "IngestConfirmRequest": {
@@ -4563,6 +4792,106 @@
           "mapping_status"
         ],
         "title": "KbInitUpdateResponse",
+        "type": "object"
+      },
+      "KnowledgeBulkDeleteRequest": {
+        "properties": {
+          "client_operation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Operation Id"
+          },
+          "item_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Item Ids",
+            "type": "array"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "request_count": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Count"
+          },
+          "request_index": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Index"
+          },
+          "scope": {
+            "enum": [
+              "personal",
+              "project"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "total_submitted": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Submitted"
+          }
+        },
+        "required": [
+          "item_ids",
+          "scope"
+        ],
+        "title": "KnowledgeBulkDeleteRequest",
         "type": "object"
       },
       "KnowledgeDeleteRequest": {
@@ -6406,6 +6735,94 @@
         "title": "NotificationsResponse",
         "type": "object"
       },
+      "OriginalAccessBulkActionRequest": {
+        "properties": {
+          "action": {
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "client_operation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Operation Id"
+          },
+          "item_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Item Ids",
+            "type": "array"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "request_count": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Count"
+          },
+          "request_index": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Index"
+          },
+          "total_submitted": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Submitted"
+          }
+        },
+        "required": [
+          "item_ids",
+          "action"
+        ],
+        "title": "OriginalAccessBulkActionRequest",
+        "type": "object"
+      },
       "OriginalAccessRequestOut": {
         "properties": {
           "asset_id": {
@@ -6655,6 +7072,8 @@
                 "type": "null"
               }
             ],
+            "deprecated": true,
+            "description": "Deprecated compatibility field; never use for UI or decisions.",
             "title": "Confidence"
           },
           "created_at": {
@@ -6765,6 +7184,14 @@
             ],
             "title": "Suggested Title"
           },
+          "suggestion_generation_reason": {
+            "title": "Suggestion Generation Reason",
+            "type": "string"
+          },
+          "suggestion_generation_status": {
+            "title": "Suggestion Generation Status",
+            "type": "string"
+          },
           "target_project_id": {
             "anyOf": [
               {
@@ -6805,7 +7232,9 @@
           "id",
           "source",
           "status",
-          "source_file_name"
+          "source_file_name",
+          "suggestion_generation_status",
+          "suggestion_generation_reason"
         ],
         "title": "PendingIngestItem",
         "type": "object"
@@ -7888,6 +8317,91 @@
           "submitted_at"
         ],
         "title": "PersonalProjectSubmissionSummary",
+        "type": "object"
+      },
+      "PersonalSubmitBulkRequest": {
+        "properties": {
+          "client_operation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Operation Id"
+          },
+          "item_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Item Ids",
+            "type": "array"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "request_count": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Count"
+          },
+          "request_index": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Index"
+          },
+          "target_project_id": {
+            "format": "uuid",
+            "title": "Target Project Id",
+            "type": "string"
+          },
+          "total_submitted": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Submitted"
+          }
+        },
+        "required": [
+          "item_ids",
+          "target_project_id"
+        ],
+        "title": "PersonalSubmitBulkRequest",
         "type": "object"
       },
       "PreviewEntryResponse": {
@@ -10014,6 +10528,94 @@
           }
         },
         "title": "ReviewBody",
+        "type": "object"
+      },
+      "ReviewBulkActionRequest": {
+        "properties": {
+          "action": {
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "client_operation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Operation Id"
+          },
+          "item_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Item Ids",
+            "type": "array"
+          },
+          "request_count": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Count"
+          },
+          "request_index": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Index"
+          },
+          "review_comment": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Comment"
+          },
+          "total_submitted": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Submitted"
+          }
+        },
+        "required": [
+          "item_ids",
+          "action"
+        ],
+        "title": "ReviewBulkActionRequest",
         "type": "object"
       },
       "ReviewDetail": {
@@ -22038,6 +22640,98 @@
         ]
       }
     },
+    "/api/v1/ingest/bulk-confirm": {
+      "post": {
+        "description": "Confirm one explicit destination while preserving per-task authorization.",
+        "operationId": "bulk_confirm_api_v1_ingest_bulk_confirm_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestBulkConfirmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOperationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Confirm",
+        "tags": [
+          "ingest"
+        ]
+      }
+    },
     "/api/v1/ingest/pending": {
       "get": {
         "description": "业务侧待确认任务列表。\n\n`?source=path_a_wecom` 拉取企微微盘扫描创建的待确认任务。\n只返回调用人本人创建的待确认任务；纯 admin → 403。",
@@ -23652,6 +24346,98 @@
           }
         },
         "summary": "List Knowledge",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/knowledge/bulk-delete": {
+      "post": {
+        "description": "按声明范围逐项重鉴权删除，不允许把个人/其他项目资产混入批次。",
+        "operationId": "bulk_delete_knowledge_assets_api_v1_knowledge_bulk_delete_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeBulkDeleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOperationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Delete Knowledge Assets",
         "tags": [
           "knowledge"
         ]
@@ -25322,6 +26108,98 @@
         ]
       }
     },
+    "/api/v1/my/knowledge/bulk-submit-to-project": {
+      "post": {
+        "description": "逐项复用个人知识提交服务，并对目标项目和成员资格重新校验。",
+        "operationId": "bulk_submit_to_project_api_v1_my_knowledge_bulk_submit_to_project_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalSubmitBulkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOperationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Submit To Project",
+        "tags": [
+          "my-knowledge"
+        ]
+      }
+    },
     "/api/v1/my/knowledge/{asset_id}": {
       "patch": {
         "operationId": "update_personal_knowledge_api_v1_my_knowledge__asset_id__patch",
@@ -26344,6 +27222,98 @@
           }
         },
         "summary": "List Requests",
+        "tags": [
+          "original-access"
+        ]
+      }
+    },
+    "/api/v1/original-access/requests/bulk-action": {
+      "post": {
+        "description": "受控逐项审批；服务端为每项重新读取权限与 pending 状态。",
+        "operationId": "bulk_request_action_api_v1_original_access_requests_bulk_action_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OriginalAccessBulkActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOperationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Request Action",
         "tags": [
           "original-access"
         ]
@@ -28424,6 +29394,98 @@
           }
         },
         "summary": "List Reviews",
+        "tags": [
+          "review"
+        ]
+      }
+    },
+    "/api/v1/reviews/bulk-action": {
+      "post": {
+        "description": "逐项复用单项审核语义；并发变化只跳过对应项。",
+        "operationId": "bulk_review_action_api_v1_reviews_bulk_action_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewBulkActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOperationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Review Action",
         "tags": [
           "review"
         ]

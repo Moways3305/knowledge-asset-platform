@@ -103,6 +103,30 @@ def _has_generated_summary(ai: IngestTaskAiResult | None) -> bool:
     return fields.get("summary_generated") is True
 
 
+def _suggestion_generation_state(
+    task: IngestTask, ai: IngestTaskAiResult | None
+) -> tuple[str, str]:
+    """Derive an explainable status from persisted processing facts only."""
+    extraction_status = ai.extraction_status if ai else None
+    if task.status == IngestStatus.failed.value or extraction_status in {
+        "failed",
+        "empty",
+        "unsupported",
+    }:
+        if extraction_status == "unsupported":
+            return "needs_manual_completion", "文件格式暂不支持内容提取，请手工补全"
+        if extraction_status == "empty":
+            return "needs_manual_completion", "未提取到有效文件内容，请手工补全"
+        return "needs_manual_completion", "未能完成文件内容处理，请手工补全"
+    if task.status == IngestStatus.processing.value:
+        return "needs_correction", "建议仍在生成，请稍后核对"
+    if ai is None:
+        return "needs_correction", "历史任务信息不足，请人工核对"
+    if not _has_generated_summary(ai) or not ai.suggested_title or not ai.suggested_summary:
+        return "needs_correction", "摘要或建议字段未完整生成，请核对"
+    return "generated", "已提取正文并生成建议，请人工核对"
+
+
 def _desensitization_message(status: str | None) -> str | None:
     if status is None:
         return None
@@ -252,6 +276,8 @@ async def get_ai_result(
         suggested_ai_access_level=ai.suggested_ai_access_level if ai else None,
         suggested_phase_key=ai.suggested_phase_key if ai else None,
         confidence=ai.confidence if ai else None,
+        suggestion_generation_status=_suggestion_generation_state(task, ai)[0],
+        suggestion_generation_reason=_suggestion_generation_state(task, ai)[1],
         naming_compliant=ai.naming_compliant if ai else None,
         naming_parsed_fields=ai.naming_parsed_fields if ai else None,
         naming_anomalies=ai.naming_anomalies if ai else None,
@@ -418,6 +444,23 @@ async def confirm(
 
     # 枚举字段已由 Pydantic 校验，写入时统一取 .value（DB 仍 String 存储）。
     scope = req.target_scope.value
+    # A persisted destination represents a source-rule lock.  It is trusted
+    # server state and cannot be overridden by single or bulk clients.
+    if task.target_scope is not None and task.target_scope != scope:
+        raise _denied(
+            409,
+            "ingest_target_locked",
+            "入库目标已由来源规则锁定，不能更改",
+        )
+    if (
+        task.target_scope == KnowledgeScope.project.value
+        and task.target_project_id != req.target_project_id
+    ):
+        raise _denied(
+            409,
+            "ingest_target_project_locked",
+            "目标项目已由来源规则锁定，不能更改",
+        )
     # scope 级权限校验。
     if scope == KnowledgeScope.personal.value:
         owner_id = caller.user_id
@@ -996,6 +1039,8 @@ async def list_pending(
                 suggested_one_liner=ai.suggested_one_liner if ai else None,
                 naming_parsed_fields=ai.naming_parsed_fields if ai else None,
                 confidence=ai.confidence if ai else None,
+                suggestion_generation_status=_suggestion_generation_state(t, ai)[0],
+                suggestion_generation_reason=_suggestion_generation_state(t, ai)[1],
                 result_asset_id=t.result_asset_id,
                 created_at=t.created_at,
                 updated_at=t.updated_at,
@@ -1121,6 +1166,8 @@ async def list_admin_ingest(
                 confidentiality_level=ai.suggested_confidentiality_level if ai else None,
                 ai_access_level=ai.suggested_ai_access_level if ai else None,
                 confidence=ai.confidence if ai else None,
+                suggestion_generation_status=_suggestion_generation_state(t, ai)[0],
+                suggestion_generation_reason=_suggestion_generation_state(t, ai)[1],
                 naming_compliant=ai.naming_compliant if ai else None,
                 extraction_status=ai.extraction_status if ai else None,
                 error_type=t.error_type,

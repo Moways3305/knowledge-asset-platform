@@ -18,9 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_caller_context
 from app.core.trace import get_trace_id
 from app.db.session import get_db
+from app.schemas.bulk_operations import BulkOperationResponse
+from app.schemas.enums import AuditAction
 from app.schemas.ingest import (
     AdminIngestListResponse,
     IngestAiResultResponse,
+    IngestBulkConfirmRequest,
     IngestConfirmRequest,
     IngestConfirmResponse,
     IngestParseRefreshResponse,
@@ -32,6 +35,7 @@ from app.schemas.ingest import (
     UploadSessionResponse,
 )
 from app.schemas.permission import CallerContext
+from app.services import bulk_operations as bulk_service
 from app.services import ingest as ingest_service
 from app.services import ingest_status as ingest_status_service
 from app.services import upload_sessions as upload_session_service
@@ -517,6 +521,63 @@ async def retry_task(
         weknora=weknora,
         trace_id=get_trace_id(request),
     )
+
+
+@router.post("/ingest/bulk-confirm", response_model=BulkOperationResponse)
+async def bulk_confirm(
+    body: IngestBulkConfirmRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
+) -> BulkOperationResponse:
+    """Confirm one explicit destination while preserving per-task authorization."""
+    operation_id = uuid.uuid4()
+    trace_id = get_trace_id(request)
+    item_ids = [item.task_id for item in body.items]
+
+    async def process_batch(batch):
+        batch_results = []
+        for item in batch:
+            try:
+                await ingest_service.confirm(
+                    session,
+                    caller,
+                    item.task_id,
+                    item.confirmation,
+                    trace_id,
+                    storage=storage,
+                    weknora=weknora,
+                )
+                batch_results.append(
+                    bulk_service.BulkItemResult(item_id=item.task_id, status="succeeded")
+                )
+            except HTTPException as exc:
+                await session.rollback()
+                batch_results.append(bulk_service.skipped_from_http(item.task_id, exc))
+            except Exception:
+                await session.rollback()
+                batch_results.append(bulk_service.failed_item(item.task_id))
+        return batch_results
+
+    results = await bulk_service.execute_in_controlled_batches(body.items, process_batch)
+    response = bulk_service.terminal_response(operation_id, item_ids, results)
+    await bulk_service.record_terminal_audit(
+        session,
+        caller=caller,
+        action=AuditAction.ingest_bulk_confirmed.value,
+        trace_id=trace_id,
+        response=response,
+        operation="confirm",
+        target_scope=body.target_scope.value,
+        project_id=body.target_project_id,
+        client_operation_id=body.client_operation_id,
+        request_index=body.request_index,
+        request_count=body.request_count,
+        total_submitted=body.total_submitted,
+    )
+    return response
 
 
 @router.post("/ingest/{task_id}/confirm", response_model=IngestConfirmResponse)

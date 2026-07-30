@@ -333,6 +333,7 @@ class AuditAction(str, Enum):
     ingest_failed = "ingest.failed"
     # 原文已推进 WeKnora 底座并回写 doc id，operation。
     ingest_weknora_indexed = "ingest.weknora_indexed"
+    ingest_bulk_confirmed = "ingest.bulk_confirmed"
     # 资产已确认落库，但底座建库/初始化/上传索引失败，exception。
     # 资产保留 + 人工校正不丢，index_status=index_failed，可重试；区别于 ingest.failed
     # （后者=人工确认前整单失败）。extra 只放安全 error_code / stage，绝不含 kb/doc id。
@@ -346,6 +347,7 @@ class AuditAction(str, Enum):
     review_approval_failed = "review.approval_failed"
     review_approved = "review.approved"
     review_rejected = "review.rejected"
+    review_bulk_decided = "review.bulk_decided"
     review_company_confirmation_recorded = "review.company_confirmation_recorded"
     review_company_confirmation_withdrawn = "review.company_confirmation_withdrawn"
     asset_zone_changed = "asset.zone_changed"
@@ -383,6 +385,9 @@ class AuditAction(str, Enum):
     lifecycle_reenabled = "lifecycle.reenabled"
     # 知识资产受控删除 / 撤下。
     knowledge_asset_deleted = "knowledge.asset_deleted"
+    knowledge_asset_bulk_deleted = "knowledge.asset_bulk_deleted"
+    personal_knowledge_bulk_submitted = "personal_knowledge.bulk_submitted"
+    original_access_bulk_decided = "access.original_bulk_decided"
     knowledge_asset_metadata_updated = "knowledge.asset_metadata_updated"
     # 底座索引重试。requested=发起（operation）；retried=成功（operation）；
     # retry_failed=重试后底座仍失败（exception）。区别于 ingest.index_failed（confirm 阶段失败）。

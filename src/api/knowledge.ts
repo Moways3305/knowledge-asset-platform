@@ -26,6 +26,7 @@ import type {
   LifecycleActionResponseDTO,
   LifecycleEventsResponseDTO,
 } from "../types/lifecycle";
+import { runControlledBulkRequests } from "./bulk";
 
 // ---- 转换 helpers ----
 const visibilityToFront = (v: BackendVisibility): FrontVisibility =>
@@ -147,6 +148,29 @@ export async function deleteKnowledgeAsset(
   });
 }
 
+export async function bulkDeleteKnowledgeAssets(input: {
+  itemIds: string[];
+  scope: "personal" | "project";
+  projectId?: string;
+  reason?: string;
+}): Promise<import("../types/bulk").BulkOperationResponseDTO> {
+  return runControlledBulkRequests({
+    items: input.itemIds,
+    getItemId: (itemId) => itemId,
+    submitBatch: (batch, context) =>
+      apiPost("/api/v1/knowledge/bulk-delete", {
+        item_ids: batch,
+        scope: input.scope,
+        project_id: input.projectId ?? null,
+        reason: input.reason ?? null,
+        client_operation_id: context.clientOperationId,
+        request_index: context.requestIndex,
+        request_count: context.requestCount,
+        total_submitted: context.totalSubmitted,
+      }),
+  });
+}
+
 // 重试底座索引。仅对 index_failed / not_indexed / skipped 且调用人有业务管理权。
 export async function retryKnowledgeIndex(id: string): Promise<RetryIndexResponseDTO> {
   return apiPost<RetryIndexResponseDTO>(`/api/v1/knowledge/${id}/retry-index`, {});
@@ -249,5 +273,26 @@ export async function rejectOriginalAccess(
 ): Promise<CreateRequestResponseDTO> {
   return apiPost<CreateRequestResponseDTO>(`/api/v1/original-access/requests/${requestId}/reject`, {
     note: note ?? null,
+  });
+}
+
+export async function bulkOriginalAccessAction(input: {
+  itemIds: string[];
+  action: "approve" | "reject";
+  note?: string;
+}): Promise<import("../types/bulk").BulkOperationResponseDTO> {
+  return runControlledBulkRequests({
+    items: input.itemIds,
+    getItemId: (itemId) => itemId,
+    submitBatch: (batch, context) =>
+      apiPost("/api/v1/original-access/requests/bulk-action", {
+        item_ids: batch,
+        action: input.action,
+        note: input.note ?? null,
+        client_operation_id: context.clientOperationId,
+        request_index: context.requestIndex,
+        request_count: context.requestCount,
+        total_submitted: context.totalSubmitted,
+      }),
   });
 }

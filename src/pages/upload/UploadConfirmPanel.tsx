@@ -60,7 +60,9 @@ export default function UploadConfirmPanel({
     targetProjectId,
     setTargetProjectId,
     projects,
-    confirmConfidence,
+    suggestionGeneration,
+    targetLocked,
+    canUseCompanyTarget,
     llmStatus,
     apiError,
     confirmSubmitted,
@@ -260,8 +262,18 @@ export default function UploadConfirmPanel({
                 <dd>{sourceFile}</dd>
               </div>
               <div>
-                <dt>置信度</dt>
-                <dd>{confirmConfidence}</dd>
+                <dt>建议生成状态</dt>
+                <dd>
+                  {suggestionGeneration?.status === "generated"
+                    ? "建议已生成"
+                    : suggestionGeneration?.status === "needs_manual_completion"
+                      ? "需人工补全"
+                      : "建议待校正"}
+                </dd>
+              </div>
+              <div>
+                <dt>状态依据</dt>
+                <dd>{suggestionGeneration?.reason ?? "处理信息不足，请人工核对"}</dd>
               </div>
               <div>
                 <dt>内容提取</dt>
@@ -285,18 +297,38 @@ export default function UploadConfirmPanel({
 
           <div className="upload77-targets">
             <h3>入库目标</h3>
+            <p className="upload77-field-note">已选资料 1 项</p>
+            {targetLocked && (
+              <p className="upload77-field-note" role="status">
+                目标已由来源规则锁定
+              </p>
+            )}
             <label className="upload77-field" htmlFor="upload77-target-library">
               <span>目标知识库</span>
               <select
                 id="upload77-target-library"
                 value={targetLibrary}
+                disabled={targetLocked}
                 onChange={(event) => setTargetLibrary(event.target.value as TargetLibrary)}
               >
-                {targetLibraryOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
+                {targetLibraryOptions
+                  .filter(
+                    (option) =>
+                      option.value !== "project" ||
+                      projects.length > 0 ||
+                      targetLibrary === "project",
+                  )
+                  .filter(
+                    (option) =>
+                      option.value !== "company" ||
+                      canUseCompanyTarget ||
+                      targetLibrary === "company",
+                  )
+                  .map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
               </select>
             </label>
             {targetLibrary === "project" && (
@@ -306,8 +338,14 @@ export default function UploadConfirmPanel({
                   <select
                     id="upload77-target-project"
                     value={targetProjectId}
+                    disabled={targetLocked}
                     onChange={(event) => setTargetProjectId(event.target.value)}
                   >
+                    <option value="">请选择目标项目</option>
+                    {targetProjectId &&
+                      !projects.some((project) => project.projectId === targetProjectId) && (
+                        <option value={targetProjectId}>来源规则锁定项目（当前不可用）</option>
+                      )}
                     {projects.map((project) => (
                       <option key={project.projectId} value={project.projectId}>
                         {project.projectName}

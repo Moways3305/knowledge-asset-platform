@@ -18,6 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_caller_context
 from app.core.trace import get_trace_id
 from app.db.session import get_db
+from app.schemas.bulk_operations import BulkOperationResponse, PersonalSubmitBulkRequest
+from app.schemas.enums import AuditAction
 from app.schemas.my_knowledge import (
     ConfirmAssetResponse,
     PersonalKnowledgeItemOut,
@@ -27,9 +29,66 @@ from app.schemas.my_knowledge import (
     ValidationCandidateRequest,
 )
 from app.schemas.permission import CallerContext
+from app.services import bulk_operations as bulk_service
 from app.services import my_knowledge as my_knowledge_service
 
 router = APIRouter(prefix="/api/v1/my/knowledge", tags=["my-knowledge"])
+
+
+@router.post("/bulk-submit-to-project", response_model=BulkOperationResponse)
+async def bulk_submit_to_project(
+    req: PersonalSubmitBulkRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> BulkOperationResponse:
+    """逐项复用个人知识提交服务，并对目标项目和成员资格重新校验。"""
+    from fastapi import HTTPException
+
+    operation_id = uuid.uuid4()
+    trace_id = get_trace_id(request)
+    single_request = SubmitToProjectRequest(target_project_id=req.target_project_id, note=req.note)
+
+    async def process_batch(batch):
+        batch_results = []
+        for asset_id in batch:
+            try:
+                await my_knowledge_service.submit_to_project(
+                    session,
+                    caller,
+                    asset_id,
+                    single_request,
+                    trace_id,
+                    f"bulk:{operation_id}:{asset_id}",
+                )
+                batch_results.append(
+                    bulk_service.BulkItemResult(item_id=asset_id, status="succeeded")
+                )
+            except HTTPException as exc:
+                await session.rollback()
+                batch_results.append(bulk_service.skipped_from_http(asset_id, exc))
+            except Exception:
+                await session.rollback()
+                batch_results.append(bulk_service.failed_item(asset_id))
+        return batch_results
+
+    results = await bulk_service.execute_in_controlled_batches(req.item_ids, process_batch)
+    response = bulk_service.terminal_response(operation_id, req.item_ids, results)
+    await bulk_service.record_terminal_audit(
+        session,
+        caller=caller,
+        action=AuditAction.personal_knowledge_bulk_submitted.value,
+        trace_id=trace_id,
+        response=response,
+        operation="submit_to_project",
+        target_scope="project",
+        project_id=req.target_project_id,
+        client_operation_id=req.client_operation_id,
+        request_index=req.request_index,
+        request_count=req.request_count,
+        total_submitted=req.total_submitted,
+    )
+    return response
 
 
 @router.patch("/{asset_id}", response_model=PersonalKnowledgeItemOut)

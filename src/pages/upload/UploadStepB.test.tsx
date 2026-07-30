@@ -19,6 +19,8 @@ function pending(id: string, fileName: string): PendingIngestItemDTO {
     suggested_one_liner: null,
     naming_parsed_fields: null,
     confidence: null,
+    suggestion_generation_status: "needs_correction",
+    suggestion_generation_reason: "摘要未生成，请核对",
     result_asset_id: null,
     created_at: null,
     updated_at: null,
@@ -65,6 +67,8 @@ function flowFixture(overrides: Record<string, unknown> = {}): UploadFlow {
     setBatchTasksSelected: vi.fn(),
     handleBatchConfirm: vi.fn(),
     handleBatchReject: vi.fn(),
+    projects: [{ projectId: "project-a", projectName: "项目 A" }],
+    canUseCompanyTarget: false,
     ...overrides,
   } as unknown as UploadFlow;
 }
@@ -173,6 +177,27 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(flow.handleBatchReject).toHaveBeenCalledWith(flow.localPendingTasks);
     expect(flow.handleBatchConfirm).not.toHaveBeenCalled();
     expect(document.body).not.toHaveTextContent(/task-secret|原始正文|storage_ref/);
+  });
+
+  it("requires one explicit destination before batch confirmation", () => {
+    const flow = flowFixture();
+    render(<UploadStepB flow={flow} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "批量确认入库（2）" }));
+    const target = screen.getByRole("combobox", { name: "批量入库目标知识库" });
+    expect(target).toHaveValue("");
+    expect(screen.getByRole("dialog")).toHaveTextContent("取消不会创建资产");
+
+    fireEvent.click(screen.getByRole("button", { name: "确认批量入库" }));
+    expect(flow.handleBatchConfirm).not.toHaveBeenCalled();
+
+    fireEvent.change(target, { target: { value: "personal" } });
+    fireEvent.click(screen.getByRole("button", { name: "确认批量入库" }));
+    expect(flow.handleBatchConfirm).toHaveBeenCalledWith(
+      flow.localPendingTasks,
+      "personal",
+      undefined,
+    );
   });
 
   it("selects all actionable rows, exposes half-selected state, and excludes disabled rows", () => {

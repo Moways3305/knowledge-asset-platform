@@ -1,7 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { ControlledBulkRequestError } from "../../api/bulk";
 import { ApiError, createClientUuid } from "../../api/http";
 import { fetchAuthMe } from "../../api/auth";
 import {
+  bulkConfirmIngest,
   confirmIngest,
   createIngestUpload,
   createUploadSession,
@@ -17,6 +19,7 @@ import {
 } from "../../api/ingest";
 import type {
   IngestAiResultDTO,
+  IngestConfirmRequestDTO,
   NamingFields,
   PendingIngestItemDTO,
   UploadSessionDTO,
@@ -223,8 +226,13 @@ export function useUploadFlow() {
   const [editTags, setEditTags] = useState("");
   const [editVisibility, setEditVisibility] = useState("项目内");
   const [editBizStage, setEditBizStage] = useState("行动辅导");
-  const [targetLibrary, setTargetLibrary] = useState<TargetLibrary>("personal");
-  const [confirmConfidence, setConfirmConfidence] = useState("—");
+  const [targetLibrary, setTargetLibrary] = useState<TargetLibrary>("");
+  const [targetLocked, setTargetLocked] = useState(false);
+  const [canUseCompanyTarget, setCanUseCompanyTarget] = useState(false);
+  const [suggestionGeneration, setSuggestionGeneration] = useState<{
+    status: IngestAiResultDTO["suggestion_generation_status"];
+    reason: string;
+  } | null>(null);
 
   // 真实入库任务状态
   const [taskId, setTaskId] = useState<string | null>(null);
@@ -257,9 +265,12 @@ export function useUploadFlow() {
         setProjects(
           me.projects.map((p) => ({ projectId: p.projectId, projectName: p.projectName })),
         );
-        if (me.projects.length > 0) setTargetProjectId(me.projects[0].projectId);
+        setCanUseCompanyTarget(me.canDiscoverL5);
       })
-      .catch(() => setProjects([]));
+      .catch(() => {
+        setProjects([]);
+        setCanUseCompanyTarget(false);
+      });
   }, []);
 
   // 待确认入库：拉取当前用户可处理的全部待确认任务（不再按来源过滤）。
@@ -267,15 +278,11 @@ export function useUploadFlow() {
     const requestId = ++pendingRequestRef.current;
     setPendingLoading(true);
     setPendingError(null);
+    setBatchSelection([]);
     try {
       const tasks = await fetchPendingIngestTasks("path_a_wecom");
       if (pendingRequestRef.current !== requestId) return;
       setPendingTasks(tasks);
-      setBatchSelection((selected) =>
-        selected.filter((id) =>
-          tasks.some((task) => task.id === id && task.status === "pending_confirmation"),
-        ),
-      );
     } catch (e) {
       if (pendingRequestRef.current !== requestId) return;
       setPendingError(e instanceof ApiError ? e.message : "待确认任务暂时无法加载，请稍后重试");
@@ -293,15 +300,11 @@ export function useUploadFlow() {
     const requestId = ++localPendingRequestRef.current;
     setLocalPendingLoading(true);
     setLocalPendingError(null);
+    setBatchSelection([]);
     try {
       const tasks = await fetchPendingIngestTasks("path_b_upload");
       if (localPendingRequestRef.current !== requestId) return;
       setLocalPendingTasks(tasks);
-      setBatchSelection((selected) =>
-        selected.filter((id) =>
-          tasks.some((task) => task.id === id && task.status === "pending_confirmation"),
-        ),
-      );
     } catch (e) {
       if (localPendingRequestRef.current !== requestId) return;
       setLocalPendingError(
@@ -853,7 +856,10 @@ export function useUploadFlow() {
     setEditAssetType(ai.suggested_asset_type ?? "methodology");
     setEditConfidentiality(ai.suggested_confidentiality_level ?? "L2");
     setEditAiAccess(ai.suggested_ai_access_level ?? "A2");
-    setConfirmConfidence(ai.confidence != null ? `${Math.round(ai.confidence * 100)}%` : "—");
+    setSuggestionGeneration({
+      status: ai.suggestion_generation_status,
+      reason: ai.suggestion_generation_reason,
+    });
     setNaming(ai.naming_parsed_fields ?? null);
     setExtraction({
       status: ai.extraction_status,
@@ -895,8 +901,12 @@ export function useUploadFlow() {
         t.target_scope === "company"
       ) {
         setTargetLibrary(t.target_scope);
+        setTargetLocked(true);
+      } else {
+        setTargetLibrary("");
+        setTargetLocked(false);
       }
-      if (t.target_project_id) setTargetProjectId(t.target_project_id);
+      setTargetProjectId(t.target_project_id ?? "");
       setFlowState("processing");
       try {
         const ai = await pollAiResult(t.id, isCurrent);
@@ -1060,6 +1070,11 @@ export function useUploadFlow() {
     const isCurrent = () => isCurrentWorkflowRun(runId);
     if (!taskId) return;
     setApiError(null);
+    if (!targetLibrary) {
+      setApiError("请选择目标知识库");
+      return;
+    }
+    const selectedTargetLibrary: Exclude<TargetLibrary, ""> = targetLibrary;
     if (targetLibrary === "project" && !targetProjectId) {
       setApiError("请选择目标项目");
       return;
@@ -1079,8 +1094,8 @@ export function useUploadFlow() {
         summary: editSummary,
         key_points: keyPoints,
         tags,
-        target_scope: targetLibrary,
-        target_project_id: targetLibrary === "project" ? targetProjectId : undefined,
+        target_scope: selectedTargetLibrary,
+        target_project_id: selectedTargetLibrary === "project" ? targetProjectId : undefined,
         target_zone: "material",
         asset_type: editAssetType,
         visibility: visibilityToKey[editVisibility] ?? "project_only",
@@ -1143,12 +1158,17 @@ export function useUploadFlow() {
     });
   }, []);
 
-  // The queue is intentionally awaited one item at a time. Each request uses
-  // that task's own AI result and destination metadata, so fields never leak
-  // from one selected file into another.
+  // The queue is intentionally awaited one item at a time. One explicit
+  // destination applies to the whole batch; persisted source locks are checked
+  // both here for feedback and by the server as the authority.
   const handleBatchConfirm = useCallback(
-    async (tasks: PendingIngestItemDTO[]) => {
+    async (
+      tasks: PendingIngestItemDTO[],
+      destination: Exclude<TargetLibrary, "">,
+      destinationProjectId?: string,
+    ) => {
       if (batchRunRef.current !== null || tasks.length === 0) return;
+      if (destination === "project" && !destinationProjectId) return;
       const runId = beginWorkflowRun();
       const isCurrent = () => batchRunRef.current === runId && isCurrentWorkflowRun(runId);
       const updateBatchStatus = (
@@ -1168,6 +1188,12 @@ export function useUploadFlow() {
         return next;
       });
       let completed = false;
+      let preserveRetry = false;
+      let retrySelection: string[] = [];
+      const prepared: Array<{
+        task: PendingIngestItemDTO;
+        confirmation: IngestConfirmRequestDTO;
+      }> = [];
       updateBatchStatus((previous) => {
         const next = { ...previous };
         tasks.forEach((task) => {
@@ -1185,49 +1211,124 @@ export function useUploadFlow() {
             if (!ai || ai.status === "processing" || ai.status === "failed") {
               throw new Error("该资料尚未准备好确认入库");
             }
-            const targetScope =
-              task.target_scope === "project" || task.target_scope === "company"
-                ? task.target_scope
-                : "personal";
-            if (targetScope === "project" && !task.target_project_id) {
-              throw new Error("该项目资料缺少目标项目");
+            if (task.target_scope && task.target_scope !== destination) {
+              throw new Error("该资料目标已由来源规则锁定");
+            }
+            if (
+              destination === "project" &&
+              task.target_project_id &&
+              task.target_project_id !== destinationProjectId
+            ) {
+              throw new Error("该资料目标项目已由来源规则锁定");
             }
             const title = ai.suggested_title?.trim() || task.suggested_title?.trim() || "";
             const summary = ai.suggested_summary?.trim() || ai.suggested_one_liner?.trim() || "";
             if (!title || !summary) throw new Error("该资料缺少可确认的标题或摘要");
             if (!isCurrent()) return;
-            await confirmIngest(task.id, {
-              title,
-              one_liner: ai.suggested_one_liner || undefined,
-              summary,
-              key_points: ai.suggested_key_points?.filter(Boolean) || [],
-              tags: ai.suggested_tags?.filter(Boolean) || [],
-              target_scope: targetScope,
-              target_project_id:
-                targetScope === "project" ? task.target_project_id || undefined : undefined,
-              target_zone: "material",
-              asset_type: ai.suggested_asset_type || "methodology",
-              visibility: "project_only",
-              confidentiality_level: ai.suggested_confidentiality_level || "L2",
-              ai_access_level: ai.suggested_ai_access_level || "A2",
-              lifecycle_phase_key: ai.suggested_phase_key || undefined,
-              embedding_model_ref: models.embeddingRef || undefined,
-              rerank_model_ref: models.rerankRef || undefined,
+            prepared.push({
+              task,
+              confirmation: {
+                title,
+                one_liner: ai.suggested_one_liner || undefined,
+                summary,
+                key_points: ai.suggested_key_points?.filter(Boolean) || [],
+                tags: ai.suggested_tags?.filter(Boolean) || [],
+                target_scope: destination,
+                target_project_id: destination === "project" ? destinationProjectId : undefined,
+                target_zone: "material",
+                asset_type: ai.suggested_asset_type || "methodology",
+                visibility: "project_only",
+                confidentiality_level: ai.suggested_confidentiality_level || "L2",
+                ai_access_level: ai.suggested_ai_access_level || "A2",
+                lifecycle_phase_key: ai.suggested_phase_key || undefined,
+                embedding_model_ref: models.embeddingRef || undefined,
+                rerank_model_ref: models.rerankRef || undefined,
+              },
             });
-            if (!isCurrent()) return;
-            if (activePath === "b") removeLocalTaskEverywhere(task.id);
-            updateBatchStatus((previous) => ({ ...previous, [task.id]: "success" }));
-          } catch {
+            updateBatchStatus((previous) => ({ ...previous, [task.id]: "waiting" }));
+          } catch (error) {
             if (!isCurrent()) return;
             // One failure is shown on that row and never prevents the next task.
             updateBatchStatus((previous) => ({ ...previous, [task.id]: "failed" }));
+            setBatchErrors((previous) => ({
+              ...previous,
+              [task.id]: error instanceof Error ? error.message : "资料尚未准备好",
+            }));
           }
+        }
+        if (prepared.length > 0) {
+          prepared.forEach(({ task }) =>
+            updateBatchStatus((previous) => ({ ...previous, [task.id]: "processing" })),
+          );
+          const response = await bulkConfirmIngest({
+            items: prepared.map(({ task, confirmation }) => ({
+              taskId: task.id,
+              confirmation,
+            })),
+            targetScope: destination,
+            targetProjectId: destinationProjectId,
+          });
+          if (!isCurrent()) return;
+          const retryableFailedIds: string[] = [];
+          response.items.forEach((item) => {
+            const succeeded = item.status === "succeeded";
+            updateBatchStatus((previous) => ({
+              ...previous,
+              [item.item_id]: succeeded ? "success" : "failed",
+            }));
+            if (succeeded && activePath === "b") removeLocalTaskEverywhere(item.item_id);
+            if (!succeeded) {
+              if (item.status === "failed") retryableFailedIds.push(item.item_id);
+              setBatchErrors((previous) => ({
+                ...previous,
+                [item.item_id]: item.message ?? "当前状态或权限已变化",
+              }));
+            }
+          });
+          retrySelection = retryableFailedIds;
         }
         if (!isCurrent()) return;
         completed = true;
-        setBatchSelection([]);
-        if (activePath === "a") void loadPending();
-        else void loadLocalPending();
+        const refreshRequestRef = activePath === "a" ? pendingRequestRef : localPendingRequestRef;
+        const expectedRefreshRequest = refreshRequestRef.current + 1;
+        if (activePath === "a") await loadPending();
+        else await loadLocalPending();
+        if (isCurrent() && refreshRequestRef.current === expectedRefreshRequest) {
+          setBatchSelection(retrySelection);
+        }
+      } catch (error) {
+        if (!isCurrent()) return;
+        const partial = error instanceof ControlledBulkRequestError ? error.partialResult : null;
+        const retryIds = new Set(
+          error instanceof ControlledBulkRequestError
+            ? error.retryItems.map((item) => item.taskId)
+            : prepared.map(({ task }) => task.id),
+        );
+        partial?.items.forEach((item) => {
+          const succeeded = item.status === "succeeded";
+          updateBatchStatus((previous) => ({
+            ...previous,
+            [item.item_id]: succeeded ? "success" : "failed",
+          }));
+          if (succeeded && activePath === "b") removeLocalTaskEverywhere(item.item_id);
+          if (item.status === "failed") retryIds.add(item.item_id);
+        });
+        retryIds.forEach((itemId) => {
+          updateBatchStatus((previous) => ({ ...previous, [itemId]: "failed" }));
+          setBatchErrors((previous) => ({
+            ...previous,
+            [itemId]: "提交中断，该资料仍可重试。",
+          }));
+        });
+        retrySelection = [...retryIds];
+        preserveRetry = true;
+        const refreshRequestRef = activePath === "a" ? pendingRequestRef : localPendingRequestRef;
+        const expectedRefreshRequest = refreshRequestRef.current + 1;
+        if (activePath === "a") await loadPending();
+        else await loadLocalPending();
+        if (isCurrent() && refreshRequestRef.current === expectedRefreshRequest) {
+          setBatchSelection(retrySelection);
+        }
       } finally {
         // A single-task selection can invalidate this run without going through
         // handleReset. Release only this batch's lock, never a newer batch's.
@@ -1235,7 +1336,7 @@ export function useUploadFlow() {
           batchRunRef.current = null;
           setBatchBusy(false);
           setBatchOperation(null);
-          if (!completed) {
+          if (!completed && !preserveRetry) {
             setBatchSelection([]);
             setBatchStatus({});
           }
@@ -1313,11 +1414,11 @@ export function useUploadFlow() {
         if (!isCurrent()) return;
         completed = true;
         if (sourceAtStart === "a") {
-          void loadPending();
+          await loadPending();
         } else {
-          void loadLocalPending();
+          await loadLocalPending();
         }
-        setBatchSelection((selected) => selected.filter((id) => failed.has(id)));
+        if (isCurrent()) setBatchSelection([...failed]);
       } finally {
         if (batchRunRef.current === runId) {
           batchRunRef.current = null;
@@ -1379,8 +1480,10 @@ export function useUploadFlow() {
     setEditTags("");
     setEditVisibility("项目内");
     setEditBizStage("行动辅导");
-    setTargetLibrary("personal");
-    setConfirmConfidence("—");
+    setTargetLibrary("");
+    setTargetProjectId("");
+    setTargetLocked(false);
+    setSuggestionGeneration(null);
     setEditAssetType("methodology");
     setEditConfidentiality("L2");
     setEditAiAccess("A2");
@@ -1431,6 +1534,7 @@ export function useUploadFlow() {
   const requiredFieldsOk =
     editTitle.trim().length > 0 &&
     (editSummary.trim().length > 0 || editOneLiner.trim().length > 0) &&
+    targetLibrary !== "" &&
     (targetLibrary !== "project" || targetProjectId.length > 0);
   // 平台默认嵌入或问答模型未配置时禁用提交（models.blockSubmit），不静默走 .env 兜底。
   const canSubmit = confirmReady && requiredFieldsOk && !models.blockSubmit;
@@ -1510,7 +1614,9 @@ export function useUploadFlow() {
     targetProjectId,
     setTargetProjectId,
     projects,
-    confirmConfidence,
+    suggestionGeneration,
+    targetLocked,
+    canUseCompanyTarget,
     llmStatus,
     apiError,
     processingNote,

@@ -22,6 +22,8 @@ import type {
   UploadSessionDTO,
   UploadSessionListDTO,
 } from "../types/ingest";
+import type { BulkOperationResponseDTO } from "../types/bulk";
+import { runControlledBulkRequests } from "./bulk";
 
 // 真实文件上传：以 multipart/form-data 发送选中的文件字节。后端写入受控存储并
 // 只返回安全元数据（不返回任何存储引用 / 路径 / URL）。
@@ -142,6 +144,34 @@ export async function confirmIngest(
   payload: IngestConfirmRequestDTO,
 ): Promise<IngestConfirmResponseDTO> {
   return apiPost<IngestConfirmResponseDTO>(`/api/v1/ingest/${taskId}/confirm`, payload);
+}
+
+export async function bulkConfirmIngest(input: {
+  items: Array<{ taskId: string; confirmation: IngestConfirmRequestDTO }>;
+  targetScope: "personal" | "project" | "company";
+  targetProjectId?: string;
+  onBatchCompleted?: (response: BulkOperationResponseDTO) => void;
+}): Promise<BulkOperationResponseDTO> {
+  return runControlledBulkRequests({
+    items: input.items,
+    getItemId: (item) => item.taskId,
+    submitBatch: (batch, context) =>
+      apiPost<BulkOperationResponseDTO>("/api/v1/ingest/bulk-confirm", {
+        items: batch.map((item) => ({
+          task_id: item.taskId,
+          confirmation: item.confirmation,
+        })),
+        target_scope: input.targetScope,
+        target_project_id: input.targetProjectId ?? null,
+        client_operation_id: context.clientOperationId,
+        request_index: context.requestIndex,
+        request_count: context.requestCount,
+        total_submitted: context.totalSubmitted,
+      }),
+    onBatchCompleted: input.onBatchCompleted
+      ? (response) => input.onBatchCompleted?.(response)
+      : undefined,
+  });
 }
 
 // Admin 入库运营列表（仅安全运营元数据；admin / 治理角色，普通业务用户 403）。

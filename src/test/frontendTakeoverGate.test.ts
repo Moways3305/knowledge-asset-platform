@@ -51,14 +51,14 @@ const routes: RouteContract[] = [
       "hooks/useModelSelection.ts",
       "components/WorkbuddyAccessCard.tsx",
     ],
-    apiModules: ["auth", "http", "knowledge", "personal", "weknoraModels", "workbuddy"],
+    apiModules: ["auth", "bulk", "http", "knowledge", "personal", "weknoraModels", "workbuddy"],
   },
   {
     route: "/upload",
     component: "UploadPage",
     guard: "viewUpload",
     owners: ["pages/upload/useUploadFlow.ts", "hooks/useModelSelection.ts"],
-    apiModules: ["auth", "http", "ingest", "weknoraModels"],
+    apiModules: ["auth", "bulk", "http", "ingest", "weknoraModels"],
   },
   {
     route: "/admin/ingest",
@@ -128,14 +128,14 @@ const routes: RouteContract[] = [
     component: "ReviewPage",
     guard: "viewReview",
     owners: ["pages/ReviewPage.tsx"],
-    apiModules: ["http", "review"],
+    apiModules: ["bulk", "http", "review"],
   },
   {
     route: "/original-access",
     component: "OriginalAccessPage",
     guard: "viewOriginalAccess",
     owners: ["pages/OriginalAccessPage.tsx"],
-    apiModules: ["http", "knowledge"],
+    apiModules: ["bulk", "http", "knowledge"],
   },
   {
     route: "/project/:id",
@@ -149,7 +149,7 @@ const routes: RouteContract[] = [
     component: "ProjectKnowledgePage",
     guard: "viewProject",
     owners: ["pages/ProjectKnowledgePage.tsx"],
-    apiModules: ["knowledge", "project", "review"],
+    apiModules: ["bulk", "knowledge", "project", "review"],
   },
   {
     route: "/project/:id/settings",

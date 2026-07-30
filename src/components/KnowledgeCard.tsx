@@ -4,7 +4,6 @@ import type { KnowledgeCardVM } from "../types/knowledge";
 import {
   assetStatusLabel,
   assetTypeLabel,
-  confidenceText,
   indexBadgeClass,
   indexStatusLabel,
   spineByVisibility,
@@ -65,9 +64,6 @@ export default function KnowledgeCard({
         <div className="dossier-meta">
           {asset.projectName && <span>{asset.projectName}</span>}
           {asset.lifecyclePhase && <span>{asset.lifecyclePhase}</span>}
-          {asset.confidence != null && (
-            <span className="u-num">置信度 {confidenceText(asset.confidence)}</span>
-          )}
           {asset.updatedAt && <span>{formatBeijingTime(asset.updatedAt)}</span>}
           {asset.indexStatus && asset.indexStatus !== "indexed" && (
             <span

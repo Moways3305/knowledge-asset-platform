@@ -1,0 +1,38 @@
+.bulk-selection-rail {
+  position: sticky;
+  z-index: 4;
+  top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 12px 0;
+  padding: 12px 16px;
+  border: 1px solid #b8c9e8;
+  border-radius: 10px;
+  background: #f5f8ff;
+  box-shadow: 0 8px 24px rgb(31 68 122 / 8%);
+}
+
+.bulk-selection-copy,
+.bulk-selection-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.bulk-selection-copy button {
+  border: 0;
+  background: transparent;
+  color: #245aa5;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+@media (max-width: 900px) {
+  .bulk-selection-rail {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import re
+import uuid
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, select, update
 
+from app.models.audit import AuditEvent
+from app.models.ingest import IngestTask
 from app.models.weknora import WeknoraKbMapping
 from app.seed.dev_seed import (
     PROJECT_ALPHA,
@@ -96,6 +99,97 @@ async def test_ai_result_no_internal_fields(client):
     assert resp.json()["suggested_title"]  # 创建人可见完整建议
     assert "source_file_ref" not in resp.text
     assert "storage_ref" not in resp.text
+    body = resp.json()
+    assert body["suggestion_generation_status"] in {
+        "generated",
+        "needs_correction",
+        "needs_manual_completion",
+    }
+    assert body["suggestion_generation_reason"]
+    assert "%" not in body["suggestion_generation_reason"]
+
+
+async def test_source_locked_destination_cannot_be_overridden(client, db_session):
+    task_id = (await _create_task(client, USER_PROJECT_MANAGER)).json()["ingest_task_id"]
+    await db_session.execute(
+        update(IngestTask)
+        .where(IngestTask.id == uuid.UUID(task_id))
+        .values(target_scope="personal", target_project_id=None)
+    )
+    await db_session.commit()
+
+    response = await client.post(
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json=_confirm_payload(
+            target_scope="project",
+            target_project_id=str(PROJECT_ALPHA),
+        ),
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["denied_reason"] == "ingest_target_locked"
+
+
+async def test_bulk_confirm_has_one_explicit_target_and_partial_terminal_result(client, db_session):
+    first = (await _create_task(client, USER_CONSULTANT, "first.txt")).json()["ingest_task_id"]
+    second = (await _create_task(client, USER_CONSULTANT, "second.txt")).json()["ingest_task_id"]
+    payload = _confirm_payload(target_scope="personal")
+    confirmed = await client.post(
+        f"/api/v1/ingest/{first}/confirm",
+        headers=_hdr(USER_CONSULTANT),
+        json=payload,
+    )
+    assert confirmed.status_code == 200
+
+    missing_target = await client.post(
+        "/api/v1/ingest/bulk-confirm",
+        headers=_hdr(USER_CONSULTANT),
+        json={"items": [{"task_id": second, "confirmation": payload}]},
+    )
+    assert missing_target.status_code == 422
+
+    client_operation_id = uuid.uuid4()
+    response = await client.post(
+        "/api/v1/ingest/bulk-confirm",
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "target_scope": "personal",
+            "target_project_id": None,
+            "client_operation_id": str(client_operation_id),
+            "request_index": 2,
+            "request_count": 4,
+            "total_submitted": 700,
+            "items": [
+                {"task_id": first, "confirmation": payload},
+                {"task_id": second, "confirmation": payload},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed_with_errors"
+    assert body["submitted"] == 2
+    assert body["succeeded"] == 1
+    assert body["skipped"] == 1
+    assert body["failed"] == 0
+    audit = (
+        (
+            await db_session.execute(
+                select(AuditEvent)
+                .where(AuditEvent.action == "ingest.bulk_confirmed")
+                .order_by(AuditEvent.created_at.desc())
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert audit is not None
+    assert audit.extra["client_operation_id"] == str(client_operation_id)
+    assert audit.extra["request_index"] == 2
+    assert audit.extra["request_count"] == 4
+    assert audit.extra["logical_submitted"] == 700
+    assert "token" not in str(audit.extra).lower()
+    assert "source_file" not in str(audit.extra).lower()
 
 
 async def test_ai_result_admin_trimmed(client):

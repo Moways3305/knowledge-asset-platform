@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -9,11 +8,18 @@ import {
 } from "react";
 import { Bot, ChevronLeft, ChevronRight, FileText, MoreHorizontal, Search } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { deleteKnowledgeAsset, fetchKnowledgePage } from "../api/knowledge";
+import {
+  bulkDeleteKnowledgeAssets,
+  deleteKnowledgeAsset,
+  fetchKnowledgePage,
+} from "../api/knowledge";
+import { ControlledBulkRequestError } from "../api/bulk";
 import { fetchProjectQaModelOptions, projectQa } from "../api/project";
 import { requestCompanyUpgrade } from "../api/review";
 import { useAuth } from "../auth/AuthContext";
 import DataTable, { type Column } from "../components/DataTable";
+import ConfirmDialog from "../components/ConfirmDialog";
+import { BulkSelectionRail, SelectionCheckbox } from "../components/BulkSelection";
 import LoadingError from "../components/LoadingError";
 import {
   EmptyState,
@@ -91,6 +97,15 @@ function safeConfidentiality(value: string): string {
   return confidentialityLabels[value as ConfidentialityLevel] ?? SAFE_FALLBACK;
 }
 
+function canSelectProjectDelete(asset: KnowledgeCardVM, projectRole: string): boolean {
+  return (
+    projectRole === "project_manager" &&
+    asset.zone === "asset" &&
+    asset.assetStatus !== "archived" &&
+    asset.access.canDelete
+  );
+}
+
 function ProjectKnowledgeWorkspace({
   project,
   projects,
@@ -143,9 +158,21 @@ function ProjectKnowledgeWorkspace({
     tone: "success" | "error";
     text: string;
   } | null>(null);
+  const [selectedAssets, setSelectedAssets] = useState<KnowledgeCardVM[]>([]);
+  const [allMatchingSelected, setAllMatchingSelected] = useState(false);
+  const [matchingSelectableAssets, setMatchingSelectableAssets] = useState<
+    KnowledgeCardVM[] | null
+  >(null);
+  const [matchingSelectionLoading, setMatchingSelectionLoading] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false);
+  const bulkDeleteRunRef = useRef(false);
+  const bulkRetrySelectionRef = useRef<KnowledgeCardVM[] | null>(null);
 
   useEffect(() => {
     const requestId = ++listRequestRef.current;
+    const recoverySelection = bulkRetrySelectionRef.current;
+    bulkRetrySelectionRef.current = null;
     let active = true;
     const params: KnowledgeQueryParams = {
       scope: "project",
@@ -166,10 +193,14 @@ function ProjectKnowledgeWorkspace({
 
     setLoading(true);
     setListError(null);
+    setSelectedAssets([]);
+    setAllMatchingSelected(false);
+    setMatchingSelectableAssets(null);
     void fetchKnowledgePage(params)
       .then((nextResult) => {
         if (!active || requestId !== listRequestRef.current) return;
         setResult(nextResult);
+        if (recoverySelection) setSelectedAssets(recoverySelection);
         setHasLoaded(true);
       })
       .catch(() => {
@@ -330,96 +361,246 @@ function ProjectKnowledgeWorkspace({
     }
   }, []);
 
-  const columns = useMemo<Column<KnowledgeCardVM>[]>(
-    () => [
-      {
-        key: "title",
-        header: "知识名称",
-        className: "pk-title-cell",
-        render: (asset) => (
-          <div className="pk-title">
-            <FileText size={17} aria-hidden="true" />
-            <strong title={asset.title}>{asset.title}</strong>
-          </div>
-        ),
-      },
-      { key: "zone", header: "所属区域", render: (asset) => safeZone(asset.zone) },
-      { key: "type", header: "类型", render: (asset) => safeType(asset.assetType) },
-      {
-        key: "confidentiality",
-        header: "保密级别",
-        render: (asset) => (
-          <span className="pk-confidentiality">
-            {safeConfidentiality(asset.confidentialityLevel)}
-          </span>
-        ),
-      },
-      {
-        key: "status",
-        header: "状态",
-        render: (asset) => (
-          <StatusBadge
-            label={safeStatus(asset.assetStatus)}
-            tone={statusTones[asset.assetStatus] ?? "neutral"}
-          />
-        ),
-      },
-      {
-        key: "updated",
-        header: "最后更新",
-        className: "pk-date-cell",
-        render: (asset) =>
-          asset.updatedAt ? <time dateTime={asset.updatedAt}>{asset.updatedAt}</time> : "未提供",
-      },
-      {
-        key: "actions",
-        header: "操作",
-        className: "pk-action-cell",
-        render: (asset) => (
-          <div className="pk-row-actions">
-            <button
-              className="pk-detail-link"
-              type="button"
-              onClick={() =>
-                navigate(`/knowledge/${asset.id}`, {
-                  state: {
-                    backTo: `/project/${project.projectId}/knowledge`,
-                    backLabel: "返回项目知识库",
-                  },
-                })
+  const selectablePageAssets = result.items.filter((asset) =>
+    canSelectProjectDelete(asset, project.projectRole),
+  );
+  const selectedPageAssets = selectablePageAssets.filter((asset) =>
+    selectedAssets.some((selected) => selected.id === asset.id),
+  );
+  const pageAllSelected =
+    selectablePageAssets.length > 0 && selectedPageAssets.length === selectablePageAssets.length;
+  const pageIndeterminate = selectedPageAssets.length > 0 && !pageAllSelected;
+
+  const loadMatchingSelectableAssets = async () => {
+    const request = listRequestRef.current;
+    setMatchingSelectionLoading(true);
+    try {
+      const collected: KnowledgeCardVM[] = [];
+      let nextPage = 1;
+      let hasMore = true;
+      while (hasMore) {
+        const next = await fetchKnowledgePage({
+          scope: "project",
+          projectId: project.projectId,
+          page: nextPage,
+          pageSize: 100,
+          keyword: keyword || undefined,
+          zone: zone || undefined,
+          assetType: assetType || undefined,
+          assetStatus: assetStatus || undefined,
+          confidentialityLevel: confidentialityLevel || undefined,
+          updatedFrom: updatedFrom || undefined,
+          updatedTo: updatedTo || undefined,
+          sortBy,
+          sortDirection,
+          includeArchived,
+        });
+        collected.push(
+          ...next.items.filter((asset) => canSelectProjectDelete(asset, project.projectRole)),
+        );
+        hasMore = next.hasNext;
+        nextPage += 1;
+      }
+      if (request !== listRequestRef.current) return null;
+      setMatchingSelectableAssets(collected);
+      return collected;
+    } catch {
+      setDeleteNotice({ tone: "error", text: "无法选择全部筛选结果，请刷新后重试。" });
+      return null;
+    } finally {
+      if (request === listRequestRef.current) setMatchingSelectionLoading(false);
+    }
+  };
+
+  const selectAllMatching = async () => {
+    const collected = matchingSelectableAssets ?? (await loadMatchingSelectableAssets());
+    if (!collected) {
+      setSelectedAssets([]);
+      setAllMatchingSelected(false);
+      return;
+    }
+    setSelectedAssets(collected);
+    setAllMatchingSelected(true);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedAssets.length === 0 || bulkDeleteRunRef.current) return;
+    const selectionSnapshot = [...selectedAssets];
+    const selectionRequest = listRequestRef.current;
+    bulkDeleteRunRef.current = true;
+    setBulkDeleteBusy(true);
+    try {
+      const response = await bulkDeleteKnowledgeAssets({
+        itemIds: selectionSnapshot.map((asset) => asset.id),
+        scope: "project",
+        projectId: project.projectId,
+      });
+      setBulkDeleteOpen(false);
+      setSelectedAssets([]);
+      setAllMatchingSelected(false);
+      setDeleteNotice({
+        tone: response.failed > 0 || response.skipped > 0 ? "error" : "success",
+        text: `批量删除完成：提交 ${response.submitted}，成功 ${response.succeeded}，跳过 ${response.skipped}，失败 ${response.failed}。`,
+      });
+      setListRetryKey((value) => value + 1);
+    } catch (error) {
+      const retryIds =
+        error instanceof ControlledBulkRequestError
+          ? new Set(error.retryItems as string[])
+          : new Set(selectionSnapshot.map((asset) => asset.id));
+      const partial = error instanceof ControlledBulkRequestError ? error.partialResult : null;
+      const selectionScopeUnchanged = listRequestRef.current === selectionRequest;
+      setBulkDeleteOpen(false);
+      if (selectionScopeUnchanged) {
+        bulkRetrySelectionRef.current = selectionSnapshot.filter((asset) => retryIds.has(asset.id));
+      }
+      setAllMatchingSelected(false);
+      setDeleteNotice({
+        tone: "error",
+        text: partial
+          ? `批量删除中断：已完成提交 ${partial.submitted} 项（成功 ${partial.succeeded}，跳过 ${partial.skipped}，失败 ${partial.failed}），剩余 ${retryIds.size} 项可重试。`
+          : `批量删除未开始，${retryIds.size} 项仍保留选择，可重试。`,
+      });
+      setListRetryKey((value) => value + 1);
+    } finally {
+      bulkDeleteRunRef.current = false;
+      setBulkDeleteBusy(false);
+    }
+  };
+
+  const columns: Column<KnowledgeCardVM>[] = [
+    {
+      key: "select",
+      header: (
+        <SelectionCheckbox
+          checked={pageAllSelected}
+          indeterminate={pageIndeterminate}
+          disabled={selectablePageAssets.length === 0 || bulkDeleteBusy}
+          label="全选当前页可删除项目知识"
+          onChange={() => {
+            if (pageAllSelected) {
+              const pageIds = new Set(selectablePageAssets.map((asset) => asset.id));
+              setSelectedAssets((current) => current.filter((asset) => !pageIds.has(asset.id)));
+              setAllMatchingSelected(false);
+            } else {
+              setSelectedAssets((current) => [
+                ...current.filter(
+                  (asset) => !selectablePageAssets.some((pageAsset) => pageAsset.id === asset.id),
+                ),
+                ...selectablePageAssets,
+              ]);
+              if (matchingSelectableAssets === null) {
+                void loadMatchingSelectableAssets();
               }
-            >
-              查看详情
-            </button>
-            {project.projectRole === "project_manager" && asset.zone === "asset" && (
-              <details className="pk-more-actions">
-                <summary aria-label={`更多操作：${asset.title}`} title="更多操作">
-                  <MoreHorizontal size={16} aria-hidden="true" />
-                </summary>
+            }
+          }}
+        />
+      ),
+      render: (asset) => (
+        <SelectionCheckbox
+          checked={selectedAssets.some((selected) => selected.id === asset.id)}
+          disabled={!canSelectProjectDelete(asset, project.projectRole) || bulkDeleteBusy}
+          label={`选择项目知识 ${asset.title}`}
+          onChange={() => {
+            setAllMatchingSelected(false);
+            if (matchingSelectableAssets === null) {
+              void loadMatchingSelectableAssets();
+            }
+            setSelectedAssets((current) =>
+              current.some((selected) => selected.id === asset.id)
+                ? current.filter((selected) => selected.id !== asset.id)
+                : [...current, asset],
+            );
+          }}
+        />
+      ),
+    },
+    {
+      key: "title",
+      header: "知识名称",
+      className: "pk-title-cell",
+      render: (asset) => (
+        <div className="pk-title">
+          <FileText size={17} aria-hidden="true" />
+          <strong title={asset.title}>{asset.title}</strong>
+        </div>
+      ),
+    },
+    { key: "zone", header: "所属区域", render: (asset) => safeZone(asset.zone) },
+    { key: "type", header: "类型", render: (asset) => safeType(asset.assetType) },
+    {
+      key: "confidentiality",
+      header: "保密级别",
+      render: (asset) => (
+        <span className="pk-confidentiality">
+          {safeConfidentiality(asset.confidentialityLevel)}
+        </span>
+      ),
+    },
+    {
+      key: "status",
+      header: "状态",
+      render: (asset) => (
+        <StatusBadge
+          label={safeStatus(asset.assetStatus)}
+          tone={statusTones[asset.assetStatus] ?? "neutral"}
+        />
+      ),
+    },
+    {
+      key: "updated",
+      header: "最后更新",
+      className: "pk-date-cell",
+      render: (asset) =>
+        asset.updatedAt ? <time dateTime={asset.updatedAt}>{asset.updatedAt}</time> : "未提供",
+    },
+    {
+      key: "actions",
+      header: "操作",
+      className: "pk-action-cell",
+      render: (asset) => (
+        <div className="pk-row-actions">
+          <button
+            className="pk-detail-link"
+            type="button"
+            onClick={() =>
+              navigate(`/knowledge/${asset.id}`, {
+                state: {
+                  backTo: `/project/${project.projectId}/knowledge`,
+                  backLabel: "返回项目知识库",
+                },
+              })
+            }
+          >
+            查看详情
+          </button>
+          {project.projectRole === "project_manager" && asset.zone === "asset" && (
+            <details className="pk-more-actions">
+              <summary aria-label={`更多操作：${asset.title}`} title="更多操作">
+                <MoreHorizontal size={16} aria-hidden="true" />
+              </summary>
+              <button
+                type="button"
+                disabled={upgradeBusyId === asset.id}
+                onClick={() => void requestUpgrade(asset.id)}
+              >
+                {upgradeBusyId === asset.id ? "提交中…" : "申请升格公司资产"}
+              </button>
+              {asset.access.canDelete && asset.assetStatus !== "archived" && (
                 <button
                   type="button"
-                  disabled={upgradeBusyId === asset.id}
-                  onClick={() => void requestUpgrade(asset.id)}
+                  disabled={deleteBusyId === asset.id}
+                  onClick={() => setConfirmDeleteId(asset.id)}
                 >
-                  {upgradeBusyId === asset.id ? "提交中…" : "申请升格公司资产"}
+                  {deleteBusyId === asset.id ? "删除中…" : "删除"}
                 </button>
-                {asset.access.canDelete && asset.assetStatus !== "archived" && (
-                  <button
-                    type="button"
-                    disabled={deleteBusyId === asset.id}
-                    onClick={() => setConfirmDeleteId(asset.id)}
-                  >
-                    {deleteBusyId === asset.id ? "删除中…" : "删除"}
-                  </button>
-                )}
-              </details>
-            )}
-          </div>
-        ),
-      },
-    ],
-    [navigate, project.projectId, project.projectRole, requestUpgrade, upgradeBusyId, deleteBusyId],
-  );
+              )}
+            </details>
+          )}
+        </div>
+      ),
+    },
+  ];
 
   const totalPages = Math.max(1, Math.ceil(result.total / result.pageSize));
   const firstItem = result.total === 0 ? 0 : (result.page - 1) * result.pageSize + 1;
@@ -662,6 +843,33 @@ function ProjectKnowledgeWorkspace({
                 {deleteNotice.text}
               </div>
             )}
+            <BulkSelectionRail
+              selectedCount={selectedAssets.length}
+              pageSelectedCount={selectedPageAssets.length}
+              matchingCount={matchingSelectableAssets?.length ?? selectedPageAssets.length}
+              allMatchingSelected={allMatchingSelected}
+              matchingPending={matchingSelectionLoading}
+              busy={bulkDeleteBusy}
+              onSelectAllMatching={
+                matchingSelectableAssets &&
+                matchingSelectableAssets.length > selectedPageAssets.length
+                  ? () => void selectAllMatching()
+                  : undefined
+              }
+              onClear={() => {
+                setSelectedAssets([]);
+                setAllMatchingSelected(false);
+              }}
+            >
+              <button
+                className="product-button is-danger is-small"
+                disabled={bulkDeleteBusy}
+                onClick={() => setBulkDeleteOpen(true)}
+                type="button"
+              >
+                批量删除（{selectedAssets.length}）
+              </button>
+            </BulkSelectionRail>
             <DataTable
               columns={columns}
               rows={result.items}
@@ -771,6 +979,18 @@ function ProjectKnowledgeWorkspace({
                 </div>
               </div>
             )}
+            <ConfirmDialog
+              open={bulkDeleteOpen}
+              title={`批量删除 ${selectedAssets.length} 项项目知识`}
+              description={`目标项目：${project.projectName}。删除后资料将退出列表、检索、问答与原文授权；服务端会逐项重新核验项目归属、成员权限、状态及引用/保留约束，变化项会安全跳过。`}
+              confirmText="确认批量删除"
+              danger
+              busy={bulkDeleteBusy}
+              onCancel={() => {
+                if (!bulkDeleteBusy) setBulkDeleteOpen(false);
+              }}
+              onConfirm={() => void handleBulkDelete()}
+            />
           </>
         )}
       </PageSection>

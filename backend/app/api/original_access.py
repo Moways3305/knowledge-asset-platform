@@ -19,6 +19,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_caller_context
 from app.core.trace import get_trace_id
 from app.db.session import get_db
+from app.schemas.bulk_operations import (
+    BulkOperationResponse,
+    OriginalAccessBulkActionRequest,
+)
+from app.schemas.enums import AuditAction
 from app.schemas.original_access import (
     AccessGrantOut,
     CreateRequestBody,
@@ -28,9 +33,64 @@ from app.schemas.original_access import (
     RevokeBody,
 )
 from app.schemas.permission import CallerContext
+from app.services import bulk_operations as bulk_service
 from app.services import original_access as oa_service
 
 router = APIRouter(prefix="/api/v1", tags=["original-access"])
+
+
+@router.post("/original-access/requests/bulk-action", response_model=BulkOperationResponse)
+async def bulk_request_action(
+    body: OriginalAccessBulkActionRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> BulkOperationResponse:
+    """受控逐项审批；服务端为每项重新读取权限与 pending 状态。"""
+    from fastapi import HTTPException
+
+    operation_id = uuid.uuid4()
+    trace_id = get_trace_id(request)
+
+    async def process_batch(batch):
+        batch_results = []
+        for request_id in batch:
+            try:
+                if body.action == "approve":
+                    await oa_service.approve_request(
+                        session, caller, request_id, body.note, trace_id
+                    )
+                else:
+                    await oa_service.reject_request(
+                        session, caller, request_id, body.note, trace_id
+                    )
+                batch_results.append(
+                    bulk_service.BulkItemResult(item_id=request_id, status="succeeded")
+                )
+            except HTTPException as exc:
+                await session.rollback()
+                batch_results.append(bulk_service.skipped_from_http(request_id, exc))
+            except Exception:
+                await session.rollback()
+                batch_results.append(bulk_service.failed_item(request_id))
+        return batch_results
+
+    results = await bulk_service.execute_in_controlled_batches(body.item_ids, process_batch)
+    response = bulk_service.terminal_response(operation_id, body.item_ids, results)
+    await bulk_service.record_terminal_audit(
+        session,
+        caller=caller,
+        action=AuditAction.original_access_bulk_decided.value,
+        trace_id=trace_id,
+        response=response,
+        operation=body.action,
+        target_scope="original_access_inbox",
+        client_operation_id=body.client_operation_id,
+        request_index=body.request_index,
+        request_count=body.request_count,
+        total_submitted=body.total_submitted,
+    )
+    return response
 
 
 @router.post("/knowledge/{asset_id}/original-access/request", response_model=CreateRequestResponse)

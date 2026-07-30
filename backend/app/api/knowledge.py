@@ -10,14 +10,21 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_caller_context
 from app.core.trace import get_trace_id
 from app.db.session import get_db
+from app.models.knowledge import KnowledgeAsset
+from app.schemas.bulk_operations import (
+    BulkOperationResponse,
+    KnowledgeBulkDeleteRequest,
+)
 from app.schemas.enums import (
     AssetStatus,
     AssetType,
+    AuditAction,
     ConfidentialityLevel,
     KnowledgeScope,
     KnowledgeZone,
@@ -36,12 +43,86 @@ from app.schemas.knowledge import (
 from app.schemas.knowledge_insights import KnowledgeOpsInsightsResponse
 from app.schemas.my_knowledge import PersonalKnowledgeListResponse
 from app.schemas.permission import CallerContext
+from app.services import bulk_operations as bulk_service
 from app.services import knowledge as knowledge_service
 from app.services import knowledge_insights as insights_service
 from app.services.storage import LocalFileStorage, get_storage
 from app.services.weknora_client import get_weknora_client
 
 router = APIRouter(prefix="/api/v1", tags=["knowledge"])
+
+
+@router.post("/knowledge/bulk-delete", response_model=BulkOperationResponse)
+async def bulk_delete_knowledge_assets(
+    body: KnowledgeBulkDeleteRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    weknora=Depends(get_weknora_client),
+) -> BulkOperationResponse:
+    """按声明范围逐项重鉴权删除，不允许把个人/其他项目资产混入批次。"""
+    operation_id = uuid.uuid4()
+    trace_id = get_trace_id(request)
+
+    async def process_batch(batch):
+        batch_results = []
+        for asset_id in batch:
+            try:
+                asset = (
+                    await session.execute(
+                        select(KnowledgeAsset).where(KnowledgeAsset.id == asset_id)
+                    )
+                ).scalar_one_or_none()
+                scope_matches = asset is not None and asset.scope == body.scope
+                project_matches = body.scope != "project" or (
+                    asset is not None and asset.project_id == body.project_id
+                )
+                if not scope_matches or not project_matches:
+                    batch_results.append(
+                        bulk_service.BulkItemResult(
+                            item_id=asset_id,
+                            status="skipped",
+                            reason_code="knowledge_asset_not_found",
+                            message="资料不存在或已不属于当前范围",
+                        )
+                    )
+                    continue
+                await knowledge_service.delete_asset(
+                    session,
+                    caller,
+                    asset_id,
+                    reason=body.reason,
+                    weknora=weknora,
+                    trace_id=trace_id,
+                )
+                batch_results.append(
+                    bulk_service.BulkItemResult(item_id=asset_id, status="succeeded")
+                )
+            except HTTPException as exc:
+                await session.rollback()
+                batch_results.append(bulk_service.skipped_from_http(asset_id, exc))
+            except Exception:
+                await session.rollback()
+                batch_results.append(bulk_service.failed_item(asset_id))
+        return batch_results
+
+    results = await bulk_service.execute_in_controlled_batches(body.item_ids, process_batch)
+    response = bulk_service.terminal_response(operation_id, body.item_ids, results)
+    await bulk_service.record_terminal_audit(
+        session,
+        caller=caller,
+        action=AuditAction.knowledge_asset_bulk_deleted.value,
+        trace_id=trace_id,
+        response=response,
+        operation="delete",
+        target_scope=body.scope,
+        project_id=body.project_id,
+        client_operation_id=body.client_operation_id,
+        request_index=body.request_index,
+        request_count=body.request_count,
+        total_submitted=body.total_submitted,
+    )
+    return response
 
 
 def _validate_time_range(

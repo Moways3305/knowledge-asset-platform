@@ -99,6 +99,40 @@ async def test_full_loop_evidence_then_pm_approve_changes_zone(client):
     assert d["zone"] == "asset"
 
 
+async def test_bulk_review_reject_requires_reason_and_continues_after_stale_item(client):
+    created = await client.post(
+        _confirm_url(PROJECT_ALPHA, KA_PROJECT_ALPHA_MATERIAL),
+        headers=_hdr(USER_CONSULTANT),
+    )
+    review_id = created.json()["id"]
+    await client.post(
+        _evidence_url(PROJECT_ALPHA, KA_PROJECT_ALPHA_MATERIAL),
+        headers=_hdr(USER_CONSULTANT),
+        json=_evidence_body(),
+    )
+
+    missing_reason = await client.post(
+        f"{REVIEWS}/bulk-action",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={"item_ids": [review_id], "action": "reject"},
+    )
+    assert missing_reason.status_code == 422
+
+    response = await client.post(
+        f"{REVIEWS}/bulk-action",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "item_ids": [review_id, str(uuid.uuid4())],
+            "action": "reject",
+            "review_comment": "证据需要补充",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed_with_errors"
+    assert (body["succeeded"], body["skipped"], body["failed"]) == (1, 1, 0)
+
+
 async def test_reject_keeps_material(client):
     """reject 后 review=rejected，资产仍为 material。"""
     r1 = await client.post(
