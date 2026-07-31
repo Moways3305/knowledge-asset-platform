@@ -156,6 +156,28 @@ async def test_pm_can_approve_creates_grant(client, db_session):
     assert g.grantee_user_id == USER_CONSULTANT and g.status == "active"
 
 
+async def test_bulk_original_access_returns_partial_terminal_result(client, db_session):
+    _, first = await _create_pending(client, db_session)
+    _, second = await _create_pending(client, db_session)
+    approved = await client.post(
+        f"/api/v1/original-access/requests/{first}/approve",
+        headers=_hdr(USER_BOSS),
+        json={},
+    )
+    assert approved.status_code == 200
+
+    response = await client.post(
+        "/api/v1/original-access/requests/bulk-action",
+        headers=_hdr(USER_BOSS),
+        json={"item_ids": [first, second], "action": "reject", "note": "批量复核"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed_with_errors"
+    assert (body["succeeded"], body["skipped"], body["failed"]) == (1, 1, 0)
+    _assert_no_leak(response.text)
+
+
 async def test_director_can_approve(client, db_session):
     aid, rid = await _create_pending(client, db_session)
     r = await client.post(

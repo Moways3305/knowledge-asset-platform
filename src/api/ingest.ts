@@ -22,6 +22,8 @@ import type {
   UploadSessionDTO,
   UploadSessionListDTO,
 } from "../types/ingest";
+import type { BulkOperationResponseDTO } from "../types/bulk";
+import { runControlledBulkRequests } from "./bulk";
 
 // 真实文件上传：以 multipart/form-data 发送选中的文件字节。后端写入受控存储并
 // 只返回安全元数据（不返回任何存储引用 / 路径 / URL）。
@@ -45,12 +47,26 @@ export async function createIngestUpload(input: {
 
 export async function createUploadSession(input: {
   files: File[];
+  rejectedFiles?: Array<{
+    file_name: string;
+    file_size: number;
+    file_type?: string;
+    error_code:
+      | "file_unreadable"
+      | "file_read_timeout"
+      | "macos_metadata"
+      | "unsupported_file_type"
+      | "file_too_large";
+  }>;
   sessionId?: string;
   targetScope?: string;
   targetProjectId?: string;
 }): Promise<UploadSessionDTO> {
   const form = new FormData();
   input.files.forEach((file) => form.append("files", file, file.name));
+  if (input.rejectedFiles?.length) {
+    form.append("client_rejections", JSON.stringify(input.rejectedFiles));
+  }
   if (input.sessionId) form.append("session_id", input.sessionId);
   if (input.targetScope) form.append("target_scope", input.targetScope);
   if (input.targetProjectId) form.append("target_project_id", input.targetProjectId);
@@ -90,6 +106,10 @@ export async function removeUploadSessionItem(
   return apiDelete<UploadSessionDTO>(`/api/v1/ingest/upload-sessions/${sessionId}/items/${itemId}`);
 }
 
+export async function removeFailedUploadSessionItems(sessionId: string): Promise<UploadSessionDTO> {
+  return apiDelete<UploadSessionDTO>(`/api/v1/ingest/upload-sessions/${sessionId}/failed-items`);
+}
+
 export async function fetchIngestAiResult(taskId: string): Promise<IngestAiResultDTO> {
   return apiGet<IngestAiResultDTO>(`/api/v1/ingest/${taskId}/ai-result`);
 }
@@ -124,6 +144,34 @@ export async function confirmIngest(
   payload: IngestConfirmRequestDTO,
 ): Promise<IngestConfirmResponseDTO> {
   return apiPost<IngestConfirmResponseDTO>(`/api/v1/ingest/${taskId}/confirm`, payload);
+}
+
+export async function bulkConfirmIngest(input: {
+  items: Array<{ taskId: string; confirmation: IngestConfirmRequestDTO }>;
+  targetScope: "personal" | "project" | "company";
+  targetProjectId?: string;
+  onBatchCompleted?: (response: BulkOperationResponseDTO) => void;
+}): Promise<BulkOperationResponseDTO> {
+  return runControlledBulkRequests({
+    items: input.items,
+    getItemId: (item) => item.taskId,
+    submitBatch: (batch, context) =>
+      apiPost<BulkOperationResponseDTO>("/api/v1/ingest/bulk-confirm", {
+        items: batch.map((item) => ({
+          task_id: item.taskId,
+          confirmation: item.confirmation,
+        })),
+        target_scope: input.targetScope,
+        target_project_id: input.targetProjectId ?? null,
+        client_operation_id: context.clientOperationId,
+        request_index: context.requestIndex,
+        request_count: context.requestCount,
+        total_submitted: context.totalSubmitted,
+      }),
+    onBatchCompleted: input.onBatchCompleted
+      ? (response) => input.onBatchCompleted?.(response)
+      : undefined,
+  });
 }
 
 // Admin 入库运营列表（仅安全运营元数据；admin / 治理角色，普通业务用户 403）。

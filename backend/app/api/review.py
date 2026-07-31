@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_caller_context
 from app.core.trace import get_trace_id
 from app.db.session import get_db
+from app.schemas.bulk_operations import BulkOperationResponse, ReviewBulkActionRequest
+from app.schemas.enums import AuditAction
 from app.schemas.permission import CallerContext
 from app.schemas.review import (
     EvidenceCreateRequest,
@@ -25,6 +27,7 @@ from app.schemas.review import (
     ReviewRejectRequest,
     ReviewWithdrawRequest,
 )
+from app.services import bulk_operations as bulk_service
 from app.services import review as review_service
 from app.services.storage import LocalFileStorage, get_storage
 from app.services.weknora_client import (
@@ -34,6 +37,72 @@ from app.services.weknora_client import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["review"])
+
+
+@router.post("/reviews/bulk-action", response_model=BulkOperationResponse)
+async def bulk_review_action(
+    req: ReviewBulkActionRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
+) -> BulkOperationResponse:
+    """逐项复用单项审核语义；并发变化只跳过对应项。"""
+    from fastapi import HTTPException
+
+    operation_id = uuid.uuid4()
+    trace_id = get_trace_id(request)
+
+    async def process_batch(batch):
+        batch_results = []
+        for review_id in batch:
+            try:
+                if req.action == "approve":
+                    await review_service.approve(
+                        session,
+                        caller,
+                        review_id,
+                        req.review_comment,
+                        trace_id,
+                        storage=storage,
+                        weknora=weknora,
+                    )
+                else:
+                    await review_service.reject(
+                        session,
+                        caller,
+                        review_id,
+                        (req.review_comment or "").strip(),
+                        trace_id,
+                    )
+                batch_results.append(
+                    bulk_service.BulkItemResult(item_id=review_id, status="succeeded")
+                )
+            except HTTPException as exc:
+                await session.rollback()
+                batch_results.append(bulk_service.skipped_from_http(review_id, exc))
+            except Exception:
+                await session.rollback()
+                batch_results.append(bulk_service.failed_item(review_id))
+        return batch_results
+
+    results = await bulk_service.execute_in_controlled_batches(req.item_ids, process_batch)
+    response = bulk_service.terminal_response(operation_id, req.item_ids, results)
+    await bulk_service.record_terminal_audit(
+        session,
+        caller=caller,
+        action=AuditAction.review_bulk_decided.value,
+        trace_id=trace_id,
+        response=response,
+        operation=req.action,
+        target_scope="review_queue",
+        client_operation_id=req.client_operation_id,
+        request_index=req.request_index,
+        request_count=req.request_count,
+        total_submitted=req.total_submitted,
+    )
+    return response
 
 
 @router.get("/reviews", response_model=ReviewListResponse)

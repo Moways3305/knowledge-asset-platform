@@ -1,5 +1,6 @@
 import { apiGet, apiPatch, apiPost, apiPut, createIdempotencyKey } from "./http";
 import { mapCard } from "./knowledge";
+import { runControlledBulkRequests } from "./bulk";
 import type {
   ConfirmAssetResponseDTO,
   PersonalKnowledgeItemDTO,
@@ -70,6 +71,27 @@ export async function submitPersonalKnowledge(
     body,
     { "Idempotency-Key": createIdempotencyKey() },
   );
+}
+
+export async function bulkSubmitPersonalKnowledge(input: {
+  itemIds: string[];
+  targetProjectId: string;
+  note?: string;
+}): Promise<import("../types/bulk").BulkOperationResponseDTO> {
+  return runControlledBulkRequests({
+    items: input.itemIds,
+    getItemId: (itemId) => itemId,
+    submitBatch: (batch, context) =>
+      apiPost("/api/v1/my/knowledge/bulk-submit-to-project", {
+        item_ids: batch,
+        target_project_id: input.targetProjectId,
+        note: input.note ?? null,
+        client_operation_id: context.clientOperationId,
+        request_index: context.requestIndex,
+        request_count: context.requestCount,
+        total_submitted: context.totalSubmitted,
+      }),
+  });
 }
 
 export async function registerPersonalKnowledgeEvidence(

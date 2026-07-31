@@ -143,6 +143,24 @@ async def test_submit_to_member_project_creates_submission_and_review(client, db
     assert task.reviewer_user_id == USER_PROJECT_MANAGER  # ALPHA 的 active PM
 
 
+async def test_bulk_submit_revalidates_ownership_and_returns_partial_result(client, db_session):
+    owned = await _mk_personal(db_session, owner=USER_CONSULTANT)
+    not_owned = await _mk_personal(db_session, owner=USER_PROJECT_MANAGER)
+    response = await client.post(
+        "/api/v1/my/knowledge/bulk-submit-to-project",
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "item_ids": [str(owned), str(not_owned)],
+            "target_project_id": str(PROJECT_ALPHA),
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed_with_errors"
+    assert (body["succeeded"], body["skipped"], body["failed"]) == (1, 1, 0)
+    _assert_no_leak(response.text)
+
+
 async def test_non_member_submit_forbidden(client, db_session):
     aid = await _mk_personal(db_session, owner=USER_CONSULTANT)
     # USER_CONSULTANT 在 BETA 为 inactive 成员 → 非 active 成员。

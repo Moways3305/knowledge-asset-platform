@@ -378,10 +378,6 @@ export default function KnowledgeDetailPage() {
       label: "问答索引",
       value: asset.indexStatus ? (indexStatusLabel[asset.indexStatus] ?? asset.indexStatus) : "",
     },
-    {
-      label: "识别置信度",
-      value: asset.confidence == null ? "" : `${Math.round(asset.confidence * 100)}%`,
-    },
   ].filter((fact) => hasText(fact.value));
 
   return (

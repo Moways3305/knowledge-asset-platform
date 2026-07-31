@@ -60,6 +60,80 @@
   background: #f9faff;
 }
 
+.upload77-page .upload77-dropzone[data-dragging="true"] {
+  border-color: #1f2d75;
+  background: #f0f3ff;
+  box-shadow: inset 0 0 0 1px rgba(31, 45, 117, 0.24);
+}
+
+.upload77-intake-feedback {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px 24px;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid #cdd5ea;
+  border-left: 3px solid #1f2d75;
+  border-radius: 5px;
+  background: #f8f9fc;
+}
+
+.upload77-intake-feedback > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.upload77-intake-feedback > div:first-child span,
+.upload77-intake-feedback > p {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.upload77-intake-feedback dl {
+  display: flex;
+  gap: 18px;
+  margin: 0;
+}
+
+.upload77-intake-feedback dl > div {
+  text-align: right;
+}
+
+.upload77-intake-feedback dt {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.upload77-intake-feedback dd {
+  margin: 2px 0 0;
+  color: var(--color-text-heading);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.upload77-intake-feedback > p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.upload77-intake-feedback.is-partial,
+.upload77-intake-feedback.is-rejected,
+.upload77-intake-feedback.is-network_error {
+  border-left-color: #b45309;
+  background: #fffaf0;
+}
+
+@media (max-width: 720px) {
+  .upload77-intake-feedback {
+    grid-template-columns: 1fr;
+  }
+
+  .upload77-intake-feedback dl {
+    justify-content: space-between;
+  }
+}
+
 .upload77-dropzone h2 {
   margin: 4px 0 0;
   color: var(--color-text-heading);

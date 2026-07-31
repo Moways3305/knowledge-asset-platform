@@ -8,9 +8,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
+from app.schemas.bulk_operations import BulkRequestContext
 from app.schemas.enums import (
     AiAccessLevel,
     AssetType,
@@ -68,6 +70,21 @@ class UploadSessionResponse(BaseModel):
 class UploadSessionListResponse(BaseModel):
     items: list[UploadSessionResponse]
     total: int
+
+
+class UploadClientRejection(BaseModel):
+    """A client-side intake failure. The server revalidates safe claims."""
+
+    file_name: str
+    file_size: int = 0
+    file_type: str | None = None
+    error_code: Literal[
+        "file_unreadable",
+        "file_read_timeout",
+        "macos_metadata",
+        "unsupported_file_type",
+        "file_too_large",
+    ]
 
 
 class IngestTaskStage(str, Enum):
@@ -143,7 +160,13 @@ class IngestAiResultResponse(BaseModel):
     suggested_confidentiality_level: str | None = None
     suggested_ai_access_level: str | None = None
     suggested_phase_key: str | None = None
-    confidence: float | None = None
+    confidence: float | None = Field(
+        default=None,
+        deprecated=True,
+        description="Deprecated compatibility field; never use for UI or decisions.",
+    )
+    suggestion_generation_status: str
+    suggestion_generation_reason: str
     naming_compliant: bool | None = None
     naming_parsed_fields: dict | None = None
     naming_anomalies: list | None = None
@@ -211,6 +234,30 @@ class IngestConfirmResponse(BaseModel):
     index_status: str | None = None
 
 
+class IngestBulkConfirmItem(BaseModel):
+    task_id: uuid.UUID
+    confirmation: IngestConfirmRequest
+
+
+class IngestBulkConfirmRequest(BulkRequestContext):
+    items: list[IngestBulkConfirmItem] = Field(min_length=1, max_length=500)
+    target_scope: KnowledgeScope
+    target_project_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def require_one_explicit_destination(self) -> IngestBulkConfirmRequest:
+        if len({item.task_id for item in self.items}) != len(self.items):
+            raise ValueError("task ids must not contain duplicates")
+        if self.target_scope == KnowledgeScope.project and self.target_project_id is None:
+            raise ValueError("target_project_id is required for project scope")
+        for item in self.items:
+            if item.confirmation.target_scope != self.target_scope:
+                raise ValueError("all items must use the explicit batch target_scope")
+            if item.confirmation.target_project_id != self.target_project_id:
+                raise ValueError("all items must use the explicit batch target_project_id")
+        return self
+
+
 class IngestParseRefreshResponse(BaseModel):
     """解析状态对账响应（只回安全业务状态，绝不含 weknora_doc_id / kb_id）。"""
 
@@ -229,7 +276,13 @@ class AdminIngestItem(BaseModel):
     target_scope: str | None
     confidentiality_level: str | None
     ai_access_level: str | None
-    confidence: float | None
+    confidence: float | None = Field(
+        default=None,
+        deprecated=True,
+        description="Deprecated compatibility field; never use for UI or decisions.",
+    )
+    suggestion_generation_status: str
+    suggestion_generation_reason: str
     naming_compliant: bool | None
     # 抽取状态为运营元数据（不含抽取全文）。
     extraction_status: str | None = None
@@ -265,7 +318,13 @@ class PendingIngestItem(BaseModel):
     suggested_title: str | None = None
     suggested_one_liner: str | None = None
     naming_parsed_fields: dict | None = None
-    confidence: float | None = None
+    confidence: float | None = Field(
+        default=None,
+        deprecated=True,
+        description="Deprecated compatibility field; never use for UI or decisions.",
+    )
+    suggestion_generation_status: str
+    suggestion_generation_reason: str
     result_asset_id: uuid.UUID | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

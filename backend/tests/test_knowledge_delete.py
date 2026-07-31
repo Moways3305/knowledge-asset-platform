@@ -120,6 +120,27 @@ async def test_owner_deletes_personal(client):
     _assert_no_leak(r.text)
 
 
+async def test_project_bulk_delete_revalidates_scope_and_returns_partial_result(client):
+    response = await client.post(
+        f"{KN}/bulk-delete",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "item_ids": [str(KA_PROJECT_ALPHA), str(KA_PERSONAL)],
+            "scope": "project",
+            "project_id": str(PROJECT_ALPHA),
+            "reason": "项目资料批量清理",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed_with_errors"
+    assert body["submitted"] == 2
+    assert body["succeeded"] == 1
+    assert body["skipped"] == 1
+    assert body["failed"] == 0
+    _assert_no_leak(response.text)
+
+
 async def test_non_owner_cannot_see_personal_404(client):
     # 经理 B 看不到顾问 A 的个人知识 → 404（不泄露存在性）。
     r = await client.post(_del(KA_PERSONAL), headers=_hdr(USER_PROJECT_MANAGER), json={})

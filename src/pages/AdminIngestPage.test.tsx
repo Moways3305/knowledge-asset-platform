@@ -143,6 +143,8 @@ describe("AdminIngestPage operations reference", () => {
           confidentiality_level: "L4",
           ai_access_level: "A1",
           confidence: null,
+          suggestion_generation_status: "needs_correction",
+          suggestion_generation_reason: "历史任务信息不足，请人工核对",
           naming_compliant: null,
           extraction_status: "success",
           error_type: null,

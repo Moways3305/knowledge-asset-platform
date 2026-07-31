@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ControlledBulkRequestError } from "../api/bulk";
 import { ApiError } from "../api/http";
 import {
   approveOriginalAccess,
+  bulkOriginalAccessAction,
   fetchOriginalAccessRequests,
   rejectOriginalAccess,
 } from "../api/knowledge";
 import DataTable, { type Column } from "../components/DataTable";
+import ConfirmDialog from "../components/ConfirmDialog";
+import { BulkSelectionRail, SelectionCheckbox } from "../components/BulkSelection";
 import GovernanceWorkspace from "../components/GovernanceWorkspace";
 import type { OriginalAccessRequestDTO } from "../types/originalAccess";
 import { formatBeijingTime } from "../utils/time";
@@ -51,7 +55,11 @@ export default function OriginalAccessPage() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkAction, setBulkAction] = useState<"approve" | "reject" | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const requestRef = useRef(0);
+  const bulkRunRef = useRef(false);
 
   const load = useCallback(async () => {
     const requestId = ++requestRef.current;
@@ -59,6 +67,7 @@ export default function OriginalAccessPage() {
     setForbidden(false);
     setLoadFailed(false);
     setFeedback(null);
+    setSelectedIds([]);
     setItems([]);
     try {
       const next = await fetchOriginalAccessRequests(box);
@@ -102,7 +111,82 @@ export default function OriginalAccessPage() {
     }
   };
 
+  const eligibleItems = items.filter((item) => box === "inbox" && item.status === "pending");
+  const selectedEligible = eligibleItems.filter((item) => selectedIds.includes(item.request_id));
+  const pageAllSelected =
+    eligibleItems.length > 0 && selectedEligible.length === eligibleItems.length;
+  const pageIndeterminate = selectedEligible.length > 0 && !pageAllSelected;
+
+  const runBulk = async () => {
+    if (!bulkAction || selectedEligible.length === 0 || bulkRunRef.current) return;
+    const selectionSnapshot = selectedEligible.map((item) => item.request_id);
+    const selectionRequest = requestRef.current;
+    bulkRunRef.current = true;
+    setBulkBusy(true);
+    try {
+      const result = await bulkOriginalAccessAction({
+        itemIds: selectionSnapshot,
+        action: bulkAction,
+      });
+      setBulkAction(null);
+      await load();
+      setFeedback({
+        tone: result.failed > 0 || result.skipped > 0 ? "error" : "success",
+        text: `已提交 ${result.submitted} 项：成功 ${result.succeeded}，跳过 ${result.skipped}，失败 ${result.failed}。`,
+      });
+    } catch (error) {
+      const retryIds =
+        error instanceof ControlledBulkRequestError
+          ? (error.retryItems as string[])
+          : selectionSnapshot;
+      const partial = error instanceof ControlledBulkRequestError ? error.partialResult : null;
+      const selectionScopeUnchanged = requestRef.current === selectionRequest;
+      await load();
+      if (selectionScopeUnchanged && requestRef.current === selectionRequest + 1) {
+        setSelectedIds(retryIds);
+      }
+      setBulkAction(null);
+      setFeedback({
+        tone: "error",
+        text: partial
+          ? `批量操作中断：已完成提交 ${partial.submitted} 项（成功 ${partial.succeeded}，跳过 ${partial.skipped}，失败 ${partial.failed}），剩余 ${retryIds.length} 项可重试。`
+          : `批量操作未开始，${retryIds.length} 项仍保留选择，可重试。`,
+      });
+    } finally {
+      bulkRunRef.current = false;
+      setBulkBusy(false);
+    }
+  };
+
   const columns: Column<OriginalAccessRequestDTO>[] = [
+    {
+      key: "select",
+      header: (
+        <SelectionCheckbox
+          checked={pageAllSelected}
+          indeterminate={pageIndeterminate}
+          disabled={eligibleItems.length === 0 || bulkBusy}
+          label="全选当前页可审批申请"
+          onChange={() =>
+            setSelectedIds(pageAllSelected ? [] : eligibleItems.map((item) => item.request_id))
+          }
+        />
+      ),
+      render: (item) => (
+        <SelectionCheckbox
+          checked={selectedIds.includes(item.request_id)}
+          disabled={box !== "inbox" || item.status !== "pending" || bulkBusy}
+          label={`选择原文访问申请 ${safeTitle(item)}`}
+          onChange={() =>
+            setSelectedIds((current) =>
+              current.includes(item.request_id)
+                ? current.filter((id) => id !== item.request_id)
+                : [...current, item.request_id],
+            )
+          }
+        />
+      ),
+    },
     {
       key: "asset",
       header: "资产标题",
@@ -236,6 +320,32 @@ export default function OriginalAccessPage() {
         </div>
       )}
 
+      <BulkSelectionRail
+        selectedCount={selectedEligible.length}
+        pageSelectedCount={selectedEligible.length}
+        matchingCount={eligibleItems.length}
+        allMatchingSelected={pageAllSelected}
+        busy={bulkBusy}
+        onClear={() => setSelectedIds([])}
+      >
+        <button
+          className="gw-action is-primary"
+          disabled={bulkBusy}
+          onClick={() => setBulkAction("approve")}
+          type="button"
+        >
+          批量批准（{selectedEligible.length}）
+        </button>
+        <button
+          className="gw-action is-danger"
+          disabled={bulkBusy}
+          onClick={() => setBulkAction("reject")}
+          type="button"
+        >
+          批量拒绝（{selectedEligible.length}）
+        </button>
+      </BulkSelectionRail>
+
       <DataTable
         columns={columns}
         rows={items}
@@ -256,6 +366,18 @@ export default function OriginalAccessPage() {
         wrapClassName="gw-table-wrap"
         tableClassName="gw-table gw-access-table"
         ariaLabel={box === "inbox" ? "待我审批的原文访问申请" : "我的原文访问申请"}
+      />
+      <ConfirmDialog
+        open={bulkAction !== null}
+        title={bulkAction === "approve" ? "批量批准原文访问" : "批量拒绝原文访问"}
+        description={`将处理选中的 ${selectedEligible.length} 项申请；状态或权限已变化的申请会被安全跳过。`}
+        confirmText={bulkAction === "approve" ? "确认批量批准" : "确认批量拒绝"}
+        busy={bulkBusy}
+        danger={bulkAction === "reject"}
+        onConfirm={() => void runBulk()}
+        onCancel={() => {
+          if (!bulkBusy) setBulkAction(null);
+        }}
       />
     </GovernanceWorkspace>
   );

@@ -1,7 +1,7 @@
 // 资产化确认工作台的常量 / 选项 / 小工具。原散落在 UploadPage 顶部，提取到此。
 export type PathBranch = "a" | "b";
 export type FlowState = "idle" | "file_selected" | "processing" | "ready" | "failed" | "submitted";
-export type TargetLibrary = "personal" | "project" | "company";
+export type TargetLibrary = "" | "personal" | "project" | "company";
 
 // 异步 worker 处理时，上传后轮询 ai-result 直至处理完成/失败/超时。
 export const POLL_INTERVAL_MS = 2000;
@@ -9,6 +9,7 @@ export const POLL_MAX_ATTEMPTS = 30; // 约 60s 上限
 export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export const targetLibraryOptions: { value: TargetLibrary; label: string }[] = [
+  { value: "", label: "请选择目标知识库" },
   { value: "personal", label: "个人知识库" },
   { value: "project", label: "项目知识库" },
   { value: "company", label: "公司知识库" },

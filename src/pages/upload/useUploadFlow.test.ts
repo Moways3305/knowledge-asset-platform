@@ -40,10 +40,12 @@ const ingest = vi.hoisted(() => ({
   fetchUploadSession: undefined,
   retryUploadSessionItem: undefined,
   removeUploadSessionItem: undefined,
+  removeFailedUploadSessionItems: undefined,
   fetchIngestAiResult: vi.fn(),
   fetchIngestTaskStatus: vi.fn(),
   fetchPendingIngestTasks: vi.fn(),
   confirmIngest: vi.fn(),
+  bulkConfirmIngest: vi.fn(),
   deletePendingTask: vi.fn(),
 }));
 vi.mock("../../api/ingest", () => ingest);
@@ -75,6 +77,8 @@ const readyAiResult: IngestAiResultDTO = {
   suggested_ai_access_level: "A2",
   suggested_phase_key: "行动辅导",
   confidence: 0.9,
+  suggestion_generation_status: "generated",
+  suggestion_generation_reason: "已提取正文并生成建议，请人工核对",
   naming_compliant: true,
   naming_parsed_fields: null,
   naming_anomalies: [],
@@ -200,6 +204,8 @@ function pendingTask(id: string, fileName: string): PendingIngestItemDTO {
     suggested_one_liner: null,
     naming_parsed_fields: null,
     confidence: null,
+    suggestion_generation_status: "needs_correction",
+    suggestion_generation_reason: "历史任务信息不足，请人工核对",
     result_asset_id: null,
     created_at: null,
     updated_at: null,
@@ -233,6 +239,25 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       review_id: null,
       index_status: "indexed",
     });
+    ingest.bulkConfirmIngest
+      .mockReset()
+      .mockImplementation((input: { items: Array<{ taskId: string }> }) =>
+        Promise.resolve({
+          operation_id: "bulk-1",
+          status: "completed",
+          execution_mode: "synchronous",
+          submitted: input.items.length,
+          succeeded: input.items.length,
+          skipped: 0,
+          failed: 0,
+          items: input.items.map((item) => ({
+            item_id: item.taskId,
+            status: "succeeded",
+            reason_code: null,
+            message: null,
+          })),
+        }),
+      );
     ingest.deletePendingTask.mockReset().mockResolvedValue(undefined);
     modelState.current = {
       ...modelState.current,
@@ -352,22 +377,55 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       "two.pdf",
     ]);
     expect(result.current.localUploadQueue.map((item) => item.fileName)).toEqual([
-      "客户资料/one.txt",
-      "客户资料/子目录/bad.exe",
-      "客户资料/子目录/large.pdf",
-      "客户资料/子目录/two.pdf",
-      "客户资料/子目录/locked.docx",
+      "one.txt",
+      "bad.exe",
+      "large.pdf",
+      "two.pdf",
+      "locked.docx",
     ]);
     expect(result.current.localUploadQueue.map((item) => item.error)).toEqual([
       null,
       "该文件类型暂不支持上传",
       "文件超过 25 MiB 大小上限",
       null,
-      "无法读取该文件，请检查本机权限后重试",
+      "文件内容当前不可读取；请先在本机完成下载后重新选择",
     ]);
     expect(JSON.stringify(result.current.localUploadQueue)).not.toMatch(
       /[A-Za-z]:\\|\/Users\/|webkitRelativePath/,
     );
+  });
+
+  it("拒绝 macOS 伴生文件且不误伤普通隐藏文件", async () => {
+    const transfer = folderDataTransfer([
+      droppedDirectory("__MACOSX", [
+        droppedFile(new File(["metadata"], "._archive.md", { type: "text/markdown" })),
+      ]),
+      droppedFile(new File(["finder"], ".DS_Store")),
+      droppedFile(new File(["metadata"], "._foo.md", { type: "text/markdown" })),
+      droppedFile(new File(["real"], ".notes.md", { type: "text/markdown" })),
+      droppedFile(new File(["real"], "中文 资料.md", { type: "text/markdown" })),
+    ]);
+    const { result } = renderHook(() => useUploadFlow());
+
+    await act(async () => result.current.handleDataTransferDrop(transfer));
+    await waitFor(() => expect(result.current.localUploadQueue).toHaveLength(5));
+    expect(result.current.localUploadQueue.map((item) => item.status)).toEqual([
+      "failed",
+      "failed",
+      "failed",
+      "awaiting_confirmation",
+      "awaiting_confirmation",
+    ]);
+    expect(result.current.localUploadQueue.slice(0, 3).map((item) => item.error)).toEqual([
+      "这是 macOS 元数据文件，不是原始资料；请选择不带 `._` 前缀的原文件",
+      "这是 macOS 元数据文件，不是原始资料；请选择不带 `._` 前缀的原文件",
+      "这是 macOS 元数据文件，不是原始资料；请选择不带 `._` 前缀的原文件",
+    ]);
+    expect(ingest.createIngestUpload.mock.calls.map((call) => call[0].file.name)).toEqual([
+      ".notes.md",
+      "中文 资料.md",
+    ]);
+    expect(JSON.stringify(result.current.localUploadQueue)).not.toContain("__MACOSX");
   });
 
   it("目录 API 不可用时回退普通文件并给出可行动提示", async () => {
@@ -940,10 +998,29 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       .mockReset()
       .mockReturnValueOnce(first.promise)
       .mockResolvedValueOnce({ ...readyAiResult, ingest_task_id: "task-b" });
-    ingest.confirmIngest
-      .mockReset()
-      .mockRejectedValueOnce(new Error("first failed"))
-      .mockResolvedValueOnce({ task_id: "task-b", status: "completed", result_asset_id: "a2" });
+    ingest.bulkConfirmIngest.mockResolvedValueOnce({
+      operation_id: "bulk-1",
+      status: "completed_with_errors",
+      execution_mode: "synchronous",
+      submitted: 2,
+      succeeded: 1,
+      skipped: 1,
+      failed: 0,
+      items: [
+        {
+          item_id: "task-a",
+          status: "skipped",
+          reason_code: "item_state_changed",
+          message: "状态已变化",
+        },
+        {
+          item_id: "task-b",
+          status: "succeeded",
+          reason_code: null,
+          message: null,
+        },
+      ],
+    });
     ingest.createIngestUpload
       .mockReset()
       .mockResolvedValueOnce({ ingest_task_id: "task-a" })
@@ -963,7 +1040,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     let batch!: Promise<void>;
 
     act(() => {
-      batch = result.current.handleBatchConfirm([a, b]);
+      batch = result.current.handleBatchConfirm([a, b], "personal");
     });
     expect(result.current.batchStatus["task-a"]).toBe("processing");
     expect(ingest.fetchIngestAiResult).toHaveBeenCalledTimes(1);
@@ -973,7 +1050,15 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       first.resolve({ ...readyAiResult, ingest_task_id: "task-a" });
       await batch;
     });
-    expect(ingest.confirmIngest.mock.calls.map((call) => call[0])).toEqual(["task-a", "task-b"]);
+    expect(ingest.bulkConfirmIngest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetScope: "personal",
+        items: [
+          expect.objectContaining({ taskId: "task-a" }),
+          expect.objectContaining({ taskId: "task-b" }),
+        ],
+      }),
+    );
     expect(result.current.batchStatus["task-a"]).toBe("failed");
     expect(result.current.batchStatus["task-b"]).toBe("success");
     expect(result.current.localUploadQueue.map((item) => item.ingestTaskId)).toEqual(["task-a"]);
@@ -1153,38 +1238,68 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(ingest.deletePendingTask).toHaveBeenCalledTimes(1);
   });
 
-  it("stops a batch before confirmation when the user switches source", async () => {
-    const firstConfirmation = deferred<{
-      task_id: string;
+  it("ignores a late bulk-confirm response when the user switches source", async () => {
+    const bulkConfirmation = deferred<{
+      operation_id: string;
       status: string;
-      result_asset_id: string;
+      execution_mode: string;
+      submitted: number;
+      succeeded: number;
+      skipped: number;
+      failed: number;
+      items: Array<{
+        item_id: string;
+        status: string;
+        reason_code: null;
+        message: null;
+      }>;
     }>();
     ingest.fetchIngestAiResult
       .mockReset()
       .mockResolvedValueOnce({ ...readyAiResult, ingest_task_id: "task-a" })
       .mockResolvedValueOnce({ ...readyAiResult, ingest_task_id: "task-b" });
-    ingest.confirmIngest.mockReset().mockReturnValueOnce(firstConfirmation.promise);
+    ingest.bulkConfirmIngest.mockReset().mockReturnValueOnce(bulkConfirmation.promise);
     const { result } = renderHook(() => useUploadFlow());
     const a = pendingTask("task-a", "A.docx");
     const b = pendingTask("task-b", "B.docx");
     let batch!: Promise<void>;
 
     act(() => {
-      batch = result.current.handleBatchConfirm([a, b]);
+      batch = result.current.handleBatchConfirm([a, b], "personal");
     });
-    await waitFor(() =>
-      expect(ingest.confirmIngest).toHaveBeenCalledWith("task-a", expect.anything()),
-    );
+    await waitFor(() => expect(ingest.bulkConfirmIngest).toHaveBeenCalledTimes(1));
     act(() => {
       result.current.switchPath("a");
     });
     await act(async () => {
-      firstConfirmation.resolve({ task_id: "task-a", status: "completed", result_asset_id: "a1" });
+      bulkConfirmation.resolve({
+        operation_id: "bulk-1",
+        status: "completed",
+        execution_mode: "synchronous",
+        submitted: 2,
+        succeeded: 2,
+        skipped: 0,
+        failed: 0,
+        items: [
+          {
+            item_id: "task-a",
+            status: "succeeded",
+            reason_code: null,
+            message: null,
+          },
+          {
+            item_id: "task-b",
+            status: "succeeded",
+            reason_code: null,
+            message: null,
+          },
+        ],
+      });
       await batch;
     });
 
-    expect(ingest.confirmIngest).toHaveBeenCalledTimes(1);
-    expect(ingest.fetchIngestAiResult).toHaveBeenCalledTimes(1);
+    expect(ingest.bulkConfirmIngest).toHaveBeenCalledTimes(1);
+    expect(ingest.fetchIngestAiResult).toHaveBeenCalledTimes(2);
     expect(result.current.batchBusy).toBe(false);
   });
 
@@ -1197,7 +1312,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     let batch!: Promise<void>;
 
     act(() => {
-      batch = result.current.handleBatchConfirm([a, b]);
+      batch = result.current.handleBatchConfirm([a, b], "personal");
     });
     unmount();
     await act(async () => {
@@ -1227,7 +1342,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     let batch!: Promise<void>;
 
     act(() => {
-      batch = result.current.handleBatchConfirm([a, b]);
+      batch = result.current.handleBatchConfirm([a, b], "personal");
     });
     await act(async () => {
       await result.current.handleSelectPendingTask(b);
@@ -1237,9 +1352,14 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(result.current.batchBusy).toBe(false);
 
     await act(async () => {
-      await result.current.handleBatchConfirm([a]);
+      await result.current.handleBatchConfirm([a], "personal");
     });
-    expect(ingest.confirmIngest).toHaveBeenCalledTimes(1);
-    expect(ingest.confirmIngest).toHaveBeenLastCalledWith("task-a", expect.anything());
+    expect(ingest.bulkConfirmIngest).toHaveBeenCalledTimes(1);
+    expect(ingest.bulkConfirmIngest).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        targetScope: "personal",
+        items: [expect.objectContaining({ taskId: "task-a" })],
+      }),
+    );
   });
 });

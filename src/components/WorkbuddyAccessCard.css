@@ -210,18 +210,24 @@
   font-size: 12px;
 }
 
-.wb-download a {
+.wb-download > button {
   padding: 7px 12px;
+  border: 0;
   border-radius: 4px;
   background: var(--color-primary, #1f2d75);
   color: white;
+  cursor: pointer;
+  font: inherit;
   font-weight: 700;
-  text-decoration: none;
 }
 
 .wb-download code {
   color: var(--color-text-secondary);
   font-size: 11px;
+}
+
+.wb-download > .wb-inline-recovery {
+  flex-basis: 100%;
 }
 
 .wb-internal-warning {

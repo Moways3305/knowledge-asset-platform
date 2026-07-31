@@ -201,36 +201,48 @@
 }
 
 .pk-table {
-  min-width: 900px;
+  min-width: 960px;
   table-layout: fixed;
 }
 
+/* 1. 全选复选框 */
 .pk-table th:nth-child(1) {
-  width: 29%;
+  width: 3%;
 }
 
+/* 2. 知识名称 */
 .pk-table th:nth-child(2) {
-  width: 11%;
+  width: 26%;
 }
 
+/* 3. 所属区域 */
 .pk-table th:nth-child(3) {
   width: 11%;
 }
 
+/* 4. 类型 */
 .pk-table th:nth-child(4) {
-  width: 15%;
+  width: 11%;
 }
 
+/* 5. 保密级别 */
 .pk-table th:nth-child(5) {
-  width: 12%;
+  width: 14%;
 }
 
+/* 6. 状态 */
 .pk-table th:nth-child(6) {
+  width: 11%;
+}
+
+/* 7. 最后更新 */
+.pk-table th:nth-child(7) {
   width: 12%;
 }
 
-.pk-table th:nth-child(7) {
-  width: 10%;
+/* 8. 操作 */
+.pk-table th:nth-child(8) {
+  width: 12%;
 }
 
 .pk-table td {

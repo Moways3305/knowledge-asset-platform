@@ -6,28 +6,36 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_caller_context
 from app.core.trace import get_trace_id
 from app.db.session import get_db
+from app.schemas.bulk_operations import BulkOperationResponse
+from app.schemas.enums import AuditAction
 from app.schemas.ingest import (
     AdminIngestListResponse,
     IngestAiResultResponse,
+    IngestBulkConfirmRequest,
     IngestConfirmRequest,
     IngestConfirmResponse,
     IngestParseRefreshResponse,
     IngestTaskStatusResponse,
     IngestUploadResponse,
     PendingIngestListResponse,
+    UploadClientRejection,
     UploadSessionListResponse,
     UploadSessionResponse,
 )
 from app.schemas.permission import CallerContext
+from app.services import bulk_operations as bulk_service
 from app.services import ingest as ingest_service
 from app.services import ingest_status as ingest_status_service
 from app.services import upload_sessions as upload_session_service
@@ -55,6 +63,9 @@ _LOCAL_UPLOAD_EXTENSIONS = {
     "xls",
     "xlsx",
 }
+_UPLOAD_READ_TIMEOUT_SECONDS = 30
+_MAX_CLIENT_REJECTIONS = 5000
+_CLIENT_REJECTIONS_ADAPTER = TypeAdapter(list[UploadClientRejection])
 
 
 @router.post("/ingest/upload", response_model=IngestUploadResponse)
@@ -74,10 +85,35 @@ async def create_upload(
 
     读取时即做大小上限保护（超限 413），避免把超大文件全部读入内存。
     """
-    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    file_name = file.filename or "file"
+    metadata_message = upload_session_service.macos_metadata_error(file_name)
+    if metadata_message is not None:
+        raise HTTPException(
+            status_code=422,
+            detail={"denied_reason": "macos_metadata", "message": metadata_message},
+        )
+    try:
+        content = await asyncio.wait_for(
+            file.read(MAX_UPLOAD_BYTES + 1),
+            timeout=_UPLOAD_READ_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "denied_reason": "file_read_timeout",
+                "message": upload_session_service.UNREADABLE_FILE_MESSAGE,
+            },
+        ) from None
+    except (OSError, RuntimeError, ValueError):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "denied_reason": "file_unreadable",
+                "message": upload_session_service.UNREADABLE_FILE_MESSAGE,
+            },
+        ) from None
     if len(content) > MAX_UPLOAD_BYTES:
-        from fastapi import HTTPException
-
         raise HTTPException(
             status_code=413,
             detail={"denied_reason": "file_too_large", "message": "文件超出大小上限"},
@@ -86,7 +122,7 @@ async def create_upload(
         session,
         caller,
         content=content,
-        file_name=file.filename or "file",
+        file_name=file_name,
         file_mime_type=file.content_type,
         target_scope=target_scope,
         target_project_id=target_project_id,
@@ -100,7 +136,8 @@ async def create_upload(
 @router.post("/ingest/upload-sessions", response_model=UploadSessionResponse)
 async def create_upload_session(
     request: Request,
-    files: list[UploadFile] = File(...),
+    files: list[UploadFile] | None = File(default=None),
+    client_rejections: str | None = Form(default=None),
     session_id: uuid.UUID | None = Form(default=None),
     target_scope: str | None = Form(default=None),
     target_project_id: uuid.UUID | None = Form(default=None),
@@ -124,21 +161,143 @@ async def create_upload_session(
     if existing is not None:
         return existing
     candidates: list[upload_session_service.UploadCandidate] = []
-    for file in files:
+    if client_rejections:
+        try:
+            parsed_rejections = _CLIENT_REJECTIONS_ADAPTER.validate_python(
+                json.loads(client_rejections)
+            )
+        except (json.JSONDecodeError, ValidationError):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "denied_reason": "invalid_client_rejections",
+                    "message": "上传失败项格式无效",
+                },
+            ) from None
+        if len(parsed_rejections) > _MAX_CLIENT_REJECTIONS:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "denied_reason": "too_many_client_rejections",
+                    "message": "单次上传文件数量超出安全上限",
+                },
+            )
+        for rejected in parsed_rejections:
+            if len(rejected.file_name) > 500:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "denied_reason": "invalid_client_rejection_name",
+                        "message": "文件名超出安全上限",
+                    },
+                )
+            metadata_message = upload_session_service.macos_metadata_error(rejected.file_name)
+            if rejected.error_code == "macos_metadata" and metadata_message is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "denied_reason": "invalid_macos_metadata_claim",
+                        "message": "macOS 元数据判定无效",
+                    },
+                )
+            extension = (
+                rejected.file_name.rsplit(".", 1)[-1].lower() if "." in rejected.file_name else ""
+            )
+            if (
+                rejected.error_code == "unsupported_file_type"
+                and extension in _LOCAL_UPLOAD_EXTENSIONS
+            ) or (
+                rejected.error_code == "file_too_large" and rejected.file_size <= MAX_UPLOAD_BYTES
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "denied_reason": "invalid_client_rejection_claim",
+                        "message": "上传门禁判定无效",
+                    },
+                )
+            rejection_message = {
+                "macos_metadata": metadata_message,
+                "unsupported_file_type": "该文件类型暂不支持上传",
+                "file_too_large": "文件超过 25 MiB 大小上限",
+            }.get(
+                rejected.error_code,
+                upload_session_service.UNREADABLE_FILE_MESSAGE,
+            )
+            candidates.append(
+                upload_session_service.UploadCandidate(
+                    file_name=rejected.file_name,
+                    file_size=max(0, rejected.file_size),
+                    file_type=rejected.file_type,
+                    error_code=rejected.error_code,
+                    error_message=rejection_message,
+                )
+            )
+    for file in files or []:
         file_name = file.filename or "file"
-        content = await file.read(MAX_UPLOAD_BYTES + 1)
+        metadata_message = upload_session_service.macos_metadata_error(file_name)
+        if metadata_message is not None:
+            candidates.append(
+                upload_session_service.UploadCandidate(
+                    file_name=file_name,
+                    file_size=max(0, file.size or 0),
+                    file_type=file.content_type,
+                    error_code="macos_metadata",
+                    error_message=metadata_message,
+                )
+            )
+            continue
         extension = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
         if extension not in _LOCAL_UPLOAD_EXTENSIONS:
             candidates.append(
                 upload_session_service.UploadCandidate(
                     file_name=file_name,
-                    file_size=len(content),
+                    file_size=max(0, file.size or 0),
                     file_type=file.content_type,
                     error_code="unsupported_file_type",
                     error_message="该文件类型暂不支持上传",
                 )
             )
-        elif len(content) > MAX_UPLOAD_BYTES:
+            continue
+        if file.size is not None and file.size > MAX_UPLOAD_BYTES:
+            candidates.append(
+                upload_session_service.UploadCandidate(
+                    file_name=file_name,
+                    file_size=file.size,
+                    file_type=file.content_type,
+                    error_code="file_too_large",
+                    error_message="文件超过 25 MiB 大小上限",
+                )
+            )
+            continue
+        try:
+            content = await asyncio.wait_for(
+                file.read(MAX_UPLOAD_BYTES + 1),
+                timeout=_UPLOAD_READ_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            candidates.append(
+                upload_session_service.UploadCandidate(
+                    file_name=file_name,
+                    file_size=max(0, file.size or 0),
+                    file_type=file.content_type,
+                    error_code="file_read_timeout",
+                    error_message=upload_session_service.UNREADABLE_FILE_MESSAGE,
+                )
+            )
+            continue
+        except (OSError, RuntimeError, ValueError):
+            candidates.append(
+                upload_session_service.UploadCandidate(
+                    file_name=file_name,
+                    file_size=max(0, file.size or 0),
+                    file_type=file.content_type,
+                    error_code="file_unreadable",
+                    error_message=upload_session_service.UNREADABLE_FILE_MESSAGE,
+                )
+            )
+            continue
+        if len(content) > MAX_UPLOAD_BYTES:
             candidates.append(
                 upload_session_service.UploadCandidate(
                     file_name=file_name,
@@ -276,6 +435,21 @@ async def remove_upload_session_item(
     )
 
 
+@router.delete(
+    "/ingest/upload-sessions/{session_id}/failed-items",
+    response_model=UploadSessionResponse,
+)
+async def remove_failed_upload_session_items(
+    session_id: uuid.UUID,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+) -> UploadSessionResponse:
+    return await upload_session_service.remove_failed_items(
+        session, caller, session_id, storage=storage
+    )
+
+
 @router.get("/ingest/pending", response_model=PendingIngestListResponse)
 async def list_pending(
     source: str | None = None,
@@ -349,6 +523,63 @@ async def retry_task(
     )
 
 
+@router.post("/ingest/bulk-confirm", response_model=BulkOperationResponse)
+async def bulk_confirm(
+    body: IngestBulkConfirmRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
+) -> BulkOperationResponse:
+    """Confirm one explicit destination while preserving per-task authorization."""
+    operation_id = uuid.uuid4()
+    trace_id = get_trace_id(request)
+    item_ids = [item.task_id for item in body.items]
+
+    async def process_batch(batch):
+        batch_results = []
+        for item in batch:
+            try:
+                await ingest_service.confirm(
+                    session,
+                    caller,
+                    item.task_id,
+                    item.confirmation,
+                    trace_id,
+                    storage=storage,
+                    weknora=weknora,
+                )
+                batch_results.append(
+                    bulk_service.BulkItemResult(item_id=item.task_id, status="succeeded")
+                )
+            except HTTPException as exc:
+                await session.rollback()
+                batch_results.append(bulk_service.skipped_from_http(item.task_id, exc))
+            except Exception:
+                await session.rollback()
+                batch_results.append(bulk_service.failed_item(item.task_id))
+        return batch_results
+
+    results = await bulk_service.execute_in_controlled_batches(body.items, process_batch)
+    response = bulk_service.terminal_response(operation_id, item_ids, results)
+    await bulk_service.record_terminal_audit(
+        session,
+        caller=caller,
+        action=AuditAction.ingest_bulk_confirmed.value,
+        trace_id=trace_id,
+        response=response,
+        operation="confirm",
+        target_scope=body.target_scope.value,
+        project_id=body.target_project_id,
+        client_operation_id=body.client_operation_id,
+        request_index=body.request_index,
+        request_count=body.request_count,
+        total_submitted=body.total_submitted,
+    )
+    return response
+
+
 @router.post("/ingest/{task_id}/confirm", response_model=IngestConfirmResponse)
 async def confirm(
     task_id: uuid.UUID,
@@ -382,8 +613,9 @@ async def refresh_parse(
 
 @router.get("/admin/ingest", response_model=AdminIngestListResponse)
 async def list_admin_ingest(
+    request: Request,
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> AdminIngestListResponse:
-    items = await ingest_service.list_admin_ingest(session, caller)
+    items = await ingest_service.list_admin_ingest(session, caller, trace_id=get_trace_id(request))
     return AdminIngestListResponse(items=items, total=len(items))

@@ -300,7 +300,9 @@ describe("MyKnowledgePage complete personal workflow", () => {
     renderPage();
     await screen.findByText("项目复盘模板");
     await user.click(screen.getAllByRole("button", { name: "提交项目" })[0]);
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "提交" }));
+    const submitDialog = screen.getByRole("dialog");
+    await user.selectOptions(within(submitDialog).getByLabelText("目标项目"), "project-83");
+    await user.click(within(submitDialog).getByRole("button", { name: "提交" }));
     expect(await screen.findByText("已提交，等待项目经理确认")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "更多操作：项目复盘模板" }));

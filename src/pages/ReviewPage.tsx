@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ControlledBulkRequestError } from "../api/bulk";
 import { ApiError } from "../api/http";
 import {
   approveReview,
+  bulkReviewAction,
   fetchReviews,
   rejectReview,
   withdrawReviewConfirmation,
 } from "../api/review";
 import ConfirmDialog from "../components/ConfirmDialog";
+import { BulkSelectionRail, SelectionCheckbox } from "../components/BulkSelection";
 import DataTable, { type Column } from "../components/DataTable";
 import GovernanceWorkspace from "../components/GovernanceWorkspace";
 import type { ReviewItemDTO } from "../types/review";
@@ -80,7 +83,11 @@ export default function ReviewPage() {
   const [rejectTarget, setRejectTarget] = useState<ReviewItemDTO | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [rejectError, setRejectError] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkAction, setBulkAction] = useState<"approve" | "reject" | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const requestRef = useRef(0);
+  const bulkRunRef = useRef(false);
   const filtersRef = useRef({ status: "", reviewType: "" });
   const status = statusFilters.find((item) => item.token === statusToken)?.apiValue ?? "";
   const reviewType =
@@ -94,6 +101,7 @@ export default function ReviewPage() {
     setForbidden(false);
     setLoadFailed(false);
     setFeedback(null);
+    setSelectedIds([]);
     setItems([]);
     try {
       const next = await fetchReviews({
@@ -141,6 +149,60 @@ export default function ReviewPage() {
   const decidePending = (item: ReviewItemDTO) =>
     item.can_decide && item.status === "pending_reviewer";
   const retryFailed = (item: ReviewItemDTO) => item.can_decide && item.status === "approval_failed";
+  const eligibleItems = items.filter(decidePending);
+  const selectedEligible = eligibleItems.filter((item) => selectedIds.includes(item.id));
+  const pageAllSelected =
+    eligibleItems.length > 0 && selectedEligible.length === eligibleItems.length;
+  const pageIndeterminate = selectedEligible.length > 0 && !pageAllSelected;
+
+  const runBulkAction = async () => {
+    if (!bulkAction || selectedEligible.length === 0 || bulkRunRef.current) return;
+    const selectionSnapshot = selectedEligible.map((item) => item.id);
+    const selectionRequest = requestRef.current;
+    const reason = rejectReason.trim();
+    if (bulkAction === "reject" && !reason) {
+      setRejectError("请填写拒绝原因。");
+      return;
+    }
+    bulkRunRef.current = true;
+    setBulkBusy(true);
+    setRejectError(null);
+    try {
+      const result = await bulkReviewAction({
+        itemIds: selectionSnapshot,
+        action: bulkAction,
+        comment: bulkAction === "reject" ? reason : "批量确认通过",
+      });
+      setBulkAction(null);
+      setRejectReason("");
+      await load();
+      setFeedback({
+        tone: result.failed > 0 || result.skipped > 0 ? "error" : "success",
+        text: `已提交 ${result.submitted} 项：成功 ${result.succeeded}，跳过 ${result.skipped}，失败 ${result.failed}。`,
+      });
+    } catch (error) {
+      const retryIds =
+        error instanceof ControlledBulkRequestError
+          ? (error.retryItems as string[])
+          : selectionSnapshot;
+      const partial = error instanceof ControlledBulkRequestError ? error.partialResult : null;
+      const selectionScopeUnchanged = requestRef.current === selectionRequest;
+      await load();
+      if (selectionScopeUnchanged && requestRef.current === selectionRequest + 1) {
+        setSelectedIds(retryIds);
+      }
+      setBulkAction(null);
+      setFeedback({
+        tone: "error",
+        text: partial
+          ? `批量操作中断：已完成提交 ${partial.submitted} 项（成功 ${partial.succeeded}，跳过 ${partial.skipped}，失败 ${partial.failed}），剩余 ${retryIds.length} 项可重试。`
+          : `批量操作未开始，${retryIds.length} 项仍保留选择，可重试。`,
+      });
+    } finally {
+      bulkRunRef.current = false;
+      setBulkBusy(false);
+    }
+  };
 
   const submitReject = async () => {
     if (!rejectTarget) return;
@@ -162,6 +224,34 @@ export default function ReviewPage() {
   };
 
   const columns: Column<ReviewItemDTO>[] = [
+    {
+      key: "select",
+      header: (
+        <SelectionCheckbox
+          checked={pageAllSelected}
+          indeterminate={pageIndeterminate}
+          disabled={eligibleItems.length === 0 || bulkBusy}
+          label="全选当前页可审核项"
+          onChange={() =>
+            setSelectedIds(pageAllSelected ? [] : eligibleItems.map((item) => item.id))
+          }
+        />
+      ),
+      render: (item) => (
+        <SelectionCheckbox
+          checked={selectedIds.includes(item.id)}
+          disabled={!decidePending(item) || bulkBusy}
+          label={`选择审核项 ${safeTitle(item)}`}
+          onChange={() =>
+            setSelectedIds((current) =>
+              current.includes(item.id)
+                ? current.filter((id) => id !== item.id)
+                : [...current, item.id],
+            )
+          }
+        />
+      ),
+    },
     {
       key: "title",
       header: "知识标题",
@@ -323,6 +413,36 @@ export default function ReviewPage() {
         </div>
       )}
 
+      <BulkSelectionRail
+        selectedCount={selectedEligible.length}
+        pageSelectedCount={selectedEligible.length}
+        matchingCount={eligibleItems.length}
+        allMatchingSelected={pageAllSelected}
+        busy={bulkBusy}
+        onClear={() => setSelectedIds([])}
+      >
+        <button
+          className="gw-action is-primary"
+          disabled={bulkBusy}
+          onClick={() => setBulkAction("approve")}
+          type="button"
+        >
+          批量通过（{selectedEligible.length}）
+        </button>
+        <button
+          className="gw-action is-danger"
+          disabled={bulkBusy}
+          onClick={() => {
+            setRejectReason("");
+            setRejectError(null);
+            setBulkAction("reject");
+          }}
+          type="button"
+        >
+          批量驳回（{selectedEligible.length}）
+        </button>
+      </BulkSelectionRail>
+
       <DataTable
         columns={columns}
         rows={items}
@@ -371,6 +491,35 @@ export default function ReviewPage() {
             onChange={(event) => setRejectReason(event.target.value)}
           />
         </label>
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={bulkAction !== null}
+        title={bulkAction === "approve" ? "批量通过审核" : "批量驳回审核"}
+        description={`将处理选中的 ${selectedEligible.length} 项；服务端会逐项重新核验状态和权限，变化项将安全跳过。`}
+        confirmText={bulkAction === "approve" ? "确认批量通过" : "确认批量驳回"}
+        busy={bulkBusy}
+        danger={bulkAction === "reject"}
+        error={rejectError}
+        errorDescription={rejectError}
+        onConfirm={() => void runBulkAction()}
+        onCancel={() => {
+          if (!bulkBusy) {
+            setBulkAction(null);
+            setRejectError(null);
+          }
+        }}
+      >
+        {bulkAction === "reject" && (
+          <label className="gw-reject-field">
+            <span>同批驳回原因</span>
+            <textarea
+              value={rejectReason}
+              maxLength={500}
+              placeholder="说明需要补充或修正的内容"
+              onChange={(event) => setRejectReason(event.target.value)}
+            />
+          </label>
+        )}
       </ConfirmDialog>
     </GovernanceWorkspace>
   );

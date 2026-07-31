@@ -138,6 +138,8 @@ export interface IngestAiResultDTO {
   suggested_ai_access_level: string | null;
   suggested_phase_key: string | null;
   confidence: number | null;
+  suggestion_generation_status: "generated" | "needs_correction" | "needs_manual_completion";
+  suggestion_generation_reason: string;
   naming_compliant: boolean | null;
   naming_parsed_fields: NamingFields | null;
   naming_anomalies: unknown[] | null;
@@ -194,6 +196,8 @@ export interface AdminIngestItemDTO {
   confidentiality_level: string | null;
   ai_access_level: string | null;
   confidence: number | null;
+  suggestion_generation_status: "generated" | "needs_correction" | "needs_manual_completion";
+  suggestion_generation_reason: string;
   naming_compliant: boolean | null;
   extraction_status: string | null;
   error_type: string | null;
@@ -223,6 +227,8 @@ export interface PendingIngestItemDTO {
   suggested_one_liner: string | null;
   naming_parsed_fields: NamingFields | null;
   confidence: number | null;
+  suggestion_generation_status: "generated" | "needs_correction" | "needs_manual_completion";
+  suggestion_generation_reason: string;
   result_asset_id: string | null;
   created_at: string | null;
   updated_at: string | null;

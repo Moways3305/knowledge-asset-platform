@@ -5,6 +5,7 @@ import { useAuth } from "../auth/AuthContext";
 import {
   fetchWorkbuddyConnectors,
   fetchWorkbuddyToken,
+  downloadWorkbuddyConnector,
   regenerateWorkbuddyToken,
   revokeWorkbuddyToken,
   type WorkbuddyArchitecture,
@@ -68,6 +69,10 @@ export default function WorkbuddyAccessCard() {
   const [loadingManifest, setLoadingManifest] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [downloadFeedback, setDownloadFeedback] = useState<{
+    state: "starting" | "started" | "failed";
+    message: string;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [oneTime, setOneTime] = useState<WorkbuddyConfigVM | null>(null);
   const [confirmRegeneration, setConfirmRegeneration] = useState(false);
@@ -187,6 +192,39 @@ export default function WorkbuddyAccessCard() {
     await loadStatus();
   }
 
+  async function onDownload() {
+    if (!artifact) return;
+    const platformLabel = platform === "windows" ? "Windows" : "macOS";
+    setDownloadFeedback({
+      state: "starting",
+      message: `${platformLabel} ${artifact.version} 下载已开始，正在校验安装包…`,
+    });
+    try {
+      const blob = await downloadWorkbuddyConnector(artifact);
+      const objectUrl = URL.createObjectURL(blob);
+      try {
+        const link = document.createElement("a");
+        link.href = objectUrl;
+        link.download = artifact.filename;
+        link.style.display = "none";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      } finally {
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+      }
+      setDownloadFeedback({
+        state: "started",
+        message: `${platformLabel} ${artifact.version} 下载已开始，请在浏览器下载列表查看。KAP 无法确认文件是否已保存或安装。`,
+      });
+    } catch {
+      setDownloadFeedback({
+        state: "failed",
+        message: "下载未完成，可能是网络、文件校验或浏览器拦截所致。请允许下载后重试。",
+      });
+    }
+  }
+
   return (
     <section className="wb-card" aria-label="WorkBuddy 接入">
       <div className="wb-integration-head">
@@ -273,7 +311,9 @@ export default function WorkbuddyAccessCard() {
               <p>正在获取安装包…</p>
             ) : artifact ? (
               <div className="wb-download">
-                <a href={artifact.downloadUrl}>下载 {artifact.filename}</a>
+                <button type="button" onClick={() => void onDownload()}>
+                  下载 {artifact.filename}
+                </button>
                 <span>
                   {platform === "windows" ? "Windows" : "macOS"} · {architecture} · 版本{" "}
                   {artifact.version}
@@ -284,6 +324,19 @@ export default function WorkbuddyAccessCard() {
                     企业内部版，未进行 Windows/macOS
                     发行签名；仅在公司授权设备安装。系统可能要求你确认来源。
                   </p>
+                )}
+                {downloadFeedback && (
+                  <div
+                    className={`wb-inline-recovery is-${downloadFeedback.state}`}
+                    role={downloadFeedback.state === "failed" ? "alert" : "status"}
+                  >
+                    <span>{downloadFeedback.message}</span>
+                    {downloadFeedback.state === "failed" && (
+                      <button type="button" onClick={() => void onDownload()}>
+                        重试下载
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             ) : (

@@ -23,10 +23,12 @@ import {
   Upload,
 } from "lucide-react";
 import { fetchAuthMe, type AuthMeVM } from "../api/auth";
+import { ControlledBulkRequestError } from "../api/bulk";
 import { ApiError } from "../api/http";
-import { deleteKnowledgeAsset } from "../api/knowledge";
+import { bulkDeleteKnowledgeAssets, deleteKnowledgeAsset } from "../api/knowledge";
 import {
   confirmPersonalAsset,
+  bulkSubmitPersonalKnowledge,
   createMyKnowledgeBase,
   fetchMyKnowledge,
   fetchMyKnowledgeBase,
@@ -37,6 +39,7 @@ import {
   type PersonalKbDTO,
 } from "../api/personal";
 import ConfirmDialog from "../components/ConfirmDialog";
+import { BulkSelectionRail, SelectionCheckbox } from "../components/BulkSelection";
 import ModelAdvancedSettings from "../components/ModelAdvancedSettings";
 import { PageHeader, PageSection, ProductPage } from "../components/ProductLayout";
 import { useModelSelection } from "../hooks/useModelSelection";
@@ -91,6 +94,8 @@ type DialogKind =
   | "evidence"
   | "edit"
   | "delete"
+  | "bulk-submit"
+  | "bulk-delete"
   | null;
 type LoadState = "loading" | "ready" | "error" | "forbidden";
 type EvidenceType = "internal_sharing" | "client_validation";
@@ -149,12 +154,22 @@ export default function MyKnowledgePage() {
   const [editType, setEditType] = useState("");
   const [editTags, setEditTags] = useState("");
   const [deleteReason, setDeleteReason] = useState("");
+  const [selectedItems, setSelectedItems] = useState<PersonalKnowledgeItemVM[]>([]);
+  const [allMatchingSelected, setAllMatchingSelected] = useState(false);
+  const [matchingSelectableItems, setMatchingSelectableItems] = useState<
+    PersonalKnowledgeItemVM[] | null
+  >(null);
+  const [matchingSelectionLoading, setMatchingSelectionLoading] = useState(false);
   const requestRef = useRef(0);
+  const bulkRunRef = useRef(false);
   const models = useModelSelection();
 
   const load = useCallback(async () => {
     const request = ++requestRef.current;
     setLoadState("loading");
+    setSelectedItems([]);
+    setAllMatchingSelected(false);
+    setMatchingSelectableItems(null);
     try {
       const result = await fetchMyKnowledge({
         page,
@@ -226,7 +241,7 @@ export default function MyKnowledgePage() {
   const openItemDialog = (kind: DialogKind, item: PersonalKnowledgeItemVM) => {
     setActiveItem(item);
     setDialogKind(kind);
-    setTargetProject(projects[0]?.projectId ?? "");
+    setTargetProject("");
     setEvidenceType("internal_sharing");
     setEvidenceCategory(evidenceCategories[0]);
     setEvidenceDescription("");
@@ -324,6 +339,117 @@ export default function MyKnowledgePage() {
     setSortBy("updated_at");
     setSortDirection("desc");
     setPage(1);
+  };
+
+  const canBulkSubmit = (item: PersonalKnowledgeItemVM) =>
+    ["ready_to_submit", "project_rejected"].includes(item.personalState);
+  const canBulkDelete = (item: PersonalKnowledgeItemVM) =>
+    item.access.canDelete && !isProjectLocked(item);
+  const isBulkSelectable = (item: PersonalKnowledgeItemVM) =>
+    canBulkSubmit(item) || canBulkDelete(item);
+  const selectablePageItems = items.filter(isBulkSelectable);
+  const selectedPageItems = selectablePageItems.filter((item) =>
+    selectedItems.some((selected) => selected.id === item.id),
+  );
+  const pageAllSelected =
+    selectablePageItems.length > 0 && selectedPageItems.length === selectablePageItems.length;
+  const pageIndeterminate = selectedPageItems.length > 0 && !pageAllSelected;
+  const selectedSubmitItems = selectedItems.filter(canBulkSubmit);
+  const selectedDeleteItems = selectedItems.filter(canBulkDelete);
+
+  const loadMatchingSelectableItems = async () => {
+    const request = requestRef.current;
+    setMatchingSelectionLoading(true);
+    try {
+      const collected: PersonalKnowledgeItemVM[] = [];
+      let nextPage = 1;
+      let hasMore = true;
+      while (hasMore) {
+        const result = await fetchMyKnowledge({
+          page: nextPage,
+          pageSize: 100,
+          keyword: keyword || undefined,
+          assetType: assetType || undefined,
+          personalState: personalState || undefined,
+          sortBy,
+          sortDirection,
+        });
+        collected.push(...result.items.filter(isBulkSelectable));
+        hasMore = result.hasNext;
+        nextPage += 1;
+      }
+      if (request !== requestRef.current) return null;
+      setMatchingSelectableItems(collected);
+      return collected;
+    } catch {
+      setNotice("无法选择全部筛选结果，请刷新后重试");
+      return null;
+    } finally {
+      if (request === requestRef.current) setMatchingSelectionLoading(false);
+    }
+  };
+
+  const selectAllMatching = async () => {
+    const collected = matchingSelectableItems ?? (await loadMatchingSelectableItems());
+    if (!collected) {
+      setSelectedItems([]);
+      setAllMatchingSelected(false);
+      return;
+    }
+    setSelectedItems(collected);
+    setAllMatchingSelected(true);
+  };
+
+  const runPersonalBulk = async (kind: "submit" | "delete") => {
+    const targets = kind === "submit" ? selectedSubmitItems : selectedDeleteItems;
+    if (targets.length === 0 || bulkRunRef.current) return;
+    const selectionRequest = requestRef.current;
+    if (kind === "submit" && !targetProject) {
+      setActionError("请选择目标项目");
+      return;
+    }
+    bulkRunRef.current = true;
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      const result =
+        kind === "submit"
+          ? await bulkSubmitPersonalKnowledge({
+              itemIds: targets.map((item) => item.id),
+              targetProjectId: targetProject,
+            })
+          : await bulkDeleteKnowledgeAssets({
+              itemIds: targets.map((item) => item.id),
+              scope: "personal",
+              reason: deleteReason.trim() || undefined,
+            });
+      setDialogKind(null);
+      await load();
+      setNotice(
+        `批量操作完成：提交 ${result.submitted}，成功 ${result.succeeded}，跳过 ${result.skipped}，失败 ${result.failed}`,
+      );
+    } catch (error) {
+      const retryIds =
+        error instanceof ControlledBulkRequestError
+          ? new Set(error.retryItems as string[])
+          : new Set(targets.map((item) => item.id));
+      const partial = error instanceof ControlledBulkRequestError ? error.partialResult : null;
+      const selectionScopeUnchanged = requestRef.current === selectionRequest;
+      await load();
+      if (selectionScopeUnchanged && requestRef.current === selectionRequest + 1) {
+        setSelectedItems(targets.filter((item) => retryIds.has(item.id)));
+      }
+      setAllMatchingSelected(false);
+      setDialogKind(null);
+      setNotice(
+        partial
+          ? `批量操作中断：已完成提交 ${partial.submitted} 项（成功 ${partial.succeeded}，跳过 ${partial.skipped}，失败 ${partial.failed}），剩余 ${retryIds.size} 项可重试。`
+          : `批量操作未开始，${retryIds.size} 项仍保留选择，可重试。`,
+      );
+    } finally {
+      bulkRunRef.current = false;
+      setActionBusy(false);
+    }
   };
 
   const filtered = Boolean(
@@ -567,6 +693,48 @@ export default function MyKnowledgePage() {
             )}
           </div>
         )}
+        <BulkSelectionRail
+          selectedCount={selectedItems.length}
+          pageSelectedCount={selectedPageItems.length}
+          matchingCount={matchingSelectableItems?.length ?? selectedPageItems.length}
+          allMatchingSelected={allMatchingSelected}
+          matchingPending={matchingSelectionLoading}
+          busy={actionBusy}
+          onSelectAllMatching={
+            matchingSelectableItems && matchingSelectableItems.length > selectedPageItems.length
+              ? () => void selectAllMatching()
+              : undefined
+          }
+          onClear={() => {
+            setSelectedItems([]);
+            setAllMatchingSelected(false);
+          }}
+        >
+          <button
+            className="btn-small-primary"
+            disabled={!hasProjects || selectedSubmitItems.length === 0 || actionBusy}
+            onClick={() => {
+              setTargetProject("");
+              setActionError(null);
+              setDialogKind("bulk-submit");
+            }}
+            type="button"
+          >
+            批量提交项目（{selectedSubmitItems.length}）
+          </button>
+          <button
+            className="btn-small"
+            disabled={selectedDeleteItems.length === 0 || actionBusy}
+            onClick={() => {
+              setDeleteReason("");
+              setActionError(null);
+              setDialogKind("bulk-delete");
+            }}
+            type="button"
+          >
+            批量删除（{selectedDeleteItems.length}）
+          </button>
+        </BulkSelectionRail>
         {forbidden ? (
           <div className="mk83-state">
             <strong>当前身份无法使用个人知识</strong>
@@ -615,6 +783,34 @@ export default function MyKnowledgePage() {
             <table className="mk83-table">
               <thead>
                 <tr>
+                  <th>
+                    <SelectionCheckbox
+                      checked={pageAllSelected}
+                      indeterminate={pageIndeterminate}
+                      disabled={selectablePageItems.length === 0 || actionBusy}
+                      label="全选当前页可操作个人资料"
+                      onChange={() => {
+                        if (pageAllSelected) {
+                          const pageIds = new Set(selectablePageItems.map((item) => item.id));
+                          setSelectedItems((current) =>
+                            current.filter((item) => !pageIds.has(item.id)),
+                          );
+                          setAllMatchingSelected(false);
+                        } else {
+                          setSelectedItems((current) => [
+                            ...current.filter(
+                              (item) =>
+                                !selectablePageItems.some((pageItem) => pageItem.id === item.id),
+                            ),
+                            ...selectablePageItems,
+                          ]);
+                          if (matchingSelectableItems === null) {
+                            void loadMatchingSelectableItems();
+                          }
+                        }
+                      }}
+                    />
+                  </th>
                   <th>资料</th>
                   <th>更新时间</th>
                   <th>个人状态</th>
@@ -640,6 +836,24 @@ export default function MyKnowledgePage() {
                         : null;
                   return (
                     <tr key={item.id}>
+                      <td>
+                        <SelectionCheckbox
+                          checked={selectedItems.some((selected) => selected.id === item.id)}
+                          disabled={!isBulkSelectable(item) || actionBusy}
+                          label={`选择个人资料 ${item.title}`}
+                          onChange={() => {
+                            setAllMatchingSelected(false);
+                            if (matchingSelectableItems === null) {
+                              void loadMatchingSelectableItems();
+                            }
+                            setSelectedItems((current) =>
+                              current.some((selected) => selected.id === item.id)
+                                ? current.filter((selected) => selected.id !== item.id)
+                                : [...current, item],
+                            );
+                          }}
+                        />
+                      </td>
                       <td>
                         <div className="mk83-asset-cell">
                           <span className={`mk83-type-icon is-${type?.tone ?? "neutral"}`}>
@@ -890,6 +1104,7 @@ export default function MyKnowledgePage() {
             value={targetProject}
             onChange={(event) => setTargetProject(event.target.value)}
           >
+            <option value="">请选择目标项目</option>
             {projects.map((project) => (
               <option key={project.projectId} value={project.projectId}>
                 {project.projectName}
@@ -1062,6 +1277,56 @@ export default function MyKnowledgePage() {
           <span>删除原因（可选）</span>
           <textarea
             id="mk83-delete-reason"
+            value={deleteReason}
+            maxLength={500}
+            placeholder="例如：重复上传"
+            onChange={(event) => setDeleteReason(event.target.value)}
+          />
+        </label>
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={dialogKind === "bulk-submit"}
+        title={`批量提交 ${selectedSubmitItems.length} 项到项目`}
+        description={`本次仅提交状态适用的 ${selectedSubmitItems.length} 项；服务端会逐项重新核验所有权、状态、项目有效性与成员资格。`}
+        confirmText="确认批量提交"
+        busy={actionBusy}
+        error={actionError}
+        errorDescription={actionError}
+        onCancel={closeDialog}
+        onConfirm={() => void runPersonalBulk("submit")}
+      >
+        <label className="mk83-field" htmlFor="mk83-bulk-target-project">
+          <span>目标项目</span>
+          <select
+            id="mk83-bulk-target-project"
+            value={targetProject}
+            onChange={(event) => setTargetProject(event.target.value)}
+          >
+            <option value="">请选择目标项目</option>
+            {projects.map((project) => (
+              <option key={project.projectId} value={project.projectId}>
+                {project.projectName}
+              </option>
+            ))}
+          </select>
+        </label>
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={dialogKind === "bulk-delete"}
+        title={`批量删除 ${selectedDeleteItems.length} 项个人资料`}
+        description={`删除后这些资料将立即退出列表、检索、问答和原文授权；项目审核、引用或保留约束项会被安全跳过。另有 ${selectedItems.length - selectedDeleteItems.length} 项当前不可删除，不会提交。`}
+        confirmText="确认批量删除"
+        danger
+        busy={actionBusy}
+        error={actionError}
+        errorDescription={actionError}
+        onCancel={closeDialog}
+        onConfirm={() => void runPersonalBulk("delete")}
+      >
+        <label className="mk83-field" htmlFor="mk83-bulk-delete-reason">
+          <span>删除原因（可选）</span>
+          <textarea
+            id="mk83-bulk-delete-reason"
             value={deleteReason}
             maxLength={500}
             placeholder="例如：重复上传"

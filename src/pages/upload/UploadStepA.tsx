@@ -21,7 +21,7 @@ export default function UploadStepA({ flow }: { flow: UploadFlow }) {
     batchOperation,
     batchErrors,
     toggleBatchTask,
-    handleBatchConfirm,
+    setBatchTasksSelected,
     handleBatchReject,
   } = flow;
 
@@ -71,7 +71,7 @@ export default function UploadStepA({ flow }: { flow: UploadFlow }) {
                 <th>文件</th>
                 <th>状态</th>
                 <th>建议标题</th>
-                <th>置信度</th>
+                <th>建议生成状态</th>
                 <th>时间</th>
               </tr>
             </thead>
@@ -107,14 +107,18 @@ export default function UploadStepA({ flow }: { flow: UploadFlow }) {
                         <button
                           className="upload77-retry-link"
                           disabled={batchBusy}
-                          onClick={() =>
-                            void (batchOperation === "reject" || batchErrors[task.id]
-                              ? handleBatchReject([task])
-                              : handleBatchConfirm([task]))
-                          }
+                          onClick={() => {
+                            if (batchOperation === "reject" || batchErrors[task.id]) {
+                              void handleBatchReject([task]);
+                            } else {
+                              setBatchTasksSelected([task.id], true);
+                            }
+                          }}
                           type="button"
                         >
-                          重试
+                          {batchOperation === "reject" || batchErrors[task.id]
+                            ? "重试"
+                            : "重新选择目标"}
                         </button>
                       )}
                     </td>
@@ -136,8 +140,12 @@ export default function UploadStepA({ flow }: { flow: UploadFlow }) {
                       </span>
                     </td>
                     <td>{task.suggested_title || "—"}</td>
-                    <td>
-                      {task.confidence == null ? "—" : `${Math.round(task.confidence * 100)}%`}
+                    <td title={task.suggestion_generation_reason}>
+                      {task.suggestion_generation_status === "generated"
+                        ? "建议已生成"
+                        : task.suggestion_generation_status === "needs_manual_completion"
+                          ? "需人工补全"
+                          : "建议待校正"}
                     </td>
                     <td>{task.created_at ? formatBeijingTime(task.created_at) : "—"}</td>
                   </tr>
