@@ -1,4 +1,4 @@
-import { FileText, RefreshCw, UploadCloud, X } from "lucide-react";
+import { ChevronDown, FileText, FolderOpen, RefreshCw, UploadCloud, X } from "lucide-react";
 import { useState } from "react";
 import { extractionLabel, flowLabel, formatFileSize, pendingStatusLabel } from "./uploadConstants";
 import BatchTaskProgress from "./BatchTaskProgress";
@@ -16,7 +16,9 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
     hasFile,
     extraction,
     fileRef,
+    folderRef,
     handleFileSelect,
+    handleFolderSelect,
     handleDataTransferDrop,
     folderDropNotice,
     intakeFeedback,
@@ -47,6 +49,8 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
     handleBatchReject,
   } = flow;
   const [isDragging, setIsDragging] = useState(false);
+  const [isQueueCollapsed, setIsQueueCollapsed] = useState(false);
+  const [isPendingCollapsed, setIsPendingCollapsed] = useState(false);
   const flowMeta = flowLabel(flowState);
   const canRefresh = flowState === "processing" && Boolean(processingNote);
   const extractionStatusText =
@@ -64,6 +68,15 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
           accept=".md,.markdown,.txt,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx"
           multiple
           onChange={handleFileSelect}
+        />
+        <input
+          ref={folderRef}
+          type="file"
+          className="up-file-input"
+          // @ts-expect-error webkitdirectory 是非标准属性，Chromium 系浏览器原生支持
+          webkitdirectory=""
+          multiple
+          onChange={handleFolderSelect}
         />
 
         {!hasFile ? (
@@ -96,9 +109,23 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
               支持 Markdown、PDF、Word、PPTX 自动提取及 Excel、纯文本等资料，单文件最大 25 MiB；旧
               .ppt 仅保存，需人工补全
             </p>
-            <button className="btn-primary" onClick={() => fileRef.current?.click()} type="button">
-              选择文件
-            </button>
+            <div className="upload77-dropzone-actions">
+              <button
+                className="btn-primary"
+                onClick={() => fileRef.current?.click()}
+                type="button"
+              >
+                选择文件
+              </button>
+              <button
+                className="btn-primary"
+                onClick={() => folderRef.current?.click()}
+                type="button"
+              >
+                <FolderOpen size={15} aria-hidden="true" />
+                选择文件夹
+              </button>
+            </div>
             {folderDropNotice && (
               <div className="upload-inline-info" role="status">
                 {folderDropNotice}
@@ -223,109 +250,135 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
               <h2 id="local-upload-queue-title">本次上传队列</h2>
               <p>每批最多 200 项连续推进；失败文件不会阻塞后续文件，可单独重试。</p>
             </div>
-            {localUploadQueue.some((item) => item.status === "failed") && (
-              <button className="btn-secondary" onClick={removeFailedLocalUploads} type="button">
-                清理全部失败项
+            <div className="upload77-section-actions">
+              {localUploadQueue.some((item) => item.status === "failed") && (
+                <button className="btn-secondary" onClick={removeFailedLocalUploads} type="button">
+                  清理全部失败项
+                </button>
+              )}
+              <button
+                aria-controls="local-upload-queue-body"
+                aria-expanded={!isQueueCollapsed}
+                className="upload77-icon-button"
+                onClick={() => setIsQueueCollapsed((prev) => !prev)}
+                title={isQueueCollapsed ? "展开队列" : "折叠队列"}
+                type="button"
+              >
+                <ChevronDown
+                  size={15}
+                  aria-hidden="true"
+                  className={isQueueCollapsed ? "is-collapsed" : ""}
+                />
+                <span className="upload77-icon-button-label">
+                  {isQueueCollapsed ? "展开" : "折叠"}
+                </span>
               </button>
-            )}
+            </div>
           </div>
-          {uploadSession && (
-            <dl className="upload77-queue-summary" aria-label="上传会话进度">
-              <div>
-                <dt>总数</dt>
-                <dd>{uploadSession.total_files}</dd>
-              </div>
-              <div>
-                <dt>已完成</dt>
-                <dd>{uploadSession.completed_files}</dd>
-              </div>
-              <div>
-                <dt>处理中</dt>
-                <dd>{uploadSession.processing_files}</dd>
-              </div>
-              <div>
-                <dt>等待中</dt>
-                <dd>{uploadSession.waiting_files}</dd>
-              </div>
-              <div>
-                <dt>失败</dt>
-                <dd>{uploadSession.failed_files}</dd>
-              </div>
-              <div>
-                <dt>批次</dt>
-                <dd>
-                  {uploadSession.current_batch_number ?? uploadSession.total_batches}/
-                  {uploadSession.total_batches}
-                </dd>
-              </div>
-            </dl>
-          )}
-          <div className="upload77-table-wrap">
-            <table className="upload77-table">
-              <thead>
-                <tr>
-                  <th>文件</th>
-                  <th>类型</th>
-                  <th>大小</th>
-                  <th>上传状态</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {localUploadQueue.map((item) => {
-                  const label = {
-                    queued: "等待上传",
-                    uploading: "上传中",
-                    processing: "处理中",
-                    awaiting_confirmation: "待确认入库",
-                    completed: "已完成",
-                    cancelled: "已取消",
-                    failed: "上传失败",
-                  }[item.status];
-                  return (
-                    <tr key={item.id}>
-                      <td>
-                        {item.fileName}
-                        {item.sameNameWarning && (
-                          <span className="upload77-name-warning">同名，需确认</span>
-                        )}
-                      </td>
-                      <td>{item.fileType}</td>
-                      <td>{formatFileSize(item.fileSize)}</td>
-                      <td>
-                        <div className={`upload77-batch-progress is-${item.status}`}>
-                          <span className="upload77-batch-state">{label}</span>
-                          {item.batchNumber && <span>第 {item.batchNumber} 批</span>}
-                          {item.error && <span className="upload77-queue-error">{item.error}</span>}
-                        </div>
-                      </td>
-                      <td>
-                        {item.status === "failed" && (
-                          <>
-                            {item.retryable !== false && (
+          <div
+            id="local-upload-queue-body"
+            className={`upload77-section-body ${isQueueCollapsed ? "is-collapsed" : ""}`}
+          >
+            {uploadSession && (
+              <dl className="upload77-queue-summary" aria-label="上传会话进度">
+                <div>
+                  <dt>总数</dt>
+                  <dd>{uploadSession.total_files}</dd>
+                </div>
+                <div>
+                  <dt>已完成</dt>
+                  <dd>{uploadSession.completed_files}</dd>
+                </div>
+                <div>
+                  <dt>处理中</dt>
+                  <dd>{uploadSession.processing_files}</dd>
+                </div>
+                <div>
+                  <dt>等待中</dt>
+                  <dd>{uploadSession.waiting_files}</dd>
+                </div>
+                <div>
+                  <dt>失败</dt>
+                  <dd>{uploadSession.failed_files}</dd>
+                </div>
+                <div>
+                  <dt>批次</dt>
+                  <dd>
+                    {uploadSession.current_batch_number ?? uploadSession.total_batches}/
+                    {uploadSession.total_batches}
+                  </dd>
+                </div>
+              </dl>
+            )}
+            <div className="upload77-table-wrap">
+              <table className="upload77-table">
+                <thead>
+                  <tr>
+                    <th>文件</th>
+                    <th>类型</th>
+                    <th>大小</th>
+                    <th>上传状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {localUploadQueue.map((item) => {
+                    const label = {
+                      queued: "等待上传",
+                      uploading: "上传中",
+                      processing: "处理中",
+                      awaiting_confirmation: "待确认入库",
+                      completed: "已完成",
+                      cancelled: "已取消",
+                      failed: "上传失败",
+                    }[item.status];
+                    return (
+                      <tr key={item.id}>
+                        <td>
+                          {item.fileName}
+                          {item.sameNameWarning && (
+                            <span className="upload77-name-warning">同名，需确认</span>
+                          )}
+                        </td>
+                        <td>{item.fileType}</td>
+                        <td>{formatFileSize(item.fileSize)}</td>
+                        <td>
+                          <div className={`upload77-batch-progress is-${item.status}`}>
+                            <span className="upload77-batch-state">{label}</span>
+                            {item.batchNumber && <span>第 {item.batchNumber} 批</span>}
+                            {item.error && (
+                              <span className="upload77-queue-error">{item.error}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          {item.status === "failed" && (
+                            <>
+                              {item.retryable !== false && (
+                                <button
+                                  className="upload77-retry-link"
+                                  onClick={() => retryLocalUpload(item.id)}
+                                  type="button"
+                                >
+                                  重试
+                                </button>
+                              )}
                               <button
                                 className="upload77-retry-link"
-                                onClick={() => retryLocalUpload(item.id)}
+                                onClick={() => removeLocalUpload(item.id)}
                                 type="button"
                               >
-                                重试
+                                移除
                               </button>
-                            )}
-                            <button
-                              className="upload77-retry-link"
-                              onClick={() => removeLocalUpload(item.id)}
-                              type="button"
-                            >
-                              移除
-                            </button>
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
       )}
@@ -338,131 +391,154 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
               <h2 id="local-pending-title">待确认入库</h2>
               <p>以下为本地上传但尚未确认的资料，点击可继续确认流程。</p>
             </div>
-            <button
-              className="btn-secondary upload77-icon-button"
-              onClick={() => void loadLocalPending()}
-              disabled={localPendingLoading}
-              type="button"
-            >
-              <RefreshCw size={15} aria-hidden="true" />
-              {localPendingLoading ? "刷新中" : "刷新"}
-            </button>
-            <PendingBatchActions tasks={localPendingTasks} flow={flow} />
-          </div>
-
-          {localPendingLoading ? (
-            <div className="upload77-state" role="status">
-              正在加载待确认任务…
-            </div>
-          ) : localPendingError ? (
-            <div className="upload77-state upload77-state-error" role="alert">
-              <span>{localPendingError}</span>
+            <div className="upload77-section-actions">
               <button
-                className="btn-secondary"
+                className="btn-secondary upload77-icon-button"
                 onClick={() => void loadLocalPending()}
+                disabled={localPendingLoading}
                 type="button"
               >
-                重试
+                <RefreshCw size={15} aria-hidden="true" />
+                {localPendingLoading ? "刷新中" : "刷新"}
               </button>
+              <button
+                aria-controls="local-pending-body"
+                aria-expanded={!isPendingCollapsed}
+                className="upload77-icon-button"
+                onClick={() => setIsPendingCollapsed((prev) => !prev)}
+                title={isPendingCollapsed ? "展开待确认" : "折叠待确认"}
+                type="button"
+              >
+                <ChevronDown
+                  size={15}
+                  aria-hidden="true"
+                  className={isPendingCollapsed ? "is-collapsed" : ""}
+                />
+                <span className="upload77-icon-button-label">
+                  {isPendingCollapsed ? "展开" : "折叠"}
+                </span>
+              </button>
+              <PendingBatchActions tasks={localPendingTasks} flow={flow} />
             </div>
-          ) : localPendingTasks.length === 0 ? (
-            <div className="upload77-state">
-              <strong>暂无待确认资料</strong>
-              <span>上传文件并点击「开始处理」后即在此显示。</span>
-            </div>
-          ) : (
-            <div className="upload77-table-wrap">
-              <table className="upload77-table">
-                <thead>
-                  <tr>
-                    <th className="upload77-batch-col">
-                      <PendingSelectAll tasks={localPendingTasks} flow={flow} />
-                    </th>
-                    <th>文件</th>
-                    <th>状态</th>
-                    <th>建议标题</th>
-                    <th>建议生成状态</th>
-                    <th>时间</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {localPendingTasks.map((task) => {
-                    const selected = taskId === task.id;
-                    const loadingThis = selected && flowState === "processing";
-                    const itemStatus = batchStatus[task.id];
-                    return (
-                      <tr key={task.id} className={selected ? "is-selected" : ""}>
-                        <td className="upload77-batch-col">
-                          <input
-                            aria-label={`选择 ${task.source_file_name}`}
-                            checked={batchSelection.includes(task.id)}
-                            disabled={!isPendingTaskActionable(task, flow)}
-                            onChange={() => toggleBatchTask(task.id)}
-                            type="checkbox"
-                          />
-                          {itemStatus && (
-                            <BatchTaskProgress
-                              state={itemStatus}
-                              actionLabel={
-                                batchOperation === "reject" || batchErrors[task.id]
-                                  ? "批量拒绝"
-                                  : "批量确认"
-                              }
+          </div>
+          <div
+            id="local-pending-body"
+            className={`upload77-section-body ${isPendingCollapsed ? "is-collapsed" : ""}`}
+          >
+            {localPendingLoading ? (
+              <div className="upload77-state" role="status">
+                正在加载待确认任务…
+              </div>
+            ) : localPendingError ? (
+              <div className="upload77-state upload77-state-error" role="alert">
+                <span>{localPendingError}</span>
+                <button
+                  className="btn-secondary"
+                  onClick={() => void loadLocalPending()}
+                  type="button"
+                >
+                  重试
+                </button>
+              </div>
+            ) : localPendingTasks.length === 0 ? (
+              <div className="upload77-state">
+                <strong>暂无待确认资料</strong>
+                <span>上传文件并点击「开始处理」后即在此显示。</span>
+              </div>
+            ) : (
+              <div className="upload77-table-wrap">
+                <table className="upload77-table">
+                  <thead>
+                    <tr>
+                      <th className="upload77-batch-col">
+                        <PendingSelectAll tasks={localPendingTasks} flow={flow} />
+                      </th>
+                      <th>文件</th>
+                      <th>状态</th>
+                      <th>建议标题</th>
+                      <th>建议生成状态</th>
+                      <th>时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {localPendingTasks.map((task) => {
+                      const selected = taskId === task.id;
+                      const loadingThis = selected && flowState === "processing";
+                      const itemStatus = batchStatus[task.id];
+                      return (
+                        <tr key={task.id} className={selected ? "is-selected" : ""}>
+                          <td className="upload77-batch-col">
+                            <input
+                              aria-label={`选择 ${task.source_file_name}`}
+                              checked={batchSelection.includes(task.id)}
+                              disabled={!isPendingTaskActionable(task, flow)}
+                              onChange={() => toggleBatchTask(task.id)}
+                              type="checkbox"
                             />
-                          )}
-                          {batchErrors[task.id] && (
-                            <span className="upload77-queue-error">{batchErrors[task.id]}</span>
-                          )}
-                          {itemStatus === "failed" && (
+                            {itemStatus && (
+                              <BatchTaskProgress
+                                state={itemStatus}
+                                actionLabel={
+                                  batchOperation === "reject" || batchErrors[task.id]
+                                    ? "批量拒绝"
+                                    : "批量确认"
+                                }
+                              />
+                            )}
+                            {batchErrors[task.id] && (
+                              <span className="upload77-queue-error">{batchErrors[task.id]}</span>
+                            )}
+                            {itemStatus === "failed" && (
+                              <button
+                                className="upload77-retry-link"
+                                disabled={batchBusy}
+                                onClick={() =>
+                                  void (batchOperation === "reject" || batchErrors[task.id]
+                                    ? handleBatchReject([task])
+                                    : setBatchTasksSelected([task.id], true))
+                                }
+                                type="button"
+                              >
+                                {batchOperation === "reject" || batchErrors[task.id]
+                                  ? "重试"
+                                  : "重新选择目标"}
+                              </button>
+                            )}
+                          </td>
+                          <td>
                             <button
-                              className="upload77-retry-link"
-                              disabled={batchBusy}
-                              onClick={() =>
-                                void (batchOperation === "reject" || batchErrors[task.id]
-                                  ? handleBatchReject([task])
-                                  : setBatchTasksSelected([task.id], true))
-                              }
+                              className="upload77-task-select"
+                              onClick={() => {
+                                if (!loadingThis && !batchBusy) void handleSelectPendingTask(task);
+                              }}
+                              disabled={loadingThis || batchBusy}
                               type="button"
                             >
-                              {batchOperation === "reject" || batchErrors[task.id]
-                                ? "重试"
-                                : "重新选择目标"}
+                              {task.source_file_name}
                             </button>
-                          )}
-                        </td>
-                        <td>
-                          <button
-                            className="upload77-task-select"
-                            onClick={() => {
-                              if (!loadingThis && !batchBusy) void handleSelectPendingTask(task);
-                            }}
-                            disabled={loadingThis || batchBusy}
-                            type="button"
-                          >
-                            {task.source_file_name}
-                          </button>
-                        </td>
-                        <td>
-                          <span className={`upload77-status upload77-status-${task.status}`}>
-                            {pendingStatusLabel[task.status] ?? "待处理"}
-                          </span>
-                        </td>
-                        <td>{task.suggested_title || "—"}</td>
-                        <td title={task.suggestion_generation_reason}>
-                          {task.suggestion_generation_status === "generated"
-                            ? "建议已生成"
-                            : task.suggestion_generation_status === "needs_manual_completion"
-                              ? "需人工补全"
-                              : "建议待校正"}
-                        </td>
-                        <td>{task.created_at ? formatBeijingTime(task.created_at) : "—"}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+                          </td>
+                          <td>
+                            <span className={`upload77-status upload77-status-${task.status}`}>
+                              {pendingStatusLabel[task.status] ?? "待处理"}
+                            </span>
+                          </td>
+                          <td>{task.suggested_title || "—"}</td>
+                          <td title={task.suggestion_generation_reason}>
+                            {task.suggestion_generation_status === "generated"
+                              ? "建议已生成"
+                              : task.suggestion_generation_status === "needs_manual_completion"
+                                ? "需人工补全"
+                                : "建议待校正"}
+                          </td>
+                          <td>{task.created_at ? formatBeijingTime(task.created_at) : "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </section>
       )}
     </>

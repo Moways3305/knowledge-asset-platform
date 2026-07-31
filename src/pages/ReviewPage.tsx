@@ -1,3 +1,4 @@
+import { CheckCircle2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ControlledBulkRequestError } from "../api/bulk";
 import { ApiError } from "../api/http";
@@ -237,6 +238,8 @@ export default function ReviewPage() {
           }
         />
       ),
+      headerClassName: "gw-col-review-select",
+      className: "gw-col-review-select",
       render: (item) => (
         <SelectionCheckbox
           checked={selectedIds.includes(item.id)}
@@ -404,6 +407,23 @@ export default function ReviewPage() {
         </div>
         <div className="gw-toolbar-actions">
           <span className="gw-total">共 {items.length} 条</span>
+          <button
+            className="gw-action is-primary gw-bulk-quick"
+            disabled={eligibleItems.length === 0 || bulkBusy}
+            onClick={() => {
+              setSelectedIds(eligibleItems.map((item) => item.id));
+              setBulkAction("approve");
+            }}
+            title={
+              eligibleItems.length === 0
+                ? "当前没有可一键通过的待审核项"
+                : `一键全选 ${eligibleItems.length} 项并进入确认`
+            }
+            type="button"
+          >
+            <CheckCircle2 size={13} aria-hidden="true" />
+            一键全选确认
+          </button>
         </div>
       </div>
 

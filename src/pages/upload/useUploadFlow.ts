@@ -175,6 +175,7 @@ export function useUploadFlow() {
   } | null>(null);
   const [naming, setNaming] = useState<NamingFields | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const folderRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const workflowRunRef = useRef(0);
   const pendingRequestRef = useRef(0);
@@ -958,11 +959,33 @@ export function useUploadFlow() {
     [enqueueLocalFiles],
   );
 
+  const handleFolderSelect = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setFolderDropNotice(null);
+      if (e.target.files?.length) {
+        void enqueueLocalFiles(e.target.files);
+      } else {
+        setIntakeFeedback({
+          kind: "cancelled",
+          total: 0,
+          accepted: 0,
+          rejected: 0,
+          waitingBatches: 0,
+          batchSizes: [],
+          message: "未选择文件夹，本次操作已取消。",
+        });
+      }
+      e.target.value = "";
+    },
+    [enqueueLocalFiles],
+  );
+
   const handleFileDrop = useCallback(
     (files: Iterable<File>) => {
       setFolderDropNotice(null);
       void enqueueLocalFiles(files);
       if (fileRef.current) fileRef.current.value = "";
+      if (folderRef.current) folderRef.current.value = "";
     },
     [enqueueLocalFiles],
   );
@@ -979,6 +1002,7 @@ export function useUploadFlow() {
       setFolderDropNotice(result.notice);
       void enqueueLocalFiles(result.candidates);
       if (fileRef.current) fileRef.current.value = "";
+      if (folderRef.current) folderRef.current.value = "";
     },
     [activePath, enqueueLocalFiles],
   );
@@ -1556,7 +1580,9 @@ export function useUploadFlow() {
     desensitization,
     naming,
     fileRef,
+    folderRef,
     handleFileSelect,
+    handleFolderSelect,
     handleFileDrop,
     handleDataTransferDrop,
     folderDropNotice,
