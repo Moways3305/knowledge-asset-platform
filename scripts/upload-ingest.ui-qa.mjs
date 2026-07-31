@@ -110,6 +110,8 @@ const localPendingTask = {
   ...pendingTask,
   source: "path_b_upload",
   source_file_name: "客户增长复盘.md",
+  target_scope: null,
+  target_project_id: null,
 };
 
 function assertResult(result) {
@@ -370,11 +372,13 @@ try {
       }
 
       if (scenario === "project-submitted") {
-        // target is locked by localPendingTask.target_scope ("project"), select is disabled
+        await page.locator("#upload77-target-library").selectOption("project");
+        await page.locator("#upload77-target-project").selectOption(projectId);
         await page.getByRole("button", { name: "确认入库" }).click();
         await page.getByRole("heading", { name: "已提交，等待项目经理确认" }).waitFor();
       }
       if (scenario === "personal-submitted") {
+        await page.locator("#upload77-target-library").selectOption("personal");
         await page.getByRole("button", { name: "确认入库" }).click();
         await page.getByRole("link", { name: /查看资产/ }).waitFor();
       }
