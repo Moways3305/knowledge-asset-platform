@@ -370,7 +370,7 @@ try {
       }
 
       if (scenario === "project-submitted") {
-        await page.getByLabel("目标知识库").selectOption("project");
+        // target is locked by localPendingTask.target_scope ("project"), select is disabled
         await page.getByRole("button", { name: "确认入库" }).click();
         await page.getByRole("heading", { name: "已提交，等待项目经理确认" }).waitFor();
       }
