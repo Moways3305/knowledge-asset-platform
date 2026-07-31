@@ -556,6 +556,24 @@ async def confirm(
         task.ai_result.corrected_summary = req.summary
         task.ai_result.corrected_tags = req.tags
 
+    # 同步上传队列里的 item 状态：确认成功后队列里的同一文件应显示为 completed，
+    # 否则用户刷新页面才会看到状态更新（且要等下次 _reconcile_and_promote 触发）。
+    from app.models.ingest import UploadSessionItem
+
+    linked_items = (
+        (
+            await session.execute(
+                select(UploadSessionItem).where(UploadSessionItem.ingest_task_id == task.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for linked_item in linked_items:
+        linked_item.status = "completed"
+        linked_item.safe_error_code = None
+        linked_item.safe_error_message = None
+
     use_weknora = weknora_enabled()
     # 落库即定索引初值：未启用底座 → skipped（dev/降级，正常）；启用 → indexing（阶段2推进）。
     version.index_status = "indexing" if use_weknora else "skipped"
@@ -1095,6 +1113,25 @@ async def delete_pending_task(
             storage.delete(task.source_file_ref)
     except Exception:
         _logger.warning("ingest_delete_file_cleanup_failed task_id=%s", str(task_id), exc_info=True)
+
+    # 同步上传队列里的 item 状态：避免 ON DELETE SET NULL 把 ingest_task_id 清空后，
+    # upload_session_items 仍卡在 awaiting_confirmation，造成和会话统计/待确认入库列表不同步。
+    from app.models.ingest import UploadSessionItem
+
+    linked_items = (
+        (
+            await session.execute(
+                select(UploadSessionItem).where(UploadSessionItem.ingest_task_id == task_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for linked_item in linked_items:
+        linked_item.ingest_task_id = None
+        linked_item.status = "cancelled"
+        linked_item.safe_error_code = None
+        linked_item.safe_error_message = None
 
     # ---- 永存区：持久化删除 + 审计 ----
     source = task.source
