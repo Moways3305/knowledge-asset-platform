@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchKnowledgePage } from "../api/knowledge";
@@ -308,9 +308,10 @@ describe("ProjectKnowledgePage reference workspace", () => {
     renderPage(`/project/${PROJECT_B}/knowledge`);
     await screen.findByText("项目资产");
 
-    expect(screen.queryByLabelText("更多操作：项目资料")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("更多操作：项目资料")).toBeInTheDocument();
+    const assetDetails = screen.getByLabelText("更多操作：项目资产").closest("details")!;
     fireEvent.click(screen.getByLabelText("更多操作：项目资产"));
-    fireEvent.click(screen.getByRole("button", { name: "申请升格公司资产" }));
+    fireEvent.click(within(assetDetails).getByRole("button", { name: "申请升格公司资产" }));
     await waitFor(() => expect(requestCompanyUpgrade).toHaveBeenCalledWith(PROJECT_B, "asset-2"));
     expect(await screen.findByText("公司资产升级申请已提交。")).toBeInTheDocument();
     expectDocumentOrder(".pk-upgrade-notice", ".pk-qa-section");

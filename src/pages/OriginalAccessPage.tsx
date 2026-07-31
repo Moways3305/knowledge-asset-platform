@@ -172,6 +172,8 @@ export default function OriginalAccessPage() {
           }
         />
       ),
+      headerClassName: "gw-col-access-select",
+      className: "gw-col-access-select",
       render: (item) => (
         <SelectionCheckbox
           checked={selectedIds.includes(item.request_id)}
