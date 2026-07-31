@@ -39,7 +39,7 @@ _SAFE_REASON_MESSAGES = {
 
 
 def skipped_from_http(item_id: uuid.UUID, exc: HTTPException) -> BulkItemResult:
-    detail = exc.detail if isinstance(exc.detail, dict) else {}
+    detail: dict[str, object] = exc.detail if isinstance(exc.detail, dict) else {}
     code = str(detail.get("denied_reason") or "item_state_changed")
     return BulkItemResult(
         item_id=item_id,
