@@ -308,7 +308,7 @@ describe("ProjectKnowledgePage reference workspace", () => {
     renderPage(`/project/${PROJECT_B}/knowledge`);
     await screen.findByText("项目资产");
 
-    expect(screen.queryByLabelText("更多操作：项目资料")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("更多操作：项目资料")).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("更多操作：项目资产"));
     fireEvent.click(screen.getByRole("button", { name: "申请升格公司资产" }));
     await waitFor(() => expect(requestCompanyUpgrade).toHaveBeenCalledWith(PROJECT_B, "asset-2"));

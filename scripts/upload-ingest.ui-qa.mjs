@@ -353,7 +353,7 @@ try {
             buffer: Buffer.from("安全验收内容"),
           });
         }
-        await page.locator('input[type="file"]').setInputFiles(localFiles);
+        await page.locator('input[type="file"]').first().setInputFiles(localFiles);
 
         if (scenario === "local-upload-failure-retry") {
           await page.getByText("上传失败", { exact: true }).first().waitFor();
