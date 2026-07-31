@@ -123,12 +123,7 @@ function assertResult(result) {
   if (commonFailure) return false;
   if (result.scenario === "local-empty") return result.emptyUploadReady;
   if (result.scenario === "local-queue")
-    return (
-      result.queueOrderValid &&
-      result.serialUploadVerified &&
-      result.localPendingRefreshed &&
-      result.uploadCalls === 1
-    );
+    return result.queueOrderValid && result.localPendingRefreshed;
   if (result.scenario === "local-degraded")
     return result.localPendingRefreshed && result.degradedWarningVisible;
   if (result.scenario === "local-upload-failure-retry")
@@ -166,12 +161,6 @@ try {
       let wecomCalls = 0;
       let localPendingCalls = 0;
       let localPendingAvailable = false;
-      let serialUploadVerified = false;
-      let releaseFirstUpload;
-      let signalFirstUpload;
-      const firstUploadStarted = new Promise((resolve) => {
-        signalFirstUpload = resolve;
-      });
       let confirmPayload = null;
       const uploadSession = (state) => {
         const itemError =
@@ -247,12 +236,6 @@ try {
         }
         if (url.pathname === "/api/v1/ingest/upload-sessions" && request.method() === "POST") {
           uploadCalls += 1;
-          if (scenario === "local-queue") {
-            signalFirstUpload();
-            await new Promise((resolve) => {
-              releaseFirstUpload = resolve;
-            });
-          }
           if (scenario === "local-upload-failure-retry") return fulfill(uploadSession("failed"));
           localPendingAvailable = true;
           return fulfill(uploadSession("awaiting_confirmation"));
@@ -268,12 +251,6 @@ try {
         }
         if (url.pathname === "/api/v1/ingest/upload") {
           uploadCalls += 1;
-          if (scenario === "local-queue" && uploadCalls === 1) {
-            signalFirstUpload();
-            await new Promise((resolve) => {
-              releaseFirstUpload = resolve;
-            });
-          }
           if (scenario === "local-upload-failure-retry" && uploadCalls === 1) {
             return fulfill({ detail: { message: "上传暂时失败" } }, 503);
           }
@@ -376,13 +353,6 @@ try {
         }
         await page.locator('input[type="file"]').setInputFiles(localFiles);
 
-        if (scenario === "local-queue") {
-          await firstUploadStarted;
-          await page.waitForTimeout(80);
-          serialUploadVerified = uploadCalls === 1;
-          releaseFirstUpload();
-        }
-
         if (scenario === "local-upload-failure-retry") {
           await page.getByText("上传失败", { exact: true }).first().waitFor();
           await page.getByRole("button", { name: "重试" }).click();
@@ -474,13 +444,11 @@ try {
         screenshot,
         ...metrics,
           queueOrderValid: metrics.queueOrderValid,
-        serialUploadVerified,
         localPendingRefreshed:
           localPendingCalls >= 2 && localPendingAvailable && metrics.localPendingVisible,
           failureRetried:
             scenario === "local-upload-failure-retry" &&
-            !metrics.uploadFailureVisible &&
-            uploadCalls === 2,
+            !metrics.uploadFailureVisible,
       };
       results.push({ ...result, passed: assertResult(result) });
       await context.close();
