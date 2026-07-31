@@ -410,15 +410,24 @@ async def _reconcile_and_promote(
     for item in value.items:
         task_id = item.ingest_task_id
         task = tasks.get(task_id) if task_id is not None else None
-        if task is not None and item.status != "cancelled":
-            item.status = _task_item_state(task)
-            if item.status == "failed":
-                item.safe_error_code = task.error_type or "processing_failed"
-                item.safe_error_message = (
-                    "文件处理超过安全时限且近期无活动；请重试或移除"
-                    if task.error_type == "processing_timeout"
-                    else "文件处理失败，请检查文件后重试"
-                )
+        if task is not None:
+            if item.status != "cancelled":
+                item.status = _task_item_state(task)
+                if item.status == "failed":
+                    item.safe_error_code = task.error_type or "processing_failed"
+                    item.safe_error_message = (
+                        "文件处理超过安全时限且近期无活动；请重试或移除"
+                        if task.error_type == "processing_timeout"
+                        else "文件处理失败，请检查文件后重试"
+                    )
+        elif item.ingest_task_id is not None and item.status != "cancelled":
+            # 悬空引用：item 之前关联的 IngestTask 已被删除（例如 delete_pending_task 后
+            # ON DELETE SET NULL 清掉了外键）。同步把 item 也置为 cancelled，避免队列里
+            # 一直显示"待确认入库"，造成和待确认入库列表/会话统计不同步。
+            item.ingest_task_id = None
+            item.status = "cancelled"
+            item.safe_error_code = None
+            item.safe_error_message = None
 
     batches = sorted({item.batch_index for item in value.items})
     batch_to_promote: int | None = None
