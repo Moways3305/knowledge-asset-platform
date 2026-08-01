@@ -125,7 +125,7 @@ function assertResult(result) {
   if (commonFailure) return false;
   if (result.scenario === "local-empty") return result.emptyUploadReady;
   if (result.scenario === "local-queue")
-    return result.queueOrderValid && result.localPendingRefreshed;
+    return result.compactCompletionVisible && result.localPendingRefreshed;
   if (result.scenario === "local-degraded")
     return result.localPendingRefreshed && result.degradedWarningVisible;
   if (result.scenario === "local-upload-failure-retry")
@@ -361,6 +361,13 @@ try {
           await page.getByText("上传失败", { exact: true }).first().waitFor({ state: "detached" });
         }
         await page.getByText("待确认入库", { exact: true }).first().waitFor();
+        if (scenario === "local-queue" || scenario === "local-upload-failure-retry") {
+          const localPendingSection = page.locator(
+            'section[aria-labelledby="local-pending-title"]',
+          );
+          await localPendingSection.getByRole("button", { name: "刷新" }).click();
+          await localPendingSection.locator("tbody tr").first().waitFor();
+        }
         if (scenario === "local-degraded") {
           await page.getByText("内容建议暂不可用，请人工核对后继续").waitFor();
         }
@@ -403,6 +410,9 @@ try {
           queueOrderValid:
             text.indexOf("客户增长复盘.md") >= 0 &&
             text.indexOf("客户访谈纪要.txt") > text.indexOf("客户增长复盘.md"),
+          compactCompletionVisible:
+            Boolean(document.querySelector(".upload77-upload-complete")) &&
+            !document.querySelector("#local-upload-queue-title"),
           localPendingVisible: text.includes("待确认入库") && text.includes("客户增长复盘.md"),
           uploadFailureVisible: text.includes("上传失败"),
           degradedWarningVisible: text.includes("内容建议暂不可用，请人工核对后继续"),
@@ -447,12 +457,10 @@ try {
         confirmPayloadValid,
         screenshot,
         ...metrics,
-          queueOrderValid: metrics.queueOrderValid,
+        queueOrderValid: metrics.queueOrderValid,
         localPendingRefreshed:
           localPendingCalls >= 2 && localPendingAvailable && metrics.localPendingVisible,
-          failureRetried:
-            scenario === "local-upload-failure-retry" &&
-            !metrics.uploadFailureVisible,
+        failureRetried: scenario === "local-upload-failure-retry" && !metrics.uploadFailureVisible,
       };
       results.push({ ...result, passed: assertResult(result) });
       await context.close();
