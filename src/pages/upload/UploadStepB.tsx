@@ -60,6 +60,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
     ["queued", "uploading", "processing", "failed"].includes(item.status),
   );
   const uploadQueueCompleted = localUploadQueue.length > 0 && !hasActiveUploadQueue;
+  const completedQueueNotice = localUploadQueue.find((item) => item.error)?.error ?? null;
   const extractionStatusText =
     /\.ppt$/i.test(fileName) && extraction?.status === "unsupported"
       ? "当前 .ppt 格式暂不支持自动提取，已保存文件，请人工补全内容"
@@ -255,6 +256,9 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
           <strong>本次上传 {uploadSession?.total_files ?? localUploadQueue.length} 项已完成</strong>
           <span>，{localPendingTasks.length} 项待确认入库。</span>
           <a href="#local-pending-title">前往待确认入库</a>
+          {completedQueueNotice && (
+            <span className="upload77-upload-complete-note">{completedQueueNotice}</span>
+          )}
         </section>
       )}
 

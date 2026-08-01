@@ -108,7 +108,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
         fileSize: 1,
         fileType: "PDF",
         status: "awaiting_confirmation",
-        error: null,
+        error: "内容建议暂不可用，请人工核对后继续",
         ingestTaskId: "task-secret-a",
         pollAttempts: 0,
       },
@@ -117,6 +117,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
 
     expect(screen.queryByRole("heading", { name: "本次上传队列" })).not.toBeInTheDocument();
     expect(screen.getByText(/本次上传 1 项已完成/)).toBeInTheDocument();
+    expect(screen.getByText("内容建议暂不可用，请人工核对后继续")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "前往待确认入库" })).toHaveAttribute(
       "href",
       "#local-pending-title",
