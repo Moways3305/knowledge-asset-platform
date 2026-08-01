@@ -64,6 +64,12 @@ const navGroups: NavGroup[] = [
       { to: "/my/knowledge", label: "个人知识", icon: UserRound, cap: can.viewMyKnowledge },
       { to: "/upload", label: "资产化确认", icon: FileCheck2, cap: can.viewUpload },
       { to: "/review", label: "升级审核", icon: ShieldCheck, cap: can.viewReview },
+      {
+        to: "/review/completed",
+        label: "已完成审核",
+        icon: ShieldCheck,
+        cap: can.viewReview,
+      },
       { to: "/original-access", label: "原文访问", icon: KeyRound, cap: can.viewOriginalAccess },
       {
         to: "/project/:projectId",

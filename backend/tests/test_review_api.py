@@ -53,6 +53,10 @@ def _upgrade_url(project_id=PROJECT_ALPHA, asset_id=KA_PROJECT_ALPHA):
     return f"/api/v1/projects/{project_id}/knowledge/{asset_id}/upgrade-company"
 
 
+def _bulk_upgrade_url(project_id=PROJECT_ALPHA):
+    return f"/api/v1/projects/{project_id}/knowledge/bulk-upgrade-company"
+
+
 async def test_confirm_asset_without_evidence_creates_pending_evidence(client):
     """consultant 对 material 资产发起 confirm-asset，无证据则 pending_evidence。"""
     resp = await client.post(
@@ -271,6 +275,102 @@ async def test_reviews_list_no_internal_fields(client):
     assert "source_file_ref" not in resp.text
     # seed 的 pending_reviewer 审核任务（分配给经理 B）可见
     assert resp.json()["total"] >= 1
+
+
+async def test_review_queue_filters_terminal_items_and_validates_pagination(client):
+    created = await client.post(_upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER))
+    review_id = created.json()["id"]
+    rejected = await client.post(
+        f"{REVIEWS}/{review_id}/reject",
+        headers=_hdr(USER_DIRECTOR),
+        json={"review_comment": "不适合复用"},
+    )
+    assert rejected.status_code == 200
+
+    open_response = await client.get(f"{REVIEWS}?queue=open", headers=_hdr(USER_PROJECT_MANAGER))
+    assert open_response.status_code == 200
+    assert review_id not in {item["id"] for item in open_response.json()["items"]}
+
+    completed = await client.get(
+        f"{REVIEWS}?queue=completed&status=rejected&page=1&page_size=1",
+        headers=_hdr(USER_PROJECT_MANAGER),
+    )
+    assert completed.status_code == 200
+    assert completed.json()["items"][0]["id"] == review_id
+    assert completed.json()["items"][0]["reviewed_at"] is not None
+    assert completed.json()["page"] == 1
+    assert completed.json()["page_size"] == 1
+
+    assert (
+        await client.get(f"{REVIEWS}?queue=unknown", headers=_hdr(USER_PROJECT_MANAGER))
+    ).status_code == 422
+    assert (
+        await client.get(f"{REVIEWS}?page_size=101", headers=_hdr(USER_PROJECT_MANAGER))
+    ).status_code == 422
+
+
+async def test_bulk_company_upgrade_runs_more_than_one_server_batch(client, monkeypatch):
+    item_ids = [str(uuid.uuid4()) for _ in range(51)]
+    calls: list[uuid.UUID] = []
+
+    async def fake_create_or_get(session, caller, project_id, asset_id, trace_id):
+        calls.append(asset_id)
+
+    monkeypatch.setattr(
+        "app.services.review.create_or_get_company_upgrade",
+        fake_create_or_get,
+    )
+    response = await client.post(
+        _bulk_upgrade_url(),
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={"item_ids": item_ids},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["execution_mode"] == "controlled_batch"
+    assert (body["submitted"], body["succeeded"], body["skipped"], body["failed"]) == (
+        51,
+        51,
+        0,
+        0,
+    )
+    assert calls == [uuid.UUID(item_id) for item_id in item_ids]
+
+
+async def test_bulk_company_upgrade_revalidates_each_item_and_is_idempotent(client):
+    payload = {"item_ids": [str(KA_PROJECT_ALPHA), str(KA_PROJECT_ALPHA_MATERIAL)]}
+    first = await client.post(
+        _bulk_upgrade_url(),
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json=payload,
+    )
+    assert first.status_code == 200, first.text
+    assert (first.json()["succeeded"], first.json()["skipped"]) == (1, 1)
+
+    repeated = await client.post(
+        _bulk_upgrade_url(),
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={"item_ids": [str(KA_PROJECT_ALPHA)]},
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["succeeded"] == 1
+
+    non_manager = await client.post(
+        _bulk_upgrade_url(),
+        headers=_hdr(USER_CONSULTANT),
+        json={"item_ids": [str(KA_PROJECT_ALPHA)]},
+    )
+    assert non_manager.status_code == 200
+    assert non_manager.json()["skipped"] == 1
+
+    wrong_project = await client.post(
+        _bulk_upgrade_url(PROJECT_BETA),
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={"item_ids": [str(KA_PROJECT_ALPHA)]},
+    )
+    assert wrong_project.status_code == 200
+    assert wrong_project.json()["skipped"] == 1
 
 
 async def test_governance_sees_reviews(client):

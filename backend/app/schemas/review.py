@@ -57,6 +57,8 @@ class ReviewListItem(BaseModel):
 class ReviewListResponse(BaseModel):
     items: list[ReviewListItem]
     total: int
+    page: int = 1
+    page_size: int = 100
 
 
 class ReviewDetail(ReviewListItem):

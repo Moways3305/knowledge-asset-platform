@@ -48,9 +48,8 @@ const statusFilters = [
   { token: "0", apiValue: "", label: "全部状态" },
   { token: "1", apiValue: "pending_evidence", label: "待补充证据" },
   { token: "2", apiValue: "pending_reviewer", label: "待审核" },
-  { token: "3", apiValue: "approved", label: "已通过" },
-  { token: "4", apiValue: "rejected", label: "已拒绝" },
-  { token: "5", apiValue: "approval_failed", label: "处理失败" },
+  { token: "3", apiValue: "approving", label: "处理中" },
+  { token: "4", apiValue: "approval_failed", label: "处理失败" },
 ];
 
 const reviewTypeFilters = [
@@ -106,6 +105,7 @@ export default function ReviewPage() {
     setItems([]);
     try {
       const next = await fetchReviews({
+        queue: "open",
         status: filters.status || undefined,
         reviewType: filters.reviewType || undefined,
       });
@@ -379,6 +379,7 @@ export default function ReviewPage() {
 
   return (
     <GovernanceWorkspace active="review" loading={loading} onRefresh={() => void load()}>
+      <h2>审核待办</h2>
       <div className="gw-toolbar" role="search" aria-label="审核筛选">
         <div className="gw-toolbar-fields">
           <label className="gw-filter-label">
@@ -424,6 +425,7 @@ export default function ReviewPage() {
             <CheckCircle2 size={13} aria-hidden="true" />
             一键全选确认
           </button>
+          {eligibleItems.length === 0 && <span className="gw-muted">当前没有可确认的待审核项</span>}
         </div>
       </div>
 

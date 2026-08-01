@@ -19,7 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.ingest import IngestTask, IngestTaskAiResult
 from app.models.knowledge import (
     KnowledgeAsset,
-    KnowledgeAssetSummary,
     KnowledgeAssetTag,
     KnowledgeAssetVersion,
 )
@@ -29,11 +28,9 @@ from app.schemas.enums import (
     AuditAction,
     AuditLogType,
     AuditRiskLevel,
-    ConfidentialityLevel,
     IngestSource,
     IngestStatus,
     KnowledgeScope,
-    ProjectRole,
     ReviewTaskStatus,
 )
 from app.schemas.ingest import (
@@ -47,8 +44,7 @@ from app.schemas.ingest import (
 from app.schemas.permission import CallerContext
 from app.schemas.review import ReviewActionResponse
 from app.services import audit as audit_service
-from app.services import error_catalog, indexing
-from app.services.authorized_summary import build_authorized_summary_variants
+from app.services import ingest_confirmation, ingest_indexing, ingest_persistence
 from app.services.desensitization import DesensitizationEngine
 from app.services.generation_models import generation_model_ref
 from app.services.llm_client import LLMClient, NullLLMClient
@@ -66,8 +62,6 @@ if TYPE_CHECKING:
     from app.schemas.ingest import IngestParseRefreshResponse
 
 _logger = logging.getLogger(__name__)
-
-_REDACTED_LEVELS = {ConfidentialityLevel.L3.value, ConfidentialityLevel.L4.value}
 
 # 入库前置脱敏状态 → 人读安全文案。当前口径：入库建议由受信外部 API 处理，未启用前置脱敏
 # （not_applicable）。规则脱敏引擎保留为备用。applied/unchanged/skipped/failed 仅为兼容历史
@@ -336,49 +330,6 @@ async def get_ai_result(
     return base
 
 
-def _build_summaries(
-    level: str,
-    *,
-    one_liner: str | None,
-    detailed: str,
-    key_points: list[str],
-) -> list[KnowledgeAssetSummary]:
-    """构建三层摘要行：one_liner + detailed + key_points（+ L3/L4 脱敏摘要）。
-
-    人工确认值——独立存储于 knowledge_asset_summaries，与 ai_result.suggested_* 分离
-    （AI 推荐不被人工确认覆盖，系统设计 §181）。
-    """
-    one = (one_liner or detailed)[:200]
-    rows = [
-        KnowledgeAssetSummary(summary_type="one_liner", content=one),
-        KnowledgeAssetSummary(summary_type="detailed", content=detailed),
-    ]
-    pts = [p.strip() for p in key_points if p and p.strip()]
-    if pts:
-        # key_points 每条一行存于同一 summary 行（读侧按行拆分，沿用既有口径）。
-        rows.append(KnowledgeAssetSummary(summary_type="key_points", content="\n".join(pts)))
-    if level in _REDACTED_LEVELS:
-        redacted_one_liner, redacted_detailed = build_authorized_summary_variants(
-            one_liner=one_liner,
-            detailed=detailed,
-        )
-        if redacted_one_liner:
-            rows.append(
-                KnowledgeAssetSummary(
-                    summary_type="redacted_one_liner",
-                    content=redacted_one_liner,
-                )
-            )
-        if redacted_detailed:
-            rows.append(
-                KnowledgeAssetSummary(
-                    summary_type="redacted_summary",
-                    content=redacted_detailed,
-                )
-            )
-    return rows
-
-
 async def confirm(
     session: AsyncSession,
     caller: CallerContext,
@@ -389,247 +340,53 @@ async def confirm(
     storage: LocalFileStorage,
     weknora: WeKnoraClient | NullWeKnoraClient,
 ) -> IngestConfirmResponse:
-    """人工确认入库：阶段1 资产落库 + 阶段2 底座索引，两个失败边界解耦。
-
-    - 落库前校验失败仍**拒绝**（无权 / scope·project·confidentiality 非法 / 标题·摘要缺失 /
-      重复确认 / 仍 processing）。
-    - 校验通过后先持久化 KnowledgeAsset 全套（提交点 A，`task.status=completed` 仅表示
-      确认+落库）。此后 WeKnora 建库 / 初始化 / 上传失败**绝不回滚**已落库资产 / 人工校正，
-      而是把 version `index_status=index_failed` + 安全 `index_error_code` + 写 `ingest.index_failed`
-      （exception）审计，可在补配置 / 修复后重试。
-    - 未配置 WeKnora（dev）→ `index_status=skipped`，asset 正常创建。
-    - 409 内容重复 → 复用既有 doc，`index_status=indexed`、`parse_status=duplicate`，不算失败。
-    """
-    if not caller.is_business_user:
-        await audit_service.record_denied(
-            session,
-            caller=caller,
-            log_type=AuditLogType.exception,
-            action=AuditAction.admin_business_denied.value,
-            trace_id=trace_id,
-            target_type="ingest_task",
-            target_id=task_id,
-            severity=AlertSeverity.warning,
-            risk_level=AuditRiskLevel.high.value,
-            extra={
-                "denied_reason": "admin_business_permission_denied",
-                "attempted": "ingest.confirm",
-            },
-        )
-        raise _denied(403, "admin_business_permission_denied", "仅业务用户可确认入库")
-
-    task = await _load_task(session, task_id)
-
-    # 归属权限：只有任务创建人或业务治理角色（boss/咨询总监）可确认；
-    # 其他业务用户不得确认他人的入库任务。
-    if not (task.created_by == caller.user_id or _is_governance(caller)):
-        raise _denied(403, "ingest_confirm_forbidden", "只有任务创建人或业务治理角色可确认入库")
-
-    # 幂等：已完成的任务不重复创建资产。
-    if task.result_asset_id is not None or task.status == IngestStatus.completed.value:
-        raise _denied(409, "ingest_already_confirmed", "该入库任务已确认，不可重复确认")
-
-    # 异步处理未完成（仍 processing）不允许确认——避免把空 AI 结果当人工确认提交。
-    if task.status == IngestStatus.processing.value:
-        raise _denied(409, "ingest_processing_not_ready", "后台仍在处理该上传，请稍后再确认")
-
-    # 必填字段前置校验——标题 + 至少一个非空摘要（详细或一句话）。
-    # 即使 AI 处理失败（status=failed），只要人工补全了这些字段也可确认；否则拒绝空摘要。
-    if not (req.title or "").strip():
-        raise _denied(422, "ingest_title_required", "标题不能为空")
-    _detailed = (req.summary or "").strip()
-    _one_liner = (req.one_liner or "").strip()
-    if not _detailed and not _one_liner:
-        raise _denied(422, "ingest_summary_required", "至少需填写详细摘要或一句话摘要")
-
-    # 枚举字段已由 Pydantic 校验，写入时统一取 .value（DB 仍 String 存储）。
-    scope = req.target_scope.value
-    # A persisted destination represents a source-rule lock.  It is trusted
-    # server state and cannot be overridden by single or bulk clients.
-    if task.target_scope is not None and task.target_scope != scope:
-        raise _denied(
-            409,
-            "ingest_target_locked",
-            "入库目标已由来源规则锁定，不能更改",
-        )
-    if (
-        task.target_scope == KnowledgeScope.project.value
-        and task.target_project_id != req.target_project_id
-    ):
-        raise _denied(
-            409,
-            "ingest_target_project_locked",
-            "目标项目已由来源规则锁定，不能更改",
-        )
-    # scope 级权限校验。
-    if scope == KnowledgeScope.personal.value:
-        owner_id = caller.user_id
-        project_id = None
-    elif scope == KnowledgeScope.project.value:
-        if req.target_project_id is None:
-            raise _denied(422, "target_project_required", "项目入库必须指定目标项目")
-        if req.target_project_id not in caller.active_project_ids:
-            raise _denied(403, "project_membership_required", "需为目标项目的有效成员")
-        can_self_confirm = bool(
-            caller.active_project_roles.get(req.target_project_id)
-            == ProjectRole.project_manager.value
-        )
-        if not can_self_confirm:
-            from app.services.review import create_or_get_project_ingest_review
-
-            review = await create_or_get_project_ingest_review(session, caller, task, req, trace_id)
-            return IngestConfirmResponse(
-                task_id=task.id,
-                status=IngestStatus.waiting_review.value,
-                result_asset_id=None,
-                review_id=review.id,
-                index_status=None,
-            )
-        owner_id = caller.user_id
-        project_id = req.target_project_id
-    elif scope == KnowledgeScope.company.value:
-        # 公司知识当前无独立审核流：仅 boss / consulting_director 可直接确认公司资产；
-        # consultant 直接确认公司资产被拒（不假装完成公司级审核）。
-        if not _is_governance(caller):
-            raise _denied(
-                403,
-                "company_confirmation_requires_governance",
-                "公司知识需总经理或咨询总监确认",
-            )
-        from app.services.company_kb import require_company_kb_ready
-
-        await require_company_kb_ready(session)
-        owner_id = caller.user_id
-        project_id = None
-    else:
-        raise _denied(422, "invalid_target_scope", "非法的 target_scope")
-
-    # ---- 阶段1：人工确认 = 资产落库（必须成功且独立成立，不绑底座）----
-    # 不再在落库前建 KB。底座建库/初始化/上传解耦到阶段2，失败不回滚已落库资产，
-    # 也不丢失人工校正结果（WeKnora 写入失败不再触发整单回滚）。
-    # 已前置校验 detailed/one_liner 至少一非空：detailed 取详细摘要，缺则回退一句话摘要
-    # （绝不再静默写入"（无摘要）"占位）。
-    summary_text = (req.summary or "").strip() or (req.one_liner or "").strip()
-    confidentiality = req.confidentiality_level.value
-    asset = KnowledgeAsset(
-        title=req.title,
-        scope=scope,
-        zone=req.target_zone.value,  # 入库默认 material
-        asset_type=req.asset_type.value,
-        owner_user_id=owner_id,
-        maintainer_user_id=caller.user_id,
-        project_id=project_id,
-        visibility=req.visibility.value,
-        confidentiality_level=confidentiality,
-        ai_access_level=req.ai_access_level.value,
-        asset_status="active",
-        lifecycle_phase_key=req.lifecycle_phase_key,
-    )
-    version = KnowledgeAssetVersion(
-        version_no="v1", version_status="active", created_by=caller.user_id
-    )
-    asset.versions.append(version)
-    for s in _build_summaries(
-        confidentiality,
-        one_liner=req.one_liner,
-        detailed=summary_text,
-        key_points=req.key_points,
-    ):
-        s.version = version
-        asset.summaries.append(s)
-    for tag in req.tags:
-        asset.tags.append(KnowledgeAssetTag(tag_name=tag))
-    session.add(asset)
-    await session.flush()  # 取得 asset.id / version.id
-
-    asset.current_version_id = version.id
-    task.result_asset_id = asset.id
-    task.result_version_id = version.id
-    # task.status=completed 表示「人工确认 + 资产落库完成」，**不含**底座索引完成。
-    task.status = IngestStatus.completed.value
-    task.target_scope = scope
-    task.target_project_id = project_id
-    task.target_zone = asset.zone
-    if task.ai_result is not None:
-        task.ai_result.human_corrected = True
-        task.ai_result.corrected_title = req.title
-        task.ai_result.corrected_summary = req.summary
-        task.ai_result.corrected_tags = req.tags
-
-    # 同步上传队列里的 item 状态：确认成功后队列里的同一文件应显示为 completed，
-    # 否则用户刷新页面才会看到状态更新（且要等下次 _reconcile_and_promote 触发）。
-    from app.models.ingest import UploadSessionItem
-
-    linked_items = (
-        (
-            await session.execute(
-                select(UploadSessionItem).where(UploadSessionItem.ingest_task_id == task.id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    for linked_item in linked_items:
-        linked_item.status = "completed"
-        linked_item.safe_error_code = None
-        linked_item.safe_error_message = None
-
-    use_weknora = weknora_enabled()
-    # 落库即定索引初值：未启用底座 → skipped（dev/降级，正常）；启用 → indexing（阶段2推进）。
-    version.index_status = "indexing" if use_weknora else "skipped"
-
-    # 入库确认审计：安全元数据，不含原文 / source_file_ref / kb_id / doc_id。
-    await audit_service.record_event(
+    """Validate, persist, and index one human-confirmed ingest task."""
+    route = await ingest_confirmation.validate_and_route_confirmation(
         session,
-        caller=caller,
-        log_type=AuditLogType.operation,
-        action=AuditAction.ingest_confirmed.value,
-        trace_id=trace_id,
-        target_type="knowledge_asset",
-        target_id=asset.id,
-        after={
-            "scope": asset.scope,
-            "zone": asset.zone,
-            "confidentiality_level": asset.confidentiality_level,
-            "ai_access_level": asset.ai_access_level,
-            "ingest_task_id": str(task.id),
-        },
-        project_id=project_id,
+        caller,
+        task_id,
+        req,
+        trace_id,
     )
-    # 提交点 A：资产 + 人工校正持久化。此后底座失败**绝不**回滚此次落库。
-    await session.commit()
+    if isinstance(route, IngestConfirmResponse):
+        return route
 
-    # 捕获响应所需主键（阶段2失败时会 rollback 使 ORM 对象过期，异步 session 不能隐式 IO 刷新）。
-    result_asset_id = asset.id
-    response_task_id = task.id
-    response_status = task.status
+    context = await ingest_confirmation.apply_confirmation_extensions(route)
+    persisted = await ingest_persistence.persist_confirmation(
+        session,
+        context,
+        use_indexing=weknora_enabled(),
+    )
 
-    # ---- 阶段2：底座索引（建库 + 初始化 + 上传原文）。失败 → index_failed，可重试 ----
+    # Index failure handling may roll back and expire ORM objects. Capture the
+    # response identifiers at the persistence boundary before that can happen.
+    response_task_id = persisted.task.id
+    response_status = persisted.task.status
+    result_asset_id = persisted.asset.id
     parse_status: str | None = None
-    index_status = "indexing" if use_weknora else "skipped"
-    if use_weknora:
-        index_status, parse_status = await _index_asset(
+    index_status = "indexing" if persisted.use_indexing else "skipped"
+    if persisted.use_indexing:
+        index_status, parse_status = await ingest_indexing.index_confirmed_asset(
             session,
             caller,
-            task,
-            asset,
-            version,
-            scope=scope,
-            owner_id=owner_id,
-            project_id=project_id,
-            confidentiality=confidentiality,
+            persisted.task,
+            persisted.asset,
+            persisted.version,
+            scope=context.scope,
+            owner_id=context.owner_id,
+            project_id=context.project_id,
+            confidentiality=context.request.confidentiality_level.value,
             weknora=weknora,
             storage=storage,
             trace_id=trace_id,
-            embedding_model_ref=req.embedding_model_ref,
-            rerank_model_ref=req.rerank_model_ref,
+            embedding_model_ref=context.request.embedding_model_ref,
+            rerank_model_ref=context.request.rerank_model_ref,
         )
 
-    # 仅记 asset_id（UUID）+ 安全索引状态；绝不记原文 / extracted_text / kb·doc id。
     _logger.info(
         "ingest_confirmed",
         extra={
-            "asset_id": str(result_asset_id) if result_asset_id else None,
+            "asset_id": str(result_asset_id),
             "index_status": index_status,
         },
     )
@@ -695,7 +452,7 @@ async def approve_project_ingest_review(
             version_no="v1", version_status="active", created_by=submitter_id
         )
         asset.versions.append(version)
-        for summary in _build_summaries(
+        for summary in ingest_persistence.build_summaries(
             confidentiality,
             one_liner=req.one_liner,
             detailed=summary_text,
@@ -739,7 +496,7 @@ async def approve_project_ingest_review(
     parse_status: str | None = None
     if weknora_enabled():
         try:
-            index_status, parse_status = await _index_asset(
+            index_status, parse_status = await ingest_indexing.index_confirmed_asset(
                 session,
                 caller,
                 task,
@@ -841,112 +598,6 @@ async def approve_project_ingest_review(
         asset_zone=asset.zone,
         index_status=index_status,
     )
-
-
-async def _index_asset(
-    session: AsyncSession,
-    caller: CallerContext,
-    task: IngestTask,
-    asset: KnowledgeAsset,
-    version: KnowledgeAssetVersion,
-    *,
-    scope: str,
-    owner_id: uuid.UUID,
-    project_id: uuid.UUID | None,
-    confidentiality: str,
-    weknora: WeKnoraClient | NullWeKnoraClient,
-    storage: LocalFileStorage,
-    trace_id: str,
-    embedding_model_ref: str | None = None,
-    rerank_model_ref: str | None = None,
-) -> tuple[str, str | None]:
-    """阶段2：把原文推进 WeKnora 底座（共享 `indexing.index_asset_version`）+ 写 ingest 审计。
-
-    资产已在阶段1落库；阶段2 **绝不**回滚资产或人工校正。成功写 `ingest.weknora_indexed`，
-    失败写 `ingest.index_failed`（exception）。审计 extra 绝不含 kb_id/doc_id/api_key/storage_ref。
-    """
-    # 先捕获主键 / 来源字段（失败路径 rollback 会使对象过期，异步 session 不能隐式刷新）。
-    asset_id = asset.id
-    version_id = version.id
-    source_file_ref = task.source_file_ref
-
-    # 读原文字节：读盘失败也算索引失败（资产保留、可重试）。
-    try:
-        file_bytes = storage.resolve_path(source_file_ref).read_bytes()
-    except OSError:
-        outcome = await indexing.mark_index_failed(
-            session, version_id=version_id, error_code="source_file_unreadable"
-        )
-        await _audit_ingest_index_failed(
-            session, caller, asset_id, outcome.error_code, trace_id, project_id
-        )
-        return outcome.index_status, outcome.parse_status
-
-    outcome = await indexing.index_asset_version(
-        session,
-        weknora,
-        asset_id=asset_id,
-        version_id=version_id,
-        scope=scope,
-        owner_user_id=owner_id,
-        project_id=project_id,
-        confidentiality=confidentiality,
-        file_bytes=file_bytes,
-        source_file_name=task.source_file_name,
-        source_file_mime=task.source_file_mime_type,
-        channel=task.source,
-        trace_id=trace_id,
-        embedding_model_ref=embedding_model_ref,
-        rerank_model_ref=rerank_model_ref,
-    )
-    if outcome.index_status == "indexed":
-        await audit_service.record_event(
-            session,
-            caller=caller,
-            log_type=AuditLogType.operation,
-            action=AuditAction.ingest_weknora_indexed.value,
-            trace_id=trace_id,
-            target_type="knowledge_asset",
-            target_id=asset_id,
-            extra={
-                "parse_status": outcome.parse_status,
-                "is_duplicate": outcome.is_duplicate,
-                "scope": scope,
-            },
-            project_id=project_id,
-        )
-        await session.commit()
-    else:
-        await _audit_ingest_index_failed(
-            session, caller, asset_id, outcome.error_code, trace_id, project_id
-        )
-    return outcome.index_status, outcome.parse_status
-
-
-async def _audit_ingest_index_failed(
-    session: AsyncSession,
-    caller: CallerContext,
-    asset_id: uuid.UUID,
-    error_code: str | None,
-    trace_id: str,
-    project_id: uuid.UUID | None,
-) -> None:
-    """写 confirm 阶段底座索引失败审计（exception）。extra 只放安全 stage + error_code。"""
-    await audit_service.record_event(
-        session,
-        caller=caller,
-        log_type=AuditLogType.exception,
-        action=AuditAction.ingest_index_failed.value,
-        trace_id=trace_id,
-        target_type="knowledge_asset",
-        target_id=asset_id,
-        severity=AlertSeverity.warning,
-        risk_level=AuditRiskLevel.high.value,
-        # 审计 extra 只写安全目录 code，不写上游原始 code。
-        extra={"failure_stage": "weknora_index", "error_code": error_catalog.safe_code(error_code)},
-        project_id=project_id,
-    )
-    await session.commit()
 
 
 async def refresh_parse(

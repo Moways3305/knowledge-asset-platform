@@ -19,6 +19,7 @@ vi.mock("./http", () => ({
 
 import { bulkConfirmIngest } from "./ingest";
 import { bulkDeleteKnowledgeAssets } from "./knowledge";
+import { bulkRequestCompanyUpgrade } from "./review";
 
 function responseFor(itemIds: string[]): BulkOperationResponseDTO {
   return {
@@ -88,5 +89,18 @@ describe("bounded bulk endpoint clients", () => {
     expect(new Set(apiPostMock.mock.calls.map((call) => call[1].client_operation_id)).size).toBe(1);
     expect(result.submitted).toBe(total);
     expect(result.succeeded).toBe(total);
+  });
+
+  it("splits project company upgrades and keeps one operation identity", async () => {
+    const itemIds = Array.from({ length: 501 }, (_, index) => `asset-${index}`);
+    const result = await bulkRequestCompanyUpgrade({
+      projectId: "00000000-0000-4000-8000-000000000002",
+      itemIds,
+    });
+
+    expect(apiPostMock).toHaveBeenCalledTimes(3);
+    expect(apiPostMock.mock.calls.map((call) => call[1].item_ids.length)).toEqual([200, 200, 101]);
+    expect(new Set(apiPostMock.mock.calls.map((call) => call[1].client_operation_id)).size).toBe(1);
+    expect(result.submitted).toBe(501);
   });
 });

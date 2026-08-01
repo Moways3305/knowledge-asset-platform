@@ -15,7 +15,7 @@ import {
 } from "../api/knowledge";
 import { ControlledBulkRequestError } from "../api/bulk";
 import { fetchProjectQaModelOptions, projectQa } from "../api/project";
-import { requestCompanyUpgrade } from "../api/review";
+import { bulkRequestCompanyUpgrade, requestCompanyUpgrade } from "../api/review";
 import { useAuth } from "../auth/AuthContext";
 import DataTable, { type Column } from "../components/DataTable";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -465,29 +465,49 @@ function ProjectKnowledgeWorkspace({
   };
 
   const handleBulkUpgrade = async () => {
-    const materialAssets = selectedAssets.filter((asset) => asset.zone === "material");
-    if (materialAssets.length === 0 || bulkUpgradeBusy) return;
+    const upgradeableAssets = selectedAssets.filter(
+      (asset) => asset.zone === "asset" && asset.assetStatus === "active",
+    );
+    if (upgradeableAssets.length === 0 || bulkUpgradeBusy) return;
+    const selectionSnapshot = [...upgradeableAssets];
+    const selectionRequest = listRequestRef.current;
     setBulkUpgradeBusy(true);
     try {
-      await Promise.all(
-        materialAssets.map((asset) => requestCompanyUpgrade(project.projectId, asset.id)),
-      );
+      const response = await bulkRequestCompanyUpgrade({
+        projectId: project.projectId,
+        itemIds: selectionSnapshot.map((asset) => asset.id),
+      });
       setSelectedAssets([]);
       setAllMatchingSelected(false);
       setUpgradeNotice({
-        tone: "success",
-        text: `已为 ${materialAssets.length} 项资产提交公司资产升级申请。`,
+        tone: response.failed > 0 || response.skipped > 0 ? "error" : "success",
+        text: `批量升级完成：提交 ${response.submitted}，成功 ${response.succeeded}，跳过 ${response.skipped}，失败 ${response.failed}。`,
       });
-    } catch {
-      setUpgradeNotice({ tone: "error", text: "批量升级提交失败，请稍后重试。" });
+    } catch (error) {
+      const retryIds =
+        error instanceof ControlledBulkRequestError
+          ? new Set(error.retryItems as string[])
+          : new Set(selectionSnapshot.map((asset) => asset.id));
+      const partial = error instanceof ControlledBulkRequestError ? error.partialResult : null;
+      if (listRequestRef.current === selectionRequest) {
+        bulkRetrySelectionRef.current = selectionSnapshot.filter((asset) => retryIds.has(asset.id));
+      }
+      setAllMatchingSelected(false);
+      setUpgradeNotice({
+        tone: "error",
+        text: partial
+          ? `批量升级中断：已完成提交 ${partial.submitted} 项（成功 ${partial.succeeded}，跳过 ${partial.skipped}，失败 ${partial.failed}），剩余 ${retryIds.size} 项可重试。`
+          : `批量升级未开始，${retryIds.size} 项仍保留选择，可重试。`,
+      });
     } finally {
       setBulkUpgradeBusy(false);
       setListRetryKey((value) => value + 1);
     }
   };
 
-  const selectedMaterialAssets = selectedAssets.filter((asset) => asset.zone === "material");
-  const selectedAssetZoneAssets = selectedAssets.filter((asset) => asset.zone === "asset");
+  const selectedUpgradeableAssets = selectedAssets.filter(
+    (asset) => asset.zone === "asset" && asset.assetStatus === "active",
+  );
 
   const columns: Column<KnowledgeCardVM>[] = [
     {
@@ -886,24 +906,24 @@ function ProjectKnowledgeWorkspace({
                 setAllMatchingSelected(false);
               }}
             >
-              {selectedMaterialAssets.length > 0 && (
+              {selectedUpgradeableAssets.length > 0 && (
                 <button
                   className="product-button is-small"
                   disabled={bulkUpgradeBusy || bulkDeleteBusy}
                   onClick={() => void handleBulkUpgrade()}
                   type="button"
                 >
-                  批量升级（{selectedMaterialAssets.length}）
+                  批量升级为公司资产（{selectedUpgradeableAssets.length}）
                 </button>
               )}
-              {selectedAssetZoneAssets.length > 0 && (
+              {selectedAssets.length > 0 && (
                 <button
                   className="product-button is-danger is-small"
                   disabled={bulkDeleteBusy || bulkUpgradeBusy}
                   onClick={() => setBulkDeleteOpen(true)}
                   type="button"
                 >
-                  批量删除（{selectedAssetZoneAssets.length}）
+                  批量删除（{selectedAssets.length}）
                 </button>
               )}
             </BulkSelectionRail>

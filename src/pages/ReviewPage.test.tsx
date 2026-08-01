@@ -4,15 +4,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/http";
 import {
   approveReview,
+  fetchReviewPage,
   fetchReviews,
   rejectReview,
   withdrawReviewConfirmation,
 } from "../api/review";
 import type { ReviewItemDTO } from "../types/review";
 import ReviewPage from "./ReviewPage";
+import ReviewCompletedPage from "./ReviewCompletedPage";
 
 vi.mock("../api/review", () => ({
   approveReview: vi.fn(),
+  fetchReviewPage: vi.fn(),
   fetchReviews: vi.fn(),
   rejectReview: vi.fn(),
   withdrawReviewConfirmation: vi.fn(),
@@ -51,8 +54,19 @@ function renderPage() {
   );
 }
 
+function renderCompletedPage() {
+  return render(
+    <MemoryRouter initialEntries={["/review/completed"]}>
+      <Routes>
+        <Route path="/review/completed" element={<ReviewCompletedPage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
 describe("ReviewPage governance workspace", () => {
   beforeEach(() => {
+    vi.mocked(fetchReviewPage).mockReset();
     vi.mocked(fetchReviews).mockReset().mockResolvedValue([pending]);
     vi.mocked(approveReview).mockReset().mockResolvedValue();
     vi.mocked(rejectReview).mockReset().mockResolvedValue();
@@ -67,7 +81,11 @@ describe("ReviewPage governance workspace", () => {
       "href",
       "/original-access",
     );
-    expect(fetchReviews).toHaveBeenCalledWith({ status: undefined, reviewType: undefined });
+    expect(fetchReviews).toHaveBeenCalledWith({
+      queue: "open",
+      status: undefined,
+      reviewType: undefined,
+    });
 
     fireEvent.change(screen.getByLabelText("审核状态"), {
       target: { value: "2" },
@@ -77,6 +95,7 @@ describe("ReviewPage governance workspace", () => {
     });
     await waitFor(() =>
       expect(fetchReviews).toHaveBeenLastCalledWith({
+        queue: "open",
         status: "pending_reviewer",
         reviewType: "project_ingest_approval",
       }),
@@ -161,12 +180,11 @@ describe("ReviewPage governance workspace", () => {
   });
 
   it("reloads an action with the latest filters when they change while the action is pending", async () => {
-    const approved = {
+    const failed = {
       ...pending,
-      id: "approved-review",
+      id: "failed-review",
       asset_title: "已筛选审核",
-      status: "approved",
-      can_decide: false,
+      status: "approval_failed",
     };
     let completeApprove!: () => void;
     vi.mocked(approveReview).mockImplementationOnce(
@@ -176,7 +194,7 @@ describe("ReviewPage governance workspace", () => {
         }),
     );
     vi.mocked(fetchReviews).mockImplementation(async (options) =>
-      options?.status === "approved" ? [approved] : [pending],
+      options?.status === "approving" ? [failed] : [pending],
     );
     renderPage();
 
@@ -190,7 +208,8 @@ describe("ReviewPage governance workspace", () => {
     await act(async () => completeApprove());
     await waitFor(() => expect(fetchReviews).toHaveBeenCalledTimes(3));
     expect(fetchReviews).toHaveBeenLastCalledWith({
-      status: "approved",
+      queue: "open",
+      status: "approving",
       reviewType: undefined,
     });
     expect(screen.getByText("已筛选审核")).toBeInTheDocument();
@@ -232,5 +251,69 @@ describe("ReviewPage governance workspace", () => {
     renderPage();
     expect(await screen.findByText("无审核权限")).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/manager-only|role_secret|项目经理/);
+  });
+});
+
+describe("ReviewCompletedPage read-only queue", () => {
+  const completed = {
+    ...pending,
+    id: "completed-review",
+    status: "approved",
+    can_decide: false,
+    reviewed_at: "2026-07-17T02:00:00Z",
+  };
+
+  beforeEach(() => {
+    vi.mocked(fetchReviewPage)
+      .mockReset()
+      .mockResolvedValue({
+        items: [completed],
+        total: 21,
+        page: 1,
+        page_size: 20,
+      });
+  });
+
+  it("loads only the completed queue and exposes no mutation controls", async () => {
+    renderCompletedPage();
+
+    expect(await screen.findByRole("table", { name: "已完成审核任务列表" })).toBeInTheDocument();
+    expect(fetchReviewPage).toHaveBeenCalledWith({
+      queue: "completed",
+      reviewType: undefined,
+      status: undefined,
+      page: 1,
+      pageSize: 20,
+    });
+    expect(screen.getAllByText("已通过")).toHaveLength(2);
+    expect(screen.getByRole("columnheader", { name: "完成时间" })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /确认|拒绝|撤回|批量/ })).not.toBeInTheDocument();
+  });
+
+  it("sends terminal filters and server pagination", async () => {
+    renderCompletedPage();
+    await screen.findByRole("table", { name: "已完成审核任务列表" });
+
+    fireEvent.change(screen.getByLabelText("审核状态"), { target: { value: "rejected" } });
+    fireEvent.change(screen.getByLabelText("审核类型"), {
+      target: { value: "project_to_company" },
+    });
+    await waitFor(() =>
+      expect(fetchReviewPage).toHaveBeenLastCalledWith({
+        queue: "completed",
+        reviewType: "project_to_company",
+        status: "rejected",
+        page: 1,
+        pageSize: 20,
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    await waitFor(() =>
+      expect(fetchReviewPage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ queue: "completed", page: 2, pageSize: 20 }),
+      ),
+    );
   });
 });

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ChangeEvent } from "react";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useUploadFlow } from "./useUploadFlow";
+import { useIngestConfirmation } from "./useIngestConfirmation";
 import type { ModelSelectionState } from "../../hooks/useModelSelection";
 import type {
   IngestAiResultDTO,
@@ -281,6 +282,40 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(payload.rerank_model_ref).toBe("ref_rer_default");
     // 绝不发送真实 model_id 字段。
     expect(payload).not.toHaveProperty("embedding_model_id");
+  });
+
+  it("confirmation 边界统一暴露已验证目标、人工字段、AI 建议和 task 身份", async () => {
+    const loadPending = vi.fn().mockResolvedValue(undefined);
+    const loadLocalPending = vi.fn().mockResolvedValue(undefined);
+    const removeLocalTask = vi.fn();
+    const { result } = renderHook(() =>
+      useIngestConfirmation({
+        activePath: "a",
+        embeddingModelRef: "ref_emb_default",
+        rerankModelRef: "ref_rer_default",
+        loadPending,
+        loadLocalPending,
+        removeLocalTask,
+        beforeSingleTask: vi.fn(),
+      }),
+    );
+
+    await act(async () => {
+      await result.current.handleSelectPendingTask(pendingTask("t1", "doc.pptx"));
+    });
+
+    expect(result.current.namingPreviewState).toMatchObject({
+      taskId: "t1",
+      target: { library: "personal", projectId: "", locked: true },
+      fields: {
+        title: "渠道转型方法论",
+        summary: "详细摘要内容",
+      },
+      ai: {
+        naming: null,
+        generation: { status: "generated" },
+      },
+    });
   });
 
   it("切换模型后 confirm payload 使用新的 model_ref", async () => {
@@ -840,6 +875,38 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(result.current.taskId).toBe("keep");
     expect(result.current.flowState).toBe("ready");
     expect(result.current.apiError).toBe("拒绝入库失败，任务仍保留，请重试");
+  });
+
+  it("来源切换后忽略晚到的单条拒绝响应", async () => {
+    const lateDelete = deferred<void>();
+    const local = { ...pendingTask("late-local", "late.pdf"), source: "path_b_upload" };
+    const wecom = { ...pendingTask("wecom-current", "wecom.pdf"), source: "path_a_wecom" };
+    ingest.fetchPendingIngestTasks
+      .mockReset()
+      .mockImplementation(async (source) => (source === "path_b_upload" ? [local] : [wecom]));
+    ingest.deletePendingTask.mockReset().mockReturnValueOnce(lateDelete.promise);
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(result.current.localPendingTasks).toEqual([local]));
+
+    let deleting!: Promise<void>;
+    act(() => {
+      deleting = result.current.handleDeletePending(local.id);
+    });
+    act(() => result.current.switchPath("a"));
+    await waitFor(() => expect(result.current.pendingTasks).toEqual([wecom]));
+
+    await act(async () => {
+      lateDelete.resolve();
+      await deleting;
+    });
+
+    expect(result.current.activePath).toBe("a");
+    expect(result.current.pendingTasks).toEqual([wecom]);
+    expect(result.current.apiError).toBeNull();
+    expect(ingest.fetchPendingIngestTasks.mock.calls).toEqual([
+      ["path_b_upload"],
+      ["path_a_wecom"],
+    ]);
   });
 
   it("本地单条拒绝成功同时移除待确认列表和本次上传队列，失败则两处均保留", async () => {

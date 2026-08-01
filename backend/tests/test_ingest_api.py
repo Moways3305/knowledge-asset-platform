@@ -19,6 +19,7 @@ from app.seed.dev_seed import (
     USER_CONSULTANT,
     USER_PROJECT_MANAGER,
 )
+from app.services import ingest_confirmation
 from app.services.storage import LocalFileStorage, StorageError
 
 UPLOAD = "/api/v1/ingest/upload"
@@ -215,6 +216,44 @@ async def test_confirm_personal_then_visible_in_my_knowledge(client):
     asset_id = resp.json()["result_asset_id"]
     my = (await client.get(MY, headers=_hdr(USER_CONSULTANT))).json()
     assert any(i["id"] == asset_id for i in my["items"])
+
+
+async def test_confirmation_extension_only_receives_server_validated_target(client, monkeypatch):
+    """The naming extension boundary is unreachable until target checks pass."""
+    contexts: list[ingest_confirmation.ValidatedConfirmationContext] = []
+
+    async def capture_context(
+        context: ingest_confirmation.ValidatedConfirmationContext,
+    ) -> ingest_confirmation.ValidatedConfirmationContext:
+        contexts.append(context)
+        return context
+
+    monkeypatch.setattr(ingest_confirmation, "apply_confirmation_extensions", capture_context)
+
+    rejected_task = (await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"]
+    rejected = await client.post(
+        f"/api/v1/ingest/{rejected_task}/confirm",
+        headers=_hdr(USER_CONSULTANT),
+        json=_confirm_payload(
+            target_scope="project",
+            target_project_id=str(PROJECT_BETA),
+        ),
+    )
+    assert rejected.status_code == 403
+    assert contexts == []
+
+    accepted_task = (await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"]
+    accepted = await client.post(
+        f"/api/v1/ingest/{accepted_task}/confirm",
+        headers=_hdr(USER_CONSULTANT),
+        json=_confirm_payload(target_scope="personal"),
+    )
+    assert accepted.status_code == 200
+    assert len(contexts) == 1
+    assert contexts[0].task.id == uuid.UUID(accepted_task)
+    assert contexts[0].scope == "personal"
+    assert contexts[0].project_id is None
+    assert contexts[0].caller.user_id == USER_CONSULTANT
 
 
 async def test_confirm_project_non_member_rejected_consultant_waits_for_review(client):
