@@ -27,7 +27,9 @@ export function usePendingIngest(activePath: PathBranch) {
     // by that batch must not erase the terminal result it has just produced.
     if (batchRunRef.current !== null) return;
     const pendingIds = new Set(
-      tasks.filter((task) => task.can_batch_confirm).map((task) => task.id),
+      tasks
+        .filter((task) => task.can_batch_confirm || task.can_batch_reject)
+        .map((task) => task.id),
     );
     setBatchSelection((current) => current.filter((id) => pendingIds.has(id)));
     setBatchStatus((current) =>

@@ -650,6 +650,22 @@ async def refresh_parse(
     )
 
 
+_BATCH_CONFIRMABLE_PENDING_STATUSES: set[str] = {
+    IngestStatus.pending_confirmation.value,
+    IngestStatus.pending.value,
+    IngestStatus.rejected.value,
+}
+
+# Keep this aligned with delete_pending_task: these rows may be permanently
+# rejected even when they are not eligible for confirmation.
+_DELETABLE_PENDING_STATUSES: set[str] = {
+    IngestStatus.pending_confirmation.value,
+    IngestStatus.failed.value,
+    IngestStatus.rejected.value,
+    IngestStatus.waiting_review.value,
+}
+
+
 async def list_pending(
     session: AsyncSession,
     caller: CallerContext,
@@ -695,13 +711,7 @@ async def list_pending(
         ai = t.ai_result
         suggestion_state = _suggestion_generation_state(t, ai)
         can_batch_confirm = (
-            t.status
-            in {
-                IngestStatus.pending_confirmation.value,
-                # Compatibility for tasks completed by the legacy session
-                # coordinator before pending_confirmation was introduced.
-                IngestStatus.pending.value,
-            }
+            t.status in _BATCH_CONFIRMABLE_PENDING_STATUSES
             and ai is not None
             # Confirmation validates the editable title and summary fields below;
             # legacy extraction/generation diagnostics are display-only metadata.
@@ -717,6 +727,7 @@ async def list_pending(
                 target_scope=t.target_scope,
                 target_project_id=t.target_project_id,
                 can_batch_confirm=can_batch_confirm,
+                can_batch_reject=t.status in _DELETABLE_PENDING_STATUSES,
                 extraction_status=ai.extraction_status if ai else None,
                 error_type=t.error_type,
                 error_message=t.error_message,
@@ -732,15 +743,6 @@ async def list_pending(
             )
         )
     return items
-
-
-# ---------- 可删除的待确认任务状态（仅未确认的非中间态，processing 不允许删） ----------
-_DELETABLE_PENDING_STATUSES: set[str] = {
-    IngestStatus.pending_confirmation.value,
-    IngestStatus.failed.value,
-    IngestStatus.rejected.value,
-    IngestStatus.waiting_review.value,
-}
 
 
 async def delete_pending_task(

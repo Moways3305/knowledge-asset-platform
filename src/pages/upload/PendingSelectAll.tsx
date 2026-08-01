@@ -3,7 +3,7 @@ import type { PendingIngestItemDTO } from "../../types/ingest";
 import type { UploadFlow } from "./useUploadFlow";
 
 export function isPendingTaskActionable(task: PendingIngestItemDTO, flow: UploadFlow): boolean {
-  return task.can_batch_confirm && !flow.batchBusy;
+  return (task.can_batch_confirm || task.can_batch_reject) && !flow.batchBusy;
 }
 
 export function pendingSelectionReason(
@@ -11,7 +11,9 @@ export function pendingSelectionReason(
   flow: UploadFlow,
 ): string | null {
   if (flow.batchBusy) return "正在处理批次，完成后可继续选择";
-  return tasks.some((task) => task.can_batch_confirm) ? null : "当前没有可批量处理的待确认项";
+  return tasks.some((task) => task.can_batch_confirm || task.can_batch_reject)
+    ? null
+    : "当前没有可批量处理的待确认项";
 }
 
 export default function PendingSelectAll({
