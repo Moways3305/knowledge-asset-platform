@@ -703,10 +703,10 @@ async def list_pending(
                 IngestStatus.pending.value,
             }
             and ai is not None
-            and suggestion_state[0] == "generated"
+            # Confirmation validates the editable title and summary fields below;
+            # legacy extraction/generation diagnostics are display-only metadata.
             and bool((ai.suggested_title or "").strip())
             and bool((ai.suggested_summary or ai.suggested_one_liner or "").strip())
-            and ai.extraction_status not in {"failed", "empty", "unsupported"}
         )
         items.append(
             PendingIngestItem(
