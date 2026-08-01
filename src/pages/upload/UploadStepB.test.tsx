@@ -12,6 +12,7 @@ function pending(id: string, fileName: string): PendingIngestItemDTO {
     source_file_name: fileName,
     target_scope: "personal",
     target_project_id: null,
+    can_batch_confirm: true,
     extraction_status: "extracted",
     error_type: null,
     error_message: null,
@@ -74,6 +75,55 @@ function flowFixture(overrides: Record<string, unknown> = {}): UploadFlow {
 }
 
 describe("UploadStepB folder drop and batch rejection", () => {
+  it("uses the server batch capability for legacy pending selection", () => {
+    const legacy = { ...pending("legacy", "legacy.docx"), status: "pending" };
+    const flow = flowFixture({
+      localPendingTasks: [legacy],
+      batchSelection: [],
+    });
+    render(<UploadStepB flow={flow} />);
+
+    fireEvent.click(screen.getByLabelText("全选当前可处理的待确认项"));
+    expect(flow.setBatchTasksSelected).toHaveBeenCalledWith(["legacy"], true);
+    expect(screen.getByLabelText("选择 legacy.docx")).toBeEnabled();
+  });
+
+  it("keeps selection explanations outside the table header", () => {
+    const blocked = { ...pending("blocked", "blocked.docx"), can_batch_confirm: false };
+    render(
+      <UploadStepB flow={flowFixture({ localPendingTasks: [blocked], batchSelection: [] })} />,
+    );
+
+    const reason = screen.getByText("当前没有可批量处理的待确认项");
+    expect(reason.closest("th")).toBeNull();
+    expect(screen.getByLabelText("全选当前可处理的待确认项")).toBeDisabled();
+  });
+
+  it("replaces a completed upload queue with a compact link to pending confirmation", () => {
+    const queue = [
+      {
+        id: "queue-complete",
+        file: null,
+        fileName: "done.pdf",
+        fileSize: 1,
+        fileType: "PDF",
+        status: "awaiting_confirmation",
+        error: null,
+        ingestTaskId: "task-secret-a",
+        pollAttempts: 0,
+      },
+    ];
+    render(<UploadStepB flow={flowFixture({ localUploadQueue: queue })} />);
+
+    expect(screen.queryByRole("heading", { name: "本次上传队列" })).not.toBeInTheDocument();
+    expect(screen.getByText(/本次上传 1 项已完成/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "前往待确认入库" })).toHaveAttribute(
+      "href",
+      "#local-pending-title",
+    );
+    expect(screen.getByRole("heading", { name: "待确认入库" })).toBeInTheDocument();
+  });
+
   it("prevents browser navigation and delegates the complete DataTransfer", () => {
     const flow = flowFixture({ batchSelection: [] });
     const { container } = render(<UploadStepB flow={flow} />);
@@ -203,7 +253,11 @@ describe("UploadStepB folder drop and batch rejection", () => {
   it("selects all actionable rows, exposes half-selected state, and excludes disabled rows", () => {
     const first = pending("first", "First.pdf");
     const second = pending("second", "Second.pdf");
-    const disabled = { ...pending("disabled", "Disabled.pdf"), status: "processing" };
+    const disabled = {
+      ...pending("disabled", "Disabled.pdf"),
+      status: "processing",
+      can_batch_confirm: false,
+    };
     const flow = flowFixture({
       batchSelection: ["first"],
       localPendingTasks: [first, second, disabled],

@@ -3,7 +3,15 @@ import type { PendingIngestItemDTO } from "../../types/ingest";
 import type { UploadFlow } from "./useUploadFlow";
 
 export function isPendingTaskActionable(task: PendingIngestItemDTO, flow: UploadFlow): boolean {
-  return task.status === "pending_confirmation" && !flow.batchBusy;
+  return task.can_batch_confirm && !flow.batchBusy;
+}
+
+export function pendingSelectionReason(
+  tasks: PendingIngestItemDTO[],
+  flow: UploadFlow,
+): string | null {
+  if (flow.batchBusy) return "正在处理批次，完成后可继续选择";
+  return tasks.some((task) => task.can_batch_confirm) ? null : "当前没有可批量处理的待确认项";
 }
 
 export default function PendingSelectAll({
@@ -26,23 +34,16 @@ export default function PendingSelectAll({
     if (inputRef.current) inputRef.current.indeterminate = indeterminate;
   }, [indeterminate]);
 
-  const disabledReason = flow.batchBusy
-    ? "正在处理批次，完成后可继续选择"
-    : actionableIds.length === 0
-      ? "当前没有可批量处理的待确认项"
-      : null;
+  const disabledReason = pendingSelectionReason(tasks, flow);
 
   return (
-    <>
-      <input
-        ref={inputRef}
-        aria-label="全选当前可处理的待确认项"
-        checked={checked}
-        disabled={disabledReason !== null}
-        onChange={(event) => flow.setBatchTasksSelected(actionableIds, event.target.checked)}
-        type="checkbox"
-      />
-      {disabledReason && <span className="upload77-selection-reason">{disabledReason}</span>}
-    </>
+    <input
+      ref={inputRef}
+      aria-label="全选当前可处理的待确认项"
+      checked={checked}
+      disabled={disabledReason !== null}
+      onChange={(event) => flow.setBatchTasksSelected(actionableIds, event.target.checked)}
+      type="checkbox"
+    />
   );
 }

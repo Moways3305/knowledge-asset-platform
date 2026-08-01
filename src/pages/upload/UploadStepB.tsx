@@ -3,7 +3,10 @@ import { useState } from "react";
 import { extractionLabel, flowLabel, formatFileSize, pendingStatusLabel } from "./uploadConstants";
 import BatchTaskProgress from "./BatchTaskProgress";
 import PendingBatchActions from "./PendingBatchActions";
-import PendingSelectAll, { isPendingTaskActionable } from "./PendingSelectAll";
+import PendingSelectAll, {
+  isPendingTaskActionable,
+  pendingSelectionReason,
+} from "./PendingSelectAll";
 import { formatBeijingTime } from "../../utils/time";
 import type { UploadFlow } from "./useUploadFlow";
 
@@ -53,6 +56,10 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
   const [isPendingCollapsed, setIsPendingCollapsed] = useState(false);
   const flowMeta = flowLabel(flowState);
   const canRefresh = flowState === "processing" && Boolean(processingNote);
+  const hasActiveUploadQueue = localUploadQueue.some((item) =>
+    ["queued", "uploading", "processing", "failed"].includes(item.status),
+  );
+  const uploadQueueCompleted = localUploadQueue.length > 0 && !hasActiveUploadQueue;
   const extractionStatusText =
     /\.ppt$/i.test(fileName) && extraction?.status === "unsupported"
       ? "当前 .ppt 格式暂不支持自动提取，已保存文件，请人工补全内容"
@@ -243,7 +250,15 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
         </section>
       )}
 
-      {!hasFile && localUploadQueue.length > 0 && (
+      {!hasFile && uploadQueueCompleted && (
+        <section className="upload77-upload-complete" role="status">
+          <strong>本次上传 {uploadSession?.total_files ?? localUploadQueue.length} 项已完成</strong>
+          <span>，{localPendingTasks.length} 项待确认入库。</span>
+          <a href="#local-pending-title">前往待确认入库</a>
+        </section>
+      )}
+
+      {!hasFile && hasActiveUploadQueue && (
         <section className="upload77-local-queue" aria-labelledby="local-upload-queue-title">
           <div className="upload77-section-head">
             <div>
@@ -419,6 +434,11 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                 </span>
               </button>
               <PendingBatchActions tasks={localPendingTasks} flow={flow} />
+              {pendingSelectionReason(localPendingTasks, flow) && (
+                <span className="upload77-selection-reason" role="status">
+                  {pendingSelectionReason(localPendingTasks, flow)}
+                </span>
+              )}
             </div>
           </div>
           <div
