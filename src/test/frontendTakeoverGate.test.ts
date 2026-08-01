@@ -57,7 +57,13 @@ const routes: RouteContract[] = [
     route: "/upload",
     component: "UploadPage",
     guard: "viewUpload",
-    owners: ["pages/upload/useUploadFlow.ts", "hooks/useModelSelection.ts"],
+    owners: [
+      "pages/upload/useUploadFlow.ts",
+      "pages/upload/useUploadIntake.ts",
+      "pages/upload/usePendingIngest.ts",
+      "pages/upload/useIngestConfirmation.ts",
+      "hooks/useModelSelection.ts",
+    ],
     apiModules: ["auth", "bulk", "http", "ingest", "weknoraModels"],
   },
   {
@@ -129,6 +135,13 @@ const routes: RouteContract[] = [
     guard: "viewReview",
     owners: ["pages/ReviewPage.tsx"],
     apiModules: ["bulk", "http", "review"],
+  },
+  {
+    route: "/review/completed",
+    component: "ReviewCompletedPage",
+    guard: "viewReview",
+    owners: ["pages/ReviewCompletedPage.tsx"],
+    apiModules: ["http", "review"],
   },
   {
     route: "/original-access",
@@ -361,7 +374,7 @@ function staticStringRecordValues(file: string, variableName: string): string[] 
 describe("frontend route takeover gate", () => {
   it("assigns every formal App route to the registered page and capability", () => {
     const actual = appRouteOwnership();
-    expect(actual.size).toBe(20);
+    expect(actual.size).toBe(21);
     expect([...actual.keys()].sort()).toEqual(routes.map((item) => item.route).sort());
     for (const contract of routes) {
       expect(actual.get(contract.route), contract.route).toEqual({

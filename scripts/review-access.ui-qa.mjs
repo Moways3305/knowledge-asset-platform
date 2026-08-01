@@ -116,7 +116,7 @@ function accepted(result) {
     result.shellOverlap <= 1 &&
     result.clippedControls === 0 &&
     result.workspaceCount === 1 &&
-    result.routeTabCount === 2 &&
+    result.routeTabCount === 3 &&
     result.tableVisible &&
     result.maxRowHeight <= 72 &&
     !result.oldSurfaceVisible &&
@@ -405,7 +405,7 @@ try {
           await page.getByText("客户访谈原文").waitFor();
           await page
             .getByRole("navigation", { name: "治理工作区" })
-            .getByRole("link", { name: "知识审核" })
+            .getByRole("link", { name: "审核待办" })
             .click();
           await page.waitForURL(`${base}/review`);
           await page.getByText("客户交付复盘").waitFor();
@@ -455,7 +455,7 @@ try {
         if (scenario.name === "access-inbox") {
           await page
             .getByRole("navigation", { name: "治理工作区" })
-            .getByRole("link", { name: "知识审核" })
+            .getByRole("link", { name: "审核待办" })
             .click();
           await page.waitForURL(`${base}/review`);
           await page.getByText("客户交付复盘").waitFor();
