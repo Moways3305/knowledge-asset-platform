@@ -310,6 +310,9 @@ class PendingIngestItem(BaseModel):
     source_file_name: str
     target_scope: str | None = None
     target_project_id: uuid.UUID | None = None
+    # Server-derived UX capability. This never replaces confirmation endpoint
+    # authorization or validation.
+    can_batch_confirm: bool = False
     # 抽取 / 错误为运营元数据（不含抽取全文）。
     extraction_status: str | None = None
     error_type: str | None = None

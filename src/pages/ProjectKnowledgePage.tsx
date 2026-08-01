@@ -15,7 +15,11 @@ import {
 } from "../api/knowledge";
 import { ControlledBulkRequestError } from "../api/bulk";
 import { fetchProjectQaModelOptions, projectQa } from "../api/project";
-import { bulkRequestCompanyUpgrade, requestCompanyUpgrade } from "../api/review";
+import {
+  bulkRequestAssetConfirmation,
+  bulkRequestCompanyUpgrade,
+  requestCompanyUpgrade,
+} from "../api/review";
 import { useAuth } from "../auth/AuthContext";
 import DataTable, { type Column } from "../components/DataTable";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -99,6 +103,14 @@ function safeConfidentiality(value: string): string {
 
 function canSelectAsset(asset: KnowledgeCardVM, projectRole: string): boolean {
   return (
+    asset.assetStatus !== "archived" &&
+    ((asset.zone === "material" && asset.assetStatus === "active") ||
+      (projectRole === "project_manager" && asset.access.canDelete))
+  );
+}
+
+function canDeleteSelectedAsset(asset: KnowledgeCardVM, projectRole: string): boolean {
+  return (
     projectRole === "project_manager" && asset.assetStatus !== "archived" && asset.access.canDelete
   );
 }
@@ -164,6 +176,7 @@ function ProjectKnowledgeWorkspace({
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false);
   const [bulkUpgradeBusy, setBulkUpgradeBusy] = useState(false);
+  const [bulkAssetizeBusy, setBulkAssetizeBusy] = useState(false);
   const bulkDeleteRunRef = useRef(false);
   const bulkRetrySelectionRef = useRef<KnowledgeCardVM[] | null>(null);
 
@@ -420,8 +433,11 @@ function ProjectKnowledgeWorkspace({
   };
 
   const handleBulkDelete = async () => {
-    if (selectedAssets.length === 0 || bulkDeleteRunRef.current) return;
-    const selectionSnapshot = [...selectedAssets];
+    const deletableAssets = selectedAssets.filter((asset) =>
+      canDeleteSelectedAsset(asset, project.projectRole),
+    );
+    if (deletableAssets.length === 0 || bulkDeleteRunRef.current) return;
+    const selectionSnapshot = [...deletableAssets];
     const selectionRequest = listRequestRef.current;
     bulkDeleteRunRef.current = true;
     setBulkDeleteBusy(true);
@@ -505,8 +521,61 @@ function ProjectKnowledgeWorkspace({
     }
   };
 
+  const handleBulkAssetize = async () => {
+    const materialAssets = selectedAssets.filter(
+      (asset) => asset.zone === "material" && asset.assetStatus === "active",
+    );
+    if (materialAssets.length === 0 || bulkAssetizeBusy) return;
+    const selectionSnapshot = [...materialAssets];
+    const selectionRequest = listRequestRef.current;
+    setBulkAssetizeBusy(true);
+    try {
+      const response = await bulkRequestAssetConfirmation({
+        projectId: project.projectId,
+        itemIds: selectionSnapshot.map((asset) => asset.id),
+      });
+      const retryIds = new Set(
+        response.items.filter((item) => item.status === "failed").map((item) => item.item_id),
+      );
+      if (listRequestRef.current === selectionRequest && retryIds.size > 0) {
+        bulkRetrySelectionRef.current = selectionSnapshot.filter((asset) => retryIds.has(asset.id));
+      }
+      setSelectedAssets([]);
+      setAllMatchingSelected(false);
+      setUpgradeNotice({
+        tone: response.failed > 0 || response.skipped > 0 ? "error" : "success",
+        text: `批量资产化确认已发起：提交 ${response.submitted}，成功 ${response.succeeded}，跳过 ${response.skipped}，失败 ${response.failed}。${retryIds.size > 0 ? ` 已保留 ${retryIds.size} 个失败项，可直接重试。` : ""}`,
+      });
+    } catch (error) {
+      const retryIds =
+        error instanceof ControlledBulkRequestError
+          ? new Set(error.retryItems as string[])
+          : new Set(selectionSnapshot.map((asset) => asset.id));
+      const partial = error instanceof ControlledBulkRequestError ? error.partialResult : null;
+      if (listRequestRef.current === selectionRequest) {
+        bulkRetrySelectionRef.current = selectionSnapshot.filter((asset) => retryIds.has(asset.id));
+      }
+      setAllMatchingSelected(false);
+      setUpgradeNotice({
+        tone: "error",
+        text: partial
+          ? `批量资产化确认中断：已完成提交 ${partial.submitted} 项（成功 ${partial.succeeded}，跳过 ${partial.skipped}，失败 ${partial.failed}），剩余 ${retryIds.size} 项可重试。`
+          : `批量资产化确认未开始，${retryIds.size} 项仍保留选择，可重试。`,
+      });
+    } finally {
+      setBulkAssetizeBusy(false);
+      setListRetryKey((value) => value + 1);
+    }
+  };
+
   const selectedUpgradeableAssets = selectedAssets.filter(
     (asset) => asset.zone === "asset" && asset.assetStatus === "active",
+  );
+  const selectedMaterialAssets = selectedAssets.filter(
+    (asset) => asset.zone === "material" && asset.assetStatus === "active",
+  );
+  const selectedDeletableAssets = selectedAssets.filter((asset) =>
+    canDeleteSelectedAsset(asset, project.projectRole),
   );
 
   const columns: Column<KnowledgeCardVM>[] = [
@@ -516,7 +585,12 @@ function ProjectKnowledgeWorkspace({
         <SelectionCheckbox
           checked={pageAllSelected}
           indeterminate={pageIndeterminate}
-          disabled={selectablePageAssets.length === 0 || bulkDeleteBusy || bulkUpgradeBusy}
+          disabled={
+            selectablePageAssets.length === 0 ||
+            bulkDeleteBusy ||
+            bulkUpgradeBusy ||
+            bulkAssetizeBusy
+          }
           label="全选当前页项目知识"
           onChange={() => {
             if (pageAllSelected) {
@@ -541,7 +615,10 @@ function ProjectKnowledgeWorkspace({
         <SelectionCheckbox
           checked={selectedAssets.some((selected) => selected.id === asset.id)}
           disabled={
-            !canSelectAsset(asset, project.projectRole) || bulkDeleteBusy || bulkUpgradeBusy
+            !canSelectAsset(asset, project.projectRole) ||
+            bulkDeleteBusy ||
+            bulkUpgradeBusy ||
+            bulkAssetizeBusy
           }
           label={`选择项目知识 ${asset.title}`}
           onChange={() => {
@@ -894,7 +971,7 @@ function ProjectKnowledgeWorkspace({
               matchingCount={matchingSelectableAssets?.length ?? selectedPageAssets.length}
               allMatchingSelected={allMatchingSelected}
               matchingPending={matchingSelectionLoading}
-              busy={bulkDeleteBusy || bulkUpgradeBusy}
+              busy={bulkDeleteBusy || bulkUpgradeBusy || bulkAssetizeBusy}
               onSelectAllMatching={
                 matchingSelectableAssets &&
                 matchingSelectableAssets.length > selectedPageAssets.length
@@ -906,24 +983,34 @@ function ProjectKnowledgeWorkspace({
                 setAllMatchingSelected(false);
               }}
             >
+              {selectedMaterialAssets.length > 0 && (
+                <button
+                  className="product-button is-small"
+                  disabled={bulkAssetizeBusy || bulkUpgradeBusy || bulkDeleteBusy}
+                  onClick={() => void handleBulkAssetize()}
+                  type="button"
+                >
+                  批量发起资产化确认（{selectedMaterialAssets.length}）
+                </button>
+              )}
               {selectedUpgradeableAssets.length > 0 && (
                 <button
                   className="product-button is-small"
-                  disabled={bulkUpgradeBusy || bulkDeleteBusy}
+                  disabled={bulkUpgradeBusy || bulkDeleteBusy || bulkAssetizeBusy}
                   onClick={() => void handleBulkUpgrade()}
                   type="button"
                 >
                   批量升级为公司资产（{selectedUpgradeableAssets.length}）
                 </button>
               )}
-              {selectedAssets.length > 0 && (
+              {selectedDeletableAssets.length > 0 && (
                 <button
                   className="product-button is-danger is-small"
-                  disabled={bulkDeleteBusy || bulkUpgradeBusy}
+                  disabled={bulkDeleteBusy || bulkUpgradeBusy || bulkAssetizeBusy}
                   onClick={() => setBulkDeleteOpen(true)}
                   type="button"
                 >
-                  批量删除（{selectedAssets.length}）
+                  批量删除（{selectedDeletableAssets.length}）
                 </button>
               )}
             </BulkSelectionRail>
@@ -1038,7 +1125,7 @@ function ProjectKnowledgeWorkspace({
             )}
             <ConfirmDialog
               open={bulkDeleteOpen}
-              title={`批量删除 ${selectedAssets.length} 项项目知识`}
+              title={`批量删除 ${selectedDeletableAssets.length} 项项目知识`}
               description={`目标项目：${project.projectName}。删除后资料将退出列表、检索、问答与原文授权；服务端会逐项重新核验项目归属、成员权限、状态及引用/保留约束，变化项会安全跳过。`}
               confirmText="确认批量删除"
               danger

@@ -100,3 +100,24 @@ export async function bulkRequestCompanyUpgrade(input: {
       ),
   });
 }
+
+export async function bulkRequestAssetConfirmation(input: {
+  projectId: string;
+  itemIds: string[];
+}): Promise<BulkOperationResponseDTO> {
+  return runControlledBulkRequests({
+    items: input.itemIds,
+    getItemId: (itemId) => itemId,
+    submitBatch: (batch, context) =>
+      apiPost<BulkOperationResponseDTO>(
+        `/api/v1/projects/${input.projectId}/knowledge/bulk-confirm-asset`,
+        {
+          item_ids: batch,
+          client_operation_id: context.clientOperationId,
+          request_index: context.requestIndex,
+          request_count: context.requestCount,
+          total_submitted: context.totalSubmitted,
+        },
+      ),
+  });
+}

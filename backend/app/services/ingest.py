@@ -693,6 +693,21 @@ async def list_pending(
     items: list[PendingIngestItem] = []
     for t in tasks:
         ai = t.ai_result
+        suggestion_state = _suggestion_generation_state(t, ai)
+        can_batch_confirm = (
+            t.status
+            in {
+                IngestStatus.pending_confirmation.value,
+                # Compatibility for tasks completed by the legacy session
+                # coordinator before pending_confirmation was introduced.
+                IngestStatus.pending.value,
+            }
+            and ai is not None
+            and suggestion_state[0] == "generated"
+            and bool((ai.suggested_title or "").strip())
+            and bool((ai.suggested_summary or ai.suggested_one_liner or "").strip())
+            and ai.extraction_status not in {"failed", "empty", "unsupported"}
+        )
         items.append(
             PendingIngestItem(
                 id=t.id,
@@ -701,6 +716,7 @@ async def list_pending(
                 source_file_name=t.source_file_name,
                 target_scope=t.target_scope,
                 target_project_id=t.target_project_id,
+                can_batch_confirm=can_batch_confirm,
                 extraction_status=ai.extraction_status if ai else None,
                 error_type=t.error_type,
                 error_message=t.error_message,
@@ -708,8 +724,8 @@ async def list_pending(
                 suggested_one_liner=ai.suggested_one_liner if ai else None,
                 naming_parsed_fields=ai.naming_parsed_fields if ai else None,
                 confidence=ai.confidence if ai else None,
-                suggestion_generation_status=_suggestion_generation_state(t, ai)[0],
-                suggestion_generation_reason=_suggestion_generation_state(t, ai)[1],
+                suggestion_generation_status=suggestion_state[0],
+                suggestion_generation_reason=suggestion_state[1],
                 result_asset_id=t.result_asset_id,
                 created_at=t.created_at,
                 updated_at=t.updated_at,

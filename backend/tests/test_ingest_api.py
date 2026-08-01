@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import delete, select, update
 
 from app.models.audit import AuditEvent
-from app.models.ingest import IngestTask
+from app.models.ingest import IngestTask, IngestTaskAiResult
 from app.models.weknora import WeknoraKbMapping
 from app.seed.dev_seed import (
     PROJECT_ALPHA,
@@ -584,6 +584,86 @@ async def test_upload_markdown_enters_confirmation_with_extracted_text(client):
     assert ai["extraction_status"] == "extracted"
     assert ai["extracted_char_count"] > 0
     assert ai["extracted_text_preview"] and "项目复盘" in ai["extracted_text_preview"]
+
+
+async def test_pending_list_derives_safe_batch_confirmation_capability(client, db_session):
+    task_id = uuid.UUID((await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"])
+
+    task = await db_session.get(IngestTask, task_id)
+    ai = (
+        await db_session.execute(
+            select(IngestTaskAiResult).where(IngestTaskAiResult.ingest_task_id == task_id)
+        )
+    ).scalar_one()
+    original_title = ai.suggested_title
+
+    not_generated = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    not_generated_item = next(
+        item for item in not_generated.json()["items"] if item["id"] == str(task_id)
+    )
+    assert not_generated_item["suggestion_generation_status"] != "generated"
+    assert not_generated_item["can_batch_confirm"] is False
+
+    ai.llm_provider = "test-provider"
+    ai.naming_parsed_fields = {
+        **(ai.naming_parsed_fields or {}),
+        "generation_status": "generated",
+        "summary_generated": True,
+    }
+    await db_session.commit()
+    ready = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    ready_item = next(item for item in ready.json()["items"] if item["id"] == str(task_id))
+    assert ready_item["suggestion_generation_status"] == "generated"
+    assert ready_item["can_batch_confirm"] is True
+
+    task.status = "pending"
+    await db_session.commit()
+    legacy = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    legacy_item = next(item for item in legacy.json()["items"] if item["id"] == str(task_id))
+    assert legacy_item["can_batch_confirm"] is True
+    await db_session.refresh(task)
+    assert task.status == "pending"  # GET compatibility projection never writes state.
+
+    task.status = "processing"
+    await db_session.commit()
+    processing = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    processing_item = next(
+        item for item in processing.json()["items"] if item["id"] == str(task_id)
+    )
+    assert processing_item["can_batch_confirm"] is False
+
+    task.status = "pending"
+    ai.suggested_title = None
+    await db_session.commit()
+    incomplete = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    incomplete_item = next(
+        item for item in incomplete.json()["items"] if item["id"] == str(task_id)
+    )
+    assert incomplete_item["can_batch_confirm"] is False
+
+    ai.suggested_title = original_title
+    task.status = "failed"
+    await db_session.commit()
+    failed = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    failed_item = next(item for item in failed.json()["items"] if item["id"] == str(task_id))
+    assert failed_item["can_batch_confirm"] is False
+
+    task.status = "waiting_review"
+    await db_session.commit()
+    waiting_review = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    waiting_review_item = next(
+        item for item in waiting_review.json()["items"] if item["id"] == str(task_id)
+    )
+    assert waiting_review_item["can_batch_confirm"] is False
+
+    task.status = "pending_confirmation"
+    ai.extraction_status = "unsupported"
+    await db_session.commit()
+    unsupported = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    unsupported_item = next(
+        item for item in unsupported.json()["items"] if item["id"] == str(task_id)
+    )
+    assert unsupported_item["can_batch_confirm"] is False
 
 
 async def test_upload_unsupported_still_pending(client):

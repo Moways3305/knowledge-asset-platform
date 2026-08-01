@@ -7130,6 +7130,11 @@
       "PendingIngestItem": {
         "description": "业务侧待确认任务视图：仅校正 / 运营所需安全元数据。\n\n**绝不包含**任何内部存储引用 / WeCom 文件标识 / 下载地址 / 凭证 token /\nWeKnora 内部 id / 原文全文 / 抽取全文。",
         "properties": {
+          "can_batch_confirm": {
+            "default": false,
+            "title": "Can Batch Confirm",
+            "type": "boolean"
+          },
           "confidence": {
             "anyOf": [
               {
@@ -28208,6 +28213,108 @@
         "summary": "Get Project Deletion Readiness",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/knowledge/bulk-confirm-asset": {
+      "post": {
+        "description": "Create material-to-asset reviews with bounded per-item revalidation.",
+        "operationId": "bulk_request_asset_confirmation_api_v1_projects__project_id__knowledge_bulk_confirm_asset_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkIdsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOperationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Request Asset Confirmation",
+        "tags": [
+          "review"
         ]
       }
     },

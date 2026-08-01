@@ -272,6 +272,26 @@
   margin-top: 16px;
 }
 
+.upload77-upload-complete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: 1px solid #b9d8ca;
+  border-radius: 6px;
+  background: #f3faf6;
+  color: var(--color-text-body);
+  font-size: 13px;
+}
+
+.upload77-upload-complete a {
+  margin-left: 8px;
+  color: #145f50;
+  font-weight: 600;
+}
+
 .upload77-queue-error {
   display: block;
   margin-top: 4px;
@@ -303,6 +323,14 @@
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.upload77-selection-reason {
+  max-width: 280px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: normal;
 }
 
 .upload77-icon-button {

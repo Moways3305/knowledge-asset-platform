@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from app.models.audit import AuditEvent
 from app.models.identity import UserCompanyRole
 from app.models.knowledge import KnowledgeAsset
-from app.models.review import CompanyAssetReviewDecision, ValidationEvidence
+from app.models.review import CompanyAssetReviewDecision, ReviewTask, ValidationEvidence
 from app.schemas.enums import RoleStatus
 from app.seed.dev_seed import (
     KA_PROJECT_ALPHA,
@@ -57,6 +57,10 @@ def _bulk_upgrade_url(project_id=PROJECT_ALPHA):
     return f"/api/v1/projects/{project_id}/knowledge/bulk-upgrade-company"
 
 
+def _bulk_confirm_url(project_id=PROJECT_ALPHA):
+    return f"/api/v1/projects/{project_id}/knowledge/bulk-confirm-asset"
+
+
 async def test_confirm_asset_without_evidence_creates_pending_evidence(client):
     """consultant 对 material 资产发起 confirm-asset，无证据则 pending_evidence。"""
     resp = await client.post(
@@ -68,6 +72,92 @@ async def test_confirm_asset_without_evidence_creates_pending_evidence(client):
     assert body["status"] == "pending_evidence"
     assert body["reviewer_user_id"] == str(USER_PROJECT_MANAGER)
     assert body["evidence_count"] == 0
+
+
+async def test_bulk_confirm_asset_preserves_review_flow_and_is_idempotent(client, db_session):
+    payload = {"item_ids": [str(KA_PROJECT_ALPHA_MATERIAL)]}
+    first = await client.post(
+        _bulk_confirm_url(),
+        headers=_hdr(USER_CONSULTANT),
+        json=payload,
+    )
+    assert first.status_code == 200, first.text
+    assert (first.json()["succeeded"], first.json()["skipped"]) == (1, 0)
+
+    repeated = await client.post(
+        _bulk_confirm_url(),
+        headers=_hdr(USER_CONSULTANT),
+        json=payload,
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["succeeded"] == 1
+
+    reviews = int(
+        (
+            await db_session.scalar(
+                select(func.count())
+                .select_from(ReviewTask)
+                .where(ReviewTask.target_asset_id == KA_PROJECT_ALPHA_MATERIAL)
+                .where(ReviewTask.review_type == "material_to_asset")
+            )
+        )
+        or 0
+    )
+    assert reviews == 1
+    db_session.expire_all()
+    asset = await db_session.get(KnowledgeAsset, KA_PROJECT_ALPHA_MATERIAL)
+    assert asset.zone == "material"
+
+
+async def test_bulk_confirm_asset_revalidates_membership_zone_and_status(client, db_session):
+    mixed = await client.post(
+        _bulk_confirm_url(),
+        headers=_hdr(USER_CONSULTANT),
+        json={"item_ids": [str(KA_PROJECT_ALPHA_MATERIAL), str(KA_PROJECT_ALPHA)]},
+    )
+    assert mixed.status_code == 200
+    assert (mixed.json()["succeeded"], mixed.json()["skipped"]) == (1, 1)
+
+    wrong_project = await client.post(
+        _bulk_confirm_url(PROJECT_BETA),
+        headers=_hdr(USER_CONSULTANT),
+        json={"item_ids": [str(KA_PROJECT_ALPHA_MATERIAL)]},
+    )
+    assert wrong_project.status_code == 200
+    assert wrong_project.json()["skipped"] == 1
+
+    asset = await db_session.get(KnowledgeAsset, KA_PROJECT_ALPHA_MATERIAL)
+    asset.asset_status = "needs_update"
+    await db_session.commit()
+    inactive = await client.post(
+        _bulk_confirm_url(),
+        headers=_hdr(USER_CONSULTANT),
+        json={"item_ids": [str(KA_PROJECT_ALPHA_MATERIAL)]},
+    )
+    assert inactive.status_code == 200
+    assert inactive.json()["skipped"] == 1
+
+
+async def test_bulk_confirm_asset_runs_more_than_one_server_batch(client, monkeypatch):
+    item_ids = [str(uuid.uuid4()) for _ in range(51)]
+    calls: list[uuid.UUID] = []
+
+    async def fake_create_or_get(session, caller, project_id, asset_id, trace_id):
+        calls.append(asset_id)
+
+    monkeypatch.setattr(
+        "app.services.review.create_or_get_confirm_asset",
+        fake_create_or_get,
+    )
+    response = await client.post(
+        _bulk_confirm_url(),
+        headers=_hdr(USER_CONSULTANT),
+        json={"item_ids": item_ids},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["execution_mode"] == "controlled_batch"
+    assert response.json()["succeeded"] == 51
+    assert calls == [uuid.UUID(item_id) for item_id in item_ids]
 
 
 async def test_full_loop_evidence_then_pm_approve_changes_zone(client):

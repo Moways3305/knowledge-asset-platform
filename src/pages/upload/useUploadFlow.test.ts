@@ -198,6 +198,7 @@ function pendingTask(id: string, fileName: string): PendingIngestItemDTO {
     source_file_name: fileName,
     target_scope: "personal",
     target_project_id: null,
+    can_batch_confirm: true,
     extraction_status: "extracted",
     error_type: null,
     error_message: null,

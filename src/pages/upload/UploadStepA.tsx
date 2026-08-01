@@ -3,7 +3,10 @@ import { formatBeijingTime } from "../../utils/time";
 import { pendingStatusLabel } from "./uploadConstants";
 import BatchTaskProgress from "./BatchTaskProgress";
 import PendingBatchActions from "./PendingBatchActions";
-import PendingSelectAll, { isPendingTaskActionable } from "./PendingSelectAll";
+import PendingSelectAll, {
+  isPendingTaskActionable,
+  pendingSelectionReason,
+} from "./PendingSelectAll";
 import type { UploadFlow } from "./useUploadFlow";
 
 export default function UploadStepA({ flow }: { flow: UploadFlow }) {
@@ -42,6 +45,11 @@ export default function UploadStepA({ flow }: { flow: UploadFlow }) {
           {pendingLoading ? "刷新中" : "刷新"}
         </button>
         <PendingBatchActions tasks={pendingTasks} flow={flow} />
+        {pendingSelectionReason(pendingTasks, flow) && (
+          <span className="upload77-selection-reason" role="status">
+            {pendingSelectionReason(pendingTasks, flow)}
+          </span>
+        )}
       </div>
 
       {pendingLoading ? (
