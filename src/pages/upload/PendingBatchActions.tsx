@@ -2,7 +2,6 @@ import { useState } from "react";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import type { PendingIngestItemDTO } from "../../types/ingest";
 import type { UploadFlow } from "./useUploadFlow";
-import { isPendingTaskActionable } from "./PendingSelectAll";
 import type { TargetLibrary } from "./uploadConstants";
 
 export default function PendingBatchActions({
@@ -16,43 +15,50 @@ export default function PendingBatchActions({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [targetLibrary, setTargetLibrary] = useState<TargetLibrary>("");
   const [targetProjectId, setTargetProjectId] = useState("");
-  const selectedTasks = tasks.filter(
-    (task) => flow.batchSelection.includes(task.id) && isPendingTaskActionable(task, flow),
+  const selectedConfirmTasks = tasks.filter(
+    (task) => flow.batchSelection.includes(task.id) && task.can_batch_confirm,
   );
-  if (selectedTasks.length === 0) return null;
+  const selectedRejectTasks = tasks.filter(
+    (task) => flow.batchSelection.includes(task.id) && task.can_batch_reject,
+  );
+  if (selectedConfirmTasks.length === 0 && selectedRejectTasks.length === 0) return null;
 
   return (
     <>
       <div className="upload77-batch-actions">
-        <button
-          className="btn-primary"
-          disabled={flow.batchBusy}
-          onClick={() => {
-            setTargetLibrary("");
-            setTargetProjectId("");
-            setConfirmOpen(true);
-          }}
-          type="button"
-        >
-          {flow.batchBusy && flow.batchOperation === "confirm"
-            ? "正在逐条确认"
-            : `批量确认入库（${selectedTasks.length}）`}
-        </button>
-        <button
-          className="btn-secondary upload77-batch-reject"
-          disabled={flow.batchBusy}
-          onClick={() => setRejectOpen(true)}
-          type="button"
-        >
-          批量拒绝入库（{selectedTasks.length}）
-        </button>
+        {selectedConfirmTasks.length > 0 && (
+          <button
+            className="btn-primary"
+            disabled={flow.batchBusy}
+            onClick={() => {
+              setTargetLibrary("");
+              setTargetProjectId("");
+              setConfirmOpen(true);
+            }}
+            type="button"
+          >
+            {flow.batchBusy && flow.batchOperation === "confirm"
+              ? "正在逐条确认"
+              : `批量确认入库（${selectedConfirmTasks.length}）`}
+          </button>
+        )}
+        {selectedRejectTasks.length > 0 && (
+          <button
+            className="btn-secondary upload77-batch-reject"
+            disabled={flow.batchBusy}
+            onClick={() => setRejectOpen(true)}
+            type="button"
+          >
+            批量拒绝入库（{selectedRejectTasks.length}）
+          </button>
+        )}
       </div>
       <ConfirmDialog
         open={confirmOpen}
-        title={`确认入库 ${selectedTasks.length} 项资料`}
+        title={`确认入库 ${selectedConfirmTasks.length} 项资料`}
         description={
           targetLibrary
-            ? `将把 ${selectedTasks.length} 项资料入库到同一个目标；来源规则锁定项仍由服务端逐项校验。`
+            ? `将把 ${selectedConfirmTasks.length} 项资料入库到同一个目标；来源规则锁定项仍由服务端逐项校验。`
             : "请选择一个明确的目标知识库；取消不会创建资产或改变任务状态。"
         }
         confirmText="确认批量入库"
@@ -63,7 +69,7 @@ export default function PendingBatchActions({
           if (!targetLibrary || (targetLibrary === "project" && !targetProjectId)) return;
           setConfirmOpen(false);
           void flow.handleBatchConfirm(
-            selectedTasks,
+            selectedConfirmTasks,
             targetLibrary as Exclude<TargetLibrary, "">,
             targetProjectId || undefined,
           );
@@ -105,8 +111,8 @@ export default function PendingBatchActions({
       </ConfirmDialog>
       <ConfirmDialog
         open={rejectOpen}
-        title={`永久拒绝选中的 ${selectedTasks.length} 条待确认任务？`}
-        description={`确认后将严格逐条删除这 ${selectedTasks.length} 条待确认任务，操作不可恢复，且不会创建知识资产。`}
+        title={`永久拒绝选中的 ${selectedRejectTasks.length} 条待确认任务？`}
+        description={`确认后将严格逐条删除这 ${selectedRejectTasks.length} 条待确认任务，操作不可恢复，且不会创建知识资产。`}
         confirmText="确认永久拒绝"
         busyText="正在逐条拒绝"
         busy={flow.batchBusy && flow.batchOperation === "reject"}
@@ -114,7 +120,7 @@ export default function PendingBatchActions({
         onCancel={() => setRejectOpen(false)}
         onConfirm={() => {
           setRejectOpen(false);
-          void flow.handleBatchReject(selectedTasks);
+          void flow.handleBatchReject(selectedRejectTasks);
         }}
       />
     </>

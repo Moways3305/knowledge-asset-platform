@@ -627,6 +627,7 @@ async def test_pending_list_derives_safe_batch_confirmation_capability(client, d
     assert ready_item["extraction_status"] == "unsupported"
     assert ready_item["suggestion_generation_status"] == "needs_manual_completion"
     assert ready_item["can_batch_confirm"] is True
+    assert ready_item["can_batch_reject"] is False
     await db_session.refresh(task)
     assert task.status == "pending"  # GET compatibility projection never writes state.
 
@@ -644,6 +645,7 @@ async def test_pending_list_derives_safe_batch_confirmation_capability(client, d
     )
     assert old_metadata_item["suggestion_generation_status"] != "generated"
     assert old_metadata_item["can_batch_confirm"] is True
+    assert old_metadata_item["can_batch_reject"] is False
 
     task.status = "pending_confirmation"
     await db_session.commit()
@@ -652,6 +654,7 @@ async def test_pending_list_derives_safe_batch_confirmation_capability(client, d
         item for item in pending_confirmation.json()["items"] if item["id"] == str(task_id)
     )
     assert pending_confirmation_item["can_batch_confirm"] is True
+    assert pending_confirmation_item["can_batch_reject"] is True
 
     task.status = "processing"
     await db_session.commit()
@@ -660,6 +663,7 @@ async def test_pending_list_derives_safe_batch_confirmation_capability(client, d
         item for item in processing.json()["items"] if item["id"] == str(task_id)
     )
     assert processing_item["can_batch_confirm"] is False
+    assert processing_item["can_batch_reject"] is False
 
     task.status = "pending_confirmation"
     ai.suggested_title = None
@@ -669,6 +673,7 @@ async def test_pending_list_derives_safe_batch_confirmation_capability(client, d
         item for item in incomplete.json()["items"] if item["id"] == str(task_id)
     )
     assert incomplete_item["can_batch_confirm"] is False
+    assert incomplete_item["can_batch_reject"] is True
 
     ai.suggested_title = original_title
     ai.suggested_summary = None
@@ -679,6 +684,7 @@ async def test_pending_list_derives_safe_batch_confirmation_capability(client, d
         item for item in missing_summary.json()["items"] if item["id"] == str(task_id)
     )
     assert missing_summary_item["can_batch_confirm"] is False
+    assert missing_summary_item["can_batch_reject"] is True
 
     ai.suggested_summary = original_summary
     ai.suggested_one_liner = original_one_liner
@@ -687,6 +693,7 @@ async def test_pending_list_derives_safe_batch_confirmation_capability(client, d
     failed = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
     failed_item = next(item for item in failed.json()["items"] if item["id"] == str(task_id))
     assert failed_item["can_batch_confirm"] is False
+    assert failed_item["can_batch_reject"] is True
 
     task.status = "waiting_review"
     await db_session.commit()
@@ -695,12 +702,33 @@ async def test_pending_list_derives_safe_batch_confirmation_capability(client, d
         item for item in waiting_review.json()["items"] if item["id"] == str(task_id)
     )
     assert waiting_review_item["can_batch_confirm"] is False
+    assert waiting_review_item["can_batch_reject"] is True
+
+    task.status = "rejected"
+    await db_session.commit()
+    rejected = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    rejected_item = next(item for item in rejected.json()["items"] if item["id"] == str(task_id))
+    assert rejected_item["can_batch_confirm"] is True
+    assert rejected_item["can_batch_reject"] is True
+
+    ai.suggested_summary = None
+    ai.suggested_one_liner = None
+    await db_session.commit()
+    rejected_without_summary = await client.get(
+        "/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT)
+    )
+    rejected_without_summary_item = next(
+        item for item in rejected_without_summary.json()["items"] if item["id"] == str(task_id)
+    )
+    assert rejected_without_summary_item["can_batch_confirm"] is False
+    assert rejected_without_summary_item["can_batch_reject"] is True
 
     task.status = "completed"
     await db_session.commit()
     completed = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
     completed_item = next(item for item in completed.json()["items"] if item["id"] == str(task_id))
     assert completed_item["can_batch_confirm"] is False
+    assert completed_item["can_batch_reject"] is False
 
 
 async def test_upload_unsupported_still_pending(client):
@@ -783,6 +811,34 @@ async def test_admin_ingest_list_operational_only(client):
 
 
 # ────────────────────────── 删除待确认任务 ──────────────────────────
+
+
+async def test_rejected_history_can_confirm_or_be_permanently_rejected(client, db_session):
+    confirm_task_id = uuid.UUID(
+        (await _create_task(client, USER_CONSULTANT, "confirm-rejected.md")).json()[
+            "ingest_task_id"
+        ]
+    )
+    delete_task_id = uuid.UUID(
+        (await _create_task(client, USER_CONSULTANT, "delete-rejected.md")).json()["ingest_task_id"]
+    )
+    confirm_task = await db_session.get(IngestTask, confirm_task_id)
+    delete_task = await db_session.get(IngestTask, delete_task_id)
+    confirm_task.status = "rejected"
+    delete_task.status = "rejected"
+    await db_session.commit()
+
+    confirmed = await client.post(
+        f"/api/v1/ingest/{confirm_task_id}/confirm",
+        headers=_hdr(USER_CONSULTANT),
+        json=_confirm_payload(target_scope="personal"),
+    )
+    assert confirmed.status_code == 200
+    assert confirmed.json()["status"] == "completed"
+
+    deleted = await client.delete(f"/api/v1/ingest/{delete_task_id}", headers=_hdr(USER_CONSULTANT))
+    assert deleted.status_code == 200
+    assert deleted.json()["ok"] is True
 
 
 async def test_delete_pending_task_by_creator_succeeds(client):

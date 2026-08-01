@@ -221,6 +221,7 @@ export interface PendingIngestItemDTO {
   target_scope: string | null;
   target_project_id: string | null;
   can_batch_confirm: boolean;
+  can_batch_reject: boolean;
   extraction_status: string | null;
   error_type: string | null;
   error_message: string | null;

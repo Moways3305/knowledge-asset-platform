@@ -7135,6 +7135,11 @@
             "title": "Can Batch Confirm",
             "type": "boolean"
           },
+          "can_batch_reject": {
+            "default": false,
+            "title": "Can Batch Reject",
+            "type": "boolean"
+          },
           "confidence": {
             "anyOf": [
               {

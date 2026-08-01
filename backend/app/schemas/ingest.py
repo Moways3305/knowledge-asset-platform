@@ -313,6 +313,7 @@ class PendingIngestItem(BaseModel):
     # Server-derived UX capability. This never replaces confirmation endpoint
     # authorization or validation.
     can_batch_confirm: bool = False
+    can_batch_reject: bool = False
     # 抽取 / 错误为运营元数据（不含抽取全文）。
     extraction_status: str | None = None
     error_type: str | None = None

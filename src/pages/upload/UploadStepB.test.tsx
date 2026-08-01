@@ -13,6 +13,7 @@ function pending(id: string, fileName: string): PendingIngestItemDTO {
     target_scope: "personal",
     target_project_id: null,
     can_batch_confirm: true,
+    can_batch_reject: true,
     extraction_status: "extracted",
     error_type: null,
     error_message: null,
@@ -79,6 +80,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
     const legacy = {
       ...pending("legacy", "legacy-notes.md"),
       status: "pending",
+      can_batch_reject: false,
       suggestion_generation_status: "generated" as const,
       suggestion_generation_reason: "旧 Markdown 建议字段已准备",
     };
@@ -95,7 +97,11 @@ describe("UploadStepB folder drop and batch rejection", () => {
   });
 
   it("keeps selection explanations outside the table header", () => {
-    const blocked = { ...pending("blocked", "blocked.docx"), can_batch_confirm: false };
+    const blocked = {
+      ...pending("blocked", "blocked.docx"),
+      can_batch_confirm: false,
+      can_batch_reject: false,
+    };
     render(
       <UploadStepB flow={flowFixture({ localPendingTasks: [blocked], batchSelection: [] })} />,
     );
@@ -264,6 +270,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
       ...pending("disabled", "Disabled.pdf"),
       status: "processing",
       can_batch_confirm: false,
+      can_batch_reject: false,
     };
     const flow = flowFixture({
       batchSelection: ["first", "disabled"],
@@ -287,6 +294,31 @@ describe("UploadStepB folder drop and batch rejection", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "确认批量入库" }));
     expect(flow.handleBatchConfirm).toHaveBeenCalledWith([first], "personal", undefined);
+
+    fireEvent.click(screen.getByRole("button", { name: "批量拒绝入库（1）" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认永久拒绝" }));
+    expect(flow.handleBatchReject).toHaveBeenCalledWith([first]);
+  });
+
+  it("keeps reject-only history selectable without exposing it to batch confirmation", () => {
+    const rejected = {
+      ...pending("rejected", "Rejected.md"),
+      status: "rejected",
+      can_batch_confirm: false,
+      can_batch_reject: true,
+    };
+    const flow = flowFixture({
+      batchSelection: ["rejected"],
+      localPendingTasks: [rejected],
+    });
+    render(<UploadStepB flow={flow} />);
+
+    expect(screen.getByLabelText("选择 Rejected.md")).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /批量确认入库/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "批量拒绝入库（1）" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认永久拒绝" }));
+    expect(flow.handleBatchReject).toHaveBeenCalledWith([rejected]);
+    expect(flow.handleBatchConfirm).not.toHaveBeenCalled();
   });
 
   it("shows real per-file states without inventing percentage progress", () => {
