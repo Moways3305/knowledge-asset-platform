@@ -7,6 +7,8 @@ import uuid
 
 import pytest
 from sqlalchemy import delete, select, update
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 from app.models.audit import AuditEvent
 from app.models.ingest import IngestTask, IngestTaskAiResult
@@ -19,6 +21,7 @@ from app.seed.dev_seed import (
     USER_CONSULTANT,
     USER_PROJECT_MANAGER,
 )
+from app.services import ingest as ingest_service
 from app.services import ingest_confirmation
 from app.services.storage import LocalFileStorage, StorageError
 
@@ -903,3 +906,34 @@ async def test_delete_pending_by_admin_403(client):
     resp = await client.delete(f"/api/v1/ingest/{task_id}", headers=_hdr(USER_ADMIN_ONLY))
     assert resp.status_code == 403
     assert resp.json()["detail"]["denied_reason"] == "ingest_delete_forbidden"
+
+
+@pytest.mark.parametrize(
+    "database_error",
+    [
+        OperationalError(
+            "SELECT private_lock_target",
+            None,
+            Exception("PRIVATE database lock wait detail"),
+        ),
+        SQLAlchemyTimeoutError("PRIVATE connection pool timeout detail"),
+    ],
+)
+async def test_delete_pending_database_unavailable_returns_safe_stable_503(
+    client, monkeypatch, database_error
+):
+    async def fail_while_loading(*_args, **_kwargs):
+        raise database_error
+
+    monkeypatch.setattr(ingest_service, "_load_task", fail_while_loading)
+
+    response = await client.delete(f"/api/v1/ingest/{uuid.uuid4()}", headers=_hdr(USER_CONSULTANT))
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == {
+        "denied_reason": "ingest_delete_temporarily_unavailable",
+        "message": "任务关联清理暂时不可用，请稍后重试",
+    }
+    assert "private" not in response.text.lower()
+    assert "lock" not in response.text.lower()
+    assert "connection" not in response.text.lower()

@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { ControlledBulkRequestError } from "../../api/bulk";
+import { ApiError } from "../../api/http";
 import { bulkConfirmIngest, deletePendingTask } from "../../api/ingest";
 import type { IngestConfirmRequestDTO, PendingIngestItemDTO } from "../../types/ingest";
 import { useModelSelection } from "../../hooks/useModelSelection";
@@ -7,6 +8,37 @@ import { type PathBranch, type TargetLibrary } from "./uploadConstants";
 import { useIngestConfirmation } from "./useIngestConfirmation";
 import { useUploadIntake } from "./useUploadIntake";
 import { usePendingIngest } from "./usePendingIngest";
+
+function classifyPermanentRejectError(error: unknown): { message: string; retryable: boolean } {
+  if (!(error instanceof ApiError)) {
+    return { message: "网络连接中断，任务仍保留，可重试。", retryable: true };
+  }
+  if (error.status >= 500 || error.deniedReason === "ingest_delete_temporarily_unavailable") {
+    return {
+      message:
+        error.deniedReason === "ingest_delete_temporarily_unavailable"
+          ? "审核关联清理暂时不可用，任务仍保留，可重试。"
+          : "服务暂时不可用，任务仍保留，可重试。",
+      retryable: true,
+    };
+  }
+  if (error.status === 403) {
+    return { message: "无权限：仅创建人可永久删除该任务。", retryable: false };
+  }
+  if (error.status === 404) {
+    return { message: "任务已删除或不存在，请刷新列表。", retryable: false };
+  }
+  if (error.deniedReason === "ingest_already_confirmed") {
+    return { message: "已入库：该任务已形成知识资产，不能永久删除。", retryable: false };
+  }
+  if (error.deniedReason === "ingest_review_cleanup_conflict") {
+    return { message: "审核关联状态异常，无法安全删除，请刷新后联系管理员。", retryable: false };
+  }
+  if (error.status === 409) {
+    return { message: "状态已变化：当前任务不能永久删除，请刷新列表。", retryable: false };
+  }
+  return { message: "请求无法执行，任务仍保留，请刷新列表。", retryable: false };
+}
 
 export type {
   LocalUploadQueueItem,
@@ -47,6 +79,8 @@ export function useUploadFlow() {
     setBatchOperation,
     batchErrors,
     setBatchErrors,
+    batchRejectRetryability,
+    setBatchRejectRetryability,
     batchRunRef,
     pendingRequestRef,
     localPendingRequestRef,
@@ -166,6 +200,11 @@ export function useUploadFlow() {
       setBatchBusy(true);
       setBatchOperation("confirm");
       setBatchErrors((previous) => {
+        const next = { ...previous };
+        tasks.forEach((task) => delete next[task.id]);
+        return next;
+      });
+      setBatchRejectRetryability((previous) => {
         const next = { ...previous };
         tasks.forEach((task) => delete next[task.id]);
         return next;
@@ -341,6 +380,7 @@ export function useUploadFlow() {
       removeLocalTaskEverywhere,
       setBatchBusy,
       setBatchErrors,
+      setBatchRejectRetryability,
       setBatchOperation,
       setBatchSelection,
       setBatchStatus,
@@ -362,6 +402,11 @@ export function useUploadFlow() {
       setBatchBusy(true);
       setBatchOperation("reject");
       setBatchErrors((previous) => {
+        const next = { ...previous };
+        tasks.forEach((task) => delete next[task.id]);
+        return next;
+      });
+      setBatchRejectRetryability((previous) => {
         const next = { ...previous };
         tasks.forEach((task) => delete next[task.id]);
         return next;
@@ -392,13 +437,18 @@ export function useUploadFlow() {
               removeLocalTaskEverywhere(task.id);
             }
             setBatchSelection((selected) => selected.filter((id) => id !== task.id));
-          } catch {
+          } catch (error) {
             if (!isCurrent()) return;
-            failed.add(task.id);
+            const classified = classifyPermanentRejectError(error);
+            if (classified.retryable) failed.add(task.id);
             setBatchStatus((previous) => ({ ...previous, [task.id]: "failed" }));
             setBatchErrors((previous) => ({
               ...previous,
-              [task.id]: "拒绝失败，任务仍保留，请重试",
+              [task.id]: classified.message,
+            }));
+            setBatchRejectRetryability((previous) => ({
+              ...previous,
+              [task.id]: classified.retryable,
             }));
           }
         }
@@ -419,6 +469,7 @@ export function useUploadFlow() {
             setBatchSelection([]);
             setBatchStatus({});
             setBatchErrors({});
+            setBatchRejectRetryability({});
           }
         }
       }
@@ -433,6 +484,7 @@ export function useUploadFlow() {
       removeLocalTaskEverywhere,
       setBatchBusy,
       setBatchErrors,
+      setBatchRejectRetryability,
       setBatchOperation,
       setBatchSelection,
       setBatchStatus,
@@ -448,6 +500,7 @@ export function useUploadFlow() {
     setBatchOperation(null);
     setBatchStatus({});
     setBatchErrors({});
+    setBatchRejectRetryability({});
     pendingRequestRef.current += 1;
     localPendingRequestRef.current += 1;
     setPendingLoading(false);
@@ -461,6 +514,7 @@ export function useUploadFlow() {
     resetConfirmation,
     setBatchBusy,
     setBatchErrors,
+    setBatchRejectRetryability,
     setBatchOperation,
     setBatchSelection,
     setBatchStatus,
@@ -573,6 +627,7 @@ export function useUploadFlow() {
     batchBusy,
     batchOperation,
     batchErrors,
+    batchRejectRetryability,
     toggleBatchTask,
     setBatchTasksSelected,
     handleBatchConfirm,

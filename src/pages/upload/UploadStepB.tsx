@@ -47,6 +47,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
     batchBusy,
     batchOperation,
     batchErrors,
+    batchRejectRetryability = {},
     toggleBatchTask,
     setBatchTasksSelected,
     handleBatchReject,
@@ -477,6 +478,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                       <th className="upload77-batch-col">
                         <PendingSelectAll tasks={localPendingTasks} flow={flow} />
                       </th>
+                      <th>处理结果</th>
                       <th>文件</th>
                       <th>状态</th>
                       <th>建议标题</th>
@@ -489,21 +491,30 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                       const selected = taskId === task.id;
                       const loadingThis = selected && flowState === "processing";
                       const itemStatus = batchStatus[task.id];
+                      const rejectFailure = Object.prototype.hasOwnProperty.call(
+                        batchRejectRetryability,
+                        task.id,
+                      );
                       return (
                         <tr key={task.id} className={selected ? "is-selected" : ""}>
                           <td className="upload77-batch-col">
                             <input
                               aria-label={`选择 ${task.source_file_name}`}
                               checked={batchSelection.includes(task.id)}
-                              disabled={!isPendingTaskActionable(task, flow)}
+                              disabled={
+                                !isPendingTaskActionable(task, flow) ||
+                                (rejectFailure && !batchRejectRetryability[task.id])
+                              }
                               onChange={() => toggleBatchTask(task.id)}
                               type="checkbox"
                             />
+                          </td>
+                          <td className="upload77-batch-result">
                             {itemStatus && (
                               <BatchTaskProgress
                                 state={itemStatus}
                                 actionLabel={
-                                  batchOperation === "reject" || batchErrors[task.id]
+                                  batchOperation === "reject" || rejectFailure
                                     ? "批量拒绝"
                                     : "批量确认"
                                 }
@@ -512,22 +523,23 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                             {batchErrors[task.id] && (
                               <span className="upload77-queue-error">{batchErrors[task.id]}</span>
                             )}
-                            {itemStatus === "failed" && (
-                              <button
-                                className="upload77-retry-link"
-                                disabled={batchBusy}
-                                onClick={() =>
-                                  void (batchOperation === "reject" || batchErrors[task.id]
-                                    ? handleBatchReject([task])
-                                    : setBatchTasksSelected([task.id], true))
-                                }
-                                type="button"
-                              >
-                                {batchOperation === "reject" || batchErrors[task.id]
-                                  ? "重试"
-                                  : "重新选择目标"}
-                              </button>
-                            )}
+                            {itemStatus === "failed" &&
+                              (!rejectFailure || batchRejectRetryability[task.id]) && (
+                                <button
+                                  className="upload77-retry-link"
+                                  disabled={batchBusy}
+                                  onClick={() =>
+                                    void (batchOperation === "reject" || rejectFailure
+                                      ? handleBatchReject([task])
+                                      : setBatchTasksSelected([task.id], true))
+                                  }
+                                  type="button"
+                                >
+                                  {batchOperation === "reject" || rejectFailure
+                                    ? "重试"
+                                    : "重新选择目标"}
+                                </button>
+                              )}
                           </td>
                           <td>
                             <button

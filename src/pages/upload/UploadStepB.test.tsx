@@ -65,6 +65,7 @@ function flowFixture(overrides: Record<string, unknown> = {}): UploadFlow {
     batchBusy: false,
     batchOperation: null,
     batchErrors: {},
+    batchRejectRetryability: {},
     toggleBatchTask: vi.fn(),
     setBatchTasksSelected: vi.fn(),
     handleBatchConfirm: vi.fn(),
@@ -319,6 +320,25 @@ describe("UploadStepB folder drop and batch rejection", () => {
     fireEvent.click(screen.getByRole("button", { name: "确认永久拒绝" }));
     expect(flow.handleBatchReject).toHaveBeenCalledWith([rejected]);
     expect(flow.handleBatchConfirm).not.toHaveBeenCalled();
+  });
+
+  it("renders a non-retryable rejection error outside the checkbox column", () => {
+    const task = pending("conflict", "Conflict.md");
+    const message = "已入库：该任务已形成知识资产，不能永久删除。";
+    const flow = flowFixture({
+      localPendingTasks: [task],
+      batchStatus: { [task.id]: "failed" },
+      batchErrors: { [task.id]: message },
+      batchRejectRetryability: { [task.id]: false },
+    });
+    render(<UploadStepB flow={flow} />);
+
+    const checkboxCell = screen.getByLabelText("选择 Conflict.md").closest("td");
+    const error = screen.getByText(message);
+    expect(checkboxCell).not.toContainElement(error);
+    expect(error.closest("td")).toHaveClass("upload77-batch-result");
+    expect(screen.getByLabelText("选择 Conflict.md")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
   });
 
   it("shows real per-file states without inventing percentage progress", () => {

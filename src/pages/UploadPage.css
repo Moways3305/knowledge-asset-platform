@@ -519,6 +519,16 @@
   margin: 0;
 }
 
+.upload77-batch-result {
+  width: 160px;
+  min-width: 130px;
+}
+
+.upload77-batch-result .upload77-queue-error {
+  display: block;
+  margin-top: 4px;
+}
+
 .upload77-batch-state {
   display: inline-block;
   font-size: 11px;

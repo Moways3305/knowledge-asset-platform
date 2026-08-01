@@ -13,7 +13,7 @@ from app.models.audit import AuditEvent
 from app.models.identity import ProjectMember
 from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset
-from app.models.review import ReviewTask
+from app.models.review import CompanyAssetReviewDecision, ReviewTask
 from app.seed.dev_seed import (
     PROJECT_ALPHA,
     PROJECT_BETA,
@@ -173,6 +173,59 @@ async def test_project_manager_rejects_without_exposing_original(client, db_sess
     assert task.source_file_ref is not None
     visible = (await client.get(KNOWLEDGE, headers=_hdr(USER_CONSULTANT))).json()["items"]
     assert all(item["title"] != "被驳回项目知识" for item in visible)
+
+
+async def test_creator_permanently_deletes_rejected_project_ingest_dependencies(client, db_session):
+    task_id, review_id = await _submit(client, title="应永久删除的错误上传")
+    rejected = await client.post(
+        f"{REVIEWS}/{review_id}/reject",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={"review_comment": "上传内容错误"},
+    )
+    assert rejected.status_code == 200
+
+    # Even an unexpected dependent decision must be cleaned before the dedicated
+    # project-ingest review, otherwise the review FK recreates the production 500.
+    decision = CompanyAssetReviewDecision(
+        review_task_id=uuid.UUID(review_id),
+        required_role="boss",
+        decision="confirmed",
+        actor_user_id=USER_BOSS,
+    )
+    db_session.add(decision)
+    await db_session.commit()
+    decision_id = decision.id
+
+    deleted = await client.delete(f"/api/v1/ingest/{task_id}", headers=_hdr(USER_CONSULTANT))
+
+    assert deleted.status_code == 200
+    assert deleted.json() == {"ok": True}
+    db_session.expire_all()
+    assert await db_session.get(IngestTask, uuid.UUID(task_id)) is None
+    assert await db_session.get(ReviewTask, uuid.UUID(review_id)) is None
+    assert await db_session.get(CompanyAssetReviewDecision, decision_id) is None
+    audit = (
+        (
+            await db_session.execute(
+                select(AuditEvent)
+                .where(
+                    AuditEvent.action == "ingest.task_deleted",
+                    AuditEvent.target_id == uuid.UUID(task_id),
+                )
+                .order_by(AuditEvent.created_at.desc())
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert audit is not None
+    assert audit.after_snapshot == {"result_category": "permanently_deleted"}
+    serialized_audit = str(
+        {"before": audit.before_snapshot, "after": audit.after_snapshot, "extra": audit.extra}
+    ).lower()
+    assert "source_file_ref" not in serialized_audit
+    assert "storage_ref" not in serialized_audit
+    assert "approval.txt" not in serialized_audit
 
 
 async def test_consultant_admin_and_other_project_manager_cannot_decide(client, db_session):

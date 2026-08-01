@@ -13,16 +13,23 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.exc import DBAPIError, IntegrityError
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.ingest import IngestTask, IngestTaskAiResult
+from app.models.ingest import IngestTask, IngestTaskAiResult, UploadSession, UploadSessionItem
 from app.models.knowledge import (
     KnowledgeAsset,
     KnowledgeAssetTag,
     KnowledgeAssetVersion,
 )
-from app.models.review import ReviewTask
+from app.models.review import (
+    CompanyAssetReviewDecision,
+    PersonalKnowledgeSubmission,
+    ReviewTask,
+    ReviewTaskEvidence,
+)
 from app.schemas.enums import (
     AlertSeverity,
     AuditAction,
@@ -32,6 +39,7 @@ from app.schemas.enums import (
     IngestStatus,
     KnowledgeScope,
     ReviewTaskStatus,
+    ReviewType,
 )
 from app.schemas.ingest import (
     AdminIngestItem,
@@ -235,16 +243,19 @@ async def create_upload(
     return IngestUploadResponse(ingest_task_id=task.id, status=status, upload_url=None)
 
 
-async def _load_task(session: AsyncSession, task_id: uuid.UUID) -> IngestTask:
+async def _load_task(
+    session: AsyncSession, task_id: uuid.UUID, *, lock: bool = False
+) -> IngestTask:
     from sqlalchemy.orm import selectinload
 
-    task = (
-        await session.execute(
-            select(IngestTask)
-            .where(IngestTask.id == task_id)
-            .options(selectinload(IngestTask.ai_result))
-        )
-    ).scalar_one_or_none()
+    stmt = (
+        select(IngestTask)
+        .where(IngestTask.id == task_id)
+        .options(selectinload(IngestTask.ai_result))
+    )
+    if lock:
+        stmt = stmt.with_for_update()
+    task = (await session.execute(stmt)).scalar_one_or_none()
     if task is None:
         raise _denied(404, "ingest_task_not_found", "入库任务不存在")
     return task
@@ -748,6 +759,30 @@ async def list_pending(
 async def delete_pending_task(
     session: AsyncSession, caller: CallerContext, task_id: uuid.UUID, trace_id: str = ""
 ) -> None:
+    """Delete an eligible pre-asset ingest task with stable database-failure semantics."""
+    try:
+        await _delete_pending_task(session, caller, task_id, trace_id)
+    except (DBAPIError, SQLAlchemyTimeoutError):
+        # Lock waits, pool timeouts and broken connections can occur before the
+        # narrower dependency-cleanup handlers run. Never expose driver details.
+        try:
+            await session.rollback()
+        except (DBAPIError, SQLAlchemyTimeoutError):
+            pass
+        _logger.warning(
+            "ingest_delete_database_temporarily_unavailable",
+            extra={"result_category": "database_temporarily_unavailable"},
+        )
+        raise _denied(
+            503,
+            "ingest_delete_temporarily_unavailable",
+            "任务关联清理暂时不可用，请稍后重试",
+        ) from None
+
+
+async def _delete_pending_task(
+    session: AsyncSession, caller: CallerContext, task_id: uuid.UUID, trace_id: str = ""
+) -> None:
     """删除/取消待确认入库任务。
 
     规则：
@@ -757,7 +792,7 @@ async def delete_pending_task(
     - 删除数据库记录（级联删除 ai_result 关联）并清理存储文件。
     - 审计写入 ingest.task_deleted。
     """
-    task = await _load_task(session, task_id)
+    task = await _load_task(session, task_id, lock=True)
 
     # 仅创建人本人
     if task.created_by != caller.user_id:
@@ -773,20 +808,8 @@ async def delete_pending_task(
             f"当前状态 {task.status} 不允许删除（仅在确认前/失败/驳回状态可删）",
         )
 
-    # 清理存储文件（best-effort；文件缺失不影响 DB 清理）。
-    from app.services.storage import get_storage
-
-    try:
-        storage = get_storage()
-        if task.source_file_ref:
-            storage.delete(task.source_file_ref)
-    except Exception:
-        _logger.warning("ingest_delete_file_cleanup_failed task_id=%s", str(task_id), exc_info=True)
-
     # 同步上传队列里的 item 状态：避免 ON DELETE SET NULL 把 ingest_task_id 清空后，
     # upload_session_items 仍卡在 awaiting_confirmation，造成和会话统计/待确认入库列表不同步。
-    from app.models.ingest import UploadSessionItem
-
     linked_items = (
         (
             await session.execute(
@@ -802,9 +825,94 @@ async def delete_pending_task(
         linked_item.safe_error_code = None
         linked_item.safe_error_message = None
 
+    linked_session_ids = {item.session_id for item in linked_items}
+    if linked_session_ids:
+        from sqlalchemy.orm import selectinload
+
+        upload_sessions = (
+            (
+                await session.execute(
+                    select(UploadSession)
+                    .where(UploadSession.id.in_(linked_session_ids))
+                    .options(selectinload(UploadSession.items))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        terminal_item_states = {"awaiting_confirmation", "completed", "failed", "cancelled"}
+        for upload_session in upload_sessions:
+            upload_session.status = (
+                "completed"
+                if all(item.status in terminal_item_states for item in upload_session.items)
+                else "active"
+            )
+
+    # 项目入库审批在资产形成前以 source_ingest_task_id 关联任务。永久删除错误上传时，
+    # 仅允许清理这一类专用审核及其从属记录，未知业务关联一律 fail-closed。
+    linked_reviews = (
+        (
+            await session.execute(
+                select(ReviewTask)
+                .where(ReviewTask.source_ingest_task_id == task_id)
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if any(
+        review.review_type != ReviewType.project_ingest_approval.value
+        or review.target_asset_id is not None
+        for review in linked_reviews
+    ):
+        await session.rollback()
+        raise _denied(
+            409,
+            "ingest_review_cleanup_conflict",
+            "任务存在无法安全清理的审核关联，请刷新后联系管理员",
+        )
+
+    review_ids = [review.id for review in linked_reviews]
+    if review_ids:
+        personal_submission_exists = (
+            await session.execute(
+                select(PersonalKnowledgeSubmission.id)
+                .where(PersonalKnowledgeSubmission.review_task_id.in_(review_ids))
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if personal_submission_exists is not None:
+            await session.rollback()
+            raise _denied(
+                409,
+                "ingest_review_cleanup_conflict",
+                "任务存在无法安全清理的审核关联，请刷新后联系管理员",
+            )
+        try:
+            await session.execute(
+                delete(CompanyAssetReviewDecision).where(
+                    CompanyAssetReviewDecision.review_task_id.in_(review_ids)
+                )
+            )
+            await session.execute(
+                delete(ReviewTaskEvidence).where(ReviewTaskEvidence.review_task_id.in_(review_ids))
+            )
+            await session.execute(delete(ReviewTask).where(ReviewTask.id.in_(review_ids)))
+        except IntegrityError:
+            await session.rollback()
+            _logger.warning(
+                "ingest_review_cleanup_failed",
+                extra={"result_category": "dependency_cleanup_temporarily_unavailable"},
+            )
+            raise _denied(
+                503,
+                "ingest_delete_temporarily_unavailable",
+                "任务关联清理暂时不可用，请稍后重试",
+            ) from None
+
     # ---- 永存区：持久化删除 + 审计 ----
-    source = task.source
-    source_file_name = task.source_file_name
+    source_file_ref = task.source_file_ref
     await audit_service.record_event(
         session,
         caller=caller,
@@ -813,16 +921,37 @@ async def delete_pending_task(
         trace_id=trace_id,
         target_type="ingest_task",
         target_id=task_id,
-        before={
-            "source": source,
-            "source_file_name": source_file_name,
-            "status": task.status,
-        },
+        after={"result_category": "permanently_deleted"},
     )
 
     # 级联删除 ai_result（ORM relationship cascade="all, delete-orphan"）。
     await session.delete(task)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        _logger.warning(
+            "ingest_delete_transaction_failed",
+            extra={"result_category": "dependency_cleanup_temporarily_unavailable"},
+        )
+        raise _denied(
+            503,
+            "ingest_delete_temporarily_unavailable",
+            "任务关联清理暂时不可用，请稍后重试",
+        ) from None
+
+    # 文件系统无法参与数据库事务。数据库成功后再 best-effort 清理，避免清理依赖失败时
+    # 先删除仍被任务引用的源文件；缺失文件或供应商错误均不改变删除结果。
+    from app.services.storage import get_storage
+
+    try:
+        if source_file_ref:
+            get_storage().delete(source_file_ref)
+    except Exception:
+        _logger.warning(
+            "ingest_delete_file_cleanup_failed",
+            extra={"result_category": "controlled_file_cleanup_failed"},
+        )
 
 
 async def list_admin_ingest(

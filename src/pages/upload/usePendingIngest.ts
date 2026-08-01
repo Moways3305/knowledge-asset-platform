@@ -21,6 +21,11 @@ export function usePendingIngest(activePath: PathBranch) {
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchOperation, setBatchOperation] = useState<"confirm" | "reject" | null>(null);
   const [batchErrors, setBatchErrors] = useState<Record<string, string>>({});
+  // Presence identifies a per-row permanent-reject failure; the boolean controls
+  // whether an automatic retry is safe. Confirmation errors are intentionally absent.
+  const [batchRejectRetryability, setBatchRejectRetryability] = useState<Record<string, boolean>>(
+    {},
+  );
 
   const reconcileBatchState = useCallback((tasks: PendingIngestItemDTO[]) => {
     // The active batch owns its row progress until it finishes. A refresh made
@@ -38,6 +43,9 @@ export function usePendingIngest(activePath: PathBranch) {
       ),
     );
     setBatchErrors((current) =>
+      Object.fromEntries(Object.entries(current).filter(([id]) => pendingIds.has(id))),
+    );
+    setBatchRejectRetryability((current) =>
       Object.fromEntries(Object.entries(current).filter(([id]) => pendingIds.has(id))),
     );
   }, []);
@@ -150,6 +158,8 @@ export function usePendingIngest(activePath: PathBranch) {
     setBatchOperation,
     batchErrors,
     setBatchErrors,
+    batchRejectRetryability,
+    setBatchRejectRetryability,
     batchRunRef,
     pendingRequestRef,
     localPendingRequestRef,

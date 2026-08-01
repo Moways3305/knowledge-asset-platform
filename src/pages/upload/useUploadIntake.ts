@@ -85,7 +85,7 @@ export function useUploadIntake({
       fileSize: item.file_size,
       fileType: item.file_type || item.file_name.split(".").pop()?.toUpperCase() || "未知",
       status: item.status === "waiting" ? "queued" : item.status,
-      error: item.error_message,
+      error: item.status === "failed" ? item.error_message : null,
       ingestTaskId: null,
       pollAttempts: 0,
       batchNumber: item.batch_number,
