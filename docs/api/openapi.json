@@ -1699,6 +1699,73 @@
         "title": "Body_create_upload_session_api_v1_ingest_upload_sessions_post",
         "type": "object"
       },
+      "BulkIdsRequest": {
+        "properties": {
+          "client_operation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Operation Id"
+          },
+          "item_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Item Ids",
+            "type": "array"
+          },
+          "request_count": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Count"
+          },
+          "request_index": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Index"
+          },
+          "total_submitted": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Submitted"
+          }
+        },
+        "required": [
+          "item_ids"
+        ],
+        "title": "BulkIdsRequest",
+        "type": "object"
+      },
       "BulkItemResult": {
         "properties": {
           "item_id": {
@@ -11019,6 +11086,16 @@
             "title": "Items",
             "type": "array"
           },
+          "page": {
+            "default": 1,
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "default": 100,
+            "title": "Page Size",
+            "type": "integer"
+          },
           "total": {
             "title": "Total",
             "type": "integer"
@@ -11043,6 +11120,34 @@
         ],
         "title": "ReviewRejectRequest",
         "type": "object"
+      },
+      "ReviewTaskStatus": {
+        "description": "审核任务状态。\n\n采用 pending_evidence / pending_reviewer / approved / rejected 的状态机：\n先收集证据，再交由审核人裁决。",
+        "enum": [
+          "pending_evidence",
+          "pending_reviewer",
+          "approving",
+          "approval_failed",
+          "approved",
+          "rejected"
+        ],
+        "title": "ReviewTaskStatus",
+        "type": "string"
+      },
+      "ReviewType": {
+        "description": "审核类型。",
+        "enum": [
+          "project_ingest_approval",
+          "personal_to_project",
+          "material_to_asset",
+          "project_to_company",
+          "lifecycle_change",
+          "asset_update",
+          "chunk_invalidation",
+          "version_supersede"
+        ],
+        "title": "ReviewType",
+        "type": "string"
       },
       "ReviewWithdrawRequest": {
         "properties": {
@@ -28106,6 +28211,108 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/knowledge/bulk-upgrade-company": {
+      "post": {
+        "description": "Create project-to-company reviews with bounded, per-item revalidation.",
+        "operationId": "bulk_request_company_upgrade_api_v1_projects__project_id__knowledge_bulk_upgrade_company_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkIdsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOperationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Request Company Upgrade",
+        "tags": [
+          "review"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/knowledge/{asset_id}/confirm-asset": {
       "post": {
         "operationId": "confirm_asset_api_v1_projects__project_id__knowledge__asset_id__confirm_asset_post",
@@ -29292,12 +29499,32 @@
         "parameters": [
           {
             "in": "query",
+            "name": "queue",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "open",
+                    "completed"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Queue"
+            }
+          },
+          {
+            "in": "query",
             "name": "review_type",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/ReviewType"
                 },
                 {
                   "type": "null"
@@ -29313,13 +29540,48 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/ReviewTaskStatus"
                 },
                 {
                   "type": "null"
                 }
               ],
               "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 100,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page Size"
             }
           },
           {

@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -313,32 +313,66 @@ async def list_reviews(
     review_type: str | None = None,
     status: str | None = None,
 ) -> list[ReviewListItem]:
+    items, _ = await list_reviews_page(
+        session,
+        caller,
+        review_type=review_type,
+        status=status,
+        page=1,
+        page_size=None,
+    )
+    return items
+
+
+async def list_reviews_page(
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    queue: str | None = None,
+    review_type: str | None = None,
+    status: str | None = None,
+    page: int = 1,
+    page_size: int | None = 100,
+) -> tuple[list[ReviewListItem], int]:
     if not caller.is_business_user:
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可查看审核队列")
 
     stmt = select(ReviewTask).options(selectinload(ReviewTask.evidence_links))
+    visibility = [
+        ReviewTask.submitted_by == caller.user_id,
+        ReviewTask.reviewer_user_id == caller.user_id,
+    ]
+    pm_project_ids = [
+        project_id
+        for project_id, role in caller.active_project_roles.items()
+        if role == ProjectRole.project_manager.value
+    ]
+    if pm_project_ids:
+        visibility.append(ReviewTask.target_project_id.in_(pm_project_ids))
+    if _is_governance(caller):
+        visibility.append(ReviewTask.review_type == ReviewType.project_to_company.value)
+    stmt = stmt.where(or_(*visibility))
+    if queue == "open":
+        stmt = stmt.where(ReviewTask.status.in_(list(_NON_TERMINAL)))
+    elif queue == "completed":
+        stmt = stmt.where(ReviewTask.status.in_(list(_TERMINAL)))
     if review_type:
         stmt = stmt.where(ReviewTask.review_type == review_type)
     if status:
         stmt = stmt.where(ReviewTask.status == status)
-    tasks = list((await session.execute(stmt)).scalars().all())
-
-    governance = _is_governance(caller)
-    # 可见性：提交人 / 审核人 / 项目经理可见；治理角色仅跨项目查看公司资产升格。
-    visible = []
-    for task in tasks:
-        is_project_pm = bool(
-            task.target_project_id is not None
-            and caller.active_project_roles.get(task.target_project_id)
-            == ProjectRole.project_manager.value
+    count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
+    total = int((await session.scalar(count_stmt)) or 0)
+    if queue == "completed":
+        stmt = stmt.order_by(
+            ReviewTask.reviewed_at.desc(),
+            ReviewTask.created_at.desc(),
+            ReviewTask.id.desc(),
         )
-        if (
-            (governance and task.review_type == ReviewType.project_to_company.value)
-            or task.submitted_by == caller.user_id
-            or task.reviewer_user_id == caller.user_id
-            or is_project_pm
-        ):
-            visible.append(task)
+    else:
+        stmt = stmt.order_by(ReviewTask.created_at.desc(), ReviewTask.id.desc())
+    if page_size is not None:
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+    visible = list((await session.execute(stmt)).scalars().unique().all())
     assets, projects = await _aux_maps(session, visible)
     decisions = await _decision_states(session, visible)
     return [
@@ -368,7 +402,7 @@ async def list_reviews(
             decision_states=decisions.get(task.id),
         )
         for task in visible
-    ]
+    ], total
 
 
 async def get_review(

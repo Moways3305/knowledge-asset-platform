@@ -2,9 +2,9 @@ import { useState } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchKnowledgePage } from "../api/knowledge";
+import { bulkDeleteKnowledgeAssets, fetchKnowledgePage } from "../api/knowledge";
 import { fetchProjectQaModelOptions, projectQa } from "../api/project";
-import { requestCompanyUpgrade } from "../api/review";
+import { bulkRequestCompanyUpgrade, requestCompanyUpgrade } from "../api/review";
 import type { KnowledgeCardVM, KnowledgePageVM } from "../types/knowledge";
 import ProjectKnowledgePage from "./ProjectKnowledgePage";
 
@@ -24,12 +24,19 @@ const authState = {
 };
 
 vi.mock("../auth/AuthContext", () => ({ useAuth: () => authState }));
-vi.mock("../api/knowledge", () => ({ fetchKnowledgePage: vi.fn() }));
+vi.mock("../api/knowledge", () => ({
+  bulkDeleteKnowledgeAssets: vi.fn(),
+  deleteKnowledgeAsset: vi.fn(),
+  fetchKnowledgePage: vi.fn(),
+}));
 vi.mock("../api/project", () => ({
   fetchProjectQaModelOptions: vi.fn(),
   projectQa: vi.fn(),
 }));
-vi.mock("../api/review", () => ({ requestCompanyUpgrade: vi.fn() }));
+vi.mock("../api/review", () => ({
+  bulkRequestCompanyUpgrade: vi.fn(),
+  requestCompanyUpgrade: vi.fn(),
+}));
 
 function card(overrides: Partial<KnowledgeCardVM> = {}): KnowledgeCardVM {
   return {
@@ -159,6 +166,28 @@ describe("ProjectKnowledgePage reference workspace", () => {
     vi.mocked(requestCompanyUpgrade)
       .mockReset()
       .mockResolvedValue({} as never);
+    vi.mocked(bulkRequestCompanyUpgrade)
+      .mockReset()
+      .mockResolvedValue({
+        operation_id: "bulk-upgrade",
+        status: "completed",
+        execution_mode: "synchronous",
+        submitted: 1,
+        succeeded: 1,
+        skipped: 0,
+        failed: 0,
+        items: [{ item_id: "asset-2", status: "succeeded", reason_code: null, message: null }],
+      });
+    vi.mocked(bulkDeleteKnowledgeAssets).mockReset().mockResolvedValue({
+      operation_id: "bulk-delete",
+      status: "completed",
+      execution_mode: "synchronous",
+      submitted: 2,
+      succeeded: 2,
+      skipped: 0,
+      failed: 0,
+      items: [],
+    });
   });
 
   it("uses the exact project-scoped server page and a compact reference table", async () => {
@@ -315,6 +344,47 @@ describe("ProjectKnowledgePage reference workspace", () => {
     await waitFor(() => expect(requestCompanyUpgrade).toHaveBeenCalledWith(PROJECT_B, "asset-2"));
     expect(await screen.findByText("公司资产升级申请已提交。")).toBeInTheDocument();
     expectDocumentOrder(".pk-upgrade-notice", ".pk-qa-section");
+  });
+
+  it("upgrades only active asset-zone selections while allowing all deletable project knowledge", async () => {
+    vi.mocked(fetchKnowledgePage).mockResolvedValue(
+      page([
+        card({
+          id: "material-1",
+          title: "项目资料",
+          zone: "material",
+          access: { ...card().access, canDelete: true },
+        }),
+        card({
+          id: "asset-2",
+          title: "有效项目资产",
+          zone: "asset",
+          assetStatus: "active",
+          access: { ...card().access, canDelete: true },
+        }),
+        card({
+          id: "asset-3",
+          title: "待更新项目资产",
+          zone: "asset",
+          assetStatus: "needs_update",
+          access: { ...card().access, canDelete: true },
+        }),
+      ]),
+    );
+    renderPage(`/project/${PROJECT_B}/knowledge`);
+    await screen.findByText("有效项目资产");
+
+    fireEvent.click(screen.getByLabelText("全选当前页项目知识"));
+    expect(screen.getByRole("button", { name: "批量升级为公司资产（1）" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "批量删除（3）" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "批量升级为公司资产（1）" }));
+    await waitFor(() =>
+      expect(bulkRequestCompanyUpgrade).toHaveBeenCalledWith({
+        projectId: PROJECT_B,
+        itemIds: ["asset-2"],
+      }),
+    );
   });
 
   it("uses the default model and renders only safe QA fields", async () => {

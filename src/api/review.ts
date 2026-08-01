@@ -6,15 +6,32 @@ import { runControlledBulkRequests } from "./bulk";
 
 export async function fetchReviews(
   params: {
+    queue?: "open" | "completed";
     reviewType?: string;
     status?: string;
+    page?: number;
+    pageSize?: number;
   } = {},
 ): Promise<ReviewItemDTO[]> {
+  return (await fetchReviewPage(params)).items;
+}
+
+export async function fetchReviewPage(
+  params: {
+    queue?: "open" | "completed";
+    reviewType?: string;
+    status?: string;
+    page?: number;
+    pageSize?: number;
+  } = {},
+): Promise<ReviewListResponseDTO> {
   const qs = new URLSearchParams();
+  if (params.queue) qs.set("queue", params.queue);
   if (params.reviewType) qs.set("review_type", params.reviewType);
   if (params.status) qs.set("status", params.status);
-  const data = await apiGet<ReviewListResponseDTO>(`/api/v1/reviews?${qs.toString()}`);
-  return data.items;
+  if (params.page) qs.set("page", String(params.page));
+  if (params.pageSize) qs.set("page_size", String(params.pageSize));
+  return apiGet<ReviewListResponseDTO>(`/api/v1/reviews?${qs.toString()}`);
 }
 
 export async function approveReview(reviewId: string, comment?: string): Promise<void> {
@@ -61,4 +78,25 @@ export async function requestCompanyUpgrade(
     `/api/v1/projects/${projectId}/knowledge/${assetId}/upgrade-company`,
     {},
   );
+}
+
+export async function bulkRequestCompanyUpgrade(input: {
+  projectId: string;
+  itemIds: string[];
+}): Promise<BulkOperationResponseDTO> {
+  return runControlledBulkRequests({
+    items: input.itemIds,
+    getItemId: (itemId) => itemId,
+    submitBatch: (batch, context) =>
+      apiPost<BulkOperationResponseDTO>(
+        `/api/v1/projects/${input.projectId}/knowledge/bulk-upgrade-company`,
+        {
+          item_ids: batch,
+          client_operation_id: context.clientOperationId,
+          request_index: context.requestIndex,
+          request_count: context.requestCount,
+          total_submitted: context.totalSubmitted,
+        },
+      ),
+  });
 }

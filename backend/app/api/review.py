@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,8 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_caller_context
 from app.core.trace import get_trace_id
 from app.db.session import get_db
-from app.schemas.bulk_operations import BulkOperationResponse, ReviewBulkActionRequest
-from app.schemas.enums import AuditAction
+from app.schemas.bulk_operations import (
+    BulkIdsRequest,
+    BulkOperationResponse,
+    ReviewBulkActionRequest,
+)
+from app.schemas.enums import AuditAction, ReviewTaskStatus, ReviewType
 from app.schemas.permission import CallerContext
 from app.schemas.review import (
     EvidenceCreateRequest,
@@ -107,15 +112,87 @@ async def bulk_review_action(
 
 @router.get("/reviews", response_model=ReviewListResponse)
 async def list_reviews(
-    review_type: str | None = Query(default=None),
-    status: str | None = Query(default=None),
+    queue: Literal["open", "completed"] | None = Query(default=None),
+    review_type: ReviewType | None = Query(default=None),
+    status: ReviewTaskStatus | None = Query(default=None),
+    page: int | None = Query(default=None, ge=1),
+    page_size: int | None = Query(default=None, ge=1, le=100),
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> ReviewListResponse:
-    items = await review_service.list_reviews(
-        session, caller, review_type=review_type, status=status
+    items, total = await review_service.list_reviews_page(
+        session,
+        caller,
+        queue=queue,
+        review_type=review_type.value if review_type else None,
+        status=status.value if status else None,
+        page=page or 1,
+        page_size=page_size,
     )
-    return ReviewListResponse(items=items, total=len(items))
+    return ReviewListResponse(
+        items=items,
+        total=total,
+        page=page or 1,
+        page_size=page_size or total,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/knowledge/bulk-upgrade-company",
+    response_model=BulkOperationResponse,
+)
+async def bulk_request_company_upgrade(
+    project_id: uuid.UUID,
+    body: BulkIdsRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> BulkOperationResponse:
+    """Create project-to-company reviews with bounded, per-item revalidation."""
+    from fastapi import HTTPException
+
+    operation_id = uuid.uuid4()
+    trace_id = get_trace_id(request)
+
+    async def process_batch(batch):
+        batch_results = []
+        for asset_id in batch:
+            try:
+                await review_service.create_or_get_company_upgrade(
+                    session,
+                    caller,
+                    project_id,
+                    asset_id,
+                    trace_id,
+                )
+                batch_results.append(
+                    bulk_service.BulkItemResult(item_id=asset_id, status="succeeded")
+                )
+            except HTTPException as exc:
+                await session.rollback()
+                batch_results.append(bulk_service.skipped_from_http(asset_id, exc))
+            except Exception:
+                await session.rollback()
+                batch_results.append(bulk_service.failed_item(asset_id))
+        return batch_results
+
+    results = await bulk_service.execute_in_controlled_batches(body.item_ids, process_batch)
+    response = bulk_service.terminal_response(operation_id, body.item_ids, results)
+    await bulk_service.record_terminal_audit(
+        session,
+        caller=caller,
+        action=AuditAction.review_bulk_decided.value,
+        trace_id=trace_id,
+        response=response,
+        operation="upgrade_company",
+        target_scope="project",
+        project_id=project_id,
+        client_operation_id=body.client_operation_id,
+        request_index=body.request_index,
+        request_count=body.request_count,
+        total_submitted=body.total_submitted,
+    )
+    return response
 
 
 @router.get("/reviews/{review_id}", response_model=ReviewDetail)

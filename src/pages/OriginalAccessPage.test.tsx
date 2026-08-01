@@ -65,8 +65,8 @@ describe("OriginalAccessPage governance workspace", () => {
     ).toBeInTheDocument();
     expect(fetchOriginalAccessRequests).toHaveBeenCalledWith("inbox");
     expect(screen.queryByLabelText(/状态筛选|日期范围|分页/)).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "知识审核" })).toHaveAttribute("href", "/review");
-    fireEvent.click(screen.getByRole("link", { name: "知识审核" }));
+    expect(screen.getByRole("link", { name: "审核待办" })).toHaveAttribute("href", "/review");
+    fireEvent.click(screen.getByRole("link", { name: "审核待办" }));
     expect(await screen.findByText("知识审核正式路由")).toBeInTheDocument();
   });
 

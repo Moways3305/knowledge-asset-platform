@@ -33,6 +33,7 @@ const staticRoutes: Array<[RegExp, (capabilities: Capabilities) => boolean]> = [
   [/^\/my\/knowledge$/, can.viewMyKnowledge],
   [/^\/upload$/, can.viewUpload],
   [/^\/review$/, can.viewReview],
+  [/^\/review\/completed$/, can.viewReview],
   [/^\/original-access$/, can.viewOriginalAccess],
   [/^\/admin\/ingest$/, can.viewIngestAdmin],
   [/^\/admin\/wecom-scan$/, can.viewWecomScan],

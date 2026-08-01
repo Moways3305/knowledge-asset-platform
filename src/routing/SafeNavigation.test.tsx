@@ -79,6 +79,12 @@ describe("SafeNavigationProvider", () => {
     await waitFor(() => expect(screen.getByText("/knowledge?scope=project")).toBeInTheDocument());
   });
 
+  it("recognizes the guarded completed review route", async () => {
+    renderHistory([{ pathname: "/review/completed" }]);
+    fireEvent.click(screen.getByRole("button", { name: "返回" }));
+    await waitFor(() => expect(screen.getByText("/review/completed")).toBeInTheDocument());
+  });
+
   it("skips a deleted dynamic page and continues to an older valid page", async () => {
     api.fetchKnowledgeDetail.mockRejectedValueOnce(new Error("not found"));
     renderHistory([{ pathname: "/help" }, { pathname: "/knowledge/deleted-asset" }]);

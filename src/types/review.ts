@@ -25,4 +25,6 @@ export interface ReviewItemDTO {
 export interface ReviewListResponseDTO {
   items: ReviewItemDTO[];
   total: number;
+  page?: number;
+  page_size?: number;
 }
