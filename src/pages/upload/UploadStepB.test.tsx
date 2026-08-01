@@ -76,7 +76,12 @@ function flowFixture(overrides: Record<string, unknown> = {}): UploadFlow {
 
 describe("UploadStepB folder drop and batch rejection", () => {
   it("uses the server batch capability for legacy pending selection", () => {
-    const legacy = { ...pending("legacy", "legacy.docx"), status: "pending" };
+    const legacy = {
+      ...pending("legacy", "legacy-notes.md"),
+      status: "pending",
+      suggestion_generation_status: "generated" as const,
+      suggestion_generation_reason: "旧 Markdown 建议字段已准备",
+    };
     const flow = flowFixture({
       localPendingTasks: [legacy],
       batchSelection: [],
@@ -85,7 +90,8 @@ describe("UploadStepB folder drop and batch rejection", () => {
 
     fireEvent.click(screen.getByLabelText("全选当前可处理的待确认项"));
     expect(flow.setBatchTasksSelected).toHaveBeenCalledWith(["legacy"], true);
-    expect(screen.getByLabelText("选择 legacy.docx")).toBeEnabled();
+    expect(screen.getByLabelText("选择 legacy-notes.md")).toBeEnabled();
+    expect(screen.getByText("建议已生成")).toBeInTheDocument();
   });
 
   it("keeps selection explanations outside the table header", () => {
@@ -260,7 +266,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
       can_batch_confirm: false,
     };
     const flow = flowFixture({
-      batchSelection: ["first"],
+      batchSelection: ["first", "disabled"],
       localPendingTasks: [first, second, disabled],
     });
     render(<UploadStepB flow={flow} />);
@@ -274,6 +280,13 @@ describe("UploadStepB folder drop and batch rejection", () => {
 
     fireEvent.click(selectAll);
     expect(flow.setBatchTasksSelected).toHaveBeenCalledWith(["first", "second"], true);
+
+    fireEvent.click(screen.getByRole("button", { name: "批量确认入库（1）" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标知识库" }), {
+      target: { value: "personal" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "确认批量入库" }));
+    expect(flow.handleBatchConfirm).toHaveBeenCalledWith([first], "personal", undefined);
   });
 
   it("shows real per-file states without inventing percentage progress", () => {

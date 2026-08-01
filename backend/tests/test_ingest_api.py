@@ -587,7 +587,19 @@ async def test_upload_markdown_enters_confirmation_with_extracted_text(client):
 
 
 async def test_pending_list_derives_safe_batch_confirmation_capability(client, db_session):
-    task_id = uuid.UUID((await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"])
+    upload = await client.post(
+        UPLOAD,
+        headers=_hdr(USER_CONSULTANT),
+        files={
+            "file": (
+                "legacy-notes.md",
+                _TXT_BYTES,
+                "application/octet-stream",
+            )
+        },
+    )
+    assert upload.status_code == 200
+    task_id = uuid.UUID(upload.json()["ingest_task_id"])
 
     task = await db_session.get(IngestTask, task_id)
     ai = (
@@ -596,14 +608,12 @@ async def test_pending_list_derives_safe_batch_confirmation_capability(client, d
         )
     ).scalar_one()
     original_title = ai.suggested_title
+    original_summary = ai.suggested_summary
+    original_one_liner = ai.suggested_one_liner
+    assert original_title and (original_summary or original_one_liner)
 
-    not_generated = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
-    not_generated_item = next(
-        item for item in not_generated.json()["items"] if item["id"] == str(task_id)
-    )
-    assert not_generated_item["suggestion_generation_status"] != "generated"
-    assert not_generated_item["can_batch_confirm"] is False
-
+    task.status = "pending"
+    ai.extraction_status = "unsupported"
     ai.llm_provider = "test-provider"
     ai.naming_parsed_fields = {
         **(ai.naming_parsed_fields or {}),
@@ -613,16 +623,35 @@ async def test_pending_list_derives_safe_batch_confirmation_capability(client, d
     await db_session.commit()
     ready = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
     ready_item = next(item for item in ready.json()["items"] if item["id"] == str(task_id))
-    assert ready_item["suggestion_generation_status"] == "generated"
+    assert ready_item["status"] == "pending"
+    assert ready_item["extraction_status"] == "unsupported"
+    assert ready_item["suggestion_generation_status"] == "needs_manual_completion"
     assert ready_item["can_batch_confirm"] is True
-
-    task.status = "pending"
-    await db_session.commit()
-    legacy = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
-    legacy_item = next(item for item in legacy.json()["items"] if item["id"] == str(task_id))
-    assert legacy_item["can_batch_confirm"] is True
     await db_session.refresh(task)
     assert task.status == "pending"  # GET compatibility projection never writes state.
+
+    ai.llm_provider = None
+    ai.naming_parsed_fields = {
+        key: value
+        for key, value in (ai.naming_parsed_fields or {}).items()
+        if key not in {"generation_status", "summary_generated"}
+    }
+    ai.extraction_status = "legacy_extracted"
+    await db_session.commit()
+    old_metadata = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    old_metadata_item = next(
+        item for item in old_metadata.json()["items"] if item["id"] == str(task_id)
+    )
+    assert old_metadata_item["suggestion_generation_status"] != "generated"
+    assert old_metadata_item["can_batch_confirm"] is True
+
+    task.status = "pending_confirmation"
+    await db_session.commit()
+    pending_confirmation = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    pending_confirmation_item = next(
+        item for item in pending_confirmation.json()["items"] if item["id"] == str(task_id)
+    )
+    assert pending_confirmation_item["can_batch_confirm"] is True
 
     task.status = "processing"
     await db_session.commit()
@@ -632,7 +661,7 @@ async def test_pending_list_derives_safe_batch_confirmation_capability(client, d
     )
     assert processing_item["can_batch_confirm"] is False
 
-    task.status = "pending"
+    task.status = "pending_confirmation"
     ai.suggested_title = None
     await db_session.commit()
     incomplete = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
@@ -642,6 +671,17 @@ async def test_pending_list_derives_safe_batch_confirmation_capability(client, d
     assert incomplete_item["can_batch_confirm"] is False
 
     ai.suggested_title = original_title
+    ai.suggested_summary = None
+    ai.suggested_one_liner = None
+    await db_session.commit()
+    missing_summary = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    missing_summary_item = next(
+        item for item in missing_summary.json()["items"] if item["id"] == str(task_id)
+    )
+    assert missing_summary_item["can_batch_confirm"] is False
+
+    ai.suggested_summary = original_summary
+    ai.suggested_one_liner = original_one_liner
     task.status = "failed"
     await db_session.commit()
     failed = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
@@ -656,14 +696,11 @@ async def test_pending_list_derives_safe_batch_confirmation_capability(client, d
     )
     assert waiting_review_item["can_batch_confirm"] is False
 
-    task.status = "pending_confirmation"
-    ai.extraction_status = "unsupported"
+    task.status = "completed"
     await db_session.commit()
-    unsupported = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
-    unsupported_item = next(
-        item for item in unsupported.json()["items"] if item["id"] == str(task_id)
-    )
-    assert unsupported_item["can_batch_confirm"] is False
+    completed = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    completed_item = next(item for item in completed.json()["items"] if item["id"] == str(task_id))
+    assert completed_item["can_batch_confirm"] is False
 
 
 async def test_upload_unsupported_still_pending(client):
