@@ -67,7 +67,7 @@ export function previewBatchIngestNaming(input: {
         subject: item.naming.subject,
         formed_on: item.naming.formed_on,
         version: item.naming.version,
-        applicable_to: item.naming.applicable_to,
+        ...(input.targetScope === "company" ? { applicable_to: item.naming.applicable_to } : {}),
       },
     })),
   });

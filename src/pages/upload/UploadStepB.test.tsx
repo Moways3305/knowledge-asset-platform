@@ -361,11 +361,14 @@ describe("UploadStepB folder drop and batch rejection", () => {
     const date = await screen.findByLabelText("Governed.pdf 文件形成日期");
     expect(date).toHaveValue("");
     expect(screen.getByRole("button", { name: "确认批量入库" })).toBeDisabled();
-    expect(screen.getAllByText(/仍有 1 条需补充形成日期/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/仍有 1 条需补充形成日期/)).toHaveLength(1);
 
     fireEvent.change(date, { target: { value: "2026-08-03" } });
+    expect(screen.getByText("请生成预览")).toHaveClass("upload77-batch-naming-notice");
+    expect(screen.queryByText("请补齐或修改该资料的命名字段")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "生成或刷新全部预览" }));
     await screen.findByText("【ALPHA-2026-交付件】安全标题_20260803_V1_L2.pdf");
+    expect(screen.getAllByText(/已核对 1\/1 条/)).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "确认批量入库" }));
 
     expect(flow.handleBatchConfirm).toHaveBeenCalledWith([task], "project", "project-a", {
@@ -378,6 +381,51 @@ describe("UploadStepB folder drop and batch rejection", () => {
         confidentiality_level: "L2",
       },
     });
+  });
+
+  it("places a server field diagnostic beside the corresponding input", async () => {
+    const task = {
+      ...pending("diagnostic", "Diagnostic.pdf"),
+      target_scope: null,
+      naming_parsed_fields: {
+        date: "20210116",
+        version: "V1",
+        missing_fields: [],
+        source_file_name: "Diagnostic.pdf",
+      },
+    };
+    const flow = flowFixture({ localPendingTasks: [task], batchSelection: [task.id] });
+    namingApi.previewBatchIngestNaming.mockResolvedValue({
+      items: [
+        {
+          task_id: task.id,
+          submittable: false,
+          canonical_name: null,
+          rule_version: null,
+          fields: null,
+          notices: [],
+          error_code: "naming_version_invalid",
+          message: "请填写有效版本，例如 V1 或 V1.1",
+        },
+      ],
+    });
+    render(<UploadStepB flow={flow} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "批量确认入库（1）" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标知识库" }), {
+      target: { value: "project" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标项目" }), {
+      target: { value: "project-a" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
+    await screen.findByLabelText("Diagnostic.pdf 文件形成日期");
+    fireEvent.click(screen.getByRole("button", { name: "生成或刷新全部预览" }));
+
+    const versionInput = screen.getByLabelText("Diagnostic.pdf 版本");
+    const versionField = versionInput.closest("label");
+    await waitFor(() => expect(versionField).toHaveTextContent("请填写有效版本，例如 V1 或 V1.1"));
+    expect(screen.getByRole("button", { name: "确认批量入库" })).toBeDisabled();
   });
 
   it("renders 93 long-name review rows inside a bounded scroll container", async () => {

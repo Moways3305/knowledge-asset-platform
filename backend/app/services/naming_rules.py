@@ -554,6 +554,12 @@ def _batch_validation_error(exc: ValidationError) -> tuple[str, str]:
         return "naming_formed_on_invalid", "请填写有效的文件形成日期"
     if "version" in locations:
         return "naming_version_invalid", "请填写有效版本，例如 V1 或 V1.1"
+    if "category_id" in locations:
+        return "naming_category_unavailable", "请选择有效且已启用的目录类别"
+    if "subject" in locations:
+        return "naming_subject_invalid", "请填写有效主题"
+    if "applicable_to" in locations:
+        return "naming_applicable_to_required", "公司库资料必须填写有效适用对象"
     return "naming_fields_invalid", "请补齐或修改该资料的命名字段"
 
 
@@ -595,7 +601,7 @@ async def batch_preview(
                     "target_scope": request.target_scope,
                     "target_project_id": request.target_project_id,
                     "confidentiality_level": item.confidentiality_level,
-                    "naming": item.naming,
+                    "naming": item.naming.model_dump() if item.naming is not None else None,
                 }
             )
             rendered = await preview(session, caller, item.task_id, item_request)
