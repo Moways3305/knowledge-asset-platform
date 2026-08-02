@@ -53,6 +53,7 @@ export interface KnowledgeDeleteResponseDTO {
 export interface KnowledgeListItemDTO {
   id: string;
   title: string;
+  canonical_name?: string | null;
   scope: KnowledgeScope;
   zone: string;
   asset_type: string;
@@ -107,6 +108,7 @@ export interface KnowledgeQueryParams {
 export interface KnowledgeDetailDTO {
   id: string;
   title: string;
+  canonical_name?: string | null;
   scope: KnowledgeScope;
   zone: string;
   asset_type: string;
@@ -125,7 +127,12 @@ export interface KnowledgeDetailDTO {
   archived_at: string | null;
   archive_reason: string | null;
   summary: { one_liner: string | null; detailed: string | null; key_points: string[] } | null;
-  current_version: { id: string; version_no: string; version_status: string } | null;
+  current_version: {
+    id: string;
+    version_no: string;
+    version_status: string;
+    display_version?: string | null;
+  } | null;
   access_info: AccessInfoDTO;
   index_status?: string | null;
   weknora_parse_status?: string | null;
@@ -151,6 +158,7 @@ export interface AccessInfoVM {
 export interface KnowledgeCardVM {
   id: string;
   title: string;
+  canonicalName?: string;
   scope: KnowledgeScope;
   zone: string;
   assetType: string;

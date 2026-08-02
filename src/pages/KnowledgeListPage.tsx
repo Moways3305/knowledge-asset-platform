@@ -203,6 +203,9 @@ export default function KnowledgeListPage() {
             <FileText size={17} aria-hidden="true" />
             <div>
               <strong title={asset.title}>{asset.title}</strong>
+              {asset.canonicalName && (
+                <small title={asset.canonicalName}>{asset.canonicalName}</small>
+              )}
               {asset.access.summary && asset.summary ? (
                 <p>{asset.summary}</p>
               ) : (

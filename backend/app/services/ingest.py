@@ -49,6 +49,7 @@ from app.schemas.ingest import (
     IngestUploadResponse,
     PendingIngestItem,
 )
+from app.schemas.naming import NamingPreviewRequest
 from app.schemas.permission import CallerContext
 from app.schemas.review import ReviewActionResponse
 from app.services import audit as audit_service
@@ -374,6 +375,7 @@ async def confirm(
     response_task_id = persisted.task.id
     response_status = persisted.task.status
     result_asset_id = persisted.asset.id
+    canonical_name = persisted.asset.canonical_name
     parse_status: str | None = None
     index_status = "indexing" if persisted.use_indexing else "skipped"
     if persisted.use_indexing:
@@ -407,6 +409,7 @@ async def confirm(
         result_asset_id=result_asset_id,
         parse_status=parse_status,
         index_status=index_status,
+        canonical_name=canonical_name,
     )
 
 
@@ -440,6 +443,20 @@ async def approve_project_ingest_review(
     if task is None:
         raise _denied(409, "project_ingest_task_missing", "项目提交来源不可用")
 
+    from app.services import naming_rules
+
+    naming_result = await naming_rules.render(
+        session,
+        caller,
+        task,
+        NamingPreviewRequest(
+            target_scope=req.target_scope,
+            target_project_id=req.target_project_id,
+            confidentiality_level=req.confidentiality_level,
+            naming=req.naming,
+        ),
+    )
+
     asset: KnowledgeAsset
     version: KnowledgeAssetVersion
     if review.target_asset_id is None:
@@ -458,9 +475,16 @@ async def approve_project_ingest_review(
             ai_access_level=req.ai_access_level.value,
             asset_status="processing",
             lifecycle_phase_key=req.lifecycle_phase_key,
+            canonical_name=naming_result.canonical_name if naming_result is not None else None,
         )
         version = KnowledgeAssetVersion(
-            version_no="v1", version_status="active", created_by=submitter_id
+            version_no="v1",
+            version_status="active",
+            created_by=submitter_id,
+            file_hash=task.source_file_hash,
+            source_hash=task.source_file_hash,
+            naming_metadata=naming_result.metadata if naming_result is not None else None,
+            naming_rule_version=naming_result.rule_version if naming_result is not None else None,
         )
         asset.versions.append(version)
         for summary in ingest_persistence.build_summaries(

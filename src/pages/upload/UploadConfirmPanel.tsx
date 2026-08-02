@@ -35,6 +35,19 @@ export default function UploadConfirmPanel({
     extraction,
     desensitization,
     naming,
+    namingOptions,
+    namingCategoryId,
+    setNamingCategoryId,
+    namingFormedOn,
+    setNamingFormedOn,
+    namingVersion,
+    setNamingVersion,
+    namingApplicableTo,
+    setNamingApplicableTo,
+    namingPreview,
+    namingPreviewBusy,
+    namingPreviewError,
+    namingRequired,
     editTitle,
     setEditTitle,
     editOneLiner,
@@ -357,6 +370,83 @@ export default function UploadConfirmPanel({
                 )}
               </label>
             )}
+            {targetLibrary === "personal" && (
+              <p className="upload77-naming-exemption" role="status">
+                个人资料不强制规范命名，保留原文件名用于来源追溯。
+              </p>
+            )}
+            {(targetLibrary === "project" || targetLibrary === "company") && namingRequired && (
+              <div className="upload77-canonical-form" aria-label="规范命名字段">
+                <label className="upload77-field" htmlFor="upload77-naming-category">
+                  <span>目录类别</span>
+                  <select
+                    id="upload77-naming-category"
+                    value={namingCategoryId}
+                    onChange={(event) => setNamingCategoryId(event.target.value)}
+                  >
+                    <option value="">请选择目录类别</option>
+                    {namingOptions?.categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.primary} / {category.secondary}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="upload77-field" htmlFor="upload77-naming-date">
+                  <span>文件形成日期</span>
+                  <input
+                    id="upload77-naming-date"
+                    type="date"
+                    value={namingFormedOn}
+                    onChange={(event) => setNamingFormedOn(event.target.value)}
+                  />
+                </label>
+                <label className="upload77-field" htmlFor="upload77-naming-version">
+                  <span>版本</span>
+                  <input
+                    id="upload77-naming-version"
+                    value={namingVersion}
+                    placeholder="V1 或 V1.1"
+                    onChange={(event) => setNamingVersion(event.target.value.toUpperCase())}
+                  />
+                </label>
+                {targetLibrary === "company" && (
+                  <label className="upload77-field" htmlFor="upload77-naming-applicable">
+                    <span>适用对象</span>
+                    <input
+                      id="upload77-naming-applicable"
+                      value={namingApplicableTo}
+                      onChange={(event) => setNamingApplicableTo(event.target.value)}
+                    />
+                  </label>
+                )}
+                <div className="upload77-canonical-preview" aria-live="polite">
+                  <span>规范名预览</span>
+                  {namingPreviewBusy ? (
+                    <p>正在按已发布规则计算…</p>
+                  ) : namingPreview?.canonical_name ? (
+                    <code>{namingPreview.canonical_name}</code>
+                  ) : (
+                    <p>{namingPreviewError ?? "填写字段后生成预览"}</p>
+                  )}
+                  {namingPreview?.notices.map((notice) => (
+                    <strong
+                      className={`is-${notice.kind}`}
+                      key={`${notice.kind}-${notice.message}`}
+                    >
+                      {notice.message}
+                    </strong>
+                  ))}
+                </div>
+              </div>
+            )}
+            {(targetLibrary === "project" || targetLibrary === "company") &&
+              namingPreviewError &&
+              !namingRequired && (
+                <p className="upload77-field-error" role="alert">
+                  {namingPreviewError}
+                </p>
+              )}
           </div>
 
           <ModelAdvancedSettings models={models} />

@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchAuthMe } from "../../api/auth";
 import { ApiError } from "../../api/http";
 import { confirmIngest, createIngestUpload, fetchIngestAiResult } from "../../api/ingest";
+import { fetchNamingOptions, previewIngestNaming } from "../../api/naming";
 import type { IngestAiResultDTO, NamingFields, PendingIngestItemDTO } from "../../types/ingest";
+import type { NamingOptionsDTO, NamingPreviewDTO } from "../../types/naming";
 import {
   POLL_INTERVAL_MS,
   POLL_MAX_ATTEMPTS,
@@ -109,6 +111,16 @@ export function useIngestConfirmation({
     isDuplicate: boolean;
   } | null>(null);
   const [naming, setNaming] = useState<NamingFields | null>(null);
+  const [namingOptions, setNamingOptions] = useState<NamingOptionsDTO | null>(null);
+  const [namingPolicyResolved, setNamingPolicyResolved] = useState(false);
+  const [namingCategoryId, setNamingCategoryId] = useState("");
+  const [namingFormedOn, setNamingFormedOn] = useState("");
+  const [namingVersion, setNamingVersion] = useState("V1");
+  const [namingApplicableTo, setNamingApplicableTo] = useState("");
+  const [namingPreview, setNamingPreview] = useState<NamingPreviewDTO | null>(null);
+  const [namingPreviewBusy, setNamingPreviewBusy] = useState(false);
+  const [namingPreviewError, setNamingPreviewError] = useState<string | null>(null);
+  const namingPreviewRunRef = useRef(0);
 
   const beginWorkflowRun = useCallback(() => {
     workflowRunRef.current += 1;
@@ -165,12 +177,115 @@ export function useIngestConfirmation({
       reason: ai.suggestion_generation_reason,
     });
     setNaming(ai.naming_parsed_fields ?? null);
+    const aiDate = ai.naming_parsed_fields?.date ?? "";
+    if (/^\d{8}$/.test(aiDate)) {
+      setNamingFormedOn(`${aiDate.slice(0, 4)}-${aiDate.slice(4, 6)}-${aiDate.slice(6)}`);
+    }
+    if (/^V[1-9]\d*(?:\.[1-9]\d*)*$/i.test(ai.naming_parsed_fields?.version ?? "")) {
+      setNamingVersion((ai.naming_parsed_fields?.version ?? "V1").toUpperCase());
+    }
     setExtraction({
       status: ai.extraction_status,
       charCount: ai.extracted_char_count,
       isDuplicate: ai.is_possible_duplicate,
     });
   }, []);
+
+  useEffect(() => {
+    namingPreviewRunRef.current += 1;
+    setNamingPreview(null);
+    setNamingPreviewError(null);
+    setNamingPolicyResolved(targetLibrary === "personal");
+    if (!targetLibrary || (targetLibrary === "project" && !targetProjectId)) {
+      setNamingOptions(null);
+      setNamingCategoryId("");
+      return;
+    }
+    let live = true;
+    fetchNamingOptions(targetLibrary, targetLibrary === "project" ? targetProjectId : undefined)
+      .then((value) => {
+        if (!live) return;
+        setNamingOptions(value);
+        setNamingPolicyResolved(true);
+        if (!value.required) {
+          setNamingCategoryId("");
+          return;
+        }
+        setNamingCategoryId((current) =>
+          value.categories.some((item) => item.id === current)
+            ? current
+            : (value.categories[0]?.id ?? ""),
+        );
+        if (value.default_confidentiality) setEditConfidentiality(value.default_confidentiality);
+      })
+      .catch((reason) => {
+        if (!live) return;
+        setNamingOptions(null);
+        setNamingPolicyResolved(false);
+        setNamingPreviewError(reason instanceof ApiError ? reason.message : "命名规则暂时无法加载");
+      });
+    return () => {
+      live = false;
+    };
+  }, [targetLibrary, targetProjectId]);
+
+  useEffect(() => {
+    const runId = ++namingPreviewRunRef.current;
+    setNamingPreview(null);
+    if (!namingOptions?.required || !taskId) {
+      setNamingPreviewBusy(false);
+      return;
+    }
+    if (
+      !namingCategoryId ||
+      !editTitle.trim() ||
+      !namingFormedOn ||
+      !/^V[1-9]\d*(?:\.[1-9]\d*)*$/.test(namingVersion) ||
+      (targetLibrary === "company" && !namingApplicableTo.trim())
+    ) {
+      setNamingPreviewBusy(false);
+      setNamingPreviewError("请完整填写目录类别、主题、形成日期和规范版本");
+      return;
+    }
+    setNamingPreviewBusy(true);
+    setNamingPreviewError(null);
+    const timer = window.setTimeout(() => {
+      previewIngestNaming(taskId, {
+        target_scope: targetLibrary as "project" | "company",
+        target_project_id: targetLibrary === "project" ? targetProjectId : undefined,
+        confidentiality_level: editConfidentiality,
+        naming: {
+          category_id: namingCategoryId,
+          subject: editTitle,
+          formed_on: namingFormedOn,
+          version: namingVersion,
+          applicable_to: targetLibrary === "company" ? namingApplicableTo : undefined,
+        },
+      })
+        .then((value) => {
+          if (namingPreviewRunRef.current === runId) setNamingPreview(value);
+        })
+        .catch((reason) => {
+          if (namingPreviewRunRef.current !== runId) return;
+          setNamingPreviewError(reason instanceof ApiError ? reason.message : "规范名预览失败");
+        })
+        .finally(() => {
+          if (namingPreviewRunRef.current === runId) setNamingPreviewBusy(false);
+        });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [
+    editConfidentiality,
+    editTitle,
+    namingApplicableTo,
+    namingCategoryId,
+    namingFormedOn,
+    namingOptions?.required,
+    namingVersion,
+    targetLibrary,
+    targetProjectId,
+    taskId,
+  ]);
 
   const pollAiResult = useCallback(async (id: string, isCurrent: () => boolean) => {
     if (!isCurrent()) return null;
@@ -364,6 +479,15 @@ export function useIngestConfirmation({
         lifecycle_phase_key: editBizStage,
         embedding_model_ref: embeddingModelRef || undefined,
         rerank_model_ref: rerankModelRef || undefined,
+        naming: namingOptions?.required
+          ? {
+              category_id: namingCategoryId,
+              subject: editTitle,
+              formed_on: namingFormedOn,
+              version: namingVersion,
+              applicable_to: selectedTargetLibrary === "company" ? namingApplicableTo : undefined,
+            }
+          : undefined,
       });
       if (!isCurrent()) return;
       setResultAssetId(response.result_asset_id);
@@ -396,6 +520,11 @@ export function useIngestConfirmation({
     isCurrentWorkflowRun,
     loadLocalPending,
     loadPending,
+    namingApplicableTo,
+    namingCategoryId,
+    namingFormedOn,
+    namingOptions?.required,
+    namingVersion,
     removeLocalTask,
     rerankModelRef,
     targetLibrary,
@@ -435,6 +564,15 @@ export function useIngestConfirmation({
     setResultAssetId(null);
     setSubmitReviewId(null);
     setSubmitIndexStatus(null);
+    setNamingOptions(null);
+    setNamingPolicyResolved(false);
+    setNamingCategoryId("");
+    setNamingFormedOn("");
+    setNamingVersion("V1");
+    setNamingApplicableTo("");
+    setNamingPreview(null);
+    setNamingPreviewBusy(false);
+    setNamingPreviewError(null);
   }, [beginWorkflowRun]);
 
   const namingPreviewState = useMemo<ConfirmationNamingState>(
@@ -533,6 +671,23 @@ export function useIngestConfirmation({
     setExtraction,
     naming,
     setNaming,
+    namingOptions,
+    namingCategoryId,
+    setNamingCategoryId,
+    namingFormedOn,
+    setNamingFormedOn,
+    namingVersion,
+    setNamingVersion,
+    namingApplicableTo,
+    setNamingApplicableTo,
+    namingPreview,
+    namingPreviewBusy,
+    namingPreviewError,
+    namingPreviewReady:
+      targetLibrary === "personal" ||
+      (namingPolicyResolved &&
+        (!namingOptions?.required || Boolean(namingPreview?.canonical_name))),
+    namingRequired: Boolean(namingOptions?.required),
     applyAiResult,
     pollAiResult,
     handleSelectPendingTask,

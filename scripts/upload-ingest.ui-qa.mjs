@@ -220,6 +220,15 @@ try {
         if (url.pathname === "/api/v1/weknora/model-options") {
           return fulfill({ items: [], default_missing: false });
         }
+        if (url.pathname === "/api/v1/naming-options") {
+          return fulfill({
+            required: false,
+            rule_version: null,
+            categories: [],
+            default_confidentiality: null,
+            message: "命名规则尚未发布，不强制规范命名",
+          });
+        }
         if (url.pathname === "/api/v1/ingest/pending") {
           wecomCalls += 1;
           if (scenario === "wecom-failure") {

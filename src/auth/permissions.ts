@@ -91,4 +91,6 @@ export const can = {
   viewPermissions: adminOrGovernance,
   // 人员治理：admin 不可见；仅总经理 / 咨询总监。
   viewPeople: (c: Capabilities) => c.isGovernance,
+  // 命名规则会暴露项目代码与未发布草稿，纯系统 admin 不可见。
+  viewNamingRules: (c: Capabilities) => c.isGovernance,
 } as const;

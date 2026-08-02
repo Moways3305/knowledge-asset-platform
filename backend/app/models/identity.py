@@ -120,6 +120,13 @@ class Project(Base):
     force_review_on_ingest: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # 企微群配置值（非 secret；响应只回脱敏 label + bound，绝不外泄全文）。
     wecom_group_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Published naming policy projection. Draft edits live in NamingRuleRevision
+    # and only reach these columns through an explicit publish transaction.
+    project_code: Mapped[str | None] = mapped_column(String(20), nullable=True, unique=True)
+    project_code_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    naming_default_confidentiality: Mapped[str] = mapped_column(
+        String(2), nullable=False, default="L2"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now

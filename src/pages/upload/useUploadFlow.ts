@@ -165,6 +165,20 @@ export function useUploadFlow() {
     suggestionGeneration,
     extraction,
     naming,
+    namingOptions,
+    namingCategoryId,
+    setNamingCategoryId,
+    namingFormedOn,
+    setNamingFormedOn,
+    namingVersion,
+    setNamingVersion,
+    namingApplicableTo,
+    setNamingApplicableTo,
+    namingPreview,
+    namingPreviewBusy,
+    namingPreviewError,
+    namingPreviewReady,
+    namingRequired,
     pollAiResult,
     handleSelectPendingTask,
     handleStart,
@@ -578,7 +592,7 @@ export function useUploadFlow() {
     targetLibrary !== "" &&
     (targetLibrary !== "project" || targetProjectId.length > 0);
   // 平台默认嵌入或问答模型未配置时禁用提交（models.blockSubmit），不静默走 .env 兜底。
-  const canSubmit = confirmReady && requiredFieldsOk && !models.blockSubmit;
+  const canSubmit = confirmReady && requiredFieldsOk && namingPreviewReady && !models.blockSubmit;
   const confirmSubmitted = flowState === "submitted";
   const awaitingProjectReview = confirmSubmitted && submitReviewId !== null;
   const sourceLabel = activePath === "a" ? "企微微盘" : "本地上传";
@@ -596,6 +610,19 @@ export function useUploadFlow() {
     extraction,
     desensitization,
     naming,
+    namingOptions,
+    namingCategoryId,
+    setNamingCategoryId,
+    namingFormedOn,
+    setNamingFormedOn,
+    namingVersion,
+    setNamingVersion,
+    namingApplicableTo,
+    setNamingApplicableTo,
+    namingPreview,
+    namingPreviewBusy,
+    namingPreviewError,
+    namingRequired,
     fileRef,
     folderRef,
     handleFileSelect,

@@ -21,6 +21,7 @@ from app.schemas.enums import (
     KnowledgeZone,
     Visibility,
 )
+from app.schemas.naming import NamingConfirmationFields
 
 
 class IngestUploadRequest(BaseModel):
@@ -218,6 +219,9 @@ class IngestConfirmRequest(BaseModel):
     # 缺省走平台默认；显式选择仅在首建该 scope 的 KB 时生效，已有 KB 冲突会被锁定拒绝。
     embedding_model_ref: str | None = None
     rerank_model_ref: str | None = None
+    # Project/company canonical naming facts. The final filename is deliberately
+    # absent: the backend renders it from the currently published policy.
+    naming: NamingConfirmationFields | None = None
 
 
 class IngestConfirmResponse(BaseModel):
@@ -232,6 +236,7 @@ class IngestConfirmResponse(BaseModel):
     # 资产已确认落库（status=completed），index_failed 表示底座索引失败但资产保留、可重试，
     # 前端据此提示"已提交、索引暂未完成"，不得表现为完全成功且可检索。安全业务状态，无 kb/doc id。
     index_status: str | None = None
+    canonical_name: str | None = None
 
 
 class IngestBulkConfirmItem(BaseModel):

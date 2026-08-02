@@ -39,6 +39,7 @@ class KnowledgeListItemOut(BaseModel):
 
     id: uuid.UUID
     title: str
+    canonical_name: str | None = None
     scope: str
     zone: str
     asset_type: str
@@ -108,11 +109,13 @@ class CurrentVersionOut(BaseModel):
     id: uuid.UUID
     version_no: str
     version_status: str
+    display_version: str | None = None
 
 
 class KnowledgeDetailOut(BaseModel):
     id: uuid.UUID
     title: str
+    canonical_name: str | None = None
     scope: str
     zone: str
     asset_type: str

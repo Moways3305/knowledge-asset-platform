@@ -401,6 +401,7 @@ export default function KnowledgeDetailPage() {
             {asset.updatedAt && <time>更新于 {formatBeijingTime(asset.updatedAt)}</time>}
           </div>
           <h1>{asset.title}</h1>
+          {asset.canonicalName && <p className="kd-canonical-name">{asset.canonicalName}</p>}
           {canSummary && (
             <p className={hasText(asset.oneLiner) ? "" : "kdetail-summary-pending"}>
               {hasText(asset.oneLiner) ? asset.oneLiner : "摘要待生成"}

@@ -52,6 +52,7 @@ export function mapCard(d: KnowledgeListItemDTO): KnowledgeCardVM {
   return {
     id: d.id,
     title: d.title,
+    canonicalName: d.canonical_name ?? "",
     scope: d.scope,
     zone: d.zone,
     assetType: d.asset_type,
@@ -88,7 +89,7 @@ function mapDetail(d: KnowledgeDetailDTO): KnowledgeDetailVM {
     oneLiner: d.summary?.one_liner ?? "",
     detailed: d.summary?.detailed ?? "",
     keyPoints: d.summary?.key_points ?? [],
-    currentVersionNo: d.current_version?.version_no ?? null,
+    currentVersionNo: d.current_version?.display_version ?? d.current_version?.version_no ?? null,
     indexErrorCode: d.index_error_code ?? null,
   };
 }
