@@ -20,6 +20,10 @@ const indexStatusLabel: Record<string, string> = {
   skipped: "资产已保存，未启用问答索引",
 };
 
+export function confirmationSubjectLabel(targetLibrary: TargetLibrary): string {
+  return targetLibrary === "project" || targetLibrary === "company" ? "主题" : "标题";
+}
+
 export default function UploadConfirmPanel({
   flow,
   onExit,
@@ -147,7 +151,7 @@ export default function UploadConfirmPanel({
           </div>
 
           <label className="upload77-field upload77-field-wide" htmlFor="upload77-edit-title">
-            <span>标题</span>
+            <span>{confirmationSubjectLabel(targetLibrary)}</span>
             <input
               id="upload77-edit-title"
               value={editTitle}
@@ -302,9 +306,11 @@ export default function UploadConfirmPanel({
 
           {naming && (
             <details className="upload77-naming">
-              <summary>命名解析</summary>
-              <p>{naming.normalized_title}</p>
-              <span>{naming.original_naming_compliant ? "原文件名合规" : "已生成规范化标题"}</span>
+              <summary>主题提取依据</summary>
+              <p>{naming.topic}</p>
+              <span>
+                {naming.inferred_fields.includes("topic") ? "主题由文件名推断" : "主题来自内容建议"}
+              </span>
             </details>
           )}
 

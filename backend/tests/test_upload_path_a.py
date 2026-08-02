@@ -86,7 +86,7 @@ async def test_business_user_sees_own_path_a_pending(client, db_session):
     item = next(i for i in body["items"] if i["id"] == str(task_id))
     assert item["source"] == "path_a_wecom"
     assert item["source_file_name"] == "零售渠道策略_V2.pptx"
-    assert item["suggested_title"].startswith("【客户项目")
+    assert item["suggested_title"] == "零售渠道策略"
     assert item["target_scope"] == "personal"
 
 

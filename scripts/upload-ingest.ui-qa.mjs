@@ -14,6 +14,10 @@ const taskId = "task-secret-77";
 const projectId = "project-secret-77";
 const assetId = "asset-result-77";
 const uploadSessionId = "upload-session-secret-77";
+const longPendingFileName =
+  "2026年度华东区域重点客户战略经营计划执行复盘与下一阶段增长行动方案最终评审修订版_v12.pptx";
+const longPendingSubject =
+  "华东区域重点客户战略经营计划执行复盘与下一阶段增长行动方案及关键管理举措";
 const scenarios = [
   "local-empty",
   "local-queue",
@@ -30,6 +34,7 @@ const scenarios = [
 const viewports = [
   { name: "1440", width: 1440, height: 1000 },
   { name: "1280", width: 1280, height: 900 },
+  { name: "1920", width: 1920, height: 1080 },
 ];
 
 const authMe = {
@@ -109,7 +114,8 @@ const pendingTask = {
 const localPendingTask = {
   ...pendingTask,
   source: "path_b_upload",
-  source_file_name: "客户增长复盘.md",
+  source_file_name: longPendingFileName,
+  suggested_title: longPendingSubject,
   target_scope: null,
   target_project_id: null,
 };
@@ -125,7 +131,13 @@ function assertResult(result) {
   if (commonFailure) return false;
   if (result.scenario === "local-empty") return result.emptyUploadReady;
   if (result.scenario === "local-queue")
-    return result.compactCompletionVisible && result.localPendingRefreshed;
+    return (
+      result.compactCompletionVisible &&
+      result.localPendingRefreshed &&
+      result.longPendingLayoutValid &&
+      result.pendingScrollContainerValid &&
+      Boolean(result.pendingScreenshot)
+    );
   if (result.scenario === "local-degraded") {
     // A recovered awaiting-confirmation session is authoritative.  Historical
     // parse metadata must not leave a stale failure visible after completion.
@@ -381,7 +393,7 @@ try {
           await localPendingSection.locator("tbody tr").first().waitFor();
         }
         if (!scenario.startsWith("local-")) {
-          await page.getByRole("button", { name: "客户增长复盘.md" }).click();
+          await page.getByRole("button", { name: longPendingFileName }).click();
           await page.getByRole("heading", { name: "内容建议预览" }).waitFor();
         }
       }
@@ -398,16 +410,43 @@ try {
         await page.getByRole("link", { name: /查看资产/ }).waitFor();
       }
 
-      const metrics = await page.evaluate(() => {
+      const metrics = await page.evaluate(({ longPendingFileName, longPendingSubject }) => {
         const root = document.documentElement;
         const rail = document.querySelector(".rail")?.getBoundingClientRect();
         const deck = document.querySelector(".deck")?.getBoundingClientRect();
         const text = document.body.innerText;
+        const pendingTable = document.querySelector(
+          'section[aria-labelledby="local-pending-title"] .upload77-pending-table',
+        );
+        const pendingWrap = pendingTable?.closest(".upload77-table-wrap");
+        const fileButton = pendingTable?.querySelector(".upload77-task-select");
+        const subject = pendingTable?.querySelector(".upload77-pending-truncate");
+        const pendingOverflowX = pendingWrap ? getComputedStyle(pendingWrap).overflowX : "";
+        const pendingRequiresHorizontalScroll = window.innerWidth <= 1280;
+        let pendingAcceptsHorizontalScroll = !pendingRequiresHorizontalScroll;
+        if (pendingWrap && pendingRequiresHorizontalScroll) {
+          const originalScrollLeft = pendingWrap.scrollLeft;
+          pendingWrap.scrollLeft = 1;
+          pendingAcceptsHorizontalScroll = pendingWrap.scrollLeft > originalScrollLeft;
+          pendingWrap.scrollLeft = originalScrollLeft;
+        }
+        const hasTwoLineClamp = (element) => {
+          if (!element) return false;
+          const style = getComputedStyle(element);
+          const lineHeight = Number.parseFloat(style.lineHeight);
+          return (
+            style.webkitLineClamp === "2" &&
+            Number.isFinite(lineHeight) &&
+            element.getBoundingClientRect().height <= lineHeight * 2 + 2
+          );
+        };
         return {
           overflowX: root.scrollWidth - root.clientWidth,
           shellOverlap: rail && deck ? Math.max(0, rail.right - deck.left) : 1,
           clippedActions: [...document.querySelectorAll("button, a")].filter(
-            (element) => element.scrollWidth > element.clientWidth + 2,
+            (element) =>
+              !element.classList.contains("upload77-task-select") &&
+              element.scrollWidth > element.clientWidth + 2,
           ).length,
           pageTitle: document.querySelector(".product-page-header h2")?.textContent?.trim() ?? "",
           emptyUploadReady:
@@ -421,7 +460,27 @@ try {
           compactCompletionVisible:
             Boolean(document.querySelector(".upload77-upload-complete")) &&
             !document.querySelector("#local-upload-queue-title"),
-          localPendingVisible: text.includes("待确认入库") && text.includes("客户增长复盘.md"),
+          localPendingVisible:
+            text.includes("待确认入库") && text.includes(longPendingFileName),
+          pendingWrapClientWidth: pendingWrap?.clientWidth ?? 0,
+          pendingWrapScrollWidth: pendingWrap?.scrollWidth ?? 0,
+          pendingOverflowX,
+          pendingScrollContainerValid:
+            Boolean(pendingTable && pendingWrap) &&
+            (pendingOverflowX === "auto" || pendingOverflowX === "scroll") &&
+            pendingWrap.scrollWidth >= pendingTable.scrollWidth &&
+            (!pendingRequiresHorizontalScroll ||
+              (pendingWrap.scrollWidth > pendingWrap.clientWidth + 2 &&
+                pendingAcceptsHorizontalScroll)),
+          longPendingLayoutValid:
+            Boolean(pendingTable && pendingWrap && fileButton && subject) &&
+            pendingTable.querySelectorAll("colgroup col").length === 7 &&
+            Number.parseFloat(getComputedStyle(pendingTable).minWidth) >= 1120 &&
+            pendingWrap.scrollWidth >= pendingTable.scrollWidth &&
+            fileButton.getAttribute("title") === longPendingFileName &&
+            subject.getAttribute("title") === longPendingSubject &&
+            hasTwoLineClamp(fileButton) &&
+            hasTwoLineClamp(subject),
           uploadFailureVisible: text.includes("上传失败"),
           degradedWarningVisible: text.includes("内容建议暂不可用，请人工核对后继续"),
           confirmVisible: text.includes("内容建议预览") && text.includes("确认入库"),
@@ -440,7 +499,7 @@ try {
               text,
             ),
         };
-      });
+      }, { longPendingFileName, longPendingSubject });
 
       const confirmPayloadValid = confirmPayload
         ? confirmPayload.title === "客户增长项目复盘方法论" &&
@@ -453,6 +512,18 @@ try {
             (confirmPayload.target_scope === "project" &&
               confirmPayload.target_project_id === projectId))
         : false;
+      let pendingScreenshot = null;
+      if (scenario === "local-queue") {
+        const pendingSection = page.locator(
+          'section[aria-labelledby="local-pending-title"]',
+        );
+        await pendingSection.scrollIntoViewIfNeeded();
+        pendingScreenshot = path.join(outDir, `${scenario}-pending-${viewport.name}.png`);
+        await pendingSection.screenshot({
+          path: pendingScreenshot,
+          animations: "disabled",
+        });
+      }
       const screenshot = path.join(outDir, `${scenario}-${viewport.name}.png`);
       await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
       const result = {
@@ -464,6 +535,7 @@ try {
         wecomCalls,
         confirmPayloadValid,
         screenshot,
+        pendingScreenshot,
         ...metrics,
         queueOrderValid: metrics.queueOrderValid,
         localPendingRefreshed:

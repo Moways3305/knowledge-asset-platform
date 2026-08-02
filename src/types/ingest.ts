@@ -93,8 +93,7 @@ export interface IngestTaskStatusDTO {
   review_id: string | null;
 }
 
-// 规范命名解析结果（后端确定性拼装；存于 naming_parsed_fields）。
-// suggested_title 即由这些组件拼成的 normalized_title。
+// 历史命名解析兼容元数据；suggested_title 的现行语义仅为干净主题。
 export interface NamingFields {
   primary_category: string;
   secondary_category: string;

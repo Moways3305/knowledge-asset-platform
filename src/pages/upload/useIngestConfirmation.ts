@@ -152,7 +152,7 @@ export function useIngestConfirmation({
       });
   }, []);
 
-  const applyAiResult = useCallback((ai: IngestAiResultDTO, fallbackTitle: string) => {
+  const applyAiResult = useCallback((ai: IngestAiResultDTO) => {
     setLlmStatus({
       status: ai.content_processing_status,
       provider: ai.llm_provider,
@@ -164,7 +164,9 @@ export function useIngestConfirmation({
       counts: ai.desensitization_counts,
       message: ai.desensitization_message,
     });
-    setEditTitle(ai.suggested_title ?? fallbackTitle);
+    // The backend projection is the only trusted suggestion source. If it
+    // cannot derive a safe subject, require explicit manual input.
+    setEditTitle(ai.suggested_title ?? "");
     setEditOneLiner(ai.suggested_one_liner ?? "");
     setEditSummary(ai.suggested_summary ?? "");
     setEditKeyPoints((ai.suggested_key_points ?? []).join("\n"));
@@ -328,7 +330,7 @@ export function useIngestConfirmation({
       try {
         const ai = await pollAiResult(task.id, isCurrent);
         if (!ai || !isCurrent()) return;
-        applyAiResult(ai, task.source_file_name);
+        applyAiResult(ai);
         if (ai.status === "processing") {
           setProcessingNote(
             "后台仍在处理该企微微盘文件（抽取 / LLM 内容处理），请稍后刷新重试，暂不可确认。",
@@ -377,7 +379,7 @@ export function useIngestConfirmation({
         setFlowState("processing");
         return;
       }
-      applyAiResult(ai, fileName);
+      applyAiResult(ai);
       if (ai.status === "failed") {
         setProcessingNote(
           `文件处理失败：${ai.error_message ?? "无法从该文件抽取内容"}。请检查文件后重新上传，当前不可提交入库。`,
@@ -395,7 +397,6 @@ export function useIngestConfirmation({
     applyAiResult,
     beforeSingleTask,
     beginWorkflowRun,
-    fileName,
     isCurrentWorkflowRun,
     pollAiResult,
     selectedFile,
@@ -411,7 +412,7 @@ export function useIngestConfirmation({
     try {
       const ai = await pollAiResult(taskId, isCurrent);
       if (!ai || !isCurrent()) return;
-      applyAiResult(ai, activePath === "a" ? selectedTaskName : fileName);
+      applyAiResult(ai);
       if (ai.status === "processing") {
         setProcessingNote("后台仍在处理，请稍后重新检查，当前不可确认入库。");
         return;
@@ -429,16 +430,7 @@ export function useIngestConfirmation({
       setApiError(error instanceof ApiError ? error.message : "任务状态暂时无法获取，请稍后重试");
       setFlowState(activePath === "a" ? "idle" : "file_selected");
     }
-  }, [
-    activePath,
-    applyAiResult,
-    beginWorkflowRun,
-    fileName,
-    isCurrentWorkflowRun,
-    pollAiResult,
-    selectedTaskName,
-    taskId,
-  ]);
+  }, [activePath, applyAiResult, beginWorkflowRun, isCurrentWorkflowRun, pollAiResult, taskId]);
 
   const handleSubmit = useCallback(async () => {
     const runId = beginWorkflowRun();
@@ -447,6 +439,10 @@ export function useIngestConfirmation({
     setApiError(null);
     if (!targetLibrary) {
       setApiError("请选择目标知识库");
+      return;
+    }
+    if (!editTitle.trim()) {
+      setApiError("请填写标题或主题");
       return;
     }
     const selectedTargetLibrary: Exclude<TargetLibrary, ""> = targetLibrary;

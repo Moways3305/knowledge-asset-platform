@@ -472,7 +472,16 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
               </div>
             ) : (
               <div className="upload77-table-wrap">
-                <table className="upload77-table">
+                <table className="upload77-table upload77-pending-table">
+                  <colgroup>
+                    <col className="upload77-pending-col-select" />
+                    <col className="upload77-pending-col-result" />
+                    <col className="upload77-pending-col-file" />
+                    <col className="upload77-pending-col-status" />
+                    <col className="upload77-pending-col-subject" />
+                    <col className="upload77-pending-col-generation" />
+                    <col className="upload77-pending-col-time" />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th className="upload77-batch-col">
@@ -481,7 +490,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                       <th>处理结果</th>
                       <th>文件</th>
                       <th>状态</th>
-                      <th>建议标题</th>
+                      <th>建议主题</th>
                       <th>建议生成状态</th>
                       <th>时间</th>
                     </tr>
@@ -544,6 +553,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                           <td>
                             <button
                               className="upload77-task-select"
+                              title={task.source_file_name}
                               onClick={() => {
                                 if (!loadingThis && !batchBusy) void handleSelectPendingTask(task);
                               }}
@@ -558,7 +568,14 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                               {pendingStatusLabel[task.status] ?? "待处理"}
                             </span>
                           </td>
-                          <td>{task.suggested_title || "—"}</td>
+                          <td>
+                            <span
+                              className="upload77-pending-truncate"
+                              title={task.suggested_title ?? undefined}
+                            >
+                              {task.suggested_title || "—"}
+                            </span>
+                          </td>
                           <td title={task.suggestion_generation_reason}>
                             {task.suggestion_generation_status === "generated"
                               ? "建议已生成"
