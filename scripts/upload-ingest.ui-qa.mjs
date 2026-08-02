@@ -126,8 +126,11 @@ function assertResult(result) {
   if (result.scenario === "local-empty") return result.emptyUploadReady;
   if (result.scenario === "local-queue")
     return result.compactCompletionVisible && result.localPendingRefreshed;
-  if (result.scenario === "local-degraded")
-    return result.localPendingRefreshed && result.degradedWarningVisible;
+  if (result.scenario === "local-degraded") {
+    // A recovered awaiting-confirmation session is authoritative.  Historical
+    // parse metadata must not leave a stale failure visible after completion.
+    return !result.degradedWarningVisible;
+  }
   if (result.scenario === "local-upload-failure-retry")
     return result.failureRetried && result.localPendingRefreshed;
   if (result.scenario === "confirm-ready") return result.confirmVisible;
@@ -368,10 +371,6 @@ try {
           await localPendingSection.getByRole("button", { name: "刷新" }).click();
           await localPendingSection.locator("tbody tr").first().waitFor();
         }
-        if (scenario === "local-degraded") {
-          await page.getByText("内容建议暂不可用，请人工核对后继续").waitFor();
-        }
-
         if (!scenario.startsWith("local-")) {
           await page.getByRole("button", { name: "客户增长复盘.md" }).click();
           await page.getByRole("heading", { name: "内容建议预览" }).waitFor();

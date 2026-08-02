@@ -420,6 +420,11 @@ async def _reconcile_and_promote(
                         if task.error_type == "processing_timeout"
                         else "文件处理失败，请检查文件后重试"
                     )
+                else:
+                    # A later successful task state is authoritative. Do not retain a stale
+                    # parse/queue failure from an earlier reconciliation pass.
+                    item.safe_error_code = None
+                    item.safe_error_message = None
         elif item.ingest_task_id is not None and item.status != "cancelled":
             # 悬空引用：item 之前关联的 IngestTask 已被删除（例如 delete_pending_task 后
             # ON DELETE SET NULL 清掉了外键）。同步把 item 也置为 cancelled，避免队列里
@@ -479,6 +484,9 @@ async def _reconcile_and_promote(
                 if result == IngestStatus.failed.value
                 else "processing"
             )
+            if item.status != "failed":
+                item.safe_error_code = None
+                item.safe_error_message = None
         except Exception:
             task = tasks[task_id]
             task.status = IngestStatus.failed.value

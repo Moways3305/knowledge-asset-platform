@@ -92,6 +92,21 @@ describe("useUploadFlow persistent upload sessions", () => {
     });
   });
 
+  it("treats a completed session item as authoritative over stale parse failure metadata", async () => {
+    const completedWithStaleError = session(1);
+    completedWithStaleError.items[0].error_code = "file_parse_failed";
+    completedWithStaleError.items[0].error_message = "旧解析失败";
+    ingest.fetchUploadSessions.mockResolvedValue([completedWithStaleError]);
+
+    const { result } = renderHook(() => useUploadFlow());
+
+    await waitFor(() => expect(result.current.localUploadQueue).toHaveLength(1));
+    expect(result.current.localUploadQueue[0]).toMatchObject({
+      status: "completed",
+      error: null,
+    });
+  });
+
   it("submits all 700 selected files once and renders four stable batches", async () => {
     ingest.createUploadSession.mockResolvedValue(session(700));
     const { result } = renderHook(() => useUploadFlow());

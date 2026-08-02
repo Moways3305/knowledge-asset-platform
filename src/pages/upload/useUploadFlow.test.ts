@@ -3,6 +3,7 @@ import type { ChangeEvent } from "react";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useUploadFlow } from "./useUploadFlow";
 import { useIngestConfirmation } from "./useIngestConfirmation";
+import { ApiError } from "../../api/http";
 import type { ModelSelectionState } from "../../hooks/useModelSelection";
 import type {
   IngestAiResultDTO,
@@ -1173,12 +1174,35 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     await waitFor(() => expect(result.current.localPendingLoading).toBe(false));
     expect(result.current.localPendingTasks.map((task) => task.id)).toEqual(["local-a"]);
     expect(result.current.batchSelection).toEqual(["local-a"]);
-    expect(result.current.batchErrors["local-a"]).toBe("拒绝失败，任务仍保留，请重试");
+    expect(result.current.batchErrors["local-a"]).toBe("网络连接中断，任务仍保留，可重试。");
+    expect(result.current.batchRejectRetryability["local-a"]).toBe(true);
     expect(ingest.confirmIngest).not.toHaveBeenCalled();
 
     await act(async () => result.current.handleBatchReject([a]));
     await waitFor(() => expect(result.current.localPendingTasks).toEqual([]));
     expect(result.current.batchSelection).toEqual([]);
+  });
+
+  it("永久拒绝的状态冲突保留任务但不提供自动重试", async () => {
+    const task = { ...pendingTask("local-conflict", "Conflict.docx"), source: "path_b_upload" };
+    ingest.fetchPendingIngestTasks
+      .mockReset()
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([task]);
+    ingest.deletePendingTask
+      .mockReset()
+      .mockRejectedValueOnce(new ApiError(409, "状态冲突", "ingest_already_confirmed"));
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(result.current.localPendingTasks).toHaveLength(1));
+
+    await act(async () => result.current.handleBatchReject([task]));
+
+    expect(result.current.localPendingTasks).toHaveLength(1);
+    expect(result.current.batchSelection).toEqual([]);
+    expect(result.current.batchRejectRetryability[task.id]).toBe(false);
+    expect(result.current.batchErrors[task.id]).toBe(
+      "已入库：该任务已形成知识资产，不能永久删除。",
+    );
   });
 
   it("第二项拒绝仍在请求中时第一项成功任务已从本地列表消失", async () => {
