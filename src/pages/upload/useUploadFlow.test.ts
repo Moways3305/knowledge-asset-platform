@@ -418,6 +418,71 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(JSON.stringify(payload)).not.toContain("琥崧");
   });
 
+  it("prefers the unique AI category suggestion and preserves a human override", async () => {
+    auth.fetchAuthMe.mockResolvedValue({
+      projects: [{ projectId: "project-alpha", projectName: "Alpha 项目" }],
+    });
+    ingest.fetchIngestAiResult.mockResolvedValueOnce({
+      ...readyAiResult,
+      naming_parsed_fields: {
+        primary_category: "客户项目",
+        secondary_category: "交付成果",
+        topic: "年度经营计划",
+        subject_or_client: "",
+        date: "20210116",
+        version: "V1",
+        confidentiality_level: "L2",
+        ai_access_level: "A2",
+        normalized_title: "",
+        inferred_fields: ["secondary_category"],
+        missing_fields: [],
+        source_file_name: "交付成果.md",
+        original_naming_compliant: false,
+      },
+    });
+    namingApi.fetchNamingOptions.mockResolvedValue({
+      required: true,
+      rule_version: 2,
+      categories: [
+        {
+          id: "category-foundation",
+          primary: "项目资料",
+          secondary: "项目基础信息",
+          prefix: "项目资料-项目基础信息",
+          default_confidentiality: "L2",
+        },
+        {
+          id: "category-deliverable",
+          primary: "项目资料",
+          secondary: "交付成果",
+          prefix: "项目资料-交付成果",
+          default_confidentiality: "L2",
+        },
+      ],
+      default_confidentiality: "L2",
+      message: null,
+    });
+    namingApi.previewIngestNaming.mockResolvedValue({
+      required: true,
+      canonical_name: "【ALPHA-2021-交付成果】年度经营计划_20210116_V1_L2.md",
+      rule_version: 2,
+      fields: { subject: "年度经营计划" },
+      notices: [],
+      message: null,
+    });
+    const { result } = renderHook(() => useUploadFlow());
+    await driveToReady(result);
+
+    act(() => {
+      result.current.setTargetLibrary("project");
+      result.current.setTargetProjectId("project-alpha");
+    });
+    await waitFor(() => expect(result.current.namingCategoryId).toBe("category-deliverable"));
+
+    act(() => result.current.setNamingCategoryId("category-foundation"));
+    await waitFor(() => expect(result.current.namingCategoryId).toBe("category-foundation"));
+  });
+
   it("confirmation 边界统一暴露已验证目标、人工字段、AI 建议和 task 身份", async () => {
     const loadPending = vi.fn().mockResolvedValue(undefined);
     const loadLocalPending = vi.fn().mockResolvedValue(undefined);

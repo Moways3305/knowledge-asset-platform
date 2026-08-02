@@ -428,6 +428,69 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(screen.getByRole("button", { name: "确认批量入库" })).toBeDisabled();
   });
 
+  it("preselects a unique AI category suggestion and keeps it editable", async () => {
+    const task = {
+      ...pending("ai-category", "交付成果.md"),
+      target_scope: null,
+      naming_parsed_fields: {
+        primary_category: "客户项目",
+        secondary_category: "交付成果",
+        topic: "年度经营计划",
+        subject_or_client: "",
+        date: "20210116",
+        version: "V1",
+        confidentiality_level: "L2",
+        ai_access_level: "A2",
+        normalized_title: "",
+        inferred_fields: ["secondary_category"],
+        missing_fields: [],
+        source_file_name: "交付成果.md",
+        original_naming_compliant: false,
+      },
+    };
+    namingApi.fetchNamingOptions.mockResolvedValueOnce({
+      required: true,
+      rule_version: 2,
+      categories: [
+        {
+          id: "category-foundation",
+          primary: "项目资料",
+          secondary: "项目基础信息",
+          prefix: "项目资料-项目基础信息",
+          default_confidentiality: "L2",
+        },
+        {
+          id: "category-deliverable",
+          primary: "项目资料",
+          secondary: "交付成果",
+          prefix: "项目资料-交付成果",
+          default_confidentiality: "L2",
+        },
+      ],
+      default_confidentiality: "L2",
+      message: null,
+    });
+    const flow = flowFixture({ localPendingTasks: [task], batchSelection: [task.id] });
+    render(<UploadStepB flow={flow} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "批量确认入库（1）" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标知识库" }), {
+      target: { value: "project" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标项目" }), {
+      target: { value: "project-a" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
+
+    const category = await screen.findByRole("combobox", { name: "交付成果.md 目录类别" });
+    expect(category).toHaveValue("category-deliverable");
+    expect(screen.getByText("已按 AI 建议预选，可人工修改")).toBeInTheDocument();
+
+    fireEvent.change(category, { target: { value: "category-foundation" } });
+    expect(category).toHaveValue("category-foundation");
+    expect(screen.queryByText("已按 AI 建议预选，可人工修改")).not.toBeInTheDocument();
+  });
+
   it("renders 93 long-name review rows inside a bounded scroll container", async () => {
     const longName = `${"超长项目资料文件名".repeat(12)}.pdf`;
     const tasks = Array.from({ length: 93 }, (_, index) => ({

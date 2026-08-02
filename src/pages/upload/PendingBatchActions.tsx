@@ -10,6 +10,7 @@ import type {
 } from "../../types/naming";
 import type { UploadFlow } from "./useUploadFlow";
 import type { TargetLibrary } from "./uploadConstants";
+import { suggestNamingCategory } from "./namingCategorySuggestion";
 
 type ReviewRows = Record<string, BatchNamingValuesDTO>;
 type PreviewRows = Record<string, BatchNamingPreviewItemDTO>;
@@ -36,12 +37,11 @@ function sourceSubject(task: PendingIngestItemDTO): string {
 }
 
 function initialRows(tasks: PendingIngestItemDTO[], options: NamingOptionsDTO): ReviewRows {
-  const onlyCategory = options.categories.length === 1 ? options.categories[0].id : "";
   return Object.fromEntries(
     tasks.map((task) => [
       task.id,
       {
-        category_id: onlyCategory,
+        category_id: suggestNamingCategory(task.naming_parsed_fields, options.categories)?.id ?? "",
         subject: sourceSubject(task),
         formed_on: parsedValue(task, "date"),
         version: parsedValue(task, "version"),
@@ -338,6 +338,10 @@ export default function PendingBatchActions({
                 const localError = rowMissing(row, company);
                 const serverError = previewError(preview);
                 const fieldError = localError ?? serverError;
+                const categorySuggestion = suggestNamingCategory(
+                  task.naming_parsed_fields,
+                  categories,
+                );
                 return (
                   <article className="upload77-batch-naming-row" key={task.id}>
                     <header>
@@ -381,6 +385,12 @@ export default function PendingBatchActions({
                             {fieldError.message}
                           </small>
                         )}
+                        {categorySuggestion?.basis === "ai" &&
+                          categorySuggestion.id === row.category_id && (
+                            <small className="upload77-batch-naming-notice">
+                              已按 AI 建议预选，可人工修改
+                            </small>
+                          )}
                       </label>
                       <label>
                         <span>文件形成日期</span>

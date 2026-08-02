@@ -14,6 +14,7 @@ import {
   type PathBranch,
   type TargetLibrary,
 } from "./uploadConstants";
+import { suggestNamingCategory } from "./namingCategorySuggestion";
 
 export interface ConfirmationNamingState {
   taskId: string | null;
@@ -216,7 +217,7 @@ export function useIngestConfirmation({
         setNamingCategoryId((current) =>
           value.categories.some((item) => item.id === current)
             ? current
-            : (value.categories[0]?.id ?? ""),
+            : (suggestNamingCategory(naming, value.categories)?.id ?? ""),
         );
         if (value.default_confidentiality) setEditConfidentiality(value.default_confidentiality);
       })
@@ -229,7 +230,7 @@ export function useIngestConfirmation({
     return () => {
       live = false;
     };
-  }, [targetLibrary, targetProjectId]);
+  }, [naming, targetLibrary, targetProjectId]);
 
   useEffect(() => {
     const runId = ++namingPreviewRunRef.current;
