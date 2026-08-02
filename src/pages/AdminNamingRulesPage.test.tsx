@@ -93,6 +93,9 @@ describe("AdminNamingRulesPage", () => {
 
     const code = await screen.findByPlaceholderText("如 BW-2601");
     fireEvent.change(code, { target: { value: "bw-2601" } });
+    fireEvent.change(screen.getByLabelText("客户命名别名（顿号分隔）"), {
+      target: { value: "琥崧、琥崧智能" },
+    });
     fireEvent.click(screen.getAllByLabelText("启用")[0]);
     fireEvent.click(screen.getByLabelText(/发布后强制/));
     fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
@@ -102,7 +105,14 @@ describe("AdminNamingRulesPage", () => {
       1,
       expect.objectContaining({
         enforced: true,
-        project_codes: [expect.objectContaining({ code: "BW-2601", enabled: true })],
+        project_codes: [
+          expect.objectContaining({
+            code: "BW-2601",
+            enabled: true,
+            client_aliases: ["琥崧", "琥崧智能"],
+            client_aliases_enabled: true,
+          }),
+        ],
         categories: expect.arrayContaining([
           expect.objectContaining({
             scope: "project",

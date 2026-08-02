@@ -461,6 +461,9 @@ async def approve_project_ingest_review(
             naming=req.naming,
         ),
     )
+    # Re-normalize snapshots at approval time as well so reviews created before
+    # this protection cannot retain a historical customer-bearing subject.
+    req = ingest_confirmation.apply_authoritative_project_subject(req, naming_result)
 
     asset: KnowledgeAsset
     version: KnowledgeAssetVersion

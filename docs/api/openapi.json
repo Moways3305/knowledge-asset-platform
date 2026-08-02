@@ -9114,6 +9114,19 @@
       },
       "ProjectCodeConfig": {
         "properties": {
+          "client_aliases": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Client Aliases",
+            "type": "array"
+          },
+          "client_aliases_enabled": {
+            "default": true,
+            "title": "Client Aliases Enabled",
+            "type": "boolean"
+          },
           "code": {
             "title": "Code",
             "type": "string"

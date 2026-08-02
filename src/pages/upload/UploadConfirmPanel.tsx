@@ -21,6 +21,7 @@ const indexStatusLabel: Record<string, string> = {
 };
 
 export function confirmationSubjectLabel(targetLibrary: TargetLibrary): string {
+  if (!targetLibrary) return "建议主题";
   return targetLibrary === "project" || targetLibrary === "company" ? "主题" : "标题";
 }
 
@@ -317,6 +318,11 @@ export default function UploadConfirmPanel({
           <div className="upload77-targets">
             <h3>入库目标</h3>
             <p className="upload77-field-note">已选资料 1 项</p>
+            {!targetLibrary && (
+              <p className="upload77-field-note" role="status">
+                选择项目库或公司库后生成规范名
+              </p>
+            )}
             {targetLocked && (
               <p className="upload77-field-note" role="status">
                 目标已由来源规则锁定

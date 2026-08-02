@@ -265,7 +265,12 @@ export function useIngestConfirmation({
         },
       })
         .then((value) => {
-          if (namingPreviewRunRef.current === runId) setNamingPreview(value);
+          if (namingPreviewRunRef.current !== runId) return;
+          setNamingPreview(value);
+          const renderedSubject = value.fields?.subject;
+          if (typeof renderedSubject === "string" && renderedSubject !== editTitle) {
+            setEditTitle(renderedSubject);
+          }
         })
         .catch((reason) => {
           if (namingPreviewRunRef.current !== runId) return;

@@ -32,6 +32,8 @@ class ProjectCodeConfig(BaseModel):
     code: str
     enabled: bool = True
     default_confidentiality: ConfidentialityLevel = ConfidentialityLevel.L2
+    client_aliases: list[str] = Field(default_factory=list, max_length=20)
+    client_aliases_enabled: bool = True
 
     @field_validator("code")
     @classmethod
@@ -39,6 +41,17 @@ class ProjectCodeConfig(BaseModel):
         normalized = value.strip().upper()
         if not _PROJECT_CODE.fullmatch(normalized):
             raise ValueError("项目代码须为 2-20 位大写字母、数字或短横线，且以字母开头")
+        return normalized
+
+    @field_validator("client_aliases")
+    @classmethod
+    def validate_client_aliases(cls, values: list[str]) -> list[str]:
+        normalized = [_safe_text(value, label="客户命名别名", maximum=80) for value in values]
+        if any(len(value) < 2 for value in normalized):
+            raise ValueError("客户命名别名不能少于 2 个字符")
+        folded = [value.casefold() for value in normalized]
+        if len(folded) != len(set(folded)):
+            raise ValueError("同一项目的客户命名别名不能重复")
         return normalized
 
 

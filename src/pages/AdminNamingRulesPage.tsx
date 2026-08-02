@@ -218,6 +218,8 @@ export default function AdminNamingRulesPage() {
               code: project.project_code ?? "",
               enabled: project.project_code_active,
               default_confidentiality: project.default_confidentiality,
+              client_aliases: [],
+              client_aliases_enabled: true,
             };
             const patchRow = (patch: Partial<typeof row>) => {
               const next = config.project_codes.filter((item) => item.project_id !== project.id);
@@ -250,6 +252,22 @@ export default function AdminNamingRulesPage() {
                     ))}
                   </select>
                 </label>
+                <label>
+                  客户命名别名（顿号分隔）
+                  <input
+                    value={(row.client_aliases ?? []).join("、")}
+                    maxLength={500}
+                    placeholder="如 琥崧、琥崧智能"
+                    onChange={(event) =>
+                      patchRow({
+                        client_aliases: event.target.value
+                          .split(/[,，、\n]/)
+                          .map((value) => value.trim())
+                          .filter(Boolean),
+                      })
+                    }
+                  />
+                </label>
                 <label className="naming-inline-check">
                   <input
                     type="checkbox"
@@ -257,6 +275,14 @@ export default function AdminNamingRulesPage() {
                     onChange={(e) => patchRow({ enabled: e.target.checked })}
                   />
                   启用
+                </label>
+                <label className="naming-inline-check">
+                  <input
+                    type="checkbox"
+                    checked={row.client_aliases_enabled ?? true}
+                    onChange={(event) => patchRow({ client_aliases_enabled: event.target.checked })}
+                  />
+                  启用客户别名防护
                 </label>
               </article>
             );

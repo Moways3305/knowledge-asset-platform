@@ -6,6 +6,6 @@ describe("confirmation subject label", () => {
     expect(confirmationSubjectLabel("project")).toBe("主题");
     expect(confirmationSubjectLabel("company")).toBe("主题");
     expect(confirmationSubjectLabel("personal")).toBe("标题");
-    expect(confirmationSubjectLabel("")).toBe("标题");
+    expect(confirmationSubjectLabel("")).toBe("建议主题");
   });
 });

@@ -5,6 +5,8 @@ export interface ProjectCodeConfigDTO {
   code: string;
   enabled: boolean;
   default_confidentiality: string;
+  client_aliases?: string[];
+  client_aliases_enabled?: boolean;
 }
 
 export interface NamingCategoryConfigDTO {
