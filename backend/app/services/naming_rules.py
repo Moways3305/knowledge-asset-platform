@@ -15,7 +15,13 @@ from app.models.identity import Project
 from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.naming import NamingRuleRevision
-from app.schemas.enums import AuditAction, AuditLogType, IngestStatus, KnowledgeScope
+from app.schemas.enums import (
+    AuditAction,
+    AuditLogType,
+    ConfidentialityLevel,
+    IngestStatus,
+    KnowledgeScope,
+)
 from app.schemas.naming import (
     NamingDraftUpdateRequest,
     NamingDuplicateNotice,
@@ -502,13 +508,13 @@ async def options(
             or not project.project_code
         ):
             raise _denied(409, "project_naming_code_unavailable", "目标项目尚未启用项目代码")
-        default_confidentiality = project.naming_default_confidentiality
+        default_confidentiality = ConfidentialityLevel(project.naming_default_confidentiality)
     else:
         if not caller.can_discover_l5:
             raise _denied(403, "company_confirmation_requires_governance", "公司知识需治理角色确认")
         if config is None or not config.enforced:
             return NamingOptionsResponse(required=False, rule_version=None)
-        default_confidentiality = "L2"
+        default_confidentiality = ConfidentialityLevel.L2
     assert revision is not None and config is not None
     categories = sorted(
         [item for item in config.categories if item.enabled and item.scope == scope.value],
