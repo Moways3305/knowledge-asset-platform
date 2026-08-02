@@ -55,6 +55,20 @@ def _denied(status_code: int, reason: str, message: str) -> HTTPException:
     )
 
 
+def apply_authoritative_project_subject(
+    request: IngestConfirmRequest,
+    result: RenderedNaming | None,
+) -> IngestConfirmRequest:
+    """Apply the server-rendered project subject to every persisted request field."""
+    if result is None or request.target_scope != KnowledgeScope.project:
+        return request
+    subject = result.metadata["subject"]
+    naming = request.naming
+    if naming is not None:
+        naming = naming.model_copy(update={"subject": subject})
+    return request.model_copy(update={"title": subject, "naming": naming})
+
+
 async def validate_and_route_confirmation(
     session: AsyncSession,
     caller: CallerContext,
@@ -151,7 +165,7 @@ async def validate_and_route_confirmation(
         # The project code is resolved from server configuration, never the request.
         from app.services import naming_rules
 
-        await naming_rules.render(
+        naming_result = await naming_rules.render(
             session,
             caller,
             task,
@@ -162,6 +176,7 @@ async def validate_and_route_confirmation(
                 naming=request.naming,
             ),
         )
+        request = apply_authoritative_project_subject(request, naming_result)
         can_self_confirm = (
             caller.active_project_roles.get(request.target_project_id)
             == ProjectRole.project_manager.value
@@ -229,4 +244,7 @@ async def apply_confirmation_extensions(
             naming=context.request.naming,
         ),
     )
-    return replace(context, naming_result=result)
+    # Governed project subject is authoritative for the asset title, review
+    # snapshot, naming facts, and canonical filename, including direct callers.
+    request = apply_authoritative_project_subject(context.request, result)
+    return replace(context, request=request, naming_result=result)

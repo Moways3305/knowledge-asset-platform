@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -36,6 +37,9 @@ from app.schemas.naming import (
 )
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
+
+_ALIAS_PREFIX_SEPARATOR = re.compile(r"^[\s_\-—:：·/\\]+")
+_ALIAS_PREFIX_BOUNDARY = re.compile(r"^[\s_\-—:：·/\\\d]")
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +179,11 @@ async def save_draft(
         after={
             "version": draft.version,
             "project_code_count": len(request.config.project_codes),
+            "project_alias_count": sum(
+                len(item.client_aliases)
+                for item in request.config.project_codes
+                if item.client_aliases_enabled
+            ),
             "category_count": len(request.config.categories),
             "enforced": request.config.enforced,
         },
@@ -257,6 +266,11 @@ async def publish_draft(
         after={
             "version": draft.version,
             "project_code_count": len(config.project_codes),
+            "project_alias_count": sum(
+                len(item.client_aliases)
+                for item in config.project_codes
+                if item.client_aliases_enabled
+            ),
             "category_count": len(config.categories),
             "enforced": config.enforced,
         },
@@ -270,6 +284,57 @@ def _extension(file_name: str) -> str:
     if suffix and len(suffix) <= 11 and suffix[1:].isalnum():
         return suffix
     return ""
+
+
+def _project_subject_aliases(project: Project, config: NamingRuleConfig) -> list[str]:
+    """Return aliases only for the already-authorized target project."""
+    aliases = [" ".join(project.name.strip().split())]
+    policy = next(
+        (item for item in config.project_codes if item.project_id == project.id),
+        None,
+    )
+    if policy is not None and policy.client_aliases_enabled:
+        aliases.extend(policy.client_aliases)
+    return sorted(
+        {alias for alias in aliases if len(alias) >= 2},
+        key=len,
+        reverse=True,
+    )
+
+
+def _subject_contains_alias(subject: str, aliases: list[str]) -> bool:
+    return any(re.search(re.escape(alias), subject, re.IGNORECASE) for alias in aliases)
+
+
+def _deidentify_project_subject(subject: str, aliases: list[str]) -> tuple[str, bool]:
+    """Remove one controlled leading alias; reject ambiguous remaining matches."""
+    normalized = " ".join(subject.strip().split())
+    for alias in aliases:
+        match = re.match(re.escape(alias), normalized, re.IGNORECASE)
+        if match is None:
+            continue
+        remainder = normalized[match.end() :]
+        if remainder and _ALIAS_PREFIX_BOUNDARY.match(remainder) is None:
+            raise _denied(
+                422,
+                "project_subject_customer_name_detected",
+                "主题可能包含客户名称，请修改后继续",
+            )
+        candidate = _ALIAS_PREFIX_SEPARATOR.sub("", remainder).strip()
+        if not candidate or _subject_contains_alias(candidate, aliases):
+            raise _denied(
+                422,
+                "project_subject_customer_name_detected",
+                "主题可能包含客户名称，请修改后继续",
+            )
+        return candidate, True
+    if _subject_contains_alias(normalized, aliases):
+        raise _denied(
+            422,
+            "project_subject_customer_name_detected",
+            "主题可能包含客户名称，请修改后继续",
+        )
+    return normalized, False
 
 
 async def _duplicate_notices(
@@ -377,6 +442,8 @@ async def render(
         raise _denied(409, "naming_category_unavailable", "目录类别已停用或不适用于目标库")
 
     project_code: str | None = None
+    rendered_subject = naming.subject
+    subject_deidentified = False
     if scope == KnowledgeScope.project.value:
         if request.target_project_id is None:
             raise _denied(422, "target_project_required", "项目入库必须指定目标项目")
@@ -389,9 +456,13 @@ async def render(
         ):
             raise _denied(409, "project_naming_code_unavailable", "目标项目尚未启用项目代码")
         project_code = project.project_code
+        rendered_subject, subject_deidentified = _deidentify_project_subject(
+            naming.subject,
+            _project_subject_aliases(project, config),
+        )
         bracket = f"{project_code}-{naming.formed_on.year}-{category.secondary}"
         stem = (
-            f"【{bracket}】{naming.subject}_{naming.formed_on:%Y%m%d}_"
+            f"【{bracket}】{rendered_subject}_{naming.formed_on:%Y%m%d}_"
             f"{naming.version}_{request.confidentiality_level.value}"
         )
     else:
@@ -412,7 +483,8 @@ async def render(
         "category_primary": category.primary,
         "category_secondary": category.secondary,
         "category_prefix": category.prefix,
-        "subject": naming.subject,
+        "subject": rendered_subject,
+        "subject_deidentified": subject_deidentified,
         "applicable_to": naming.applicable_to,
         "formed_on": naming.formed_on.isoformat(),
         "version": naming.version,

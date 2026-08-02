@@ -366,6 +366,58 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(ingest.confirmIngest).not.toHaveBeenCalled();
   });
 
+  it("applies the server-deidentified project subject before preview and confirmation", async () => {
+    auth.fetchAuthMe.mockResolvedValue({
+      projects: [{ projectId: "project-alpha", projectName: "琥崧项目" }],
+    });
+    ingest.fetchIngestAiResult.mockResolvedValueOnce({
+      ...readyAiResult,
+      suggested_title: "琥崧智能2021年第1期辅导简报",
+    });
+    namingApi.fetchNamingOptions.mockResolvedValue({
+      required: true,
+      rule_version: 2,
+      categories: [
+        {
+          id: "category-coaching",
+          primary: "项目资料",
+          secondary: "辅导过程",
+          prefix: "辅导过程",
+          default_confidentiality: "L3",
+        },
+      ],
+      default_confidentiality: "L3",
+      message: null,
+    });
+    namingApi.previewIngestNaming.mockResolvedValue({
+      required: true,
+      canonical_name: "【HS-2021-辅导过程】2021年第1期辅导简报_20210307_V1_L3.pptx",
+      rule_version: 2,
+      fields: { subject: "2021年第1期辅导简报" },
+      notices: [],
+      message: null,
+    });
+    const { result } = renderHook(() => useUploadFlow());
+    await driveToReady(result);
+
+    act(() => {
+      result.current.setTargetLibrary("project");
+      result.current.setTargetProjectId("project-alpha");
+      result.current.setNamingFormedOn("2021-03-07");
+    });
+
+    await waitFor(() => expect(namingApi.previewIngestNaming).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.editTitle).toBe("2021年第1期辅导简报"));
+    await waitFor(() => expect(result.current.canSubmit).toBe(true));
+    await act(async () => {
+      await result.current.handleSubmit();
+    });
+    const payload = ingest.confirmIngest.mock.calls[0][1];
+    expect(payload.title).toBe("2021年第1期辅导简报");
+    expect(payload.naming.subject).toBe("2021年第1期辅导简报");
+    expect(JSON.stringify(payload)).not.toContain("琥崧");
+  });
+
   it("confirmation 边界统一暴露已验证目标、人工字段、AI 建议和 task 身份", async () => {
     const loadPending = vi.fn().mockResolvedValue(undefined);
     const loadLocalPending = vi.fn().mockResolvedValue(undefined);

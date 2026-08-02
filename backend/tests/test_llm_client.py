@@ -41,11 +41,13 @@ class FakeLLM:
     def __init__(self, *, mode: str = "ok") -> None:
         self.mode = mode
         self.calls = 0
+        self.last_messages = None
 
     async def chat_completion(
         self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None
     ):
         self.calls += 1
+        self.last_messages = messages
         if self.mode == "fail":
             raise LLMError("http_500", "LLM 调用失败")
         if self.mode == "dirty":
@@ -187,7 +189,8 @@ async def test_llm_client_classifies_timeout_without_endpoint_or_secret(monkeypa
 
 # ---- 内容处理：LLM 成功 ----
 async def test_upload_llm_structured_draft(client, monkeypatch):
-    _enable_llm(monkeypatch, FakeLLM(mode="ok"))
+    fake = FakeLLM(mode="ok")
+    _enable_llm(monkeypatch, fake)
     task_id = await _upload(client)
     r = await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
     b = r.json()
@@ -213,6 +216,9 @@ async def test_upload_llm_structured_draft(client, monkeypatch):
     assert naming["subject_or_client"] == "某零售集团"
     assert isinstance(naming["inferred_fields"], list)
     assert isinstance(naming["missing_fields"], list)
+    system_prompt = fake.last_messages[0]["content"]
+    assert "不得包含目标项目名、客户名称、客户简称或项目代码" in system_prompt
+    assert "不得拼入分类、日期、版本或密级" in system_prompt
 
 
 async def test_upload_llm_fenced_json_parsed(client, monkeypatch):
