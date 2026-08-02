@@ -1211,8 +1211,8 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         {
           item_id: "task-a",
           status: "skipped",
-          reason_code: "item_state_changed",
-          message: "状态已变化",
+          reason_code: "canonical_name_too_long",
+          message: "规范名过长，请缩短主题或适用对象",
         },
         {
           item_id: "task-b",
@@ -1263,6 +1263,71 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(result.current.batchStatus["task-a"]).toBe("failed");
     expect(result.current.batchStatus["task-b"]).toBe("success");
     expect(result.current.localUploadQueue.map((item) => item.ingestTaskId)).toEqual(["task-a"]);
+    expect(result.current.batchSelection).toEqual(["task-a"]);
+    expect(result.current.batchErrors["task-a"]).toBe("规范名过长，请缩短主题或适用对象");
+  });
+
+  it("submits the individually reviewed governed naming facts for a project batch", async () => {
+    ingest.fetchIngestAiResult.mockReset().mockResolvedValue({
+      ...readyAiResult,
+      ingest_task_id: "governed-a",
+    });
+    ingest.bulkConfirmIngest.mockResolvedValue({
+      operation_id: "bulk-governed",
+      status: "completed",
+      execution_mode: "synchronous",
+      submitted: 1,
+      succeeded: 1,
+      skipped: 0,
+      failed: 0,
+      items: [
+        {
+          item_id: "governed-a",
+          status: "succeeded",
+          reason_code: null,
+          message: null,
+        },
+      ],
+    });
+    const { result } = renderHook(() => useUploadFlow());
+    const task = {
+      ...pendingTask("governed-a", "Governed.pdf"),
+      target_scope: null,
+    };
+    await act(async () => {
+      await result.current.handleBatchConfirm([task], "project", "project-a", {
+        [task.id]: {
+          category_id: "category-a",
+          subject: "项目复盘",
+          formed_on: "2026-08-02",
+          version: "V1.1",
+          confidentiality_level: "L3",
+        },
+      });
+    });
+
+    expect(ingest.bulkConfirmIngest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetScope: "project",
+        targetProjectId: "project-a",
+        items: [
+          {
+            taskId: task.id,
+            confirmation: expect.objectContaining({
+              title: "项目复盘",
+              confidentiality_level: "L3",
+              naming: {
+                category_id: "category-a",
+                subject: "项目复盘",
+                formed_on: "2026-08-02",
+                version: "V1.1",
+                applicable_to: undefined,
+              },
+            }),
+          },
+        ],
+      }),
+    );
   });
 
   it("本地来源严格串行批量拒绝，失败项保留勾选并可单条重试", async () => {

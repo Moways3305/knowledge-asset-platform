@@ -1595,6 +1595,169 @@
         "title": "AuthUnlockResponse",
         "type": "object"
       },
+      "BatchNamingPreviewItemRequest": {
+        "properties": {
+          "confidentiality_level": {
+            "title": "Confidentiality Level",
+            "type": "string"
+          },
+          "naming": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Naming"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "confidentiality_level"
+        ],
+        "title": "BatchNamingPreviewItemRequest",
+        "type": "object"
+      },
+      "BatchNamingPreviewItemResponse": {
+        "properties": {
+          "canonical_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canonical Name"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fields"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "notices": {
+            "items": {
+              "$ref": "#/components/schemas/NamingDuplicateNotice"
+            },
+            "title": "Notices",
+            "type": "array"
+          },
+          "rule_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Version"
+          },
+          "submittable": {
+            "title": "Submittable",
+            "type": "boolean"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "submittable"
+        ],
+        "title": "BatchNamingPreviewItemResponse",
+        "type": "object"
+      },
+      "BatchNamingPreviewRequest": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BatchNamingPreviewItemRequest"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "target_project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Project Id"
+          },
+          "target_scope": {
+            "$ref": "#/components/schemas/KnowledgeScope"
+          }
+        },
+        "required": [
+          "items",
+          "target_scope"
+        ],
+        "title": "BatchNamingPreviewRequest",
+        "type": "object"
+      },
+      "BatchNamingPreviewResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BatchNamingPreviewItemResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "BatchNamingPreviewResponse",
+        "type": "object"
+      },
       "Body_create_upload_api_v1_ingest_upload_post": {
         "properties": {
           "file": {
@@ -3954,7 +4117,16 @@
       "IngestBulkConfirmItem": {
         "properties": {
           "confirmation": {
-            "$ref": "#/components/schemas/IngestConfirmRequest"
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "$ref": "#/components/schemas/IngestConfirmRequest"
+              }
+            ],
+            "title": "Confirmation"
           },
           "task_id": {
             "format": "uuid",
@@ -23651,6 +23823,97 @@
         "summary": "Bulk Confirm",
         "tags": [
           "ingest"
+        ]
+      }
+    },
+    "/api/v1/ingest/bulk-naming-preview": {
+      "post": {
+        "operationId": "preview_batch_naming_api_v1_ingest_bulk_naming_preview_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchNamingPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchNamingPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Batch Naming",
+        "tags": [
+          "naming-rules"
         ]
       }
     },

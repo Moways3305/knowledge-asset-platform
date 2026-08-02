@@ -566,3 +566,164 @@ async def test_non_member_cannot_use_project_preview_to_enumerate_aliases(client
     assert response.status_code == 403
     assert response.json()["detail"]["denied_reason"] == "project_membership_required"
     assert alias not in json.dumps(response.json(), ensure_ascii=False)
+
+
+async def test_batch_preview_and_confirm_keep_naming_failures_item_scoped(client, db_session):
+    category_id = uuid.uuid4()
+    await _publish(client, category_id)
+    valid_task = await _upload(client)
+    missing_date_task = await _upload(client)
+    invalid_date_task = await _upload(client)
+    exact_duplicate_task = await _upload(client)
+
+    valid_naming = {
+        "category_id": str(category_id),
+        "subject": "批量项目复盘",
+        "formed_on": "2026-08-02",
+        "version": "V1",
+    }
+    preview = await client.post(
+        "/api/v1/ingest/bulk-naming-preview",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "items": [
+                {
+                    "task_id": valid_task,
+                    "confidentiality_level": "L2",
+                    "naming": valid_naming,
+                },
+                {
+                    "task_id": missing_date_task,
+                    "confidentiality_level": "L2",
+                    "naming": {
+                        "category_id": str(category_id),
+                        "subject": "缺少形成日期",
+                        "version": "V1",
+                    },
+                },
+            ],
+        },
+    )
+    assert preview.status_code == 200
+    by_id = {item["task_id"]: item for item in preview.json()["items"]}
+    assert by_id[valid_task]["submittable"] is True
+    assert by_id[valid_task]["canonical_name"].endswith("_20260802_V1_L2.txt")
+    assert by_id[missing_date_task]["submittable"] is False
+    assert by_id[missing_date_task]["error_code"] == "naming_formed_on_invalid"
+    assert "storage" not in json.dumps(preview.json()).lower()
+
+    def confirmation(title: str, naming: dict | None) -> dict:
+        value = {
+            "title": title,
+            "summary": "批量确认摘要",
+            "tags": [],
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "target_zone": "material",
+            "asset_type": "methodology",
+            "confidentiality_level": "L2",
+            "ai_access_level": "A2",
+        }
+        if naming is not None:
+            value["naming"] = naming
+        return value
+
+    confirmed = await client.post(
+        "/api/v1/ingest/bulk-confirm",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "items": [
+                {"task_id": valid_task, "confirmation": confirmation("伪造标题", valid_naming)},
+                {
+                    "task_id": missing_date_task,
+                    "confirmation": confirmation("旧式无命名请求", None),
+                },
+                {
+                    "task_id": invalid_date_task,
+                    "confirmation": confirmation(
+                        "错误形成日期",
+                        {**valid_naming, "formed_on": "uploaded-today"},
+                    ),
+                },
+            ],
+        },
+    )
+    assert confirmed.status_code == 200
+    results = {item["item_id"]: item for item in confirmed.json()["items"]}
+    assert results[valid_task]["status"] == "succeeded"
+    assert results[missing_date_task] == {
+        "item_id": missing_date_task,
+        "status": "skipped",
+        "reason_code": "naming_fields_required",
+        "message": "请补齐该资料的命名字段后重新核对",
+    }
+    assert results[invalid_date_task]["status"] == "skipped"
+    assert results[invalid_date_task]["reason_code"] == "naming_formed_on_invalid"
+    assert results[invalid_date_task]["message"] == "请填写有效的文件形成日期"
+    asset = await db_session.scalar(
+        select(KnowledgeAsset).where(KnowledgeAsset.title == "批量项目复盘")
+    )
+    assert asset is not None
+    assert asset.canonical_name.endswith("_20260802_V1_L2.txt")
+
+    duplicate_preview = await client.post(
+        "/api/v1/ingest/bulk-naming-preview",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "items": [
+                {
+                    "task_id": exact_duplicate_task,
+                    "confidentiality_level": "L2",
+                    "naming": valid_naming,
+                }
+            ],
+        },
+    )
+    duplicate_item = duplicate_preview.json()["items"][0]
+    assert duplicate_item["submittable"] is False
+    assert duplicate_item["error_code"] == "naming_exact_duplicate"
+    assert {notice["kind"] for notice in duplicate_item["notices"]} == {"exact", "suspected"}
+    assert all(set(notice) == {"kind", "message"} for notice in duplicate_item["notices"])
+
+    duplicate_confirm = await client.post(
+        "/api/v1/ingest/bulk-confirm",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "items": [
+                {
+                    "task_id": exact_duplicate_task,
+                    "confirmation": confirmation("重复资料", valid_naming),
+                }
+            ],
+        },
+    )
+    assert duplicate_confirm.status_code == 200
+    assert duplicate_confirm.json()["items"][0]["reason_code"] == "naming_exact_duplicate"
+
+
+async def test_batch_preview_authorizes_destination_before_task_probe(client):
+    response = await client.post(
+        "/api/v1/ingest/bulk-naming-preview",
+        headers=_hdr(USER_BOSS),
+        json={
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "items": [
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "confidentiality_level": "L2",
+                    "naming": None,
+                }
+            ],
+        },
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"]["denied_reason"] == "project_membership_required"

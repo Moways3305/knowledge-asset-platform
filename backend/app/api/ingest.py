@@ -34,10 +34,12 @@ from app.schemas.ingest import (
     UploadSessionListResponse,
     UploadSessionResponse,
 )
+from app.schemas.naming import NamingPreviewRequest
 from app.schemas.permission import CallerContext
 from app.services import bulk_operations as bulk_service
 from app.services import ingest as ingest_service
 from app.services import ingest_status as ingest_status_service
+from app.services import naming_rules
 from app.services import upload_sessions as upload_session_service
 from app.services.desensitization import DesensitizationEngine, get_desensitizer
 from app.services.generation_models import get_generation_llm_client
@@ -541,11 +543,39 @@ async def bulk_confirm(
         batch_results = []
         for item in batch:
             try:
+                confirmation = (
+                    item.confirmation
+                    if isinstance(item.confirmation, IngestConfirmRequest)
+                    else IngestConfirmRequest.model_validate(item.confirmation)
+                )
+                if (
+                    confirmation.naming is not None
+                    and confirmation.target_scope.value != "personal"
+                ):
+                    naming_preview = await naming_rules.preview(
+                        session,
+                        caller,
+                        item.task_id,
+                        NamingPreviewRequest(
+                            target_scope=confirmation.target_scope,
+                            target_project_id=confirmation.target_project_id,
+                            confidentiality_level=confirmation.confidentiality_level,
+                            naming=confirmation.naming,
+                        ),
+                    )
+                    if any(notice.kind == "exact" for notice in naming_preview.notices):
+                        raise HTTPException(
+                            status_code=409,
+                            detail={
+                                "denied_reason": "naming_exact_duplicate",
+                                "message": "已存在相同文件，请核对",
+                            },
+                        )
                 await ingest_service.confirm(
                     session,
                     caller,
                     item.task_id,
-                    item.confirmation,
+                    confirmation,
                     trace_id,
                     storage=storage,
                     weknora=weknora,
@@ -553,6 +583,9 @@ async def bulk_confirm(
                 batch_results.append(
                     bulk_service.BulkItemResult(item_id=item.task_id, status="succeeded")
                 )
+            except ValidationError as exc:
+                await session.rollback()
+                batch_results.append(bulk_service.validation_error_result(item.task_id, exc))
             except HTTPException as exc:
                 await session.rollback()
                 batch_results.append(bulk_service.skipped_from_http(item.task_id, exc))

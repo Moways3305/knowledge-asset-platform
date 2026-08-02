@@ -404,6 +404,121 @@
   color: var(--color-danger, #b42318);
 }
 
+.kl-modal.upload77-batch-naming-dialog {
+  width: min(1180px, 96vw);
+  max-height: 94vh;
+  overflow: hidden;
+}
+
+.upload77-batch-naming-review {
+  min-width: 0;
+}
+
+.upload77-batch-naming-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.upload77-batch-naming-scroll {
+  display: grid;
+  gap: 12px;
+  max-height: min(64vh, 680px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+}
+
+.upload77-batch-naming-row {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 10px;
+  background: var(--color-bg-surface, #fff);
+}
+
+.upload77-batch-naming-row header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.upload77-batch-naming-row header strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload77-batch-naming-grid {
+  display: grid;
+  grid-template-columns:
+    minmax(220px, 2fr) minmax(180px, 1.4fr) minmax(145px, 1fr) minmax(100px, 0.7fr)
+    minmax(90px, 0.6fr);
+  gap: 10px;
+}
+
+.upload77-batch-naming-grid label {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.upload77-batch-naming-grid input,
+.upload77-batch-naming-grid select {
+  min-width: 0;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-bg-surface, #fff);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 12px;
+}
+
+.upload77-batch-naming-preview {
+  margin-top: 9px;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload77-batch-naming-error,
+.upload77-batch-naming-notice {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.upload77-batch-naming-error {
+  color: var(--color-danger-fg, #b00020);
+}
+
+.upload77-batch-naming-notice {
+  color: var(--warning-text, #8a5a00);
+}
+
+@media (max-width: 900px) {
+  .upload77-batch-naming-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .upload77-batch-naming-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 .upload77-section-head h2,
 .upload77-confirm-head h2,
 .upload77-result h2 {

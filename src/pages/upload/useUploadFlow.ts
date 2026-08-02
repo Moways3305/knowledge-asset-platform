@@ -3,6 +3,7 @@ import { ControlledBulkRequestError } from "../../api/bulk";
 import { ApiError } from "../../api/http";
 import { bulkConfirmIngest, deletePendingTask } from "../../api/ingest";
 import type { IngestConfirmRequestDTO, PendingIngestItemDTO } from "../../types/ingest";
+import type { BatchNamingValuesDTO } from "../../types/naming";
 import { useModelSelection } from "../../hooks/useModelSelection";
 import { type PathBranch, type TargetLibrary } from "./uploadConstants";
 import { useIngestConfirmation } from "./useIngestConfirmation";
@@ -197,6 +198,7 @@ export function useUploadFlow() {
       tasks: PendingIngestItemDTO[],
       destination: Exclude<TargetLibrary, "">,
       destinationProjectId?: string,
+      namingByTask?: Record<string, BatchNamingValuesDTO>,
     ) => {
       if (batchRunRef.current !== null || tasks.length === 0) return;
       if (destination === "project" && !destinationProjectId) return;
@@ -257,7 +259,12 @@ export function useUploadFlow() {
             ) {
               throw new Error("该资料目标项目已由来源规则锁定");
             }
-            const title = ai.suggested_title?.trim() || task.suggested_title?.trim() || "";
+            const governedNaming = namingByTask?.[task.id];
+            const title =
+              governedNaming?.subject.trim() ||
+              ai.suggested_title?.trim() ||
+              task.suggested_title?.trim() ||
+              "";
             const summary = ai.suggested_summary?.trim() || ai.suggested_one_liner?.trim() || "";
             if (!title || !summary) throw new Error("该资料缺少可确认的标题或摘要");
             if (!isCurrent()) return;
@@ -274,11 +281,24 @@ export function useUploadFlow() {
                 target_zone: "material",
                 asset_type: ai.suggested_asset_type || "methodology",
                 visibility: "project_only",
-                confidentiality_level: ai.suggested_confidentiality_level || "L2",
+                confidentiality_level:
+                  governedNaming?.confidentiality_level ||
+                  ai.suggested_confidentiality_level ||
+                  "L2",
                 ai_access_level: ai.suggested_ai_access_level || "A2",
                 lifecycle_phase_key: ai.suggested_phase_key || undefined,
                 embedding_model_ref: models.embeddingRef || undefined,
                 rerank_model_ref: models.rerankRef || undefined,
+                naming: governedNaming
+                  ? {
+                      category_id: governedNaming.category_id,
+                      subject: governedNaming.subject,
+                      formed_on: governedNaming.formed_on,
+                      version: governedNaming.version,
+                      applicable_to:
+                        destination === "company" ? governedNaming.applicable_to : undefined,
+                    }
+                  : undefined,
               },
             });
             updateBatchStatus((previous) => ({ ...previous, [task.id]: "waiting" }));
@@ -314,7 +334,14 @@ export function useUploadFlow() {
             }));
             if (succeeded && activePath === "b") removeLocalTaskEverywhere(item.item_id);
             if (!succeeded) {
-              if (item.status === "failed") retryableFailedIds.push(item.item_id);
+              if (
+                item.status === "failed" ||
+                item.reason_code?.startsWith("naming_") ||
+                item.reason_code === "canonical_name_too_long" ||
+                item.reason_code === "project_subject_customer_name_detected"
+              ) {
+                retryableFailedIds.push(item.item_id);
+              }
               setBatchErrors((previous) => ({
                 ...previous,
                 [item.item_id]: item.message ?? "当前状态或权限已变化",

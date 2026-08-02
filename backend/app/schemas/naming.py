@@ -174,6 +174,43 @@ class NamingPreviewResponse(BaseModel):
     message: str | None = None
 
 
+class BatchNamingPreviewItemRequest(BaseModel):
+    task_id: uuid.UUID
+    confidentiality_level: str
+    naming: dict[str, object] | None = None
+
+
+class BatchNamingPreviewRequest(BaseModel):
+    items: list[BatchNamingPreviewItemRequest] = Field(min_length=1, max_length=500)
+    target_scope: KnowledgeScope
+    target_project_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def require_explicit_destination(self) -> BatchNamingPreviewRequest:
+        if len({item.task_id for item in self.items}) != len(self.items):
+            raise ValueError("task ids must not contain duplicates")
+        if self.target_scope == KnowledgeScope.project and self.target_project_id is None:
+            raise ValueError("target_project_id is required for project scope")
+        if self.target_scope == KnowledgeScope.personal:
+            raise ValueError("personal scope does not require governed naming preview")
+        return self
+
+
+class BatchNamingPreviewItemResponse(BaseModel):
+    task_id: uuid.UUID
+    submittable: bool
+    canonical_name: str | None = None
+    rule_version: int | None = None
+    fields: dict | None = None
+    notices: list[NamingDuplicateNotice] = Field(default_factory=list)
+    error_code: str | None = None
+    message: str | None = None
+
+
+class BatchNamingPreviewResponse(BaseModel):
+    items: list[BatchNamingPreviewItemResponse]
+
+
 class NamingOptionItem(BaseModel):
     id: uuid.UUID
     primary: str

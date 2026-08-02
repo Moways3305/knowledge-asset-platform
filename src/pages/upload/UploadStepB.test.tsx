@@ -1,8 +1,14 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PendingIngestItemDTO } from "../../types/ingest";
 import UploadStepB from "./UploadStepB";
 import type { UploadFlow } from "./useUploadFlow";
+
+const namingApi = vi.hoisted(() => ({
+  fetchNamingOptions: vi.fn(),
+  previewBatchIngestNaming: vi.fn(),
+}));
+vi.mock("../../api/naming", () => namingApi);
 
 function pending(id: string, fileName: string): PendingIngestItemDTO {
   return {
@@ -77,6 +83,25 @@ function flowFixture(overrides: Record<string, unknown> = {}): UploadFlow {
 }
 
 describe("UploadStepB folder drop and batch rejection", () => {
+  beforeEach(() => {
+    namingApi.fetchNamingOptions.mockReset();
+    namingApi.previewBatchIngestNaming.mockReset();
+    namingApi.fetchNamingOptions.mockResolvedValue({
+      required: true,
+      rule_version: 2,
+      categories: [
+        {
+          id: "category-a",
+          primary: "项目资料",
+          secondary: "交付件",
+          prefix: "项目资料-交付件",
+          default_confidentiality: "L2",
+        },
+      ],
+      default_confidentiality: "L2",
+      message: null,
+    });
+  });
   it.each([1280, 1440, 1920])(
     "keeps the isolated pending-table layout contract at %ipx",
     (viewportWidth) => {
@@ -285,6 +310,123 @@ describe("UploadStepB folder drop and batch rejection", () => {
       "personal",
       undefined,
     );
+  });
+
+  it("requires each governed item to provide a formed date and receive a server preview", async () => {
+    const task = {
+      ...pending("governed", "Governed.pdf"),
+      target_scope: null,
+      naming_parsed_fields: {
+        primary_category: "",
+        secondary_category: "",
+        topic: "",
+        subject_or_client: "",
+        date: "2026-08-02",
+        version: "V1",
+        confidentiality_level: "L2",
+        ai_access_level: "A2",
+        normalized_title: "",
+        inferred_fields: [],
+        missing_fields: ["date"],
+        source_file_name: "Governed.pdf",
+        original_naming_compliant: false,
+      },
+    };
+    const flow = flowFixture({ localPendingTasks: [task], batchSelection: [task.id] });
+    namingApi.previewBatchIngestNaming.mockResolvedValue({
+      items: [
+        {
+          task_id: task.id,
+          submittable: true,
+          canonical_name: "【ALPHA-2026-交付件】安全标题_20260803_V1_L2.pdf",
+          rule_version: 2,
+          fields: { subject: "安全标题" },
+          notices: [],
+          error_code: null,
+          message: null,
+        },
+      ],
+    });
+    render(<UploadStepB flow={flow} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "批量确认入库（1）" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标知识库" }), {
+      target: { value: "project" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标项目" }), {
+      target: { value: "project-a" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
+
+    const date = await screen.findByLabelText("Governed.pdf 文件形成日期");
+    expect(date).toHaveValue("");
+    expect(screen.getByRole("button", { name: "确认批量入库" })).toBeDisabled();
+    expect(screen.getAllByText(/仍有 1 条需补充形成日期/).length).toBeGreaterThan(0);
+
+    fireEvent.change(date, { target: { value: "2026-08-03" } });
+    fireEvent.click(screen.getByRole("button", { name: "生成或刷新全部预览" }));
+    await screen.findByText("【ALPHA-2026-交付件】安全标题_20260803_V1_L2.pdf");
+    fireEvent.click(screen.getByRole("button", { name: "确认批量入库" }));
+
+    expect(flow.handleBatchConfirm).toHaveBeenCalledWith([task], "project", "project-a", {
+      [task.id]: {
+        category_id: "category-a",
+        subject: "安全标题",
+        formed_on: "2026-08-03",
+        version: "V1",
+        applicable_to: "",
+        confidentiality_level: "L2",
+      },
+    });
+  });
+
+  it("renders 93 long-name review rows inside a bounded scroll container", async () => {
+    const longName = `${"超长项目资料文件名".repeat(12)}.pdf`;
+    const tasks = Array.from({ length: 93 }, (_, index) => ({
+      ...pending(`bulk-${index}`, `${index}-${longName}`),
+      target_scope: null,
+      naming_parsed_fields:
+        index === 0
+          ? {
+              primary_category: "",
+              secondary_category: "",
+              topic: "",
+              subject_or_client: "",
+              date: "20260802",
+              version: "V1",
+              confidentiality_level: "L2",
+              ai_access_level: "A2",
+              normalized_title: "",
+              inferred_fields: [],
+              missing_fields: [],
+              source_file_name: `${index}-${longName}`,
+              original_naming_compliant: true,
+            }
+          : null,
+    }));
+    const flow = flowFixture({
+      localPendingTasks: tasks,
+      batchSelection: tasks.map((task) => task.id),
+    });
+    render(<UploadStepB flow={flow} />);
+    fireEvent.click(screen.getByRole("button", { name: "批量确认入库（93）" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标知识库" }), {
+      target: { value: "project" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标项目" }), {
+      target: { value: "project-a" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
+
+    await waitFor(() => {
+      expect(document.querySelectorAll(".upload77-batch-naming-row")).toHaveLength(93);
+    });
+    expect(document.querySelector(".upload77-batch-naming-scroll")).toBeInTheDocument();
+    expect(document.querySelector(".upload77-batch-naming-dialog")).toBeInTheDocument();
+    expect(document.querySelectorAll<HTMLInputElement>('input[type="date"]')[0]).toHaveValue(
+      "2026-08-02",
+    );
+    expect(screen.getAllByText(/已核对 0\/93 条/).length).toBeGreaterThan(0);
   });
 
   it("selects all actionable rows, exposes half-selected state, and excludes disabled rows", () => {

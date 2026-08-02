@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import TypeVar
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.bulk_operations import BulkItemResult, BulkOperationResponse
@@ -35,6 +36,15 @@ _SAFE_REASON_MESSAGES = {
     "personal_asset_project_submission_locked": "资料已提交或正在项目流程中",
     "project_not_found": "目标项目不存在或已停用",
     "project_membership_required": "当前不具备目标项目提交资格",
+    "naming_fields_required": "请补齐该资料的命名字段后重新核对",
+    "naming_fields_invalid": "请修改该资料的命名字段后重新核对",
+    "naming_formed_on_invalid": "请填写有效的文件形成日期",
+    "naming_version_invalid": "请填写有效版本，例如 V1 或 V1.1",
+    "naming_category_unavailable": "目录类别已停用或不适用于当前目标",
+    "naming_applicable_to_required": "公司库资料必须填写适用对象",
+    "naming_exact_duplicate": "已存在相同文件，请核对",
+    "canonical_name_too_long": "规范名过长，请缩短主题或适用对象",
+    "project_subject_customer_name_detected": "主题可能包含客户名称，请修改后继续",
 }
 
 
@@ -55,6 +65,22 @@ def failed_item(item_id: uuid.UUID) -> BulkItemResult:
         status="failed",
         reason_code="operation_failed",
         message="操作未完成，请稍后重试",
+    )
+
+
+def validation_error_result(item_id: uuid.UUID, exc: ValidationError) -> BulkItemResult:
+    locations = {str(part) for error in exc.errors() for part in error.get("loc", ())}
+    if "formed_on" in locations:
+        code = "naming_formed_on_invalid"
+    elif "version" in locations:
+        code = "naming_version_invalid"
+    else:
+        code = "naming_fields_invalid"
+    return BulkItemResult(
+        item_id=item_id,
+        status="skipped",
+        reason_code=code,
+        message=_SAFE_REASON_MESSAGES[code],
     )
 
 
