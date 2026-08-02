@@ -2326,6 +2326,17 @@
       },
       "CurrentVersionOut": {
         "properties": {
+          "display_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Version"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -4082,6 +4093,16 @@
             ],
             "title": "Lifecycle Phase Key"
           },
+          "naming": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NamingConfirmationFields"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "one_liner": {
             "anyOf": [
               {
@@ -4163,6 +4184,17 @@
       },
       "IngestConfirmResponse": {
         "properties": {
+          "canonical_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canonical Name"
+          },
           "index_status": {
             "anyOf": [
               {
@@ -5063,6 +5095,17 @@
             "title": "Asset Type",
             "type": "string"
           },
+          "canonical_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canonical Name"
+          },
           "confidence": {
             "anyOf": [
               {
@@ -5294,6 +5337,17 @@
           "asset_type": {
             "title": "Asset Type",
             "type": "string"
+          },
+          "canonical_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canonical Name"
           },
           "confidence": {
             "anyOf": [
@@ -6670,6 +6724,474 @@
         "title": "ModelUsageSlotOut",
         "type": "object"
       },
+      "NamingCategoryConfig": {
+        "properties": {
+          "default_confidentiality": {
+            "$ref": "#/components/schemas/ConfidentialityLevel",
+            "default": "L2"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          },
+          "primary": {
+            "title": "Primary",
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "project",
+              "company"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "secondary": {
+            "title": "Secondary",
+            "type": "string"
+          },
+          "sort_order": {
+            "default": 100,
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Sort Order",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scope",
+          "primary",
+          "secondary",
+          "prefix"
+        ],
+        "title": "NamingCategoryConfig",
+        "type": "object"
+      },
+      "NamingConfirmationFields": {
+        "properties": {
+          "applicable_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applicable To"
+          },
+          "category_id": {
+            "format": "uuid",
+            "title": "Category Id",
+            "type": "string"
+          },
+          "formed_on": {
+            "format": "date",
+            "title": "Formed On",
+            "type": "string"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "category_id",
+          "subject",
+          "formed_on",
+          "version"
+        ],
+        "title": "NamingConfirmationFields",
+        "type": "object"
+      },
+      "NamingDraftUpdateRequest": {
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/NamingRuleConfig-Input"
+          },
+          "expected_base_version": {
+            "title": "Expected Base Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_base_version",
+          "config"
+        ],
+        "title": "NamingDraftUpdateRequest",
+        "type": "object"
+      },
+      "NamingDuplicateNotice": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "exact",
+              "suspected"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "message"
+        ],
+        "title": "NamingDuplicateNotice",
+        "type": "object"
+      },
+      "NamingOptionItem": {
+        "properties": {
+          "default_confidentiality": {
+            "$ref": "#/components/schemas/ConfidentialityLevel"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          },
+          "primary": {
+            "title": "Primary",
+            "type": "string"
+          },
+          "secondary": {
+            "title": "Secondary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "primary",
+          "secondary",
+          "prefix",
+          "default_confidentiality"
+        ],
+        "title": "NamingOptionItem",
+        "type": "object"
+      },
+      "NamingOptionsResponse": {
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/NamingOptionItem"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "default_confidentiality": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConfidentialityLevel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "required": {
+            "title": "Required",
+            "type": "boolean"
+          },
+          "rule_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Version"
+          }
+        },
+        "required": [
+          "required",
+          "rule_version"
+        ],
+        "title": "NamingOptionsResponse",
+        "type": "object"
+      },
+      "NamingPreviewRequest": {
+        "properties": {
+          "confidentiality_level": {
+            "$ref": "#/components/schemas/ConfidentialityLevel"
+          },
+          "naming": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NamingConfirmationFields"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target_project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Project Id"
+          },
+          "target_scope": {
+            "$ref": "#/components/schemas/KnowledgeScope"
+          }
+        },
+        "required": [
+          "target_scope",
+          "confidentiality_level"
+        ],
+        "title": "NamingPreviewRequest",
+        "type": "object"
+      },
+      "NamingPreviewResponse": {
+        "properties": {
+          "canonical_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canonical Name"
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fields"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "notices": {
+            "items": {
+              "$ref": "#/components/schemas/NamingDuplicateNotice"
+            },
+            "title": "Notices",
+            "type": "array"
+          },
+          "required": {
+            "title": "Required",
+            "type": "boolean"
+          },
+          "rule_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Version"
+          }
+        },
+        "required": [
+          "required",
+          "canonical_name",
+          "rule_version",
+          "fields"
+        ],
+        "title": "NamingPreviewResponse",
+        "type": "object"
+      },
+      "NamingPublishRequest": {
+        "properties": {
+          "expected_base_version": {
+            "title": "Expected Base Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_base_version"
+        ],
+        "title": "NamingPublishRequest",
+        "type": "object"
+      },
+      "NamingRuleCenterOut": {
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/NamingRuleRevisionOut"
+          },
+          "projects": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "published": {
+            "$ref": "#/components/schemas/NamingRuleRevisionOut"
+          }
+        },
+        "required": [
+          "published",
+          "draft",
+          "projects"
+        ],
+        "title": "NamingRuleCenterOut",
+        "type": "object"
+      },
+      "NamingRuleConfig-Input": {
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/NamingCategoryConfig"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "enforced": {
+            "default": true,
+            "title": "Enforced",
+            "type": "boolean"
+          },
+          "project_codes": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectCodeConfig"
+            },
+            "title": "Project Codes",
+            "type": "array"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "title": "NamingRuleConfig",
+        "type": "object"
+      },
+      "NamingRuleConfig-Output": {
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/NamingCategoryConfig"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "enforced": {
+            "default": true,
+            "title": "Enforced",
+            "type": "boolean"
+          },
+          "project_codes": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectCodeConfig"
+            },
+            "title": "Project Codes",
+            "type": "array"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "title": "NamingRuleConfig",
+        "type": "object"
+      },
+      "NamingRuleRevisionOut": {
+        "properties": {
+          "base_published_version": {
+            "title": "Base Published Version",
+            "type": "integer"
+          },
+          "config": {
+            "$ref": "#/components/schemas/NamingRuleConfig-Output"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "status",
+          "base_published_version",
+          "config",
+          "updated_at"
+        ],
+        "title": "NamingRuleRevisionOut",
+        "type": "object"
+      },
       "NotificationOut": {
         "properties": {
           "alert_rule_id": {
@@ -7926,6 +8448,17 @@
             "title": "Asset Type",
             "type": "string"
           },
+          "canonical_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canonical Name"
+          },
           "confidence": {
             "anyOf": [
               {
@@ -8607,6 +9140,34 @@
           "credential_status"
         ],
         "title": "PreviewIssueResponse",
+        "type": "object"
+      },
+      "ProjectCodeConfig": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "default_confidentiality": {
+            "$ref": "#/components/schemas/ConfidentialityLevel",
+            "default": "L2"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "code"
+        ],
+        "title": "ProjectCodeConfig",
         "type": "object"
       },
       "ProjectCreateRequest": {
@@ -17137,6 +17698,269 @@
         ]
       }
     },
+    "/api/v1/admin/naming-rules": {
+      "get": {
+        "operationId": "get_rule_center_api_v1_admin_naming_rules_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamingRuleCenterOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Rule Center",
+        "tags": [
+          "naming-rules"
+        ]
+      }
+    },
+    "/api/v1/admin/naming-rules/draft": {
+      "put": {
+        "operationId": "save_draft_api_v1_admin_naming_rules_draft_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NamingDraftUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamingRuleRevisionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Draft",
+        "tags": [
+          "naming-rules"
+        ]
+      }
+    },
+    "/api/v1/admin/naming-rules/publish": {
+      "post": {
+        "operationId": "publish_draft_api_v1_admin_naming_rules_publish_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NamingPublishRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamingRuleCenterOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Publish Draft",
+        "tags": [
+          "naming-rules"
+        ]
+      }
+    },
     "/api/v1/admin/people": {
       "get": {
         "operationId": "list_people_api_v1_admin_people_get",
@@ -23877,6 +24701,107 @@
         ]
       }
     },
+    "/api/v1/ingest/{task_id}/naming-preview": {
+      "post": {
+        "operationId": "preview_naming_api_v1_ingest__task_id__naming_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NamingPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamingPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Naming",
+        "tags": [
+          "naming-rules"
+        ]
+      }
+    },
     "/api/v1/ingest/{task_id}/refresh-parse": {
       "post": {
         "operationId": "refresh_parse_api_v1_ingest__task_id__refresh_parse_post",
@@ -26738,6 +27663,112 @@
         "summary": "Register Validation Candidate",
         "tags": [
           "my-knowledge"
+        ]
+      }
+    },
+    "/api/v1/naming-options": {
+      "get": {
+        "operationId": "get_naming_options_api_v1_naming_options_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scope",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/KnowledgeScope"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamingOptionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Naming Options",
+        "tags": [
+          "naming-rules"
         ]
       }
     },
