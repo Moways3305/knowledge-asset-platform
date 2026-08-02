@@ -12,6 +12,8 @@ from app.core.trace import get_trace_id
 from app.db.session import get_db
 from app.schemas.enums import KnowledgeScope
 from app.schemas.naming import (
+    BatchNamingPreviewRequest,
+    BatchNamingPreviewResponse,
     NamingDraftUpdateRequest,
     NamingOptionsResponse,
     NamingPreviewRequest,
@@ -65,6 +67,18 @@ async def preview_naming(
     session: AsyncSession = Depends(get_db),
 ) -> NamingPreviewResponse:
     return await naming_rules.preview(session, caller, task_id, body)
+
+
+@router.post(
+    "/ingest/bulk-naming-preview",
+    response_model=BatchNamingPreviewResponse,
+)
+async def preview_batch_naming(
+    body: BatchNamingPreviewRequest,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> BatchNamingPreviewResponse:
+    return await naming_rules.batch_preview(session, caller, body)
 
 
 @router.get("/naming-options", response_model=NamingOptionsResponse)

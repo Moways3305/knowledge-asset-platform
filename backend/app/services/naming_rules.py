@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import PurePath
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +25,9 @@ from app.schemas.enums import (
     KnowledgeScope,
 )
 from app.schemas.naming import (
+    BatchNamingPreviewItemResponse,
+    BatchNamingPreviewRequest,
+    BatchNamingPreviewResponse,
     NamingDraftUpdateRequest,
     NamingDuplicateNotice,
     NamingOptionItem,
@@ -542,6 +546,96 @@ async def preview(
         fields=rendered.metadata,
         notices=rendered.notices,
     )
+
+
+def _batch_validation_error(exc: ValidationError) -> tuple[str, str]:
+    locations = {str(part) for error in exc.errors() for part in error.get("loc", ())}
+    if "formed_on" in locations:
+        return "naming_formed_on_invalid", "请填写有效的文件形成日期"
+    if "version" in locations:
+        return "naming_version_invalid", "请填写有效版本，例如 V1 或 V1.1"
+    return "naming_fields_invalid", "请补齐或修改该资料的命名字段"
+
+
+def _batch_http_error(exc: HTTPException) -> tuple[str, str]:
+    detail: dict[str, object] = exc.detail if isinstance(exc.detail, dict) else {}
+    reason = str(detail.get("denied_reason") or "item_state_changed")
+    if exc.status_code in {403, 404}:
+        return "item_unavailable", "该资料不存在或当前不可核对"
+    safe_messages = {
+        "naming_fields_required": "请补齐该资料的命名字段",
+        "naming_category_unavailable": "目录类别已停用或不适用于当前目标",
+        "naming_applicable_to_required": "公司库资料必须填写适用对象",
+        "canonical_name_too_long": "规范名过长，请缩短主题或适用对象",
+        "project_subject_customer_name_detected": "主题可能包含客户名称，请修改后继续",
+        "ingest_target_locked": "资料目标已由来源规则锁定",
+        "ingest_target_project_locked": "目标项目已由来源规则锁定",
+    }
+    return reason, safe_messages.get(reason, "当前状态已变化，请刷新后重新核对")
+
+
+async def batch_preview(
+    session: AsyncSession,
+    caller: CallerContext,
+    request: BatchNamingPreviewRequest,
+) -> BatchNamingPreviewResponse:
+    """Preview governed names independently without leaking another item's data."""
+    # Authorize the common destination before touching any task identifiers.
+    destination = await options(
+        session,
+        caller,
+        request.target_scope,
+        request.target_project_id,
+    )
+    results: list[BatchNamingPreviewItemResponse] = []
+    for item in request.items:
+        try:
+            item_request = NamingPreviewRequest.model_validate(
+                {
+                    "target_scope": request.target_scope,
+                    "target_project_id": request.target_project_id,
+                    "confidentiality_level": item.confidentiality_level,
+                    "naming": item.naming,
+                }
+            )
+            rendered = await preview(session, caller, item.task_id, item_request)
+            exact_duplicate = any(notice.kind == "exact" for notice in rendered.notices)
+            results.append(
+                BatchNamingPreviewItemResponse(
+                    task_id=item.task_id,
+                    submittable=(
+                        not exact_duplicate
+                        and (not destination.required or rendered.canonical_name is not None)
+                    ),
+                    canonical_name=rendered.canonical_name,
+                    rule_version=rendered.rule_version,
+                    fields=rendered.fields,
+                    notices=rendered.notices,
+                    error_code="naming_exact_duplicate" if exact_duplicate else None,
+                    message="已存在相同文件，请核对" if exact_duplicate else rendered.message,
+                )
+            )
+        except ValidationError as exc:
+            code, message = _batch_validation_error(exc)
+            results.append(
+                BatchNamingPreviewItemResponse(
+                    task_id=item.task_id,
+                    submittable=False,
+                    error_code=code,
+                    message=message,
+                )
+            )
+        except HTTPException as exc:
+            code, message = _batch_http_error(exc)
+            results.append(
+                BatchNamingPreviewItemResponse(
+                    task_id=item.task_id,
+                    submittable=False,
+                    error_code=code,
+                    message=message,
+                )
+            )
+    return BatchNamingPreviewResponse(items=results)
 
 
 async def options(

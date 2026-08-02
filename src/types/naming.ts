@@ -81,3 +81,27 @@ export interface NamingPreviewDTO {
   notices: Array<{ kind: "exact" | "suspected"; message: string }>;
   message: string | null;
 }
+
+export interface BatchNamingValuesDTO {
+  category_id: string;
+  subject: string;
+  formed_on: string;
+  version: string;
+  applicable_to?: string;
+  confidentiality_level: string;
+}
+
+export interface BatchNamingPreviewItemDTO {
+  task_id: string;
+  submittable: boolean;
+  canonical_name: string | null;
+  rule_version: number | null;
+  fields: Record<string, unknown> | null;
+  notices: Array<{ kind: "exact" | "suspected"; message: string }>;
+  error_code: string | null;
+  message: string | null;
+}
+
+export interface BatchNamingPreviewResponseDTO {
+  items: BatchNamingPreviewItemDTO[];
+}

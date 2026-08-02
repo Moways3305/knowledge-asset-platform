@@ -1,5 +1,7 @@
 import { apiGet, apiPost, apiPut } from "./http";
 import type {
+  BatchNamingPreviewResponseDTO,
+  BatchNamingValuesDTO,
   NamingConfirmationDTO,
   NamingOptionsDTO,
   NamingPreviewDTO,
@@ -47,4 +49,26 @@ export function previewIngestNaming(
   },
 ): Promise<NamingPreviewDTO> {
   return apiPost(`/api/v1/ingest/${taskId}/naming-preview`, input);
+}
+
+export function previewBatchIngestNaming(input: {
+  targetScope: "project" | "company";
+  targetProjectId?: string;
+  items: Array<{ taskId: string; naming: BatchNamingValuesDTO }>;
+}): Promise<BatchNamingPreviewResponseDTO> {
+  return apiPost("/api/v1/ingest/bulk-naming-preview", {
+    target_scope: input.targetScope,
+    target_project_id: input.targetProjectId ?? null,
+    items: input.items.map((item) => ({
+      task_id: item.taskId,
+      confidentiality_level: item.naming.confidentiality_level,
+      naming: {
+        category_id: item.naming.category_id,
+        subject: item.naming.subject,
+        formed_on: item.naming.formed_on,
+        version: item.naming.version,
+        applicable_to: item.naming.applicable_to,
+      },
+    })),
+  });
 }

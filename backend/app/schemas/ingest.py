@@ -241,7 +241,9 @@ class IngestConfirmResponse(BaseModel):
 
 class IngestBulkConfirmItem(BaseModel):
     task_id: uuid.UUID
-    confirmation: IngestConfirmRequest
+    # Kept raw so one malformed item produces one safe terminal result instead
+    # of rejecting the entire batch at request parsing time.
+    confirmation: dict[str, object] | IngestConfirmRequest
 
 
 class IngestBulkConfirmRequest(BulkRequestContext):
@@ -256,9 +258,18 @@ class IngestBulkConfirmRequest(BulkRequestContext):
         if self.target_scope == KnowledgeScope.project and self.target_project_id is None:
             raise ValueError("target_project_id is required for project scope")
         for item in self.items:
-            if item.confirmation.target_scope != self.target_scope:
+            confirmation = (
+                item.confirmation.model_dump(mode="json")
+                if isinstance(item.confirmation, IngestConfirmRequest)
+                else item.confirmation
+            )
+            if confirmation.get("target_scope") != self.target_scope.value:
                 raise ValueError("all items must use the explicit batch target_scope")
-            if item.confirmation.target_project_id != self.target_project_id:
+            supplied_project = confirmation.get("target_project_id")
+            if supplied_project is not None:
+                supplied_project = str(supplied_project)
+            expected_project = str(self.target_project_id) if self.target_project_id else None
+            if supplied_project != expected_project:
                 raise ValueError("all items must use the explicit batch target_project_id")
         return self
 

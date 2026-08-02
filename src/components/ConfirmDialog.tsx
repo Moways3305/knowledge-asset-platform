@@ -21,6 +21,7 @@ interface ConfirmDialogProps {
   onCancel: () => void;
   children?: ReactNode;
   icon?: ReactNode;
+  panelClassName?: string;
 }
 
 export default function ConfirmDialog({
@@ -39,6 +40,7 @@ export default function ConfirmDialog({
   onCancel,
   children,
   icon,
+  panelClassName,
 }: ConfirmDialogProps) {
   const titleId = useId();
   const modalRef = useRef<HTMLDivElement>(null);
@@ -82,7 +84,7 @@ export default function ConfirmDialog({
     <div className="kl-modal-overlay" onClick={() => !busy && onCancel()}>
       <div
         ref={modalRef}
-        className="kl-modal"
+        className={`kl-modal ${panelClassName ?? ""}`.trim()}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
