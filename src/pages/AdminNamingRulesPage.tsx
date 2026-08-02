@@ -1,11 +1,47 @@
-import { useEffect, useMemo, useState } from "react";
-import { BookType, Plus, RefreshCw, Send } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { BookType, CircleHelp, Plus, RefreshCw, Send, Sparkles, Trash2 } from "lucide-react";
 import { ApiError } from "../api/http";
 import { fetchNamingRuleCenter, publishNamingRuleDraft, saveNamingRuleDraft } from "../api/naming";
 import type { NamingCategoryConfigDTO, NamingRuleCenterDTO } from "../types/naming";
 import "./AdminNamingRulesPage.css";
 
-const levels = ["L1", "L2", "L3", "L4"];
+const levels = ["L1", "L2", "L3", "L4", "L5"];
+const standardProjectCategories = [
+  { name: "项目基础信息", confidentiality: "L4", order: 10 },
+  { name: "辅导过程", confidentiality: "L3", order: 20 },
+  { name: "交付成果", confidentiality: "L3", order: 30 },
+  { name: "关键资料", confidentiality: "L5", order: 40 },
+  { name: "项目复盘", confidentiality: "L3", order: 50 },
+] as const;
+
+function makeProjectCategory(
+  name: string,
+  defaultConfidentiality: string,
+  sortOrder: number,
+): NamingCategoryConfigDTO {
+  return {
+    id: crypto.randomUUID(),
+    scope: "project",
+    primary: "项目资料",
+    secondary: name,
+    prefix: name,
+    default_confidentiality: defaultConfidentiality,
+    enabled: true,
+    sort_order: sortOrder,
+  };
+}
+
+function convertCategoryScope(
+  category: NamingCategoryConfigDTO,
+  scope: "project" | "company",
+): NamingCategoryConfigDTO {
+  const secondary = category.secondary.trim() || "新类别";
+  if (scope === "project") {
+    return { ...category, scope, primary: "项目资料", secondary, prefix: secondary };
+  }
+  const primary = category.scope === "company" ? category.primary.trim() || "方法论" : "方法论";
+  return { ...category, scope, primary, secondary, prefix: `${primary}-${secondary}` };
+}
 
 function example(scope: "project" | "company", category?: NamingCategoryConfigDTO): string {
   if (!category) return "先新增并启用一个目录类别";
@@ -19,6 +55,8 @@ export default function AdminNamingRulesPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [categoryHelpOpen, setCategoryHelpOpen] = useState(false);
+  const draftEditRevisionRef = useRef(0);
 
   const load = async () => {
     setError(null);
@@ -33,6 +71,7 @@ export default function AdminNamingRulesPage() {
   const config = center?.draft.config;
   const updateConfig = (next: NonNullable<typeof config>) => {
     if (!center) return;
+    draftEditRevisionRef.current += 1;
     setCenter({ ...center, draft: { ...center.draft, config: next } });
     setNotice(null);
   };
@@ -66,10 +105,29 @@ export default function AdminNamingRulesPage() {
   const save = async () => {
     setBusy(true);
     setError(null);
+    const submittedEditRevision = draftEditRevisionRef.current;
     try {
-      const draft = await saveNamingRuleDraft(center.published.version, config);
-      setCenter({ ...center, draft });
-      setNotice("草稿已保存，尚未影响新入库资料。");
+      const normalizedConfig = {
+        ...config,
+        categories: config.categories.map((category) =>
+          convertCategoryScope(category, category.scope),
+        ),
+      };
+      const draft = await saveNamingRuleDraft(center.published.version, normalizedConfig);
+      const hasNewerEdits = draftEditRevisionRef.current !== submittedEditRevision;
+      setCenter((current) =>
+        current
+          ? {
+              ...current,
+              draft: hasNewerEdits ? { ...draft, config: current.draft.config } : draft,
+            }
+          : current,
+      );
+      setNotice(
+        hasNewerEdits
+          ? "保存完成；保存期间的后续编辑尚未保存。"
+          : "草稿已保存，尚未影响新入库资料。",
+      );
     } catch (reason) {
       setError(reason instanceof ApiError ? reason.message : "草稿保存失败");
     } finally {
@@ -208,35 +266,88 @@ export default function AdminNamingRulesPage() {
 
       <section className="naming-section" aria-labelledby="category-title">
         <div className="naming-section-head">
-          <div>
+          <div className="naming-section-title">
             <span>02</span>
             <h2 id="category-title">目录类别</h2>
+            <div
+              className="naming-category-help"
+              onMouseEnter={() => setCategoryHelpOpen(true)}
+              onMouseLeave={() => setCategoryHelpOpen(false)}
+            >
+              <button
+                aria-label="查看目录类别填写说明"
+                aria-describedby={categoryHelpOpen ? "category-help-tooltip" : undefined}
+                className="naming-help-trigger"
+                type="button"
+                onFocus={() => setCategoryHelpOpen(true)}
+                onBlur={() => setCategoryHelpOpen(false)}
+              >
+                <CircleHelp size={16} />
+              </button>
+              {categoryHelpOpen && (
+                <div className="naming-help-popover" id="category-help-tooltip" role="tooltip">
+                  <strong>项目库字段</strong>
+                  <code>项目基础信息 | L4 | 10 | 启用</code>
+                  <p>规范名类别片段取“项目基础信息”。</p>
+                  <strong>公司库字段</strong>
+                  <code>方法论 | 模型工具 | L2 | 10 | 启用</code>
+                  <p>规范名类别片段取“方法论-模型工具”。</p>
+                  <small>
+                    排序数值越小越靠前。项目规范名使用项目代码、文件形成日期年份和二级分类；命名展示名仅供配置与展示，不是年份或项目代码。
+                  </small>
+                </div>
+              )}
+            </div>
           </div>
-          <button
-            className="btn-secondary"
-            type="button"
-            onClick={() =>
-              updateConfig({
-                ...config,
-                categories: [
-                  ...config.categories,
-                  {
-                    id: crypto.randomUUID(),
-                    scope: "project",
-                    primary: "项目资料",
-                    secondary: "交付件",
-                    prefix: "项目资料-交付件",
-                    default_confidentiality: "L2",
-                    enabled: true,
-                    sort_order: config.categories.length * 10 + 10,
-                  },
-                ],
-              })
-            }
-          >
-            <Plus size={15} />
-            新增类别
-          </button>
+          <div className="naming-category-actions">
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={() => {
+                const existing = new Set(
+                  config.categories
+                    .filter((item) => item.scope === "project")
+                    .map((item) => item.secondary.trim()),
+                );
+                const missing = standardProjectCategories.filter(
+                  (item) => !existing.has(item.name),
+                );
+                updateConfig({
+                  ...config,
+                  categories: [
+                    ...config.categories,
+                    ...missing.map((item) =>
+                      makeProjectCategory(item.name, item.confidentiality, item.order),
+                    ),
+                  ],
+                });
+                setNotice(
+                  missing.length === 0
+                    ? "5 个标准类别均已存在，未重复新增。"
+                    : `已新增 ${missing.length} 个项目库标准类别；已存在的类别未重复新增。`,
+                );
+              }}
+            >
+              <Sparkles size={15} />
+              一键初始化项目库标准目录
+            </button>
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={() =>
+                updateConfig({
+                  ...config,
+                  categories: [
+                    ...config.categories,
+                    makeProjectCategory("新类别", "L2", config.categories.length * 10 + 10),
+                  ],
+                })
+              }
+            >
+              <Plus size={15} />
+              新增类别
+            </button>
+          </div>
         </div>
         <div className="naming-category-list">
           {config.categories.map((category, index) => {
@@ -248,34 +359,64 @@ export default function AdminNamingRulesPage() {
                 ),
               });
             return (
-              <div className="naming-category-row" key={category.id}>
+              <div
+                aria-label={`${category.scope === "project" ? "项目库" : "公司库"}目录类别 ${category.secondary}`}
+                className={`naming-category-row is-${category.scope}`}
+                key={category.id}
+                role="group"
+              >
                 <select
                   aria-label="适用库范围"
+                  title="选择该类别用于项目库或公司库"
                   value={category.scope}
                   onChange={(e) =>
-                    patchCategory({ scope: e.target.value as "project" | "company" })
+                    patchCategory(
+                      convertCategoryScope(category, e.target.value as "project" | "company"),
+                    )
                   }
                 >
                   <option value="project">项目库</option>
                   <option value="company">公司库</option>
                 </select>
+                {category.scope === "company" && (
+                  <input
+                    aria-label="一级分类"
+                    placeholder="一级分类，如 方法论"
+                    title="公司规范名中的一级分类"
+                    value={category.primary}
+                    onChange={(e) => {
+                      const primary = e.target.value;
+                      patchCategory({ primary, prefix: `${primary}-${category.secondary}` });
+                    }}
+                  />
+                )}
                 <input
-                  aria-label="一级类"
-                  value={category.primary}
-                  onChange={(e) => patchCategory({ primary: e.target.value })}
-                />
-                <input
-                  aria-label="二级类"
+                  aria-label={category.scope === "project" ? "类别名称" : "二级分类"}
+                  placeholder={
+                    category.scope === "project"
+                      ? "类别名称，如 项目基础信息"
+                      : "二级分类，如 模型工具"
+                  }
+                  title={
+                    category.scope === "project"
+                      ? "项目规范名中的二级分类片段"
+                      : "公司规范名中的二级分类"
+                  }
                   value={category.secondary}
-                  onChange={(e) => patchCategory({ secondary: e.target.value })}
-                />
-                <input
-                  aria-label="规范前缀"
-                  value={category.prefix}
-                  onChange={(e) => patchCategory({ prefix: e.target.value })}
+                  onChange={(e) => {
+                    const secondary = e.target.value;
+                    patchCategory({
+                      secondary,
+                      prefix:
+                        category.scope === "project"
+                          ? secondary
+                          : `${category.primary}-${secondary}`,
+                    });
+                  }}
                 />
                 <select
                   aria-label="默认密级"
+                  title="新建该类资料时建议使用的默认密级"
                   value={category.default_confidentiality}
                   onChange={(e) => patchCategory({ default_confidentiality: e.target.value })}
                 >
@@ -285,6 +426,8 @@ export default function AdminNamingRulesPage() {
                 </select>
                 <input
                   aria-label="显示排序"
+                  title="排序数值越小越靠前"
+                  placeholder="排序"
                   type="number"
                   min={0}
                   max={10000}
@@ -294,11 +437,31 @@ export default function AdminNamingRulesPage() {
                 <label className="naming-inline-check">
                   <input
                     type="checkbox"
+                    title="是否在发布后提供该目录类别"
                     checked={category.enabled}
                     onChange={(e) => patchCategory({ enabled: e.target.checked })}
                   />
                   启用
                 </label>
+                <button
+                  aria-label={`删除目录类别 ${category.secondary}`}
+                  className="naming-delete-category"
+                  title="从当前草稿删除类别"
+                  type="button"
+                  onClick={() => {
+                    const confirmed = window.confirm(
+                      `将从当前命名规则草稿中删除「${category.secondary}」，发布后才对后续入库生效；历史已入库资料不会改名。`,
+                    );
+                    if (!confirmed) return;
+                    updateConfig({
+                      ...config,
+                      categories: config.categories.filter((_, itemIndex) => itemIndex !== index),
+                    });
+                  }}
+                >
+                  <Trash2 size={15} />
+                  <span>删除</span>
+                </button>
               </div>
             );
           })}

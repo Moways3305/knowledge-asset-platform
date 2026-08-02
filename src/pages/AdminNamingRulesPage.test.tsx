@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchNamingRuleCenter, publishNamingRuleDraft, saveNamingRuleDraft } from "../api/naming";
 import type { NamingRuleCenterDTO } from "../types/naming";
@@ -9,6 +9,14 @@ vi.mock("../api/naming", () => ({
   publishNamingRuleDraft: vi.fn(),
   saveNamingRuleDraft: vi.fn(),
 }));
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 const center: NamingRuleCenterDTO = {
   published: {
@@ -37,6 +45,16 @@ const center: NamingRuleCenterDTO = {
           default_confidentiality: "L2",
           enabled: true,
           sort_order: 10,
+        },
+        {
+          id: "10000000-0000-0000-0000-000000000002",
+          scope: "company",
+          primary: "方法论",
+          secondary: "模型工具",
+          prefix: "方法论-模型工具",
+          default_confidentiality: "L2",
+          enabled: true,
+          sort_order: 20,
         },
       ],
     },
@@ -85,6 +103,20 @@ describe("AdminNamingRulesPage", () => {
       expect.objectContaining({
         enforced: true,
         project_codes: [expect.objectContaining({ code: "BW-2601", enabled: true })],
+        categories: expect.arrayContaining([
+          expect.objectContaining({
+            scope: "project",
+            primary: "项目资料",
+            secondary: "交付件",
+            prefix: "交付件",
+          }),
+          expect.objectContaining({
+            scope: "company",
+            primary: "方法论",
+            secondary: "模型工具",
+            prefix: "方法论-模型工具",
+          }),
+        ]),
       }),
     );
     expect(publishNamingRuleDraft).not.toHaveBeenCalled();
@@ -96,5 +128,137 @@ describe("AdminNamingRulesPage", () => {
   it("shows the project canonical-name shape without customer names", async () => {
     render(<AdminNamingRulesPage />);
     expect(await screen.findByText(/【PRJ-2026-交付件】/)).toBeInTheDocument();
+  });
+
+  it("exposes the typed field help through pointer hover and keyboard focus", async () => {
+    render(<AdminNamingRulesPage />);
+    const trigger = await screen.findByRole("button", { name: "查看目录类别填写说明" });
+
+    fireEvent.mouseEnter(trigger);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("项目基础信息 | L4 | 10 | 启用");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("方法论 | 模型工具 | L2 | 10 | 启用");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("排序数值越小越靠前");
+    fireEvent.mouseLeave(trigger.parentElement!);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    fireEvent.focus(trigger);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("文件形成日期年份和二级分类");
+    fireEvent.blur(trigger);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  });
+
+  it("shows only the fields belonging to each category scope", async () => {
+    render(<AdminNamingRulesPage />);
+    const project = await screen.findByRole("group", { name: /项目库目录类别 交付件/ });
+    expect(within(project).getByLabelText("类别名称")).toBeInTheDocument();
+    expect(within(project).queryByLabelText("一级分类")).not.toBeInTheDocument();
+    expect(within(project).queryByLabelText("二级分类")).not.toBeInTheDocument();
+    expect(within(project).queryByLabelText("规范前缀")).not.toBeInTheDocument();
+
+    const company = screen.getByRole("group", { name: /公司库目录类别 模型工具/ });
+    expect(within(company).getByLabelText("一级分类")).toHaveValue("方法论");
+    expect(within(company).getByLabelText("二级分类")).toHaveValue("模型工具");
+    expect(within(company).queryByLabelText("规范前缀")).not.toBeInTheDocument();
+  });
+
+  it("safely derives compatibility fields when switching category scope", async () => {
+    render(<AdminNamingRulesPage />);
+    const project = await screen.findByRole("group", { name: /项目库目录类别 交付件/ });
+    fireEvent.change(within(project).getByLabelText("适用库范围"), {
+      target: { value: "company" },
+    });
+
+    const converted = screen.getByRole("group", { name: /公司库目录类别 交付件/ });
+    expect(within(converted).getByLabelText("一级分类")).toHaveValue("方法论");
+    expect(within(converted).getByLabelText("二级分类")).toHaveValue("交付件");
+
+    fireEvent.change(within(converted).getByLabelText("适用库范围"), {
+      target: { value: "project" },
+    });
+    const restored = screen.getByRole("group", { name: /项目库目录类别 交付件/ });
+    expect(within(restored).queryByLabelText("一级分类")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    await waitFor(() => expect(saveNamingRuleDraft).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(saveNamingRuleDraft).mock.calls[0][1].categories[0]).toMatchObject({
+      scope: "project",
+      primary: "项目资料",
+      secondary: "交付件",
+      prefix: "交付件",
+    });
+  });
+
+  it("initializes only missing project standards in the current draft", async () => {
+    render(<AdminNamingRulesPage />);
+    const initialize = await screen.findByRole("button", {
+      name: /一键初始化项目库标准目录/,
+    });
+    fireEvent.click(initialize);
+    expect(screen.getByRole("status")).toHaveTextContent("已新增 5 个项目库标准类别");
+
+    fireEvent.click(initialize);
+    expect(screen.getByRole("status")).toHaveTextContent("5 个标准类别均已存在");
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+
+    await waitFor(() => expect(saveNamingRuleDraft).toHaveBeenCalledTimes(1));
+    const saved = vi.mocked(saveNamingRuleDraft).mock.calls[0][1];
+    for (const name of ["项目基础信息", "辅导过程", "交付成果", "关键资料", "项目复盘"]) {
+      expect(
+        saved.categories.filter((item) => item.scope === "project" && item.secondary === name),
+      ).toHaveLength(1);
+    }
+    expect(publishNamingRuleDraft).not.toHaveBeenCalled();
+  });
+
+  it("cancels or confirms draft deletion and saves the reduced category set", async () => {
+    const confirm = vi.spyOn(window, "confirm");
+    confirm.mockReturnValueOnce(false).mockReturnValueOnce(true);
+    render(<AdminNamingRulesPage />);
+    const remove = await screen.findByRole("button", { name: "删除目录类别 交付件" });
+
+    fireEvent.click(remove);
+    expect(confirm).toHaveBeenCalledWith(
+      "将从当前命名规则草稿中删除「交付件」，发布后才对后续入库生效；历史已入库资料不会改名。",
+    );
+    expect(screen.getByRole("button", { name: "删除目录类别 交付件" })).toBeInTheDocument();
+
+    fireEvent.click(remove);
+    expect(screen.queryByRole("button", { name: "删除目录类别 交付件" })).not.toBeInTheDocument();
+    expect(screen.getByText("先新增并启用一个目录类别")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+
+    await waitFor(() => expect(saveNamingRuleDraft).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(saveNamingRuleDraft).mock.calls[0][1].categories).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "10000000-0000-0000-0000-000000000001" }),
+      ]),
+    );
+    expect(publishNamingRuleDraft).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it("keeps edits made while an older save request is still in flight", async () => {
+    const pending = deferred<NamingRuleCenterDTO["draft"]>();
+    vi.mocked(saveNamingRuleDraft).mockReturnValueOnce(pending.promise);
+    render(<AdminNamingRulesPage />);
+    const categoryName = await screen.findByLabelText("类别名称");
+
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    await waitFor(() => expect(saveNamingRuleDraft).toHaveBeenCalledTimes(1));
+    const submittedConfig = vi.mocked(saveNamingRuleDraft).mock.calls[0][1];
+    fireEvent.change(categoryName, { target: { value: "保存期间新增编辑" } });
+
+    await act(async () => {
+      pending.resolve({ ...structuredClone(center.draft), config: submittedConfig });
+      await pending.promise;
+    });
+
+    expect(screen.getByLabelText("类别名称")).toHaveValue("保存期间新增编辑");
+    expect(screen.getByRole("status")).toHaveTextContent("后续编辑尚未保存");
+    await waitFor(() => expect(screen.getByRole("button", { name: "保存草稿" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    await waitFor(() => expect(saveNamingRuleDraft).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(saveNamingRuleDraft).mock.calls[1][1].categories[0].secondary).toBe(
+      "保存期间新增编辑",
+    );
   });
 });

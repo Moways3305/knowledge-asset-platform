@@ -108,6 +108,10 @@
   align-items: center;
   gap: 10px;
 }
+.naming-section-head .naming-category-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
 .naming-section-head span {
   font:
     600 11px "IBM Plex Mono",
@@ -127,6 +131,66 @@
   display: flex;
   gap: 6px;
   align-items: center;
+}
+.naming-category-help {
+  position: relative;
+  display: flex;
+}
+.naming-help-trigger {
+  width: 28px;
+  height: 28px;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid #cbd8e6;
+  border-radius: 50%;
+  background: #f5f8fc;
+  color: #315b84;
+  cursor: help;
+}
+.naming-help-trigger:hover,
+.naming-help-trigger:focus-visible {
+  border-color: #315b84;
+  outline: 3px solid rgb(49 91 132 / 14%);
+}
+.naming-help-popover {
+  position: absolute;
+  z-index: 20;
+  top: 34px;
+  left: -8px;
+  width: min(420px, calc(100vw - 64px));
+  padding: 16px;
+  border: 1px solid #b8c9da;
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgb(23 59 94 / 18%);
+  background: #f8fbff;
+  color: var(--color-text-primary);
+}
+.naming-help-popover strong,
+.naming-help-popover code,
+.naming-help-popover small {
+  display: block;
+}
+.naming-help-popover strong {
+  margin-bottom: 5px;
+  color: #173b5e;
+}
+.naming-help-popover code {
+  padding: 7px 9px;
+  border-left: 3px solid #4d789f;
+  background: #eaf1f8;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+}
+.naming-help-popover p {
+  margin: 5px 0 13px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.naming-help-popover small {
+  padding-top: 10px;
+  border-top: 1px solid #d6e1eb;
+  line-height: 1.55;
+  color: #465d72;
 }
 .naming-grid {
   display: grid;
@@ -178,12 +242,38 @@
 }
 .naming-category-row {
   display: grid;
-  grid-template-columns: 110px 1fr 1fr 1.2fr 82px 82px 72px;
+  grid-template-columns: 110px minmax(220px, 1fr) 88px 82px 72px 88px;
   gap: 8px;
   align-items: center;
+  padding: 10px;
+  border: 1px solid #dfe6ef;
+  border-radius: 10px;
+  background: #fbfcfe;
+}
+.naming-category-row.is-company {
+  grid-template-columns: 110px minmax(150px, 1fr) minmax(170px, 1fr) 88px 82px 72px 88px;
 }
 .naming-category-row .naming-inline-check {
   white-space: nowrap;
+}
+.naming-delete-category {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 36px;
+  padding: 7px 9px;
+  border: 1px solid #e2c5c2;
+  border-radius: 7px;
+  background: #fff8f7;
+  color: #9a342c;
+  cursor: pointer;
+}
+.naming-delete-category:hover,
+.naming-delete-category:focus-visible {
+  border-color: #b84a40;
+  background: #fff0ee;
+  outline: 2px solid rgb(184 74 64 / 14%);
 }
 .naming-preview-section {
   background: #f8fafc;
@@ -232,7 +322,34 @@
   .naming-category-row {
     grid-template-columns: 1fr 1fr;
   }
+  .naming-category-row.is-company {
+    grid-template-columns: 1fr 1fr;
+  }
+  .naming-category-actions button {
+    flex: 1 1 220px;
+    justify-content: center;
+  }
   .naming-release-card {
     min-width: 0;
+  }
+}
+@media (max-width: 560px) {
+  .naming-section-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .naming-section-head .naming-category-actions {
+    justify-content: stretch;
+  }
+  .naming-category-row,
+  .naming-category-row.is-company {
+    grid-template-columns: 1fr;
+  }
+  .naming-help-popover {
+    position: fixed;
+    top: 96px;
+    right: 16px;
+    left: 16px;
+    width: auto;
   }
 }
