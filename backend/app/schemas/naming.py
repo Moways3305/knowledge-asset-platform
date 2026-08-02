@@ -7,7 +7,7 @@ import uuid
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.enums import ConfidentialityLevel, KnowledgeScope
 
@@ -174,10 +174,22 @@ class NamingPreviewResponse(BaseModel):
     message: str | None = None
 
 
+class BatchNamingConfirmationFields(BaseModel):
+    """Field-shaped carrier that keeps business validation item-scoped."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    category_id: uuid.UUID | str | None = None
+    subject: str | None = None
+    formed_on: date | str | None = None
+    version: str | None = None
+    applicable_to: str | None = None
+
+
 class BatchNamingPreviewItemRequest(BaseModel):
     task_id: uuid.UUID
-    confidentiality_level: str
-    naming: dict[str, object] | None = None
+    confidentiality_level: ConfidentialityLevel
+    naming: BatchNamingConfirmationFields | None = None
 
 
 class BatchNamingPreviewRequest(BaseModel):

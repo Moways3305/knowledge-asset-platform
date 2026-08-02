@@ -52,13 +52,35 @@ function initialRows(tasks: PendingIngestItemDTO[], options: NamingOptionsDTO): 
   );
 }
 
-function rowMissing(row: BatchNamingValuesDTO, company: boolean): string | null {
-  if (!row.subject.trim()) return "请填写主题";
-  if (!row.category_id) return "请选择目录类别";
-  if (!DATE_PATTERN.test(row.formed_on)) return "请填写文件形成日期";
-  if (!VERSION_PATTERN.test(row.version.toUpperCase())) return "请填写有效版本，例如 V1";
-  if (company && !row.applicable_to?.trim()) return "请填写适用对象";
+type NamingField = "subject" | "category_id" | "formed_on" | "version" | "applicable_to";
+
+type RowError = { field: NamingField | null; message: string };
+
+function rowMissing(row: BatchNamingValuesDTO, company: boolean): RowError | null {
+  if (!row.subject.trim()) return { field: "subject", message: "请填写主题" };
+  if (!row.category_id) return { field: "category_id", message: "请选择目录类别" };
+  if (!DATE_PATTERN.test(row.formed_on)) {
+    return { field: "formed_on", message: "请填写文件形成日期" };
+  }
+  if (!VERSION_PATTERN.test(row.version.toUpperCase())) {
+    return { field: "version", message: "请填写有效版本，例如 V1" };
+  }
+  if (company && !row.applicable_to?.trim()) {
+    return { field: "applicable_to", message: "请填写适用对象" };
+  }
   return null;
+}
+
+function previewError(preview: BatchNamingPreviewItemDTO | undefined): RowError | null {
+  if (!preview?.message || preview.submittable) return null;
+  const fields: Partial<Record<string, NamingField>> = {
+    naming_subject_invalid: "subject",
+    naming_category_unavailable: "category_id",
+    naming_formed_on_invalid: "formed_on",
+    naming_version_invalid: "version",
+    naming_applicable_to_required: "applicable_to",
+  };
+  return { field: fields[preview.error_code ?? ""] ?? null, message: preview.message };
 }
 
 export default function PendingBatchActions({
@@ -243,7 +265,7 @@ export default function PendingBatchActions({
         description={
           stage === "target"
             ? "请选择一个明确的目标知识库；取消不会创建资产或改变任务状态。"
-            : previewSummary
+            : undefined
         }
         confirmText={
           stage === "review" || targetLibrary === "personal" || !targetLibrary
@@ -314,6 +336,8 @@ export default function PendingBatchActions({
                 const preview = previews[task.id];
                 if (!row) return null;
                 const localError = rowMissing(row, company);
+                const serverError = previewError(preview);
+                const fieldError = localError ?? serverError;
                 return (
                   <article className="upload77-batch-naming-row" key={task.id}>
                     <header>
@@ -330,6 +354,11 @@ export default function PendingBatchActions({
                           value={row.subject}
                           onChange={(event) => updateRow(task.id, { subject: event.target.value })}
                         />
+                        {fieldError?.field === "subject" && (
+                          <small className="upload77-batch-naming-error">
+                            {fieldError.message}
+                          </small>
+                        )}
                       </label>
                       <label>
                         <span>目录类别</span>
@@ -347,6 +376,11 @@ export default function PendingBatchActions({
                             </option>
                           ))}
                         </select>
+                        {fieldError?.field === "category_id" && (
+                          <small className="upload77-batch-naming-error">
+                            {fieldError.message}
+                          </small>
+                        )}
                       </label>
                       <label>
                         <span>文件形成日期</span>
@@ -358,6 +392,11 @@ export default function PendingBatchActions({
                             updateRow(task.id, { formed_on: event.target.value })
                           }
                         />
+                        {fieldError?.field === "formed_on" && (
+                          <small className="upload77-batch-naming-error">
+                            {fieldError.message}
+                          </small>
+                        )}
                       </label>
                       <label>
                         <span>版本</span>
@@ -369,6 +408,11 @@ export default function PendingBatchActions({
                             updateRow(task.id, { version: event.target.value.toUpperCase() })
                           }
                         />
+                        {fieldError?.field === "version" && (
+                          <small className="upload77-batch-naming-error">
+                            {fieldError.message}
+                          </small>
+                        )}
                       </label>
                       {company && (
                         <label>
@@ -380,6 +424,11 @@ export default function PendingBatchActions({
                               updateRow(task.id, { applicable_to: event.target.value })
                             }
                           />
+                          {fieldError?.field === "applicable_to" && (
+                            <small className="upload77-batch-naming-error">
+                              {fieldError.message}
+                            </small>
+                          )}
                         </label>
                       )}
                       <label>
@@ -404,16 +453,11 @@ export default function PendingBatchActions({
                       <strong>规范名预览：</strong>
                       {preview?.canonical_name ?? "尚未生成"}
                     </div>
-                    {(localError || preview?.message) && (
-                      <div
-                        className={
-                          localError || !preview?.submittable
-                            ? "upload77-batch-naming-error"
-                            : "upload77-batch-naming-notice"
-                        }
-                      >
-                        {localError ?? preview?.message}
-                      </div>
+                    {!localError && !preview && (
+                      <div className="upload77-batch-naming-notice">请生成预览</div>
+                    )}
+                    {serverError?.field === null && (
+                      <div className="upload77-batch-naming-error">{serverError.message}</div>
                     )}
                     {preview?.notices.map((notice) => (
                       <div

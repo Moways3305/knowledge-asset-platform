@@ -1595,23 +1595,91 @@
         "title": "AuthUnlockResponse",
         "type": "object"
       },
-      "BatchNamingPreviewItemRequest": {
+      "BatchNamingConfirmationFields": {
+        "additionalProperties": false,
+        "description": "Field-shaped carrier that keeps business validation item-scoped.",
         "properties": {
-          "confidentiality_level": {
-            "title": "Confidentiality Level",
-            "type": "string"
-          },
-          "naming": {
+          "applicable_to": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Naming"
+            "title": "Applicable To"
+          },
+          "category_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "formed_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Formed On"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "title": "BatchNamingConfirmationFields",
+        "type": "object"
+      },
+      "BatchNamingPreviewItemRequest": {
+        "properties": {
+          "confidentiality_level": {
+            "$ref": "#/components/schemas/ConfidentialityLevel"
+          },
+          "naming": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatchNamingConfirmationFields"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "task_id": {
             "format": "uuid",

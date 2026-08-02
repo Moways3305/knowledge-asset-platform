@@ -32,6 +32,7 @@ def _config(
     client_aliases: list[str] | None = None,
     client_aliases_enabled: bool = True,
     category: str = "交付件",
+    company_category_id: uuid.UUID | None = None,
 ) -> dict:
     return {
         "schema_version": 1,
@@ -68,7 +69,23 @@ def _config(
                 "default_confidentiality": "L2",
                 "enabled": True,
                 "sort_order": 10,
-            }
+            },
+            *(
+                [
+                    {
+                        "id": str(company_category_id),
+                        "scope": "company",
+                        "primary": "公司制度",
+                        "secondary": "年度计划",
+                        "prefix": "公司制度-年度计划",
+                        "default_confidentiality": "L2",
+                        "enabled": True,
+                        "sort_order": 20,
+                    }
+                ]
+                if company_category_id is not None
+                else []
+            ),
         ],
     }
 
@@ -707,6 +724,153 @@ async def test_batch_preview_and_confirm_keep_naming_failures_item_scoped(client
     )
     assert duplicate_confirm.status_code == 200
     assert duplicate_confirm.json()["items"][0]["reason_code"] == "naming_exact_duplicate"
+
+
+async def test_batch_preview_accepts_complete_frontend_project_contract(client):
+    category_id = uuid.uuid4()
+    await _publish(client, category_id)
+    task_id = await _upload(client)
+
+    response = await client.post(
+        "/api/v1/ingest/bulk-naming-preview",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "items": [
+                {
+                    "task_id": task_id,
+                    "confidentiality_level": "L2",
+                    "naming": {
+                        "category_id": str(category_id),
+                        "subject": "财务部战略行动计划及年度工作计划",
+                        "formed_on": "2021-01-16",
+                        "version": "V1",
+                    },
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["submittable"] is True
+    assert item["canonical_name"].endswith("财务部战略行动计划及年度工作计划_20210116_V1_L2.txt")
+    assert item["rule_version"] == 2
+    assert item["notices"] == []
+    assert item["error_code"] is None
+
+
+async def test_batch_preview_returns_field_specific_safe_validation_errors(client):
+    category_id = uuid.uuid4()
+    await _publish(client, category_id)
+    task_ids = [await _upload(client) for _ in range(4)]
+    base = {
+        "category_id": str(category_id),
+        "subject": "批量字段诊断",
+        "formed_on": "2021-01-16",
+        "version": "V1",
+    }
+
+    response = await client.post(
+        "/api/v1/ingest/bulk-naming-preview",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "items": [
+                {
+                    "task_id": task_ids[0],
+                    "confidentiality_level": "L2",
+                    "naming": {**base, "formed_on": "not-a-date"},
+                },
+                {
+                    "task_id": task_ids[1],
+                    "confidentiality_level": "L2",
+                    "naming": {**base, "version": "latest"},
+                },
+                {
+                    "task_id": task_ids[2],
+                    "confidentiality_level": "L2",
+                    "naming": {**base, "category_id": str(uuid.uuid4())},
+                },
+                {
+                    "task_id": task_ids[3],
+                    "confidentiality_level": "L2",
+                    "naming": {**base, "subject": ""},
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    codes = [item["error_code"] for item in response.json()["items"]]
+    assert codes == [
+        "naming_formed_on_invalid",
+        "naming_version_invalid",
+        "naming_category_unavailable",
+        "naming_subject_invalid",
+    ]
+    body = json.dumps(response.json(), ensure_ascii=False).lower()
+    assert "storage" not in body
+    assert "trace" not in body
+
+
+async def test_batch_preview_requires_company_applicable_to_per_item(client):
+    project_category_id = uuid.uuid4()
+    company_category_id = uuid.uuid4()
+    saved = await client.put(
+        "/api/v1/admin/naming-rules/draft",
+        headers=_hdr(USER_BOSS),
+        json={
+            "expected_base_version": 1,
+            "config": _config(
+                project_category_id,
+                company_category_id=company_category_id,
+            ),
+        },
+    )
+    assert saved.status_code == 200
+    assert (
+        await client.post(
+            "/api/v1/admin/naming-rules/publish",
+            headers=_hdr(USER_BOSS),
+            json={"expected_base_version": 1},
+        )
+    ).status_code == 200
+    task_id = await _upload(client, USER_BOSS)
+
+    response = await client.post(
+        "/api/v1/ingest/bulk-naming-preview",
+        headers=_hdr(USER_BOSS),
+        json={
+            "target_scope": "company",
+            "items": [
+                {
+                    "task_id": task_id,
+                    "confidentiality_level": "L2",
+                    "naming": {
+                        "category_id": str(company_category_id),
+                        "subject": "年度经营计划",
+                        "formed_on": "2021-01-16",
+                        "version": "V1",
+                    },
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"][0] == {
+        "task_id": task_id,
+        "submittable": False,
+        "canonical_name": None,
+        "rule_version": None,
+        "fields": None,
+        "notices": [],
+        "error_code": "naming_applicable_to_required",
+        "message": "公司库资料必须填写适用对象",
+    }
 
 
 async def test_batch_preview_authorizes_destination_before_task_probe(client):
