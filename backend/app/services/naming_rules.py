@@ -558,7 +558,7 @@ def _batch_validation_error(exc: ValidationError) -> tuple[str, str]:
 
 
 def _batch_http_error(exc: HTTPException) -> tuple[str, str]:
-    detail = exc.detail if isinstance(exc.detail, dict) else {}
+    detail: dict[str, object] = exc.detail if isinstance(exc.detail, dict) else {}
     reason = str(detail.get("denied_reason") or "item_state_changed")
     if exc.status_code in {403, 404}:
         return "item_unavailable", "该资料不存在或当前不可核对"
