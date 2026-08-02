@@ -17,6 +17,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     DateTime,
     ForeignKey,
@@ -74,6 +75,8 @@ class KnowledgeAsset(Base):
     confidentiality_level: Mapped[str] = mapped_column(String(2), nullable=False, default="L1")
     ai_access_level: Mapped[str] = mapped_column(String(2), nullable=False, default="A1")
     asset_status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    # User-facing canonical filename. It never controls or reveals the storage key.
+    canonical_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     lifecycle_route_key: Mapped[str | None] = mapped_column(String(20), nullable=True)
     lifecycle_phase_key: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -177,6 +180,10 @@ class KnowledgeAssetVersion(Base):
     index_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     index_error_message: Mapped[str | None] = mapped_column(String(255), nullable=True)
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Published naming facts captured at confirmation time. Historical versions
+    # remain stable when later naming policies are published.
+    naming_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    naming_rule_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

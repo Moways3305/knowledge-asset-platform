@@ -102,11 +102,22 @@ async def persist_confirmation(
         ai_access_level=request.ai_access_level.value,
         asset_status="active",
         lifecycle_phase_key=request.lifecycle_phase_key,
+        canonical_name=(
+            context.naming_result.canonical_name if context.naming_result is not None else None
+        ),
     )
     version = KnowledgeAssetVersion(
         version_no="v1",
         version_status="active",
         created_by=context.caller.user_id,
+        file_hash=task.source_file_hash,
+        source_hash=task.source_file_hash,
+        naming_metadata=(
+            context.naming_result.metadata if context.naming_result is not None else None
+        ),
+        naming_rule_version=(
+            context.naming_result.rule_version if context.naming_result is not None else None
+        ),
     )
     asset.versions.append(version)
     for summary in build_summaries(

@@ -52,6 +52,12 @@ const ingest = vi.hoisted(() => ({
 }));
 vi.mock("../../api/ingest", () => ingest);
 
+const namingApi = vi.hoisted(() => ({
+  fetchNamingOptions: vi.fn(),
+  previewIngestNaming: vi.fn(),
+}));
+vi.mock("../../api/naming", () => namingApi);
+
 vi.mock("./uploadConstants", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./uploadConstants")>();
   return { ...actual, POLL_INTERVAL_MS: 10, POLL_MAX_ATTEMPTS: 3 };
@@ -236,6 +242,14 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       .mockReset()
       .mockImplementation((taskId: string) => Promise.resolve(taskStatus(taskId)));
     ingest.fetchPendingIngestTasks.mockReset().mockResolvedValue([]);
+    namingApi.fetchNamingOptions.mockReset().mockResolvedValue({
+      required: false,
+      rule_version: null,
+      categories: [],
+      default_confidentiality: null,
+      message: null,
+    });
+    namingApi.previewIngestNaming.mockReset();
     ingest.confirmIngest.mockReset().mockResolvedValue({
       task_id: "t1",
       status: "completed",
@@ -269,6 +283,20 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       embeddingRef: "ref_emb_default",
       rerankRef: "ref_rer_default",
     };
+  });
+
+  it("fails closed when a project naming policy cannot be loaded", async () => {
+    namingApi.fetchNamingOptions.mockRejectedValue(new Error("policy unavailable"));
+    const { result } = renderHook(() => useUploadFlow());
+    await driveToReady(result);
+
+    act(() => {
+      result.current.setTargetLibrary("project");
+      result.current.setTargetProjectId("00000000-0000-0000-0000-0000000000b1");
+    });
+
+    await waitFor(() => expect(result.current.namingPreviewError).toBeTruthy());
+    expect(result.current.canSubmit).toBe(false);
   });
 
   it("默认模型存在时可提交，confirm payload 携带选中的 model_ref", async () => {

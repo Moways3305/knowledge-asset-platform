@@ -158,6 +158,13 @@ describe("can (nav / route capability predicates)", () => {
     expect(can.viewPeople(consultant)).toBe(false);
   });
 
+  it("restricts naming-rule governance to business governance roles", () => {
+    expect(can.viewNamingRules(admin)).toBe(false);
+    expect(can.viewNamingRules(governance)).toBe(true);
+    expect(can.viewNamingRules(projectManager)).toBe(false);
+    expect(can.viewNamingRules(consultant)).toBe(false);
+  });
+
   it("shows project board to project members and governance roles", () => {
     const member = deriveCapabilities(
       me({

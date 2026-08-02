@@ -25,6 +25,7 @@ from app.api import (
     lifecycle,
     model_connections,
     my_knowledge,
+    naming,
     notifications,
     ops,
     original_access,
@@ -77,6 +78,7 @@ def create_app() -> FastAPI:
     app.include_router(preview.router)
     app.include_router(generation_models.router)
     app.include_router(model_connections.router)
+    app.include_router(naming.router)
     app.include_router(notifications.router)
     app.include_router(agent.router)
     app.include_router(search.router)

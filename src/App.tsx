@@ -24,6 +24,7 @@ const AdminAlertSettingsPage = lazy(() => import("./pages/AdminAlertSettingsPage
 const AdminPeoplePage = lazy(() => import("./pages/AdminPeoplePage"));
 const AdminCompanyKbPage = lazy(() => import("./pages/AdminCompanyKbPage"));
 const AdminPermissionsPage = lazy(() => import("./pages/AdminPermissionsPage"));
+const AdminNamingRulesPage = lazy(() => import("./pages/AdminNamingRulesPage"));
 const ReviewPage = lazy(() => import("./pages/ReviewPage"));
 const ReviewCompletedPage = lazy(() => import("./pages/ReviewCompletedPage"));
 const OriginalAccessPage = lazy(() => import("./pages/OriginalAccessPage"));
@@ -135,6 +136,14 @@ export default function App() {
               element={
                 <RouteGuard cap={can.viewCompanyKnowledge}>
                   <AdminCompanyKbPage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="admin/naming-rules"
+              element={
+                <RouteGuard cap={can.viewNamingRules}>
+                  <AdminNamingRulesPage />
                 </RouteGuard>
               }
             />

@@ -299,6 +299,7 @@ def _to_list_item(
     return KnowledgeListItemOut(
         id=asset.id,
         title=asset.title,
+        canonical_name=asset.canonical_name,
         scope=asset.scope,
         zone=asset.zone,
         asset_type=asset.asset_type,
@@ -562,6 +563,11 @@ async def get_detail(
             id=version_obj.id,
             version_no=version_obj.version_no,
             version_status=version_obj.version_status,
+            display_version=(
+                version_obj.naming_metadata.get("version")
+                if isinstance(version_obj.naming_metadata, dict)
+                else None
+            ),
         )
 
     projects, users = await _aux_maps(session, [asset])
@@ -574,6 +580,7 @@ async def get_detail(
     return KnowledgeDetailOut(
         id=asset.id,
         title=asset.title,
+        canonical_name=asset.canonical_name,
         scope=asset.scope,
         zone=asset.zone,
         asset_type=asset.asset_type,

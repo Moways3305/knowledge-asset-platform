@@ -1,0 +1,177 @@
+"""Safe contracts for naming policy governance and confirmation preview."""
+
+from __future__ import annotations
+
+import re
+import uuid
+from datetime import date, datetime
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from app.schemas.enums import ConfidentialityLevel, KnowledgeScope
+
+_PROJECT_CODE = re.compile(r"^[A-Z][A-Z0-9-]{1,19}$")
+_VERSION = re.compile(r"^V[1-9]\d*(?:\.[1-9]\d*)*$")
+_UNSAFE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def _safe_text(value: str, *, label: str, maximum: int) -> str:
+    normalized = " ".join(value.strip().split())
+    if not normalized:
+        raise ValueError(f"{label}不能为空")
+    if len(normalized) > maximum:
+        raise ValueError(f"{label}不能超过 {maximum} 个字符")
+    if _UNSAFE.search(normalized) or normalized.endswith((".", " ")):
+        raise ValueError(f"{label}包含非法文件名字符")
+    return normalized
+
+
+class ProjectCodeConfig(BaseModel):
+    project_id: uuid.UUID
+    code: str
+    enabled: bool = True
+    default_confidentiality: ConfidentialityLevel = ConfidentialityLevel.L2
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if not _PROJECT_CODE.fullmatch(normalized):
+            raise ValueError("项目代码须为 2-20 位大写字母、数字或短横线，且以字母开头")
+        return normalized
+
+
+class NamingCategoryConfig(BaseModel):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4)
+    scope: Literal["project", "company"]
+    primary: str
+    secondary: str
+    prefix: str
+    default_confidentiality: ConfidentialityLevel = ConfidentialityLevel.L2
+    enabled: bool = True
+    sort_order: int = Field(default=100, ge=0, le=10000)
+
+    @field_validator("primary")
+    @classmethod
+    def validate_primary(cls, value: str) -> str:
+        return _safe_text(value, label="一级类", maximum=40)
+
+    @field_validator("secondary")
+    @classmethod
+    def validate_secondary(cls, value: str) -> str:
+        return _safe_text(value, label="二级类", maximum=40)
+
+    @field_validator("prefix")
+    @classmethod
+    def validate_prefix(cls, value: str) -> str:
+        return _safe_text(value, label="前缀", maximum=80)
+
+
+class NamingRuleConfig(BaseModel):
+    schema_version: int = 1
+    enforced: bool = True
+    project_codes: list[ProjectCodeConfig] = Field(default_factory=list)
+    categories: list[NamingCategoryConfig] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def unique_business_keys(self) -> NamingRuleConfig:
+        project_ids = [item.project_id for item in self.project_codes]
+        codes = [item.code for item in self.project_codes]
+        category_ids = [item.id for item in self.categories]
+        if len(project_ids) != len(set(project_ids)):
+            raise ValueError("同一项目只能配置一个项目代码")
+        if len(codes) != len(set(codes)):
+            raise ValueError("项目代码必须唯一")
+        if len(category_ids) != len(set(category_ids)):
+            raise ValueError("目录类别标识不能重复")
+        return self
+
+
+class NamingRuleRevisionOut(BaseModel):
+    version: int
+    status: str
+    base_published_version: int
+    config: NamingRuleConfig
+    updated_at: datetime
+    published_at: datetime | None = None
+
+
+class NamingRuleCenterOut(BaseModel):
+    published: NamingRuleRevisionOut
+    draft: NamingRuleRevisionOut
+    projects: list[dict]
+
+
+class NamingDraftUpdateRequest(BaseModel):
+    expected_base_version: int
+    config: NamingRuleConfig
+
+
+class NamingPublishRequest(BaseModel):
+    expected_base_version: int
+
+
+class NamingConfirmationFields(BaseModel):
+    category_id: uuid.UUID
+    subject: str
+    formed_on: date
+    version: str
+    applicable_to: str | None = None
+
+    @field_validator("subject")
+    @classmethod
+    def validate_subject(cls, value: str) -> str:
+        return _safe_text(value, label="主题", maximum=120)
+
+    @field_validator("applicable_to")
+    @classmethod
+    def validate_applicable_to(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _safe_text(value, label="适用对象", maximum=60)
+
+    @field_validator("version")
+    @classmethod
+    def validate_version(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if not _VERSION.fullmatch(normalized):
+            raise ValueError("版本须为 V 加正整数序列，例如 V1 或 V1.1")
+        return normalized
+
+
+class NamingPreviewRequest(BaseModel):
+    target_scope: KnowledgeScope
+    target_project_id: uuid.UUID | None = None
+    confidentiality_level: ConfidentialityLevel
+    naming: NamingConfirmationFields | None = None
+
+
+class NamingDuplicateNotice(BaseModel):
+    kind: Literal["exact", "suspected"]
+    message: str
+
+
+class NamingPreviewResponse(BaseModel):
+    required: bool
+    canonical_name: str | None
+    rule_version: int | None
+    fields: dict | None
+    notices: list[NamingDuplicateNotice] = Field(default_factory=list)
+    message: str | None = None
+
+
+class NamingOptionItem(BaseModel):
+    id: uuid.UUID
+    primary: str
+    secondary: str
+    prefix: str
+    default_confidentiality: ConfidentialityLevel
+
+
+class NamingOptionsResponse(BaseModel):
+    required: bool
+    rule_version: int | None
+    categories: list[NamingOptionItem] = Field(default_factory=list)
+    default_confidentiality: ConfidentialityLevel | None = None
+    message: str | None = None

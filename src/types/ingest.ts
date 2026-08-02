@@ -172,6 +172,7 @@ export interface IngestConfirmRequestDTO {
   // 缺省走平台默认；仅在首建该 scope 的 KB 时生效，已有 KB 沿用其锁定模型。
   embedding_model_ref?: string;
   rerank_model_ref?: string;
+  naming?: import("./naming").NamingConfirmationDTO;
 }
 
 export interface IngestConfirmResponseDTO {
@@ -184,6 +185,7 @@ export interface IngestConfirmResponseDTO {
   // 平台级索引状态：indexed | index_failed | skipped。
   // index_failed = 资产已确认落库但底座索引失败、可重试；前端据此提示而非表现为完全成功。
   index_status?: string | null;
+  canonical_name?: string | null;
 }
 
 // 运营视图（admin / 治理角色）：仅安全运营元数据，无业务原文 / 抽取全文 / 存储引用 / 外部系统内部 id。

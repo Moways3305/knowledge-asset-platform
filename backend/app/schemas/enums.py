@@ -334,6 +334,8 @@ class AuditAction(str, Enum):
     # 原文已推进 WeKnora 底座并回写 doc id，operation。
     ingest_weknora_indexed = "ingest.weknora_indexed"
     ingest_bulk_confirmed = "ingest.bulk_confirmed"
+    naming_rule_draft_saved = "naming_rule.draft_saved"
+    naming_rule_published = "naming_rule.published"
     # 资产已确认落库，但底座建库/初始化/上传索引失败，exception。
     # 资产保留 + 人工校正不丢，index_status=index_failed，可重试；区别于 ingest.failed
     # （后者=人工确认前整单失败）。extra 只放安全 error_code / stage，绝不含 kb/doc id。

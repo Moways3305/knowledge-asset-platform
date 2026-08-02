@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -21,8 +22,12 @@ from app.schemas.enums import (
     ProjectRole,
 )
 from app.schemas.ingest import IngestConfirmRequest, IngestConfirmResponse
+from app.schemas.naming import NamingPreviewRequest
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
+
+if TYPE_CHECKING:
+    from app.services.naming_rules import RenderedNaming
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +41,8 @@ class ValidatedConfirmationContext:
     project_id: uuid.UUID | None
     caller: CallerContext
     trace_id: str
+    session: AsyncSession
+    naming_result: RenderedNaming | None = None
 
 
 ConfirmationRoute = ValidatedConfirmationContext | IngestConfirmResponse
@@ -140,6 +147,21 @@ async def validate_and_route_confirmation(
                 "project_membership_required",
                 "需为目标项目的有效成员",
             )
+        # Validate the published naming facts before creating a review snapshot.
+        # The project code is resolved from server configuration, never the request.
+        from app.services import naming_rules
+
+        await naming_rules.render(
+            session,
+            caller,
+            task,
+            NamingPreviewRequest(
+                target_scope=request.target_scope,
+                target_project_id=request.target_project_id,
+                confidentiality_level=request.confidentiality_level,
+                naming=request.naming,
+            ),
+        )
         can_self_confirm = (
             caller.active_project_roles.get(request.target_project_id)
             == ProjectRole.project_manager.value
@@ -186,11 +208,25 @@ async def validate_and_route_confirmation(
         project_id=project_id,
         caller=caller,
         trace_id=trace_id,
+        session=session,
     )
 
 
 async def apply_confirmation_extensions(
     context: ValidatedConfirmationContext,
 ) -> ValidatedConfirmationContext:
-    """Post-validation extension point for target-aware naming rules."""
-    return context
+    """Render canonical naming from the published server policy after authorization."""
+    from app.services import naming_rules
+
+    result = await naming_rules.render(
+        context.session,
+        context.caller,
+        context.task,
+        NamingPreviewRequest(
+            target_scope=context.request.target_scope,
+            target_project_id=context.request.target_project_id,
+            confidentiality_level=context.request.confidentiality_level,
+            naming=context.request.naming,
+        ),
+    )
+    return replace(context, naming_result=result)
