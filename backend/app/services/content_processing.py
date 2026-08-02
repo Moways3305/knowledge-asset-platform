@@ -5,9 +5,8 @@
 (one_liner/detailed/key_points) + tags}，写 `ingest_task_ai_results` 草稿（建议层），
 供 `/upload` 人工校正。
 
-命名规范化（本次任务）：
-- `suggested_title` 不再是"摘要式标题"，而是**平台规范资产标题**：
-  `【一级类-二级类】主题_对象/客户_日期_V版本_L保密级别`。
+建议主题契约：
+- `suggested_title` 仅表示可编辑的主题，不包含分类、对象/客户、日期、版本或密级。
 - `suggested_one_liner` 仍是一句话自然语言摘要（可为整句），**不抢占标题字段**。
 - LLM 只输出命名**组件**，规范标题由后端确定性拼装（保证格式恒合规）。
 - 缺失字段用安全默认（日期→上传日期、客户→通用、版本→V1、分类→待分类），并在
@@ -78,7 +77,7 @@ _LEVEL_RE = re.compile(r"[Ll][1-5]")
 
 _SYSTEM_PROMPT = (
     "你是企业知识资产入库助手。阅读文件名与文档正文，输出**严格 JSON**（不要多余文字）。"
-    "目标：为资产生成**规范命名组件**（用于平台资产标题）与**摘要字段**（用于检索/阅读），二者分开。"
+    "目标：生成可编辑的主题建议、受控兼容组件与摘要字段；不要生成完整文件名或规范名。"
     "字段："
     "primary_category（一级类，简短词，如 方法论/客户项目/行业研究/内部管理）、"
     "secondary_category（二级类，简短词，如 模型工具/交付成果/案例研究）、"
@@ -244,13 +243,13 @@ def _build_naming(file_name: str, components: dict, level: str, ai_access: str) 
 def _naming_anomalies(naming: dict) -> list[str]:
     if naming["original_naming_compliant"]:
         return []
-    return ["原始文件名不符合平台命名格式，已自动生成规范化标题，请人工校正推断字段"]
+    return ["原始文件名不符合平台命名格式，已提取主题并保留兼容命名组件，请人工校正推断字段"]
 
 
 def _degraded_draft(file_name: str, extraction: ExtractionResult) -> dict:
     """确定性最小草稿（LLM 不可用 / 失败时的降级）。
 
-    仍尽量按文件名生成**规范化标题**（能解析多少字段就解析多少），缺失用安全默认并
+    仍尽量按文件名提取**主题与兼容命名组件**（能解析多少字段就解析多少），缺失用安全默认并
     标低置信度。标题恒非空、恒符合平台格式，且不等于一句话摘要。
     """
     # 文件名若已规范则作为强信号；否则空组件 → 全部走默认。
@@ -274,7 +273,7 @@ def _degraded_draft(file_name: str, extraction: ExtractionResult) -> dict:
         confidence = 0.2
 
     return {
-        "suggested_title": naming["normalized_title"],
+        "suggested_title": naming["topic"],
         "suggested_one_liner": one_liner,
         "suggested_summary": detailed,  # detailed
         "suggested_key_points": [],
@@ -423,8 +422,8 @@ async def process_content(
 
     draft = dict(base)
     draft.update(
-        # 标题 = 规范化资产标题（确定性拼装，恒合规）；不再用 one_liner 当标题。
-        suggested_title=naming["normalized_title"],
+        # suggested_title 的产品语义是主题；完整规范名只由已发布规则在确认时生成。
+        suggested_title=naming["topic"],
         suggested_one_liner=one_liner,
         suggested_summary=detailed,
         suggested_key_points=key_points,

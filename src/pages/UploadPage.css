@@ -663,6 +663,54 @@
   width: 24%;
 }
 
+/* Pending-confirmation tables have seven columns. Their explicit colgroup
+   prevents the shared six-column queue widths above from crushing filenames. */
+.upload77-table.upload77-pending-table {
+  min-width: 1120px;
+}
+
+.upload77-pending-table .upload77-pending-col-select {
+  width: 48px;
+}
+.upload77-pending-table .upload77-pending-col-result {
+  width: 150px;
+}
+.upload77-pending-table .upload77-pending-col-file {
+  width: 25%;
+}
+.upload77-pending-table .upload77-pending-col-status {
+  width: 110px;
+}
+.upload77-pending-table .upload77-pending-col-subject {
+  width: 27%;
+}
+.upload77-pending-table .upload77-pending-col-generation {
+  width: 136px;
+}
+.upload77-pending-table .upload77-pending-col-time {
+  width: 164px;
+}
+
+.upload77-table.upload77-pending-table th:nth-child(n) {
+  width: auto;
+}
+
+.upload77-pending-table .upload77-task-select,
+.upload77-pending-truncate {
+  display: -webkit-box;
+  overflow: hidden;
+  max-width: 100%;
+  line-height: 1.45;
+  overflow-wrap: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.upload77-pending-table .upload77-task-select {
+  width: 100%;
+  text-align: left;
+}
+
 .upload77-table tbody tr:last-child td {
   border-bottom: 0;
 }

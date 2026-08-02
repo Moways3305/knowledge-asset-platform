@@ -202,16 +202,14 @@ async def test_upload_llm_structured_draft(client, monkeypatch):
     assert b["suggested_asset_type"] == "case"
     assert b["suggested_confidentiality_level"] == "L3"
     assert b["suggested_tags"] == _GOOD["tags"]
-    # 标题是平台规范命名（非摘要式），且确定性拼装恒合规。
-    assert _TITLE_RE.match(b["suggested_title"]), b["suggested_title"]
-    assert (
-        b["suggested_title"] == "【客户项目-交付成果】零售数字化转型方案_某零售集团_20260520_V2_L3"
-    )
+    # suggested_title 的现行语义仅为主题，完整旧规范名只保留在兼容元数据中。
+    assert b["suggested_title"] == "零售数字化转型方案"
     # 标题 ≠ 一句话摘要（摘要不抢占标题字段）。
     assert b["suggested_title"] != b["suggested_one_liner"]
     # 命名解析结果（组件 + inferred/missing）随响应返回，供前端展示。
     naming = b["naming_parsed_fields"]
-    assert naming["normalized_title"] == b["suggested_title"]
+    assert naming["normalized_title"] != b["suggested_title"]
+    assert naming["normalized_title"].startswith("【客户项目-交付成果】")
     assert naming["subject_or_client"] == "某零售集团"
     assert isinstance(naming["inferred_fields"], list)
     assert isinstance(naming["missing_fields"], list)
@@ -236,8 +234,8 @@ async def test_upload_degraded_when_llm_disabled(client):
     assert b["generation_model_ref"] is None
     assert b["llm_provider"] is None
     assert b["suggested_title"]  # 仍有确定性建议
-    # 降级也产出**规范化**标题（非空、合规），且不等于一句话摘要。
-    assert _TITLE_RE.match(b["suggested_title"]), b["suggested_title"]
+    # 降级也产出干净主题，不携带完整旧命名模板。
+    assert "【" not in b["suggested_title"]
     assert b["suggested_title"] != b["suggested_one_liner"]
     # 低置信度 + 缺失字段被标记（顾问文件名不规范时，分类/客户/日期/版本走默认）。
     assert b["confidence"] is not None and b["confidence"] <= 0.4
@@ -266,7 +264,7 @@ async def test_compliant_filename_parsed_into_naming(client):
     # 这些字段有文件名依据，不应标 missing。
     for f in ("primary_category", "subject_or_client", "date", "version"):
         assert f not in naming["missing_fields"]
-    assert _TITLE_RE.match(b["suggested_title"]), b["suggested_title"]
+    assert b["suggested_title"] == "组织诊断报告"
 
 
 async def test_upload_degraded_on_llm_failure(client, monkeypatch):
@@ -339,15 +337,15 @@ async def test_confirm_writes_three_layer_summaries(client, monkeypatch):
     assert ai["suggested_one_liner"] == _GOOD["one_liner"]
 
 
-async def test_confirm_with_suggested_title_yields_compliant_asset(client, monkeypatch):
-    """端到端：AI 规范标题 → 人工沿用提交 → 资产详情标题符合平台命名规范。"""
+async def test_confirm_with_suggested_subject_yields_clean_asset_title(client, monkeypatch):
+    """端到端：AI 主题建议 → 人工沿用提交，不回流旧完整命名串。"""
     _enable_llm(monkeypatch, FakeLLM(mode="ok"))
     task_id = await _upload(client, file_name="企业级AI应用案例研究报告.docx")
     ai = (
         await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
     ).json()
     suggested = ai["suggested_title"]
-    assert _TITLE_RE.match(suggested), suggested
+    assert suggested == "零售数字化转型方案"
     # 顾问沿用 AI 规范标题 + AI 一句话摘要提交入库。
     r = await client.post(
         f"/api/v1/ingest/{task_id}/confirm",
@@ -366,7 +364,7 @@ async def test_confirm_with_suggested_title_yields_compliant_asset(client, monke
     assert r.status_code == 200
     asset_id = r.json()["result_asset_id"]
     detail = (await client.get(f"{KN}/{asset_id}", headers=_hdr(USER_CONSULTANT))).json()
-    assert _TITLE_RE.match(detail["title"]), detail["title"]
+    assert detail["title"] == suggested
     assert detail["title"] != detail["summary"]["one_liner"]
 
 

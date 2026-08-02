@@ -58,6 +58,7 @@ from app.services.desensitization import DesensitizationEngine
 from app.services.generation_models import generation_model_ref
 from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.storage import LocalFileStorage, StorageError
+from app.services.suggested_subject import suggested_subject
 from app.services.weknora_client import (
     NullWeKnoraClient,
     WeKnoraClient,
@@ -330,7 +331,11 @@ async def get_ai_result(
     )
     if is_full and ai is not None:
         # 完整视图（创建人 / 治理角色）：补充业务建议正文（三层摘要）+ 抽取全文截断预览。
-        base.suggested_title = ai.suggested_title
+        base.suggested_title = suggested_subject(
+            ai.naming_parsed_fields if isinstance(ai.naming_parsed_fields, dict) else None,
+            ai.suggested_title,
+            task.source_file_name,
+        )
         base.suggested_one_liner = ai.suggested_one_liner
         base.suggested_summary = ai.suggested_summary
         base.summary = ai.suggested_summary if _has_generated_summary(ai) else None
@@ -745,12 +750,23 @@ async def list_pending(
     for t in tasks:
         ai = t.ai_result
         suggestion_state = _suggestion_generation_state(t, ai)
+        display_subject = (
+            suggested_subject(
+                ai.naming_parsed_fields
+                if ai and isinstance(ai.naming_parsed_fields, dict)
+                else None,
+                ai.suggested_title if ai else None,
+                t.source_file_name,
+            )
+            if ai
+            else None
+        )
         can_batch_confirm = (
             t.status in _BATCH_CONFIRMABLE_PENDING_STATUSES
             and ai is not None
             # Confirmation validates the editable title and summary fields below;
             # legacy extraction/generation diagnostics are display-only metadata.
-            and bool((ai.suggested_title or "").strip())
+            and bool(display_subject)
             and bool((ai.suggested_summary or ai.suggested_one_liner or "").strip())
         )
         items.append(
@@ -766,7 +782,7 @@ async def list_pending(
                 extraction_status=ai.extraction_status if ai else None,
                 error_type=t.error_type,
                 error_message=t.error_message,
-                suggested_title=ai.suggested_title if ai else None,
+                suggested_title=display_subject,
                 suggested_one_liner=ai.suggested_one_liner if ai else None,
                 naming_parsed_fields=ai.naming_parsed_fields if ai else None,
                 confidence=ai.confidence if ai else None,

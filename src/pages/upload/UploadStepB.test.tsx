@@ -77,6 +77,29 @@ function flowFixture(overrides: Record<string, unknown> = {}): UploadFlow {
 }
 
 describe("UploadStepB folder drop and batch rejection", () => {
+  it.each([1280, 1440, 1920])(
+    "keeps the isolated pending-table layout contract at %ipx",
+    (viewportWidth) => {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: viewportWidth });
+      const fileName = "客户经营分析与下一阶段行动计划最终修订版本.pptx";
+      const subject = "客户经营分析与下一阶段行动计划及关键管理举措";
+      const task = { ...pending("layout", fileName), suggested_title: subject };
+      render(<UploadStepB flow={flowFixture({ localPendingTasks: [task], batchSelection: [] })} />);
+
+      const table = screen.getByRole("table");
+      expect(table).toHaveClass("upload77-pending-table");
+      expect(table.closest(".upload77-table-wrap")).not.toBeNull();
+      expect(table.querySelectorAll("colgroup col")).toHaveLength(7);
+      expect(table.querySelector(".upload77-pending-col-file")).not.toBeNull();
+      expect(table.querySelector(".upload77-pending-col-subject")).not.toBeNull();
+      expect(screen.getByRole("columnheader", { name: "建议主题" })).toBeInTheDocument();
+      expect(screen.queryByRole("columnheader", { name: "建议标题" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: fileName })).toHaveAttribute("title", fileName);
+      expect(screen.getByText(subject)).toHaveClass("upload77-pending-truncate");
+      expect(screen.getByText(subject)).toHaveAttribute("title", subject);
+    },
+  );
+
   it("uses the server batch capability for legacy pending selection", () => {
     const legacy = {
       ...pending("legacy", "legacy-notes.md"),

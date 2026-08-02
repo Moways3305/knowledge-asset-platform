@@ -315,6 +315,57 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(payload).not.toHaveProperty("embedding_model_id");
   });
 
+  it("uses the clean projected topic and never submits the legacy normalized title", async () => {
+    const legacyTitle = "【公司知识-制度规范】季度复盘_华东区_20240520_V1_L2";
+    ingest.fetchIngestAiResult.mockResolvedValueOnce({
+      ...readyAiResult,
+      suggested_title: "季度复盘",
+      naming_parsed_fields: {
+        primary_category: "公司知识",
+        secondary_category: "制度规范",
+        topic: "季度复盘",
+        subject_or_client: "华东区",
+        date: "20240520",
+        version: "V1",
+        confidentiality_level: "L2",
+        ai_access_level: "A2",
+        normalized_title: legacyTitle,
+        inferred_fields: [],
+        missing_fields: [],
+        source_file_name: "季度复盘.docx",
+        original_naming_compliant: false,
+      },
+    });
+    const { result } = renderHook(() => useUploadFlow());
+    await driveToReady(result);
+
+    expect(result.current.editTitle).toBe("季度复盘");
+    expect(result.current.editTitle).not.toBe(legacyTitle);
+    await act(async () => {
+      await result.current.handleSubmit();
+    });
+
+    const payload = ingest.confirmIngest.mock.calls[0][1];
+    expect(payload.title).toBe("季度复盘");
+    expect(JSON.stringify(payload)).not.toContain(legacyTitle);
+  });
+
+  it("requires manual input when the backend cannot project a safe subject", async () => {
+    ingest.fetchIngestAiResult.mockResolvedValueOnce({
+      ...readyAiResult,
+      suggested_title: null,
+    });
+    const { result } = renderHook(() => useUploadFlow());
+    await driveToReady(result);
+
+    expect(result.current.editTitle).toBe("");
+    expect(result.current.canSubmit).toBe(false);
+    await act(async () => {
+      await result.current.handleSubmit();
+    });
+    expect(ingest.confirmIngest).not.toHaveBeenCalled();
+  });
+
   it("confirmation 边界统一暴露已验证目标、人工字段、AI 建议和 task 身份", async () => {
     const loadPending = vi.fn().mockResolvedValue(undefined);
     const loadLocalPending = vi.fn().mockResolvedValue(undefined);

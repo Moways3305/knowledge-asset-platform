@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import uuid
 
 import pytest
@@ -557,15 +556,44 @@ async def test_upload_extraction_success_content_based(client):
     assert r.status_code == 200
     body = r.json()
     assert body["extraction_status"] == "extracted"
-    # 标题为平台规范命名（非"摘要式标题"/非抽取首行）。
-    assert re.match(r"^【[^-】]+-[^】]+】.+_.+_\d{8}_V\d+_L[1-5]$", body["suggested_title"]), body[
-        "suggested_title"
-    ]
+    # suggested_title 仅为干净主题；完整规范名由确认阶段的新规则生成。
+    assert body["suggested_title"] == body["naming_parsed_fields"]["topic"]
+    assert not body["suggested_title"].startswith("【")
     # 抽取首行进入一句话摘要字段，不抢占标题。
     assert body["suggested_one_liner"] == "零售数字化转型方案"
     assert body["suggested_title"] != body["suggested_one_liner"]
     assert body["extracted_char_count"] > 0
     assert body["extracted_text_preview"] and "零售数字化转型" in body["extracted_text_preview"]
+
+
+async def test_legacy_title_projection_is_clean_consistent_and_read_only(client, db_session):
+    """历史完整规范名只在持久化兼容数据中保留，所有待确认读模型投影同一主题。"""
+    task_id = uuid.UUID((await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"])
+    ai = (
+        await db_session.execute(
+            select(IngestTaskAiResult).where(IngestTaskAiResult.ingest_task_id == task_id)
+        )
+    ).scalar_one()
+    legacy_title = "【公司知识-制度规范】季度复盘_华东区_20240520_V1_L2"
+    ai.suggested_title = legacy_title
+    ai.naming_parsed_fields = {
+        key: value for key, value in (ai.naming_parsed_fields or {}).items() if key != "topic"
+    }
+    await db_session.commit()
+
+    detail = await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
+    pending = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    pending_item = next(item for item in pending.json()["items"] if item["id"] == str(task_id))
+
+    assert detail.status_code == 200
+    assert detail.json()["suggested_title"] == "季度复盘"
+    assert pending_item["suggested_title"] == "季度复盘"
+    # 原始值只作为受控兼容元数据保留，不再成为任一读模型的建议主题。
+    compatibility_title = detail.json()["naming_parsed_fields"]["normalized_title"]
+    assert compatibility_title != detail.json()["suggested_title"]
+    assert pending_item["naming_parsed_fields"]["normalized_title"] == compatibility_title
+    await db_session.refresh(ai)
+    assert ai.suggested_title == legacy_title
 
 
 async def test_upload_markdown_enters_confirmation_with_extracted_text(client):
@@ -675,7 +703,8 @@ async def test_pending_list_derives_safe_batch_confirmation_capability(client, d
     incomplete_item = next(
         item for item in incomplete.json()["items"] if item["id"] == str(task_id)
     )
-    assert incomplete_item["can_batch_confirm"] is False
+    # 旧 suggested_title 缺失时仍可从结构化 topic / 文件名安全回退主题。
+    assert incomplete_item["can_batch_confirm"] is True
     assert incomplete_item["can_batch_reject"] is True
 
     ai.suggested_title = original_title
