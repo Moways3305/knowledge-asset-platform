@@ -409,7 +409,7 @@ export default function UploadConfirmPanel({
             onClick={handleSubmit}
             type="button"
           >
-            确认入库
+            {(namingPreview?.notices.length ?? 0) > 0 ? "仍然确认入库" : "确认入库"}
           </button>
           <button className="upload77-reject" onClick={onReject} type="button">
             <XCircle size={14} aria-hidden="true" />

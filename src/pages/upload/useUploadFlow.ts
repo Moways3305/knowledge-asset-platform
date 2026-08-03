@@ -194,6 +194,7 @@ export function useUploadFlow() {
       destination: Exclude<TargetLibrary, "">,
       destinationProjectId?: string,
       namingByTask?: Record<string, BatchNamingValuesDTO>,
+      warningCodesByTask?: Record<string, string[]>,
       preserveUnsubmittedSelection = false,
       onCompleted?: (result: BatchConfirmResult) => void,
     ): Promise<void> => {
@@ -287,6 +288,7 @@ export function useUploadFlow() {
                   "L2",
                 embedding_model_ref: models.embeddingRef || undefined,
                 rerank_model_ref: models.rerankRef || undefined,
+                acknowledged_naming_warning_codes: warningCodesByTask?.[task.id] ?? [],
                 naming: governedNaming
                   ? {
                       category_id: governedNaming.category_id,
@@ -336,8 +338,7 @@ export function useUploadFlow() {
               if (
                 item.status === "failed" ||
                 item.reason_code?.startsWith("naming_") ||
-                item.reason_code === "canonical_name_too_long" ||
-                item.reason_code === "project_subject_customer_name_detected"
+                item.reason_code === "canonical_name_too_long"
               ) {
                 retryableFailedIds.push(item.item_id);
               }
@@ -446,6 +447,7 @@ export function useUploadFlow() {
       destination: "project" | "company",
       destinationProjectId: string | undefined,
       naming: BatchNamingValuesDTO,
+      warningCodes: string[] = [],
     ): Promise<BatchConfirmResult> => {
       let result: BatchConfirmResult = { succeededIds: [], failedIds: [task.id] };
       await handleBatchConfirm(
@@ -453,6 +455,7 @@ export function useUploadFlow() {
         destination,
         destinationProjectId,
         { [task.id]: naming },
+        { [task.id]: warningCodes },
         true,
         (completed) => {
           result = completed;

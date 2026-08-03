@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchAuthMe } from "../../api/auth";
 import { ApiError } from "../../api/http";
 import { confirmIngest, createIngestUpload, fetchIngestAiResult } from "../../api/ingest";
-import { fetchNamingOptions, previewIngestNaming } from "../../api/naming";
+import {
+  classifyBatchNamingCategories,
+  fetchNamingOptions,
+  previewIngestNaming,
+} from "../../api/naming";
 import type { IngestAiResultDTO, NamingFields, PendingIngestItemDTO } from "../../types/ingest";
 import type { NamingOptionsDTO, NamingPreviewDTO } from "../../types/naming";
 import {
@@ -13,7 +17,6 @@ import {
   type PathBranch,
   type TargetLibrary,
 } from "./uploadConstants";
-import { suggestNamingCategory } from "./namingCategorySuggestion";
 
 export interface ConfirmationNamingState {
   taskId: string | null;
@@ -204,7 +207,7 @@ export function useIngestConfirmation({
     }
     let live = true;
     fetchNamingOptions(targetLibrary, targetLibrary === "project" ? targetProjectId : undefined)
-      .then((value) => {
+      .then(async (value) => {
         if (!live) return;
         setNamingOptions(value);
         setNamingPolicyResolved(true);
@@ -212,11 +215,26 @@ export function useIngestConfirmation({
           setNamingCategoryId("");
           return;
         }
-        setNamingCategoryId((current) =>
-          value.categories.some((item) => item.id === current)
-            ? current
-            : (suggestNamingCategory(naming, value.categories)?.id ?? ""),
-        );
+        if (taskId && (targetLibrary === "project" || targetLibrary === "company")) {
+          const classified = await classifyBatchNamingCategories({
+            taskIds: [taskId],
+            targetScope: targetLibrary,
+            targetProjectId: targetLibrary === "project" ? targetProjectId : undefined,
+          });
+          if (!live) return;
+          const item = classified.items[0];
+          setNamingCategoryId((current) =>
+            value.categories.some((category) => category.id === current)
+              ? current
+              : item?.status === "classified" &&
+                  item.suggested_category_id &&
+                  item.candidate_rule_revision === value.rule_version
+                ? item.suggested_category_id
+                : "",
+          );
+        } else {
+          setNamingCategoryId("");
+        }
         if (value.default_confidentiality && !reliableAiConfidentialityRef.current) {
           setEditConfidentiality(value.default_confidentiality);
         }
@@ -230,7 +248,7 @@ export function useIngestConfirmation({
     return () => {
       live = false;
     };
-  }, [naming, targetLibrary, targetProjectId]);
+  }, [targetLibrary, targetProjectId, taskId]);
 
   useEffect(() => {
     const runId = ++namingPreviewRunRef.current;
@@ -477,6 +495,9 @@ export function useIngestConfirmation({
         confidentiality_level: editConfidentiality,
         embedding_model_ref: embeddingModelRef || undefined,
         rerank_model_ref: rerankModelRef || undefined,
+        acknowledged_naming_warning_codes: (namingPreview?.notices ?? []).flatMap((notice) =>
+          notice.code ? [notice.code] : [],
+        ),
         naming: namingOptions?.required
           ? {
               category_id: namingCategoryId,
@@ -518,6 +539,7 @@ export function useIngestConfirmation({
     namingCategoryId,
     namingFormedOn,
     namingOptions?.required,
+    namingPreview?.notices,
     namingVersion,
     removeLocalTask,
     rerankModelRef,

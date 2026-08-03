@@ -14,6 +14,10 @@ from app.schemas.enums import KnowledgeScope
 from app.schemas.naming import (
     BatchNamingPreviewRequest,
     BatchNamingPreviewResponse,
+    CategoryClassificationBatchRequest,
+    CategoryClassificationBatchResponse,
+    CategoryClassificationItemResponse,
+    ManualCategorySelectionRequest,
     NamingDraftUpdateRequest,
     NamingOptionsResponse,
     NamingPreviewRequest,
@@ -23,7 +27,9 @@ from app.schemas.naming import (
     NamingRuleRevisionOut,
 )
 from app.schemas.permission import CallerContext
-from app.services import naming_rules
+from app.services import category_classification, naming_rules
+from app.services.generation_models import get_generation_llm_client
+from app.services.llm_client import LLMClient, NullLLMClient
 
 router = APIRouter(prefix="/api/v1", tags=["naming-rules"])
 
@@ -89,3 +95,32 @@ async def get_naming_options(
     session: AsyncSession = Depends(get_db),
 ) -> NamingOptionsResponse:
     return await naming_rules.options(session, caller, scope, project_id)
+
+
+@router.post(
+    "/ingest/bulk-category-classification",
+    response_model=CategoryClassificationBatchResponse,
+)
+async def classify_categories(
+    body: CategoryClassificationBatchRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    llm: LLMClient | NullLLMClient = Depends(get_generation_llm_client),
+) -> CategoryClassificationBatchResponse:
+    return await category_classification.classify_batch(
+        session, caller, body, llm, get_trace_id(request)
+    )
+
+
+@router.put(
+    "/ingest/{task_id}/category-selection",
+    response_model=CategoryClassificationItemResponse,
+)
+async def save_manual_category(
+    task_id: uuid.UUID,
+    body: ManualCategorySelectionRequest,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> CategoryClassificationItemResponse:
+    return await category_classification.save_manual_selection(session, caller, task_id, body)

@@ -1,12 +1,14 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PendingIngestItemDTO } from "../../types/ingest";
 import UploadStepB from "./UploadStepB";
 import type { UploadFlow } from "./useUploadFlow";
 
 const namingApi = vi.hoisted(() => ({
+  classifyBatchNamingCategories: vi.fn(),
   fetchNamingOptions: vi.fn(),
   previewBatchIngestNaming: vi.fn(),
+  saveManualNamingCategory: vi.fn(),
 }));
 vi.mock("../../api/naming", () => namingApi);
 
@@ -88,6 +90,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
   beforeEach(() => {
     namingApi.fetchNamingOptions.mockReset();
     namingApi.previewBatchIngestNaming.mockReset();
+    namingApi.saveManualNamingCategory.mockReset().mockResolvedValue({});
     namingApi.fetchNamingOptions.mockResolvedValue({
       required: true,
       rule_version: 2,
@@ -103,6 +106,23 @@ describe("UploadStepB folder drop and batch rejection", () => {
       default_confidentiality: "L2",
       message: null,
     });
+    namingApi.classifyBatchNamingCategories.mockReset().mockImplementation((input) =>
+      Promise.resolve({
+        target_label: "项目知识库 / 项目 A",
+        candidate_rule_revision: 2,
+        candidate_count: 1,
+        items: input.taskIds.map((taskId: string) => ({
+          task_id: taskId,
+          suggested_category_id: "category-a",
+          category_source: "rule_only_option",
+          category_confidence: "high",
+          category_reason: "当前规则只有一个启用目录类别",
+          candidate_rule_revision: 2,
+          status: "classified",
+          retryable: false,
+        })),
+      }),
+    );
   });
   it.each([1280, 1440, 1920])(
     "keeps the isolated pending-table layout contract at %ipx",
@@ -372,16 +392,22 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(screen.getByText("可确认")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "确认批量入库" }));
 
-    expect(flow.handleBatchConfirm).toHaveBeenCalledWith([task], "project", "project-a", {
-      [task.id]: {
-        category_id: "category-a",
-        subject: "安全标题",
-        formed_on: "2026-08-03",
-        version: "V1",
-        applicable_to: "",
-        confidentiality_level: "L2",
+    expect(flow.handleBatchConfirm).toHaveBeenCalledWith(
+      [task],
+      "project",
+      "project-a",
+      {
+        [task.id]: {
+          category_id: "category-a",
+          subject: "安全标题",
+          formed_on: "2026-08-03",
+          version: "V1",
+          applicable_to: "",
+          confidentiality_level: "L2",
+        },
       },
-    });
+      { [task.id]: [] },
+    );
   });
 
   it("places a server field diagnostic beside the corresponding input", async () => {
@@ -429,7 +455,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(screen.getByRole("button", { name: "确认批量入库" })).toBeDisabled();
   });
 
-  it("preselects a unique AI category suggestion and keeps it editable", async () => {
+  it("uses a persisted current-rule AI category and keeps it editable", async () => {
     const task = {
       ...pending("ai-category", "交付成果.md"),
       target_scope: null,
@@ -471,6 +497,23 @@ describe("UploadStepB folder drop and batch rejection", () => {
       default_confidentiality: "L2",
       message: null,
     });
+    namingApi.classifyBatchNamingCategories.mockResolvedValueOnce({
+      target_label: "项目知识库 / 项目 A",
+      candidate_rule_revision: 2,
+      candidate_count: 2,
+      items: [
+        {
+          task_id: task.id,
+          suggested_category_id: "category-deliverable",
+          category_source: "ai_content",
+          category_confidence: "high",
+          category_reason: "AI 根据正文语义匹配当前目标的目录规则",
+          candidate_rule_revision: 2,
+          status: "classified",
+          retryable: false,
+        },
+      ],
+    });
     const flow = flowFixture({ localPendingTasks: [task], batchSelection: [task.id] });
     render(<UploadStepB flow={flow} />);
 
@@ -485,11 +528,11 @@ describe("UploadStepB folder drop and batch rejection", () => {
 
     const category = await screen.findByRole("combobox", { name: "交付成果.md 目录类别" });
     expect(category).toHaveValue("category-deliverable");
-    expect(screen.getByText("已按 AI 建议预选，可人工修改")).toBeInTheDocument();
+    expect(screen.getByText("AI 内容建议（高置信度）")).toBeInTheDocument();
 
     fireEvent.change(category, { target: { value: "category-foundation" } });
     expect(category).toHaveValue("category-foundation");
-    expect(screen.queryByText("已按 AI 建议预选，可人工修改")).not.toBeInTheDocument();
+    expect(screen.getByText("人工已选择")).toBeInTheDocument();
   });
 
   it("keeps a missing-category item in the manual filter while it is edited", async () => {
@@ -573,7 +616,13 @@ describe("UploadStepB folder drop and batch rejection", () => {
           canonical_name: "【ALPHA-2026-交付件】安全标题_20260803_V1_L2.md",
           rule_version: 2,
           fields: { subject: "安全标题" },
-          notices: [],
+          notices: [
+            {
+              code: "exact_duplicate",
+              kind: "exact",
+              message: "已存在相同文件，请确认是否仍需独立入库",
+            },
+          ],
           error_code: null,
           message: null,
         },
@@ -605,12 +654,16 @@ describe("UploadStepB folder drop and batch rejection", () => {
       target: { value: "编辑后的主题" },
     });
     expect(singleConfirm).toBeDisabled();
-    expect(screen.getByRole("button", { name: "确认批量入库" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "仍然确认批量入库" })).toBeDisabled();
     await waitFor(() => expect(namingApi.previewBatchIngestNaming).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(singleConfirm).toBeEnabled());
 
     fireEvent.click(screen.getByRole("button", { name: "确认入库 单条确认.md" }));
-    fireEvent.click(screen.getByRole("button", { name: "确认入库" }));
+    const dialogs = screen.getAllByRole("dialog");
+    const warningDialog = dialogs[dialogs.length - 1];
+    expect(warningDialog).toHaveTextContent("已存在相同文件");
+    expect(warningDialog).toHaveTextContent("不会覆盖已有资产");
+    fireEvent.click(within(warningDialog).getByRole("button", { name: "仍然确认入库" }));
 
     await waitFor(() =>
       expect(handleSingleBatchConfirm).toHaveBeenCalledWith(
@@ -624,6 +677,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
           version: "V1",
           confidentiality_level: "L2",
         }),
+        ["exact_duplicate"],
       ),
     );
     expect(screen.getByRole("dialog")).toHaveTextContent("逐条核对");

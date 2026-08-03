@@ -2,16 +2,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Trash2 } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import { ApiError } from "../../api/http";
-import { fetchNamingOptions, previewBatchIngestNaming } from "../../api/naming";
+import {
+  classifyBatchNamingCategories,
+  fetchNamingOptions,
+  previewBatchIngestNaming,
+  saveManualNamingCategory,
+} from "../../api/naming";
 import type { PendingIngestItemDTO } from "../../types/ingest";
 import type {
   BatchNamingPreviewItemDTO,
   BatchNamingValuesDTO,
+  CategoryClassificationItemDTO,
   NamingOptionsDTO,
 } from "../../types/naming";
 import type { UploadFlow } from "./useUploadFlow";
 import type { TargetLibrary } from "./uploadConstants";
-import { suggestNamingCategory } from "./namingCategorySuggestion";
 
 type ReviewRows = Record<string, BatchNamingValuesDTO>;
 type PreviewRows = Record<string, BatchNamingPreviewItemDTO>;
@@ -59,19 +64,33 @@ function suggestedConfidentiality(task: PendingIngestItemDTO, options: NamingOpt
   return options.default_confidentiality || "L2";
 }
 
-function initialRows(tasks: PendingIngestItemDTO[], options: NamingOptionsDTO): ReviewRows {
+function initialRows(
+  tasks: PendingIngestItemDTO[],
+  options: NamingOptionsDTO,
+  suggestions: Record<string, CategoryClassificationItemDTO>,
+): ReviewRows {
   return Object.fromEntries(
-    tasks.map((task) => [
-      task.id,
-      {
-        category_id: suggestNamingCategory(task.naming_parsed_fields, options.categories)?.id ?? "",
-        subject: sourceSubject(task),
-        formed_on: parsedValue(task, "date"),
-        version: suggestedVersion(task),
-        applicable_to: "",
-        confidentiality_level: suggestedConfidentiality(task, options),
-      },
-    ]),
+    tasks.map((task) => {
+      const suggestion = suggestions[task.id];
+      const categoryId =
+        suggestion?.status === "classified" &&
+        suggestion.suggested_category_id &&
+        suggestion.candidate_rule_revision === options.rule_version &&
+        options.categories.some((category) => category.id === suggestion.suggested_category_id)
+          ? suggestion.suggested_category_id
+          : "";
+      return [
+        task.id,
+        {
+          category_id: categoryId,
+          subject: sourceSubject(task),
+          formed_on: parsedValue(task, "date"),
+          version: suggestedVersion(task),
+          applicable_to: "",
+          confidentiality_level: suggestedConfidentiality(task, options),
+        },
+      ];
+    }),
   );
 }
 
@@ -110,38 +129,37 @@ function reviewState(
   task: PendingIngestItemDTO,
   row: BatchNamingValuesDTO,
   preview: BatchNamingPreviewItemDTO | undefined,
-  categories: NamingOptionsDTO["categories"],
   company: boolean,
   flowError: string | undefined,
   edited: boolean,
   reviewed: boolean,
+  categorySuggestion: CategoryClassificationItemDTO | undefined,
 ): ReviewState {
-  if (
-    preview?.error_code ||
-    preview?.notices.some((notice) => notice.kind === "exact" || notice.kind === "suspected")
-  ) {
-    return "exception";
-  }
+  if (preview?.error_code) return "exception";
   if (flowError) return "exception";
   if (rowMissing(row, company)) return "manual";
   if (reviewed) return "reviewed";
   if (edited) return "manual";
 
   const parsed = task.naming_parsed_fields;
-  const category = suggestNamingCategory(parsed, categories);
+  const legacyCategoryFields = new Set(["primary_category", "secondary_category"]);
   const unsafeAiField = Boolean(
     parsed &&
-    ((parsed.missing_fields?.length ?? 0) > 0 || (parsed.inferred_fields?.length ?? 0) > 0),
+    [...(parsed.missing_fields ?? []), ...(parsed.inferred_fields ?? [])].some(
+      (field) => !legacyCategoryFields.has(field),
+    ),
   );
   const differsFromSafeAi =
     row.subject.trim() !== sourceSubject(task) ||
-    row.category_id !== category?.id ||
+    row.category_id !== categorySuggestion?.suggested_category_id ||
     row.formed_on !== parsedValue(task, "date") ||
     row.version.toUpperCase() !== suggestedVersion(task);
   if (
     !parsed ||
     unsafeAiField ||
-    category?.basis !== "ai" ||
+    categorySuggestion?.category_source !== "ai_content" ||
+    (categorySuggestion.category_confidence !== "high" &&
+      categorySuggestion.category_confidence !== "medium") ||
     differsFromSafeAi ||
     (task.version_source !== "source_filename" && task.version_source !== "ai_content") ||
     !hasReliableAiConfidentiality(task) ||
@@ -184,15 +202,39 @@ export default function PendingBatchActions({
   const [previewFeedback, setPreviewFeedback] = useState<Record<string, string>>({});
   const [confirmCandidate, setConfirmCandidate] = useState<PendingIngestItemDTO | null>(null);
   const [confirmingTaskId, setConfirmingTaskId] = useState<string | null>(null);
+  const [categorySuggestions, setCategorySuggestions] = useState<
+    Record<string, CategoryClassificationItemDTO>
+  >({});
+  const [categoryTargetLabel, setCategoryTargetLabel] = useState("");
+  const [classificationBusy, setClassificationBusy] = useState(false);
   const previewRunsRef = useRef<Record<string, number>>({});
   const previewTimersRef = useRef<Record<string, number>>({});
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    if (!confirmOpen) {
       Object.values(previewTimersRef.current).forEach((timer) => window.clearTimeout(timer));
-    },
-    [],
-  );
+      Object.keys(previewTimersRef.current).forEach((taskId) => {
+        delete previewTimersRef.current[taskId];
+      });
+      Object.keys(previewRunsRef.current).forEach((taskId) => {
+        previewRunsRef.current[taskId] += 1;
+      });
+    }
+  }, [confirmOpen]);
+
+  useEffect(() => {
+    const timers = previewTimersRef.current;
+    const runs = previewRunsRef.current;
+    return () => {
+      Object.values(timers).forEach((timer) => window.clearTimeout(timer));
+      Object.keys(timers).forEach((taskId) => {
+        delete timers[taskId];
+      });
+      Object.keys(runs).forEach((taskId) => {
+        runs[taskId] += 1;
+      });
+    };
+  }, []);
 
   const selectedConfirmTasks = tasks.filter(
     (task) => flow.batchSelection.includes(task.id) && task.can_batch_confirm,
@@ -231,23 +273,23 @@ export default function PendingBatchActions({
                 task,
                 row,
                 previews[task.id],
-                categories,
                 company,
                 flow.batchErrors[task.id],
                 editedTaskIds.has(task.id),
                 reviewedTaskIds.has(task.id),
+                categorySuggestions[task.id],
               ),
             ],
           ];
         }),
       ) as Record<string, ReviewState>,
     [
-      categories,
       company,
       editedTaskIds,
       flow.batchErrors,
       previews,
       reviewedTaskIds,
+      categorySuggestions,
       rows,
       selectedConfirmTasks,
     ],
@@ -279,6 +321,13 @@ export default function PendingBatchActions({
       `已核对 ${stateCounts.reviewed}/${selectedConfirmTasks.length} 条，仍有 ${missingDates} 条需补充形成日期`,
     [missingDates, selectedConfirmTasks.length, stateCounts.reviewed],
   );
+  const warningNotices = selectedConfirmTasks.flatMap((task) => previews[task.id]?.notices ?? []);
+  const warningCodesByTask = Object.fromEntries(
+    selectedConfirmTasks.map((task) => [
+      task.id,
+      (previews[task.id]?.notices ?? []).flatMap((notice) => (notice.code ? [notice.code] : [])),
+    ]),
+  );
 
   if (selectedConfirmTasks.length === 0 && selectedRejectTasks.length === 0) return null;
 
@@ -301,15 +350,19 @@ export default function PendingBatchActions({
       return next;
     });
     previewTimersRef.current[taskId] = window.setTimeout(() => {
-      void previewBatchIngestNaming({
-        targetScope: targetLibrary,
-        targetProjectId: targetProjectId || undefined,
-        items: [{ taskId, naming: row }],
-      })
+      delete previewTimersRef.current[taskId];
+      void Promise.resolve()
+        .then(() =>
+          previewBatchIngestNaming({
+            targetScope: targetLibrary,
+            targetProjectId: targetProjectId || undefined,
+            items: [{ taskId, naming: row }],
+          }),
+        )
         .then((response) => {
           if (previewRunsRef.current[taskId] !== runId) return;
-          const preview = response.items[0];
-          if (!preview) return;
+          const preview = response?.items?.[0];
+          if (!preview) throw new Error("empty naming preview response");
           setPreviews((current) => ({ ...current, [taskId]: preview }));
           const subject = preview.fields?.subject;
           if (typeof subject === "string" && subject !== row.subject) {
@@ -359,9 +412,61 @@ export default function PendingBatchActions({
     scheduleRowPreview(taskId, nextRow);
   };
 
+  const selectManualCategory = (taskId: string, categoryId: string) => {
+    updateRow(taskId, { category_id: categoryId });
+    if (!categoryId || (targetLibrary !== "project" && targetLibrary !== "company")) return;
+    setCategorySuggestions((current) => ({
+      ...current,
+      [taskId]: {
+        task_id: taskId,
+        suggested_category_id: categoryId,
+        category_source: "manual",
+        category_confidence: "high",
+        category_reason: "人工已选择",
+        candidate_rule_revision: options?.rule_version ?? null,
+        status: "classified",
+        retryable: false,
+      },
+    }));
+    void saveManualNamingCategory({
+      taskId,
+      targetScope: targetLibrary,
+      targetProjectId: targetProjectId || undefined,
+      categoryId,
+    }).catch((error) => {
+      setPreviewFeedback((current) => ({
+        ...current,
+        [taskId]: error instanceof ApiError ? error.message : "人工目录类别暂未保存，请重试",
+      }));
+    });
+  };
+
+  const classifyCategories = async (retry: boolean) => {
+    if (targetLibrary !== "project" && targetLibrary !== "company") return null;
+    setClassificationBusy(true);
+    try {
+      const response = await classifyBatchNamingCategories({
+        taskIds: selectedConfirmTasks.map((task) => task.id),
+        targetScope: targetLibrary,
+        targetProjectId: targetProjectId || undefined,
+        retry,
+      });
+      const next = Object.fromEntries(response.items.map((item) => [item.task_id, item]));
+      setCategorySuggestions(next);
+      setCategoryTargetLabel(response.target_label);
+      return next;
+    } finally {
+      setClassificationBusy(false);
+    }
+  };
+
   const confirmSingleDelete = async () => {
     const task = deleteCandidate;
     if (!task) return;
+    const pendingTimer = previewTimersRef.current[task.id];
+    if (pendingTimer) window.clearTimeout(pendingTimer);
+    delete previewTimersRef.current[task.id];
+    previewRunsRef.current[task.id] = (previewRunsRef.current[task.id] ?? 0) + 1;
     setDeletingTaskId(task.id);
     const result = await flow.handleDeleteBatchReviewItem(task.id);
     setDeletingTaskId(null);
@@ -414,7 +519,15 @@ export default function PendingBatchActions({
       }
       setOptions(value);
       if (reviewTargetKey !== targetKey) {
-        const nextRows = initialRows(selectedConfirmTasks, value);
+        Object.values(previewTimersRef.current).forEach((timer) => window.clearTimeout(timer));
+        Object.keys(previewTimersRef.current).forEach((taskId) => {
+          delete previewTimersRef.current[taskId];
+        });
+        Object.keys(previewRunsRef.current).forEach((taskId) => {
+          previewRunsRef.current[taskId] += 1;
+        });
+        const classified = await classifyCategories(false);
+        const nextRows = initialRows(selectedConfirmTasks, value, classified ?? {});
         setRows(nextRows);
         setPreviews({});
         setEditedTaskIds(new Set());
@@ -428,6 +541,65 @@ export default function PendingBatchActions({
       setDialogError(error instanceof ApiError ? error.message : "命名规则暂时无法加载");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const retryCategoryClassifications = async () => {
+    try {
+      const classified = await classifyCategories(true);
+      if (!classified) return;
+      setRows((current) => {
+        const next = { ...current };
+        selectedConfirmTasks.forEach((task) => {
+          if (editedTaskIds.has(task.id)) return;
+          const item = classified[task.id];
+          next[task.id] = {
+            ...next[task.id],
+            category_id:
+              item?.status === "classified" && item.suggested_category_id
+                ? item.suggested_category_id
+                : "",
+          };
+        });
+        return next;
+      });
+    } catch (error) {
+      setDialogError(error instanceof ApiError ? error.message : "AI 目录分类暂时失败");
+    }
+  };
+
+  const retryOneCategoryClassification = async (taskId: string) => {
+    if (targetLibrary !== "project" && targetLibrary !== "company") return;
+    setClassificationBusy(true);
+    try {
+      const response = await classifyBatchNamingCategories({
+        taskIds: [taskId],
+        targetScope: targetLibrary,
+        targetProjectId: targetProjectId || undefined,
+        retry: true,
+      });
+      const item = response.items[0];
+      if (!item) return;
+      setCategorySuggestions((current) => ({ ...current, [taskId]: item }));
+      if (!editedTaskIds.has(taskId)) {
+        setRows((current) => ({
+          ...current,
+          [taskId]: {
+            ...current[taskId],
+            category_id:
+              item.status === "classified" && item.suggested_category_id
+                ? item.suggested_category_id
+                : "",
+          },
+        }));
+      }
+    } catch (error) {
+      setPreviewFeedback((current) => ({
+        ...current,
+        [taskId]: error instanceof ApiError ? error.message : "AI 目录分类暂时失败",
+      }));
+    } finally {
+      setClassificationBusy(false);
     }
   };
 
@@ -510,6 +682,7 @@ export default function PendingBatchActions({
       targetLibrary,
       targetProjectId || undefined,
       row,
+      warningCodesByTask[task.id] ?? [],
     );
     setConfirmingTaskId(null);
     setConfirmCandidate(null);
@@ -543,6 +716,7 @@ export default function PendingBatchActions({
       targetLibrary,
       targetProjectId || undefined,
       Object.fromEntries(selectedConfirmTasks.map((task) => [task.id, rows[task.id]])),
+      warningCodesByTask,
     );
   };
 
@@ -595,7 +769,9 @@ export default function PendingBatchActions({
         }
         confirmText={
           stage === "review" || targetLibrary === "personal" || !targetLibrary
-            ? "确认批量入库"
+            ? warningNotices.length > 0
+              ? "仍然确认批量入库"
+              : "确认批量入库"
             : "下一步：核对命名"
         }
         busyText={stage === "target" ? "正在加载规则" : "正在核对"}
@@ -651,15 +827,30 @@ export default function PendingBatchActions({
                 <span className="upload77-batch-filter-summary" role="status">
                   当前筛选显示 {visibleConfirmTasks.length}/{selectedConfirmTasks.length} 条
                 </span>
+                {categoryTargetLabel && (
+                  <span className="upload77-batch-filter-summary" role="status">
+                    目录候选来自：{categoryTargetLabel}
+                  </span>
+                )}
               </div>
-              <button
-                className="btn-secondary"
-                disabled={loading}
-                onClick={() => void refreshPreviews()}
-                type="button"
-              >
-                生成或刷新全部预览
-              </button>
+              <div className="upload77-batch-naming-row-actions">
+                <button
+                  className="btn-secondary"
+                  disabled={loading || classificationBusy}
+                  onClick={() => void retryCategoryClassifications()}
+                  type="button"
+                >
+                  {classificationBusy ? "正在分类…" : "重试待分类项"}
+                </button>
+                <button
+                  className="btn-secondary"
+                  disabled={loading}
+                  onClick={() => void refreshPreviews()}
+                  type="button"
+                >
+                  生成或刷新全部预览
+                </button>
+              </div>
             </div>
             <div className="upload77-batch-naming-filters" aria-label="核对状态筛选">
               {(
@@ -694,6 +885,12 @@ export default function PendingBatchActions({
               ))}
             </div>
             <div className="upload77-batch-naming-scroll">
+              {warningNotices.length > 0 && (
+                <div className="upload77-batch-naming-notice" role="status">
+                  当前批次有 {warningNotices.length}{" "}
+                  项命名或重复风险提示；确认后将作为独立资料入库， 不会覆盖已有资产。
+                </div>
+              )}
               {visibleConfirmTasks.length === 0 && (
                 <div className="upload77-batch-filter-empty" role="status">
                   当前筛选下没有资料
@@ -706,10 +903,7 @@ export default function PendingBatchActions({
                 const localError = rowMissing(row, company);
                 const serverError = previewError(preview);
                 const fieldError = localError ?? serverError;
-                const categorySuggestion = suggestNamingCategory(
-                  task.naming_parsed_fields,
-                  categories,
-                );
+                const categorySuggestion = categorySuggestions[task.id];
                 return (
                   <article className="upload77-batch-naming-row" key={task.id}>
                     <header>
@@ -795,9 +989,7 @@ export default function PendingBatchActions({
                         <select
                           aria-label={`${task.source_file_name} 目录类别`}
                           value={row.category_id}
-                          onChange={(event) =>
-                            updateRow(task.id, { category_id: event.target.value })
-                          }
+                          onChange={(event) => selectManualCategory(task.id, event.target.value)}
                         >
                           <option value="">请选择</option>
                           {categories.map((category) => (
@@ -811,12 +1003,36 @@ export default function PendingBatchActions({
                             {fieldError.message}
                           </small>
                         )}
-                        {categorySuggestion?.basis === "ai" &&
-                          categorySuggestion.id === row.category_id && (
+                        {categorySuggestion?.category_source === "ai_content" &&
+                          categorySuggestion.suggested_category_id === row.category_id && (
                             <small className="upload77-batch-naming-notice">
-                              已按 AI 建议预选，可人工修改
+                              AI 内容建议（
+                              {categorySuggestion.category_confidence === "high" ? "高" : "中"}
+                              置信度）
                             </small>
                           )}
+                        {categorySuggestion?.category_source === "rule_only_option" &&
+                          categorySuggestion.suggested_category_id === row.category_id && (
+                            <small className="upload77-batch-naming-notice">规则唯一选项</small>
+                          )}
+                        {categorySuggestion?.category_source === "manual" && (
+                          <small className="upload77-batch-naming-notice">人工已选择</small>
+                        )}
+                        {(!categorySuggestion ||
+                          categorySuggestion.category_source === "needs_manual") && (
+                          <small className="upload77-batch-naming-error">
+                            {categorySuggestion?.category_reason ?? "尚未按当前规则分类"}
+                            {categorySuggestion?.retryable && (
+                              <button
+                                disabled={classificationBusy || editedTaskIds.has(task.id)}
+                                onClick={() => void retryOneCategoryClassification(task.id)}
+                                type="button"
+                              >
+                                重试此项
+                              </button>
+                            )}
+                          </small>
+                        )}
                       </label>
                       <label>
                         <span>文件形成日期</span>
@@ -971,12 +1187,26 @@ export default function PendingBatchActions({
               }`
             : undefined
         }
-        confirmText="确认入库"
+        confirmText={
+          confirmCandidate && (previews[confirmCandidate.id]?.notices.length ?? 0) > 0
+            ? "仍然确认入库"
+            : "确认入库"
+        }
         busyText="正在确认入库"
         busy={confirmingTaskId !== null}
         onCancel={() => setConfirmCandidate(null)}
         onConfirm={() => void confirmSingle()}
-      />
+      >
+        {confirmCandidate && (previews[confirmCandidate.id]?.notices.length ?? 0) > 0 && (
+          <div className="upload77-batch-naming-notice">
+            <strong>请确认以下提示：</strong>
+            {(previews[confirmCandidate.id]?.notices ?? []).map((notice) => (
+              <div key={`${notice.code ?? notice.kind}-${notice.message}`}>{notice.message}</div>
+            ))}
+            <p>继续后会创建独立资料，不会覆盖已有资产。</p>
+          </div>
+        )}
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={deleteCandidate !== null}

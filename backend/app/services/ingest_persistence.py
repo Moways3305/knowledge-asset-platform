@@ -197,6 +197,14 @@ async def persist_confirmation(
             "zone": asset.zone,
             "confidentiality_level": asset.confidentiality_level,
             "ingest_task_id": str(task.id),
+            "naming_warning_codes": (
+                [notice.code for notice in context.naming_result.notices]
+                if context.naming_result is not None
+                else []
+            ),
+            "naming_warnings_acknowledged": bool(
+                context.naming_result is not None and context.naming_result.notices
+            ),
         },
         project_id=context.project_id,
     )

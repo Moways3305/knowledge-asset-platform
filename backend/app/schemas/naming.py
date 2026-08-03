@@ -61,6 +61,7 @@ class NamingCategoryConfig(BaseModel):
     primary: str
     secondary: str
     prefix: str
+    description: str | None = None
     default_confidentiality: ConfidentialityLevel = ConfidentialityLevel.L2
     enabled: bool = True
     sort_order: int = Field(default=100, ge=0, le=10000)
@@ -79,6 +80,13 @@ class NamingCategoryConfig(BaseModel):
     @classmethod
     def validate_prefix(cls, value: str) -> str:
         return _safe_text(value, label="前缀", maximum=80)
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        return _safe_text(value, label="类别说明", maximum=300)
 
 
 class NamingRuleConfig(BaseModel):
@@ -160,8 +168,20 @@ class NamingPreviewRequest(BaseModel):
     naming: NamingConfirmationFields | None = None
 
 
+NamingWarningCode = Literal[
+    "project_subject_business_name",
+    "exact_duplicate",
+    "suspected_duplicate",
+    "version_source_unreliable",
+    "confidentiality_source_unreliable",
+    "historical_naming_noncompliant",
+    "ai_suggestion_uncertain",
+]
+
+
 class NamingDuplicateNotice(BaseModel):
-    kind: Literal["exact", "suspected"]
+    code: NamingWarningCode
+    kind: Literal["exact", "suspected", "semantic", "advisory"]
     message: str
 
 
@@ -249,10 +269,14 @@ class BatchNamingPreviewResponse(BaseModel):
 
 class NamingOptionItem(BaseModel):
     id: uuid.UUID
+    scope: Literal["project", "company"]
     primary: str
     secondary: str
     prefix: str
+    description: str | None = None
     default_confidentiality: ConfidentialityLevel
+    enabled: bool = True
+    sort_order: int
 
 
 class NamingOptionsResponse(BaseModel):
@@ -261,3 +285,56 @@ class NamingOptionsResponse(BaseModel):
     categories: list[NamingOptionItem] = Field(default_factory=list)
     default_confidentiality: ConfidentialityLevel | None = None
     message: str | None = None
+
+
+CategorySource = Literal["ai_content", "rule_only_option", "needs_manual", "manual"]
+CategoryConfidence = Literal["high", "medium", "low"]
+
+
+class CategoryClassificationBatchRequest(BaseModel):
+    task_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    target_scope: KnowledgeScope
+    target_project_id: uuid.UUID | None = None
+    retry: bool = False
+
+    @model_validator(mode="after")
+    def require_explicit_destination(self) -> CategoryClassificationBatchRequest:
+        if len(set(self.task_ids)) != len(self.task_ids):
+            raise ValueError("task ids must not contain duplicates")
+        if self.target_scope == KnowledgeScope.personal:
+            raise ValueError("personal scope does not use governed category classification")
+        if self.target_scope == KnowledgeScope.project and self.target_project_id is None:
+            raise ValueError("target_project_id is required for project scope")
+        return self
+
+
+class CategoryClassificationItemResponse(BaseModel):
+    task_id: uuid.UUID
+    suggested_category_id: uuid.UUID | None = None
+    category_source: CategorySource
+    category_confidence: CategoryConfidence
+    category_reason: str
+    candidate_rule_revision: int | None = None
+    status: Literal["classified", "needs_manual", "failed", "unchanged"]
+    retryable: bool = False
+
+
+class CategoryClassificationBatchResponse(BaseModel):
+    target_label: str
+    candidate_rule_revision: int | None = None
+    candidate_count: int
+    items: list[CategoryClassificationItemResponse]
+
+
+class ManualCategorySelectionRequest(BaseModel):
+    target_scope: KnowledgeScope
+    target_project_id: uuid.UUID | None = None
+    category_id: uuid.UUID
+
+    @model_validator(mode="after")
+    def require_project(self) -> ManualCategorySelectionRequest:
+        if self.target_scope == KnowledgeScope.personal:
+            raise ValueError("personal scope does not use governed category selection")
+        if self.target_scope == KnowledgeScope.project and self.target_project_id is None:
+            raise ValueError("target_project_id is required for project scope")
+        return self

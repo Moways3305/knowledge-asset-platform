@@ -43,8 +43,6 @@ from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 from app.services.naming_advice import safe_naming_advice
 
-_ALIAS_PREFIX_SEPARATOR = re.compile(r"^[\s_\-—:：·/\\]+")
-_ALIAS_PREFIX_BOUNDARY = re.compile(r"^[\s_\-—:：·/\\\d]")
 _ASSET_TYPE_BY_CATEGORY_SECONDARY = {
     "交付成果": "deliverable",
     "交付件": "deliverable",
@@ -326,34 +324,9 @@ def _subject_contains_alias(subject: str, aliases: list[str]) -> bool:
 
 
 def _deidentify_project_subject(subject: str, aliases: list[str]) -> tuple[str, bool]:
-    """Remove one controlled leading alias; reject ambiguous remaining matches."""
+    """Keep the user's business subject and flag controlled project/customer aliases."""
     normalized = " ".join(subject.strip().split())
-    for alias in aliases:
-        match = re.match(re.escape(alias), normalized, re.IGNORECASE)
-        if match is None:
-            continue
-        remainder = normalized[match.end() :]
-        if remainder and _ALIAS_PREFIX_BOUNDARY.match(remainder) is None:
-            raise _denied(
-                422,
-                "project_subject_customer_name_detected",
-                "主题可能包含客户名称，请修改后继续",
-            )
-        candidate = _ALIAS_PREFIX_SEPARATOR.sub("", remainder).strip()
-        if not candidate or _subject_contains_alias(candidate, aliases):
-            raise _denied(
-                422,
-                "project_subject_customer_name_detected",
-                "主题可能包含客户名称，请修改后继续",
-            )
-        return candidate, True
-    if _subject_contains_alias(normalized, aliases):
-        raise _denied(
-            422,
-            "project_subject_customer_name_detected",
-            "主题可能包含客户名称，请修改后继续",
-        )
-    return normalized, False
+    return normalized, _subject_contains_alias(normalized, aliases)
 
 
 async def _duplicate_notices(
@@ -408,7 +381,13 @@ async def _duplicate_notices(
             .where(*asset_conditions)
         )
         if pending_match or confirmed_match:
-            notices.append(NamingDuplicateNotice(kind="exact", message="已存在相同文件"))
+            notices.append(
+                NamingDuplicateNotice(
+                    code="exact_duplicate",
+                    kind="exact",
+                    message="已存在相同文件，请确认是否仍需独立入库",
+                )
+            )
 
     candidate_stmt = (
         select(KnowledgeAssetVersion.naming_metadata)
@@ -424,7 +403,13 @@ async def _duplicate_notices(
     if any(
         value and all(value.get(key) == metadata.get(key) for key in keys) for value in candidates
     ):
-        notices.append(NamingDuplicateNotice(kind="suspected", message="疑似重复，请核对"))
+        notices.append(
+            NamingDuplicateNotice(
+                code="suspected_duplicate",
+                kind="suspected",
+                message="主题、日期和版本疑似重复，请核对",
+            )
+        )
     return notices
 
 
@@ -473,7 +458,7 @@ async def render(
 
     project_code: str | None = None
     rendered_subject = naming.subject
-    subject_deidentified = False
+    subject_has_business_name = False
     if scope == KnowledgeScope.project.value:
         if request.target_project_id is None:
             raise _denied(422, "target_project_required", "项目入库必须指定目标项目")
@@ -486,7 +471,7 @@ async def render(
         ):
             raise _denied(409, "project_naming_code_unavailable", "目标项目尚未启用项目代码")
         project_code = project.project_code
-        rendered_subject, subject_deidentified = _deidentify_project_subject(
+        rendered_subject, subject_has_business_name = _deidentify_project_subject(
             naming.subject,
             _project_subject_aliases(project, config),
         )
@@ -515,7 +500,8 @@ async def render(
         "category_prefix": category.prefix,
         "asset_type": derived_asset_type,
         "subject": rendered_subject,
-        "subject_deidentified": subject_deidentified,
+        "subject_deidentified": False,
+        "subject_business_name_warning": subject_has_business_name,
         "applicable_to": naming.applicable_to,
         "formed_on": naming.formed_on.isoformat(),
         "version": naming.version,
@@ -524,8 +510,53 @@ async def render(
         "rule_version": revision.version,
         "canonical_name": canonical,
     }
-    notices = await _duplicate_notices(
-        session, caller, task, scope, request.target_project_id, metadata
+    notices: list[NamingDuplicateNotice] = []
+    if subject_has_business_name:
+        notices.append(
+            NamingDuplicateNotice(
+                code="project_subject_business_name",
+                kind="semantic",
+                message="主题可能包含客户名、项目简称或业务专名，请确认是否保留",
+            )
+        )
+    ai = await session.scalar(
+        select(IngestTaskAiResult).where(IngestTaskAiResult.ingest_task_id == task.id)
+    )
+    advice = safe_naming_advice(ai)
+    if advice["version_source"] == "default_needs_confirmation":
+        notices.append(
+            NamingDuplicateNotice(
+                code="version_source_unreliable",
+                kind="advisory",
+                message="版本来自规则默认值，请人工核对",
+            )
+        )
+    if advice["confidentiality_source"] == "default_needs_confirmation":
+        notices.append(
+            NamingDuplicateNotice(
+                code="confidentiality_source_unreliable",
+                kind="advisory",
+                message="密级未由 AI 可靠确定，请人工核对",
+            )
+        )
+    if ai is not None and ai.naming_compliant is False:
+        notices.append(
+            NamingDuplicateNotice(
+                code="historical_naming_noncompliant",
+                kind="advisory",
+                message="来源文件名不符合当前规范，但不影响人工确认入库",
+            )
+        )
+    if ai is not None and (ai.confidence is None or ai.confidence < 0.7):
+        notices.append(
+            NamingDuplicateNotice(
+                code="ai_suggestion_uncertain",
+                kind="advisory",
+                message="AI 对部分命名建议不确定，请人工核对",
+            )
+        )
+    notices.extend(
+        await _duplicate_notices(session, caller, task, scope, request.target_project_id, metadata)
     )
     return RenderedNaming(canonical, revision.version, metadata, notices)
 
@@ -607,7 +638,6 @@ def _batch_http_error(exc: HTTPException) -> tuple[str, str]:
         "naming_asset_type_mapping_missing": "该目录类别尚未配置资产分类，请联系管理员补充后重试",
         "naming_applicable_to_required": "公司库资料必须填写适用对象",
         "canonical_name_too_long": "规范名过长，请缩短主题或适用对象",
-        "project_subject_customer_name_detected": "主题可能包含客户名称，请修改后继续",
         "ingest_target_locked": "资料目标已由来源规则锁定",
         "ingest_target_project_locked": "目标项目已由来源规则锁定",
     }
@@ -639,20 +669,16 @@ async def batch_preview(
                 }
             )
             rendered = await preview(session, caller, item.task_id, item_request)
-            exact_duplicate = any(notice.kind == "exact" for notice in rendered.notices)
             results.append(
                 BatchNamingPreviewItemResponse(
                     task_id=item.task_id,
-                    submittable=(
-                        not exact_duplicate
-                        and (not destination.required or rendered.canonical_name is not None)
-                    ),
+                    submittable=not destination.required or rendered.canonical_name is not None,
                     canonical_name=rendered.canonical_name,
                     rule_version=rendered.rule_version,
                     fields=rendered.fields,
                     notices=rendered.notices,
-                    error_code="naming_exact_duplicate" if exact_duplicate else None,
-                    message="已存在相同文件，请核对" if exact_duplicate else rendered.message,
+                    error_code=None,
+                    message=None,
                     suggested_version=rendered.suggested_version,
                     version_source=rendered.version_source,
                     version_confidence=rendered.version_confidence,
@@ -740,12 +766,17 @@ async def options(
         categories=[
             NamingOptionItem(
                 id=item.id,
+                scope=item.scope,
                 primary=item.primary,
                 secondary=item.secondary,
                 prefix=item.prefix,
+                description=item.description,
                 default_confidentiality=item.default_confidentiality,
+                enabled=item.enabled,
+                sort_order=item.sort_order,
             )
             for item in categories
         ],
         default_confidentiality=default_confidentiality,
+        message=None if categories else "当前目标尚未配置启用的目录类别",
     )

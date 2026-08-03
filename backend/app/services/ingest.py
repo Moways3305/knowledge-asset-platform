@@ -463,6 +463,7 @@ async def approve_project_ingest_review(
             naming=req.naming,
         ),
     )
+    ingest_confirmation.require_naming_warning_acknowledgement(req, naming_result)
     # Re-normalize snapshots at approval time as well so reviews created before
     # this protection cannot retain a historical customer-bearing subject.
     req = ingest_confirmation.apply_authoritative_project_subject(req, naming_result)
@@ -644,6 +645,14 @@ async def approve_project_ingest_review(
             "confidentiality_level": asset.confidentiality_level,
             "ai_access_level": asset.ai_access_level,
             "approval": "project_manager",
+            "naming_warning_codes": (
+                [notice.code for notice in naming_result.notices]
+                if naming_result is not None
+                else []
+            ),
+            "naming_warnings_acknowledged": bool(
+                naming_result is not None and naming_result.notices
+            ),
         },
         project_id=req.target_project_id,
     )

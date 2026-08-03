@@ -15,6 +15,7 @@ export interface NamingCategoryConfigDTO {
   primary: string;
   secondary: string;
   prefix: string;
+  description?: string | null;
   default_confidentiality: string;
   enabled: boolean;
   sort_order: number;
@@ -51,10 +52,14 @@ export interface NamingRuleCenterDTO {
 
 export interface NamingOptionDTO {
   id: string;
+  scope?: NamingScope;
   primary: string;
   secondary: string;
   prefix: string;
+  description?: string | null;
   default_confidentiality: string;
+  enabled?: boolean;
+  sort_order?: number;
 }
 
 export interface NamingOptionsDTO {
@@ -78,7 +83,7 @@ export interface NamingPreviewDTO {
   canonical_name: string | null;
   rule_version: number | null;
   fields: Record<string, unknown> | null;
-  notices: Array<{ kind: "exact" | "suspected"; message: string }>;
+  notices: NamingWarningNoticeDTO[];
   message: string | null;
   suggested_version?: string;
   version_source?: "source_filename" | "ai_content" | "default_needs_confirmation";
@@ -88,6 +93,19 @@ export interface NamingPreviewDTO {
   confidentiality_source?: "ai_content" | "default_needs_confirmation";
   confidentiality_confidence?: "high" | "medium" | "low";
   confidentiality_reason?: string;
+}
+
+export interface NamingWarningNoticeDTO {
+  code?:
+    | "project_subject_business_name"
+    | "exact_duplicate"
+    | "suspected_duplicate"
+    | "version_source_unreliable"
+    | "confidentiality_source_unreliable"
+    | "historical_naming_noncompliant"
+    | "ai_suggestion_uncertain";
+  kind: "exact" | "suspected" | "semantic" | "advisory";
+  message: string;
 }
 
 export interface BatchNamingValuesDTO {
@@ -105,7 +123,7 @@ export interface BatchNamingPreviewItemDTO {
   canonical_name: string | null;
   rule_version: number | null;
   fields: Record<string, unknown> | null;
-  notices: Array<{ kind: "exact" | "suspected"; message: string }>;
+  notices: NamingWarningNoticeDTO[];
   error_code: string | null;
   message: string | null;
   suggested_version?: string;
@@ -120,4 +138,28 @@ export interface BatchNamingPreviewItemDTO {
 
 export interface BatchNamingPreviewResponseDTO {
   items: BatchNamingPreviewItemDTO[];
+}
+
+export type CategorySuggestionSource =
+  | "ai_content"
+  | "rule_only_option"
+  | "needs_manual"
+  | "manual";
+
+export interface CategoryClassificationItemDTO {
+  task_id: string;
+  suggested_category_id: string | null;
+  category_source: CategorySuggestionSource;
+  category_confidence: "high" | "medium" | "low";
+  category_reason: string;
+  candidate_rule_revision: number | null;
+  status: "classified" | "needs_manual" | "failed" | "unchanged";
+  retryable: boolean;
+}
+
+export interface CategoryClassificationBatchDTO {
+  target_label: string;
+  candidate_rule_revision: number | null;
+  candidate_count: number;
+  items: CategoryClassificationItemDTO[];
 }

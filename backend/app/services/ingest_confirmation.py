@@ -69,6 +69,24 @@ def apply_authoritative_project_subject(
     return request.model_copy(update={"title": subject, "naming": naming})
 
 
+def require_naming_warning_acknowledgement(
+    request: IngestConfirmRequest,
+    result: RenderedNaming | None,
+) -> None:
+    """Require an explicit decision for server-recomputed soft warnings."""
+    if result is None:
+        return
+    warning_codes = {notice.code for notice in result.notices}
+    acknowledged = set(request.acknowledged_naming_warning_codes)
+    missing = sorted(warning_codes - acknowledged)
+    if missing:
+        raise _denied(
+            409,
+            "naming_warning_acknowledgement_required",
+            "存在命名或重复风险提示，请核对后选择仍然确认入库",
+        )
+
+
 async def validate_and_route_confirmation(
     session: AsyncSession,
     caller: CallerContext,
@@ -177,6 +195,7 @@ async def validate_and_route_confirmation(
                 naming=request.naming,
             ),
         )
+        require_naming_warning_acknowledgement(request, naming_result)
         request = apply_authoritative_project_subject(request, naming_result)
         can_self_confirm = (
             caller.active_project_roles.get(target_project_id) == ProjectRole.project_manager.value
@@ -244,6 +263,7 @@ async def apply_confirmation_extensions(
             naming=context.request.naming,
         ),
     )
+    require_naming_warning_acknowledgement(context.request, result)
     # Governed project subject is authoritative for the asset title, review
     # snapshot, naming facts, and canonical filename, including direct callers.
     request = apply_authoritative_project_subject(context.request, result)

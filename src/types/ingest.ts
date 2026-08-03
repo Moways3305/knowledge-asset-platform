@@ -109,6 +109,17 @@ export interface NamingFields {
   missing_fields: string[];
   source_file_name: string;
   original_naming_compliant: boolean;
+  category_suggestion?: {
+    suggested_category_id: string | null;
+    category_source: import("./naming").CategorySuggestionSource;
+    category_confidence: "high" | "medium" | "low";
+    category_reason: string;
+    candidate_rule_revision: number | null;
+    target_scope?: "project" | "company";
+    target_project_id?: string | null;
+    status: "classified" | "needs_manual" | "failed" | "unchanged";
+    retryable?: boolean;
+  };
 }
 
 export interface IngestAiResultDTO {
@@ -174,6 +185,7 @@ export interface IngestConfirmRequestDTO {
   // 缺省走平台默认；仅在首建该 scope 的 KB 时生效，已有 KB 沿用其锁定模型。
   embedding_model_ref?: string;
   rerank_model_ref?: string;
+  acknowledged_naming_warning_codes?: string[];
   naming?: import("./naming").NamingConfirmationDTO;
 }
 

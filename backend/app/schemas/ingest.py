@@ -18,7 +18,7 @@ from app.schemas.enums import (
     KnowledgeScope,
     KnowledgeZone,
 )
-from app.schemas.naming import NamingConfirmationFields
+from app.schemas.naming import NamingConfirmationFields, NamingWarningCode
 
 
 class IngestUploadRequest(BaseModel):
@@ -225,6 +225,11 @@ class IngestConfirmRequest(BaseModel):
     # 缺省走平台默认；显式选择仅在首建该 scope 的 KB 时生效，已有 KB 冲突会被锁定拒绝。
     embedding_model_ref: str | None = None
     rerank_model_ref: str | None = None
+    # The server recomputes every warning. These codes only record the user's
+    # explicit decision to proceed; they cannot suppress a blocking validation.
+    acknowledged_naming_warning_codes: list[NamingWarningCode] = Field(
+        default_factory=list, max_length=20
+    )
     # Project/company canonical naming facts. The final filename is deliberately
     # absent: the backend renders it from the currently published policy.
     naming: NamingConfirmationFields | None = None

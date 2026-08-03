@@ -53,6 +53,7 @@ const ingest = vi.hoisted(() => ({
 vi.mock("../../api/ingest", () => ingest);
 
 const namingApi = vi.hoisted(() => ({
+  classifyBatchNamingCategories: vi.fn(),
   fetchNamingOptions: vi.fn(),
   previewIngestNaming: vi.fn(),
 }));
@@ -250,6 +251,12 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       message: null,
     });
     namingApi.previewIngestNaming.mockReset();
+    namingApi.classifyBatchNamingCategories.mockReset().mockResolvedValue({
+      target_label: "项目知识库",
+      candidate_rule_revision: null,
+      candidate_count: 0,
+      items: [],
+    });
     ingest.confirmIngest.mockReset().mockResolvedValue({
       task_id: "t1",
       status: "completed",
@@ -437,6 +444,23 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       notices: [],
       message: null,
     });
+    namingApi.classifyBatchNamingCategories.mockResolvedValue({
+      target_label: "项目知识库 / 琥崧项目",
+      candidate_rule_revision: 2,
+      candidate_count: 1,
+      items: [
+        {
+          task_id: "t1",
+          suggested_category_id: "category-coaching",
+          category_source: "rule_only_option",
+          category_confidence: "high",
+          category_reason: "当前规则只有一个启用目录类别",
+          candidate_rule_revision: 2,
+          status: "classified",
+          retryable: false,
+        },
+      ],
+    });
     const { result } = renderHook(() => useUploadFlow());
     await driveToReady(result);
 
@@ -509,6 +533,23 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       fields: { subject: "年度经营计划" },
       notices: [],
       message: null,
+    });
+    namingApi.classifyBatchNamingCategories.mockResolvedValue({
+      target_label: "项目知识库 / Alpha 项目",
+      candidate_rule_revision: 2,
+      candidate_count: 2,
+      items: [
+        {
+          task_id: "t1",
+          suggested_category_id: "category-deliverable",
+          category_source: "ai_content",
+          category_confidence: "high",
+          category_reason: "AI 根据正文语义匹配当前目标的目录规则",
+          candidate_rule_revision: 2,
+          status: "classified",
+          retryable: false,
+        },
+      ],
     });
     const { result } = renderHook(() => useUploadFlow());
     await driveToReady(result);
