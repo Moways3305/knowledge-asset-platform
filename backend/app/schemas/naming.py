@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.schemas.enums import ConfidentialityLevel, KnowledgeScope
 
 _PROJECT_CODE = re.compile(r"^[A-Z][A-Z0-9-]{1,19}$")
-_VERSION = re.compile(r"^V[1-9]\d*(?:\.[1-9]\d*)*$")
+_VERSION = re.compile(r"^V[1-9]\d*(?:\.\d+)*$")
 _UNSAFE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
@@ -172,6 +172,18 @@ class NamingPreviewResponse(BaseModel):
     fields: dict | None
     notices: list[NamingDuplicateNotice] = Field(default_factory=list)
     message: str | None = None
+    suggested_version: str = "V1"
+    version_source: Literal["source_filename", "ai_content", "default_needs_confirmation"] = (
+        "default_needs_confirmation"
+    )
+    version_confidence: Literal["high", "medium", "low"] = "low"
+    version_reason: str = "未能可靠判断版本，已使用规则默认值"
+    suggested_confidentiality_level: ConfidentialityLevel = ConfidentialityLevel.L2
+    confidentiality_source: Literal["ai_content", "default_needs_confirmation"] = (
+        "default_needs_confirmation"
+    )
+    confidentiality_confidence: Literal["high", "medium", "low"] = "low"
+    confidentiality_reason: str = "AI 未能可靠判断内容密级，已使用规则默认值"
 
 
 class BatchNamingConfirmationFields(BaseModel):
@@ -217,6 +229,18 @@ class BatchNamingPreviewItemResponse(BaseModel):
     notices: list[NamingDuplicateNotice] = Field(default_factory=list)
     error_code: str | None = None
     message: str | None = None
+    suggested_version: str = "V1"
+    version_source: Literal["source_filename", "ai_content", "default_needs_confirmation"] = (
+        "default_needs_confirmation"
+    )
+    version_confidence: Literal["high", "medium", "low"] = "low"
+    version_reason: str = "未能可靠判断版本，已使用规则默认值"
+    suggested_confidentiality_level: ConfidentialityLevel = ConfidentialityLevel.L2
+    confidentiality_source: Literal["ai_content", "default_needs_confirmation"] = (
+        "default_needs_confirmation"
+    )
+    confidentiality_confidence: Literal["high", "medium", "low"] = "low"
+    confidentiality_reason: str = "AI 未能可靠判断内容密级，已使用规则默认值"
 
 
 class BatchNamingPreviewResponse(BaseModel):

@@ -26,6 +26,14 @@ function task(id: string, overrides: Partial<PendingIngestItemDTO> = {}): Pendin
     error_message: null,
     suggested_title: `${id}主题`,
     suggested_one_liner: null,
+    suggested_version: "V1",
+    version_source: "ai_content",
+    version_confidence: "medium",
+    version_reason: "AI 根据正文与可用元数据建议版本",
+    suggested_confidentiality_level: "L3",
+    confidentiality_source: "ai_content",
+    confidentiality_confidence: "medium",
+    confidentiality_reason: "AI 根据正文内容特征建议为 L3",
     naming_parsed_fields: {
       primary_category: "项目资料",
       secondary_category: "交付成果",
@@ -217,6 +225,56 @@ describe("PendingBatchActions governed review", () => {
 
     expect(screen.getByRole("button", { name: "AI 已确定（0）" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "需人工补齐（2）" })).toBeInTheDocument();
+  });
+
+  it("shows persisted filename version and reliable AI content confidentiality sources", async () => {
+    const item = task("source-priority", {
+      source_file_name: "项目复盘_V1.1_L3.md",
+      suggested_version: "V1.1",
+      version_source: "source_filename",
+      version_confidence: "high",
+      suggested_confidentiality_level: "L4",
+      confidentiality_source: "ai_content",
+      confidentiality_confidence: "high",
+      confidentiality_reason: "AI 根据正文内容特征建议为 L4",
+    });
+
+    render(<PendingBatchActions tasks={[item]} flow={flowFixture([item])} />);
+    await openProjectReview();
+
+    expect(screen.getByLabelText("项目复盘_V1.1_L3.md 版本")).toHaveValue("V1.1");
+    expect(screen.getByText("来自源文件")).toBeInTheDocument();
+    expect(screen.getByLabelText("项目复盘_V1.1_L3.md 密级")).toHaveValue("L4");
+    expect(screen.getByText("AI 内容建议 · 高置信度")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "AI 已确定（1）" })).toBeInTheDocument();
+  });
+
+  it("treats legacy advice as editable defaults and accepts decimal version edits", async () => {
+    const item = task("legacy-advice", {
+      suggested_version: undefined,
+      version_source: undefined,
+      version_confidence: undefined,
+      suggested_confidentiality_level: "L5",
+      confidentiality_source: undefined,
+      confidentiality_confidence: undefined,
+    });
+
+    render(<PendingBatchActions tasks={[item]} flow={flowFixture([item])} />);
+    await openProjectReview();
+
+    const version = screen.getByLabelText("legacy-advice.pdf 版本");
+    const level = screen.getByLabelText("legacy-advice.pdf 密级");
+    expect(version).toHaveValue("V1");
+    expect(level).toHaveValue("L2");
+    expect(screen.getByText("规则默认，需核对")).toBeInTheDocument();
+    expect(screen.getByText("AI 未确定，规则默认，需核对")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "AI 已确定（0）" })).toBeInTheDocument();
+
+    fireEvent.change(version, { target: { value: "V2.03" } });
+    fireEvent.change(level, { target: { value: "L3" } });
+    expect(version).toHaveValue("V2.03");
+    expect(level).toHaveValue("L3");
+    expect(screen.getAllByText("已人工修改")).toHaveLength(2);
   });
 
   it("permanently deletes one row while preserving the filter and other edits", async () => {

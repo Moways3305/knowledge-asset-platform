@@ -158,7 +158,18 @@ class IngestAiResultResponse(BaseModel):
     suggested_key_points: list[str] | None = None
     suggested_tags: list[str] | None = None
     suggested_asset_type: str | None = None
+    suggested_version: str = "V1"
+    version_source: Literal["source_filename", "ai_content", "default_needs_confirmation"] = (
+        "default_needs_confirmation"
+    )
+    version_confidence: Literal["high", "medium", "low"] = "low"
+    version_reason: str = "未能可靠判断版本，已使用规则默认值"
     suggested_confidentiality_level: str | None = None
+    confidentiality_source: Literal["ai_content", "default_needs_confirmation"] = (
+        "default_needs_confirmation"
+    )
+    confidentiality_confidence: Literal["high", "medium", "low"] = "low"
+    confidentiality_reason: str = "AI 未能可靠判断内容密级，已使用规则默认值"
     suggested_ai_access_level: str | None = None
     suggested_phase_key: str | None = None
     confidence: float | None = Field(
@@ -337,6 +348,18 @@ class PendingIngestItem(BaseModel):
     # 允许前端在列表预览 / 进入校正前展示的 AI 建议元数据。
     suggested_title: str | None = None
     suggested_one_liner: str | None = None
+    suggested_version: str = "V1"
+    version_source: Literal["source_filename", "ai_content", "default_needs_confirmation"] = (
+        "default_needs_confirmation"
+    )
+    version_confidence: Literal["high", "medium", "low"] = "low"
+    version_reason: str = "未能可靠判断版本，已使用规则默认值"
+    suggested_confidentiality_level: str = "L2"
+    confidentiality_source: Literal["ai_content", "default_needs_confirmation"] = (
+        "default_needs_confirmation"
+    )
+    confidentiality_confidence: Literal["high", "medium", "low"] = "low"
+    confidentiality_reason: str = "AI 未能可靠判断内容密级，已使用规则默认值"
     naming_parsed_fields: dict | None = None
     confidence: float | None = Field(
         default=None,

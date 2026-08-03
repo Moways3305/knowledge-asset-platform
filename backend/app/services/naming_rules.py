@@ -14,7 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.identity import Project
-from app.models.ingest import IngestTask
+from app.models.ingest import IngestTask, IngestTaskAiResult
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.naming import NamingRuleRevision
 from app.schemas.enums import (
@@ -41,6 +41,7 @@ from app.schemas.naming import (
 )
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
+from app.services.naming_advice import safe_naming_advice
 
 _ALIAS_PREFIX_SEPARATOR = re.compile(r"^[\s_\-—:：·/\\]+")
 _ALIAS_PREFIX_BOUNDARY = re.compile(r"^[\s_\-—:：·/\\\d]")
@@ -526,6 +527,10 @@ async def preview(
             raise _denied(409, "ingest_target_project_locked", "目标项目已由来源规则锁定")
     elif scope == KnowledgeScope.company.value and not caller.can_discover_l5:
         raise _denied(403, "company_confirmation_requires_governance", "公司知识需治理角色确认")
+    ai = await session.scalar(
+        select(IngestTaskAiResult).where(IngestTaskAiResult.ingest_task_id == task.id)
+    )
+    advice = safe_naming_advice(ai)
     rendered = await render(session, caller, task, request)
     if rendered is None:
         return NamingPreviewResponse(
@@ -538,6 +543,7 @@ async def preview(
                 if scope == KnowledgeScope.personal.value
                 else "命名规则尚未发布，不强制规范命名"
             ),
+            **advice,
         )
     return NamingPreviewResponse(
         required=True,
@@ -545,6 +551,7 @@ async def preview(
         rule_version=rendered.rule_version,
         fields=rendered.metadata,
         notices=rendered.notices,
+        **advice,
     )
 
 
@@ -619,6 +626,14 @@ async def batch_preview(
                     notices=rendered.notices,
                     error_code="naming_exact_duplicate" if exact_duplicate else None,
                     message="已存在相同文件，请核对" if exact_duplicate else rendered.message,
+                    suggested_version=rendered.suggested_version,
+                    version_source=rendered.version_source,
+                    version_confidence=rendered.version_confidence,
+                    version_reason=rendered.version_reason,
+                    suggested_confidentiality_level=rendered.suggested_confidentiality_level,
+                    confidentiality_source=rendered.confidentiality_source,
+                    confidentiality_confidence=rendered.confidentiality_confidence,
+                    confidentiality_reason=rendered.confidentiality_reason,
                 )
             )
         except ValidationError as exc:

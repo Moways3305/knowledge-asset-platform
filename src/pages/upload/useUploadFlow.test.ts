@@ -350,6 +350,42 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(JSON.stringify(payload)).not.toContain(legacyTitle);
   });
 
+  it.each([
+    ["source filename", "V1.1", "source_filename", "high", "V1.1"],
+    ["AI content", "V2.03", "ai_content", "medium", "V2.03"],
+    ["legacy fallback", undefined, undefined, undefined, "V1"],
+  ] as const)(
+    "uses the persisted %s version projection instead of the legacy parsed version",
+    async (_case, suggestedVersion, versionSource, versionConfidence, expected) => {
+      ingest.fetchIngestAiResult.mockResolvedValueOnce({
+        ...readyAiResult,
+        suggested_version: suggestedVersion,
+        version_source: versionSource,
+        version_confidence: versionConfidence,
+        naming_parsed_fields: {
+          primary_category: "项目资料",
+          secondary_category: "交付成果",
+          topic: "年度经营计划",
+          subject_or_client: "通用",
+          date: "20260803",
+          version: "V9",
+          confidentiality_level: "L2",
+          ai_access_level: "A2",
+          normalized_title: "",
+          inferred_fields: [],
+          missing_fields: [],
+          source_file_name: "legacy_V9_L2.docx",
+          original_naming_compliant: true,
+        },
+      });
+      const { result } = renderHook(() => useUploadFlow());
+      await driveToReady(result);
+
+      expect(result.current.namingVersion).toBe(expected);
+      expect(result.current.namingVersion).not.toBe("V9");
+    },
+  );
+
   it("requires manual input when the backend cannot project a safe subject", async () => {
     ingest.fetchIngestAiResult.mockResolvedValueOnce({
       ...readyAiResult,

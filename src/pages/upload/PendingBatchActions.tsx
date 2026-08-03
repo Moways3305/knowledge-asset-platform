@@ -20,7 +20,8 @@ type ReviewState = Exclude<ReviewFilter, "all">;
 type DeleteFeedback = { message: string; retryable: boolean };
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const VERSION_PATTERN = /^V[1-9]\d*(?:\.[1-9]\d*)*$/;
+const VERSION_PATTERN = /^V[1-9]\d*(?:\.\d+)*$/;
+const CONFIDENTIALITY_LEVELS = new Set(["L1", "L2", "L3", "L4", "L5"]);
 
 function parsedValue(task: PendingIngestItemDTO, field: "date" | "version"): string {
   const parsed = task.naming_parsed_fields;
@@ -40,6 +41,24 @@ function sourceSubject(task: PendingIngestItemDTO): string {
   return task.suggested_title?.trim() || "";
 }
 
+function suggestedVersion(task: PendingIngestItemDTO): string {
+  const value = task.suggested_version?.trim().toUpperCase() ?? "";
+  return VERSION_PATTERN.test(value) ? value : "V1";
+}
+
+function hasReliableAiConfidentiality(task: PendingIngestItemDTO): boolean {
+  return (
+    task.confidentiality_source === "ai_content" &&
+    (task.confidentiality_confidence === "high" || task.confidentiality_confidence === "medium") &&
+    CONFIDENTIALITY_LEVELS.has(task.suggested_confidentiality_level ?? "")
+  );
+}
+
+function suggestedConfidentiality(task: PendingIngestItemDTO, options: NamingOptionsDTO): string {
+  if (hasReliableAiConfidentiality(task)) return task.suggested_confidentiality_level!;
+  return options.default_confidentiality || "L2";
+}
+
 function initialRows(tasks: PendingIngestItemDTO[], options: NamingOptionsDTO): ReviewRows {
   return Object.fromEntries(
     tasks.map((task) => [
@@ -48,9 +67,9 @@ function initialRows(tasks: PendingIngestItemDTO[], options: NamingOptionsDTO): 
         category_id: suggestNamingCategory(task.naming_parsed_fields, options.categories)?.id ?? "",
         subject: sourceSubject(task),
         formed_on: parsedValue(task, "date"),
-        version: parsedValue(task, "version"),
+        version: suggestedVersion(task),
         applicable_to: "",
-        confidentiality_level: options.default_confidentiality || "L2",
+        confidentiality_level: suggestedConfidentiality(task, options),
       },
     ]),
   );
@@ -112,12 +131,14 @@ function reviewState(
     row.subject.trim() !== sourceSubject(task) ||
     row.category_id !== category?.id ||
     row.formed_on !== parsedValue(task, "date") ||
-    row.version.toUpperCase() !== parsedValue(task, "version");
+    row.version.toUpperCase() !== suggestedVersion(task);
   if (
     !parsed ||
     unsafeAiField ||
     category?.basis !== "ai" ||
     differsFromSafeAi ||
+    (task.version_source !== "source_filename" && task.version_source !== "ai_content") ||
+    !hasReliableAiConfidentiality(task) ||
     (company && !row.applicable_to)
   ) {
     return "manual";
@@ -601,6 +622,23 @@ export default function PendingBatchActions({
                             {fieldError.message}
                           </small>
                         )}
+                        <small
+                          className={`upload77-batch-naming-source ${
+                            row.version !== suggestedVersion(task) ||
+                            task.version_source === "default_needs_confirmation" ||
+                            !task.version_source
+                              ? "is-manual"
+                              : ""
+                          }`}
+                        >
+                          {row.version !== suggestedVersion(task)
+                            ? "已人工修改"
+                            : task.version_source === "source_filename"
+                              ? "来自源文件"
+                              : task.version_source === "ai_content"
+                                ? "AI 建议"
+                                : "规则默认，需核对"}
+                        </small>
                       </label>
                       {company && (
                         <label>
@@ -632,6 +670,24 @@ export default function PendingBatchActions({
                             <option key={level}>{level}</option>
                           ))}
                         </select>
+                        <small
+                          className={`upload77-batch-naming-source ${
+                            row.confidentiality_level !==
+                              suggestedConfidentiality(task, options!) ||
+                            !hasReliableAiConfidentiality(task)
+                              ? "is-manual"
+                              : ""
+                          }`}
+                          title={task.confidentiality_reason ?? undefined}
+                        >
+                          {row.confidentiality_level !== suggestedConfidentiality(task, options!)
+                            ? "已人工修改"
+                            : hasReliableAiConfidentiality(task)
+                              ? `AI 内容建议 · ${
+                                  task.confidentiality_confidence === "high" ? "高" : "中"
+                                }置信度`
+                              : "AI 未确定，规则默认，需核对"}
+                        </small>
                       </label>
                     </div>
                     <div

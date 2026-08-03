@@ -112,6 +112,43 @@ async def test_ai_result_no_internal_fields(client):
     assert "%" not in body["suggestion_generation_reason"]
 
 
+async def test_legacy_naming_advice_defaults_are_safe_and_stable(client, db_session):
+    """Rows created before provenance columns never masquerade as AI advice."""
+    task_id = uuid.UUID((await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"])
+    ai = (
+        await db_session.execute(
+            select(IngestTaskAiResult).where(IngestTaskAiResult.ingest_task_id == task_id)
+        )
+    ).scalar_one()
+    ai.suggested_version = None
+    ai.version_source = None
+    ai.version_confidence = None
+    ai.version_reason = None
+    # Old rows may contain a level parsed from the filename. It is not AI content advice.
+    ai.suggested_confidentiality_level = "L5"
+    ai.confidentiality_source = None
+    ai.confidentiality_confidence = None
+    ai.confidentiality_reason = None
+    await db_session.commit()
+
+    detail = await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
+    first_pending = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    second_pending = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
+    first_item = next(item for item in first_pending.json()["items"] if item["id"] == str(task_id))
+    second_item = next(
+        item for item in second_pending.json()["items"] if item["id"] == str(task_id)
+    )
+
+    for payload in (detail.json(), first_item, second_item):
+        assert payload["suggested_version"] == "V1"
+        assert payload["version_source"] == "default_needs_confirmation"
+        assert payload["version_confidence"] == "low"
+        assert payload["suggested_confidentiality_level"] == "L2"
+        assert payload["confidentiality_source"] == "default_needs_confirmation"
+        assert payload["confidentiality_confidence"] == "low"
+        assert "L5" not in payload["confidentiality_reason"]
+
+
 async def test_source_locked_destination_cannot_be_overridden(client, db_session):
     task_id = (await _create_task(client, USER_PROJECT_MANAGER)).json()["ingest_task_id"]
     await db_session.execute(

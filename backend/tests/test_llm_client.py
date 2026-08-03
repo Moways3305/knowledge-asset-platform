@@ -38,8 +38,9 @@ class FakeLLM:
     provider = "deepseek"
     model = "deepseek-chat"
 
-    def __init__(self, *, mode: str = "ok") -> None:
+    def __init__(self, *, mode: str = "ok", payload: dict | None = None) -> None:
         self.mode = mode
+        self.payload = payload
         self.calls = 0
         self.last_messages = None
 
@@ -58,7 +59,7 @@ class FakeLLM:
             partial = dict(_GOOD)
             partial.pop("detailed", None)
             return json.dumps(partial, ensure_ascii=False)
-        return json.dumps(_GOOD, ensure_ascii=False)
+        return json.dumps(self.payload or _GOOD, ensure_ascii=False)
 
 
 # 平台命名格式：【一级类-二级类】主题_对象/客户_YYYYMMDD_V版本_L保密级别
@@ -66,7 +67,11 @@ _TITLE_RE = re.compile(r"^【[^-】]+-[^】]+】.+_.+_\d{8}_V\d+_L[1-5]$")
 
 _GOOD = {
     "asset_type": "case",
+    "version_confidence": "medium",
+    "version_reason": "模型原始版本理由不得直接返回",
     "confidentiality_level": "L3",
+    "confidentiality_confidence": "medium",
+    "confidentiality_reason": "正文包含内部经营分析",
     "ai_access_level": "A3",
     # 规范命名组件（标题用），与摘要分离。
     "primary_category": "客户项目",
@@ -204,6 +209,11 @@ async def test_upload_llm_structured_draft(client, monkeypatch):
     assert b["suggested_key_points"] == _GOOD["key_points"]
     assert b["suggested_asset_type"] == "case"
     assert b["suggested_confidentiality_level"] == "L3"
+    assert b["confidentiality_source"] == "ai_content"
+    assert b["confidentiality_confidence"] == "medium"
+    assert "内部经营分析" not in b["confidentiality_reason"]
+    assert b["suggested_version"] == "V2"
+    assert b["version_source"] == "ai_content"
     assert b["suggested_tags"] == _GOOD["tags"]
     # suggested_title 的现行语义仅为主题，完整旧规范名只保留在兼容元数据中。
     assert b["suggested_title"] == "零售数字化转型方案"
@@ -219,6 +229,63 @@ async def test_upload_llm_structured_draft(client, monkeypatch):
     system_prompt = fake.last_messages[0]["content"]
     assert "不得包含目标项目名、客户名称、客户简称或项目代码" in system_prompt
     assert "不得拼入分类、日期、版本或密级" in system_prompt
+    assert "只能依据文档正文" in system_prompt
+
+
+@pytest.mark.parametrize(
+    ("file_name", "expected_version"),
+    [
+        ("经营复盘_20260401_V1.1_L3.md", "V1.1"),
+        ("经营复盘_20260401_v2.03_L3.md", "V2.03"),
+    ],
+)
+async def test_filename_version_wins_while_filename_level_never_drives_advice(
+    client, monkeypatch, file_name, expected_version
+):
+    payload = {
+        **_GOOD,
+        "version": "V2",
+        "confidentiality_level": "L4",
+        "confidentiality_confidence": "high",
+    }
+    fake = FakeLLM(payload=payload)
+    _enable_llm(monkeypatch, fake)
+    task_id = await _upload(client, file_name=file_name)
+    body = (
+        await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
+    ).json()
+
+    assert body["suggested_version"] == expected_version
+    assert body["version_source"] == "source_filename"
+    assert body["suggested_confidentiality_level"] == "L4"
+    assert body["confidentiality_source"] == "ai_content"
+    user_prompt = fake.last_messages[1]["content"]
+    assert expected_version.lower() in user_prompt.lower()
+    assert "L3" not in user_prompt
+
+
+async def test_low_confidence_content_level_falls_back_without_filename_influence(
+    client, monkeypatch
+):
+    payload = {
+        **_GOOD,
+        "version": "V2.03",
+        "version_confidence": "low",
+        "confidentiality_level": "L5",
+        "confidentiality_confidence": "low",
+    }
+    _enable_llm(monkeypatch, FakeLLM(payload=payload))
+    task_id = await _upload(client, file_name="敏感专题_L4.md")
+    body = (
+        await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
+    ).json()
+
+    assert body["suggested_confidentiality_level"] == "L2"
+    assert body["confidentiality_source"] == "default_needs_confirmation"
+    assert body["confidentiality_confidence"] == "low"
+    assert body["suggested_version"] == "V1"
+    assert body["version_source"] == "default_needs_confirmation"
+    assert body["version_confidence"] == "low"
 
 
 async def test_upload_llm_fenced_json_parsed(client, monkeypatch):
@@ -243,6 +310,10 @@ async def test_upload_degraded_when_llm_disabled(client):
     # 降级也产出干净主题，不携带完整旧命名模板。
     assert "【" not in b["suggested_title"]
     assert b["suggested_title"] != b["suggested_one_liner"]
+    assert b["suggested_version"] == "V1"
+    assert b["version_source"] == "default_needs_confirmation"
+    assert b["suggested_confidentiality_level"] == "L2"
+    assert b["confidentiality_source"] == "default_needs_confirmation"
     # 低置信度 + 缺失字段被标记（顾问文件名不规范时，分类/客户/日期/版本走默认）。
     assert b["confidence"] is not None and b["confidence"] <= 0.4
     naming = b["naming_parsed_fields"]
@@ -250,6 +321,7 @@ async def test_upload_degraded_when_llm_disabled(client):
     assert "subject_or_client" in naming["missing_fields"]
     assert "date" in naming["missing_fields"]
     assert "version" in naming["missing_fields"]
+    assert naming["date"] == ""
     # 缺失字段是推断字段的子集。
     assert set(naming["missing_fields"]).issubset(set(naming["inferred_fields"]))
 
@@ -267,6 +339,10 @@ async def test_compliant_filename_parsed_into_naming(client):
     assert naming["subject_or_client"] == "云宏信息"
     assert naming["date"] == "20260327"
     assert naming["version"] == "V3"
+    assert b["suggested_version"] == "V3"
+    assert b["version_source"] == "source_filename"
+    assert b["suggested_confidentiality_level"] == "L2"
+    assert b["confidentiality_source"] == "default_needs_confirmation"
     # 这些字段有文件名依据，不应标 missing。
     for f in ("primary_category", "subject_or_client", "date", "version"):
         assert f not in naming["missing_fields"]

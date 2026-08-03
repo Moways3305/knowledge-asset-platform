@@ -9,7 +9,7 @@
 - `suggested_title` 仅表示可编辑的主题，不包含分类、对象/客户、日期、版本或密级。
 - `suggested_one_liner` 仍是一句话自然语言摘要（可为整句），**不抢占标题字段**。
 - LLM 只输出命名**组件**，规范标题由后端确定性拼装（保证格式恒合规）。
-- 缺失字段用安全默认（日期→上传日期、客户→通用、版本→V1、分类→待分类），并在
+- 缺失字段用安全默认（客户→通用、版本→V1、分类→待分类；日期保持空缺），并在
   `naming_parsed_fields.inferred_fields` / `.missing_fields` 标注，供前端打"AI 推断 /
   待人工校正"标记。
 - 原始文件名仅作来源追溯（`naming_parsed_fields.source_file_name`），不强求顾问命名合规。
@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
 
 from app.schemas.enums import AiAccessLevel, AssetType, ConfidentialityLevel
 from app.services.desensitization import DesensitizationEngine
@@ -72,8 +71,12 @@ _NAMING_COMPONENT_FIELDS = (
 
 _COMPLIANT_RE = re.compile(r"^【([^-】]+)-([^】]+)】(.+)$")
 _DATE_RE = re.compile(r"20\d{6}")
-_VERSION_RE = re.compile(r"[Vv]\d+")
+_VERSION_RE = re.compile(r"[Vv][1-9]\d*(?:\.\d+)*")
 _LEVEL_RE = re.compile(r"[Ll][1-5]")
+_SOURCE_VERSION_RE = re.compile(r"(?<![A-Za-z0-9])([Vv][1-9]\d*(?:\.\d+)*)(?![A-Za-z0-9.])")
+_LEVEL_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9])[Ll][1-5](?![A-Za-z0-9])")
+_VALID_ADVICE_CONFIDENCE = {"high", "medium", "low"}
+_AI_CONFIDENCE_THRESHOLD = {"high", "medium"}
 
 _SYSTEM_PROMPT = (
     "你是企业知识资产入库助手。阅读文件名与文档正文，输出**严格 JSON**（不要多余文字）。"
@@ -85,20 +88,19 @@ _SYSTEM_PROMPT = (
     "topic（主题，<=30字的名词短语，描述这份资产是什么；**不要写成整句摘要**）、"
     "subject_or_client（对象或客户名；无法确定填 通用 或 专题）、"
     "date（文档日期，格式 YYYYMMDD；无法从文件名/正文确定则填 null）、"
-    "version（版本，如 V1/V2；无法确定则填 null）、"
-    "confidentiality_level（L1-L5）、ai_access_level（A1-A4）、"
+    "version（版本，如 V1/V2/V1.1；无法确定则填 null）、"
+    "version_confidence（high/medium/low）、version_reason（不引用正文原句的简短说明）、"
+    "confidentiality_level（L1-L5，只能依据文档正文，不得依据文件名中的 L1-L5）、"
+    "confidentiality_confidence（high/medium/low）、"
+    "confidentiality_reason（不引用正文原句的简短说明）、ai_access_level（A1-A4）、"
     "asset_type（methodology/deliverable/case/template/insight 之一）、"
     "inferred_fields（数组，列出上述哪些命名字段是你推断而非有明确依据的）、"
     "one_liner（一句话自然语言摘要，<=80字，可为整句）、"
     "detailed（详细摘要，<=400字）、"
     "key_points（关键知识点数组，3-6条，每条<=60字）、tags（标签数组，3-6个）。"
     "再次强调：topic 是名词短语，不是 one_liner；不要把摘要句子当作标题或塞进 topic。"
+    "文件名只可辅助主题、日期和版本；其中任何 L1-L5 片段都不是内容密级证据。"
 )
-
-
-def _today() -> str:
-    """上传日期（UTC，YYYYMMDD）——日期无法推断时的安全默认。"""
-    return datetime.now(timezone.utc).strftime("%Y%m%d")
 
 
 def _clean_component(value: str) -> str:
@@ -112,6 +114,16 @@ def _clean_component(value: str) -> str:
 
 def _stem(file_name: str) -> str:
     return file_name.rsplit(".", 1)[0] if "." in file_name else file_name
+
+
+def _source_filename_version(file_name: str) -> str | None:
+    match = _SOURCE_VERSION_RE.search(_stem(file_name))
+    return match.group(1).upper() if match else None
+
+
+def _filename_without_level_tokens(file_name: str) -> str:
+    """Remove historical L1-L5 tokens before the combined suggestion prompt."""
+    return _LEVEL_TOKEN_RE.sub("", file_name)
 
 
 def _fallback_topic(file_name: str) -> str:
@@ -200,12 +212,12 @@ def _build_naming(file_name: str, components: dict, level: str, ai_access: str) 
     rsub = _raw("subject_or_client")
     subject = _clean_component(rsub) if rsub else _default("subject_or_client", _DEFAULT_SUBJECT)
 
-    # date：仅接受 YYYYMMDD；否则用上传日期（missing + inferred）。
+    # date：仅接受 YYYYMMDD；否则保持空缺（missing + inferred），绝不回退上传日期。
     rd = _raw("date")
     if rd and _DATE_RE.fullmatch(rd):
         date = rd
     else:
-        date = _today()
+        date = ""
         inferred.add("date")
         missing.add("date")
 
@@ -255,8 +267,18 @@ def _degraded_draft(file_name: str, extraction: ExtractionResult) -> dict:
     """
     # 文件名若已规范则作为强信号；否则空组件 → 全部走默认。
     components = _parse_compliant_filename(file_name)
-    level = components.get("confidentiality_level") or _DEFAULT_LEVEL
-    naming = _build_naming(file_name, components, level, _DEFAULT_AI)
+    source_version = _source_filename_version(file_name)
+    if source_version:
+        components["version"] = source_version
+    # Historical filename L1-L5 remains parse metadata only. It never chooses advice.
+    naming = _build_naming(file_name, components, _DEFAULT_LEVEL, _DEFAULT_AI)
+    if source_version:
+        naming["inferred_fields"] = [
+            field for field in naming["inferred_fields"] if field != "version"
+        ]
+        naming["missing_fields"] = [
+            field for field in naming["missing_fields"] if field != "version"
+        ]
 
     if extraction.status == "extracted":
         lines = [ln.strip() for ln in extraction.text.splitlines() if ln.strip()]
@@ -280,7 +302,16 @@ def _degraded_draft(file_name: str, extraction: ExtractionResult) -> dict:
         "suggested_key_points": [],
         "suggested_tags": tags,
         "suggested_asset_type": "methodology",
+        "suggested_version": source_version or _DEFAULT_VERSION,
+        "version_source": "source_filename" if source_version else "default_needs_confirmation",
+        "version_confidence": "high" if source_version else "low",
+        "version_reason": (
+            "从源文件名识别到标准版本" if source_version else "未能可靠判断版本，已使用规则默认值"
+        ),
         "suggested_confidentiality_level": naming["confidentiality_level"],
+        "confidentiality_source": "default_needs_confirmation",
+        "confidentiality_confidence": "low",
+        "confidentiality_reason": "AI 未能可靠判断内容密级，已使用规则默认值",
         "suggested_ai_access_level": naming["ai_access_level"],
         "suggested_phase_key": None,
         "confidence": confidence,
@@ -373,7 +404,13 @@ async def process_content(
     text = extraction.text[:_LLM_INPUT_CHARS]
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
-        {"role": "user", "content": f"文件名：{file_name}\n文档内容：\n{text}"},
+        {
+            "role": "user",
+            "content": (
+                f"文件名（已移除密级片段）：{_filename_without_level_tokens(file_name)}"
+                f"\n文档内容：\n{text}"
+            ),
+        },
     ]
     try:
         raw = await llm.chat_completion(messages, trace_id=trace_id)
@@ -401,19 +438,55 @@ async def process_content(
     tags = _coerce_list(parsed.get("tags"), _MAX_TAGS) or base["suggested_tags"]
     asset_type = parsed.get("asset_type")
     level = parsed.get("confidentiality_level")
+    confidentiality_confidence = str(parsed.get("confidentiality_confidence") or "").lower()
     ai_access = parsed.get("ai_access_level")
-    level_v = level if level in _VALID_LEVELS else _DEFAULT_LEVEL
+    confidentiality_is_reliable = (
+        level in _VALID_LEVELS and confidentiality_confidence in _AI_CONFIDENCE_THRESHOLD
+    )
+    level_v = level if confidentiality_is_reliable else _DEFAULT_LEVEL
     ai_v = ai_access if ai_access in _VALID_AI else _DEFAULT_AI
 
     # 命名组件：优先 LLM，其次文件名解析（顾问命名合规时）作为兜底信号。
     fn_parsed = _parse_compliant_filename(file_name)
     components: dict = dict(fn_parsed)
     for field in _NAMING_COMPONENT_FIELDS:
+        if field == "version":
+            continue
         v = parsed.get(field)
         if v is not None and str(v).strip() and str(v).strip().lower() != "null":
             components[field] = v
-    components["inferred_fields"] = _coerce_list(parsed.get("inferred_fields"), 12)
+    inferred_fields = set(_coerce_list(parsed.get("inferred_fields"), 12))
+    source_version = _source_filename_version(file_name)
+    llm_version = str(parsed.get("version") or "").strip().upper()
+    llm_version_confidence = str(parsed.get("version_confidence") or "").lower()
+    if source_version:
+        suggested_version = source_version
+        version_source = "source_filename"
+        version_confidence = "high"
+        version_reason = "从源文件名识别到标准版本"
+        inferred_fields.discard("version")
+    elif (
+        _VERSION_RE.fullmatch(llm_version)
+        and llm_version_confidence in _AI_CONFIDENCE_THRESHOLD
+        and "version" not in inferred_fields
+    ):
+        suggested_version = llm_version
+        version_source = "ai_content"
+        version_confidence = llm_version_confidence
+        version_reason = "AI 根据正文与可用元数据建议版本"
+        inferred_fields.discard("version")
+    else:
+        suggested_version = _DEFAULT_VERSION
+        version_source = "default_needs_confirmation"
+        version_confidence = "low"
+        version_reason = "未能可靠判断版本，已使用规则默认值"
+        inferred_fields.add("version")
+    components["version"] = suggested_version
+    components["inferred_fields"] = sorted(inferred_fields)
     naming = _build_naming(file_name, components, level_v, ai_v)
+    if version_source == "default_needs_confirmation":
+        naming["missing_fields"] = sorted(set(naming["missing_fields"]) | {"version"})
+        naming["inferred_fields"] = sorted(set(naming["inferred_fields"]) | {"version"})
     naming["summary_generated"] = summary_generated
     naming["generation_status"] = "generated" if summary_generated else "failed"
     if not summary_generated:
@@ -430,7 +503,24 @@ async def process_content(
         suggested_key_points=key_points,
         suggested_tags=tags,
         suggested_asset_type=asset_type if asset_type in _VALID_TYPES else "methodology",
+        suggested_version=suggested_version,
+        version_source=version_source,
+        version_confidence=version_confidence,
+        version_reason=version_reason,
         suggested_confidentiality_level=level_v,
+        confidentiality_source=(
+            "ai_content" if confidentiality_is_reliable else "default_needs_confirmation"
+        ),
+        confidentiality_confidence=(
+            confidentiality_confidence
+            if confidentiality_confidence in _VALID_ADVICE_CONFIDENCE
+            else "low"
+        ),
+        confidentiality_reason=(
+            f"AI 根据正文内容特征建议为 {level_v}"
+            if confidentiality_is_reliable
+            else "AI 未能可靠判断内容密级，已使用规则默认值"
+        ),
         suggested_ai_access_level=ai_v,
         naming_compliant=naming["original_naming_compliant"],
         naming_parsed_fields=naming,
