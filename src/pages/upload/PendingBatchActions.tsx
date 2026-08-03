@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Trash2 } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import { ApiError } from "../../api/http";
 import { fetchNamingOptions, previewBatchIngestNaming } from "../../api/naming";
@@ -14,6 +15,9 @@ import { suggestNamingCategory } from "./namingCategorySuggestion";
 
 type ReviewRows = Record<string, BatchNamingValuesDTO>;
 type PreviewRows = Record<string, BatchNamingPreviewItemDTO>;
+type ReviewFilter = "all" | "ai_ready" | "manual" | "reviewed" | "exception";
+type ReviewState = Exclude<ReviewFilter, "all">;
+type DeleteFeedback = { message: string; retryable: boolean };
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const VERSION_PATTERN = /^V[1-9]\d*(?:\.[1-9]\d*)*$/;
@@ -83,6 +87,44 @@ function previewError(preview: BatchNamingPreviewItemDTO | undefined): RowError 
   return { field: fields[preview.error_code ?? ""] ?? null, message: preview.message };
 }
 
+function reviewState(
+  task: PendingIngestItemDTO,
+  row: BatchNamingValuesDTO,
+  preview: BatchNamingPreviewItemDTO | undefined,
+  categories: NamingOptionsDTO["categories"],
+  company: boolean,
+  flowError: string | undefined,
+): ReviewState {
+  if (preview?.error_code || preview?.notices.some((notice) => notice.kind === "exact")) {
+    return "exception";
+  }
+  if (preview?.submittable) return "reviewed";
+  if (flowError) return "exception";
+  if (rowMissing(row, company)) return "manual";
+
+  const parsed = task.naming_parsed_fields;
+  const category = suggestNamingCategory(parsed, categories);
+  const unsafeAiField = Boolean(
+    parsed &&
+    ((parsed.missing_fields?.length ?? 0) > 0 || (parsed.inferred_fields?.length ?? 0) > 0),
+  );
+  const differsFromSafeAi =
+    row.subject.trim() !== sourceSubject(task) ||
+    row.category_id !== category?.id ||
+    row.formed_on !== parsedValue(task, "date") ||
+    row.version.toUpperCase() !== parsedValue(task, "version");
+  if (
+    !parsed ||
+    unsafeAiField ||
+    category?.basis !== "ai" ||
+    differsFromSafeAi ||
+    (company && !row.applicable_to)
+  ) {
+    return "manual";
+  }
+  return "ai_ready";
+}
+
 export default function PendingBatchActions({
   tasks,
   flow,
@@ -101,6 +143,10 @@ export default function PendingBatchActions({
   const [reviewTargetKey, setReviewTargetKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
+  const [deleteCandidate, setDeleteCandidate] = useState<PendingIngestItemDTO | null>(null);
+  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
+  const [deleteFeedback, setDeleteFeedback] = useState<Record<string, DeleteFeedback>>({});
 
   const selectedConfirmTasks = tasks.filter(
     (task) => flow.batchSelection.includes(task.id) && task.can_batch_confirm,
@@ -109,6 +155,7 @@ export default function PendingBatchActions({
     (task) => flow.batchSelection.includes(task.id) && task.can_batch_reject,
   );
   const company = targetLibrary === "company";
+  const categories = useMemo(() => options?.categories ?? [], [options]);
   const reviewed = selectedConfirmTasks.filter((task) => previews[task.id]?.submittable).length;
   const missingDates = selectedConfirmTasks.filter(
     (task) => !DATE_PATTERN.test(rows[task.id]?.formed_on ?? ""),
@@ -123,7 +170,43 @@ export default function PendingBatchActions({
     Boolean(targetLibrary) && (targetLibrary !== "project" || Boolean(targetProjectId));
 
   const targetKey = `${targetLibrary}:${targetProjectId}`;
-  const categories = options?.categories ?? [];
+  const statesByTask = useMemo(
+    () =>
+      Object.fromEntries(
+        selectedConfirmTasks.flatMap((task) => {
+          const row = rows[task.id];
+          if (!row) return [];
+          return [
+            [
+              task.id,
+              reviewState(
+                task,
+                row,
+                previews[task.id],
+                categories,
+                company,
+                flow.batchErrors[task.id],
+              ),
+            ],
+          ];
+        }),
+      ) as Record<string, ReviewState>,
+    [categories, company, flow.batchErrors, previews, rows, selectedConfirmTasks],
+  );
+  const stateCounts = useMemo(
+    () => ({
+      all: selectedConfirmTasks.length,
+      ai_ready: selectedConfirmTasks.filter((task) => statesByTask[task.id] === "ai_ready").length,
+      manual: selectedConfirmTasks.filter((task) => statesByTask[task.id] === "manual").length,
+      reviewed: selectedConfirmTasks.filter((task) => statesByTask[task.id] === "reviewed").length,
+      exception: selectedConfirmTasks.filter((task) => statesByTask[task.id] === "exception")
+        .length,
+    }),
+    [selectedConfirmTasks, statesByTask],
+  );
+  const visibleConfirmTasks = selectedConfirmTasks.filter(
+    (task) => reviewFilter === "all" || statesByTask[task.id] === reviewFilter,
+  );
   const previewSummary = useMemo(
     () =>
       `已核对 ${reviewed}/${selectedConfirmTasks.length} 条，仍有 ${missingDates} 条需补充形成日期`,
@@ -137,6 +220,37 @@ export default function PendingBatchActions({
     setPreviews((current) => {
       const next = { ...current };
       delete next[taskId];
+      return next;
+    });
+  };
+
+  const confirmSingleDelete = async () => {
+    const task = deleteCandidate;
+    if (!task) return;
+    setDeletingTaskId(task.id);
+    const result = await flow.handleDeleteBatchReviewItem(task.id);
+    setDeletingTaskId(null);
+    setDeleteCandidate(null);
+    if (!result.ok) {
+      setDeleteFeedback((current) => ({
+        ...current,
+        [task.id]: { message: result.message, retryable: result.retryable },
+      }));
+      return;
+    }
+    setRows((current) => {
+      const next = { ...current };
+      delete next[task.id];
+      return next;
+    });
+    setPreviews((current) => {
+      const next = { ...current };
+      delete next[task.id];
+      return next;
+    });
+    setDeleteFeedback((current) => {
+      const next = { ...current };
+      delete next[task.id];
       return next;
     });
   };
@@ -231,6 +345,7 @@ export default function PendingBatchActions({
             disabled={flow.batchBusy}
             onClick={() => {
               setStage("target");
+              setReviewFilter("all");
               setTargetLibrary("");
               setTargetProjectId("");
               setDialogError(null);
@@ -320,7 +435,12 @@ export default function PendingBatchActions({
         ) : (
           <div className="upload77-batch-naming-review">
             <div className="upload77-batch-naming-toolbar">
-              <span role="status">{previewSummary}</span>
+              <div>
+                <span role="status">{previewSummary}</span>
+                <span className="upload77-batch-filter-summary" role="status">
+                  当前筛选显示 {visibleConfirmTasks.length}/{selectedConfirmTasks.length} 条
+                </span>
+              </div>
               <button
                 className="btn-secondary"
                 disabled={loading}
@@ -330,8 +450,34 @@ export default function PendingBatchActions({
                 生成或刷新全部预览
               </button>
             </div>
+            <div className="upload77-batch-naming-filters" aria-label="核对状态筛选">
+              {(
+                [
+                  ["all", "全部"],
+                  ["ai_ready", "AI 已确定"],
+                  ["manual", "需人工补齐"],
+                  ["reviewed", "已核对"],
+                  ["exception", "异常/重复"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  aria-pressed={reviewFilter === value}
+                  className="upload77-batch-filter"
+                  key={value}
+                  onClick={() => setReviewFilter(value)}
+                  type="button"
+                >
+                  {label}（{stateCounts[value]}）
+                </button>
+              ))}
+            </div>
             <div className="upload77-batch-naming-scroll">
-              {selectedConfirmTasks.map((task, index) => {
+              {visibleConfirmTasks.length === 0 && (
+                <div className="upload77-batch-filter-empty" role="status">
+                  当前筛选下没有资料
+                </div>
+              )}
+              {visibleConfirmTasks.map((task) => {
                 const row = rows[task.id];
                 const preview = previews[task.id];
                 if (!row) return null;
@@ -346,10 +492,42 @@ export default function PendingBatchActions({
                   <article className="upload77-batch-naming-row" key={task.id}>
                     <header>
                       <strong title={task.source_file_name}>
-                        {index + 1}. {task.source_file_name}
+                        {selectedConfirmTasks.indexOf(task) + 1}. {task.source_file_name}
                       </strong>
-                      <span>{preview?.submittable ? "已核对" : "待核对"}</span>
+                      <div className="upload77-batch-naming-row-actions">
+                        <span>{preview?.submittable ? "已核对" : "待核对"}</span>
+                        <button
+                          aria-label={`删除 ${task.source_file_name}`}
+                          className="upload77-batch-delete"
+                          disabled={!task.can_batch_reject || deletingTaskId === task.id}
+                          onClick={() => {
+                            setDeleteFeedback((current) => {
+                              const next = { ...current };
+                              delete next[task.id];
+                              return next;
+                            });
+                            setDeleteCandidate(task);
+                          }}
+                          title={
+                            task.can_batch_reject ? "永久删除错误上传资料" : "当前资料不能永久删除"
+                          }
+                          type="button"
+                        >
+                          <Trash2 aria-hidden="true" size={14} />
+                          删除
+                        </button>
+                      </div>
                     </header>
+                    {deleteFeedback[task.id] && (
+                      <div className="upload77-batch-delete-error" role="alert">
+                        <span>{deleteFeedback[task.id].message}</span>
+                        {deleteFeedback[task.id].retryable && (
+                          <button onClick={() => setDeleteCandidate(task)} type="button">
+                            重试删除
+                          </button>
+                        )}
+                      </div>
+                    )}
                     <div className="upload77-batch-naming-grid">
                       <label>
                         <span>主题</span>
@@ -484,6 +662,18 @@ export default function PendingBatchActions({
           </div>
         )}
       </ConfirmDialog>
+
+      <ConfirmDialog
+        open={deleteCandidate !== null}
+        title="永久删除这条错误上传资料？"
+        description="确认后将永久删除该错误上传资料，不会创建知识资产，操作不可恢复。"
+        confirmText="确认永久删除"
+        busyText="正在永久删除"
+        busy={deletingTaskId !== null}
+        danger
+        onCancel={() => setDeleteCandidate(null)}
+        onConfirm={() => void confirmSingleDelete()}
+      />
 
       <ConfirmDialog
         open={rejectOpen}

@@ -19,7 +19,9 @@ export function usePendingIngest(activePath: PathBranch) {
     Record<string, "waiting" | "processing" | "success" | "failed">
   >({});
   const [batchBusy, setBatchBusy] = useState(false);
-  const [batchOperation, setBatchOperation] = useState<"confirm" | "reject" | null>(null);
+  const [batchOperation, setBatchOperation] = useState<"confirm" | "reject" | "delete" | null>(
+    null,
+  );
   const [batchErrors, setBatchErrors] = useState<Record<string, string>>({});
   // Presence identifies a per-row permanent-reject failure; the boolean controls
   // whether an automatic retry is safe. Confirmation errors are intentionally absent.

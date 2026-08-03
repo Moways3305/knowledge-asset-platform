@@ -41,6 +41,8 @@ function classifyPermanentRejectError(error: unknown): { message: string; retrya
   return { message: "请求无法执行，任务仍保留，请刷新列表。", retryable: false };
 }
 
+type BatchReviewDeleteResult = { ok: true } | { ok: false; message: string; retryable: boolean };
+
 export type {
   LocalUploadQueueItem,
   LocalUploadQueueState,
@@ -533,6 +535,83 @@ export function useUploadFlow() {
     ],
   );
 
+  const handleDeleteBatchReviewItem = useCallback(
+    async (taskId: string): Promise<BatchReviewDeleteResult> => {
+      if (batchRunRef.current !== null) {
+        return { ok: false, message: "当前批量操作尚未结束，请稍后再试。", retryable: true };
+      }
+      const sourceAtStart = activePath;
+      const runId = beginWorkflowRun();
+      const isCurrent = () =>
+        batchRunRef.current === runId &&
+        isCurrentWorkflowRun(runId) &&
+        activePath === sourceAtStart;
+      batchRunRef.current = runId;
+      setBatchBusy(true);
+      setBatchOperation("delete");
+      try {
+        await deletePendingTask(taskId);
+        if (!isCurrent()) {
+          return {
+            ok: false,
+            message: "页面状态已变化，请刷新待确认列表。",
+            retryable: false,
+          };
+        }
+        const removeTask = (items: PendingIngestItemDTO[]) =>
+          items.filter((item) => item.id !== taskId);
+        if (sourceAtStart === "a") setPendingTasks(removeTask);
+        else removeLocalTaskEverywhere(taskId);
+        setBatchSelection((selected) => selected.filter((id) => id !== taskId));
+        setBatchStatus((current) => {
+          const next = { ...current };
+          delete next[taskId];
+          return next;
+        });
+        setBatchErrors((current) => {
+          const next = { ...current };
+          delete next[taskId];
+          return next;
+        });
+        setBatchRejectRetryability((current) => {
+          const next = { ...current };
+          delete next[taskId];
+          return next;
+        });
+        return { ok: true };
+      } catch (error) {
+        if (!isCurrent()) {
+          return {
+            ok: false,
+            message: "页面状态已变化，请刷新待确认列表。",
+            retryable: false,
+          };
+        }
+        return { ok: false, ...classifyPermanentRejectError(error) };
+      } finally {
+        if (batchRunRef.current === runId) {
+          batchRunRef.current = null;
+          setBatchBusy(false);
+          setBatchOperation(null);
+        }
+      }
+    },
+    [
+      activePath,
+      batchRunRef,
+      beginWorkflowRun,
+      isCurrentWorkflowRun,
+      removeLocalTaskEverywhere,
+      setBatchBusy,
+      setBatchErrors,
+      setBatchOperation,
+      setBatchRejectRetryability,
+      setBatchSelection,
+      setBatchStatus,
+      setPendingTasks,
+    ],
+  );
+
   const handleReset = useCallback(() => {
     resetConfirmation();
     cancelIntakeRuns();
@@ -686,6 +765,7 @@ export function useUploadFlow() {
     setBatchTasksSelected,
     handleBatchConfirm,
     handleBatchReject,
+    handleDeleteBatchReviewItem,
     taskId,
     editTitle,
     setEditTitle,

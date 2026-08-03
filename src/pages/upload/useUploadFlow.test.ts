@@ -1076,6 +1076,99 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(result.current.apiError).toBe("拒绝入库失败，任务仍保留，请重试");
   });
 
+  it("核对弹窗单条删除调用永久删除端点并只清理对应任务与选择", async () => {
+    const first = { ...pendingTask("first", "first.pdf"), source: "path_b_upload" };
+    const second = { ...pendingTask("second", "second.pdf"), source: "path_b_upload" };
+    ingest.fetchPendingIngestTasks.mockReset().mockResolvedValue([first, second]);
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(result.current.localPendingTasks).toHaveLength(2));
+    act(() => result.current.setBatchTasksSelected([first.id, second.id], true));
+
+    let deletionResult: Awaited<
+      ReturnType<typeof result.current.handleDeleteBatchReviewItem>
+    > | null = null;
+    await act(async () => {
+      deletionResult = await result.current.handleDeleteBatchReviewItem(first.id);
+    });
+
+    expect(ingest.deletePendingTask).toHaveBeenCalledWith(first.id);
+    expect(deletionResult).toEqual({ ok: true });
+    expect(result.current.localPendingTasks).toEqual([second]);
+    expect(result.current.batchSelection).toEqual([second.id]);
+    expect(ingest.fetchPendingIngestTasks).toHaveBeenCalledTimes(1);
+  });
+
+  it("核对弹窗单条删除失败保留任务并只对暂时性错误允许重试", async () => {
+    const item = { ...pendingTask("keep", "keep.pdf"), source: "path_b_upload" };
+    ingest.fetchPendingIngestTasks.mockReset().mockResolvedValue([item]);
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(result.current.localPendingTasks).toEqual([item]));
+
+    ingest.deletePendingTask.mockRejectedValueOnce(
+      new ApiError(503, "internal upstream detail", "ingest_delete_temporarily_unavailable"),
+    );
+    let transientResult: Awaited<
+      ReturnType<typeof result.current.handleDeleteBatchReviewItem>
+    > | null = null;
+    await act(async () => {
+      transientResult = await result.current.handleDeleteBatchReviewItem(item.id);
+    });
+    expect(transientResult).toEqual({
+      ok: false,
+      message: "审核关联清理暂时不可用，任务仍保留，可重试。",
+      retryable: true,
+    });
+    expect(result.current.localPendingTasks).toEqual([item]);
+    expect(JSON.stringify(transientResult)).not.toContain("internal upstream detail");
+
+    ingest.deletePendingTask.mockRejectedValueOnce(new ApiError(403, "secret detail"));
+    let deniedResult: Awaited<
+      ReturnType<typeof result.current.handleDeleteBatchReviewItem>
+    > | null = null;
+    await act(async () => {
+      deniedResult = await result.current.handleDeleteBatchReviewItem(item.id);
+    });
+    expect(deniedResult).toEqual({
+      ok: false,
+      message: "无权限：仅创建人可永久删除该任务。",
+      retryable: false,
+    });
+    expect(result.current.localPendingTasks).toEqual([item]);
+    expect(JSON.stringify(deniedResult)).not.toContain("secret detail");
+  });
+
+  it("来源切换后不让核对弹窗的晚到删除响应改写当前列表", async () => {
+    const lateDelete = deferred<void>();
+    const local = { ...pendingTask("late-review", "late-review.pdf"), source: "path_b_upload" };
+    const wecom = { ...pendingTask("wecom", "wecom.pdf"), source: "path_a_wecom" };
+    ingest.fetchPendingIngestTasks
+      .mockReset()
+      .mockImplementation(async (source) => (source === "path_b_upload" ? [local] : [wecom]));
+    ingest.deletePendingTask.mockReset().mockReturnValueOnce(lateDelete.promise);
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(result.current.localPendingTasks).toEqual([local]));
+
+    let deletion!: ReturnType<typeof result.current.handleDeleteBatchReviewItem>;
+    act(() => {
+      deletion = result.current.handleDeleteBatchReviewItem(local.id);
+    });
+    act(() => result.current.switchPath("a"));
+    await waitFor(() => expect(result.current.pendingTasks).toEqual([wecom]));
+
+    let deletionResult: Awaited<typeof deletion> | null = null;
+    await act(async () => {
+      lateDelete.resolve();
+      deletionResult = await deletion;
+    });
+    expect(deletionResult).toEqual({
+      ok: false,
+      message: "页面状态已变化，请刷新待确认列表。",
+      retryable: false,
+    });
+    expect(result.current.activePath).toBe("a");
+    expect(result.current.pendingTasks).toEqual([wecom]);
+  });
+
   it("来源切换后忽略晚到的单条拒绝响应", async () => {
     const lateDelete = deferred<void>();
     const local = { ...pendingTask("late-local", "late.pdf"), source: "path_b_upload" };
