@@ -131,9 +131,7 @@ def _payload(**over):
         "summary": "摘要",
         "tags": ["t"],
         "target_scope": "personal",
-        "asset_type": "methodology",
         "confidentiality_level": "L2",
-        "ai_access_level": "A2",
     }
     base.update(over)
     return base

@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, Trash2 } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import { ApiError } from "../../api/http";
 import { fetchNamingOptions, previewBatchIngestNaming } from "../../api/naming";
@@ -113,13 +113,19 @@ function reviewState(
   categories: NamingOptionsDTO["categories"],
   company: boolean,
   flowError: string | undefined,
+  edited: boolean,
+  reviewed: boolean,
 ): ReviewState {
-  if (preview?.error_code || preview?.notices.some((notice) => notice.kind === "exact")) {
+  if (
+    preview?.error_code ||
+    preview?.notices.some((notice) => notice.kind === "exact" || notice.kind === "suspected")
+  ) {
     return "exception";
   }
-  if (preview?.submittable) return "reviewed";
   if (flowError) return "exception";
   if (rowMissing(row, company)) return "manual";
+  if (reviewed) return "reviewed";
+  if (edited) return "manual";
 
   const parsed = task.naming_parsed_fields;
   const category = suggestNamingCategory(parsed, categories);
@@ -168,6 +174,25 @@ export default function PendingBatchActions({
   const [deleteCandidate, setDeleteCandidate] = useState<PendingIngestItemDTO | null>(null);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const [deleteFeedback, setDeleteFeedback] = useState<Record<string, DeleteFeedback>>({});
+  const [editedTaskIds, setEditedTaskIds] = useState<Set<string>>(() => new Set());
+  const [reviewedTaskIds, setReviewedTaskIds] = useState<Set<string>>(() => new Set());
+  const [filterSnapshot, setFilterSnapshot] = useState<{
+    filter: ReviewFilter;
+    taskIds: string[];
+  } | null>(null);
+  const [previewBusyByTask, setPreviewBusyByTask] = useState<Record<string, boolean>>({});
+  const [previewFeedback, setPreviewFeedback] = useState<Record<string, string>>({});
+  const [confirmCandidate, setConfirmCandidate] = useState<PendingIngestItemDTO | null>(null);
+  const [confirmingTaskId, setConfirmingTaskId] = useState<string | null>(null);
+  const previewRunsRef = useRef<Record<string, number>>({});
+  const previewTimersRef = useRef<Record<string, number>>({});
+
+  useEffect(
+    () => () => {
+      Object.values(previewTimersRef.current).forEach((timer) => window.clearTimeout(timer));
+    },
+    [],
+  );
 
   const selectedConfirmTasks = tasks.filter(
     (task) => flow.batchSelection.includes(task.id) && task.can_batch_confirm,
@@ -177,7 +202,6 @@ export default function PendingBatchActions({
   );
   const company = targetLibrary === "company";
   const categories = useMemo(() => options?.categories ?? [], [options]);
-  const reviewed = selectedConfirmTasks.filter((task) => previews[task.id]?.submittable).length;
   const missingDates = selectedConfirmTasks.filter(
     (task) => !DATE_PATTERN.test(rows[task.id]?.formed_on ?? ""),
   ).length;
@@ -185,7 +209,10 @@ export default function PendingBatchActions({
     stage === "review" &&
     selectedConfirmTasks.length > 0 &&
     selectedConfirmTasks.every(
-      (task) => !rowMissing(rows[task.id], company) && previews[task.id]?.submittable,
+      (task) =>
+        Boolean(rows[task.id]) &&
+        !rowMissing(rows[task.id], company) &&
+        previews[task.id]?.submittable,
     );
   const targetReady =
     Boolean(targetLibrary) && (targetLibrary !== "project" || Boolean(targetProjectId));
@@ -207,12 +234,23 @@ export default function PendingBatchActions({
                 categories,
                 company,
                 flow.batchErrors[task.id],
+                editedTaskIds.has(task.id),
+                reviewedTaskIds.has(task.id),
               ),
             ],
           ];
         }),
       ) as Record<string, ReviewState>,
-    [categories, company, flow.batchErrors, previews, rows, selectedConfirmTasks],
+    [
+      categories,
+      company,
+      editedTaskIds,
+      flow.batchErrors,
+      previews,
+      reviewedTaskIds,
+      rows,
+      selectedConfirmTasks,
+    ],
   );
   const stateCounts = useMemo(
     () => ({
@@ -225,24 +263,100 @@ export default function PendingBatchActions({
     }),
     [selectedConfirmTasks, statesByTask],
   );
-  const visibleConfirmTasks = selectedConfirmTasks.filter(
-    (task) => reviewFilter === "all" || statesByTask[task.id] === reviewFilter,
+  const visibleTaskIds =
+    reviewFilter === "all"
+      ? selectedConfirmTasks.map((task) => task.id)
+      : filterSnapshot?.filter === reviewFilter
+        ? filterSnapshot.taskIds
+        : selectedConfirmTasks
+            .filter((task) => statesByTask[task.id] === reviewFilter)
+            .map((task) => task.id);
+  const visibleConfirmTasks = selectedConfirmTasks.filter((task) =>
+    visibleTaskIds.includes(task.id),
   );
   const previewSummary = useMemo(
     () =>
-      `已核对 ${reviewed}/${selectedConfirmTasks.length} 条，仍有 ${missingDates} 条需补充形成日期`,
-    [missingDates, reviewed, selectedConfirmTasks.length],
+      `已核对 ${stateCounts.reviewed}/${selectedConfirmTasks.length} 条，仍有 ${missingDates} 条需补充形成日期`,
+    [missingDates, selectedConfirmTasks.length, stateCounts.reviewed],
   );
 
   if (selectedConfirmTasks.length === 0 && selectedRejectTasks.length === 0) return null;
 
-  const updateRow = (taskId: string, patch: Partial<BatchNamingValuesDTO>) => {
-    setRows((current) => ({ ...current, [taskId]: { ...current[taskId], ...patch } }));
-    setPreviews((current) => {
+  const scheduleRowPreview = (taskId: string, row: BatchNamingValuesDTO) => {
+    const previousTimer = previewTimersRef.current[taskId];
+    if (previousTimer) window.clearTimeout(previousTimer);
+    const runId = (previewRunsRef.current[taskId] ?? 0) + 1;
+    previewRunsRef.current[taskId] = runId;
+    const missing = rowMissing(row, company);
+    if (missing) {
+      setPreviewBusyByTask((current) => ({ ...current, [taskId]: false }));
+      setPreviewFeedback((current) => ({ ...current, [taskId]: `${missing.message}后生成规范名` }));
+      return;
+    }
+    if (targetLibrary !== "project" && targetLibrary !== "company") return;
+    setPreviewBusyByTask((current) => ({ ...current, [taskId]: true }));
+    setPreviewFeedback((current) => {
       const next = { ...current };
       delete next[taskId];
       return next;
     });
+    previewTimersRef.current[taskId] = window.setTimeout(() => {
+      void previewBatchIngestNaming({
+        targetScope: targetLibrary,
+        targetProjectId: targetProjectId || undefined,
+        items: [{ taskId, naming: row }],
+      })
+        .then((response) => {
+          if (previewRunsRef.current[taskId] !== runId) return;
+          const preview = response.items[0];
+          if (!preview) return;
+          setPreviews((current) => ({ ...current, [taskId]: preview }));
+          const subject = preview.fields?.subject;
+          if (typeof subject === "string" && subject !== row.subject) {
+            setRows((current) => ({
+              ...current,
+              [taskId]: { ...current[taskId], subject },
+            }));
+          }
+          if (!preview.submittable && preview.message) {
+            setPreviewFeedback((current) => ({ ...current, [taskId]: preview.message! }));
+          }
+        })
+        .catch((error) => {
+          if (previewRunsRef.current[taskId] !== runId) return;
+          setPreviewFeedback((current) => ({
+            ...current,
+            [taskId]:
+              error instanceof ApiError
+                ? error.message
+                : "规范名预览暂时失败，请重试；已保留上一次有效预览",
+          }));
+        })
+        .finally(() => {
+          if (previewRunsRef.current[taskId] === runId) {
+            setPreviewBusyByTask((current) => ({ ...current, [taskId]: false }));
+          }
+        });
+    }, 250);
+  };
+
+  const updateRow = (taskId: string, patch: Partial<BatchNamingValuesDTO>) => {
+    const nextRow = { ...rows[taskId], ...patch };
+    setRows((current) => ({ ...current, [taskId]: nextRow }));
+    // Keep the last canonical name visible as a reference, but revoke its submit
+    // authority immediately. A fresh server preview is required for edited values.
+    setPreviews((current) => {
+      const previous = current[taskId];
+      if (!previous?.submittable) return current;
+      return { ...current, [taskId]: { ...previous, submittable: false } };
+    });
+    setEditedTaskIds((current) => new Set(current).add(taskId));
+    setReviewedTaskIds((current) => {
+      const next = new Set(current);
+      next.delete(taskId);
+      return next;
+    });
+    scheduleRowPreview(taskId, nextRow);
   };
 
   const confirmSingleDelete = async () => {
@@ -300,9 +414,14 @@ export default function PendingBatchActions({
       }
       setOptions(value);
       if (reviewTargetKey !== targetKey) {
-        setRows(initialRows(selectedConfirmTasks, value));
+        const nextRows = initialRows(selectedConfirmTasks, value);
+        setRows(nextRows);
         setPreviews({});
+        setEditedTaskIds(new Set());
+        setReviewedTaskIds(new Set());
+        setPreviewFeedback({});
         setReviewTargetKey(targetKey);
+        selectedConfirmTasks.forEach((task) => scheduleRowPreview(task.id, nextRows[task.id]));
       }
       setStage("review");
     } catch (error) {
@@ -316,17 +435,32 @@ export default function PendingBatchActions({
     if (targetLibrary !== "project" && targetLibrary !== "company") return;
     setLoading(true);
     setDialogError(null);
+    const refreshRuns: Record<string, number> = {};
+    selectedConfirmTasks.forEach((task) => {
+      previewRunsRef.current[task.id] = (previewRunsRef.current[task.id] ?? 0) + 1;
+      refreshRuns[task.id] = previewRunsRef.current[task.id];
+      const timer = previewTimersRef.current[task.id];
+      if (timer) window.clearTimeout(timer);
+    });
     try {
       const response = await previewBatchIngestNaming({
         targetScope: targetLibrary,
         targetProjectId: targetProjectId || undefined,
         items: selectedConfirmTasks.map((task) => ({ taskId: task.id, naming: rows[task.id] })),
       });
-      const next = Object.fromEntries(response.items.map((item) => [item.task_id, item]));
-      setPreviews(next);
+      const currentItems = response.items.filter(
+        (item) => previewRunsRef.current[item.task_id] === refreshRuns[item.task_id],
+      );
+      setPreviews((current) => ({
+        ...current,
+        ...Object.fromEntries(currentItems.map((item) => [item.task_id, item])),
+      }));
+      setReviewedTaskIds(
+        new Set(currentItems.filter((item) => item.submittable).map((item) => item.task_id)),
+      );
       setRows((current) => {
         const updated = { ...current };
-        response.items.forEach((item) => {
+        currentItems.forEach((item) => {
           const subject = item.fields?.subject;
           if (typeof subject === "string" && updated[item.task_id]) {
             updated[item.task_id] = { ...updated[item.task_id], subject };
@@ -340,7 +474,62 @@ export default function PendingBatchActions({
       );
     } finally {
       setLoading(false);
+      setPreviewBusyByTask((current) => {
+        const next = { ...current };
+        selectedConfirmTasks.forEach((task) => {
+          next[task.id] = false;
+        });
+        return next;
+      });
     }
+  };
+
+  const confirmSingle = async () => {
+    const task = confirmCandidate;
+    if (
+      !task ||
+      confirmingTaskId ||
+      deletingTaskId ||
+      (targetLibrary !== "project" && targetLibrary !== "company")
+    ) {
+      return;
+    }
+    const row = rows[task.id];
+    const missing = row ? rowMissing(row, company) : null;
+    if (!row || missing || !previews[task.id]?.submittable) {
+      setPreviewFeedback((current) => ({
+        ...current,
+        [task.id]: missing?.message ?? "请先生成有效的规范名预览",
+      }));
+      setConfirmCandidate(null);
+      return;
+    }
+    setConfirmingTaskId(task.id);
+    const result = await flow.handleSingleBatchConfirm(
+      task,
+      targetLibrary,
+      targetProjectId || undefined,
+      row,
+    );
+    setConfirmingTaskId(null);
+    setConfirmCandidate(null);
+    if (result.succeededIds.includes(task.id)) {
+      setRows((current) => {
+        const next = { ...current };
+        delete next[task.id];
+        return next;
+      });
+      setPreviews((current) => {
+        const next = { ...current };
+        delete next[task.id];
+        return next;
+      });
+      return;
+    }
+    setPreviewFeedback((current) => ({
+      ...current,
+      [task.id]: "确认未完成，资料仍保留，请根据提示修改后重试",
+    }));
   };
 
   const submitGovernedBatch = () => {
@@ -367,6 +556,7 @@ export default function PendingBatchActions({
             onClick={() => {
               setStage("target");
               setReviewFilter("all");
+              setFilterSnapshot(null);
               setTargetLibrary("");
               setTargetProjectId("");
               setDialogError(null);
@@ -485,7 +675,18 @@ export default function PendingBatchActions({
                   aria-pressed={reviewFilter === value}
                   className="upload77-batch-filter"
                   key={value}
-                  onClick={() => setReviewFilter(value)}
+                  onClick={() => {
+                    setReviewFilter(value);
+                    setFilterSnapshot({
+                      filter: value,
+                      taskIds:
+                        value === "all"
+                          ? selectedConfirmTasks.map((task) => task.id)
+                          : selectedConfirmTasks
+                              .filter((task) => statesByTask[task.id] === value)
+                              .map((task) => task.id),
+                    });
+                  }}
                   type="button"
                 >
                   {label}（{stateCounts[value]}）
@@ -516,11 +717,37 @@ export default function PendingBatchActions({
                         {selectedConfirmTasks.indexOf(task) + 1}. {task.source_file_name}
                       </strong>
                       <div className="upload77-batch-naming-row-actions">
-                        <span>{preview?.submittable ? "已核对" : "待核对"}</span>
+                        <span>
+                          {preview?.submittable
+                            ? editedTaskIds.has(task.id)
+                              ? "可确认"
+                              : "已核对"
+                            : "待核对"}
+                        </span>
+                        <button
+                          aria-label={`确认入库 ${task.source_file_name}`}
+                          className="btn-primary upload77-batch-confirm-one"
+                          disabled={
+                            flow.batchBusy ||
+                            deletingTaskId !== null ||
+                            Boolean(rowMissing(row, company)) ||
+                            !preview?.submittable
+                          }
+                          onClick={() => setConfirmCandidate(task)}
+                          type="button"
+                        >
+                          <Check aria-hidden="true" size={14} />
+                          确认入库
+                        </button>
                         <button
                           aria-label={`删除 ${task.source_file_name}`}
                           className="upload77-batch-delete"
-                          disabled={!task.can_batch_reject || deletingTaskId === task.id}
+                          disabled={
+                            !task.can_batch_reject ||
+                            flow.batchBusy ||
+                            confirmingTaskId !== null ||
+                            deletingTaskId === task.id
+                          }
                           onClick={() => {
                             setDeleteFeedback((current) => {
                               const next = { ...current };
@@ -695,10 +922,25 @@ export default function PendingBatchActions({
                       title={preview?.canonical_name ?? undefined}
                     >
                       <strong>规范名预览：</strong>
-                      {preview?.canonical_name ?? "尚未生成"}
+                      {rowMissing(row, company)?.message
+                        ? `${rowMissing(row, company)!.message}后生成规范名`
+                        : previewBusyByTask[task.id]
+                          ? "正在按当前填写内容生成…"
+                          : (preview?.canonical_name ?? "正在准备规范名预览")}
                     </div>
-                    {!localError && !preview && (
-                      <div className="upload77-batch-naming-notice">请生成预览</div>
+                    {previewFeedback[task.id] && (
+                      <div className="upload77-batch-naming-error" role="alert">
+                        {previewFeedback[task.id]}
+                        {!localError && (
+                          <button
+                            className="upload77-batch-preview-retry"
+                            onClick={() => scheduleRowPreview(task.id, row)}
+                            type="button"
+                          >
+                            重试预览
+                          </button>
+                        )}
+                      </div>
                     )}
                     {serverError?.field === null && (
                       <div className="upload77-batch-naming-error">{serverError.message}</div>
@@ -718,6 +960,23 @@ export default function PendingBatchActions({
           </div>
         )}
       </ConfirmDialog>
+
+      <ConfirmDialog
+        open={confirmCandidate !== null}
+        title="确认将这条资料入库？"
+        description={
+          confirmCandidate
+            ? `${previews[confirmCandidate.id]?.canonical_name ?? "规范名待校验"} · ${
+                targetLibrary === "project" ? "项目知识库" : "公司知识库"
+              }`
+            : undefined
+        }
+        confirmText="确认入库"
+        busyText="正在确认入库"
+        busy={confirmingTaskId !== null}
+        onCancel={() => setConfirmCandidate(null)}
+        onConfirm={() => void confirmSingle()}
+      />
 
       <ConfirmDialog
         open={deleteCandidate !== null}

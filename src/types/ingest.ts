@@ -169,11 +169,7 @@ export interface IngestConfirmRequestDTO {
   target_scope: "personal" | "project" | "company";
   target_project_id?: string;
   target_zone?: string;
-  asset_type: string;
-  visibility?: string;
   confidentiality_level: string;
-  ai_access_level: string;
-  lifecycle_phase_key?: string;
   // PBC-38：可选模型选择（对底座 id 不可逆的 model_ref，绝不发送真实 model_id）。
   // 缺省走平台默认；仅在首建该 scope 的 KB 时生效，已有 KB 沿用其锁定模型。
   embedding_model_ref?: string;

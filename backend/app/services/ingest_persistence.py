@@ -27,6 +27,26 @@ from app.services.ingest_confirmation import ValidatedConfirmationContext
 _REDACTED_LEVELS = {ConfidentialityLevel.L3.value, ConfidentialityLevel.L4.value}
 
 
+def derived_confirmation_properties(
+    context: ValidatedConfirmationContext,
+) -> tuple[str, str]:
+    """Return server-owned asset type and visibility for a new confirmation."""
+    if context.naming_result is not None:
+        asset_type = context.naming_result.metadata.get("asset_type")
+        if not isinstance(asset_type, str) or not asset_type:
+            raise RuntimeError("validated naming result is missing asset type mapping")
+    else:
+        # Personal/non-enforced naming has no governed category. Keep it
+        # explicitly unclassified rather than guessing a deliverable type.
+        asset_type = "unclassified"
+    visibility = {
+        "personal": "confidential",
+        "project": "project_only",
+        "company": "public",
+    }[context.scope]
+    return asset_type, visibility
+
+
 @dataclass(frozen=True, slots=True)
 class PersistedConfirmation:
     task: IngestTask
@@ -89,19 +109,22 @@ async def persist_confirmation(
     task = context.task
     summary_text = (request.summary or "").strip() or (request.one_liner or "").strip()
     confidentiality = request.confidentiality_level.value
+    asset_type, visibility = derived_confirmation_properties(context)
     asset = KnowledgeAsset(
         title=request.title,
         scope=context.scope,
         zone=request.target_zone.value,
-        asset_type=request.asset_type.value,
+        asset_type=asset_type,
         owner_user_id=context.owner_id,
         maintainer_user_id=context.caller.user_id,
         project_id=context.project_id,
-        visibility=request.visibility.value,
+        visibility=visibility,
         confidentiality_level=confidentiality,
-        ai_access_level=request.ai_access_level.value,
+        # Legacy non-null compatibility value only; no request/AI suggestion
+        # participates in new confirmation logic.
+        ai_access_level="A1",
         asset_status="active",
-        lifecycle_phase_key=request.lifecycle_phase_key,
+        lifecycle_phase_key=None,
         canonical_name=(
             context.naming_result.canonical_name if context.naming_result is not None else None
         ),
@@ -173,7 +196,6 @@ async def persist_confirmation(
             "scope": asset.scope,
             "zone": asset.zone,
             "confidentiality_level": asset.confidentiality_level,
-            "ai_access_level": asset.ai_access_level,
             "ingest_task_id": str(task.id),
         },
         project_id=context.project_id,

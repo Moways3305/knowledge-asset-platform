@@ -670,8 +670,11 @@ try {
       const confirmPayloadValid = confirmPayload
         ? confirmPayload.title === "客户增长项目复盘方法论" &&
           confirmPayload.target_zone === "material" &&
-          confirmPayload.asset_type === "methodology" &&
           Array.isArray(confirmPayload.tags) &&
+          !("asset_type" in confirmPayload) &&
+          !("visibility" in confirmPayload) &&
+          !("ai_access_level" in confirmPayload) &&
+          !("lifecycle_phase_key" in confirmPayload) &&
           !("embedding_model_id" in confirmPayload) &&
           !("rerank_model_id" in confirmPayload) &&
           (scenario !== "project-submitted" ||

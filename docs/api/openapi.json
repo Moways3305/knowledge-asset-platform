@@ -680,17 +680,6 @@
         "title": "AgentWorkbenchTodoItem",
         "type": "object"
       },
-      "AiAccessLevel": {
-        "description": "AI 调用级别 A1-A4。A4 资产不进入 Agent 原文上下文（与人工预览是不同边界）。",
-        "enum": [
-          "A1",
-          "A2",
-          "A3",
-          "A4"
-        ],
-        "title": "AiAccessLevel",
-        "type": "string"
-      },
       "AlertRuleOut": {
         "properties": {
           "dedup_strategy": {
@@ -4404,14 +4393,9 @@
         "type": "object"
       },
       "IngestConfirmRequest": {
+        "additionalProperties": false,
         "description": "入库确认请求。\n\n枚举字段用 `app.schemas.enums` 的 Enum 做 Pydantic 校验，非法值自动 422；\n数据库仍以 String 存储（写入时取 `.value`）。",
         "properties": {
-          "ai_access_level": {
-            "$ref": "#/components/schemas/AiAccessLevel"
-          },
-          "asset_type": {
-            "$ref": "#/components/schemas/AssetType"
-          },
           "confidentiality_level": {
             "$ref": "#/components/schemas/ConfidentialityLevel"
           },
@@ -4433,17 +4417,6 @@
             },
             "title": "Key Points",
             "type": "array"
-          },
-          "lifecycle_phase_key": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Lifecycle Phase Key"
           },
           "naming": {
             "anyOf": [
@@ -4518,18 +4491,12 @@
           "title": {
             "title": "Title",
             "type": "string"
-          },
-          "visibility": {
-            "$ref": "#/components/schemas/Visibility",
-            "default": "project_only"
           }
         },
         "required": [
           "title",
           "target_scope",
-          "asset_type",
-          "confidentiality_level",
-          "ai_access_level"
+          "confidentiality_level"
         ],
         "title": "IngestConfirmRequest",
         "type": "object"
@@ -13252,16 +13219,6 @@
         ],
         "title": "ValidationError",
         "type": "object"
-      },
-      "Visibility": {
-        "description": "可见性：public / project_only / confidential。",
-        "enum": [
-          "public",
-          "project_only",
-          "confidential"
-        ],
-        "title": "Visibility",
-        "type": "string"
       },
       "WecomAuthorizeOut": {
         "description": "企微 OAuth 授权 URL。state 在 httpOnly cookie 里校验，不进本响应。\n\nauthorize_url 含 corp_id/redirect/state，但**绝不**含 app_secret / access_token。",

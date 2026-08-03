@@ -41,6 +41,7 @@ _SAFE_REASON_MESSAGES = {
     "naming_formed_on_invalid": "请填写有效的文件形成日期",
     "naming_version_invalid": "请填写有效版本，例如 V1 或 V1.1",
     "naming_category_unavailable": "目录类别已停用或不适用于当前目标",
+    "naming_asset_type_mapping_missing": "该目录类别尚未配置资产分类，请联系管理员补充后重试",
     "naming_applicable_to_required": "公司库资料必须填写适用对象",
     "naming_exact_duplicate": "已存在相同文件，请核对",
     "canonical_name_too_long": "规范名过长，请缩短主题或适用对象",

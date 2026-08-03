@@ -552,9 +552,7 @@ async def _make_index_failed(client, monkeypatch, user):
         "summary": "摘要",
         "tags": ["t"],
         "target_scope": "personal",
-        "asset_type": "methodology",
         "confidentiality_level": "L2",
-        "ai_access_level": "A2",
     }
     r = await client.post(f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(user), json=payload)
     assert r.status_code == 200, r.text

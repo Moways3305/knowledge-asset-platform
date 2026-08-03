@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PendingIngestItemDTO } from "../../types/ingest";
 import UploadStepB from "./UploadStepB";
@@ -75,7 +75,9 @@ function flowFixture(overrides: Record<string, unknown> = {}): UploadFlow {
     toggleBatchTask: vi.fn(),
     setBatchTasksSelected: vi.fn(),
     handleBatchConfirm: vi.fn(),
+    handleSingleBatchConfirm: vi.fn().mockResolvedValue({ succeededIds: [], failedIds: [] }),
     handleBatchReject: vi.fn(),
+    handleDeleteBatchReviewItem: vi.fn().mockResolvedValue({ ok: true }),
     projects: [{ projectId: "project-a", projectName: "项目 A" }],
     canUseCompanyTarget: false,
     ...overrides,
@@ -364,11 +366,10 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(screen.getAllByText(/仍有 1 条需补充形成日期/)).toHaveLength(1);
 
     fireEvent.change(date, { target: { value: "2026-08-03" } });
-    expect(screen.getByText("请生成预览")).toHaveClass("upload77-batch-naming-notice");
+    expect(screen.getByText("正在按当前填写内容生成…")).toBeInTheDocument();
     expect(screen.queryByText("请补齐或修改该资料的命名字段")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "生成或刷新全部预览" }));
     await screen.findByText("【ALPHA-2026-交付件】安全标题_20260803_V1_L2.pdf");
-    expect(screen.getAllByText(/已核对 1\/1 条/)).toHaveLength(1);
+    expect(screen.getByText("可确认")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "确认批量入库" }));
 
     expect(flow.handleBatchConfirm).toHaveBeenCalledWith([task], "project", "project-a", {
@@ -489,6 +490,219 @@ describe("UploadStepB folder drop and batch rejection", () => {
     fireEvent.change(category, { target: { value: "category-foundation" } });
     expect(category).toHaveValue("category-foundation");
     expect(screen.queryByText("已按 AI 建议预选，可人工修改")).not.toBeInTheDocument();
+  });
+
+  it("keeps a missing-category item in the manual filter while it is edited", async () => {
+    const task = {
+      ...pending("manual-category", "待分类资料.md"),
+      target_scope: null,
+      naming_parsed_fields: {
+        date: "20260803",
+        version: "V1",
+        missing_fields: ["secondary_category"],
+        inferred_fields: [],
+        source_file_name: "待分类资料.md",
+      },
+    };
+    namingApi.previewBatchIngestNaming.mockResolvedValue({
+      items: [
+        {
+          task_id: task.id,
+          submittable: true,
+          canonical_name: "【ALPHA-2026-交付件】安全标题_20260803_V1_L2.md",
+          rule_version: 2,
+          fields: { subject: "安全标题" },
+          notices: [],
+          error_code: null,
+          message: null,
+        },
+      ],
+    });
+    const flow = flowFixture({ localPendingTasks: [task], batchSelection: [task.id] });
+    render(<UploadStepB flow={flow} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "批量确认入库（1）" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标知识库" }), {
+      target: { value: "project" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标项目" }), {
+      target: { value: "project-a" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
+
+    await screen.findByLabelText("待分类资料.md 目录类别");
+    expect(screen.getByRole("button", { name: "需人工补齐（1）" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "异常/重复（0）" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "需人工补齐（1）" }));
+    fireEvent.change(screen.getByLabelText("待分类资料.md 目录类别"), {
+      target: { value: "category-a" },
+    });
+
+    await screen.findByText("【ALPHA-2026-交付件】安全标题_20260803_V1_L2.md");
+    expect(screen.getByLabelText("待分类资料.md 目录类别")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "需人工补齐（1）" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("confirms one governed row without closing the batch review", async () => {
+    const task = {
+      ...pending("single-confirm", "单条确认.md"),
+      target_scope: null,
+      naming_parsed_fields: {
+        primary_category: "项目资料",
+        secondary_category: "交付件",
+        date: "20260803",
+        version: "V1",
+        missing_fields: [],
+        inferred_fields: [],
+        source_file_name: "单条确认.md",
+      },
+      suggested_version: "V1",
+      version_source: "source_filename",
+      suggested_confidentiality_level: "L2",
+      confidentiality_source: "ai_content",
+      confidentiality_confidence: "high",
+    };
+    namingApi.previewBatchIngestNaming.mockResolvedValue({
+      items: [
+        {
+          task_id: task.id,
+          submittable: true,
+          canonical_name: "【ALPHA-2026-交付件】安全标题_20260803_V1_L2.md",
+          rule_version: 2,
+          fields: { subject: "安全标题" },
+          notices: [],
+          error_code: null,
+          message: null,
+        },
+      ],
+    });
+    const handleSingleBatchConfirm = vi
+      .fn()
+      .mockResolvedValue({ succeededIds: [task.id], failedIds: [] });
+    const flow = flowFixture({
+      localPendingTasks: [task],
+      batchSelection: [task.id],
+      handleSingleBatchConfirm,
+    });
+    render(<UploadStepB flow={flow} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "批量确认入库（1）" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标知识库" }), {
+      target: { value: "project" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标项目" }), {
+      target: { value: "project-a" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
+    await screen.findByText("【ALPHA-2026-交付件】安全标题_20260803_V1_L2.md");
+    const singleConfirm = screen.getByRole("button", { name: "确认入库 单条确认.md" });
+    expect(singleConfirm).toBeEnabled();
+
+    fireEvent.change(screen.getByLabelText("单条确认.md 主题"), {
+      target: { value: "编辑后的主题" },
+    });
+    expect(singleConfirm).toBeDisabled();
+    expect(screen.getByRole("button", { name: "确认批量入库" })).toBeDisabled();
+    await waitFor(() => expect(namingApi.previewBatchIngestNaming).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(singleConfirm).toBeEnabled());
+
+    fireEvent.click(screen.getByRole("button", { name: "确认入库 单条确认.md" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认入库" }));
+
+    await waitFor(() =>
+      expect(handleSingleBatchConfirm).toHaveBeenCalledWith(
+        task,
+        "project",
+        "project-a",
+        expect.objectContaining({
+          category_id: "category-a",
+          subject: "安全标题",
+          formed_on: "2026-08-03",
+          version: "V1",
+          confidentiality_level: "L2",
+        }),
+      ),
+    );
+    expect(screen.getByRole("dialog")).toHaveTextContent("逐条核对");
+  });
+
+  it("keeps only the latest dynamic preview when responses arrive out of order", async () => {
+    const task = {
+      ...pending("preview-race", "竞态资料.md"),
+      target_scope: null,
+      naming_parsed_fields: {
+        date: "20260803",
+        version: "V1",
+        missing_fields: ["secondary_category"],
+        inferred_fields: [],
+        source_file_name: "竞态资料.md",
+      },
+    };
+    const resolvers: Array<(value: unknown) => void> = [];
+    namingApi.previewBatchIngestNaming.mockImplementation(
+      () => new Promise((resolve) => resolvers.push(resolve)),
+    );
+    render(
+      <UploadStepB flow={flowFixture({ localPendingTasks: [task], batchSelection: [task.id] })} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "批量确认入库（1）" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标知识库" }), {
+      target: { value: "project" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标项目" }), {
+      target: { value: "project-a" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
+    const category = await screen.findByLabelText("竞态资料.md 目录类别");
+    fireEvent.change(category, { target: { value: "category-a" } });
+    await waitFor(() => expect(resolvers).toHaveLength(1));
+    fireEvent.change(screen.getByLabelText("竞态资料.md 主题"), {
+      target: { value: "最后主题" },
+    });
+    await waitFor(() => expect(resolvers).toHaveLength(2));
+
+    await act(async () => {
+      resolvers[1]({
+        items: [
+          {
+            task_id: task.id,
+            submittable: true,
+            canonical_name: "【ALPHA-2026-交付件】最后主题_20260803_V1_L2.md",
+            rule_version: 2,
+            fields: { subject: "最后主题" },
+            notices: [],
+            error_code: null,
+            message: null,
+          },
+        ],
+      });
+    });
+    await screen.findByText("【ALPHA-2026-交付件】最后主题_20260803_V1_L2.md");
+    await act(async () => {
+      resolvers[0]({
+        items: [
+          {
+            task_id: task.id,
+            submittable: true,
+            canonical_name: "【ALPHA-2026-交付件】旧主题_20260803_V1_L2.md",
+            rule_version: 2,
+            fields: { subject: "旧主题" },
+            notices: [],
+            error_code: null,
+            message: null,
+          },
+        ],
+      });
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByText("【ALPHA-2026-交付件】最后主题_20260803_V1_L2.md"),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("【ALPHA-2026-交付件】旧主题_20260803_V1_L2.md")).toBeNull();
   });
 
   it("renders 93 long-name review rows inside a bounded scroll container", async () => {

@@ -504,7 +504,18 @@
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.upload77-batch-confirm-one {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 5px 10px;
+  font-size: 12px;
 }
 
 .upload77-batch-delete {
@@ -545,6 +556,17 @@
 
 .upload77-batch-delete-error button {
   flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.upload77-batch-preview-retry {
+  margin-left: 8px;
   border: 0;
   background: transparent;
   color: inherit;

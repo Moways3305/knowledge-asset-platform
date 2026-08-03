@@ -1,15 +1,10 @@
 import { ArrowRight, CheckCircle2, XCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 import ModelAdvancedSettings from "../../components/ModelAdvancedSettings";
-import LevelInfoCard from "./LevelInfoTooltip";
 import {
-  aiAccessOptions,
-  assetTypeOptions,
-  bizStageOptions,
   confidentialityOptions,
   extractionLabel,
   targetLibraryOptions,
-  visibilityOptions,
   type TargetLibrary,
 } from "./uploadConstants";
 import type { UploadFlow } from "./useUploadFlow";
@@ -63,16 +58,8 @@ export default function UploadConfirmPanel({
     setEditKeyPoints,
     editTags,
     setEditTags,
-    editVisibility,
-    setEditVisibility,
-    editBizStage,
-    setEditBizStage,
-    editAssetType,
-    setEditAssetType,
     editConfidentiality,
     setEditConfidentiality,
-    editAiAccess,
-    setEditAiAccess,
     targetLibrary,
     setTargetLibrary,
     targetProjectId,
@@ -200,71 +187,6 @@ export default function UploadConfirmPanel({
               onChange={(event) => setEditTags(event.target.value)}
             />
           </label>
-
-          <div className="upload77-field-grid">
-            <label className="upload77-field" htmlFor="upload77-edit-asset-type">
-              <span>资产类型</span>
-              <select
-                id="upload77-edit-asset-type"
-                value={editAssetType}
-                onChange={(event) => setEditAssetType(event.target.value)}
-              >
-                {assetTypeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="upload77-field" htmlFor="upload77-edit-biz-stage">
-              <span>业务阶段</span>
-              <select
-                id="upload77-edit-biz-stage"
-                value={editBizStage}
-                onChange={(event) => setEditBizStage(event.target.value)}
-              >
-                {bizStageOptions.map((option) => (
-                  <option key={option}>{option}</option>
-                ))}
-              </select>
-            </label>
-            <label className="upload77-field" htmlFor="upload77-edit-visibility">
-              <span>可见性</span>
-              <select
-                id="upload77-edit-visibility"
-                value={editVisibility}
-                onChange={(event) => setEditVisibility(event.target.value)}
-              >
-                {visibilityOptions.map((option) => (
-                  <option key={option}>{option}</option>
-                ))}
-              </select>
-            </label>
-            <label className="upload77-field" htmlFor="upload77-edit-confidentiality">
-              <span>保密级别</span>
-              <select
-                id="upload77-edit-confidentiality"
-                value={editConfidentiality}
-                onChange={(event) => setEditConfidentiality(event.target.value)}
-              >
-                {confidentialityOptions.map((option) => (
-                  <option key={option}>{option}</option>
-                ))}
-              </select>
-            </label>
-            <label className="upload77-field" htmlFor="upload77-edit-ai-access">
-              <span>自动处理级别</span>
-              <select
-                id="upload77-edit-ai-access"
-                value={editAiAccess}
-                onChange={(event) => setEditAiAccess(event.target.value)}
-              >
-                {aiAccessOptions.map((option) => (
-                  <option key={option}>{option}</option>
-                ))}
-              </select>
-            </label>
-          </div>
         </div>
 
         <aside className="upload77-confirm-side" aria-label="入库上下文与提交">
@@ -302,7 +224,6 @@ export default function UploadConfirmPanel({
                 <dd>{desensitization?.message ?? desensitization?.status ?? "未返回状态"}</dd>
               </div>
             </dl>
-            <LevelInfoCard />
           </div>
 
           {naming && (
@@ -380,6 +301,20 @@ export default function UploadConfirmPanel({
                 ) : (
                   <span className="upload77-field-error">当前没有可提交的项目</span>
                 )}
+              </label>
+            )}
+            {targetLibrary && (
+              <label className="upload77-field" htmlFor="upload77-naming-confidentiality">
+                <span>密级</span>
+                <select
+                  id="upload77-naming-confidentiality"
+                  value={editConfidentiality}
+                  onChange={(event) => setEditConfidentiality(event.target.value)}
+                >
+                  {confidentialityOptions.map((option) => (
+                    <option key={option}>{option}</option>
+                  ))}
+                </select>
               </label>
             )}
             {targetLibrary === "personal" && (

@@ -201,10 +201,7 @@ async def test_publish_activates_preview_and_confirmation_recomputes_name(client
             "target_scope": "project",
             "target_project_id": str(PROJECT_ALPHA),
             "target_zone": "material",
-            "asset_type": "methodology",
             "confidentiality_level": "L2",
-            "ai_access_level": "A2",
-            "lifecycle_phase_key": "delivery",
             "naming": {
                 "category_id": str(category_id),
                 "subject": "最终主题",
@@ -227,8 +224,50 @@ async def test_publish_activates_preview_and_confirmation_recomputes_name(client
         select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.id == asset.current_version_id)
     )
     assert asset.canonical_name == canonical
+    assert asset.asset_type == "deliverable"
+    assert asset.visibility == "project_only"
+    assert asset.ai_access_level == "A1"
+    assert asset.lifecycle_phase_key is None
     assert version.naming_rule_version == 2
     assert version.naming_metadata["canonical_name"] == canonical
+
+
+async def test_unknown_category_asset_type_mapping_fails_closed(client):
+    category_id = uuid.uuid4()
+    saved = await client.put(
+        "/api/v1/admin/naming-rules/draft",
+        headers=_hdr(USER_BOSS),
+        json={
+            "expected_base_version": 1,
+            "config": _config(category_id, category="尚未配置分类"),
+        },
+    )
+    assert saved.status_code == 200
+    published = await client.post(
+        "/api/v1/admin/naming-rules/publish",
+        headers=_hdr(USER_BOSS),
+        json={"expected_base_version": 1},
+    )
+    assert published.status_code == 200
+    task_id = await _upload(client)
+
+    preview = await client.post(
+        f"/api/v1/ingest/{task_id}/naming-preview",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "confidentiality_level": "L2",
+            "naming": {
+                "category_id": str(category_id),
+                "subject": "待分类主题",
+                "formed_on": "2026-08-03",
+                "version": "V1",
+            },
+        },
+    )
+    assert preview.status_code == 409
+    assert preview.json()["detail"]["denied_reason"] == "naming_asset_type_mapping_missing"
 
 
 async def test_publish_conflict_is_stable(client):
@@ -294,9 +333,7 @@ async def test_husong_alias_is_removed_and_confirm_uses_authoritative_subject(cl
             "target_scope": "project",
             "target_project_id": str(PROJECT_ALPHA),
             "target_zone": "material",
-            "asset_type": "methodology",
             "confidentiality_level": "L3",
-            "ai_access_level": "A2",
             "naming": naming,
         },
     )
@@ -341,9 +378,7 @@ async def test_non_pm_review_snapshot_and_approval_use_authoritative_subject(cli
             "target_scope": "project",
             "target_project_id": str(PROJECT_ALPHA),
             "target_zone": "material",
-            "asset_type": "methodology",
             "confidentiality_level": "L3",
-            "ai_access_level": "A2",
             "naming": {
                 "category_id": str(category_id),
                 "subject": dirty_subject,
@@ -434,9 +469,7 @@ async def test_ambiguous_alias_match_blocks_preview_and_direct_confirmation(clie
             "target_scope": "project",
             "target_project_id": str(PROJECT_ALPHA),
             "target_zone": "material",
-            "asset_type": "methodology",
             "confidentiality_level": "L2",
-            "ai_access_level": "A2",
             "naming": request["naming"],
         },
     )
@@ -639,9 +672,7 @@ async def test_batch_preview_and_confirm_keep_naming_failures_item_scoped(client
             "target_scope": "project",
             "target_project_id": str(PROJECT_ALPHA),
             "target_zone": "material",
-            "asset_type": "methodology",
             "confidentiality_level": "L2",
-            "ai_access_level": "A2",
         }
         if naming is not None:
             value["naming"] = naming

@@ -472,19 +472,31 @@ async def approve_project_ingest_review(
     if review.target_asset_id is None:
         summary_text = (req.summary or "").strip() or (req.one_liner or "").strip()
         confidentiality = req.confidentiality_level.value
+        review_context = ingest_confirmation.ValidatedConfirmationContext(
+            task=task,
+            request=req,
+            scope=KnowledgeScope.project.value,
+            owner_id=submitter_id,
+            project_id=req.target_project_id,
+            caller=caller,
+            trace_id=trace_id,
+            session=session,
+            naming_result=naming_result,
+        )
+        asset_type, visibility = ingest_persistence.derived_confirmation_properties(review_context)
         asset = KnowledgeAsset(
             title=req.title,
             scope=KnowledgeScope.project.value,
             zone=req.target_zone.value,
-            asset_type=req.asset_type.value,
+            asset_type=asset_type,
             owner_user_id=submitter_id,
             maintainer_user_id=submitter_id,
             project_id=req.target_project_id,
-            visibility=req.visibility.value,
+            visibility=visibility,
             confidentiality_level=confidentiality,
-            ai_access_level=req.ai_access_level.value,
+            ai_access_level="A1",
             asset_status="processing",
-            lifecycle_phase_key=req.lifecycle_phase_key,
+            lifecycle_phase_key=None,
             canonical_name=naming_result.canonical_name if naming_result is not None else None,
         )
         version = KnowledgeAssetVersion(

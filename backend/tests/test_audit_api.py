@@ -149,9 +149,7 @@ async def _do_ingest_confirm(client, trace):
             "summary": "占位",
             "tags": ["t"],
             "target_scope": "personal",
-            "asset_type": "methodology",
             "confidentiality_level": "L2",
-            "ai_access_level": "A1",
         },
     )
 

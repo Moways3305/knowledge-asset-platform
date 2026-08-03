@@ -101,9 +101,7 @@ def test_transport_limit_stays_bounded_without_becoming_a_logical_bulk_limit() -
         title="批量入库",
         summary="安全摘要",
         target_scope="personal",
-        asset_type="methodology",
         confidentiality_level="L2",
-        ai_access_level="A2",
     )
     ingest_items = [
         IngestBulkConfirmItem(task_id=uuid.uuid4(), confirmation=confirmation) for _ in range(501)

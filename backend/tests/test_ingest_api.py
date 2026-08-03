@@ -66,10 +66,7 @@ def _confirm_payload(**over):
         "tags": ["标签A", "标签B"],
         "target_scope": "personal",
         "target_zone": "material",
-        "asset_type": "methodology",
         "confidentiality_level": "L2",
-        "ai_access_level": "A2",
-        "lifecycle_phase_key": "诊断",
     }
     base.update(over)
     return base
@@ -366,6 +363,10 @@ async def test_consultant_company_confirm_rejected_boss_ok(client):
         json=_confirm_payload(title="公司级入库资产", target_scope="company"),
     )
     assert r2.status_code == 200
+    company_detail = (
+        await client.get(f"{KN}/{r2.json()['result_asset_id']}", headers=_hdr(USER_BOSS))
+    ).json()
+    assert company_detail["visibility"] == "public"
 
 
 async def test_company_confirm_requires_ready_company_kb(client, db_session):
@@ -404,7 +405,6 @@ async def test_confirm_l4_redacted_summary_no_key_points(client):
             key_points=["不得返回的敏感要点"],
             target_scope="personal",
             confidentiality_level="L4",
-            ai_access_level="A4",
         ),
     )
     asset_id = r.json()["result_asset_id"]
@@ -473,16 +473,48 @@ async def test_confirm_invalid_enum_returns_422(client):
     assert r.status_code == 422
 
 
-async def test_confirm_visibility_persisted(client):
-    """confirm 提交的 visibility 真实写入资产并在详情可见。"""
+async def test_confirm_rejects_deprecated_client_controlled_fields(client):
+    """Removed governance fields must fail loudly so stale clients cannot drift silently."""
+    task_id = (await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"]
+    payload = _confirm_payload(target_scope="personal")
+    payload.update(
+        {
+            "asset_type": "methodology",
+            "visibility": "public",
+            "ai_access_level": "A2",
+            "lifecycle_phase_key": "诊断",
+        }
+    )
+
+    response = await client.post(
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(USER_CONSULTANT),
+        json=payload,
+    )
+
+    assert response.status_code == 422
+    rejected_fields = {
+        error["loc"][-1]
+        for error in response.json()["detail"]
+        if error["type"] == "extra_forbidden"
+    }
+    assert rejected_fields == {
+        "asset_type",
+        "visibility",
+        "ai_access_level",
+        "lifecycle_phase_key",
+    }
+
+
+async def test_confirm_visibility_is_derived_from_personal_scope(client):
+    """The destination determines visibility without accepting a client override."""
     task_id = (await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"]
     r = await client.post(
         f"/api/v1/ingest/{task_id}/confirm",
         headers=_hdr(USER_CONSULTANT),
-        json=_confirm_payload(
-            title="带可见性的资产", target_scope="personal", visibility="confidential"
-        ),
+        json=_confirm_payload(title="服务端派生可见性的资产", target_scope="personal"),
     )
+    assert r.status_code == 200, r.text
     asset_id = r.json()["result_asset_id"]
     detail = (await client.get(f"{KN}/{asset_id}", headers=_hdr(USER_CONSULTANT))).json()
     assert detail["visibility"] == "confidential"

@@ -351,9 +351,7 @@ async def _confirm(client, task_id, **over):
         "summary": "摘要",
         "tags": ["t"],
         "target_scope": "personal",
-        "asset_type": "methodology",
         "confidentiality_level": "L2",
-        "ai_access_level": "A2",
     }
     payload.update(over)
     return await client.post(

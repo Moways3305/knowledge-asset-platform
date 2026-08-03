@@ -109,9 +109,7 @@ def _payload(scope, project_id, **over):
         "summary": "摘要",
         "tags": ["t"],
         "target_scope": scope,
-        "asset_type": "methodology",
         "confidentiality_level": "L2",
-        "ai_access_level": "A2",
     }
     if project_id is not None:
         base["target_project_id"] = str(project_id)

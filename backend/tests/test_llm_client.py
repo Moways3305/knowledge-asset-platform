@@ -207,7 +207,8 @@ async def test_upload_llm_structured_draft(client, monkeypatch):
     assert b["llm_model"] == "deepseek-chat"
     assert b["suggested_one_liner"] == _GOOD["one_liner"]
     assert b["suggested_key_points"] == _GOOD["key_points"]
-    assert b["suggested_asset_type"] == "case"
+    assert b["suggested_asset_type"] is None
+    assert b["suggested_ai_access_level"] is None
     assert b["suggested_confidentiality_level"] == "L3"
     assert b["confidentiality_source"] == "ai_content"
     assert b["confidentiality_confidence"] == "medium"
@@ -230,6 +231,8 @@ async def test_upload_llm_structured_draft(client, monkeypatch):
     assert "不得包含目标项目名、客户名称、客户简称或项目代码" in system_prompt
     assert "不得拼入分类、日期、版本或密级" in system_prompt
     assert "只能依据文档正文" in system_prompt
+    assert "ai_access_level" not in system_prompt
+    assert "asset_type" not in system_prompt
 
 
 @pytest.mark.parametrize(
@@ -401,9 +404,7 @@ async def test_confirm_writes_three_layer_summaries(client, monkeypatch):
             "key_points": ["人工要点1", "人工要点2"],
             "tags": ["t"],
             "target_scope": "personal",
-            "asset_type": "methodology",
             "confidentiality_level": "L2",
-            "ai_access_level": "A2",
         },
     )
     assert r.status_code == 200
@@ -438,9 +439,7 @@ async def test_confirm_with_suggested_subject_yields_clean_asset_title(client, m
             "summary": ai["suggested_summary"],
             "tags": ["t"],
             "target_scope": "personal",
-            "asset_type": "case",
             "confidentiality_level": "L3",
-            "ai_access_level": "A3",
         },
     )
     assert r.status_code == 200

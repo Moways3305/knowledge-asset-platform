@@ -45,6 +45,20 @@ from app.services.naming_advice import safe_naming_advice
 
 _ALIAS_PREFIX_SEPARATOR = re.compile(r"^[\s_\-—:：·/\\]+")
 _ALIAS_PREFIX_BOUNDARY = re.compile(r"^[\s_\-—:：·/\\\d]")
+_ASSET_TYPE_BY_CATEGORY_SECONDARY = {
+    "交付成果": "deliverable",
+    "交付件": "deliverable",
+    "年度计划": "deliverable",
+    "制度规范": "deliverable",
+    "辅导过程": "deliverable",
+    "模型工具": "methodology",
+    "方法论": "methodology",
+    "案例研究": "case",
+    "案例": "case",
+    "模板": "template",
+    "研究洞察": "insight",
+    "洞察": "insight",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -446,6 +460,17 @@ async def render(
     if category is None or not category.enabled or category.scope != scope:
         raise _denied(409, "naming_category_unavailable", "目录类别已停用或不适用于目标库")
 
+    # Category configuration remains schema-compatible. Asset classification is
+    # a server-owned projection of the published secondary category; unknown
+    # categories fail closed instead of silently becoming a deliverable.
+    derived_asset_type = _ASSET_TYPE_BY_CATEGORY_SECONDARY.get(category.secondary.strip())
+    if derived_asset_type is None:
+        raise _denied(
+            409,
+            "naming_asset_type_mapping_missing",
+            "该目录类别尚未配置资产分类，请联系管理员补充后重试",
+        )
+
     project_code: str | None = None
     rendered_subject = naming.subject
     subject_deidentified = False
@@ -488,6 +513,7 @@ async def render(
         "category_primary": category.primary,
         "category_secondary": category.secondary,
         "category_prefix": category.prefix,
+        "asset_type": derived_asset_type,
         "subject": rendered_subject,
         "subject_deidentified": subject_deidentified,
         "applicable_to": naming.applicable_to,
@@ -578,6 +604,7 @@ def _batch_http_error(exc: HTTPException) -> tuple[str, str]:
     safe_messages = {
         "naming_fields_required": "请补齐该资料的命名字段",
         "naming_category_unavailable": "目录类别已停用或不适用于当前目标",
+        "naming_asset_type_mapping_missing": "该目录类别尚未配置资产分类，请联系管理员补充后重试",
         "naming_applicable_to_required": "公司库资料必须填写适用对象",
         "canonical_name_too_long": "规范名过长，请缩短主题或适用对象",
         "project_subject_customer_name_detected": "主题可能包含客户名称，请修改后继续",

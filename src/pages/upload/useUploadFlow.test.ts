@@ -313,6 +313,10 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(payload.rerank_model_ref).toBe("ref_rer_default");
     // 绝不发送真实 model_id 字段。
     expect(payload).not.toHaveProperty("embedding_model_id");
+    expect(payload).not.toHaveProperty("asset_type");
+    expect(payload).not.toHaveProperty("visibility");
+    expect(payload).not.toHaveProperty("ai_access_level");
+    expect(payload).not.toHaveProperty("lifecycle_phase_key");
   });
 
   it("uses the clean projected topic and never submits the legacy normalized title", async () => {
