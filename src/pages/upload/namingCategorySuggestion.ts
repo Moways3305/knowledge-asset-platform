@@ -3,50 +3,29 @@ import type { NamingOptionDTO } from "../../types/naming";
 
 export interface NamingCategorySuggestion {
   id: string;
-  basis: "ai" | "only_option";
-}
-
-function normalized(value: string | null | undefined): string {
-  return (value ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase();
-}
-
-function uniqueMatch(
-  categories: NamingOptionDTO[],
-  predicate: (category: NamingOptionDTO) => boolean,
-): NamingOptionDTO | null {
-  const matches = categories.filter(predicate);
-  return matches.length === 1 ? matches[0] : null;
+  basis: "ai" | "only_option" | "manual";
 }
 
 export function suggestNamingCategory(
   naming: NamingFields | null | undefined,
   categories: NamingOptionDTO[],
+  ruleVersion?: number | null,
 ): NamingCategorySuggestion | null {
-  const primary = normalized(naming?.primary_category);
-  const secondary = normalized(naming?.secondary_category);
-
-  if (primary && secondary) {
-    const exact = uniqueMatch(
-      categories,
-      (category) =>
-        normalized(category.primary) === primary && normalized(category.secondary) === secondary,
-    );
-    if (exact) return { id: exact.id, basis: "ai" };
+  const suggestion = naming?.category_suggestion;
+  if (!suggestion?.suggested_category_id || suggestion.status !== "classified") return null;
+  if (ruleVersion != null && suggestion.candidate_rule_revision !== ruleVersion) return null;
+  if (!categories.some((category) => category.id === suggestion.suggested_category_id)) return null;
+  if (
+    suggestion.category_source === "ai_content" &&
+    (suggestion.category_confidence === "high" || suggestion.category_confidence === "medium")
+  ) {
+    return { id: suggestion.suggested_category_id, basis: "ai" };
   }
-  if (secondary) {
-    const secondaryMatch = uniqueMatch(
-      categories,
-      (category) => normalized(category.secondary) === secondary,
-    );
-    if (secondaryMatch) return { id: secondaryMatch.id, basis: "ai" };
+  if (suggestion.category_source === "rule_only_option") {
+    return { id: suggestion.suggested_category_id, basis: "only_option" };
   }
-  if (primary) {
-    const primaryMatch = uniqueMatch(
-      categories,
-      (category) => normalized(category.primary) === primary,
-    );
-    if (primaryMatch) return { id: primaryMatch.id, basis: "ai" };
+  if (suggestion.category_source === "manual") {
+    return { id: suggestion.suggested_category_id, basis: "manual" };
   }
-  if (categories.length === 1) return { id: categories[0].id, basis: "only_option" };
   return null;
 }

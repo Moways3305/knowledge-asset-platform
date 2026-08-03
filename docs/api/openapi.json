@@ -680,17 +680,6 @@
         "title": "AgentWorkbenchTodoItem",
         "type": "object"
       },
-      "AiAccessLevel": {
-        "description": "AI 调用级别 A1-A4。A4 资产不进入 Agent 原文上下文（与人工预览是不同边界）。",
-        "enum": [
-          "A1",
-          "A2",
-          "A3",
-          "A4"
-        ],
-        "title": "AiAccessLevel",
-        "type": "string"
-      },
       "AlertRuleOut": {
         "properties": {
           "dedup_strategy": {
@@ -2293,6 +2282,162 @@
           "items"
         ],
         "title": "CandidateMembersResponse",
+        "type": "object"
+      },
+      "CategoryClassificationBatchRequest": {
+        "properties": {
+          "retry": {
+            "default": false,
+            "title": "Retry",
+            "type": "boolean"
+          },
+          "target_project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Project Id"
+          },
+          "target_scope": {
+            "$ref": "#/components/schemas/KnowledgeScope"
+          },
+          "task_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Task Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "task_ids",
+          "target_scope"
+        ],
+        "title": "CategoryClassificationBatchRequest",
+        "type": "object"
+      },
+      "CategoryClassificationBatchResponse": {
+        "properties": {
+          "candidate_count": {
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "candidate_rule_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Rule Revision"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryClassificationItemResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "target_label": {
+            "title": "Target Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_label",
+          "candidate_count",
+          "items"
+        ],
+        "title": "CategoryClassificationBatchResponse",
+        "type": "object"
+      },
+      "CategoryClassificationItemResponse": {
+        "properties": {
+          "candidate_rule_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Rule Revision"
+          },
+          "category_confidence": {
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Category Confidence",
+            "type": "string"
+          },
+          "category_reason": {
+            "title": "Category Reason",
+            "type": "string"
+          },
+          "category_source": {
+            "enum": [
+              "ai_content",
+              "rule_only_option",
+              "needs_manual",
+              "manual"
+            ],
+            "title": "Category Source",
+            "type": "string"
+          },
+          "retryable": {
+            "default": false,
+            "title": "Retryable",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "classified",
+              "needs_manual",
+              "failed",
+              "unchanged"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "suggested_category_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Category Id"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "category_source",
+          "category_confidence",
+          "category_reason",
+          "status"
+        ],
+        "title": "CategoryClassificationItemResponse",
         "type": "object"
       },
       "CitationOut": {
@@ -4404,13 +4549,25 @@
         "type": "object"
       },
       "IngestConfirmRequest": {
+        "additionalProperties": false,
         "description": "入库确认请求。\n\n枚举字段用 `app.schemas.enums` 的 Enum 做 Pydantic 校验，非法值自动 422；\n数据库仍以 String 存储（写入时取 `.value`）。",
         "properties": {
-          "ai_access_level": {
-            "$ref": "#/components/schemas/AiAccessLevel"
-          },
-          "asset_type": {
-            "$ref": "#/components/schemas/AssetType"
+          "acknowledged_naming_warning_codes": {
+            "items": {
+              "enum": [
+                "project_subject_business_name",
+                "exact_duplicate",
+                "suspected_duplicate",
+                "version_source_unreliable",
+                "confidentiality_source_unreliable",
+                "historical_naming_noncompliant",
+                "ai_suggestion_uncertain"
+              ],
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Acknowledged Naming Warning Codes",
+            "type": "array"
           },
           "confidentiality_level": {
             "$ref": "#/components/schemas/ConfidentialityLevel"
@@ -4433,17 +4590,6 @@
             },
             "title": "Key Points",
             "type": "array"
-          },
-          "lifecycle_phase_key": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Lifecycle Phase Key"
           },
           "naming": {
             "anyOf": [
@@ -4518,18 +4664,12 @@
           "title": {
             "title": "Title",
             "type": "string"
-          },
-          "visibility": {
-            "$ref": "#/components/schemas/Visibility",
-            "default": "project_only"
           }
         },
         "required": [
           "title",
           "target_scope",
-          "asset_type",
-          "confidentiality_level",
-          "ai_access_level"
+          "confidentiality_level"
         ],
         "title": "IngestConfirmRequest",
         "type": "object"
@@ -6214,6 +6354,36 @@
         "title": "MaintainerOut",
         "type": "object"
       },
+      "ManualCategorySelectionRequest": {
+        "properties": {
+          "category_id": {
+            "format": "uuid",
+            "title": "Category Id",
+            "type": "string"
+          },
+          "target_project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Project Id"
+          },
+          "target_scope": {
+            "$ref": "#/components/schemas/KnowledgeScope"
+          }
+        },
+        "required": [
+          "target_scope",
+          "category_id"
+        ],
+        "title": "ManualCategorySelectionRequest",
+        "type": "object"
+      },
       "MarkProcessedResponse": {
         "properties": {
           "event_id": {
@@ -7082,6 +7252,17 @@
             "$ref": "#/components/schemas/ConfidentialityLevel",
             "default": "L2"
           },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
           "enabled": {
             "default": true,
             "title": "Enabled",
@@ -7189,10 +7370,25 @@
       },
       "NamingDuplicateNotice": {
         "properties": {
+          "code": {
+            "enum": [
+              "project_subject_business_name",
+              "exact_duplicate",
+              "suspected_duplicate",
+              "version_source_unreliable",
+              "confidentiality_source_unreliable",
+              "historical_naming_noncompliant",
+              "ai_suggestion_uncertain"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
           "kind": {
             "enum": [
               "exact",
-              "suspected"
+              "suspected",
+              "semantic",
+              "advisory"
             ],
             "title": "Kind",
             "type": "string"
@@ -7203,6 +7399,7 @@
           }
         },
         "required": [
+          "code",
           "kind",
           "message"
         ],
@@ -7213,6 +7410,22 @@
         "properties": {
           "default_confidentiality": {
             "$ref": "#/components/schemas/ConfidentialityLevel"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
           },
           "id": {
             "format": "uuid",
@@ -7227,17 +7440,31 @@
             "title": "Primary",
             "type": "string"
           },
+          "scope": {
+            "enum": [
+              "project",
+              "company"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
           "secondary": {
             "title": "Secondary",
             "type": "string"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
           }
         },
         "required": [
           "id",
+          "scope",
           "primary",
           "secondary",
           "prefix",
-          "default_confidentiality"
+          "default_confidentiality",
+          "sort_order"
         ],
         "title": "NamingOptionItem",
         "type": "object"
@@ -13252,16 +13479,6 @@
         ],
         "title": "ValidationError",
         "type": "object"
-      },
-      "Visibility": {
-        "description": "可见性：public / project_only / confidential。",
-        "enum": [
-          "public",
-          "project_only",
-          "confidential"
-        ],
-        "title": "Visibility",
-        "type": "string"
       },
       "WecomAuthorizeOut": {
         "description": "企微 OAuth 授权 URL。state 在 httpOnly cookie 里校验，不进本响应。\n\nauthorize_url 含 corp_id/redirect/state，但**绝不**含 app_secret / access_token。",
@@ -24031,6 +24248,97 @@
         ]
       }
     },
+    "/api/v1/ingest/bulk-category-classification": {
+      "post": {
+        "operationId": "classify_categories_api_v1_ingest_bulk_category_classification_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryClassificationBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoryClassificationBatchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Classify Categories",
+        "tags": [
+          "naming-rules"
+        ]
+      }
+    },
     "/api/v1/ingest/bulk-confirm": {
       "post": {
         "description": "Confirm one explicit destination while preserving per-task authorization.",
@@ -25140,6 +25448,107 @@
         "summary": "Get Ai Result",
         "tags": [
           "ingest"
+        ]
+      }
+    },
+    "/api/v1/ingest/{task_id}/category-selection": {
+      "put": {
+        "operationId": "save_manual_category_api_v1_ingest__task_id__category_selection_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualCategorySelectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoryClassificationItemResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Manual Category",
+        "tags": [
+          "naming-rules"
         ]
       }
     },

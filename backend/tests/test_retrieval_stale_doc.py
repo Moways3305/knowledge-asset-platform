@@ -296,9 +296,7 @@ async def _upload_and_confirm_indexed(client, db_session, ok_wk):
             "tags": ["t"],
             "target_scope": "project",
             "target_project_id": str(PROJECT_ALPHA),
-            "asset_type": "methodology",
             "confidentiality_level": "L2",
-            "ai_access_level": "A2",
         },
     )
     assert r2.status_code == 200, r2.text

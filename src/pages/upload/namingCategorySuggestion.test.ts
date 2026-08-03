@@ -40,19 +40,36 @@ function parsed(primary: string, secondary: string): NamingFields {
 }
 
 describe("suggestNamingCategory", () => {
-  it("uses a unique AI secondary category when the legacy primary label differs", () => {
-    expect(suggestNamingCategory(parsed("客户项目", "交付成果"), categories)).toEqual({
+  it("uses only a persisted AI-content category from the current rule revision", () => {
+    const naming = parsed("客户项目", "交付成果");
+    naming.category_suggestion = {
+      suggested_category_id: "deliverable",
+      category_source: "ai_content",
+      category_confidence: "high",
+      category_reason: "AI 根据正文语义匹配",
+      candidate_rule_revision: 3,
+      status: "classified",
+    };
+    expect(suggestNamingCategory(naming, categories, 3)).toEqual({
       id: "deliverable",
       basis: "ai",
     });
   });
 
-  it("does not guess when the AI label matches more than one option", () => {
-    expect(
-      suggestNamingCategory(parsed("", "交付成果"), [
-        ...categories,
-        { ...categories[1], id: "company-deliverable", primary: "公司资料" },
-      ]),
-    ).toBeNull();
+  it("never maps legacy primary or secondary labels without a proven source", () => {
+    expect(suggestNamingCategory(parsed("项目资料", "交付成果"), categories, 3)).toBeNull();
+  });
+
+  it("invalidates a persisted suggestion when the rule revision changes", () => {
+    const naming = parsed("", "");
+    naming.category_suggestion = {
+      suggested_category_id: "deliverable",
+      category_source: "rule_only_option",
+      category_confidence: "high",
+      category_reason: "规则唯一选项",
+      candidate_rule_revision: 2,
+      status: "classified",
+    };
+    expect(suggestNamingCategory(naming, categories, 3)).toBeNull();
   });
 });

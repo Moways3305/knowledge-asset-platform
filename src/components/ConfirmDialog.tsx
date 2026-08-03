@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode } from "react";
-import { ShieldCheck, Trash2 } from "lucide-react";
+import { ShieldCheck, Trash2, X } from "lucide-react";
 
 // 统一确认弹窗：复用现有 `.kl-modal-*` 模态样式。用于需要明确二次确认的写动作
 // （如删除 / 撤销 / 强制下线）。busy 期间禁用按钮并屏蔽遮罩点击关闭，避免重复提交。
@@ -22,6 +22,7 @@ interface ConfirmDialogProps {
   children?: ReactNode;
   icon?: ReactNode;
   panelClassName?: string;
+  closeButtonLabel?: string;
 }
 
 export default function ConfirmDialog({
@@ -41,6 +42,7 @@ export default function ConfirmDialog({
   children,
   icon,
   panelClassName,
+  closeButtonLabel,
 }: ConfirmDialogProps) {
   const titleId = useId();
   const modalRef = useRef<HTMLDivElement>(null);
@@ -91,17 +93,30 @@ export default function ConfirmDialog({
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
-        <div
-          className={`confirm-dialog-icon ${danger ? "is-danger" : "is-governance"}`}
-          aria-hidden="true"
-        >
-          {icon ?? (danger ? <Trash2 size={20} /> : <ShieldCheck size={20} />)}
+        <div className="kl-modal-header">
+          <div
+            className={`confirm-dialog-icon ${danger ? "is-danger" : "is-governance"}`}
+            aria-hidden="true"
+          >
+            {icon ?? (danger ? <Trash2 size={20} /> : <ShieldCheck size={20} />)}
+          </div>
+          <h3 className="kl-modal-title" id={titleId}>
+            {title}
+          </h3>
+          {description && <p className="kl-modal-desc">{description}</p>}
+          {closeButtonLabel && (
+            <button
+              aria-label={closeButtonLabel}
+              className="kl-modal-close"
+              disabled={busy}
+              onClick={onCancel}
+              type="button"
+            >
+              <X aria-hidden="true" size={20} />
+            </button>
+          )}
         </div>
-        <h3 className="kl-modal-title" id={titleId}>
-          {title}
-        </h3>
-        {description && <p className="kl-modal-desc">{description}</p>}
-        {children}
+        {children && <div className="kl-modal-body">{children}</div>}
         {error && (
           <div className="kl-modal-error">{errorDescription ?? "操作未完成，请检查后重试。"}</div>
         )}

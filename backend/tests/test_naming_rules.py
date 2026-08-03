@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 
 from sqlalchemy import select
 
+from app.main import app
 from app.models.audit import AuditEvent
+from app.models.ingest import IngestTaskAiResult
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.review import ReviewTask
+from app.schemas.enums import AuditAction
 from app.seed.dev_seed import (
     PROJECT_ALPHA,
     PROJECT_BETA,
@@ -18,6 +22,7 @@ from app.seed.dev_seed import (
     USER_CONSULTANT,
     USER_PROJECT_MANAGER,
 )
+from app.services.generation_models import get_generation_llm_client
 
 
 def _hdr(user_id: uuid.UUID) -> dict[str, str]:
@@ -115,6 +120,81 @@ async def _upload(client, user_id: uuid.UUID = USER_PROJECT_MANAGER) -> str:
     return response.json()["ingest_task_id"]
 
 
+def _warning_codes(payload: dict) -> list[str]:
+    return [notice["code"] for notice in payload.get("notices", [])]
+
+
+class _CategoryLLM:
+    provider = "test"
+    model = "category-test"
+
+    def __init__(self, category_id: uuid.UUID | None, confidence: str = "high") -> None:
+        self.category_id = category_id
+        self.confidence = confidence
+        self.messages: list[list[dict[str, str]]] = []
+
+    async def chat_completion(self, messages, **_kwargs) -> str:
+        self.messages.append(messages)
+        return json.dumps(
+            {
+                "suggested_category_id": str(self.category_id) if self.category_id else None,
+                "category_confidence": self.confidence,
+            }
+        )
+
+
+class _RawCategoryLLM:
+    provider = "test"
+    model = "category-test"
+
+    def __init__(self, raw: str) -> None:
+        self.raw = raw
+
+    async def chat_completion(self, _messages, **_kwargs) -> str:
+        return self.raw
+
+
+class _BlockingCategoryLLM(_CategoryLLM):
+    def __init__(self, category_id: uuid.UUID) -> None:
+        super().__init__(category_id)
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def chat_completion(self, messages, **kwargs) -> str:
+        self.started.set()
+        await self.release.wait()
+        return await super().chat_completion(messages, **kwargs)
+
+
+async def _publish_categories(client, categories: list[tuple[uuid.UUID, str]]) -> None:
+    config = _config(categories[0][0], category=categories[0][1])
+    config["categories"] = [
+        {
+            "id": str(category_id),
+            "scope": "project",
+            "primary": "项目资料",
+            "secondary": secondary,
+            "prefix": f"项目资料-{secondary}",
+            "default_confidentiality": "L2",
+            "enabled": True,
+            "sort_order": index * 10,
+        }
+        for index, (category_id, secondary) in enumerate(categories, start=1)
+    ]
+    saved = await client.put(
+        "/api/v1/admin/naming-rules/draft",
+        headers=_hdr(USER_BOSS),
+        json={"expected_base_version": 1, "config": config},
+    )
+    assert saved.status_code == 200, saved.text
+    published = await client.post(
+        "/api/v1/admin/naming-rules/publish",
+        headers=_hdr(USER_BOSS),
+        json={"expected_base_version": 1},
+    )
+    assert published.status_code == 200, published.text
+
+
 async def test_rule_center_is_governance_only_and_draft_is_not_live(client):
     denied = await client.get("/api/v1/admin/naming-rules", headers=_hdr(USER_ADMIN_ONLY))
     assert denied.status_code == 403
@@ -201,10 +281,8 @@ async def test_publish_activates_preview_and_confirmation_recomputes_name(client
             "target_scope": "project",
             "target_project_id": str(PROJECT_ALPHA),
             "target_zone": "material",
-            "asset_type": "methodology",
             "confidentiality_level": "L2",
-            "ai_access_level": "A2",
-            "lifecycle_phase_key": "delivery",
+            "acknowledged_naming_warning_codes": _warning_codes(preview.json()),
             "naming": {
                 "category_id": str(category_id),
                 "subject": "最终主题",
@@ -227,8 +305,50 @@ async def test_publish_activates_preview_and_confirmation_recomputes_name(client
         select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.id == asset.current_version_id)
     )
     assert asset.canonical_name == canonical
+    assert asset.asset_type == "deliverable"
+    assert asset.visibility == "project_only"
+    assert asset.ai_access_level == "A1"
+    assert asset.lifecycle_phase_key is None
     assert version.naming_rule_version == 2
     assert version.naming_metadata["canonical_name"] == canonical
+
+
+async def test_unknown_category_asset_type_mapping_fails_closed(client):
+    category_id = uuid.uuid4()
+    saved = await client.put(
+        "/api/v1/admin/naming-rules/draft",
+        headers=_hdr(USER_BOSS),
+        json={
+            "expected_base_version": 1,
+            "config": _config(category_id, category="尚未配置分类"),
+        },
+    )
+    assert saved.status_code == 200
+    published = await client.post(
+        "/api/v1/admin/naming-rules/publish",
+        headers=_hdr(USER_BOSS),
+        json={"expected_base_version": 1},
+    )
+    assert published.status_code == 200
+    task_id = await _upload(client)
+
+    preview = await client.post(
+        f"/api/v1/ingest/{task_id}/naming-preview",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "confidentiality_level": "L2",
+            "naming": {
+                "category_id": str(category_id),
+                "subject": "待分类主题",
+                "formed_on": "2026-08-03",
+                "version": "V1",
+            },
+        },
+    )
+    assert preview.status_code == 409
+    assert preview.json()["detail"]["denied_reason"] == "naming_asset_type_mapping_missing"
 
 
 async def test_publish_conflict_is_stable(client):
@@ -241,7 +361,7 @@ async def test_publish_conflict_is_stable(client):
     assert response.json()["detail"]["denied_reason"] == "naming_rule_publish_conflict"
 
 
-async def test_husong_alias_is_removed_and_confirm_uses_authoritative_subject(client, db_session):
+async def test_customer_name_is_a_soft_warning_and_can_be_retained(client, db_session):
     category_id = uuid.uuid4()
     config = _config(
         category_id,
@@ -280,9 +400,10 @@ async def test_husong_alias_is_removed_and_confirm_uses_authoritative_subject(cl
         },
     )
     assert preview.status_code == 200
-    expected = "【HS-2021-辅导过程】2021年第1期辅导简报_20210307_V1_L3.txt"
+    expected = "【HS-2021-辅导过程】琥崧智能2021年第1期辅导简报_20210307_V1_L3.txt"
     assert preview.json()["canonical_name"] == expected
-    assert preview.json()["fields"]["subject"] == "2021年第1期辅导简报"
+    assert preview.json()["fields"]["subject"] == "琥崧智能2021年第1期辅导简报"
+    assert "project_subject_business_name" in _warning_codes(preview.json())
 
     confirmed = await client.post(
         f"/api/v1/ingest/{task_id}/confirm",
@@ -294,20 +415,19 @@ async def test_husong_alias_is_removed_and_confirm_uses_authoritative_subject(cl
             "target_scope": "project",
             "target_project_id": str(PROJECT_ALPHA),
             "target_zone": "material",
-            "asset_type": "methodology",
             "confidentiality_level": "L3",
-            "ai_access_level": "A2",
+            "acknowledged_naming_warning_codes": _warning_codes(preview.json()),
             "naming": naming,
         },
     )
     assert confirmed.status_code == 200
     assert confirmed.json()["canonical_name"] == expected
     asset = await db_session.get(KnowledgeAsset, uuid.UUID(confirmed.json()["result_asset_id"]))
-    assert asset.title == "2021年第1期辅导简报"
-    assert "琥崧" not in asset.canonical_name
+    assert asset.title == "琥崧智能2021年第1期辅导简报"
+    assert "琥崧" in asset.canonical_name
 
 
-async def test_non_pm_review_snapshot_and_approval_use_authoritative_subject(client, db_session):
+async def test_non_pm_review_retains_acknowledged_business_subject(client, db_session):
     category_id = uuid.uuid4()
     config = _config(
         category_id,
@@ -330,7 +450,22 @@ async def test_non_pm_review_snapshot_and_approval_use_authoritative_subject(cli
 
     task_id = await _upload(client, USER_CONSULTANT)
     dirty_subject = "琥崧智能2021年第1期辅导简报"
-    clean_subject = "2021年第1期辅导简报"
+    preview = await client.post(
+        f"/api/v1/ingest/{task_id}/naming-preview",
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "confidentiality_level": "L3",
+            "naming": {
+                "category_id": str(category_id),
+                "subject": dirty_subject,
+                "formed_on": "2021-03-07",
+                "version": "V1",
+            },
+        },
+    )
+    assert preview.status_code == 200
     confirmed = await client.post(
         f"/api/v1/ingest/{task_id}/confirm",
         headers=_hdr(USER_CONSULTANT),
@@ -341,9 +476,8 @@ async def test_non_pm_review_snapshot_and_approval_use_authoritative_subject(cli
             "target_scope": "project",
             "target_project_id": str(PROJECT_ALPHA),
             "target_zone": "material",
-            "asset_type": "methodology",
             "confidentiality_level": "L3",
-            "ai_access_level": "A2",
+            "acknowledged_naming_warning_codes": _warning_codes(preview.json()),
             "naming": {
                 "category_id": str(category_id),
                 "subject": dirty_subject,
@@ -357,16 +491,8 @@ async def test_non_pm_review_snapshot_and_approval_use_authoritative_subject(cli
 
     review_id = uuid.UUID(confirmed.json()["review_id"])
     review = await db_session.get(ReviewTask, review_id)
-    assert review.confirmation_snapshot["title"] == clean_subject
-    assert review.confirmation_snapshot["naming"]["subject"] == clean_subject
-
-    # Simulate a review snapshot created before this fix. Approval must apply
-    # current server policy again instead of trusting its stored title/subject.
-    legacy_snapshot = dict(review.confirmation_snapshot)
-    legacy_snapshot["title"] = dirty_subject
-    legacy_snapshot["naming"] = {**legacy_snapshot["naming"], "subject": dirty_subject}
-    review.confirmation_snapshot = legacy_snapshot
-    await db_session.commit()
+    assert review.confirmation_snapshot["title"] == dirty_subject
+    assert review.confirmation_snapshot["naming"]["subject"] == dirty_subject
 
     approved = await client.post(
         f"/api/v1/reviews/{review_id}/approve",
@@ -378,11 +504,11 @@ async def test_non_pm_review_snapshot_and_approval_use_authoritative_subject(cli
         KnowledgeAsset,
         uuid.UUID(approved.json()["target_asset_id"]),
     )
-    assert asset.title == clean_subject
-    assert "琥崧" not in asset.canonical_name
+    assert asset.title == dirty_subject
+    assert "琥崧" in asset.canonical_name
 
 
-async def test_ambiguous_alias_match_blocks_preview_and_direct_confirmation(client):
+async def test_business_name_warning_requires_explicit_acknowledgement(client):
     category_id = uuid.uuid4()
     saved = await client.put(
         "/api/v1/admin/naming-rules/draft",
@@ -417,12 +543,9 @@ async def test_ambiguous_alias_match_blocks_preview_and_direct_confirmation(clie
         headers=_hdr(USER_PROJECT_MANAGER),
         json=request,
     )
-    assert preview.status_code == 422
-    assert preview.json()["detail"] == {
-        "denied_reason": "project_subject_customer_name_detected",
-        "message": "主题可能包含客户名称，请修改后继续",
-    }
-    assert "琥崧" not in json.dumps(preview.json(), ensure_ascii=False)
+    assert preview.status_code == 200
+    assert preview.json()["canonical_name"] is not None
+    assert "project_subject_business_name" in _warning_codes(preview.json())
 
     confirmed = await client.post(
         f"/api/v1/ingest/{task_id}/confirm",
@@ -434,14 +557,31 @@ async def test_ambiguous_alias_match_blocks_preview_and_direct_confirmation(clie
             "target_scope": "project",
             "target_project_id": str(PROJECT_ALPHA),
             "target_zone": "material",
-            "asset_type": "methodology",
             "confidentiality_level": "L2",
-            "ai_access_level": "A2",
             "naming": request["naming"],
         },
     )
-    assert confirmed.status_code == 422
-    assert confirmed.json()["detail"]["denied_reason"] == ("project_subject_customer_name_detected")
+    assert confirmed.status_code == 409
+    assert confirmed.json()["detail"]["denied_reason"] == (
+        "naming_warning_acknowledgement_required"
+    )
+
+    acknowledged = await client.post(
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "title": "安全标题",
+            "summary": "摘要",
+            "tags": [],
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "target_zone": "material",
+            "confidentiality_level": "L2",
+            "acknowledged_naming_warning_codes": _warning_codes(preview.json()),
+            "naming": request["naming"],
+        },
+    )
+    assert acknowledged.status_code == 200
 
 
 async def test_disabled_or_absent_optional_alias_is_not_guessed(client):
@@ -501,7 +641,8 @@ async def test_disabled_or_absent_optional_alias_is_not_guessed(client):
         },
     )
     assert display_name_preview.status_code == 200
-    assert display_name_preview.json()["fields"]["subject"] == "2021年度复盘"
+    assert display_name_preview.json()["fields"]["subject"] == "Alpha 项目2021年度复盘"
+    assert "project_subject_business_name" in _warning_codes(display_name_preview.json())
 
 
 async def test_aliases_are_governed_without_business_api_or_audit_disclosure(client, db_session):
@@ -631,7 +772,9 @@ async def test_batch_preview_and_confirm_keep_naming_failures_item_scoped(client
     assert by_id[missing_date_task]["error_code"] == "naming_formed_on_invalid"
     assert "storage" not in json.dumps(preview.json()).lower()
 
-    def confirmation(title: str, naming: dict | None) -> dict:
+    def confirmation(
+        title: str, naming: dict | None, warning_codes: list[str] | None = None
+    ) -> dict:
         value = {
             "title": title,
             "summary": "批量确认摘要",
@@ -639,9 +782,8 @@ async def test_batch_preview_and_confirm_keep_naming_failures_item_scoped(client
             "target_scope": "project",
             "target_project_id": str(PROJECT_ALPHA),
             "target_zone": "material",
-            "asset_type": "methodology",
             "confidentiality_level": "L2",
-            "ai_access_level": "A2",
+            "acknowledged_naming_warning_codes": warning_codes or [],
         }
         if naming is not None:
             value["naming"] = naming
@@ -654,7 +796,12 @@ async def test_batch_preview_and_confirm_keep_naming_failures_item_scoped(client
             "target_scope": "project",
             "target_project_id": str(PROJECT_ALPHA),
             "items": [
-                {"task_id": valid_task, "confirmation": confirmation("伪造标题", valid_naming)},
+                {
+                    "task_id": valid_task,
+                    "confirmation": confirmation(
+                        "伪造标题", valid_naming, _warning_codes(by_id[valid_task])
+                    ),
+                },
                 {
                     "task_id": missing_date_task,
                     "confirmation": confirmation("旧式无命名请求", None),
@@ -703,10 +850,10 @@ async def test_batch_preview_and_confirm_keep_naming_failures_item_scoped(client
         },
     )
     duplicate_item = duplicate_preview.json()["items"][0]
-    assert duplicate_item["submittable"] is False
-    assert duplicate_item["error_code"] == "naming_exact_duplicate"
-    assert {notice["kind"] for notice in duplicate_item["notices"]} == {"exact", "suspected"}
-    assert all(set(notice) == {"kind", "message"} for notice in duplicate_item["notices"])
+    assert duplicate_item["submittable"] is True
+    assert duplicate_item["error_code"] is None
+    assert {"exact", "suspected"}.issubset({notice["kind"] for notice in duplicate_item["notices"]})
+    assert all(set(notice) == {"code", "kind", "message"} for notice in duplicate_item["notices"])
 
     duplicate_confirm = await client.post(
         "/api/v1/ingest/bulk-confirm",
@@ -717,13 +864,42 @@ async def test_batch_preview_and_confirm_keep_naming_failures_item_scoped(client
             "items": [
                 {
                     "task_id": exact_duplicate_task,
-                    "confirmation": confirmation("重复资料", valid_naming),
+                    "confirmation": confirmation(
+                        "重复资料", valid_naming, _warning_codes(duplicate_item)
+                    ),
                 }
             ],
         },
     )
     assert duplicate_confirm.status_code == 200
-    assert duplicate_confirm.json()["items"][0]["reason_code"] == "naming_exact_duplicate"
+    assert duplicate_confirm.json()["items"][0]["status"] == "succeeded"
+    assets = (
+        (
+            await db_session.execute(
+                select(KnowledgeAsset).where(
+                    KnowledgeAsset.canonical_name == duplicate_item["canonical_name"]
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(assets) == 2
+    assert len({asset.id for asset in assets}) == 2
+    audit_events = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.action == AuditAction.ingest_confirmed.value)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert any(
+        event.after_snapshot.get("naming_warnings_acknowledged") is True
+        and "exact_duplicate" in event.after_snapshot.get("naming_warning_codes", [])
+        for event in audit_events
+    )
 
 
 async def test_batch_preview_accepts_complete_frontend_project_contract(client):
@@ -757,7 +933,8 @@ async def test_batch_preview_accepts_complete_frontend_project_contract(client):
     assert item["submittable"] is True
     assert item["canonical_name"].endswith("财务部战略行动计划及年度工作计划_20210116_V1_L2.txt")
     assert item["rule_version"] == 2
-    assert item["notices"] == []
+    assert item["notices"]
+    assert all(notice["kind"] == "advisory" for notice in item["notices"])
     assert item["error_code"] is None
 
 
@@ -899,3 +1076,329 @@ async def test_batch_preview_authorizes_destination_before_task_probe(client):
     )
     assert response.status_code == 403
     assert response.json()["detail"]["denied_reason"] == "project_membership_required"
+
+
+async def test_category_classifier_uses_only_current_rule_candidates_and_not_filename(
+    client, db_session
+):
+    foundation, delivery, review = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    await _publish_categories(
+        client,
+        [(foundation, "项目基础信息"), (delivery, "交付成果"), (review, "项目复盘")],
+    )
+    upload = await client.post(
+        "/api/v1/ingest/upload",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        files={
+            "file": (
+                "【ALPHA-2026-交付成果】旧分类泄漏标记_20260803_V1_L2.txt",
+                "项目复盘会议纪要，记录经验、问题与后续改进。".encode(),
+                "text/plain",
+            )
+        },
+    )
+    task_id = upload.json()["ingest_task_id"]
+    fake = _CategoryLLM(review)
+    app.dependency_overrides[get_generation_llm_client] = lambda: fake
+
+    response = await client.post(
+        "/api/v1/ingest/bulk-category-classification",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "task_ids": [task_id],
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    item = response.json()["items"][0]
+    assert item["suggested_category_id"] == str(review)
+    assert item["category_source"] == "ai_content"
+    prompt = json.dumps(fake.messages, ensure_ascii=False)
+    assert "项目基础信息" in prompt and "交付成果" in prompt and "项目复盘" in prompt
+    assert "旧分类泄漏标记" not in prompt
+    ai = await db_session.scalar(
+        select(IngestTaskAiResult).where(IngestTaskAiResult.ingest_task_id == uuid.UUID(task_id))
+    )
+    assert ai.naming_parsed_fields["category_suggestion"]["suggested_category_id"] == str(review)
+
+
+async def test_category_classifier_invalid_id_fails_to_manual(client):
+    first, second = uuid.uuid4(), uuid.uuid4()
+    await _publish_categories(client, [(first, "辅导过程"), (second, "关键资料")])
+    task_id = await _upload(client)
+    fake = _CategoryLLM(uuid.uuid4(), confidence="high")
+    app.dependency_overrides[get_generation_llm_client] = lambda: fake
+
+    response = await client.post(
+        "/api/v1/ingest/bulk-category-classification",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "task_ids": [task_id],
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+        },
+    )
+    item = response.json()["items"][0]
+    assert item["suggested_category_id"] is None
+    assert item["category_source"] == "needs_manual"
+    assert item["category_confidence"] == "low"
+
+    low_fake = _CategoryLLM(first, confidence="low")
+    app.dependency_overrides[get_generation_llm_client] = lambda: low_fake
+    low = await client.post(
+        "/api/v1/ingest/bulk-category-classification",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "task_ids": [task_id],
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "retry": True,
+        },
+    )
+    assert low.json()["items"][0]["suggested_category_id"] is None
+    assert low.json()["items"][0]["category_source"] == "needs_manual"
+
+
+async def test_category_classifier_non_object_json_fails_each_item_safely(client):
+    first, second = uuid.uuid4(), uuid.uuid4()
+    await _publish_categories(client, [(first, "辅导过程"), (second, "关键资料")])
+    task_id = await _upload(client)
+
+    for raw in ("[]", '"文本"', "42"):
+        app.dependency_overrides[get_generation_llm_client] = lambda raw=raw: _RawCategoryLLM(raw)
+        response = await client.post(
+            "/api/v1/ingest/bulk-category-classification",
+            headers=_hdr(USER_PROJECT_MANAGER),
+            json={
+                "task_ids": [task_id],
+                "target_scope": "project",
+                "target_project_id": str(PROJECT_ALPHA),
+                "retry": True,
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        item = response.json()["items"][0]
+        assert item["suggested_category_id"] is None
+        assert item["category_source"] == "needs_manual"
+        assert item["status"] == "failed"
+        assert item["retryable"] is True
+
+
+async def test_only_category_is_rule_source_without_llm_call(client):
+    only = uuid.uuid4()
+    await _publish_categories(client, [(only, "项目基础信息")])
+    task_id = await _upload(client)
+    fake = _CategoryLLM(None)
+    app.dependency_overrides[get_generation_llm_client] = lambda: fake
+
+    response = await client.post(
+        "/api/v1/ingest/bulk-category-classification",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "task_ids": [task_id],
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+        },
+    )
+    item = response.json()["items"][0]
+    assert item["suggested_category_id"] == str(only)
+    assert item["category_source"] == "rule_only_option"
+    assert fake.messages == []
+
+
+async def test_manual_category_survives_retry(client):
+    first, second = uuid.uuid4(), uuid.uuid4()
+    await _publish_categories(client, [(first, "辅导过程"), (second, "项目复盘")])
+    task_id = await _upload(client)
+    selected = await client.put(
+        f"/api/v1/ingest/{task_id}/category-selection",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "category_id": str(first),
+        },
+    )
+    assert selected.status_code == 200
+    fake = _CategoryLLM(second)
+    app.dependency_overrides[get_generation_llm_client] = lambda: fake
+    retried = await client.post(
+        "/api/v1/ingest/bulk-category-classification",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "task_ids": [task_id],
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "retry": True,
+        },
+    )
+    item = retried.json()["items"][0]
+    assert item["suggested_category_id"] == str(first)
+    assert item["category_source"] == "manual"
+    assert fake.messages == []
+
+
+async def test_manual_category_wins_when_concurrent_retry_finishes_late(client, db_session):
+    first, second = uuid.uuid4(), uuid.uuid4()
+    await _publish_categories(client, [(first, "辅导过程"), (second, "项目复盘")])
+    task_id = await _upload(client)
+    fake = _BlockingCategoryLLM(second)
+    app.dependency_overrides[get_generation_llm_client] = lambda: fake
+
+    retry_request = asyncio.create_task(
+        client.post(
+            "/api/v1/ingest/bulk-category-classification",
+            headers=_hdr(USER_PROJECT_MANAGER),
+            json={
+                "task_ids": [task_id],
+                "target_scope": "project",
+                "target_project_id": str(PROJECT_ALPHA),
+                "retry": True,
+            },
+        )
+    )
+    await asyncio.wait_for(fake.started.wait(), timeout=1)
+
+    selected = await client.put(
+        f"/api/v1/ingest/{task_id}/category-selection",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "category_id": str(first),
+        },
+    )
+    assert selected.status_code == 200, selected.text
+    assert selected.json()["category_source"] == "manual"
+
+    fake.release.set()
+    retried = await asyncio.wait_for(retry_request, timeout=2)
+    assert retried.status_code == 200, retried.text
+    item = retried.json()["items"][0]
+    assert item["suggested_category_id"] == str(first)
+    assert item["category_source"] == "manual"
+
+    ai = await db_session.scalar(
+        select(IngestTaskAiResult)
+        .where(IngestTaskAiResult.ingest_task_id == uuid.UUID(task_id))
+        .execution_options(populate_existing=True)
+    )
+    stored = ai.naming_parsed_fields["category_suggestion"]
+    assert stored["suggested_category_id"] == str(first)
+    assert stored["category_source"] == "manual"
+
+
+async def test_published_rule_change_invalidates_old_ai_category(client):
+    first, second = uuid.uuid4(), uuid.uuid4()
+    await _publish_categories(client, [(first, "辅导过程"), (second, "项目复盘")])
+    task_id = await _upload(client)
+    initial_fake = _CategoryLLM(first)
+    app.dependency_overrides[get_generation_llm_client] = lambda: initial_fake
+    initial = await client.post(
+        "/api/v1/ingest/bulk-category-classification",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "task_ids": [task_id],
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+        },
+    )
+    initial_revision = initial.json()["candidate_rule_revision"]
+
+    replacement, other = uuid.uuid4(), uuid.uuid4()
+    config = _config(replacement, category="关键资料")
+    config["categories"].append(
+        {
+            "id": str(other),
+            "scope": "project",
+            "primary": "项目资料",
+            "secondary": "项目基础信息",
+            "prefix": "项目资料-项目基础信息",
+            "default_confidentiality": "L2",
+            "enabled": True,
+            "sort_order": 20,
+        }
+    )
+    saved = await client.put(
+        "/api/v1/admin/naming-rules/draft",
+        headers=_hdr(USER_BOSS),
+        json={"expected_base_version": initial_revision, "config": config},
+    )
+    assert saved.status_code == 200, saved.text
+    published = await client.post(
+        "/api/v1/admin/naming-rules/publish",
+        headers=_hdr(USER_BOSS),
+        json={"expected_base_version": initial_revision},
+    )
+    assert published.status_code == 200, published.text
+    replacement_fake = _CategoryLLM(replacement)
+    app.dependency_overrides[get_generation_llm_client] = lambda: replacement_fake
+
+    refreshed = await client.post(
+        "/api/v1/ingest/bulk-category-classification",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "task_ids": [task_id],
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+        },
+    )
+    item = refreshed.json()["items"][0]
+    assert refreshed.json()["candidate_rule_revision"] != initial_revision
+    assert item["suggested_category_id"] == str(replacement)
+    assert len(replacement_fake.messages) == 1
+
+
+async def test_empty_category_rules_never_fall_back_to_deliverable(client):
+    config = _config(uuid.uuid4())
+    config["categories"] = []
+    saved = await client.put(
+        "/api/v1/admin/naming-rules/draft",
+        headers=_hdr(USER_BOSS),
+        json={"expected_base_version": 1, "config": config},
+    )
+    assert saved.status_code == 200
+    published = await client.post(
+        "/api/v1/admin/naming-rules/publish",
+        headers=_hdr(USER_BOSS),
+        json={"expected_base_version": 1},
+    )
+    assert published.status_code == 200
+    task_id = await _upload(client)
+    response = await client.post(
+        "/api/v1/ingest/bulk-category-classification",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "task_ids": [task_id],
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+        },
+    )
+    assert response.json()["candidate_count"] == 0
+    item = response.json()["items"][0]
+    assert item["suggested_category_id"] is None
+    assert item["category_source"] == "needs_manual"
+    assert "未配置" in item["category_reason"]
+
+
+async def test_unconfigured_classifier_is_retryable_manual_not_default(client):
+    first, second = uuid.uuid4(), uuid.uuid4()
+    await _publish_categories(client, [(first, "辅导过程"), (second, "项目复盘")])
+    task_id = await _upload(client)
+    response = await client.post(
+        "/api/v1/ingest/bulk-category-classification",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "task_ids": [task_id],
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+        },
+    )
+    item = response.json()["items"][0]
+    assert item["suggested_category_id"] is None
+    assert item["category_source"] == "needs_manual"
+    assert item["status"] == "failed"
+    assert item["retryable"] is True

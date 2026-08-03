@@ -232,9 +232,7 @@ async def test_upstream_leaky_error_not_exposed_anywhere(client, db_session, mon
                 "summary": "s",
                 "tags": [],
                 "target_scope": "personal",
-                "asset_type": "methodology",
                 "confidentiality_level": "L2",
-                "ai_access_level": "A2",
             },
         )
         assert r.status_code == 200, r.text
@@ -323,9 +321,7 @@ async def test_upstream_leaky_code_not_exposed(client, db_session, monkeypatch):
                 "summary": "s",
                 "tags": [],
                 "target_scope": "personal",
-                "asset_type": "methodology",
                 "confidentiality_level": "L2",
-                "ai_access_level": "A2",
             },
         )
         assert r.status_code == 200, r.text

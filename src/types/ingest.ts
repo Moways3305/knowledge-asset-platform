@@ -109,6 +109,17 @@ export interface NamingFields {
   missing_fields: string[];
   source_file_name: string;
   original_naming_compliant: boolean;
+  category_suggestion?: {
+    suggested_category_id: string | null;
+    category_source: import("./naming").CategorySuggestionSource;
+    category_confidence: "high" | "medium" | "low";
+    category_reason: string;
+    candidate_rule_revision: number | null;
+    target_scope?: "project" | "company";
+    target_project_id?: string | null;
+    status: "classified" | "needs_manual" | "failed" | "unchanged";
+    retryable?: boolean;
+  };
 }
 
 export interface IngestAiResultDTO {
@@ -169,15 +180,12 @@ export interface IngestConfirmRequestDTO {
   target_scope: "personal" | "project" | "company";
   target_project_id?: string;
   target_zone?: string;
-  asset_type: string;
-  visibility?: string;
   confidentiality_level: string;
-  ai_access_level: string;
-  lifecycle_phase_key?: string;
   // PBC-38：可选模型选择（对底座 id 不可逆的 model_ref，绝不发送真实 model_id）。
   // 缺省走平台默认；仅在首建该 scope 的 KB 时生效，已有 KB 沿用其锁定模型。
   embedding_model_ref?: string;
   rerank_model_ref?: string;
+  acknowledged_naming_warning_codes?: string[];
   naming?: import("./naming").NamingConfirmationDTO;
 }
 

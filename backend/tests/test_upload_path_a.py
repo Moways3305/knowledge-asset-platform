@@ -175,10 +175,7 @@ async def test_path_a_task_confirmable_via_shared_chain(client, db_session):
             "tags": ["零售", "渠道"],
             "target_scope": "personal",
             "target_zone": "material",
-            "asset_type": "deliverable",
             "confidentiality_level": "L2",
-            "ai_access_level": "A2",
-            "lifecycle_phase_key": "诊断",
         },
     )
     assert confirm.status_code == 200, confirm.text
@@ -212,10 +209,7 @@ async def test_path_a_project_task_confirmable_by_member(client, db_session):
             "target_scope": "project",
             "target_project_id": str(PROJECT_ALPHA),
             "target_zone": "material",
-            "asset_type": "deliverable",
             "confidentiality_level": "L2",
-            "ai_access_level": "A2",
-            "lifecycle_phase_key": "诊断",
         },
     )
     assert confirm.status_code == 200, confirm.text
@@ -230,9 +224,7 @@ async def test_second_confirm_returns_409(client, db_session):
         "tags": [],
         "target_scope": "personal",
         "target_zone": "material",
-        "asset_type": "deliverable",
         "confidentiality_level": "L2",
-        "ai_access_level": "A2",
     }
     r1 = await client.post(
         f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(USER_CONSULTANT), json=payload
@@ -261,9 +253,7 @@ async def test_processing_task_present_but_unconfirmable(client, db_session):
             "summary": "y",
             "tags": [],
             "target_scope": "personal",
-            "asset_type": "deliverable",
             "confidentiality_level": "L2",
-            "ai_access_level": "A2",
         },
     )
     assert r.status_code == 409

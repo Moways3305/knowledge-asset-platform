@@ -10,18 +10,15 @@ from datetime import datetime
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.bulk_operations import BulkRequestContext
 from app.schemas.enums import (
-    AiAccessLevel,
-    AssetType,
     ConfidentialityLevel,
     KnowledgeScope,
     KnowledgeZone,
-    Visibility,
 )
-from app.schemas.naming import NamingConfirmationFields
+from app.schemas.naming import NamingConfirmationFields, NamingWarningCode
 
 
 class IngestUploadRequest(BaseModel):
@@ -212,6 +209,8 @@ class IngestConfirmRequest(BaseModel):
     数据库仍以 String 存储（写入时取 `.value`）。
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     title: str
     # 三层摘要（人工校正后）：summary 复用为 detailed；one_liner / key_points 可选。
     one_liner: str | None = None
@@ -221,15 +220,16 @@ class IngestConfirmRequest(BaseModel):
     target_scope: KnowledgeScope
     target_project_id: uuid.UUID | None = None
     target_zone: KnowledgeZone = KnowledgeZone.material
-    asset_type: AssetType
-    visibility: Visibility = Visibility.project_only
     confidentiality_level: ConfidentialityLevel
-    ai_access_level: AiAccessLevel
-    lifecycle_phase_key: str | None = None
     # PBC-38：可选模型选择（对底座 id 不可逆的 model_ref，绝不接收真实 model_id）。
     # 缺省走平台默认；显式选择仅在首建该 scope 的 KB 时生效，已有 KB 冲突会被锁定拒绝。
     embedding_model_ref: str | None = None
     rerank_model_ref: str | None = None
+    # The server recomputes every warning. These codes only record the user's
+    # explicit decision to proceed; they cannot suppress a blocking validation.
+    acknowledged_naming_warning_codes: list[NamingWarningCode] = Field(
+        default_factory=list, max_length=20
+    )
     # Project/company canonical naming facts. The final filename is deliberately
     # absent: the backend renders it from the currently published policy.
     naming: NamingConfirmationFields | None = None

@@ -42,6 +42,7 @@ function classifyPermanentRejectError(error: unknown): { message: string; retrya
 }
 
 type BatchReviewDeleteResult = { ok: true } | { ok: false; message: string; retryable: boolean };
+type BatchConfirmResult = { succeededIds: string[]; failedIds: string[] };
 
 export type {
   LocalUploadQueueItem,
@@ -146,16 +147,8 @@ export function useUploadFlow() {
     setEditKeyPoints,
     editTags,
     setEditTags,
-    editVisibility,
-    setEditVisibility,
-    editBizStage,
-    setEditBizStage,
-    editAssetType,
-    setEditAssetType,
     editConfidentiality,
     setEditConfidentiality,
-    editAiAccess,
-    setEditAiAccess,
     targetLibrary,
     setTargetLibrary,
     targetLocked,
@@ -201,9 +194,16 @@ export function useUploadFlow() {
       destination: Exclude<TargetLibrary, "">,
       destinationProjectId?: string,
       namingByTask?: Record<string, BatchNamingValuesDTO>,
-    ) => {
-      if (batchRunRef.current !== null || tasks.length === 0) return;
-      if (destination === "project" && !destinationProjectId) return;
+      warningCodesByTask?: Record<string, string[]>,
+      preserveUnsubmittedSelection = false,
+      onCompleted?: (result: BatchConfirmResult) => void,
+    ): Promise<void> => {
+      if (batchRunRef.current !== null || tasks.length === 0) {
+        return;
+      }
+      if (destination === "project" && !destinationProjectId) {
+        return;
+      }
       const runId = beginWorkflowRun();
       const isCurrent = () => batchRunRef.current === runId && isCurrentWorkflowRun(runId);
       const updateBatchStatus = (
@@ -230,6 +230,7 @@ export function useUploadFlow() {
       let completed = false;
       let preserveRetry = false;
       let retrySelection: string[] = [];
+      const succeededIds = new Set<string>();
       const prepared: Array<{
         task: PendingIngestItemDTO;
         confirmation: IngestConfirmRequestDTO;
@@ -281,16 +282,13 @@ export function useUploadFlow() {
                 target_scope: destination,
                 target_project_id: destination === "project" ? destinationProjectId : undefined,
                 target_zone: "material",
-                asset_type: ai.suggested_asset_type || "methodology",
-                visibility: "project_only",
                 confidentiality_level:
                   governedNaming?.confidentiality_level ||
                   ai.suggested_confidentiality_level ||
                   "L2",
-                ai_access_level: ai.suggested_ai_access_level || "A2",
-                lifecycle_phase_key: ai.suggested_phase_key || undefined,
                 embedding_model_ref: models.embeddingRef || undefined,
                 rerank_model_ref: models.rerankRef || undefined,
+                acknowledged_naming_warning_codes: warningCodesByTask?.[task.id] ?? [],
                 naming: governedNaming
                   ? {
                       category_id: governedNaming.category_id,
@@ -334,13 +332,13 @@ export function useUploadFlow() {
               ...previous,
               [item.item_id]: succeeded ? "success" : "failed",
             }));
+            if (succeeded) succeededIds.add(item.item_id);
             if (succeeded && activePath === "b") removeLocalTaskEverywhere(item.item_id);
             if (!succeeded) {
               if (
                 item.status === "failed" ||
                 item.reason_code?.startsWith("naming_") ||
-                item.reason_code === "canonical_name_too_long" ||
-                item.reason_code === "project_subject_customer_name_detected"
+                item.reason_code === "canonical_name_too_long"
               ) {
                 retryableFailedIds.push(item.item_id);
               }
@@ -359,7 +357,11 @@ export function useUploadFlow() {
         if (activePath === "a") await loadPending();
         else await loadLocalPending();
         if (isCurrent() && refreshRequestRef.current === expectedRefreshRequest) {
-          setBatchSelection(retrySelection);
+          setBatchSelection((current) =>
+            preserveUnsubmittedSelection
+              ? current.filter((id) => !succeededIds.has(id))
+              : retrySelection,
+          );
         }
       } catch (error) {
         if (!isCurrent()) return;
@@ -375,6 +377,7 @@ export function useUploadFlow() {
             ...previous,
             [item.item_id]: succeeded ? "success" : "failed",
           }));
+          if (succeeded) succeededIds.add(item.item_id);
           if (succeeded && activePath === "b") removeLocalTaskEverywhere(item.item_id);
           if (item.status === "failed") retryIds.add(item.item_id);
         });
@@ -392,7 +395,11 @@ export function useUploadFlow() {
         if (activePath === "a") await loadPending();
         else await loadLocalPending();
         if (isCurrent() && refreshRequestRef.current === expectedRefreshRequest) {
-          setBatchSelection(retrySelection);
+          setBatchSelection((current) =>
+            preserveUnsubmittedSelection
+              ? current.filter((id) => !succeededIds.has(id))
+              : retrySelection,
+          );
         }
       } finally {
         // A single-task selection can invalidate this run without going through
@@ -407,6 +414,10 @@ export function useUploadFlow() {
           }
         }
       }
+      onCompleted?.({
+        succeededIds: [...succeededIds],
+        failedIds: tasks.map((task) => task.id).filter((id) => !succeededIds.has(id)),
+      });
     },
     [
       activePath,
@@ -428,6 +439,31 @@ export function useUploadFlow() {
       setBatchSelection,
       setBatchStatus,
     ],
+  );
+
+  const handleSingleBatchConfirm = useCallback(
+    async (
+      task: PendingIngestItemDTO,
+      destination: "project" | "company",
+      destinationProjectId: string | undefined,
+      naming: BatchNamingValuesDTO,
+      warningCodes: string[] = [],
+    ): Promise<BatchConfirmResult> => {
+      let result: BatchConfirmResult = { succeededIds: [], failedIds: [task.id] };
+      await handleBatchConfirm(
+        [task],
+        destination,
+        destinationProjectId,
+        { [task.id]: naming },
+        { [task.id]: warningCodes },
+        true,
+        (completed) => {
+          result = completed;
+        },
+      );
+      return result;
+    },
+    [handleBatchConfirm],
   );
 
   // Permanent rejection intentionally reuses the existing one-item DELETE endpoint.
@@ -764,6 +800,7 @@ export function useUploadFlow() {
     toggleBatchTask,
     setBatchTasksSelected,
     handleBatchConfirm,
+    handleSingleBatchConfirm,
     handleBatchReject,
     handleDeleteBatchReviewItem,
     taskId,
@@ -777,16 +814,8 @@ export function useUploadFlow() {
     setEditKeyPoints,
     editTags,
     setEditTags,
-    editVisibility,
-    setEditVisibility,
-    editBizStage,
-    setEditBizStage,
-    editAssetType,
-    setEditAssetType,
     editConfidentiality,
     setEditConfidentiality,
-    editAiAccess,
-    setEditAiAccess,
     targetLibrary,
     setTargetLibrary,
     targetProjectId,

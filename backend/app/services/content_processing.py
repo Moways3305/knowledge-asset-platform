@@ -1,7 +1,7 @@
 """内容处理服务（含命名规范化）——对抽取文本真调外部 LLM 出结构化建议草稿。
 
 取代 的确定性 `_build_ai_result`：上传期对 `extracted_text` 调 LLM 输出
-{分类(asset_type/confidentiality/ai_access) + **规范命名组件** + 三层摘要
+{内容密级 + **规范命名组件** + 三层摘要
 (one_liner/detailed/key_points) + tags}，写 `ingest_task_ai_results` 草稿（建议层），
 供 `/upload` 人工校正。
 
@@ -33,7 +33,7 @@ from __future__ import annotations
 import json
 import re
 
-from app.schemas.enums import AiAccessLevel, AssetType, ConfidentialityLevel
+from app.schemas.enums import AiAccessLevel, ConfidentialityLevel
 from app.services.desensitization import DesensitizationEngine
 from app.services.extraction import ExtractionResult
 from app.services.llm_client import (
@@ -47,7 +47,6 @@ from app.services.llm_client import (
 _MAX_KEY_POINTS = 8
 _MAX_TAGS = 8
 _LLM_INPUT_CHARS = 12_000  # 截断送入 LLM 的文本，控成本/时延
-_VALID_TYPES = {t.value for t in AssetType}
 _VALID_LEVELS = {c.value for c in ConfidentialityLevel}
 _VALID_AI = {a.value for a in AiAccessLevel}
 
@@ -92,8 +91,7 @@ _SYSTEM_PROMPT = (
     "version_confidence（high/medium/low）、version_reason（不引用正文原句的简短说明）、"
     "confidentiality_level（L1-L5，只能依据文档正文，不得依据文件名中的 L1-L5）、"
     "confidentiality_confidence（high/medium/low）、"
-    "confidentiality_reason（不引用正文原句的简短说明）、ai_access_level（A1-A4）、"
-    "asset_type（methodology/deliverable/case/template/insight 之一）、"
+    "confidentiality_reason（不引用正文原句的简短说明）、"
     "inferred_fields（数组，列出上述哪些命名字段是你推断而非有明确依据的）、"
     "one_liner（一句话自然语言摘要，<=80字，可为整句）、"
     "detailed（详细摘要，<=400字）、"
@@ -301,7 +299,7 @@ def _degraded_draft(file_name: str, extraction: ExtractionResult) -> dict:
         "suggested_summary": detailed,  # detailed
         "suggested_key_points": [],
         "suggested_tags": tags,
-        "suggested_asset_type": "methodology",
+        "suggested_asset_type": None,
         "suggested_version": source_version or _DEFAULT_VERSION,
         "version_source": "source_filename" if source_version else "default_needs_confirmation",
         "version_confidence": "high" if source_version else "low",
@@ -312,7 +310,7 @@ def _degraded_draft(file_name: str, extraction: ExtractionResult) -> dict:
         "confidentiality_source": "default_needs_confirmation",
         "confidentiality_confidence": "low",
         "confidentiality_reason": "AI 未能可靠判断内容密级，已使用规则默认值",
-        "suggested_ai_access_level": naming["ai_access_level"],
+        "suggested_ai_access_level": None,
         "suggested_phase_key": None,
         "confidence": confidence,
         "naming_compliant": naming["original_naming_compliant"],
@@ -436,15 +434,13 @@ async def process_content(
     detailed = (detailed_raw if summary_generated else str(base["suggested_summary"]))[:2000]
     key_points = _coerce_list(parsed.get("key_points"), _MAX_KEY_POINTS)
     tags = _coerce_list(parsed.get("tags"), _MAX_TAGS) or base["suggested_tags"]
-    asset_type = parsed.get("asset_type")
     level = parsed.get("confidentiality_level")
     confidentiality_confidence = str(parsed.get("confidentiality_confidence") or "").lower()
-    ai_access = parsed.get("ai_access_level")
     confidentiality_is_reliable = (
         level in _VALID_LEVELS and confidentiality_confidence in _AI_CONFIDENCE_THRESHOLD
     )
     level_v = str(level) if confidentiality_is_reliable else _DEFAULT_LEVEL
-    ai_v = str(ai_access) if ai_access in _VALID_AI else _DEFAULT_AI
+    ai_v = _DEFAULT_AI
 
     # 命名组件：优先 LLM，其次文件名解析（顾问命名合规时）作为兜底信号。
     fn_parsed = _parse_compliant_filename(file_name)
@@ -502,7 +498,7 @@ async def process_content(
         suggested_summary=detailed,
         suggested_key_points=key_points,
         suggested_tags=tags,
-        suggested_asset_type=asset_type if asset_type in _VALID_TYPES else "methodology",
+        suggested_asset_type=None,
         suggested_version=suggested_version,
         version_source=version_source,
         version_confidence=version_confidence,
@@ -521,7 +517,7 @@ async def process_content(
             if confidentiality_is_reliable
             else "AI 未能可靠判断内容密级，已使用规则默认值"
         ),
-        suggested_ai_access_level=ai_v,
+        suggested_ai_access_level=None,
         naming_compliant=naming["original_naming_compliant"],
         naming_parsed_fields=naming,
         naming_anomalies=_naming_anomalies(naming),

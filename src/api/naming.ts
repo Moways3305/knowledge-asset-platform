@@ -2,6 +2,8 @@ import { apiGet, apiPost, apiPut } from "./http";
 import type {
   BatchNamingPreviewResponseDTO,
   BatchNamingValuesDTO,
+  CategoryClassificationBatchDTO,
+  CategoryClassificationItemDTO,
   NamingConfirmationDTO,
   NamingOptionsDTO,
   NamingPreviewDTO,
@@ -70,5 +72,32 @@ export function previewBatchIngestNaming(input: {
         ...(input.targetScope === "company" ? { applicable_to: item.naming.applicable_to } : {}),
       },
     })),
+  });
+}
+
+export function classifyBatchNamingCategories(input: {
+  taskIds: string[];
+  targetScope: "project" | "company";
+  targetProjectId?: string;
+  retry?: boolean;
+}): Promise<CategoryClassificationBatchDTO> {
+  return apiPost("/api/v1/ingest/bulk-category-classification", {
+    task_ids: input.taskIds,
+    target_scope: input.targetScope,
+    target_project_id: input.targetProjectId ?? null,
+    retry: input.retry ?? false,
+  });
+}
+
+export function saveManualNamingCategory(input: {
+  taskId: string;
+  targetScope: "project" | "company";
+  targetProjectId?: string;
+  categoryId: string;
+}): Promise<CategoryClassificationItemDTO> {
+  return apiPut(`/api/v1/ingest/${input.taskId}/category-selection`, {
+    target_scope: input.targetScope,
+    target_project_id: input.targetProjectId ?? null,
+    category_id: input.categoryId,
   });
 }

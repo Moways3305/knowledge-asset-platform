@@ -2,19 +2,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchAuthMe } from "../../api/auth";
 import { ApiError } from "../../api/http";
 import { confirmIngest, createIngestUpload, fetchIngestAiResult } from "../../api/ingest";
-import { fetchNamingOptions, previewIngestNaming } from "../../api/naming";
+import {
+  classifyBatchNamingCategories,
+  fetchNamingOptions,
+  previewIngestNaming,
+} from "../../api/naming";
 import type { IngestAiResultDTO, NamingFields, PendingIngestItemDTO } from "../../types/ingest";
 import type { NamingOptionsDTO, NamingPreviewDTO } from "../../types/naming";
 import {
   POLL_INTERVAL_MS,
   POLL_MAX_ATTEMPTS,
   sleep,
-  visibilityToKey,
   type FlowState,
   type PathBranch,
   type TargetLibrary,
 } from "./uploadConstants";
-import { suggestNamingCategory } from "./namingCategorySuggestion";
 
 export interface ConfirmationNamingState {
   taskId: string | null;
@@ -29,11 +31,7 @@ export interface ConfirmationNamingState {
     summary: string;
     keyPoints: string;
     tags: string;
-    assetType: string;
     confidentiality: string;
-    aiAccess: string;
-    visibility: string;
-    businessStage: string;
   };
   ai: {
     naming: NamingFields | null;
@@ -81,11 +79,7 @@ export function useIngestConfirmation({
   const [editSummary, setEditSummary] = useState("");
   const [editKeyPoints, setEditKeyPoints] = useState("");
   const [editTags, setEditTags] = useState("");
-  const [editVisibility, setEditVisibility] = useState("项目内");
-  const [editBizStage, setEditBizStage] = useState("行动辅导");
-  const [editAssetType, setEditAssetType] = useState("methodology");
   const [editConfidentiality, setEditConfidentiality] = useState("L2");
-  const [editAiAccess, setEditAiAccess] = useState("A2");
   const [targetLibrary, setTargetLibrary] = useState<TargetLibrary>("");
   const [targetLocked, setTargetLocked] = useState(false);
   const [targetProjectId, setTargetProjectId] = useState("");
@@ -122,6 +116,7 @@ export function useIngestConfirmation({
   const [namingPreviewBusy, setNamingPreviewBusy] = useState(false);
   const [namingPreviewError, setNamingPreviewError] = useState<string | null>(null);
   const namingPreviewRunRef = useRef(0);
+  const reliableAiConfidentialityRef = useRef(false);
 
   const beginWorkflowRun = useCallback(() => {
     workflowRunRef.current += 1;
@@ -172,9 +167,13 @@ export function useIngestConfirmation({
     setEditSummary(ai.suggested_summary ?? "");
     setEditKeyPoints((ai.suggested_key_points ?? []).join("\n"));
     setEditTags((ai.suggested_tags ?? []).join(" · "));
-    setEditAssetType(ai.suggested_asset_type ?? "methodology");
-    setEditConfidentiality(ai.suggested_confidentiality_level ?? "L2");
-    setEditAiAccess(ai.suggested_ai_access_level ?? "A2");
+    reliableAiConfidentialityRef.current =
+      ai.confidentiality_source === "ai_content" &&
+      (ai.confidentiality_confidence === "high" || ai.confidentiality_confidence === "medium") &&
+      /^L[1-5]$/.test(ai.suggested_confidentiality_level ?? "");
+    setEditConfidentiality(
+      reliableAiConfidentialityRef.current ? ai.suggested_confidentiality_level! : "L2",
+    );
     setSuggestionGeneration({
       status: ai.suggestion_generation_status,
       reason: ai.suggestion_generation_reason,
@@ -208,7 +207,7 @@ export function useIngestConfirmation({
     }
     let live = true;
     fetchNamingOptions(targetLibrary, targetLibrary === "project" ? targetProjectId : undefined)
-      .then((value) => {
+      .then(async (value) => {
         if (!live) return;
         setNamingOptions(value);
         setNamingPolicyResolved(true);
@@ -216,12 +215,29 @@ export function useIngestConfirmation({
           setNamingCategoryId("");
           return;
         }
-        setNamingCategoryId((current) =>
-          value.categories.some((item) => item.id === current)
-            ? current
-            : (suggestNamingCategory(naming, value.categories)?.id ?? ""),
-        );
-        if (value.default_confidentiality) setEditConfidentiality(value.default_confidentiality);
+        if (taskId && (targetLibrary === "project" || targetLibrary === "company")) {
+          const classified = await classifyBatchNamingCategories({
+            taskIds: [taskId],
+            targetScope: targetLibrary,
+            targetProjectId: targetLibrary === "project" ? targetProjectId : undefined,
+          });
+          if (!live) return;
+          const item = classified.items[0];
+          setNamingCategoryId((current) =>
+            value.categories.some((category) => category.id === current)
+              ? current
+              : item?.status === "classified" &&
+                  item.suggested_category_id &&
+                  item.candidate_rule_revision === value.rule_version
+                ? item.suggested_category_id
+                : "",
+          );
+        } else {
+          setNamingCategoryId("");
+        }
+        if (value.default_confidentiality && !reliableAiConfidentialityRef.current) {
+          setEditConfidentiality(value.default_confidentiality);
+        }
       })
       .catch((reason) => {
         if (!live) return;
@@ -232,7 +248,7 @@ export function useIngestConfirmation({
     return () => {
       live = false;
     };
-  }, [naming, targetLibrary, targetProjectId]);
+  }, [targetLibrary, targetProjectId, taskId]);
 
   useEffect(() => {
     const runId = ++namingPreviewRunRef.current;
@@ -476,13 +492,12 @@ export function useIngestConfirmation({
         target_scope: selectedTargetLibrary,
         target_project_id: selectedTargetLibrary === "project" ? targetProjectId : undefined,
         target_zone: "material",
-        asset_type: editAssetType,
-        visibility: visibilityToKey[editVisibility] ?? "project_only",
         confidentiality_level: editConfidentiality,
-        ai_access_level: editAiAccess,
-        lifecycle_phase_key: editBizStage,
         embedding_model_ref: embeddingModelRef || undefined,
         rerank_model_ref: rerankModelRef || undefined,
+        acknowledged_naming_warning_codes: (namingPreview?.notices ?? []).flatMap((notice) =>
+          notice.code ? [notice.code] : [],
+        ),
         naming: namingOptions?.required
           ? {
               category_id: namingCategoryId,
@@ -510,16 +525,12 @@ export function useIngestConfirmation({
   }, [
     activePath,
     beginWorkflowRun,
-    editAiAccess,
-    editAssetType,
-    editBizStage,
     editConfidentiality,
     editKeyPoints,
     editOneLiner,
     editSummary,
     editTags,
     editTitle,
-    editVisibility,
     embeddingModelRef,
     isCurrentWorkflowRun,
     loadLocalPending,
@@ -528,6 +539,7 @@ export function useIngestConfirmation({
     namingCategoryId,
     namingFormedOn,
     namingOptions?.required,
+    namingPreview?.notices,
     namingVersion,
     removeLocalTask,
     rerankModelRef,
@@ -555,15 +567,12 @@ export function useIngestConfirmation({
     setEditSummary("");
     setEditKeyPoints("");
     setEditTags("");
-    setEditVisibility("项目内");
-    setEditBizStage("行动辅导");
     setTargetLibrary("");
     setTargetProjectId("");
     setTargetLocked(false);
     setSuggestionGeneration(null);
-    setEditAssetType("methodology");
     setEditConfidentiality("L2");
-    setEditAiAccess("A2");
+    reliableAiConfidentialityRef.current = false;
     setTaskId(null);
     setResultAssetId(null);
     setSubmitReviewId(null);
@@ -593,11 +602,7 @@ export function useIngestConfirmation({
         summary: editSummary,
         keyPoints: editKeyPoints,
         tags: editTags,
-        assetType: editAssetType,
         confidentiality: editConfidentiality,
-        aiAccess: editAiAccess,
-        visibility: editVisibility,
-        businessStage: editBizStage,
       },
       ai: {
         naming,
@@ -605,16 +610,12 @@ export function useIngestConfirmation({
       },
     }),
     [
-      editAiAccess,
-      editAssetType,
-      editBizStage,
       editConfidentiality,
       editKeyPoints,
       editOneLiner,
       editSummary,
       editTags,
       editTitle,
-      editVisibility,
       naming,
       suggestionGeneration,
       targetLibrary,
@@ -647,16 +648,8 @@ export function useIngestConfirmation({
     setEditKeyPoints,
     editTags,
     setEditTags,
-    editVisibility,
-    setEditVisibility,
-    editBizStage,
-    setEditBizStage,
-    editAssetType,
-    setEditAssetType,
     editConfidentiality,
     setEditConfidentiality,
-    editAiAccess,
-    setEditAiAccess,
     targetLibrary,
     setTargetLibrary,
     targetLocked,
