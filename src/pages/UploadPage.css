@@ -405,12 +405,44 @@
 }
 
 .kl-modal.upload77-batch-naming-dialog {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
   width: min(1180px, 96vw);
   max-height: 94vh;
   overflow: hidden;
 }
 
+.upload77-batch-naming-dialog .kl-modal-header {
+  flex: 0 0 auto;
+  padding-right: 40px;
+}
+
+.upload77-batch-naming-dialog .kl-modal-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+.upload77-batch-naming-dialog .kl-modal-error {
+  flex: 0 0 auto;
+}
+
+.upload77-batch-naming-dialog .kl-modal-actions {
+  flex: 0 0 auto;
+  margin-top: 14px;
+  padding-top: 14px;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  border-top: 1px solid var(--color-border-light);
+  background: var(--color-bg-surface, #fff);
+}
+
 .upload77-batch-naming-review {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
   min-width: 0;
 }
 
@@ -461,11 +493,12 @@
 
 .upload77-batch-naming-scroll {
   display: grid;
+  flex: 1 1 auto;
   gap: 12px;
-  max-height: min(64vh, 680px);
+  min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  padding-right: 6px;
+  padding: 0 6px 2px 0;
 }
 
 .upload77-batch-filter-empty {

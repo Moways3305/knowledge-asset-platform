@@ -207,18 +207,23 @@ export default function PendingBatchActions({
   >({});
   const [categoryTargetLabel, setCategoryTargetLabel] = useState("");
   const [classificationBusy, setClassificationBusy] = useState(false);
+  const [closeGuardOpen, setCloseGuardOpen] = useState(false);
   const previewRunsRef = useRef<Record<string, number>>({});
   const previewTimersRef = useRef<Record<string, number>>({});
 
+  const cancelPendingPreviews = () => {
+    Object.values(previewTimersRef.current).forEach((timer) => window.clearTimeout(timer));
+    Object.keys(previewTimersRef.current).forEach((taskId) => {
+      delete previewTimersRef.current[taskId];
+    });
+    Object.keys(previewRunsRef.current).forEach((taskId) => {
+      previewRunsRef.current[taskId] += 1;
+    });
+  };
+
   useEffect(() => {
     if (!confirmOpen) {
-      Object.values(previewTimersRef.current).forEach((timer) => window.clearTimeout(timer));
-      Object.keys(previewTimersRef.current).forEach((taskId) => {
-        delete previewTimersRef.current[taskId];
-      });
-      Object.keys(previewRunsRef.current).forEach((taskId) => {
-        previewRunsRef.current[taskId] += 1;
-      });
+      cancelPendingPreviews();
     }
   }, [confirmOpen]);
 
@@ -498,7 +503,7 @@ export default function PendingBatchActions({
   const advanceTarget = async () => {
     if (!targetReady) return;
     if (targetLibrary === "personal") {
-      setConfirmOpen(false);
+      closeAndResetReview();
       void flow.handleBatchConfirm(selectedConfirmTasks, "personal", undefined);
       return;
     }
@@ -509,12 +514,9 @@ export default function PendingBatchActions({
     try {
       const value = await fetchNamingOptions(destination, targetProjectId || undefined);
       if (!value.required) {
-        setConfirmOpen(false);
-        void flow.handleBatchConfirm(
-          selectedConfirmTasks,
-          destination,
-          targetProjectId || undefined,
-        );
+        const projectId = targetProjectId || undefined;
+        closeAndResetReview();
+        void flow.handleBatchConfirm(selectedConfirmTasks, destination, projectId);
         return;
       }
       setOptions(value);
@@ -706,18 +708,66 @@ export default function PendingBatchActions({
   };
 
   const submitGovernedBatch = () => {
-    if (!allPreviewed || (targetLibrary !== "project" && targetLibrary !== "company")) return;
-    setConfirmOpen(false);
-    // Keep user edits for failed rows, but require a fresh server preview after
-    // any final submission because policy or membership may have changed.
-    setPreviews({});
+    if (
+      !allPreviewed ||
+      flow.batchBusy ||
+      (targetLibrary !== "project" && targetLibrary !== "company")
+    ) {
+      return;
+    }
+    const destination = targetLibrary;
+    const projectId = targetProjectId || undefined;
+    const submittedRows = Object.fromEntries(
+      selectedConfirmTasks.map((task) => [task.id, rows[task.id]]),
+    );
     void flow.handleBatchConfirm(
       selectedConfirmTasks,
-      targetLibrary,
-      targetProjectId || undefined,
-      Object.fromEntries(selectedConfirmTasks.map((task) => [task.id, rows[task.id]])),
+      destination,
+      projectId,
+      submittedRows,
       warningCodesByTask,
+      true,
+      (result) => {
+        if (result.failedIds.length === 0) {
+          closeAndResetReview();
+          return;
+        }
+        setDialogError(
+          `${result.failedIds.length} 项资料确认未完成，已保留本次核对内容，请根据行内提示修正后重试。`,
+        );
+      },
     );
+  };
+
+  const closeAndResetReview = () => {
+    cancelPendingPreviews();
+    setConfirmOpen(false);
+    setCloseGuardOpen(false);
+    setStage("target");
+    setTargetLibrary("");
+    setTargetProjectId("");
+    setOptions(null);
+    setRows({});
+    setPreviews({});
+    setReviewTargetKey("");
+    setReviewFilter("all");
+    setFilterSnapshot(null);
+    setEditedTaskIds(new Set());
+    setReviewedTaskIds(new Set());
+    setPreviewBusyByTask({});
+    setPreviewFeedback({});
+    setCategorySuggestions({});
+    setCategoryTargetLabel("");
+    setDialogError(null);
+  };
+
+  const requestCloseReview = () => {
+    const previewInProgress = Object.values(previewBusyByTask).some(Boolean);
+    if (editedTaskIds.size > 0 || previewInProgress || classificationBusy || confirmingTaskId) {
+      setCloseGuardOpen(true);
+      return;
+    }
+    closeAndResetReview();
   };
 
   return (
@@ -770,17 +820,24 @@ export default function PendingBatchActions({
         confirmText={
           stage === "review" || targetLibrary === "personal" || !targetLibrary
             ? warningNotices.length > 0
-              ? "仍然确认批量入库"
-              : "确认批量入库"
+              ? `仍然确认已选择的 ${selectedConfirmTasks.length} 项入库`
+              : `确认已选择的 ${selectedConfirmTasks.length} 项入库`
             : "下一步：核对命名"
         }
-        busyText={stage === "target" ? "正在加载规则" : "正在核对"}
-        busy={loading}
+        busyText={
+          stage === "target"
+            ? "正在加载规则"
+            : flow.batchBusy && flow.batchOperation === "confirm"
+              ? "正在提交"
+              : "正在核对"
+        }
+        busy={loading || (flow.batchBusy && flow.batchOperation === "confirm")}
         confirmDisabled={stage === "target" ? !targetReady : !allPreviewed}
         error={dialogError}
         errorDescription={dialogError}
         panelClassName={stage === "review" ? "upload77-batch-naming-dialog" : undefined}
-        onCancel={() => setConfirmOpen(false)}
+        closeButtonLabel={stage === "review" ? "关闭批量命名核对" : undefined}
+        onCancel={requestCloseReview}
         onConfirm={stage === "target" ? () => void advanceTarget() : submitGovernedBatch}
       >
         {stage === "target" ? (
@@ -1176,6 +1233,15 @@ export default function PendingBatchActions({
           </div>
         )}
       </ConfirmDialog>
+
+      <ConfirmDialog
+        open={closeGuardOpen}
+        title="放弃本次批量命名核对？"
+        description="存在未保存修改或仍在进行的本地预览。关闭后将清理这些状态，已选择的待确认资料不会被删除。"
+        confirmText="放弃修改并关闭"
+        onCancel={() => setCloseGuardOpen(false)}
+        onConfirm={closeAndResetReview}
+      />
 
       <ConfirmDialog
         open={confirmCandidate !== null}

@@ -322,11 +322,11 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(target).toHaveValue("");
     expect(screen.getByRole("dialog")).toHaveTextContent("取消不会创建资产");
 
-    fireEvent.click(screen.getByRole("button", { name: "确认批量入库" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认已选择的 2 项入库" }));
     expect(flow.handleBatchConfirm).not.toHaveBeenCalled();
 
     fireEvent.change(target, { target: { value: "personal" } });
-    fireEvent.click(screen.getByRole("button", { name: "确认批量入库" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认已选择的 2 项入库" }));
     expect(flow.handleBatchConfirm).toHaveBeenCalledWith(
       flow.localPendingTasks,
       "personal",
@@ -382,7 +382,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
 
     const date = await screen.findByLabelText("Governed.pdf 文件形成日期");
     expect(date).toHaveValue("");
-    expect(screen.getByRole("button", { name: "确认批量入库" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "确认已选择的 1 项入库" })).toBeDisabled();
     expect(screen.getAllByText(/仍有 1 条需补充形成日期/)).toHaveLength(1);
 
     fireEvent.change(date, { target: { value: "2026-08-03" } });
@@ -390,7 +390,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(screen.queryByText("请补齐或修改该资料的命名字段")).not.toBeInTheDocument();
     await screen.findByText("【ALPHA-2026-交付件】安全标题_20260803_V1_L2.pdf");
     expect(screen.getByText("可确认")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "确认批量入库" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认已选择的 1 项入库" }));
 
     expect(flow.handleBatchConfirm).toHaveBeenCalledWith(
       [task],
@@ -407,6 +407,8 @@ describe("UploadStepB folder drop and batch rejection", () => {
         },
       },
       { [task.id]: [] },
+      true,
+      expect.any(Function),
     );
   });
 
@@ -452,7 +454,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
     const versionInput = screen.getByLabelText("Diagnostic.pdf 版本");
     const versionField = versionInput.closest("label");
     await waitFor(() => expect(versionField).toHaveTextContent("请填写有效版本，例如 V1 或 V1.1"));
-    expect(screen.getByRole("button", { name: "确认批量入库" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "确认已选择的 1 项入库" })).toBeDisabled();
   });
 
   it("uses a persisted current-rule AI category and keeps it editable", async () => {
@@ -654,7 +656,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
       target: { value: "编辑后的主题" },
     });
     expect(singleConfirm).toBeDisabled();
-    expect(screen.getByRole("button", { name: "仍然确认批量入库" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "仍然确认已选择的 1 项入库" })).toBeDisabled();
     await waitFor(() => expect(namingApi.previewBatchIngestNaming).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(singleConfirm).toBeEnabled());
 
@@ -759,9 +761,9 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(screen.queryByText("【ALPHA-2026-交付件】旧主题_20260803_V1_L2.md")).toBeNull();
   });
 
-  it("renders 93 long-name review rows inside a bounded scroll container", async () => {
+  it("keeps controls outside the scroll region with 213 long-name review rows", async () => {
     const longName = `${"超长项目资料文件名".repeat(12)}.pdf`;
-    const tasks = Array.from({ length: 93 }, (_, index) => ({
+    const tasks = Array.from({ length: 213 }, (_, index) => ({
       ...pending(`bulk-${index}`, `${index}-${longName}`),
       target_scope: null,
       naming_parsed_fields:
@@ -788,7 +790,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
       batchSelection: tasks.map((task) => task.id),
     });
     render(<UploadStepB flow={flow} />);
-    fireEvent.click(screen.getByRole("button", { name: "批量确认入库（93）" }));
+    fireEvent.click(screen.getByRole("button", { name: "批量确认入库（213）" }));
     fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标知识库" }), {
       target: { value: "project" },
     });
@@ -798,14 +800,22 @@ describe("UploadStepB folder drop and batch rejection", () => {
     fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
 
     await waitFor(() => {
-      expect(document.querySelectorAll(".upload77-batch-naming-row")).toHaveLength(93);
+      expect(document.querySelectorAll(".upload77-batch-naming-row")).toHaveLength(213);
     });
-    expect(document.querySelector(".upload77-batch-naming-scroll")).toBeInTheDocument();
-    expect(document.querySelector(".upload77-batch-naming-dialog")).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "逐条核对 213 项规范命名" });
+    const scrollRegion = dialog.querySelector(".upload77-batch-naming-scroll");
+    expect(scrollRegion).toBeInTheDocument();
+    expect(scrollRegion).not.toContainElement(
+      within(dialog).getByRole("button", { name: "关闭批量命名核对" }),
+    );
+    expect(scrollRegion).not.toContainElement(
+      within(dialog).getByRole("button", { name: "确认已选择的 213 项入库" }),
+    );
+    expect(scrollRegion).not.toContainElement(within(dialog).getByRole("button", { name: "取消" }));
     expect(document.querySelectorAll<HTMLInputElement>('input[type="date"]')[0]).toHaveValue(
       "2026-08-02",
     );
-    expect(screen.getAllByText(/已核对 0\/93 条/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/已核对 0\/213 条/).length).toBeGreaterThan(0);
   });
 
   it("selects all actionable rows, exposes half-selected state, and excludes disabled rows", () => {
@@ -837,7 +847,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标知识库" }), {
       target: { value: "personal" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "确认批量入库" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认已选择的 1 项入库" }));
     expect(flow.handleBatchConfirm).toHaveBeenCalledWith([first], "personal", undefined);
 
     fireEvent.click(screen.getByRole("button", { name: "批量拒绝入库（1）" }));

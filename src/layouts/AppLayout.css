@@ -5383,6 +5383,7 @@ body {
   z-index: 1000;
 }
 .kl-modal {
+  position: relative;
   background: var(--color-bg-surface, #fff);
   border-radius: var(--radius-lg, 12px);
   padding: 20px 24px;
@@ -5390,6 +5391,37 @@ body {
   max-height: 90vh;
   overflow: auto;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+}
+
+.kl-modal-header {
+  position: relative;
+}
+
+.kl-modal-close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--color-border-light);
+  border-radius: 8px;
+  background: var(--color-bg-surface, #fff);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.kl-modal-close:hover:not(:disabled) {
+  background: var(--color-bg-muted);
+  color: var(--color-text-primary);
+}
+
+.kl-modal-close:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 .kl-modal-title {
   margin: 0 0 6px;
