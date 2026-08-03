@@ -6,6 +6,7 @@ import asyncio
 import json
 import uuid
 from dataclasses import dataclass
+from typing import cast
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -78,12 +79,13 @@ def _persist(ai: IngestTaskAiResult, value: dict) -> None:
 async def _lock_ai_result(
     session: AsyncSession, ai_result_id: uuid.UUID
 ) -> IngestTaskAiResult | None:
-    return await session.scalar(
+    result = await session.scalar(
         select(IngestTaskAiResult)
         .where(IngestTaskAiResult.id == ai_result_id)
         .with_for_update()
         .execution_options(populate_existing=True)
     )
+    return cast(IngestTaskAiResult | None, result)
 
 
 def _response(task_id: uuid.UUID, value: dict) -> CategoryClassificationItemResponse:
@@ -233,15 +235,16 @@ async def classify_batch(
             == (str(request.target_project_id) if request.target_project_id else None)
             and (not old_id or old_id in candidate_ids)
         )
-        if old_current and old.get("category_source") == "manual":
-            results[task_id] = old
-            continue
-        if old_current and old.get("category_source") in {"ai_content", "rule_only_option"}:
-            results[task_id] = old
-            continue
-        if old_current and old.get("category_source") == "needs_manual" and not request.retry:
-            results[task_id] = old
-            continue
+        if old_current and old is not None:
+            if old.get("category_source") == "manual":
+                results[task_id] = old
+                continue
+            if old.get("category_source") in {"ai_content", "rule_only_option"}:
+                results[task_id] = old
+                continue
+            if old.get("category_source") == "needs_manual" and not request.retry:
+                results[task_id] = old
+                continue
         if not context.candidates:
             value = _manual_value("当前目标尚未配置启用的目录类别", context.revision)
             results[task_id] = value

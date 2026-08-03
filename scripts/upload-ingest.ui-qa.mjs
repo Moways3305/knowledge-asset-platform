@@ -291,6 +291,24 @@ try {
             message: "命名规则尚未发布，不强制规范命名",
           });
         }
+        if (url.pathname === "/api/v1/ingest/bulk-category-classification") {
+          const body = request.postDataJSON();
+          return fulfill({
+            target_label: "项目知识库 / 项目 Alpha",
+            candidate_rule_revision: 2,
+            candidate_count: 2,
+            items: (body.task_ids || []).map((task_id) => ({
+              task_id,
+              suggested_category_id: "category-deliverable",
+              category_source: "ai_content",
+              category_confidence: "high",
+              category_reason: "AI 根据正文语义匹配当前目标的目录规则",
+              candidate_rule_revision: 2,
+              status: "classified",
+              retryable: false,
+            })),
+          });
+        }
         if (url.pathname === "/api/v1/ingest/pending") {
           wecomCalls += 1;
           if (scenario === "wecom-failure") {
