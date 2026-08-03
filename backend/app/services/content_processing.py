@@ -443,8 +443,8 @@ async def process_content(
     confidentiality_is_reliable = (
         level in _VALID_LEVELS and confidentiality_confidence in _AI_CONFIDENCE_THRESHOLD
     )
-    level_v = level if confidentiality_is_reliable else _DEFAULT_LEVEL
-    ai_v = ai_access if ai_access in _VALID_AI else _DEFAULT_AI
+    level_v = str(level) if confidentiality_is_reliable else _DEFAULT_LEVEL
+    ai_v = str(ai_access) if ai_access in _VALID_AI else _DEFAULT_AI
 
     # 命名组件：优先 LLM，其次文件名解析（顾问命名合规时）作为兜底信号。
     fn_parsed = _parse_compliant_filename(file_name)
