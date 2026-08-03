@@ -424,6 +424,41 @@
   font-size: 13px;
 }
 
+.upload77-batch-naming-toolbar > div {
+  display: grid;
+  gap: 3px;
+}
+
+.upload77-batch-filter-summary {
+  color: var(--color-text-tertiary);
+}
+
+.upload77-batch-naming-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.upload77-batch-filter {
+  min-height: 34px;
+  padding: 6px 11px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-bg-surface, #fff);
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.upload77-batch-filter[aria-pressed="true"] {
+  border-color: #1f2d75;
+  background: rgba(31, 45, 117, 0.08);
+  color: #1f2d75;
+  font-weight: 650;
+}
+
 .upload77-batch-naming-scroll {
   display: grid;
   gap: 12px;
@@ -431,6 +466,15 @@
   overflow: auto;
   overscroll-behavior: contain;
   padding-right: 6px;
+}
+
+.upload77-batch-filter-empty {
+  padding: 28px 16px;
+  border: 1px dashed var(--color-border);
+  border-radius: 8px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  text-align: center;
 }
 
 .upload77-batch-naming-row {
@@ -456,6 +500,60 @@
   white-space: nowrap;
 }
 
+.upload77-batch-naming-row-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.upload77-batch-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--color-danger, #b42318) 38%, transparent);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--color-danger, #b42318);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.upload77-batch-delete:disabled {
+  border-color: var(--color-border-light);
+  color: var(--color-text-tertiary);
+  cursor: not-allowed;
+}
+
+.upload77-batch-delete-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--color-danger-bg, #fff3f2);
+  color: var(--color-danger-fg, #b00020);
+  font-size: 12px;
+}
+
+.upload77-batch-delete-error button {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .upload77-batch-naming-grid {
   display: grid;
   grid-template-columns:
@@ -477,13 +575,33 @@
 .upload77-batch-naming-grid select {
   min-width: 0;
   width: 100%;
-  padding: 7px 8px;
+  height: 48px;
+  box-sizing: border-box;
+  padding: 0 12px;
   border: 1px solid var(--color-border);
   border-radius: 7px;
   background: var(--color-bg-surface, #fff);
   color: var(--color-text-primary);
   font: inherit;
   font-size: 12px;
+  line-height: 20px;
+  vertical-align: middle;
+}
+
+.upload77-batch-naming-grid input[type="date"] {
+  min-height: 48px;
+  line-height: 20px;
+}
+
+.upload77-batch-naming-grid input[type="date"]::-webkit-calendar-picker-indicator {
+  align-self: center;
+  margin: 0;
+}
+
+.upload77-batch-naming-grid input:focus,
+.upload77-batch-naming-grid select:focus {
+  outline: 2px solid color-mix(in srgb, #1f2d75 28%, transparent);
+  outline-offset: 1px;
 }
 
 .upload77-batch-naming-preview {
@@ -496,7 +614,8 @@
 }
 
 .upload77-batch-naming-error,
-.upload77-batch-naming-notice {
+.upload77-batch-naming-notice,
+.upload77-batch-naming-source {
   margin-top: 6px;
   font-size: 12px;
 }
@@ -506,6 +625,14 @@
 }
 
 .upload77-batch-naming-notice {
+  color: var(--warning-text, #8a5a00);
+}
+
+.upload77-batch-naming-source {
+  color: var(--color-text-secondary);
+}
+
+.upload77-batch-naming-source.is-manual {
   color: var(--warning-text, #8a5a00);
 }
 

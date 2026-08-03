@@ -870,6 +870,14 @@ async def test_batch_preview_requires_company_applicable_to_per_item(client):
         "notices": [],
         "error_code": "naming_applicable_to_required",
         "message": "公司库资料必须填写适用对象",
+        "suggested_version": "V1",
+        "version_source": "default_needs_confirmation",
+        "version_confidence": "low",
+        "version_reason": "未能可靠判断版本，已使用规则默认值",
+        "suggested_confidentiality_level": "L2",
+        "confidentiality_source": "default_needs_confirmation",
+        "confidentiality_confidence": "low",
+        "confidentiality_reason": "AI 未能可靠判断内容密级，已使用规则默认值",
     }
 
 

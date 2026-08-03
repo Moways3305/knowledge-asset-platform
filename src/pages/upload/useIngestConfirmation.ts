@@ -184,9 +184,11 @@ export function useIngestConfirmation({
     if (/^\d{8}$/.test(aiDate)) {
       setNamingFormedOn(`${aiDate.slice(0, 4)}-${aiDate.slice(4, 6)}-${aiDate.slice(6)}`);
     }
-    if (/^V[1-9]\d*(?:\.[1-9]\d*)*$/i.test(ai.naming_parsed_fields?.version ?? "")) {
-      setNamingVersion((ai.naming_parsed_fields?.version ?? "V1").toUpperCase());
-    }
+    // Version provenance is persisted and fail-closed by the backend. The
+    // legacy parsed naming payload is compatibility metadata only and must
+    // never override the authoritative suggestion projection.
+    const projectedVersion = ai.suggested_version?.trim().toUpperCase() ?? "";
+    setNamingVersion(/^V[1-9]\d*(?:\.\d+)*$/.test(projectedVersion) ? projectedVersion : "V1");
     setExtraction({
       status: ai.extraction_status,
       charCount: ai.extracted_char_count,
@@ -243,7 +245,7 @@ export function useIngestConfirmation({
       !namingCategoryId ||
       !editTitle.trim() ||
       !namingFormedOn ||
-      !/^V[1-9]\d*(?:\.[1-9]\d*)*$/.test(namingVersion) ||
+      !/^V[1-9]\d*(?:\.\d+)*$/.test(namingVersion) ||
       (targetLibrary === "company" && !namingApplicableTo.trim())
     ) {
       setNamingPreviewBusy(false);

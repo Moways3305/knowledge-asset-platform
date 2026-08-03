@@ -558,12 +558,15 @@ try {
               row.querySelector('select[aria-label$="密级"]'),
             ].filter(Boolean);
             const tops = controls.map((control) => control.getBoundingClientRect().top);
+            const heights = controls.map((control) => control.getBoundingClientRect().height);
             const labelsAligned = [
               ...row.querySelectorAll(".upload77-batch-naming-grid label"),
             ].every((label) => getComputedStyle(label).alignContent === "start");
             return (
               controls.length === 5 &&
               Math.max(...tops) - Math.min(...tops) <= 2 &&
+              heights.every((height) => Math.abs(height - 48) <= 1) &&
+              controls.every((control) => getComputedStyle(control).boxSizing === "border-box") &&
               labelsAligned &&
               row.querySelector('select[aria-label$="目录类别"]')?.value === "category-deliverable"
             );
@@ -638,7 +641,10 @@ try {
               verticalGap(oneLinerField, summaryField) <= 24 &&
               document.querySelector("#upload77-naming-category")?.value === "category-deliverable",
             batchNamingLayoutValid:
-              batchRows.length === 2 && batchRows.every((row) => batchRowAligned(row)),
+              batchRows.length === 2 &&
+              batchRows.every((row) => batchRowAligned(row)) &&
+              document.querySelectorAll(".upload77-batch-filter").length === 5 &&
+              document.querySelectorAll(".upload77-batch-delete").length === 2,
             uploadFailureVisible: text.includes("上传失败"),
             degradedWarningVisible: text.includes("内容建议暂不可用，请人工核对后继续"),
             confirmVisible: text.includes("内容建议预览") && text.includes("确认入库"),

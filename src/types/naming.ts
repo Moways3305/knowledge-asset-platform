@@ -80,6 +80,14 @@ export interface NamingPreviewDTO {
   fields: Record<string, unknown> | null;
   notices: Array<{ kind: "exact" | "suspected"; message: string }>;
   message: string | null;
+  suggested_version?: string;
+  version_source?: "source_filename" | "ai_content" | "default_needs_confirmation";
+  version_confidence?: "high" | "medium" | "low";
+  version_reason?: string;
+  suggested_confidentiality_level?: string;
+  confidentiality_source?: "ai_content" | "default_needs_confirmation";
+  confidentiality_confidence?: "high" | "medium" | "low";
+  confidentiality_reason?: string;
 }
 
 export interface BatchNamingValuesDTO {
@@ -100,6 +108,14 @@ export interface BatchNamingPreviewItemDTO {
   notices: Array<{ kind: "exact" | "suspected"; message: string }>;
   error_code: string | null;
   message: string | null;
+  suggested_version?: string;
+  version_source?: "source_filename" | "ai_content" | "default_needs_confirmation";
+  version_confidence?: "high" | "medium" | "low";
+  version_reason?: string;
+  suggested_confidentiality_level?: string;
+  confidentiality_source?: "ai_content" | "default_needs_confirmation";
+  confidentiality_confidence?: "high" | "medium" | "low";
+  confidentiality_reason?: string;
 }
 
 export interface BatchNamingPreviewResponseDTO {

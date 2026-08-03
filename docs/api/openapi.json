@@ -1707,6 +1707,30 @@
             ],
             "title": "Canonical Name"
           },
+          "confidentiality_confidence": {
+            "default": "low",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Confidentiality Confidence",
+            "type": "string"
+          },
+          "confidentiality_reason": {
+            "default": "AI 未能可靠判断内容密级，已使用规则默认值",
+            "title": "Confidentiality Reason",
+            "type": "string"
+          },
+          "confidentiality_source": {
+            "default": "default_needs_confirmation",
+            "enum": [
+              "ai_content",
+              "default_needs_confirmation"
+            ],
+            "title": "Confidentiality Source",
+            "type": "string"
+          },
           "error_code": {
             "anyOf": [
               {
@@ -1763,9 +1787,43 @@
             "title": "Submittable",
             "type": "boolean"
           },
+          "suggested_confidentiality_level": {
+            "$ref": "#/components/schemas/ConfidentialityLevel",
+            "default": "L2"
+          },
+          "suggested_version": {
+            "default": "V1",
+            "title": "Suggested Version",
+            "type": "string"
+          },
           "task_id": {
             "format": "uuid",
             "title": "Task Id",
+            "type": "string"
+          },
+          "version_confidence": {
+            "default": "low",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Version Confidence",
+            "type": "string"
+          },
+          "version_reason": {
+            "default": "未能可靠判断版本，已使用规则默认值",
+            "title": "Version Reason",
+            "type": "string"
+          },
+          "version_source": {
+            "default": "default_needs_confirmation",
+            "enum": [
+              "source_filename",
+              "ai_content",
+              "default_needs_confirmation"
+            ],
+            "title": "Version Source",
             "type": "string"
           }
         },
@@ -3809,6 +3867,30 @@
             "description": "Deprecated compatibility field; never use for UI or decisions.",
             "title": "Confidence"
           },
+          "confidentiality_confidence": {
+            "default": "low",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Confidentiality Confidence",
+            "type": "string"
+          },
+          "confidentiality_reason": {
+            "default": "AI 未能可靠判断内容密级，已使用规则默认值",
+            "title": "Confidentiality Reason",
+            "type": "string"
+          },
+          "confidentiality_source": {
+            "default": "default_needs_confirmation",
+            "enum": [
+              "ai_content",
+              "default_needs_confirmation"
+            ],
+            "title": "Confidentiality Source",
+            "type": "string"
+          },
           "content_processing_status": {
             "anyOf": [
               {
@@ -4142,6 +4224,11 @@
             ],
             "title": "Suggested Title"
           },
+          "suggested_version": {
+            "default": "V1",
+            "title": "Suggested Version",
+            "type": "string"
+          },
           "suggestion_generation_reason": {
             "title": "Suggestion Generation Reason",
             "type": "string"
@@ -4171,6 +4258,31 @@
               }
             ],
             "title": "Summary Status"
+          },
+          "version_confidence": {
+            "default": "low",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Version Confidence",
+            "type": "string"
+          },
+          "version_reason": {
+            "default": "未能可靠判断版本，已使用规则默认值",
+            "title": "Version Reason",
+            "type": "string"
+          },
+          "version_source": {
+            "default": "default_needs_confirmation",
+            "enum": [
+              "source_filename",
+              "ai_content",
+              "default_needs_confirmation"
+            ],
+            "title": "Version Source",
+            "type": "string"
           }
         },
         "required": [
@@ -7234,6 +7346,30 @@
             ],
             "title": "Canonical Name"
           },
+          "confidentiality_confidence": {
+            "default": "low",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Confidentiality Confidence",
+            "type": "string"
+          },
+          "confidentiality_reason": {
+            "default": "AI 未能可靠判断内容密级，已使用规则默认值",
+            "title": "Confidentiality Reason",
+            "type": "string"
+          },
+          "confidentiality_source": {
+            "default": "default_needs_confirmation",
+            "enum": [
+              "ai_content",
+              "default_needs_confirmation"
+            ],
+            "title": "Confidentiality Source",
+            "type": "string"
+          },
           "fields": {
             "anyOf": [
               {
@@ -7278,6 +7414,40 @@
               }
             ],
             "title": "Rule Version"
+          },
+          "suggested_confidentiality_level": {
+            "$ref": "#/components/schemas/ConfidentialityLevel",
+            "default": "L2"
+          },
+          "suggested_version": {
+            "default": "V1",
+            "title": "Suggested Version",
+            "type": "string"
+          },
+          "version_confidence": {
+            "default": "low",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Version Confidence",
+            "type": "string"
+          },
+          "version_reason": {
+            "default": "未能可靠判断版本，已使用规则默认值",
+            "title": "Version Reason",
+            "type": "string"
+          },
+          "version_source": {
+            "default": "default_needs_confirmation",
+            "enum": [
+              "source_filename",
+              "ai_content",
+              "default_needs_confirmation"
+            ],
+            "title": "Version Source",
+            "type": "string"
           }
         },
         "required": [
@@ -7885,6 +8055,30 @@
             "description": "Deprecated compatibility field; never use for UI or decisions.",
             "title": "Confidence"
           },
+          "confidentiality_confidence": {
+            "default": "low",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Confidentiality Confidence",
+            "type": "string"
+          },
+          "confidentiality_reason": {
+            "default": "AI 未能可靠判断内容密级，已使用规则默认值",
+            "title": "Confidentiality Reason",
+            "type": "string"
+          },
+          "confidentiality_source": {
+            "default": "default_needs_confirmation",
+            "enum": [
+              "ai_content",
+              "default_needs_confirmation"
+            ],
+            "title": "Confidentiality Source",
+            "type": "string"
+          },
           "created_at": {
             "anyOf": [
               {
@@ -7971,6 +8165,11 @@
             "title": "Status",
             "type": "string"
           },
+          "suggested_confidentiality_level": {
+            "default": "L2",
+            "title": "Suggested Confidentiality Level",
+            "type": "string"
+          },
           "suggested_one_liner": {
             "anyOf": [
               {
@@ -7992,6 +8191,11 @@
               }
             ],
             "title": "Suggested Title"
+          },
+          "suggested_version": {
+            "default": "V1",
+            "title": "Suggested Version",
+            "type": "string"
           },
           "suggestion_generation_reason": {
             "title": "Suggestion Generation Reason",
@@ -8035,6 +8239,31 @@
               }
             ],
             "title": "Updated At"
+          },
+          "version_confidence": {
+            "default": "low",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Version Confidence",
+            "type": "string"
+          },
+          "version_reason": {
+            "default": "未能可靠判断版本，已使用规则默认值",
+            "title": "Version Reason",
+            "type": "string"
+          },
+          "version_source": {
+            "default": "default_needs_confirmation",
+            "enum": [
+              "source_filename",
+              "ai_content",
+              "default_needs_confirmation"
+            ],
+            "title": "Version Source",
+            "type": "string"
           }
         },
         "required": [

@@ -57,6 +57,7 @@ from app.services import ingest_confirmation, ingest_indexing, ingest_persistenc
 from app.services.desensitization import DesensitizationEngine
 from app.services.generation_models import generation_model_ref
 from app.services.llm_client import LLMClient, NullLLMClient
+from app.services.naming_advice import safe_naming_advice
 from app.services.storage import LocalFileStorage, StorageError
 from app.services.suggested_subject import suggested_subject
 from app.services.weknora_client import (
@@ -275,11 +276,12 @@ async def get_ai_result(
     if not is_full and not _is_admin(caller):
         raise _denied(403, "ingest_result_forbidden", "无权查看该入库任务的 AI 建议")
 
+    advice = safe_naming_advice(ai)
     base = IngestAiResultResponse(
         ingest_task_id=task.id,
         status=task.status,
         suggested_asset_type=ai.suggested_asset_type if ai else None,
-        suggested_confidentiality_level=ai.suggested_confidentiality_level if ai else None,
+        **advice,
         suggested_ai_access_level=ai.suggested_ai_access_level if ai else None,
         suggested_phase_key=ai.suggested_phase_key if ai else None,
         confidence=ai.confidence if ai else None,
@@ -752,6 +754,7 @@ async def list_pending(
     items: list[PendingIngestItem] = []
     for t in tasks:
         ai = t.ai_result
+        advice = safe_naming_advice(ai)
         suggestion_state = _suggestion_generation_state(t, ai)
         display_subject = (
             suggested_subject(
@@ -787,6 +790,7 @@ async def list_pending(
                 error_message=t.error_message,
                 suggested_title=display_subject,
                 suggested_one_liner=ai.suggested_one_liner if ai else None,
+                **advice,
                 naming_parsed_fields=ai.naming_parsed_fields if ai else None,
                 confidence=ai.confidence if ai else None,
                 suggestion_generation_status=suggestion_state[0],
