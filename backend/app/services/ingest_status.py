@@ -15,7 +15,7 @@ from app.core.logging import safe_log_exception
 from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.review import ReviewTask
-from app.schemas.enums import IngestStatus, ProjectRole
+from app.schemas.enums import AuditAction, AuditLogType, IngestStatus, ProjectRole
 from app.schemas.ingest import (
     IngestTaskNextAction,
     IngestTaskSafeError,
@@ -24,6 +24,7 @@ from app.schemas.ingest import (
     IngestTaskWorkflowStatus,
 )
 from app.schemas.permission import CallerContext
+from app.services import audit as audit_service
 from app.services import error_catalog, indexing
 from app.services import knowledge as knowledge_service
 from app.services.desensitization import DesensitizationEngine
@@ -158,6 +159,17 @@ def _generation_degraded(task: IngestTask) -> bool:
     return fields.get("generation_status") != "generated"
 
 
+def _generation_response_retryable(task: IngestTask) -> bool:
+    ai = task.ai_result
+    if ai is None or ai.extraction_status != "extracted":
+        return False
+    fields = ai.naming_parsed_fields if isinstance(ai.naming_parsed_fields, dict) else {}
+    return (
+        fields.get("generation_status") == "failed"
+        and fields.get("generation_error_category") == "response_error"
+    )
+
+
 def _generation_error(task: IngestTask) -> IngestTaskSafeError:
     ai = task.ai_result
     fields = ai.naming_parsed_fields if ai and isinstance(ai.naming_parsed_fields, dict) else {}
@@ -205,10 +217,18 @@ def _response(ctx: _TaskContext, caller: CallerContext) -> IngestTaskStatusRespo
             stage = IngestTaskStage.degraded_complete
             status = IngestTaskWorkflowStatus.degraded
             error = _generation_error(task)
+            retryable = bool(
+                _generation_response_retryable(task)
+                and (task.created_by == caller.user_id or caller.can_discover_l5)
+            )
         else:
             stage = IngestTaskStage.awaiting_confirmation
             status = IngestTaskWorkflowStatus.action_required
-        next_action = _action("review_and_confirm", "upload_task")
+        next_action = (
+            _action("retry_processing", "ingest_task_retry")
+            if retryable
+            else _action("review_and_confirm", "upload_task")
+        )
     elif task.status == IngestStatus.waiting_review.value:
         stage = IngestTaskStage.confirmation
         status = IngestTaskWorkflowStatus.waiting
@@ -316,7 +336,60 @@ async def retry_task(
         return current
 
     task = ctx.task
-    if (
+    if task.status == IngestStatus.pending_confirmation.value and _generation_response_retryable(
+        task
+    ):
+        claim = await session.execute(
+            update(IngestTask)
+            .where(
+                IngestTask.id == task.id,
+                IngestTask.status == IngestStatus.pending_confirmation.value,
+            )
+            .values(
+                status=IngestStatus.processing.value,
+                processing_stage="upload_saved",
+                retry_count=0,
+                error_type=None,
+                error_message=None,
+            )
+        )
+        if getattr(claim, "rowcount", 0) != 1:
+            await session.rollback()
+            session.expire_all()
+            return await get_task_status(session, caller, task_id)
+        await audit_service.record_event(
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.ingest_ai_retry_requested.value,
+            trace_id=trace_id,
+            target_type="ingest_task",
+            target_id=task.id,
+            extra={"reason": "response_error", "scope": "single_task"},
+            project_id=task.target_project_id,
+        )
+        await session.commit()
+        try:
+            await enqueue_ingest_processing(
+                session,
+                task.id,
+                storage=storage,
+                llm=llm,
+                desensitizer=desensitizer,
+                trace_id=trace_id,
+            )
+        except Exception as exc:
+            safe_log_exception(
+                _logger,
+                "ingest_ai_manual_retry_failed",
+                exc,
+                include_summary=False,
+                task_id=str(task.id),
+            )
+            task.status = IngestStatus.pending_confirmation.value
+            task.processing_stage = None
+            await session.commit()
+    elif (
         task.status in {IngestStatus.failed.value, IngestStatus.processing.value}
         and task.error_type == "processing_error"
     ):

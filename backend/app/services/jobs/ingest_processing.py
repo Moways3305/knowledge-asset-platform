@@ -187,7 +187,11 @@ async def _reusable_ai_draft(
     }
     for row in rows:
         fields = row.naming_parsed_fields if isinstance(row.naming_parsed_fields, dict) else {}
-        if fields.get("generation_cache_fingerprint") != fingerprint:
+        if (
+            fields.get("generation_cache_fingerprint") != fingerprint
+            or fields.get("generation_status") != "generated"
+            or not fields.get("summary_generated")
+        ):
             continue
         return {
             column.name: getattr(row, column.name)
@@ -306,16 +310,34 @@ async def process_upload_task(
                 target_project_id=target_project,
             )
             if extraction.status == "extracted" and not isinstance(llm, NullLLMClient):
-                await llm_usage.record(
-                    session,
-                    scenario="content_generation",
-                    provider=content_meta.get("provider") or getattr(llm, "provider", None),
-                    model=content_meta.get("model") or getattr(llm, "model", None),
-                    batch_size=1,
-                    cache_status="miss",
-                    outcome="success" if content_meta.get("status") == "llm" else "failure",
-                    usage=content_meta.get("usage"),
-                )
+                usage_requests = content_meta.get("usage_requests")
+                if not isinstance(usage_requests, list) or not usage_requests:
+                    usage_requests = [
+                        {
+                            "outcome": (
+                                "success" if content_meta.get("status") == "llm" else "failure"
+                            ),
+                            "usage": content_meta.get("usage"),
+                        }
+                    ]
+                for usage_request in usage_requests:
+                    await llm_usage.record(
+                        session,
+                        scenario="content_generation",
+                        provider=content_meta.get("provider") or getattr(llm, "provider", None),
+                        model=content_meta.get("model") or getattr(llm, "model", None),
+                        batch_size=1,
+                        cache_status="miss",
+                        outcome=(
+                            "success"
+                            if isinstance(usage_request, dict)
+                            and usage_request.get("outcome") == "success"
+                            else "failure"
+                        ),
+                        usage=(
+                            usage_request.get("usage") if isinstance(usage_request, dict) else None
+                        ),
+                    )
     except Exception as exc:  # noqa: BLE001  # 瞬时处理失败 → 可重试
         safe_log_exception(_logger, "ingest_processing_failed", exc, include_summary=False)
         task.retry_count += 1
@@ -376,6 +398,7 @@ async def process_upload_task(
                 "llm_provider": content_meta.get("provider"),
                 "llm_model": content_meta.get("model"),
                 "llm_usage": content_meta.get("usage"),
+                "structured_output_mode": content_meta.get("structured_output_mode"),
                 # 入库脱敏安全元数据——只记状态与类别计数，**绝不**记脱敏文本/原值。
                 # 当前链路恒 not_applicable / counts=null（前置脱敏已退出，受信外部 API 处理）。
                 "desensitization_status": content_meta.get("desensitization_status"),

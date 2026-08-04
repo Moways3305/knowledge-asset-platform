@@ -342,6 +342,8 @@ class AuditAction(str, Enum):
     ingest_index_failed = "ingest.index_failed"
     # 外部 LLM 内容处理完成（AI 提取完成），operation。
     ingest_ai_extracted = "ingest.ai_extracted"
+    # 用户显式请求重新生成 response_error 降级草稿，operation。
+    ingest_ai_retry_requested = "ingest.ai_retry_requested"
     # 审核
     review_evidence_bound = "review.evidence_bound"
     review_created = "review.created"
