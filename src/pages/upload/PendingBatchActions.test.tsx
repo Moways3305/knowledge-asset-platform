@@ -430,6 +430,154 @@ describe("PendingBatchActions governed review", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
+  it.each(["path_b_upload", "path_a_wecom"] as const)(
+    "keeps an eight-item %s review session after one item succeeds",
+    async (source) => {
+      const initialTasks = Array.from({ length: 8 }, (_, index) =>
+        task(`session-${index}`, { source }),
+      );
+      namingApi.previewBatchIngestNaming.mockImplementation(
+        async (input: { items: Array<{ taskId: string; naming: { subject: string } }> }) => ({
+          items: input.items.map(({ taskId, naming }) => ({
+            task_id: taskId,
+            submittable: true,
+            canonical_name: `【P-2026-交付成果】${naming.subject}_20260803_V1_L2.pdf`,
+            rule_version: 3,
+            fields: { subject: naming.subject },
+            notices: [],
+            error_code: null,
+            message: null,
+          })),
+        }),
+      );
+
+      function Harness() {
+        const [currentTasks, setCurrentTasks] = useState(initialTasks);
+        const [selection, setSelection] = useState(initialTasks.map((item) => item.id));
+        const flow = flowFixture(currentTasks, {
+          batchSelection: selection,
+          handleSingleBatchConfirm: async (confirmed: PendingIngestItemDTO) => {
+            setCurrentTasks((current) => current.filter((item) => item.id !== confirmed.id));
+            setSelection((current) => current.filter((id) => id !== confirmed.id));
+            return {
+              succeededIds: [confirmed.id],
+              failedIds: [],
+              resultAssetIds: { [confirmed.id]: `asset-${confirmed.id}` },
+            };
+          },
+        });
+        return <PendingBatchActions tasks={currentTasks} flow={flow} />;
+      }
+
+      render(<Harness />);
+      await openProjectReview();
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "确认入库 session-0.pdf" })).toBeEnabled(),
+      );
+      fireEvent.change(screen.getByLabelText("session-1.pdf 主题"), {
+        target: { value: "仍在编辑的第二条" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "确认入库 session-0.pdf" }));
+      fireEvent.click(within(topDialog()).getByRole("button", { name: "确认入库" }));
+
+      const assetLink = await screen.findByRole("link", {
+        name: "查看知识资产卡片：session-0主题",
+      });
+      expect(screen.getByRole("dialog", { name: "逐条核对 8 项规范命名" })).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: /确认入库 session-/ })).toHaveLength(7);
+      expect(screen.getByLabelText("session-1.pdf 主题")).toHaveValue("仍在编辑的第二条");
+      expect(screen.getByRole("button", { name: "全部（7）" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      expect(assetLink).toHaveAttribute("href", "/knowledge/asset-session-0");
+      expect(assetLink).toHaveAttribute("target", "_blank");
+      expect(assetLink).toHaveAttribute("rel", "noopener noreferrer");
+      fireEvent.click(assetLink);
+      expect(screen.getByRole("dialog", { name: "逐条核对 8 项规范命名" })).toBeInTheDocument();
+      expect(screen.getByLabelText("session-1.pdf 主题")).toHaveValue("仍在编辑的第二条");
+    },
+  );
+
+  it.each(["path_b_upload", "path_a_wecom"] as const)(
+    "removes a vanished %s task from the open review session after refresh",
+    async (source) => {
+      const initialTasks = Array.from({ length: 8 }, (_, index) =>
+        task(`refresh-${index}`, { source }),
+      );
+      const { rerender } = render(
+        <PendingBatchActions tasks={initialTasks} flow={flowFixture(initialTasks)} />,
+      );
+      await openProjectReview();
+      fireEvent.change(screen.getByLabelText("refresh-1.pdf 主题"), {
+        target: { value: "刷新后仍保留的编辑值" },
+      });
+
+      const refreshedTasks = initialTasks.filter((item) => item.id !== "refresh-3");
+      rerender(<PendingBatchActions tasks={refreshedTasks} flow={flowFixture(refreshedTasks)} />);
+
+      await waitFor(() =>
+        expect(screen.queryByLabelText("refresh-3.pdf 主题")).not.toBeInTheDocument(),
+      );
+      expect(screen.getByRole("dialog", { name: "逐条核对 8 项规范命名" })).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: /确认入库 refresh-/ })).toHaveLength(7);
+      expect(screen.getByLabelText("refresh-1.pdf 主题")).toHaveValue("刷新后仍保留的编辑值");
+      expect(screen.getByRole("button", { name: "全部（7）" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    },
+  );
+
+  it("keeps the completed result visible when the last review item succeeds", async () => {
+    const item = task("last-item");
+    namingApi.previewBatchIngestNaming.mockResolvedValue({
+      items: [
+        {
+          task_id: item.id,
+          submittable: true,
+          canonical_name: "【P-2026-交付成果】last-item主题_20260803_V1_L2.pdf",
+          rule_version: 3,
+          fields: { subject: "last-item主题" },
+          notices: [],
+          error_code: null,
+          message: null,
+        },
+      ],
+    });
+    function Harness() {
+      const [currentTasks, setCurrentTasks] = useState([item]);
+      const flow = flowFixture(currentTasks, {
+        handleSingleBatchConfirm: async () => {
+          setCurrentTasks([]);
+          return {
+            succeededIds: [item.id],
+            failedIds: [],
+            resultAssetIds: { [item.id]: "asset-last" },
+          };
+        },
+      });
+      return <PendingBatchActions tasks={currentTasks} flow={flow} />;
+    }
+
+    render(<Harness />);
+    await openProjectReview();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "确认入库 last-item.pdf" })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "确认入库 last-item.pdf" }));
+    fireEvent.click(within(topDialog()).getByRole("button", { name: "确认入库" }));
+
+    expect(
+      await screen.findByText("本批待核对资料已处理完成，可查看本次结果或关闭弹窗"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "查看知识资产卡片：last-item主题" })).toHaveAttribute(
+      "href",
+      "/knowledge/asset-last",
+    );
+    expect(screen.getByRole("button", { name: "关闭批量命名核对" })).toBeInTheDocument();
+  });
+
   it("permanently deletes one row while preserving the filter and other edits", async () => {
     const first = task("first");
     const second = task("second");

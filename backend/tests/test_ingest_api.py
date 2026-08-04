@@ -209,6 +209,9 @@ async def test_bulk_confirm_has_one_explicit_target_and_partial_terminal_result(
     assert body["succeeded"] == 1
     assert body["skipped"] == 1
     assert body["failed"] == 0
+    results_by_task = {item["item_id"]: item for item in body["items"]}
+    assert "result_asset_id" not in results_by_task[first]
+    assert results_by_task[second]["result_asset_id"]
     audit = (
         (
             await db_session.execute(
@@ -227,6 +230,7 @@ async def test_bulk_confirm_has_one_explicit_target_and_partial_terminal_result(
     assert audit.extra["logical_submitted"] == 700
     assert "token" not in str(audit.extra).lower()
     assert "source_file" not in str(audit.extra).lower()
+    assert "result_asset_id" not in audit.extra
 
 
 async def test_ai_result_admin_trimmed(client):

@@ -1525,6 +1525,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
           status: "succeeded",
           reason_code: null,
           message: null,
+          result_asset_id: "asset-governed-a",
         },
       ],
     });
@@ -1533,16 +1534,27 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       ...pendingTask("governed-a", "Governed.pdf"),
       target_scope: null,
     };
+    let completionResult: { resultAssetIds?: Record<string, string> } | undefined;
     await act(async () => {
-      await result.current.handleBatchConfirm([task], "project", "project-a", {
-        [task.id]: {
-          category_id: "category-a",
-          subject: "项目复盘",
-          formed_on: "2026-08-02",
-          version: "V1.1",
-          confidentiality_level: "L3",
+      await result.current.handleBatchConfirm(
+        [task],
+        "project",
+        "project-a",
+        {
+          [task.id]: {
+            category_id: "category-a",
+            subject: "项目复盘",
+            formed_on: "2026-08-02",
+            version: "V1.1",
+            confidentiality_level: "L3",
+          },
         },
-      });
+        undefined,
+        true,
+        (value) => {
+          completionResult = value;
+        },
+      );
     });
 
     expect(ingest.bulkConfirmIngest).toHaveBeenCalledWith(
@@ -1567,6 +1579,52 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         ],
       }),
     );
+    expect(completionResult?.resultAssetIds).toEqual({
+      "governed-a": "asset-governed-a",
+    });
+  });
+
+  it("reconciles local pending refresh without clearing selections that still exist", async () => {
+    const first = { ...pendingTask("local-first", "First.docx"), source: "path_b_upload" };
+    const second = { ...pendingTask("local-second", "Second.docx"), source: "path_b_upload" };
+    ingest.fetchPendingIngestTasks
+      .mockReset()
+      .mockResolvedValueOnce([first, second])
+      .mockResolvedValueOnce([second]);
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(result.current.localPendingTasks).toHaveLength(2));
+    act(() => {
+      result.current.toggleBatchTask(first.id);
+      result.current.toggleBatchTask(second.id);
+    });
+
+    await act(async () => result.current.loadLocalPending());
+
+    expect(result.current.localPendingTasks.map((task) => task.id)).toEqual([second.id]);
+    expect(result.current.batchSelection).toEqual([second.id]);
+  });
+
+  it("reconciles WeCom pending refresh without clearing selections that still exist", async () => {
+    const first = { ...pendingTask("wecom-first", "First.docx"), source: "path_a_wecom" };
+    const second = { ...pendingTask("wecom-second", "Second.docx"), source: "path_a_wecom" };
+    ingest.fetchPendingIngestTasks
+      .mockReset()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([first, second])
+      .mockResolvedValueOnce([second]);
+    const { result } = renderHook(() => useUploadFlow());
+    await waitFor(() => expect(result.current.localPendingLoading).toBe(false));
+    act(() => result.current.switchPath("a"));
+    await waitFor(() => expect(result.current.pendingTasks).toHaveLength(2));
+    act(() => {
+      result.current.toggleBatchTask(first.id);
+      result.current.toggleBatchTask(second.id);
+    });
+
+    await act(async () => result.current.loadPending());
+
+    expect(result.current.pendingTasks.map((task) => task.id)).toEqual([second.id]);
+    expect(result.current.batchSelection).toEqual([second.id]);
   });
 
   it("本地来源严格串行批量拒绝，失败项保留勾选并可单条重试", async () => {
