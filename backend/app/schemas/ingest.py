@@ -292,7 +292,9 @@ class IngestBulkConfirmItemResult(BulkItemResult):
 
 
 class IngestBulkConfirmResponse(BulkOperationResponse):
-    items: list[IngestBulkConfirmItemResult]
+    # Pydantic supports this response-schema narrowing; mypy's invariant list
+    # rule cannot express that the API always returns the extended item shape.
+    items: list[IngestBulkConfirmItemResult]  # type: ignore[assignment]
 
 
 class IngestParseRefreshResponse(BaseModel):
