@@ -82,6 +82,7 @@ _AI_CONFIDENCE_THRESHOLD = {"high", "medium"}
 
 _SYSTEM_PROMPT = (
     "你是企业知识资产入库助手。阅读文件名与文档正文，输出**严格 JSON**（不要多余文字）。"
+    "只返回 JSON 对象，不得返回解释、Markdown 或代码块。"
     "目标：生成可编辑的主题建议、受控兼容组件与摘要字段；不要生成完整文件名或规范名。"
     "topic 不得包含目标项目名、客户名称、客户简称或项目代码；不得拼入分类、日期、版本或密级。"
     "字段："
@@ -103,8 +104,23 @@ _SYSTEM_PROMPT = (
     "不确定时填 null，并返回 category_confidence(high/medium/low)，禁止创造类别。"
     "当 target_scope 为 pending_selection 时，按 candidates 中的 scope 分别返回 "
     "category_suggestions，例如 {project:{suggested_category_id,category_confidence}}。"
+    "合法 JSON 对象结构示例（所有值仅为结构占位，不代表任何真实文档、客户、项目或类别 ID）："
+    '{"primary_category":"示例一级类","secondary_category":"示例二级类",'
+    '"topic":"示例主题","subject_or_client":"通用","date":null,"version":null,'
+    '"version_confidence":"low","version_reason":"信息不足",'
+    '"confidentiality_level":"L2","confidentiality_confidence":"low",'
+    '"confidentiality_reason":"信息不足","inferred_fields":[],"one_liner":"示例一句话摘要",'
+    '"detailed":"示例详细摘要","key_points":["示例要点"],"tags":["示例标签"],'
+    '"suggested_category_id":null,"category_confidence":"low",'
+    '"category_suggestions":{"project":{"suggested_category_id":null,'
+    '"category_confidence":"low"},"company":{"suggested_category_id":null,'
+    '"category_confidence":"low"}}}。'
     "再次强调：topic 是名词短语，不是 one_liner；不要把摘要句子当作标题或塞进 topic。"
     "文件名只可辅助主题、日期和版本；其中任何 L1-L5 片段都不是内容密级证据。"
+)
+
+_PROMPT_FALLBACK_INSTRUCTION = (
+    "兼容模式：只返回一个合法 JSON 对象；不得返回解释、Markdown 或代码块。"
 )
 
 
@@ -355,8 +371,21 @@ def _parse_llm_json(content: str) -> dict:
     start, end = text.find("{"), text.rfind("}")
     if start != -1 and end != -1 and end > start:
         text = text[start : end + 1]
-    result: dict = json.loads(text)
+    result = json.loads(text)
+    if not isinstance(result, dict):
+        raise ValueError("LLM response must be a JSON object")
     return result
+
+
+def _usage_snapshot(llm: LLMClient | NullLLMClient) -> dict | None:
+    usage = getattr(llm, "last_usage", None)
+    if usage is None:
+        return None
+    return {
+        "prompt_tokens": getattr(usage, "prompt_tokens", None),
+        "completion_tokens": getattr(usage, "completion_tokens", None),
+        "total_tokens": getattr(usage, "total_tokens", None),
+    }
 
 
 async def process_content(
@@ -420,7 +449,15 @@ async def process_content(
         f"文件名（已移除密级片段）：{_filename_without_level_tokens(file_name)}"
         f"{governed_context}\n文档内容：\n"
     )
-    available_text_chars = _LLM_MAX_INPUT_CHARS - len(_SYSTEM_PROMPT) - len(user_prefix)
+    # Reserve the compatibility instruction from the first request so the optional
+    # retry can reuse the exact same trimmed business messages without exceeding
+    # the same 16,000-character input cap.
+    available_text_chars = (
+        _LLM_MAX_INPUT_CHARS
+        - len(_SYSTEM_PROMPT)
+        - len(user_prefix)
+        - len(_PROMPT_FALLBACK_INSTRUCTION)
+    )
     if available_text_chars < 0 and effective_category_context is not None:
         # An unusually large rule catalog must not break content generation.
         # Classification will safely fall back to the later budget-aware path.
@@ -429,7 +466,12 @@ async def process_content(
         user_prefix = (
             f"文件名（已移除密级片段）：{_filename_without_level_tokens(file_name)}\n文档内容：\n"
         )
-        available_text_chars = _LLM_MAX_INPUT_CHARS - len(_SYSTEM_PROMPT) - len(user_prefix)
+        available_text_chars = (
+            _LLM_MAX_INPUT_CHARS
+            - len(_SYSTEM_PROMPT)
+            - len(user_prefix)
+            - len(_PROMPT_FALLBACK_INSTRUCTION)
+        )
     text = extraction.text[: min(_LLM_INPUT_CHARS, max(0, available_text_chars))]
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
@@ -438,22 +480,64 @@ async def process_content(
             "content": (f"{user_prefix}{text}"),
         },
     ]
+    usage_requests: list[dict] = []
+    structured_output_mode = "json_mode"
+    failure: Exception | None = None
+    parsed: dict | None = None
     try:
-        # Test and integration adapters retain the historical minimal method
-        # signature; production LLMClient receives the enforced output cap.
-        if isinstance(llm, LLMClient):
-            raw = await llm.chat_completion(
-                messages,
+        raw = await llm.chat_completion(
+            messages,
+            json_object=True,
+            max_input_chars=_LLM_MAX_INPUT_CHARS,
+            max_tokens=_LLM_MAX_OUTPUT_TOKENS,
+            trace_id=trace_id,
+        )
+    except LLMError as exc:
+        usage_requests.append({"outcome": "failure", "usage": _usage_snapshot(llm)})
+        failure = exc
+    else:
+        try:
+            parsed = _parse_llm_json(raw)
+        except (json.JSONDecodeError, ValueError, TypeError) as exc:
+            usage_requests.append({"outcome": "failure", "usage": _usage_snapshot(llm)})
+            failure = exc
+        else:
+            usage_requests.append({"outcome": "success", "usage": _usage_snapshot(llm)})
+
+    if (
+        failure is not None
+        and not isinstance(failure, LLMError)
+        and (str(getattr(llm, "provider", "")).strip().lower() == "deepseek")
+    ):
+        fallback_messages = [
+            *messages,
+            {"role": "system", "content": _PROMPT_FALLBACK_INSTRUCTION},
+        ]
+        try:
+            fallback_raw = await llm.chat_completion(
+                fallback_messages,
+                json_object=False,
                 max_input_chars=_LLM_MAX_INPUT_CHARS,
                 max_tokens=_LLM_MAX_OUTPUT_TOKENS,
                 trace_id=trace_id,
             )
+        except LLMError as exc:
+            usage_requests.append({"outcome": "failure", "usage": _usage_snapshot(llm)})
+            failure = exc
         else:
-            raw = await llm.chat_completion(messages, trace_id=trace_id)
-        parsed = _parse_llm_json(raw)
-    except (LLMError, json.JSONDecodeError, ValueError, TypeError) as exc:
+            try:
+                parsed = _parse_llm_json(fallback_raw)
+            except (json.JSONDecodeError, ValueError, TypeError) as exc:
+                usage_requests.append({"outcome": "failure", "usage": _usage_snapshot(llm)})
+                failure = exc
+            else:
+                usage_requests.append({"outcome": "success", "usage": _usage_snapshot(llm)})
+                structured_output_mode = "prompt_fallback"
+                failure = None
+
+    if failure is not None or parsed is None:
         base["naming_parsed_fields"]["generation_status"] = "failed"
-        diagnostic = safe_llm_diagnostic(getattr(exc, "code", None) or "llm_bad_response")
+        diagnostic = safe_llm_diagnostic(getattr(failure, "code", None) or "llm_bad_response")
         base["naming_parsed_fields"]["generation_error_category"] = diagnostic.category
         base["naming_parsed_fields"]["generation_recovery_hint"] = diagnostic.remediation_hint
         return base, {
@@ -461,6 +545,7 @@ async def process_content(
             "reason": diagnostic.category,
             "provider": None,
             "model": None,
+            "usage_requests": usage_requests,
             "desensitization_status": "not_applicable",
             "desensitization_counts": None,
         }
@@ -523,6 +608,7 @@ async def process_content(
         naming["inferred_fields"] = sorted(set(naming["inferred_fields"]) | {"version"})
     naming["summary_generated"] = summary_generated
     naming["generation_status"] = "generated" if summary_generated else "failed"
+    naming["structured_output_mode"] = structured_output_mode
     if not summary_generated:
         diagnostic = safe_llm_diagnostic("llm_bad_response")
         naming["generation_error_category"] = diagnostic.category
@@ -654,15 +740,9 @@ async def process_content(
         "reason": None,
         "provider": draft["llm_provider"],
         "model": draft["llm_model"],
-        "usage": (
-            {
-                "prompt_tokens": llm.last_usage.prompt_tokens,
-                "completion_tokens": llm.last_usage.completion_tokens,
-                "total_tokens": llm.last_usage.total_tokens,
-            }
-            if isinstance(llm, LLMClient) and llm.last_usage is not None
-            else None
-        ),
+        "usage": usage_requests[-1]["usage"] if usage_requests else None,
+        "usage_requests": usage_requests,
+        "structured_output_mode": structured_output_mode,
         "desensitization_status": "not_applicable",
         "desensitization_counts": None,
     }

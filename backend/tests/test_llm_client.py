@@ -12,8 +12,10 @@ import re
 
 import httpx
 import pytest
+from sqlalchemy import select
 
 from app.main import app
+from app.models.audit import AuditEvent
 from app.schemas.enums import AssetType, ConfidentialityLevel
 from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT
 from app.services import audit as audit_service
@@ -46,16 +48,35 @@ class FakeLLM:
         self.payload = payload
         self.calls = 0
         self.last_messages = None
+        self.requests: list[dict] = []
 
     async def chat_completion(
-        self, messages, *, temperature=0.2, model=None, json_object=True, trace_id=None
+        self,
+        messages,
+        *,
+        temperature=0.2,
+        model=None,
+        json_object=True,
+        max_input_chars=None,
+        max_tokens=None,
+        trace_id=None,
     ):
         self.calls += 1
         self.last_messages = messages
+        self.requests.append(
+            {
+                "messages": messages,
+                "json_object": json_object,
+                "max_input_chars": max_input_chars,
+                "max_tokens": max_tokens,
+            }
+        )
         if self.mode == "fail":
             raise LLMError("http_500", "LLM 调用失败")
-        if self.mode == "dirty":
+        if self.mode == "dirty" or (self.mode == "dirty_then_ok" and self.calls == 1):
             return "这不是 JSON 抱歉"
+        if self.mode == "list_then_ok" and self.calls == 1:
+            return "[]"
         if self.mode == "fenced":
             return "```json\n" + json.dumps(_GOOD) + "\n```"
         if self.mode == "missing_detailed":
@@ -269,12 +290,60 @@ async def test_upload_llm_structured_draft(client, monkeypatch):
     assert naming["subject_or_client"] == "某零售集团"
     assert isinstance(naming["inferred_fields"], list)
     assert isinstance(naming["missing_fields"], list)
+    assert naming["structured_output_mode"] == "json_mode"
+    assert fake.calls == 1
+    assert fake.requests[0]["json_object"] is True
     system_prompt = fake.last_messages[0]["content"]
     assert "不得包含目标项目名、客户名称、客户简称或项目代码" in system_prompt
     assert "不得拼入分类、日期、版本或密级" in system_prompt
     assert "只能依据文档正文" in system_prompt
     assert "ai_access_level" not in system_prompt
     assert "asset_type" not in system_prompt
+    assert "只返回 JSON 对象" in system_prompt
+    assert '"topic":"示例主题"' in system_prompt
+    assert '"one_liner":"示例一句话摘要"' in system_prompt
+    assert '"detailed":"示例详细摘要"' in system_prompt
+    assert '"key_points":["示例要点"]' in system_prompt
+    assert '"tags":["示例标签"]' in system_prompt
+    assert '"category_suggestions"' in system_prompt
+    for forbidden in ("retail.txt", _TXT.decode(), str(USER_CONSULTANT)):
+        assert forbidden not in system_prompt
+
+
+@pytest.mark.parametrize("mode", ["dirty_then_ok", "list_then_ok"])
+async def test_deepseek_prompt_fallback_recovers_structured_draft_and_counts_requests(
+    client, monkeypatch, mode
+):
+    fake = FakeLLM(mode=mode)
+    _enable_llm(monkeypatch, fake)
+
+    task_id = await _upload(client, content=b"fallback-safe-document", file_name="fallback.txt")
+    response = await client.get(
+        f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT)
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["content_processing_status"] == "llm"
+    assert body["summary_status"] == "generated"
+    assert body["summary"] == _GOOD["detailed"]
+    assert body["naming_parsed_fields"]["structured_output_mode"] == "prompt_fallback"
+    assert fake.calls == 2
+    first, fallback = fake.requests
+    assert first["json_object"] is True
+    assert fallback["json_object"] is False
+    assert first["max_input_chars"] == fallback["max_input_chars"] == 16_000
+    assert first["max_tokens"] == fallback["max_tokens"] == 1_200
+    assert fallback["messages"][:2] == first["messages"]
+    assert "只返回一个合法 JSON 对象" in fallback["messages"][-1]["content"]
+    assert sum(len(item["content"]) for item in fallback["messages"]) <= 16_000
+
+    usage = (await client.get("/admin/ops/llm-usage?days=7", headers=_hdr(USER_ADMIN_ONLY))).json()[
+        "items"
+    ]
+    generation = next(item for item in usage if item["scenario"] == "content_generation")
+    assert generation["request_count"] == 2
+    assert generation["cache_misses"] == 2
 
 
 async def test_llm_usage_api_is_admin_only_and_returns_aggregate_counters(client, monkeypatch):
@@ -478,7 +547,8 @@ async def test_compliant_filename_parsed_into_naming(client):
 
 
 async def test_upload_degraded_on_llm_failure(client, monkeypatch):
-    _enable_llm(monkeypatch, FakeLLM(mode="fail"))
+    fake = FakeLLM(mode="fail")
+    _enable_llm(monkeypatch, fake)
     task_id = await _upload(client)  # 不应抛错
     r = await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
     body = r.json()
@@ -494,6 +564,7 @@ async def test_upload_degraded_on_llm_failure(client, monkeypatch):
     assert status.json()["status"] == "degraded"
     assert status.json()["error"]["code"] == "server_error"
     assert status.json()["error"]["recovery_hint"] == body["generation_recovery_hint"]
+    assert fake.calls == 1
 
 
 async def test_llm_json_without_detailed_does_not_mark_summary_generated(client, monkeypatch):
@@ -509,10 +580,62 @@ async def test_llm_json_without_detailed_does_not_mark_summary_generated(client,
 
 
 async def test_upload_degraded_on_dirty_json(client, monkeypatch):
-    _enable_llm(monkeypatch, FakeLLM(mode="dirty"))
+    fake = FakeLLM(mode="dirty")
+    _enable_llm(monkeypatch, fake)
     task_id = await _upload(client)
     r = await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
     assert r.json()["content_processing_status"] == "degraded"
+    assert r.json()["generation_error_category"] == "response_error"
+    assert fake.calls == 2
+
+
+async def test_non_deepseek_invalid_json_does_not_use_prompt_fallback(client, monkeypatch):
+    fake = FakeLLM(mode="dirty")
+    fake.provider = "custom"
+    _enable_llm(monkeypatch, fake)
+
+    task_id = await _upload(client, content=b"non-deepseek-invalid-json")
+    response = await client.get(
+        f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT)
+    )
+
+    assert response.json()["content_processing_status"] == "degraded"
+    assert response.json()["generation_error_category"] == "response_error"
+    assert fake.calls == 1
+
+
+async def test_response_error_task_is_reprocessed_only_after_explicit_retry(
+    client, db_session, monkeypatch
+):
+    failed = FakeLLM(mode="dirty")
+    _enable_llm(monkeypatch, failed)
+    task_id = await _upload(client, content=b"explicit-response-retry")
+
+    before = await client.get(f"/api/v1/ingest/{task_id}/status", headers=_hdr(USER_CONSULTANT))
+    assert before.json()["status"] == "degraded"
+    assert before.json()["retryable"] is True
+    assert before.json()["next_action"]["key"] == "retry_processing"
+    assert failed.calls == 2
+
+    recovered = FakeLLM(mode="ok")
+    _enable_llm(monkeypatch, recovered)
+    retried = await client.post(f"/api/v1/ingest/{task_id}/retry", headers=_hdr(USER_CONSULTANT))
+
+    assert retried.status_code == 200, retried.text
+    assert retried.json()["stage"] == "awaiting_confirmation"
+    assert retried.json()["status"] == "action_required"
+    assert recovered.calls == 1
+    ai = await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
+    assert ai.json()["summary_status"] == "generated"
+    assert ai.json()["naming_parsed_fields"]["structured_output_mode"] == "json_mode"
+    audit = await db_session.scalar(
+        select(AuditEvent).where(AuditEvent.action == "ingest.ai_retry_requested")
+    )
+    assert audit is not None
+    assert audit.extra == {"reason": "response_error", "scope": "single_task"}
+    serialized = json.dumps(audit.extra)
+    for forbidden in ("explicit-response-retry", "Authorization", "base_url", "api_key"):
+        assert forbidden not in serialized
 
 
 # ---- confirm 三层摘要写穿 + AI/人工独立 ----
