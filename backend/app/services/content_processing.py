@@ -415,16 +415,19 @@ async def _chat_completion_with_governed_caps(
     trace_id: str | None,
 ) -> str:
     """Call an LLM without breaking legacy adapters that lack cap parameters."""
-    kwargs: dict[str, object] = {
-        "json_object": json_object,
-        "trace_id": trace_id,
-    }
     if _supports_llm_transport_caps(llm):
-        kwargs.update(
+        return await llm.chat_completion(
+            messages,
+            json_object=json_object,
             max_input_chars=_LLM_MAX_INPUT_CHARS,
             max_tokens=_LLM_MAX_OUTPUT_TOKENS,
+            trace_id=trace_id,
         )
-    return await llm.chat_completion(messages, **kwargs)
+    return await llm.chat_completion(
+        messages,
+        json_object=json_object,
+        trace_id=trace_id,
+    )
 
 
 async def process_content(
