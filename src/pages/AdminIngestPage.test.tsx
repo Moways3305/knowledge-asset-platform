@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   fetchIndexingJobs,
   fetchIndexingHealth,
+  fetchLLMUsage,
   fetchOpsIndexing,
   triggerIndexingReparse,
   triggerIndexingRetry,
@@ -18,6 +19,7 @@ import AdminIngestPage from "./AdminIngestPage";
 vi.mock("../api/admin", () => ({
   fetchIndexingJobs: vi.fn(),
   fetchIndexingHealth: vi.fn(),
+  fetchLLMUsage: vi.fn(),
   fetchOpsIndexing: vi.fn(),
   triggerIndexingReparse: vi.fn(),
   triggerIndexingRetry: vi.fn(),
@@ -132,6 +134,23 @@ describe("AdminIngestPage operations reference", () => {
     vi.mocked(fetchOpsIndexing).mockResolvedValue(ops);
     vi.mocked(fetchIndexingJobs).mockResolvedValue({ items: [], total: 0 });
     vi.mocked(fetchIndexingHealth).mockResolvedValue(health);
+    vi.mocked(fetchLLMUsage).mockResolvedValue({
+      days: 14,
+      items: [
+        {
+          day: "2026-07-17",
+          scenario: "content_generation",
+          request_count: 2,
+          item_count: 2,
+          prompt_tokens: 20,
+          completion_tokens: 10,
+          total_tokens: 30,
+          cache_hits: 1,
+          cache_misses: 1,
+          cache_hit_rate: 0.5,
+        },
+      ],
+    });
     vi.mocked(fetchAdminIngest).mockResolvedValue({
       items: [
         {
@@ -191,6 +210,12 @@ describe("AdminIngestPage operations reference", () => {
     expect(await screen.findByText("连接检查未通过，请确认平台配置。")).toBeInTheDocument();
     expect(screen.getByText("3 项索引失败")).toBeInTheDocument();
     expect(screen.getByText("共 1 项")).toBeInTheDocument();
+    expect(screen.getByLabelText("近 14 天模型用量")).toHaveTextContent("2外部请求数");
+    expect(screen.getByLabelText("近 14 天模型用量")).toHaveTextContent("30总 token");
+    expect(screen.getByLabelText("近 14 天模型用量")).toHaveTextContent("50%缓存命中率");
+    expect(screen.getByLabelText("按日和调用场景的模型用量")).toHaveTextContent(
+      "2026-07-17内容生成2 次外部请求 · 30 token缓存命中率 50%",
+    );
     expect(document.body).not.toHaveTextContent("绝不能显示的业务标题");
     expect(document.body).not.toHaveTextContent("绝不能显示的项目名称");
     expect(document.body).not.toHaveTextContent("绝不能显示的人员名称");

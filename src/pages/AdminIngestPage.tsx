@@ -18,6 +18,7 @@ import {
 import {
   fetchIndexingJobs,
   fetchIndexingHealth,
+  fetchLLMUsage,
   fetchOpsIndexing,
   triggerIndexingReparse,
   triggerIndexingRetry,
@@ -32,6 +33,7 @@ import type { AdminIngestItemDTO } from "../types/ingest";
 import type {
   IndexingHealthDTO,
   IndexingJobSummaryDTO,
+  LLMUsageAggregateItemDTO,
   OpsIndexingDTO,
   OpsIndexingFailedItemDTO,
 } from "../types/ops";
@@ -175,6 +177,8 @@ export default function AdminIngestPage() {
   const [jobsState, setJobsState] = useState<LoadState>("loading");
   const [health, setHealth] = useState<IndexingHealthDTO | null>(null);
   const [healthState, setHealthState] = useState<LoadState>("loading");
+  const [llmUsage, setLLMUsage] = useState<LLMUsageAggregateItemDTO[]>([]);
+  const [llmUsageState, setLLMUsageState] = useState<LoadState>("loading");
   const [failureFilter, setFailureFilter] = useState<FailureFilter>("all");
   const [retryIncludeSkipped, setRetryIncludeSkipped] = useState(false);
   const [retryIncludeNotIndexed, setRetryIncludeNotIndexed] = useState(false);
@@ -191,6 +195,7 @@ export default function AdminIngestPage() {
   const jobsRequestRef = useRef(0);
   const jobsFetchInFlightRef = useRef<Promise<IndexingJobSummaryDTO[]> | null>(null);
   const healthRequestRef = useRef(0);
+  const llmUsageRequestRef = useRef(0);
 
   const loadIngest = useCallback(async () => {
     const requestId = ++ingestRequestRef.current;
@@ -277,12 +282,35 @@ export default function AdminIngestPage() {
     }
   }, []);
 
+  const loadLLMUsage = useCallback(async () => {
+    const requestId = ++llmUsageRequestRef.current;
+    setLLMUsageState("loading");
+    try {
+      const response = await fetchLLMUsage(14);
+      if (llmUsageRequestRef.current !== requestId) return null;
+      setLLMUsage(response.items);
+      setLLMUsageState("ready");
+      return response.items;
+    } catch {
+      if (llmUsageRequestRef.current !== requestId) return null;
+      setLLMUsage([]);
+      setLLMUsageState("error");
+      return null;
+    }
+  }, []);
+
   const refreshAll = useCallback(
     async (clearNote = true) => {
       if (clearNote) setOpsNote(null);
-      await Promise.all([loadIngest(), loadOpsIndex(), loadOpsJobs(), loadHealth()]);
+      await Promise.all([
+        loadIngest(),
+        loadOpsIndex(),
+        loadOpsJobs(),
+        loadHealth(),
+        loadLLMUsage(),
+      ]);
     },
-    [loadHealth, loadIngest, loadOpsIndex, loadOpsJobs],
+    [loadHealth, loadIngest, loadLLMUsage, loadOpsIndex, loadOpsJobs],
   );
 
   useEffect(() => {
@@ -299,7 +327,17 @@ export default function AdminIngestPage() {
     ingestState === "loading" ||
     opsState === "loading" ||
     jobsState === "loading" ||
-    healthState === "loading";
+    healthState === "loading" ||
+    llmUsageState === "loading";
+  const llmUsageTotals = llmUsage.reduce(
+    (total, item) => ({
+      requests: total.requests + item.request_count,
+      tokens: total.tokens + item.total_tokens,
+      hits: total.hits + item.cache_hits,
+      misses: total.misses + item.cache_misses,
+    }),
+    { requests: 0, tokens: 0, hits: 0, misses: 0 },
+  );
 
   useEffect(() => {
     if (!activeJobId) return;
@@ -643,6 +681,54 @@ export default function AdminIngestPage() {
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+
+          <div className="ao84-ingest-overview" aria-label="近 14 天模型用量">
+            <div className="ao84-subhead">
+              <BarChart3 size={16} aria-hidden="true" />
+              <strong>模型用量</strong>
+              <span>近 14 天安全聚合</span>
+            </div>
+            {llmUsageState === "loading" ? (
+              <p>正在读取模型用量…</p>
+            ) : llmUsageState === "error" ? (
+              <p className="is-error">模型用量暂时无法加载。</p>
+            ) : (
+              <>
+                <div className="ao84-ingest-counts">
+                  <span>
+                    <strong>{llmUsageTotals.requests}</strong>外部请求数
+                  </span>
+                  <span>
+                    <strong>{llmUsageTotals.tokens}</strong>总 token
+                  </span>
+                  <span>
+                    <strong>
+                      {llmUsageTotals.hits + llmUsageTotals.misses
+                        ? `${Math.round((llmUsageTotals.hits / (llmUsageTotals.hits + llmUsageTotals.misses)) * 100)}%`
+                        : "0%"}
+                    </strong>
+                    缓存命中率
+                  </span>
+                </div>
+                {llmUsage.length > 0 && (
+                  <div className="ao84-ingest-failures" aria-label="按日和调用场景的模型用量">
+                    {llmUsage.map((item) => (
+                      <div key={`${item.day}:${item.scenario}`}>
+                        <span>{item.day}</span>
+                        <strong>
+                          {item.scenario === "content_generation" ? "内容生成" : "目录分类"}
+                        </strong>
+                        <span>
+                          {item.request_count} 次外部请求 · {item.total_tokens} token
+                        </span>
+                        <span>缓存命中率 {Math.round(item.cache_hit_rate * 100)}%</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
 

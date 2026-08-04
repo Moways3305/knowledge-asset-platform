@@ -17,7 +17,7 @@ from collections.abc import Awaitable
 from typing import cast
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Cookie, Depends, Request, Response
+from fastapi import APIRouter, Cookie, Depends, Query, Request, Response
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,6 +56,7 @@ from app.schemas.indexing_ops import (
     IndexingReparseRequest,
     IndexingRetryRequest,
 )
+from app.schemas.llm_usage import LLMUsageAggregateResponse
 from app.schemas.permission import CallerContext
 from app.schemas.session_ops import (
     SessionRevokeRequest,
@@ -70,6 +71,7 @@ from app.services import (
     generation_models,
     indexing_candidates,
     indexing_health,
+    llm_usage,
     session_revocation,
     wecom_identity,
     weknora_defaults,
@@ -403,6 +405,17 @@ def _require_ops_viewer(caller: CallerContext) -> None:
     raise HTTPException(
         403, detail={"denied_reason": "ops_viewer_required", "message": "无权查看索引运维视图"}
     )
+
+
+@router.get("/admin/ops/llm-usage", response_model=LLMUsageAggregateResponse)
+async def ops_llm_usage(
+    days: int = Query(default=14, ge=1, le=90),
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> LLMUsageAggregateResponse:
+    """Admin-only aggregate counters; never returns prompts or business identifiers."""
+    _require_admin(caller)
+    return LLMUsageAggregateResponse(days=days, items=await llm_usage.aggregate(session, days=days))
 
 
 @router.get("/admin/ops/indexing")
