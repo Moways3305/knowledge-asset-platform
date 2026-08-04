@@ -4466,6 +4466,65 @@
         "title": "IngestBulkConfirmItem",
         "type": "object"
       },
+      "IngestBulkConfirmItemResult": {
+        "description": "Safe confirmation result; the asset link exists only after creation succeeded.",
+        "properties": {
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "result_asset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Asset Id"
+          },
+          "status": {
+            "enum": [
+              "succeeded",
+              "skipped",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "status"
+        ],
+        "title": "IngestBulkConfirmItemResult",
+        "type": "object"
+      },
       "IngestBulkConfirmRequest": {
         "properties": {
           "client_operation_id": {
@@ -4546,6 +4605,66 @@
           "target_scope"
         ],
         "title": "IngestBulkConfirmRequest",
+        "type": "object"
+      },
+      "IngestBulkConfirmResponse": {
+        "properties": {
+          "execution_mode": {
+            "enum": [
+              "synchronous",
+              "controlled_batch"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IngestBulkConfirmItemResult"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "completed",
+              "completed_with_errors"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "submitted": {
+            "title": "Submitted",
+            "type": "integer"
+          },
+          "succeeded": {
+            "title": "Succeeded",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "operation_id",
+          "status",
+          "execution_mode",
+          "submitted",
+          "succeeded",
+          "skipped",
+          "failed",
+          "items"
+        ],
+        "title": "IngestBulkConfirmResponse",
         "type": "object"
       },
       "IngestConfirmRequest": {
@@ -7354,7 +7473,7 @@
       "NamingDraftUpdateRequest": {
         "properties": {
           "config": {
-            "$ref": "#/components/schemas/NamingRuleConfig"
+            "$ref": "#/components/schemas/NamingRuleConfig-Input"
           },
           "expected_base_version": {
             "title": "Expected Base Version",
@@ -7724,7 +7843,37 @@
         "title": "NamingRuleCenterOut",
         "type": "object"
       },
-      "NamingRuleConfig": {
+      "NamingRuleConfig-Input": {
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/NamingCategoryConfig"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "enforced": {
+            "default": true,
+            "title": "Enforced",
+            "type": "boolean"
+          },
+          "project_codes": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectCodeConfig"
+            },
+            "title": "Project Codes",
+            "type": "array"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "title": "NamingRuleConfig",
+        "type": "object"
+      },
+      "NamingRuleConfig-Output": {
         "properties": {
           "categories": {
             "items": {
@@ -7761,7 +7910,7 @@
             "type": "integer"
           },
           "config": {
-            "$ref": "#/components/schemas/NamingRuleConfig"
+            "$ref": "#/components/schemas/NamingRuleConfig-Output"
           },
           "published_at": {
             "anyOf": [
@@ -24408,7 +24557,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BulkOperationResponse"
+                  "$ref": "#/components/schemas/IngestBulkConfirmResponse"
                 }
               }
             },
