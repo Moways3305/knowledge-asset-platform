@@ -48,6 +48,15 @@ class LLMDiagnostic:
     retryable: bool
 
 
+@dataclass(frozen=True)
+class LLMUsage:
+    """Safe provider-reported token counters; never contains request content."""
+
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+
+
 _DIAGNOSTICS: dict[str, LLMDiagnostic] = {
     "connection_error": LLMDiagnostic(
         "connection_error",
@@ -171,6 +180,7 @@ class LLMClient:
         self.model = model or reg.default_model
         self._timeout = timeout
         self._minimax_group_id = minimax_group_id
+        self.last_usage: LLMUsage | None = None
         if not self._base:
             raise LLMError("llm_no_base_url", f"provider {provider} 缺少 base_url")
         if not self.model:
@@ -196,16 +206,30 @@ class LLMClient:
         temperature: float = 0.2,
         model: str | None = None,
         json_object: bool = True,
+        max_input_chars: int | None = None,
+        max_tokens: int | None = None,
         trace_id: str | None = None,
     ) -> str:
         """调用 chat/completions，返回 assistant 文本内容（由调用方解析 JSON）。"""
+        self.last_usage = None
+        bounded_messages = [dict(message) for message in messages]
+        if max_input_chars is not None:
+            if max_input_chars < 1:
+                raise LLMError("llm_request_error", "LLM 输入上限必须为正数")
+            input_chars = sum(len(message.get("content", "")) for message in bounded_messages)
+            if input_chars > max_input_chars:
+                raise LLMError("llm_request_error", "LLM 输入超过当前调用场景上限")
         payload: dict[str, Any] = {
             "model": model or self.model,
-            "messages": messages,
+            "messages": bounded_messages,
             "temperature": temperature,
         }
         if json_object:
             payload["response_format"] = {"type": "json_object"}
+        if max_tokens is not None:
+            if max_tokens < 1:
+                raise LLMError("llm_request_error", "LLM 输出上限必须为正数")
+            payload["max_tokens"] = max_tokens
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 resp = await client.post(
@@ -232,6 +256,18 @@ class LLMClient:
             raise LLMError(code, "LLM 调用失败")
         try:
             data = resp.json()
+            usage = data.get("usage") if isinstance(data, dict) else None
+            if isinstance(usage, dict):
+
+                def safe_count(name: str) -> int | None:
+                    value = usage.get(name)
+                    return value if isinstance(value, int) and value >= 0 else None
+
+                self.last_usage = LLMUsage(
+                    prompt_tokens=safe_count("prompt_tokens"),
+                    completion_tokens=safe_count("completion_tokens"),
+                    total_tokens=safe_count("total_tokens"),
+                )
             return str(data["choices"][0]["message"]["content"])
         except Exception as exc:  # noqa: BLE001
             safe_log_exception(_logger, "llm_response_malformed", exc, status=resp.status_code)

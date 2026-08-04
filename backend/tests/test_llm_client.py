@@ -15,8 +15,11 @@ import pytest
 
 from app.main import app
 from app.schemas.enums import AssetType, ConfidentialityLevel
-from app.seed.dev_seed import USER_CONSULTANT
+from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT
 from app.services import audit as audit_service
+from app.services import content_processing
+from app.services.desensitization import RuleBasedDesensitizer
+from app.services.extraction import ExtractionResult
 from app.services.generation_models import get_generation_llm_client
 from app.services.llm_client import LLMClient, LLMError
 
@@ -128,6 +131,7 @@ class _FakeHttpClient:
     def __init__(self, *, response: httpx.Response | None = None, error: Exception | None = None):
         self.response = response
         self.error = error
+        self.request_json = None
 
     async def __aenter__(self):
         return self
@@ -135,7 +139,8 @@ class _FakeHttpClient:
     async def __aexit__(self, *_args):
         return None
 
-    async def post(self, *_args, **_kwargs):
+    async def post(self, *_args, **kwargs):
+        self.request_json = kwargs.get("json")
         if self.error:
             raise self.error
         assert self.response is not None
@@ -192,6 +197,43 @@ async def test_llm_client_classifies_timeout_without_endpoint_or_secret(monkeypa
     assert "models.example.test" not in str(captured.value)
 
 
+async def test_llm_client_enforces_scenario_limits_and_reads_safe_usage(monkeypatch):
+    response = httpx.Response(
+        200,
+        json={
+            "choices": [{"message": {"content": "{}"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13},
+        },
+    )
+    fake = _FakeHttpClient(response=response)
+    monkeypatch.setattr("app.services.llm_client.httpx.AsyncClient", lambda **_kwargs: fake)
+    llm = LLMClient(
+        provider="custom",
+        api_key="SECRET-LIKE-key",
+        base_url="https://models.example.test/v1",
+        model="chat-model",
+    )
+
+    await llm.chat_completion(
+        [{"role": "system", "content": "12345"}, {"role": "user", "content": "67890"}],
+        max_input_chars=10,
+        max_tokens=25,
+    )
+
+    assert fake.request_json["max_tokens"] == 25
+    assert sum(len(item["content"]) for item in fake.request_json["messages"]) == 10
+    assert llm.last_usage is not None
+    assert llm.last_usage.total_tokens == 13
+
+    with pytest.raises(LLMError) as captured:
+        await llm.chat_completion(
+            [{"role": "user", "content": '{"items":[{"complete":true}]}'}],
+            max_input_chars=10,
+        )
+    assert captured.value.code == "llm_request_error"
+    assert fake.request_json["messages"][1]["content"] == "67890"
+
+
 # ---- 内容处理：LLM 成功 ----
 async def test_upload_llm_structured_draft(client, monkeypatch):
     fake = FakeLLM(mode="ok")
@@ -233,6 +275,89 @@ async def test_upload_llm_structured_draft(client, monkeypatch):
     assert "只能依据文档正文" in system_prompt
     assert "ai_access_level" not in system_prompt
     assert "asset_type" not in system_prompt
+
+
+async def test_llm_usage_api_is_admin_only_and_returns_aggregate_counters(client, monkeypatch):
+    fake = FakeLLM(mode="ok")
+    _enable_llm(monkeypatch, fake)
+    await _upload(client, content=b"safe aggregate usage source")
+
+    denied = await client.get("/admin/ops/llm-usage", headers=_hdr(USER_CONSULTANT))
+    assert denied.status_code == 403
+    response = await client.get("/admin/ops/llm-usage?days=7", headers=_hdr(USER_ADMIN_ONLY))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["days"] == 7
+    assert body["items"][0]["scenario"] == "content_generation"
+    assert body["items"][0]["request_count"] == 1
+    serialized = json.dumps(body)
+    for forbidden in (
+        "safe aggregate usage source",
+        "source_file",
+        "storage",
+        "Authorization",
+        "api_key",
+    ):
+        assert forbidden not in serialized
+
+
+async def test_duplicate_content_reuses_generation_and_records_cache_hit(client, monkeypatch):
+    fake = FakeLLM(mode="ok")
+    _enable_llm(monkeypatch, fake)
+    await _upload(client, content=b"identical content for generation cache")
+    await _upload(client, content=b"identical content for generation cache")
+
+    assert fake.calls == 1
+    usage = (await client.get("/admin/ops/llm-usage?days=7", headers=_hdr(USER_ADMIN_ONLY))).json()[
+        "items"
+    ]
+    generation = next(item for item in usage if item["scenario"] == "content_generation")
+    assert generation["request_count"] == 1
+    assert generation["cache_hits"] == 1
+    assert generation["cache_misses"] == 1
+
+
+async def test_first_generation_persists_target_rule_category_suggestion():
+    category_id = "11111111-1111-1111-1111-111111111111"
+    fake = FakeLLM(
+        payload={
+            **_GOOD,
+            "suggested_category_id": category_id,
+            "category_confidence": "high",
+        }
+    )
+    draft, _meta = await content_processing.process_content(
+        fake,
+        RuleBasedDesensitizer(),
+        extraction=ExtractionResult(
+            text="项目复盘与交付知识",
+            status="extracted",
+            error_type=None,
+            error_message=None,
+            char_count=10,
+        ),
+        file_name="review.txt",
+        trace_id="safe-trace",
+        category_context={
+            "target_scope": "project",
+            "target_project_id": "22222222-2222-2222-2222-222222222222",
+            "rule_revision": 9,
+            "candidates": [
+                {"id": category_id, "display_name": "客户项目 / 项目复盘", "description": None}
+            ],
+        },
+        content_hash="a" * 64,
+        target_scope="project",
+        target_project_id="22222222-2222-2222-2222-222222222222",
+    )
+
+    prompt = fake.last_messages[1]["content"]
+    assert "governed_category_context" in prompt
+    assert '"rule_revision": 9' in prompt
+    suggestion = draft["naming_parsed_fields"]["category_suggestion"]
+    assert suggestion["suggested_category_id"] == category_id
+    assert suggestion["candidate_rule_revision"] == 9
+    assert suggestion["cache_fingerprint"]
 
 
 @pytest.mark.parametrize(

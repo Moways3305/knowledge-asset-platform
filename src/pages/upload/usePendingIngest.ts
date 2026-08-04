@@ -56,7 +56,6 @@ export function usePendingIngest(activePath: PathBranch) {
     const requestId = ++pendingRequestRef.current;
     setPendingLoading(true);
     setPendingError(null);
-    setBatchSelection([]);
     try {
       const tasks = await fetchPendingIngestTasks("path_a_wecom");
       if (pendingRequestRef.current === requestId) {
@@ -78,7 +77,6 @@ export function usePendingIngest(activePath: PathBranch) {
     const requestId = ++localPendingRequestRef.current;
     setLocalPendingLoading(true);
     setLocalPendingError(null);
-    setBatchSelection([]);
     try {
       const tasks = await fetchPendingIngestTasks("path_b_upload");
       if (localPendingRequestRef.current === requestId) {

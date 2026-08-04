@@ -34,10 +34,12 @@ from app.schemas.enums import (
     AuditLogType,
     AuditRiskLevel,
     IngestStatus,
+    KnowledgeScope,
 )
+from app.schemas.naming import NamingOptionsResponse
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
-from app.services import content_processing
+from app.services import content_processing, llm_usage, naming_rules
 from app.services.desensitization import DesensitizationEngine
 from app.services.extraction import extract_text
 from app.services.llm_client import LLMClient, NullLLMClient
@@ -88,6 +90,111 @@ async def _find_duplicate(session: AsyncSession, content_hash: str, exclude_task
         )
     ).first()
     return (row[0], row[1]) if row is not None else None
+
+
+async def _generation_category_context(
+    session: AsyncSession, task: IngestTask, actor: CallerContext
+) -> dict | None:
+    contexts: list[tuple[KnowledgeScope, NamingOptionsResponse]] = []
+    if task.target_scope in {KnowledgeScope.project.value, KnowledgeScope.company.value}:
+        try:
+            scope = KnowledgeScope(task.target_scope)
+            contexts.append(
+                (scope, await naming_rules.options(session, actor, scope, task.target_project_id))
+            )
+        except Exception:  # permissions/rules fail closed without breaking content generation
+            return None
+    else:
+        if actor.active_project_ids:
+            for representative in sorted(actor.active_project_ids, key=str):
+                try:
+                    contexts.append(
+                        (
+                            KnowledgeScope.project,
+                            await naming_rules.options(
+                                session, actor, KnowledgeScope.project, representative
+                            ),
+                        )
+                    )
+                    break
+                except Exception:
+                    continue
+        if actor.can_discover_l5:
+            try:
+                contexts.append(
+                    (
+                        KnowledgeScope.company,
+                        await naming_rules.options(session, actor, KnowledgeScope.company, None),
+                    )
+                )
+            except Exception:
+                pass
+    contexts = [(scope, options) for scope, options in contexts if options.rule_version is not None]
+    if not contexts:
+        return None
+    revisions = {options.rule_version for _scope, options in contexts}
+    if len(revisions) != 1:
+        return None
+    pending_selection = task.target_scope not in {
+        KnowledgeScope.project.value,
+        KnowledgeScope.company.value,
+    }
+    return {
+        "target_scope": "pending_selection" if pending_selection else contexts[0][0].value,
+        "target_project_id": str(task.target_project_id) if task.target_project_id else None,
+        "rule_revision": revisions.pop(),
+        "candidates": [
+            {
+                "id": str(item.id),
+                "scope": scope.value,
+                "display_name": f"{item.primary} / {item.secondary}",
+                "description": (item.description or "")[:160] or None,
+            }
+            for scope, options in contexts
+            for item in options.categories
+            if item.enabled and item.scope == scope.value
+        ],
+    }
+
+
+async def _reusable_ai_draft(
+    session: AsyncSession, *, content_hash: str, fingerprint: str, exclude_task_id: uuid.UUID
+) -> dict | None:
+    rows = (
+        (
+            await session.execute(
+                select(IngestTaskAiResult)
+                .join(IngestTask, IngestTask.id == IngestTaskAiResult.ingest_task_id)
+                .where(IngestTask.source_file_hash == content_hash)
+                .where(IngestTask.id != exclude_task_id)
+                .order_by(IngestTaskAiResult.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    excluded = {
+        "id",
+        "ingest_task_id",
+        "created_at",
+        "updated_at",
+        "duplicate_of_task_id",
+        "duplicate_of_asset_id",
+        "human_corrected",
+        "corrected_title",
+        "corrected_summary",
+        "corrected_tags",
+    }
+    for row in rows:
+        fields = row.naming_parsed_fields if isinstance(row.naming_parsed_fields, dict) else {}
+        if fields.get("generation_cache_fingerprint") != fingerprint:
+            continue
+        return {
+            column.name: getattr(row, column.name)
+            for column in IngestTaskAiResult.__table__.columns
+            if column.name not in excluded
+        }
+    return None
 
 
 def _apply_ai_result(task: IngestTask, ai: dict, dup) -> None:
@@ -146,16 +253,69 @@ async def process_upload_task(
             file_bytes, file_name=task.source_file_name, mime=task.source_file_mime_type
         )
         content_hash = task.source_file_hash or hashlib.sha256(file_bytes).hexdigest()
+        task.source_file_hash = content_hash
         dup = await _find_duplicate(session, content_hash, task.id)
+        category_context = await _generation_category_context(session, task, actor)
+        target_scope = task.target_scope or "unscoped"
+        target_project = str(task.target_project_id) if task.target_project_id else None
+        generation_fingerprint = llm_usage.cache_fingerprint(
+            content_hash=content_hash,
+            scope=target_scope,
+            project_id=target_project,
+            rule_revision=int((category_context or {}).get("rule_revision") or 0),
+            provider=getattr(llm, "provider", ""),
+            model=getattr(llm, "model", ""),
+        )
         task.processing_stage = "content_generation"
         await session.commit()
-        ai, content_meta = await content_processing.process_content(
-            llm,
-            desensitizer,
-            extraction=extraction,
-            file_name=task.source_file_name,
-            trace_id=trace_id,
+        ai = await _reusable_ai_draft(
+            session,
+            content_hash=content_hash,
+            fingerprint=generation_fingerprint,
+            exclude_task_id=task.id,
         )
+        if ai is not None:
+            content_meta = {
+                "status": "llm",
+                "reason": None,
+                "provider": getattr(llm, "provider", None),
+                "model": getattr(llm, "model", None),
+                "usage": None,
+                "desensitization_status": "not_applicable",
+                "desensitization_counts": None,
+            }
+            await llm_usage.record(
+                session,
+                scenario="content_generation",
+                provider=getattr(llm, "provider", None),
+                model=getattr(llm, "model", None),
+                batch_size=1,
+                cache_status="hit",
+                outcome="cache_hit",
+            )
+        else:
+            ai, content_meta = await content_processing.process_content(
+                llm,
+                desensitizer,
+                extraction=extraction,
+                file_name=task.source_file_name,
+                trace_id=trace_id,
+                category_context=category_context,
+                content_hash=content_hash,
+                target_scope=target_scope,
+                target_project_id=target_project,
+            )
+            if extraction.status == "extracted" and not isinstance(llm, NullLLMClient):
+                await llm_usage.record(
+                    session,
+                    scenario="content_generation",
+                    provider=content_meta.get("provider") or getattr(llm, "provider", None),
+                    model=content_meta.get("model") or getattr(llm, "model", None),
+                    batch_size=1,
+                    cache_status="miss",
+                    outcome="success" if content_meta.get("status") == "llm" else "failure",
+                    usage=content_meta.get("usage"),
+                )
     except Exception as exc:  # noqa: BLE001  # 瞬时处理失败 → 可重试
         safe_log_exception(_logger, "ingest_processing_failed", exc, include_summary=False)
         task.retry_count += 1
@@ -215,6 +375,7 @@ async def process_upload_task(
                 "degrade_reason": content_meta.get("reason"),
                 "llm_provider": content_meta.get("provider"),
                 "llm_model": content_meta.get("model"),
+                "llm_usage": content_meta.get("usage"),
                 # 入库脱敏安全元数据——只记状态与类别计数，**绝不**记脱敏文本/原值。
                 # 当前链路恒 not_applicable / counts=null（前置脱敏已退出，受信外部 API 处理）。
                 "desensitization_status": content_meta.get("desensitization_status"),

@@ -630,9 +630,11 @@ describe("UploadStepB folder drop and batch rejection", () => {
         },
       ],
     });
-    const handleSingleBatchConfirm = vi
-      .fn()
-      .mockResolvedValue({ succeededIds: [task.id], failedIds: [] });
+    const handleSingleBatchConfirm = vi.fn().mockResolvedValue({
+      succeededIds: [task.id],
+      failedIds: [],
+      resultAssetIds: { [task.id]: "asset-single-confirm" },
+    });
     const flow = flowFixture({
       localPendingTasks: [task],
       batchSelection: [task.id],
@@ -683,6 +685,10 @@ describe("UploadStepB folder drop and batch rejection", () => {
       ),
     );
     expect(screen.getByRole("dialog")).toHaveTextContent("逐条核对");
+    expect(screen.getByRole("link", { name: "查看知识资产卡片：安全标题" })).toHaveAttribute(
+      "href",
+      "/knowledge/asset-single-confirm",
+    );
   });
 
   it("keeps only the latest dynamic preview when responses arrive out of order", async () => {

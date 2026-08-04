@@ -36,6 +36,7 @@ from app.models.lifecycle import (
     AssetLifecycleEvent,
     NotificationRecord,
 )
+from app.models.llm_usage import LLMUsageEvent
 from app.models.naming import NamingRuleRevision
 from app.models.notification import BusinessNotification
 from app.models.original_access import AccessGrant, OriginalAccessRequest
@@ -88,6 +89,7 @@ __all__ = [
     "AssetLifecycleEvent",
     "AlertRule",
     "NotificationRecord",
+    "LLMUsageEvent",
     "NamingRuleRevision",
     "BusinessNotification",
     "UserSession",

@@ -15,3 +15,11 @@ export interface BulkOperationResponseDTO {
   failed: number;
   items: BulkItemResultDTO[];
 }
+
+export interface IngestBulkItemResultDTO extends BulkItemResultDTO {
+  result_asset_id?: string;
+}
+
+export interface IngestBulkOperationResponseDTO extends Omit<BulkOperationResponseDTO, "items"> {
+  items: IngestBulkItemResultDTO[];
+}

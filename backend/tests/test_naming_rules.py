@@ -154,6 +154,82 @@ class _RawCategoryLLM:
         return self.raw
 
 
+class _BatchCategoryLLM:
+    provider = "test"
+    model = "category-test"
+
+    def __init__(self, category_id: uuid.UUID) -> None:
+        self.category_id = category_id
+        self.messages: list[list[dict[str, str]]] = []
+
+    async def chat_completion(self, messages, **_kwargs) -> str:
+        self.messages.append(messages)
+        body = json.loads(messages[1]["content"])
+        return json.dumps(
+            {
+                "items": [
+                    {
+                        "task_id": item["task_id"],
+                        "suggested_category_id": str(self.category_id),
+                        "category_confidence": "high",
+                    }
+                    for item in body["documents"]
+                ]
+            }
+        )
+
+
+class _PartialBatchCategoryLLM(_BatchCategoryLLM):
+    async def chat_completion(self, messages, **_kwargs) -> str:
+        self.messages.append(messages)
+        documents = json.loads(messages[1]["content"])["documents"]
+        returned = documents[:-1] if len(documents) > 1 else documents
+        return json.dumps(
+            {
+                "items": [
+                    {
+                        "task_id": item["task_id"],
+                        "suggested_category_id": str(self.category_id),
+                        "category_confidence": "high",
+                    }
+                    for item in returned
+                ]
+            }
+        )
+
+
+class _CombinedGenerationCategoryLLM:
+    provider = "test"
+    model = "combined-generation-category"
+
+    def __init__(self, category_id: uuid.UUID) -> None:
+        self.category_id = category_id
+        self.calls = 0
+        self.messages: list[list[dict[str, str]]] = []
+
+    async def chat_completion(self, messages, **_kwargs) -> str:
+        self.calls += 1
+        self.messages.append(messages)
+        return json.dumps(
+            {
+                "topic": "项目复盘",
+                "one_liner": "项目复盘知识摘要",
+                "detailed": "项目复盘内容、经验与改进建议。",
+                "key_points": ["经验", "改进"],
+                "tags": ["复盘"],
+                "confidentiality_level": "L2",
+                "confidentiality_confidence": "medium",
+                "category_suggestions": {
+                    "project": {
+                        "suggested_category_id": str(self.category_id),
+                        "category_confidence": "high",
+                    }
+                },
+            },
+            ensure_ascii=False,
+        )
+
+
 class _BlockingCategoryLLM(_CategoryLLM):
     def __init__(self, category_id: uuid.UUID) -> None:
         super().__init__(category_id)
@@ -1161,6 +1237,139 @@ async def test_category_classifier_invalid_id_fails_to_manual(client):
     assert low.json()["items"][0]["category_source"] == "needs_manual"
 
 
+async def test_category_classifier_batches_twenty_safe_drafts_without_extracted_text(client):
+    first, second = uuid.uuid4(), uuid.uuid4()
+    await _publish_categories(client, [(first, "辅导过程"), (second, "项目复盘")])
+    task_ids = [await _upload(client) for _ in range(13)]
+    fake = _BatchCategoryLLM(second)
+    app.dependency_overrides[get_generation_llm_client] = lambda: fake
+
+    response = await client.post(
+        "/api/v1/ingest/bulk-category-classification",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "task_ids": task_ids,
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert len(fake.messages) == 1
+    assert [len(json.loads(message[1]["content"])["documents"]) for message in fake.messages] == [
+        13
+    ]
+    prompt = json.dumps(fake.messages, ensure_ascii=False)
+    assert "extracted_text" not in prompt
+    assert "document_text" not in prompt
+    assert {item["suggested_category_id"] for item in response.json()["items"]} == {str(second)}
+
+
+async def test_upload_then_choose_project_reuses_first_generation_category(client):
+    first, second = uuid.uuid4(), uuid.uuid4()
+    await _publish_categories(client, [(first, "辅导过程"), (second, "项目复盘")])
+    fake = _CombinedGenerationCategoryLLM(second)
+    app.dependency_overrides[get_generation_llm_client] = lambda: fake
+
+    task_id = await _upload(client)
+    assert fake.calls == 1
+    prompt = fake.messages[0][1]["content"]
+    assert '"target_scope": "pending_selection"' in prompt
+    assert '"scope": "project"' in prompt
+
+    response = await client.post(
+        "/api/v1/ingest/bulk-category-classification",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "task_ids": [task_id],
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["items"][0]["suggested_category_id"] == str(second)
+    assert fake.calls == 1
+
+
+async def test_category_classifier_splits_complete_json_before_input_budget(client, db_session):
+    first, second = uuid.uuid4(), uuid.uuid4()
+    await _publish_categories(client, [(first, "辅导过程"), (second, "项目复盘")])
+    task_ids = [await _upload(client) for _ in range(20)]
+    rows = (
+        (
+            await db_session.execute(
+                select(IngestTaskAiResult).where(
+                    IngestTaskAiResult.ingest_task_id.in_([uuid.UUID(item) for item in task_ids])
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for row in rows:
+        row.suggested_one_liner = "一" * 240
+        row.suggested_summary = "摘" * 1_000
+        row.suggested_key_points = ["点" * 100] * 6
+    await db_session.commit()
+    fake = _BatchCategoryLLM(second)
+    app.dependency_overrides[get_generation_llm_client] = lambda: fake
+
+    response = await client.post(
+        "/api/v1/ingest/bulk-category-classification",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "task_ids": task_ids,
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert len(fake.messages) > 1
+    documents = []
+    for messages in fake.messages:
+        assert sum(len(message["content"]) for message in messages) <= 20_000
+        documents.extend(json.loads(messages[1]["content"])["documents"])
+    assert len(documents) == 20
+
+
+async def test_category_partial_result_retries_only_the_missing_item(client):
+    first, second = uuid.uuid4(), uuid.uuid4()
+    await _publish_categories(client, [(first, "辅导过程"), (second, "项目复盘")])
+    task_ids = [await _upload(client) for _ in range(20)]
+    fake = _PartialBatchCategoryLLM(second)
+    app.dependency_overrides[get_generation_llm_client] = lambda: fake
+
+    first_response = await client.post(
+        "/api/v1/ingest/bulk-category-classification",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "task_ids": task_ids,
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+        },
+    )
+    failed = [item for item in first_response.json()["items"] if item["status"] == "failed"]
+    assert len(failed) == 1
+    retry = await client.post(
+        "/api/v1/ingest/bulk-category-classification",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "task_ids": [failed[0]["task_id"]],
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "retry": True,
+        },
+    )
+
+    assert retry.json()["items"][0]["status"] == "classified"
+    assert [len(json.loads(message[1]["content"])["documents"]) for message in fake.messages] == [
+        20,
+        1,
+    ]
+
+
 async def test_category_classifier_non_object_json_fails_each_item_safely(client):
     first, second = uuid.uuid4(), uuid.uuid4()
     await _publish_categories(client, [(first, "辅导过程"), (second, "关键资料")])
@@ -1238,6 +1447,124 @@ async def test_manual_category_survives_retry(client):
     item = retried.json()["items"][0]
     assert item["suggested_category_id"] == str(first)
     assert item["category_source"] == "manual"
+    assert fake.messages == []
+
+
+async def test_stale_manual_category_requires_reselection_without_llm(client, db_session):
+    first, second = uuid.uuid4(), uuid.uuid4()
+    await _publish_categories(client, [(first, "辅导过程"), (second, "项目复盘")])
+    task_id = await _upload(client)
+    selected = await client.put(
+        f"/api/v1/ingest/{task_id}/category-selection",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "category_id": str(first),
+        },
+    )
+    initial_revision = selected.json()["candidate_rule_revision"]
+
+    replacement, other = uuid.uuid4(), uuid.uuid4()
+    config = _config(replacement, category="关键资料")
+    config["categories"].append(
+        {
+            "id": str(other),
+            "scope": "project",
+            "primary": "项目资料",
+            "secondary": "项目基础信息",
+            "prefix": "项目资料-项目基础信息",
+            "default_confidentiality": "L2",
+            "enabled": True,
+            "sort_order": 20,
+        }
+    )
+    saved = await client.put(
+        "/api/v1/admin/naming-rules/draft",
+        headers=_hdr(USER_BOSS),
+        json={"expected_base_version": initial_revision, "config": config},
+    )
+    assert saved.status_code == 200, saved.text
+    published = await client.post(
+        "/api/v1/admin/naming-rules/publish",
+        headers=_hdr(USER_BOSS),
+        json={"expected_base_version": initial_revision},
+    )
+    assert published.status_code == 200, published.text
+    fake = _CategoryLLM(replacement)
+    app.dependency_overrides[get_generation_llm_client] = lambda: fake
+
+    refreshed = await client.post(
+        "/api/v1/ingest/bulk-category-classification",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "task_ids": [task_id],
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "retry": True,
+        },
+    )
+
+    assert refreshed.status_code == 200, refreshed.text
+    item = refreshed.json()["items"][0]
+    assert item["suggested_category_id"] is None
+    assert item["category_source"] == "needs_manual"
+    assert item["status"] == "needs_manual"
+    assert fake.messages == []
+    ai = await db_session.scalar(
+        select(IngestTaskAiResult)
+        .where(IngestTaskAiResult.ingest_task_id == uuid.UUID(task_id))
+        .execution_options(populate_existing=True)
+    )
+    stored = ai.naming_parsed_fields["category_suggestion"]
+    assert stored["suggested_category_id"] == str(first)
+    assert stored["category_source"] == "manual"
+
+
+async def test_manual_project_category_is_not_returned_for_company_target(client):
+    project_category, company_category = uuid.uuid4(), uuid.uuid4()
+    config = _config(project_category, company_category_id=company_category)
+    saved = await client.put(
+        "/api/v1/admin/naming-rules/draft",
+        headers=_hdr(USER_BOSS),
+        json={"expected_base_version": 1, "config": config},
+    )
+    assert saved.status_code == 200, saved.text
+    published = await client.post(
+        "/api/v1/admin/naming-rules/publish",
+        headers=_hdr(USER_BOSS),
+        json={"expected_base_version": 1},
+    )
+    assert published.status_code == 200, published.text
+    task_id = await _upload(client)
+    selected = await client.put(
+        f"/api/v1/ingest/{task_id}/category-selection",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "category_id": str(project_category),
+        },
+    )
+    assert selected.status_code == 200, selected.text
+    fake = _CategoryLLM(company_category)
+    app.dependency_overrides[get_generation_llm_client] = lambda: fake
+
+    switched = await client.post(
+        "/api/v1/ingest/bulk-category-classification",
+        headers=_hdr(USER_BOSS),
+        json={
+            "task_ids": [task_id],
+            "target_scope": "company",
+            "target_project_id": None,
+            "retry": True,
+        },
+    )
+
+    assert switched.status_code == 200, switched.text
+    item = switched.json()["items"][0]
+    assert item["suggested_category_id"] is None
+    assert item["category_source"] == "needs_manual"
     assert fake.messages == []
 
 

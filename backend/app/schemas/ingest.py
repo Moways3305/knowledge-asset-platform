@@ -12,7 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.schemas.bulk_operations import BulkRequestContext
+from app.schemas.bulk_operations import BulkItemResult, BulkOperationResponse, BulkRequestContext
 from app.schemas.enums import (
     ConfidentialityLevel,
     KnowledgeScope,
@@ -283,6 +283,18 @@ class IngestBulkConfirmRequest(BulkRequestContext):
             if supplied_project != expected_project:
                 raise ValueError("all items must use the explicit batch target_project_id")
         return self
+
+
+class IngestBulkConfirmItemResult(BulkItemResult):
+    """Safe confirmation result; the asset link exists only after creation succeeded."""
+
+    result_asset_id: uuid.UUID | None = None
+
+
+class IngestBulkConfirmResponse(BulkOperationResponse):
+    # Pydantic supports this response-schema narrowing; mypy's invariant list
+    # rule cannot express that the API always returns the extended item shape.
+    items: list[IngestBulkConfirmItemResult]  # type: ignore[assignment]
 
 
 class IngestParseRefreshResponse(BaseModel):

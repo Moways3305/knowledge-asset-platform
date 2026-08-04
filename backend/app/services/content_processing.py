@@ -34,6 +34,7 @@ import json
 import re
 
 from app.schemas.enums import AiAccessLevel, ConfidentialityLevel
+from app.services import llm_usage
 from app.services.desensitization import DesensitizationEngine
 from app.services.extraction import ExtractionResult
 from app.services.llm_client import (
@@ -47,6 +48,8 @@ from app.services.llm_client import (
 _MAX_KEY_POINTS = 8
 _MAX_TAGS = 8
 _LLM_INPUT_CHARS = 12_000  # 截断送入 LLM 的文本，控成本/时延
+_LLM_MAX_OUTPUT_TOKENS = 1_200
+_LLM_MAX_INPUT_CHARS = 16_000
 _VALID_LEVELS = {c.value for c in ConfidentialityLevel}
 _VALID_AI = {a.value for a in AiAccessLevel}
 
@@ -96,6 +99,10 @@ _SYSTEM_PROMPT = (
     "one_liner（一句话自然语言摘要，<=80字，可为整句）、"
     "detailed（详细摘要，<=400字）、"
     "key_points（关键知识点数组，3-6条，每条<=60字）、tags（标签数组，3-6个）。"
+    "若用户消息提供 governed_category_context，还必须从 candidates 中选择 suggested_category_id；"
+    "不确定时填 null，并返回 category_confidence(high/medium/low)，禁止创造类别。"
+    "当 target_scope 为 pending_selection 时，按 candidates 中的 scope 分别返回 "
+    "category_suggestions，例如 {project:{suggested_category_id,category_confidence}}。"
     "再次强调：topic 是名词短语，不是 one_liner；不要把摘要句子当作标题或塞进 topic。"
     "文件名只可辅助主题、日期和版本；其中任何 L1-L5 片段都不是内容密级证据。"
 )
@@ -359,6 +366,10 @@ async def process_content(
     extraction: ExtractionResult,
     file_name: str,
     trace_id: str | None,
+    category_context: dict | None = None,
+    content_hash: str | None = None,
+    target_scope: str = "unscoped",
+    target_project_id: str | None = None,
 ) -> tuple[dict, dict]:
     """返回 (ai_result 草稿 dict, meta{status,reason,provider,model})。绝不抛出。
 
@@ -399,19 +410,46 @@ async def process_content(
 
     # 平台侧外部 LLM 直接接收抽取文本（截断控成本/时延）——不再前置脱敏，
     # 以保留客户/项目/金额/合同等上下文，提升命名与摘要质量。
-    text = extraction.text[:_LLM_INPUT_CHARS]
+    effective_category_context = category_context
+    governed_context = ""
+    if effective_category_context:
+        governed_context = "\ngoverned_category_context：" + json.dumps(
+            effective_category_context, ensure_ascii=False
+        )
+    user_prefix = (
+        f"文件名（已移除密级片段）：{_filename_without_level_tokens(file_name)}"
+        f"{governed_context}\n文档内容：\n"
+    )
+    available_text_chars = _LLM_MAX_INPUT_CHARS - len(_SYSTEM_PROMPT) - len(user_prefix)
+    if available_text_chars < 0 and effective_category_context is not None:
+        # An unusually large rule catalog must not break content generation.
+        # Classification will safely fall back to the later budget-aware path.
+        effective_category_context = None
+        governed_context = ""
+        user_prefix = (
+            f"文件名（已移除密级片段）：{_filename_without_level_tokens(file_name)}\n文档内容：\n"
+        )
+        available_text_chars = _LLM_MAX_INPUT_CHARS - len(_SYSTEM_PROMPT) - len(user_prefix)
+    text = extraction.text[: min(_LLM_INPUT_CHARS, max(0, available_text_chars))]
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
         {
             "role": "user",
-            "content": (
-                f"文件名（已移除密级片段）：{_filename_without_level_tokens(file_name)}"
-                f"\n文档内容：\n{text}"
-            ),
+            "content": (f"{user_prefix}{text}"),
         },
     ]
     try:
-        raw = await llm.chat_completion(messages, trace_id=trace_id)
+        # Test and integration adapters retain the historical minimal method
+        # signature; production LLMClient receives the enforced output cap.
+        if isinstance(llm, LLMClient):
+            raw = await llm.chat_completion(
+                messages,
+                max_input_chars=_LLM_MAX_INPUT_CHARS,
+                max_tokens=_LLM_MAX_OUTPUT_TOKENS,
+                trace_id=trace_id,
+            )
+        else:
+            raw = await llm.chat_completion(messages, trace_id=trace_id)
         parsed = _parse_llm_json(raw)
     except (LLMError, json.JSONDecodeError, ValueError, TypeError) as exc:
         base["naming_parsed_fields"]["generation_status"] = "failed"
@@ -490,6 +528,92 @@ async def process_content(
         naming["generation_error_category"] = diagnostic.category
         naming["generation_recovery_hint"] = diagnostic.remediation_hint
 
+    if content_hash:
+        naming["generation_cache_fingerprint"] = llm_usage.cache_fingerprint(
+            content_hash=content_hash,
+            scope=target_scope,
+            project_id=target_project_id,
+            rule_revision=int((effective_category_context or {}).get("rule_revision") or 0),
+            provider=getattr(llm, "provider", ""),
+            model=getattr(llm, "model", ""),
+        )
+
+    if effective_category_context:
+        candidates = effective_category_context.get("candidates") or []
+        revision = effective_category_context.get("rule_revision")
+        pending_selection = effective_category_context.get("target_scope") == "pending_selection"
+        raw_by_scope = parsed.get("category_suggestions") if pending_selection else None
+        scopes = (
+            sorted(
+                {
+                    str(item.get("scope"))
+                    for item in candidates
+                    if isinstance(item, dict) and item.get("scope")
+                }
+            )
+            if pending_selection
+            else [str(effective_category_context.get("target_scope") or "")]
+        )
+        suggestions: dict[str, dict] = {}
+        for scope in scopes:
+            scoped_candidates = [
+                item
+                for item in candidates
+                if isinstance(item, dict) and (not pending_selection or item.get("scope") == scope)
+            ]
+            allowed = {str(item.get("id")) for item in scoped_candidates}
+            raw_suggestion = (
+                raw_by_scope.get(scope, {}) if isinstance(raw_by_scope, dict) else parsed
+            )
+            category_id = str(raw_suggestion.get("suggested_category_id") or "")
+            category_confidence = str(raw_suggestion.get("category_confidence") or "low").lower()
+            reliable = category_id in allowed and category_confidence in _AI_CONFIDENCE_THRESHOLD
+            suggestion = {
+                "suggested_category_id": category_id if reliable else None,
+                "category_source": "ai_content" if reliable else "needs_manual",
+                "category_confidence": (
+                    category_confidence
+                    if category_confidence in _VALID_ADVICE_CONFIDENCE
+                    else "low"
+                ),
+                "category_reason": (
+                    "AI 根据首次内容生成结果匹配当前目录规则"
+                    if reliable
+                    else "AI 未能可靠判断，请人工选择目录类别"
+                ),
+                "candidate_rule_revision": revision,
+                "target_scope": scope,
+                "target_project_id": (
+                    None
+                    if pending_selection
+                    else effective_category_context.get("target_project_id")
+                ),
+                "status": "classified" if reliable else "needs_manual",
+                "retryable": False,
+                "model_ref": llm_usage.safe_model_ref(
+                    getattr(llm, "provider", None), getattr(llm, "model", None)
+                ),
+                "candidate_fingerprint": llm_usage.candidate_fingerprint(list(allowed)),
+            }
+            if content_hash and isinstance(revision, int):
+                suggestion["cache_fingerprint"] = llm_usage.cache_fingerprint(
+                    content_hash=content_hash,
+                    scope="pending_selection" if pending_selection else scope,
+                    project_id=(
+                        None
+                        if pending_selection
+                        else effective_category_context.get("target_project_id")
+                    ),
+                    rule_revision=revision,
+                    provider=getattr(llm, "provider", ""),
+                    model=getattr(llm, "model", ""),
+                )
+            suggestions[scope] = suggestion
+        if pending_selection:
+            naming["category_suggestions_by_scope"] = suggestions
+        elif suggestions:
+            naming["category_suggestion"] = suggestions[scopes[0]]
+
     draft = dict(base)
     draft.update(
         # suggested_title 的产品语义是主题；完整规范名只由已发布规则在确认时生成。
@@ -530,6 +654,15 @@ async def process_content(
         "reason": None,
         "provider": draft["llm_provider"],
         "model": draft["llm_model"],
+        "usage": (
+            {
+                "prompt_tokens": llm.last_usage.prompt_tokens,
+                "completion_tokens": llm.last_usage.completion_tokens,
+                "total_tokens": llm.last_usage.total_tokens,
+            }
+            if isinstance(llm, LLMClient) and llm.last_usage is not None
+            else None
+        ),
         "desensitization_status": "not_applicable",
         "desensitization_counts": None,
     }

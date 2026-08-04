@@ -510,6 +510,59 @@
   text-align: center;
 }
 
+.upload77-batch-completed {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-success, #176b5b) 34%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-success, #176b5b) 6%, #fff);
+}
+
+.upload77-batch-completed h4 {
+  margin: 0;
+  color: var(--color-text-heading);
+  font-size: 14px;
+}
+
+.upload77-batch-completed-list {
+  display: grid;
+  gap: 8px;
+}
+
+.upload77-batch-completed-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--color-bg-surface, #fff);
+}
+
+.upload77-batch-completed-item > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.upload77-batch-completed-item strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload77-batch-completed-item span {
+  color: var(--color-success, #176b5b);
+  font-size: 12px;
+}
+
+.upload77-batch-completed-item .btn-secondary {
+  flex: 0 0 auto;
+  text-decoration: none;
+}
+
 .upload77-batch-naming-row {
   min-width: 0;
   padding: 14px;

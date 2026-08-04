@@ -18,12 +18,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_caller_context
 from app.core.trace import get_trace_id
 from app.db.session import get_db
-from app.schemas.bulk_operations import BulkOperationResponse
 from app.schemas.enums import AuditAction
 from app.schemas.ingest import (
     AdminIngestListResponse,
     IngestAiResultResponse,
+    IngestBulkConfirmItemResult,
     IngestBulkConfirmRequest,
+    IngestBulkConfirmResponse,
     IngestConfirmRequest,
     IngestConfirmResponse,
     IngestParseRefreshResponse,
@@ -523,7 +524,11 @@ async def retry_task(
     )
 
 
-@router.post("/ingest/bulk-confirm", response_model=BulkOperationResponse)
+@router.post(
+    "/ingest/bulk-confirm",
+    response_model=IngestBulkConfirmResponse,
+    response_model_exclude_none=True,
+)
 async def bulk_confirm(
     body: IngestBulkConfirmRequest,
     request: Request,
@@ -531,7 +536,7 @@ async def bulk_confirm(
     session: AsyncSession = Depends(get_db),
     storage: LocalFileStorage = Depends(get_storage),
     weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
-) -> BulkOperationResponse:
+) -> IngestBulkConfirmResponse:
     """Confirm one explicit destination while preserving per-task authorization."""
     operation_id = uuid.uuid4()
     trace_id = get_trace_id(request)
@@ -546,7 +551,7 @@ async def bulk_confirm(
                     if isinstance(item.confirmation, IngestConfirmRequest)
                     else IngestConfirmRequest.model_validate(item.confirmation)
                 )
-                await ingest_service.confirm(
+                confirmation_result = await ingest_service.confirm(
                     session,
                     caller,
                     item.task_id,
@@ -556,7 +561,11 @@ async def bulk_confirm(
                     weknora=weknora,
                 )
                 batch_results.append(
-                    bulk_service.BulkItemResult(item_id=item.task_id, status="succeeded")
+                    IngestBulkConfirmItemResult(
+                        item_id=item.task_id,
+                        status="succeeded",
+                        result_asset_id=confirmation_result.result_asset_id,
+                    )
                 )
             except ValidationError as exc:
                 await session.rollback()
@@ -585,7 +594,10 @@ async def bulk_confirm(
         request_count=body.request_count,
         total_submitted=body.total_submitted,
     )
-    return response
+    return IngestBulkConfirmResponse(
+        **response.model_dump(exclude={"items"}),
+        items=[IngestBulkConfirmItemResult.model_validate(item.model_dump()) for item in results],
+    )
 
 
 @router.post("/ingest/{task_id}/confirm", response_model=IngestConfirmResponse)

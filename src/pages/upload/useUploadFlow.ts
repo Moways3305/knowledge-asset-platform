@@ -42,7 +42,11 @@ function classifyPermanentRejectError(error: unknown): { message: string; retrya
 }
 
 type BatchReviewDeleteResult = { ok: true } | { ok: false; message: string; retryable: boolean };
-type BatchConfirmResult = { succeededIds: string[]; failedIds: string[] };
+type BatchConfirmResult = {
+  succeededIds: string[];
+  failedIds: string[];
+  resultAssetIds?: Record<string, string>;
+};
 
 export type {
   LocalUploadQueueItem,
@@ -231,6 +235,7 @@ export function useUploadFlow() {
       let preserveRetry = false;
       let retrySelection: string[] = [];
       const succeededIds = new Set<string>();
+      const resultAssetIds: Record<string, string> = {};
       const prepared: Array<{
         task: PendingIngestItemDTO;
         confirmation: IngestConfirmRequestDTO;
@@ -333,6 +338,9 @@ export function useUploadFlow() {
               [item.item_id]: succeeded ? "success" : "failed",
             }));
             if (succeeded) succeededIds.add(item.item_id);
+            if (succeeded && item.result_asset_id) {
+              resultAssetIds[item.item_id] = item.result_asset_id;
+            }
             if (succeeded && activePath === "b") removeLocalTaskEverywhere(item.item_id);
             if (!succeeded) {
               if (
@@ -378,6 +386,10 @@ export function useUploadFlow() {
             [item.item_id]: succeeded ? "success" : "failed",
           }));
           if (succeeded) succeededIds.add(item.item_id);
+          const resultAssetId = (item as { result_asset_id?: unknown }).result_asset_id;
+          if (succeeded && typeof resultAssetId === "string") {
+            resultAssetIds[item.item_id] = resultAssetId;
+          }
           if (succeeded && activePath === "b") removeLocalTaskEverywhere(item.item_id);
           if (item.status === "failed") retryIds.add(item.item_id);
         });
@@ -417,6 +429,7 @@ export function useUploadFlow() {
       onCompleted?.({
         succeededIds: [...succeededIds],
         failedIds: tasks.map((task) => task.id).filter((id) => !succeededIds.has(id)),
+        resultAssetIds,
       });
     },
     [
@@ -449,7 +462,11 @@ export function useUploadFlow() {
       naming: BatchNamingValuesDTO,
       warningCodes: string[] = [],
     ): Promise<BatchConfirmResult> => {
-      let result: BatchConfirmResult = { succeededIds: [], failedIds: [task.id] };
+      let result: BatchConfirmResult = {
+        succeededIds: [],
+        failedIds: [task.id],
+        resultAssetIds: {},
+      };
       await handleBatchConfirm(
         [task],
         destination,

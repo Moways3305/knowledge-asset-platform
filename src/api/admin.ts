@@ -16,6 +16,7 @@ import type {
   IndexingHealthDTO,
   IndexingReparseRequestDTO,
   IndexingRetryRequestDTO,
+  LLMUsageAggregateResponseDTO,
   OpsIndexingDTO,
 } from "../types/ops";
 import type { AuthSecurityOverviewDTO, AuthUnlockResponseDTO } from "../types/authSecurity";
@@ -71,6 +72,12 @@ import type {
 // 索引运维面板。admin 或业务治理角色可看安全计数 + 最近失败列表。
 export async function fetchOpsIndexing(): Promise<OpsIndexingDTO> {
   return apiGet<OpsIndexingDTO>(`/admin/ops/indexing`);
+}
+
+export async function fetchLLMUsage(days = 14): Promise<LLMUsageAggregateResponseDTO> {
+  return apiGet<LLMUsageAggregateResponseDTO>(
+    `/admin/ops/llm-usage?days=${encodeURIComponent(days)}`,
+  );
 }
 
 // 批量 retry-index。仅 admin / 业务治理角色；返回入队后的安全 job 摘要。

@@ -23,6 +23,11 @@ type PreviewRows = Record<string, BatchNamingPreviewItemDTO>;
 type ReviewFilter = "all" | "ai_ready" | "manual" | "reviewed" | "exception";
 type ReviewState = Exclude<ReviewFilter, "all">;
 type DeleteFeedback = { message: string; retryable: boolean };
+type CompletedReviewItem = {
+  taskId: string;
+  title: string;
+  assetId?: string;
+};
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const VERSION_PATTERN = /^V[1-9]\d*(?:\.\d+)*$/;
@@ -208,6 +213,9 @@ export default function PendingBatchActions({
   const [categoryTargetLabel, setCategoryTargetLabel] = useState("");
   const [classificationBusy, setClassificationBusy] = useState(false);
   const [closeGuardOpen, setCloseGuardOpen] = useState(false);
+  const [reviewTasks, setReviewTasks] = useState<PendingIngestItemDTO[]>([]);
+  const [reviewInitialCount, setReviewInitialCount] = useState(0);
+  const [completedReviewItems, setCompletedReviewItems] = useState<CompletedReviewItem[]>([]);
   const previewRunsRef = useRef<Record<string, number>>({});
   const previewTimersRef = useRef<Record<string, number>>({});
 
@@ -228,6 +236,51 @@ export default function PendingBatchActions({
   }, [confirmOpen]);
 
   useEffect(() => {
+    if (!confirmOpen) return;
+    const liveTaskIds = new Set(tasks.map((task) => task.id));
+    const vanishedTaskIds = new Set(
+      reviewTasks.filter((task) => !liveTaskIds.has(task.id)).map((task) => task.id),
+    );
+    if (vanishedTaskIds.size === 0) return;
+
+    vanishedTaskIds.forEach((taskId) => {
+      const timer = previewTimersRef.current[taskId];
+      if (timer) window.clearTimeout(timer);
+      delete previewTimersRef.current[taskId];
+      previewRunsRef.current[taskId] = (previewRunsRef.current[taskId] ?? 0) + 1;
+    });
+    const withoutVanished = <T,>(current: Record<string, T>) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([taskId]) => !vanishedTaskIds.has(taskId)),
+      ) as Record<string, T>;
+    const withoutVanishedIds = (current: Set<string>) => {
+      const next = new Set(current);
+      vanishedTaskIds.forEach((taskId) => next.delete(taskId));
+      return next;
+    };
+
+    setReviewTasks((current) => current.filter((task) => !vanishedTaskIds.has(task.id)));
+    setRows(withoutVanished);
+    setPreviews(withoutVanished);
+    setDeleteFeedback(withoutVanished);
+    setPreviewBusyByTask(withoutVanished);
+    setPreviewFeedback(withoutVanished);
+    setCategorySuggestions(withoutVanished);
+    setEditedTaskIds(withoutVanishedIds);
+    setReviewedTaskIds(withoutVanishedIds);
+    setFilterSnapshot((current) =>
+      current
+        ? {
+            ...current,
+            taskIds: current.taskIds.filter((taskId) => !vanishedTaskIds.has(taskId)),
+          }
+        : null,
+    );
+    setDeleteCandidate((current) => (current && vanishedTaskIds.has(current.id) ? null : current));
+    setConfirmCandidate((current) => (current && vanishedTaskIds.has(current.id) ? null : current));
+  }, [confirmOpen, reviewTasks, tasks]);
+
+  useEffect(() => {
     const timers = previewTimersRef.current;
     const runs = previewRunsRef.current;
     return () => {
@@ -241,9 +294,10 @@ export default function PendingBatchActions({
     };
   }, []);
 
-  const selectedConfirmTasks = tasks.filter(
+  const liveSelectedConfirmTasks = tasks.filter(
     (task) => flow.batchSelection.includes(task.id) && task.can_batch_confirm,
   );
+  const selectedConfirmTasks = confirmOpen ? reviewTasks : liveSelectedConfirmTasks;
   const selectedRejectTasks = tasks.filter(
     (task) => flow.batchSelection.includes(task.id) && task.can_batch_reject,
   );
@@ -334,7 +388,14 @@ export default function PendingBatchActions({
     ]),
   );
 
-  if (selectedConfirmTasks.length === 0 && selectedRejectTasks.length === 0) return null;
+  if (
+    !confirmOpen &&
+    !rejectOpen &&
+    liveSelectedConfirmTasks.length === 0 &&
+    selectedRejectTasks.length === 0
+  ) {
+    return null;
+  }
 
   const scheduleRowPreview = (taskId: string, row: BatchNamingValuesDTO) => {
     const previousTimer = previewTimersRef.current[taskId];
@@ -483,6 +544,7 @@ export default function PendingBatchActions({
       }));
       return;
     }
+    setReviewTasks((current) => current.filter((item) => item.id !== task.id));
     setRows((current) => {
       const next = { ...current };
       delete next[task.id];
@@ -689,6 +751,17 @@ export default function PendingBatchActions({
     setConfirmingTaskId(null);
     setConfirmCandidate(null);
     if (result.succeededIds.includes(task.id)) {
+      const completedTitle =
+        row.subject.trim() || task.suggested_title?.trim() || task.source_file_name;
+      setCompletedReviewItems((current) => [
+        ...current.filter((item) => item.taskId !== task.id),
+        {
+          taskId: task.id,
+          title: completedTitle,
+          assetId: result.resultAssetIds?.[task.id],
+        },
+      ]);
+      setReviewTasks((current) => current.filter((item) => item.id !== task.id));
       setRows((current) => {
         const next = { ...current };
         delete next[task.id];
@@ -697,6 +770,16 @@ export default function PendingBatchActions({
       setPreviews((current) => {
         const next = { ...current };
         delete next[task.id];
+        return next;
+      });
+      setEditedTaskIds((current) => {
+        const next = new Set(current);
+        next.delete(task.id);
+        return next;
+      });
+      setReviewedTaskIds((current) => {
+        const next = new Set(current);
+        next.delete(task.id);
         return next;
       });
       return;
@@ -732,6 +815,22 @@ export default function PendingBatchActions({
           closeAndResetReview();
           return;
         }
+        const succeeded = new Set(result.succeededIds);
+        const completed = selectedConfirmTasks
+          .filter((task) => succeeded.has(task.id))
+          .map((task) => ({
+            taskId: task.id,
+            title:
+              rows[task.id]?.subject.trim() ||
+              task.suggested_title?.trim() ||
+              task.source_file_name,
+            assetId: result.resultAssetIds?.[task.id],
+          }));
+        setCompletedReviewItems((current) => [
+          ...current.filter((item) => !succeeded.has(item.taskId)),
+          ...completed,
+        ]);
+        setReviewTasks((current) => current.filter((task) => !succeeded.has(task.id)));
         setDialogError(
           `${result.failedIds.length} 项资料确认未完成，已保留本次核对内容，请根据行内提示修正后重试。`,
         );
@@ -759,6 +858,9 @@ export default function PendingBatchActions({
     setCategorySuggestions({});
     setCategoryTargetLabel("");
     setDialogError(null);
+    setReviewTasks([]);
+    setReviewInitialCount(0);
+    setCompletedReviewItems([]);
   };
 
   const requestCloseReview = () => {
@@ -778,6 +880,9 @@ export default function PendingBatchActions({
             className="btn-primary"
             disabled={flow.batchBusy}
             onClick={() => {
+              setReviewTasks(liveSelectedConfirmTasks);
+              setReviewInitialCount(liveSelectedConfirmTasks.length);
+              setCompletedReviewItems([]);
               setStage("target");
               setReviewFilter("all");
               setFilterSnapshot(null);
@@ -810,7 +915,7 @@ export default function PendingBatchActions({
         title={
           stage === "target"
             ? `确认入库 ${selectedConfirmTasks.length} 项资料`
-            : `逐条核对 ${selectedConfirmTasks.length} 项规范命名`
+            : `逐条核对 ${reviewInitialCount} 项规范命名`
         }
         description={
           stage === "target"
@@ -942,6 +1047,37 @@ export default function PendingBatchActions({
               ))}
             </div>
             <div className="upload77-batch-naming-scroll">
+              {completedReviewItems.length > 0 && (
+                <section
+                  className="upload77-batch-completed"
+                  aria-labelledby="batch-completed-title"
+                >
+                  <h4 id="batch-completed-title">本次已入库（{completedReviewItems.length}）</h4>
+                  <div className="upload77-batch-completed-list">
+                    {completedReviewItems.map((item) => (
+                      <article className="upload77-batch-completed-item" key={item.taskId}>
+                        <div>
+                          <strong>{item.title}</strong>
+                          <span role="status">
+                            {item.assetId ? "已入库" : "已提交，等待后续处理"}
+                          </span>
+                        </div>
+                        {item.assetId && (
+                          <a
+                            aria-label={`查看知识资产卡片：${item.title}`}
+                            className="btn-secondary"
+                            href={`/knowledge/${encodeURIComponent(item.assetId)}`}
+                            rel="noopener noreferrer"
+                            target="_blank"
+                          >
+                            查看知识资产卡片
+                          </a>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              )}
               {warningNotices.length > 0 && (
                 <div className="upload77-batch-naming-notice" role="status">
                   当前批次有 {warningNotices.length}{" "}
@@ -950,7 +1086,9 @@ export default function PendingBatchActions({
               )}
               {visibleConfirmTasks.length === 0 && (
                 <div className="upload77-batch-filter-empty" role="status">
-                  当前筛选下没有资料
+                  {selectedConfirmTasks.length === 0
+                    ? "本批待核对资料已处理完成，可查看本次结果或关闭弹窗"
+                    : "当前筛选下没有资料"}
                 </div>
               )}
               {visibleConfirmTasks.map((task) => {

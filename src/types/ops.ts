@@ -45,6 +45,24 @@ export interface OpsIndexingDTO {
   title_visible: boolean;
 }
 
+export interface LLMUsageAggregateItemDTO {
+  day: string;
+  scenario: "content_generation" | "category_classification";
+  request_count: number;
+  item_count: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cache_hits: number;
+  cache_misses: number;
+  cache_hit_rate: number;
+}
+
+export interface LLMUsageAggregateResponseDTO {
+  days: number;
+  items: LLMUsageAggregateItemDTO[];
+}
+
 // 索引批量运维。请求只含安全筛选条件；响应只含安全统计 + 安全错误文案，
 // 绝不含标题 / 原文 / 文件名 / WeKnora id / storage·source 引用 / token。
 export interface IndexingRetryRequestDTO {

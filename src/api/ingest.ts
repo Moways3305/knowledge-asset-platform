@@ -22,7 +22,7 @@ import type {
   UploadSessionDTO,
   UploadSessionListDTO,
 } from "../types/ingest";
-import type { BulkOperationResponseDTO } from "../types/bulk";
+import type { BulkOperationResponseDTO, IngestBulkOperationResponseDTO } from "../types/bulk";
 import { runControlledBulkRequests } from "./bulk";
 
 // 真实文件上传：以 multipart/form-data 发送选中的文件字节。后端写入受控存储并
@@ -151,12 +151,12 @@ export async function bulkConfirmIngest(input: {
   targetScope: "personal" | "project" | "company";
   targetProjectId?: string;
   onBatchCompleted?: (response: BulkOperationResponseDTO) => void;
-}): Promise<BulkOperationResponseDTO> {
+}): Promise<IngestBulkOperationResponseDTO> {
   return runControlledBulkRequests({
     items: input.items,
     getItemId: (item) => item.taskId,
     submitBatch: (batch, context) =>
-      apiPost<BulkOperationResponseDTO>("/api/v1/ingest/bulk-confirm", {
+      apiPost<IngestBulkOperationResponseDTO>("/api/v1/ingest/bulk-confirm", {
         items: batch.map((item) => ({
           task_id: item.taskId,
           confirmation: item.confirmation,
