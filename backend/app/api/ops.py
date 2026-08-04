@@ -56,7 +56,7 @@ from app.schemas.indexing_ops import (
     IndexingReparseRequest,
     IndexingRetryRequest,
 )
-from app.schemas.llm_usage import LLMUsageAggregateResponse
+from app.schemas.llm_usage import LLMUsageAggregateItem, LLMUsageAggregateResponse
 from app.schemas.permission import CallerContext
 from app.schemas.session_ops import (
     SessionRevokeRequest,
@@ -415,7 +415,10 @@ async def ops_llm_usage(
 ) -> LLMUsageAggregateResponse:
     """Admin-only aggregate counters; never returns prompts or business identifiers."""
     _require_admin(caller)
-    return LLMUsageAggregateResponse(days=days, items=await llm_usage.aggregate(session, days=days))
+    items = await llm_usage.aggregate(session, days=days)
+    return LLMUsageAggregateResponse(
+        days=days, items=[LLMUsageAggregateItem.model_validate(item) for item in items]
+    )
 
 
 @router.get("/admin/ops/indexing")

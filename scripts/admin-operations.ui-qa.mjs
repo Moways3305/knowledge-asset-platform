@@ -249,6 +249,9 @@ try {
             title_visible: false,
           });
         }
+        if (url.pathname === "/admin/ops/llm-usage") {
+          return fulfill({ days: 14, items: [] });
+        }
         return fulfill({});
       });
 

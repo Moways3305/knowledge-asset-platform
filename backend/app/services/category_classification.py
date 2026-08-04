@@ -494,12 +494,11 @@ async def _classify_chunk(
             for task, _evidence in items
         }
     try:
-        completion_kwargs = {"trace_id": trace_id}
         raw = await llm.chat_completion(
             _batch_prompt(candidates, [(task.id, evidence) for task, evidence in items], revision),
             max_input_chars=_CLASSIFICATION_MAX_INPUT_CHARS,
             max_tokens=_CLASSIFICATION_MAX_OUTPUT_TOKENS,
-            **completion_kwargs,
+            trace_id=trace_id,
         )
         payload = json.loads(raw)
         returned = payload.get("items") if isinstance(payload, dict) else None

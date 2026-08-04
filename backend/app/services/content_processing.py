@@ -439,13 +439,17 @@ async def process_content(
         },
     ]
     try:
-        completion_kwargs = {"trace_id": trace_id}
         # Test and integration adapters retain the historical minimal method
         # signature; production LLMClient receives the enforced output cap.
         if isinstance(llm, LLMClient):
-            completion_kwargs["max_input_chars"] = _LLM_MAX_INPUT_CHARS
-            completion_kwargs["max_tokens"] = _LLM_MAX_OUTPUT_TOKENS
-        raw = await llm.chat_completion(messages, **completion_kwargs)
+            raw = await llm.chat_completion(
+                messages,
+                max_input_chars=_LLM_MAX_INPUT_CHARS,
+                max_tokens=_LLM_MAX_OUTPUT_TOKENS,
+                trace_id=trace_id,
+            )
+        else:
+            raw = await llm.chat_completion(messages, trace_id=trace_id)
         parsed = _parse_llm_json(raw)
     except (LLMError, json.JSONDecodeError, ValueError, TypeError) as exc:
         base["naming_parsed_fields"]["generation_status"] = "failed"

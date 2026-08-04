@@ -305,7 +305,7 @@ async def process_upload_task(
                 target_scope=target_scope,
                 target_project_id=target_project,
             )
-            if extraction.status == "extracted" and getattr(llm, "provider", ""):
+            if extraction.status == "extracted" and not isinstance(llm, NullLLMClient):
                 await llm_usage.record(
                     session,
                     scenario="content_generation",
