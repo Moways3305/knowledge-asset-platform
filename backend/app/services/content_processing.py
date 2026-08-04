@@ -30,6 +30,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import re
 
@@ -388,6 +389,44 @@ def _usage_snapshot(llm: LLMClient | NullLLMClient) -> dict | None:
     }
 
 
+def _supports_llm_transport_caps(llm: object) -> bool:
+    """Return whether a compatible LLM adapter accepts the bounded-call options.
+
+    The production client supports these options, but older in-process adapters
+    intentionally expose the pre-governance interface. Inspecting the callable
+    avoids retrying after a ``TypeError``, which could otherwise duplicate a
+    real external request.
+    """
+    try:
+        parameters = inspect.signature(llm.chat_completion).parameters.values()  # type: ignore[attr-defined]
+    except (AttributeError, TypeError, ValueError):
+        return isinstance(llm, LLMClient)
+    return any(
+        parameter.name == "max_input_chars" or parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    )
+
+
+async def _chat_completion_with_governed_caps(
+    llm: LLMClient | NullLLMClient,
+    messages: list[dict[str, str]],
+    *,
+    json_object: bool,
+    trace_id: str | None,
+) -> str:
+    """Call an LLM without breaking legacy adapters that lack cap parameters."""
+    kwargs: dict[str, object] = {
+        "json_object": json_object,
+        "trace_id": trace_id,
+    }
+    if _supports_llm_transport_caps(llm):
+        kwargs.update(
+            max_input_chars=_LLM_MAX_INPUT_CHARS,
+            max_tokens=_LLM_MAX_OUTPUT_TOKENS,
+        )
+    return await llm.chat_completion(messages, **kwargs)
+
+
 async def process_content(
     llm: LLMClient | NullLLMClient,
     desensitizer: DesensitizationEngine,
@@ -485,11 +524,10 @@ async def process_content(
     failure: Exception | None = None
     parsed: dict | None = None
     try:
-        raw = await llm.chat_completion(
+        raw = await _chat_completion_with_governed_caps(
+            llm,
             messages,
             json_object=True,
-            max_input_chars=_LLM_MAX_INPUT_CHARS,
-            max_tokens=_LLM_MAX_OUTPUT_TOKENS,
             trace_id=trace_id,
         )
     except LLMError as exc:
@@ -514,11 +552,10 @@ async def process_content(
             {"role": "system", "content": _PROMPT_FALLBACK_INSTRUCTION},
         ]
         try:
-            fallback_raw = await llm.chat_completion(
+            fallback_raw = await _chat_completion_with_governed_caps(
+                llm,
                 fallback_messages,
                 json_object=False,
-                max_input_chars=_LLM_MAX_INPUT_CHARS,
-                max_tokens=_LLM_MAX_OUTPUT_TOKENS,
                 trace_id=trace_id,
             )
         except LLMError as exc:
