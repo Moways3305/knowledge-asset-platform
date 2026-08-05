@@ -7554,7 +7554,7 @@
       "NamingDraftUpdateRequest": {
         "properties": {
           "config": {
-            "$ref": "#/components/schemas/NamingRuleConfig"
+            "$ref": "#/components/schemas/NamingRuleConfig-Input"
           },
           "expected_base_version": {
             "title": "Expected Base Version",
@@ -7924,7 +7924,37 @@
         "title": "NamingRuleCenterOut",
         "type": "object"
       },
-      "NamingRuleConfig": {
+      "NamingRuleConfig-Input": {
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/NamingCategoryConfig"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "enforced": {
+            "default": true,
+            "title": "Enforced",
+            "type": "boolean"
+          },
+          "project_codes": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectCodeConfig"
+            },
+            "title": "Project Codes",
+            "type": "array"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "title": "NamingRuleConfig",
+        "type": "object"
+      },
+      "NamingRuleConfig-Output": {
         "properties": {
           "categories": {
             "items": {
@@ -7961,7 +7991,7 @@
             "type": "integer"
           },
           "config": {
-            "$ref": "#/components/schemas/NamingRuleConfig"
+            "$ref": "#/components/schemas/NamingRuleConfig-Output"
           },
           "published_at": {
             "anyOf": [
@@ -11105,6 +11135,14 @@
       },
       "ProviderOut": {
         "properties": {
+          "default_urls": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "title": "Default Urls",
+            "type": "object"
+          },
           "description": {
             "anyOf": [
               {
