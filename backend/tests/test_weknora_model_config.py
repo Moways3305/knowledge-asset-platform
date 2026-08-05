@@ -621,7 +621,7 @@ async def test_update_kb_init_merges_chat_and_embedding_after_upstream_success(
         assert token not in response.text
 
 
-async def test_update_kb_init_keeps_embedding_locked_when_files_exist(client, wk, db_session):
+async def test_update_kb_init_allows_embedding_switch_when_files_exist(client, wk, db_session):
     wk.models["server-embedding-next"] = {
         "id": "server-embedding-next",
         "name": "embedding-next",
@@ -655,9 +655,12 @@ async def test_update_kb_init_keeps_embedding_locked_when_files_exist(client, wk
         json={"embedding_model_ref": embedding_ref},
     )
 
-    assert response.status_code == 409
-    assert response.json()["detail"]["denied_reason"] == "weknora_embedding_locked"
-    assert wk.last_init is None
+    assert response.status_code == 200, response.text
+    assert wk.last_init["config"]["embeddingModelId"] == "server-embedding-next"
+    await db_session.refresh(mp)
+    assert mp.embedding_model_id == "server-embedding-next"
+    for token in ("server-embedding-next", "wk-kb-company"):
+        assert token not in response.text
 
 
 # ---------------------------------------------------------------------------

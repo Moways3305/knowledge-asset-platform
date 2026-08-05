@@ -539,9 +539,8 @@ async def update_kb_init(
     if "rerank" in resolved:
         raise _denied(422, "weknora_model_slot_unsupported", "当前底座不支持按知识库更新重排模型")
 
-    # PUT 接口要求完整配置。先读取现有资源与 hasFiles，只在内存中合并本次模型变更。
+    # PUT 接口要求完整配置。先读取现有资源，只在内存中合并本次模型变更。
     current_kb = await client.get_kb(mp.weknora_kb_id, trace_id=trace_id)
-    current_init = await client.get_initialization_config(mp.weknora_kb_id, trace_id=trace_id)
     config = _kb_update_config(current_kb)
     if "chat" in resolved:
         config["llmModelId"] = resolved["chat"]
@@ -552,11 +551,8 @@ async def update_kb_init(
 
     current_embedding = str(current_kb.get("embedding_model_id") or mp.embedding_model_id or "")
     next_embedding = resolved.get("embedding", current_embedding)
-    has_files = (
-        bool(current_init.get("hasFiles")) or int(current_kb.get("knowledge_count") or 0) > 0
-    )
-    if next_embedding and current_embedding and next_embedding != current_embedding and has_files:
-        raise _denied(409, "weknora_embedding_locked", "知识库已有文件，不能更换嵌入模型")
+    # 允许在已有文件的知识库上切换 embedding：配置即时更新并回写绑定；存量文档由
+    # 「重新解析」流程重新向量化，切换后先重解析再检索，避免新旧向量空间混用。
     config["embeddingModelId"] = next_embedding
 
     if "vllm" in resolved:

@@ -164,7 +164,8 @@ class RetryIndexRequest(BaseModel):
     """底座索引重试请求（PBC-38，可选）。
 
     只接收对底座 id 不可逆的 model_ref，绝不接收真实 model_id。缺省沿用该 KB 已绑定模型；
-    显式传入与已绑定 embedding 不同的 model_ref 会被锁定拒绝（weknora_kb_embedding_model_locked）。
+    显式传入与已绑定 embedding 不同的 model_ref 会切换知识库嵌入模型并更新绑定；
+    切换后存量文档需重新解析以完成重新向量化。
     """
 
     embedding_model_ref: str | None = None

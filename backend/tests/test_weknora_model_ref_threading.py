@@ -2,7 +2,7 @@
 
 验证请求层 embedding_model_ref / rerank_model_ref 经真实 resolver 穿透到建库 / 索引链路：
 - confirm 不传 → 用平台默认；显式传 → 用该模型；缺默认 → fail closed；伪造 ref → 安全错误；
-- retry-index 默认不误伤已有 KB；显式冲突 → weknora_kb_embedding_model_locked；
+- retry-index 默认不误伤已有 KB；显式冲突 → 自动切换知识库嵌入模型并更新绑定；
 - personal KB create 默认 / 显式。
 全程响应 / 审计不出现真实 model_id（emb-*）。
 
@@ -40,6 +40,7 @@ class FullFakeWK:
     def __init__(self, *, upload_fail: bool = False) -> None:
         self.upload_fail = upload_fail
         self.create_kb_calls: list[str] = []
+        self._embedding = "emb-A"
         self._kb = 0
         self._doc = 0
 
@@ -85,6 +86,22 @@ class FullFakeWK:
 
     async def get_initialization_config(self, kb_id, *, trace_id=None):
         return {}
+
+    async def get_kb(self, kb_id, *, trace_id=None):
+        return {
+            "summary_model_id": "chat-1",
+            "embedding_model_id": self._embedding,
+            "chunking_config": {},
+            "vlm_config": {},
+            "asr_config": {},
+            "storage_provider_config": {},
+            "extract_config": {},
+            "question_generation_config": {},
+        }
+
+    async def update_initialization_config(self, kb_id, *, config, trace_id=None):
+        self._embedding = config["embeddingModelId"]
+        return {"success": True}
 
     async def upload_file(
         self, *, kb_id, content, file_name, mime, metadata=None, channel=None, trace_id=None
@@ -247,7 +264,7 @@ async def test_retry_default_does_not_falsetrip_lock(client, db_session, monkeyp
         _disable()
 
 
-async def test_retry_explicit_conflict_locks(client, db_session, monkeypatch):
+async def test_retry_explicit_conflict_switches_kb_embedding(client, db_session, monkeypatch):
     fake = FullFakeWK(upload_fail=True)
     await _set_default(db_session, embedding="emb-A")
     _enable_real(monkeypatch, fake)
@@ -257,15 +274,23 @@ async def test_retry_explicit_conflict_locks(client, db_session, monkeypatch):
         assert r.json()["index_status"] == "index_failed"
         asset_id = r.json()["result_asset_id"]
         fake.upload_fail = False
-        # 已绑定 emb-A 的 KB，显式重试要求 emb-B → 锁定拒绝。
+        # 已绑定 emb-A 的 KB，显式重试要求 emb-B → 自动切换底座配置并更新绑定后索引成功。
         rr = await client.post(
             f"/api/v1/knowledge/{asset_id}/retry-index",
             headers=_hdr(USER_CONSULTANT),
             json={"embedding_model_ref": _model_ref("emb-B")},
         )
         assert rr.status_code == 200, rr.text
-        assert rr.json()["index_status"] == "index_failed"
-        assert rr.json()["index_error_code"] == "weknora_kb_embedding_model_locked"
+        assert rr.json()["index_status"] == "indexed"
+        assert fake.create_kb_calls == ["emb-A"]  # 复用既有 KB，未重建
+        mapping = (
+            await db_session.execute(
+                select(WeknoraKbMapping)
+                .where(WeknoraKbMapping.scope == "personal")
+                .where(WeknoraKbMapping.owner_user_id == USER_CONSULTANT)
+            )
+        ).scalar_one()
+        assert mapping.embedding_model_id == "emb-B"
         _assert_no_raw_id(rr.text)
     finally:
         _disable()
