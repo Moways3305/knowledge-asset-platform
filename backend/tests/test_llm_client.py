@@ -255,6 +255,47 @@ async def test_llm_client_enforces_scenario_limits_and_reads_safe_usage(monkeypa
     assert fake.request_json["messages"][1]["content"] == "67890"
 
 
+async def test_deepseek_json_mode_disables_thinking(monkeypatch):
+    response = httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+    fake = _FakeHttpClient(response=response)
+    monkeypatch.setattr("app.services.llm_client.httpx.AsyncClient", lambda **_kwargs: fake)
+    llm = LLMClient(provider="deepseek", api_key="sk-x")
+
+    await llm.chat_completion([{"role": "user", "content": "test"}], json_object=True)
+
+    assert fake.request_json["thinking"] == {"type": "disabled"}
+    assert fake.request_json["response_format"] == {"type": "json_object"}
+
+
+async def test_deepseek_plain_call_also_disables_thinking(monkeypatch):
+    response = httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+    fake = _FakeHttpClient(response=response)
+    monkeypatch.setattr("app.services.llm_client.httpx.AsyncClient", lambda **_kwargs: fake)
+    llm = LLMClient(provider="deepseek", api_key="sk-x")
+
+    await llm.chat_completion([{"role": "user", "content": "test"}], json_object=False)
+
+    assert fake.request_json["thinking"] == {"type": "disabled"}
+
+
+@pytest.mark.parametrize(
+    "provider",
+    ["kimi", "qwen", "glm", "minimax", "openai", "custom"],
+)
+async def test_non_deepseek_providers_do_not_send_thinking_param(monkeypatch, provider):
+    response = httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+    fake = _FakeHttpClient(response=response)
+    monkeypatch.setattr("app.services.llm_client.httpx.AsyncClient", lambda **_kwargs: fake)
+    kwargs = {}
+    if provider == "custom":
+        kwargs = {"base_url": "https://models.example.test/v1", "model": "chat-model"}
+    llm = LLMClient(provider=provider, api_key="sk-x", **kwargs)
+
+    await llm.chat_completion([{"role": "user", "content": "test"}], json_object=True)
+
+    assert "thinking" not in fake.request_json
+
+
 # ---- 内容处理：LLM 成功 ----
 async def test_upload_llm_structured_draft(client, monkeypatch):
     fake = FakeLLM(mode="ok")
