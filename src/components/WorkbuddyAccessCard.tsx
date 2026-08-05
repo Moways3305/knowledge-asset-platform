@@ -31,6 +31,24 @@ function safeMessage(error: unknown): string {
   return "操作未成功，请稍后重试";
 }
 
+// 按后端 denied_reason 分级展示，避免所有失败都显示同一句“暂不可用”。
+const CONNECTOR_REASON_MESSAGE: Record<string, string> = {
+  workbuddy_connector_unavailable:
+    "连接器暂不可用，请稍后重试；若持续出现请联系管理员检查服务器配置。",
+  workbuddy_connector_internal_disabled: "企业内部版连接器未开放下载，请联系管理员。",
+  workbuddy_connector_unsigned: "正式连接器尚未完成签名发布，暂不可下载。",
+  workbuddy_connector_integrity_failed: "安装包完整性校验失败，请重新获取。",
+  workbuddy_connector_not_found: "当前平台暂无可用安装包。",
+  workbuddy_not_business_user: "仅业务用户可下载连接器。",
+};
+
+function connectorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.deniedReason) {
+    return CONNECTOR_REASON_MESSAGE[error.deniedReason] ?? error.message;
+  }
+  return safeMessage(error);
+}
+
 function validateCustomPath(platform: WorkbuddyPlatform, path: string): string | null {
   if (!path) return "请输入连接器可执行文件的完整路径";
   if (path !== path.trim() || [...path].some((char) => char.charCodeAt(0) < 32)) {
@@ -98,7 +116,7 @@ export default function WorkbuddyAccessCard() {
       setManifest(await fetchWorkbuddyConnectors());
     } catch (nextError) {
       setManifest(null);
-      setDownloadError(safeMessage(nextError));
+      setDownloadError(connectorMessage(nextError));
     } finally {
       setLoadingManifest(false);
     }

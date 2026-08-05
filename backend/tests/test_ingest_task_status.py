@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 
+import pytest
 from sqlalchemy import select
 
 from app.models.ingest import IngestTask, IngestTaskAiResult
@@ -89,6 +90,49 @@ async def test_generated_draft_waits_for_confirmation(client, db_session):
     assert body["retryable"] is False
     assert body["next_action"]["key"] == "review_and_confirm"
     assert body["error"] is None
+
+
+@pytest.mark.parametrize("category", ["response_error", "timeout"])
+async def test_transient_generation_failures_are_retryable(client, db_session, category):
+    task = await _task(db_session, status="pending_confirmation")
+    task.ai_result = IngestTaskAiResult(
+        ingest_task_id=task.id,
+        extraction_status="extracted",
+        naming_parsed_fields={
+            "generation_status": "failed",
+            "generation_error_category": category,
+        },
+    )
+    await db_session.commit()
+
+    response = await client.get(_status_url(task.id), headers=_headers(USER_CONSULTANT))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["stage"] == "degraded_complete"
+    assert body["status"] == "degraded"
+    assert body["retryable"] is True
+    assert body["next_action"]["key"] == "retry_processing"
+
+
+async def test_non_transient_generation_failure_is_not_retryable(client, db_session):
+    task = await _task(db_session, status="pending_confirmation")
+    task.ai_result = IngestTaskAiResult(
+        ingest_task_id=task.id,
+        extraction_status="extracted",
+        naming_parsed_fields={
+            "generation_status": "failed",
+            "generation_error_category": "model_unavailable",
+        },
+    )
+    await db_session.commit()
+
+    response = await client.get(_status_url(task.id), headers=_headers(USER_CONSULTANT))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["retryable"] is False
+    assert body["next_action"]["key"] == "review_and_confirm"
 
 
 async def test_llm_failure_is_degraded_and_never_echoes_provider_details(client, db_session):

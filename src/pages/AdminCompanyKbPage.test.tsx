@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createCompanyKnowledgeBase,
@@ -40,7 +40,6 @@ describe("AdminCompanyKbPage compact lifecycle state", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(fetchCompanyKnowledgeBase).mockResolvedValue(emptyState);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
   });
 
   it("renders a compact semantic empty card with a content-width create action", async () => {
@@ -64,6 +63,9 @@ describe("AdminCompanyKbPage compact lifecycle state", () => {
     });
     render(<AdminCompanyKbPage />);
     fireEvent.click(await screen.findByRole("button", { name: "创建公司知识库" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "创建公司知识库" }),
+    );
     await waitFor(() => expect(createCompanyKnowledgeBase).toHaveBeenCalledTimes(1));
     expect(await screen.findByText("公司知识库可用")).toBeInTheDocument();
     expect(deleteCompanyKnowledgeBase).not.toHaveBeenCalled();

@@ -109,6 +109,7 @@ export default function ProjectSettingsPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNote, setActionNote] = useState<string | null>(null);
   const [memberBusy, setMemberBusy] = useState<string | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<ProjectMemberDTO | null>(null);
 
   // 项目切换器（参考 ProjectOverviewPage / ProjectKnowledgePage 的 ProjectPicker）。
   const [switchProjects, setSwitchProjects] = useState<ProjectListItemDTO[]>([]);
@@ -331,13 +332,19 @@ export default function ProjectSettingsPage() {
       setActionError("项目经理关系请由治理角色在人员权限页调整");
       return;
     }
-    if (!window.confirm(`确认移除成员“${member.name}”？此操作不可恢复。`)) return;
+    setRemoveTarget(member);
+  };
+
+  const confirmRemoveMember = async () => {
+    const member = removeTarget;
+    if (!member || !projectId) return;
     setMemberBusy(member.member_id);
     setActionError(null);
     setActionNote(null);
     try {
       await removeProjectMember(projectId, member.member_id);
       setMembers((current) => current.filter((item) => item.member_id !== member.member_id));
+      setRemoveTarget(null);
       setActionNote("成员已移除");
     } catch (e) {
       setActionError(safeError(e, "移除成员失败"));
@@ -1067,6 +1074,19 @@ export default function ProjectSettingsPage() {
           )}
         </section>
       )}
+      <ConfirmDialog
+        open={Boolean(removeTarget)}
+        title={`确认移除成员“${removeTarget?.name ?? ""}”？`}
+        description="此操作不可恢复；成员将从该项目移除，其已提交的项目知识不受影响。"
+        confirmText="移除成员"
+        busyText="移除中…"
+        busy={memberBusy !== null}
+        danger
+        error={actionError}
+        errorDescription={actionError}
+        onConfirm={() => void confirmRemoveMember()}
+        onCancel={() => setRemoveTarget(null)}
+      />
       <ConfirmDialog
         open={deleteDialogOpen}
         title={`删除项目“${settings.name}”`}

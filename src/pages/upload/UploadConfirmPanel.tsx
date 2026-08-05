@@ -75,18 +75,27 @@ export default function UploadConfirmPanel({
     resultAssetId,
     awaitingProjectReview,
     submitIndexStatus,
+    generationErrorCategory,
+    regenerating,
+    regenerationError,
+    handleRegenerateSuggestions,
     handleSubmit,
     handleReset,
     models,
   } = flow;
   const summaryStatus = llmStatus?.summaryStatus ?? null;
+  const generationRetryable =
+    summaryStatus === "failed" &&
+    (generationErrorCategory === "response_error" || generationErrorCategory === "timeout");
   const summaryStatusText =
     summaryStatus === "generated"
       ? "内容建议已生成"
       : summaryStatus === "pending_model_config"
         ? "摘要待生成：当前未配置内容生成模型。"
         : summaryStatus === "failed"
-          ? "摘要生成失败，可稍后重试或联系管理员检查内容生成模型配置。"
+          ? generationRetryable
+            ? "摘要生成失败，可点击下方按钮重新生成；若仍失败请稍后再试或联系管理员。"
+            : "摘要生成失败，当前不可自动重试，请稍后再试或联系管理员检查内容生成模型配置。"
           : "内容建议处理中";
 
   if (confirmSubmitted) {
@@ -137,6 +146,23 @@ export default function UploadConfirmPanel({
           <div className={`upload77-summary-status upload77-summary-${summaryStatus ?? "pending"}`}>
             {summaryStatusText}
           </div>
+          {generationRetryable && (
+            <div className="upload77-regenerate">
+              <button
+                type="button"
+                className="btn-small"
+                disabled={regenerating}
+                onClick={() => void handleRegenerateSuggestions()}
+              >
+                {regenerating ? "正在重新生成…" : "重新生成建议"}
+              </button>
+              {regenerationError && (
+                <span className="upload77-regenerate-error" role="alert">
+                  {regenerationError}
+                </span>
+              )}
+            </div>
+          )}
 
           <label className="upload77-field upload77-field-wide" htmlFor="upload77-edit-title">
             <span>{confirmationSubjectLabel(targetLibrary)}</span>

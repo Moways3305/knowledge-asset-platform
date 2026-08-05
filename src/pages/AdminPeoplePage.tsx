@@ -29,6 +29,7 @@ import {
 import type { PersonDTO } from "../types/people";
 import { formatBeijingTime } from "../utils/time";
 import { useAuth } from "../auth/AuthContext";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
 
 const companyRoleLabel: Record<string, string> = {
@@ -87,6 +88,30 @@ export default function AdminPeoplePage() {
     projectId: string;
     projectName: string;
   } | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    title: string;
+    description?: string;
+    danger?: boolean;
+    onResolve: (confirmed: boolean) => void;
+  } | null>(null);
+
+  // 将原生 window.confirm 换成统一确认弹窗：弹窗确认/取消后 resolve，
+  // 调用方继续原有的 async 流程，改动面最小。
+  const confirmAsync = useCallback(
+    (title: string, opts: { description?: string; danger?: boolean } = {}): Promise<boolean> =>
+      new Promise((resolve) => {
+        setPendingConfirm({
+          title,
+          description: opts.description,
+          danger: opts.danger,
+          onResolve: (confirmed) => {
+            setPendingConfirm(null);
+            resolve(confirmed);
+          },
+        });
+      }),
+    [],
+  );
 
   // 项目成员关系列的展开/收起状态（按 user_id 索引）
   const [expandedMemberships, setExpandedMemberships] = useState<Set<string>>(new Set());
@@ -426,9 +451,10 @@ export default function AdminPeoplePage() {
                         disabled={busyKey === "account-status"}
                         onClick={async () => {
                           if (
-                            !window.confirm(
+                            !(await confirmAsync(
                               detail.status === "active" ? "确认停用该账号？" : "确认启用该账号？",
-                            )
+                              { danger: detail.status === "active" },
+                            ))
                           )
                             return;
                           setBusyKey("account-status");
@@ -503,9 +529,9 @@ export default function AdminPeoplePage() {
                             disabled={busyKey === `company-${role}`}
                             onClick={async () => {
                               if (
-                                !window.confirm(
+                                !(await confirmAsync(
                                   `确认${currentStatus === "active" ? "停用" : "授予或恢复"}${companyRoleLabel[role]}角色？`,
-                                )
+                                ))
                               )
                                 return;
                               setBusyKey(`company-${role}`);
@@ -573,7 +599,7 @@ export default function AdminPeoplePage() {
                             disabled={busyKey === `membership-role-${m.membership_id}`}
                             value={m.project_role}
                             onChange={async (e) => {
-                              if (!window.confirm("确认更新该项目角色？")) return;
+                              if (!(await confirmAsync("确认更新该项目角色？"))) return;
                               setBusyKey(`membership-role-${m.membership_id}`);
                               setActionError(null);
                               setActionNote(null);
@@ -610,11 +636,11 @@ export default function AdminPeoplePage() {
                               disabled={busyKey === `membership-${m.membership_id}`}
                               onClick={async () => {
                                 if (
-                                  !window.confirm(
+                                  !(await confirmAsync(
                                     m.status === "active"
                                       ? "确认停用该项目成员关系？"
                                       : "确认启用该项目成员关系？",
-                                  )
+                                  ))
                                 )
                                   return;
                                 setBusyKey(`membership-${m.membership_id}`);
@@ -646,9 +672,10 @@ export default function AdminPeoplePage() {
                               disabled={busyKey === `membership-remove-${m.membership_id}`}
                               onClick={async () => {
                                 if (
-                                  !window.confirm(
+                                  !(await confirmAsync(
                                     `确认移除“${m.project_name}”的项目成员关系？此操作不可恢复。`,
-                                  )
+                                    { danger: true },
+                                  ))
                                 )
                                   return;
                                 setBusyKey(`membership-remove-${m.membership_id}`);
@@ -694,7 +721,7 @@ export default function AdminPeoplePage() {
                   <AddMembershipForm
                     projects={knownProjects}
                     onSubmit={async (project_id, project_role) => {
-                      if (!window.confirm("确认新增或更新该项目成员关系？")) return;
+                      if (!(await confirmAsync("确认新增或更新该项目成员关系？"))) return;
                       setBusyKey("membership-add");
                       setActionError(null);
                       setActionNote(null);
@@ -901,6 +928,15 @@ export default function AdminPeoplePage() {
           </section>
         </main>
       </div>
+      <ConfirmDialog
+        open={Boolean(pendingConfirm)}
+        title={pendingConfirm?.title ?? ""}
+        description={pendingConfirm?.description}
+        confirmText="确认"
+        danger={pendingConfirm?.danger}
+        onConfirm={() => pendingConfirm?.onResolve(true)}
+        onCancel={() => pendingConfirm?.onResolve(false)}
+      />
     </ProductPage>
   );
 }
@@ -909,9 +945,14 @@ export default function AdminPeoplePage() {
 function SetPasswordForm({ onSubmit }: { onSubmit: (password: string) => Promise<void> }) {
   const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const submit = async () => {
     if (!pw || busy) return;
-    if (!window.confirm("确认设置或重置该人员的登录密码？")) return;
+    setConfirmOpen(true);
+  };
+  const confirmSubmit = async () => {
+    setConfirmOpen(false);
+    if (!pw || busy) return;
     setBusy(true);
     try {
       await onSubmit(pw);
@@ -938,6 +979,17 @@ function SetPasswordForm({ onSubmit }: { onSubmit: (password: string) => Promise
       >
         {busy ? "设置中…" : "设置 / 重置密码"}
       </button>
+      <ConfirmDialog
+        open={confirmOpen}
+        title="确认设置或重置该人员的登录密码？"
+        description="设置后该人员将使用新密码登录；请通过安全渠道告知本人。"
+        confirmText="确认设置"
+        busyText="设置中…"
+        busy={busy}
+        danger
+        onConfirm={() => void confirmSubmit()}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   );
 }

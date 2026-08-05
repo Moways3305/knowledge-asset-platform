@@ -34,7 +34,9 @@ describe("upload summary generation copy", () => {
 
   it("does not label degraded extracted text as an AI generated summary", () => {
     expect(confirmSource).toContain("摘要待生成：当前未配置内容生成模型。");
-    expect(confirmSource).toContain("摘要生成失败，可稍后重试或联系管理员检查内容生成模型配置。");
+    expect(confirmSource).toContain(
+      "摘要生成失败，当前不可自动重试，请稍后再试或联系管理员检查内容生成模型配置。",
+    );
     expect(confirmSource).toContain("内容建议预览");
     expect(confirmSource).not.toContain("AI 生成预览");
   });

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BookType, CircleHelp, Plus, RefreshCw, Send, Sparkles, Trash2 } from "lucide-react";
 import { ApiError } from "../api/http";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { fetchNamingRuleCenter, publishNamingRuleDraft, saveNamingRuleDraft } from "../api/naming";
 import type { NamingCategoryConfigDTO, NamingRuleCenterDTO } from "../types/naming";
 import "./AdminNamingRulesPage.css";
@@ -56,6 +57,10 @@ export default function AdminNamingRulesPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [categoryHelpOpen, setCategoryHelpOpen] = useState(false);
+  const [removeCategory, setRemoveCategory] = useState<{
+    secondary: string;
+    index: number;
+  } | null>(null);
   const draftEditRevisionRef = useRef(0);
 
   const load = async () => {
@@ -74,6 +79,14 @@ export default function AdminNamingRulesPage() {
     draftEditRevisionRef.current += 1;
     setCenter({ ...center, draft: { ...center.draft, config: next } });
     setNotice(null);
+  };
+  const confirmRemoveCategory = () => {
+    if (!removeCategory || !config) return;
+    updateConfig({
+      ...config,
+      categories: config.categories.filter((_, itemIndex) => itemIndex !== removeCategory.index),
+    });
+    setRemoveCategory(null);
   };
   const projectCategory = config?.categories.find(
     (item) => item.scope === "project" && item.enabled,
@@ -474,16 +487,7 @@ export default function AdminNamingRulesPage() {
                   className="naming-delete-category"
                   title="从当前草稿删除类别"
                   type="button"
-                  onClick={() => {
-                    const confirmed = window.confirm(
-                      `将从当前命名规则草稿中删除「${category.secondary}」，发布后才对后续入库生效；历史已入库资料不会改名。`,
-                    );
-                    if (!confirmed) return;
-                    updateConfig({
-                      ...config,
-                      categories: config.categories.filter((_, itemIndex) => itemIndex !== index),
-                    });
-                  }}
+                  onClick={() => setRemoveCategory({ secondary: category.secondary, index })}
                 >
                   <Trash2 size={15} />
                   <span>删除</span>
@@ -511,6 +515,15 @@ export default function AdminNamingRulesPage() {
           <code>{example("company", companyCategory)}</code>
         </div>
       </section>
+      <ConfirmDialog
+        open={Boolean(removeCategory)}
+        title={`确认从草稿中删除「${removeCategory?.secondary ?? ""}」？`}
+        description="发布后才对后续入库生效；历史已入库资料不会改名。"
+        confirmText="删除类别"
+        danger
+        onConfirm={() => void confirmRemoveCategory()}
+        onCancel={() => setRemoveCategory(null)}
+      />
     </main>
   );
 }

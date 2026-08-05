@@ -1163,6 +1163,19 @@
   color: #6c5312;
 }
 
+.upload77-regenerate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.upload77-regenerate-error {
+  color: var(--color-danger, #b3261e);
+  font-size: 12px;
+}
+
 .upload77-field {
   display: flex;
   flex-direction: column;

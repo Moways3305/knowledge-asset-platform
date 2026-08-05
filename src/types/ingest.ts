@@ -157,6 +157,8 @@ export interface IngestAiResultDTO {
   confidence: number | null;
   suggestion_generation_status: "generated" | "needs_correction" | "needs_manual_completion";
   suggestion_generation_reason: string;
+  // 生成失败原因类别（response_error / timeout 可自动重试；其余为永久性失败）。
+  generation_error_category?: string | null;
   naming_compliant: boolean | null;
   naming_parsed_fields: NamingFields | null;
   naming_anomalies: unknown[] | null;
