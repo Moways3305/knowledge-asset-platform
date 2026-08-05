@@ -50,7 +50,10 @@ vi.mock("../api/auth", () => ({
 
 function renderLayout(path = "/") {
   return render(
-    <MemoryRouter initialEntries={[path]}>
+    <MemoryRouter
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      initialEntries={[path]}
+    >
       <Routes>
         <Route element={<AppLayout />}>
           <Route index element={<div>home</div>} />

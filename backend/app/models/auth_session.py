@@ -29,7 +29,9 @@ class UserSession(Base):
     # 会话 token 的 sha256 十六进制（64 字符）；明文仅存在于 httpOnly cookie。
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     login_method: Mapped[str] = mapped_column(String(30), nullable=False, default="dev_local")
+    # 登录来源 IP（安全溯源元数据，绝不进入 API 响应；守卫路径另有 HMAC 哈希表）。
     ip_address: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # 登录设备 UA 截断（同属溯源元数据，不对外）。
     device_info: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

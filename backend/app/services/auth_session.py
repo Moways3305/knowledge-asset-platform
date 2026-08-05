@@ -33,8 +33,13 @@ from app.services.identity import (
 )
 
 SESSION_COOKIE_NAME = "kap_session"
-# 会话有效期（小时）由配置驱动，默认 12（与既有行为一致）。auth.py 的 cookie max-age 复用此值。
-SESSION_TTL_HOURS = get_settings().session_ttl_hours
+
+
+def session_ttl_hours() -> int:
+    """会话有效期（小时），由配置驱动，默认 12；运行时读取，避免模块级缓存导致改配置不生效。"""
+    return get_settings().session_ttl_hours
+
+
 # 本地无凭证登录适配器仅在开发环境开放（真实 OAuth 接入前的占位）。
 LOGIN_ALLOWED_ENVS = DEV_IDENTITY_ALLOWED_ENVS
 
@@ -69,12 +74,13 @@ async def create_session(
         login_method=login_method,
         ip_address=ip_address,
         device_info=device_info,
-        expires_at=utc_now() + timedelta(hours=SESSION_TTL_HOURS),
+        expires_at=utc_now() + timedelta(hours=session_ttl_hours()),
         last_seen_at=utc_now(),
     )
     session.add(sess)
     await session.flush()
-    # 仅记 user_id（UUID）+ 登录方式；绝不记 token / token_hash / raw IP / device。
+    # 日志仅记 user_id + 登录方式；token 只落 sha256；登录 IP / 设备信息作为会话溯源
+    # 元数据存入 user_sessions 行（绝不进入任何 JSON 响应 / 前端），供运维会话审计使用。
     _logger.info("session_created", extra={"user_id": str(user.id), "login_method": login_method})
     return raw_token
 

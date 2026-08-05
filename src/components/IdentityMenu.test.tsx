@@ -65,7 +65,7 @@ describe("IdentityMenu", () => {
 
   it("hides the login form by default after the user is logged in", async () => {
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <IdentityMenu />
       </MemoryRouter>,
     );
@@ -94,7 +94,7 @@ describe("IdentityMenu", () => {
       canDiscoverL5: true,
     });
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <IdentityMenu />
       </MemoryRouter>,
     );
@@ -117,7 +117,7 @@ describe("IdentityMenu", () => {
       new ActiveCompanyRoleSyncError(serverConfirmed),
     );
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <IdentityMenu />
       </MemoryRouter>,
     );
@@ -135,7 +135,7 @@ describe("IdentityMenu", () => {
     authState.status = "anonymous";
 
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <IdentityMenu />
       </MemoryRouter>,
     );
@@ -156,7 +156,7 @@ describe("IdentityMenu", () => {
     });
 
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <IdentityMenu />
       </MemoryRouter>,
     );

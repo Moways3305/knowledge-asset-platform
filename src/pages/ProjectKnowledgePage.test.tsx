@@ -110,7 +110,10 @@ function AuthRefreshHarness() {
 
 function renderPage(path = `/project/${PROJECT_A}/knowledge`, withAuthRefresh = false) {
   return render(
-    <MemoryRouter initialEntries={[path]}>
+    <MemoryRouter
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      initialEntries={[path]}
+    >
       <LocationProbe />
       <Routes>
         <Route

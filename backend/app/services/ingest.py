@@ -53,7 +53,7 @@ from app.schemas.naming import NamingPreviewRequest
 from app.schemas.permission import CallerContext
 from app.schemas.review import ReviewActionResponse
 from app.services import audit as audit_service
-from app.services import ingest_confirmation, ingest_indexing, ingest_persistence
+from app.services import indexing, ingest_confirmation, ingest_indexing, ingest_persistence
 from app.services.desensitization import DesensitizationEngine
 from app.services.generation_models import generation_model_ref
 from app.services.llm_client import LLMClient, NullLLMClient
@@ -386,22 +386,57 @@ async def confirm(
     parse_status: str | None = None
     index_status = "indexing" if persisted.use_indexing else "skipped"
     if persisted.use_indexing:
-        index_status, parse_status = await ingest_indexing.index_confirmed_asset(
-            session,
-            caller,
-            persisted.task,
-            persisted.asset,
-            persisted.version,
-            scope=context.scope,
-            owner_id=context.owner_id,
-            project_id=context.project_id,
-            confidentiality=context.request.confidentiality_level.value,
-            weknora=weknora,
-            storage=storage,
-            trace_id=trace_id,
-            embedding_model_ref=context.request.embedding_model_ref,
-            rerank_model_ref=context.request.rerank_model_ref,
-        )
+        try:
+            index_status, parse_status = await ingest_indexing.index_confirmed_asset(
+                session,
+                caller,
+                persisted.task,
+                persisted.asset,
+                persisted.version,
+                scope=context.scope,
+                owner_id=context.owner_id,
+                project_id=context.project_id,
+                confidentiality=context.request.confidentiality_level.value,
+                weknora=weknora,
+                storage=storage,
+                trace_id=trace_id,
+                embedding_model_ref=context.request.embedding_model_ref,
+                rerank_model_ref=context.request.rerank_model_ref,
+            )
+        except Exception:  # noqa: BLE001
+            # 资产已确认落库：索引环节的未预期异常不能把"已入库"误报成失败。
+            # 与审批落库路径（approve_project_ingest_review）的兜底一致：收敛为
+            # index_failed（版本保留、可在运维后台重试索引），并记录安全审计。
+            await session.rollback()
+            _logger.warning(
+                "ingest_confirm_index_unexpected_failure",
+                exc_info=True,
+                extra={"asset_id": str(result_asset_id), "stage": "confirm_index"},
+            )
+            outcome = await indexing.mark_index_failed(
+                session,
+                version_id=persisted.version.id,
+                error_code="index_unexpected_error",
+            )
+            index_status = outcome.index_status
+            parse_status = None
+            await audit_service.record_event(
+                session,
+                caller=caller,
+                log_type=AuditLogType.exception,
+                action=AuditAction.ingest_index_failed.value,
+                trace_id=trace_id,
+                target_type="knowledge_asset",
+                target_id=result_asset_id,
+                severity=AlertSeverity.warning,
+                risk_level=AuditRiskLevel.high.value,
+                extra={
+                    "failure_stage": "weknora_index_unexpected",
+                    "error_code": outcome.error_code,
+                },
+                project_id=context.project_id,
+            )
+            await session.commit()
 
     _logger.info(
         "ingest_confirmed",

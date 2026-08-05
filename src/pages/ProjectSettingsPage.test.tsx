@@ -166,6 +166,7 @@ function renderPage(withPreviousEntry = false) {
   const settingsPath = `/project/${PROJECT_ID}/settings`;
   return render(
     <MemoryRouter
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
       initialEntries={withPreviousEntry ? ["/previous", settingsPath] : [settingsPath]}
       initialIndex={withPreviousEntry ? 1 : 0}
     >

@@ -28,6 +28,8 @@ Thumbs.db
 # local temporary files
 .codex_tmp/
 .claude_tmp/
+# UI QA 截图/产物目录（本地生成，不入库）
+.tmp-ui-qa*/
 
 # python / backend
 # 本地受控文件存储（dev/test 上传字节落盘处，不入库）

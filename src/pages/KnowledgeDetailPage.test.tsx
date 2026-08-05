@@ -69,7 +69,10 @@ const baseAsset: KnowledgeDetailVM = {
 
 function renderDetail() {
   return render(
-    <MemoryRouter initialEntries={["/knowledge/asset-1"]}>
+    <MemoryRouter
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      initialEntries={["/knowledge/asset-1"]}
+    >
       <Routes>
         <Route path="/knowledge/:id" element={<KnowledgeDetailPage />} />
       </Routes>

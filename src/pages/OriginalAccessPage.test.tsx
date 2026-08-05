@@ -36,7 +36,10 @@ const pending: OriginalAccessRequestDTO = {
 
 function renderPage() {
   return render(
-    <MemoryRouter initialEntries={["/original-access"]}>
+    <MemoryRouter
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      initialEntries={["/original-access"]}
+    >
       <Routes>
         <Route path="/original-access" element={<OriginalAccessPage />} />
         <Route path="/review" element={<div>知识审核正式路由</div>} />

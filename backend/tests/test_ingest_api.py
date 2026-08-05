@@ -11,7 +11,9 @@ from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 from app.models.audit import AuditEvent
 from app.models.ingest import IngestTask, IngestTaskAiResult
+from app.models.knowledge import KnowledgeAssetVersion
 from app.models.weknora import WeknoraKbMapping
+from app.schemas.enums import AuditAction
 from app.seed.dev_seed import (
     PROJECT_ALPHA,
     PROJECT_BETA,
@@ -231,6 +233,108 @@ async def test_bulk_confirm_has_one_explicit_target_and_partial_terminal_result(
     assert "token" not in str(audit.extra).lower()
     assert "source_file" not in str(audit.extra).lower()
     assert "result_asset_id" not in audit.extra
+
+
+async def test_confirm_index_unexpected_failure_keeps_asset(client, db_session, monkeypatch):
+    """确认落库后索引抛未预期异常：资产保留、返回 index_failed（而非失败），版本可运维重试。"""
+
+    async def _boom(*_args, **_kwargs):
+        raise RuntimeError("unexpected index failure")
+
+    monkeypatch.setattr("app.services.ingest.weknora_enabled", lambda: True)
+    monkeypatch.setattr("app.services.ingest_indexing.index_confirmed_asset", _boom)
+
+    task_id = (await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"]
+    resp = await client.post(
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(USER_CONSULTANT),
+        json=_confirm_payload(),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["result_asset_id"]
+    assert body["status"] == "completed"
+    assert body["index_status"] == "index_failed"
+
+    version = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == uuid.UUID(body["result_asset_id"])
+            )
+        )
+    ).scalar_one()
+    assert version.index_status == "index_failed"
+    assert version.index_error_code == "index_unexpected_error"
+
+    audit = (
+        (
+            await db_session.execute(
+                select(AuditEvent)
+                .where(AuditEvent.action == AuditAction.ingest_index_failed.value)
+                .order_by(AuditEvent.created_at.desc())
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert audit is not None
+    assert audit.extra["failure_stage"] == "weknora_index_unexpected"
+    assert audit.extra["error_code"] == "index_unexpected_error"
+
+
+async def test_bulk_confirm_index_unexpected_failure_reports_succeeded(
+    client, db_session, monkeypatch
+):
+    """批量确认：索引未预期异常不把已确认项误报为 failed，仍回传 result_asset_id。"""
+
+    async def _boom(*_args, **_kwargs):
+        raise RuntimeError("unexpected index failure")
+
+    monkeypatch.setattr("app.services.ingest.weknora_enabled", lambda: True)
+    monkeypatch.setattr("app.services.ingest_indexing.index_confirmed_asset", _boom)
+
+    first = (await _create_task(client, USER_CONSULTANT, "first.txt")).json()["ingest_task_id"]
+    second = (await _create_task(client, USER_CONSULTANT, "second.txt")).json()["ingest_task_id"]
+    payload = _confirm_payload(target_scope="personal")
+    resp = await client.post(
+        "/api/v1/ingest/bulk-confirm",
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "target_scope": "personal",
+            "target_project_id": None,
+            "items": [
+                {"task_id": first, "confirmation": payload},
+                {"task_id": second, "confirmation": payload},
+            ],
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "completed"
+    assert body["succeeded"] == 2
+    assert body["failed"] == 0
+    for item in body["items"]:
+        assert item["status"] == "succeeded"
+        assert item["result_asset_id"]
+
+
+async def test_confirmed_task_result_helper_resolves_persisted_asset(client, db_session):
+    """残差防御辅助函数：已确认任务返回 succeeded + asset id，未确认返回 None。"""
+    from app.api.ingest import _confirmed_task_result
+
+    task_id = (await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"]
+    assert await _confirmed_task_result(db_session, uuid.UUID(task_id)) is None
+
+    resp = await client.post(
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(USER_CONSULTANT),
+        json=_confirm_payload(),
+    )
+    assert resp.status_code == 200
+    result = await _confirmed_task_result(db_session, uuid.UUID(task_id))
+    assert result is not None
+    assert result.status == "succeeded"
+    assert result.result_asset_id == uuid.UUID(resp.json()["result_asset_id"])
 
 
 async def test_ai_result_admin_trimmed(client):

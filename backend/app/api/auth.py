@@ -57,15 +57,23 @@ from app.services.wecom_client import WeComError, get_wecom_oauth_client
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
-# cookie 最大存活（秒），与会话 TTL 对齐。
-_COOKIE_MAX_AGE = session_service.SESSION_TTL_HOURS * 3600
+
+def _cookie_max_age() -> int:
+    """会话 cookie 最大存活（秒），与会话 TTL 对齐；运行时读取，避免模块级缓存。"""
+    return session_service.session_ttl_hours() * 3600
+
+
 # OAuth state 短时 httpOnly cookie（防 CSRF）。
 _OAUTH_STATE_COOKIE = "kap_oauth_state"
 _OAUTH_STATE_MAX_AGE = 600  # 10 分钟
 
 
 def _client_meta(request: Request) -> tuple[str | None, str | None]:
-    """提取审计 / 会话用的非敏感客户端元数据（IP、User-Agent 截断）。"""
+    """提取审计 / 会话用的客户端溯源元数据（IP、User-Agent 截断）。
+
+    IP 属敏感信息：登录守卫路径只存 HMAC 哈希；审计与 user_sessions 按安全溯源需要
+    落库，绝不进入任何 JSON 响应 / 前端。
+    """
     ip = request.client.host if request.client else None
     ua = request.headers.get("user-agent")
     return ip, (ua[:480] if ua else None)
@@ -79,7 +87,7 @@ def _set_session_cookie(response: Response, raw_token: str, settings) -> None:
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=raw_token,
-        max_age=_COOKIE_MAX_AGE,
+        max_age=_cookie_max_age(),
         httponly=True,
         samesite="lax",
         secure=session_cookie_secure(settings),
@@ -101,7 +109,7 @@ def _set_active_role_cookie(
             role=role,
             settings=settings,
         ),
-        max_age=_COOKIE_MAX_AGE,
+        max_age=_cookie_max_age(),
         httponly=True,
         samesite="lax",
         secure=session_cookie_secure(settings),
