@@ -28,6 +28,7 @@ import type {
   ModelDTO,
   WeknoraDefaultModelsDTO,
   WeknoraDefaultModelsUpdateDTO,
+  WeknoraProviderDTO,
   WeknoraModelMutateDTO,
   WeknoraModelMutateResponseDTO,
   WeknoraModelCheckDTO,
@@ -180,6 +181,13 @@ export async function updateWeknoraDefaultModels(
   body: WeknoraDefaultModelsUpdateDTO,
 ): Promise<WeknoraDefaultModelsDTO> {
   return apiPut<WeknoraDefaultModelsDTO>(`${WK}/default-models`, body);
+}
+
+// ---- WeKnora 供应商列表（新增模型表单可选项）----
+export async function fetchWeknoraProviders(modelType?: string): Promise<WeknoraProviderDTO[]> {
+  const qs = modelType ? `?model_type=${encodeURIComponent(modelType)}` : "";
+  const data = await apiGet<{ items: WeknoraProviderDTO[] }>(`${WK}/providers${qs}`);
+  return data.items;
 }
 
 // ---- WeKnora 模型 CRUD ----

@@ -11105,6 +11105,14 @@
       },
       "ProviderOut": {
         "properties": {
+          "default_urls": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "title": "Default Urls",
+            "type": "object"
+          },
           "description": {
             "anyOf": [
               {

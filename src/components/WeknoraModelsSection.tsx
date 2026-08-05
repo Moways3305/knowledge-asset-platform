@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ChevronDown, Plus } from "lucide-react";
 import {
   createWeknoraModel,
   deleteWeknoraModel,
   fetchWeknoraModels,
+  fetchWeknoraProviders,
   updateWeknoraModel,
   checkWeknoraModel,
 } from "../api/admin";
-import type { ModelDTO, WeknoraModelMutateDTO } from "../types/weknoraAdmin";
+import type { ModelDTO, WeknoraModelMutateDTO, WeknoraProviderDTO } from "../types/weknoraAdmin";
 import { ApiError } from "../api/http";
 import ConfirmDialog from "./ConfirmDialog";
+import ProviderSelect, { type ProviderSelectOption } from "./ProviderSelect";
+import { ProviderLogo } from "./providerIcons";
 
 const MODEL_TYPES = ["chat", "embedding", "rerank", "vllm", "asr"];
 const modelTypeLabel: Record<string, string> = {
@@ -53,6 +56,7 @@ export default function WeknoraModelsSection({
   refreshSignal?: number;
 }) {
   const [models, setModels] = useState<ModelDTO[]>([]);
+  const [providers, setProviders] = useState<WeknoraProviderDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +69,7 @@ export default function WeknoraModelsSection({
   const [form, setForm] = useState<WeknoraModelMutateDTO>(emptyForm());
   const [tests, setTests] = useState<Record<string, TestNotice>>({});
   const panelRef = useRef<HTMLFormElement>(null);
+  const providerAutofillRef = useRef<string | null>(null);
   const effectiveCanEdit = canEdit && !forbidden;
 
   const load = useCallback(async () => {
@@ -72,10 +77,15 @@ export default function WeknoraModelsSection({
     setError(null);
     setForbidden(false);
     try {
-      const items = await fetchWeknoraModels();
+      const [items, providerItems] = await Promise.all([
+        fetchWeknoraModels(),
+        fetchWeknoraProviders(),
+      ]);
       setModels(items);
+      setProviders(providerItems);
     } catch (caught) {
       setModels([]);
+      setProviders([]);
       if (caught instanceof ApiError && caught.status === 403) {
         setForbidden(true);
         setError("当前身份没有 WeKnora 模型管理权限，此区域保持只读。");
@@ -140,12 +150,14 @@ export default function WeknoraModelsSection({
   const openCreate = () => {
     setEditingRef(null);
     setForm(emptyForm());
+    providerAutofillRef.current = null;
     setError(null);
     setFormOpen(true);
   };
 
   const openEdit = (model: ModelDTO) => {
     setEditingRef(model.model_ref);
+    providerAutofillRef.current = null;
     setForm({
       name: model.name,
       type: model.type,
@@ -199,6 +211,41 @@ export default function WeknoraModelsSection({
       setBusyAction(null);
     }
   };
+
+  const applyProvider = (providerValue: string) => {
+    const provider = providers.find((item) => item.value === providerValue);
+    const defaultUrl = provider?.default_urls?.[form.type] ?? "";
+    const previousBaseUrl = form.base_url?.trim() ?? "";
+    const wasAutofilled = providerAutofillRef.current !== null;
+    // 只有当前地址为空、或仍是上次自动带出的地址时，才覆盖为新默认地址；
+    // 用户手动改过的地址保持不变。
+    if (defaultUrl && (!previousBaseUrl || wasAutofilled)) {
+      setForm((current) => ({ ...current, provider: providerValue, base_url: defaultUrl }));
+      providerAutofillRef.current = defaultUrl;
+    } else {
+      setForm((current) => ({ ...current, provider: providerValue }));
+      providerAutofillRef.current = null;
+    }
+  };
+
+  const providerOptions = useMemo<ProviderSelectOption[]>(() => {
+    const visible = providers.filter((item) => item.model_types.includes(form.type));
+    const options: ProviderSelectOption[] = visible.map((item) => ({
+      value: item.value,
+      label: item.label,
+      description: item.description ?? undefined,
+      icon: <ProviderLogo provider={item.value} label={item.label} />,
+    }));
+    const current = form.provider ?? "";
+    if (current && !options.some((option) => option.value === current)) {
+      options.unshift({
+        value: current,
+        label: current,
+        icon: <ProviderLogo provider={current} label={current} />,
+      });
+    }
+    return options;
+  }, [form.provider, form.type, providers]);
 
   const deleteModel = async (model: ModelDTO) => {
     const actionKey = `delete:${model.model_ref}`;
@@ -451,13 +498,19 @@ export default function WeknoraModelsSection({
               </select>
             </FormField>
             <FormField label="Provider">
-              <input
-                data-weknora-field="provider"
-                autoComplete="off"
+              <ProviderSelect
+                ariaLabel="模型供应商"
+                options={providerOptions}
                 value={form.provider ?? ""}
-                placeholder="如 openai、deepseek"
-                onChange={(event) => setForm({ ...form, provider: event.target.value })}
+                disabled={busyAction === "form"}
+                onChange={applyProvider}
+                placeholder="请选择供应商（或自定义）"
               />
+              {Boolean(form.base_url?.trim()) && (
+                <small className="mf-field-hint">
+                  API 地址已按所选供应商自动带出，可手动修改。
+                </small>
+              )}
             </FormField>
             <FormField label="API 地址">
               <input

@@ -1,0 +1,144 @@
+/* 供应商下拉：触发器 + 弹出列表，选项可携带品牌图标。 */
+.provider-select {
+  position: relative;
+}
+
+.provider-select-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  color: var(--color-text-body);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.provider-select-trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.provider-select-trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.provider-select-trigger-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-select-placeholder {
+  flex: 1;
+  color: var(--color-text-tertiary);
+}
+
+.provider-select-chevron {
+  flex: 0 0 auto;
+  color: var(--color-text-tertiary);
+  transition: transform 0.15s;
+}
+
+.provider-select-trigger[aria-expanded="true"] .provider-select-chevron {
+  transform: rotate(180deg);
+}
+
+.provider-select-list {
+  position: absolute;
+  z-index: var(--z-popover, 50);
+  left: 0;
+  right: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  margin: 4px 0 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.provider-select-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.provider-select-option.is-active {
+  background: var(--color-bg-muted);
+}
+
+.provider-select-option.is-selected {
+  background: var(--color-accent-soft, #eef2f8);
+}
+
+.provider-select-option-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.provider-select-option-copy strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-body);
+}
+
+.provider-select-option-copy small {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-select-check {
+  flex: 0 0 auto;
+  color: var(--color-primary);
+}
+
+.provider-select-empty {
+  padding: 8px;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
+/* 品牌图标承载：白底圆角小方块，图片等比缩放。 */
+.provider-logo {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+.provider-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.provider-logo-monogram {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}

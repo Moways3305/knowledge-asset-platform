@@ -102,13 +102,19 @@ async def list_providers(
     for p in raw:
         if not isinstance(p, dict):
             continue
-        # 只取安全字段：value/label/description/modelTypes。**不**透传 defaultUrls（含 provider host）。
+        # 只取安全字段：value/label/description/modelTypes，外加**公开**的 defaultUrls
+        # （供应商官方端点，非密钥），供前端"选 provider 自动带出默认地址"使用。
         out.append(
             ProviderOut(
                 value=str(p.get("value") or ""),
                 label=str(p.get("label") or p.get("value") or ""),
                 description=p.get("description"),
                 model_types=[str(t) for t in (p.get("modelTypes") or p.get("model_types") or [])],
+                default_urls={
+                    str(k): str(v)
+                    for k, v in (p.get("defaultUrls") or p.get("default_urls") or {}).items()
+                    if isinstance(v, str) and v.startswith(("http://", "https://"))
+                },
             )
         )
     return out
