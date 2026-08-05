@@ -6,7 +6,6 @@ import {
   UserRound,
   FileCheck2,
   ShieldCheck,
-  KeyRound,
   FolderKanban,
   SlidersHorizontal,
   Inbox,
@@ -27,6 +26,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import IdentityMenu from "../components/IdentityMenu";
+import NotificationBell from "../components/NotificationBell";
 import ErrorBoundary from "../components/ErrorBoundary";
 import LoadingError from "../components/LoadingError";
 import { AuthProvider, useAuth } from "../auth/AuthContext";
@@ -67,13 +67,6 @@ const navGroups: NavGroup[] = [
       { to: "/my/knowledge", label: "个人知识", icon: UserRound, cap: can.viewMyKnowledge },
       { to: "/upload", label: "资产化确认", icon: FileCheck2, cap: can.viewUpload },
       { to: "/review", label: "升级审核", icon: ShieldCheck, cap: can.viewReview },
-      {
-        to: "/review/completed",
-        label: "已完成审核",
-        icon: ShieldCheck,
-        cap: can.viewReview,
-      },
-      { to: "/original-access", label: "原文访问", icon: KeyRound, cap: can.viewOriginalAccess },
       {
         to: "/project/:projectId",
         label: "项目空间",
@@ -352,6 +345,11 @@ function AppShell() {
             <span className="deck-eyebrow">博维知识资产平台</span>
             <strong className="deck-title">{currentModuleTitle(location.pathname)}</strong>
           </div>
+          {capabilities.isBusinessUser && (
+            <div className="deck-actions">
+              <NotificationBell />
+            </div>
+          )}
         </header>
         <main className="app-content">
           {/* 内容区兜底：页面 chunk 加载时显示 loading；某个页面渲染崩溃时只在此处显示

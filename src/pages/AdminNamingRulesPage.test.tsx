@@ -219,6 +219,36 @@ describe("AdminNamingRulesPage", () => {
     expect(publishNamingRuleDraft).not.toHaveBeenCalled();
   });
 
+  it("initializes only missing company standards in the current draft", async () => {
+    render(<AdminNamingRulesPage />);
+    const initialize = await screen.findByRole("button", {
+      name: /一键初始化公司库标准目录/,
+    });
+    fireEvent.click(initialize);
+    expect(screen.getByRole("status")).toHaveTextContent("已新增 4 个公司库标准类别");
+
+    fireEvent.click(initialize);
+    expect(screen.getByRole("status")).toHaveTextContent("公司库标准类别均已存在");
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+
+    await waitFor(() => expect(saveNamingRuleDraft).toHaveBeenCalledTimes(1));
+    const saved = vi.mocked(saveNamingRuleDraft).mock.calls[0][1];
+    for (const [primary, secondary] of [
+      ["方法论", "模型工具"],
+      ["方法论", "案例研究"],
+      ["方法论", "模板"],
+      ["洞察", "研究洞察"],
+      ["制度规范", "交付件"],
+    ]) {
+      expect(
+        saved.categories.filter(
+          (item) =>
+            item.scope === "company" && item.primary === primary && item.secondary === secondary,
+        ),
+      ).toHaveLength(1);
+    }
+  });
+
   it("cancels or confirms draft deletion and saves the reduced category set", async () => {
     render(<AdminNamingRulesPage />);
     const remove = await screen.findByRole("button", { name: "删除目录类别 交付件" });
