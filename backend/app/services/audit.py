@@ -311,7 +311,8 @@ async def record_denied(
 
 # admin 元数据视图允许从 extra 透出的安全子集（denied_reason / risk_level 等）。
 # 登录审计（login_result / login_method）也属安全元数据，需在 admin 视图可见，
-# 否则审计日志"结果"列会显示"—"。注意：ip_address 属敏感字段，不在此处放行。
+# 否则审计日志"结果"列会显示"—"。注意：写路径的登录事件确实会把 ip_address 落入
+# extra（安全溯源需要），但它属敏感字段，**不**在 admin 视图白名单中放行。
 _ADMIN_EXTRA_WHITELIST = {
     "denied_reason",
     "risk_level",

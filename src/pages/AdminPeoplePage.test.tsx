@@ -87,7 +87,7 @@ function roleRow(label: string) {
 
 async function renderDetail() {
   render(
-    <MemoryRouter>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <AdminPeoplePage />
     </MemoryRouter>,
   );
@@ -175,7 +175,7 @@ describe("AdminPeoplePage governance controls", () => {
 
   it("renders a list-first workspace without sensitive identity fields", async () => {
     const { container } = render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <AdminPeoplePage />
       </MemoryRouter>,
     );
@@ -213,7 +213,7 @@ describe("AdminPeoplePage governance controls", () => {
     vi.mocked(fetchPerson).mockResolvedValue(densePerson);
 
     const { container } = render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <AdminPeoplePage />
       </MemoryRouter>,
     );
@@ -241,7 +241,7 @@ describe("AdminPeoplePage governance controls", () => {
 
   it("sends real filters and opens detail only after selection", async () => {
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <AdminPeoplePage />
       </MemoryRouter>,
     );
@@ -271,7 +271,7 @@ describe("AdminPeoplePage governance controls", () => {
           }),
     );
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <AdminPeoplePage />
       </MemoryRouter>,
     );
@@ -311,7 +311,7 @@ describe("AdminPeoplePage governance controls", () => {
       }),
     );
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <AdminPeoplePage />
       </MemoryRouter>,
     );
@@ -336,7 +336,7 @@ describe("AdminPeoplePage governance controls", () => {
   ])("maps list failures safely", async (reason, expected) => {
     vi.mocked(fetchPeople).mockRejectedValueOnce(reason);
     const { container } = render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <AdminPeoplePage />
       </MemoryRouter>,
     );
@@ -347,7 +347,7 @@ describe("AdminPeoplePage governance controls", () => {
   it("uses a compact empty state", async () => {
     vi.mocked(fetchPeople).mockResolvedValueOnce({ items: [], total: 0 });
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <AdminPeoplePage />
       </MemoryRouter>,
     );

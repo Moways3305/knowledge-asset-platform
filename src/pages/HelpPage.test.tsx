@@ -6,7 +6,7 @@ import HelpPage from "./HelpPage";
 describe("HelpPage", () => {
   it("按工作流呈现目录和全部既有帮助章节", () => {
     const { container } = render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <HelpPage />
       </MemoryRouter>,
     );
@@ -24,7 +24,7 @@ describe("HelpPage", () => {
 
   it("章节选择器生成真实页内跳转，并保留真实产品入口", () => {
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <HelpPage />
       </MemoryRouter>,
     );

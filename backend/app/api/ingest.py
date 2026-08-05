@@ -13,11 +13,13 @@ import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import TypeAdapter, ValidationError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_caller_context
 from app.core.trace import get_trace_id
 from app.db.session import get_db
+from app.models.ingest import IngestTask
 from app.schemas.enums import AuditAction
 from app.schemas.ingest import (
     AdminIngestListResponse,
@@ -67,6 +69,19 @@ _LOCAL_UPLOAD_EXTENSIONS = {
 _UPLOAD_READ_TIMEOUT_SECONDS = 30
 _MAX_CLIENT_REJECTIONS = 5000
 _CLIENT_REJECTIONS_ADAPTER = TypeAdapter(list[UploadClientRejection])
+
+
+async def _confirmed_task_result(
+    session: AsyncSession, task_id: uuid.UUID
+) -> IngestBulkConfirmItemResult | None:
+    """残差防御：确认已落库（result_asset_id 已回填）后仍抛出异常时，返回 succeeded 并带回资产 id，
+    避免"已入库但报失败"误导前端。正常前置校验失败（未落库）返回 None，由调用方走原错误分支。"""
+    row = (
+        await session.execute(select(IngestTask.result_asset_id).where(IngestTask.id == task_id))
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+    return IngestBulkConfirmItemResult(item_id=task_id, status="succeeded", result_asset_id=row)
 
 
 @router.post("/ingest/upload", response_model=IngestUploadResponse)
@@ -575,7 +590,10 @@ async def bulk_confirm(
                 batch_results.append(bulk_service.skipped_from_http(item.task_id, exc))
             except Exception:
                 await session.rollback()
-                batch_results.append(bulk_service.failed_item(item.task_id))
+                already = await _confirmed_task_result(session, item.task_id)
+                batch_results.append(
+                    already if already is not None else bulk_service.failed_item(item.task_id)
+                )
         return batch_results
 
     results = await bulk_service.execute_in_controlled_batches(body.items, process_batch)

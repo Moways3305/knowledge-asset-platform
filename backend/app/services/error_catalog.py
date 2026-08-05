@@ -82,6 +82,12 @@ _CATALOG: dict[str, ErrorInfo] = {
         remediation_hint="检查平台存储路径、后端 / worker 共享卷，以及源文件是否仍存在。",
         severity="error",
     ),
+    "index_unexpected_error": ErrorInfo(
+        user_message="资产已保存，但索引处理出现未预期异常，可在运维后台重试索引。",
+        operator_message="确认后索引环节抛出未预期异常（非底座返回的已知错误）。",
+        remediation_hint="查看后端日志中对应 trace 定位；资产已保留，可从索引运维面板重试。",
+        severity="error",
+    ),
     "wecom_scan_failed": ErrorInfo(
         user_message="企业微信同步失败，可稍后重试或联系管理员。",
         operator_message="企业微信微盘扫描失败。",
@@ -116,6 +122,7 @@ _DIAGNOSTIC_CATEGORIES: dict[str, str] = {
     "weknora_kb_embedding_model_locked": "configuration",
     "weknora_call_failed": "external_service",
     "source_file_unreadable": "source_content",
+    "index_unexpected_error": "platform",
     "wecom_scan_failed": "external_service",
     "unknown": "unknown",
 }

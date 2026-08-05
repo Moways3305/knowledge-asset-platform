@@ -27,7 +27,7 @@ vi.mock("./AuthContext", () => ({
 
 function renderGuard(cap: (c: Capabilities) => boolean) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <RouteGuard cap={cap}>
         <div>受保护内容</div>
       </RouteGuard>

@@ -45,7 +45,10 @@ const pending: ReviewItemDTO = {
 
 function renderPage() {
   return render(
-    <MemoryRouter initialEntries={["/review"]}>
+    <MemoryRouter
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      initialEntries={["/review"]}
+    >
       <Routes>
         <Route path="/review" element={<ReviewPage />} />
         <Route path="/original-access" element={<div>原文访问正式路由</div>} />
@@ -56,7 +59,10 @@ function renderPage() {
 
 function renderCompletedPage() {
   return render(
-    <MemoryRouter initialEntries={["/review/completed"]}>
+    <MemoryRouter
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      initialEntries={["/review/completed"]}
+    >
       <Routes>
         <Route path="/review/completed" element={<ReviewCompletedPage />} />
       </Routes>

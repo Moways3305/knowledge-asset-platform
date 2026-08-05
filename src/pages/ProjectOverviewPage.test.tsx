@@ -137,7 +137,10 @@ function deferred<T>() {
 
 function renderPage(path = `/project/${PROJECT_A}`) {
   return render(
-    <MemoryRouter initialEntries={[path]}>
+    <MemoryRouter
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      initialEntries={[path]}
+    >
       <Routes>
         <Route path="/project/:id" element={<ProjectOverviewPage />} />
         <Route path="/" element={<div>今日工作台</div>} />
