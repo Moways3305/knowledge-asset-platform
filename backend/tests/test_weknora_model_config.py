@@ -80,6 +80,10 @@ class FakeModelsWK:
                 "label": "阿里云 DashScope",
                 "description": "qwen, etc.",
                 "modelTypes": ["chat", "embedding"],
+                "defaultUrls": {
+                    "chat": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "embedding": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                },
             }
         ]
 
@@ -218,7 +222,11 @@ def wk(monkeypatch):
 async def test_admin_reads_providers_and_models(client, wk):
     p = await client.get(f"{BASE}/providers", headers=_hdr(USER_ADMIN_ONLY))
     assert p.status_code == 200
-    assert p.json()["items"][0]["value"] == "aliyun"
+    provider = p.json()["items"][0]
+    assert provider["value"] == "aliyun"
+    # 公开默认端点透传供表单自动带出，但绝不回显密钥类字段。
+    assert provider["default_urls"]["chat"].startswith("https://dashscope.aliyuncs.com")
+    assert "api_key" not in p.text and "sk-" not in p.text and _SECRET not in p.text
     m = await client.get(f"{BASE}/models", headers=_hdr(USER_ADMIN_ONLY))
     assert m.status_code == 200
     items = m.json()["items"]

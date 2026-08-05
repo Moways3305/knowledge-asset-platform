@@ -4,6 +4,16 @@
 
 export type ModelTypeAlias = "chat" | "embedding" | "rerank" | "vllm" | "asr";
 
+// WeKnora 供应商（新增模型表单可选项）。default_urls 为公开供应商端点，
+// 用于"选 provider 自动带出默认 API 地址"；绝不承载密钥。
+export interface WeknoraProviderDTO {
+  value: string;
+  label: string;
+  description: string | null;
+  model_types: string[];
+  default_urls: Record<string, string>;
+}
+
 export interface ModelDTO {
   model_ref: string;
   name: string;

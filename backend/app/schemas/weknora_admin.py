@@ -22,6 +22,8 @@ class ProviderOut(BaseModel):
     label: str
     description: str | None = None
     model_types: list[str] = []
+    # 各模型类型对应的公开默认 API 地址（供应商官方端点，非密钥）；用于前端自动带出。
+    default_urls: dict[str, str] = {}
 
 
 class ProviderListResponse(BaseModel):

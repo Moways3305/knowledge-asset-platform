@@ -5,6 +5,8 @@ import {
   fetchWeknoraDefaultModels,
   fetchWeknoraKbConfigs,
   fetchWeknoraModels,
+  fetchWeknoraProviders,
+  createWeknoraModel,
   updateWeknoraDefaultModels,
   updateWeknoraKbInit,
 } from "../api/admin";
@@ -32,6 +34,8 @@ vi.mock("../api/admin", () => ({
   fetchWeknoraKbConfigs: vi.fn(),
   fetchWeknoraDefaultModels: vi.fn(),
   fetchWeknoraModels: vi.fn(),
+  fetchWeknoraProviders: vi.fn(),
+  createWeknoraModel: vi.fn(),
   updateWeknoraDefaultModels: vi.fn(),
   updateWeknoraKbInit: vi.fn(),
 }));
@@ -83,6 +87,32 @@ describe("AdminWeKnoraModelsPage", () => {
       isProjectManager: false,
     });
     vi.mocked(fetchWeknoraModels).mockResolvedValue([]);
+    vi.mocked(fetchWeknoraProviders).mockResolvedValue([
+      {
+        value: "aliyun",
+        label: "阿里云 DashScope",
+        description: "qwen-plus, tongyi-embedding-vision-plus, etc.",
+        model_types: ["chat", "embedding", "rerank", "vllm"],
+        default_urls: {
+          chat: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          embedding: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        },
+      },
+      {
+        value: "generic",
+        label: "自定义 (OpenAI兼容接口)",
+        description: null,
+        model_types: ["chat", "embedding", "rerank", "vllm", "asr"],
+        default_urls: {},
+      },
+    ]);
+    vi.mocked(createWeknoraModel).mockResolvedValue({
+      model_ref: "new-model-ref",
+      name: "qwen-plus",
+      type: "chat",
+      provider: "aliyun",
+      status: "ok",
+    });
     vi.mocked(fetchWeknoraKbConfigs).mockResolvedValue([]);
     vi.mocked(fetchWeknoraDefaultModels).mockResolvedValue({
       embedding: null,
@@ -378,5 +408,31 @@ describe("AdminWeKnoraModelsPage", () => {
     expect(await screen.findByText("DeepSeek 对话")).toBeInTheDocument();
     expect(screen.getByText("WeKnora 尚未配置")).toBeInTheDocument();
     expect(screen.getByText("这不会影响左侧外部 LLM 的创建、编辑和测试。")).toBeInTheDocument();
+  });
+
+  it("reuses WeKnora provider list and auto-fills default API URL on new model", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "新增 WeKnora 模型" }));
+    fireEvent.change(screen.getByLabelText("模型名称"), { target: { value: "qwen-plus" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "模型供应商" }));
+    fireEvent.click(screen.getByRole("option", { name: /阿里云 DashScope/ }));
+
+    expect(screen.getByLabelText("API 地址")).toHaveValue(
+      "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    );
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "sk-test" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存 WeKnora 模型" }));
+
+    await waitFor(() =>
+      expect(createWeknoraModel).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "qwen-plus",
+          provider: "aliyun",
+          base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          api_key: "sk-test",
+        }),
+      ),
+    );
   });
 });
