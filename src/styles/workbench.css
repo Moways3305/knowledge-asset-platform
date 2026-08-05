@@ -283,6 +283,13 @@
   letter-spacing: 0.06em;
   color: var(--color-text-heading);
 }
+.deck-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
 .deck-identity {
   min-width: 0;
   flex-shrink: 0;

@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AppLayout from "./AppLayout";
 import { logout } from "../api/auth";
+import { fetchNotificationUnreadCount, fetchNotifications } from "../api/notifications";
 
 const auth = vi.hoisted(() => ({
   reload: vi.fn(),
@@ -48,6 +49,13 @@ vi.mock("../api/auth", () => ({
   logout: vi.fn(),
 }));
 
+vi.mock("../api/notifications", () => ({
+  fetchNotificationUnreadCount: vi.fn(),
+  fetchNotifications: vi.fn(),
+  markNotificationRead: vi.fn(),
+  markNotificationsRead: vi.fn(),
+}));
+
 function renderLayout(path = "/") {
   return render(
     <MemoryRouter
@@ -68,6 +76,13 @@ describe("AppLayout shell contract", () => {
   beforeEach(() => {
     auth.reload.mockReset();
     vi.mocked(logout).mockReset();
+    vi.mocked(fetchNotificationUnreadCount).mockResolvedValue({ unread_count: 0 });
+    vi.mocked(fetchNotifications).mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      page_size: 20,
+    });
     auth.capabilities.isAdmin = true;
     auth.capabilities.isBoss = true;
     auth.capabilities.isConsultingDirector = false;
@@ -160,11 +175,12 @@ describe("AppLayout shell contract", () => {
     expect(screen.getByRole("link", { name: "今日工作台" })).toHaveAttribute("title", "今日工作台");
   });
 
-  it("does not add uncontracted global actions to the slim header", () => {
+  it("keeps the slim header with only the notification bell as a global action", () => {
     const { container } = renderLayout();
     const header = container.querySelector(".deck");
     expect(header).toHaveTextContent("今日工作台");
-    expect(header).not.toHaveTextContent(/搜索|导出|新建项目|通知/);
+    expect(screen.getByRole("button", { name: "通知" })).toBeInTheDocument();
+    expect(header).not.toHaveTextContent(/搜索|导出|新建项目/);
     expect(header?.querySelector("input")).toBeNull();
   });
 

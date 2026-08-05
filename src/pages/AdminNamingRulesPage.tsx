@@ -14,6 +14,13 @@ const standardProjectCategories = [
   { name: "关键资料", confidentiality: "L5", order: 40 },
   { name: "项目复盘", confidentiality: "L3", order: 50 },
 ] as const;
+const standardCompanyCategories = [
+  { primary: "方法论", secondary: "模型工具", confidentiality: "L2", order: 10 },
+  { primary: "方法论", secondary: "案例研究", confidentiality: "L2", order: 20 },
+  { primary: "方法论", secondary: "模板", confidentiality: "L2", order: 30 },
+  { primary: "洞察", secondary: "研究洞察", confidentiality: "L2", order: 40 },
+  { primary: "制度规范", secondary: "交付件", confidentiality: "L3", order: 50 },
+] as const;
 
 function makeProjectCategory(
   name: string,
@@ -26,6 +33,24 @@ function makeProjectCategory(
     primary: "项目资料",
     secondary: name,
     prefix: name,
+    default_confidentiality: defaultConfidentiality,
+    enabled: true,
+    sort_order: sortOrder,
+  };
+}
+
+function makeCompanyCategory(
+  primary: string,
+  secondary: string,
+  defaultConfidentiality: string,
+  sortOrder: number,
+): NamingCategoryConfigDTO {
+  return {
+    id: crypto.randomUUID(),
+    scope: "company",
+    primary,
+    secondary,
+    prefix: `${primary}-${secondary}`,
     default_confidentiality: defaultConfidentiality,
     enabled: true,
     sort_order: sortOrder,
@@ -369,6 +394,42 @@ export default function AdminNamingRulesPage() {
             >
               <Sparkles size={15} />
               一键初始化项目库标准目录
+            </button>
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={() => {
+                const existing = new Set(
+                  config.categories
+                    .filter((item) => item.scope === "company")
+                    .map((item) => `${item.primary}-${item.secondary}`.trim()),
+                );
+                const missing = standardCompanyCategories.filter(
+                  (item) => !existing.has(`${item.primary}-${item.secondary}`),
+                );
+                updateConfig({
+                  ...config,
+                  categories: [
+                    ...config.categories,
+                    ...missing.map((item) =>
+                      makeCompanyCategory(
+                        item.primary,
+                        item.secondary,
+                        item.confidentiality,
+                        item.order,
+                      ),
+                    ),
+                  ],
+                });
+                setNotice(
+                  missing.length === 0
+                    ? "公司库标准类别均已存在，未重复新增。"
+                    : `已新增 ${missing.length} 个公司库标准类别；已存在的类别未重复新增。`,
+                );
+              }}
+            >
+              <Sparkles size={15} />
+              一键初始化公司库标准目录
             </button>
             <button
               className="btn-secondary"

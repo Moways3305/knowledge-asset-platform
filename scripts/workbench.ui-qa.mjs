@@ -280,6 +280,12 @@ try {
         const fulfill = (body, status = 200) =>
           route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
         if (requestUrl.pathname === "/api/v1/auth/me") return fulfill(authMe);
+        if (requestUrl.pathname === "/api/v1/notifications/unread-count") {
+          return fulfill({ unread_count: 0 });
+        }
+        if (requestUrl.pathname === "/api/v1/notifications") {
+          return fulfill({ items: [], total: 0, page: 1, page_size: 20 });
+        }
         if (requestUrl.pathname === "/api/v1/workbench/overview") {
           overviewCalls += 1;
           return fulfill(overviewFor(scenario.name, overviewCalls));
