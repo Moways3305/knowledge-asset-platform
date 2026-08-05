@@ -28,6 +28,7 @@ from app.models.weknora import WeknoraKbMapping
 from app.schemas.enums import KnowledgeScope
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient, WeKnoraError
 from app.services.weknora_model_selection import ResolvedModels
+from app.services.weknora_models import _kb_update_config
 
 # 映射 status 取值：active（已建 + 已初始化，可用）/ init_failed（已建但初始化失败，待重试）。
 _STATUS_ACTIVE = "active"
@@ -56,7 +57,7 @@ def _kb_name(scope: str, owner_user_id: uuid.UUID | None, project_id: uuid.UUID 
 
 
 def _locked(existing: WeknoraKbMapping, models: ResolvedModels) -> bool:
-    """KB 嵌入模型锁：显式指定了不同嵌入模型时返回 True（需重建索引）。
+    """KB 嵌入模型需要切换：显式指定了不同嵌入模型时返回 True（触发自动切换）。
     默认驱动（explicit_embedding=False）或既有映射无绑定模型时永不触发。
     """
     return bool(
@@ -64,6 +65,35 @@ def _locked(existing: WeknoraKbMapping, models: ResolvedModels) -> bool:
         and existing.embedding_model_id
         and models.embedding_model_id != existing.embedding_model_id
     )
+
+
+async def _switch_embedding_model(
+    session: AsyncSession,
+    client: WeKnoraClient | NullWeKnoraClient,
+    existing: WeknoraKbMapping,
+    models: ResolvedModels,
+    *,
+    trace_id: str | None,
+) -> None:
+    """把既有 KB 的 embedding 配置切换到显式指定的新模型（取代旧的锁定拒绝）。
+
+    按当前底座契约 PUT 完整配置（从现有 KB 资源读取合并，避免零值覆盖），成功后回写映射
+    绑定并提交。调用方负责在切换后对存量文档重新解析（重新向量化），新旧向量空间才不会
+    混用。失败抛 WeKnoraError，由调用方进入可诊断的 index_failed（资产保留、可重试）。
+    """
+    current_kb = await client.get_kb(existing.weknora_kb_id, trace_id=trace_id)
+    config = _kb_update_config(current_kb)
+    if not str(config.get("llmModelId") or "").strip():
+        raise WeKnoraError(
+            "weknora_kb_chat_model_missing",
+            "知识库当前未配置问答模型，无法切换嵌入模型",
+        )
+    config["embeddingModelId"] = models.embedding_model_id
+    await client.update_initialization_config(
+        existing.weknora_kb_id, config=config, trace_id=trace_id
+    )
+    existing.embedding_model_id = models.embedding_model_id
+    await session.commit()
 
 
 def _init_kwargs(models: ResolvedModels, embedding_model_id: str) -> _InitKwargs:
@@ -126,7 +156,8 @@ async def resolve_or_create_kb(
     `display_name` 列。为空时：personal scope 回退默认「我的知识库」；project / company
     回退 slug（display_name 列留空，可读名另有来源）。命中既有映射不改名（改名走显式 API）。
 
-    - 命中 active 映射：直接返回（不重复初始化）。explicit_embedding + 模型不匹配 → raise lock。
+    - 命中 active 映射：直接返回（不重复初始化）。explicit_embedding + 模型不匹配 →
+      自动切换底座 embedding 配置并回写绑定（存量文档需重新解析以重新向量化）。
     - 命中 init_failed 映射：重试初始化（ensure-initialized），成功翻 active 后返回；失败 raise。
     - 无映射：create_kb → initialize_kb → 写映射（成功 active / 失败 init_failed 后 raise）。
 
@@ -147,22 +178,17 @@ async def resolve_or_create_kb(
     existing = await _find(session, scope, owner_user_id, project_id)
     if existing is not None:
         if existing.status == _STATUS_ACTIVE:
-            # KB 锁：仅当显式指定了不同嵌入模型时拒绝（切换需重建索引）。
-            # 默认驱动（explicit_embedding=False）永不触发锁——保留既有 KB。
+            # 显式指定了不同嵌入模型 → 自动切换底座配置并回写绑定（不再锁定拒绝）；
+            # 存量文档需在切换后重新解析以完成重新向量化。
+            # 默认驱动（explicit_embedding=False）永不触发——保留既有 KB。
             if _locked(existing, models):
-                raise WeKnoraError(
-                    "weknora_kb_embedding_model_locked",
-                    "该知识库已绑定嵌入模型，如需切换请先重建索引",
-                )
+                await _switch_embedding_model(session, client, existing, models, trace_id=trace_id)
             return existing.weknora_kb_id
         # init_failed：重试初始化（KB 已存在，只补模型配置）。
         # 使用已绑定的 embedding id（已建库时确定的模型），chat/rerank/multimodal 用新 models。
-        # KB 锁同样适用：显式指定了不同嵌入模型时拒绝，默认驱动可正常恢复。
+        # 显式指定了不同嵌入模型 → 先切换绑定，再按新绑定初始化；默认驱动可正常恢复。
         if _locked(existing, models):
-            raise WeKnoraError(
-                "weknora_kb_embedding_model_locked",
-                "该知识库已绑定嵌入模型，如需切换请先重建索引",
-            )
+            await _switch_embedding_model(session, client, existing, models, trace_id=trace_id)
         bound = existing.embedding_model_id or models.embedding_model_id
         try:
             await client.initialize_kb(

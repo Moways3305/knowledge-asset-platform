@@ -1,15 +1,16 @@
 # backend/tests/test_weknora_kb_model_lock.py
-"""KB 嵌入模型锁定 + ResolvedModels 集成测试（PBC-38 Task 3，requirement 7）。
+"""KB 嵌入模型切换 + ResolvedModels 集成测试（PBC-38 Task 3，requirement 7）。
 
 覆盖五个必须场景：
 1. 新 KB 用默认模型建库 → mapping.embedding_model_id == 默认真实 id。
 2. 新 KB 用显式模型（explicit_embedding=True）建库 → mapping 记录该 id；create_kb 收到该 id。
 3. 已有 KB + 默认驱动（explicit_embedding=False）+ 不同 id → 不触发锁，复用既有 kb_id。
-4. 已有 KB + 显式（explicit_embedding=True）不同嵌入 → raise weknora_kb_embedding_model_locked。
+4. 已有 KB + 显式（explicit_embedding=True）不同嵌入 → 自动切换底座配置并回写绑定。
 5. Fail-closed：无平台默认配置时 resolve_models_for_kb raise weknora_default_model_not_configured。
 """
 
 import uuid
+from typing import Any
 
 import pytest
 from sqlalchemy import select
@@ -32,10 +33,11 @@ def _models(embedding_model_id: str, explicit_embedding: bool) -> ResolvedModels
 
 
 class _FakeKbClient:
-    """最简 fake：记录 create_kb 收到的 embedding_model_id，初始化直接成功。"""
+    """最简 fake：记录 create_kb 收到的 embedding_model_id，初始化/配置更新直接成功。"""
 
     def __init__(self):
         self.created: list[str] = []  # create_kb 时记录 embedding_model_id
+        self.updated_configs: list[dict[str, Any]] = []
 
     async def create_kb(self, *, name, embedding_model_id, trace_id=None):
         self.created.append(embedding_model_id)
@@ -43,6 +45,22 @@ class _FakeKbClient:
 
     async def initialize_kb(self, kb_id, *, trace_id=None, **kw):
         return None
+
+    async def get_kb(self, kb_id, *, trace_id=None):
+        return {
+            "summary_model_id": "chat-default",
+            "embedding_model_id": "emb-A",
+            "chunking_config": {},
+            "vlm_config": {},
+            "asr_config": {},
+            "storage_provider_config": {},
+            "extract_config": {},
+            "question_generation_config": {},
+        }
+
+    async def update_initialization_config(self, kb_id, *, config, trace_id=None):
+        self.updated_configs.append(config)
+        return {"success": True}
 
 
 class _FakeClientNoModels:
@@ -147,11 +165,11 @@ async def test_existing_kb_ignores_default_model_mismatch(db_session):
 
 
 # ---------------------------------------------------------------------------
-# 场景 4：已有 KB + 显式不同嵌入 → 触发锁
+# 场景 4：已有 KB + 显式不同嵌入 → 自动切换
 # ---------------------------------------------------------------------------
-async def test_existing_kb_rejects_conflicting_explicit_model(db_session):
+async def test_existing_kb_switches_conflicting_explicit_model(db_session):
     """既有 active KB 绑定 emb-A；显式传入 emb-B（explicit_embedding=True）→
-    raise weknora_kb_embedding_model_locked。"""
+    自动切换底座配置并回写绑定，不再锁定拒绝。"""
     owner = uuid.uuid4()
     db_session.add(
         WeknoraKbMapping(
@@ -166,25 +184,34 @@ async def test_existing_kb_rejects_conflicting_explicit_model(db_session):
     )
     await db_session.commit()
 
-    with pytest.raises(WeKnoraError) as ei:
-        await weknora_kb.resolve_or_create_kb(
-            db_session,
-            _FakeKbClient(),
-            scope=KnowledgeScope.personal.value,
-            owner_user_id=owner,
-            project_id=None,
-            models=_models("emb-B", True),
-            trace_id=None,
+    fake = _FakeKbClient()
+    kb = await weknora_kb.resolve_or_create_kb(
+        db_session,
+        fake,
+        scope=KnowledgeScope.personal.value,
+        owner_user_id=owner,
+        project_id=None,
+        models=_models("emb-B", True),
+        trace_id=None,
+    )
+    assert kb == "kb-existing"  # 复用既有 KB，不重建
+    assert fake.created == []
+    assert fake.updated_configs[-1]["embeddingModelId"] == "emb-B"
+    mapping = (
+        await db_session.execute(
+            select(WeknoraKbMapping).where(WeknoraKbMapping.owner_user_id == owner)
         )
-    assert ei.value.code == "weknora_kb_embedding_model_locked"
+    ).scalar_one()
+    assert mapping.embedding_model_id == "emb-B"
+    assert mapping.status == "active"
 
 
 # ---------------------------------------------------------------------------
-# 场景 6：init_failed 映射 + 显式不同嵌入 → 触发锁
+# 场景 6：init_failed 映射 + 显式不同嵌入 → 切换后恢复初始化
 # ---------------------------------------------------------------------------
-async def test_init_failed_kb_rejects_conflicting_explicit_model(db_session):
+async def test_init_failed_kb_switches_conflicting_explicit_model(db_session):
     """既有 init_failed KB 绑定 emb-A；显式传入 emb-B（explicit_embedding=True）→
-    raise weknora_kb_embedding_model_locked（不允许借重试路径绕过锁）。"""
+    先切换绑定到 emb-B，再按新绑定初始化并恢复 active。"""
     owner = uuid.uuid4()
     db_session.add(
         WeknoraKbMapping(
@@ -199,17 +226,25 @@ async def test_init_failed_kb_rejects_conflicting_explicit_model(db_session):
     )
     await db_session.commit()
 
-    with pytest.raises(WeKnoraError) as ei:
-        await weknora_kb.resolve_or_create_kb(
-            db_session,
-            _FakeKbClient(),
-            scope=KnowledgeScope.personal.value,
-            owner_user_id=owner,
-            project_id=None,
-            models=_models("emb-B", True),
-            trace_id=None,
+    fake = _FakeKbClient()
+    kb = await weknora_kb.resolve_or_create_kb(
+        db_session,
+        fake,
+        scope=KnowledgeScope.personal.value,
+        owner_user_id=owner,
+        project_id=None,
+        models=_models("emb-B", True),
+        trace_id=None,
+    )
+    assert kb == "kb-init-failed-1"
+    assert fake.updated_configs[-1]["embeddingModelId"] == "emb-B"
+    mapping = (
+        await db_session.execute(
+            select(WeknoraKbMapping).where(WeknoraKbMapping.owner_user_id == owner)
         )
-    assert ei.value.code == "weknora_kb_embedding_model_locked"
+    ).scalar_one()
+    assert mapping.embedding_model_id == "emb-B"
+    assert mapping.status == "active"
 
 
 # ---------------------------------------------------------------------------

@@ -64,12 +64,6 @@ _CATALOG: dict[str, ErrorInfo] = {
         remediation_hint="在模型配置中心设置平台默认 embedding 模型后重试索引。",
         severity="error",
     ),
-    "weknora_kb_embedding_model_locked": ErrorInfo(
-        user_message="该知识库已绑定嵌入模型，如需切换请先重建索引。",
-        operator_message="请求选择的 embedding 模型与该 KB 已绑定模型不一致。",
-        remediation_hint="沿用 KB 现有 embedding 模型，或走重建索引流程后再切换。",
-        severity="warning",
-    ),
     "weknora_call_failed": ErrorInfo(
         user_message="知识底座暂时不可用，资产已保存，可稍后重试。",
         operator_message="调用知识底座失败（建库 / 初始化 / 上传 / 检索）。",
@@ -119,7 +113,6 @@ _DIAGNOSTIC_CATEGORIES: dict[str, str] = {
     "weknora_init_failed": "configuration",
     "weknora_model_not_found": "configuration",
     "weknora_default_model_not_configured": "configuration",
-    "weknora_kb_embedding_model_locked": "configuration",
     "weknora_call_failed": "external_service",
     "source_file_unreadable": "source_content",
     "index_unexpected_error": "platform",

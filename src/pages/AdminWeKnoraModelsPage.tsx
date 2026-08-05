@@ -30,7 +30,6 @@ function kbUpdateErrorMessage(caught: unknown): string {
   if (caught instanceof ApiError) {
     const messages: Record<string, string> = {
       weknora_kb_config_rejected: "知识库配置被底座拒绝，请检查所选模型是否兼容。",
-      weknora_embedding_locked: "知识库已有文件，不能更换嵌入模型。",
       weknora_model_type_mismatch: "所选模型类型与配置项不匹配。",
       weknora_model_slot_unsupported: "当前底座不支持按知识库更新该模型。",
       weknora_kb_chat_model_missing: "知识库尚未配置问答模型，请先选择问答模型。",
@@ -439,7 +438,14 @@ function KbConfigRow({
     setBusy(true);
     try {
       await updateWeknoraKbInit(cfg.mapping_id, body);
-      await onSaved(cfg.mapping_id, `知识库“${cfg.kb_name}”配置已更新。`);
+      const embeddingSwitched =
+        Boolean(embedding) && embedding !== (cfg.embedding?.model_ref ?? "");
+      await onSaved(
+        cfg.mapping_id,
+        embeddingSwitched
+          ? `知识库“${cfg.kb_name}”配置已更新，嵌入模型已切换，请对库内文档执行重新解析以完成重新向量化。`
+          : `知识库“${cfg.kb_name}”配置已更新。`,
+      );
     } catch (caught) {
       onError(kbUpdateErrorMessage(caught));
     } finally {
