@@ -226,6 +226,10 @@ class LLMClient:
         }
         if json_object:
             payload["response_format"] = {"type": "json_object"}
+        if self.provider == "deepseek":
+            # DeepSeek V4 思考模型在 JSON Output 模式下可能把内容写进 reasoning_content，
+            # 导致 content 为空、JSON 解析失败；显式禁用 thinking，保证输出落回 content。
+            payload["thinking"] = {"type": "disabled"}
         if max_tokens is not None:
             if max_tokens < 1:
                 raise LLMError("llm_request_error", "LLM 输出上限必须为正数")
