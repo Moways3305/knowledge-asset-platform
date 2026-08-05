@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ChevronDown, Plus } from "lucide-react";
 import {
@@ -14,6 +14,10 @@ import { ApiError } from "../api/http";
 import ConfirmDialog from "./ConfirmDialog";
 import ProviderSelect, { type ProviderSelectOption } from "./ProviderSelect";
 import { ProviderLogo } from "./providerIcons";
+import {
+  getProviderCatalogDescription,
+  getProviderCatalogModels,
+} from "../constants/providerModelCatalog";
 
 const MODEL_TYPES = ["chat", "embedding", "rerank", "vllm", "asr"];
 const modelTypeLabel: Record<string, string> = {
@@ -70,6 +74,7 @@ export default function WeknoraModelsSection({
   const [tests, setTests] = useState<Record<string, TestNotice>>({});
   const panelRef = useRef<HTMLFormElement>(null);
   const providerAutofillRef = useRef<string | null>(null);
+  const nameListId = useId();
   const effectiveCanEdit = canEdit && !forbidden;
 
   const load = useCallback(async () => {
@@ -233,7 +238,8 @@ export default function WeknoraModelsSection({
     const options: ProviderSelectOption[] = visible.map((item) => ({
       value: item.value,
       label: item.label,
-      description: item.description ?? undefined,
+      description:
+        getProviderCatalogDescription(item.value, form.type) ?? item.description ?? undefined,
       icon: <ProviderLogo provider={item.value} label={item.label} />,
     }));
     const current = form.provider ?? "";
@@ -246,6 +252,10 @@ export default function WeknoraModelsSection({
     }
     return options;
   }, [form.provider, form.type, providers]);
+
+  const nameSuggestions = !editingRef
+    ? getProviderCatalogModels(form.provider ?? "", form.type)
+    : [];
 
   const deleteModel = async (model: ModelDTO) => {
     const actionKey = `delete:${model.model_ref}`;
@@ -470,9 +480,22 @@ export default function WeknoraModelsSection({
               <input
                 data-weknora-field="name"
                 autoComplete="off"
+                list={nameSuggestions.length > 0 ? nameListId : undefined}
                 value={form.name}
                 onChange={(event) => setForm({ ...form, name: event.target.value })}
               />
+              {nameSuggestions.length > 0 && (
+                <>
+                  <datalist id={nameListId}>
+                    {nameSuggestions.map((modelName) => (
+                      <option key={modelName} value={modelName} />
+                    ))}
+                  </datalist>
+                  <small className="mf-field-hint">
+                    可选：{nameSuggestions.join("、")}（也可手动输入）
+                  </small>
+                </>
+              )}
             </FormField>
             <FormField label="模型类型">
               <select

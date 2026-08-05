@@ -435,4 +435,21 @@ describe("AdminWeKnoraModelsPage", () => {
       ),
     );
   });
+
+  it("shows curated current model names in provider options and name suggestions", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "新增 WeKnora 模型" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "模型供应商" }));
+    expect(screen.getByRole("option", { name: /阿里云 DashScope/ })).toHaveTextContent(
+      "当前官方模型：qwen3.8-max、qwen3.7-plus、qwen3.7-flash",
+    );
+    fireEvent.click(screen.getByRole("option", { name: /阿里云 DashScope/ }));
+
+    const nameInput = screen.getByLabelText(/模型名称/);
+    expect(nameInput).toHaveAttribute("list");
+    expect(
+      screen.getByText("可选：qwen3.8-max、qwen3.7-plus、qwen3.7-flash（也可手动输入）"),
+    ).toBeInTheDocument();
+  });
 });
