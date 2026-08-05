@@ -178,6 +178,10 @@ try {
           route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
         if (url.pathname === "/api/v1/auth/me") return fulfill(authMe);
+        if (url.pathname === "/api/v1/notifications/unread-count")
+          return fulfill({ unread_count: 0 });
+        if (url.pathname === "/api/v1/notifications")
+          return fulfill({ items: [], total: 0, page: 1, page_size: 20 });
         if (url.pathname === "/api/v1/auth/csrf") return fulfill({ csrf_token: "csrf-safe-83" });
         if (url.pathname === "/api/v1/weknora/model-options")
           return fulfill({ items: [], default_missing: false });
