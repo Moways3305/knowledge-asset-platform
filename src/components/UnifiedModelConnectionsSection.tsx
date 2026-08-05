@@ -17,6 +17,7 @@ import type {
   ModelUsageKey,
 } from "../types/modelConnections";
 import { ApiError } from "../api/http";
+import ConfirmDialog from "./ConfirmDialog";
 
 const PROVIDERS = ["deepseek", "kimi", "qwen", "glm", "minimax", "openai", "custom"];
 const usageLabel: Record<ModelUsageKey, string> = {
@@ -89,6 +90,7 @@ export default function UnifiedModelConnectionsSection({
   const [forbidden, setForbidden] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ModelConnectionDTO | null>(null);
   const [editingRef, setEditingRef] = useState<string | null>(null);
   const [form, setForm] = useState<ModelConnectionMutateDTO>(emptyForm());
   const [tests, setTests] = useState<Record<string, TestNotice>>({});
@@ -530,11 +532,7 @@ export default function UnifiedModelConnectionsSection({
                             </button>
                             <button
                               className="btn-small mf-delete-btn"
-                              onClick={() => {
-                                if (window.confirm("确认删除此模型连接？删除后不可恢复。")) {
-                                  void deleteConnection(connection);
-                                }
-                              }}
+                              onClick={() => setDeleteTarget(connection)}
                               disabled={busyAction === `delete:${connection.model_ref}`}
                               type="button"
                             >
@@ -655,6 +653,22 @@ export default function UnifiedModelConnectionsSection({
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="确认删除此模型连接？"
+        description="删除后不可恢复。"
+        confirmText="删除连接"
+        busyText="删除中…"
+        busy={busyAction !== null && busyAction.startsWith("delete:")}
+        danger
+        onConfirm={() => {
+          const target = deleteTarget;
+          if (!target) return;
+          void deleteConnection(target).finally(() => setDeleteTarget(null));
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </section>
   );
 }

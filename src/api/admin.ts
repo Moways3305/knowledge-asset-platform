@@ -225,6 +225,7 @@ export async function fetchAudit(
     severity?: string;
     isProcessed?: boolean;
     traceId?: string;
+    page?: number;
     pageSize?: number;
   } = {},
 ): Promise<AuditListResponseDTO> {
@@ -234,6 +235,7 @@ export async function fetchAudit(
   if (params.severity) qs.set("severity", params.severity);
   if (params.isProcessed !== undefined) qs.set("is_processed", String(params.isProcessed));
   if (params.traceId) qs.set("trace_id", params.traceId);
+  if (params.page !== undefined) qs.set("page", String(params.page));
   qs.set("page_size", String(params.pageSize ?? 200));
   return apiGet<AuditListResponseDTO>(`/api/v1/admin/audit?${qs.toString()}`);
 }

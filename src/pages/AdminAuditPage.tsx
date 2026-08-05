@@ -45,7 +45,12 @@ function safeRole(event: AuditEventDTO) {
 
 export default function AdminAuditPage() {
   const [activeTab, setActiveTab] = useState<LogTab>("operation");
+  // 汇总卡片数据源：一次性拉取未筛选的最新 200 条（仅用于摘要统计）。
   const [events, setEvents] = useState<AuditEventDTO[]>([]);
+  // 当前 tab 的服务器端分页数据。
+  const [items, setItems] = useState<AuditEventDTO[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [view, setView] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,10 +59,9 @@ export default function AdminAuditPage() {
   const [filterProcessed, setFilterProcessed] = useState("");
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const PAGE_SIZE = 50;
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const loadSummary = useCallback(async () => {
     try {
       const response = await fetchAudit({ pageSize: 200 });
       setEvents(response.items);
@@ -70,12 +74,49 @@ export default function AdminAuditPage() {
           ? "当前身份没有审计日志查看权限。"
           : "审计日志暂时无法加载，请稍后重试。",
       );
-    } finally {
-      setLoading(false);
     }
   }, []);
 
-  useEffect(() => void load(), [load]);
+  const loadList = useCallback(
+    async (tab: LogTab, pageNum: number) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await fetchAudit({
+          logType: tab,
+          severity: tab === "exception" ? filterSeverity || undefined : undefined,
+          isProcessed:
+            tab === "exception" && filterProcessed ? filterProcessed === "processed" : undefined,
+          page: pageNum,
+          pageSize: PAGE_SIZE,
+        });
+        setItems(response.items);
+        setTotal(response.total);
+        setPage(response.page);
+        setExpandedId(null);
+      } catch (reason) {
+        setItems([]);
+        setTotal(0);
+        setPage(1);
+        setError(
+          reason instanceof ApiError && reason.status === 403
+            ? "当前身份没有审计日志查看权限。"
+            : "审计日志暂时无法加载，请稍后重试。",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [filterProcessed, filterSeverity],
+  );
+
+  useEffect(() => {
+    void loadSummary();
+  }, [loadSummary]);
+
+  useEffect(() => {
+    void loadList(activeTab, 1);
+  }, [activeTab, filterProcessed, filterSeverity, loadList]);
 
   const operationLogs = useMemo(
     () => events.filter((item) => item.log_type === "operation"),
@@ -86,16 +127,6 @@ export default function AdminAuditPage() {
     [events],
   );
   const loginLogs = useMemo(() => events.filter((item) => item.log_type === "login"), [events]);
-  const filteredExceptions = useMemo(
-    () =>
-      exceptionLogs.filter(
-        (item) =>
-          (!filterSeverity || item.severity === filterSeverity) &&
-          (!filterProcessed ||
-            (filterProcessed === "processed" ? item.is_processed : !item.is_processed)),
-      ),
-    [exceptionLogs, filterProcessed, filterSeverity],
-  );
   const canProcess = view === "admin_metadata";
 
   const handleMarkProcessed = useCallback(
@@ -106,6 +137,9 @@ export default function AdminAuditPage() {
       try {
         await markAuditProcessed(event.id);
         setEvents((current) =>
+          current.map((item) => (item.id === event.id ? { ...item, is_processed: true } : item)),
+        );
+        setItems((current) =>
           current.map((item) => (item.id === event.id ? { ...item, is_processed: true } : item)),
         );
         setNotice("异常记录已标记为已处理。");
@@ -123,12 +157,8 @@ export default function AdminAuditPage() {
     [canProcess],
   );
 
-  const logs =
-    activeTab === "operation"
-      ? operationLogs
-      : activeTab === "login"
-        ? loginLogs
-        : filteredExceptions;
+  const logs = items;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <ProductPage className="secops-page audit-page">
@@ -210,7 +240,7 @@ export default function AdminAuditPage() {
               }
               end={
                 <div className="secops-toolbar-actions">
-                  {activeTab === "exception" ? (
+                  {activeTab === "exception" && (
                     <div className="secops-filters">
                       <SlidersHorizontal size={14} aria-hidden="true" />
                       <label>
@@ -239,10 +269,16 @@ export default function AdminAuditPage() {
                         </select>
                       </label>
                     </div>
-                  ) : (
-                    <span className="secops-count">共 {logs.length} 条</span>
                   )}
-                  <button className="btn-small" onClick={() => void load()} disabled={loading}>
+                  <span className="secops-count">共 {total} 条</span>
+                  <button
+                    className="btn-small"
+                    onClick={() => {
+                      void loadSummary();
+                      void loadList(activeTab, page);
+                    }}
+                    disabled={loading}
+                  >
                     <RefreshCw size={13} aria-hidden="true" /> {loading ? "刷新中…" : "刷新"}
                   </button>
                 </div>
@@ -428,6 +464,27 @@ export default function AdminAuditPage() {
                   )}
                 </tbody>
               </table>
+            </div>
+            <div className="secops-pagination">
+              <span>
+                第 {total === 0 ? 0 : page} / {totalPages} 页 · 共 {total} 条
+              </span>
+              <button
+                type="button"
+                className="btn-small"
+                disabled={loading || page <= 1}
+                onClick={() => void loadList(activeTab, page - 1)}
+              >
+                上一页
+              </button>
+              <button
+                type="button"
+                className="btn-small"
+                disabled={loading || page >= totalPages}
+                onClick={() => void loadList(activeTab, page + 1)}
+              >
+                下一页
+              </button>
             </div>
           </section>
         </main>

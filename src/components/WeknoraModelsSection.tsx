@@ -10,6 +10,7 @@ import {
 } from "../api/admin";
 import type { ModelDTO, WeknoraModelMutateDTO } from "../types/weknoraAdmin";
 import { ApiError } from "../api/http";
+import ConfirmDialog from "./ConfirmDialog";
 
 const MODEL_TYPES = ["chat", "embedding", "rerank", "vllm", "asr"];
 const modelTypeLabel: Record<string, string> = {
@@ -58,6 +59,7 @@ export default function WeknoraModelsSection({
   const [note, setNote] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [cardStackOpen, setCardStackOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ModelDTO | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editingRef, setEditingRef] = useState<string | null>(null);
   const [form, setForm] = useState<WeknoraModelMutateDTO>(emptyForm());
@@ -382,11 +384,7 @@ export default function WeknoraModelsSection({
                           </button>
                           <button
                             className="btn-small mf-delete-btn"
-                            onClick={() => {
-                              if (window.confirm("确认删除此 WeKnora 模型？删除后不可恢复。")) {
-                                void deleteModel(model);
-                              }
-                            }}
+                            onClick={() => setDeleteTarget(model)}
                             disabled={busyAction === `delete:${model.model_ref}`}
                             type="button"
                           >
@@ -538,6 +536,22 @@ export default function WeknoraModelsSection({
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="确认删除此 WeKnora 模型？"
+        description="删除后不可恢复。"
+        confirmText="删除模型"
+        busyText="删除中…"
+        busy={busyAction !== null && busyAction.startsWith("delete:")}
+        danger
+        onConfirm={() => {
+          const target = deleteTarget;
+          if (!target) return;
+          void deleteModel(target).finally(() => setDeleteTarget(null));
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </section>
   );
 }

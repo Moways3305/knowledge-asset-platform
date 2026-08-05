@@ -164,10 +164,9 @@ def _generation_response_retryable(task: IngestTask) -> bool:
     if ai is None or ai.extraction_status != "extracted":
         return False
     fields = ai.naming_parsed_fields if isinstance(ai.naming_parsed_fields, dict) else {}
-    return (
-        fields.get("generation_status") == "failed"
-        and fields.get("generation_error_category") == "response_error"
-    )
+    return fields.get("generation_status") == "failed" and fields.get(
+        "generation_error_category"
+    ) in {"response_error", "timeout"}
 
 
 def _generation_error(task: IngestTask) -> IngestTaskSafeError:

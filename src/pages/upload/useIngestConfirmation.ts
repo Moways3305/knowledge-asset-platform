@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchAuthMe } from "../../api/auth";
 import { ApiError } from "../../api/http";
-import { confirmIngest, createIngestUpload, fetchIngestAiResult } from "../../api/ingest";
+import {
+  confirmIngest,
+  createIngestUpload,
+  fetchIngestAiResult,
+  fetchIngestTaskStatus,
+  retryIngestTask,
+} from "../../api/ingest";
 import {
   classifyBatchNamingCategories,
   fetchNamingOptions,
@@ -100,6 +106,9 @@ export function useIngestConfirmation({
     status: IngestAiResultDTO["suggestion_generation_status"];
     reason: string;
   } | null>(null);
+  const [generationErrorCategory, setGenerationErrorCategory] = useState<string | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenerationError, setRegenerationError] = useState<string | null>(null);
   const [extraction, setExtraction] = useState<{
     status: string | null;
     charCount: number | null;
@@ -178,6 +187,7 @@ export function useIngestConfirmation({
       status: ai.suggestion_generation_status,
       reason: ai.suggestion_generation_reason,
     });
+    setGenerationErrorCategory(ai.generation_error_category ?? null);
     setNaming(ai.naming_parsed_fields ?? null);
     const aiDate = ai.naming_parsed_fields?.date ?? "";
     if (/^\d{8}$/.test(aiDate)) {
@@ -456,6 +466,60 @@ export function useIngestConfirmation({
     }
   }, [activePath, applyAiResult, beginWorkflowRun, isCurrentWorkflowRun, pollAiResult, taskId]);
 
+  // 重新生成 AI 建议：仅对暂时性生成失败（response_error / timeout）开放。
+  // 后端 retry 端点会重排队入库处理；受理后轮询 ai-result 直至生成完成。
+  const handleRegenerateSuggestions = useCallback(async () => {
+    if (!taskId) return;
+    const runId = beginWorkflowRun();
+    const isCurrent = () => isCurrentWorkflowRun(runId);
+    setRegenerating(true);
+    setRegenerationError(null);
+    setApiError(null);
+    try {
+      const before = await fetchIngestTaskStatus(taskId);
+      if (!isCurrent()) return;
+      if (!before.retryable) {
+        setRegenerationError(
+          before.error?.message ?? "当前任务暂不可重试，请稍后再试或联系管理员。",
+        );
+        return;
+      }
+      const status = await retryIngestTask(taskId);
+      if (!isCurrent()) return;
+      if (status.status === "processing") {
+        const ai = await pollAiResult(taskId, isCurrent);
+        if (!ai || !isCurrent()) return;
+        applyAiResult(ai);
+        if (ai.status === "processing") {
+          setRegenerationError("后台仍在重新生成建议，请稍后刷新查看。");
+          return;
+        }
+        if (ai.status === "failed") {
+          setRegenerationError(ai.error_message ?? "重新生成失败，请稍后再试。");
+          setFlowState("failed");
+          return;
+        }
+        setFlowState("ready");
+        return;
+      }
+      // 极速完成竞态：重试已受理且生成已完成，直接取最新建议；
+      // 若未受理（并发状态变化），以 status 返回的安全文案说明原因。
+      const ai = await fetchIngestAiResult(taskId);
+      if (!isCurrent()) return;
+      applyAiResult(ai);
+      if (ai.summary_status !== "generated") {
+        setRegenerationError(status.error?.message ?? "重新生成未能完成，请稍后再试或联系管理员。");
+      }
+    } catch (error) {
+      if (!isCurrent()) return;
+      setRegenerationError(
+        error instanceof ApiError ? error.message : "重新生成建议失败，请稍后重试",
+      );
+    } finally {
+      if (isCurrent()) setRegenerating(false);
+    }
+  }, [applyAiResult, beginWorkflowRun, isCurrentWorkflowRun, pollAiResult, taskId]);
+
   const handleSubmit = useCallback(async () => {
     const runId = beginWorkflowRun();
     const isCurrent = () => isCurrentWorkflowRun(runId);
@@ -571,6 +635,9 @@ export function useIngestConfirmation({
     setTargetProjectId("");
     setTargetLocked(false);
     setSuggestionGeneration(null);
+    setGenerationErrorCategory(null);
+    setRegenerating(false);
+    setRegenerationError(null);
     setEditConfidentiality("L2");
     reliableAiConfidentialityRef.current = false;
     setTaskId(null);
@@ -660,6 +727,10 @@ export function useIngestConfirmation({
     projects,
     llmStatus,
     setLlmStatus,
+    generationErrorCategory,
+    regenerating,
+    regenerationError,
+    handleRegenerateSuggestions,
     desensitization,
     setDesensitization,
     suggestionGeneration,

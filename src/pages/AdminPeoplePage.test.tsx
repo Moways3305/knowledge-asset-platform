@@ -121,7 +121,6 @@ describe("AdminPeoplePage governance controls", () => {
     vi.mocked(setCompanyRole).mockResolvedValue(person);
     vi.mocked(setUserStatus).mockResolvedValue(person);
     vi.mocked(patchProjectMembership).mockResolvedValue(person.project_memberships[0]);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
   });
 
   it("does not expose personnel management controls to pure admin", async () => {
@@ -319,6 +318,9 @@ describe("AdminPeoplePage governance controls", () => {
     fireEvent.click(buttons[0]);
     await screen.findByRole("dialog", { name: "人员治理详情" });
     fireEvent.click(screen.getByRole("button", { name: "停用账号" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: /确认/ })).getByRole("button", { name: "取消" }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "关闭人员详情" }));
     buttons = screen.getAllByRole("button", { name: "查看 / 治理" });
     fireEvent.click(buttons[1]);
@@ -367,6 +369,9 @@ describe("AdminPeoplePage governance controls", () => {
     vi.mocked(setCompanyRole).mockRejectedValueOnce(new ApiError(500, "raw role secret"));
     await renderDetail();
     fireEvent.click(roleRow("总经理").getByRole("button", { name: "停用" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: /确认/ })).getByRole("button", { name: "确认" }),
+    );
     expect(await screen.findByText("更新公司角色失败")).toBeInTheDocument();
     expect(document.body.innerHTML).not.toContain("raw role secret");
     expect(screen.getByText("人员名册")).toBeInTheDocument();
@@ -388,7 +393,13 @@ describe("AdminPeoplePage governance controls", () => {
     );
     await renderDetail();
     fireEvent.click(screen.getByRole("button", { name: "停用账号" }));
-    expect(screen.getByRole("button", { name: "处理中…" })).toBeDisabled();
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: /确认/ })).getByRole("button", { name: "确认" }),
+    );
+    await waitFor(() => {
+      const el = screen.getByRole("button", { name: "处理中…" });
+      expect(el, el.outerHTML).toBeDisabled();
+    });
     await act(async () => resolveStatus(person));
     await waitFor(() => expect(setUserStatus).toHaveBeenCalledWith("person-ref", "inactive"));
   });
@@ -415,6 +426,9 @@ describe("AdminPeoplePage governance controls", () => {
       .find((row) => row && within(row).queryByRole("button", { name: "停用" }));
     expect(projectRow).not.toBeNull();
     fireEvent.click(within(projectRow!).getByRole("button", { name: "停用" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: /确认/ })).getByRole("button", { name: "确认" }),
+    );
     expect(await screen.findByText("更新成员状态失败")).toBeInTheDocument();
     expect(within(projectRow!).getByRole("button", { name: "停用" })).toBeEnabled();
     expect(document.body.innerHTML).not.toContain("raw membership secret");
@@ -437,6 +451,9 @@ describe("AdminPeoplePage governance controls", () => {
     );
     await renderDetail();
     fireEvent.click(screen.getByRole("button", { name: "移除" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: /确认/ })).getByRole("button", { name: "确认" }),
+    );
 
     const guidance = await screen.findByRole("alert");
     expect(guidance).toHaveTextContent("这是最后一位有效项目经理");

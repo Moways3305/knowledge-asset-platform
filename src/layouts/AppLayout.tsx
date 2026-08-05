@@ -1,4 +1,4 @@
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -20,8 +20,10 @@ import {
   BookType,
   LifeBuoy,
   LogOut,
+  Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import IdentityMenu from "../components/IdentityMenu";
@@ -217,9 +219,36 @@ function AppShell() {
   const { authMe, capabilities, reload } = useAuth();
   const location = useLocation();
   const firstProjectId = authMe?.projects[0]?.projectId;
+  // 项目入口跟随当前 URL 中的项目；未进入项目页时回退到第一个项目。
+  const urlProjectId = (() => {
+    const match = location.pathname.match(/^\/project\/([0-9a-f-]{36})(?:\/|$)/i);
+    return match ? match[1] : null;
+  })();
+  const projectId = urlProjectId ?? firstProjectId;
   const [railCollapsed, setRailCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
+
+  // 路由变化时自动收起手机抽屉，避免导航后抽屉遮住内容。
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname]);
+
+  // 抽屉打开时：Esc 关闭 + 锁定背景滚动。
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileNavOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobileNavOpen]);
 
   const handleLogout = async () => {
     setLogoutBusy(true);
@@ -234,7 +263,14 @@ function AppShell() {
     }
   };
   return (
-    <div className={`app-layout ${railCollapsed ? "is-rail-collapsed" : ""}`}>
+    <div
+      className={`app-layout ${railCollapsed ? "is-rail-collapsed" : ""} ${
+        mobileNavOpen ? "is-mobile-nav-open" : ""
+      }`}
+    >
+      {mobileNavOpen && (
+        <div className="rail-backdrop" onClick={() => setMobileNavOpen(false)} aria-hidden="true" />
+      )}
       <aside className="rail" aria-label="产品导航">
         <div className="rail-brand">
           <div className="rail-brand-row">
@@ -259,7 +295,7 @@ function AppShell() {
           </div>
           <span className="rail-sub">博维知识资产平台</span>
         </div>
-        <RailNav capabilities={capabilities} projectId={firstProjectId} collapsed={railCollapsed} />
+        <RailNav capabilities={capabilities} projectId={projectId} collapsed={railCollapsed} />
         <div className="rail-foot">
           {can.viewHelp(capabilities) && (
             <Link
@@ -298,6 +334,20 @@ function AppShell() {
 
       <div className="app-main">
         <header className="deck">
+          <button
+            type="button"
+            className="deck-mobile-menu"
+            aria-label={mobileNavOpen ? "关闭导航" : "打开导航"}
+            aria-expanded={mobileNavOpen}
+            aria-controls="primary-navigation"
+            onClick={() => setMobileNavOpen((value) => !value)}
+          >
+            {mobileNavOpen ? (
+              <X size={18} aria-hidden="true" />
+            ) : (
+              <Menu size={18} aria-hidden="true" />
+            )}
+          </button>
           <div className="deck-context">
             <span className="deck-eyebrow">博维知识资产平台</span>
             <strong className="deck-title">{currentModuleTitle(location.pathname)}</strong>

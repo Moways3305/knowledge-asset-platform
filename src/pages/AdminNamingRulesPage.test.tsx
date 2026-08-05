@@ -220,18 +220,16 @@ describe("AdminNamingRulesPage", () => {
   });
 
   it("cancels or confirms draft deletion and saves the reduced category set", async () => {
-    const confirm = vi.spyOn(window, "confirm");
-    confirm.mockReturnValueOnce(false).mockReturnValueOnce(true);
     render(<AdminNamingRulesPage />);
     const remove = await screen.findByRole("button", { name: "删除目录类别 交付件" });
 
     fireEvent.click(remove);
-    expect(confirm).toHaveBeenCalledWith(
-      "将从当前命名规则草稿中删除「交付件」，发布后才对后续入库生效；历史已入库资料不会改名。",
-    );
+    expect(screen.getByRole("dialog")).toHaveTextContent("确认从草稿中删除「交付件」？");
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
     expect(screen.getByRole("button", { name: "删除目录类别 交付件" })).toBeInTheDocument();
 
     fireEvent.click(remove);
+    fireEvent.click(screen.getByRole("button", { name: "删除类别" }));
     expect(screen.queryByRole("button", { name: "删除目录类别 交付件" })).not.toBeInTheDocument();
     expect(screen.getByText("先新增并启用一个目录类别")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
@@ -243,7 +241,6 @@ describe("AdminNamingRulesPage", () => {
       ]),
     );
     expect(publishNamingRuleDraft).not.toHaveBeenCalled();
-    confirm.mockRestore();
   });
 
   it("keeps edits made while an older save request is still in flight", async () => {

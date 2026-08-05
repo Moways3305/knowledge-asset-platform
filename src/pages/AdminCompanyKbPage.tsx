@@ -9,6 +9,7 @@ import {
 import type { CompanyKnowledgeBaseDTO } from "../types/people";
 import { formatBeijingTime } from "../utils/time";
 import { useAuth } from "../auth/AuthContext";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
 import "./AdminCompanyKbPage.css";
 
@@ -38,6 +39,8 @@ export default function AdminCompanyKbPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNote, setActionNote] = useState<string | null>(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [createConfirmOpen, setCreateConfirmOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -58,8 +61,11 @@ export default function AdminCompanyKbPage() {
 
   const handleCreate = async () => {
     if (!canCreate) return;
-    if (!window.confirm(companyKb?.exists ? "确认重试初始化公司知识库？" : "确认创建公司知识库？"))
-      return;
+    setCreateConfirmOpen(true);
+  };
+
+  const confirmCreate = async () => {
+    setCreateConfirmOpen(false);
     setActionBusy(true);
     setActionError(null);
     setActionNote(null);
@@ -80,7 +86,11 @@ export default function AdminCompanyKbPage() {
       setActionError(`请输入“${expected}”以确认删除`);
       return;
     }
-    if (!window.confirm("确认删除公司知识库？删除后不可恢复，且需先移除库内全部资产。")) return;
+    setDeleteConfirmOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    setDeleteConfirmOpen(false);
     setActionBusy(true);
     setActionError(null);
     try {
@@ -243,6 +253,35 @@ export default function AdminCompanyKbPage() {
           )}
         </section>
       )}
+      <ConfirmDialog
+        open={createConfirmOpen}
+        title={companyKb?.exists ? "确认重试初始化公司知识库？" : "确认创建公司知识库？"}
+        description={
+          companyKb?.exists
+            ? "重试将重新触发公司知识库初始化流程。"
+            : "创建后即可统一承载公司范围知识；初始化完成前不会用于公司知识入库。"
+        }
+        confirmText={companyKb?.exists ? "重试初始化" : "创建公司知识库"}
+        busyText="处理中…"
+        busy={actionBusy}
+        error={actionError}
+        errorDescription={actionError}
+        onConfirm={() => void confirmCreate()}
+        onCancel={() => setCreateConfirmOpen(false)}
+      />
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title="确认删除公司知识库？"
+        description="删除后不可恢复，且需先移除库内全部资产。"
+        confirmText="删除公司知识库"
+        busyText="删除中…"
+        busy={actionBusy}
+        danger
+        error={actionError}
+        errorDescription={actionError}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setDeleteConfirmOpen(false)}
+      />
     </ProductPage>
   );
 }

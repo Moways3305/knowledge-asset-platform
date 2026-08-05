@@ -48,7 +48,7 @@ import type {
   PersonalKnowledgeState,
   PersonalKnowledgeSummaryDTO,
 } from "../types/myKnowledge";
-import { formatBeijingTime } from "../utils/time";
+import { formatBeijingDate } from "../utils/time";
 import "./MyKnowledgePage.css";
 
 const PAGE_SIZE = 20;
@@ -874,7 +874,7 @@ export default function MyKnowledgePage() {
                         </div>
                       </td>
                       <td>
-                        <time>{formatBeijingTime(item.updatedAt)}</time>
+                        <time>{formatBeijingDate(item.updatedAt)}</time>
                       </td>
                       <td>
                         <div className="mk83-state-stack">
