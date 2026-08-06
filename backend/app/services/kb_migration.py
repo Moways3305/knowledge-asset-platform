@@ -119,24 +119,20 @@ async def _create_new_kb(
     kb_id = await weknora.create_kb(
         name=name, embedding_model_id=embedding.model_id, trace_id=trace_id
     )
-    await weknora.initialize_kb(
-        kb_id,
-        trace_id=trace_id,
-        embedding_source=embedding.source,
-        embedding_model_name=embedding.model_name,
-        llm_source=chat.source,
-        llm_model_name=chat.model_name,
-    )
+    # 注意：不要走 `initialize_kb`（source/modelName 契约）。WeKnora v0.7.1 会按名称
+    # 自动创建/改写模型记录——实测会把已配置模型的 base_url/api_key 清空，并生成一个
+    # tenant=0、base_url 为空的坏模型（导致后续 PUT 报「LLM模型不存在」）。
+    # 改为建库后按 server-only 模型 id 直接 PUT 完整配置，不触碰任何模型记录。
+    current_kb = await weknora.get_kb(kb_id, trace_id=trace_id)
+    config = _kb_update_config(current_kb)
+    config["llmModelId"] = chat.model_id
+    config["embeddingModelId"] = embedding.model_id
     if multimodal is not None:
-        current_kb = await weknora.get_kb(kb_id, trace_id=trace_id)
-        config = _kb_update_config(current_kb)
-        if not str(config.get("llmModelId") or "").strip():
-            config["llmModelId"] = chat.model_id
         vlm = dict(config.get("vlm_config") or {})
         vlm.update({"enabled": True, "model_id": multimodal.model_id})
         config["vlm_config"] = vlm
         config["multimodal"] = {"enabled": True}
-        await weknora.update_initialization_config(kb_id, config=config, trace_id=trace_id)
+    await weknora.update_initialization_config(kb_id, config=config, trace_id=trace_id)
     return kb_id, embedding.model_id
 
 
