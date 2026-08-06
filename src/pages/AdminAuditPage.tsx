@@ -165,7 +165,7 @@ export default function AdminAuditPage() {
       <PageHeader
         eyebrow="安全运营"
         title="审计日志"
-        description="核查关键操作、异常处置与登录结果。页面时间均为北京时间。"
+        description="核查关键操作、异常处置与登录结果。页面时间均为北京时间。审计为不可变事件流，仅记录已发生的事项；资产的当前解析/索引状态请到「管理员运维 → 索引维护」查看。"
       />
       <div className="secops-console">
         <OperationsSummary

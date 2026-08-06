@@ -10,6 +10,19 @@
   gap: 7px;
 }
 
+.ao84-refresh-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ao84-refresh-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
 .ao84-tabs {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -222,6 +235,22 @@
   overflow-wrap: anywhere;
   color: var(--color-text-secondary);
   font-size: 12px;
+}
+
+.ao84-index-metric-hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.ao84-index-note {
+  margin: 0;
+  padding: 0 14px 12px;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  line-height: 1.6;
 }
 
 .ao84-ingest-overview,

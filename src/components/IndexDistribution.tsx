@@ -15,7 +15,12 @@ export default function IndexDistribution({
     { label: "未索引", value: counts.not_indexed, tone: "gold" },
     { label: "已跳过", value: counts.skipped, tone: "neutral" },
     { label: "解析失败", value: counts.parse_failed, tone: "danger" },
-    { label: "解析处理中", value: counts.parse_pending + counts.parse_processing, tone: "violet" },
+    {
+      label: "解析处理中",
+      value: counts.parse_pending + counts.parse_processing,
+      tone: "violet",
+      hint: `待解析 ${counts.parse_pending} · 解析中 ${counts.parse_processing}`,
+    },
     { label: "知识库初始化失败", value: counts.kb_init_failed, tone: "danger" },
   ];
 
@@ -25,6 +30,7 @@ export default function IndexDistribution({
         <div key={metric.label} className={`ao84-index-metric is-${metric.tone}`}>
           <strong>{metric.value}</strong>
           <span>{metric.label}</span>
+          {metric.hint && <em className="ao84-index-metric-hint">{metric.hint}</em>}
         </div>
       ))}
     </div>
