@@ -230,6 +230,8 @@ async def test_migrate_kb_success(client, db_session, monkeypatch, storage, sess
         assert mp.weknora_kb_id == "new-kb-1"
         assert mp.migration_state is None
         assert fake.create_calls == ["emb-new"]
+        assert fake.init_calls == []  # 不再走 source/modelName 初始化，避免改写模型记录
+        assert fake.update_config_calls == ["new-kb-1"]
         assert fake.deleted_kbs == ["old-kb-1"]
         for v in versions:
             await db_session.refresh(v)
