@@ -353,6 +353,13 @@ async def run_kb_migrate_job(
     except Exception as exc:  # noqa: BLE001  # 作业级异常 → failed
         safe_log_exception(_logger, "kb_migrate_job_failed", exc, include_summary=False)
         await session.rollback()
+        job = (
+            await session.execute(
+                select(IndexingOperationJob).where(IndexingOperationJob.id == job_id)
+            )
+        ).scalar_one_or_none()
+        if job is None:
+            return "failed"
         code = error_catalog.safe_code(getattr(exc, "code", None) or type(exc).__name__)
         return await _fail_job(session, job, code)
 
