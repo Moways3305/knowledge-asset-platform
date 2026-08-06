@@ -193,6 +193,7 @@ describe("AppLayout shell contract", () => {
     auth.capabilities.isProjectManager = false;
     renderLayout();
     expect(screen.getByRole("link", { name: "审计日志" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "通知" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "人员权限" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "项目设置" })).not.toBeInTheDocument();
   });

@@ -345,7 +345,7 @@ function AppShell() {
             <span className="deck-eyebrow">博维知识资产平台</span>
             <strong className="deck-title">{currentModuleTitle(location.pathname)}</strong>
           </div>
-          {capabilities.isBusinessUser && (
+          {authMe && (
             <div className="deck-actions">
               <NotificationBell />
             </div>

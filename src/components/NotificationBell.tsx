@@ -17,6 +17,7 @@ const TARGET_ROUTES: Record<string, string> = {
   reviews: "/review",
   original_access: "/original-access",
   upload: "/upload",
+  admin_ingest: "/admin/ingest",
 };
 
 function targetPath(notification: BusinessNotificationDTO): string {
