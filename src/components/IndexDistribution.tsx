@@ -21,6 +21,12 @@ export default function IndexDistribution({
       tone: "violet",
       hint: `待解析 ${counts.parse_pending} · 解析中 ${counts.parse_processing}`,
     },
+    {
+      label: "解析卡住",
+      value: counts.parse_stalled ?? 0,
+      tone: "danger",
+      hint: "超过 30 分钟未变",
+    },
     { label: "知识库初始化失败", value: counts.kb_init_failed, tone: "danger" },
   ];
 

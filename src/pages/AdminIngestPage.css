@@ -253,6 +253,11 @@
   line-height: 1.6;
 }
 
+.ao84-reconcile-bad {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
 .ao84-ingest-overview,
 .ao84-actions,
 .ao84-jobs {

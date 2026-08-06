@@ -24,6 +24,7 @@ from app.models.agent import (
     AgentGatewayDecisionItem,
 )
 from app.models.audit import AuditEvent
+from app.models.indexing_job import OpsReconcileHeartbeat
 from app.models.ingest import IngestTask, IngestTaskAiResult
 from app.models.knowledge import (
     KnowledgeAsset,
@@ -288,6 +289,16 @@ async def test_parse_reconcile_updates_and_tolerates_failure(db_session, monkeyp
     await db_session.refresh(v2)
     assert v1.weknora_parse_status == "completed"
     assert v2.weknora_parse_status == "processing"  # 失败项不变，整批未中断
+    # 对账心跳已落库（供运维页展示对账健康）。
+    hb = (
+        await db_session.execute(
+            select(OpsReconcileHeartbeat)
+            .order_by(OpsReconcileHeartbeat.observed_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    assert hb is not None
+    assert hb.processed == 1 and hb.updated == 1 and hb.failed == 1
 
 
 # ---------------- 生命周期归档扫描 ----------------

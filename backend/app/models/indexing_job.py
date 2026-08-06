@@ -107,3 +107,23 @@ class OpsRuntimeHeartbeat(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
+
+
+class OpsReconcileHeartbeat(Base):
+    """最近一次解析对账心跳（安全计数，绝不含文档/资产标识）。
+
+    每次 `parse_reconcile` 跑完写一行，供运维面板展示「上次对账时间 + 本轮
+    处理/更新/失败」；只保留最近 N 条，避免无限增长。失败计数让静默对账失败可见。
+    """
+
+    __tablename__ = "ops_reconcile_heartbeats"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    processed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

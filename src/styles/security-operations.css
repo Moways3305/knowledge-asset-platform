@@ -474,6 +474,20 @@
   gap: 6px;
 }
 
+.secops-state-link {
+  align-items: center;
+  color: var(--color-primary);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.secops-state-link:hover {
+  text-decoration: underline;
+}
+
 .secops-detail-toggle {
   white-space: nowrap;
 }

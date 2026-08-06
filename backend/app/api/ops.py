@@ -31,7 +31,7 @@ from app.core.trace import get_trace_id
 from app.db.session import get_db
 from app.models.audit import AuditEvent
 from app.models.identity import Project, User
-from app.models.indexing_job import IndexingOperationJob
+from app.models.indexing_job import IndexingOperationJob, OpsReconcileHeartbeat
 from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.lifecycle import NotificationRecord
@@ -534,6 +534,27 @@ async def ops_indexing(
         "recent_failed": recent_failed,
         "diagnostic_counts": diagnostic_counts,
         "title_visible": show_title,
+        "last_reconcile": await _last_reconcile(session),
+    }
+
+
+async def _last_reconcile(session: AsyncSession) -> dict | None:
+    """最近一次解析对账心跳（安全计数）；从未对账过则返回 None。"""
+    row = (
+        await session.execute(
+            select(OpsReconcileHeartbeat)
+            .order_by(OpsReconcileHeartbeat.observed_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+    return {
+        "observed_at": row.observed_at.isoformat(),
+        "processed": row.processed,
+        "updated": row.updated,
+        "failed": row.failed,
+        "duration_ms": row.duration_ms,
     }
 
 

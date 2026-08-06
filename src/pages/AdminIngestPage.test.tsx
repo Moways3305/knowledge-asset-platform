@@ -35,6 +35,7 @@ const ops: OpsIndexingDTO = {
     skipped: 1,
     parse_pending: 2,
     parse_processing: 1,
+    parse_stalled: 0,
     parse_failed: 5,
     kb_init_failed: 0,
   },
@@ -67,6 +68,13 @@ const ops: OpsIndexingDTO = {
     unknown: 0,
   },
   title_visible: true,
+  last_reconcile: {
+    observed_at: "2026-08-06T09:33:20Z",
+    processed: 50,
+    updated: 0,
+    failed: 3,
+    duration_ms: 334,
+  },
 };
 
 const health: IndexingHealthDTO = {

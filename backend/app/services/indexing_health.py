@@ -36,11 +36,13 @@ def _hour_start(value: datetime) -> datetime:
     return value.replace(minute=0, second=0, microsecond=0)
 
 
-async def indexing_counts(session: AsyncSession) -> dict[str, int]:
+async def indexing_counts(session: AsyncSession, *, now: datetime | None = None) -> dict[str, int]:
     active = (
         KnowledgeAssetVersion.version_status == "active",
         KnowledgeAsset.asset_status != AssetStatus.deleted.value,
     )
+    # 解析卡住判定：pending/processing 且自索引开始超过 30 分钟未变。
+    parse_stall_cutoff = _aware(now or utc_now()) - timedelta(minutes=30)
 
     async def count(stmt) -> int:
         return int((await session.execute(stmt)).scalar() or 0)
@@ -63,6 +65,13 @@ async def indexing_counts(session: AsyncSession) -> dict[str, int]:
         ),
         "parse_processing": await count(
             versions(KnowledgeAssetVersion.weknora_parse_status == "processing")
+        ),
+        "parse_stalled": await count(
+            versions(
+                KnowledgeAssetVersion.weknora_parse_status.in_(("pending", "processing")),
+                func.coalesce(KnowledgeAssetVersion.indexed_at, KnowledgeAssetVersion.created_at)
+                <= parse_stall_cutoff,
+            )
         ),
         "parse_failed": await count(
             versions(KnowledgeAssetVersion.weknora_parse_status == "failed")

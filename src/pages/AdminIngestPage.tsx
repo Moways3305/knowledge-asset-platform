@@ -680,8 +680,21 @@ export default function AdminIngestPage() {
               </div>
               <IndexDistribution counts={opsIndex.counts} className="ao84-index-grid" />
               <p className="ao84-index-note">
-                解析状态每 5 分钟与底座对账、页面每 60 秒自动刷新；长时间不变的「解析处理中」
-                多为底座侧仍在重试，可点「重新解析」处理。
+                {opsIndex.last_reconcile ? (
+                  <>
+                    上次对账 {formatBeijingTime(opsIndex.last_reconcile.observed_at)} · 本轮处理{" "}
+                    {opsIndex.last_reconcile.processed} · 更新 {opsIndex.last_reconcile.updated} ·{" "}
+                    <span
+                      className={opsIndex.last_reconcile.failed ? "ao84-reconcile-bad" : undefined}
+                    >
+                      失败 {opsIndex.last_reconcile.failed}
+                    </span>
+                  </>
+                ) : (
+                  "尚未产生对账心跳"
+                )}
+                ；解析状态每 5 分钟与底座对账、页面每 60 秒自动刷新，长时间不变的
+                「解析处理中」多为底座侧仍在重试。
               </p>
             </>
           )}

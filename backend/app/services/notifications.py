@@ -64,11 +64,28 @@ _EVENT_COPY = {
         "有一项原文访问申请等待处理。",
     ),
     "ingest.failed": ("ingest", "入库处理未完成", "你提交的一项入库任务需要处理。"),
+    "ops.parse_stalled": (
+        "ops",
+        "运维告警：解析停滞",
+        "有文档解析长期停留在处理中，请到索引维护查看并处理。",
+    ),
+    "ops.index_failed": (
+        "ops",
+        "运维告警：索引失败堆积",
+        "存在索引失败存量，请到索引维护重试索引。",
+    ),
 }
 _TARGET_ROUTES = {
     "review": "reviews",
     "original_access_request": "original_access",
     "ingest_task": "upload",
+    "ops_index": "admin_ingest",
+}
+
+# 运维告警信号 → 业务通知事件类型（仅治理角色可见的业务信号，不包含登录风控）。
+_OPS_SIGNAL_EVENTS = {
+    "index_failed_backlog": "ops.index_failed",
+    "parse_stalled_backlog": "ops.parse_stalled",
 }
 
 
@@ -126,6 +143,7 @@ async def _record(
     target_kind: str,
     target_id: uuid.UUID,
     project_id: uuid.UUID | None,
+    dedup_key: str | None = None,
 ) -> None:
     """Add deduplicated server-authored notifications to the caller's transaction."""
     if event_type not in _EVENT_COPY or target_kind not in _TARGET_ROUTES:
@@ -134,7 +152,7 @@ async def _record(
     from app.services.wecom_notification import default_notification_channel
 
     channel = default_notification_channel()
-    dedup_key = f"{event_type}:{target_id}"
+    effective_dedup_key = dedup_key or f"{event_type}:{target_id}"
     recipient_ids = set(recipients)
     if not recipient_ids:
         return
@@ -143,7 +161,7 @@ async def _record(
             await session.execute(
                 select(BusinessNotification.recipient_user_id).where(
                     BusinessNotification.recipient_user_id.in_(recipient_ids),
-                    BusinessNotification.dedup_key == dedup_key,
+                    BusinessNotification.dedup_key == effective_dedup_key,
                 )
             )
         )
@@ -161,11 +179,45 @@ async def _record(
                 target_kind=target_kind,
                 target_id=target_id,
                 project_id=project_id,
-                dedup_key=dedup_key,
+                dedup_key=effective_dedup_key,
                 channel=channel,
                 delivery_status=NotificationStatus.pending.value,
             )
         )
+
+
+async def notify_ops_signal(
+    session: AsyncSession,
+    *,
+    signal: str,
+    count: int,
+) -> None:
+    """运维告警信号 → 治理角色业务通知（铃铛）。
+
+    与 admin 运维通知（notification_records）并行：管理员看运维通知记录，治理角色在
+    个人铃铛收到业务提示。去重按「信号 + 小时桶」，由 ops_alerts 的冷却期控制发送频率。
+    通知读取时经 `_validated_target` 校验治理身份，不构成业务内容旁路。
+    """
+    event_type = _OPS_SIGNAL_EVENTS.get(signal)
+    if event_type is None:
+        return
+    recipients = await _active_company_user_ids(
+        session, {CompanyRole.boss.value, CompanyRole.consulting_director.value}
+    )
+    if not recipients:
+        return
+    target_id = uuid.uuid5(uuid.NAMESPACE_URL, f"kap:ops:{signal}")
+    now = utc_now()
+    dedup_key = f"{event_type}:{target_id}:{now.strftime('%Y%m%d%H')}"
+    await _record(
+        session,
+        recipients=recipients,
+        event_type=event_type,
+        target_kind="ops_index",
+        target_id=target_id,
+        project_id=None,
+        dedup_key=dedup_key,
+    )
 
 
 async def notify_review_pending(session: AsyncSession, task: ReviewTask) -> None:
@@ -281,6 +333,9 @@ async def _validated_target(
 
             status = await ingest_status_service.get_task_status(session, caller, row.target_id)
             if getattr(status.status, "value", status.status) != "failed":
+                return None
+        elif row.target_kind == "ops_index":
+            if not caller.can_discover_l5:
                 return None
         else:
             return None
