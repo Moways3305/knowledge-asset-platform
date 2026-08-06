@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { fetchAudit, markAuditProcessed } from "../api/admin";
 import { ApiError } from "../api/http";
+import { Link } from "react-router-dom";
 import {
   OperationsSummary,
   PageHeader,
@@ -41,6 +42,16 @@ const roleLabel: Record<string, string> = {
 
 function safeRole(event: AuditEventDTO) {
   return roleLabel[event.actor_company_role ?? ""] ?? "未标注";
+}
+
+// 事件 → 当前状态入口：审计是历史快照，资产现状请跳到对应工作区查看。
+function stateHref(event: AuditEventDTO): string | null {
+  if (!event.target_id) return null;
+  if (event.target_type === "knowledge_asset") return `/knowledge/${event.target_id}`;
+  if (event.target_type === "ingest_task" || event.target_type === "indexing_operation_job") {
+    return "/admin/ingest";
+  }
+  return null;
 }
 
 export default function AdminAuditPage() {
@@ -165,7 +176,7 @@ export default function AdminAuditPage() {
       <PageHeader
         eyebrow="安全运营"
         title="审计日志"
-        description="核查关键操作、异常处置与登录结果。页面时间均为北京时间。"
+        description="核查关键操作、异常处置与登录结果。页面时间均为北京时间。审计为不可变事件流，仅记录已发生的事项；资产的当前解析/索引状态请到「管理员运维 → 索引维护」查看。"
       />
       <div className="secops-console">
         <OperationsSummary
@@ -334,6 +345,11 @@ export default function AdminAuditPage() {
                         {activeTab === "exception" && (
                           <td>
                             <div className="secops-row-actions">
+                              {stateHref(item) && (
+                                <Link className="secops-state-link" to={stateHref(item)!}>
+                                  查看当前状态
+                                </Link>
+                              )}
                               <button
                                 className="btn-small secops-detail-toggle"
                                 onClick={() =>

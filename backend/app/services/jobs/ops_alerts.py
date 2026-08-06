@@ -40,6 +40,7 @@ from app.models.lifecycle import AlertRule, NotificationRecord
 from app.schemas.enums import AssetStatus, AuditAction, AuditLogType, CompanyRole
 from app.services import alert as alert_service
 from app.services import audit as audit_service
+from app.services import notifications as notification_service
 
 # 规则名（与 alert.DEFAULT_OPS_ALERT_RULES 落库名一致）。
 RULE_INDEX_FAILED = "索引失败堆积告警"
@@ -281,6 +282,9 @@ async def scan_ops_alerts(
                 trace_id=trace_id,
                 admins=await _admins(),
             )
+            await notification_service.notify_ops_signal(
+                session, signal=SIGNAL_INDEX_FAILED, count=count
+            )
             triggered.append(SIGNAL_INDEX_FAILED)
 
     # ---- 信号二：解析停滞堆积 ----
@@ -311,6 +315,9 @@ async def scan_ops_alerts(
                 },
                 trace_id=trace_id,
                 admins=await _admins(),
+            )
+            await notification_service.notify_ops_signal(
+                session, signal=SIGNAL_PARSE_STALLED, count=count
             )
             triggered.append(SIGNAL_PARSE_STALLED)
 

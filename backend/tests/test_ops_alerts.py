@@ -19,7 +19,8 @@ from app.models.auth_security import AuthLoginAttempt
 from app.models.identity import User, UserCompanyRole
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.lifecycle import AlertRule, NotificationRecord
-from app.seed.dev_seed import USER_ADMIN_ONLY
+from app.models.notification import BusinessNotification
+from app.seed.dev_seed import USER_ADMIN_ONLY, USER_BOSS
 from app.services import alert as alert_service
 from app.services.jobs import ops_alerts
 
@@ -125,6 +126,21 @@ async def test_index_failed_backlog_triggers_admin_notification(db_session):
     assert extra.get("signal") == "index_failed_backlog"
     assert extra.get("count") == 3
     assert extra.get("threshold") == 2
+    # 治理角色在个人铃铛收到同一信号的业务通知（与 admin 运维通知并行）。
+    bell = list(
+        (
+            await db_session.execute(
+                select(BusinessNotification).where(
+                    BusinessNotification.event_type == "ops.index_failed"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert bell, "应产生治理角色业务通知"
+    assert USER_BOSS in {b.recipient_user_id for b in bell}
+    assert all(b.target_kind == "ops_index" for b in bell)
 
 
 async def test_index_failed_below_threshold_no_notification(db_session):

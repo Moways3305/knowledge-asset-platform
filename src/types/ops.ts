@@ -8,8 +8,18 @@ export interface OpsIndexingCountsDTO {
   skipped: number;
   parse_pending: number;
   parse_processing: number;
+  // 解析状态停留 pending/processing 超过 30 分钟的数量（运维面板卡住判定）。
+  parse_stalled: number;
   parse_failed: number;
   kb_init_failed: number;
+}
+
+export interface OpsReconcileHeartbeatDTO {
+  observed_at: string;
+  processed: number;
+  updated: number;
+  failed: number;
+  duration_ms: number;
 }
 
 export interface OpsIndexingFailedItemDTO {
@@ -43,6 +53,8 @@ export interface OpsIndexingDTO {
   recent_failed: OpsIndexingFailedItemDTO[];
   diagnostic_counts: Record<OpsIndexingFailedItemDTO["diagnostic_category"], number>;
   title_visible: boolean;
+  // 最近一次解析对账心跳；从未对账过为 null。
+  last_reconcile: OpsReconcileHeartbeatDTO | null;
 }
 
 export interface LLMUsageAggregateItemDTO {

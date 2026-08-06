@@ -459,6 +459,8 @@ async def test_ops_indexing_safe_and_title_boundary(client, monkeypatch):
         assert gov.status_code == 200
         body = gov.json()
         assert body["counts"]["index_failed"] >= 1
+        assert "parse_stalled" in body["counts"]
+        assert body["last_reconcile"] is None  # 该测试未产生对账心跳
         assert body["title_visible"] is True
         assert any(it["title"] == "运维面板失败资产" for it in body["recent_failed"])
         assert asset_id not in gov.text

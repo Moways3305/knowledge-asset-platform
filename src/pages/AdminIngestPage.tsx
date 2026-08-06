@@ -46,6 +46,17 @@ type FailureFilter = "all" | DiagnosticCategory;
 
 const JOB_POLL_INTERVAL_MS = 1_500;
 const JOB_POLL_MAX_ATTEMPTS = 20;
+const OPS_AUTO_REFRESH_MS = 60_000;
+
+function formatClock(value: Date): string {
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Shanghai",
+  }).format(value);
+}
 
 const jobOpLabel: Record<string, string> = {
   retry_index: "批量重试索引",
@@ -187,6 +198,7 @@ export default function AdminIngestPage() {
   const [opsBusyOperation, setOpsBusyOperation] = useState<string | null>(null);
   const [opsNote, setOpsNote] = useState<string | null>(null);
   const [opsNoteTone, setOpsNoteTone] = useState<"success" | "warning" | "danger">("success");
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [retryTarget, setRetryTarget] = useState<OpsIndexingFailedItemDTO | null>(null);
   const [targetBusy, setTargetBusy] = useState(false);
   const [targetError, setTargetError] = useState<string | null>(null);
@@ -194,6 +206,7 @@ export default function AdminIngestPage() {
   const opsRequestRef = useRef(0);
   const jobsRequestRef = useRef(0);
   const jobsFetchInFlightRef = useRef<Promise<IndexingJobSummaryDTO[]> | null>(null);
+  const autoRefreshInFlightRef = useRef(false);
   const healthRequestRef = useRef(0);
   const llmUsageRequestRef = useRef(0);
 
@@ -309,12 +322,25 @@ export default function AdminIngestPage() {
         loadHealth(),
         loadLLMUsage(),
       ]);
+      setLastRefreshedAt(new Date());
     },
     [loadHealth, loadIngest, loadLLMUsage, loadOpsIndex, loadOpsJobs],
   );
 
   useEffect(() => {
     void refreshAll();
+  }, [refreshAll]);
+
+  // 全局计数自动刷新：与作业轮询解耦，避免「解析处理中」等数字停留在旧值。
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "hidden" || autoRefreshInFlightRef.current) return;
+      autoRefreshInFlightRef.current = true;
+      void refreshAll(false).finally(() => {
+        autoRefreshInFlightRef.current = false;
+      });
+    }, OPS_AUTO_REFRESH_MS);
+    return () => window.clearInterval(timer);
   }, [refreshAll]);
 
   const activeJob = opsJobs.find((job) => ["queued", "running"].includes(job.status));
@@ -572,14 +598,20 @@ export default function AdminIngestPage() {
         title="管理员运维"
         description="查看索引运行、扫描任务和安全审计状态。"
         actions={
-          <button
-            className="btn-small ao84-refresh"
-            onClick={() => void refreshAll()}
-            disabled={refreshing || opsBusy}
-          >
-            <RefreshCw size={15} aria-hidden="true" />
-            {refreshing ? "刷新中…" : "刷新"}
-          </button>
+          <div className="ao84-refresh-actions">
+            <span className="ao84-refresh-meta">
+              {lastRefreshedAt ? `上次刷新 ${formatClock(lastRefreshedAt)}` : "尚未刷新"} · 每 60
+              秒自动刷新
+            </span>
+            <button
+              className="btn-small ao84-refresh"
+              onClick={() => void refreshAll()}
+              disabled={refreshing || opsBusy}
+            >
+              <RefreshCw size={15} aria-hidden="true" />
+              {refreshing ? "刷新中…" : "刷新"}
+            </button>
+          </div>
         }
       />
 
@@ -647,6 +679,23 @@ export default function AdminIngestPage() {
                 </div>
               </div>
               <IndexDistribution counts={opsIndex.counts} className="ao84-index-grid" />
+              <p className="ao84-index-note">
+                {opsIndex.last_reconcile ? (
+                  <>
+                    上次对账 {formatBeijingTime(opsIndex.last_reconcile.observed_at)} · 本轮处理{" "}
+                    {opsIndex.last_reconcile.processed} · 更新 {opsIndex.last_reconcile.updated} ·{" "}
+                    <span
+                      className={opsIndex.last_reconcile.failed ? "ao84-reconcile-bad" : undefined}
+                    >
+                      失败 {opsIndex.last_reconcile.failed}
+                    </span>
+                  </>
+                ) : (
+                  "尚未产生对账心跳"
+                )}
+                ；解析状态每 5 分钟与底座对账、页面每 60 秒自动刷新，长时间不变的
+                「解析处理中」多为底座侧仍在重试。
+              </p>
             </>
           )}
 
