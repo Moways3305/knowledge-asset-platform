@@ -96,6 +96,11 @@ def _not_found() -> HTTPException:
     )
 
 
+def _is_ops_viewer(caller: CallerContext) -> bool:
+    """运维面板可见性（与 ops.py `_require_ops_viewer` 同口径）。"""
+    return CompanyRole.admin.value in caller.active_company_roles or caller.can_discover_l5
+
+
 async def _active_project_user_ids(
     session: AsyncSession,
     project_id: uuid.UUID,
@@ -201,9 +206,11 @@ async def notify_ops_signal(
     event_type = _OPS_SIGNAL_EVENTS.get(signal)
     if event_type is None:
         return
-    recipients = await _active_company_user_ids(
+    governance = await _active_company_user_ids(
         session, {CompanyRole.boss.value, CompanyRole.consulting_director.value}
     )
+    admins = await _active_company_user_ids(session, {CompanyRole.admin.value})
+    recipients = list(dict.fromkeys([*governance, *admins]))
     if not recipients:
         return
     target_id = uuid.uuid5(uuid.NAMESPACE_URL, f"kap:ops:{signal}")
@@ -308,7 +315,9 @@ async def notify_ingest_failed(session: AsyncSession, task: IngestTask) -> None:
 async def _validated_target(
     session: AsyncSession, caller: CallerContext, row: BusinessNotification
 ) -> NotificationTarget | None:
-    if not caller.is_business_user or not caller.is_active:
+    if not caller.is_active:
+        return None
+    if not caller.is_business_user and not _is_ops_viewer(caller):
         return None
     if row.project_id is not None and row.event_type != "review.company_confirmation_pending":
         if row.project_id not in caller.active_project_ids:
@@ -335,7 +344,7 @@ async def _validated_target(
             if getattr(status.status, "value", status.status) != "failed":
                 return None
         elif row.target_kind == "ops_index":
-            if not caller.can_discover_l5:
+            if not _is_ops_viewer(caller):
                 return None
         else:
             return None

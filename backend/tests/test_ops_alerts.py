@@ -139,7 +139,9 @@ async def test_index_failed_backlog_triggers_admin_notification(db_session):
         .all()
     )
     assert bell, "应产生治理角色业务通知"
-    assert USER_BOSS in {b.recipient_user_id for b in bell}
+    recipients = {b.recipient_user_id for b in bell}
+    assert USER_BOSS in recipients
+    assert USER_ADMIN_ONLY in recipients  # 管理员也在铃铛收件人内（运维面板可见者）
     assert all(b.target_kind == "ops_index" for b in bell)
 
 
