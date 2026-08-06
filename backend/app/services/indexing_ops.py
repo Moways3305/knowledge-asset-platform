@@ -394,6 +394,84 @@ async def create_reparse_job(
     )
 
 
+async def create_kb_migrate_job(
+    session: AsyncSession,
+    caller: CallerContext,
+    mapping_id: uuid.UUID,
+    req,
+    *,
+    weknora,
+    storage: LocalFileStorage,
+    trace_id: str,
+) -> IndexingJobSummary:
+    """知识库重建迁移（换 embedding 模型）：校验模型 → 建 kb_migrate 作业入队。"""
+    from app.models.weknora import WeknoraKbMapping
+    from app.services.weknora_models import _alias, _model_ref
+
+    _require_ops_viewer(caller)
+    mp = await session.get(WeknoraKbMapping, mapping_id)
+    if mp is None:
+        raise denied(404, "weknora_kb_mapping_not_found", "知识库映射不存在")
+    # 迁移中允许再提交新作业续跑（幂等续传），但同一时间只允许一个进行中的作业。
+    recent_migrations = list(
+        (
+            await session.execute(
+                select(IndexingOperationJob)
+                .where(IndexingOperationJob.operation_type == "kb_migrate")
+                .order_by(IndexingOperationJob.requested_at.desc())
+                .limit(50)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for job in recent_migrations:
+        if (job.scope_filter or {}).get("mapping_id") == str(mapping_id) and job.status in (
+            "queued",
+            "running",
+        ):
+            raise denied(409, "weknora_kb_migrate_in_progress", "迁移作业正在进行，请稍后再试")
+
+    raw_models = await weknora.list_models(trace_id=trace_id)
+    ref_map = {
+        _model_ref(str(model["id"])): model
+        for model in raw_models
+        if isinstance(model, dict) and model.get("id")
+    }
+
+    def _resolve(ref: str, slot: str, label: str):
+        model = ref_map.get(ref)
+        if model is None:
+            raise denied(404, "weknora_model_not_found", f"所选{label}模型不存在")
+        if _alias(model.get("type")) != slot:
+            raise denied(422, "weknora_model_type_mismatch", f"所选{label}模型类型不匹配")
+        return ref
+
+    embedding_ref = _resolve(req.embedding_model_ref, "embedding", "嵌入")
+    chat_ref = _resolve(req.chat_model_ref, "chat", "问答")
+    multimodal_ref = (
+        _resolve(req.multimodal_model_ref, "vllm", "多模态") if req.multimodal_model_ref else None
+    )
+    scope_filter = {
+        "mapping_id": str(mapping_id),
+        "models": {
+            "embedding_ref": embedding_ref,
+            "chat_ref": chat_ref,
+            "multimodal_ref": multimodal_ref,
+        },
+    }
+    return await _create_and_run(
+        session,
+        caller,
+        operation_type="kb_migrate",
+        scope_filter=scope_filter,
+        requested_action=AuditAction.weknora_kb_migrate_requested,
+        weknora=weknora,
+        storage=storage,
+        trace_id=trace_id,
+    )
+
+
 async def list_jobs(session: AsyncSession, caller: CallerContext) -> IndexingJobListResponse:
     """最近 N 个索引运维作业（安全摘要；无标题 / 原文 / WeKnora id / 存储 ref）。"""
     _require_ops_viewer(caller)

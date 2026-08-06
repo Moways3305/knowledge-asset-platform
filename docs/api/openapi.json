@@ -5373,6 +5373,16 @@
             "title": "Mapping Status",
             "type": "string"
           },
+          "migration": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KbMigrationStatusOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "multimodal": {
             "anyOf": [
               {
@@ -5502,6 +5512,108 @@
           "mapping_status"
         ],
         "title": "KbInitUpdateResponse",
+        "type": "object"
+      },
+      "KbMigrateRequest": {
+        "description": "知识库重建迁移请求：只接收不可逆 model_ref，绝不接收真实 model_id。",
+        "properties": {
+          "chat_model_ref": {
+            "title": "Chat Model Ref",
+            "type": "string"
+          },
+          "embedding_model_ref": {
+            "title": "Embedding Model Ref",
+            "type": "string"
+          },
+          "multimodal_model_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Multimodal Model Ref"
+          }
+        },
+        "required": [
+          "embedding_model_ref",
+          "chat_model_ref"
+        ],
+        "title": "KbMigrateRequest",
+        "type": "object"
+      },
+      "KbMigrateResponse": {
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "job_status": {
+            "title": "Job Status",
+            "type": "string"
+          },
+          "mapping_id": {
+            "format": "uuid",
+            "title": "Mapping Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "job_status",
+          "mapping_id"
+        ],
+        "title": "KbMigrateResponse",
+        "type": "object"
+      },
+      "KbMigrationStatusOut": {
+        "description": "知识库重建迁移作业的安全摘要（无 kb_id / 真实 model_id）。",
+        "properties": {
+          "failed_count": {
+            "default": 0,
+            "title": "Failed Count",
+            "type": "integer"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "job_status": {
+            "title": "Job Status",
+            "type": "string"
+          },
+          "success_count": {
+            "default": 0,
+            "title": "Success Count",
+            "type": "integer"
+          },
+          "total_count": {
+            "default": 0,
+            "title": "Total Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "job_status"
+        ],
+        "title": "KbMigrationStatusOut",
         "type": "object"
       },
       "KnowledgeBulkDeleteRequest": {
@@ -21331,6 +21443,108 @@
           }
         },
         "summary": "Update Kb Init",
+        "tags": [
+          "weknora-admin"
+        ]
+      }
+    },
+    "/api/v1/admin/weknora/kb-configs/{mapping_id}/migrate": {
+      "post": {
+        "description": "重建迁移知识库（换 embedding 模型）：新建库 + 逐版本重传 + 删旧库。\n\n校验与入队见 `indexing_ops.create_kb_migrate_job`；作业进度经 `GET /kb-configs`\n的 `migration` 字段回读。响应只含安全 job 摘要，绝不含 kb_id / 真实 model_id。",
+        "operationId": "migrate_kb_api_v1_admin_weknora_kb_configs__mapping_id__migrate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mapping_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Mapping Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KbMigrateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KbMigrateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Migrate Kb",
         "tags": [
           "weknora-admin"
         ]

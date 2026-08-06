@@ -241,6 +241,12 @@ async def run_operation_job(
         return "not_found"
     if job.status in _DONE_STATUSES:
         return job.status  # 幂等：已处理终态不重跑。
+    if job.operation_type == "kb_migrate":
+        from app.services import kb_migration
+
+        return await kb_migration.run_kb_migrate_job(
+            session, job_id, weknora=weknora, storage=storage, trace_id=trace_id
+        )
 
     actor = await _build_actor(session, job)
     # 捕获 job 标量字段到局部：循环内单条失败会 `rollback()` 过期所有 ORM 对象（含 job），

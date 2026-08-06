@@ -15,7 +15,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, Uuid
+from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -46,6 +46,9 @@ class WeknoraKbMapping(Base):
     # project / company KB 可空（项目名来自 projects 表，公司 KB 用固定文案）。
     # 与 kb_name（slug 技术标识）解耦：改名只动 display_name，不动 slug。
     display_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # 迁移专用状态（DB-only，绝不进 API / 审计 / 日志）：记录迁移的旧库 id / 新库 id /
+    # 目标模型 server-only id。status=migrating 期间由迁移作业使用；完成后清空。
+    migration_state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(

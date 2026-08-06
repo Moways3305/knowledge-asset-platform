@@ -413,6 +413,10 @@ class AuditAction(str, Enum):
     weknora_model_updated = "weknora.model_updated"
     weknora_model_deleted = "weknora.model_deleted"
     weknora_kb_config_updated = "weknora.kb_config_updated"
+    # 知识库重建迁移（换 embedding 模型）。extra 只放安全 mapping_id / counts / status，
+    # 绝不含 weknora_kb_id / 真实 model_id。
+    weknora_kb_migrate_requested = "weknora.kb_migrate_requested"
+    weknora_kb_migrate_completed = "weknora.kb_migrate_completed"
     # PBC-38 平台默认模型配置变更。extra 只放安全 model_ref / 名称，绝不含真实 model_id。
     weknora_default_models_updated = "weknora.default_models_updated"
     # KAP 内容生成模型配置。extra 仅允许安全 model_ref。

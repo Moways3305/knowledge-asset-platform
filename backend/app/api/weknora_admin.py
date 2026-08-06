@@ -30,6 +30,8 @@ from app.schemas.weknora_admin import (
     KbConfigListResponse,
     KbInitUpdateRequest,
     KbInitUpdateResponse,
+    KbMigrateRequest,
+    KbMigrateResponse,
     ModelCheckRequest,
     ModelCheckResponse,
     ModelDeleteResponse,
@@ -39,7 +41,9 @@ from app.schemas.weknora_admin import (
     ProviderListResponse,
 )
 from app.services import audit as audit_service
+from app.services import indexing_ops as indexing_ops_service
 from app.services import weknora_models
+from app.services.storage import LocalFileStorage, get_storage
 from app.services.weknora_client import (
     NullWeKnoraClient,
     WeKnoraClient,
@@ -362,6 +366,58 @@ async def update_kb_init(
     )
     await session.commit()
     return KbInitUpdateResponse(mapping_id=mp.id, mapping_status=mp.status, updated=True)
+
+
+@router.post("/kb-configs/{mapping_id}/migrate", response_model=KbMigrateResponse)
+async def migrate_kb(
+    mapping_id: uuid.UUID,
+    req: KbMigrateRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    weknora: WeKnoraClient | NullWeKnoraClient = Depends(get_weknora_client),
+    storage: LocalFileStorage = Depends(get_storage),
+) -> KbMigrateResponse:
+    """重建迁移知识库（换 embedding 模型）：新建库 + 逐版本重传 + 删旧库。
+
+    校验与入队见 `indexing_ops.create_kb_migrate_job`；作业进度经 `GET /kb-configs`
+    的 `migration` 字段回读。响应只含安全 job 摘要，绝不含 kb_id / 真实 model_id。
+    """
+    project_scope = _kb_config_project_scope(caller)
+    _require_enabled()
+    if project_scope is not None:
+        mapping = await session.get(WeknoraKbMapping, mapping_id)
+        if (
+            mapping is None
+            or mapping.scope != KnowledgeScope.project.value
+            or mapping.project_id not in project_scope
+        ):
+            raise HTTPException(
+                404,
+                detail={
+                    "denied_reason": "weknora_kb_mapping_not_found",
+                    "message": "知识库映射不存在",
+                },
+            )
+    trace_id = get_trace_id(request)
+    try:
+        summary = await indexing_ops_service.create_kb_migrate_job(
+            session,
+            caller,
+            mapping_id,
+            req,
+            weknora=weknora,
+            storage=storage,
+            trace_id=trace_id,
+        )
+    except WeKnoraError as exc:
+        raise _wrap_weknora(exc) from exc
+    await session.commit()
+    return KbMigrateResponse(
+        job_id=summary.job_id,
+        job_status=summary.status,
+        mapping_id=mapping_id,
+    )
 
 
 @router.get("/default-models", response_model=DefaultModelsOut)
