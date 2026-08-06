@@ -189,6 +189,22 @@ class _FakeProjectKb:
     async def initialize_kb(self, kb_id, **_):
         self.initialized.append(kb_id)
 
+    async def get_kb(self, kb_id, *, trace_id=None):
+        return {
+            "summary_model_id": "chat-test",
+            "embedding_model_id": "test-embed",
+            "chunking_config": {},
+            "vlm_config": {},
+            "asr_config": {},
+            "storage_provider_config": {},
+            "extract_config": {},
+            "question_generation_config": {},
+        }
+
+    async def update_initialization_config(self, kb_id, *, config, trace_id=None):
+        self.initialized.append(kb_id)
+        return {"success": True}
+
 
 async def test_create_project_precreates_kb(client, db_session, monkeypatch):
     from conftest import patch_default_model

@@ -72,6 +72,25 @@ class _FakeWeKnora:
             raise WeKnoraError("weknora_init_failed", "初始化失败")
         self.initialized.append(kb_id)
 
+    async def get_kb(self, kb_id, *, trace_id=None):
+        return {
+            "summary_model_id": "chat-test",
+            "embedding_model_id": "test-embed",
+            "chunking_config": {},
+            "vlm_config": {},
+            "asr_config": {},
+            "storage_provider_config": {},
+            "extract_config": {},
+            "question_generation_config": {},
+        }
+
+    async def update_initialization_config(self, kb_id, *, config, trace_id=None):
+        self._init_calls += 1
+        if self._init_calls <= self.init_fail_times:
+            raise WeKnoraError("weknora_init_failed", "初始化失败")
+        self.initialized.append(kb_id)
+        return {"success": True}
+
     async def update_kb(self, kb_id, *, name=None, description=None, trace_id=None):
         if self.update_fail:
             raise WeKnoraError("weknora_update_failed", "底座改名失败")
