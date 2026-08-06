@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import TypedDict
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -39,13 +38,6 @@ _STATUS_INIT_FAILED = "init_failed"
 DEFAULT_PERSONAL_KB_NAME = "我的知识库"
 
 _logger = logging.getLogger(__name__)
-
-
-class _InitKwargs(TypedDict):
-    embedding_source: str
-    embedding_model_name: str
-    llm_source: str
-    llm_model_name: str
 
 
 def _kb_name(scope: str, owner_user_id: uuid.UUID | None, project_id: uuid.UUID | None) -> str:
@@ -96,28 +88,33 @@ async def _switch_embedding_model(
     await session.commit()
 
 
-def _init_kwargs(models: ResolvedModels, embedding_model_id: str) -> _InitKwargs:
-    """KB 初始化契约。create_kb 仍用 server-only id 锁定 embedding；初始化只发 source/name。
+async def _write_kb_config_by_ids(
+    client: WeKnoraClient | NullWeKnoraClient,
+    kb_id: str,
+    *,
+    models: ResolvedModels,
+    embedding_model_id: str,
+    trace_id: str | None,
+) -> None:
+    """按 server-only 模型 id 写 KB 模型配置（PUT /initialization/config/:kb_id）。
 
-    旧版 `*_model_id` 不再进入初始化 payload，避免与当前 WeKnora contract 冲突。
+    刻意**不**走 `initialize_kb`（source/modelName 契约）：WeKnora v0.7.1 会按名称
+    自动创建/改写模型记录——实测会把已配置模型的 base_url/api_key 清空并生成一个
+    tenant=0、base_url 为空的坏模型。建库/初始化只应**引用**模型，绝不应**修改**模型
+    本身；因此这里从现有 KB 读取配置合并后，仅把 chat/embedding 槽位替换为目标模型
+    id 写回，完全不触碰模型记录。
     """
-    embedding = models.models_by_id.get(embedding_model_id) if models.models_by_id else None
-    if embedding is None and models.embedding_model_id == embedding_model_id:
-        embedding = models.embedding
-    if embedding is None and not models.explicit_embedding:
-        embedding = models.embedding
-    chat = models.chat
-    if embedding is None or chat is None:
+    current_kb = await client.get_kb(kb_id, trace_id=trace_id)
+    config = _kb_update_config(current_kb)
+    chat_id = models.chat.model_id if models.chat is not None else models.chat_model_id
+    if not chat_id:
         raise WeKnoraError(
             "weknora_init_contract_incomplete",
-            "WeKnora 知识库初始化缺少必需的模型配置",
+            "WeKnora 知识库初始化缺少问答模型配置",
         )
-    return {
-        "embedding_source": embedding.source,
-        "embedding_model_name": embedding.model_name,
-        "llm_source": chat.source,
-        "llm_model_name": chat.model_name,
-    }
+    config["llmModelId"] = chat_id
+    config["embeddingModelId"] = embedding_model_id
+    await client.update_initialization_config(kb_id, config=config, trace_id=trace_id)
 
 
 async def _find(
@@ -197,8 +194,12 @@ async def resolve_or_create_kb(
             await _switch_embedding_model(session, client, existing, models, trace_id=trace_id)
         bound = existing.embedding_model_id or models.embedding_model_id
         try:
-            await client.initialize_kb(
-                existing.weknora_kb_id, trace_id=trace_id, **_init_kwargs(models, bound)
+            await _write_kb_config_by_ids(
+                client,
+                existing.weknora_kb_id,
+                models=models,
+                embedding_model_id=bound,
+                trace_id=trace_id,
             )
         except WeKnoraError as exc:
             _logger.warning(
@@ -223,8 +224,12 @@ async def resolve_or_create_kb(
     # 建库后初始化模型配置；失败时不写成 active 假成功，而是持久化 init_failed 供重试。
     init_error: WeKnoraError | None = None
     try:
-        await client.initialize_kb(
-            kb_id, trace_id=trace_id, **_init_kwargs(models, models.embedding_model_id)
+        await _write_kb_config_by_ids(
+            client,
+            kb_id,
+            models=models,
+            embedding_model_id=models.embedding_model_id,
+            trace_id=trace_id,
         )
     except WeKnoraError as exc:
         init_error = exc

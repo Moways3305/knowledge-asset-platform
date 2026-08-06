@@ -311,6 +311,21 @@ class FakeWK:
     async def initialize_kb(self, kb_id, **_):
         return None
 
+    async def get_kb(self, kb_id, *, trace_id=None):
+        return {
+            "summary_model_id": "test-chat",
+            "embedding_model_id": "test-embed",
+            "chunking_config": {},
+            "vlm_config": {},
+            "asr_config": {},
+            "storage_provider_config": {},
+            "extract_config": {},
+            "question_generation_config": {},
+        }
+
+    async def update_initialization_config(self, kb_id, *, config, trace_id=None):
+        return {"success": True}
+
     async def get_initialization_config(self, kb_id, *, trace_id=None):
         return {}
 
