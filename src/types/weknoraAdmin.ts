@@ -14,6 +14,28 @@ export interface WeknoraProviderDTO {
   default_urls: Record<string, string>;
 }
 
+// 知识库重建迁移作业安全摘要（无 kb_id / 真实 model_id）。
+export interface KbMigrationStatusDTO {
+  job_id: string;
+  job_status: string; // queued | running | completed | completed_with_errors | failed | no_action
+  total_count: number;
+  success_count: number;
+  failed_count: number;
+  finished_at: string | null;
+}
+
+export interface KbMigrateRequestDTO {
+  embedding_model_ref: string;
+  chat_model_ref: string;
+  multimodal_model_ref?: string | null;
+}
+
+export interface KbMigrateResponseDTO {
+  job_id: string;
+  job_status: string;
+  mapping_id: string;
+}
+
 export interface ModelDTO {
   model_ref: string;
   name: string;
@@ -45,6 +67,7 @@ export interface KbConfigDTO {
   rerank: ModelSlotDTO | null;
   multimodal: ModelSlotDTO | null;
   config_error: string | null;
+  migration: KbMigrationStatusDTO | null;
 }
 
 export interface KbInitUpdateRequestDTO {

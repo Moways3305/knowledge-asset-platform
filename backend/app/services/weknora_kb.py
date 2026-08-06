@@ -177,6 +177,12 @@ async def resolve_or_create_kb(
 
     existing = await _find(session, scope, owner_user_id, project_id)
     if existing is not None:
+        if existing.status == "migrating":
+            # 重建迁移期间 fail-closed：新上传/确认暂不接受，避免文档落入迁移中的库。
+            raise WeKnoraError(
+                "weknora_kb_migrating",
+                "知识库正在重建迁移，暂不接受新入库",
+            )
         if existing.status == _STATUS_ACTIVE:
             # 显式指定了不同嵌入模型 → 自动切换底座配置并回写绑定（不再锁定拒绝）；
             # 存量文档需在切换后重新解析以完成重新向量化。

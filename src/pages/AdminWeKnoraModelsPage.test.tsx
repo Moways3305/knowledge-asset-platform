@@ -6,6 +6,7 @@ import {
   fetchWeknoraKbConfigs,
   fetchWeknoraModels,
   fetchWeknoraProviders,
+  migrateWeknoraKb,
   createWeknoraModel,
   updateWeknoraDefaultModels,
   updateWeknoraKbInit,
@@ -35,6 +36,7 @@ vi.mock("../api/admin", () => ({
   fetchWeknoraDefaultModels: vi.fn(),
   fetchWeknoraModels: vi.fn(),
   fetchWeknoraProviders: vi.fn(),
+  migrateWeknoraKb: vi.fn(),
   createWeknoraModel: vi.fn(),
   updateWeknoraDefaultModels: vi.fn(),
   updateWeknoraKbInit: vi.fn(),
@@ -260,6 +262,7 @@ describe("AdminWeKnoraModelsPage", () => {
         rerank: null,
         multimodal: null,
         config_error: null,
+        migration: null,
       },
     ]);
     vi.mocked(updateWeknoraKbInit).mockRejectedValue(
@@ -320,6 +323,7 @@ describe("AdminWeKnoraModelsPage", () => {
       rerank: null,
       multimodal: null,
       config_error: "保存前状态",
+      migration: null,
     };
     const refreshed = {
       ...initial,
@@ -451,5 +455,76 @@ describe("AdminWeKnoraModelsPage", () => {
     expect(
       screen.getByText("可选：qwen3.8-max、qwen3.7-plus、qwen3.7-flash（也可手动输入）"),
     ).toBeInTheDocument();
+  });
+
+  it("submits a KB migration with the chosen models", async () => {
+    vi.mocked(fetchWeknoraModels).mockResolvedValue([
+      {
+        model_ref: "emb-new",
+        name: "新嵌入模型",
+        type: "embedding",
+        source: "remote",
+        provider: "aliyun",
+        enabled: true,
+        is_builtin: false,
+        description: null,
+      },
+      {
+        model_ref: "chat-new",
+        name: "新问答模型",
+        type: "chat",
+        source: "remote",
+        provider: "aliyun",
+        enabled: true,
+        is_builtin: false,
+        description: null,
+      },
+    ]);
+    vi.mocked(fetchWeknoraKbConfigs).mockResolvedValue([
+      {
+        mapping_id: "safe-mapping-id",
+        scope: "company",
+        kb_name: "公司知识库",
+        project_name: null,
+        owner_name: null,
+        mapping_status: "active",
+        chat: { model_ref: "chat-old", name: "旧问答", type: "chat", provider: "provider" },
+        embedding: {
+          model_ref: "emb-old",
+          name: "旧嵌入",
+          type: "embedding",
+          provider: "provider",
+        },
+        rerank: null,
+        multimodal: null,
+        config_error: null,
+        migration: null,
+      },
+    ]);
+    vi.mocked(migrateWeknoraKb).mockResolvedValue({
+      job_id: "migrate-job-1",
+      job_status: "queued",
+      mapping_id: "safe-mapping-id",
+    });
+
+    renderPage();
+    const row = (await screen.findByText("公司知识库")).closest("tr");
+    fireEvent.click(within(row!).getByRole("button", { name: "迁移库" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent("迁移知识库“公司知识库”");
+    fireEvent.change(within(screen.getByRole("dialog")).getByLabelText("嵌入模型（必选）"), {
+      target: { value: "emb-new" },
+    });
+    fireEvent.change(within(screen.getByRole("dialog")).getByLabelText("问答模型（必选）"), {
+      target: { value: "chat-new" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "开始迁移" }));
+
+    await waitFor(() =>
+      expect(migrateWeknoraKb).toHaveBeenCalledWith("safe-mapping-id", {
+        embedding_model_ref: "emb-new",
+        chat_model_ref: "chat-new",
+        multimodal_model_ref: null,
+      }),
+    );
   });
 });

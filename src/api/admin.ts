@@ -25,6 +25,8 @@ import type { WecomReconcileResponseDTO } from "../types/wecomIdentity";
 import type {
   KbConfigDTO,
   KbInitUpdateRequestDTO,
+  KbMigrateRequestDTO,
+  KbMigrateResponseDTO,
   ModelDTO,
   WeknoraDefaultModelsDTO,
   WeknoraDefaultModelsUpdateDTO,
@@ -222,6 +224,13 @@ export async function updateWeknoraKbInit(
   body: KbInitUpdateRequestDTO,
 ): Promise<{ mapping_id: string; mapping_status: string; updated: boolean }> {
   return apiPut(`${WK}/kb-configs/${mappingId}/initialization`, body);
+}
+
+export async function migrateWeknoraKb(
+  mappingId: string,
+  body: KbMigrateRequestDTO,
+): Promise<KbMigrateResponseDTO> {
+  return apiPost(`${WK}/kb-configs/${mappingId}/migrate`, body);
 }
 
 // ---- 审计日志查询 / trace / 标记处理 ----

@@ -114,6 +114,33 @@ class KbConfigOut(BaseModel):
     rerank: ModelSlotOut | None = None
     multimodal: ModelSlotOut | None = None
     config_error: str | None = None  # 读取底座配置失败时的安全提示（不含内部标识）
+    # 最近一次知识库重建迁移作业状态（安全计数；无迁移则为 None）。
+    migration: KbMigrationStatusOut | None = None
+
+
+class KbMigrationStatusOut(BaseModel):
+    """知识库重建迁移作业的安全摘要（无 kb_id / 真实 model_id）。"""
+
+    job_id: uuid.UUID
+    job_status: str  # queued | running | completed | completed_with_errors | failed | no_action
+    total_count: int = 0
+    success_count: int = 0
+    failed_count: int = 0
+    finished_at: datetime | None = None
+
+
+class KbMigrateRequest(BaseModel):
+    """知识库重建迁移请求：只接收不可逆 model_ref，绝不接收真实 model_id。"""
+
+    embedding_model_ref: str
+    chat_model_ref: str
+    multimodal_model_ref: str | None = None
+
+
+class KbMigrateResponse(BaseModel):
+    job_id: uuid.UUID
+    job_status: str
+    mapping_id: uuid.UUID
 
 
 class KbConfigListResponse(BaseModel):

@@ -21,12 +21,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.identity import Project, User
+from app.models.indexing_job import IndexingOperationJob
 from app.models.weknora import WeknoraKbMapping
 from app.schemas.weknora_admin import (
     DefaultModelsOut,
     DefaultModelsUpdateRequest,
     KbConfigOut,
     KbInitUpdateRequest,
+    KbMigrationStatusOut,
     ModelCheckRequest,
     ModelCheckResponse,
     ModelMutateRequest,
@@ -451,6 +453,29 @@ async def list_kb_configs(
     mappings = list((await session.execute(statement)).scalars().all())
     # id → 安全模型元数据（用于把底座初始化配置里的 server-only id 映射成安全名称）。
     id_meta = await _id_meta_map(client, trace_id)
+    # 最近迁移作业（按 mapping 取最新一条，展示迁移进度 / 完成态）。
+    recent_migrations = list(
+        (
+            await session.execute(
+                select(IndexingOperationJob)
+                .where(IndexingOperationJob.operation_type == "kb_migrate")
+                .order_by(IndexingOperationJob.requested_at.desc())
+                .limit(200)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    migration_by_mapping: dict[uuid.UUID, IndexingOperationJob] = {}
+    for job in recent_migrations:
+        raw = (job.scope_filter or {}).get("mapping_id")
+        if not raw:
+            continue
+        try:
+            key = uuid.UUID(str(raw))
+        except ValueError:
+            continue
+        migration_by_mapping.setdefault(key, job)
 
     project_ids = {m.project_id for m in mappings if m.project_id}
     owner_ids = {m.owner_user_id for m in mappings if m.owner_user_id}
@@ -471,6 +496,7 @@ async def list_kb_configs(
 
     items: list[KbConfigOut] = []
     for mp in mappings:
+        migration_job = migration_by_mapping.get(mp.id)
         chat = embedding = rerank = multimodal = None
         config_error = None
         try:
@@ -496,6 +522,18 @@ async def list_kb_configs(
                 rerank=rerank,
                 multimodal=multimodal,
                 config_error=config_error,
+                migration=(
+                    KbMigrationStatusOut(
+                        job_id=migration_job.id,
+                        job_status=migration_job.status,
+                        total_count=migration_job.total_count,
+                        success_count=migration_job.success_count,
+                        failed_count=migration_job.failed_count,
+                        finished_at=migration_job.finished_at,
+                    )
+                    if migration_job is not None
+                    else None
+                ),
             )
         )
     return items
@@ -512,6 +550,8 @@ async def update_kb_init(
     mp = await session.get(WeknoraKbMapping, mapping_id)
     if mp is None:
         raise _denied(404, "weknora_kb_mapping_not_found", "知识库映射不存在")
+    if mp.status == "migrating":
+        raise _denied(409, "weknora_kb_migrating", "知识库正在重建迁移，请稍后再配置")
     refs = {
         "chat": req.chat_model_ref,
         "embedding": req.embedding_model_ref,

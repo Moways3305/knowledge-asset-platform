@@ -11,6 +11,7 @@ import {
 import { ApiError } from "../api/http";
 import { useAuth } from "../auth/AuthContext";
 import { PageHeader, PageSection, ProductPage } from "../components/ProductLayout";
+import KbMigrateDialog from "../components/KbMigrateDialog";
 import UnifiedModelConnectionsSection from "../components/UnifiedModelConnectionsSection";
 import WeknoraModelsSection from "../components/WeknoraModelsSection";
 import type { KbConfigDTO, ModelDTO } from "../types/weknoraAdmin";
@@ -24,6 +25,7 @@ const scopeLabel: Record<string, string> = {
 const mappingStatusLabel: Record<string, string> = {
   active: "已初始化",
   init_failed: "初始化失败",
+  migrating: "迁移中",
 };
 
 function kbUpdateErrorMessage(caught: unknown): string {
@@ -158,6 +160,23 @@ export default function AdminWeKnoraModelsPage() {
   useEffect(() => {
     void loadKnowledgeConfigs();
   }, [loadKnowledgeConfigs]);
+
+  // 迁移作业进行中时，静默轮询 KB 配置以刷新进度。
+  const anyMigrationActive = kbConfigs.some(
+    (config) =>
+      config.migration != null && ["queued", "running"].includes(config.migration.job_status),
+  );
+  useEffect(() => {
+    if (!anyMigrationActive) return;
+    const timer = window.setInterval(() => {
+      void fetchWeknoraKbConfigs()
+        .then((configs) => setKbConfigs(configs))
+        .catch(() => {
+          // 静默：下一轮轮询继续。
+        });
+    }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [anyMigrationActive]);
 
   return (
     <ProductPage className="ws-page mf-page">
@@ -314,6 +333,7 @@ export default function AdminWeKnoraModelsPage() {
                     cfg={config}
                     models={models}
                     canEdit={canEdit}
+                    defaultEmbeddingRef={defaultEmbeddingRef}
                     onSaved={refreshSavedKbConfig}
                     onError={(message) => {
                       setError(message);
@@ -379,12 +399,14 @@ function KbConfigRow({
   cfg,
   models,
   canEdit,
+  defaultEmbeddingRef,
   onSaved,
   onError,
 }: {
   cfg: KbConfigDTO;
   models: ModelDTO[];
   canEdit: boolean;
+  defaultEmbeddingRef: string;
   onSaved: (mappingId: string, message: string) => Promise<void>;
   onError: (message: string) => void;
 }) {
@@ -393,6 +415,9 @@ function KbConfigRow({
   const [rerank, setRerank] = useState(cfg.rerank?.model_ref ?? "");
   const [multimodal, setMultimodal] = useState(cfg.multimodal?.model_ref ?? "");
   const [busy, setBusy] = useState(false);
+  const [migrateOpen, setMigrateOpen] = useState(false);
+  const migrationActive =
+    cfg.migration != null && ["queued", "running"].includes(cfg.migration.job_status);
 
   useEffect(() => {
     setChat(cfg.chat?.model_ref ?? "");
@@ -475,11 +500,49 @@ function KbConfigRow({
       <td>{selector("多模态", multimodal, setMultimodal, "vllm", cfg.multimodal)}</td>
       <td>
         {canEdit && (
-          <button className="btn-small-primary" onClick={() => void save()} disabled={busy}>
+          <button
+            className="btn-small-primary"
+            onClick={() => void save()}
+            disabled={busy || migrationActive}
+          >
             {busy ? "保存中…" : "保存"}
           </button>
         )}
+        {canEdit && (
+          <button
+            className="btn-small mf-migrate-btn"
+            onClick={() => setMigrateOpen(true)}
+            disabled={migrationActive}
+            title="重建知识库并迁移到新的嵌入模型"
+          >
+            {migrationActive ? "迁移中…" : "迁移库"}
+          </button>
+        )}
+        {cfg.migration && (
+          <div className="mf-migrate-status">
+            {cfg.migration.job_status === "completed" && "迁移完成，旧库已删除"}
+            {cfg.migration.job_status === "completed_with_errors" &&
+              `迁移完成（${cfg.migration.failed_count} 失败，可再次迁移续跑）`}
+            {cfg.migration.job_status === "failed" && "迁移失败，可重试"}
+            {migrationActive && (
+              <>
+                迁移中：{cfg.migration.success_count}/{cfg.migration.total_count} · 失败{" "}
+                {cfg.migration.failed_count}
+              </>
+            )}
+          </div>
+        )}
         {cfg.config_error && <div className="ws-cell-suggestion">{cfg.config_error}</div>}
+        <KbMigrateDialog
+          cfg={cfg}
+          models={models}
+          defaultEmbeddingRef={defaultEmbeddingRef}
+          open={migrateOpen}
+          onClose={() => setMigrateOpen(false)}
+          onMigrated={async (message) => {
+            await onSaved(cfg.mapping_id, message);
+          }}
+        />
       </td>
     </tr>
   );
