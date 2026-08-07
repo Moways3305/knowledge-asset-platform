@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import select
 
 from app.main import app
 from app.models.ingest import IngestTask
-from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetChunk, KnowledgeAssetVersion
 from app.models.weknora import WeknoraKbMapping
 from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT, USER_DIRECTOR
 from app.services.storage import LocalFileStorage, get_storage
@@ -98,7 +99,14 @@ class FakeMigrateWK:
     ):
         if knowledge_id in self.fail_docs:
             raise WeKnoraError("weknora_down", "底座不可用")
-        self.reparse_calls.append({"kb_id": kb_id, "knowledge_id": knowledge_id})
+        self.reparse_calls.append(
+            {
+                "kb_id": kb_id,
+                "knowledge_id": knowledge_id,
+                "content": content,
+                "file_name": file_name,
+            }
+        )
         self._doc += 1
         return {"id": f"new-doc-{self._doc}", "parse_status": "processing", "file_hash": "h"}
 
@@ -231,6 +239,25 @@ async def test_migrate_kb_success(client, db_session, monkeypatch, storage, sess
         assert mp.migration_state is None
         assert fake.create_calls == ["emb-new"]
         assert fake.deleted_kbs == ["old-kb-1"]
+        # 阶段2：迁移重传的是治理文本（md），不是原件字节。
+        assert fake.reparse_calls
+        assert all(call["file_name"].endswith(".md") for call in fake.reparse_calls)
+        migrated_text = b"".join(call["content"] for call in fake.reparse_calls)
+        assert "内容0".encode() in migrated_text
+        assert "内容1".encode() in migrated_text
+        # 阶段3：迁移后 chunk 注册表已落库（两个版本各至少一块）。
+        chunks = list(
+            (
+                await db_session.execute(
+                    select(KnowledgeAssetChunk).where(
+                        KnowledgeAssetChunk.version_id.in_([v.id for v in versions])
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(chunks) >= 2
         for v in versions:
             await db_session.refresh(v)
             assert v.weknora_kb_id == "new-kb-1"

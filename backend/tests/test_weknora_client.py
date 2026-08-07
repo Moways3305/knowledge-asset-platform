@@ -326,6 +326,20 @@ async def test_confirm_pushes_and_writes_back(client, weknora, db_session):
     assert ver.weknora_doc_id == up["doc_id"]
     assert ver.weknora_kb_id == up["kb_id"]
     assert ver.weknora_parse_status == "processing"
+    # 阶段3：索引成功后落 chunk 注册表（治理文本切块）。
+    from app.models.knowledge import KnowledgeAssetChunk
+
+    chunk_rows = list(
+        (
+            await db_session.execute(
+                select(KnowledgeAssetChunk).where(KnowledgeAssetChunk.version_id == ver.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert chunk_rows, "索引成功后应落 chunk 注册表"
+    assert "第一行标题" in chunk_rows[0].content_text
     # 索引成功标 indexed；建库后执行了初始化。
     assert r.json()["index_status"] == "indexed"
     assert ver.index_status == "indexed"

@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from dataclasses import dataclass
@@ -24,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.utils import utc_now
 from app.models.knowledge import KnowledgeAssetVersion
 from app.schemas.enums import KnowledgeScope
-from app.services import error_catalog
+from app.services import chunking, error_catalog
 from app.services.extraction import extract_text
 from app.services.weknora_client import (
     NullWeKnoraClient,
@@ -34,6 +35,8 @@ from app.services.weknora_client import (
 )
 from app.services.weknora_kb import resolve_or_create_kb
 from app.services.weknora_model_selection import resolve_models_for_kb
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -50,7 +53,7 @@ def _governance_upload(
     file_bytes: bytes,
     source_file_name: str,
     source_file_mime: str | None,
-) -> tuple[bytes, str, str | None]:
+) -> tuple[bytes, str, str | None, str | None]:
     """阶段2（D1 v1.3）：底座索引输入 = verbatim 治理文本，而非原文件。
 
     从源文件重提取（决策 A），成功则以 .md 文本上传（mime=text/markdown）；
@@ -60,8 +63,29 @@ def _governance_upload(
     if result.status == "extracted" and result.text:
         base, _ext = os.path.splitext(source_file_name or "")
         md_name = f"{base}.md" if base else "governance.md"
-        return result.text.encode("utf-8"), md_name, "text/markdown"
-    return file_bytes, source_file_name, source_file_mime
+        return result.text.encode("utf-8"), md_name, "text/markdown", result.text
+    return file_bytes, source_file_name, source_file_mime, None
+
+
+async def _rebuild_chunks_best_effort(
+    session: AsyncSession,
+    *,
+    asset_id: uuid.UUID,
+    version_id: uuid.UUID,
+    governance_text: str,
+) -> None:
+    """索引成功后重建版本 chunk 注册表；失败只告警，不回滚已成功的索引。"""
+    try:
+        await chunking.rebuild_version_chunks(
+            session,
+            asset_id=asset_id,
+            version_id=version_id,
+            governance_text=governance_text,
+        )
+        await session.commit()
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning("chunk_rebuild_failed", exc_info=exc)
+        await session.rollback()
 
 
 async def _load_version(
@@ -139,7 +163,7 @@ async def index_asset_version(
             models=models,
             trace_id=trace_id,
         )
-        content, upload_name, upload_mime = _governance_upload(
+        content, upload_name, upload_mime, governance_text = _governance_upload(
             file_bytes, source_file_name, source_file_mime
         )
         data = await weknora.upload_file(
@@ -167,6 +191,13 @@ async def index_asset_version(
             version.index_error_code = None
             version.index_error_message = None
         await session.commit()
+        if governance_text:
+            await _rebuild_chunks_best_effort(
+                session,
+                asset_id=asset_id,
+                version_id=version_id,
+                governance_text=governance_text,
+            )
         return IndexOutcome("indexed", parse_status, None, False)
     except WeKnoraDuplicateError as dup:
         # 内容已在底座（file_hash 409）：复用既有 doc，算索引成功。kb_id 已在 resolve 后绑定。
@@ -232,7 +263,7 @@ async def reparse_asset_version(
                 models=models,
                 trace_id=trace_id,
             )
-        content, upload_name, upload_mime = _governance_upload(
+        content, upload_name, upload_mime, governance_text = _governance_upload(
             file_bytes, source_file_name, source_file_mime
         )
         data = await weknora.reparse_knowledge(
@@ -261,6 +292,13 @@ async def reparse_asset_version(
             version.index_error_code = None
             version.index_error_message = None
         await session.commit()
+        if governance_text:
+            await _rebuild_chunks_best_effort(
+                session,
+                asset_id=asset_id,
+                version_id=version_id,
+                governance_text=governance_text,
+            )
         return IndexOutcome("indexed", parse_status, None, False)
     except WeKnoraDuplicateError as dup:
         # 删旧未生效 / 内容仍命中去重：复用既有 doc，解析标 duplicate（不算失败）。

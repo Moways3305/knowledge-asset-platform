@@ -53,8 +53,10 @@ def _extract_pdf(content: bytes) -> str:
 
     reader = PdfReader(io.BytesIO(content))
     parts: list[str] = []
-    for page in reader.pages:
-        parts.append(page.extract_text() or "")
+    for index, page in enumerate(reader.pages, start=1):
+        page_text = page.extract_text() or ""
+        # 页码标记（D1 阶段3）：供 chunk 注册表记录 source_page / 查看原文定位。
+        parts.append(f"{{{{page:{index}}}}}\n{page_text}" if page_text else "")
     return "\n".join(parts)
 
 

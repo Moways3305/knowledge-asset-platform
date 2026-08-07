@@ -155,6 +155,12 @@ async def _migrate_version(
     if task is None or not task.source_file_ref:
         raise WeKnoraError("source_file_unreadable", "原文来源暂不可用")
     file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
+    from app.services import chunking
+    from app.services.indexing import _governance_upload
+
+    content, upload_name, upload_mime, governance_text = _governance_upload(
+        file_bytes, task.source_file_name, task.source_file_mime_type
+    )
     version = (
         await session.execute(
             select(KnowledgeAssetVersion).where(KnowledgeAssetVersion.id == version_id)
@@ -166,9 +172,9 @@ async def _migrate_version(
     data = await weknora.reparse_knowledge(
         kb_id=new_kb_id,
         knowledge_id=old_doc_id,
-        content=file_bytes,
-        file_name=task.source_file_name,
-        mime=task.source_file_mime_type,
+        content=content,
+        file_name=upload_name,
+        mime=upload_mime,
         metadata={
             "asset_id": str(asset_id),
             "version_id": str(version_id),
@@ -187,6 +193,25 @@ async def _migrate_version(
         version.index_error_code = None
         version.index_error_message = None
     await session.commit()
+    if governance_text:
+        try:
+            await chunking.rebuild_version_chunks(
+                session,
+                asset_id=asset_id,
+                version_id=version_id,
+                governance_text=governance_text,
+            )
+            await session.commit()
+        except Exception as exc:  # noqa: BLE001
+            safe_log_exception(
+                _logger,
+                "kb_migrate_chunk_rebuild_failed",
+                exc,
+                include_summary=False,
+                level=logging.WARNING,
+                version_id=str(version_id),
+            )
+            await session.rollback()
 
 
 async def _select_migration_versions(

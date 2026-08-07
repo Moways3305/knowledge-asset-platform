@@ -151,6 +151,8 @@ def test_extract_txt_non_utf8_robust():
 def test_extract_pdf():
     r = extract_text(_make_pdf("Hello PDF Extract"), file_name="a.pdf", mime="application/pdf")
     assert r.status == "extracted"
+    # 阶段3：PDF 每页带 {{page:N}} 标记，供 chunk 注册表记录页码。
+    assert "{{page:1}}" in r.text
     assert "Hello PDF Extract" in r.text
 
 
