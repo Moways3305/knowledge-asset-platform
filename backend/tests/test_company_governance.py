@@ -42,6 +42,24 @@ class _FakeWeKnora:
         if self.fail_initialize:
             raise WeKnoraError("weknora_init_failed", "unsafe upstream detail")
 
+    async def get_kb(self, kb_id, *, trace_id=None):
+        return {
+            "summary_model_id": "test-chat",
+            "embedding_model_id": "test-embed",
+            "chunking_config": {},
+            "vlm_config": {},
+            "asr_config": {},
+            "storage_provider_config": {},
+            "extract_config": {},
+            "question_generation_config": {},
+        }
+
+    async def update_initialization_config(self, kb_id, *, config, trace_id=None):
+        self.initialized += 1
+        if self.fail_initialize:
+            raise WeKnoraError("weknora_init_failed", "unsafe upstream detail")
+        return {"success": True}
+
     async def delete_kb(self, kb_id: str, *, trace_id: str | None = None) -> None:
         self.deleted_kbs.append(kb_id)
 

@@ -92,6 +92,12 @@ class FakeWeKnora:
     async def get_initialization_config(self, kb_id, *, trace_id=None):
         return {"embedding_model_id": self.kbs.get(kb_id, {}).get("embedding_model_id")}
 
+    async def update_initialization_config(self, kb_id, *, config, trace_id=None):
+        if self.init_fail:
+            raise WeKnoraError("weknora_init_failed", "初始化失败")
+        self.initialized.append({"kb_id": kb_id, "config": config})
+        return {"success": True}
+
     async def upload_file(
         self, *, kb_id, content, file_name, mime, metadata=None, channel=None, trace_id=None
     ):

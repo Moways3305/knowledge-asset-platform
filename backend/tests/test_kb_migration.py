@@ -238,6 +238,8 @@ async def test_migrate_kb_success(client, db_session, monkeypatch, storage, sess
         assert mp.weknora_kb_id == "new-kb-1"
         assert mp.migration_state is None
         assert fake.create_calls == ["emb-new"]
+        assert fake.init_calls == []  # 不再走 source/modelName 初始化，避免改写模型记录
+        assert fake.update_config_calls == ["new-kb-1"]
         assert fake.deleted_kbs == ["old-kb-1"]
         # 阶段2：迁移重传的是治理文本（md），不是原件字节。
         assert fake.reparse_calls
@@ -324,3 +326,27 @@ async def test_migrating_mapping_blocks_new_ingest_and_config(db_session):
             trace_id=None,
         )
     assert ei.value.code == "weknora_kb_migrating"
+
+
+async def test_migrate_job_level_failure_marks_failed_and_keeps_old_kb(
+    client, db_session, monkeypatch, storage
+):
+    fake = FakeMigrateWK()
+
+    async def boom(*_a, **_k):
+        raise WeKnoraError("weknora_down", "底座不可用")
+
+    fake.create_kb = boom
+    await _enable(monkeypatch, fake, storage)
+    try:
+        mp, _versions = await _seed_kb_and_assets(db_session, storage)
+        r = await _migrate(client, mp.id, _refs(fake))
+
+        assert r.status_code == 200, r.text
+        assert r.json()["job_status"] == "failed"  # 不卡 running
+        await db_session.refresh(mp)
+        assert mp.status == "active"  # 建库失败：mapping 未切换
+        assert mp.weknora_kb_id == "old-kb-1"
+        assert mp.migration_state is None
+    finally:
+        _disable()
