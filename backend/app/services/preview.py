@@ -54,6 +54,33 @@ from app.services.storage import LocalFileStorage, safe_filename
 PREVIEW_TTL_MINUTES = 30
 _INACTIVE_STATUSES = {"processing", "archived", "deprecated", "deleted"}
 
+# 扩展名 → 轻量渲染类型；不在此表且 ONLYOFFICE 支持的类型归 office 兜底。
+_LIGHT_RENDER_TYPES = {
+    "pdf": "pdf",
+    "png": "image",
+    "jpg": "image",
+    "jpeg": "image",
+    "gif": "image",
+    "webp": "image",
+    "svg": "image",
+    "bmp": "image",
+    "md": "markdown",
+    "markdown": "markdown",
+    "txt": "text",
+    "csv": "text",
+    "json": "text",
+    "log": "text",
+}
+
+
+def _render_type_for(file_name: str) -> str | None:
+    """按扩展名决定预览渲染类型：pdf / image / markdown / text / office / None（不支持）。"""
+    ext = file_name.rsplit(".", 1)[-1].lower() if "." in (file_name or "") else ""
+    light = _LIGHT_RENDER_TYPES.get(ext)
+    if light is not None:
+        return light
+    return "office" if resolve_doc_type(file_name) is not None else None
+
 
 def _hash(raw: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -354,36 +381,50 @@ async def use_preview_entry(
             },
             project_id=asset.project_id,
         )
-    # ---- 构建真实 ONLYOFFICE 只读预览配置（含平台受控取件 URL）----
+    # ---- 按文件类型分发渲染方式（D1 后 UX 修复：pdf/图片/md/文本轻量预览，
+    # office 走 ONLYOFFICE 只读兜底）----
     original = await _resolve_original(session, asset.id)
     document_title = safe_filename(original[1]) if original else asset.title
+    render_type: str | None = None
+    file_url: str | None = None
     onlyoffice_config: dict | None = None
     message: str | None = None
 
     if original is None:
         message = "preview_source_unavailable"  # 无可用原文源（如未经入库的资产）
-    elif not onlyoffice_enabled():
-        message = "onlyoffice_not_configured"  # 未配置：绝不回退泄露原文 URL
-    elif resolve_doc_type(original[1]) is None:
-        message = "preview_type_not_available"  # 类型不支持
     else:
-        # 铸造短时不透明取件 token：仅哈希入库（明文只进 Document Server 取件 URL）。
-        fetch_token = secrets.token_urlsafe(32)
-        cred.fetch_token_hash = _hash(fetch_token)
-        base = (get_settings().onlyoffice_internal_base_url or "").rstrip("/")
-        fetch_url = f"{base}/api/v1/preview/{cred.id}/file?ft={fetch_token}"
-        # 文档 key：按版本派生（同版本稳定，安全，非 storage_ref / 非内部主键明文）。
-        document_key = _hash(str(cred.target_version_id or cred.id))[:20]
-        try:
-            onlyoffice_config = build_view_config(
-                document_key=document_key,
-                document_title=document_title,
-                file_name=original[1],
-                fetch_url=fetch_url,
-            )
-        except OnlyOfficeError as exc:
-            onlyoffice_config = None
-            message = exc.code
+        render_type = _render_type_for(original[1])
+        if render_type is None:
+            message = "preview_type_not_available"  # 类型不支持
+        elif render_type == "office":
+            if not onlyoffice_enabled():
+                render_type = None
+                message = "onlyoffice_not_configured"  # 未配置：绝不回退泄露原文 URL
+            else:
+                # 铸造短时不透明取件 token：仅哈希入库（明文只进取件 URL）。
+                fetch_token = secrets.token_urlsafe(32)
+                cred.fetch_token_hash = _hash(fetch_token)
+                file_url = f"/api/v1/preview/{cred.id}/file?ft={fetch_token}"
+                base = (get_settings().onlyoffice_internal_base_url or "").rstrip("/")
+                fetch_url = f"{base}{file_url}" if base else file_url
+                # 文档 key：按版本派生（同版本稳定，安全，非 storage_ref / 非内部主键明文）。
+                document_key = _hash(str(cred.target_version_id or cred.id))[:20]
+                try:
+                    onlyoffice_config = build_view_config(
+                        document_key=document_key,
+                        document_title=document_title,
+                        file_name=original[1],
+                        fetch_url=fetch_url,
+                    )
+                except OnlyOfficeError as exc:
+                    render_type = None
+                    onlyoffice_config = None
+                    message = exc.code
+        else:
+            # pdf / image / markdown / text：浏览器直接受控取件（同源相对路径）。
+            fetch_token = secrets.token_urlsafe(32)
+            cred.fetch_token_hash = _hash(fetch_token)
+            file_url = f"/api/v1/preview/{cred.id}/file?ft={fetch_token}"
 
     await session.commit()
 
@@ -395,6 +436,8 @@ async def use_preview_entry(
         credential_fingerprint=cred.credential_fingerprint,
         expires_at=cred.expires_at,
         credential_status=cred.credential_status,
+        render_type=render_type,
+        file_url=file_url,
         onlyoffice_config=onlyoffice_config,
         message=message,
     )

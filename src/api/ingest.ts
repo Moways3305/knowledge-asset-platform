@@ -33,6 +33,8 @@ export async function createIngestUpload(input: {
 }): Promise<IngestUploadResponseDTO> {
   const form = new FormData();
   form.append("file", input.file, input.file.name);
+  const formedOn = localDateFromMs(input.file.lastModified);
+  if (formedOn) form.append("formed_on", formedOn);
   if (input.targetScope) form.append("target_scope", input.targetScope);
   return withCsrfRetry(async () => {
     const resp = await fetch(`${BASE_URL}/api/v1/ingest/upload`, {
@@ -64,6 +66,14 @@ export async function createUploadSession(input: {
 }): Promise<UploadSessionDTO> {
   const form = new FormData();
   input.files.forEach((file) => form.append("files", file, file.name));
+  const formedOnMap: Record<string, string> = {};
+  for (const file of input.files) {
+    const formedOn = localDateFromMs(file.lastModified);
+    if (formedOn) formedOnMap[file.name] = formedOn;
+  }
+  if (Object.keys(formedOnMap).length > 0) {
+    form.append("client_formed_on", JSON.stringify(formedOnMap));
+  }
   if (input.rejectedFiles?.length) {
     form.append("client_rejections", JSON.stringify(input.rejectedFiles));
   }
@@ -79,6 +89,15 @@ export async function createUploadSession(input: {
     });
     return handleResponse<UploadSessionDTO>(resp);
   });
+}
+
+function localDateFromMs(ms: number): string | null {
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  const d = new Date(ms);
+  const y = d.getFullYear();
+  const m = `${d.getMonth() + 1}`.padStart(2, "0");
+  const day = `${d.getDate()}`.padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 export async function fetchUploadSessions(): Promise<UploadSessionDTO[]> {
