@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import io
 import uuid
 
 import httpx
@@ -314,6 +315,8 @@ async def test_confirm_pushes_and_writes_back(client, weknora, db_session):
     # 原文字节真推进底座，metadata 带安全回链。
     assert len(weknora.uploads) == 1
     up = weknora.uploads[0]
+    # 阶段2：底座收治理文本（md），不收原件字节。
+    assert up["file_name"] == "doc.md"
     assert up["content"] == _TXT
     assert up["metadata"]["asset_id"] == r.json()["result_asset_id"]
     assert "confidentiality_level" in up["metadata"]
@@ -329,10 +332,49 @@ async def test_confirm_pushes_and_writes_back(client, weknora, db_session):
     assert ver.weknora_doc_id == up["doc_id"]
     assert ver.weknora_kb_id == up["kb_id"]
     assert ver.weknora_parse_status == "processing"
+    # 阶段3：索引成功后落 chunk 注册表（治理文本切块）。
+    from app.models.knowledge import KnowledgeAssetChunk
+
+    chunk_rows = list(
+        (
+            await db_session.execute(
+                select(KnowledgeAssetChunk).where(KnowledgeAssetChunk.version_id == ver.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert chunk_rows, "索引成功后应落 chunk 注册表"
+    assert "第一行标题" in chunk_rows[0].content_text
     # 索引成功标 indexed；建库后执行了初始化。
     assert r.json()["index_status"] == "indexed"
     assert ver.index_status == "indexed"
     assert len(weknora.initialized) == 1
+
+
+async def test_confirm_uploads_governance_text_not_original_docx(client, weknora, db_session):
+    from docx import Document
+
+    buf = io.BytesIO()
+    doc = Document()
+    doc.add_paragraph("供应链优化交付报告")
+    doc.add_paragraph("正文要点")
+    doc.save(buf)
+    original = buf.getvalue()
+
+    task_id = await _upload(
+        client,
+        USER_CONSULTANT,
+        file_name="report.docx",
+        content=original,
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    r = await _confirm(client, USER_CONSULTANT, task_id)
+    assert r.status_code == 200, r.text
+    up = weknora.uploads[0]
+    assert up["file_name"] == "report.md"
+    assert "供应链优化交付报告" in up["content"].decode("utf-8")
+    assert up["content"] != original  # 原件 docx 字节不进底座
 
 
 async def test_kb_mapping_idempotent(client, weknora):

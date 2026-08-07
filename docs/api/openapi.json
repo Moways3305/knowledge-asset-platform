@@ -3011,167 +3011,6 @@
         "title": "DefaultModelsUpdateRequest",
         "type": "object"
       },
-      "DifyExternalRequest": {
-        "description": "官方字段：knowledge_id / query / retrieval_setting / metadata_condition?。",
-        "properties": {
-          "knowledge_id": {
-            "title": "Knowledge Id",
-            "type": "string"
-          },
-          "metadata_condition": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Metadata Condition"
-          },
-          "query": {
-            "title": "Query",
-            "type": "string"
-          },
-          "retrieval_setting": {
-            "$ref": "#/components/schemas/DifyRetrievalSetting",
-            "default": {
-              "score_threshold": 0.0,
-              "top_k": 3
-            }
-          }
-        },
-        "required": [
-          "knowledge_id",
-          "query"
-        ],
-        "title": "DifyExternalRequest",
-        "type": "object"
-      },
-      "DifyRetrievalSetting": {
-        "properties": {
-          "score_threshold": {
-            "default": 0.0,
-            "title": "Score Threshold",
-            "type": "number"
-          },
-          "top_k": {
-            "default": 3,
-            "title": "Top K",
-            "type": "integer"
-          }
-        },
-        "title": "DifyRetrievalSetting",
-        "type": "object"
-      },
-      "DifyToolFilters": {
-        "properties": {
-          "include_archived": {
-            "default": false,
-            "title": "Include Archived",
-            "type": "boolean"
-          },
-          "phase": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Phase"
-          },
-          "tags": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Tags",
-            "type": "array"
-          },
-          "zone": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Zone"
-          }
-        },
-        "title": "DifyToolFilters",
-        "type": "object"
-      },
-      "DifyToolRequest": {
-        "description": "Dify workflow HTTP Tool 调用：显式携带 caller / scope / project 等参数。",
-        "properties": {
-          "asset_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Asset Id"
-          },
-          "caller_user_id": {
-            "format": "uuid",
-            "title": "Caller User Id",
-            "type": "string"
-          },
-          "filters": {
-            "$ref": "#/components/schemas/DifyToolFilters",
-            "default": {
-              "include_archived": false,
-              "tags": []
-            }
-          },
-          "intent": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Intent"
-          },
-          "query": {
-            "title": "Query",
-            "type": "string"
-          },
-          "scope": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Scope"
-          },
-          "want_original": {
-            "default": false,
-            "title": "Want Original",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "caller_user_id",
-          "query"
-        ],
-        "title": "DifyToolRequest",
-        "type": "object"
-      },
       "EvidenceCategory": {
         "enum": [
           "meeting_minutes",
@@ -20084,7 +19923,7 @@
         },
         "summary": "List Agent Whitelist",
         "tags": [
-          "dify"
+          "agent-registry"
         ]
       },
       "post": {
@@ -20173,7 +20012,7 @@
         },
         "summary": "Create Agent Whitelist",
         "tags": [
-          "dify"
+          "agent-registry"
         ]
       }
     },
@@ -20274,7 +20113,7 @@
         },
         "summary": "Update Agent Whitelist",
         "tags": [
-          "dify"
+          "agent-registry"
         ]
       }
     },
@@ -24548,138 +24387,6 @@
         "summary": "Create Company Kb",
         "tags": [
           "company-knowledge-base"
-        ]
-      }
-    },
-    "/api/v1/dify/external-knowledge/retrieval": {
-      "post": {
-        "operationId": "dify_external_retrieval_api_v1_dify_external_knowledge_retrieval_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Platform-User-Id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Platform-User-Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DifyExternalRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Dify External Retrieval",
-        "tags": [
-          "dify"
-        ]
-      }
-    },
-    "/api/v1/dify/tools/knowledge-search": {
-      "post": {
-        "operationId": "dify_tool_search_api_v1_dify_tools_knowledge_search_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DifyToolRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SearchResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Dify Tool Search",
-        "tags": [
-          "dify"
         ]
       }
     },

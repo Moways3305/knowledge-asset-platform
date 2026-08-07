@@ -5,7 +5,7 @@
 
 强约束：
 - 消息体只含**安全元数据**（title / content，已在落库时值级脱敏）——绝不含业务原文 /
-  抽取全文 / 原始 chunk / 完整预览 token / storage_ref / WeKnora·Dify id / 任何密钥 / 文件 URL。
+  抽取全文 / 原始 chunk / 完整预览 token / storage_ref / provider 内部 id / 任何密钥 / 文件 URL。
 - 收件人按 `users.wecom_user_id` 解析；缺失/非 active → 安全失败，不自动建人。
 - 上游错误映射为安全 code（不存原始 payload）。发送失败**绝不**回滚底层治理事实。
 - 通知下发不是授权：不授予任何访问、不携带原文。

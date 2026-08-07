@@ -1,7 +1,7 @@
 """外部 Agent / 工作流网关的 **provider 中立** 请求 / 响应 schema。
 
-平台核心是 provider 中立的「外部 Agent / 工作流网关」；Dify 只是其中一个兼容适配器
-（见 `app/api/dify.py`）。本模块定义与具体 provider 无关的安全数据形态：
+平台核心是 provider 中立的「外部 Agent / 工作流网关」（WorkBuddy 主接入面）。
+本模块定义与具体 provider 无关的安全数据形态：
 
 - `ExternalRetrievalRecord`：网关返回给上层调用方的安全检索证据（已脱敏 / 安全摘要）。
 - 接入注册（registry）的安全管理视图与请求体。

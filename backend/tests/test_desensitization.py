@@ -381,8 +381,8 @@ async def test_weknora_receives_original_and_no_leak(client, monkeypatch):
     r = await _confirm(client, task_id)
     assert r.status_code == 200, r.text
     assert r.json()["index_status"] == "indexed"
-    # WeKnora 底座按信任边界收到**原始**文件内容（未脱敏），证明原文链路未被改写。
-    assert ok.uploaded_content == _SENSITIVE
+    # 阶段2：WeKnora 底座收到**治理文本**（verbatim 抽取，未脱敏；抽取会 strip 首尾空白）。
+    assert ok.uploaded_content == _SENSITIVE.strip()
     # 但响应不泄露 WeKnora 内部 id / 存储 ref。
     for token in [
         "weknora_kb_id",
@@ -410,8 +410,8 @@ async def test_retry_index_not_blocked_by_missing_desensitized_text(
     rr = await client.post(f"{KN}/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT))
     assert rr.status_code == 200, rr.text
     assert rr.json()["index_status"] == "indexed"
-    # 重试同样把**原始**文件内容推给底座（不依赖任何脱敏代理）。
-    assert ok.uploaded_content == _SENSITIVE
+    # 重试同样把**治理文本**推给底座（不依赖任何脱敏代理）。
+    assert ok.uploaded_content == _SENSITIVE.strip()
 
 
 # ---------------------------------------------------------------------------

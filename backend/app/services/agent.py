@@ -1,4 +1,4 @@
-"""Agent / Dify Gateway 服务（真实检索 + 外部 LLM 自拼答案）。
+"""Agent Gateway 服务（真实检索 + 外部 LLM 自拼答案）。
 
 跑通：项目 Q&A → 以真实调用人身份复用集中权限判断 → **WeKnora chunk 级召回**（取代
 的关键词粗召回）→ 记录调用 / 决策 / 候选项 / 引用 → **放行+脱敏 chunk 喂
@@ -8,7 +8,7 @@
 agent_gateway_decisions / decision_items / citations 权限-审计骨架与全部边界。
 
 当前边界：
-- 不接真实 Dify；不引入 Dify SDK；不保存 Dify app_id / workflow_id / dataset_id / api_key。
+- 不依赖任何具体外部平台；不保存 provider 内部 app / workflow id、api_key。
 - 召回 / 脱敏 / 答案为同步调用（不在本服务内做 Celery 异步）。
 - Agent 不拥有独立权限，完全跟随 caller：能力、范围、原文层都由
   `app.services.permission.decide(..., channel=agent)` 决定。
@@ -73,7 +73,7 @@ from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.weknora_client import NullWeKnoraClient, WeKnoraClient
 
 # provider：平台抽象标识。已接真实 WeKnora 检索 + 外部 LLM，故 provider 为
-# weknora_llm（非 internal_stub 桩）。仍是平台内部抽象，不暴露 Dify / WeKnora / LLM
+# weknora_llm（非 internal_stub 桩）。仍是平台内部抽象，不暴露 provider / WeKnora / LLM
 # 内部敏感标识。
 PROVIDER = AgentProvider.weknora_llm.value
 
@@ -342,9 +342,14 @@ async def run_project_qa(
         project_id=project_id,
     )
 
-    # ---- 6. 收集放行+脱敏证据（只来自 summary/original 放行候选；引用片段必经脱敏）----
+    # ---- 6. 收集放行+脱敏证据（D1 阶段4：子块召回 → 父文件全文给 Agent；引用必经脱敏）----
     desens = LlmOutputDesensitizer(selected_llm)
-    evidences = await retrieval.gather_evidence(recalled, desens, trace_id=trace_id)
+    evidences = await retrieval.gather_parent_context(
+        session,
+        recalled,
+        desens,
+        trace_id=trace_id,
+    )
 
     # 无任何可用证据（全部候选仅发现层 / 脱敏全失败 / 无召回）→ 调用整体拒绝，不编造引用。
     if not evidences:
@@ -547,7 +552,7 @@ async def _citations_of(session: AsyncSession, call_id: uuid.UUID) -> list[Citat
 async def get_agent_call(
     session: AsyncSession, caller: CallerContext, call_id: uuid.UUID
 ) -> AgentCallDetailResponse:
-    """获取 Agent 调用记录（本人 / boss / 咨询总监）。不返回 Dify 内部标识。"""
+    """获取 Agent 调用记录（本人 / boss / 咨询总监）。不返回 provider 内部标识。"""
     call = await _load_call_for_view(session, caller, call_id)
     citations = await _citations_of(session, call_id)
     # 提供人类可读名（治理展示用）。各一次主键查询，避免 N+1。

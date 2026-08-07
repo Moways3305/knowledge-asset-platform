@@ -7,10 +7,10 @@ original_access_requests，）、接入注册（agent_whitelist_rules）、审�
 
 枚举值以 String 存储 + 应用层 enum 校验，不使用 DB 原生 enum。
 
-安全：这些表**不保存且不返回** storage_ref / vector_id / Dify 内部 ID
+安全：这些表**不保存且不返回** storage_ref / vector_id / provider 内部 ID
 （app_id / workflow_id / dataset_id / api_key）/ 对象存储 URL / 完整原文文件内容。
 provider 字段保存的是平台抽象标识（weknora_llm；internal_stub 为已取代的旧桩），
-不是 Dify / WeKnora / LLM 内部敏感标识。
+不是 provider / WeKnora / LLM 内部敏感标识。
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ class AgentCall(Base):
     response_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Historical column name retained; value is now system_default or a safe model_ref.
     model_key: Mapped[str] = mapped_column(String(128), nullable=False)
-    # provider：平台抽象标识（weknora_llm；internal_stub 为旧桩）。不保存 Dify 敏感标识。
+    # provider：平台抽象标识（weknora_llm；internal_stub 为旧桩）。不保存 provider 敏感标识。
     provider: Mapped[str] = mapped_column(String(30), nullable=False)
     capability: Mapped[str] = mapped_column(String(30), nullable=False)
     call_status: Mapped[str] = mapped_column(String(20), nullable=False)

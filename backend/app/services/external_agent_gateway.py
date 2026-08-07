@@ -4,8 +4,8 @@
 解析知识选择器 → scope/project → 解析真实平台调用人 → 同一套权限网关召回 →
 裁剪为安全的 provider 中立 records（已脱敏证据 / 安全摘要，绝不原始 chunk）。
 
-本模块**不依赖任何具体 provider**（Dify / Coze / 自研皆通过适配器调用本核心）。
-provider 专属的请求 / 响应转译只存在于适配器（如 `app/api/dify.py`）。
+本模块**不依赖任何具体 provider**（WorkBuddy / Coze / 自研皆通过适配器调用本核心）。
+provider 专属的请求 / 响应转译只存在于适配器（如 `app/api/agent_gateway.py`）。
 
 强约束：
 - **不发明 provider 超级用户**：必须解析出真实平台调用人，否则 fail closed（不检索）。

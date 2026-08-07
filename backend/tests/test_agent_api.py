@@ -1,4 +1,4 @@
-"""Agent / Dify Gateway API 测试（IMPLEMENT-08 最小闭环）。
+"""Agent Gateway API 测试（IMPLEMENT-08 最小闭环）。
 
 覆盖：
 1. 项目成员 Q&A 成功，返回 call_id / answer / citations。
@@ -440,7 +440,7 @@ async def test_agent_call_visibility_and_no_leak(client):
     assert body["caller_name"]
     assert body["project_name"]
     _assert_no_leak(own.text)
-    # provider 为平台抽象标识（真实链路），不暴露 Dify 内部标识。
+    # provider 为平台抽象标识（真实链路），不暴露 provider 内部标识。
     assert body["provider"] == "weknora_llm"
 
     # boss（治理角色）可见。

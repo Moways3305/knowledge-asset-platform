@@ -4,7 +4,7 @@
 
 权限/脱敏/审计全部委托 `app.services.search`（其复用集中权限服务与检索编排）。
 响应不含任何 weknora kb/doc/chunk id、内部存储引用、api_key、未脱敏原文。
-该接口是 Dify 外部知识库协议适配的底层。
+该接口是外部 Agent 检索适配的底层。
 """
 
 from __future__ import annotations

@@ -1,10 +1,10 @@
 """文本抽取服务。
 
 输入文件字节 + 文件名 / mime，输出抽取全文草稿 + 状态。纯 Python 抽取库
-（txt/md 直读、pdf 用 pypdf、docx 用 python-docx、pptx 用 python-pptx），
-Windows 无原生二进制依赖。
+（txt/md 直读、pdf 用 pypdf、docx 用 python-docx、pptx 用 python-pptx、
+xlsx 用 openpyxl 转 markdown 表格），Windows 无原生二进制依赖。
 
-边界：不接真实 LLM / 大模型；不做 OCR；不支持 xlsx / 旧二进制 ppt / 图片
+边界：不接真实 LLM / 大模型；不做 OCR；不支持 旧版 .xls / 图片
 （标 `unsupported`，不崩溃、不阻断任务创建）；不做切块 / 向量化。
 
 安全：抽取全文是**用户业务内容**，可能含 `s3://` / `internal://` / URL 等字样——
@@ -29,6 +29,7 @@ _TEXT_EXT = {"txt", "md", "markdown", "csv", "log", "text", "rst"}
 
 _DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 _PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 @dataclass(frozen=True)
@@ -52,8 +53,10 @@ def _extract_pdf(content: bytes) -> str:
 
     reader = PdfReader(io.BytesIO(content))
     parts: list[str] = []
-    for page in reader.pages:
-        parts.append(page.extract_text() or "")
+    for index, page in enumerate(reader.pages, start=1):
+        page_text = page.extract_text() or ""
+        # 页码标记（D1 阶段3）：供 chunk 注册表记录 source_page / 查看原文定位。
+        parts.append(f"{{{{page:{index}}}}}\n{page_text}" if page_text else "")
     return "\n".join(parts)
 
 
@@ -100,6 +103,49 @@ def _extract_pptx(content: bytes) -> str:
     return "\n\n".join(slides)
 
 
+def _xlsx_cell(value: object) -> str:
+    """单元格 → 单行文本（`|` / 换行转义，避免破坏 markdown 表格）。"""
+    if value is None:
+        return ""
+    return str(value).strip().replace("|", "\\|").replace("\n", " ").replace("\r", " ")
+
+
+def _extract_xlsx(content: bytes) -> str:
+    """xlsx → 每个 sheet 一个 markdown 表格（sheet 名 + 表头 + 行）。
+
+    read_only + data_only：大文件低内存；公式取 Excel 缓存值（无缓存值则为空）。
+    首行视为表头（空表头回退列号 A/B/…），其余为数据行。
+    """
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    sheets: list[str] = []
+    try:
+        for sheet in workbook.worksheets:
+            rows: list[list[object]] = []
+            for row in sheet.iter_rows(values_only=True):
+                if any(cell is not None and str(cell).strip() for cell in row):
+                    rows.append(list(row))
+            if not rows:
+                continue
+            width = max(len(row) for row in rows)
+            first = rows[0]
+            header = [_xlsx_cell(first[i] if i < len(first) else "") for i in range(width)]
+            header = [h or (chr(65 + i) if i < 26 else f"列{i + 1}") for i, h in enumerate(header)]
+            lines = [
+                f"## {sheet.title or 'Sheet'}",
+                "| " + " | ".join(header) + " |",
+                "| " + " | ".join(["---"] * width) + " |",
+            ]
+            for row in rows[1:]:
+                cells = [_xlsx_cell(row[i] if i < len(row) else "") for i in range(width)]
+                lines.append("| " + " | ".join(cells) + " |")
+            sheets.append("\n".join(lines))
+    finally:
+        workbook.close()
+    return "\n\n".join(sheets)
+
+
 def extract_text(content: bytes, *, file_name: str | None, mime: str | None) -> ExtractionResult:
     """按扩展名 / mime 路由抽取文本，返回结构化结果（绝不抛出到调用方）。"""
     ext = _ext(file_name)
@@ -114,11 +160,17 @@ def extract_text(content: bytes, *, file_name: str | None, mime: str | None) -> 
             text = _extract_docx(content)
         elif ext == "pptx" or mime == _PPTX_MIME:
             text = _extract_pptx(content)
+        elif ext == "xlsx" or mime == _XLSX_MIME:
+            text = _extract_xlsx(content)
         else:
             unsupported_message = (
                 "当前 .ppt 格式暂不支持自动提取（文件已落盘，请人工补全内容）"
                 if ext == "ppt"
-                else f"暂不支持从 .{ext or '该类型'} 文件抽取文本（文件已落盘，请人工补全内容）"
+                else (
+                    "旧版 .xls 暂不支持自动提取（文件已落盘），请另存为 .xlsx 后重新上传"
+                    if ext == "xls"
+                    else f"暂不支持从 .{ext or '该类型'} 文件抽取文本（文件已落盘，请人工补全内容）"
+                )
             )
             return ExtractionResult(
                 text="",

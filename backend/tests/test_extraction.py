@@ -1,7 +1,8 @@
 """文本抽取服务单测（IMPLEMENT-14）。
 
-覆盖 txt/md 直读、PDF（pypdf）、docx（python-docx）、pptx（python-pptx）真实抽取，
-以及 unsupported / empty / failed 分支。不依赖数据库。
+覆盖 txt/md 直读、PDF（pypdf）、docx（python-docx）、pptx（python-pptx）、
+xlsx（openpyxl 转 markdown 表格）真实抽取，以及 unsupported / empty / failed 分支。
+不依赖数据库。
 """
 
 from __future__ import annotations
@@ -87,6 +88,27 @@ def _make_pptx(*, long_text: str | None = None, image_only: bool = False) -> byt
     return buf.getvalue()
 
 
+def _make_xlsx() -> bytes:
+    """构造一个含两个 sheet 的 xlsx：一个有表头 + 数据（含 | 转义），一个空表头回退列号。"""
+    from openpyxl import Workbook
+
+    workbook = Workbook()
+    sheet1 = workbook.active
+    sheet1.title = "报价单"
+    sheet1.append(["型号", "价格(元/台)"])
+    sheet1.append(["A-100", "1,200"])
+    sheet1.append(["B|200", "3,500"])
+
+    sheet2 = workbook.create_sheet("明细")
+    sheet2.append(["", "2024"])
+    sheet2.append(["产量", 1200])
+    sheet2.append(["良率", "98.5%"])
+
+    buf = io.BytesIO()
+    workbook.save(buf)
+    return buf.getvalue()
+
+
 def test_extract_txt():
     r = extract_text("第一行标题\n正文内容".encode(), file_name="a.txt", mime="text/plain")
     assert r.status == "extracted"
@@ -129,6 +151,8 @@ def test_extract_txt_non_utf8_robust():
 def test_extract_pdf():
     r = extract_text(_make_pdf("Hello PDF Extract"), file_name="a.pdf", mime="application/pdf")
     assert r.status == "extracted"
+    # 阶段3：PDF 每页带 {{page:N}} 标记，供 chunk 注册表记录页码。
+    assert "{{page:1}}" in r.text
     assert "Hello PDF Extract" in r.text
 
 
@@ -197,10 +221,46 @@ def test_extract_legacy_ppt_is_explicitly_unsupported():
 
 
 def test_extract_unsupported():
-    r = extract_text(b"PK\x03\x04binary", file_name="a.xlsx", mime="application/octet-stream")
+    r = extract_text(b"PK\x03\x04binary", file_name="a.rtf", mime="application/rtf")
     assert r.status == "unsupported"
     assert r.error_type == "extraction_unsupported"
     assert r.text == ""
+
+
+def test_extract_xlsx():
+    r = extract_text(
+        _make_xlsx(),
+        file_name="a.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    assert r.status == "extracted"
+    assert "## 报价单" in r.text
+    assert "| 型号 | 价格(元/台) |" in r.text
+    assert "| A-100 | 1,200 |" in r.text
+    # `|` 在单元格内被转义，避免破坏 markdown 表格结构。
+    assert "B\\|200" in r.text
+    # 第二个 sheet：空表头单元格回退列号（仅回退空单元格）。
+    assert "## 明细" in r.text
+    assert "| A | 2024 |" in r.text
+    assert r.error_type is None
+
+
+def test_extract_xlsx_empty_sheets_returns_empty():
+    from openpyxl import Workbook
+
+    workbook = Workbook()
+    workbook.active.title = "空表"
+    buf = io.BytesIO()
+    workbook.save(buf)
+    r = extract_text(buf.getvalue(), file_name="a.xlsx", mime=None)
+    assert r.status == "empty"
+    assert r.error_type == "extraction_empty"
+
+
+def test_extract_xls_unsupported_with_actionable_hint():
+    r = extract_text(b"\xd0\xcf\x11\xe0 old binary", file_name="a.xls", mime=None)
+    assert r.status == "unsupported"
+    assert "另存为 .xlsx" in (r.error_message or "")
 
 
 def test_extract_empty_pdf():

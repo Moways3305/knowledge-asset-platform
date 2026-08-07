@@ -1,7 +1,7 @@
 """外部 Agent 接入注册服务。
 
 负责 `agent_whitelist_rules` 的 token 哈希 / 鉴权查询 / 管理 CRUD。注册行 provider 中立
-（`provider` 列区分 dify / coze / 自研等），管理与鉴权逻辑不绑定任何具体 provider。
+（`provider` 列区分 workbuddy / custom 等），管理与鉴权逻辑不绑定任何具体 provider。
 
 安全红线：
 - **绝不存 / 返回明文 token**：只存 `token_hash`（sha256）。明文仅在创建/重置时**一次性**

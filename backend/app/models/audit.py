@@ -8,8 +8,8 @@
 或追加一条 `audit.exception_processed` 处理事件。
 
 写入时脱敏：snapshot / extra 根本不写入业务原文、客户数据、未脱敏
-AI 正文、storage_ref、对象存储 URL/bucket、完整 preview token、Dify
-api_key/workflow_id/dataset_id/kb_id/collection、向量库内部 ID 等。集中写入服务
+AI 正文、storage_ref、对象存储 URL/bucket、完整 preview token、provider
+内部 app/workflow id、kb/collection、向量库内部 ID 等。集中写入服务
 `app.services.audit` 负责保证只放安全元数据。
 
 枚举值（log_type / severity / action / 角色快照）以 String 存储 + 应用层 enum

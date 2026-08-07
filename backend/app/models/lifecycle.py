@@ -10,7 +10,7 @@
 - trace_id（asset_lifecycle_events）：为满足生命周期事件查询响应
   必含 `trace_id` 字段、并支持「预警→确认→状态变更」同链路串联而新增。
 - notification_records 只存安全元数据（标题 / 安全摘要内容），绝不存业务原文、
-  storage_ref、对象存储 URL、完整 preview token、Dify api_key/workflow_id/dataset_id、
+  storage_ref、对象存储 URL、完整 preview token、provider 内部 app/workflow id、
   向量库内部 ID 等（沿用审计脱敏约束）。
 
 枚举值以 String 存储 + 应用层校验，不使用 DB 原生 enum；通知渠道用跨库 JSON 列。

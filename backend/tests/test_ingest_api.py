@@ -945,7 +945,13 @@ async def test_upload_unsupported_still_pending(client):
     resp = await client.post(
         UPLOAD,
         headers=_hdr(USER_CONSULTANT),
-        files={"file": ("sheet.xlsx", b"PK\x03\x04binary-xlsx", "application/octet-stream")},
+        files={
+            "file": (
+                "sheet.ods",
+                b"PK\x03\x04binary-ods",
+                "application/vnd.oasis.opendocument.spreadsheet",
+            )
+        },
     )
     assert resp.status_code == 200
     assert resp.json()["status"] == "pending_confirmation"

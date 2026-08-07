@@ -232,6 +232,9 @@ class KnowledgeAssetChunk(Base):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_type: Mapped[str] = mapped_column(String(30), nullable=False)
     content_text: Mapped[str] = mapped_column(Text, nullable=False)
+    # 定位元数据（D1 v1.3 阶段3）：来源页码 / 章节，供「查看原文」与父文件定位。
+    source_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_section: Mapped[str | None] = mapped_column(String(200), nullable=True)
     token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     chunk_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     chunk_status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
