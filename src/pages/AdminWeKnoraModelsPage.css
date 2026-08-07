@@ -489,6 +489,7 @@
 
 .mf-kb-table-wrap {
   max-width: 100%;
+  overflow-x: auto;
 }
 
 .mf-kb-table {

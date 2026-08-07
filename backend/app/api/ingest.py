@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import json
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import TypeAdapter, ValidationError
@@ -68,7 +69,26 @@ _LOCAL_UPLOAD_EXTENSIONS = {
 }
 _UPLOAD_READ_TIMEOUT_SECONDS = 30
 _MAX_CLIENT_REJECTIONS = 5000
+_CLIENT_FORMED_ON_LIMIT = 200
 _CLIENT_REJECTIONS_ADAPTER = TypeAdapter(list[UploadClientRejection])
+
+
+def _normalize_formed_on(value: str | None) -> str | None:
+    """校验客户端提交的文件形成日期建议（YYYY-MM-DD），非法 → None。"""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value.strip(), "%Y-%m-%d").strftime("%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def _formed_on_for(client_map: dict[str, str], file_name: str) -> str | None:
+    """文件形成日期建议：客户端 lastModified 优先，其次文件名正则兜底。"""
+    client_value = _normalize_formed_on(client_map.get(file_name))
+    if client_value:
+        return client_value
+    return upload_session_service.extract_formed_on_from_filename(file_name)
 
 
 async def _confirmed_task_result(
@@ -90,6 +110,7 @@ async def create_upload(
     file: UploadFile = File(...),
     target_scope: str | None = Form(default=None),
     target_project_id: uuid.UUID | None = Form(default=None),
+    formed_on: str | None = Form(default=None),
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
     storage: LocalFileStorage = Depends(get_storage),
@@ -142,6 +163,8 @@ async def create_upload(
         file_mime_type=file.content_type,
         target_scope=target_scope,
         target_project_id=target_project_id,
+        formed_on=_normalize_formed_on(formed_on)
+        or upload_session_service.extract_formed_on_from_filename(file_name),
         storage=storage,
         llm=llm,
         desensitizer=desensitizer,
@@ -154,6 +177,7 @@ async def create_upload_session(
     request: Request,
     files: list[UploadFile] | None = File(default=None),
     client_rejections: str | None = Form(default=None),
+    client_formed_on: str | None = Form(default=None),
     session_id: uuid.UUID | None = Form(default=None),
     target_scope: str | None = Form(default=None),
     target_project_id: uuid.UUID | None = Form(default=None),
@@ -177,6 +201,21 @@ async def create_upload_session(
     if existing is not None:
         return existing
     candidates: list[upload_session_service.UploadCandidate] = []
+    client_formed_map: dict[str, str] = {}
+    if client_formed_on:
+        try:
+            parsed_formed_on = json.loads(client_formed_on)
+            if (
+                isinstance(parsed_formed_on, dict)
+                and len(parsed_formed_on) <= _CLIENT_FORMED_ON_LIMIT
+            ):
+                client_formed_map = {
+                    str(k): str(v)
+                    for k, v in parsed_formed_on.items()
+                    if isinstance(k, str) and isinstance(v, str)
+                }
+        except (json.JSONDecodeError, TypeError, ValueError):
+            client_formed_map = {}
     if client_rejections:
         try:
             parsed_rejections = _CLIENT_REJECTIONS_ADAPTER.validate_python(
@@ -343,6 +382,7 @@ async def create_upload_session(
                         file_type=file.content_type,
                         storage_ref=storage_ref,
                         content_hash=hashlib.sha256(content).hexdigest(),
+                        suggested_formed_on=_formed_on_for(client_formed_map, file_name),
                     )
                 )
             except StorageError:

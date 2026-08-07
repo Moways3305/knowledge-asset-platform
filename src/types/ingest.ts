@@ -238,6 +238,8 @@ export interface PendingIngestItemDTO {
   source_file_name: string;
   target_scope: string | null;
   target_project_id: string | null;
+  // 文件形成日期建议（YYYY-MM-DD；客户端文件修改时间 / 文件名兜底），人工可改可清空。
+  suggested_formed_on?: string | null;
   can_batch_confirm: boolean;
   can_batch_reject: boolean;
   extraction_status: string | null;

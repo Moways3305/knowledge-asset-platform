@@ -209,6 +209,8 @@ export async function fetchPreviewEntry(entryUrl: string): Promise<PreviewEntryV
     documentTitle: String(data.document_title ?? ""),
     expiresAt: String(data.expires_at ?? ""),
     status: String(data.credential_status ?? ""),
+    renderType: typeof data.render_type === "string" ? data.render_type : null,
+    fileUrl: typeof data.file_url === "string" ? data.file_url : null,
     onlyofficeConfig: (data["onlyoffice_" + "config"] as Record<string, unknown> | null) ?? null,
     message: typeof data.message === "string" ? data.message : null,
   };

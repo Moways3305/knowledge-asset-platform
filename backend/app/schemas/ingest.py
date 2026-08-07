@@ -349,6 +349,8 @@ class PendingIngestItem(BaseModel):
     source_file_name: str
     target_scope: str | None = None
     target_project_id: uuid.UUID | None = None
+    # 文件形成日期建议（YYYY-MM-DD；客户端文件修改时间 / 文件名兜底），人工可改可清空。
+    suggested_formed_on: str | None = None
     # Server-derived UX capability. This never replaces confirmation endpoint
     # authorization or validation.
     can_batch_confirm: bool = False

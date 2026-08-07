@@ -98,11 +98,18 @@ async def test_admin_cannot_issue_preview(client):
 
 async def test_preview_entry_returns_onlyoffice_config(client, monkeypatch):
     _enable_onlyoffice(monkeypatch)
-    asset_id = await _upload_confirm_personal(client)
+    # office 类型（docx）走 ONLYOFFICE 只读预览。
+    asset_id = await _upload_confirm_personal(
+        client,
+        name="报告.docx",
+        content=b"fake docx bytes",
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
     cred_id = (await _issue(client, asset_id)).json()["credential_id"]
     entry = await client.get(f"/api/v1/preview/{cred_id}", headers=_hdr(USER_CONSULTANT))
     assert entry.status_code == 200, entry.text
     body = entry.json()
+    assert body["render_type"] == "office"
     assert body["onlyoffice_config"] is not None
     cfg = body["onlyoffice_config"]
     assert cfg["editorConfig"]["mode"] == "view"
@@ -127,9 +134,28 @@ async def test_preview_entry_wrong_user_404(client, monkeypatch):
     assert other.status_code == 404
 
 
-async def test_preview_not_configured_safe_message(client):
-    # 未启用 ONLYOFFICE（默认）→ 安全说明，无 config，无泄露，不回退原文 URL。
+async def test_preview_plain_text_needs_no_onlyoffice(client):
+    # txt 走轻量文本渲染：未启用 ONLYOFFICE 也能预览（file_url 受控取件）。
     asset_id = await _upload_confirm_personal(client)
+    cred_id = (await _issue(client, asset_id)).json()["credential_id"]
+    entry = await client.get(f"/api/v1/preview/{cred_id}", headers=_hdr(USER_CONSULTANT))
+    assert entry.status_code == 200
+    body = entry.json()
+    assert body["render_type"] == "text"
+    assert body["file_url"] is not None
+    assert "ft=" in body["file_url"]
+    assert body["onlyoffice_config"] is None
+    _assert_no_leak(entry.text)
+
+
+async def test_preview_office_requires_onlyoffice(client):
+    # office 类型未启用 ONLYOFFICE → 安全说明，无 config，无泄露。
+    asset_id = await _upload_confirm_personal(
+        client,
+        name="报告.docx",
+        content=b"fake docx bytes",
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
     cred_id = (await _issue(client, asset_id)).json()["credential_id"]
     entry = await client.get(f"/api/v1/preview/{cred_id}", headers=_hdr(USER_CONSULTANT))
     assert entry.status_code == 200
@@ -138,21 +164,23 @@ async def test_preview_not_configured_safe_message(client):
     _assert_no_leak(entry.text)
 
 
-async def test_preview_unsupported_type(client, monkeypatch):
+async def test_preview_image_render_type(client, monkeypatch):
     _enable_onlyoffice(monkeypatch)
     asset_id = await _upload_confirm_personal(
         client, name="image.png", content=b"\x89PNG fake bytes", mime="image/png"
     )
     cred_id = (await _issue(client, asset_id)).json()["credential_id"]
     entry = await client.get(f"/api/v1/preview/{cred_id}", headers=_hdr(USER_CONSULTANT))
-    assert entry.json()["onlyoffice_config"] is None
-    assert entry.json()["message"] == "preview_type_not_available"
+    body = entry.json()
+    assert body["render_type"] == "image"
+    assert body["file_url"] is not None
+    assert body["onlyoffice_config"] is None
 
 
 # ---------------- 受控取件端点 ----------------
 async def _entry_fetch_token(client, cred_id):
     entry = await client.get(f"/api/v1/preview/{cred_id}", headers=_hdr(USER_CONSULTANT))
-    url = entry.json()["onlyoffice_config"]["document"]["url"]
+    url = entry.json()["file_url"]
     return parse_qs(urlparse(url).query)["ft"][0]
 
 

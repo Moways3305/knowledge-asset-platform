@@ -1880,6 +1880,17 @@
             "title": "File",
             "type": "string"
           },
+          "formed_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Formed On"
+          },
           "target_project_id": {
             "anyOf": [
               {
@@ -1912,6 +1923,17 @@
       },
       "Body_create_upload_session_api_v1_ingest_upload_sessions_post": {
         "properties": {
+          "client_formed_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Formed On"
+          },
           "client_rejections": {
             "anyOf": [
               {
@@ -8548,6 +8570,17 @@
             "title": "Suggested Confidentiality Level",
             "type": "string"
           },
+          "suggested_formed_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Formed On"
+          },
           "suggested_one_liner": {
             "anyOf": [
               {
@@ -9832,7 +9865,7 @@
         "type": "object"
       },
       "PreviewEntryResponse": {
-        "description": "平台受控预览入口返回（真实 ONLYOFFICE 只读预览配置）。\n\nonlyoffice_config 含 Document Server 编辑器配置 + 平台受控取件 URL（含短时 token）；\n**绝不**含内部存储引用 / 源文件引用 / 对象存储 URL / 完整凭证 token / jwt 密钥 /\nWeKnora id。未配置 / 不支持类型 / 无可用源 时 onlyoffice_config 为 None，message 给安全说明。",
+        "description": "平台受控预览入口返回（按文件类型分发渲染方式）。\n\n- render_type：pdf / image / markdown / text / office——前端据此选择渲染器；\n- file_url：平台受控取件相对路径（含短时 fetch token，仅凭证有效期内可读），\n  供浏览器内嵌（PDF 查看器 / 图片 / 文本读取）使用；\n- onlyoffice_config：render_type=office 时含 Document Server 编辑器配置 + 平台受控取件 URL；\n**绝不**含内部存储引用 / 源文件引用 / 对象存储 URL / 完整凭证 token / jwt 密钥 /\nWeKnora id。未配置 / 不支持类型 / 无可用源 时对应字段为 None，message 给安全说明。",
         "properties": {
           "credential_fingerprint": {
             "title": "Credential Fingerprint",
@@ -9855,6 +9888,17 @@
             "format": "date-time",
             "title": "Expires At",
             "type": "string"
+          },
+          "file_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Url"
           },
           "message": {
             "anyOf": [
@@ -9882,6 +9926,17 @@
           "preview_type": {
             "title": "Preview Type",
             "type": "string"
+          },
+          "render_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Render Type"
           },
           "target_asset_id": {
             "format": "uuid",
