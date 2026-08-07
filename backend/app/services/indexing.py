@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from dataclasses import dataclass
 
@@ -24,6 +25,7 @@ from app.db.utils import utc_now
 from app.models.knowledge import KnowledgeAssetVersion
 from app.schemas.enums import KnowledgeScope
 from app.services import error_catalog
+from app.services.extraction import extract_text
 from app.services.weknora_client import (
     NullWeKnoraClient,
     WeKnoraClient,
@@ -42,6 +44,24 @@ class IndexOutcome:
     parse_status: str | None = None
     error_code: str | None = None
     is_duplicate: bool = False
+
+
+def _governance_upload(
+    file_bytes: bytes,
+    source_file_name: str,
+    source_file_mime: str | None,
+) -> tuple[bytes, str, str | None]:
+    """阶段2（D1 v1.3）：底座索引输入 = verbatim 治理文本，而非原文件。
+
+    从源文件重提取（决策 A），成功则以 .md 文本上传（mime=text/markdown）；
+    抽取失败 / 空 / 不支持时回退上传原件，保持底座仍可自行解析。
+    """
+    result = extract_text(file_bytes, file_name=source_file_name, mime=source_file_mime)
+    if result.status == "extracted" and result.text:
+        base, _ext = os.path.splitext(source_file_name or "")
+        md_name = f"{base}.md" if base else "governance.md"
+        return result.text.encode("utf-8"), md_name, "text/markdown"
+    return file_bytes, source_file_name, source_file_mime
 
 
 async def _load_version(
@@ -119,11 +139,14 @@ async def index_asset_version(
             models=models,
             trace_id=trace_id,
         )
+        content, upload_name, upload_mime = _governance_upload(
+            file_bytes, source_file_name, source_file_mime
+        )
         data = await weknora.upload_file(
             kb_id=kb_id,
-            content=file_bytes,
-            file_name=source_file_name,
-            mime=source_file_mime,
+            content=content,
+            file_name=upload_name,
+            mime=upload_mime,
             metadata={
                 "asset_id": str(asset_id),
                 "version_id": str(version_id),
@@ -209,12 +232,15 @@ async def reparse_asset_version(
                 models=models,
                 trace_id=trace_id,
             )
+        content, upload_name, upload_mime = _governance_upload(
+            file_bytes, source_file_name, source_file_mime
+        )
         data = await weknora.reparse_knowledge(
             kb_id=kb_id,
             knowledge_id=knowledge_id,
-            content=file_bytes,
-            file_name=source_file_name,
-            mime=source_file_mime,
+            content=content,
+            file_name=upload_name,
+            mime=upload_mime,
             metadata={
                 "asset_id": str(asset_id),
                 "version_id": str(version_id),
