@@ -59,7 +59,7 @@ async def run_search(
 ) -> SearchResponse:
     """统一检索 / 问答主流程。
 
-    channel 决定访问渠道：控制台/人工默认 human；Dify HTTP Tool 传 agent，使
+    channel 决定访问渠道：控制台/人工默认 human；外部 Agent 工具传 agent，使
     A4 原文降级等 Agent 渠道边界生效。权限矩阵仍全由 `decide()` 收口，不在此重写。
     """
     if not caller.is_active:
@@ -108,11 +108,17 @@ async def run_search(
     projects, users = await retrieval.load_card_aux(session, [r.asset for r in recalled])
     cards = [SearchCardOut(**retrieval.build_card(r, projects, users)) for r in recalled]
 
-    # ---- 问答 / 生成 / 总结 / 检查：放行证据 → 脱敏 → LLM 自拼答案 + 引用 ----
+    # ---- 问答 / 生成 / 总结 / 检查：放行证据 → 脱敏 → LLM 自拼答案 + 引用
+    # D1 阶段4：子块召回 → 父文件全文给 Agent（无 chunk 存量资产自动回退片段/摘要）。
     answer: str | None = None
     citations: list[SearchCitationOut] = []
     if wants_answer(intent):
-        evidences = await retrieval.gather_evidence(recalled, desens, trace_id=trace_id)
+        evidences = await retrieval.gather_parent_context(
+            session,
+            recalled,
+            desens,
+            trace_id=trace_id,
+        )
         answer = await retrieval.synthesize_answer(llm, query, evidences, trace_id=trace_id)
         for order, e in enumerate(evidences, start=1):
             citations.append(

@@ -438,7 +438,7 @@ class AuditAction(str, Enum):
     project_reactivated = "project.reactivated"
     project_deleted = "project.deleted"
     config_alert_rule_updated = "config.alert_rule_updated"
-    # Dify 接入注册变更：创建 / 启停 / 更新 capability·scope·token（config）。
+    # 外部 Agent 接入注册变更：创建 / 启停 / 更新 capability·scope·token（config）。
     config_agent_registry_updated = "config.agent_registry_updated"
     # 人员治理：公司角色 / 项目成员关系 upsert（config）。
     config_people_company_role_updated = "config.people_company_role_updated"
@@ -523,7 +523,7 @@ class AgentProvider(str, Enum):
     - internal_stub：早期关键词召回 + 确定性占位答案桩（已被 weknora_llm 取代，保留枚举
       仅为历史/兼容，不再用于新调用）。
     - weknora_llm：真实链路——WeKnora 检索召回 + 外部 LLM 自拼答案。它仍是平台
-      抽象标识，**不**暴露 Dify app_id / workflow_id / dataset_id、WeKnora kb/doc id、
+      抽象标识，**不**暴露 provider 内部 app/workflow id、WeKnora kb/doc id、
       LLM api_key 等任何内部敏感标识。
     """
 

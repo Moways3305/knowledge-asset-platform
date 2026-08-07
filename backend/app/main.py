@@ -1,7 +1,7 @@
 """FastAPI 应用入口。
 
 注册全部业务路由：健康检查与运维、身份会话、知识读写与检索问答、个人知识、
-原文访问授权、入库、审核、预览、外部 Agent 网关（含 Dify 兼容适配器）、审计、
+原文访问授权、入库、审核、预览、外部 Agent 网关（WorkBuddy 主接入面）、审计、
 生命周期、告警、微盘扫描、人员 / 权限 / 项目管理、WeKnora 管理，
 并挂载 CSRF 与 trace_id 中间件。
 """
@@ -13,11 +13,11 @@ from fastapi import FastAPI
 from app.api import (
     agent,
     agent_gateway,
+    agent_registry_api,
     alert,
     audit,
     auth,
     company_kb,
-    dify,
     generation_models,
     health,
     ingest,
@@ -81,8 +81,8 @@ def create_app() -> FastAPI:
     app.include_router(naming.router)
     app.include_router(notifications.router)
     app.include_router(agent.router)
+    app.include_router(agent_registry_api.router)
     app.include_router(search.router)
-    app.include_router(dify.router)
     app.include_router(agent_gateway.router)
     app.include_router(audit.router)
     app.include_router(lifecycle.router)

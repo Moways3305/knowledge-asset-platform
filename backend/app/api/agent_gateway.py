@@ -2,7 +2,7 @@
 
 平台核心是 provider 中立的 `external_agent_gateway`。本路由是中立适配面：Bearer token →
 注册行 → **从 token 绑定的 bound_user_id 解析真实平台 caller**（绝不读客户端自报 user id），
-再复用统一检索 / 项目服务（channel=agent）。Dify 路由为 legacy，不在此处。
+再复用统一检索 / 项目服务（channel=agent）。接入注册管理（agent-whitelist）也收口在此。
 
 安全：fail closed（无绑定 / 非 active / 非业务用户即拒）；响应不含 token / weknora id /
 provider 内部标识 / storage 引用。

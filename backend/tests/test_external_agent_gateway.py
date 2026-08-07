@@ -33,7 +33,7 @@ _LEAK_TOKENS = [
     "api_key",
     "token_hash",
     "storage_ref",
-    "dify-secret",
+    "provider-secret",
 ]
 
 
@@ -73,7 +73,7 @@ class FakeLLM:
 
 def _rule():
     return AgentWhitelistRule(
-        provider="dify",
+        provider="custom",
         agent_identifier=f"agent-{uuid.uuid4().hex[:8]}",
         agent_name="中立网关测试接入",
         capability="qa",
@@ -134,7 +134,7 @@ async def test_run_retrieval_returns_neutral_records(db_session):
     )
     assert records is not None and len(records) >= 1
     rec = records[0]
-    # provider 中立类型，非 Dify 专属类型。
+    # provider 中立类型。
     assert isinstance(rec, ExternalRetrievalRecord)
     assert rec.content and rec.title
     # metadata 仅安全业务标识，绝不含 provider 内部标识 / WeKnora id。

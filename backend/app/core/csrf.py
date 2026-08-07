@@ -6,7 +6,7 @@
 强制条件（全部满足才校验）：
 - method ∈ {POST, PUT, PATCH, DELETE}；
 - 请求带 `kap_session` cookie（即浏览器 cookie 会话）；
-- 无 `Authorization` 头（Bearer 外部 Agent / Dify 走 token 鉴权，不依赖 ambient cookie，
+- 无 `Authorization` 头（Bearer 外部 Agent 走 token 鉴权，不依赖 ambient cookie，
   不在 CSRF 范围——加此条确保绝不误伤）；
 - path 不在豁免集合（仅 `/api/v1/auth/login`：新用户登录前不可能持有 CSRF token；
   `/api/v1/auth/csrf` 为 GET，安全方法天然不校验）。
@@ -61,7 +61,7 @@ class CsrfMiddleware(BaseHTTPMiddleware):
         # 仅浏览器 cookie 会话受 CSRF 约束。
         if not request.cookies.get(SESSION_COOKIE_NAME):
             return False
-        # Bearer 鉴权（外部 Agent / Dify）不依赖 ambient cookie → 不在 CSRF 范围。
+        # Bearer 鉴权（外部 Agent）不依赖 ambient cookie → 不在 CSRF 范围。
         if request.headers.get("authorization"):
             return False
         if request.url.path in _EXEMPT_PATHS:

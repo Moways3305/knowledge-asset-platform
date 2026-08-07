@@ -1,7 +1,7 @@
 """入库流水线服务。
 
 create_upload → 确定性 AI 建议占位 → get_ai_result（按权限裁剪）→ confirm（人工确认
-后写入 KnowledgeAsset 全套）。不调用真实 AI / 文件存储 / WeCom / Dify / 审核流 / 审计表。
+后写入 KnowledgeAsset 全套）。不调用真实 AI / 文件存储 / WeCom / 外部 Agent / 审核流 / 审计表。
 """
 
 from __future__ import annotations

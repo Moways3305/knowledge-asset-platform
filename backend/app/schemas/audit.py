@@ -6,7 +6,7 @@
 - 总经理 / 咨询总监视图可回业务治理字段（含快照、title、L5 强审计），但技术敏感标识本就
   不入库，视图层不回填。
 
-无论何视图都不返回服务端内部存储引用 / 完整 token / 对象存储 URL / Dify 内部标识。
+无论何视图都不返回服务端内部存储引用 / 完整 token / 对象存储 URL / provider 内部标识。
 """
 
 from __future__ import annotations

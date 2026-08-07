@@ -170,6 +170,12 @@ class Settings(BaseSettings):
     # 是否允许分发未签名的企业内部版。所有环境默认关闭，只有显式 true 才允许。
     workbuddy_connector_allow_internal: bool = False
 
+    # D1 阶段4（Small-to-Big）：子块召回后按父文件聚合，取治理文本全文给 Agent。
+    # agent_parent_doc_limit：最多取几篇父文件全文（≤N，默认 3，可配）。
+    # agent_parent_doc_char_limit：单篇字符上限（截头），防止大文件撑爆 Agent 上下文。
+    agent_parent_doc_limit: int = 3
+    agent_parent_doc_char_limit: int = 16000
+
 
 @lru_cache
 def get_settings() -> Settings:

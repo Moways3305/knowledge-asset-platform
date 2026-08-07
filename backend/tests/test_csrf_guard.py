@@ -125,7 +125,7 @@ async def test_dev_header_mutation_not_csrf_blocked(client):
 
 
 async def test_bearer_auth_request_not_csrf_blocked(client):
-    """带 Authorization 头（外部 Agent / Dify Bearer）即使有 cookie 也跳过 CSRF。"""
+    """带 Authorization 头（外部 Agent Bearer）即使有 cookie 也跳过 CSRF。"""
     await client.post(LOGIN, json={"email": BOSS_EMAIL})
     r = await client.post(LOGOUT, headers={"Authorization": "Bearer some-agent-token"})
     # 未被 CSRF 403 拦截 → logout 正常执行。

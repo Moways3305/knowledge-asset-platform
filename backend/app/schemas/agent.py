@@ -1,6 +1,6 @@
-"""Agent / Dify Gateway API 的请求 / 响应 schema。
+"""Agent Gateway API 的请求 / 响应 schema。
 
-这些响应 schema **绝不包含** 服务端内部存储引用、向量库标识、Dify 内部标识
+这些响应 schema **绝不包含** 服务端内部存储引用、向量库标识、provider 内部标识
 （凭证 / 数据集 / 工作流 ID）、对象存储 URL、完整原文文件内容或 chunk 原始主键。
 
 citation 只返回安全展示字段（asset_id 作为平台业务 ID、标题、scope、zone、

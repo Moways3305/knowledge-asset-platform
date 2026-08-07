@@ -6,7 +6,7 @@
 - GET /admin/ops/summary：admin 运营摘要（版本/环境 + 就绪 + Celery 模式 + 入库/通知/审计计数）。
 
 安全红线：本模块任何响应**绝不**含连接串 / api_key / token / secret / 对象存储路径 /
-WeKnora·Dify id / WeCom secret / ONLYOFFICE jwt / 预览取件 token / 业务正文。
+WeKnora / provider 内部 id / WeCom secret / ONLYOFFICE jwt / 预览取件 token / 业务正文。
 """
 
 from __future__ import annotations

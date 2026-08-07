@@ -23,8 +23,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import get_settings
 from app.models.identity import Project, User
-from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetChunk, KnowledgeAssetVersion
 from app.models.weknora import WeknoraKbMapping
 from app.schemas.enums import (
     AssetStatus,
@@ -65,6 +66,9 @@ _INDEXED_STATUS = "indexed"
 _RECALL_TOP_K = 20
 _MAX_EVIDENCE_ASSETS = 6
 _MAX_CHUNKS_PER_ASSET = 2
+# D1 阶段4：父文件全文给 Agent 时，每篇最多几篇 / 单篇字符上限（默认读配置，测试可覆盖）。
+_DEFAULT_PARENT_DOC_LIMIT = 3
+_DEFAULT_PARENT_DOC_CHAR_LIMIT = 16000
 
 
 def needs_desensitization(asset: KnowledgeAsset) -> bool:
@@ -433,9 +437,120 @@ async def gather_evidence(
     return evidences
 
 
+# ---------------------------------------------------------------------------
+# D1 阶段4：子块召回 → 父文件全文给 Agent（Small-to-Big）
+# ---------------------------------------------------------------------------
+def _join_parent_document(chunks: list[KnowledgeAssetChunk]) -> str:
+    """按 chunk_index 拼接治理文本全文，跨 source_page 变化重建 `[第 N 页]` 标记。
+
+    阶段3 切块时纯页码标记行被丢弃，只保留在 chunk.source_page 元数据里；此处按
+    页码变化重新插回标记，让 Agent 保持页码感知（逐页引用为后置项，仅作上下文提示）。
+    """
+    parts: list[str] = []
+    last_page: int | None = None
+    for chunk in chunks:
+        if chunk.source_page is not None and chunk.source_page != last_page:
+            parts.append(f"\n\n[第 {chunk.source_page} 页]\n")
+            last_page = chunk.source_page
+        parts.append(chunk.content_text)
+    return "\n\n".join(parts).strip()
+
+
+async def gather_parent_context(
+    session: AsyncSession,
+    recalled: list[RecalledAsset],
+    desens: OutputDesensitizer,
+    *,
+    trace_id: str | None,
+    parent_doc_limit: int | None = None,
+    parent_doc_char_limit: int | None = None,
+) -> list[Evidence]:
+    """D1 阶段4：子块召回后按父文件聚合，取治理文本全文（≤N 篇）给 Agent。
+
+    - 只取 `can_view_original` 的资产（权限闸不放松），按 recall score 取前 N 篇；
+    - 全文来自 KAP 侧 `knowledge_asset_chunks` 注册表（阶段3 落库），不重提取原文件；
+    - L1/L2 直通，L3/L4/L5 全文走 LLM 擦洗（擦洗失败 → 该篇降级不放行）；
+    - 单篇超 `parent_doc_char_limit` 截头并打截断标记；
+    - 未产出全文的资产（无原文权限 / 无 chunk 行 / 超 N 篇 / 擦洗失败）回退现有
+      `gather_evidence` 的片段 / 摘要逻辑——存量老资产（阶段3 部署前）不会问答变空。
+    """
+    settings = get_settings()
+    limit = settings.agent_parent_doc_limit if parent_doc_limit is None else parent_doc_limit
+    char_limit = (
+        settings.agent_parent_doc_char_limit
+        if parent_doc_char_limit is None
+        else parent_doc_char_limit
+    )
+
+    candidates = [r for r in recalled if r.can_view_original][: max(limit, 0)]
+    if not candidates:
+        return await gather_evidence(recalled, desens, trace_id=trace_id)
+
+    version_ids = [r.version.id for r in candidates]
+    rows = list(
+        (
+            await session.execute(
+                select(KnowledgeAssetChunk)
+                .where(KnowledgeAssetChunk.version_id.in_(version_ids))
+                .order_by(
+                    KnowledgeAssetChunk.version_id,
+                    KnowledgeAssetChunk.chunk_index,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    chunks_by_version: dict[uuid.UUID, list[KnowledgeAssetChunk]] = {}
+    for row in rows:
+        chunks_by_version.setdefault(row.version_id, []).append(row)
+
+    covered_ids: set[uuid.UUID] = set()
+    parent_evidences: list[Evidence] = []
+    for r in candidates:
+        chunks = chunks_by_version.get(r.version.id) or []
+        if not chunks:
+            continue  # 存量资产无 chunk 注册表 → 走兜底
+        full_text = _join_parent_document(chunks)
+        if not full_text:
+            continue
+        truncated = len(full_text) > char_limit
+        if truncated:
+            full_text = full_text[:char_limit].rstrip() + (
+                f"\n\n[内容过长已截断，仅展示前 {char_limit} 字符]"
+            )
+        scrubbed = await _scrub_chunk(desens, r.asset, full_text, trace_id=trace_id)
+        if not scrubbed:
+            continue  # 脱敏不可用 → 保守降级，该篇不进父上下文
+        ref = None
+        if r.matched_chunks:
+            first = r.matched_chunks[0]
+            ref = f"{first['knowledge_id']}#{first.get('chunk_index')}"
+        covered_ids.add(r.asset.id)
+        parent_evidences.append(
+            Evidence(
+                asset=r.asset,
+                used_layer=AccessLayer.original.value,
+                snippet=scrubbed,
+                seq=None,  # 文件级证据：seq 置空，引用落到文件
+                weknora_chunk_ref=ref,  # server-only 追踪用，绝不外泄
+            )
+        )
+
+    # 未覆盖资产（无原文权限 / 无 chunk / 超 N 篇 / 擦洗失败）→ 片段 / 摘要兜底。
+    rest = [r for r in recalled if r.asset.id not in covered_ids]
+    fallback = await gather_evidence(rest, desens, trace_id=trace_id)
+    order = {r.asset.id: idx for idx, r in enumerate(recalled)}
+    combined = parent_evidences + fallback
+    combined.sort(key=lambda e: order.get(e.asset.id, len(recalled)))
+    return combined
+
+
 _ANSWER_SYSTEM_PROMPT = (
     "你是企业知识助手。**只能**依据下方提供的知识片段回答用户问题，不得编造片段外的事实；"
-    "不足以回答时直说依据不足。在句末用 [序号] 标注引用来源。输出简洁中文答案，不要复述提示。"
+    "不足以回答时直说依据不足。在句末用 [序号] 标注引用来源。"
+    "当多个文件提供的信息需要对照时，请交叉综合后再回答，不要只引用单篇内容。"
+    "输出简洁中文答案，不要复述提示。"
 )
 
 
@@ -449,7 +564,10 @@ async def synthesize_answer(
     """喂放行+脱敏证据给外部 LLM 自拼答案；LLM 不可用 / 无证据 → None。"""
     if not evidences:
         return None
-    blocks = [f"[{i}] 《{e.asset.title}》：{e.snippet}" for i, e in enumerate(evidences, start=1)]
+    blocks = [
+        f"[{i}] 《{e.asset.title}》（保密 {e.asset.confidentiality_level}）：\n{e.snippet}"
+        for i, e in enumerate(evidences, start=1)
+    ]
     try:
         answer = await llm.chat_completion(
             [

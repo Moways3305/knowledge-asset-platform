@@ -2,7 +2,7 @@
 
 一张表 `agent_whitelist_rules`（语义为
 **外部 Agent 接入注册与 capability 边界**，非"逐 Agent 手工名单"）。`provider` 列区分
-具体上层平台（dify / coze / 自研 / custom），其余字段（agent_identifier / agent_name /
+具体上层平台（workbuddy / custom 等），其余字段（agent_identifier / agent_name /
 capability / allowed_scope / allowed_project_id / max_*level / enabled / risk_*）均 provider 中立。
 
 安全红线：
@@ -32,10 +32,10 @@ class AgentWhitelistRule(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    # provider：上层平台标识（workbuddy / custom / dify=legacy），provider 中立。默认中立 custom。
+    # provider：上层平台标识（workbuddy / custom），provider 中立。默认中立 custom。
     provider: Mapped[str] = mapped_column(String(20), nullable=False, default="custom")
     # WorkBuddy/per-user 接入：token 绑定唯一 KAP 业务用户；调用时只从此解析 caller。
-    # legacy（dify）行为 NULL，只在 legacy 路由可用。
+    # custom 可绑可不绑；未绑定的注册行仅可用于平台侧管理，不可发起 Agent 调用。
     bound_user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id"), nullable=True
     )
@@ -61,7 +61,7 @@ class AgentWhitelistRule(Base):
     )
     risk_level: Mapped[str | None] = mapped_column(String(20), nullable=True)
     risk_note: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Dify 侧内部标识（server-only；绝不进响应 / 审计 / 前端）。
+    # provider 侧内部标识（server-only；绝不进响应 / 审计 / 前端）。
     external_app_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     external_workflow_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     # 自助 WorkBuddy token 最近一次轮换时间（last_rotated_at 展示用；其它 provider 为 NULL）。
