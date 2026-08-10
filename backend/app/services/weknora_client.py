@@ -558,6 +558,31 @@ class WeKnoraClient:
         )
         return result
 
+    async def get_model_credentials(
+        self, model_id: str, *, trace_id: str | None = None
+    ) -> dict[str, Any]:
+        """Read only per-field configured metadata; WeKnora never returns secret values here.
+
+        WeKnora v0.7.1 exposes this read through an empty PUT to the dedicated credentials
+        subresource (there is no GET variant).
+        """
+        result: dict[str, Any] = await self._call(
+            "PUT", f"/models/{model_id}/credentials", json={}, trace_id=trace_id
+        )
+        return result
+
+    async def update_model_credentials(
+        self, model_id: str, *, api_key: str, trace_id: str | None = None
+    ) -> dict[str, Any]:
+        """Write a model API key through the v0.7.1 credential subresource."""
+        result: dict[str, Any] = await self._call(
+            "PUT",
+            f"/models/{model_id}/credentials",
+            json={"api_key": api_key},
+            trace_id=trace_id,
+        )
+        return result
+
     async def delete_model(self, model_id: str, *, trace_id: str | None = None) -> None:
         await self._call("DELETE", f"/models/{model_id}", trace_id=trace_id)
 
@@ -740,6 +765,12 @@ class NullWeKnoraClient:
         raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
 
     async def update_model(self, *_: Any, **__: Any) -> dict[str, Any]:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
+    async def get_model_credentials(self, *_: Any, **__: Any) -> dict[str, Any]:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
+    async def update_model_credentials(self, *_: Any, **__: Any) -> dict[str, Any]:
         raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
 
     async def delete_model(self, *_: Any, **__: Any) -> None:

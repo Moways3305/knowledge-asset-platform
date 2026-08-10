@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
@@ -487,6 +488,26 @@ class _TraceWK:
     async def get_initialization_config(self, kb_id, *, trace_id=None):
         return {}
 
+    async def list_models(self, *, trace_id=None):
+        return [
+            {
+                "id": "test-embed",
+                "name": "text-embedding-test",
+                "type": "Embedding",
+                "source": "remote",
+                "parameters": {"base_url": "https://controlled.invalid/v1"},
+            }
+        ]
+
+    async def get_model(self, model_id, *, trace_id=None):
+        return (await self.list_models(trace_id=trace_id))[0]
+
+    async def get_model_credentials(self, model_id, *, trace_id=None):
+        return {"fields": {"api_key": {"configured": True}}}
+
+    async def test_embedding_model(self, **_):
+        return {"available": True}
+
     async def upload_file(
         self, *, kb_id, content, file_name, mime, metadata=None, channel=None, trace_id=None
     ):
@@ -544,7 +565,15 @@ def _enable_wk(monkeypatch, fake):
         return _resolved
 
     monkeypatch.setattr("app.services.indexing.resolve_models_for_kb", _resolve)
+    monkeypatch.setattr(
+        "app.services.weknora_defaults.get_defaults",
+        lambda *_a, **_k: _resolve_default_embedding(),
+    )
     app.dependency_overrides[get_weknora_client] = lambda: fake
+
+
+async def _resolve_default_embedding():
+    return SimpleNamespace(default_embedding_model_id="test-embed")
 
 
 @pytest.fixture(autouse=True)

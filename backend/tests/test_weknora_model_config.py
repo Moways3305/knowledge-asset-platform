@@ -50,6 +50,7 @@ class FakeModelsWK:
                     "base_url": _URL,
                     "api_key": _SECRET,
                 },
+                "credentials": {"api_key": {"configured": True}},
             },
             "mid-emb": {
                 "id": "mid-emb",
@@ -62,10 +63,12 @@ class FakeModelsWK:
                     "base_url": _URL,
                     "api_key": _SECRET,
                 },
+                "credentials": {"api_key": {"configured": True}},
             },
         }
         self.last_create: dict | None = None
         self.last_update: dict | None = None
+        self.last_credential_update: dict | None = None
         self.deleted: list[str] = []
         self.last_init: dict | None = None
         self.last_check: dict | None = None
@@ -105,6 +108,8 @@ class FakeModelsWK:
             "source": payload["source"],
             "status": "active",
             "parameters": {"provider": payload.get("parameters", {}).get("provider")},
+            # The ordinary model endpoint may ignore parameters.api_key.
+            "credentials": {"api_key": {"configured": False}},
         }
         return self.models[mid]
 
@@ -112,6 +117,14 @@ class FakeModelsWK:
         self.last_update = {"id": model_id, "payload": payload}
         self.models[model_id]["name"] = payload.get("name") or self.models[model_id]["name"]
         return self.models[model_id]
+
+    async def get_model_credentials(self, model_id, *, trace_id=None):
+        return {"fields": self.models[model_id].get("credentials", {})}
+
+    async def update_model_credentials(self, model_id, *, api_key, trace_id=None):
+        self.last_credential_update = {"id": model_id, "configured": bool(api_key)}
+        self.models[model_id]["credentials"] = {"api_key": {"configured": bool(api_key)}}
+        return {"fields": self.models[model_id]["credentials"]}
 
     async def delete_model(self, model_id, *, trace_id=None):
         self.deleted.append(model_id)
@@ -176,7 +189,7 @@ class FakeModelsWK:
             "provider": provider,
             "interface_type": interface_type,
         }
-        return {"success": True, "message": "模型可用"}
+        return {"available": True, "message": "模型可用"}
 
     async def test_embedding_model(
         self,
@@ -198,10 +211,10 @@ class FakeModelsWK:
             "provider": provider,
             "interface_type": interface_type,
         }
-        return {"success": True, "message": "嵌入模型测试通过"}
+        return {"available": True, "message": "嵌入模型测试通过"}
 
     async def check_rerank_model(self, **_):
-        return {"success": True, "message": "重排序模型可用"}
+        return {"available": True, "message": "重排序模型可用"}
 
     async def test_multimodal_model(self, **_):
         return {"success": True, "message": "多模态模型测试通过"}
@@ -265,6 +278,7 @@ async def test_create_model_secret_upstream_not_in_response_or_audit(client, wk,
     assert wk.last_create["parameters"]["base_url"] == _URL
     assert wk.last_create["name"] == "qwen-max"
     assert wk.last_create["type"] == "KnowledgeQA"  # alias→WeKnora 枚举
+    assert wk.last_credential_update == {"id": "mid-new-1", "configured": True}
     # 平台响应不回显 secret / base_url / 真实 id。
     for token in [_SECRET, _URL, "sk-", "mid-new", "api_key", "base_url"]:
         assert token not in r.text
@@ -298,10 +312,11 @@ async def test_update_model_no_secret_leak(client, wk):
     }
     r = await client.put(f"{BASE}/models/{ref}", headers=_hdr(USER_ADMIN_ONLY), json=body)
     assert r.status_code == 200, r.text
-    # 底座收到 server-only id（非 ref）+ secret。
+    # 元数据更新不承载 secret；凭据走 v0.7.1 官方子资源。
     assert wk.last_update["id"] in wk.models
     assert wk.last_update["payload"]["name"] == "deepseek-chat"
-    assert wk.last_update["payload"]["parameters"]["api_key"] == _SECRET
+    assert "api_key" not in wk.last_update["payload"]["parameters"]
+    assert wk.last_credential_update == {"id": wk.last_update["id"], "configured": True}
     for token in [_SECRET, _URL, "sk-"]:
         assert token not in r.text
 
@@ -320,7 +335,68 @@ async def test_update_model_blank_secret_fields_are_omitted(client, wk):
     assert r.status_code == 200, r.text
     params = wk.last_update["payload"]["parameters"]
     assert "api_key" not in params
-    assert "base_url" not in params
+    assert params["base_url"] == _URL
+
+
+async def test_update_blank_key_fails_closed_when_credential_is_missing(client, wk):
+    wk.models["mid-chat"]["credentials"]["api_key"]["configured"] = False
+    response = await client.put(
+        f"{BASE}/models/{_model_ref('mid-chat')}",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"name": "qwen-plus", "type": "chat", "source": "remote", "api_key": ""},
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["denied_reason"] == "weknora_model_credential_missing"
+    assert wk.last_update is None
+
+
+async def test_create_succeeds_when_ordinary_parameters_key_is_ignored(client, wk):
+    response = await client.post(
+        f"{BASE}/models",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={
+            "name": "qwen-plus",
+            "type": "chat",
+            "source": "remote",
+            "base_url": _URL,
+            "api_key": _SECRET,
+        },
+    )
+    assert response.status_code == 200, response.text
+    created_id = wk.last_credential_update["id"]
+    assert wk.models[created_id]["credentials"] == {"api_key": {"configured": True}}
+    assert response.json()["credential_status"] == "configured"
+
+
+async def test_create_fails_closed_when_dedicated_credential_write_fails(client, wk, db_session):
+    async def fail_credential_write(*_args, **_kwargs):
+        raise WeKnoraError("credential_write_failed", "unsafe upstream detail")
+
+    wk.update_model_credentials = fail_credential_write
+    response = await client.post(
+        f"{BASE}/models",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={
+            "name": "qwen-plus",
+            "type": "chat",
+            "source": "remote",
+            "base_url": _URL,
+            "api_key": _SECRET,
+        },
+    )
+    assert response.status_code == 502
+    assert response.json()["detail"]["denied_reason"] == "credential_write_failed"
+    assert "unsafe upstream detail" not in response.text
+    events = (
+        (
+            await db_session.execute(
+                select(AuditEvent).where(AuditEvent.action == "weknora.model_created")
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert events == []
 
 
 async def test_update_model_rejects_email_shaped_base_url_without_upstream_call(client, wk):
@@ -689,6 +765,27 @@ async def test_check_model_no_secret_in_response(client, wk):
         assert token not in r.text
 
 
+async def test_embedding_business_unavailable_is_not_reported_as_connected(client, wk):
+    async def unavailable(**kwargs):
+        wk.last_check = kwargs
+        return {"available": False, "message": "unsafe upstream detail"}
+
+    wk.test_embedding_model = unavailable
+    response = await client.post(
+        f"{BASE}/models/check",
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"model_ref": _model_ref("mid-emb")},
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": False,
+        "message": "连通性测试失败，请检查凭据、网络或模型协议后重试",
+        "error_code": "model_unavailable",
+        "credential_status": "configured",
+    }
+    assert "unsafe upstream detail" not in response.text
+
+
 async def test_check_model_rejects_missing_saved_connection_before_upstream_call(client, wk):
     wk.models["mid-emb"]["parameters"] = {"provider": "aliyun"}
     r = await client.post(
@@ -813,7 +910,9 @@ async def test_model_check_upstream_error_no_leak(client, monkeypatch):
             headers=_hdr(USER_ADMIN_ONLY),
             json={"model_ref": _model_ref("mid-emb")},
         )
-        assert r.status_code == 502, r.text
+        assert r.status_code == 200, r.text
+        assert r.json()["success"] is False
+        assert r.json()["error_code"] == "protocol_incompatible"
         for token in _LEAK_TOKENS:
             assert token not in r.text
     finally:

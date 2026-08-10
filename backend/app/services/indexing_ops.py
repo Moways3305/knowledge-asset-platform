@@ -337,6 +337,19 @@ async def create_retry_job(
 ) -> IndexingJobSummary:
     """批量 retry-index：对筛选出的 index_failed / skipped / not_indexed 资产入队重试。"""
     _require_ops_viewer(caller)
+    # A batch can amplify a bad embedding configuration across many assets. Verify the current
+    # default model immediately before enqueueing; no job or asset state is changed on failure.
+    from app.services.weknora_models import _model_ref, require_embedding_ready
+
+    defaults = await weknora_defaults.get_defaults(session)
+    embedding_id = defaults.default_embedding_model_id if defaults else None
+    if not embedding_id:
+        raise denied(
+            409,
+            "weknora_embedding_not_ready",
+            "平台默认嵌入模型未配置，请先到模型配置完成保存与测试",
+        )
+    await require_embedding_ready(weknora, _model_ref(embedding_id), trace_id=trace_id)
     scope = _safe_scope(req.scope)
     project_id = _resolve_project_id(scope, req.project_id)
     # 状态白名单过滤（绝不重试 indexed）；空 → 默认 index_failed。
@@ -406,7 +419,7 @@ async def create_kb_migrate_job(
 ) -> IndexingJobSummary:
     """知识库重建迁移（换 embedding 模型）：校验模型 → 建 kb_migrate 作业入队。"""
     from app.models.weknora import WeknoraKbMapping
-    from app.services.weknora_models import _alias, _model_ref
+    from app.services.weknora_models import _alias, _model_ref, require_embedding_ready
 
     _require_ops_viewer(caller)
     mp = await session.get(WeknoraKbMapping, mapping_id)
@@ -452,6 +465,7 @@ async def create_kb_migrate_job(
     multimodal_ref = (
         _resolve(req.multimodal_model_ref, "vllm", "多模态") if req.multimodal_model_ref else None
     )
+    await require_embedding_ready(weknora, embedding_ref, trace_id=trace_id)
     scope_filter = {
         "mapping_id": str(mapping_id),
         "models": {

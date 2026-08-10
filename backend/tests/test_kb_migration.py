@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import select
 
 from app.main import app
+from app.models.indexing_job import IndexingOperationJob
 from app.models.ingest import IngestTask
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetChunk, KnowledgeAssetVersion
 from app.models.weknora import WeknoraKbMapping
@@ -24,7 +25,7 @@ def _hdr(uid):
 class FakeMigrateWK:
     """迁移用 fake 底座：记录建库 / 初始化 / 重传 / 删库。"""
 
-    def __init__(self, *, fail_docs: set[str] | None = None) -> None:
+    def __init__(self, *, fail_docs: set[str] | None = None, available: bool = True) -> None:
         self.models = [
             {
                 "id": "emb-new",
@@ -32,6 +33,8 @@ class FakeMigrateWK:
                 "type": "Embedding",
                 "source": "remote",
                 "status": "active",
+                "parameters": {"base_url": "https://controlled.invalid/v1"},
+                "credentials": {"api_key": {"configured": True}},
             },
             {
                 "id": "chat-1",
@@ -54,11 +57,22 @@ class FakeMigrateWK:
         self.reparse_calls: list[dict] = []
         self.deleted_kbs: list[str] = []
         self.fail_docs = fail_docs or set()
+        self.available = available
         self._kb = 0
         self._doc = 0
 
     async def list_models(self, *, trace_id=None):
         return self.models
+
+    async def get_model(self, model_id, *, trace_id=None):
+        return next(model for model in self.models if model["id"] == model_id)
+
+    async def get_model_credentials(self, model_id, *, trace_id=None):
+        model = await self.get_model(model_id, trace_id=trace_id)
+        return {"fields": model.get("credentials", {})}
+
+    async def test_embedding_model(self, **_):
+        return {"available": self.available}
 
     async def create_kb(self, *, name, embedding_model_id, trace_id=None):
         self.create_calls.append(embedding_model_id)
@@ -264,6 +278,35 @@ async def test_migrate_kb_success(client, db_session, monkeypatch, storage, sess
             await db_session.refresh(v)
             assert v.weknora_kb_id == "new-kb-1"
         assert "old-kb-1" not in r.text and "emb-old" not in r.text
+    finally:
+        _disable()
+
+
+async def test_migration_is_blocked_before_enqueue_when_embedding_is_unavailable(
+    client, db_session, monkeypatch, storage
+):
+    fake = FakeMigrateWK(available=False)
+    await _enable(monkeypatch, fake, storage)
+    try:
+        mp, _versions = await _seed_kb_and_assets(db_session, storage)
+        response = await _migrate(client, mp.id, _refs(fake))
+        assert response.status_code == 409
+        assert response.json()["detail"]["denied_reason"] == "weknora_embedding_not_ready"
+        jobs = (
+            (
+                await db_session.execute(
+                    select(IndexingOperationJob).where(
+                        IndexingOperationJob.operation_type == "kb_migrate"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert jobs == []
+        await db_session.refresh(mp)
+        assert mp.weknora_kb_id == "old-kb-1"
+        assert mp.embedding_model_id == "emb-old"
     finally:
         _disable()
 
