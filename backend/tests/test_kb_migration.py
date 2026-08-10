@@ -12,7 +12,7 @@ from app.models.knowledge import KnowledgeAsset, KnowledgeAssetChunk, KnowledgeA
 from app.models.weknora import WeknoraKbMapping
 from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT, USER_DIRECTOR
 from app.services.storage import LocalFileStorage, get_storage
-from app.services.weknora_client import WeKnoraError, get_weknora_client
+from app.services.weknora_client import WeKnoraDuplicateError, WeKnoraError, get_weknora_client
 from app.services.weknora_models import _model_ref
 
 BASE = "/api/v1/admin/weknora"
@@ -25,7 +25,13 @@ def _hdr(uid):
 class FakeMigrateWK:
     """迁移用 fake 底座：记录建库 / 初始化 / 重传 / 删库。"""
 
-    def __init__(self, *, fail_docs: set[str] | None = None, available: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        available: bool = True,
+        upload_status: str = "completed",
+        duplicate_at: set[int] | None = None,
+    ) -> None:
         self.models = [
             {
                 "id": "emb-new",
@@ -54,9 +60,16 @@ class FakeMigrateWK:
         self.create_calls: list[str] = []
         self.init_calls: list[str] = []
         self.update_config_calls: list[str] = []
-        self.reparse_calls: list[dict] = []
+        self.upload_calls: list[dict] = []
+        self.reparse_calls = self.upload_calls
         self.deleted_kbs: list[str] = []
-        self.fail_docs = fail_docs or set()
+        self.fail_version_ids: set[str] = set()
+        self.upload_error = WeKnoraError("weknora_down", "底座不可用")
+        self.upload_status = upload_status
+        self.duplicate_at = duplicate_at or set()
+        self.documents: dict[str, dict | Exception] = {}
+        self.scoped_document_ids: dict[str, set[str]] = {}
+        self.get_calls: list[str] = []
         self.available = available
         self._kb = 0
         self._doc = 0
@@ -99,11 +112,10 @@ class FakeMigrateWK:
         self.update_config_calls.append(kb_id)
         return {"success": True}
 
-    async def reparse_knowledge(
+    async def upload_file(
         self,
         *,
         kb_id,
-        knowledge_id,
         content,
         file_name,
         mime,
@@ -111,18 +123,62 @@ class FakeMigrateWK:
         channel=None,
         trace_id=None,
     ):
-        if knowledge_id in self.fail_docs:
-            raise WeKnoraError("weknora_down", "底座不可用")
-        self.reparse_calls.append(
+        if str((metadata or {}).get("version_id")) in self.fail_version_ids:
+            raise self.upload_error
+        ordinal = len(self.upload_calls) + 1
+        self.upload_calls.append(
             {
                 "kb_id": kb_id,
-                "knowledge_id": knowledge_id,
                 "content": content,
                 "file_name": file_name,
             }
         )
+        if ordinal in self.duplicate_at:
+            doc_id = f"existing-doc-{ordinal}"
+            self.documents.setdefault(
+                doc_id,
+                {
+                    "id": doc_id,
+                    "knowledge_base_id": kb_id,
+                    "parse_status": self.upload_status,
+                },
+            )
+            detail = self.documents[doc_id]
+            if isinstance(detail, dict) and detail.get("knowledge_base_id", kb_id) == kb_id:
+                self.scoped_document_ids.setdefault(kb_id, set()).add(doc_id)
+            raise WeKnoraDuplicateError(doc_id)
         self._doc += 1
-        return {"id": f"new-doc-{self._doc}", "parse_status": "processing", "file_hash": "h"}
+        doc_id = f"new-doc-{self._doc}"
+        self.documents[doc_id] = {
+            "id": doc_id,
+            "knowledge_base_id": kb_id,
+            "parse_status": self.upload_status,
+        }
+        self.scoped_document_ids.setdefault(kb_id, set()).add(doc_id)
+        return {"id": doc_id, "parse_status": self.upload_status, "file_hash": "h"}
+
+    async def get_knowledge(self, knowledge_id, *, trace_id=None):
+        self.get_calls.append(knowledge_id)
+        detail = self.documents.get(knowledge_id)
+        if isinstance(detail, Exception):
+            raise detail
+        if detail is None:
+            raise WeKnoraError("http_404", "不存在", status_code=404)
+        return detail
+
+    async def list_knowledge_in_kb(self, kb_id, *, page=1, page_size=1000, trace_id=None):
+        ids = sorted(self.scoped_document_ids.get(kb_id, set()))
+        start = (page - 1) * page_size
+        rows = []
+        for doc_id in ids[start : start + page_size]:
+            detail = self.documents.get(doc_id)
+            if isinstance(detail, dict):
+                # Match the real response that triggered this residual: the KB-scoped
+                # list proves ownership even when each row omits knowledge_base_id.
+                row = {key: value for key, value in detail.items() if key != "knowledge_base_id"}
+                row.setdefault("id", doc_id)
+                rows.append(row)
+        return rows, len(ids)
 
     async def delete_kb(self, kb_id, *, trace_id=None):
         self.deleted_kbs.append(kb_id)
@@ -256,9 +312,9 @@ async def test_migrate_kb_success(client, db_session, monkeypatch, storage, sess
         assert fake.update_config_calls == ["new-kb-1"]
         assert fake.deleted_kbs == ["old-kb-1"]
         # 阶段2：迁移重传的是治理文本（md），不是原件字节。
-        assert fake.reparse_calls
-        assert all(call["file_name"].endswith(".md") for call in fake.reparse_calls)
-        migrated_text = b"".join(call["content"] for call in fake.reparse_calls)
+        assert fake.upload_calls
+        assert all(call["file_name"].endswith(".md") for call in fake.upload_calls)
+        migrated_text = b"".join(call["content"] for call in fake.upload_calls)
         assert "内容0".encode() in migrated_text
         assert "内容1".encode() in migrated_text
         # 阶段3：迁移后 chunk 注册表已落库（两个版本各至少一块）。
@@ -312,10 +368,11 @@ async def test_migration_is_blocked_before_enqueue_when_embedding_is_unavailable
 
 
 async def test_migrate_partial_failure_is_resumable(client, db_session, monkeypatch, storage):
-    fake = FakeMigrateWK(fail_docs={"old-doc-1"})
+    fake = FakeMigrateWK()
     await _enable(monkeypatch, fake, storage)
     try:
         mp, versions = await _seed_kb_and_assets(db_session, storage)
+        fake.fail_version_ids = {str(versions[0].id)}
         r = await _migrate(client, mp.id, _refs(fake))
         assert r.json()["job_status"] == "completed_with_errors"
 
@@ -328,7 +385,7 @@ async def test_migrate_partial_failure_is_resumable(client, db_session, monkeypa
         assert versions[1].weknora_kb_id == "new-kb-1"
 
         # 修复底座后续跑：mapping 保持 migrating，复用新库继续迁移失败版本。
-        fake.fail_docs = set()
+        fake.fail_version_ids = set()
         r2 = await _migrate(client, mp.id, _refs(fake))
         assert r2.json()["job_status"] == "completed"
         await db_session.refresh(mp)
@@ -337,6 +394,180 @@ async def test_migrate_partial_failure_is_resumable(client, db_session, monkeypa
         assert fake.deleted_kbs == ["old-kb-1"]
         await db_session.refresh(versions[0])
         assert versions[0].weknora_kb_id == "new-kb-1"
+    finally:
+        _disable()
+
+
+async def test_processing_upload_stays_incomplete_then_reconciles_without_reupload(
+    client, db_session, monkeypatch, storage
+):
+    fake = FakeMigrateWK(upload_status="processing")
+    await _enable(monkeypatch, fake, storage)
+    try:
+        mp, versions = await _seed_kb_and_assets(db_session, storage, n=1)
+        first = await _migrate(client, mp.id, _refs(fake))
+        assert first.json()["job_status"] == "completed_with_errors"
+        await db_session.refresh(mp)
+        await db_session.refresh(versions[0])
+        assert mp.status == "migrating"
+        assert fake.deleted_kbs == []
+        assert versions[0].index_status == "indexing"
+        assert versions[0].weknora_parse_status == "processing"
+        assert len(fake.upload_calls) == 1
+
+        fake.documents["new-doc-1"]["parse_status"] = "completed"
+        second = await _migrate(client, mp.id, _refs(fake))
+        assert second.json()["job_status"] == "completed"
+        assert len(fake.upload_calls) == 1
+        await db_session.refresh(mp)
+        await db_session.refresh(versions[0])
+        assert mp.status == "active"
+        assert versions[0].index_status == "indexed"
+    finally:
+        _disable()
+
+
+async def test_duplicate_requires_completed_document_in_target_kb(
+    client, db_session, monkeypatch, storage
+):
+    fake = FakeMigrateWK(upload_status="completed", duplicate_at={1})
+    await _enable(monkeypatch, fake, storage)
+    try:
+        mp, versions = await _seed_kb_and_assets(db_session, storage, n=1)
+        response = await _migrate(client, mp.id, _refs(fake))
+        assert response.json()["job_status"] == "completed"
+        configs = await client.get(f"{BASE}/kb-configs", headers=_hdr(USER_ADMIN_ONLY))
+        migration = next(
+            item["migration"]
+            for item in configs.json()["items"]
+            if item["mapping_id"] == str(mp.id)
+        )
+        assert migration["completed_count"] == 0
+        assert migration["verified_duplicate_count"] == 1
+        assert migration["duplicate_pending_count"] == 0
+        assert fake.get_calls == []
+        await db_session.refresh(versions[0])
+        assert versions[0].index_status == "indexed"
+        assert versions[0].weknora_parse_status == "completed"
+    finally:
+        _disable()
+
+
+async def test_duplicate_pending_is_polled_and_never_reuploaded(
+    client, db_session, monkeypatch, storage
+):
+    fake = FakeMigrateWK(upload_status="processing", duplicate_at={1})
+    await _enable(monkeypatch, fake, storage)
+    try:
+        mp, versions = await _seed_kb_and_assets(db_session, storage, n=1)
+        first = await _migrate(client, mp.id, _refs(fake))
+        assert first.json()["job_status"] == "completed_with_errors"
+        assert len(fake.upload_calls) == 1
+        await db_session.refresh(mp)
+        assert mp.status == "migrating"
+        assert fake.deleted_kbs == []
+
+        fake.documents["existing-doc-1"]["parse_status"] = "completed"
+        second = await _migrate(client, mp.id, _refs(fake))
+        assert second.json()["job_status"] == "completed"
+        assert len(fake.upload_calls) == 1
+        await db_session.refresh(versions[0])
+        assert versions[0].index_status == "indexed"
+    finally:
+        _disable()
+
+
+async def test_resume_backfills_legacy_submissions_and_only_reconciles(
+    client, db_session, monkeypatch, storage
+):
+    fake = FakeMigrateWK()
+    await _enable(monkeypatch, fake, storage)
+    try:
+        mp, versions = await _seed_kb_and_assets(db_session, storage, n=2)
+        mp.status = "migrating"
+        mp.weknora_kb_id = "new-kb-1"
+        mp.embedding_model_id = "emb-new"
+        mp.migration_state = {
+            "from": "old-kb-1",
+            "to": "new-kb-1",
+            "embedding_model_id": "emb-new",
+        }
+        versions[0].weknora_kb_id = "new-kb-1"
+        versions[0].weknora_doc_id = "legacy-completed"
+        versions[0].weknora_parse_status = "completed"
+        versions[1].weknora_kb_id = "new-kb-1"
+        versions[1].weknora_doc_id = "legacy-duplicate"
+        versions[1].weknora_parse_status = "duplicate"
+        fake.documents.update(
+            {
+                "legacy-completed": {
+                    "knowledge_base_id": "new-kb-1",
+                    "parse_status": "completed",
+                },
+                "legacy-duplicate": {
+                    "knowledge_base_id": "new-kb-1",
+                    "parse_status": "completed",
+                },
+            }
+        )
+        fake.scoped_document_ids["new-kb-1"] = {"legacy-completed", "legacy-duplicate"}
+        await db_session.commit()
+
+        response = await _migrate(client, mp.id, _refs(fake))
+        assert response.json()["job_status"] == "completed"
+        assert fake.create_calls == []
+        assert fake.upload_calls == []
+        assert fake.deleted_kbs == ["old-kb-1"]
+        await db_session.refresh(mp)
+        assert mp.status == "active"
+    finally:
+        _disable()
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        {"knowledge_base_id": "new-kb-1", "parse_status": "failed"},
+        {"knowledge_base_id": "other-kb", "parse_status": "completed"},
+        WeKnoraError("http_404", "不存在", status_code=404),
+    ],
+    ids=["failed", "cross-kb", "not-found"],
+)
+async def test_unverified_duplicate_keeps_mapping_migrating(
+    client, db_session, monkeypatch, storage, detail
+):
+    fake = FakeMigrateWK(upload_status="processing", duplicate_at={1})
+    fake.documents["existing-doc-1"] = detail
+    await _enable(monkeypatch, fake, storage)
+    try:
+        mp, versions = await _seed_kb_and_assets(db_session, storage, n=1)
+        response = await _migrate(client, mp.id, _refs(fake))
+        assert response.json()["job_status"] == "completed_with_errors"
+        await db_session.refresh(mp)
+        await db_session.refresh(versions[0])
+        assert mp.status == "migrating"
+        assert fake.deleted_kbs == []
+        assert versions[0].index_status == "index_failed"
+        assert versions[0].weknora_kb_id == "old-kb-1"
+        assert versions[0].weknora_doc_id == "old-doc-1"
+    finally:
+        _disable()
+
+
+async def test_rate_limit_never_marks_version_indexed(client, db_session, monkeypatch, storage):
+    fake = FakeMigrateWK()
+    fake.upload_error = WeKnoraError("http_429", "请求过多", status_code=429)
+    await _enable(monkeypatch, fake, storage)
+    try:
+        mp, versions = await _seed_kb_and_assets(db_session, storage, n=1)
+        fake.fail_version_ids = {str(versions[0].id)}
+        response = await _migrate(client, mp.id, _refs(fake))
+        assert response.json()["job_status"] == "completed_with_errors"
+        await db_session.refresh(mp)
+        await db_session.refresh(versions[0])
+        assert mp.status == "migrating"
+        assert versions[0].index_status == "index_failed"
+        assert fake.deleted_kbs == []
     finally:
         _disable()
 

@@ -649,6 +649,31 @@ async def list_kb_configs(
                         job_status=migration_job.status,
                         total_count=migration_job.total_count,
                         success_count=migration_job.success_count,
+                        completed_count=int(
+                            ((migration_job.scope_filter or {}).get("reconciliation") or {}).get(
+                                "completed", migration_job.success_count
+                            )
+                        ),
+                        verified_duplicate_count=int(
+                            ((migration_job.scope_filter or {}).get("reconciliation") or {}).get(
+                                "verified_duplicate", 0
+                            )
+                        ),
+                        processing_count=int(
+                            ((migration_job.scope_filter or {}).get("reconciliation") or {}).get(
+                                "processing", 0
+                            )
+                        ),
+                        duplicate_pending_count=int(
+                            ((migration_job.scope_filter or {}).get("reconciliation") or {}).get(
+                                "duplicate_pending", 0
+                            )
+                        ),
+                        pending_count=int(
+                            ((migration_job.scope_filter or {}).get("reconciliation") or {}).get(
+                                "pending", migration_job.skipped_count
+                            )
+                        ),
                         failed_count=migration_job.failed_count,
                         finished_at=migration_job.finished_at,
                     )

@@ -503,6 +503,45 @@ describe("AdminWeKnoraModelsPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows final reconciliation truth and only offers verification when nothing failed", async () => {
+    vi.mocked(fetchWeknoraKbConfigs).mockResolvedValue([
+      {
+        mapping_id: "safe-mapping-id",
+        scope: "company",
+        kb_name: "公司知识库",
+        project_name: null,
+        owner_name: null,
+        mapping_status: "migrating",
+        chat: null,
+        embedding: null,
+        rerank: null,
+        multimodal: null,
+        config_error: null,
+        migration: {
+          job_id: "safe-job-id",
+          job_status: "completed_with_errors",
+          total_count: 8,
+          success_count: 5,
+          completed_count: 3,
+          verified_duplicate_count: 2,
+          processing_count: 1,
+          duplicate_pending_count: 2,
+          pending_count: 3,
+          failed_count: 0,
+          finished_at: "2026-08-10T00:00:00Z",
+        },
+      },
+    ]);
+
+    renderPage();
+
+    expect(await screen.findByText(/3 完成/)).toHaveTextContent(
+      "3 完成 · 2 重复项已核验 · 1 处理中 · 2 重复项待核验 · 0 失败。 请等待后再次核验。",
+    );
+    expect(screen.getByRole("button", { name: "再次核验" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重试失败项" })).not.toBeInTheDocument();
+  });
+
   it("submits a KB migration with the chosen models", async () => {
     vi.mocked(fetchWeknoraModels).mockResolvedValue([
       {

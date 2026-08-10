@@ -5433,6 +5433,16 @@
       "KbMigrationStatusOut": {
         "description": "知识库重建迁移作业的安全摘要（无 kb_id / 真实 model_id）。",
         "properties": {
+          "completed_count": {
+            "default": 0,
+            "title": "Completed Count",
+            "type": "integer"
+          },
+          "duplicate_pending_count": {
+            "default": 0,
+            "title": "Duplicate Pending Count",
+            "type": "integer"
+          },
           "failed_count": {
             "default": 0,
             "title": "Failed Count",
@@ -5459,6 +5469,16 @@
             "title": "Job Status",
             "type": "string"
           },
+          "pending_count": {
+            "default": 0,
+            "title": "Pending Count",
+            "type": "integer"
+          },
+          "processing_count": {
+            "default": 0,
+            "title": "Processing Count",
+            "type": "integer"
+          },
           "success_count": {
             "default": 0,
             "title": "Success Count",
@@ -5467,6 +5487,11 @@
           "total_count": {
             "default": 0,
             "title": "Total Count",
+            "type": "integer"
+          },
+          "verified_duplicate_count": {
+            "default": 0,
+            "title": "Verified Duplicate Count",
             "type": "integer"
           }
         },

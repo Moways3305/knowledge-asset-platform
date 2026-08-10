@@ -418,6 +418,18 @@ function KbConfigRow({
   const [migrateOpen, setMigrateOpen] = useState(false);
   const migrationActive =
     cfg.migration != null && ["queued", "running"].includes(cfg.migration.job_status);
+  const migrationNeedsReconcile =
+    cfg.mapping_status === "migrating" &&
+    cfg.migration != null &&
+    !migrationActive &&
+    cfg.migration.pending_count > 0 &&
+    cfg.migration.failed_count === 0;
+  const migrationNeedsCloseRetry =
+    cfg.mapping_status === "migrating" &&
+    cfg.migration != null &&
+    !migrationActive &&
+    cfg.migration.pending_count === 0 &&
+    cfg.migration.failed_count === 0;
 
   useEffect(() => {
     setChat(cfg.chat?.model_ref ?? "");
@@ -503,7 +515,7 @@ function KbConfigRow({
           <button
             className="btn-small-primary"
             onClick={() => void save()}
-            disabled={busy || migrationActive}
+            disabled={busy || migrationActive || cfg.mapping_status === "migrating"}
           >
             {busy ? "保存中…" : "保存"}
           </button>
@@ -515,19 +527,35 @@ function KbConfigRow({
             disabled={migrationActive}
             title="重建知识库并迁移到新的嵌入模型"
           >
-            {migrationActive ? "迁移中…" : "迁移库"}
+            {migrationActive
+              ? "迁移中…"
+              : migrationNeedsReconcile
+                ? "再次核验"
+                : migrationNeedsCloseRetry
+                  ? "重试收口"
+                  : cfg.mapping_status === "migrating"
+                    ? "重试失败项"
+                    : "迁移库"}
           </button>
         )}
         {cfg.migration && (
           <div className="mf-migrate-status">
-            {cfg.migration.job_status === "completed" && "迁移完成，旧库已删除"}
-            {cfg.migration.job_status === "completed_with_errors" &&
-              `迁移完成（${cfg.migration.failed_count} 失败，可再次迁移续跑）`}
-            {cfg.migration.job_status === "failed" && "迁移失败，可重试"}
+            {cfg.migration.job_status === "completed" &&
+              `迁移完成：${cfg.migration.completed_count} 直接完成，${cfg.migration.verified_duplicate_count} 重复项已核验`}
+            {cfg.migration.job_status === "completed_with_errors" && (
+              <>
+                最终核验：{cfg.migration.completed_count} 完成 ·{" "}
+                {cfg.migration.verified_duplicate_count} 重复项已核验 ·{" "}
+                {cfg.migration.processing_count} 处理中 · {cfg.migration.duplicate_pending_count}{" "}
+                重复项待核验 · {cfg.migration.failed_count} 失败。
+                {cfg.migration.failed_count > 0 ? " 仅重试失败项。" : " 请等待后再次核验。"}
+              </>
+            )}
+            {cfg.migration.job_status === "failed" && "迁移收口失败，旧库仍保留，可重试"}
             {migrationActive && (
               <>
-                迁移中：{cfg.migration.success_count}/{cfg.migration.total_count} · 失败{" "}
-                {cfg.migration.failed_count}
+                本轮提交与核验中：{cfg.migration.success_count}/{cfg.migration.total_count} · 待核验{" "}
+                {cfg.migration.pending_count} · 失败 {cfg.migration.failed_count}
               </>
             )}
           </div>

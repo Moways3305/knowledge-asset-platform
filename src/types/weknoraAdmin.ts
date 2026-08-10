@@ -20,6 +20,11 @@ export interface KbMigrationStatusDTO {
   job_status: string; // queued | running | completed | completed_with_errors | failed | no_action
   total_count: number;
   success_count: number;
+  completed_count: number;
+  verified_duplicate_count: number;
+  processing_count: number;
+  duplicate_pending_count: number;
+  pending_count: number;
   failed_count: number;
   finished_at: string | null;
 }
