@@ -200,6 +200,42 @@ def test_client_unwrap_success_error_and_409():
     assert ed.value.existing_knowledge_id == "doc-x"
 
 
+async def test_list_knowledge_in_kb_uses_scoped_membership_without_row_kb_field(monkeypatch):
+    sent: dict = {}
+
+    class _FakeAsyncClient:
+        def __init__(self, *_, **__):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        async def get(self, url, *, params, headers):
+            sent.update({"url": url, "params": params, "headers": headers})
+            return httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "data": [{"id": "doc-1", "parse_status": "completed"}],
+                    "total": 1,
+                },
+            )
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+    client = WeKnoraClient(base_url="http://wk", api_key="sk-test")
+    rows, total = await client.list_knowledge_in_kb(
+        "target-kb", page=1, page_size=1000, trace_id="trace"
+    )
+
+    assert rows == [{"id": "doc-1", "parse_status": "completed"}]
+    assert total == 1
+    assert sent["url"].endswith("/knowledge-bases/target-kb/knowledge")
+    assert sent["params"] == {"page": 1, "page_size": 1000}
+
+
 async def test_initialize_kb_requires_current_contract():
     c = WeKnoraClient(base_url="http://x", api_key="sk-test")
     with pytest.raises(WeKnoraError) as ei:

@@ -130,6 +130,11 @@ class KbMigrationStatusOut(BaseModel):
     job_status: str  # queued | running | completed | completed_with_errors | failed | no_action
     total_count: int = 0
     success_count: int = 0
+    completed_count: int = 0
+    verified_duplicate_count: int = 0
+    processing_count: int = 0
+    duplicate_pending_count: int = 0
+    pending_count: int = 0
     failed_count: int = 0
     finished_at: datetime | None = None
 
