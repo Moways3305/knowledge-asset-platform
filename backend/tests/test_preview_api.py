@@ -45,6 +45,15 @@ async def test_personal_owner_preview_full_no_leak(client):
     assert body["preview_type"] == "full"
     assert body["credential_fingerprint"]
     assert body["preview_entry_url"].startswith("/api/v1/preview/")
+    entry = await client.get(body["preview_entry_url"], headers=_hdr(USER_CONSULTANT))
+    assert entry.status_code == 200
+    entry_body = entry.json()
+    # 渲染类型字段存在；seed 资产无原文回链 → 无可用源，render/file 为 None（不崩溃）。
+    assert "render_type" in entry_body
+    assert "file_url" in entry_body
+    assert entry_body["render_type"] is None
+    assert entry_body["file_url"] is None
+    assert entry_body["message"] == "preview_source_unavailable"
     _assert_no_leak(resp.text)
 
 

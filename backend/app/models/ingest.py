@@ -40,6 +40,9 @@ class IngestTask(Base):
     source_file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # 文件内容 sha256。
     source_file_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 文件形成日期建议（YYYY-MM-DD）：优先来自客户端文件修改时间（File.lastModified），
+    # 其次文件名正则；仅作确认界面默认值，人工可改可清空，不是权威日期。
+    suggested_formed_on: Mapped[str | None] = mapped_column(String(10), nullable=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
     # Safe workflow marker used by the first-party status API. It never stores provider details.
     processing_stage: Mapped[str | None] = mapped_column(String(40), nullable=True)

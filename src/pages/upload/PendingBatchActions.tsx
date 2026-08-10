@@ -89,7 +89,10 @@ function initialRows(
         {
           category_id: categoryId,
           subject: sourceSubject(task),
-          formed_on: parsedValue(task, "date"),
+          formed_on:
+            (task.suggested_formed_on?.match(/^\d{4}-\d{2}-\d{2}$/)
+              ? task.suggested_formed_on
+              : "") || parsedValue(task, "date"),
           version: suggestedVersion(task),
           applicable_to: "",
           confidentiality_level: suggestedConfidentiality(task, options),

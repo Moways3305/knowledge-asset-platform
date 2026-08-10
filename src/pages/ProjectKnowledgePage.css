@@ -185,6 +185,7 @@
 
 .pk-table-wrap {
   min-height: 292px;
+  overflow-x: auto;
   border: 1px solid #dfe4ed;
   border-radius: 4px 4px 0 0;
   transition: opacity 140ms ease;

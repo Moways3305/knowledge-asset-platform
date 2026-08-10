@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unicodedata
 import uuid
 from dataclasses import dataclass
@@ -42,6 +43,9 @@ UNREADABLE_FILE_MESSAGE = "文件内容当前不可读取；请先在本机完�
 PROCESSING_MAX_AGE = timedelta(hours=2)
 PROCESSING_ACTIVITY_GRACE = timedelta(minutes=15)
 
+# 文件名日期识别：YYYYMMDD、YYYY-MM-DD、YYYY/MM/DD、YYYY年M月D日 等形态。
+_FILENAME_DATE_RE = re.compile(r"(?<!\d)(\d{4})[-_.年/]?(\d{1,2})[-_.月/]?(\d{1,2})日?(?!\d)")
+
 
 @dataclass(frozen=True)
 class UploadCandidate:
@@ -52,6 +56,25 @@ class UploadCandidate:
     content_hash: str | None = None
     error_code: str | None = None
     error_message: str | None = None
+    # 文件形成日期建议（YYYY-MM-DD，客户端 lastModified 或文件名正则兜底）。
+    suggested_formed_on: str | None = None
+
+
+def extract_formed_on_from_filename(file_name: str) -> str | None:
+    """从文件名提取日期（YYYY-MM-DD）；提取不到或日期非法 → None。
+
+    只做确定性正则 + 日历合法性校验，不猜语义（如 2026-13-99 判非法）。
+    """
+    match = _FILENAME_DATE_RE.search(file_name or "")
+    if not match:
+        return None
+    try:
+        year, month, day = (int(g) for g in match.groups())
+        if not (1 <= month <= 12 and 1 <= day <= 31):
+            return None
+        return f"{year:04d}-{month:02d}-{day:02d}"
+    except (TypeError, ValueError):
+        return None
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
@@ -266,6 +289,7 @@ async def create_session(
             source_file_mime_type=candidate.file_type,
             source_file_size=candidate.file_size,
             source_file_hash=candidate.content_hash,
+            suggested_formed_on=candidate.suggested_formed_on,
             status=IngestStatus.pending.value,
             processing_stage="upload_waiting",
             target_scope=target_scope,
