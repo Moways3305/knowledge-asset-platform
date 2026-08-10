@@ -163,6 +163,29 @@ def _wrap_weknora(exc: WeKnoraError, *, kb_update: bool = False) -> HTTPExceptio
     return HTTPException(502, detail={"denied_reason": safe_code, "message": _WEKNORA_SAFE_MESSAGE})
 
 
+def _safe_check_failure(exc: WeKnoraError) -> ModelCheckResponse:
+    """Normalize upstream failures without returning its message, URL, IDs, or payload."""
+    code = str(exc.code or "").lower()
+    if any(part in code for part in ("401", "403", "auth", "unauthorized", "forbidden")):
+        category = "authentication_failed"
+        message = "认证失败，请重新配置模型凭据后测试"
+    elif "timeout" in code:
+        category = "network_timeout"
+        message = "模型服务连接超时，请检查网络后重试"
+    elif any(part in code for part in ("invalid_response", "protocol", "400", "404", "422")):
+        category = "protocol_incompatible"
+        message = "模型接口协议不兼容，请检查模型类型、地址和供应商配置"
+    else:
+        category = "upstream_unavailable"
+        message = "模型服务暂不可用，请稍后重试"
+    return ModelCheckResponse(
+        success=False,
+        message=message,
+        error_code=category,
+        credential_status="unknown",
+    )
+
+
 @router.get("/providers", response_model=ProviderListResponse)
 async def list_providers(
     request: Request,
@@ -296,7 +319,7 @@ async def check_model(
     try:
         return await weknora_models.check_model(weknora, req, trace_id=get_trace_id(request))
     except WeKnoraError as exc:
-        raise _wrap_weknora(exc) from exc
+        return _safe_check_failure(exc)
 
 
 @router.get("/kb-configs", response_model=KbConfigListResponse)

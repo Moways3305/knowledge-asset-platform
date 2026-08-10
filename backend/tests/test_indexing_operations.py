@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -133,6 +134,27 @@ class FakeWK:
     async def hybrid_search(self, **_):
         return []
 
+    async def list_models(self, *, trace_id=None):
+        return [
+            {
+                "id": "test-embed",
+                "name": "text-embedding-test",
+                "type": "Embedding",
+                "source": "remote",
+                "parameters": {"base_url": "https://controlled.invalid/v1"},
+                "credentials": {"api_key": {"configured": True}},
+            }
+        ]
+
+    async def get_model(self, model_id, *, trace_id=None):
+        return (await self.list_models(trace_id=trace_id))[0]
+
+    async def get_model_credentials(self, model_id, *, trace_id=None):
+        return {"fields": {"api_key": {"configured": True}}}
+
+    async def test_embedding_model(self, **_):
+        return {"available": not self.fail}
+
 
 async def _async_return(val):
     return val
@@ -151,6 +173,10 @@ def _enable(monkeypatch, fake, *, embedding="test-embed"):
     monkeypatch.setattr(
         "app.services.indexing.resolve_models_for_kb",
         lambda *_a, **_kw: _async_return(_resolved),
+    )
+    monkeypatch.setattr(
+        "app.services.weknora_defaults.get_defaults",
+        lambda *_a, **_kw: _async_return(SimpleNamespace(default_embedding_model_id=embedding)),
     )
     app.dependency_overrides[get_weknora_client] = lambda: fake
 
@@ -241,6 +267,28 @@ async def test_batch_retry_admin_allowed(client, monkeypatch):
     _set_client(FakeWK())
     r = await client.post(RETRY, headers=_hdr(USER_ADMIN_ONLY), json={"scope": "all"})
     assert r.status_code == 202, r.text
+
+
+async def test_batch_retry_is_blocked_before_enqueue_when_embedding_is_unavailable(
+    client, db_session, monkeypatch
+):
+    await _make_index_failed(client, monkeypatch, USER_CONSULTANT)
+    _set_client(FakeWK(fail=True))
+    response = await client.post(RETRY, headers=_hdr(USER_ADMIN_ONLY), json={"scope": "all"})
+    assert response.status_code == 409
+    assert response.json()["detail"]["denied_reason"] == "weknora_embedding_not_ready"
+    jobs = (
+        (
+            await db_session.execute(
+                select(IndexingOperationJob).where(
+                    IndexingOperationJob.operation_type == "retry_index"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert jobs == []
 
 
 async def test_batch_retry_governance_allowed(client, monkeypatch):

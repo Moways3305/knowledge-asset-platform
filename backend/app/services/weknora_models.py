@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import uuid
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -57,6 +57,7 @@ _WK_TO_ALIAS = {v: k for k, v in _ALIAS_TO_WK.items()}
 
 # 类型别名：仅供静态检查。运行时值仍是同一字符串（future annotations 下注解不求值），无行为变化。
 _CheckClient: TypeAlias = "WeKnoraClient | NullWeKnoraClient"
+_CredentialStatus: TypeAlias = Literal["configured", "missing", "unknown"]
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
@@ -93,7 +94,44 @@ def _to_model_out(raw: dict) -> ModelOut:
         enabled=(status == "active") if status is not None else True,
         is_builtin=bool(raw.get("is_builtin")),
         description=raw.get("description"),
+        credential_status=_credential_status(raw.get("credentials")),
     )
+
+
+def _credential_status(value: Any) -> _CredentialStatus:
+    """Reduce upstream credential metadata to a safe tri-state without accepting secret values."""
+    fields = value.get("fields") if isinstance(value, dict) else None
+    # List/detail model DTOs expose the fields map directly, while the dedicated
+    # credential endpoint wraps it in {fields: ...}.
+    if not isinstance(fields, dict):
+        fields = value if isinstance(value, dict) else None
+    api_key = fields.get("api_key") if isinstance(fields, dict) else None
+    configured = api_key.get("configured") if isinstance(api_key, dict) else None
+    if configured is True:
+        return "configured"
+    if configured is False:
+        return "missing"
+    return "unknown"
+
+
+async def _confirmed_credential_status(
+    client: _CheckClient, model_id: str, trace_id: str | None
+) -> _CredentialStatus:
+    metadata = await client.get_model_credentials(model_id, trace_id=trace_id)
+    return _credential_status(metadata)
+
+
+async def _require_confirmed_credential(
+    client: _CheckClient, model_id: str, trace_id: str | None
+) -> None:
+    status = await _confirmed_credential_status(client, model_id, trace_id)
+    if status != "configured":
+        reason = (
+            "weknora_model_credential_missing"
+            if status == "missing"
+            else "weknora_model_credential_unconfirmed"
+        )
+        raise _denied(422, reason, "凭据未能确认保存，请重新配置并测试")
 
 
 async def list_providers(
@@ -267,11 +305,20 @@ async def create_model(
         raise _denied(
             502, "weknora_model_create_no_id", "底座创建模型未返回有效标识，模型未确认创建成功"
         )
+    if req.source == "remote":
+        # Do not rely on parameters.api_key being persisted by the ordinary model endpoint.
+        # Normalize create and update onto the v0.7.1 credential subresource, then perform a
+        # separate metadata-only read before reporting success.
+        await client.update_model_credentials(
+            str(mid), api_key=str(req.api_key or "").strip(), trace_id=trace_id
+        )
+        await _require_confirmed_credential(client, str(mid), trace_id)
     return ModelMutateResponse(
         model_ref=_model_ref(str(mid)),
         name=str(created.get("name") or req.name),
         type=req.type,
         provider=req.provider,
+        credential_status="configured" if req.source == "remote" else "unknown",
     )
 
 
@@ -283,14 +330,41 @@ async def update_model(
     if model_id is None:
         raise _denied(404, "weknora_model_not_found", "模型不存在")
     _validate_update_sensitive_inputs(req)
-    await client.update_model(
-        model_id, _build_model_payload(req, keep_blank_sensitive=False), trace_id=trace_id
-    )
+    saved = await client.get_model(model_id, trace_id=trace_id)
+    api_key = str(req.api_key or "").strip()
+    if req.source == "remote" and not api_key:
+        # Blank means preserve only when the current credential can be authoritatively confirmed.
+        await _require_confirmed_credential(client, model_id, trace_id)
+
+    # v0.7.1 deliberately ignores credentials on PUT /models/{id}. Keep status out of the
+    # metadata update so a credential-write failure cannot accidentally toggle the model.
+    payload = _build_model_payload(req, keep_blank_sensitive=False)
+    current_params = saved.get("parameters") if isinstance(saved, dict) else {}
+    current_params = current_params if isinstance(current_params, dict) else {}
+    # The upstream update DTO replaces the entire parameters object. Merge the saved safe fields
+    # first, while explicitly excluding credential fields even if a non-conforming fake/upstream
+    # response happens to include them.
+    merged_params = {
+        key: value for key, value in current_params.items() if key not in {"api_key", "app_secret"}
+    }
+    merged_params.update(payload.get("parameters") or {})
+    merged_params.pop("api_key", None)
+    merged_params.pop("app_secret", None)
+    payload["parameters"] = merged_params
+    # WeKnora v0.7.1 UpdateModelRequest has no status field. Omitting it preserves the current
+    # enablement instead of pretending a guessed field was accepted.
+    payload.pop("status", None)
+    await client.update_model(model_id, payload, trace_id=trace_id)
+    if req.source == "remote" and api_key:
+        await client.update_model_credentials(model_id, api_key=api_key, trace_id=trace_id)
+    if req.source == "remote":
+        await _require_confirmed_credential(client, model_id, trace_id)
     return ModelMutateResponse(
         model_ref=_model_ref(model_id),
         name=req.name,
         type=req.type,
         provider=req.provider,
+        credential_status="configured" if req.source == "remote" else "unknown",
     )
 
 
@@ -314,11 +388,14 @@ async def check_model(
     params = saved.get("parameters") if isinstance(saved, dict) else {}
     params = params if isinstance(params, dict) else {}
     model_type = _alias(str(saved.get("type") or "")) if isinstance(saved, dict) else ""
-    fn = {
-        "chat": client.check_remote_model,
-        "embedding": client.test_embedding_model,
-        "rerank": client.check_rerank_model,
-    }.get(model_type)
+    if model_type == "chat":
+        fn = client.check_remote_model
+    elif model_type == "embedding":
+        fn = client.test_embedding_model
+    elif model_type == "rerank":
+        fn = client.check_rerank_model
+    else:
+        fn = None
     if fn is None:
         # Unsupported saved-model types must fail before inspecting optional
         # connection fields, so the user-visible error remains stable.
@@ -342,6 +419,20 @@ async def check_model(
             "weknora_model_connection_config_missing",
             "该已保存模型缺少可用连接配置，请更新模型后重试",
         )
+    credential_status: _CredentialStatus = "unknown"
+    if source == "remote":
+        credential_status = await _confirmed_credential_status(client, model_id, trace_id)
+        if credential_status != "configured":
+            return ModelCheckResponse(
+                success=False,
+                message="凭据未配置或保存状态未确认，请重新输入并保存后测试",
+                error_code=(
+                    "credential_missing"
+                    if credential_status == "missing"
+                    else "credential_unconfirmed"
+                ),
+                credential_status=credential_status,
+            )
     res = await fn(
         model_id=model_id,
         model_name=model_name,
@@ -351,11 +442,41 @@ async def check_model(
         interface_type=interface_type,
         trace_id=trace_id,
     )
-    success = bool(res.get("success", True)) if isinstance(res, dict) else False
+    # `_unwrap` already checked the HTTP/envelope success. The v0.7.1 business result is the
+    # `data` object returned here; an absent or false `available` must fail closed.
+    success = isinstance(res, dict) and res.get("available") is True
     return ModelCheckResponse(
         success=success,
-        message="模型连通性正常" if success else "模型未通过连通性测试，请检查保存配置后重试",
+        message=(
+            ("凭据已确认保存，连通性已验证" if source == "remote" else "模型连通性已验证")
+            if success
+            else "连通性测试失败，请检查凭据、网络或模型协议后重试"
+        ),
+        error_code=None if success else "model_unavailable",
+        credential_status=credential_status,
     )
+
+
+async def require_embedding_ready(
+    client: _CheckClient, model_ref: str, *, trace_id: str | None
+) -> None:
+    """Fail-closed gate used immediately before migration/batch retry enqueue."""
+    try:
+        result = await check_model(
+            client, ModelCheckRequest(model_ref=model_ref), trace_id=trace_id
+        )
+    except WeKnoraError as exc:
+        raise _denied(
+            409,
+            "weknora_embedding_not_ready",
+            "嵌入模型状态无法确认，请先到模型配置完成保存与测试",
+        ) from exc
+    if not result.success:
+        raise _denied(
+            409,
+            "weknora_embedding_not_ready",
+            "嵌入模型凭据未确认或连通性未通过，请先到模型配置完成保存与测试",
+        )
 
 
 def _slot(model_id: str | None, id_meta: dict[str, ModelOut]) -> ModelSlotOut | None:

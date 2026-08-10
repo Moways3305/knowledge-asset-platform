@@ -46,6 +46,7 @@ export interface ModelDTO {
   is_builtin: boolean;
   description: string | null;
   dimension?: number | null;
+  credential_status: "configured" | "missing" | "unknown";
 }
 
 export interface ModelSlotDTO {
@@ -129,6 +130,7 @@ export interface WeknoraModelMutateResponseDTO {
   type: string;
   provider: string | null;
   status: string;
+  credential_status: "configured" | "missing" | "unknown";
 }
 
 export interface WeknoraModelCheckDTO {
@@ -138,6 +140,8 @@ export interface WeknoraModelCheckDTO {
 export interface WeknoraModelCheckResponseDTO {
   success: boolean;
   message: string;
+  error_code: string | null;
+  credential_status: "configured" | "missing" | "unknown";
 }
 
 export interface WeknoraModelDeleteResponseDTO {
