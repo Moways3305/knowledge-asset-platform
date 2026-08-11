@@ -972,7 +972,8 @@
           "deliverable",
           "case",
           "template",
-          "insight"
+          "insight",
+          "unclassified"
         ],
         "title": "AssetType",
         "type": "string"
@@ -5766,6 +5767,17 @@
             ],
             "title": "Canonical Name"
           },
+          "category_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Path"
+          },
           "confidence": {
             "anyOf": [
               {
@@ -5874,6 +5886,17 @@
               }
             ]
           },
+          "maintainer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maintainer Name"
+          },
           "project_id": {
             "anyOf": [
               {
@@ -5896,6 +5919,39 @@
               }
             ],
             "title": "Project Name"
+          },
+          "qa_available": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qa Available"
+          },
+          "retrieval_available": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrieval Available"
+          },
+          "safe_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Safe Version"
           },
           "scope": {
             "title": "Scope",
@@ -7539,6 +7595,16 @@
       },
       "NamingCategoryConfig": {
         "properties": {
+          "asset_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssetType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "default_confidentiality": {
             "$ref": "#/components/schemas/ConfidentialityLevel",
             "default": "L2"
@@ -7699,6 +7765,9 @@
       },
       "NamingOptionItem": {
         "properties": {
+          "asset_type": {
+            "$ref": "#/components/schemas/AssetType"
+          },
           "default_confidentiality": {
             "$ref": "#/components/schemas/ConfidentialityLevel"
           },
@@ -7754,6 +7823,7 @@
           "primary",
           "secondary",
           "prefix",
+          "asset_type",
           "default_confidentiality",
           "sort_order"
         ],
@@ -8029,6 +8099,14 @@
             "title": "Enforced",
             "type": "boolean"
           },
+          "migration_missing_asset_type_category_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Migration Missing Asset Type Category Ids",
+            "type": "array"
+          },
           "project_codes": {
             "items": {
               "$ref": "#/components/schemas/ProjectCodeConfig"
@@ -8037,7 +8115,7 @@
             "type": "array"
           },
           "schema_version": {
-            "default": 1,
+            "default": 2,
             "title": "Schema Version",
             "type": "integer"
           }
@@ -10225,6 +10303,17 @@
             "title": "Name",
             "type": "string"
           },
+          "naming_default_confidentiality": {
+            "$ref": "#/components/schemas/ConfidentialityLevel"
+          },
+          "project_code": {
+            "title": "Project Code",
+            "type": "string"
+          },
+          "project_code_active": {
+            "title": "Project Code Active",
+            "type": "boolean"
+          },
           "project_manager_user_id": {
             "format": "uuid",
             "title": "Project Manager User Id",
@@ -10233,7 +10322,10 @@
         },
         "required": [
           "name",
-          "project_manager_user_id"
+          "project_manager_user_id",
+          "project_code",
+          "project_code_active",
+          "naming_default_confidentiality"
         ],
         "title": "ProjectCreateRequest",
         "type": "object"

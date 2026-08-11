@@ -18,6 +18,7 @@ import type {
 } from "../types/modelConnections";
 import { ApiError } from "../api/http";
 import ConfirmDialog from "./ConfirmDialog";
+import TaskModal from "./TaskModal";
 
 const PROVIDERS = ["deepseek", "kimi", "qwen", "glm", "minimax", "openai", "custom"];
 const usageLabel: Record<ModelUsageKey, string> = {
@@ -77,9 +78,11 @@ function formatTestTime(connection: ModelConnectionDTO): string | null {
 export default function UnifiedModelConnectionsSection({
   canEdit,
   refreshSignal = 0,
+  showUsageControls = true,
 }: {
   canEdit: boolean;
   refreshSignal?: number;
+  showUsageControls?: boolean;
 }) {
   const [connections, setConnections] = useState<ModelConnectionDTO[]>([]);
   const [usages, setUsages] = useState<ModelUsageAssignmentsDTO>(emptyUsages);
@@ -95,6 +98,8 @@ export default function UnifiedModelConnectionsSection({
   const [form, setForm] = useState<ModelConnectionMutateDTO>(emptyForm());
   const [tests, setTests] = useState<Record<string, TestNotice>>({});
   const [connectionsExpanded, setConnectionsExpanded] = useState(true);
+  const [search, setSearch] = useState("");
+  const [healthFilter, setHealthFilter] = useState("all");
   const panelRef = useRef<HTMLFormElement>(null);
   const effectiveCanEdit = canEdit && !forbidden;
 
@@ -350,6 +355,26 @@ export default function UnifiedModelConnectionsSection({
     </label>
   );
 
+  const visibleConnections = connections.filter((connection) => {
+    const query = search.trim().toLowerCase();
+    const matchesQuery =
+      !query ||
+      `${connection.display_name} ${connection.provider ?? ""} ${connection.model_name}`
+        .toLowerCase()
+        .includes(query);
+    const matchesHealth =
+      healthFilter === "all" ||
+      (healthFilter === "enabled" && connection.enabled) ||
+      (healthFilter === "disabled" && !connection.enabled) ||
+      (healthFilter === "healthy" &&
+        connection.enabled &&
+        connection.health_status === "healthy") ||
+      (healthFilter === "attention" &&
+        connection.enabled &&
+        connection.health_status !== "healthy");
+    return matchesQuery && matchesHealth;
+  });
+
   return (
     <section className="mf-external-panel" aria-labelledby="external-llm-title">
       <div className="mf-panel-heading">
@@ -376,32 +401,54 @@ export default function UnifiedModelConnectionsSection({
       {warning && <div className="mf-inline-message is-warning">{warning}</div>}
       {note && <div className="mf-inline-message is-success">{note}</div>}
 
-      <div className="mf-usage-card" aria-label="外部 LLM 默认用途">
-        <div className="mf-usage-copy">
-          <strong>默认用途</strong>
-          <span>KAP 直接调用同一条 OpenAI-compatible 连接，不经过 WeKnora。</span>
-        </div>
-        <div className="mf-usage-grid">
-          {usageSelect("内容生成默认模型", "content_generation")}
-          {usageSelect("项目问答默认模型", "project_qa")}
-        </div>
-        {usages.dependency_status === "missing" && (
-          <div className="mf-dependency-note">
-            {usages.dependency_message} {usages.remediation_hint}
+      {showUsageControls && (
+        <div className="mf-usage-card" aria-label="外部 LLM 默认用途">
+          <div className="mf-usage-copy">
+            <strong>默认用途</strong>
+            <span>KAP 直接调用同一条 OpenAI-compatible 连接，不经过 WeKnora。</span>
           </div>
-        )}
-        {effectiveCanEdit && (
-          <div className="mf-usage-actions">
-            <button
-              className="btn-small-primary"
-              onClick={() => void saveUsages()}
-              disabled={loading || busyAction === "usages"}
-              type="button"
-            >
-              {busyAction === "usages" ? "保存中…" : "保存默认用途"}
-            </button>
+          <div className="mf-usage-grid">
+            {usageSelect("内容生成默认模型", "content_generation")}
+            {usageSelect("项目问答默认模型", "project_qa")}
           </div>
-        )}
+          {usages.dependency_status === "missing" && (
+            <div className="mf-dependency-note">
+              {usages.dependency_message} {usages.remediation_hint}
+            </div>
+          )}
+          {effectiveCanEdit && (
+            <div className="mf-usage-actions">
+              <button
+                className="btn-small-primary"
+                onClick={() => void saveUsages()}
+                disabled={loading || busyAction === "usages"}
+                type="button"
+              >
+                {busyAction === "usages" ? "保存中…" : "保存默认用途"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="mf-drawer-filters" aria-label="外部 LLM 筛选">
+        <input
+          aria-label="搜索外部 LLM"
+          placeholder="搜索名称、供应商或模型"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+        <select
+          aria-label="外部 LLM 状态"
+          value={healthFilter}
+          onChange={(event) => setHealthFilter(event.target.value)}
+        >
+          <option value="all">全部状态</option>
+          <option value="healthy">连接正常</option>
+          <option value="attention">需要检查</option>
+          <option value="enabled">已启用</option>
+          <option value="disabled">已停用</option>
+        </select>
       </div>
 
       <div className="mf-connection-stack">
@@ -437,7 +484,10 @@ export default function UnifiedModelConnectionsSection({
 
             {connectionsExpanded && (
               <div className="mf-connection-stack-inner">
-                {connections.map((connection, index) => {
+                {visibleConnections.length === 0 && (
+                  <div className="mf-empty-state">没有匹配的外部 LLM 连接。</div>
+                )}
+                {visibleConnections.map((connection, index) => {
                   const time = formatTestTime(connection);
                   const testNotice = tests[connection.model_ref];
                   const status = !connection.enabled
@@ -550,109 +600,105 @@ export default function UnifiedModelConnectionsSection({
         )}
       </div>
 
-      {formOpen && effectiveCanEdit && (
-        <div className="mf-connection-editor">
-          <div className="mf-editor-heading">
-            <div>
-              <strong>{editingRef ? "编辑外部 LLM" : "新增外部 LLM"}</strong>
-              <span>地址和密钥仅单向写入；编辑时留空即保持原值。</span>
-            </div>
-            <button className="btn-small" onClick={() => setFormOpen(false)} type="button">
-              关闭
-            </button>
-          </div>
-          <form
-            key={editingRef ?? "create"}
-            className="ws-form-grid mf-form-grid"
-            autoComplete="off"
-            onSubmit={(event) => event.preventDefault()}
-            ref={panelRef}
-          >
-            <FormField label="显示名称">
-              <input
-                data-model-field="display_name"
-                autoComplete="off"
-                value={form.display_name}
-                onChange={(event) => setForm({ ...form, display_name: event.target.value })}
-              />
-            </FormField>
-            <FormField label="模型能力">
-              <select data-model-field="capability_type" value={form.capability_type} disabled>
-                <option value="chat">对话（OpenAI 兼容）</option>
-              </select>
-            </FormField>
-            <FormField label="Provider">
-              <select
-                data-model-field="provider"
-                value={form.provider}
-                onChange={(event) => setForm({ ...form, provider: event.target.value })}
-              >
-                {PROVIDERS.map((provider) => (
-                  <option key={provider}>{provider}</option>
-                ))}
-              </select>
-            </FormField>
-            <FormField label="模型名称">
-              <input
-                data-model-field="model_name"
-                autoComplete="off"
-                value={form.model_name}
-                onChange={(event) => setForm({ ...form, model_name: event.target.value })}
-              />
-            </FormField>
-            <FormField label="API 地址">
-              <input
-                data-model-field="base_url"
-                name="model_connection_endpoint"
-                inputMode="url"
-                autoComplete="off"
-                data-lpignore="true"
-                value={form.base_url ?? ""}
-                placeholder={editingRef ? "留空表示保持原地址" : "https://api.example.com/v1"}
-                onChange={(event) => setForm({ ...form, base_url: event.target.value })}
-              />
-            </FormField>
-            <FormField label="API key">
-              <input
-                data-model-field="api_key"
-                name="model_connection_secret"
-                type="password"
-                autoComplete="new-password"
-                data-lpignore="true"
-                data-1p-ignore="true"
-                value={form.api_key ?? ""}
-                placeholder={editingRef ? "留空表示保持原密钥" : "保存后不再显示"}
-                onChange={(event) => setForm({ ...form, api_key: event.target.value })}
-              />
-            </FormField>
-            <FormField label="启用状态">
-              <select
-                data-model-field="enabled"
-                value={form.enabled ? "enabled" : "disabled"}
-                onChange={(event) =>
-                  setForm({ ...form, enabled: event.target.value === "enabled" })
-                }
-              >
-                <option value="enabled">已启用</option>
-                <option value="disabled">已停用</option>
-              </select>
-            </FormField>
-          </form>
-          <div className="mf-editor-actions">
-            <button
-              className="btn-small-primary"
-              onClick={() => void saveConnection()}
-              disabled={busyAction === "form"}
-              type="button"
+      <TaskModal
+        open={formOpen && effectiveCanEdit}
+        title={editingRef ? "编辑外部 LLM" : "新增外部 LLM"}
+        description="地址和密钥仅单向写入；编辑时留空即保持原值。"
+        onClose={() => setFormOpen(false)}
+        busy={busyAction === "form"}
+        size="large"
+        eyebrow="外部 LLM"
+        panelClassName="mf-connection-editor"
+      >
+        <form
+          key={editingRef ?? "create"}
+          className="ws-form-grid mf-form-grid"
+          autoComplete="off"
+          onSubmit={(event) => event.preventDefault()}
+          ref={panelRef}
+        >
+          <FormField label="显示名称">
+            <input
+              data-model-field="display_name"
+              autoComplete="off"
+              value={form.display_name}
+              onChange={(event) => setForm({ ...form, display_name: event.target.value })}
+            />
+          </FormField>
+          <FormField label="模型能力">
+            <select data-model-field="capability_type" value={form.capability_type} disabled>
+              <option value="chat">对话（OpenAI 兼容）</option>
+            </select>
+          </FormField>
+          <FormField label="Provider">
+            <select
+              data-model-field="provider"
+              value={form.provider}
+              onChange={(event) => setForm({ ...form, provider: event.target.value })}
             >
-              {busyAction === "form" ? "保存中…" : "保存外部 LLM"}
-            </button>
-            <button className="btn-small" onClick={() => setFormOpen(false)} type="button">
-              取消
-            </button>
-          </div>
+              {PROVIDERS.map((provider) => (
+                <option key={provider}>{provider}</option>
+              ))}
+            </select>
+          </FormField>
+          <FormField label="模型名称">
+            <input
+              data-model-field="model_name"
+              autoComplete="off"
+              value={form.model_name}
+              onChange={(event) => setForm({ ...form, model_name: event.target.value })}
+            />
+          </FormField>
+          <FormField label="API 地址">
+            <input
+              data-model-field="base_url"
+              name="model_connection_endpoint"
+              inputMode="url"
+              autoComplete="off"
+              data-lpignore="true"
+              value={form.base_url ?? ""}
+              placeholder={editingRef ? "留空表示保持原地址" : "https://api.example.com/v1"}
+              onChange={(event) => setForm({ ...form, base_url: event.target.value })}
+            />
+          </FormField>
+          <FormField label="API key">
+            <input
+              data-model-field="api_key"
+              name="model_connection_secret"
+              type="password"
+              autoComplete="new-password"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              value={form.api_key ?? ""}
+              placeholder={editingRef ? "留空表示保持原密钥" : "保存后不再显示"}
+              onChange={(event) => setForm({ ...form, api_key: event.target.value })}
+            />
+          </FormField>
+          <FormField label="启用状态">
+            <select
+              data-model-field="enabled"
+              value={form.enabled ? "enabled" : "disabled"}
+              onChange={(event) => setForm({ ...form, enabled: event.target.value === "enabled" })}
+            >
+              <option value="enabled">已启用</option>
+              <option value="disabled">已停用</option>
+            </select>
+          </FormField>
+        </form>
+        <div className="mf-editor-actions">
+          <button
+            className="btn-small-primary"
+            onClick={() => void saveConnection()}
+            disabled={busyAction === "form"}
+            type="button"
+          >
+            {busyAction === "form" ? "保存中…" : "保存外部 LLM"}
+          </button>
+          <button className="btn-small" onClick={() => setFormOpen(false)} type="button">
+            取消
+          </button>
         </div>
-      )}
+      </TaskModal>
 
       <ConfirmDialog
         open={Boolean(deleteTarget)}

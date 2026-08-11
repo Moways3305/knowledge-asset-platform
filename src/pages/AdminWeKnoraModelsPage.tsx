@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Database, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Bot, Database, RefreshCw, Settings2, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
   fetchWeknoraDefaultModels,
@@ -8,27 +8,46 @@ import {
   updateWeknoraDefaultModels,
   updateWeknoraKbInit,
 } from "../api/admin";
+import {
+  fetchModelConnections,
+  fetchModelUsageAssignments,
+  updateModelUsageAssignments,
+} from "../api/modelConnections";
 import { ApiError } from "../api/http";
 import { useAuth } from "../auth/AuthContext";
-import { PageHeader, PageSection, ProductPage } from "../components/ProductLayout";
-import StatusBadge from "../components/StatusBadge";
+import DetailDrawer from "../components/DetailDrawer";
+import KbMigrateDialog from "../components/KbMigrateDialog";
 import OperationStatusCard from "../components/OperationStatusCard";
 import { operationStatusFromJob } from "../components/operationStatus";
-import KbMigrateDialog from "../components/KbMigrateDialog";
+import { PageHeader, ProductPage } from "../components/ProductLayout";
+import StatusBadge from "../components/StatusBadge";
+import TaskModal from "../components/TaskModal";
 import UnifiedModelConnectionsSection from "../components/UnifiedModelConnectionsSection";
 import WeknoraModelsSection from "../components/WeknoraModelsSection";
-import type { KbConfigDTO, ModelDTO } from "../types/weknoraAdmin";
+import type { ModelConnectionDTO } from "../types/modelConnections";
+import type { KbConfigDTO, ModelDTO, WeknoraDefaultModelsDTO } from "../types/weknoraAdmin";
 import "./AdminWeKnoraModelsPage.css";
+
+type DrawerKind = "external" | "weknora" | "knowledge" | "migration" | null;
 
 const scopeLabel: Record<string, string> = {
   company: "公司库",
   project: "项目库",
   personal: "个人库",
 };
+
 const mappingStatusLabel: Record<string, string> = {
   active: "已初始化",
-  init_failed: "初始化失败",
+  init_failed: "初始化异常",
   migrating: "迁移中",
+};
+
+const emptyDefaults: WeknoraDefaultModelsDTO = {
+  embedding: null,
+  rerank: null,
+  chat: null,
+  multimodal: null,
+  updated_at: null,
 };
 
 function kbUpdateErrorMessage(caught: unknown): string {
@@ -36,167 +55,265 @@ function kbUpdateErrorMessage(caught: unknown): string {
     const messages: Record<string, string> = {
       weknora_kb_config_rejected: "知识库配置被底座拒绝，请检查所选模型是否兼容。",
       weknora_model_type_mismatch: "所选模型类型与配置项不匹配。",
-      weknora_model_slot_unsupported: "当前底座不支持按知识库更新该模型。",
-      weknora_kb_chat_model_missing: "知识库尚未配置问答模型，请先选择问答模型。",
+      weknora_model_slot_unsupported: "当前底座不支持更新该模型。",
+      weknora_kb_chat_model_missing: "请先选择底座兼容 LLM。",
     };
-    if (caught.deniedReason && messages[caught.deniedReason]) {
-      return messages[caught.deniedReason];
-    }
-    if (caught.status >= 400 && caught.status < 500) {
-      return "知识库配置未保存，请检查所选模型。";
-    }
+    if (caught.deniedReason && messages[caught.deniedReason]) return messages[caught.deniedReason];
   }
-  return "知识库配置服务暂不可用，请稍后重试。";
+  return "知识库配置未保存，请检查模型状态后重试。";
+}
+
+function slotName(slot: { name: string | null } | null): string {
+  return slot?.name?.trim() || "未设置";
 }
 
 export default function AdminWeKnoraModelsPage() {
   const { capabilities } = useAuth();
+  const isGlobalOperator = capabilities.isAdmin || capabilities.isGovernance;
   const [models, setModels] = useState<ModelDTO[]>([]);
   const [kbConfigs, setKbConfigs] = useState<KbConfigDTO[]>([]);
+  const [defaults, setDefaults] = useState<WeknoraDefaultModelsDTO>(emptyDefaults);
+  const [externalConnections, setExternalConnections] = useState<ModelConnectionDTO[]>([]);
+  const [externalDefaultRef, setExternalDefaultRef] = useState("");
   const [loading, setLoading] = useState(true);
   const [notConfigured, setNotConfigured] = useState(false);
-  const [weknoraForbidden, setWeknoraForbidden] = useState(false);
+  const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const [defaultChatRef, setDefaultChatRef] = useState("");
-  const [defaultEmbeddingRef, setDefaultEmbeddingRef] = useState("");
-  const [defaultRerankRef, setDefaultRerankRef] = useState("");
-  const [defaultMultimodalRef, setDefaultMultimodalRef] = useState("");
-  const [defaultsBusy, setDefaultsBusy] = useState(false);
+  const [drawer, setDrawer] = useState<DrawerKind>(null);
+  const [defaultsModal, setDefaultsModal] = useState<"external" | "foundation" | null>(null);
+  const [selectedKb, setSelectedKb] = useState<KbConfigDTO | null>(null);
+  const [migrationKb, setMigrationKb] = useState<KbConfigDTO | null>(null);
+  const [migrationResult, setMigrationResult] = useState<KbConfigDTO | null>(null);
+  const [busy, setBusy] = useState(false);
   const [refreshSignal, setRefreshSignal] = useState(0);
-  const isGlobalOperator = capabilities.isAdmin || capabilities.isGovernance;
-  const canEdit = (isGlobalOperator || capabilities.isProjectManager) && !weknoraForbidden;
+  const [kbQuery, setKbQuery] = useState("");
+  const [kbScope, setKbScope] = useState("all");
+  const [kbStatus, setKbStatus] = useState("all");
+  const [kbDraft, setKbDraft] = useState({ chat: "", embedding: "", rerank: "", multimodal: "" });
+  const [foundationDraft, setFoundationDraft] = useState({
+    chat: "",
+    embedding: "",
+    rerank: "",
+    multimodal: "",
+  });
 
-  const loadKnowledgeConfigs = useCallback(async () => {
+  const canEdit = (isGlobalOperator || capabilities.isProjectManager) && !forbidden;
+
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     setNotConfigured(false);
-    setWeknoraForbidden(false);
+    setForbidden(false);
     try {
-      const [availableModels, configs, defaults] = await Promise.all([
+      const [availableModels, configs, modelDefaults] = await Promise.all([
         fetchWeknoraModels(),
         fetchWeknoraKbConfigs(),
-        isGlobalOperator
-          ? fetchWeknoraDefaultModels()
-          : Promise.resolve({
-              embedding: null,
-              rerank: null,
-              chat: null,
-              multimodal: null,
-              updated_at: null,
-            }),
+        isGlobalOperator ? fetchWeknoraDefaultModels() : Promise.resolve(emptyDefaults),
       ]);
       setModels(availableModels);
       setKbConfigs(configs);
-      setDefaultChatRef(defaults.chat?.model_ref ?? "");
-      setDefaultEmbeddingRef(defaults.embedding?.model_ref ?? "");
-      setDefaultRerankRef(defaults.rerank?.model_ref ?? "");
-      setDefaultMultimodalRef(defaults.multimodal?.model_ref ?? "");
-    } catch (caught) {
-      setModels([]);
-      setKbConfigs([]);
-      if (caught instanceof ApiError && caught.status === 503) {
-        setNotConfigured(true);
-      } else if (caught instanceof ApiError && caught.status === 403) {
-        setWeknoraForbidden(true);
-        setError("当前身份没有 WeKnora 管理权限，此区域保持只读。");
-      } else {
-        setError("知识库底座暂时无法加载，请刷新或检查 WeKnora 连接。");
+      setDefaults(modelDefaults);
+      if (isGlobalOperator) {
+        const [connections, assignments] = await Promise.all([
+          fetchModelConnections(),
+          fetchModelUsageAssignments(),
+        ]);
+        setExternalConnections(connections.items);
+        setExternalDefaultRef(assignments.external_llm_default?.model_ref ?? "");
       }
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 503) setNotConfigured(true);
+      else if (caught instanceof ApiError && caught.status === 403) {
+        setForbidden(true);
+        setError("当前身份仅可查看允许的配置摘要。");
+      } else setError("模型与知识库配置暂时无法加载，请刷新后重试。");
     } finally {
       setLoading(false);
     }
   }, [isGlobalOperator]);
 
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const migrationActive = kbConfigs.some((config) =>
+    ["queued", "running"].includes(config.migration?.job_status ?? ""),
+  );
+  useEffect(() => {
+    if (!migrationActive) return;
+    const timer = window.setInterval(() => {
+      void fetchWeknoraKbConfigs()
+        .then(setKbConfigs)
+        .catch(() => undefined);
+    }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [migrationActive]);
+
+  const counts = useMemo(() => {
+    const migrating = kbConfigs.filter((item) => item.mapping_status === "migrating").length;
+    const anomalies = kbConfigs.filter(
+      (item) => item.mapping_status === "init_failed" || (item.migration?.failed_count ?? 0) > 0,
+    ).length;
+    return {
+      pending: kbConfigs.filter((item) => item.mapping_status === "init_failed").length,
+      migrating,
+      anomalies,
+      company: kbConfigs.filter((item) => item.scope === "company").length,
+      project: kbConfigs.filter((item) => item.scope === "project").length,
+      personal: kbConfigs.filter((item) => item.scope === "personal").length,
+    };
+  }, [kbConfigs]);
+
+  const filteredKbs = useMemo(() => {
+    const query = kbQuery.trim().toLowerCase();
+    return kbConfigs.filter((item) => {
+      const readableName =
+        `${item.kb_name} ${item.project_name ?? ""} ${item.owner_name ?? ""}`.toLowerCase();
+      const statusMatches =
+        kbStatus === "all" ||
+        (kbStatus === "exception"
+          ? item.mapping_status === "init_failed" || (item.migration?.failed_count ?? 0) > 0
+          : item.mapping_status === kbStatus);
+      return (
+        (!query || readableName.includes(query)) &&
+        (kbScope === "all" || item.scope === kbScope) &&
+        statusMatches
+      );
+    });
+  }, [kbConfigs, kbQuery, kbScope, kbStatus]);
+
+  const displayedMigrationResult = useMemo(() => {
+    if (!migrationResult) return null;
+    return (
+      kbConfigs.find((config) => config.mapping_id === migrationResult.mapping_id) ??
+      migrationResult
+    );
+  }, [kbConfigs, migrationResult]);
+
   const refreshAll = () => {
     setRefreshSignal((value) => value + 1);
-    void loadKnowledgeConfigs();
+    void load();
+  };
+
+  const openFoundationDefaults = () => {
+    setFoundationDraft({
+      chat: defaults.chat?.model_ref ?? "",
+      embedding: defaults.embedding?.model_ref ?? "",
+      rerank: defaults.rerank?.model_ref ?? "",
+      multimodal: defaults.multimodal?.model_ref ?? "",
+    });
+    setDefaultsModal("foundation");
   };
 
   const saveFoundationDefaults = async () => {
-    if (!defaultEmbeddingRef || !defaultChatRef) {
-      setError("请配置默认嵌入模型和底座兼容 LLM。");
+    if (!foundationDraft.embedding || !foundationDraft.chat) {
+      setError("请选择默认嵌入模型和底座兼容 LLM。");
       return;
     }
-    setDefaultsBusy(true);
+    setBusy(true);
     setError(null);
     try {
       const updated = await updateWeknoraDefaultModels({
-        embedding_model_ref: defaultEmbeddingRef,
-        chat_model_ref: defaultChatRef,
-        rerank_model_ref: defaultRerankRef || null,
-        multimodal_ref: defaultMultimodalRef || null,
+        embedding_model_ref: foundationDraft.embedding,
+        chat_model_ref: foundationDraft.chat,
+        rerank_model_ref: foundationDraft.rerank || null,
+        multimodal_ref: foundationDraft.multimodal || null,
       });
-      setDefaultChatRef(updated.chat?.model_ref ?? "");
-      setDefaultEmbeddingRef(updated.embedding?.model_ref ?? "");
-      setDefaultRerankRef(updated.rerank?.model_ref ?? "");
-      setDefaultMultimodalRef(updated.multimodal?.model_ref ?? "");
-      setNote("WeKnora 底座默认模型已更新；外部 LLM 默认连接未改变。");
+      setDefaults(updated);
+      setDefaultsModal(null);
+      setNote("默认底座配置已保存。已有知识库仍保留各自绑定。");
     } catch {
-      setError("WeKnora 底座默认模型保存失败，请检查模型类型和底座连接。");
+      setError("默认底座配置未保存，请检查模型类型和连接状态。");
     } finally {
-      setDefaultsBusy(false);
+      setBusy(false);
     }
   };
 
-  const refreshSavedKbConfig = async (mappingId: string, message: string) => {
+  const saveExternalDefault = async () => {
+    setBusy(true);
     setError(null);
-    setNote(null);
     try {
-      const refreshed = await fetchWeknoraKbConfigs();
-      const savedConfig = refreshed.find((config) => config.mapping_id === mappingId);
-      if (!savedConfig) {
-        setNote(null);
-        setError("知识库配置已保存，但暂时无法读取最新状态，请刷新后确认。");
-        return;
-      }
-      setKbConfigs((current) =>
-        current.map((config) => (config.mapping_id === mappingId ? savedConfig : config)),
-      );
-      setNote(message);
+      await updateModelUsageAssignments({
+        external_llm_default_ref: externalDefaultRef || undefined,
+      });
+      setDefaultsModal(null);
+      setNote("外部 LLM 默认用途已保存。WeKnora 底座配置未改变。");
+      await load();
     } catch {
-      setNote(null);
-      setError("知识库配置已保存，但最新服务端状态读取失败，请刷新后确认。");
+      setError("默认用途未保存，请选择已启用且可用的连接。");
+    } finally {
+      setBusy(false);
     }
   };
 
-  useEffect(() => {
-    void loadKnowledgeConfigs();
-  }, [loadKnowledgeConfigs]);
+  const openKbConfig = (config: KbConfigDTO) => {
+    setDrawer(null);
+    setKbDraft({
+      chat: config.chat?.model_ref ?? "",
+      embedding: config.embedding?.model_ref ?? "",
+      rerank: config.rerank?.model_ref ?? "",
+      multimodal: config.multimodal?.model_ref ?? "",
+    });
+    setSelectedKb(config);
+  };
 
-  // 迁移作业进行中时，静默轮询 KB 配置以刷新进度。
-  const anyMigrationActive = kbConfigs.some(
-    (config) =>
-      config.migration != null && ["queued", "running"].includes(config.migration.job_status),
-  );
-  useEffect(() => {
-    if (!anyMigrationActive) return;
-    const timer = window.setInterval(() => {
-      void fetchWeknoraKbConfigs()
-        .then((configs) => setKbConfigs(configs))
-        .catch(() => {
-          // 静默：下一轮轮询继续。
-        });
-    }, 5_000);
-    return () => window.clearInterval(timer);
-  }, [anyMigrationActive]);
+  const saveKbConfig = async () => {
+    if (
+      !selectedKb ||
+      (!kbDraft.chat && !kbDraft.embedding && !kbDraft.rerank && !kbDraft.multimodal)
+    ) {
+      setError("请至少选择一个模型。");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await updateWeknoraKbInit(selectedKb.mapping_id, {
+        chat_model_ref: kbDraft.chat || null,
+        embedding_model_ref: kbDraft.embedding || null,
+        rerank_model_ref: kbDraft.rerank || null,
+        multimodal_ref: kbDraft.multimodal || null,
+      });
+      setSelectedKb(null);
+      await load();
+      setDrawer("knowledge");
+      setNote(`知识库“${selectedKb.kb_name}”配置已保存。`);
+    } catch (caught) {
+      setError(kbUpdateErrorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openMigration = (config: KbConfigDTO) => {
+    setSelectedKb(null);
+    setDrawer(null);
+    setMigrationKb(config);
+  };
+
+  const showMigrationResult = (config: KbConfigDTO) => {
+    setDrawer(null);
+    setMigrationResult(config);
+    setDrawer("migration");
+  };
 
   return (
-    <ProductPage className="ws-page mf-page">
+    <ProductPage className="ws-page mf-page mf-overview-page">
       <PageHeader
         title="模型与知识库底座"
-        description="外部 LLM 由 KAP 直接调用；WeKnora 用于知识库底座。"
+        description="在一个稳定概览中确认默认模型、连接健康和知识库迁移状态。"
         status={
           <StatusBadge
-            tone={error ? "danger" : anyMigrationActive ? "info" : loading ? "info" : "success"}
+            tone={error ? "danger" : migrationActive ? "info" : loading ? "info" : "success"}
             label={
               error
-                ? "配置状态需要处理"
-                : anyMigrationActive
-                  ? "知识库迁移处理中"
+                ? "配置需要处理"
+                : migrationActive
+                  ? "迁移处理中"
                   : loading
-                    ? "正在同步配置"
-                    : "配置状态已同步"
+                    ? "正在同步"
+                    : "运行状态已同步"
             }
           />
         }
@@ -208,405 +325,574 @@ export default function AdminWeKnoraModelsPage() {
         }
       />
 
-      {isGlobalOperator && (
-        <div className="mf-workspace">
-          <div className="mf-model-panels">
-            <UnifiedModelConnectionsSection canEdit refreshSignal={refreshSignal} />
-            <WeknoraModelsSection canEdit refreshSignal={refreshSignal} />
-          </div>
-
-          <aside className="mf-foundation-panel" aria-labelledby="weknora-foundation-title">
-            <div className="mf-panel-heading">
-              <div>
-                <span className="mf-panel-kicker">WEKNORA BASE</span>
-                <h3 id="weknora-foundation-title">知识库底座</h3>
-              </div>
-              <span className="mf-foundation-mark" aria-hidden="true">
-                <Database size={17} />
-              </span>
-            </div>
-
-            {!capabilities.isAdmin && !capabilities.isGovernance && !weknoraForbidden && (
-              <div className="mf-inline-message">当前身份仅可查看，修改需系统管理员。</div>
-            )}
-            {error && (
-              <div className="mf-inline-message is-danger" role="alert">
-                {error}
-              </div>
-            )}
-            {note && <div className="mf-inline-message is-success">{note}</div>}
-
-            {notConfigured ? (
-              <div className="mf-foundation-empty">
-                <strong>WeKnora 尚未配置</strong>
-                <span>这不会影响左侧外部 LLM 的创建、编辑和测试。</span>
-              </div>
-            ) : loading ? (
-              <div className="mf-foundation-empty">正在加载底座模型…</div>
-            ) : error && models.length === 0 ? (
-              <div className="mf-foundation-empty">
-                <strong>底座配置不可用</strong>
-                <span>外部 LLM 管理仍可独立使用。</span>
-              </div>
-            ) : (
-              <div className="mf-foundation-fields">
-                <FoundationModelSelect
-                  label="默认嵌入模型"
-                  description="用于新知识库向量化；已有库保持原绑定。"
-                  value={defaultEmbeddingRef}
-                  type="embedding"
-                  models={models}
-                  disabled={!canEdit || defaultsBusy}
-                  onChange={setDefaultEmbeddingRef}
-                />
-                <FoundationModelSelect
-                  label="底座兼容 LLM"
-                  description="仅满足 WeKnora 初始化与检索契约。"
-                  value={defaultChatRef}
-                  type="chat"
-                  models={models}
-                  disabled={!canEdit || defaultsBusy}
-                  onChange={setDefaultChatRef}
-                />
-                <FoundationModelSelect
-                  label="默认重排模型"
-                  description="可选，用于改善检索排序。"
-                  value={defaultRerankRef}
-                  type="rerank"
-                  models={models}
-                  disabled={!canEdit || defaultsBusy}
-                  onChange={setDefaultRerankRef}
-                  optional
-                />
-                <FoundationModelSelect
-                  label="默认多模态模型"
-                  description="可选，仅用于底座支持的多模态解析。"
-                  value={defaultMultimodalRef}
-                  type="vllm"
-                  models={models}
-                  disabled={!canEdit || defaultsBusy}
-                  onChange={setDefaultMultimodalRef}
-                  optional
-                />
-                {canEdit && (
-                  <button
-                    className="btn-small-primary mf-foundation-save"
-                    onClick={() => void saveFoundationDefaults()}
-                    disabled={defaultsBusy}
-                  >
-                    {defaultsBusy ? "保存中…" : "保存底座配置"}
-                  </button>
-                )}
-              </div>
-            )}
-          </aside>
+      {error && (
+        <div className="mf-inline-message is-danger" role="alert">
+          {error}
         </div>
       )}
+      {note && (
+        <div className="mf-inline-message is-success" role="status">
+          {note}
+        </div>
+      )}
+      {!canEdit && !loading && (
+        <div className="mf-inline-message">当前身份为只读视图，修改与迁移动作已隐藏。</div>
+      )}
 
-      <PageSection
-        className="mf-kb-section"
-        title="知识库配置"
-        description={
-          isGlobalOperator
-            ? "已有知识库保留嵌入锁定、模型类型校验与初始化失败恢复规则。"
-            : "仅显示你担任项目经理的项目知识库，可在此修复初始化失败配置。"
+      <section className="mf-overview-strip" aria-label="配置总览">
+        <OverviewMetric label="外部 LLM" value={externalConnections.length} detail="KAP 直连" />
+        <OverviewMetric label="WeKnora 模型" value={models.length} detail="底座可选" />
+        <OverviewMetric label="知识库" value={kbConfigs.length} detail="全部可见范围" />
+        <OverviewMetric
+          label="待初始化"
+          value={counts.pending}
+          detail="需要补齐底座配置"
+          tone={counts.pending ? "danger" : undefined}
+        />
+        <OverviewMetric
+          label="迁移中"
+          value={counts.migrating}
+          detail="异步作业"
+          tone={counts.migrating ? "info" : undefined}
+        />
+        <OverviewMetric
+          label="需要处理"
+          value={counts.anomalies}
+          detail="初始化或迁移异常"
+          tone={counts.anomalies ? "danger" : undefined}
+        />
+      </section>
+
+      <section className="mf-overview-grid" aria-label="模型与底座入口">
+        <OverviewCard
+          icon={<Sparkles size={19} />}
+          kicker="KAP DIRECT"
+          title="外部 LLM"
+          status={`${externalConnections.filter((item) => item.health_status === "healthy" && item.enabled).length}/${externalConnections.length} 连接正常`}
+          facts={[
+            [
+              "内容生成",
+              externalConnections.find((item) => item.model_ref === externalDefaultRef)
+                ?.display_name ?? "未设置",
+            ],
+            [
+              "项目问答",
+              externalConnections.find((item) => item.model_ref === externalDefaultRef)
+                ?.display_name ?? "未设置",
+            ],
+          ]}
+          primary={{ label: "管理外部 LLM", onClick: () => setDrawer("external") }}
+          secondary={
+            canEdit
+              ? { label: "编辑默认用途", onClick: () => setDefaultsModal("external") }
+              : undefined
+          }
+        />
+        <OverviewCard
+          icon={<Bot size={19} />}
+          kicker="WEKNORA BASE"
+          title="WeKnora 底座"
+          status={`${models.filter((item) => item.enabled).length}/${models.length} 模型启用`}
+          facts={[
+            ["默认嵌入", slotName(defaults.embedding)],
+            ["兼容 LLM", slotName(defaults.chat)],
+            ["重排 / 多模态", `${slotName(defaults.rerank)} / ${slotName(defaults.multimodal)}`],
+          ]}
+          primary={{ label: "管理 WeKnora 模型", onClick: () => setDrawer("weknora") }}
+          secondary={
+            canEdit && isGlobalOperator
+              ? { label: "编辑默认底座", onClick: openFoundationDefaults }
+              : undefined
+          }
+        />
+        <OverviewCard
+          icon={<Database size={19} />}
+          kicker="KNOWLEDGE BASES"
+          title="知识库配置"
+          status={counts.anomalies ? `${counts.anomalies} 项需要处理` : "配置状态稳定"}
+          facts={[
+            ["范围", `公司 ${counts.company} · 项目 ${counts.project} · 个人 ${counts.personal}`],
+            ["初始化", `${counts.pending} 项待处理`],
+            ["迁移", `${counts.migrating} 项进行中`],
+          ]}
+          primary={{ label: "管理知识库配置", onClick: () => setDrawer("knowledge") }}
+        />
+      </section>
+
+      {notConfigured && (
+        <div className="mf-overview-empty">
+          <strong>WeKnora 尚未配置</strong>
+          <span>外部 LLM 仍可独立管理；完成底座部署后刷新即可。</span>
+        </div>
+      )}
+      <p className="mf-kb-footnote">
+        索引失败资产仍在 <Link to="/admin/ingest">入库管理</Link> 或资产详情中重试。
+      </p>
+
+      <DetailDrawer
+        open={drawer === "external"}
+        title="管理外部 LLM"
+        description="搜索、测试并维护 KAP 直接调用的模型连接。"
+        onClose={() => {
+          setDrawer(null);
+          void load();
+        }}
+      >
+        <UnifiedModelConnectionsSection
+          canEdit={canEdit && isGlobalOperator}
+          refreshSignal={refreshSignal}
+          showUsageControls={false}
+        />
+      </DetailDrawer>
+
+      <DetailDrawer
+        open={drawer === "weknora"}
+        title="管理 WeKnora 模型"
+        description="维护知识库底座可选择的模型，不展示凭据或内部地址。"
+        onClose={() => {
+          setDrawer(null);
+          void load();
+        }}
+      >
+        <WeknoraModelsSection canEdit={canEdit && isGlobalOperator} refreshSignal={refreshSignal} />
+      </DetailDrawer>
+
+      <DetailDrawer
+        open={drawer === "knowledge"}
+        title="管理知识库配置"
+        description="按名称、范围和运行状态查找知识库。"
+        onClose={() => setDrawer(null)}
+      >
+        <div className="mf-drawer-filters">
+          <input
+            aria-label="搜索知识库"
+            placeholder="搜索知识库、项目或归属人"
+            value={kbQuery}
+            onChange={(event) => setKbQuery(event.target.value)}
+          />
+          <select
+            aria-label="知识库范围"
+            value={kbScope}
+            onChange={(event) => setKbScope(event.target.value)}
+          >
+            <option value="all">全部范围</option>
+            <option value="company">公司库</option>
+            <option value="project">项目库</option>
+            <option value="personal">个人库</option>
+          </select>
+          <select
+            aria-label="知识库状态"
+            value={kbStatus}
+            onChange={(event) => setKbStatus(event.target.value)}
+          >
+            <option value="all">全部状态</option>
+            <option value="init_failed">未初始化</option>
+            <option value="migrating">迁移中</option>
+            <option value="exception">异常</option>
+          </select>
+        </div>
+        <div className="mf-kb-drawer-list">
+          {filteredKbs.length === 0 ? (
+            <div className="mf-empty-state">
+              <strong>没有匹配的知识库</strong>
+              <span>调整搜索或筛选条件后重试。</span>
+            </div>
+          ) : (
+            filteredKbs.map((config) => (
+              <article className="mf-kb-drawer-row" key={config.mapping_id}>
+                <div>
+                  <strong>{config.kb_name}</strong>
+                  <span>
+                    {config.project_name ??
+                      config.owner_name ??
+                      scopeLabel[config.scope] ??
+                      config.scope}
+                  </span>
+                </div>
+                <div className="mf-kb-row-facts">
+                  <span>{scopeLabel[config.scope] ?? config.scope}</span>
+                  <StatusBadge
+                    tone={
+                      config.mapping_status === "init_failed"
+                        ? "danger"
+                        : config.mapping_status === "migrating"
+                          ? "info"
+                          : "success"
+                    }
+                    label={mappingStatusLabel[config.mapping_status] ?? config.mapping_status}
+                  />
+                  <span>嵌入：{slotName(config.embedding)}</span>
+                </div>
+                <div className="mf-kb-row-actions">
+                  {canEdit && (
+                    <button className="btn-small" onClick={() => openKbConfig(config)}>
+                      配置
+                    </button>
+                  )}
+                  {config.migration && (
+                    <button className="btn-small" onClick={() => showMigrationResult(config)}>
+                      查看迁移结果
+                    </button>
+                  )}
+                </div>
+                {config.config_error && (
+                  <p className="mf-safe-error">初始化未完成，请检查模型兼容性后重试。</p>
+                )}
+              </article>
+            ))
+          )}
+        </div>
+      </DetailDrawer>
+
+      <TaskModal
+        open={defaultsModal === "external"}
+        title="编辑默认用途"
+        description="内容生成与默认项目问答使用同一条 KAP 直连连接。"
+        onClose={() => !busy && setDefaultsModal(null)}
+        busy={busy}
+        footer={
+          <>
+            <button
+              className="btn-small-primary"
+              onClick={() => void saveExternalDefault()}
+              disabled={busy}
+            >
+              保存默认用途
+            </button>
+            <button className="btn-small" onClick={() => setDefaultsModal(null)} disabled={busy}>
+              取消
+            </button>
+          </>
         }
       >
-        {notConfigured ? (
-          <div className="mf-empty-state">
-            <strong>知识库连接尚未配置</strong>
-            <span>完成 WeKnora 部署配置后刷新，即可查看知识库。</span>
-          </div>
-        ) : loading ? (
-          <div className="mf-empty-state">正在加载知识库配置…</div>
-        ) : error && kbConfigs.length === 0 ? (
-          <div className="mf-empty-state">
-            <strong>知识库配置不可用</strong>
-            <span>请刷新或检查当前管理权限与 WeKnora 连接。</span>
-          </div>
-        ) : kbConfigs.length === 0 ? (
-          <div className="mf-empty-state">
-            <strong>暂无知识库</strong>
-            <span>创建公司、项目或个人知识库后，会在此显示底座绑定。</span>
-          </div>
+        <label className="ws-form-field">
+          <span className="ws-form-label">默认外部 LLM</span>
+          <select
+            value={externalDefaultRef}
+            onChange={(event) => setExternalDefaultRef(event.target.value)}
+          >
+            <option value="">请选择已启用连接</option>
+            {externalConnections
+              .filter((item) => item.enabled)
+              .map((item) => (
+                <option key={item.model_ref} value={item.model_ref}>
+                  {item.display_name} · {item.provider ?? "自定义"}
+                </option>
+              ))}
+          </select>
+        </label>
+      </TaskModal>
+
+      <TaskModal
+        open={defaultsModal === "foundation"}
+        title="编辑默认底座"
+        description="只影响新建知识库；已有知识库继续使用各自绑定。"
+        onClose={() => !busy && setDefaultsModal(null)}
+        busy={busy}
+        size="large"
+        footer={
+          <>
+            <button
+              className="btn-small-primary"
+              onClick={() => void saveFoundationDefaults()}
+              disabled={busy}
+            >
+              保存默认底座
+            </button>
+            <button className="btn-small" onClick={() => setDefaultsModal(null)} disabled={busy}>
+              取消
+            </button>
+          </>
+        }
+      >
+        <div className="ws-form-grid mf-modal-model-grid">
+          <ModelSelect
+            label="默认嵌入模型"
+            value={foundationDraft.embedding}
+            type="embedding"
+            models={models}
+            onChange={(embedding) => setFoundationDraft({ ...foundationDraft, embedding })}
+          />
+          <ModelSelect
+            label="底座兼容 LLM"
+            value={foundationDraft.chat}
+            type="chat"
+            models={models}
+            onChange={(chat) => setFoundationDraft({ ...foundationDraft, chat })}
+          />
+          <ModelSelect
+            label="默认重排模型"
+            value={foundationDraft.rerank}
+            type="rerank"
+            models={models}
+            optional
+            onChange={(rerank) => setFoundationDraft({ ...foundationDraft, rerank })}
+          />
+          <ModelSelect
+            label="默认多模态模型"
+            value={foundationDraft.multimodal}
+            type="vllm"
+            models={models}
+            optional
+            onChange={(multimodal) => setFoundationDraft({ ...foundationDraft, multimodal })}
+          />
+        </div>
+      </TaskModal>
+
+      <TaskModal
+        open={selectedKb !== null}
+        title={selectedKb ? `配置“${selectedKb.kb_name}”` : "配置知识库"}
+        description="选择此知识库使用的底座模型。嵌入模型变更后需通过迁移完成重新向量化。"
+        onClose={() => !busy && setSelectedKb(null)}
+        busy={busy}
+        size="large"
+        footer={
+          <>
+            <button
+              className="btn-small-primary"
+              onClick={() => void saveKbConfig()}
+              disabled={busy}
+            >
+              保存知识库配置
+            </button>
+            {selectedKb && canEdit && (
+              <button
+                className="btn-small"
+                onClick={() => openMigration(selectedKb)}
+                disabled={busy}
+              >
+                迁移到新嵌入模型
+              </button>
+            )}
+            <button
+              className="btn-small"
+              onClick={() => {
+                setSelectedKb(null);
+                setDrawer("knowledge");
+              }}
+              disabled={busy}
+            >
+              取消
+            </button>
+          </>
+        }
+      >
+        <div className="ws-form-grid mf-modal-model-grid">
+          <ModelSelect
+            label="底座兼容"
+            value={kbDraft.chat}
+            type="chat"
+            models={models}
+            onChange={(chat) => setKbDraft({ ...kbDraft, chat })}
+          />
+          <ModelSelect
+            label="嵌入"
+            value={kbDraft.embedding}
+            type="embedding"
+            models={models}
+            onChange={(embedding) => setKbDraft({ ...kbDraft, embedding })}
+          />
+          <ModelSelect
+            label="重排"
+            value={kbDraft.rerank}
+            type="rerank"
+            models={models}
+            optional
+            onChange={(rerank) => setKbDraft({ ...kbDraft, rerank })}
+          />
+          <ModelSelect
+            label="多模态"
+            value={kbDraft.multimodal}
+            type="vllm"
+            models={models}
+            optional
+            onChange={(multimodal) => setKbDraft({ ...kbDraft, multimodal })}
+          />
+        </div>
+      </TaskModal>
+
+      {migrationKb && (
+        <KbMigrateDialog
+          cfg={migrationKb}
+          models={models}
+          defaultEmbeddingRef={defaults.embedding?.model_ref ?? ""}
+          open
+          onClose={() => {
+            setMigrationKb(null);
+            setDrawer("knowledge");
+          }}
+          onMigrated={async (message) => {
+            setNote(message);
+            await load();
+            setDrawer("knowledge");
+          }}
+        />
+      )}
+
+      <DetailDrawer
+        open={drawer === "migration" && displayedMigrationResult !== null}
+        title={
+          displayedMigrationResult ? `迁移结果 · ${displayedMigrationResult.kb_name}` : "迁移结果"
+        }
+        description="任务已受理不等于迁移完成；旧库只会在最终核验通过后删除。"
+        onClose={() => {
+          setDrawer("knowledge");
+          setMigrationResult(null);
+        }}
+      >
+        {displayedMigrationResult?.migration ? (
+          <OperationStatusCard
+            status={operationStatusFromJob(displayedMigrationResult.migration.job_status)}
+            title={
+              displayedMigrationResult.migration.job_status === "completed"
+                ? "迁移已完成"
+                : displayedMigrationResult.migration.job_status === "failed"
+                  ? "迁移未完成"
+                  : "迁移核验状态"
+            }
+            description={
+              ["queued", "running"].includes(displayedMigrationResult.migration.job_status)
+                ? "请求已提交，系统仍在处理文档。"
+                : undefined
+            }
+            counts={[
+              { label: "总数", value: displayedMigrationResult.migration.total_count },
+              {
+                label: "直接完成",
+                value: displayedMigrationResult.migration.completed_count,
+                tone: "success",
+              },
+              {
+                label: "重复已核验",
+                value: displayedMigrationResult.migration.verified_duplicate_count,
+                tone: "success",
+              },
+              {
+                label: "重复待核验",
+                value: displayedMigrationResult.migration.duplicate_pending_count,
+                tone: "warning",
+              },
+              { label: "处理中", value: displayedMigrationResult.migration.processing_count },
+              {
+                label: "失败",
+                value: displayedMigrationResult.migration.failed_count,
+                tone: "danger",
+              },
+            ]}
+            nextStep={
+              displayedMigrationResult.migration.failed_count > 0
+                ? "检查模型状态后返回知识库列表重试失败项。"
+                : displayedMigrationResult.migration.pending_count > 0
+                  ? "等待处理完成后返回列表再次核验。"
+                  : "最终核验已完成。"
+            }
+          />
         ) : (
-          <div className="ws-table-wrap mf-kb-table-wrap">
-            <table className="ws-table mf-kb-table">
-              <thead>
-                <tr>
-                  <th>知识库</th>
-                  <th>范围 / 状态</th>
-                  <th>底座兼容</th>
-                  <th>嵌入</th>
-                  <th>重排</th>
-                  <th>多模态</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {kbConfigs.map((config) => (
-                  <KbConfigRow
-                    key={config.mapping_id}
-                    cfg={config}
-                    models={models}
-                    canEdit={canEdit}
-                    defaultEmbeddingRef={defaultEmbeddingRef}
-                    onSaved={refreshSavedKbConfig}
-                    onError={(message) => {
-                      setError(message);
-                      setNote(null);
-                    }}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <div className="mf-empty-state">暂无迁移记录。</div>
         )}
-        <p className="mf-kb-footnote">
-          初始化失败可在此调整兼容模型；索引失败资产仍在 <Link to="/admin/ingest">入库管理</Link>
-          或资产详情中重试。
-        </p>
-      </PageSection>
+      </DetailDrawer>
     </ProductPage>
   );
 }
 
-function FoundationModelSelect({
+function OverviewMetric({
   label,
-  description,
+  value,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: number;
+  detail: string;
+  tone?: "info" | "danger";
+}) {
+  return (
+    <div className={`mf-overview-metric ${tone ? `is-${tone}` : ""}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
+function OverviewCard({
+  icon,
+  kicker,
+  title,
+  status,
+  facts,
+  primary,
+  secondary,
+}: {
+  icon: ReactNode;
+  kicker: string;
+  title: string;
+  status: string;
+  facts: [string, string][];
+  primary: { label: string; onClick: () => void };
+  secondary?: { label: string; onClick: () => void };
+}) {
+  return (
+    <article className="mf-overview-card">
+      <header>
+        <span className="mf-overview-icon">{icon}</span>
+        <div>
+          <small>{kicker}</small>
+          <h3>{title}</h3>
+        </div>
+        <StatusBadge tone="neutral" label={status} />
+      </header>
+      <dl>
+        {facts.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <footer>
+        <button className="btn-small-primary" onClick={primary.onClick}>
+          {primary.label}
+        </button>
+        {secondary && (
+          <button className="btn-small" onClick={secondary.onClick}>
+            {secondary.label}
+          </button>
+        )}
+        <Settings2 size={15} aria-hidden="true" />
+      </footer>
+    </article>
+  );
+}
+
+function ModelSelect({
+  label,
   value,
   type,
   models,
-  disabled,
   onChange,
   optional = false,
 }: {
   label: string;
-  description: string;
   value: string;
   type: string;
   models: ModelDTO[];
-  disabled: boolean;
   onChange: (value: string) => void;
   optional?: boolean;
 }) {
-  const options = models.filter((model) => model.type === type && model.enabled);
   return (
-    <label className="mf-foundation-field">
-      <span>{label}</span>
-      <small>{description}</small>
-      <select
-        aria-label={label}
-        value={value}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        <option value="">{optional ? "暂不设置" : "请选择底座模型"}</option>
-        {options.map((model) => (
-          <option key={model.model_ref} value={model.model_ref}>
-            {model.name}
-          </option>
-        ))}
+    <label className="ws-form-field">
+      <span className="ws-form-label">{label}</span>
+      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">{optional ? "暂不设置" : "请选择模型"}</option>
+        {models
+          .filter((model) => model.type === type && model.enabled)
+          .map((model) => (
+            <option key={model.model_ref} value={model.model_ref}>
+              {model.name}
+            </option>
+          ))}
       </select>
     </label>
-  );
-}
-
-function KbConfigRow({
-  cfg,
-  models,
-  canEdit,
-  defaultEmbeddingRef,
-  onSaved,
-  onError,
-}: {
-  cfg: KbConfigDTO;
-  models: ModelDTO[];
-  canEdit: boolean;
-  defaultEmbeddingRef: string;
-  onSaved: (mappingId: string, message: string) => Promise<void>;
-  onError: (message: string) => void;
-}) {
-  const [chat, setChat] = useState(cfg.chat?.model_ref ?? "");
-  const [embedding, setEmbedding] = useState(cfg.embedding?.model_ref ?? "");
-  const [rerank, setRerank] = useState(cfg.rerank?.model_ref ?? "");
-  const [multimodal, setMultimodal] = useState(cfg.multimodal?.model_ref ?? "");
-  const [busy, setBusy] = useState(false);
-  const [migrateOpen, setMigrateOpen] = useState(false);
-  const migrationActive =
-    cfg.migration != null && ["queued", "running"].includes(cfg.migration.job_status);
-  const migrationNeedsReconcile =
-    cfg.mapping_status === "migrating" &&
-    cfg.migration != null &&
-    !migrationActive &&
-    cfg.migration.pending_count > 0 &&
-    cfg.migration.failed_count === 0;
-  const migrationNeedsCloseRetry =
-    cfg.mapping_status === "migrating" &&
-    cfg.migration != null &&
-    !migrationActive &&
-    cfg.migration.pending_count === 0 &&
-    cfg.migration.failed_count === 0;
-
-  useEffect(() => {
-    setChat(cfg.chat?.model_ref ?? "");
-    setEmbedding(cfg.embedding?.model_ref ?? "");
-    setRerank(cfg.rerank?.model_ref ?? "");
-    setMultimodal(cfg.multimodal?.model_ref ?? "");
-  }, [cfg.chat, cfg.embedding, cfg.multimodal, cfg.rerank]);
-
-  const options = (type: string) => models.filter((model) => model.type === type && model.enabled);
-  const selector = (
-    label: string,
-    value: string,
-    setter: (value: string) => void,
-    type: string,
-    current: { name: string | null } | null,
-  ) => (
-    <select
-      className="ws-form-input"
-      aria-label={`${cfg.kb_name} ${label}`}
-      value={value}
-      disabled={!canEdit || busy}
-      onChange={(event) => setter(event.target.value)}
-    >
-      <option value="">{current?.name ? `保持：${current.name}` : "（未设置）"}</option>
-      {options(type).map((model) => (
-        <option key={model.model_ref} value={model.model_ref}>
-          {model.name}
-        </option>
-      ))}
-    </select>
-  );
-
-  const save = async () => {
-    const body: Record<string, string> = {};
-    if (chat) body.chat_model_ref = chat;
-    if (embedding) body.embedding_model_ref = embedding;
-    if (rerank) body.rerank_model_ref = rerank;
-    if (multimodal) body.multimodal_ref = multimodal;
-    if (Object.keys(body).length === 0) {
-      onError("请至少选择一个模型。");
-      return;
-    }
-    setBusy(true);
-    try {
-      await updateWeknoraKbInit(cfg.mapping_id, body);
-      const embeddingSwitched =
-        Boolean(embedding) && embedding !== (cfg.embedding?.model_ref ?? "");
-      await onSaved(
-        cfg.mapping_id,
-        embeddingSwitched
-          ? `知识库“${cfg.kb_name}”配置已更新，嵌入模型已切换，请对库内文档执行重新解析以完成重新向量化。`
-          : `知识库“${cfg.kb_name}”配置已更新。`,
-      );
-    } catch (caught) {
-      onError(kbUpdateErrorMessage(caught));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <tr className={cfg.mapping_status === "init_failed" ? "ws-row-disabled" : ""}>
-      <td>
-        <strong className="mf-kb-name">{cfg.kb_name}</strong>
-        {(cfg.project_name || cfg.owner_name) && (
-          <span className="mf-kb-context">{cfg.project_name ?? cfg.owner_name}</span>
-        )}
-      </td>
-      <td>
-        <span className="mf-kb-scope">{scopeLabel[cfg.scope] ?? cfg.scope}</span>
-        <span
-          className={`ws-status-pill ${cfg.mapping_status === "active" ? "ws-status-on" : "ws-status-off"}`}
-        >
-          {mappingStatusLabel[cfg.mapping_status] ?? cfg.mapping_status}
-        </span>
-      </td>
-      <td>{selector("底座兼容", chat, setChat, "chat", cfg.chat)}</td>
-      <td>{selector("嵌入", embedding, setEmbedding, "embedding", cfg.embedding)}</td>
-      <td>{selector("重排", rerank, setRerank, "rerank", cfg.rerank)}</td>
-      <td>{selector("多模态", multimodal, setMultimodal, "vllm", cfg.multimodal)}</td>
-      <td>
-        {canEdit && (
-          <button
-            className="btn-small-primary"
-            onClick={() => void save()}
-            disabled={busy || migrationActive || cfg.mapping_status === "migrating"}
-          >
-            {busy ? "保存中…" : "保存"}
-          </button>
-        )}
-        {canEdit && (
-          <button
-            className="btn-small mf-migrate-btn"
-            onClick={() => setMigrateOpen(true)}
-            disabled={migrationActive}
-            title="重建知识库并迁移到新的嵌入模型"
-          >
-            {migrationActive
-              ? "迁移中…"
-              : migrationNeedsReconcile
-                ? "再次核验"
-                : migrationNeedsCloseRetry
-                  ? "重试收口"
-                  : cfg.mapping_status === "migrating"
-                    ? "重试失败项"
-                    : "迁移库"}
-          </button>
-        )}
-        {cfg.migration && (
-          <OperationStatusCard
-            compact
-            live={migrationActive}
-            status={operationStatusFromJob(cfg.migration.job_status)}
-            title={
-              cfg.migration.job_status === "completed"
-                ? "知识库迁移已完成"
-                : cfg.migration.job_status === "completed_with_errors"
-                  ? "迁移部分完成"
-                  : cfg.migration.job_status === "failed"
-                    ? "迁移未完成"
-                    : "知识库迁移作业"
-            }
-            description={
-              migrationActive ? "请求已受理，系统仍在处理文档；请等待最终状态。" : undefined
-            }
-            counts={[
-              { label: "总数", value: cfg.migration.total_count },
-              { label: "直接完成", value: cfg.migration.completed_count, tone: "success" },
-              {
-                label: "重复已核验",
-                value: cfg.migration.verified_duplicate_count,
-                tone: "success",
-              },
-              { label: "处理中", value: cfg.migration.processing_count },
-              { label: "重复待核验", value: cfg.migration.duplicate_pending_count },
-              { label: "失败", value: cfg.migration.failed_count, tone: "danger" },
-            ]}
-            nextStep={
-              migrationActive
-                ? "无需重复提交，页面会自动刷新进度。"
-                : cfg.migration.failed_count > 0
-                  ? "旧库仍保留；检查模型与底座状态后，仅重试失败项。"
-                  : cfg.migration.pending_count > 0
-                    ? "旧库仍保留；请等待处理完成后再次核验。"
-                    : "最终核验已完成，迁移达到终态。"
-            }
-          />
-        )}
-        {cfg.config_error && <div className="ws-cell-suggestion">{cfg.config_error}</div>}
-        <KbMigrateDialog
-          cfg={cfg}
-          models={models}
-          defaultEmbeddingRef={defaultEmbeddingRef}
-          open={migrateOpen}
-          onClose={() => setMigrateOpen(false)}
-          onMigrated={async (message) => {
-            await onSaved(cfg.mapping_id, message);
-          }}
-        />
-      </td>
-    </tr>
   );
 }

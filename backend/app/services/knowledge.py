@@ -598,6 +598,9 @@ async def get_detail(
             canonical_markdown_status = "generated"
 
     projects, users = await _aux_maps(session, [asset])
+    maintainer_name = (
+        users.get(asset.maintainer_user_id) if asset.maintainer_user_id is not None else None
+    )
     maintainer: MaintainerOut | None = None
     if (
         not cross_project_projection
@@ -607,6 +610,18 @@ async def get_detail(
         maintainer = MaintainerOut(
             id=asset.maintainer_user_id, name=users[asset.maintainer_user_id]
         )
+    naming_metadata = (
+        version_obj.naming_metadata
+        if version_obj is not None and isinstance(version_obj.naming_metadata, dict)
+        else {}
+    )
+    category_parts = [
+        str(naming_metadata.get(key) or "").strip()
+        for key in ("category_primary", "category_secondary")
+    ]
+    category_path = " / ".join(part for part in category_parts if part) or None
+    safe_version = str(naming_metadata.get("version") or "").strip() or None
+    retrieval_available = bool(version_obj and version_obj.index_status == "indexed")
 
     return KnowledgeDetailOut(
         id=asset.id,
@@ -620,15 +635,20 @@ async def get_detail(
         asset_status=asset.asset_status,
         visibility=asset.visibility,
         tags=[t.tag_name for t in asset.tags],
-        project_id=asset.project_id,
+        project_id=None if cross_project_projection else asset.project_id,
         project_name=projects.get(asset.project_id) if asset.project_id else None,
         lifecycle_phase=None if cross_project_projection else asset.lifecycle_phase_key,
         maintainer=maintainer,
+        maintainer_name=maintainer_name,
+        category_path=category_path,
+        safe_version=safe_version,
+        retrieval_available=retrieval_available,
+        qa_available=retrieval_available and asset.ai_access_level in {"A2", "A3", "A4"},
         confidence=None,
         last_called_at=None if cross_project_projection else asset.last_called_at,
         updated_at=asset.updated_at,
-        archived_at=asset.archived_at,
-        archive_reason=asset.archive_reason,
+        archived_at=None if cross_project_projection else asset.archived_at,
+        archive_reason=None if cross_project_projection else asset.archive_reason,
         summary=summary_obj,
         current_version=None if cross_project_projection else current_version,
         canonical_markdown_status=canonical_markdown_status,

@@ -38,6 +38,8 @@ const viewports = [
   { name: "1440", width: 1440, height: 1000 },
   { name: "1280", width: 1280, height: 900 },
   { name: "1920", width: 1920, height: 1080 },
+  { name: "1024", width: 1024, height: 800 },
+  { name: "390", width: 390, height: 844 },
 ];
 
 const authMe = {
@@ -593,6 +595,8 @@ try {
             ?.closest("label");
           const summaryField = document.querySelector("#upload77-edit-summary")?.closest("label");
           const batchRows = [...document.querySelectorAll(".upload77-batch-naming-row")];
+          const namingWorkspace = document.querySelector(".task-modal.naming-review-workspace");
+          const namingScroll = document.querySelector(".upload77-batch-naming-scroll");
           const batchRowAligned = (row) => {
             const controls = [
               row.querySelector('input[aria-label$="主题"]'),
@@ -687,9 +691,16 @@ try {
               document.querySelector("#upload77-naming-category")?.value === "category-deliverable",
             batchNamingLayoutValid:
               batchRows.length === 2 &&
-              batchRows.every((row) => batchRowAligned(row)) &&
+              batchRows.every((row) =>
+                window.innerWidth <= 720
+                  ? row.scrollWidth <= row.clientWidth + 2
+                  : batchRowAligned(row),
+              ) &&
               document.querySelectorAll(".upload77-batch-filter").length === 5 &&
-              document.querySelectorAll(".upload77-batch-delete").length === 2,
+              document.querySelectorAll(".upload77-batch-delete").length === 2 &&
+              Boolean(namingWorkspace && namingScroll) &&
+              namingWorkspace.scrollWidth <= namingWorkspace.clientWidth + 2 &&
+              ["auto", "scroll"].includes(getComputedStyle(namingScroll).overflowY),
             uploadFailureVisible: text.includes("上传失败"),
             degradedWarningVisible: text.includes("内容建议暂不可用，请人工核对后继续"),
             confirmVisible: text.includes("内容建议预览") && text.includes("确认入库"),

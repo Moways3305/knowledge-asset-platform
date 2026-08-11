@@ -109,6 +109,7 @@ describe("PendingBatchActions governed review", () => {
           primary: "项目资料",
           secondary: "交付成果",
           prefix: "项目资料-交付成果",
+          asset_type: "deliverable",
           default_confidentiality: "L2",
         },
       ],
@@ -134,6 +135,41 @@ describe("PendingBatchActions governed review", () => {
         })),
       }),
     );
+  });
+
+  it("uses a wide review workspace and retains manual categories when AI classification fails", async () => {
+    namingApi.classifyBatchNamingCategories.mockRejectedValueOnce(new Error("model unavailable"));
+    const tasks = [task("manual-after-ai-failure")];
+    render(<PendingBatchActions tasks={tasks} flow={flowFixture(tasks)} />);
+
+    await openProjectReview();
+
+    const workspace = topDialog();
+    expect(workspace).toHaveClass("naming-review-workspace");
+    expect(workspace).toHaveTextContent("AI 目录建议暂时失败");
+    const category = within(workspace).getByLabelText("manual-after-ai-failure.pdf 目录类别");
+    expect(category).toHaveTextContent("项目资料 / 交付成果");
+    fireEvent.change(category, { target: { value: "deliverable" } });
+    expect(category).toHaveValue("deliverable");
+  });
+
+  it("reloads naming rules in the still-open target dialog after a temporary options failure", async () => {
+    namingApi.fetchNamingOptions.mockRejectedValueOnce(new Error("temporary outage"));
+    const tasks = [task("reload-options")];
+    render(<PendingBatchActions tasks={tasks} flow={flowFixture(tasks)} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /批量确认入库/ }));
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标知识库" }), {
+      target: { value: "project" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标项目" }), {
+      target: { value: "project-a" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("命名规则暂时无法加载");
+    fireEvent.click(screen.getByRole("button", { name: "重新加载规则" }));
+    expect(await screen.findByLabelText("核对状态筛选")).toBeInTheDocument();
   });
 
   it("filters and counts AI-ready, manual, reviewed, and exceptional rows", async () => {

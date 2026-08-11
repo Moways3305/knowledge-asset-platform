@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import KnowledgeDetailPage, { OnlyOfficePreview } from "./KnowledgeDetailPage";
 import {
   fetchKnowledgeDetail,
+  fetchLifecycleEvents,
   fetchPreviewEntry,
   issuePreview,
   requestOriginalAccess,
@@ -84,6 +85,7 @@ function renderDetail() {
 describe("KnowledgeDetailPage", () => {
   beforeEach(() => {
     vi.mocked(fetchKnowledgeDetail).mockReset();
+    vi.mocked(fetchLifecycleEvents).mockReset();
     vi.mocked(issuePreview).mockReset();
     vi.mocked(fetchPreviewEntry).mockReset();
     vi.mocked(requestOriginalAccess).mockReset();
@@ -218,6 +220,45 @@ describe("KnowledgeDetailPage", () => {
       "/knowledge",
     );
     expect(screen.queryByText(/Markdown 已生成|Markdown 未生成/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the safe cross-project projection after original access is granted", async () => {
+    vi.mocked(fetchKnowledgeDetail).mockResolvedValue({
+      ...baseAsset,
+      canonicalName: "MUST-NOT-RENDER-CANONICAL",
+      lifecyclePhase: "MUST-NOT-RENDER-LIFECYCLE",
+      currentVersionNo: "MUST-NOT-RENDER-VERSION",
+      visibility: "confidential",
+      aiAccessLevel: "A4",
+      indexStatus: "index_failed",
+      indexErrorMessage: "MUST-NOT-RENDER-INDEX-ERROR",
+      canonicalMarkdownStatus: "generated",
+      categoryPath: "项目资料 / 项目复盘",
+      safeVersion: "V3",
+      maintainerName: "王顾问",
+      retrievalAvailable: true,
+      qaAvailable: false,
+      access: {
+        ...baseAsset.access,
+        original: true,
+        crossProjectSummary: true,
+        canManageLifecycle: true,
+        canDelete: true,
+        canRetryIndex: true,
+      },
+    });
+
+    renderDetail();
+
+    expect(await screen.findByText("其他项目 · 原文已授权")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "预览原文" })).toBeInTheDocument();
+    expect(screen.getByText("项目资料 / 项目复盘")).toBeInTheDocument();
+    expect(screen.getByText("王顾问")).toBeInTheDocument();
+    expect(screen.getByText("问答不可用 · 检索可用")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/MUST-NOT-RENDER/);
+    expect(screen.queryByText("生命周期")).not.toBeInTheDocument();
+    expect(screen.queryByText("更多操作")).not.toBeInTheDocument();
+    expect(fetchLifecycleEvents).not.toHaveBeenCalled();
   });
 });
 

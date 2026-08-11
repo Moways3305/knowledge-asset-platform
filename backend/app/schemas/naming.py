@@ -9,7 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.schemas.enums import ConfidentialityLevel, KnowledgeScope
+from app.schemas.enums import AssetType, ConfidentialityLevel, KnowledgeScope
 
 _PROJECT_CODE = re.compile(r"^[A-Z][A-Z0-9-]{1,19}$")
 _VERSION = re.compile(r"^V[1-9]\d*(?:\.\d+)*$")
@@ -61,6 +61,7 @@ class NamingCategoryConfig(BaseModel):
     primary: str
     secondary: str
     prefix: str
+    asset_type: AssetType | None = None
     description: str | None = None
     default_confidentiality: ConfidentialityLevel = ConfidentialityLevel.L2
     enabled: bool = True
@@ -90,10 +91,11 @@ class NamingCategoryConfig(BaseModel):
 
 
 class NamingRuleConfig(BaseModel):
-    schema_version: int = 1
+    schema_version: int = 2
     enforced: bool = True
     project_codes: list[ProjectCodeConfig] = Field(default_factory=list)
     categories: list[NamingCategoryConfig] = Field(default_factory=list)
+    migration_missing_asset_type_category_ids: list[uuid.UUID] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def unique_business_keys(self) -> NamingRuleConfig:
@@ -273,6 +275,7 @@ class NamingOptionItem(BaseModel):
     primary: str
     secondary: str
     prefix: str
+    asset_type: AssetType
     description: str | None = None
     default_confidentiality: ConfidentialityLevel
     enabled: bool = True

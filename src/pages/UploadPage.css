@@ -125,6 +125,30 @@
 }
 
 @media (max-width: 720px) {
+  .task-modal.naming-review-workspace {
+    width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+
+  .naming-review-workspace .task-modal-body {
+    padding-inline: 14px;
+  }
+
+  .upload77-batch-naming-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .upload77-batch-naming-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .upload77-batch-naming-row {
+    min-width: 0;
+  }
+
   .upload77-intake-feedback {
     grid-template-columns: 1fr;
   }
@@ -404,32 +428,34 @@
   color: var(--color-danger, #b42318);
 }
 
-.kl-modal.upload77-batch-naming-dialog {
+.task-modal.naming-review-workspace {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   width: min(1180px, 96vw);
-  max-height: 94vh;
+  height: min(90dvh, 900px);
+  max-height: 90dvh;
   overflow: hidden;
 }
 
-.upload77-batch-naming-dialog .kl-modal-header {
+.naming-review-workspace .task-modal-header {
   flex: 0 0 auto;
   padding-right: 40px;
 }
 
-.upload77-batch-naming-dialog .kl-modal-body {
+.naming-review-workspace .task-modal-body {
   display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
 }
 
-.upload77-batch-naming-dialog .kl-modal-error {
+.naming-review-workspace .kl-modal-error {
   flex: 0 0 auto;
 }
 
-.upload77-batch-naming-dialog .kl-modal-actions {
+.naming-review-workspace .task-modal-footer {
   flex: 0 0 auto;
   margin-top: 14px;
   padding-top: 14px;
@@ -499,6 +525,32 @@
   overflow: auto;
   overscroll-behavior: contain;
   padding: 0 6px 2px 0;
+}
+
+@media (max-width: 720px) {
+  .task-modal.naming-review-workspace {
+    width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+
+  .naming-review-workspace .task-modal-body {
+    padding-inline: 14px;
+  }
+
+  .upload77-batch-naming-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .upload77-batch-naming-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .upload77-batch-naming-row {
+    min-width: 0;
+  }
 }
 
 .upload77-batch-filter-empty {
@@ -752,6 +804,12 @@
   .upload77-batch-naming-toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 720px) {
+  .upload77-batch-naming-grid {
+    grid-template-columns: 1fr;
   }
 }
 

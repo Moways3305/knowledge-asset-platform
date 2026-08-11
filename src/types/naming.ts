@@ -1,4 +1,11 @@
 export type NamingScope = "project" | "company";
+export type NamingAssetType =
+  | "deliverable"
+  | "methodology"
+  | "case"
+  | "template"
+  | "insight"
+  | "unclassified";
 
 export interface ProjectCodeConfigDTO {
   project_id: string;
@@ -15,6 +22,7 @@ export interface NamingCategoryConfigDTO {
   primary: string;
   secondary: string;
   prefix: string;
+  asset_type: NamingAssetType | null;
   description?: string | null;
   default_confidentiality: string;
   enabled: boolean;
@@ -26,6 +34,7 @@ export interface NamingRuleConfigDTO {
   enforced: boolean;
   project_codes: ProjectCodeConfigDTO[];
   categories: NamingCategoryConfigDTO[];
+  migration_missing_asset_type_category_ids?: string[];
 }
 
 export interface NamingRuleRevisionDTO {
@@ -56,6 +65,7 @@ export interface NamingOptionDTO {
   primary: string;
   secondary: string;
   prefix: string;
+  asset_type: NamingAssetType;
   description?: string | null;
   default_confidentiality: string;
   enabled?: boolean;

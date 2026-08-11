@@ -43,21 +43,6 @@ from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 from app.services.naming_advice import safe_naming_advice
 
-_ASSET_TYPE_BY_CATEGORY_SECONDARY = {
-    "交付成果": "deliverable",
-    "交付件": "deliverable",
-    "年度计划": "deliverable",
-    "制度规范": "deliverable",
-    "辅导过程": "deliverable",
-    "模型工具": "methodology",
-    "方法论": "methodology",
-    "案例研究": "case",
-    "案例": "case",
-    "模板": "template",
-    "研究洞察": "insight",
-    "洞察": "insight",
-}
-
 
 @dataclass(frozen=True, slots=True)
 class RenderedNaming:
@@ -135,6 +120,19 @@ def _out(revision: NamingRuleRevision) -> NamingRuleRevisionOut:
     )
 
 
+def _missing_asset_type_ids(config: NamingRuleConfig) -> list[uuid.UUID]:
+    return [item.id for item in config.categories if item.enabled and item.asset_type is None]
+
+
+def _normalized_config(config: NamingRuleConfig) -> NamingRuleConfig:
+    return config.model_copy(
+        update={
+            "schema_version": 2,
+            "migration_missing_asset_type_category_ids": _missing_asset_type_ids(config),
+        }
+    )
+
+
 async def get_rule_center(session: AsyncSession, caller: CallerContext) -> NamingRuleCenterOut:
     _require_governance(caller)
     await _ensure_initial_revisions(session)
@@ -183,7 +181,8 @@ async def save_draft(
     )
     if existing != project_ids:
         raise _denied(422, "naming_rule_project_invalid", "项目代码配置包含不可用项目")
-    draft.config = request.config.model_dump(mode="json")
+    normalized_config = _normalized_config(request.config)
+    draft.config = normalized_config.model_dump(mode="json")
     draft.updated_by = caller.user_id
     await audit_service.record_event(
         session,
@@ -201,8 +200,11 @@ async def save_draft(
                 for item in request.config.project_codes
                 if item.client_aliases_enabled
             ),
-            "category_count": len(request.config.categories),
-            "enforced": request.config.enforced,
+            "category_count": len(normalized_config.categories),
+            "asset_type_missing_count": len(
+                normalized_config.migration_missing_asset_type_category_ids
+            ),
+            "enforced": normalized_config.enforced,
         },
     )
     await session.commit()
@@ -225,7 +227,17 @@ async def publish_draft(
         or draft.base_published_version != published.version
     ):
         raise _denied(409, "naming_rule_publish_conflict", "规则已被其他治理者发布，请刷新")
-    config = _config(draft)
+    config = _normalized_config(_config(draft))
+    missing_asset_type_ids = _missing_asset_type_ids(config)
+    if missing_asset_type_ids:
+        first_missing = next(
+            item for item in config.categories if item.id == missing_asset_type_ids[0]
+        )
+        raise _denied(
+            422,
+            "naming_category_asset_type_required",
+            f"目录类别“{first_missing.primary} / {first_missing.secondary}”缺少资产分类，不能发布",
+        )
     configured_ids = {item.project_id for item in config.project_codes}
     projects = (
         (
@@ -259,6 +271,7 @@ async def publish_draft(
         project.naming_default_confidentiality = item.default_confidentiality.value
 
     now = datetime.now(timezone.utc)
+    draft.config = config.model_dump(mode="json")
     draft.status = "published"
     draft.published_by = caller.user_id
     draft.published_at = now
@@ -445,11 +458,7 @@ async def render(
     if category is None or not category.enabled or category.scope != scope:
         raise _denied(409, "naming_category_unavailable", "目录类别已停用或不适用于目标库")
 
-    # Category configuration remains schema-compatible. Asset classification is
-    # a server-owned projection of the published secondary category; unknown
-    # categories fail closed instead of silently becoming a deliverable.
-    derived_asset_type = _ASSET_TYPE_BY_CATEGORY_SECONDARY.get(category.secondary.strip())
-    if derived_asset_type is None:
+    if category.asset_type is None:
         raise _denied(
             409,
             "naming_asset_type_mapping_missing",
@@ -498,7 +507,7 @@ async def render(
         "category_primary": category.primary,
         "category_secondary": category.secondary,
         "category_prefix": category.prefix,
-        "asset_type": derived_asset_type,
+        "asset_type": category.asset_type.value,
         "subject": rendered_subject,
         "subject_deidentified": False,
         "subject_business_name_warning": subject_has_business_name,
@@ -760,6 +769,12 @@ async def options(
         [item for item in config.categories if item.enabled and item.scope == scope.value],
         key=lambda item: (item.sort_order, item.primary, item.secondary),
     )
+    if any(item.asset_type is None for item in categories):
+        raise _denied(
+            503,
+            "naming_rule_asset_type_incomplete",
+            "已发布目录规则存在待治理的资产分类缺口，请联系治理管理员处理",
+        )
     return NamingOptionsResponse(
         required=True,
         rule_version=revision.version,
@@ -770,12 +785,14 @@ async def options(
                 primary=item.primary,
                 secondary=item.secondary,
                 prefix=item.prefix,
+                asset_type=item.asset_type,
                 description=item.description,
                 default_confidentiality=item.default_confidentiality,
                 enabled=item.enabled,
                 sort_order=item.sort_order,
             )
             for item in categories
+            if item.asset_type is not None
         ],
         default_confidentiality=default_confidentiality,
         message=None if categories else "当前目标尚未配置启用的目录类别",

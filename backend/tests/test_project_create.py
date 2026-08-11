@@ -62,6 +62,9 @@ def _project_body(**over):
         "client_name": "示例客户",
         "project_manager_user_id": str(USER_CONSULTANT),
         "lifecycle_route_key": "route_A",
+        "project_code": "NEW-26",
+        "project_code_active": True,
+        "naming_default_confidentiality": "L2",
     }
     base.update(over)
     return base
@@ -164,6 +167,30 @@ async def test_duplicate_active_name_conflict_422(client):
     dup = await client.post(PROJECTS, headers=_hdr(USER_BOSS), json=_project_body(name="唯一名"))
     assert dup.status_code == 422
     assert dup.json()["detail"]["denied_reason"] == "project_name_conflict"
+
+
+async def test_project_creation_requires_an_enabled_unique_project_code(client):
+    disabled = await client.post(
+        PROJECTS,
+        headers=_hdr(USER_BOSS),
+        json=_project_body(name="代码未启用项目", project_code_active=False),
+    )
+    assert disabled.status_code == 422
+    assert disabled.json()["detail"]["denied_reason"] == "project_code_must_be_enabled"
+
+    first = await client.post(
+        PROJECTS,
+        headers=_hdr(USER_BOSS),
+        json=_project_body(name="项目代码甲", project_code="UNIQUE-26"),
+    )
+    assert first.status_code == 201, first.text
+    duplicate = await client.post(
+        PROJECTS,
+        headers=_hdr(USER_BOSS),
+        json=_project_body(name="项目代码乙", project_code="UNIQUE-26"),
+    )
+    assert duplicate.status_code == 422
+    assert duplicate.json()["detail"]["denied_reason"] == "project_code_conflict"
 
 
 # ===== 项目创建预建并初始化 project KB（best-effort，不阻断） =====

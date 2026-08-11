@@ -49,13 +49,15 @@ describe("product layout and route contract", () => {
     expect(source).toContain("当前身份仅可查看，修改需系统管理员");
   });
 
-  it("keeps model administration on the split foundation workspace contract", () => {
+  it("keeps model administration on the overview, drawer, and modal contract", () => {
     const page = read("src/pages/AdminWeKnoraModelsPage.tsx");
     const connections = read("src/components/UnifiedModelConnectionsSection.tsx");
-    expect(page).toContain('className="mf-workspace"');
-    expect(page).toContain('className="mf-foundation-panel"');
-    expect(page).toContain('className="mf-kb-section"');
+    expect(page).toContain('className="mf-overview-grid"');
+    expect(page).toContain('title="管理知识库配置"');
+    expect(page).toContain("<DetailDrawer");
+    expect(page).toContain("<TaskModal");
     expect(connections).toContain('className="mf-connection-card"');
+    expect(connections).toContain("<TaskModal");
   });
 
   it("keeps personal knowledge as a compact table with controlled write dialogs", () => {

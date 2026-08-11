@@ -65,8 +65,16 @@ async function prepareContext(viewport) {
 }
 
 async function openCreateForm(page) {
-  await page.getByRole("button", { name: "新增外部 LLM", exact: true }).first().click();
-  await page.locator('[data-model-field="display_name"]').waitFor();
+  const drawer = page.getByRole("dialog", { name: "管理外部 LLM" });
+  if (!(await drawer.isVisible())) {
+    await page.getByRole("button", { name: "管理外部 LLM", exact: true }).click();
+    await drawer.waitFor();
+  }
+  await drawer.getByRole("button", { name: "新增外部 LLM", exact: true }).first().click();
+  await page
+    .getByRole("dialog", { name: "新增外部 LLM" })
+    .locator('[data-model-field="display_name"]')
+    .waitFor();
 }
 
 const desktop = await prepareContext({ width: 1440, height: 900 });

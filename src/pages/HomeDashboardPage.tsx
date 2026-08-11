@@ -339,6 +339,8 @@ export default function HomeDashboardPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState("");
   const [createPmId, setCreatePmId] = useState("");
+  const [createProjectCode, setCreateProjectCode] = useState("");
+  const [createDefaultConfidentiality, setCreateDefaultConfidentiality] = useState("L2");
   const [createPeople, setCreatePeople] = useState<PersonDTO[]>([]);
   const [createSaving, setCreateSaving] = useState(false);
   const [createError, setCreateError] = useState("");
@@ -350,6 +352,8 @@ export default function HomeDashboardPage() {
   const openCreate = useCallback(() => {
     setCreateName("");
     setCreatePmId(authMe?.userId ?? "");
+    setCreateProjectCode("");
+    setCreateDefaultConfidentiality("L2");
     setCreateError("");
     setCreateOpen(true);
     fetchPeople()
@@ -358,8 +362,8 @@ export default function HomeDashboardPage() {
   }, [authMe?.userId]);
 
   const submitCreate = useCallback(async () => {
-    if (!createName.trim()) {
-      setCreateError("请填写项目名称");
+    if (!createName.trim() || !createProjectCode.trim()) {
+      setCreateError("请填写项目名称和项目代码");
       return;
     }
     if (!createPmId) {
@@ -372,6 +376,9 @@ export default function HomeDashboardPage() {
       const created = await createProject({
         name: createName.trim(),
         project_manager_user_id: createPmId,
+        project_code: createProjectCode.trim().toUpperCase(),
+        project_code_active: true,
+        naming_default_confidentiality: createDefaultConfidentiality,
       });
       setCreateOpen(false);
       await reload();
@@ -381,7 +388,7 @@ export default function HomeDashboardPage() {
     } finally {
       setCreateSaving(false);
     }
-  }, [createName, createPmId, reload, navigate]);
+  }, [createName, createPmId, createProjectCode, createDefaultConfidentiality, reload, navigate]);
 
   const fallbackStatus: UiSectionStatus = pageState === "loading" ? "loading" : "error";
   const todosStatus = overview?.todos.status ?? fallbackStatus;
@@ -657,7 +664,9 @@ export default function HomeDashboardPage() {
             <Button
               variant="primary"
               onClick={submitCreate}
-              disabled={createSaving || !createName.trim() || !createPmId}
+              disabled={
+                createSaving || !createName.trim() || !createPmId || !createProjectCode.trim()
+              }
             >
               {createSaving ? "创建中…" : "创建项目"}
             </Button>
@@ -682,6 +691,27 @@ export default function HomeDashboardPage() {
                 <option key={p.user_id} value={p.user_id}>
                   {p.name}
                 </option>
+              ))}
+            </select>
+          </label>
+          <label className="wb81-field">
+            <span>项目代码</span>
+            <input
+              value={createProjectCode}
+              onChange={(event) => setCreateProjectCode(event.target.value.toUpperCase())}
+              placeholder="如 BW-2601"
+              maxLength={20}
+            />
+            <small>创建后立即启用，作为规范命名必需项。</small>
+          </label>
+          <label className="wb81-field">
+            <span>默认保密级别</span>
+            <select
+              value={createDefaultConfidentiality}
+              onChange={(event) => setCreateDefaultConfidentiality(event.target.value)}
+            >
+              {["L1", "L2", "L3", "L4", "L5"].map((level) => (
+                <option key={level}>{level}</option>
               ))}
             </select>
           </label>

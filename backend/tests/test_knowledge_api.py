@@ -100,12 +100,23 @@ async def test_project_non_member_l3_gets_only_redacted_summary_projection(clien
     assert body["summary"]["detailed"].startswith("（脱敏）")
     assert body["summary"]["key_points"] == []
     assert body["maintainer"] is None
+    assert body["maintainer_name"] == "顾问A"
+    assert body["project_id"] is None
+    assert body["category_path"] is None or isinstance(body["category_path"], str)
+    assert body["retrieval_available"] in {True, False}
+    assert body["qa_available"] in {True, False}
     assert body["current_version"] is None
     assert body["canonical_markdown_status"] is None
     assert body["index_status"] is None
     assert body["weknora_parse_status"] is None
     assert body["index_error_message"] is None
-    for forbidden in ("storage_ref", "source_file_ref", "weknora_kb_id", "weknora_doc_id"):
+    for forbidden in (
+        "storage_ref",
+        "source_file_ref",
+        "weknora_kb_id",
+        "weknora_doc_id",
+        str(PROJECT_BETA),
+    ):
         assert forbidden not in resp.text
 
 

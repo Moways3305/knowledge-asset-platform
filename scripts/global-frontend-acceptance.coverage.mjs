@@ -78,8 +78,8 @@ export const routeDefinitions = [
     suite: "model-foundation",
     states: [
       { name: "normal", scenario: "normal" },
-      { name: "empty", scenario: "kb-empty" },
-      { name: "connection-failure", scenario: "test-failure" },
+      { name: "empty", scenario: "empty" },
+      { name: "configuration", scenario: "external-drawer" },
       { name: "forbidden", scenario: "forbidden" },
     ],
   },

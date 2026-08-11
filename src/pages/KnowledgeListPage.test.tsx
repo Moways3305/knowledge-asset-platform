@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchKnowledgeDetail, fetchKnowledgePage, requestOriginalAccess } from "../api/knowledge";
@@ -125,8 +126,12 @@ const crossProjectAsset: KnowledgeCardVM = {
 
 const crossProjectDetail: KnowledgeDetailVM = {
   ...crossProjectAsset,
-  projectId: "00000000-0000-0000-0000-000000000099",
-  maintainerName: "",
+  projectId: null,
+  maintainerName: "王顾问",
+  categoryPath: "项目资料 / 项目复盘",
+  safeVersion: "V3",
+  retrievalAvailable: true,
+  qaAvailable: false,
   archivedAt: null,
   archiveReason: null,
   oneLiner: "（脱敏）可跨项目共享的访谈摘要。",
@@ -289,11 +294,18 @@ describe("KnowledgeListPage reference implementation", () => {
       "href",
       `/knowledge/${restrictedAsset.id}`,
     );
+    const titleLink = screen.getByRole("link", {
+      name: `查看《${restrictedAsset.title}》详情`,
+    });
+    expect(titleLink).toHaveAttribute("href", `/knowledge/${restrictedAsset.id}`);
+    titleLink.focus();
+    expect(titleLink).toHaveFocus();
     expect(screen.queryByText(restrictedAsset.id)).not.toBeInTheDocument();
     expect(screen.queryByText(/storage_ref|WeKnora|token/i)).not.toBeInTheDocument();
   });
 
   it("opens a cross-project summary drawer and submits an honest original request", async () => {
+    const user = userEvent.setup();
     vi.mocked(fetchKnowledgePage).mockResolvedValue(response([crossProjectAsset]));
     vi.mocked(fetchKnowledgeDetail)
       .mockResolvedValueOnce(crossProjectDetail)
@@ -308,14 +320,22 @@ describe("KnowledgeListPage reference implementation", () => {
     renderPage();
 
     expect(await screen.findByText("其他项目 · 摘要可见")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "查看摘要" }));
+    const titleButton = screen.getByRole("button", {
+      name: `查看《${crossProjectAsset.title}》安全摘要`,
+    });
+    titleButton.focus();
+    expect(titleButton).toHaveFocus();
+    await user.keyboard("{Enter}");
 
     expect(
       await screen.findByRole("dialog", { name: crossProjectAsset.title }),
     ).toBeInTheDocument();
     expect(screen.getByText(crossProjectDetail.detailed)).toBeInTheDocument();
     expect(screen.getByText(/不授予项目空间权限/)).toBeInTheDocument();
-    expect(screen.queryByText(/维护人|Markdown|WeKnora|storage_ref/)).not.toBeInTheDocument();
+    expect(screen.getByText("王顾问")).toBeInTheDocument();
+    expect(screen.getByText("项目资料 / 项目复盘")).toBeInTheDocument();
+    expect(screen.getByText("问答不可用 · 检索可用")).toBeInTheDocument();
+    expect(screen.queryByText(/Markdown|WeKnora|storage_ref/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "申请原文" }));
     await waitFor(() => expect(requestOriginalAccess).toHaveBeenCalledWith(crossProjectAsset.id));
@@ -336,7 +356,9 @@ describe("KnowledgeListPage reference implementation", () => {
     renderPage();
 
     expect(await screen.findByText("暂无可共享摘要")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "查看摘要" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: `查看《${crossProjectAsset.title}》安全摘要` }),
+    );
     expect(await screen.findByText(/安全摘要尚未生成/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "申请原文" })).toBeInTheDocument();
   });

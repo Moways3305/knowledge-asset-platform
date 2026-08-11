@@ -46,6 +46,9 @@ def _create_project_body(name="项目删除测试", **over):
         "name": name,
         "client_name": "示例客户",
         "project_manager_user_id": str(USER_PROJECT_MANAGER),
+        "project_code": "DEL-26",
+        "project_code_active": True,
+        "naming_default_confidentiality": "L2",
     }
     base.update(over)
     return base

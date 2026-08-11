@@ -15,7 +15,7 @@ const crossAsset = "00000000-0000-0000-0000-0000000000a2";
 const cases = [
   { name: "member-desktop", width: 1440, height: 1000, member: true },
   { name: "member-mobile", width: 390, height: 844, member: true },
-  { name: "summary-desktop", width: 1440, height: 1000 },
+  { name: "summary-desktop", width: 1280, height: 900 },
   { name: "summary-mobile", width: 390, height: 844 },
   { name: "empty-summary-mobile", width: 390, height: 844, empty: true },
   { name: "request-submitted-desktop", width: 1440, height: 1000, submit: true },
@@ -73,7 +73,12 @@ function detailAsset(testCase, pending) {
   const item = listAsset(testCase);
   return {
     ...item,
-    project_id: testCase.member ? alphaProject : betaProject,
+    project_id: testCase.member ? alphaProject : null,
+    maintainer_name: testCase.member ? "项目维护人" : "王顾问",
+    category_path: "项目资料 / 项目复盘",
+    safe_version: "V3",
+    retrieval_available: true,
+    qa_available: false,
     summary: testCase.empty
       ? { one_liner: null, detailed: null, key_points: [] }
       : {
@@ -156,8 +161,12 @@ for (const testCase of cases) {
     await page.getByText("可查看摘要与原文").waitFor();
   } else {
     await page.getByText("其他项目 · 摘要可见").waitFor();
-    await page.getByRole("button", { name: "查看摘要" }).click();
+    await page
+      .getByRole("button", { name: `查看《${listAsset(testCase).title}》安全摘要` })
+      .click();
     await page.getByRole("dialog").waitFor();
+    await page.getByText("王顾问").waitFor();
+    await page.getByText("项目资料 / 项目复盘").waitFor();
     if (testCase.empty) await page.getByText("暂无可共享摘要").last().waitFor();
     if (testCase.submit) {
       await page.getByRole("button", { name: "申请原文" }).click();
@@ -185,6 +194,10 @@ for (const testCase of cases) {
       projectWorkspaceLink: Boolean(
         document.querySelector('a[href*="/project/00000000-0000-0000-0000-000000000076"]'),
       ),
+      safeCoreVisible:
+        text.includes("核心信息") &&
+        text.includes("王顾问") &&
+        text.includes("问答不可用 · 检索可用"),
       text,
     };
   });
@@ -205,7 +218,7 @@ for (const testCase of cases) {
       metrics.overflowX <= 2 &&
       !metrics.unsafeVisible &&
       !metrics.projectWorkspaceLink &&
-      (testCase.member || metrics.drawerOpen),
+      (testCase.member || (metrics.drawerOpen && metrics.safeCoreVisible)),
   });
   await context.close();
 }

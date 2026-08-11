@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Trash2 } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import DangerConfirmDialog from "../../components/DangerConfirmDialog";
+import NamingReviewWorkspace from "../../components/NamingReviewWorkspace";
 import { ApiError } from "../../api/http";
 import {
   classifyBatchNamingCategories,
@@ -384,6 +385,7 @@ export default function PendingBatchActions({
       `已核对 ${stateCounts.reviewed}/${selectedConfirmTasks.length} 条，仍有 ${missingDates} 条需补充形成日期`,
     [missingDates, selectedConfirmTasks.length, stateCounts.reviewed],
   );
+  const GovernedConfirmSurface = stage === "review" ? NamingReviewWorkspace : ConfirmDialog;
   const warningNotices = selectedConfirmTasks.flatMap((task) => previews[task.id]?.notices ?? []);
   const warningCodesByTask = Object.fromEntries(
     selectedConfirmTasks.map((task) => [
@@ -586,6 +588,14 @@ export default function PendingBatchActions({
         return;
       }
       setOptions(value);
+      if (value.categories.length === 0) {
+        setDialogError(
+          destination === "project"
+            ? "当前没有已发布的全局项目目录类别，请联系治理管理员配置并发布规则。"
+            : "当前没有已发布的公司目录类别，请联系治理管理员配置并发布规则。",
+        );
+        return;
+      }
       if (reviewTargetKey !== targetKey) {
         Object.values(previewTimersRef.current).forEach((timer) => window.clearTimeout(timer));
         Object.keys(previewTimersRef.current).forEach((taskId) => {
@@ -594,7 +604,28 @@ export default function PendingBatchActions({
         Object.keys(previewRunsRef.current).forEach((taskId) => {
           previewRunsRef.current[taskId] += 1;
         });
-        const classified = await classifyCategories(false);
+        let classified: Record<string, CategoryClassificationItemDTO> = {};
+        try {
+          classified = (await classifyCategories(false)) ?? {};
+        } catch {
+          classified = Object.fromEntries(
+            selectedConfirmTasks.map((task) => [
+              task.id,
+              {
+                task_id: task.id,
+                suggested_category_id: null,
+                category_source: "needs_manual" as const,
+                category_confidence: "low" as const,
+                category_reason: "AI 目录建议暂时失败，请人工选择或重试 AI 建议",
+                candidate_rule_revision: value.rule_version,
+                status: "failed" as const,
+                retryable: true,
+              },
+            ]),
+          );
+          setCategorySuggestions(classified);
+          setDialogError("AI 目录建议暂时失败；目录选项已保留，可人工选择或重试 AI 建议。");
+        }
         const nextRows = initialRows(selectedConfirmTasks, value, classified ?? {});
         setRows(nextRows);
         setPreviews({});
@@ -606,7 +637,13 @@ export default function PendingBatchActions({
       }
       setStage("review");
     } catch (error) {
-      setDialogError(error instanceof ApiError ? error.message : "命名规则暂时无法加载");
+      setDialogError(
+        error instanceof ApiError && error.deniedReason === "project_naming_code_unavailable"
+          ? "目标项目尚未启用项目代码。请到项目设置完成项目代码后，返回此窗口重新加载规则。"
+          : error instanceof ApiError
+            ? error.message
+            : "命名规则暂时无法加载，请重试",
+      );
     } finally {
       setLoading(false);
     }
@@ -914,7 +951,7 @@ export default function PendingBatchActions({
         )}
       </div>
 
-      <ConfirmDialog
+      <GovernedConfirmSurface
         open={confirmOpen}
         title={
           stage === "target"
@@ -927,11 +964,13 @@ export default function PendingBatchActions({
             : undefined
         }
         confirmText={
-          stage === "review" || targetLibrary === "personal" || !targetLibrary
-            ? warningNotices.length > 0
-              ? `仍然确认已选择的 ${selectedConfirmTasks.length} 项入库`
-              : `确认已选择的 ${selectedConfirmTasks.length} 项入库`
-            : "下一步：核对命名"
+          stage === "target" && dialogError && targetLibrary !== "personal"
+            ? "重新加载规则"
+            : stage === "review" || targetLibrary === "personal" || !targetLibrary
+              ? warningNotices.length > 0
+                ? `仍然确认已选择的 ${selectedConfirmTasks.length} 项入库`
+                : `确认已选择的 ${selectedConfirmTasks.length} 项入库`
+              : "下一步：核对命名"
         }
         busyText={
           stage === "target"
@@ -1374,7 +1413,7 @@ export default function PendingBatchActions({
             </div>
           </div>
         )}
-      </ConfirmDialog>
+      </GovernedConfirmSurface>
 
       <ConfirmDialog
         open={closeGuardOpen}
