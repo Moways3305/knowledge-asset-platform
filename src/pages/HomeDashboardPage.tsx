@@ -16,7 +16,6 @@ import {
   SearchX,
   ShieldAlert,
   UploadCloud,
-  X,
   type LucideIcon,
 } from "lucide-react";
 import { fetchWorkbenchOverview } from "../api/workbench";
@@ -25,6 +24,9 @@ import { createProject } from "../api/project";
 import { useAuth } from "../auth/AuthContext";
 import { can, type Capabilities } from "../auth/permissions";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
+import StatusBadge from "../components/StatusBadge";
+import TaskModal from "../components/TaskModal";
+import Button from "../components/Button";
 import WorkbuddyAccessCard from "../components/WorkbuddyAccessCard";
 import type { PersonDTO } from "../types/people";
 import type {
@@ -406,6 +408,28 @@ export default function HomeDashboardPage() {
           </>
         }
         description={`${roleText} · ${todayLabel()}`}
+        status={
+          <StatusBadge
+            tone={
+              pageState === "error"
+                ? "danger"
+                : pageState === "loading"
+                  ? "info"
+                  : todoCount > 0
+                    ? "warning"
+                    : "success"
+            }
+            label={
+              pageState === "error"
+                ? "工作状态需要重新加载"
+                : pageState === "loading"
+                  ? "正在同步今日工作"
+                  : todoCount > 0
+                    ? `${todoCount} 项待处理`
+                    : "今日工作已就绪"
+            }
+          />
+        }
         actions={
           <div className="wb81-header-tools">
             {(can.viewKnowledge(capabilities) || can.viewUpload(capabilities)) && (
@@ -615,64 +639,59 @@ export default function HomeDashboardPage() {
         </div>
       </div>
 
-      {createOpen && (
-        <div className="wb81-modal" role="dialog" aria-label="新建项目">
-          <div className="wb81-modal-panel">
-            <header className="wb81-modal-header">
-              <h3>新建项目</h3>
-              <button
-                type="button"
-                className="wb81-modal-close"
-                onClick={() => setCreateOpen(false)}
-                aria-label="关闭"
-              >
-                <X size={18} />
-              </button>
-            </header>
-            <div className="wb81-modal-body">
-              <label className="wb81-field">
-                <span>项目名称</span>
-                <input
-                  value={createName}
-                  onChange={(e) => setCreateName(e.target.value)}
-                  placeholder="输入项目名称"
-                  maxLength={100}
-                />
-              </label>
-              <label className="wb81-field">
-                <span>项目经理</span>
-                <select value={createPmId} onChange={(e) => setCreatePmId(e.target.value)}>
-                  <option value="">选择人员</option>
-                  {createPeople.map((p) => (
-                    <option key={p.user_id} value={p.user_id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {createError && <p className="wb81-field-error">{createError}</p>}
-            </div>
-            <footer className="wb81-modal-footer">
-              <button
-                type="button"
-                className="wb81-btn-secondary"
-                onClick={() => setCreateOpen(false)}
-                disabled={createSaving}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                className="wb81-btn-primary"
-                onClick={submitCreate}
-                disabled={createSaving || !createName.trim() || !createPmId}
-              >
-                {createSaving ? "创建中…" : "创建项目"}
-              </button>
-            </footer>
-          </div>
+      <TaskModal
+        open={createOpen}
+        title="新建项目"
+        description="填写基本信息后创建项目，创建成功后再进入项目空间补充详细配置。"
+        onClose={() => setCreateOpen(false)}
+        busy={createSaving}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => setCreateOpen(false)}
+              disabled={createSaving}
+            >
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              onClick={submitCreate}
+              disabled={createSaving || !createName.trim() || !createPmId}
+            >
+              {createSaving ? "创建中…" : "创建项目"}
+            </Button>
+          </>
+        }
+      >
+        <div className="wb81-modal-body">
+          <label className="wb81-field">
+            <span>项目名称</span>
+            <input
+              value={createName}
+              onChange={(e) => setCreateName(e.target.value)}
+              placeholder="输入项目名称"
+              maxLength={100}
+            />
+          </label>
+          <label className="wb81-field">
+            <span>项目经理</span>
+            <select value={createPmId} onChange={(e) => setCreatePmId(e.target.value)}>
+              <option value="">选择人员</option>
+              {createPeople.map((p) => (
+                <option key={p.user_id} value={p.user_id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {createError && (
+            <p className="wb81-field-error" role="alert">
+              {createError}
+            </p>
+          )}
         </div>
-      )}
+      </TaskModal>
     </ProductPage>
   );
 }

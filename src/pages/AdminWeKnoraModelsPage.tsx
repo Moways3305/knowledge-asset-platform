@@ -11,6 +11,9 @@ import {
 import { ApiError } from "../api/http";
 import { useAuth } from "../auth/AuthContext";
 import { PageHeader, PageSection, ProductPage } from "../components/ProductLayout";
+import StatusBadge from "../components/StatusBadge";
+import OperationStatusCard from "../components/OperationStatusCard";
+import { operationStatusFromJob } from "../components/operationStatus";
 import KbMigrateDialog from "../components/KbMigrateDialog";
 import UnifiedModelConnectionsSection from "../components/UnifiedModelConnectionsSection";
 import WeknoraModelsSection from "../components/WeknoraModelsSection";
@@ -183,6 +186,20 @@ export default function AdminWeKnoraModelsPage() {
       <PageHeader
         title="模型与知识库底座"
         description="外部 LLM 由 KAP 直接调用；WeKnora 用于知识库底座。"
+        status={
+          <StatusBadge
+            tone={error ? "danger" : anyMigrationActive ? "info" : loading ? "info" : "success"}
+            label={
+              error
+                ? "配置状态需要处理"
+                : anyMigrationActive
+                  ? "知识库迁移处理中"
+                  : loading
+                    ? "正在同步配置"
+                    : "配置状态已同步"
+            }
+          />
+        }
         actions={
           <button className="btn-small mf-refresh" onClick={refreshAll} disabled={loading}>
             <RefreshCw size={14} aria-hidden="true" />
@@ -519,18 +536,35 @@ function KbConfigRow({
           </button>
         )}
         {cfg.migration && (
-          <div className="mf-migrate-status">
-            {cfg.migration.job_status === "completed" && "迁移完成，旧库已删除"}
-            {cfg.migration.job_status === "completed_with_errors" &&
-              `迁移完成（${cfg.migration.failed_count} 失败，可再次迁移续跑）`}
-            {cfg.migration.job_status === "failed" && "迁移失败，可重试"}
-            {migrationActive && (
-              <>
-                迁移中：{cfg.migration.success_count}/{cfg.migration.total_count} · 失败{" "}
-                {cfg.migration.failed_count}
-              </>
-            )}
-          </div>
+          <OperationStatusCard
+            compact
+            live={migrationActive}
+            status={operationStatusFromJob(cfg.migration.job_status)}
+            title={
+              cfg.migration.job_status === "completed"
+                ? "知识库迁移已完成"
+                : cfg.migration.job_status === "completed_with_errors"
+                  ? "迁移部分完成"
+                  : cfg.migration.job_status === "failed"
+                    ? "迁移未完成"
+                    : "知识库迁移作业"
+            }
+            description={
+              migrationActive ? "请求已受理，系统仍在处理文档；请等待最终状态。" : undefined
+            }
+            counts={[
+              { label: "总数", value: cfg.migration.total_count },
+              { label: "成功", value: cfg.migration.success_count, tone: "success" },
+              { label: "失败", value: cfg.migration.failed_count, tone: "danger" },
+            ]}
+            nextStep={
+              migrationActive
+                ? "无需重复提交，页面会自动刷新进度。"
+                : cfg.migration.failed_count > 0
+                  ? "检查模型与底座状态后，再次迁移未成功项目。"
+                  : "迁移结果已达到当前终态。"
+            }
+          />
         )}
         {cfg.config_error && <div className="ws-cell-suggestion">{cfg.config_error}</div>}
         <KbMigrateDialog

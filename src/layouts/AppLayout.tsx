@@ -39,23 +39,36 @@ import "../styles/workbench-home-admin.css";
 import "../styles/security-operations.css";
 import "../styles/people-permissions-governance.css";
 import "../styles/help-global-experience.css";
+import "../styles/experience-system.css";
 
 // 每个导航项带一个能力谓词 `cap`，与页面级守卫（RouteGuard）共用 `can` 判定，
 // 保证「看得到的入口 = 进得去的页面」。无权入口直接不渲染，而非渲染后再报错。
 type NavItem = { to: string; label: string; icon: LucideIcon; end?: boolean; cap: Capability };
 type NavGroup = { label: string; items: NavItem[] };
 
-const homeItem: NavItem = {
-  to: "/",
-  label: "今日工作台",
-  icon: LayoutDashboard,
-  end: true,
-  cap: can.viewHome,
-};
-
 const navGroups: NavGroup[] = [
   {
-    label: "业务功能",
+    label: "今日工作",
+    items: [
+      {
+        to: "/",
+        label: "今日工作台",
+        icon: LayoutDashboard,
+        end: true,
+        cap: can.viewHome,
+      },
+      { to: "/upload", label: "资产化确认", icon: FileCheck2, cap: can.viewUpload },
+      { to: "/review", label: "升级审核", icon: ShieldCheck, cap: can.viewReview },
+      {
+        to: "/original-access",
+        label: "原文访问审批",
+        icon: ScrollText,
+        cap: can.viewOriginalAccess,
+      },
+    ],
+  },
+  {
+    label: "知识资产",
     items: [
       {
         to: "/knowledge",
@@ -65,8 +78,11 @@ const navGroups: NavGroup[] = [
         cap: can.viewKnowledge,
       },
       { to: "/my/knowledge", label: "个人知识", icon: UserRound, cap: can.viewMyKnowledge },
-      { to: "/upload", label: "资产化确认", icon: FileCheck2, cap: can.viewUpload },
-      { to: "/review", label: "升级审核", icon: ShieldCheck, cap: can.viewReview },
+    ],
+  },
+  {
+    label: "项目协作",
+    items: [
       {
         to: "/project/:projectId",
         label: "项目空间",
@@ -187,13 +203,6 @@ function RailNav({
     .filter((group) => group.items.length > 0);
   return (
     <nav className="rail-nav" id="primary-navigation" aria-label="主导航">
-      {homeItem.cap(capabilities) && (
-        <div className="rail-group rail-group-lead">
-          <ul>
-            <RailLink item={homeItem} collapsed={collapsed} />
-          </ul>
-        </div>
-      )}
       {groups.map((group) => (
         <div key={group.label} className="rail-group">
           <div className="rail-group-label">{group.label}</div>

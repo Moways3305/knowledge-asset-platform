@@ -517,7 +517,10 @@ describe("AdminWeKnoraModelsPage", () => {
     fireEvent.change(within(screen.getByRole("dialog")).getByLabelText("问答模型（必选）"), {
       target: { value: "chat-new" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "开始迁移" }));
+    fireEvent.click(screen.getByRole("button", { name: "继续" }));
+    expect(migrateWeknoraKb).not.toHaveBeenCalled();
+    expect(screen.getByText("提交后进入异步迁移，不代表迁移已经完成")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "提交迁移作业" }));
 
     await waitFor(() =>
       expect(migrateWeknoraKb).toHaveBeenCalledWith("safe-mapping-id", {

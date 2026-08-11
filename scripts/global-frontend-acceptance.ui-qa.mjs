@@ -9,6 +9,7 @@ import {
   explicitCaseResult,
   routeDefinitions,
 } from "./global-frontend-acceptance.coverage.mjs";
+import { waitForChildProcess } from "./ui-qa-process.mjs";
 
 const configuredBase = process.env.UI_QA_BASE?.replace(/\/$/, "") || null;
 let base = configuredBase || "";
@@ -17,6 +18,7 @@ const outRoot = process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa")
 const outDir = path.join(outRoot, "global-frontend-acceptance");
 const evidenceDir = path.join(outDir, "evidence");
 const suiteTimeoutMs = Number(process.env.UI_QA_SUITE_TIMEOUT_MS || 90_000);
+const suiteMaxAttempts = Number(process.env.UI_QA_SUITE_MAX_ATTEMPTS || 2);
 if (path.basename(outDir) !== "global-frontend-acceptance") {
   throw new Error(`Refusing to reset unexpected UI QA output path: ${outDir}`);
 }
@@ -167,31 +169,15 @@ async function stopOwnedServer() {
 }
 
 function runSuite(suite) {
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, [path.join(rootDir, "scripts", suite.script)], {
-      cwd: rootDir,
-      env: { ...process.env, UI_QA_BASE: base, UI_QA_OUT_DIR: evidenceDir },
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    let output = "";
-    const collect = (chunk) => {
-      output = `${output}${chunk.toString()}`.slice(-8000);
-    };
-    child.stdout.on("data", collect);
-    child.stderr.on("data", collect);
-    const timeout = setTimeout(() => {
-      child.kill("SIGTERM");
-      resolve({
-        code: 1,
-        output: `${output}\nUI QA suite timed out after ${suiteTimeoutMs}ms: ${suite.name}`,
-        timedOut: true,
-      });
-    }, suiteTimeoutMs);
-    child.on("close", (code) => {
-      clearTimeout(timeout);
-      resolve({ code: code ?? 1, output, timedOut: false });
-    });
+  const child = spawn(process.execPath, [path.join(rootDir, "scripts", suite.script)], {
+    cwd: rootDir,
+    env: { ...process.env, UI_QA_BASE: base, UI_QA_OUT_DIR: evidenceDir },
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
+  return waitForChildProcess(child, {
+    timeoutMs: suiteTimeoutMs,
+    timeoutMessage: `UI QA suite timed out after ${suiteTimeoutMs}ms: ${suite.name}`,
   });
 }
 
@@ -215,8 +201,20 @@ try {
     await ensureServer();
     console.log(`UI QA suite started: ${suite.name}`);
     const startedAt = Date.now();
-    const execution = await runSuite(suite);
     const suiteDir = path.join(evidenceDir, suite.evidence);
+    let execution = null;
+    const attemptFailures = [];
+    for (let attempt = 1; attempt <= suiteMaxAttempts; attempt += 1) {
+      fs.rmSync(suiteDir, { recursive: true, force: true });
+      execution = await runSuite(suite);
+      if (execution.code === 0) break;
+      attemptFailures.push(`Attempt ${attempt}/${suiteMaxAttempts}\n${execution.output}`);
+      if (attempt < suiteMaxAttempts) {
+        console.warn(`UI QA suite retrying after failure: ${suite.name} (${attempt})`);
+        await ensureServer();
+      }
+    }
+    if (!execution) throw new Error(`UI QA suite did not execute: ${suite.name}`);
     const reportPath = path.join(suiteDir, "report.json");
     let cases = [];
     if (fs.existsSync(reportPath)) {
@@ -249,7 +247,8 @@ try {
       cases,
       screenshots,
       timedOut: execution.timedOut,
-      failureOutput: execution.code === 0 ? null : execution.output,
+      attempts: execution.code === 0 ? attemptFailures.length + 1 : suiteMaxAttempts,
+      failureOutput: execution.code === 0 ? null : attemptFailures.join("\n\n"),
     });
     console.log(
       `UI QA suite ${execution.code === 0 ? "passed" : "failed"}: ${suite.name} (${Date.now() - startedAt}ms)`,

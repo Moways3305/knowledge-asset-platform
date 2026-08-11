@@ -1,91 +1,83 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookType, CircleHelp, Plus, RefreshCw, Send, Sparkles, Trash2 } from "lucide-react";
+import {
+  BookType,
+  ChevronRight,
+  FolderCog,
+  Plus,
+  RefreshCw,
+  Search,
+  Send,
+  Sparkles,
+} from "lucide-react";
 import { ApiError } from "../api/http";
-import ConfirmDialog from "../components/ConfirmDialog";
 import { fetchNamingRuleCenter, publishNamingRuleDraft, saveNamingRuleDraft } from "../api/naming";
-import type { NamingCategoryConfigDTO, NamingRuleCenterDTO } from "../types/naming";
+import Button from "../components/Button";
+import DangerConfirmDialog from "../components/DangerConfirmDialog";
+import DetailDrawer from "../components/DetailDrawer";
+import TaskModal from "../components/TaskModal";
+import WizardModal from "../components/WizardModal";
+import type { NamingCategoryConfigDTO, NamingRuleCenterDTO, NamingScope } from "../types/naming";
 import "./AdminNamingRulesPage.css";
 
 const levels = ["L1", "L2", "L3", "L4", "L5"];
+const pageSize = 8;
 const standardProjectCategories = [
-  { name: "项目基础信息", confidentiality: "L4", order: 10 },
-  { name: "辅导过程", confidentiality: "L3", order: 20 },
-  { name: "交付成果", confidentiality: "L3", order: 30 },
-  { name: "关键资料", confidentiality: "L5", order: 40 },
-  { name: "项目复盘", confidentiality: "L3", order: 50 },
+  ["项目基础信息", "L4", 10],
+  ["辅导过程", "L3", 20],
+  ["交付成果", "L3", 30],
+  ["关键资料", "L5", 40],
+  ["项目复盘", "L3", 50],
 ] as const;
 const standardCompanyCategories = [
-  { primary: "方法论", secondary: "模型工具", confidentiality: "L2", order: 10 },
-  { primary: "方法论", secondary: "案例研究", confidentiality: "L2", order: 20 },
-  { primary: "方法论", secondary: "模板", confidentiality: "L2", order: 30 },
-  { primary: "洞察", secondary: "研究洞察", confidentiality: "L2", order: 40 },
-  { primary: "制度规范", secondary: "交付件", confidentiality: "L3", order: 50 },
+  ["方法论", "模型工具", "L2", 10],
+  ["方法论", "案例研究", "L2", 20],
+  ["方法论", "模板", "L2", 30],
+  ["洞察", "研究洞察", "L2", 40],
+  ["制度规范", "交付件", "L3", 50],
 ] as const;
 
-function makeProjectCategory(
-  name: string,
-  defaultConfidentiality: string,
-  sortOrder: number,
-): NamingCategoryConfigDTO {
-  return {
-    id: crypto.randomUUID(),
-    scope: "project",
-    primary: "项目资料",
-    secondary: name,
-    prefix: name,
-    default_confidentiality: defaultConfidentiality,
-    enabled: true,
-    sort_order: sortOrder,
-  };
+type CategoryDraft = Pick<
+  NamingCategoryConfigDTO,
+  "primary" | "secondary" | "description" | "default_confidentiality" | "enabled" | "sort_order"
+>;
+
+const blankCategory = (scope: NamingScope): CategoryDraft => ({
+  primary: scope === "project" ? "项目资料" : "方法论",
+  secondary: "",
+  description: "",
+  default_confidentiality: "L2",
+  enabled: true,
+  sort_order: 100,
+});
+
+function categoryPath(category: NamingCategoryConfigDTO) {
+  return category.scope === "company"
+    ? `${category.primary} / ${category.secondary}`
+    : category.secondary;
 }
 
-function makeCompanyCategory(
-  primary: string,
-  secondary: string,
-  defaultConfidentiality: string,
-  sortOrder: number,
-): NamingCategoryConfigDTO {
-  return {
-    id: crypto.randomUUID(),
-    scope: "company",
-    primary,
-    secondary,
-    prefix: `${primary}-${secondary}`,
-    default_confidentiality: defaultConfidentiality,
-    enabled: true,
-    sort_order: sortOrder,
-  };
-}
-
-function convertCategoryScope(
-  category: NamingCategoryConfigDTO,
-  scope: "project" | "company",
-): NamingCategoryConfigDTO {
-  const secondary = category.secondary.trim() || "新类别";
-  if (scope === "project") {
-    return { ...category, scope, primary: "项目资料", secondary, prefix: secondary };
-  }
-  const primary = category.scope === "company" ? category.primary.trim() || "方法论" : "方法论";
-  return { ...category, scope, primary, secondary, prefix: `${primary}-${secondary}` };
-}
-
-function example(scope: "project" | "company", category?: NamingCategoryConfigDTO): string {
-  if (!category) return "先新增并启用一个目录类别";
-  return scope === "project"
-    ? `【PRJ-2026-${category.secondary}】示例主题_20260802_V1_L2.pdf`
-    : `【${category.primary}-${category.secondary}】示例主题_全体顾问_20260802_V1_L2.pdf`;
+function scopeName(scope: NamingScope) {
+  return scope === "company" ? "公司规范" : "全项目通用规范";
 }
 
 export default function AdminNamingRulesPage() {
   const [center, setCenter] = useState<NamingRuleCenterDTO | null>(null);
+  const [scope, setScope] = useState<NamingScope>("company");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [categoryHelpOpen, setCategoryHelpOpen] = useState(false);
-  const [removeCategory, setRemoveCategory] = useState<{
-    secondary: string;
-    index: number;
+  const [managerOpen, setManagerOpen] = useState(false);
+  const [projectCodesOpen, setProjectCodesOpen] = useState(false);
+  const [editor, setEditor] = useState<{
+    category: NamingCategoryConfigDTO | null;
+    value: CategoryDraft;
   } | null>(null);
+  const [detail, setDetail] = useState<NamingCategoryConfigDTO | null>(null);
+  const [removing, setRemoving] = useState<NamingCategoryConfigDTO | null>(null);
+  const [initializeOpen, setInitializeOpen] = useState(false);
+  const [initializeStep, setInitializeStep] = useState(0);
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
   const draftEditRevisionRef = useRef(0);
 
   const load = async () => {
@@ -99,33 +91,45 @@ export default function AdminNamingRulesPage() {
   useEffect(() => void load(), []);
 
   const config = center?.draft.config;
+  const currentScopeName = scopeName(scope);
+  const categories = useMemo(() => {
+    if (!config) return [];
+    return config.categories
+      .filter((item) => item.scope === scope)
+      .sort(
+        (a, b) =>
+          a.sort_order - b.sort_order || categoryPath(a).localeCompare(categoryPath(b), "zh-CN"),
+      );
+  }, [config, scope]);
+  const filteredCategories = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase();
+    return normalized
+      ? categories.filter((item) =>
+          `${categoryPath(item)} ${item.description ?? ""}`
+            .toLocaleLowerCase()
+            .includes(normalized),
+        )
+      : categories;
+  }, [categories, query]);
+  const pageCount = Math.max(1, Math.ceil(filteredCategories.length / pageSize));
+  const visibleCategories = filteredCategories.slice((page - 1) * pageSize, page * pageSize);
+  const enabledCount = categories.filter((item) => item.enabled).length;
+
+  useEffect(() => setPage(1), [query, scope]);
+  useEffect(() => {
+    setManagerOpen(false);
+    setEditor(null);
+    setDetail(null);
+    setRemoving(null);
+    setInitializeOpen(false);
+  }, [scope]);
+
   const updateConfig = (next: NonNullable<typeof config>) => {
     if (!center) return;
     draftEditRevisionRef.current += 1;
     setCenter({ ...center, draft: { ...center.draft, config: next } });
     setNotice(null);
   };
-  const confirmRemoveCategory = () => {
-    if (!removeCategory || !config) return;
-    updateConfig({
-      ...config,
-      categories: config.categories.filter((_, itemIndex) => itemIndex !== removeCategory.index),
-    });
-    setRemoveCategory(null);
-  };
-  const projectCategory = config?.categories.find(
-    (item) => item.scope === "project" && item.enabled,
-  );
-  const companyCategory = config?.categories.find(
-    (item) => item.scope === "company" && item.enabled,
-  );
-  const dirtySummary = useMemo(
-    () =>
-      config
-        ? `${config.project_codes.length} 个项目代码 · ${config.categories.length} 个目录类别`
-        : "",
-    [config],
-  );
 
   if (!center || !config) {
     return (
@@ -134,7 +138,7 @@ export default function AdminNamingRulesPage() {
           <BookType aria-hidden="true" />
           <h1>命名规则中心</h1>
           <p>{error ?? "正在读取已发布规则与草稿…"}</p>
-          {error && <button onClick={() => void load()}>重新加载</button>}
+          {error && <Button onClick={() => void load()}>重新加载</Button>}
         </div>
       </main>
     );
@@ -145,13 +149,7 @@ export default function AdminNamingRulesPage() {
     setError(null);
     const submittedEditRevision = draftEditRevisionRef.current;
     try {
-      const normalizedConfig = {
-        ...config,
-        categories: config.categories.map((category) =>
-          convertCategoryScope(category, category.scope),
-        ),
-      };
-      const draft = await saveNamingRuleDraft(center.published.version, normalizedConfig);
+      const draft = await saveNamingRuleDraft(center.published.version, config);
       const hasNewerEdits = draftEditRevisionRef.current !== submittedEditRevision;
       setCenter((current) =>
         current
@@ -163,27 +161,125 @@ export default function AdminNamingRulesPage() {
       );
       setNotice(
         hasNewerEdits
-          ? "保存完成；保存期间的后续编辑尚未保存。"
-          : "草稿已保存，尚未影响新入库资料。",
+          ? "保存请求成功；请求期间的后续编辑仍待保存。"
+          : "草稿已保存，尚未发布，不影响新入库资料。",
       );
     } catch (reason) {
-      setError(reason instanceof ApiError ? reason.message : "草稿保存失败");
+      setError(reason instanceof ApiError ? reason.message : "草稿保存失败，请保留当前内容后重试");
     } finally {
       setBusy(false);
     }
   };
+
   const publish = async () => {
     setBusy(true);
     setError(null);
     try {
       setCenter(await publishNamingRuleDraft(center.published.version));
-      setNotice("规则已发布，仅影响此后确认入库的资料。");
+      setNotice("发布请求已完成；新版本仅影响此后确认入库的资料。");
     } catch (reason) {
-      setError(reason instanceof ApiError ? reason.message : "规则发布失败");
+      setError(reason instanceof ApiError ? reason.message : "发布失败，草稿仍保留，可修正后重试");
     } finally {
       setBusy(false);
     }
   };
+
+  const saveCategory = () => {
+    if (!editor) return;
+    const value = editor.value;
+    const normalized: NamingCategoryConfigDTO = {
+      id: editor.category?.id ?? crypto.randomUUID(),
+      scope,
+      primary: scope === "project" ? "项目资料" : value.primary.trim(),
+      secondary: value.secondary.trim(),
+      prefix:
+        scope === "project"
+          ? value.secondary.trim()
+          : `${value.primary.trim()}-${value.secondary.trim()}`,
+      description: value.description?.trim() || null,
+      default_confidentiality: value.default_confidentiality,
+      enabled: value.enabled,
+      sort_order: value.sort_order,
+    };
+    updateConfig({
+      ...config,
+      categories: editor.category
+        ? config.categories.map((item) => (item.id === editor.category?.id ? normalized : item))
+        : [...config.categories, normalized],
+    });
+    setEditor(null);
+    setNotice(`「${categoryPath(normalized)}」已写入本地草稿，请保存草稿后再发布。`);
+  };
+
+  const initialize = () => {
+    const existing = new Set(categories.map((item) => categoryPath(item)));
+    const additions: NamingCategoryConfigDTO[] =
+      scope === "project"
+        ? standardProjectCategories
+            .filter(([name]) => !existing.has(name))
+            .map(([name, level, order]) => ({
+              id: crypto.randomUUID(),
+              scope,
+              primary: "项目资料",
+              secondary: name,
+              prefix: name,
+              default_confidentiality: level,
+              enabled: true,
+              sort_order: order,
+            }))
+        : standardCompanyCategories
+            .filter(([primary, secondary]) => !existing.has(`${primary} / ${secondary}`))
+            .map(([primary, secondary, level, order]) => ({
+              id: crypto.randomUUID(),
+              scope,
+              primary,
+              secondary,
+              prefix: `${primary}-${secondary}`,
+              default_confidentiality: level,
+              enabled: true,
+              sort_order: order,
+            }));
+    updateConfig({ ...config, categories: [...config.categories, ...additions] });
+    setInitializeOpen(false);
+    setInitializeStep(0);
+    setNotice(
+      additions.length
+        ? `已将 ${additions.length} 个标准类别加入${currentScopeName}的本地草稿；尚未保存或发布。`
+        : `${currentScopeName}的标准类别均已存在，未重复加入。`,
+    );
+  };
+
+  const projectCodeFor = (project: NamingRuleCenterDTO["projects"][number]) =>
+    config.project_codes.find((item) => item.project_id === project.id) ?? {
+      project_id: project.id,
+      code: project.project_code ?? "",
+      enabled: project.project_code_active,
+      default_confidentiality: project.default_confidentiality,
+      client_aliases: [],
+      client_aliases_enabled: true,
+    };
+  const patchProjectCode = (
+    project: NamingRuleCenterDTO["projects"][number],
+    patch: Partial<ReturnType<typeof projectCodeFor>>,
+  ) => {
+    const projectCode = projectCodeFor(project);
+    updateConfig({
+      ...config,
+      project_codes: [
+        ...config.project_codes.filter((item) => item.project_id !== project.id),
+        { ...projectCode, ...patch },
+      ],
+    });
+  };
+  const previewCategory = categories.find((item) => item.enabled);
+  const preview =
+    scope === "project"
+      ? previewCategory
+        ? `【项目代码-2026-${previewCategory.secondary}】示例主题_20260810_V1_L2.pdf`
+        : "启用一个全项目通用类别后可预览"
+      : previewCategory
+        ? `【${previewCategory.primary}-${previewCategory.secondary}】示例主题_全体顾问_20260810_V1_L2.pdf`
+        : "启用一个公司类别后可预览";
 
   return (
     <main className="naming-center">
@@ -191,45 +287,55 @@ export default function AdminNamingRulesPage() {
         <div>
           <span className="naming-center-kicker">Knowledge naming policy</span>
           <h1>命名规则中心</h1>
-          <p>项目资料使用项目代码；草稿只有显式发布后才参与新确认入库。</p>
+          <p>先锁定规则范围，再维护该范围内的目录类别。草稿只有显式发布后才生效。</p>
         </div>
-        <div className="naming-release-card" aria-label="规则发布状态">
-          <span>当前发布</span>
-          <strong>v{center.published.version}</strong>
-          <small>{center.published.config.enforced ? "正在执行" : "尚未强制"}</small>
+        <div className="naming-version-cluster" aria-label="规则版本状态">
+          <div>
+            <span>当前发布</span>
+            <strong>v{center.published.version}</strong>
+            <small>{center.published.config.enforced ? "正在执行" : "尚未强制"}</small>
+          </div>
+          <div>
+            <span>工作草稿</span>
+            <strong>v{center.draft.version}</strong>
+            <small>{center.draft.status === "draft" ? "等待发布" : center.draft.status}</small>
+          </div>
         </div>
       </header>
 
-      <div className="naming-toolbar">
-        <div>
-          <strong>草稿 v{center.draft.version}</strong>
-          <span>{dirtySummary}</span>
+      <section className="naming-scope-console" aria-labelledby="scope-heading">
+        <div className="naming-scope-rail">
+          <span>当前管理范围</span>
+          <strong id="scope-heading">{currentScopeName}</strong>
+          <small>
+            {scope === "company"
+              ? "公司级类别不会出现在项目资料中"
+              : "一次维护，所有项目使用同一类别集合"}
+          </small>
         </div>
-        <label className="naming-enforce-toggle">
-          <input
-            type="checkbox"
-            checked={config.enforced}
-            onChange={(event) => updateConfig({ ...config, enforced: event.target.checked })}
-          />
-          发布后强制项目/公司规范命名
-        </label>
-        <button className="btn-secondary" disabled={busy} onClick={() => void load()} type="button">
-          <RefreshCw size={15} />
-          刷新
-        </button>
-        <button className="btn-secondary" disabled={busy} onClick={() => void save()} type="button">
-          保存草稿
-        </button>
-        <button
-          className="btn-primary"
-          disabled={busy}
-          onClick={() => void publish()}
-          type="button"
-        >
-          <Send size={15} />
-          发布规则
-        </button>
-      </div>
+        <div className="naming-scope-controls">
+          <div className="naming-segmented" role="group" aria-label="规则范围">
+            <button
+              className={scope === "company" ? "is-active" : ""}
+              aria-pressed={scope === "company"}
+              onClick={() => setScope("company")}
+            >
+              公司规范
+            </button>
+            <button
+              className={scope === "project" ? "is-active" : ""}
+              aria-pressed={scope === "project"}
+              onClick={() => setScope("project")}
+            >
+              全项目通用规范
+            </button>
+          </div>
+          <p className="naming-scope-note">
+            {scope === "company" ? "用于公司知识库" : `适用于 ${center.projects.length} 个项目`}
+          </p>
+        </div>
+      </section>
+
       {notice && (
         <p className="naming-notice" role="status">
           {notice}
@@ -241,350 +347,482 @@ export default function AdminNamingRulesPage() {
         </p>
       )}
 
-      <section className="naming-section" aria-labelledby="project-code-title">
-        <div className="naming-section-head">
+      <>
+        <section className="naming-overview" aria-label={`${currentScopeName}摘要`}>
           <div>
-            <span>01</span>
-            <h2 id="project-code-title">项目代码</h2>
+            <span>目录类别</span>
+            <strong>{categories.length}</strong>
+            <small>仅当前范围</small>
           </div>
-          <p>代码发布后进入规范名；客户名称不参与拼接。</p>
-        </div>
-        <div className="naming-grid naming-project-grid">
+          <div>
+            <span>已启用</span>
+            <strong>{enabledCount}</strong>
+            <small>{categories.length - enabledCount} 个停用</small>
+          </div>
+          <div>
+            <span>草稿更新</span>
+            <strong>{new Date(center.draft.updated_at).toLocaleDateString("zh-CN")}</strong>
+            <small>v{center.draft.version} · 尚未发布</small>
+          </div>
+        </section>
+
+        <section className="naming-action-deck">
+          <div className="naming-preview-card">
+            <span>规范名预览</span>
+            <code>{preview}</code>
+            <small>预览只使用当前范围内第一个已启用类别</small>
+          </div>
+          <div className="naming-primary-actions">
+            <Button icon={<FolderCog size={16} />} onClick={() => setManagerOpen(true)}>
+              管理目录类别
+            </Button>
+            {scope === "project" && (
+              <Button onClick={() => setProjectCodesOpen(true)}>管理项目代码</Button>
+            )}
+            <Button
+              icon={<Sparkles size={16} />}
+              onClick={() => {
+                setInitializeStep(0);
+                setInitializeOpen(true);
+              }}
+            >
+              初始化标准目录
+            </Button>
+            <Button icon={<RefreshCw size={16} />} disabled={busy} onClick={() => void load()}>
+              刷新
+            </Button>
+            <Button variant="primary" disabled={busy} onClick={() => void save()}>
+              保存草稿
+            </Button>
+            <Button
+              variant="primary"
+              icon={<Send size={16} />}
+              disabled={busy}
+              onClick={() => void publish()}
+            >
+              发布规则
+            </Button>
+          </div>
+          <label className="naming-enforce-toggle">
+            <input
+              type="checkbox"
+              checked={config.enforced}
+              onChange={(event) => updateConfig({ ...config, enforced: event.target.checked })}
+            />
+            发布后强制项目/公司规范命名
+          </label>
+        </section>
+      </>
+
+      <TaskModal
+        open={projectCodesOpen}
+        title="管理项目代码"
+        description="项目代码和默认密级是各项目自身事实；目录类别仍由全项目通用规范统一提供。"
+        eyebrow="项目事实设置"
+        size="large"
+        onClose={() => setProjectCodesOpen(false)}
+        footer={
+          <>
+            <span className="naming-modal-count">共 {center.projects.length} 个项目</span>
+            <span className="task-modal-footer-spacer" />
+            <Button onClick={() => setProjectCodesOpen(false)}>完成</Button>
+          </>
+        }
+      >
+        <div className="naming-project-code-list">
           {center.projects.map((project) => {
-            const row = config.project_codes.find((item) => item.project_id === project.id) ?? {
-              project_id: project.id,
-              code: project.project_code ?? "",
-              enabled: project.project_code_active,
-              default_confidentiality: project.default_confidentiality,
-              client_aliases: [],
-              client_aliases_enabled: true,
-            };
-            const patchRow = (patch: Partial<typeof row>) => {
-              const next = config.project_codes.filter((item) => item.project_id !== project.id);
-              next.push({ ...row, ...patch });
-              updateConfig({ ...config, project_codes: next });
-            };
+            const projectCode = projectCodeFor(project);
             return (
-              <article className="naming-project-card" key={project.id}>
+              <article className="naming-project-settings" key={project.id}>
                 <div>
-                  <strong>{project.name}</strong>
-                  <small>{project.status}</small>
+                  <span>项目事实</span>
+                  <h3>{project.name}</h3>
+                  <p>仅代码、默认密级和启用状态按项目独立配置。</p>
                 </div>
                 <label>
                   项目代码
                   <input
-                    value={row.code}
+                    value={projectCode.code}
                     maxLength={20}
                     placeholder="如 BW-2601"
-                    onChange={(e) => patchRow({ code: e.target.value.toUpperCase() })}
+                    onChange={(event) =>
+                      patchProjectCode(project, { code: event.target.value.toUpperCase() })
+                    }
                   />
                 </label>
                 <label>
                   默认密级
                   <select
-                    value={row.default_confidentiality}
-                    onChange={(e) => patchRow({ default_confidentiality: e.target.value })}
+                    value={projectCode.default_confidentiality}
+                    onChange={(event) =>
+                      patchProjectCode(project, {
+                        default_confidentiality: event.target.value,
+                      })
+                    }
                   >
                     {levels.map((level) => (
                       <option key={level}>{level}</option>
                     ))}
                   </select>
                 </label>
-                <label>
-                  客户命名别名（顿号分隔）
+                <label className="naming-check">
                   <input
-                    value={(row.client_aliases ?? []).join("、")}
-                    maxLength={500}
-                    placeholder="如 琥崧、琥崧智能"
+                    type="checkbox"
+                    checked={projectCode.enabled}
                     onChange={(event) =>
-                      patchRow({
-                        client_aliases: event.target.value
-                          .split(/[,，、\n]/)
-                          .map((value) => value.trim())
-                          .filter(Boolean),
-                      })
+                      patchProjectCode(project, { enabled: event.target.checked })
                     }
                   />
-                </label>
-                <label className="naming-inline-check">
-                  <input
-                    type="checkbox"
-                    checked={row.enabled}
-                    onChange={(e) => patchRow({ enabled: e.target.checked })}
-                  />
-                  启用
-                </label>
-                <label className="naming-inline-check">
-                  <input
-                    type="checkbox"
-                    checked={row.client_aliases_enabled ?? true}
-                    onChange={(event) => patchRow({ client_aliases_enabled: event.target.checked })}
-                  />
-                  启用客户别名防护
+                  启用项目代码
                 </label>
               </article>
             );
           })}
         </div>
-      </section>
+      </TaskModal>
 
-      <section className="naming-section" aria-labelledby="category-title">
-        <div className="naming-section-head">
-          <div className="naming-section-title">
-            <span>02</span>
-            <h2 id="category-title">目录类别</h2>
-            <div
-              className="naming-category-help"
-              onMouseEnter={() => setCategoryHelpOpen(true)}
-              onMouseLeave={() => setCategoryHelpOpen(false)}
-            >
-              <button
-                aria-label="查看目录类别填写说明"
-                aria-describedby={categoryHelpOpen ? "category-help-tooltip" : undefined}
-                className="naming-help-trigger"
-                type="button"
-                onFocus={() => setCategoryHelpOpen(true)}
-                onBlur={() => setCategoryHelpOpen(false)}
-              >
-                <CircleHelp size={16} />
-              </button>
-              {categoryHelpOpen && (
-                <div className="naming-help-popover" id="category-help-tooltip" role="tooltip">
-                  <strong>项目库字段</strong>
-                  <code>项目基础信息 | L4 | 10 | 启用</code>
-                  <p>规范名类别片段取“项目基础信息”。</p>
-                  <strong>公司库字段</strong>
-                  <code>方法论 | 模型工具 | L2 | 10 | 启用</code>
-                  <p>规范名类别片段取“方法论-模型工具”。</p>
-                  <small>
-                    排序数值越小越靠前。项目规范名使用项目代码、文件形成日期年份和二级分类；命名展示名仅供配置与展示，不是年份或项目代码。
-                  </small>
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="naming-category-actions">
-            <button
-              className="btn-secondary"
-              type="button"
-              onClick={() => {
-                const existing = new Set(
-                  config.categories
-                    .filter((item) => item.scope === "project")
-                    .map((item) => item.secondary.trim()),
-                );
-                const missing = standardProjectCategories.filter(
-                  (item) => !existing.has(item.name),
-                );
-                updateConfig({
-                  ...config,
-                  categories: [
-                    ...config.categories,
-                    ...missing.map((item) =>
-                      makeProjectCategory(item.name, item.confidentiality, item.order),
-                    ),
-                  ],
-                });
-                setNotice(
-                  missing.length === 0
-                    ? "5 个标准类别均已存在，未重复新增。"
-                    : `已新增 ${missing.length} 个项目库标准类别；已存在的类别未重复新增。`,
-                );
-              }}
-            >
-              <Sparkles size={15} />
-              一键初始化项目库标准目录
-            </button>
-            <button
-              className="btn-secondary"
-              type="button"
-              onClick={() => {
-                const existing = new Set(
-                  config.categories
-                    .filter((item) => item.scope === "company")
-                    .map((item) => `${item.primary}-${item.secondary}`.trim()),
-                );
-                const missing = standardCompanyCategories.filter(
-                  (item) => !existing.has(`${item.primary}-${item.secondary}`),
-                );
-                updateConfig({
-                  ...config,
-                  categories: [
-                    ...config.categories,
-                    ...missing.map((item) =>
-                      makeCompanyCategory(
-                        item.primary,
-                        item.secondary,
-                        item.confidentiality,
-                        item.order,
-                      ),
-                    ),
-                  ],
-                });
-                setNotice(
-                  missing.length === 0
-                    ? "公司库标准类别均已存在，未重复新增。"
-                    : `已新增 ${missing.length} 个公司库标准类别；已存在的类别未重复新增。`,
-                );
-              }}
-            >
-              <Sparkles size={15} />
-              一键初始化公司库标准目录
-            </button>
-            <button
-              className="btn-secondary"
-              type="button"
-              onClick={() =>
-                updateConfig({
-                  ...config,
-                  categories: [
-                    ...config.categories,
-                    makeProjectCategory("新类别", "L2", config.categories.length * 10 + 10),
-                  ],
-                })
-              }
-            >
-              <Plus size={15} />
-              新增类别
-            </button>
-          </div>
+      <TaskModal
+        open={managerOpen}
+        title="管理目录类别"
+        description={`只显示${currentScopeName}的类别；切换范围会自动关闭此窗口。`}
+        eyebrow={currentScopeName}
+        size="large"
+        onClose={() => setManagerOpen(false)}
+        footer={
+          <>
+            <span className="naming-modal-count">共 {filteredCategories.length} 个类别</span>
+            <span className="task-modal-footer-spacer" />
+            <Button onClick={() => setManagerOpen(false)}>完成</Button>
+          </>
+        }
+      >
+        <div className="naming-manager-tools">
+          <label>
+            <Search size={15} aria-hidden="true" />
+            <span className="sr-only">搜索目录类别</span>
+            <input
+              aria-label="搜索目录类别"
+              value={query}
+              placeholder="搜索路径或说明"
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <Button
+            variant="primary"
+            icon={<Plus size={15} />}
+            onClick={() => setEditor({ category: null, value: blankCategory(scope) })}
+          >
+            新增类别
+          </Button>
         </div>
-        <div className="naming-category-list">
-          {config.categories.map((category, index) => {
-            const patchCategory = (patch: Partial<NamingCategoryConfigDTO>) =>
-              updateConfig({
-                ...config,
-                categories: config.categories.map((item, itemIndex) =>
-                  itemIndex === index ? { ...item, ...patch } : item,
-                ),
-              });
-            return (
-              <div
-                aria-label={`${category.scope === "project" ? "项目库" : "公司库"}目录类别 ${category.secondary}`}
-                className={`naming-category-row is-${category.scope}`}
-                key={category.id}
-                role="group"
-              >
-                <select
-                  aria-label="适用库范围"
-                  title="选择该类别用于项目库或公司库"
-                  value={category.scope}
-                  onChange={(e) =>
-                    patchCategory(
-                      convertCategoryScope(category, e.target.value as "project" | "company"),
-                    )
-                  }
-                >
-                  <option value="project">项目库</option>
-                  <option value="company">公司库</option>
-                </select>
-                {category.scope === "company" && (
-                  <input
-                    aria-label="一级分类"
-                    placeholder="一级分类，如 方法论"
-                    title="公司规范名中的一级分类"
-                    value={category.primary}
-                    onChange={(e) => {
-                      const primary = e.target.value;
-                      patchCategory({ primary, prefix: `${primary}-${category.secondary}` });
-                    }}
-                  />
-                )}
+        {visibleCategories.length ? (
+          <div className="naming-category-list" role="list">
+            {visibleCategories.map((category) => (
+              <div key={category.id} role="listitem">
+                <button className="naming-category-row" onClick={() => setDetail(category)}>
+                  <span className="naming-category-path">
+                    <strong>{categoryPath(category)}</strong>
+                    <small>{category.description || "暂无说明"}</small>
+                  </span>
+                  <span className={`naming-state ${category.enabled ? "is-enabled" : ""}`}>
+                    {category.enabled ? "已启用" : "已停用"}
+                  </span>
+                  <span className="naming-category-meta">
+                    {category.default_confidentiality} · 排序 {category.sort_order}
+                  </span>
+                  <ChevronRight size={17} aria-hidden="true" />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="naming-list-empty">
+            <FolderCog aria-hidden="true" />
+            <strong>{query ? "没有匹配的类别" : "当前范围还没有目录类别"}</strong>
+            <p>{query ? "尝试更换关键词。" : "可以新增类别，或使用标准目录初始化。"}</p>
+          </div>
+        )}
+        {pageCount > 1 && (
+          <nav className="naming-pagination" aria-label="目录类别分页">
+            <Button
+              size="small"
+              disabled={page === 1}
+              onClick={() => setPage((value) => value - 1)}
+            >
+              上一页
+            </Button>
+            <span>
+              第 {page} / {pageCount} 页
+            </span>
+            <Button
+              size="small"
+              disabled={page === pageCount}
+              onClick={() => setPage((value) => value + 1)}
+            >
+              下一页
+            </Button>
+          </nav>
+        )}
+      </TaskModal>
+
+      <TaskModal
+        open={Boolean(editor)}
+        title={editor?.category ? "编辑目录类别" : "新增目录类别"}
+        description={`归属范围：${currentScopeName}。类别范围在此窗口中不可切换。`}
+        eyebrow={currentScopeName}
+        onClose={() => setEditor(null)}
+        size="small"
+        footer={
+          <>
+            <Button onClick={() => setEditor(null)}>取消</Button>
+            <span className="task-modal-footer-spacer" />
+            <Button
+              variant="primary"
+              disabled={
+                !editor?.value.secondary.trim() ||
+                (scope === "company" && !editor.value.primary.trim())
+              }
+              onClick={saveCategory}
+            >
+              写入草稿
+            </Button>
+          </>
+        }
+      >
+        {editor && (
+          <div className="naming-category-form">
+            <div className="naming-scope-seal">
+              <span>只读归属</span>
+              <strong>{currentScopeName}</strong>
+            </div>
+            {scope === "company" && (
+              <label>
+                一级分类
                 <input
-                  aria-label={category.scope === "project" ? "类别名称" : "二级分类"}
-                  placeholder={
-                    category.scope === "project"
-                      ? "类别名称，如 项目基础信息"
-                      : "二级分类，如 模型工具"
+                  value={editor.value.primary}
+                  maxLength={40}
+                  onChange={(event) =>
+                    setEditor({
+                      ...editor,
+                      value: { ...editor.value, primary: event.target.value },
+                    })
                   }
-                  title={
-                    category.scope === "project"
-                      ? "项目规范名中的二级分类片段"
-                      : "公司规范名中的二级分类"
-                  }
-                  value={category.secondary}
-                  onChange={(e) => {
-                    const secondary = e.target.value;
-                    patchCategory({
-                      secondary,
-                      prefix:
-                        category.scope === "project"
-                          ? secondary
-                          : `${category.primary}-${secondary}`,
-                    });
-                  }}
                 />
+              </label>
+            )}
+            <label>
+              {scope === "company" ? "二级分类" : "类别名称"}
+              <input
+                data-autofocus
+                value={editor.value.secondary}
+                maxLength={40}
+                placeholder={scope === "company" ? "如 模型工具" : "如 交付成果"}
+                onChange={(event) =>
+                  setEditor({
+                    ...editor,
+                    value: { ...editor.value, secondary: event.target.value },
+                  })
+                }
+              />
+            </label>
+            <label>
+              类别说明
+              <textarea
+                value={editor.value.description ?? ""}
+                maxLength={300}
+                rows={3}
+                onChange={(event) =>
+                  setEditor({
+                    ...editor,
+                    value: { ...editor.value, description: event.target.value },
+                  })
+                }
+              />
+            </label>
+            <div className="naming-form-pair">
+              <label>
+                默认密级
                 <select
-                  aria-label="默认密级"
-                  title="新建该类资料时建议使用的默认密级"
-                  value={category.default_confidentiality}
-                  onChange={(e) => patchCategory({ default_confidentiality: e.target.value })}
+                  value={editor.value.default_confidentiality}
+                  onChange={(event) =>
+                    setEditor({
+                      ...editor,
+                      value: { ...editor.value, default_confidentiality: event.target.value },
+                    })
+                  }
                 >
                   {levels.map((level) => (
                     <option key={level}>{level}</option>
                   ))}
                 </select>
+              </label>
+              <label>
+                显示排序
                 <input
-                  aria-label="显示排序"
-                  title="排序数值越小越靠前"
-                  placeholder="排序"
                   type="number"
                   min={0}
                   max={10000}
-                  value={category.sort_order}
-                  onChange={(e) => patchCategory({ sort_order: Number(e.target.value) })}
+                  value={editor.value.sort_order}
+                  onChange={(event) =>
+                    setEditor({
+                      ...editor,
+                      value: { ...editor.value, sort_order: Number(event.target.value) },
+                    })
+                  }
                 />
-                <label className="naming-inline-check">
-                  <input
-                    type="checkbox"
-                    title="是否在发布后提供该目录类别"
-                    checked={category.enabled}
-                    onChange={(e) => patchCategory({ enabled: e.target.checked })}
-                  />
-                  启用
-                </label>
-                <button
-                  aria-label={`删除目录类别 ${category.secondary}`}
-                  className="naming-delete-category"
-                  title="从当前草稿删除类别"
-                  type="button"
-                  onClick={() => setRemoveCategory({ secondary: category.secondary, index })}
-                >
-                  <Trash2 size={15} />
-                  <span>删除</span>
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="naming-section naming-preview-section" aria-labelledby="preview-title">
-        <div className="naming-section-head">
-          <div>
-            <span>03</span>
-            <h2 id="preview-title">规则预览</h2>
+              </label>
+            </div>
+            <label className="naming-check">
+              <input
+                type="checkbox"
+                checked={editor.value.enabled}
+                onChange={(event) =>
+                  setEditor({
+                    ...editor,
+                    value: { ...editor.value, enabled: event.target.checked },
+                  })
+                }
+              />
+              发布后启用此类别
+            </label>
           </div>
-          <p>示例不使用真实客户名称或文件内容。</p>
-        </div>
-        <div className="naming-preview-strip">
-          <span>项目</span>
-          <code>{example("project", projectCategory)}</code>
-        </div>
-        <div className="naming-preview-strip">
-          <span>公司</span>
-          <code>{example("company", companyCategory)}</code>
-        </div>
-      </section>
-      <ConfirmDialog
-        open={Boolean(removeCategory)}
-        title={`确认从草稿中删除「${removeCategory?.secondary ?? ""}」？`}
-        description="发布后才对后续入库生效；历史已入库资料不会改名。"
+        )}
+      </TaskModal>
+
+      <DetailDrawer
+        open={Boolean(detail)}
+        title={detail ? categoryPath(detail) : "目录类别"}
+        description={`${currentScopeName}的目录类别`}
+        onClose={() => setDetail(null)}
+        footer={
+          detail && (
+            <>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  setRemoving(detail);
+                  setDetail(null);
+                }}
+              >
+                删除
+              </Button>
+              <span className="task-modal-footer-spacer" />
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setEditor({
+                    category: detail,
+                    value: {
+                      primary: detail.primary,
+                      secondary: detail.secondary,
+                      description: detail.description ?? "",
+                      default_confidentiality: detail.default_confidentiality,
+                      enabled: detail.enabled,
+                      sort_order: detail.sort_order,
+                    },
+                  });
+                  setDetail(null);
+                }}
+              >
+                编辑类别
+              </Button>
+            </>
+          )
+        }
+      >
+        {detail && (
+          <div className="naming-detail-grid">
+            <div className="naming-scope-seal">
+              <span>适用范围</span>
+              <strong>{currentScopeName}</strong>
+            </div>
+            <dl>
+              <div>
+                <dt>完整路径</dt>
+                <dd>{categoryPath(detail)}</dd>
+              </div>
+              <div>
+                <dt>状态</dt>
+                <dd>{detail.enabled ? "已启用" : "已停用"}</dd>
+              </div>
+              <div>
+                <dt>默认密级</dt>
+                <dd>{detail.default_confidentiality}</dd>
+              </div>
+              <div>
+                <dt>显示排序</dt>
+                <dd>{detail.sort_order}</dd>
+              </div>
+              <div>
+                <dt>类别说明</dt>
+                <dd>{detail.description || "暂无说明"}</dd>
+              </div>
+            </dl>
+          </div>
+        )}
+      </DetailDrawer>
+
+      <DangerConfirmDialog
+        open={Boolean(removing)}
+        title={removing ? `删除「${categoryPath(removing)}」？` : "删除目录类别"}
+        description={`该类别属于${currentScopeName}，删除后无法从当前草稿恢复。`}
         confirmText="删除类别"
-        danger
-        onConfirm={() => void confirmRemoveCategory()}
-        onCancel={() => setRemoveCategory(null)}
-      />
+        onCancel={() => setRemoving(null)}
+        onConfirm={() => {
+          if (!removing) return;
+          updateConfig({
+            ...config,
+            categories: config.categories.filter((item) => item.id !== removing.id),
+          });
+          setNotice(
+            `已从${currentScopeName}的本地草稿删除「${categoryPath(removing)}」；保存草稿后才会写入。`,
+          );
+          setRemoving(null);
+        }}
+      >
+        <div className="naming-danger-copy">
+          <strong>删除前请确认</strong>
+          <p>
+            若该类别仍被业务流程使用，保存或发布可能被后端阻止。届时请保留草稿，根据错误提示停用类别或调整引用。
+          </p>
+        </div>
+      </DangerConfirmDialog>
+
+      <WizardModal
+        open={initializeOpen}
+        title="初始化标准目录"
+        description={`本次只处理${currentScopeName}，不会覆盖已存在的类别。`}
+        steps={[
+          { label: "确认范围", description: currentScopeName },
+          { label: "提交草稿", description: "受理不等于发布" },
+        ]}
+        currentStep={initializeStep}
+        onBack={() => setInitializeStep(0)}
+        onNext={() => setInitializeStep(1)}
+        onCancel={() => {
+          setInitializeOpen(false);
+          setInitializeStep(0);
+        }}
+        onComplete={initialize}
+        completeText="加入本地草稿"
+      >
+        {initializeStep === 0 ? (
+          <div className="naming-wizard-copy">
+            <div className="naming-scope-seal">
+              <span>影响范围</span>
+              <strong>{currentScopeName}</strong>
+            </div>
+            <p>系统将补齐缺失的标准类别；同路径类别不会重复新增，也不会修改其他公司或项目范围。</p>
+          </div>
+        ) : (
+          <div className="naming-wizard-copy">
+            <strong>这一步不会直接发布</strong>
+            <p>
+              提交后只代表标准类别已加入浏览器中的工作草稿。你仍需等待“保存草稿”请求成功，并显式发布，规则才会生效。
+            </p>
+          </div>
+        )}
+      </WizardModal>
     </main>
   );
 }

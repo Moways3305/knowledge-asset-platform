@@ -28,7 +28,13 @@ import { ApiError } from "../api/http";
 import { fetchAdminIngest } from "../api/ingest";
 import IndexDistribution from "../components/IndexDistribution";
 import ConfirmDialog from "../components/ConfirmDialog";
+import ActionFeedback, { type ActionFeedbackState } from "../components/ActionFeedback";
+import DetailDrawer from "../components/DetailDrawer";
+import OperationStatusCard from "../components/OperationStatusCard";
+import { operationStatusFromJob } from "../components/operationStatus";
+import Button from "../components/Button";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
+import StatusBadge from "../components/StatusBadge";
 import type { AdminIngestItemDTO } from "../types/ingest";
 import type {
   IndexingHealthDTO,
@@ -197,11 +203,12 @@ export default function AdminIngestPage() {
   const [opsBusy, setOpsBusy] = useState(false);
   const [opsBusyOperation, setOpsBusyOperation] = useState<string | null>(null);
   const [opsNote, setOpsNote] = useState<string | null>(null);
-  const [opsNoteTone, setOpsNoteTone] = useState<"success" | "warning" | "danger">("success");
+  const [opsFeedbackState, setOpsFeedbackState] = useState<ActionFeedbackState>("info");
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [retryTarget, setRetryTarget] = useState<OpsIndexingFailedItemDTO | null>(null);
   const [targetBusy, setTargetBusy] = useState(false);
   const [targetError, setTargetError] = useState<string | null>(null);
+  const [selectedJob, setSelectedJob] = useState<IndexingJobSummaryDTO | null>(null);
   const ingestRequestRef = useRef(0);
   const opsRequestRef = useRef(0);
   const jobsRequestRef = useRef(0);
@@ -447,7 +454,7 @@ export default function AdminIngestPage() {
     setOpsJobs((current) => [job, ...current.filter((item) => item.job_id !== job.job_id)]);
     setJobsState("ready");
     if (job.total_count === 0) {
-      setOpsNoteTone("warning");
+      setOpsFeedbackState("info");
       setOpsNote(
         job.operation_type === "reparse"
           ? `${label}未找到可处理项：仅处理已索引、已有底座文档且解析失败或待解析的资产。`
@@ -455,9 +462,22 @@ export default function AdminIngestPage() {
       );
       return;
     }
-    setOpsNoteTone("success");
+    const isTerminal = ["completed", "completed_with_errors", "failed", "no_action"].includes(
+      job.status,
+    );
+    setOpsFeedbackState(
+      !isTerminal
+        ? "submitted"
+        : job.status === "completed"
+          ? "success"
+          : job.status === "completed_with_errors"
+            ? "partial"
+            : "error",
+    );
     setOpsNote(
-      `${label}已提交：共 ${job.total_count} 项，成功 ${job.success_count} 项，失败 ${job.failed_count} 项，跳过 ${job.skipped_count} 项。`,
+      isTerminal
+        ? `${label}已到达终态：共 ${job.total_count} 项，成功 ${job.success_count} 项，失败 ${job.failed_count} 项，跳过 ${job.skipped_count} 项。`
+        : `${label}请求已提交，共 ${job.total_count} 项；作业仍在排队或处理中，当前计数不是最终结果。`,
     );
   }, []);
 
@@ -476,7 +496,7 @@ export default function AdminIngestPage() {
       );
       await refreshAll(false);
     } catch {
-      setOpsNoteTone("danger");
+      setOpsFeedbackState("error");
       setOpsNote("批量重试未能发起，请稍后重试。");
     } finally {
       setOpsBusy(false);
@@ -500,7 +520,7 @@ export default function AdminIngestPage() {
       );
       await refreshAll(false);
     } catch {
-      setOpsNoteTone("danger");
+      setOpsFeedbackState("error");
       setOpsNote("重新解析未能发起，请稍后重试。");
     } finally {
       setOpsBusy(false);
@@ -597,6 +617,18 @@ export default function AdminIngestPage() {
       <PageHeader
         title="管理员运维"
         description="查看索引运行、扫描任务和安全审计状态。"
+        status={
+          <StatusBadge
+            tone={activeJob ? "info" : opsState === "error" ? "danger" : "success"}
+            label={
+              activeJob
+                ? `${safeJobOperation(activeJob.operation_type)}${activeJob.status === "queued" ? "已排队" : "处理中"}`
+                : opsState === "error"
+                  ? "运行状态读取失败"
+                  : "当前可执行运维操作"
+            }
+          />
+        }
         actions={
           <div className="ao84-refresh-actions">
             <span className="ao84-refresh-meta">
@@ -847,12 +879,21 @@ export default function AdminIngestPage() {
           </div>
 
           {opsNote && (
-            <div
-              className={`ao84-action-note is-${opsNoteTone}`}
-              role={opsNoteTone === "danger" ? "alert" : "status"}
-            >
-              {opsNote}
-            </div>
+            <ActionFeedback
+              state={opsFeedbackState}
+              title={
+                opsFeedbackState === "error"
+                  ? "操作未发起"
+                  : opsFeedbackState === "partial"
+                    ? "部分完成"
+                    : opsFeedbackState === "success"
+                      ? "作业已完成"
+                      : opsFeedbackState === "submitted"
+                        ? "请求已提交"
+                        : "操作提示"
+              }
+              description={opsNote}
+            />
           )}
 
           <details className="ao84-jobs">
@@ -884,6 +925,13 @@ export default function AdminIngestPage() {
                       共 {job.total_count} · 成功 {job.success_count} · 失败 {job.failed_count} ·
                       跳过 {job.skipped_count}
                     </small>
+                    <button
+                      type="button"
+                      className="ao84-job-detail"
+                      onClick={() => setSelectedJob(job)}
+                    >
+                      查看详情
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -1127,6 +1175,51 @@ export default function AdminIngestPage() {
           setTargetError(null);
         }}
       />
+
+      <DetailDrawer
+        open={selectedJob !== null}
+        title="索引维护作业"
+        description="这里仅展示可公开的进度摘要；关闭后列表筛选与滚动上下文仍会保留。"
+        onClose={() => setSelectedJob(null)}
+        footer={
+          <Button variant="secondary" onClick={() => setSelectedJob(null)}>
+            返回作业列表
+          </Button>
+        }
+      >
+        {selectedJob && (
+          <OperationStatusCard
+            status={operationStatusFromJob(selectedJob.status)}
+            title={safeJobOperation(selectedJob.operation_type)}
+            description={
+              selectedJob.status === "queued" || selectedJob.status === "running"
+                ? "请求已被服务端接受，但尚未达到最终完成状态。"
+                : "作业已到达终态，请依据下方安全计数决定是否继续处理失败项。"
+            }
+            counts={[
+              { label: "总计", value: selectedJob.total_count },
+              { label: "成功", value: selectedJob.success_count, tone: "success" },
+              { label: "失败", value: selectedJob.failed_count, tone: "danger" },
+              { label: "跳过", value: selectedJob.skipped_count, tone: "warning" },
+            ]}
+            updatedAt={
+              selectedJob.finished_at || selectedJob.started_at || selectedJob.requested_at
+                ? formatBeijingTime(
+                    selectedJob.finished_at || selectedJob.started_at || selectedJob.requested_at,
+                  )
+                : undefined
+            }
+            nextStep={
+              selectedJob.status === "queued" || selectedJob.status === "running"
+                ? "系统会继续刷新作业状态，请勿把本次 HTTP 返回当作完成。"
+                : selectedJob.failed_count > 0
+                  ? "检查失败任务摘要，修正后再发起重试。"
+                  : "无需后续操作。"
+            }
+            compact
+          />
+        )}
+      </DetailDrawer>
     </ProductPage>
   );
 }

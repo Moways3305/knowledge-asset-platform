@@ -272,7 +272,8 @@ describe("AdminIngestPage operations reference", () => {
     await waitFor(() =>
       expect(triggerTargetedIndexingRetry).toHaveBeenCalledWith("opaque-retry-target-84"),
     );
-    expect(await screen.findByText(/单条索引重试已提交：共 1 项/)).toBeInTheDocument();
+    expect(await screen.findByText(/单条索引重试已到达终态：共 1 项/)).toBeInTheDocument();
+    expect(screen.getByText("作业已完成")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
@@ -440,6 +441,10 @@ describe("AdminIngestPage operations reference", () => {
     await waitFor(() =>
       expect(screen.getAllByRole("button", { name: "正在执行：批量重试索引" })[0]).toBeDisabled(),
     );
+    expect(
+      screen.getByText(/批量重试索引请求已提交，共 6 项；作业仍在排队或处理中/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("请求已提交")).toBeInTheDocument();
     expect(triggerIndexingRetry).toHaveBeenCalledTimes(1);
   });
 
@@ -457,7 +462,9 @@ describe("AdminIngestPage operations reference", () => {
 
     await user.click(await screen.findByRole("button", { name: /^重新解析/ }));
 
-    expect(await screen.findByText(/重新解析未找到可处理项/)).toHaveClass("is-warning");
+    expect(
+      (await screen.findByText(/重新解析未找到可处理项/)).closest(".action-feedback"),
+    ).toHaveClass("is-info");
     await waitFor(() => expect(screen.getByRole("button", { name: /^重新解析（/ })).toBeEnabled());
     expect(fetchAdminIngest).toHaveBeenCalledTimes(2);
     expect(fetchOpsIndexing).toHaveBeenCalledTimes(2);
@@ -560,7 +567,8 @@ describe("AdminIngestPage operations reference", () => {
         limit: 50,
       }),
     );
-    expect(await screen.findByText(/重新解析已提交：共 6 项/)).toBeInTheDocument();
+    expect(await screen.findByText(/重新解析已到达终态：共 6 项/)).toBeInTheDocument();
+    expect(screen.getByText("作业已完成")).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent("reparse-job-secret-84");
     expect(document.body).not.toHaveTextContent("trace-secret-84");
     expect(document.body).not.toHaveTextContent("SECRET MESSAGE");

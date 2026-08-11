@@ -28,7 +28,8 @@
     "test:ui:audit-security": "node scripts/security-operations.ui-qa.mjs",
     "test:ui:people-permissions": "node scripts/people-permissions.ui-qa.mjs",
     "test:ui:help-global": "node scripts/help-global-experience.ui-qa.mjs",
-    "test:ui:global-acceptance": "node --test scripts/global-frontend-acceptance.coverage.test.mjs && node scripts/global-frontend-acceptance.ui-qa.mjs",
+    "test:ui:global-acceptance": "node --test scripts/global-frontend-acceptance.coverage.test.mjs scripts/ui-qa-process.test.mjs && node scripts/global-frontend-acceptance.ui-qa.mjs",
+    "test:ui:naming-rules": "node scripts/naming-rules-scoped.ui-qa.mjs",
     "api:export": "python scripts/export_openapi.py"
   },
   "dependencies": {

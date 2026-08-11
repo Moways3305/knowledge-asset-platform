@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
+import StatusBadge from "../components/StatusBadge";
 import UploadConfirmPanel from "./upload/UploadConfirmPanel";
 import UploadStepA from "./upload/UploadStepA";
 import UploadStepB from "./upload/UploadStepB";
@@ -59,6 +60,12 @@ export default function UploadPage() {
         eyebrow="内容资产化"
         title="上传与入库"
         description="选择资料来源，处理完成后核对内容建议并确认入库。"
+        status={
+          <StatusBadge
+            tone={confirmationOpen ? "warning" : taskId ? "info" : "neutral"}
+            label={confirmationOpen ? "待确认入库信息" : taskId ? "资料处理中" : "尚未开始"}
+          />
+        }
       />
 
       <div className="upload77-source-switch" aria-label="资料来源">

@@ -16,17 +16,22 @@ export function PageHeader({
   description,
   actions,
   eyebrow,
+  status,
 }: {
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
   eyebrow?: ReactNode;
+  status?: ReactNode;
 }) {
   return (
     <header className="product-page-header">
       <div className="product-page-heading">
         {eyebrow && <div className="product-page-eyebrow">{eyebrow}</div>}
-        <h2>{title}</h2>
+        <div className="product-page-title-line">
+          <h2>{title}</h2>
+          {status && <div className="product-page-current-status">{status}</div>}
+        </div>
         {description && <p>{description}</p>}
       </div>
       {actions && <div className="product-page-actions">{actions}</div>}
