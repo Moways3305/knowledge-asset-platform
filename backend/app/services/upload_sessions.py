@@ -546,18 +546,23 @@ _VISIBLE_PROCESSING_STAGES = {
 }
 
 
+def _visible_processing_stage(stage: str | None) -> str | None:
+    return stage if stage is not None and stage in _VISIBLE_PROCESSING_STAGES else None
+
+
 async def _response(session: AsyncSession, value: UploadSession) -> UploadSessionResponse:
     visible_items = [item for item in value.items if item.status != "cancelled"]
     task_ids = [item.ingest_task_id for item in visible_items if item.ingest_task_id]
-    task_stages = dict(
-        (
+    task_stages: dict[uuid.UUID, str | None] = {
+        task_id: processing_stage
+        for task_id, processing_stage in (
             await session.execute(
                 select(IngestTask.id, IngestTask.processing_stage).where(
                     IngestTask.id.in_(task_ids)
                 )
             )
         ).all()
-    )
+    }
     states = [item.status for item in visible_items]
     active_batches = [
         item.batch_index for item in visible_items if item.status not in _TERMINAL_ITEM_STATES
@@ -592,9 +597,9 @@ async def _response(session: AsyncSession, value: UploadSession) -> UploadSessio
                 error_message=item.safe_error_message,
                 same_name_warning=item.same_name_warning,
                 retryable=item.status == "failed" and item.ingest_task_id is not None,
-                processing_stage=(
+                processing_stage=_visible_processing_stage(
                     task_stages.get(item.ingest_task_id)
-                    if task_stages.get(item.ingest_task_id) in _VISIBLE_PROCESSING_STAGES
+                    if item.ingest_task_id is not None
                     else None
                 ),
             )
