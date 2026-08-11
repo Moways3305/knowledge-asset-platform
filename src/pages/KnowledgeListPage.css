@@ -61,19 +61,20 @@
 }
 
 .kbl-filter-form .product-filter-bar {
-  overflow-x: auto;
+  align-items: flex-start;
+  overflow: visible;
   border-radius: 6px;
   scrollbar-width: thin;
 }
 
 .kbl-filter-form .product-filter-fields {
   flex: 1 1 auto;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .kbl-filter-form .product-filter-actions {
   flex: 0 0 auto;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .kbl-keyword-field {
@@ -157,9 +158,52 @@
 }
 
 .kbl-table-wrap {
+  max-width: 100%;
   overflow-x: auto;
   border-width: 1px 0 0;
   border-radius: 0;
+}
+
+.kbl-table-shell {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.kbl-scroll-guide {
+  display: grid;
+  grid-template-columns: auto minmax(140px, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 7px 14px 5px;
+  border-top: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-info-bg) 76%, #fff);
+  color: var(--color-info);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.kbl-top-scroll {
+  height: 13px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.kbl-top-scroll > div {
+  height: 1px;
+}
+
+.kbl-table-shell.has-more::after {
+  content: "";
+  position: absolute;
+  z-index: 5;
+  top: 36px;
+  right: 93px;
+  bottom: 13px;
+  width: 34px;
+  background: linear-gradient(90deg, transparent, rgb(233 242 247 / 88%));
+  pointer-events: none;
 }
 
 .kbl-table-wrap.is-updating tbody {
@@ -217,15 +261,37 @@
   color: var(--color-primary);
 }
 
-.kbl-asset strong {
+.kbl-title-link {
   display: -webkit-box;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
   overflow: hidden;
+  background: transparent;
   color: var(--color-primary);
+  font: inherit;
   font-size: 13px;
+  font-weight: 700;
   line-height: 1.35;
+  text-align: left;
+  text-decoration: none;
   overflow-wrap: anywhere;
+  cursor: pointer;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.kbl-title-link:hover {
+  color: var(--color-primary-strong);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.kbl-title-link:focus-visible {
+  border-radius: 3px;
+  outline: 3px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
+  outline-offset: 3px;
 }
 
 .kbl-asset p {
@@ -307,6 +373,30 @@
   white-space: nowrap;
 }
 
+.kbl-table th:first-child,
+.kbl-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--color-bg-surface, #fff);
+  box-shadow: 7px 0 10px -11px rgb(22 49 73 / 70%);
+}
+
+.kbl-table th:last-child,
+.kbl-table td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 3;
+  background: var(--color-bg-surface, #fff);
+  box-shadow: -7px 0 10px -11px rgb(22 49 73 / 70%);
+}
+
+.kbl-table thead th:first-child,
+.kbl-table thead th:last-child {
+  z-index: 4;
+  background: var(--color-bg-muted, #f5f7fa);
+}
+
 .kbl-pagination {
   min-height: 58px;
   display: flex;
@@ -379,6 +469,47 @@
   font-size: 0.82rem;
 }
 
+.kbl-summary-core {
+  padding-top: 16px;
+  border-top: 1px solid var(--product-border, #dfe5ec);
+}
+
+.kbl-summary-core h3 {
+  margin: 0 0 10px;
+  color: var(--product-text, #24303f);
+  font-size: 0.95rem;
+}
+
+.kbl-summary-core dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--product-border, #dfe5ec);
+  border-radius: 10px;
+  background: var(--product-border, #dfe5ec);
+}
+
+.kbl-summary-core dl > div {
+  min-width: 0;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.kbl-summary-core dt {
+  color: var(--product-text-muted, #5d6978);
+  font-size: 0.75rem;
+}
+
+.kbl-summary-core dd {
+  margin: 4px 0 0;
+  color: var(--product-text, #24303f);
+  font-size: 0.86rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
 .kbl-drawer-message {
   border-radius: 10px;
   padding: 10px 12px;
@@ -411,7 +542,24 @@
   }
 }
 
+@media (max-width: 1180px) {
+  .kbl-filter-form .product-filter-actions {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+  }
+}
+
 @media (max-width: 700px) {
+  .kbl-scope-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: thin;
+  }
+
+  .kbl-scope-tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
   .kbl-filter-form .product-filter-bar {
     width: 100%;
     align-items: stretch;
@@ -440,5 +588,18 @@
 
   .kbl-archive-toggle {
     flex: 1 1 100%;
+  }
+
+  .kbl-scroll-guide {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .kbl-table-shell.has-more::after {
+    top: 52px;
+  }
+
+  .kbl-summary-core dl {
+    grid-template-columns: 1fr;
   }
 }

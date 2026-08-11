@@ -520,6 +520,8 @@ export default function ProjectOverviewPage() {
   const [createName, setCreateName] = useState("");
   const [createClient, setCreateClient] = useState("");
   const [createManagerId, setCreateManagerId] = useState("");
+  const [createProjectCode, setCreateProjectCode] = useState("");
+  const [createDefaultConfidentiality, setCreateDefaultConfidentiality] = useState("L2");
   const [createCandidates, setCreateCandidates] = useState<PersonDTO[]>([]);
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -549,6 +551,8 @@ export default function ProjectOverviewPage() {
     setCreateName("");
     setCreateClient("");
     setCreateManagerId("");
+    setCreateProjectCode("");
+    setCreateDefaultConfidentiality("L2");
     setCreateError(null);
     try {
       const response = await fetchPeople();
@@ -564,8 +568,8 @@ export default function ProjectOverviewPage() {
   }, []);
 
   const submitCreateProject = useCallback(async () => {
-    if (!createName.trim() || !createManagerId) {
-      setCreateError("请填写项目名称并选择项目经理");
+    if (!createName.trim() || !createManagerId || !createProjectCode.trim()) {
+      setCreateError("请填写项目名称、项目代码并选择项目经理");
       return;
     }
     setCreateBusy(true);
@@ -575,6 +579,9 @@ export default function ProjectOverviewPage() {
         name: createName.trim(),
         client_name: createClient.trim() || null,
         project_manager_user_id: createManagerId,
+        project_code: createProjectCode.trim().toUpperCase(),
+        project_code_active: true,
+        naming_default_confidentiality: createDefaultConfidentiality,
       });
       setCreateOpen(false);
       await loadProjects();
@@ -588,7 +595,15 @@ export default function ProjectOverviewPage() {
     } finally {
       setCreateBusy(false);
     }
-  }, [createName, createClient, createManagerId, loadProjects, navigate]);
+  }, [
+    createName,
+    createClient,
+    createManagerId,
+    createProjectCode,
+    createDefaultConfidentiality,
+    loadProjects,
+    navigate,
+  ]);
 
   if (listState.status === "loading") {
     return (
@@ -647,12 +662,16 @@ export default function ProjectOverviewPage() {
           name={createName}
           client={createClient}
           managerId={createManagerId}
+          projectCode={createProjectCode}
+          defaultConfidentiality={createDefaultConfidentiality}
           candidates={createCandidates}
           busy={createBusy}
           error={createError}
           onNameChange={setCreateName}
           onClientChange={setCreateClient}
           onManagerChange={setCreateManagerId}
+          onProjectCodeChange={setCreateProjectCode}
+          onDefaultConfidentialityChange={setCreateDefaultConfidentiality}
           onSubmit={() => void submitCreateProject()}
           onClose={() => setCreateOpen(false)}
         />
@@ -697,12 +716,16 @@ export default function ProjectOverviewPage() {
         name={createName}
         client={createClient}
         managerId={createManagerId}
+        projectCode={createProjectCode}
+        defaultConfidentiality={createDefaultConfidentiality}
         candidates={createCandidates}
         busy={createBusy}
         error={createError}
         onNameChange={setCreateName}
         onClientChange={setCreateClient}
         onManagerChange={setCreateManagerId}
+        onProjectCodeChange={setCreateProjectCode}
+        onDefaultConfidentialityChange={setCreateDefaultConfidentiality}
         onSubmit={() => void submitCreateProject()}
         onClose={() => setCreateOpen(false)}
       />
@@ -715,12 +738,16 @@ function CreateProjectModal({
   name,
   client,
   managerId,
+  projectCode,
+  defaultConfidentiality,
   candidates,
   busy,
   error,
   onNameChange,
   onClientChange,
   onManagerChange,
+  onProjectCodeChange,
+  onDefaultConfidentialityChange,
   onSubmit,
   onClose,
 }: {
@@ -728,12 +755,16 @@ function CreateProjectModal({
   name: string;
   client: string;
   managerId: string;
+  projectCode: string;
+  defaultConfidentiality: string;
   candidates: PersonDTO[];
   busy: boolean;
   error: string | null;
   onNameChange: (value: string) => void;
   onClientChange: (value: string) => void;
   onManagerChange: (value: string) => void;
+  onProjectCodeChange: (value: string) => void;
+  onDefaultConfidentialityChange: (value: string) => void;
   onSubmit: () => void;
   onClose: () => void;
 }) {
@@ -785,12 +816,37 @@ function CreateProjectModal({
               ))}
             </select>
           </label>
+          <label className="project78-modal-field">
+            <span>项目代码</span>
+            <input
+              type="text"
+              value={projectCode}
+              maxLength={20}
+              onChange={(e) => onProjectCodeChange(e.target.value.toUpperCase())}
+              placeholder="如 BW-2601"
+              autoComplete="off"
+            />
+            <small>创建后立即启用，作为规范命名必需项。</small>
+          </label>
+          <label className="project78-modal-field">
+            <span>默认保密级别</span>
+            <select
+              value={defaultConfidentiality}
+              onChange={(e) => onDefaultConfidentialityChange(e.target.value)}
+            >
+              {["L1", "L2", "L3", "L4", "L5"].map((level) => (
+                <option key={level} value={level}>
+                  {level}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
         <div className="project78-modal-actions">
           <button
             type="button"
             className="product-button is-primary"
-            disabled={busy || !name.trim() || !managerId}
+            disabled={busy || !name.trim() || !managerId || !projectCode.trim()}
             onClick={onSubmit}
           >
             {busy ? "创建中…" : "创建项目"}

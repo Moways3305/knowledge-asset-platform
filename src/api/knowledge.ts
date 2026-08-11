@@ -84,7 +84,11 @@ function mapDetail(d: KnowledgeDetailDTO): KnowledgeDetailVM {
   return {
     ...card,
     projectId: d.project_id,
-    maintainerName: d.maintainer?.name ?? "",
+    maintainerName: d.maintainer_name ?? d.maintainer?.name ?? "",
+    categoryPath: d.category_path ?? "",
+    safeVersion: d.safe_version ?? "",
+    retrievalAvailable: d.retrieval_available ?? null,
+    qaAvailable: d.qa_available ?? null,
     archivedAt: d.archived_at,
     archiveReason: d.archive_reason,
     oneLiner: d.summary?.one_liner ?? "",

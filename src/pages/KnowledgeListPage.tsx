@@ -30,7 +30,14 @@ import "./KnowledgeListPage.css";
 
 const PAGE_SIZE = 20;
 
-const ASSET_TYPES: AssetType[] = ["methodology", "deliverable", "case", "template", "insight"];
+const ASSET_TYPES: AssetType[] = [
+  "methodology",
+  "deliverable",
+  "case",
+  "template",
+  "insight",
+  "unclassified",
+];
 const ASSET_STATUSES: AssetStatus[] = ["active", "needs_update", "deprecated", "archived"];
 const CONFIDENTIALITY_LEVELS: ConfidentialityLevel[] = ["L1", "L2", "L3", "L4", "L5"];
 
@@ -98,6 +105,11 @@ export default function KnowledgeListPage() {
   const [error, setError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
   const requestRef = useRef(0);
+  const tableShellRef = useRef<HTMLDivElement>(null);
+  const topScrollerRef = useRef<HTMLDivElement>(null);
+  const [tableOverflow, setTableOverflow] = useState(false);
+  const [tableScrollWidth, setTableScrollWidth] = useState(0);
+  const [tableAtEnd, setTableAtEnd] = useState(false);
 
   const projects = authMe?.projects ?? [];
   const validProjectId = projects.some((project) => project.projectId === projectId)
@@ -252,7 +264,26 @@ export default function KnowledgeListPage() {
           <div className="kbl-asset">
             <FileText size={17} aria-hidden="true" />
             <div>
-              <strong title={asset.title}>{asset.title}</strong>
+              {asset.access.crossProjectSummary ? (
+                <button
+                  className="kbl-title-link"
+                  type="button"
+                  title={asset.title}
+                  aria-label={`查看《${asset.title}》安全摘要`}
+                  onClick={() => openCrossProjectSummary(asset.id)}
+                >
+                  {asset.title}
+                </button>
+              ) : (
+                <Link
+                  className="kbl-title-link"
+                  title={asset.title}
+                  aria-label={`查看《${asset.title}》详情`}
+                  to={`/knowledge/${asset.id}`}
+                >
+                  {asset.title}
+                </Link>
+              )}
               {asset.canonicalName && (
                 <small title={asset.canonicalName}>{asset.canonicalName}</small>
               )}
@@ -342,6 +373,36 @@ export default function KnowledgeListPage() {
   const firstItem = result.total === 0 ? 0 : (result.page - 1) * result.pageSize + 1;
   const lastItem = Math.min(result.page * result.pageSize, result.total);
   const initialLoading = status === "loading" || (loading && !hasLoaded);
+
+  useEffect(() => {
+    const shell = tableShellRef.current;
+    const tableWrap = shell?.querySelector<HTMLElement>(".kbl-table-wrap");
+    if (!shell || !tableWrap) return;
+    const update = () => {
+      const overflowing = tableWrap.scrollWidth > tableWrap.clientWidth + 2;
+      setTableOverflow(overflowing);
+      setTableScrollWidth(tableWrap.scrollWidth);
+      setTableAtEnd(
+        !overflowing || tableWrap.scrollLeft + tableWrap.clientWidth >= tableWrap.scrollWidth - 2,
+      );
+    };
+    const syncTop = () => {
+      if (topScrollerRef.current) topScrollerRef.current.scrollLeft = tableWrap.scrollLeft;
+      update();
+    };
+    update();
+    tableWrap.addEventListener("scroll", syncTop, { passive: true });
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => update());
+    observer?.observe(tableWrap);
+    observer?.observe(tableWrap.querySelector("table") ?? tableWrap);
+    window.addEventListener("resize", update);
+    return () => {
+      tableWrap.removeEventListener("scroll", syncTop);
+      observer?.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, [initialLoading, result.items]);
 
   return (
     <ProductPage className="kbl-page">
@@ -535,37 +596,60 @@ export default function KnowledgeListPage() {
                 <div className="kbl-table-status" role="status" aria-live="polite">
                   {loading && hasLoaded ? "正在更新列表…" : ""}
                 </div>
-                <DataTable
-                  columns={columns}
-                  rows={result.items}
-                  rowKey={(asset) => asset.id}
-                  loading={initialLoading}
-                  loadingText="正在加载知识资产…"
-                  emptyText={
-                    <EmptyState
-                      title={hasActiveFilters ? "当前条件没有匹配资产" : "暂无可浏览的知识资产"}
-                      description={
-                        hasActiveFilters
-                          ? "调整或清除筛选条件后重新查看。"
-                          : "当前身份可访问的知识资产会显示在这里。"
-                      }
-                      action={
-                        hasActiveFilters ? (
-                          <button
-                            className="product-button is-secondary is-small"
-                            type="button"
-                            onClick={resetFilters}
-                          >
-                            清除筛选
-                          </button>
-                        ) : undefined
-                      }
-                    />
-                  }
-                  wrapClassName={`product-table-wrap kbl-table-wrap ${loading ? "is-updating" : ""}`}
-                  tableClassName="product-data-table kbl-table"
-                  ariaLabel="知识资产列表"
-                />
+                <div
+                  className={`kbl-table-shell ${tableOverflow && !tableAtEnd ? "has-more" : ""}`}
+                  ref={tableShellRef}
+                >
+                  {tableOverflow && (
+                    <div className="kbl-scroll-guide">
+                      <span>向右滚动查看更多列</span>
+                      <div
+                        className="kbl-top-scroll"
+                        ref={topScrollerRef}
+                        aria-label="知识资产表横向滚动"
+                        tabIndex={0}
+                        onScroll={(event) => {
+                          const tableWrap =
+                            tableShellRef.current?.querySelector<HTMLElement>(".kbl-table-wrap");
+                          if (tableWrap) tableWrap.scrollLeft = event.currentTarget.scrollLeft;
+                        }}
+                      >
+                        <div style={{ width: tableScrollWidth }} />
+                      </div>
+                    </div>
+                  )}
+                  <DataTable
+                    columns={columns}
+                    rows={result.items}
+                    rowKey={(asset) => asset.id}
+                    loading={initialLoading}
+                    loadingText="正在加载知识资产…"
+                    emptyText={
+                      <EmptyState
+                        title={hasActiveFilters ? "当前条件没有匹配资产" : "暂无可浏览的知识资产"}
+                        description={
+                          hasActiveFilters
+                            ? "调整或清除筛选条件后重新查看。"
+                            : "当前身份可访问的知识资产会显示在这里。"
+                        }
+                        action={
+                          hasActiveFilters ? (
+                            <button
+                              className="product-button is-secondary is-small"
+                              type="button"
+                              onClick={resetFilters}
+                            >
+                              清除筛选
+                            </button>
+                          ) : undefined
+                        }
+                      />
+                    }
+                    wrapClassName={`product-table-wrap kbl-table-wrap ${loading ? "is-updating" : ""}`}
+                    tableClassName="product-data-table kbl-table"
+                    ariaLabel="知识资产列表"
+                  />
+                </div>
 
                 {hasLoaded && result.total > 0 && (
                   <div className="kbl-pagination" aria-label="知识资产分页">
@@ -662,6 +746,55 @@ export default function KnowledgeListPage() {
                 description="安全摘要尚未生成。你仍可申请原文，审批通过后再查看受控内容。"
               />
             )}
+            <section className="kbl-summary-core" aria-labelledby="summary-core-title">
+              <h3 id="summary-core-title">核心信息</h3>
+              <dl>
+                <div>
+                  <dt>资料范围</dt>
+                  <dd>项目知识</dd>
+                </div>
+                <div>
+                  <dt>来源项目</dt>
+                  <dd>{summaryDetail.projectName || "暂无"}</dd>
+                </div>
+                <div>
+                  <dt>资料类型</dt>
+                  <dd>{assetTypeLabel[summaryDetail.assetType] ?? "暂无"}</dd>
+                </div>
+                <div>
+                  <dt>目录类别</dt>
+                  <dd>{summaryDetail.categoryPath || "暂无"}</dd>
+                </div>
+                <div>
+                  <dt>保密等级</dt>
+                  <dd>{confidentialityLabels[summaryDetail.confidentialityLevel]}</dd>
+                </div>
+                <div>
+                  <dt>当前状态</dt>
+                  <dd>{assetStatusLabel[summaryDetail.assetStatus] ?? "暂无"}</dd>
+                </div>
+                <div>
+                  <dt>规范名版本</dt>
+                  <dd>{summaryDetail.safeVersion || "暂无"}</dd>
+                </div>
+                <div>
+                  <dt>更新时间</dt>
+                  <dd>{summaryDetail.updatedAt || "暂无"}</dd>
+                </div>
+                <div>
+                  <dt>问答 / 检索</dt>
+                  <dd>
+                    {summaryDetail.qaAvailable == null && summaryDetail.retrievalAvailable == null
+                      ? "暂无"
+                      : `${summaryDetail.qaAvailable ? "问答可用" : "问答不可用"} · ${summaryDetail.retrievalAvailable ? "检索可用" : "检索不可用"}`}
+                  </dd>
+                </div>
+                <div>
+                  <dt>维护人</dt>
+                  <dd>{summaryDetail.maintainerName || "暂无"}</dd>
+                </div>
+              </dl>
+            </section>
             {summaryDetail.tags.length > 0 && (
               <div className="kbl-summary-drawer-tags" aria-label="知识标签">
                 {summaryDetail.tags.map((tag) => (

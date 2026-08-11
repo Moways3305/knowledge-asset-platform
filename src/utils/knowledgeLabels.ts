@@ -14,6 +14,7 @@ export const assetTypeLabel: Record<string, string> = {
   case: "案例",
   template: "模板",
   insight: "洞察",
+  unclassified: "未分类",
 };
 
 export const visibilityLabel: Record<FrontVisibility, string> = {

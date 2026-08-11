@@ -12,8 +12,11 @@ const projectId = "00000000-0000-0000-0000-000000000075";
 const assetId = "00000000-0000-0000-0000-0000000000a1";
 const scenarios = ["company", "project", "empty", "retry", "pure-admin"];
 const viewports = [
+  { name: "1920", width: 1920, height: 1080 },
   { name: "1440", width: 1440, height: 1000 },
   { name: "1280", width: 1280, height: 900 },
+  { name: "1024", width: 1024, height: 800 },
+  { name: "390", width: 390, height: 844 },
 ];
 
 const asset = (overrides = {}) => ({
@@ -170,6 +173,10 @@ for (const scenario of scenarios) {
       const filterFields = document
         .querySelector(".product-filter-fields")
         ?.getBoundingClientRect();
+      const tableActuallyOverflows = tableWrap
+        ? tableWrap.scrollWidth > tableWrap.clientWidth + 2
+        : false;
+      const scrollGuideVisible = Boolean(document.querySelector(".kbl-scroll-guide"));
       const bodyText = document.body.innerText;
       const clippedActions = [...document.querySelectorAll("button, a.product-button")].filter(
         (element) => element.scrollWidth > element.clientWidth + 2,
@@ -179,6 +186,9 @@ for (const scenario of scenarios) {
         shellOverlap: rail && deck ? Math.max(0, rail.right - deck.left) : 1,
         tableOverflowMode: tableWrap ? getComputedStyle(tableWrap).overflowX : "missing",
         filterFieldsHeight: filterFields?.height ?? 999,
+        tableActuallyOverflows,
+        scrollGuideVisible,
+        scrollGuideMatchesOverflow: tableActuallyOverflows === scrollGuideVisible,
         clippedActions,
         moduleTitle: document.querySelector(".deck-title")?.textContent?.trim() ?? "",
         forbiddenFeatureVisible: /批量导入|导出|新建项目|运营洞察|语义检索|全局搜索/.test(bodyText),
@@ -188,6 +198,7 @@ for (const scenario of scenarios) {
             bodyText,
           ),
         tableVisible: Boolean(document.querySelector(".kbl-table")),
+        semanticTitleEntry: Boolean(document.querySelector(".kbl-title-link[href]")),
       };
     });
 
@@ -198,7 +209,7 @@ for (const scenario of scenarios) {
     });
 
     let collapsedMetrics = {};
-    if (scenario === "company") {
+    if (scenario === "company" && viewport.width > 700) {
       await page.getByRole("button", { name: "折叠主导航" }).click();
       await page.waitForTimeout(160);
       collapsedMetrics = await page.evaluate(() => ({
@@ -242,10 +253,11 @@ if (
       result.moduleTitle !== "知识资产库" ||
       result.forbiddenFeatureVisible ||
       result.sensitiveTextVisible ||
+      !result.scrollGuideMatchesOverflow ||
       (result.scenario !== "pure-admin" &&
         (!["auto", "scroll"].includes(result.tableOverflowMode) ||
-          result.filterFieldsHeight > 40 ||
-          !result.tableVisible)) ||
+          !result.tableVisible ||
+          (result.scenario !== "empty" && !result.semanticTitleEntry))) ||
       (result.scenario === "pure-admin" && (result.knowledgeCalls !== 0 || result.tableVisible)) ||
       (result.scenario === "retry" && (!result.retried || result.knowledgeCalls < 2)) ||
       (result.scenario === "project" &&

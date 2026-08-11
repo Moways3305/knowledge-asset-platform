@@ -16,35 +16,55 @@ import DangerConfirmDialog from "../components/DangerConfirmDialog";
 import DetailDrawer from "../components/DetailDrawer";
 import TaskModal from "../components/TaskModal";
 import WizardModal from "../components/WizardModal";
-import type { NamingCategoryConfigDTO, NamingRuleCenterDTO, NamingScope } from "../types/naming";
+import type {
+  NamingAssetType,
+  NamingCategoryConfigDTO,
+  NamingRuleCenterDTO,
+  NamingScope,
+} from "../types/naming";
 import "./AdminNamingRulesPage.css";
 
 const levels = ["L1", "L2", "L3", "L4", "L5"];
 const pageSize = 8;
+const assetTypeLabels: Record<NamingAssetType, string> = {
+  deliverable: "交付物",
+  methodology: "方法论",
+  case: "案例",
+  template: "模板",
+  insight: "洞察",
+  unclassified: "未分类",
+};
 const standardProjectCategories = [
-  ["项目基础信息", "L4", 10],
-  ["辅导过程", "L3", 20],
-  ["交付成果", "L3", 30],
-  ["关键资料", "L5", 40],
-  ["项目复盘", "L3", 50],
+  ["项目基础信息", "deliverable", "L4", 10],
+  ["辅导过程", "deliverable", "L3", 20],
+  ["交付成果", "deliverable", "L3", 30],
+  ["关键资料", "unclassified", "L5", 40],
+  ["项目复盘", "insight", "L3", 50],
 ] as const;
 const standardCompanyCategories = [
-  ["方法论", "模型工具", "L2", 10],
-  ["方法论", "案例研究", "L2", 20],
-  ["方法论", "模板", "L2", 30],
-  ["洞察", "研究洞察", "L2", 40],
-  ["制度规范", "交付件", "L3", 50],
+  ["方法论", "模型工具", "methodology", "L2", 10],
+  ["方法论", "案例研究", "case", "L2", 20],
+  ["方法论", "模板", "template", "L2", 30],
+  ["洞察", "研究洞察", "insight", "L2", 40],
+  ["制度规范", "交付件", "deliverable", "L3", 50],
 ] as const;
 
 type CategoryDraft = Pick<
   NamingCategoryConfigDTO,
-  "primary" | "secondary" | "description" | "default_confidentiality" | "enabled" | "sort_order"
+  | "primary"
+  | "secondary"
+  | "description"
+  | "asset_type"
+  | "default_confidentiality"
+  | "enabled"
+  | "sort_order"
 >;
 
 const blankCategory = (scope: NamingScope): CategoryDraft => ({
   primary: scope === "project" ? "项目资料" : "方法论",
   secondary: "",
   description: "",
+  asset_type: null,
   default_confidentiality: "L2",
   enabled: true,
   sort_order: 100,
@@ -172,6 +192,12 @@ export default function AdminNamingRulesPage() {
   };
 
   const publish = async () => {
+    const missingCategory = config.categories.find((item) => item.enabled && !item.asset_type);
+    if (missingCategory) {
+      setError(`目录类别「${categoryPath(missingCategory)}」尚未配置资产分类，不能发布。`);
+      setManagerOpen(true);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -197,6 +223,7 @@ export default function AdminNamingRulesPage() {
           ? value.secondary.trim()
           : `${value.primary.trim()}-${value.secondary.trim()}`,
       description: value.description?.trim() || null,
+      asset_type: value.asset_type,
       default_confidentiality: value.default_confidentiality,
       enabled: value.enabled,
       sort_order: value.sort_order,
@@ -217,24 +244,26 @@ export default function AdminNamingRulesPage() {
       scope === "project"
         ? standardProjectCategories
             .filter(([name]) => !existing.has(name))
-            .map(([name, level, order]) => ({
+            .map(([name, assetType, level, order]) => ({
               id: crypto.randomUUID(),
               scope,
               primary: "项目资料",
               secondary: name,
               prefix: name,
+              asset_type: assetType,
               default_confidentiality: level,
               enabled: true,
               sort_order: order,
             }))
         : standardCompanyCategories
             .filter(([primary, secondary]) => !existing.has(`${primary} / ${secondary}`))
-            .map(([primary, secondary, level, order]) => ({
+            .map(([primary, secondary, assetType, level, order]) => ({
               id: crypto.randomUUID(),
               scope,
               primary,
               secondary,
               prefix: `${primary}-${secondary}`,
+              asset_type: assetType,
               default_confidentiality: level,
               enabled: true,
               sort_order: order,
@@ -272,6 +301,7 @@ export default function AdminNamingRulesPage() {
     });
   };
   const previewCategory = categories.find((item) => item.enabled);
+  const missingAssetTypeCategories = categories.filter((item) => item.enabled && !item.asset_type);
   const preview =
     scope === "project"
       ? previewCategory
@@ -344,6 +374,12 @@ export default function AdminNamingRulesPage() {
       {error && (
         <p className="naming-error" role="alert">
           {error}
+        </p>
+      )}
+      {missingAssetTypeCategories.length > 0 && (
+        <p className="naming-error" role="status">
+          当前范围有 {missingAssetTypeCategories.length} 个启用类别缺少资产分类，发布已阻断；请在
+          “管理目录类别”中逐项补齐。
         </p>
       )}
 
@@ -525,7 +561,11 @@ export default function AdminNamingRulesPage() {
                     <small>{category.description || "暂无说明"}</small>
                   </span>
                   <span className={`naming-state ${category.enabled ? "is-enabled" : ""}`}>
-                    {category.enabled ? "已启用" : "已停用"}
+                    {category.enabled && !category.asset_type
+                      ? "缺少资产分类"
+                      : category.enabled
+                        ? "已启用"
+                        : "已停用"}
                   </span>
                   <span className="naming-category-meta">
                     {category.default_confidentiality} · 排序 {category.sort_order}
@@ -580,7 +620,8 @@ export default function AdminNamingRulesPage() {
               variant="primary"
               disabled={
                 !editor?.value.secondary.trim() ||
-                (scope === "company" && !editor.value.primary.trim())
+                (scope === "company" && !editor.value.primary.trim()) ||
+                (editor?.value.enabled && !editor.value.asset_type)
               }
               onClick={saveCategory}
             >
@@ -638,6 +679,33 @@ export default function AdminNamingRulesPage() {
                   })
                 }
               />
+            </label>
+            <label>
+              资产分类
+              <select
+                aria-label="资产分类"
+                value={editor.value.asset_type ?? ""}
+                aria-invalid={editor.value.enabled && !editor.value.asset_type}
+                onChange={(event) =>
+                  setEditor({
+                    ...editor,
+                    value: {
+                      ...editor.value,
+                      asset_type: (event.target.value || null) as NamingAssetType | null,
+                    },
+                  })
+                }
+              >
+                <option value="">请选择资产分类</option>
+                {Object.entries(assetTypeLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              {editor.value.enabled && !editor.value.asset_type && (
+                <small className="naming-field-error">启用类别必须配置资产分类。</small>
+              )}
             </label>
             <div className="naming-form-pair">
               <label>
@@ -716,6 +784,7 @@ export default function AdminNamingRulesPage() {
                       primary: detail.primary,
                       secondary: detail.secondary,
                       description: detail.description ?? "",
+                      asset_type: detail.asset_type,
                       default_confidentiality: detail.default_confidentiality,
                       enabled: detail.enabled,
                       sort_order: detail.sort_order,
@@ -737,6 +806,12 @@ export default function AdminNamingRulesPage() {
               <strong>{currentScopeName}</strong>
             </div>
             <dl>
+              <div>
+                <dt>资产分类</dt>
+                <dd>
+                  {detail.asset_type ? assetTypeLabels[detail.asset_type] : "缺失，发布前必须补齐"}
+                </dd>
+              </div>
               <div>
                 <dt>完整路径</dt>
                 <dd>{categoryPath(detail)}</dd>

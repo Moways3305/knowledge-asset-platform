@@ -644,6 +644,8 @@ async def create_project(
         raise _denied(422, "project_name_required", "项目名称不能为空")
     if len(name) > 200:
         raise _denied(422, "project_name_too_long", "项目名称过长（最多 200 字）")
+    if not req.project_code_active:
+        raise _denied(422, "project_code_must_be_enabled", "新建项目必须启用项目代码")
     # 同名 active 项目去重（稳定策略：禁止重名 active 项目）。
     dup = (
         await session.execute(
@@ -652,6 +654,12 @@ async def create_project(
     ).scalar_one_or_none()
     if dup is not None:
         raise _denied(422, "project_name_conflict", "已存在同名的进行中项目")
+
+    duplicate_code = (
+        await session.execute(select(Project.id).where(Project.project_code == req.project_code))
+    ).scalar_one_or_none()
+    if duplicate_code is not None:
+        raise _denied(422, "project_code_conflict", "项目代码已被使用")
 
     pm = await _load_active_business_user(
         session, req.project_manager_user_id, role_field="project_manager"
@@ -666,6 +674,9 @@ async def create_project(
         status="active",
         lifecycle_route_key=req.lifecycle_route_key or "route_A",
         lifecycle_phase_key=req.lifecycle_phase_key,
+        project_code=req.project_code,
+        project_code_active=req.project_code_active,
+        naming_default_confidentiality=req.naming_default_confidentiality.value,
     )
     session.add(project)
     await session.flush()  # 取得 project.id
@@ -702,6 +713,8 @@ async def create_project(
             "status": project.status,
             "lifecycle_route_key": project.lifecycle_route_key,
             "project_manager_user_id": str(pm.id),
+            "project_code_active": project.project_code_active,
+            "naming_default_confidentiality": project.naming_default_confidentiality,
             "coach_user_id": str(coach.id) if coach is not None else None,
         },
         extra={"active_work_identity": caller.active_company_role},

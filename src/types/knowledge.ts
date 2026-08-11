@@ -8,7 +8,13 @@ export type AiAccessLevel = "A1" | "A2" | "A3" | "A4";
 export type AssetStatus = "active" | "needs_update" | "deprecated" | "archived";
 export type KnowledgeScope = "personal" | "project" | "company";
 export type KnowledgeZone = "material" | "asset";
-export type AssetType = "methodology" | "deliverable" | "case" | "template" | "insight";
+export type AssetType =
+  | "methodology"
+  | "deliverable"
+  | "case"
+  | "template"
+  | "insight"
+  | "unclassified";
 export type KnowledgeSortField =
   | "updated_at"
   | "created_at"
@@ -122,6 +128,11 @@ export interface KnowledgeDetailDTO {
   project_name: string | null;
   lifecycle_phase: string | null;
   maintainer: { id: string; name: string } | null;
+  maintainer_name?: string | null;
+  category_path?: string | null;
+  safe_version?: string | null;
+  retrieval_available?: boolean | null;
+  qa_available?: boolean | null;
   confidence: number | null;
   last_called_at: string | null;
   updated_at: string | null;
@@ -194,6 +205,10 @@ export interface KnowledgePageVM {
 export interface KnowledgeDetailVM extends KnowledgeCardVM {
   projectId: string | null;
   maintainerName: string;
+  categoryPath?: string;
+  safeVersion?: string;
+  retrievalAvailable?: boolean | null;
+  qaAvailable?: boolean | null;
   archivedAt: string | null;
   archiveReason: string | null;
   oneLiner: string;

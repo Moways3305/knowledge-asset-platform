@@ -130,6 +130,11 @@ class KnowledgeDetailOut(BaseModel):
     project_name: str | None
     lifecycle_phase: str | None
     maintainer: MaintainerOut | None
+    maintainer_name: str | None = None
+    category_path: str | None = None
+    safe_version: str | None = None
+    retrieval_available: bool | None = None
+    qa_available: bool | None = None
     confidence: float | None = None
     last_called_at: datetime | None
     updated_at: datetime | None

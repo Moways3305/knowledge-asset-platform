@@ -10,6 +10,7 @@ const categories: NamingOptionDTO[] = [
     primary: "项目资料",
     secondary: "项目基础信息",
     prefix: "项目资料-项目基础信息",
+    asset_type: "deliverable",
     default_confidentiality: "L2",
   },
   {
@@ -17,6 +18,7 @@ const categories: NamingOptionDTO[] = [
     primary: "项目资料",
     secondary: "交付成果",
     prefix: "项目资料-交付成果",
+    asset_type: "deliverable",
     default_confidentiality: "L2",
   },
 ];

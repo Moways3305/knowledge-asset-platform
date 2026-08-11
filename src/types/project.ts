@@ -21,6 +21,9 @@ export interface ProjectCreateRequestDTO {
   name: string;
   client_name?: string | null;
   project_manager_user_id: string;
+  project_code: string;
+  project_code_active: boolean;
+  naming_default_confidentiality: string;
   coach_user_id?: string | null;
   lifecycle_route_key?: string | null;
   lifecycle_phase_key?: string | null;

@@ -97,6 +97,7 @@ class AssetType(str, Enum):
     case = "case"
     template = "template"
     insight = "insight"
+    unclassified = "unclassified"
 
 
 class Visibility(str, Enum):

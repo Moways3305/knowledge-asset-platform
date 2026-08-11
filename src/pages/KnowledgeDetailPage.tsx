@@ -368,9 +368,10 @@ export default function KnowledgeDetailPage() {
   const pendingOriginal = asset.access.existingRequestStatus === "pending";
   const hasSummaryBody = hasText(asset.detailed) || asset.keyPoints.length > 0;
   const hasOpsActions =
-    asset.access.canRetryIndex ||
-    ((asset.access.canManageLifecycle || asset.access.canDelete) &&
-      asset.assetStatus !== "archived");
+    !crossProjectSummary &&
+    (asset.access.canRetryIndex ||
+      ((asset.access.canManageLifecycle || asset.access.canDelete) &&
+        asset.assetStatus !== "archived"));
   const sharedFacts = [
     { label: "所属范围", value: scopeLabel[asset.scope] ?? asset.scope },
     { label: "所属项目", value: asset.projectName },
@@ -395,9 +396,21 @@ export default function KnowledgeDetailPage() {
             : "Markdown 未生成",
     },
   ];
+  const crossProjectFacts = [
+    { label: "目录类别", value: asset.categoryPath },
+    { label: "规范名版本", value: asset.safeVersion },
+    { label: "维护人", value: asset.maintainerName },
+    {
+      label: "问答与检索",
+      value:
+        asset.qaAvailable == null && asset.retrievalAvailable == null
+          ? ""
+          : `${asset.qaAvailable ? "问答可用" : "问答不可用"} · ${asset.retrievalAvailable ? "检索可用" : "检索不可用"}`,
+    },
+  ];
   const coreFacts = [
     ...sharedFacts,
-    ...(crossProjectSummary && !canOriginal ? [] : memberFacts),
+    ...(crossProjectSummary ? crossProjectFacts : memberFacts),
   ].filter((fact) => hasText(fact.value));
 
   return (
@@ -409,8 +422,10 @@ export default function KnowledgeDetailPage() {
       <header className="kdetail-header">
         <div className="kdetail-header-copy">
           <div className="kdetail-badges">
-            {crossProjectSummary && !canOriginal && (
-              <span className="asset-status-badge">其他项目 · 摘要可见</span>
+            {crossProjectSummary && (
+              <span className="asset-status-badge">
+                {canOriginal ? "其他项目 · 原文已授权" : "其他项目 · 摘要可见"}
+              </span>
             )}
             <span className={`asset-status-badge ${assetStatusCls[asset.assetStatus]}`}>
               {assetStatusLabel[asset.assetStatus]}
@@ -424,7 +439,9 @@ export default function KnowledgeDetailPage() {
             {asset.updatedAt && <time>更新于 {formatBeijingTime(asset.updatedAt)}</time>}
           </div>
           <h1>{asset.title}</h1>
-          {asset.canonicalName && <p className="kd-canonical-name">{asset.canonicalName}</p>}
+          {!crossProjectSummary && asset.canonicalName && (
+            <p className="kd-canonical-name">{asset.canonicalName}</p>
+          )}
           {canSummary && (
             <p className={hasText(asset.oneLiner) ? "" : "kdetail-summary-pending"}>
               {hasText(asset.oneLiner) ? asset.oneLiner : "摘要待生成"}
@@ -527,7 +544,7 @@ export default function KnowledgeDetailPage() {
                 </div>
               )}
             </dl>
-            {asset.indexStatus === "index_failed" && (
+            {!crossProjectSummary && asset.indexStatus === "index_failed" && (
               <div className="kdetail-inline-error" role="alert">
                 {asset.indexErrorMessage ?? "问答处理失败，可在更多操作中重新处理。"}
               </div>
@@ -569,51 +586,53 @@ export default function KnowledgeDetailPage() {
             </dl>
           </section>
 
-          <details
-            className="kdetail-panel kdetail-disclosure"
-            onToggle={(event) => {
-              if (event.currentTarget.open && lcEvents === null && !lcLoading) {
-                void loadLifecycleEvents();
-              }
-            }}
-          >
-            <summary>
-              <span>生命周期</span>
-              <ChevronRight size={17} aria-hidden="true" />
-            </summary>
-            <div className="kdetail-disclosure-body">
-              {lcLoading ? (
-                <div className="kdetail-muted-state">正在加载记录…</div>
-              ) : lcErr && lcEvents === null ? (
-                <div className="kdetail-retry-state" role="alert">
-                  <span>{lcErr}</span>
-                  <button
-                    type="button"
-                    className="btn-small"
-                    onClick={() => void loadLifecycleEvents()}
-                  >
-                    重试
-                  </button>
-                </div>
-              ) : lcEvents?.length ? (
-                <ol className="kdetail-timeline">
-                  {lcEvents.map((event) => (
-                    <li key={event.event_id}>
-                      <span className="kdetail-timeline-dot" aria-hidden="true" />
-                      <div>
-                        <strong>{lifecycleEventLabel[event.event_type] ?? "生命周期事件"}</strong>
-                        <time>{formatBeijingTime(event.created_at)}</time>
-                        {event.actor_display && <span>{event.actor_display}</span>}
-                        {event.reason && <p>{event.reason}</p>}
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <div className="kdetail-muted-state">暂无生命周期记录</div>
-              )}
-            </div>
-          </details>
+          {!crossProjectSummary && (
+            <details
+              className="kdetail-panel kdetail-disclosure"
+              onToggle={(event) => {
+                if (event.currentTarget.open && lcEvents === null && !lcLoading) {
+                  void loadLifecycleEvents();
+                }
+              }}
+            >
+              <summary>
+                <span>生命周期</span>
+                <ChevronRight size={17} aria-hidden="true" />
+              </summary>
+              <div className="kdetail-disclosure-body">
+                {lcLoading ? (
+                  <div className="kdetail-muted-state">正在加载记录…</div>
+                ) : lcErr && lcEvents === null ? (
+                  <div className="kdetail-retry-state" role="alert">
+                    <span>{lcErr}</span>
+                    <button
+                      type="button"
+                      className="btn-small"
+                      onClick={() => void loadLifecycleEvents()}
+                    >
+                      重试
+                    </button>
+                  </div>
+                ) : lcEvents?.length ? (
+                  <ol className="kdetail-timeline">
+                    {lcEvents.map((event) => (
+                      <li key={event.event_id}>
+                        <span className="kdetail-timeline-dot" aria-hidden="true" />
+                        <div>
+                          <strong>{lifecycleEventLabel[event.event_type] ?? "生命周期事件"}</strong>
+                          <time>{formatBeijingTime(event.created_at)}</time>
+                          {event.actor_display && <span>{event.actor_display}</span>}
+                          {event.reason && <p>{event.reason}</p>}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <div className="kdetail-muted-state">暂无生命周期记录</div>
+                )}
+              </div>
+            </details>
+          )}
 
           {hasOpsActions && (
             <details className="kdetail-panel kdetail-disclosure kdetail-ops">

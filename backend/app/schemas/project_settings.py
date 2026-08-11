@@ -9,12 +9,13 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.schemas.enums import MemberStatus, ProjectRole
+from app.schemas.enums import ConfidentialityLevel, MemberStatus, ProjectRole
 
 PROJECT_BIZ_STAGES = {
     "售前",
@@ -209,11 +210,22 @@ class ProjectCreateRequest(BaseModel):
     name: str
     client_name: str | None = None
     project_manager_user_id: uuid.UUID
+    project_code: str
+    project_code_active: bool
+    naming_default_confidentiality: ConfidentialityLevel
     coach_user_id: uuid.UUID | None = None
     lifecycle_route_key: str | None = None
     lifecycle_phase_key: str | None = None
 
     _phase_validator = field_validator("lifecycle_phase_key")(_validate_project_phase)
+
+    @field_validator("project_code")
+    @classmethod
+    def validate_project_code(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if not re.fullmatch(r"[A-Z][A-Z0-9-]{1,19}", normalized):
+            raise ValueError("项目代码须为 2-20 位大写字母、数字或短横线，且以字母开头")
+        return normalized
 
 
 class ProjectCreateResponse(BaseModel):

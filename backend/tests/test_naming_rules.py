@@ -41,7 +41,7 @@ def _config(
     company_category_id: uuid.UUID | None = None,
 ) -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "enforced": True,
         "project_codes": [
             {
@@ -73,6 +73,7 @@ def _config(
                 "secondary": category,
                 "prefix": f"项目资料-{category}",
                 "default_confidentiality": "L2",
+                "asset_type": "deliverable",
                 "enabled": True,
                 "sort_order": 10,
             },
@@ -85,6 +86,7 @@ def _config(
                         "secondary": "年度计划",
                         "prefix": "公司制度-年度计划",
                         "default_confidentiality": "L2",
+                        "asset_type": "methodology",
                         "enabled": True,
                         "sort_order": 20,
                     }
@@ -253,6 +255,7 @@ async def _publish_categories(client, categories: list[tuple[uuid.UUID, str]]) -
             "secondary": secondary,
             "prefix": f"项目资料-{secondary}",
             "default_confidentiality": "L2",
+            "asset_type": "deliverable",
             "enabled": True,
             "sort_order": index * 10,
         }
@@ -457,6 +460,9 @@ async def test_project_aliases_are_normalized_and_validated(client):
 async def test_publish_activates_preview_and_confirmation_recomputes_name(client, db_session):
     category_id = uuid.uuid4()
     await _publish(client, category_id)
+    center = await client.get("/api/v1/admin/naming-rules", headers=_hdr(USER_BOSS))
+    assert center.json()["published"]["config"]["schema_version"] == 2
+    assert center.json()["published"]["config"]["categories"][0]["asset_type"] == "deliverable"
     task_id = await _upload(client)
 
     preview = await client.post(
@@ -519,14 +525,16 @@ async def test_publish_activates_preview_and_confirmation_recomputes_name(client
     assert version.naming_metadata["canonical_name"] == canonical
 
 
-async def test_unknown_category_asset_type_mapping_fails_closed(client):
+async def test_category_without_explicit_asset_type_cannot_be_published(client):
     category_id = uuid.uuid4()
+    config = _config(category_id, category="尚未配置分类")
+    config["categories"][0]["asset_type"] = None
     saved = await client.put(
         "/api/v1/admin/naming-rules/draft",
         headers=_hdr(USER_BOSS),
         json={
             "expected_base_version": 1,
-            "config": _config(category_id, category="尚未配置分类"),
+            "config": config,
         },
     )
     assert saved.status_code == 200
@@ -535,26 +543,8 @@ async def test_unknown_category_asset_type_mapping_fails_closed(client):
         headers=_hdr(USER_BOSS),
         json={"expected_base_version": 1},
     )
-    assert published.status_code == 200
-    task_id = await _upload(client)
-
-    preview = await client.post(
-        f"/api/v1/ingest/{task_id}/naming-preview",
-        headers=_hdr(USER_PROJECT_MANAGER),
-        json={
-            "target_scope": "project",
-            "target_project_id": str(PROJECT_ALPHA),
-            "confidentiality_level": "L2",
-            "naming": {
-                "category_id": str(category_id),
-                "subject": "待分类主题",
-                "formed_on": "2026-08-03",
-                "version": "V1",
-            },
-        },
-    )
-    assert preview.status_code == 409
-    assert preview.json()["detail"]["denied_reason"] == "naming_asset_type_mapping_missing"
+    assert published.status_code == 422
+    assert published.json()["detail"]["denied_reason"] == "naming_category_asset_type_required"
 
 
 async def test_publish_conflict_is_stable(client):
@@ -1605,6 +1595,7 @@ async def test_stale_manual_category_requires_reselection_without_llm(client, db
             "secondary": "项目基础信息",
             "prefix": "项目资料-项目基础信息",
             "default_confidentiality": "L2",
+            "asset_type": "deliverable",
             "enabled": True,
             "sort_order": 20,
         }
@@ -1775,6 +1766,7 @@ async def test_published_rule_change_invalidates_old_ai_category(client):
             "secondary": "项目基础信息",
             "prefix": "项目资料-项目基础信息",
             "default_confidentiality": "L2",
+            "asset_type": "deliverable",
             "enabled": True,
             "sort_order": 20,
         }

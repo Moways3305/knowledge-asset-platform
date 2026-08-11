@@ -39,6 +39,7 @@ const center: NamingRuleCenterDTO = {
           primary: "项目资料",
           secondary: "交付件",
           prefix: "交付件",
+          asset_type: "deliverable",
           default_confidentiality: "L2",
           enabled: true,
           sort_order: 10,
@@ -49,6 +50,7 @@ const center: NamingRuleCenterDTO = {
           primary: "方法论",
           secondary: "模型工具",
           prefix: "方法论-模型工具",
+          asset_type: "methodology",
           default_confidentiality: "L2",
           enabled: true,
           sort_order: 20,
@@ -128,12 +130,19 @@ describe("AdminNamingRulesPage", () => {
     expect(editor).toHaveTextContent("全项目通用规范");
     expect(editor).not.toHaveTextContent(alphaId);
     fireEvent.change(within(editor).getByLabelText("类别名称"), { target: { value: "访谈纪要" } });
+    fireEvent.change(within(editor).getByLabelText("资产分类"), {
+      target: { value: "insight" },
+    });
     fireEvent.click(within(editor).getByRole("button", { name: "写入草稿" }));
     fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
     await waitFor(() => expect(saveNamingRuleDraft).toHaveBeenCalled());
     expect(vi.mocked(saveNamingRuleDraft).mock.calls[0][1].categories).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ scope: "project", secondary: "访谈纪要" }),
+        expect.objectContaining({
+          scope: "project",
+          secondary: "访谈纪要",
+          asset_type: "insight",
+        }),
       ]),
     );
     expect(vi.mocked(saveNamingRuleDraft).mock.calls[0][1].categories[0]).not.toHaveProperty(
@@ -190,5 +199,19 @@ describe("AdminNamingRulesPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("草稿保存失败");
     expect(screen.getByText("全项目通用规范", { selector: "#scope-heading" })).toBeInTheDocument();
+  });
+
+  it("blocks publication and identifies an enabled category without an asset classification", async () => {
+    const incomplete = structuredClone(center);
+    incomplete.draft!.config.categories[0].asset_type = null;
+    vi.mocked(fetchNamingRuleCenter).mockResolvedValueOnce(incomplete);
+    render(<AdminNamingRulesPage />);
+    await screen.findByText("命名规则中心");
+
+    fireEvent.click(screen.getByRole("button", { name: "发布规则" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("交付件");
+    expect(screen.getByRole("alert")).toHaveTextContent("尚未配置资产分类");
+    expect(publishNamingRuleDraft).not.toHaveBeenCalled();
   });
 });
