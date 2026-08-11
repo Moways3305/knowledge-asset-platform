@@ -12,6 +12,7 @@ import {
 import type { ModelDTO, WeknoraModelMutateDTO, WeknoraProviderDTO } from "../types/weknoraAdmin";
 import { ApiError } from "../api/http";
 import ConfirmDialog from "./ConfirmDialog";
+import TaskModal from "./TaskModal";
 import ProviderSelect, { type ProviderSelectOption } from "./ProviderSelect";
 import { ProviderLogo } from "./providerIcons";
 import {
@@ -66,7 +67,10 @@ export default function WeknoraModelsSection({
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
-  const [cardStackOpen, setCardStackOpen] = useState(false);
+  const [cardStackOpen, setCardStackOpen] = useState(true);
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [deleteTarget, setDeleteTarget] = useState<ModelDTO | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editingRef, setEditingRef] = useState<string | null>(null);
@@ -317,6 +321,21 @@ export default function WeknoraModelsSection({
     }
   };
 
+  const visibleModels = models.filter((model) => {
+    const query = search.trim().toLowerCase();
+    const matchesQuery =
+      !query ||
+      `${model.name} ${model.provider ?? ""} ${modelTypeLabel[model.type] ?? model.type}`
+        .toLowerCase()
+        .includes(query);
+    const matchesType = typeFilter === "all" || model.type === typeFilter;
+    const matchesStatus =
+      statusFilter === "all" ||
+      (statusFilter === "enabled" && model.enabled) ||
+      (statusFilter === "disabled" && !model.enabled);
+    return matchesQuery && matchesType && matchesStatus;
+  });
+
   return (
     <section className="mf-external-panel" aria-labelledby="weknora-models-title">
       <div className="mf-panel-heading">
@@ -341,6 +360,35 @@ export default function WeknoraModelsSection({
         </div>
       )}
       {note && <div className="mf-inline-message is-success">{note}</div>}
+
+      <div className="mf-drawer-filters" aria-label="WeKnora 模型筛选">
+        <input
+          aria-label="搜索 WeKnora 模型"
+          placeholder="搜索名称、供应商或类型"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+        <select
+          aria-label="WeKnora 模型类型"
+          value={typeFilter}
+          onChange={(event) => setTypeFilter(event.target.value)}
+        >
+          <option value="all">全部类型</option>
+          <option value="chat">LLM</option>
+          <option value="embedding">嵌入</option>
+          <option value="rerank">重排</option>
+          <option value="multimodal">多模态</option>
+        </select>
+        <select
+          aria-label="WeKnora 模型状态"
+          value={statusFilter}
+          onChange={(event) => setStatusFilter(event.target.value)}
+        >
+          <option value="all">全部状态</option>
+          <option value="enabled">已启用</option>
+          <option value="disabled">已停用</option>
+        </select>
+      </div>
 
       {loading ? (
         <div className="mf-empty-state">正在加载 WeKnora 模型…</div>
@@ -374,7 +422,10 @@ export default function WeknoraModelsSection({
 
           {cardStackOpen && (
             <div className="mf-connection-stack">
-              {models.map((model, index) => {
+              {visibleModels.length === 0 && (
+                <div className="mf-empty-state">没有匹配的 WeKnora 模型。</div>
+              )}
+              {visibleModels.map((model, index) => {
                 const testNotice = tests[model.model_ref];
                 const statusLabel = !model.enabled ? "已停用" : "已启用";
                 return (
@@ -478,160 +529,154 @@ export default function WeknoraModelsSection({
         </>
       )}
 
-      {formOpen && effectiveCanEdit && (
-        <div className="mf-connection-editor">
-          <div className="mf-editor-heading">
-            <div>
-              <strong>{editingRef ? "编辑 WeKnora 模型" : "新增 WeKnora 模型"}</strong>
-              <span>地址和密钥仅单向写入；仅在凭据状态已确认时，编辑留空才表示保持原值。</span>
-            </div>
-            <button className="btn-small" onClick={() => setFormOpen(false)} type="button">
-              关闭
-            </button>
-          </div>
-          <form
-            key={editingRef ?? "create"}
-            className="ws-form-grid mf-form-grid"
-            autoComplete="off"
-            onSubmit={(event) => event.preventDefault()}
-            ref={panelRef}
-          >
-            <FormField label="模型名称">
-              <input
-                data-weknora-field="name"
-                autoComplete="off"
-                list={nameSuggestions.length > 0 ? nameListId : undefined}
-                value={form.name}
-                onChange={(event) => setForm({ ...form, name: event.target.value })}
-              />
-              {nameSuggestions.length > 0 && (
-                <>
-                  <datalist id={nameListId}>
-                    {nameSuggestions.map((modelName) => (
-                      <option key={modelName} value={modelName} />
-                    ))}
-                  </datalist>
-                  <small className="mf-field-hint">
-                    可选：{nameSuggestions.join("、")}（也可手动输入）
-                  </small>
-                </>
-              )}
-            </FormField>
-            <FormField label="模型类型">
-              <select
-                data-weknora-field="type"
-                value={form.type}
-                onChange={(event) => setForm({ ...form, type: event.target.value })}
-              >
-                {MODEL_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {modelTypeLabel[t] ?? t}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-            <FormField label="来源">
-              <select
-                data-weknora-field="source"
-                value={form.source ?? "remote"}
-                onChange={(event) => setForm({ ...form, source: event.target.value })}
-              >
-                <option value="remote">远程</option>
-                <option value="local">本地</option>
-              </select>
-            </FormField>
-            <FormField label="Provider">
-              <ProviderSelect
-                ariaLabel="模型供应商"
-                options={providerOptions}
-                value={form.provider ?? ""}
-                disabled={busyAction === "form"}
-                onChange={applyProvider}
-                placeholder="请选择供应商（或自定义）"
-              />
-              {Boolean(form.base_url?.trim()) && (
+      <TaskModal
+        open={formOpen && effectiveCanEdit}
+        title={editingRef ? "编辑 WeKnora 模型" : "新增 WeKnora 模型"}
+        description="地址和密钥仅单向写入；仅在凭据状态已确认时，编辑留空才表示保持原值。"
+        onClose={() => setFormOpen(false)}
+        busy={busyAction === "form"}
+        size="large"
+        eyebrow="WeKnora 模型"
+        panelClassName="mf-connection-editor"
+      >
+        <form
+          key={editingRef ?? "create"}
+          className="ws-form-grid mf-form-grid"
+          autoComplete="off"
+          onSubmit={(event) => event.preventDefault()}
+          ref={panelRef}
+        >
+          <FormField label="模型名称">
+            <input
+              data-weknora-field="name"
+              autoComplete="off"
+              list={nameSuggestions.length > 0 ? nameListId : undefined}
+              value={form.name}
+              onChange={(event) => setForm({ ...form, name: event.target.value })}
+            />
+            {nameSuggestions.length > 0 && (
+              <>
+                <datalist id={nameListId}>
+                  {nameSuggestions.map((modelName) => (
+                    <option key={modelName} value={modelName} />
+                  ))}
+                </datalist>
                 <small className="mf-field-hint">
-                  API 地址已按所选供应商自动带出，可手动修改。
+                  可选：{nameSuggestions.join("、")}（也可手动输入）
                 </small>
-              )}
-            </FormField>
-            <FormField label="API 地址">
-              <input
-                data-weknora-field="base_url"
-                name="weknora_model_endpoint"
-                inputMode="url"
-                autoComplete="off"
-                data-lpignore="true"
-                value={form.base_url ?? ""}
-                placeholder={editingRef ? "留空表示保持原地址" : "https://api.example.com/v1"}
-                onChange={(event) => setForm({ ...form, base_url: event.target.value })}
-              />
-            </FormField>
-            <FormField label="API key">
-              <input
-                data-weknora-field="api_key"
-                name="weknora_model_secret"
-                type="password"
-                autoComplete="new-password"
-                data-lpignore="true"
-                data-1p-ignore="true"
-                value={form.api_key ?? ""}
-                placeholder={editingRef ? "留空表示保持原密钥" : "保存后不再显示"}
-                onChange={(event) => setForm({ ...form, api_key: event.target.value })}
-              />
-            </FormField>
-            <FormField label="描述">
-              <input
-                data-weknora-field="description"
-                autoComplete="off"
-                value={form.description ?? ""}
-                placeholder="可选，模型说明"
-                onChange={(event) => setForm({ ...form, description: event.target.value })}
-              />
-            </FormField>
-            {form.type === "embedding" && (
-              <FormField label="向量维度">
-                <input
-                  type="number"
-                  value={form.dimension ?? ""}
-                  placeholder="如 1536"
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      dimension: event.target.value ? Number(event.target.value) : null,
-                    })
-                  }
-                />
-              </FormField>
+              </>
             )}
-            <FormField label="启用状态">
-              <select
-                data-weknora-field="enabled"
-                value={form.enabled ? "enabled" : "disabled"}
-                onChange={(event) =>
-                  setForm({ ...form, enabled: event.target.value === "enabled" })
-                }
-              >
-                <option value="enabled">已启用</option>
-                <option value="disabled">已停用</option>
-              </select>
-            </FormField>
-          </form>
-          <div className="mf-editor-actions">
-            <button
-              className="btn-small-primary"
-              onClick={() => void saveModel()}
-              disabled={busyAction === "form"}
-              type="button"
+          </FormField>
+          <FormField label="模型类型">
+            <select
+              data-weknora-field="type"
+              value={form.type}
+              onChange={(event) => setForm({ ...form, type: event.target.value })}
             >
-              {busyAction === "form" ? "保存中…" : "保存 WeKnora 模型"}
-            </button>
-            <button className="btn-small" onClick={() => setFormOpen(false)} type="button">
-              取消
-            </button>
-          </div>
+              {MODEL_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {modelTypeLabel[t] ?? t}
+                </option>
+              ))}
+            </select>
+          </FormField>
+          <FormField label="来源">
+            <select
+              data-weknora-field="source"
+              value={form.source ?? "remote"}
+              onChange={(event) => setForm({ ...form, source: event.target.value })}
+            >
+              <option value="remote">远程</option>
+              <option value="local">本地</option>
+            </select>
+          </FormField>
+          <FormField label="Provider">
+            <ProviderSelect
+              ariaLabel="模型供应商"
+              options={providerOptions}
+              value={form.provider ?? ""}
+              disabled={busyAction === "form"}
+              onChange={applyProvider}
+              placeholder="请选择供应商（或自定义）"
+            />
+            {Boolean(form.base_url?.trim()) && (
+              <small className="mf-field-hint">API 地址已按所选供应商自动带出，可手动修改。</small>
+            )}
+          </FormField>
+          <FormField label="API 地址">
+            <input
+              data-weknora-field="base_url"
+              name="weknora_model_endpoint"
+              inputMode="url"
+              autoComplete="off"
+              data-lpignore="true"
+              value={form.base_url ?? ""}
+              placeholder={editingRef ? "留空表示保持原地址" : "https://api.example.com/v1"}
+              onChange={(event) => setForm({ ...form, base_url: event.target.value })}
+            />
+          </FormField>
+          <FormField label="API key">
+            <input
+              data-weknora-field="api_key"
+              name="weknora_model_secret"
+              type="password"
+              autoComplete="new-password"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              value={form.api_key ?? ""}
+              placeholder={editingRef ? "留空表示保持原密钥" : "保存后不再显示"}
+              onChange={(event) => setForm({ ...form, api_key: event.target.value })}
+            />
+          </FormField>
+          <FormField label="描述">
+            <input
+              data-weknora-field="description"
+              autoComplete="off"
+              value={form.description ?? ""}
+              placeholder="可选，模型说明"
+              onChange={(event) => setForm({ ...form, description: event.target.value })}
+            />
+          </FormField>
+          {form.type === "embedding" && (
+            <FormField label="向量维度">
+              <input
+                type="number"
+                value={form.dimension ?? ""}
+                placeholder="如 1536"
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    dimension: event.target.value ? Number(event.target.value) : null,
+                  })
+                }
+              />
+            </FormField>
+          )}
+          <FormField label="启用状态">
+            <select
+              data-weknora-field="enabled"
+              value={form.enabled ? "enabled" : "disabled"}
+              onChange={(event) => setForm({ ...form, enabled: event.target.value === "enabled" })}
+            >
+              <option value="enabled">已启用</option>
+              <option value="disabled">已停用</option>
+            </select>
+          </FormField>
+        </form>
+        <div className="mf-editor-actions">
+          <button
+            className="btn-small-primary"
+            onClick={() => void saveModel()}
+            disabled={busyAction === "form"}
+            type="button"
+          >
+            {busyAction === "form" ? "保存中…" : "保存 WeKnora 模型"}
+          </button>
+          <button className="btn-small" onClick={() => setFormOpen(false)} type="button">
+            取消
+          </button>
         </div>
-      )}
+      </TaskModal>
 
       <ConfirmDialog
         open={Boolean(deleteTarget)}

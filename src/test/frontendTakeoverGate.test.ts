@@ -413,7 +413,8 @@ describe("frontend route takeover gate", () => {
     expect(dashboard).toContain('item.scope === "project"');
     expect(dashboard).toContain('return "/admin/weknora-models"');
     expect(targetPage).toContain("知识库配置");
-    expect(targetPage).toContain("初始化失败");
+    expect(targetPage).toContain('init_failed: "初始化异常"');
+    expect(targetPage).toContain('title="管理知识库配置"');
   });
 
   it("keeps every top-level production Page reachable or explicitly exempted", () => {
