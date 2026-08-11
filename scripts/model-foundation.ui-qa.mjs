@@ -13,11 +13,12 @@ const outDir = path.join(
 fs.mkdirSync(outDir, { recursive: true });
 
 const viewports = [
-  { name: "desktop", width: 1440, height: 1080 },
+  { name: "1440", width: 1440, height: 1080 },
+  { name: "1280", width: 1280, height: 900 },
   { name: "mobile-390", width: 390, height: 844 },
 ];
 const scenarios = [
-  "overview",
+  "normal",
   "external-drawer",
   "weknora-drawer",
   "kb-drawer",
@@ -288,7 +289,7 @@ try {
           hasInternalError: text.includes("UI QA route not configured"),
         };
       }, scenario);
-      const expectedDialogs = scenario === "overview" || scenario === "forbidden" ? 0 : 1;
+      const expectedDialogs = scenario === "normal" || scenario === "forbidden" ? 0 : 1;
       const scenarioPass =
         metrics.overviewCards === 3 &&
         !metrics.mainHasGrowingRows &&
