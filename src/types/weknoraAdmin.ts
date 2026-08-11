@@ -20,6 +20,11 @@ export interface KbMigrationStatusDTO {
   job_status: string; // queued | running | completed | completed_with_errors | failed | no_action
   total_count: number;
   success_count: number;
+  completed_count: number;
+  verified_duplicate_count: number;
+  processing_count: number;
+  duplicate_pending_count: number;
+  pending_count: number;
   failed_count: number;
   finished_at: string | null;
 }
@@ -46,6 +51,7 @@ export interface ModelDTO {
   is_builtin: boolean;
   description: string | null;
   dimension?: number | null;
+  credential_status: "configured" | "missing" | "unknown";
 }
 
 export interface ModelSlotDTO {
@@ -129,6 +135,7 @@ export interface WeknoraModelMutateResponseDTO {
   type: string;
   provider: string | null;
   status: string;
+  credential_status: "configured" | "missing" | "unknown";
 }
 
 export interface WeknoraModelCheckDTO {
@@ -138,6 +145,8 @@ export interface WeknoraModelCheckDTO {
 export interface WeknoraModelCheckResponseDTO {
   success: boolean;
   message: string;
+  error_code: string | null;
+  credential_status: "configured" | "missing" | "unknown";
 }
 
 export interface WeknoraModelDeleteResponseDTO {

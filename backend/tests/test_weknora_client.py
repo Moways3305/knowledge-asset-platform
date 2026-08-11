@@ -200,6 +200,42 @@ def test_client_unwrap_success_error_and_409():
     assert ed.value.existing_knowledge_id == "doc-x"
 
 
+async def test_list_knowledge_in_kb_uses_scoped_membership_without_row_kb_field(monkeypatch):
+    sent: dict = {}
+
+    class _FakeAsyncClient:
+        def __init__(self, *_, **__):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        async def get(self, url, *, params, headers):
+            sent.update({"url": url, "params": params, "headers": headers})
+            return httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "data": [{"id": "doc-1", "parse_status": "completed"}],
+                    "total": 1,
+                },
+            )
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+    client = WeKnoraClient(base_url="http://wk", api_key="sk-test")
+    rows, total = await client.list_knowledge_in_kb(
+        "target-kb", page=1, page_size=1000, trace_id="trace"
+    )
+
+    assert rows == [{"id": "doc-1", "parse_status": "completed"}]
+    assert total == 1
+    assert sent["url"].endswith("/knowledge-bases/target-kb/knowledge")
+    assert sent["params"] == {"page": 1, "page_size": 1000}
+
+
 async def test_initialize_kb_requires_current_contract():
     c = WeKnoraClient(base_url="http://x", api_key="sk-test")
     with pytest.raises(WeKnoraError) as ei:
@@ -710,3 +746,29 @@ async def test_saved_model_checks_emit_v071_non_sensitive_payload(method_name, e
         "appSecret",
         "credentials",
     }.intersection(captured["json"])
+
+
+async def test_v071_model_credentials_use_dedicated_subresource_and_safe_metadata():
+    client = WeKnoraClient(base_url="http://wk", api_key="sk-platform-only")
+    calls = []
+
+    async def capture(method, path, *, json=None, trace_id=None, **_):
+        calls.append((method, path, json, trace_id))
+        return {"fields": {"api_key": {"configured": True}}}
+
+    client._call = capture  # type: ignore[method-assign]
+    written = await client.update_model_credentials(
+        "saved-model-internal-id", api_key="controlled-test-value", trace_id="trace-safe"
+    )
+    read = await client.get_model_credentials("saved-model-internal-id", trace_id="trace-safe")
+
+    assert calls == [
+        (
+            "PUT",
+            "/models/saved-model-internal-id/credentials",
+            {"api_key": "controlled-test-value"},
+            "trace-safe",
+        ),
+        ("PUT", "/models/saved-model-internal-id/credentials", {}, "trace-safe"),
+    ]
+    assert written == read == {"fields": {"api_key": {"configured": True}}}

@@ -435,6 +435,18 @@ function KbConfigRow({
   const [migrateOpen, setMigrateOpen] = useState(false);
   const migrationActive =
     cfg.migration != null && ["queued", "running"].includes(cfg.migration.job_status);
+  const migrationNeedsReconcile =
+    cfg.mapping_status === "migrating" &&
+    cfg.migration != null &&
+    !migrationActive &&
+    cfg.migration.pending_count > 0 &&
+    cfg.migration.failed_count === 0;
+  const migrationNeedsCloseRetry =
+    cfg.mapping_status === "migrating" &&
+    cfg.migration != null &&
+    !migrationActive &&
+    cfg.migration.pending_count === 0 &&
+    cfg.migration.failed_count === 0;
 
   useEffect(() => {
     setChat(cfg.chat?.model_ref ?? "");
@@ -520,7 +532,7 @@ function KbConfigRow({
           <button
             className="btn-small-primary"
             onClick={() => void save()}
-            disabled={busy || migrationActive}
+            disabled={busy || migrationActive || cfg.mapping_status === "migrating"}
           >
             {busy ? "保存中…" : "保存"}
           </button>
@@ -532,7 +544,15 @@ function KbConfigRow({
             disabled={migrationActive}
             title="重建知识库并迁移到新的嵌入模型"
           >
-            {migrationActive ? "迁移中…" : "迁移库"}
+            {migrationActive
+              ? "迁移中…"
+              : migrationNeedsReconcile
+                ? "再次核验"
+                : migrationNeedsCloseRetry
+                  ? "重试收口"
+                  : cfg.mapping_status === "migrating"
+                    ? "重试失败项"
+                    : "迁移库"}
           </button>
         )}
         {cfg.migration && (
@@ -554,15 +574,24 @@ function KbConfigRow({
             }
             counts={[
               { label: "总数", value: cfg.migration.total_count },
-              { label: "成功", value: cfg.migration.success_count, tone: "success" },
+              { label: "直接完成", value: cfg.migration.completed_count, tone: "success" },
+              {
+                label: "重复已核验",
+                value: cfg.migration.verified_duplicate_count,
+                tone: "success",
+              },
+              { label: "处理中", value: cfg.migration.processing_count },
+              { label: "重复待核验", value: cfg.migration.duplicate_pending_count },
               { label: "失败", value: cfg.migration.failed_count, tone: "danger" },
             ]}
             nextStep={
               migrationActive
                 ? "无需重复提交，页面会自动刷新进度。"
                 : cfg.migration.failed_count > 0
-                  ? "检查模型与底座状态后，再次迁移未成功项目。"
-                  : "迁移结果已达到当前终态。"
+                  ? "旧库仍保留；检查模型与底座状态后，仅重试失败项。"
+                  : cfg.migration.pending_count > 0
+                    ? "旧库仍保留；请等待处理完成后再次核验。"
+                    : "最终核验已完成，迁移达到终态。"
             }
           />
         )}

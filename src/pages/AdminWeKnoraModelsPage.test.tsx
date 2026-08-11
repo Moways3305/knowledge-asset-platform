@@ -8,6 +8,7 @@ import {
   fetchWeknoraProviders,
   migrateWeknoraKb,
   createWeknoraModel,
+  checkWeknoraModel,
   updateWeknoraDefaultModels,
   updateWeknoraKbInit,
 } from "../api/admin";
@@ -22,6 +23,7 @@ import {
 } from "../api/modelConnections";
 import AdminWeKnoraModelsPage from "./AdminWeKnoraModelsPage";
 import type { ModelConnectionDTO } from "../types/modelConnections";
+import type { ModelDTO } from "../types/weknoraAdmin";
 
 const auth = vi.hoisted(() => ({
   capabilities: { isAdmin: true, isGovernance: false, isProjectManager: false },
@@ -38,6 +40,7 @@ vi.mock("../api/admin", () => ({
   fetchWeknoraProviders: vi.fn(),
   migrateWeknoraKb: vi.fn(),
   createWeknoraModel: vi.fn(),
+  checkWeknoraModel: vi.fn(),
   updateWeknoraDefaultModels: vi.fn(),
   updateWeknoraKbInit: vi.fn(),
 }));
@@ -114,6 +117,13 @@ describe("AdminWeKnoraModelsPage", () => {
       type: "chat",
       provider: "aliyun",
       status: "ok",
+      credential_status: "configured",
+    });
+    vi.mocked(checkWeknoraModel).mockResolvedValue({
+      success: true,
+      message: "凭据已确认保存，连通性已验证",
+      error_code: null,
+      credential_status: "configured",
     });
     vi.mocked(fetchWeknoraKbConfigs).mockResolvedValue([]);
     vi.mocked(fetchWeknoraDefaultModels).mockResolvedValue({
@@ -178,6 +188,37 @@ describe("AdminWeKnoraModelsPage", () => {
     expect(container.querySelector(".mf-foundation-panel")).toBeInTheDocument();
     expect(container.querySelector(".mf-kb-section")).toBeInTheDocument();
     expect(screen.queryByText("新增内容生成模型")).not.toBeInTheDocument();
+  });
+
+  it("shows credential truth and never treats available=false as connected", async () => {
+    vi.mocked(fetchWeknoraModels).mockResolvedValue([
+      {
+        model_ref: "safe-embedding-ref",
+        name: "text-embedding-v3",
+        type: "embedding",
+        source: "remote",
+        provider: "aliyun",
+        enabled: true,
+        is_builtin: false,
+        description: null,
+        credential_status: "configured",
+      },
+    ]);
+    vi.mocked(checkWeknoraModel).mockResolvedValue({
+      success: false,
+      message: "连通性测试失败，请检查凭据、网络或模型协议后重试",
+      error_code: "model_unavailable",
+      credential_status: "configured",
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /展开模型列表/ }));
+    expect(screen.getByText("凭据已确认保存，等待连通性测试")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "测试连通性" }));
+    expect(
+      await screen.findByText("连通性测试失败，请检查凭据、网络或模型协议后重试"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("连通性测试失败，可查看安全错误说明后重试")).toBeInTheDocument();
+    expect(screen.queryByText("模型连通性正常")).not.toBeInTheDocument();
   });
 
   it("adds anti-autofill attributes and never pre-fills saved secrets", async () => {
@@ -247,6 +288,7 @@ describe("AdminWeKnoraModelsPage", () => {
         enabled: true,
         is_builtin: false,
         description: null,
+        credential_status: "configured",
       },
     ]);
     vi.mocked(fetchWeknoraKbConfigs).mockResolvedValue([
@@ -284,7 +326,7 @@ describe("AdminWeKnoraModelsPage", () => {
   });
 
   it("re-reads and renders the saved KB configuration from the server", async () => {
-    const availableModels = [
+    const availableModels: ModelDTO[] = [
       {
         model_ref: "foundation-chat-ref",
         name: "底座兼容模型",
@@ -294,6 +336,7 @@ describe("AdminWeKnoraModelsPage", () => {
         enabled: true,
         is_builtin: false,
         description: null,
+        credential_status: "configured",
       },
       {
         model_ref: "embedding-ref",
@@ -304,6 +347,7 @@ describe("AdminWeKnoraModelsPage", () => {
         enabled: true,
         is_builtin: false,
         description: null,
+        credential_status: "configured",
       },
     ];
     const initial = {
@@ -372,6 +416,7 @@ describe("AdminWeKnoraModelsPage", () => {
         enabled: true,
         is_builtin: false,
         description: null,
+        credential_status: "configured",
       },
       {
         model_ref: "foundation-chat-ref",
@@ -382,6 +427,7 @@ describe("AdminWeKnoraModelsPage", () => {
         enabled: true,
         is_builtin: false,
         description: null,
+        credential_status: "configured",
       },
     ]);
     renderPage();
@@ -457,6 +503,51 @@ describe("AdminWeKnoraModelsPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows final reconciliation truth and only offers verification when nothing failed", async () => {
+    vi.mocked(fetchWeknoraKbConfigs).mockResolvedValue([
+      {
+        mapping_id: "safe-mapping-id",
+        scope: "company",
+        kb_name: "公司知识库",
+        project_name: null,
+        owner_name: null,
+        mapping_status: "migrating",
+        chat: null,
+        embedding: null,
+        rerank: null,
+        multimodal: null,
+        config_error: null,
+        migration: {
+          job_id: "safe-job-id",
+          job_status: "completed_with_errors",
+          total_count: 8,
+          success_count: 5,
+          completed_count: 3,
+          verified_duplicate_count: 2,
+          processing_count: 1,
+          duplicate_pending_count: 2,
+          pending_count: 3,
+          failed_count: 0,
+          finished_at: "2026-08-10T00:00:00Z",
+        },
+      },
+    ]);
+
+    renderPage();
+
+    const statusCard = await screen.findByRole("status");
+    expect(within(statusCard).getByText("直接完成").nextElementSibling).toHaveTextContent("3");
+    expect(within(statusCard).getByText("重复已核验").nextElementSibling).toHaveTextContent("2");
+    expect(within(statusCard).getByText("处理中").nextElementSibling).toHaveTextContent("1");
+    expect(within(statusCard).getByText("重复待核验").nextElementSibling).toHaveTextContent("2");
+    expect(within(statusCard).getByText("失败").nextElementSibling).toHaveTextContent("0");
+    expect(
+      within(statusCard).getByText("旧库仍保留；请等待处理完成后再次核验。"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "再次核验" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重试失败项" })).not.toBeInTheDocument();
+  });
+
   it("submits a KB migration with the chosen models", async () => {
     vi.mocked(fetchWeknoraModels).mockResolvedValue([
       {
@@ -468,6 +559,7 @@ describe("AdminWeKnoraModelsPage", () => {
         enabled: true,
         is_builtin: false,
         description: null,
+        credential_status: "configured",
       },
       {
         model_ref: "chat-new",
@@ -478,6 +570,7 @@ describe("AdminWeKnoraModelsPage", () => {
         enabled: true,
         is_builtin: false,
         description: null,
+        credential_status: "configured",
       },
     ]);
     vi.mocked(fetchWeknoraKbConfigs).mockResolvedValue([

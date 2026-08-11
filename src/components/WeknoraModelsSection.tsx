@@ -202,11 +202,21 @@ export default function WeknoraModelsSection({
       if (editingRef) {
         if (!payload.base_url?.trim()) delete payload.base_url;
         if (!payload.api_key?.trim()) delete payload.api_key;
-        await updateWeknoraModel(editingRef, payload);
+        const result = await updateWeknoraModel(editingRef, payload);
+        if (result.credential_status !== "configured" && payload.source === "remote") {
+          throw new Error("credential status unconfirmed");
+        }
       } else {
-        await createWeknoraModel(payload);
+        const result = await createWeknoraModel(payload);
+        if (result.credential_status !== "configured" && payload.source === "remote") {
+          throw new Error("credential status unconfirmed");
+        }
       }
-      setNote(editingRef ? "WeKnora 模型已更新。" : "WeKnora 模型已创建。");
+      setNote(
+        payload.source === "remote"
+          ? "凭据已确认保存，请继续执行连通性测试。"
+          : "模型配置已保存，请继续执行连通性测试。",
+      );
       setFormOpen(false);
       await load();
       setCardStackOpen(true);
@@ -407,8 +417,18 @@ export default function WeknoraModelsSection({
                           </div>
                         )}
                         <div>
-                          <dt>API 地址 / API key</dt>
-                          <dd>已安全保存，不回显</dd>
+                          <dt>凭据与连通性</dt>
+                          <dd>
+                            {testNotice?.tone === "success"
+                              ? "凭据已确认保存，连通性已验证"
+                              : testNotice?.tone === "danger"
+                                ? "连通性测试失败，可查看安全错误说明后重试"
+                                : model.credential_status === "configured"
+                                  ? "凭据已确认保存，等待连通性测试"
+                                  : model.source === "local"
+                                    ? "本地模型无需远程凭据，等待连通性测试"
+                                    : "凭据保存状态未确认，请重新配置并测试"}
+                          </dd>
                         </div>
                         {model.description && (
                           <div>
@@ -463,7 +483,7 @@ export default function WeknoraModelsSection({
           <div className="mf-editor-heading">
             <div>
               <strong>{editingRef ? "编辑 WeKnora 模型" : "新增 WeKnora 模型"}</strong>
-              <span>地址和密钥仅单向写入；编辑时留空即保持原值。</span>
+              <span>地址和密钥仅单向写入；仅在凭据状态已确认时，编辑留空才表示保持原值。</span>
             </div>
             <button className="btn-small" onClick={() => setFormOpen(false)} type="button">
               关闭

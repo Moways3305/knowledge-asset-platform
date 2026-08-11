@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -41,6 +42,7 @@ class ModelOut(BaseModel):
     enabled: bool = True
     is_builtin: bool = False
     description: str | None = None
+    credential_status: Literal["configured", "missing", "unknown"] = "unknown"
 
 
 class ModelListResponse(BaseModel):
@@ -69,6 +71,7 @@ class ModelMutateResponse(BaseModel):
     type: str
     provider: str | None = None
     status: str = "ok"
+    credential_status: Literal["configured", "missing", "unknown"] = "configured"
 
 
 class ModelDeleteResponse(BaseModel):
@@ -88,6 +91,8 @@ class ModelCheckRequest(BaseModel):
 class ModelCheckResponse(BaseModel):
     success: bool
     message: str
+    error_code: str | None = None
+    credential_status: Literal["configured", "missing", "unknown"] = "unknown"
 
 
 class ModelSlotOut(BaseModel):
@@ -125,6 +130,11 @@ class KbMigrationStatusOut(BaseModel):
     job_status: str  # queued | running | completed | completed_with_errors | failed | no_action
     total_count: int = 0
     success_count: int = 0
+    completed_count: int = 0
+    verified_duplicate_count: int = 0
+    processing_count: int = 0
+    duplicate_pending_count: int = 0
+    pending_count: int = 0
     failed_count: int = 0
     finished_at: datetime | None = None
 

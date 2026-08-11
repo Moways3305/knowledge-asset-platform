@@ -5433,6 +5433,16 @@
       "KbMigrationStatusOut": {
         "description": "知识库重建迁移作业的安全摘要（无 kb_id / 真实 model_id）。",
         "properties": {
+          "completed_count": {
+            "default": 0,
+            "title": "Completed Count",
+            "type": "integer"
+          },
+          "duplicate_pending_count": {
+            "default": 0,
+            "title": "Duplicate Pending Count",
+            "type": "integer"
+          },
           "failed_count": {
             "default": 0,
             "title": "Failed Count",
@@ -5459,6 +5469,16 @@
             "title": "Job Status",
             "type": "string"
           },
+          "pending_count": {
+            "default": 0,
+            "title": "Pending Count",
+            "type": "integer"
+          },
+          "processing_count": {
+            "default": 0,
+            "title": "Processing Count",
+            "type": "integer"
+          },
           "success_count": {
             "default": 0,
             "title": "Success Count",
@@ -5467,6 +5487,11 @@
           "total_count": {
             "default": 0,
             "title": "Total Count",
+            "type": "integer"
+          },
+          "verified_duplicate_count": {
+            "default": 0,
+            "title": "Verified Duplicate Count",
             "type": "integer"
           }
         },
@@ -6668,6 +6693,27 @@
       },
       "ModelCheckResponse": {
         "properties": {
+          "credential_status": {
+            "default": "unknown",
+            "enum": [
+              "configured",
+              "missing",
+              "unknown"
+            ],
+            "title": "Credential Status",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
           "message": {
             "title": "Message",
             "type": "string"
@@ -7096,6 +7142,16 @@
       "ModelMutateResponse": {
         "description": "变更结果：仅安全状态 + 新 model_ref，绝不回显 secret / 真实 id。",
         "properties": {
+          "credential_status": {
+            "default": "configured",
+            "enum": [
+              "configured",
+              "missing",
+              "unknown"
+            ],
+            "title": "Credential Status",
+            "type": "string"
+          },
           "model_ref": {
             "title": "Model Ref",
             "type": "string"
@@ -7214,6 +7270,16 @@
       "ModelOut": {
         "description": "安全模型视图：无 server-only id / 无 key / 无 base_url。",
         "properties": {
+          "credential_status": {
+            "default": "unknown",
+            "enum": [
+              "configured",
+              "missing",
+              "unknown"
+            ],
+            "title": "Credential Status",
+            "type": "string"
+          },
           "description": {
             "anyOf": [
               {

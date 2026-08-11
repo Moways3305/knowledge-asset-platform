@@ -287,6 +287,35 @@ class WeKnoraClient:
             )
         return self._unwrap(resp)
 
+    async def list_knowledge_in_kb(
+        self,
+        kb_id: str,
+        *,
+        page: int = 1,
+        page_size: int = 1000,
+        trace_id: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """List documents through the KB-scoped endpoint.
+
+        Membership in this response is the ownership proof; individual document
+        details in WeKnora v0.7.1 may omit ``knowledge_base_id``.
+        """
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.get(
+                f"{self._base}/knowledge-bases/{kb_id}/knowledge",
+                params={"page": max(1, page), "page_size": max(1, min(page_size, 1000))},
+                headers=self._headers(trace_id),
+            )
+        data = self._unwrap(resp)
+        items: list[dict[str, Any]] = (
+            [item for item in data if isinstance(item, dict)] if isinstance(data, list) else []
+        )
+        try:
+            total = int(resp.json().get("total", len(items)))
+        except (AttributeError, TypeError, ValueError):
+            total = len(items)
+        return items, max(total, len(items))
+
     async def reparse_knowledge(
         self,
         *,
@@ -314,7 +343,6 @@ class WeKnoraClient:
                 # doc 可能已不存在 / 底座删除失败：不阻断重传，继续上传新 doc。
                 _logger.warning(
                     "weknora_reparse_delete_failed",
-                    extra={"knowledge_id": knowledge_id},
                     exc_info=True,
                 )
         return await self.upload_file(
@@ -558,6 +586,31 @@ class WeKnoraClient:
         )
         return result
 
+    async def get_model_credentials(
+        self, model_id: str, *, trace_id: str | None = None
+    ) -> dict[str, Any]:
+        """Read only per-field configured metadata; WeKnora never returns secret values here.
+
+        WeKnora v0.7.1 exposes this read through an empty PUT to the dedicated credentials
+        subresource (there is no GET variant).
+        """
+        result: dict[str, Any] = await self._call(
+            "PUT", f"/models/{model_id}/credentials", json={}, trace_id=trace_id
+        )
+        return result
+
+    async def update_model_credentials(
+        self, model_id: str, *, api_key: str, trace_id: str | None = None
+    ) -> dict[str, Any]:
+        """Write a model API key through the v0.7.1 credential subresource."""
+        result: dict[str, Any] = await self._call(
+            "PUT",
+            f"/models/{model_id}/credentials",
+            json={"api_key": api_key},
+            trace_id=trace_id,
+        )
+        return result
+
     async def delete_model(self, model_id: str, *, trace_id: str | None = None) -> None:
         await self._call("DELETE", f"/models/{model_id}", trace_id=trace_id)
 
@@ -710,6 +763,9 @@ class NullWeKnoraClient:
     async def get_knowledge(self, *_: Any, **__: Any) -> dict[str, Any]:
         raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
 
+    async def list_knowledge_in_kb(self, *_: Any, **__: Any) -> tuple[list[dict[str, Any]], int]:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
     async def reparse_knowledge(self, **_: Any) -> dict[str, Any]:
         raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
 
@@ -740,6 +796,12 @@ class NullWeKnoraClient:
         raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
 
     async def update_model(self, *_: Any, **__: Any) -> dict[str, Any]:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
+    async def get_model_credentials(self, *_: Any, **__: Any) -> dict[str, Any]:
+        raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
+
+    async def update_model_credentials(self, *_: Any, **__: Any) -> dict[str, Any]:
         raise WeKnoraError("weknora_not_configured", "WeKnora 未配置")
 
     async def delete_model(self, *_: Any, **__: Any) -> None:
