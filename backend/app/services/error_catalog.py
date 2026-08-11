@@ -76,6 +76,30 @@ _CATALOG: dict[str, ErrorInfo] = {
         remediation_hint="检查平台存储路径、后端 / worker 共享卷，以及源文件是否仍存在。",
         severity="error",
     ),
+    "canonical_markdown_unavailable": ErrorInfo(
+        user_message="规范文本暂不可用，资产和原件已保留，可补齐后重试索引。",
+        operator_message="当前版本缺少可校验的规范 Markdown 派生件。",
+        remediation_hint="运行规范文本补齐作业；若原件仍存在将幂等重建，否则安排重新上传。",
+        severity="error",
+    ),
+    "canonical_markdown_source_missing": ErrorInfo(
+        user_message="规范文本无法补齐，原件当前不可用；现有资产记录已保留。",
+        operator_message="历史版本缺少规范 Markdown，且受控原件不可读。",
+        remediation_hint="恢复原件存储或让有权限的业务人员重新上传，不要删除现有资产或索引记录。",
+        severity="error",
+    ),
+    "canonical_markdown_extraction_failed": ErrorInfo(
+        user_message="原件正文提取失败，规范文本尚未生成；可修复文件后重试。",
+        operator_message="历史原件可读，但正文提取未成功。",
+        remediation_hint="核对文件格式和完整性后重跑补齐；不要把原件直接投递到底座。",
+        severity="error",
+    ),
+    "weknora_parse_failed": ErrorInfo(
+        user_message="规范文本已提交，但知识底座解析失败，可重新解析。",
+        operator_message="WeKnora 对规范 Markdown 的异步解析失败。",
+        remediation_hint="复用已保存的规范 Markdown 重新解析；不要重新上传原件。",
+        severity="error",
+    ),
     "index_unexpected_error": ErrorInfo(
         user_message="资产已保存，但索引处理出现未预期异常，可在运维后台重试索引。",
         operator_message="确认后索引环节抛出未预期异常（非底座返回的已知错误）。",
@@ -105,6 +129,10 @@ _ALIASES: dict[str, str] = {
     "http_error": "weknora_call_failed",
     "invalid_response": "weknora_call_failed",
     "create_kb_no_id": "weknora_init_failed",
+    "canonical_markdown_generation_failed": "canonical_markdown_unavailable",
+    "canonical_markdown_invalid": "canonical_markdown_unavailable",
+    "canonical_markdown_required": "canonical_markdown_unavailable",
+    "canonical_markdown_version_missing": "canonical_markdown_unavailable",
 }
 
 _DIAGNOSTIC_CATEGORIES: dict[str, str] = {
@@ -115,6 +143,10 @@ _DIAGNOSTIC_CATEGORIES: dict[str, str] = {
     "weknora_default_model_not_configured": "configuration",
     "weknora_call_failed": "external_service",
     "source_file_unreadable": "source_content",
+    "canonical_markdown_unavailable": "source_content",
+    "canonical_markdown_source_missing": "source_content",
+    "canonical_markdown_extraction_failed": "source_content",
+    "weknora_parse_failed": "external_service",
     "index_unexpected_error": "platform",
     "wecom_scan_failed": "external_service",
     "unknown": "unknown",

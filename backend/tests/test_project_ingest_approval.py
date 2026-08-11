@@ -11,7 +11,7 @@ from sqlalchemy import func, select, update
 from app.main import app
 from app.models.audit import AuditEvent
 from app.models.identity import ProjectMember
-from app.models.ingest import IngestTask
+from app.models.ingest import IngestTask, IngestTaskDerivative
 from app.models.knowledge import KnowledgeAsset
 from app.models.review import CompanyAssetReviewDecision, ReviewTask
 from app.seed.dev_seed import (
@@ -345,3 +345,45 @@ async def test_index_failure_stays_invisible_and_retry_reuses_asset(
     assert retried.json()["status"] == "approved"
     assert retried.json()["target_asset_id"] == asset_id
     assert succeeding.upload_count == 1
+
+
+async def test_approval_revalidates_canonical_markdown_before_materialization(
+    client, db_session, monkeypatch
+):
+    monkeypatch.setattr("app.services.ingest.weknora_enabled", lambda: True)
+    fake = _ApprovalWeKnora(fail=False)
+    app.dependency_overrides[get_weknora_client] = lambda: fake
+    task_id, review_id = await _submit(client, title="Markdown 完整性审批保护")
+
+    derivative = await db_session.scalar(
+        select(IngestTaskDerivative).where(
+            IngestTaskDerivative.ingest_task_id == uuid.UUID(task_id),
+            IngestTaskDerivative.derivative_type == "canonical_markdown",
+        )
+    )
+    assert derivative is not None
+    derivative.content_hash = "0" * 64
+    await db_session.commit()
+
+    response = await client.post(
+        f"{REVIEWS}/{review_id}/approve",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["denied_reason"] == "canonical_markdown_not_ready"
+    assert fake.upload_count == 0
+    db_session.expire_all()
+    review = await db_session.get(ReviewTask, uuid.UUID(review_id))
+    task = await db_session.get(IngestTask, uuid.UUID(task_id))
+    assert review is not None and review.status == "approval_failed"
+    assert review.target_asset_id is None
+    assert task is not None and task.status == "waiting_review"
+    assert task.result_asset_id is None
+    asset_count = await db_session.scalar(
+        select(func.count())
+        .select_from(KnowledgeAsset)
+        .where(KnowledgeAsset.title == "Markdown 完整性审批保护")
+    )
+    assert asset_count == 0

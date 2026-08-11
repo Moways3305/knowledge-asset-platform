@@ -312,12 +312,13 @@ async def test_confirm_pushes_and_writes_back(client, weknora, db_session):
     r = await _confirm(client, USER_CONSULTANT, task_id)
     assert r.status_code == 200, r.text
     assert r.json()["parse_status"] == "processing"
-    # 原文字节真推进底座，metadata 带安全回链。
+    # 规范 Markdown 真推进底座，metadata 带安全回链。
     assert len(weknora.uploads) == 1
     up = weknora.uploads[0]
     # 阶段2：底座收治理文本（md），不收原件字节。
-    assert up["file_name"] == "doc.md"
-    assert up["content"] == _TXT
+    assert up["file_name"] == "doc.canonical.md"
+    assert up["content"].startswith(b"# doc")
+    assert _TXT in up["content"]
     assert up["metadata"]["asset_id"] == r.json()["result_asset_id"]
     assert "confidentiality_level" in up["metadata"]
     # 业务库回写 doc/kb（server-only）。
@@ -345,10 +346,10 @@ async def test_confirm_pushes_and_writes_back(client, weknora, db_session):
         .all()
     )
     assert chunk_rows, "索引成功后应落 chunk 注册表"
-    assert "第一行标题" in chunk_rows[0].content_text
-    # 索引成功标 indexed；建库后执行了初始化。
-    assert r.json()["index_status"] == "indexed"
-    assert ver.index_status == "indexed"
+    assert any("第一行标题" in row.content_text for row in chunk_rows)
+    # 上传受理后保持处理中；只有解析终态才能标记可检索。
+    assert r.json()["index_status"] == "indexing"
+    assert ver.index_status == "indexing"
     assert len(weknora.initialized) == 1
 
 
@@ -372,7 +373,7 @@ async def test_confirm_uploads_governance_text_not_original_docx(client, weknora
     r = await _confirm(client, USER_CONSULTANT, task_id)
     assert r.status_code == 200, r.text
     up = weknora.uploads[0]
-    assert up["file_name"] == "report.md"
+    assert up["file_name"] == "report.canonical.md"
     assert "供应链优化交付报告" in up["content"].decode("utf-8")
     assert up["content"] != original  # 原件 docx 字节不进底座
 
@@ -515,7 +516,7 @@ async def test_weknora_init_retry_recovers(client, db_session, monkeypatch):
             client, USER_CONSULTANT, file_name="b.txt", content=b"second content body"
         )
         r2 = await _confirm(client, USER_CONSULTANT, t2, title="第二份")
-        assert r2.json()["index_status"] == "indexed"
+        assert r2.json()["index_status"] == "indexing"
         # 复用既有 KB（未再建新库），映射翻 active。
         assert ok_fake.kbs == {}  # 未新建 KB（命中既有 init_failed 映射）
         assert len(ok_fake.initialized) == 1  # 仅做了一次 ensure-initialized

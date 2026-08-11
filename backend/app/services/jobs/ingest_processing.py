@@ -39,7 +39,7 @@ from app.schemas.enums import (
 from app.schemas.naming import NamingOptionsResponse
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
-from app.services import content_processing, llm_usage, naming_rules
+from app.services import canonical_markdown, content_processing, llm_usage, naming_rules
 from app.services.desensitization import DesensitizationEngine
 from app.services.extraction import extract_text
 from app.services.llm_client import LLMClient, NullLLMClient
@@ -228,7 +228,10 @@ async def process_upload_task(
         await session.execute(
             select(IngestTask)
             .where(IngestTask.id == task_id)
-            .options(selectinload(IngestTask.ai_result))
+            .options(
+                selectinload(IngestTask.ai_result),
+                selectinload(IngestTask.canonical_markdown),
+            )
         )
     ).scalar_one_or_none()
     if task is None:
@@ -258,6 +261,41 @@ async def process_upload_task(
         )
         content_hash = task.source_file_hash or hashlib.sha256(file_bytes).hexdigest()
         task.source_file_hash = content_hash
+        markdown_derivative = None
+        if extraction.status == "extracted" and extraction.text:
+            task.processing_stage = "canonical_markdown_generation"
+            await session.commit()
+            task = (
+                await session.execute(
+                    select(IngestTask)
+                    .where(IngestTask.id == task_id)
+                    .options(
+                        selectinload(IngestTask.ai_result),
+                        selectinload(IngestTask.canonical_markdown),
+                    )
+                    .with_for_update()
+                )
+            ).scalar_one()
+            try:
+                markdown_derivative = await canonical_markdown.ensure_task_markdown(
+                    session,
+                    storage,
+                    task=task,
+                    extracted_text=extraction.text,
+                )
+            except Exception:
+                await canonical_markdown.mark_task_markdown_failed(
+                    session,
+                    task,
+                    code="canonical_markdown_generation_failed",
+                )
+                raise
+        else:
+            await canonical_markdown.mark_task_markdown_failed(
+                session,
+                task,
+                code="canonical_markdown_extraction_failed",
+            )
         dup = await _find_duplicate(session, content_hash, task.id)
         category_context = await _generation_category_context(session, task, actor)
         target_scope = task.target_scope or "unscoped"
@@ -372,7 +410,7 @@ async def process_upload_task(
 
     # ---- 内容性结果：写 ai_result + 推进状态 ----
     _apply_ai_result(task, ai, dup)
-    failed = extraction.status in {"empty", "failed"}
+    failed = extraction.status != "extracted" or markdown_derivative is None
     task.status = IngestStatus.failed.value if failed else IngestStatus.pending_confirmation.value
     task.processing_stage = None
     if failed:

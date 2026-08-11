@@ -56,6 +56,7 @@ const asset: KnowledgeDetailVM = {
     canRetryIndex: false,
   },
   indexStatus: "indexed",
+  canonicalMarkdownStatus: "generated",
   parseStatus: "success",
   indexErrorMessage: null,
   indexedAt: "2026-07-15T08:10:00Z",

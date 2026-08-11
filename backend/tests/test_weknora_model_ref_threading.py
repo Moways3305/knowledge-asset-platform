@@ -186,7 +186,7 @@ async def test_confirm_uses_platform_default_when_no_ref(client, db_session, mon
         task = await _upload(client, USER_CONSULTANT)
         r = await _confirm(client, USER_CONSULTANT, task)
         assert r.status_code == 200, r.text
-        assert r.json()["index_status"] == "indexed"
+        assert r.json()["index_status"] == "indexing"
         assert fake.create_kb_calls == ["emb-A"]  # 用平台默认
         _assert_no_raw_id(r.text)
     finally:
@@ -201,7 +201,7 @@ async def test_confirm_uses_explicit_embedding_ref(client, db_session, monkeypat
         task = await _upload(client, USER_CONSULTANT)
         r = await _confirm(client, USER_CONSULTANT, task, embedding_model_ref=_model_ref("emb-B"))
         assert r.status_code == 200, r.text
-        assert r.json()["index_status"] == "indexed"
+        assert r.json()["index_status"] == "indexing"
         assert fake.create_kb_calls == ["emb-B"]  # 用显式选择，而非默认 A
         _assert_no_raw_id(r.text)
     finally:
@@ -258,7 +258,7 @@ async def test_retry_default_does_not_falsetrip_lock(client, db_session, monkeyp
             f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT)
         )
         assert rr.status_code == 200, rr.text
-        assert rr.json()["index_status"] == "indexed"
+        assert rr.json()["index_status"] == "indexing"
         assert fake.create_kb_calls == ["emb-A"]  # 未重建、未切换
     finally:
         _disable()
@@ -281,7 +281,7 @@ async def test_retry_explicit_conflict_switches_kb_embedding(client, db_session,
             json={"embedding_model_ref": _model_ref("emb-B")},
         )
         assert rr.status_code == 200, rr.text
-        assert rr.json()["index_status"] == "indexed"
+        assert rr.json()["index_status"] == "indexing"
         assert fake.create_kb_calls == ["emb-A"]  # 复用既有 KB，未重建
         mapping = (
             await db_session.execute(

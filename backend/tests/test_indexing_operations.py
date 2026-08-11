@@ -13,14 +13,15 @@ import uuid
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.db.base import Base
 from app.main import app
 from app.models.audit import AuditEvent
 from app.models.indexing_job import IndexingOperationJob
-from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
+from app.models.ingest import IngestTask, IngestTaskDerivative
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetFileObject, KnowledgeAssetVersion
 from app.schemas.permission import CallerContext
 from app.seed.dev_seed import (
     USER_ADMIN_ONLY,
@@ -28,7 +29,7 @@ from app.seed.dev_seed import (
     USER_CONSULTANT,
     seed_dev_identities,
 )
-from app.services import indexing_ops
+from app.services import indexing, indexing_ops
 from app.services.storage import LocalFileStorage
 from app.services.weknora_client import WeKnoraError, get_weknora_client
 
@@ -37,6 +38,29 @@ RETRY = "/admin/ops/indexing/retry"
 REPARSE = "/admin/ops/indexing/reparse"
 JOBS = "/admin/ops/indexing/jobs"
 TARGET_RETRY = "/admin/ops/indexing/failures/{operation_target}/retry"
+MARKDOWN_BACKFILL = "/admin/ops/indexing/markdown-backfill"
+
+
+def test_indexing_boundary_requires_canonical_markdown_filename():
+    with pytest.raises(WeKnoraError) as exc_info:
+        indexing._governance_upload(
+            b"# ordinary markdown",
+            "ordinary.md",
+            "text/markdown",
+        )
+    assert exc_info.value.code == "canonical_markdown_required"
+
+    payload = indexing._governance_upload(
+        b"# canonical markdown",
+        "ordinary.canonical.md",
+        "text/markdown",
+    )
+    assert payload == (
+        b"# canonical markdown",
+        "ordinary.canonical.md",
+        "text/markdown",
+        "# canonical markdown",
+    )
 
 
 def _target_for(asset_id: str | uuid.UUID) -> str:
@@ -58,6 +82,7 @@ class FakeWK:
         # 仅当上传内容含该标记时失败（用于"部分失败"测试，不依赖跨 session 改库）。
         self.fail_marker = fail_marker
         self.uploads: list[bytes] = []
+        self.upload_metadata: list[tuple[str, str | None]] = []
         self.deleted: list[str] = []
         self._kb = 0
         self._doc = 0
@@ -94,6 +119,7 @@ class FakeWK:
             raise WeKnoraError("weknora_down", "底座不可用")
         self._doc += 1
         self.uploads.append(content)
+        self.upload_metadata.append((file_name, mime))
         return {"id": f"doc-{self._doc}", "parse_status": "processing", "file_hash": "h"}
 
     async def get_knowledge(self, knowledge_id, *, trace_id=None):
@@ -214,14 +240,96 @@ async def _make_index_failed(
 
 
 async def _make_indexed(client, monkeypatch, user, *, content=_TXT, title="已索引资产"):
-    """用成功 fake 走 confirm，生成一个 indexed 资产，返回 asset_id。"""
+    """Confirm, then reconcile provider completion before returning the asset."""
     ok = FakeWK()
     _enable(monkeypatch, ok)
     task_id = await _upload(client, user, content=content)
     r = await _confirm(client, user, task_id, title=title)
     assert r.status_code == 200, r.text
-    assert r.json()["index_status"] == "indexed"
+    assert r.json()["index_status"] == "indexing"
+    refreshed = await client.post(
+        f"/api/v1/ingest/{task_id}/refresh-parse",
+        headers=_hdr(user),
+    )
+    assert refreshed.status_code == 200
+    assert refreshed.json()["parse_status"] == "completed"
     return r.json()["result_asset_id"]
+
+
+async def test_pending_confirmation_never_uploads_and_confirm_sends_markdown(client, monkeypatch):
+    fake = FakeWK()
+    _enable(monkeypatch, fake)
+    task_id = await _upload(client, USER_CONSULTANT, content=_TXT, file_name="evidence.txt")
+    assert fake.uploads == []
+
+    confirmed = await _confirm(client, USER_CONSULTANT, task_id)
+    assert confirmed.status_code == 200
+    assert confirmed.json()["index_status"] == "indexing"
+    assert len(fake.uploads) == 1
+    assert fake.uploads[0] != _TXT
+    assert fake.uploads[0].startswith(b"# evidence")
+    assert fake.upload_metadata == [("evidence.canonical.md", "text/markdown")]
+    for forbidden in (b"internal://", b"weknora_doc_id", b"storage_ref"):
+        assert forbidden not in fake.uploads[0]
+
+
+async def test_historical_markdown_backfill_is_bounded_resumable_and_does_not_reindex_by_default(
+    client, db_session, monkeypatch
+):
+    asset_id = uuid.UUID(await _make_indexed(client, monkeypatch, USER_CONSULTANT))
+    task = (
+        await db_session.execute(select(IngestTask).where(IngestTask.result_asset_id == asset_id))
+    ).scalar_one()
+    version_id = task.result_version_id
+    assert version_id is not None
+    await db_session.execute(
+        update(KnowledgeAssetVersion)
+        .where(KnowledgeAssetVersion.id != version_id)
+        .values(version_status="superseded")
+    )
+    await db_session.execute(
+        delete(KnowledgeAssetFileObject).where(
+            KnowledgeAssetFileObject.version_id == version_id,
+            KnowledgeAssetFileObject.file_variant == "canonical_markdown",
+        )
+    )
+    await db_session.execute(
+        delete(IngestTaskDerivative).where(IngestTaskDerivative.ingest_task_id == task.id)
+    )
+    await db_session.commit()
+
+    fake = FakeWK()
+    _set_client(fake)
+    first = await client.post(
+        MARKDOWN_BACKFILL,
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"scope": "personal", "limit": 1, "rebuild_index": False},
+    )
+    assert first.status_code == 202
+    assert first.json()["status"] == "completed"
+    assert first.json()["total_count"] == 1
+    assert first.json()["success_count"] == 1
+    assert fake.uploads == []
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(KnowledgeAssetFileObject)
+            .where(
+                KnowledgeAssetFileObject.version_id == version_id,
+                KnowledgeAssetFileObject.file_variant == "canonical_markdown",
+            )
+        )
+        == 1
+    )
+
+    second = await client.post(
+        MARKDOWN_BACKFILL,
+        headers=_hdr(USER_ADMIN_ONLY),
+        json={"scope": "personal", "limit": 1, "rebuild_index": False},
+    )
+    assert second.status_code == 202
+    assert second.json()["status"] == "no_action"
+    assert second.json()["total_count"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -284,7 +392,7 @@ async def test_batch_retry_indexes_failed_assets(client, db_session, monkeypatch
                 )
             )
         ).scalar_one()
-        assert v.index_status == "indexed"
+        assert v.index_status == "indexing"
 
 
 async def test_batch_retry_partial_failure_completed_with_errors(client, monkeypatch):
@@ -314,14 +422,14 @@ async def test_batch_retry_partial_failure_completed_with_errors(client, monkeyp
     # 复核：a_ok 已 indexed → 再次单条 retry 返回 409；a_bad 仍 index_failed → 单条 retry 可再试（200）。
     r_ok = await client.post(f"/api/v1/knowledge/{a_ok}/retry-index", headers=_hdr(USER_CONSULTANT))
     assert r_ok.status_code == 409
-    assert r_ok.json()["detail"]["denied_reason"] == "knowledge_index_already_indexed"
+    assert r_ok.json()["detail"]["denied_reason"] == "knowledge_index_not_retryable"
     # a_bad 仍 index_failed（未被 batch 误标）→ 换成功 fake 单条重试可恢复为 indexed。
     _set_client(FakeWK())
     r_bad = await client.post(
         f"/api/v1/knowledge/{a_bad}/retry-index", headers=_hdr(USER_CONSULTANT)
     )
     assert r_bad.status_code == 200
-    assert r_bad.json()["index_status"] == "indexed"
+    assert r_bad.json()["index_status"] == "indexing"
 
 
 async def test_batch_retry_does_not_select_indexed(client, db_session, monkeypatch):
@@ -409,7 +517,7 @@ async def test_reparse_refreshes_parse_status(client, db_session, monkeypatch):
             )
         )
     ).scalar_one()
-    assert v2.index_status == "indexed"
+    assert v2.index_status == "indexing"
     # 解析状态已由 failed 刷新为底座新返回的 processing。
     assert v2.weknora_parse_status == "processing"
 
@@ -509,6 +617,43 @@ async def test_targeted_retry_reuses_worker_chain_and_returns_one(client, db_ses
     )
     assert len(events) == 2
     assert all(asset_id not in str(event.extra) for event in events)
+
+
+async def test_retry_prefers_saved_markdown_when_derivative_row_and_original_are_missing(
+    client, db_session, monkeypatch
+):
+    asset_id = await _make_index_failed(client, monkeypatch, USER_CONSULTANT)
+    task = (
+        await db_session.execute(
+            select(IngestTask).where(IngestTask.result_asset_id == uuid.UUID(asset_id))
+        )
+    ).scalar_one()
+    await db_session.execute(
+        delete(IngestTaskDerivative).where(IngestTaskDerivative.ingest_task_id == task.id)
+    )
+    await db_session.commit()
+    client._kap_storage.delete(task.source_file_ref)
+
+    recovered = FakeWK()
+    _set_client(recovered)
+    response = await client.post(
+        f"/api/v1/knowledge/{asset_id}/retry-index",
+        headers=_hdr(USER_CONSULTANT),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["index_status"] == "indexing"
+    assert len(recovered.upload_metadata) == 1
+    assert recovered.upload_metadata[0][0].endswith(".canonical.md")
+    assert recovered.upload_metadata[0][1] == "text/markdown"
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(IngestTaskDerivative)
+            .where(IngestTaskDerivative.ingest_task_id == task.id)
+        )
+        == 1
+    )
 
 
 async def test_targeted_retry_conflict_is_database_guarded(client, db_session, monkeypatch):

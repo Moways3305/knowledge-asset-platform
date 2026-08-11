@@ -10,7 +10,8 @@ import {
 import type { UploadFlow } from "./useUploadFlow";
 
 const indexStatusLabel: Record<string, string> = {
-  indexed: "问答索引已完成",
+  indexing: "已确认，WeKnora 正在处理；完成后才可检索",
+  indexed: "WeKnora 处理完成，当前可检索",
   index_failed: "资产已保存，问答索引暂未完成",
   skipped: "资产已保存，未启用问答索引",
 };

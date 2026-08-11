@@ -76,7 +76,9 @@ async def reconcile_parse_statuses(
         processed += 1
         new_status = str(data.get("parse_status") or v.weknora_parse_status)
         if new_status != v.weknora_parse_status and new_status in (_TERMINAL | _PENDING_STATUSES):
-            v.weknora_parse_status = new_status
+            from app.services.indexing import _apply_parse_state
+
+            _apply_parse_state(v, new_status)
             updated += 1
     await _record_heartbeat(
         session,

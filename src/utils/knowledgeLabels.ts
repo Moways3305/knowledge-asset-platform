@@ -48,10 +48,11 @@ export const accessLayerLabel: Record<string, string> = {
 
 // 平台级检索索引状态（小角标）。indexed 为常态，不展示角标。
 export const indexStatusLabel: Record<string, string> = {
-  indexing: "索引中",
-  index_failed: "索引失败",
-  skipped: "未索引",
-  not_indexed: "待索引",
+  indexed: "可检索",
+  indexing: "WeKnora 处理中",
+  index_failed: "索引失败，可重试",
+  skipped: "已确认，未启用索引",
+  not_indexed: "已确认，等待索引",
 };
 
 export const zoneLabel = (zone: string) =>

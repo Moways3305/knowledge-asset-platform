@@ -22,14 +22,13 @@ from app.core.logging import safe_log_exception
 from app.db.utils import utc_now
 from app.models.identity import ProjectMember, User
 from app.models.indexing_job import IndexingOperationJob
-from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetFileObject, KnowledgeAssetVersion
 from app.schemas.enums import AssetStatus, AuditAction, AuditLogType
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 from app.services import error_catalog, indexing
 from app.services.indexing_candidates import reparse_candidate_conditions, scope_conditions
 from app.services.permission import build_caller_context
-from app.services.source_content import resolve_version_source_task
 from app.services.storage import LocalFileStorage
 from app.services.weknora_client import (
     NullWeKnoraClient,
@@ -73,7 +72,16 @@ async def _select_targets(session: AsyncSession, job: IndexingOperationJob) -> l
     ]
     if job.target_asset_id is not None:
         base_conds.append(KnowledgeAsset.id == job.target_asset_id)
-    if job.operation_type == "reparse":
+    if job.operation_type == "markdown_backfill":
+        base_conds.append(
+            ~select(KnowledgeAssetFileObject.id)
+            .where(
+                KnowledgeAssetFileObject.version_id == KnowledgeAssetVersion.id,
+                KnowledgeAssetFileObject.file_variant == "canonical_markdown",
+            )
+            .exists()
+        )
+    elif job.operation_type == "reparse":
         parse_statuses = list(sf.get("parse_statuses") or ["failed", "pending"])
         base_conds = reparse_candidate_conditions(
             scope=scope,
@@ -138,6 +146,7 @@ async def _process_one(
     storage: LocalFileStorage,
     *,
     operation_type: str,
+    rebuild_index: bool,
     target: _Target,
     trace_id: str | None,
 ) -> str:
@@ -148,6 +157,30 @@ async def _process_one(
     owner_user_id = target.owner_user_id
     confidentiality = target.confidentiality
     project_id = target.project_id
+
+    markdown = None
+    if operation_type == "markdown_backfill":
+        try:
+            from app.services.canonical_markdown import ensure_version_markdown
+
+            markdown = await ensure_version_markdown(
+                session,
+                storage,
+                asset_id=asset_id,
+                version_id=version_id,
+            )
+            await session.commit()
+        except Exception as exc:
+            await session.rollback()
+            code = error_catalog.safe_code(getattr(exc, "code", "canonical_markdown_unavailable"))
+            version = await session.get(KnowledgeAssetVersion, version_id)
+            if version is not None:
+                version.index_error_code = code
+                version.index_error_message = error_catalog.user_message(code)
+                await session.commit()
+            return "failed"
+        if not rebuild_index or not weknora_enabled():
+            return "indexed"
 
     # 底座未启用：retry 标 skipped（清理上一轮失败残留）；reparse 无底座可刷新 → skipped。
     if not weknora_enabled():
@@ -164,26 +197,30 @@ async def _process_one(
         await session.commit()
         return "skipped"
 
-    task = await resolve_version_source_task(
-        session,
-        asset_id=asset_id,
-        version_id=version_id,
-    )
-    if task is None or not task.source_file_ref:
+    try:
+        from app.services.canonical_markdown import ensure_version_markdown
+
+        if markdown is None:
+            markdown = await ensure_version_markdown(
+                session,
+                storage,
+                asset_id=asset_id,
+                version_id=version_id,
+            )
+    except Exception as exc:
         outcome = await indexing.mark_index_failed(
-            session, version_id=version_id, error_code="source_file_unreadable"
+            session,
+            version_id=version_id,
+            error_code=getattr(exc, "code", "canonical_markdown_unavailable"),
         )
         return "failed" if outcome.index_status == "index_failed" else outcome.index_status
 
-    try:
-        file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
-    except OSError:
-        outcome = await indexing.mark_index_failed(
-            session, version_id=version_id, error_code="source_file_unreadable"
-        )
-        return "failed"
-
-    if operation_type == "reparse":
+    current_version = await session.get(KnowledgeAssetVersion, version_id)
+    if operation_type == "reparse" or (
+        operation_type == "markdown_backfill"
+        and current_version is not None
+        and current_version.weknora_doc_id is not None
+    ):
         outcome = await indexing.reparse_asset_version(
             session,
             weknora,
@@ -193,10 +230,10 @@ async def _process_one(
             owner_user_id=owner_user_id,
             project_id=project_id,
             confidentiality=confidentiality,
-            file_bytes=file_bytes,
-            source_file_name=task.source_file_name,
-            source_file_mime=task.source_file_mime_type,
-            channel=task.source,
+            file_bytes=markdown.content,
+            source_file_name=markdown.file_name,
+            source_file_mime=markdown.mime,
+            channel=markdown.task.source,
             trace_id=trace_id,
         )
     else:
@@ -209,13 +246,13 @@ async def _process_one(
             owner_user_id=owner_user_id,
             project_id=project_id,
             confidentiality=confidentiality,
-            file_bytes=file_bytes,
-            source_file_name=task.source_file_name,
-            source_file_mime=task.source_file_mime_type,
-            channel=task.source,
+            file_bytes=markdown.content,
+            source_file_name=markdown.file_name,
+            source_file_mime=markdown.mime,
+            channel=markdown.task.source,
             trace_id=trace_id,
         )
-    if outcome.index_status == "indexed":
+    if outcome.index_status in {"indexed", "indexing"}:
         return "indexed"
     if outcome.index_status == "skipped":
         return "skipped"
@@ -253,6 +290,7 @@ async def run_operation_job(
     # 之后再访问 `job.*` 会触发隐式 IO（MissingGreenlet）。用局部值规避。
     job_trace = trace_id or job.trace_id
     operation_type = job.operation_type
+    rebuild_index = bool((job.scope_filter or {}).get("rebuild_index"))
     targeted_retry = job.target_asset_id is not None
 
     job.status = "running"
@@ -270,6 +308,7 @@ async def run_operation_job(
                     weknora,
                     storage,
                     operation_type=operation_type,
+                    rebuild_index=rebuild_index,
                     target=target,
                     trace_id=job_trace,
                 )
@@ -329,7 +368,11 @@ async def run_operation_job(
         else (
             AuditAction.knowledge_index_reparse_completed
             if job.operation_type == "reparse"
-            else AuditAction.knowledge_index_batch_retry_completed
+            else (
+                AuditAction.knowledge_markdown_backfill_completed
+                if job.operation_type == "markdown_backfill"
+                else AuditAction.knowledge_index_batch_retry_completed
+            )
         )
     )
     await audit_service.record_event(

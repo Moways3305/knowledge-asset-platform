@@ -7,9 +7,10 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.ingest import IngestTask, UploadSessionItem
+from app.models.ingest import IngestTask, IngestTaskDerivative, UploadSessionItem
 from app.models.knowledge import (
     KnowledgeAsset,
+    KnowledgeAssetFileObject,
     KnowledgeAssetSummary,
     KnowledgeAssetTag,
     KnowledgeAssetVersion,
@@ -22,6 +23,7 @@ from app.schemas.enums import (
 )
 from app.services import audit as audit_service
 from app.services.authorized_summary import build_authorized_summary_variants
+from app.services.canonical_markdown import FILE_VARIANT, MARKDOWN_MIME, canonical_file_name
 from app.services.ingest_confirmation import ValidatedConfirmationContext
 
 _REDACTED_LEVELS = {ConfidentialityLevel.L3.value, ConfidentialityLevel.L4.value}
@@ -98,6 +100,60 @@ def build_summaries(
     return rows
 
 
+async def attach_controlled_file_objects(
+    session: AsyncSession,
+    *,
+    task: IngestTask,
+    asset: KnowledgeAsset,
+    version: KnowledgeAssetVersion,
+    confidentiality: str,
+) -> None:
+    """Link the retained original and ready canonical Markdown to one version."""
+    derivative = (
+        await session.execute(
+            select(IngestTaskDerivative).where(
+                IngestTaskDerivative.ingest_task_id == task.id,
+                IngestTaskDerivative.derivative_type == FILE_VARIANT,
+                IngestTaskDerivative.status == "ready",
+            )
+        )
+    ).scalar_one_or_none()
+    if (
+        derivative is None
+        or not derivative.storage_ref
+        or not derivative.content_hash
+        or derivative.generated_at is None
+    ):
+        raise RuntimeError("canonical_markdown_not_ready")
+    derivative.linked_version_id = version.id
+    session.add_all(
+        [
+            KnowledgeAssetFileObject(
+                asset_id=asset.id,
+                version_id=version.id,
+                file_variant="original",
+                file_name=task.source_file_name,
+                file_mime_type=task.source_file_mime_type or "application/octet-stream",
+                file_size=task.source_file_size,
+                storage_ref=task.source_file_ref,
+                file_hash=task.source_file_hash,
+                confidentiality_level=confidentiality,
+            ),
+            KnowledgeAssetFileObject(
+                asset_id=asset.id,
+                version_id=version.id,
+                file_variant=FILE_VARIANT,
+                file_name=canonical_file_name(task.source_file_name),
+                file_mime_type=MARKDOWN_MIME,
+                file_size=None,
+                storage_ref=derivative.storage_ref,
+                file_hash=derivative.content_hash,
+                confidentiality_level=confidentiality,
+            ),
+        ]
+    )
+
+
 async def persist_confirmation(
     session: AsyncSession,
     context: ValidatedConfirmationContext,
@@ -155,6 +211,14 @@ async def persist_confirmation(
         asset.tags.append(KnowledgeAssetTag(tag_name=tag))
     session.add(asset)
     await session.flush()
+
+    await attach_controlled_file_objects(
+        session,
+        task=task,
+        asset=asset,
+        version=version,
+        confidentiality=confidentiality,
+    )
 
     asset.current_version_id = version.id
     task.result_asset_id = asset.id

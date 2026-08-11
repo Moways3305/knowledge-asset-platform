@@ -183,6 +183,18 @@ async def test_next_batch_waits_then_advances_when_the_current_batch_releases_ca
             )
         ).scalars()
     )
+    next(
+        task for task in tasks if task.id == first_batch_task_ids[0]
+    ).processing_stage = "canonical_markdown_generation"
+    await db_session.commit()
+    staged = await client.get(
+        f"/api/v1/ingest/upload-sessions/{body['id']}",
+        headers=_headers(USER_CONSULTANT),
+    )
+    assert staged.status_code == 200
+    assert staged.json()["items"][0]["processing_stage"] == "canonical_markdown_generation"
+    assert staged.json()["items"][200]["processing_stage"] is None
+
     for task in tasks:
         task.status = IngestStatus.pending_confirmation.value
         task.processing_stage = "awaiting_confirmation"

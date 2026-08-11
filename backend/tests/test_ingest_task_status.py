@@ -59,6 +59,11 @@ async def test_upload_extraction_and_generation_stages_are_distinct(client, db_s
     cases = [
         ("pending", "upload_saved", "upload_saved"),
         ("processing", "text_extraction", "text_extraction"),
+        (
+            "processing",
+            "canonical_markdown_generation",
+            "canonical_markdown_generation",
+        ),
         ("processing", "content_generation", "content_generation"),
     ]
     for raw_status, processing_stage, expected_stage in cases:
@@ -228,8 +233,8 @@ async def test_index_queue_processing_completion_failure_and_degradation(client,
     states = [
         ("not_indexed", None, "indexing_queued", "processing"),
         ("indexing", None, "indexing_in_progress", "processing"),
-        ("indexed", "pending", "indexing_queued", "processing"),
-        ("indexed", "processing", "indexing_in_progress", "processing"),
+        ("indexing", "pending", "indexing_in_progress", "processing"),
+        ("indexing", "processing", "indexing_in_progress", "processing"),
         ("indexed", "completed", "completed", "completed"),
         ("skipped", None, "degraded_complete", "degraded"),
         ("index_failed", "failed", "failed", "failed"),
@@ -245,9 +250,9 @@ async def test_index_queue_processing_completion_failure_and_degradation(client,
         assert body["stage"] == expected_stage
         assert body["status"] == expected_status
         assert "SECRET-LIKE" not in response.text
-    assert body["error"]["code"] == "unknown"
+    assert body["error"]["code"] == "weknora_parse_failed"
     assert body["retryable"] is True
-    assert body["next_action"]["key"] == "retry_index"
+    assert body["next_action"]["key"] == "reparse"
 
 
 async def test_unauthorized_task_and_missing_task_are_indistinguishable(client, db_session):
@@ -428,9 +433,9 @@ async def test_index_failure_retry_reuses_authorized_index_contract(client, db_s
 
     assert response.status_code == 200
     body = response.json()
-    assert body["stage"] == "degraded_complete"
-    assert body["status"] == "degraded"
-    assert body["error"]["code"] == "indexing_skipped"
+    assert body["stage"] == "failed"
+    assert body["status"] == "failed"
+    assert body["error"]["code"] == "weknora_parse_failed"
     assert "weknora_kb_id" not in response.text
     assert "source_file_ref" not in response.text
 

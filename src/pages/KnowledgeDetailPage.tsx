@@ -81,11 +81,11 @@ const assetTypeLabel: Record<string, string> = {
 };
 
 const indexStatusLabel: Record<string, string> = {
-  indexed: "已可问答",
-  indexing: "处理中",
-  index_failed: "处理失败",
-  skipped: "暂未进入问答",
-  not_indexed: "待处理",
+  indexed: "可检索",
+  indexing: "WeKnora 处理中",
+  index_failed: "索引失败，可重试",
+  skipped: "已确认，未启用索引",
+  not_indexed: "已确认，等待索引",
 };
 
 const scopeLabel: Record<string, string> = {
@@ -377,6 +377,10 @@ export default function KnowledgeDetailPage() {
     {
       label: "问答索引",
       value: asset.indexStatus ? (indexStatusLabel[asset.indexStatus] ?? asset.indexStatus) : "",
+    },
+    {
+      label: "规范文本",
+      value: asset.canonicalMarkdownStatus === "generated" ? "Markdown 已生成" : "Markdown 未生成",
     },
   ].filter((fact) => hasText(fact.value));
 

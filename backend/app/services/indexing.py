@@ -1,12 +1,12 @@
 """共享底座索引机制。
 
-把「一个 asset version 的原文推进 WeKnora 底座（建库+初始化+上传+回写索引状态）」收口到
+把「一个 asset version 的规范 Markdown 推进 WeKnora 底座（建库+初始化+上传+回写索引状态）」收口到
 一处，供 **confirm（入库确认）** 与 **retry-index（失败重试）** 共用同一安全口径：
 
 - 资产已在业务侧落库；本模块只负责底座侧推进与 version 索引状态回写，**绝不**回滚业务资产 /
   人工校正；建库/初始化/上传失败 → version `index_status=index_failed` + 安全 error_code，可重试。
-- 与 `IngestTask` 解耦：调用方负责加载原文字节（confirm 从 task.source_file_ref，retry 从其入库
-  任务的 source_file_ref），本模块只收 `file_bytes` + 安全文件元数据。
+- 与 `IngestTask` 解耦：调用方负责加载并校验已持久化的规范 Markdown；本模块会拒绝原件或
+  非 Markdown 字节，不提供原件回退路径。
 - 安全红线：回写 / 返回**绝不**外泄 `weknora_kb_id` / `weknora_doc_id` / api_key / 原始 payload /
   storage_ref。`index_error_code` 是安全码，`index_error_message` 是安全中文文案。
 - 业务审计由调用方写（confirm 写 `ingest.*`，retry 写 `knowledge.index_*`），本模块不写审计。
@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import uuid
 from dataclasses import dataclass
 
@@ -26,7 +25,6 @@ from app.db.utils import utc_now
 from app.models.knowledge import KnowledgeAssetVersion
 from app.schemas.enums import KnowledgeScope
 from app.services import chunking, error_catalog
-from app.services.extraction import extract_text
 from app.services.weknora_client import (
     NullWeKnoraClient,
     WeKnoraClient,
@@ -43,7 +41,7 @@ _logger = logging.getLogger(__name__)
 class IndexOutcome:
     """底座索引结果（安全字段，供调用方写审计 / 构响应）。"""
 
-    index_status: str  # indexed | index_failed | skipped
+    index_status: str  # indexing | indexed | index_failed | skipped
     parse_status: str | None = None
     error_code: str | None = None
     is_duplicate: bool = False
@@ -54,17 +52,45 @@ def _governance_upload(
     source_file_name: str,
     source_file_mime: str | None,
 ) -> tuple[bytes, str, str | None, str | None]:
-    """阶段2（D1 v1.3）：底座索引输入 = verbatim 治理文本，而非原文件。
+    """Fail closed unless the caller supplies a persisted canonical Markdown file."""
+    if source_file_mime != "text/markdown" or not source_file_name.lower().endswith(
+        ".canonical.md"
+    ):
+        raise WeKnoraError(
+            "canonical_markdown_required",
+            "知识底座只接受已确认的规范 Markdown",
+        )
+    try:
+        governance_text = file_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise WeKnoraError(
+            "canonical_markdown_invalid",
+            "规范 Markdown 校验失败",
+        ) from exc
+    if not governance_text.strip():
+        raise WeKnoraError("canonical_markdown_invalid", "规范 Markdown 校验失败")
+    return file_bytes, source_file_name, "text/markdown", governance_text
 
-    从源文件重提取（决策 A），成功则以 .md 文本上传（mime=text/markdown）；
-    抽取失败 / 空 / 不支持时回退上传原件，保持底座仍可自行解析。
-    """
-    result = extract_text(file_bytes, file_name=source_file_name, mime=source_file_mime)
-    if result.status == "extracted" and result.text:
-        base, _ext = os.path.splitext(source_file_name or "")
-        md_name = f"{base}.md" if base else "governance.md"
-        return result.text.encode("utf-8"), md_name, "text/markdown", result.text
-    return file_bytes, source_file_name, source_file_mime, None
+
+def _apply_parse_state(version: KnowledgeAssetVersion, parse_status: str) -> str:
+    """Map provider parse truth to the KAP searchable terminal state."""
+    version.weknora_parse_status = parse_status
+    if parse_status in {"completed", "duplicate"}:
+        version.index_status = "indexed"
+        version.indexed_at = utc_now()
+        version.index_error_code = None
+        version.index_error_message = None
+    elif parse_status == "failed":
+        version.index_status = "index_failed"
+        version.indexed_at = None
+        version.index_error_code = "weknora_parse_failed"
+        version.index_error_message = error_catalog.user_message("weknora_parse_failed")
+    else:
+        version.index_status = "indexing"
+        version.indexed_at = None
+        version.index_error_code = None
+        version.index_error_message = None
+    return version.index_status
 
 
 async def _rebuild_chunks_best_effort(
@@ -141,9 +167,9 @@ async def index_asset_version(
     embedding_model_ref: str | None = None,
     rerank_model_ref: str | None = None,
 ) -> IndexOutcome:
-    """建库+初始化（resolve_or_create_kb）+ 上传原文 + 回写 version 索引状态。提交后返回 outcome。
+    """建库+初始化（resolve_or_create_kb）+ 上传规范 Markdown + 回写真实索引状态。
 
-    成功 → ("indexed", parse_status)；409 重复 → ("indexed", "duplicate", is_duplicate=True)；
+    受理 → ("indexing", parse_status)；终态成功/409 重复 → indexed；
     建库/初始化/上传失败 → ("index_failed", None, error_code)。**绝不回滚已落库资产。**
     """
     try:
@@ -185,11 +211,9 @@ async def index_asset_version(
         if version is not None:
             version.weknora_kb_id = kb_id
             version.weknora_doc_id = str(data.get("id") or "") or None
-            version.weknora_parse_status = parse_status
-            version.index_status = "indexed"
-            version.indexed_at = utc_now()
-            version.index_error_code = None
-            version.index_error_message = None
+            index_status = _apply_parse_state(version, parse_status)
+        else:
+            index_status = "indexing"
         await session.commit()
         if governance_text:
             await _rebuild_chunks_best_effort(
@@ -198,7 +222,12 @@ async def index_asset_version(
                 version_id=version_id,
                 governance_text=governance_text,
             )
-        return IndexOutcome("indexed", parse_status, None, False)
+        return IndexOutcome(
+            index_status,
+            parse_status,
+            "weknora_parse_failed" if index_status == "index_failed" else None,
+            False,
+        )
     except WeKnoraDuplicateError as dup:
         # 内容已在底座（file_hash 409）：复用既有 doc，算索引成功。kb_id 已在 resolve 后绑定。
         version = await _load_version(session, version_id)
@@ -286,11 +315,9 @@ async def reparse_asset_version(
         if version is not None:
             version.weknora_kb_id = kb_id
             version.weknora_doc_id = str(data.get("id") or "") or None
-            version.weknora_parse_status = parse_status
-            version.index_status = "indexed"
-            version.indexed_at = utc_now()
-            version.index_error_code = None
-            version.index_error_message = None
+            index_status = _apply_parse_state(version, parse_status)
+        else:
+            index_status = "indexing"
         await session.commit()
         if governance_text:
             await _rebuild_chunks_best_effort(
@@ -299,7 +326,12 @@ async def reparse_asset_version(
                 version_id=version_id,
                 governance_text=governance_text,
             )
-        return IndexOutcome("indexed", parse_status, None, False)
+        return IndexOutcome(
+            index_status,
+            parse_status,
+            "weknora_parse_failed" if index_status == "index_failed" else None,
+            False,
+        )
     except WeKnoraDuplicateError as dup:
         # 删旧未生效 / 内容仍命中去重：复用既有 doc，解析标 duplicate（不算失败）。
         version = await _load_version(session, version_id)

@@ -1,4 +1,5 @@
 import { UNREADABLE_FILE_MESSAGE } from "./folderDrop";
+import type { IngestTaskStage } from "../../types/ingest";
 
 export type LocalUploadQueueState =
   | "queued"
@@ -22,6 +23,7 @@ export interface LocalUploadQueueItem {
   batchNumber?: number;
   sameNameWarning?: boolean;
   retryable?: boolean;
+  processingStage?: IngestTaskStage;
 }
 
 export type IntakeRejectionCode =

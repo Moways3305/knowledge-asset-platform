@@ -136,6 +136,7 @@ class KnowledgeDetailOut(BaseModel):
     # summary 仅在 summary 层允许时返回；original 内容不随详情返回（走 Preview API）。
     summary: SummaryOut | None
     current_version: CurrentVersionOut | None
+    canonical_markdown_status: str  # generated | not_generated
     access_info: AccessInfoOut
     # 平台级底座索引安全状态（无 kb_id / doc_id / 内部存储引用）。
     index_status: str | None = None

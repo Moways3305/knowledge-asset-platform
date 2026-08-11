@@ -26,6 +26,8 @@ const scenarios = [
   "failure",
   "denied",
   "preview-failure",
+  "waiting-index",
+  "indexing",
   "governed",
 ];
 const viewports = [
@@ -93,11 +95,21 @@ const detail = (scenario) => ({
         },
   current_version: { id: "version-hidden", version_no: "v2", version_status: "active" },
   access_info: accessFor(scenario),
-  index_status: scenario === "governed" ? "index_failed" : "indexed",
-  weknora_parse_status: "success",
+  index_status:
+    scenario === "governed"
+      ? "index_failed"
+      : scenario === "waiting-index"
+        ? "not_indexed"
+        : scenario === "indexing"
+          ? "indexing"
+          : "indexed",
+  canonical_markdown_status: "generated",
+  weknora_parse_status: scenario === "indexing" ? "processing" : "success",
   index_error_code: scenario === "governed" ? "safe_retryable" : null,
   index_error_message: scenario === "governed" ? "问答处理未完成，可重新处理。" : null,
-  indexed_at: "2026-07-15T08:10:00Z",
+  indexed_at: ["waiting-index", "indexing"].includes(scenario)
+    ? null
+    : "2026-07-15T08:10:00Z",
 });
 
 const listItem = {
@@ -264,7 +276,7 @@ for (const scenario of scenarios) {
         oldSectionVisible: /处理进度|原文入口|知识卡片|高级信息/.test(text),
         fakeFeatureVisible: /下载资产|导出|分享|编辑资产|评论|AI 问答|新建项目/.test(text),
         sensitiveTextVisible:
-          /storage_ref|SECRET-LIKE|trace-must-not-render|credential-must-not-render|fingerprint-must-not-render|authorization internals|WeKnora|fetch token|api[_ -]?key/i.test(
+          /storage_ref|SECRET-LIKE|trace-must-not-render|credential-must-not-render|fingerprint-must-not-render|authorization internals|weknora[_ -]?(doc|kb)[_ -]?id|fetch token|api[_ -]?key/i.test(
             text,
           ) ||
           text.includes("00000000-0000-0000-0000-000000000076") ||
@@ -273,6 +285,9 @@ for (const scenario of scenarios) {
         previewFailureVisible: text.includes("在线预览服务暂未启用"),
         deleteActionVisible: text.includes("删除资产"),
         lifecycleLabelsLocalized: lifecycleCases.every(([, label]) => text.includes(label)),
+        canonicalMarkdownVisible: text.includes("Markdown 已生成"),
+        waitingIndexVisible: text.includes("已确认，等待索引"),
+        indexingVisible: text.includes("WeKnora 处理中"),
         internalLifecycleEventVisible: lifecycleCases.some(([eventType]) =>
           text.includes(eventType),
         ),
@@ -322,6 +337,9 @@ if (
       (result.scenario === "failure" && result.detailCalls < 2) ||
       (result.scenario === "denied" && !result.deniedVisible) ||
       (result.scenario === "preview-failure" && !result.previewFailureVisible) ||
+      (result.scenario !== "denied" && !result.canonicalMarkdownVisible) ||
+      (result.scenario === "waiting-index" && !result.waitingIndexVisible) ||
+      (result.scenario === "indexing" && !result.indexingVisible) ||
       (result.scenario === "governed" && result.lifecycleCalls !== 1) ||
       (result.scenario === "governed" && result.deleteActionVisible) ||
       (result.scenario === "governed" && !result.lifecycleLabelsLocalized) ||

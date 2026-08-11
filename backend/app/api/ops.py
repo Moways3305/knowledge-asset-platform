@@ -50,6 +50,7 @@ from app.schemas.enums import (
     NotificationStatus,
 )
 from app.schemas.indexing_ops import (
+    CanonicalMarkdownBackfillRequest,
     IndexingHealthResponse,
     IndexingJobListResponse,
     IndexingJobSummary,
@@ -625,6 +626,30 @@ async def ops_indexing_reparse(
     """显式 reparse：对已进底座但解析异常（failed / pending / processing）的资产入队
     重新解析（受控重传刷新底座解析）。仅 admin / 业务治理角色；202 + 安全 job 摘要。"""
     return await indexing_ops_service.create_reparse_job(
+        session,
+        caller,
+        req,
+        weknora=weknora,
+        storage=storage,
+        trace_id=get_trace_id(request),
+    )
+
+
+@router.post(
+    "/admin/ops/indexing/markdown-backfill",
+    response_model=IndexingJobSummary,
+    status_code=202,
+)
+async def ops_canonical_markdown_backfill(
+    req: CanonicalMarkdownBackfillRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    weknora=Depends(get_weknora_client),
+) -> IndexingJobSummary:
+    """Backfill controlled Markdown in bounded pages; optionally rebuild its index."""
+    return await indexing_ops_service.create_markdown_backfill_job(
         session,
         caller,
         req,

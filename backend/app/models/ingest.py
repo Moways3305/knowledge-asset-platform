@@ -18,6 +18,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -74,6 +75,51 @@ class IngestTask(Base):
     ai_result: Mapped[IngestTaskAiResult | None] = relationship(
         back_populates="task", cascade="all, delete-orphan", uselist=False
     )
+    canonical_markdown: Mapped[IngestTaskDerivative | None] = relationship(
+        back_populates="task", cascade="all, delete-orphan", uselist=False
+    )
+
+
+class IngestTaskDerivative(Base):
+    """Server-only canonical Markdown derived from one controlled original.
+
+    The task relation identifies the original reference; ``storage_ref`` identifies
+    the derived bytes. Neither reference is exposed by an API or audit event.
+    """
+
+    __tablename__ = "ingest_task_derivatives"
+    __table_args__ = (
+        UniqueConstraint(
+            "ingest_task_id", "derivative_type", name="uq_ingest_task_derivative_type"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    ingest_task_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("ingest_tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    derivative_type: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="canonical_markdown"
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="generating")
+    format_version: Mapped[str] = mapped_column(String(30), nullable=False, default="kap-md-v1")
+    source_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    storage_ref: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failure_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    linked_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey("knowledge_asset_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    task: Mapped[IngestTask] = relationship(back_populates="canonical_markdown")
 
 
 class UploadSession(Base):

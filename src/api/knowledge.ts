@@ -91,6 +91,7 @@ function mapDetail(d: KnowledgeDetailDTO): KnowledgeDetailVM {
     keyPoints: d.summary?.key_points ?? [],
     currentVersionNo: d.current_version?.display_version ?? d.current_version?.version_no ?? null,
     indexErrorCode: d.index_error_code ?? null,
+    canonicalMarkdownStatus: d.canonical_markdown_status ?? "not_generated",
   };
 }
 

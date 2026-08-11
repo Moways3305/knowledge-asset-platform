@@ -17,6 +17,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.ingest import IngestTask, IngestTaskAiResult, UploadSession, UploadSessionItem
 from app.models.knowledge import (
@@ -53,7 +54,13 @@ from app.schemas.naming import NamingPreviewRequest
 from app.schemas.permission import CallerContext
 from app.schemas.review import ReviewActionResponse
 from app.services import audit as audit_service
-from app.services import indexing, ingest_confirmation, ingest_indexing, ingest_persistence
+from app.services import (
+    canonical_markdown,
+    indexing,
+    ingest_confirmation,
+    ingest_indexing,
+    ingest_persistence,
+)
 from app.services.desensitization import DesensitizationEngine
 from app.services.generation_models import generation_model_ref
 from app.services.llm_client import LLMClient, NullLLMClient
@@ -368,6 +375,7 @@ async def confirm(
         task_id,
         req,
         trace_id,
+        storage=storage,
     )
     if isinstance(route, IngestConfirmResponse):
         return route
@@ -481,11 +489,39 @@ async def approve_project_ingest_review(
         await session.execute(
             select(IngestTask)
             .where(IngestTask.id == review.source_ingest_task_id)
+            .options(selectinload(IngestTask.canonical_markdown))
             .with_for_update()
         )
     ).scalar_one_or_none()
     if task is None:
         raise _denied(409, "project_ingest_task_missing", "项目提交来源不可用")
+
+    if not canonical_markdown.task_markdown_is_valid(storage, task.canonical_markdown):
+        review.status = ReviewTaskStatus.approval_failed.value
+        review.review_comment = comment
+        review.reviewed_at = None
+        task.status = IngestStatus.waiting_review.value
+        await audit_service.record_event(
+            session,
+            caller=caller,
+            log_type=AuditLogType.exception,
+            action=AuditAction.review_approval_failed.value,
+            trace_id=trace_id,
+            target_type="review_task",
+            target_id=review.id,
+            after={
+                "status": review.status,
+                "failure_stage": "canonical_markdown_validation",
+                "error_code": "canonical_markdown_not_ready",
+            },
+            project_id=req.target_project_id,
+        )
+        await session.commit()
+        raise _denied(
+            409,
+            "canonical_markdown_not_ready",
+            "规范文本尚未生成或校验失败，请重新处理后再审批",
+        )
 
     from app.services import naming_rules
 
@@ -564,6 +600,13 @@ async def approve_project_ingest_review(
         task.result_asset_id = asset.id
         task.result_version_id = version.id
         version.index_status = "indexing" if weknora_enabled() else "skipped"
+        await ingest_persistence.attach_controlled_file_objects(
+            session,
+            task=task,
+            asset=asset,
+            version=version,
+            confidentiality=confidentiality,
+        )
     else:
         asset = (
             await session.execute(
@@ -627,7 +670,7 @@ async def approve_project_ingest_review(
             f"task={loaded_task is not None}"
         )
     review, asset, task = loaded_review, loaded_asset, loaded_task
-    if index_status not in {"indexed", "skipped"}:
+    if index_status not in {"indexing", "indexed", "skipped"}:
         review.status = ReviewTaskStatus.approval_failed.value
         task.status = IngestStatus.waiting_review.value
         await audit_service.record_event(
@@ -742,7 +785,9 @@ async def refresh_parse(
         try:
             data = await weknora.get_knowledge(version.weknora_doc_id, trace_id=None)
             parse_status = str(data.get("parse_status") or version.weknora_parse_status)
-            version.weknora_parse_status = parse_status
+            from app.services.indexing import _apply_parse_state
+
+            _apply_parse_state(version, parse_status)
             await session.commit()
         except WeKnoraError:
             # 对账失败不改既有状态、不抛（前端可重试）。

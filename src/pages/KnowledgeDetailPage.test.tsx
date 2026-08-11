@@ -53,6 +53,7 @@ const baseAsset: KnowledgeDetailVM = {
     canRetryIndex: false,
   },
   indexStatus: "indexed",
+  canonicalMarkdownStatus: "generated",
   parseStatus: "success",
   indexErrorMessage: null,
   indexedAt: "2026-07-08T08:10:00Z",
@@ -107,6 +108,7 @@ describe("KnowledgeDetailPage", () => {
       message: "onlyoffice_not_configured",
     });
     renderDetail();
+    expect(await screen.findByText("Markdown 已生成")).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "返回项目知识库" })).toHaveAttribute(
       "href",
       "/project/project-1/knowledge",

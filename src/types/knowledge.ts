@@ -133,6 +133,7 @@ export interface KnowledgeDetailDTO {
     version_status: string;
     display_version?: string | null;
   } | null;
+  canonical_markdown_status?: "generated" | "not_generated";
   access_info: AccessInfoDTO;
   index_status?: string | null;
   weknora_parse_status?: string | null;
@@ -198,4 +199,5 @@ export interface KnowledgeDetailVM extends KnowledgeCardVM {
   keyPoints: string[];
   currentVersionNo: string | null;
   indexErrorCode: string | null;
+  canonicalMarkdownStatus: "generated" | "not_generated";
 }

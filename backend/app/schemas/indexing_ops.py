@@ -37,6 +37,15 @@ class IndexingReparseRequest(BaseModel):
     limit: int = 100
 
 
+class CanonicalMarkdownBackfillRequest(BaseModel):
+    """Bounded, resumable historical Markdown backfill."""
+
+    scope: str = "all"
+    project_id: uuid.UUID | None = None
+    limit: int = 100
+    rebuild_index: bool = False
+
+
 class IndexingJobSummary(BaseModel):
     """索引运维作业安全摘要（无标题 / 无原文 / 无内部 id）。"""
 

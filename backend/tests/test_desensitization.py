@@ -374,15 +374,16 @@ async def _confirm(client, task_id, **over):
     )
 
 
-async def test_weknora_receives_original_and_no_leak(client, monkeypatch):
+async def test_weknora_receives_canonical_markdown_and_no_leak(client, monkeypatch):
     ok = FakeWK()
     _enable_weknora(monkeypatch, ok)
     task_id = await _upload(client)
     r = await _confirm(client, task_id)
     assert r.status_code == 200, r.text
-    assert r.json()["index_status"] == "indexed"
-    # 阶段2：WeKnora 底座收到**治理文本**（verbatim 抽取，未脱敏；抽取会 strip 首尾空白）。
-    assert ok.uploaded_content == _SENSITIVE.strip()
+    assert r.json()["index_status"] == "indexing"
+    # WeKnora 只收到规范 Markdown，正文仍保持受控抽取内容。
+    assert ok.uploaded_content.startswith(b"# ")
+    assert _SENSITIVE.strip() in ok.uploaded_content
     # 但响应不泄露 WeKnora 内部 id / 存储 ref。
     for token in [
         "weknora_kb_id",
@@ -398,7 +399,7 @@ async def test_weknora_receives_original_and_no_leak(client, monkeypatch):
 async def test_retry_index_not_blocked_by_missing_desensitized_text(
     client, db_session, monkeypatch
 ):
-    """retry-index 重新从原始文件索引，不依赖脱敏文本（索引重试语义不回归）。"""
+    """retry-index 复用规范 Markdown，不依赖脱敏文本。"""
     _enable_weknora(monkeypatch, FakeWK(fail=True))
     task_id = await _upload(client)
     r = await _confirm(client, task_id)
@@ -409,9 +410,9 @@ async def test_retry_index_not_blocked_by_missing_desensitized_text(
     app.dependency_overrides[get_weknora_client] = lambda: ok
     rr = await client.post(f"{KN}/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT))
     assert rr.status_code == 200, rr.text
-    assert rr.json()["index_status"] == "indexed"
-    # 重试同样把**治理文本**推给底座（不依赖任何脱敏代理）。
-    assert ok.uploaded_content == _SENSITIVE.strip()
+    assert rr.json()["index_status"] == "indexing"
+    assert ok.uploaded_content.startswith(b"# ")
+    assert _SENSITIVE.strip() in ok.uploaded_content
 
 
 # ---------------------------------------------------------------------------

@@ -46,13 +46,20 @@ async def index_confirmed_asset(
     """Index one already-persisted version and return only safe terminal states."""
     asset_id = asset.id
     version_id = version.id
-    source_file_ref = task.source_file_ref
-
     try:
-        file_bytes = storage.resolve_path(source_file_ref).read_bytes()
-    except OSError:
+        from app.services.canonical_markdown import ensure_version_markdown
+
+        markdown = await ensure_version_markdown(
+            session,
+            storage,
+            asset_id=asset_id,
+            version_id=version_id,
+        )
+    except Exception as exc:  # canonical service exposes only safe codes
         outcome = await indexing.mark_index_failed(
-            session, version_id=version_id, error_code="source_file_unreadable"
+            session,
+            version_id=version_id,
+            error_code=getattr(exc, "code", "canonical_markdown_unavailable"),
         )
         await _record_index_failure(
             session, caller, asset_id, outcome.error_code, trace_id, project_id
@@ -68,15 +75,15 @@ async def index_confirmed_asset(
         owner_user_id=owner_id,
         project_id=project_id,
         confidentiality=confidentiality,
-        file_bytes=file_bytes,
-        source_file_name=task.source_file_name,
-        source_file_mime=task.source_file_mime_type,
+        file_bytes=markdown.content,
+        source_file_name=markdown.file_name,
+        source_file_mime=markdown.mime,
         channel=task.source,
         trace_id=trace_id,
         embedding_model_ref=embedding_model_ref,
         rerank_model_ref=rerank_model_ref,
     )
-    if outcome.index_status == "indexed":
+    if outcome.index_status in {"indexed", "indexing"}:
         await audit_service.record_event(
             session,
             caller=caller,

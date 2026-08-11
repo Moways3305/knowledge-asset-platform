@@ -111,7 +111,7 @@ class FakeSearchWK:
             raise WeKnoraError("weknora_down", "底座不可用")
         self._doc += 1
         self.uploads.append(content)
-        return {"id": f"doc-{self._doc}", "parse_status": "processing", "file_hash": "h"}
+        return {"id": f"doc-{self._doc}", "parse_status": "completed", "file_hash": "h"}
 
     async def get_knowledge(self, knowledge_id, *, trace_id=None):
         return {"id": knowledge_id, "parse_status": "completed"}

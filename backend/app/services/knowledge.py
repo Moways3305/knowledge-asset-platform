@@ -29,6 +29,7 @@ from app.db.utils import utc_now
 from app.models.identity import Project, User
 from app.models.knowledge import (
     KnowledgeAsset,
+    KnowledgeAssetFileObject,
     KnowledgeAssetSummary,
     KnowledgeAssetTag,
     KnowledgeAssetVersion,
@@ -83,7 +84,6 @@ from app.services.permission import (
     lifecycle_visibility,
 )
 from app.services.permission_rules import load_access_policy
-from app.services.source_content import resolve_version_source_task
 from app.services.storage import LocalFileStorage
 from app.services.weknora_client import (
     NullWeKnoraClient,
@@ -570,6 +570,22 @@ async def get_detail(
             ),
         )
 
+    canonical_markdown_status = "not_generated"
+    if version_obj is not None:
+        canonical_exists = await session.scalar(
+            select(KnowledgeAssetFileObject.id)
+            .where(
+                KnowledgeAssetFileObject.asset_id == asset.id,
+                KnowledgeAssetFileObject.version_id == version_obj.id,
+                KnowledgeAssetFileObject.file_variant == "canonical_markdown",
+                KnowledgeAssetFileObject.storage_ref.is_not(None),
+                KnowledgeAssetFileObject.file_hash.is_not(None),
+            )
+            .limit(1)
+        )
+        if canonical_exists is not None:
+            canonical_markdown_status = "generated"
+
     projects, users = await _aux_maps(session, [asset])
     maintainer: MaintainerOut | None = None
     if asset.maintainer_user_id and asset.maintainer_user_id in users:
@@ -600,6 +616,7 @@ async def get_detail(
         archive_reason=asset.archive_reason,
         summary=summary_obj,
         current_version=current_version,
+        canonical_markdown_status=canonical_markdown_status,
         access_info=access,
         index_status=version_obj.index_status if version_obj else None,
         weknora_parse_status=version_obj.weknora_parse_status if version_obj else None,
@@ -1318,28 +1335,20 @@ async def retry_index(
             trace_id=trace_id,
         )
 
-    # 取入库任务的 server-only source_file_ref（只读取 ref，不外泄）。
-    task = await resolve_version_source_task(
-        session,
-        asset_id=asset_id,
-        version_id=version_id,
-    )
-    if task is None or not task.source_file_ref:
-        raise _denied(
-            409,
-            "knowledge_index_source_unavailable",
-            "找不到原文来源，无法重传底座（可能为历史数据）",
-        )
-    source_file_name = task.source_file_name
-    source_file_mime = task.source_file_mime_type
-    channel = task.source
-
-    # 读原文字节：读盘失败也算索引失败（资产保留、可再试）。
     try:
-        file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
-    except OSError:
+        from app.services.canonical_markdown import ensure_version_markdown
+
+        markdown = await ensure_version_markdown(
+            session,
+            storage,
+            asset_id=asset_id,
+            version_id=version_id,
+        )
+    except Exception as exc:
         outcome = await indexing.mark_index_failed(
-            session, version_id=version_id, error_code="source_file_unreadable"
+            session,
+            version_id=version_id,
+            error_code=getattr(exc, "code", "canonical_markdown_unavailable"),
         )
         await _audit_retry_failed(
             session, caller, asset_id, outcome.error_code, trace_id, project_id
@@ -1355,15 +1364,15 @@ async def retry_index(
         owner_user_id=owner_user_id,
         project_id=project_id,
         confidentiality=confidentiality,
-        file_bytes=file_bytes,
-        source_file_name=source_file_name,
-        source_file_mime=source_file_mime,
-        channel=channel,
+        file_bytes=markdown.content,
+        source_file_name=markdown.file_name,
+        source_file_mime=markdown.mime,
+        channel=markdown.task.source,
         trace_id=trace_id,
         embedding_model_ref=embedding_model_ref,
         rerank_model_ref=rerank_model_ref,
     )
-    if outcome.index_status == "indexed":
+    if outcome.index_status in {"indexed", "indexing"}:
         await audit_service.record_event(
             session,
             caller=caller,

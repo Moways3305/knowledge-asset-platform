@@ -8,7 +8,15 @@ import PendingSelectAll, {
   pendingSelectionReason,
 } from "./PendingSelectAll";
 import { formatBeijingTime } from "../../utils/time";
+import type { IngestTaskStage } from "../../types/ingest";
 import type { UploadFlow } from "./useUploadFlow";
+
+const PROCESSING_STAGE_LABELS: Partial<Record<IngestTaskStage, string>> = {
+  upload_saved: "原件已接收",
+  text_extraction: "正在提取正文",
+  canonical_markdown_generation: "正在生成 Markdown",
+  content_generation: "正在生成内容建议",
+};
 
 export default function UploadStepB({ flow }: { flow: UploadFlow }) {
   const {
@@ -254,8 +262,10 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
 
       {!hasFile && uploadQueueCompleted && (
         <section className="upload77-upload-complete" role="status">
-          <strong>本次上传 {uploadSession?.total_files ?? localUploadQueue.length} 项已完成</strong>
-          <span>，{localPendingTasks.length} 项待确认入库。</span>
+          <strong>
+            本次上传 {uploadSession?.total_files ?? localUploadQueue.length} 项派生处理已完成
+          </strong>
+          <span>，规范文本已生成；{localPendingTasks.length} 项待人工确认，尚未进入检索。</span>
           <a href="#local-pending-title">前往待确认入库</a>
           {completedQueueNotice && (
             <span className="upload77-upload-complete-note">{completedQueueNotice}</span>
@@ -343,11 +353,14 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                 </thead>
                 <tbody>
                   {localUploadQueue.map((item) => {
+                    const processingLabel = item.processingStage
+                      ? PROCESSING_STAGE_LABELS[item.processingStage]
+                      : undefined;
                     const label = {
                       queued: "等待上传",
                       uploading: "上传中",
-                      processing: "处理中",
-                      awaiting_confirmation: "待确认入库",
+                      processing: processingLabel ?? "派生处理中",
+                      awaiting_confirmation: "规范文本已生成，待人工确认",
                       completed: "已完成",
                       cancelled: "已取消",
                       failed: "上传失败",
