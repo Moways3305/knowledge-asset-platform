@@ -792,6 +792,7 @@ async def options(
                 sort_order=item.sort_order,
             )
             for item in categories
+            if item.asset_type is not None
         ],
         default_confidentiality=default_confidentiality,
         message=None if categories else "当前目标尚未配置启用的目录类别",
