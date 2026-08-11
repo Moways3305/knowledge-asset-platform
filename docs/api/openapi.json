@@ -102,6 +102,11 @@
             "title": "Can Retry Index",
             "type": "boolean"
           },
+          "cross_project_summary": {
+            "default": false,
+            "title": "Cross Project Summary",
+            "type": "boolean"
+          },
           "discovery": {
             "title": "Discovery",
             "type": "boolean"
@@ -2304,6 +2309,40 @@
           "items"
         ],
         "title": "CandidateMembersResponse",
+        "type": "object"
+      },
+      "CanonicalMarkdownBackfillRequest": {
+        "description": "Bounded, resumable historical Markdown backfill.",
+        "properties": {
+          "limit": {
+            "default": 100,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "rebuild_index": {
+            "default": false,
+            "title": "Rebuild Index",
+            "type": "boolean"
+          },
+          "scope": {
+            "default": "all",
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "title": "CanonicalMarkdownBackfillRequest",
         "type": "object"
       },
       "CategoryClassificationBatchRequest": {
@@ -4827,6 +4866,7 @@
         "enum": [
           "upload_saved",
           "text_extraction",
+          "canonical_markdown_generation",
           "content_generation",
           "awaiting_confirmation",
           "confirmation",
@@ -5704,6 +5744,17 @@
             "title": "Asset Type",
             "type": "string"
           },
+          "canonical_markdown_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canonical Markdown Status"
+          },
           "canonical_name": {
             "anyOf": [
               {
@@ -5924,6 +5975,7 @@
           "archive_reason",
           "summary",
           "current_version",
+          "canonical_markdown_status",
           "access_info"
         ],
         "title": "KnowledgeDetailOut",
@@ -13397,6 +13449,17 @@
             "title": "Ordinal",
             "type": "integer"
           },
+          "processing_stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processing Stage"
+          },
           "retryable": {
             "default": false,
             "title": "Retryable",
@@ -16152,6 +16215,98 @@
           }
         },
         "summary": "Ops Indexing Jobs",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/admin/ops/indexing/markdown-backfill": {
+      "post": {
+        "description": "Backfill controlled Markdown in bounded pages; optionally rebuild its index.",
+        "operationId": "ops_canonical_markdown_backfill_admin_ops_indexing_markdown_backfill_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CanonicalMarkdownBackfillRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexingJobSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ops Canonical Markdown Backfill",
         "tags": [
           "ops"
         ]
