@@ -90,7 +90,7 @@ python scripts/production_smoke.py --base-url <prod-url> --expect-prod-ready --j
 - 不应出现：失败资产的原文 / chunk
 
 ### B9. 原文权限边界：无授权不可看，有授权可看
-- 操作人：跨项目 / 公司范围业务用户（对 L3/L4 原文）
+- 操作人：跨项目范围业务用户（对项目 L1-L4 原文）/ 公司范围业务用户（对公司 L3/L4 原文）
 - 步骤：
   1. 无授权访问原文层（知识详情原文 / 预览 / 原文取件）→ 预期按「需申请」拒绝（`original_requires_request`）。
   2. 发起原文访问申请 → 审批通过生成 active `access_grant` → 再访问 → 预期放行。

@@ -39,6 +39,7 @@ function mapAccess(a: AccessInfoDTO): AccessInfoVM {
     original: a.original,
     effectiveSource: a.effective_source,
     canRequestOriginal: a.can_request_original,
+    crossProjectSummary: a.cross_project_summary ?? false,
     existingRequestStatus: a.existing_request_status,
     existingGrantExpiresAt: a.existing_grant_expires_at,
     canDelete: a.can_delete,
@@ -91,7 +92,7 @@ function mapDetail(d: KnowledgeDetailDTO): KnowledgeDetailVM {
     keyPoints: d.summary?.key_points ?? [],
     currentVersionNo: d.current_version?.display_version ?? d.current_version?.version_no ?? null,
     indexErrorCode: d.index_error_code ?? null,
-    canonicalMarkdownStatus: d.canonical_markdown_status ?? "not_generated",
+    canonicalMarkdownStatus: d.canonical_markdown_status ?? null,
   };
 }
 

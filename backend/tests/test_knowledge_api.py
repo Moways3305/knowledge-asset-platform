@@ -88,11 +88,25 @@ async def test_l5_detail_404_for_consultant(client):
     assert resp.status_code == 404
 
 
-async def test_project_non_member_l3_is_not_discoverable(client):
-    """consultant 非 Beta active 成员，不能发现 Beta L3。"""
+async def test_project_non_member_l3_gets_only_redacted_summary_projection(client):
+    """consultant 非 Beta active 成员，可发现但只能读取脱敏摘要和安全卡片字段。"""
     resp = await client.get(f"{KN}/{KA_PROJECT_BETA_L3}", headers=_hdr(USER_CONSULTANT))
-    assert resp.status_code == 404
-    assert resp.json()["detail"]["denied_reason"] == "knowledge_asset_not_found"
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["access_info"]["cross_project_summary"] is True
+    assert body["access_info"]["summary"] is True
+    assert body["access_info"]["original"] is False
+    assert body["access_info"]["can_request_original"] is True
+    assert body["summary"]["detailed"].startswith("（脱敏）")
+    assert body["summary"]["key_points"] == []
+    assert body["maintainer"] is None
+    assert body["current_version"] is None
+    assert body["canonical_markdown_status"] is None
+    assert body["index_status"] is None
+    assert body["weknora_parse_status"] is None
+    assert body["index_error_message"] is None
+    for forbidden in ("storage_ref", "source_file_ref", "weknora_kb_id", "weknora_doc_id"):
+        assert forbidden not in resp.text
 
 
 async def test_project_member_can_get_original(client):

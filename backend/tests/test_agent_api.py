@@ -368,12 +368,11 @@ async def test_a4_not_cited_as_original(client):
             assert c["used_access_layer"] != "original"
 
 
-async def test_l5_and_archived_not_cited(client):
-    """L5（不可发现）与 archived（非 active）不进入引用与可见 decision-items。"""
+async def test_own_project_l5_is_citable_but_archived_is_not(client):
+    """active 成员可使用本项目 L5；archived 仍不进入引用或 decision-items。"""
     resp = await client.post(QA, headers=_hdr(USER_CONSULTANT), json={"query": "项目知识"})
     call_id = resp.json()["call_id"]
     cited_ids = {c["asset_id"] for c in resp.json()["citations"]}
-    assert str(KA_PROJECT_ALPHA_L5) not in cited_ids
     assert str(KA_PROJECT_ALPHA_ARCHIVED) not in cited_ids
 
     items = (
@@ -382,8 +381,8 @@ async def test_l5_and_archived_not_cited(client):
         )
     ).json()["items"]
     item_ids = {i["target_asset_id"] for i in items}
-    # L5 不在可见 decision-items（避免存在性泄露）；archived 不进候选。
-    assert str(KA_PROJECT_ALPHA_L5) not in item_ids
+    # L5 是可达候选；是否进入有限条数的引用由相关度/证据上限决定。
+    assert str(KA_PROJECT_ALPHA_L5) in item_ids
     assert str(KA_PROJECT_ALPHA_ARCHIVED) not in item_ids
 
 

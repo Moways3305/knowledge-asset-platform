@@ -122,18 +122,16 @@ class PermissionDecision(BaseModel):
 
 @dataclass(frozen=True)
 class DefaultAccessPolicy:
-    """L1/L2 原文默认放行策略（集中表达，便于后续被 permission_rules 替换）。
+    """公司 L1/L2 原文默认放行策略。
 
-    L3/L4 跨项目/公司原文默认按"需要申请"（original_requires_request）；起，
-    审批通过的 active access_grant 会在运行时把原文层放行（见 permission.decide 的
-    has_original_grant）。本对象只承载 L1/L2 默认放行开关；其规则化（permission_rules
-    驱动运行时）仍属后续治理接入，不散落写死在多处。
+    跨项目项目知识 L1-L4 与公司知识 L3/L4 原文默认按"需要申请"
+    （original_requires_request）；审批通过的 active access_grant 会在运行时把对应
+    资产的原文层放行（见 permission.decide 的 has_original_grant）。本对象只承载公司
+    L1/L2 默认放行开关，其运行时值由 permission_rules 集中提供。
     """
 
     # 公司知识 L1/L2 原文：默认放行给 active 业务用户。
     company_l1_l2_original_for_business_user: bool = True
-    # 跨项目（非本项目成员）访问项目知识 L1/L2 原文：默认放行给 active 业务用户。
-    cross_project_l1_l2_original_for_business_user: bool = True
 
 
 # 平台默认策略实例。后续可由 permission_rules 加载结果替换。

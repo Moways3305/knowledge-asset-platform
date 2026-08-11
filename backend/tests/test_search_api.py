@@ -30,7 +30,9 @@ from app.seed.dev_seed import (
     KA_COMPANY_L4,
     KA_COMPANY_L5,
     KA_PROJECT_ALPHA,
+    KA_PROJECT_BETA_L3,
     PROJECT_ALPHA,
+    PROJECT_BETA,
     USER_CONSULTANT,
     USER_DIRECTOR,
 )
@@ -40,6 +42,7 @@ from app.services.weknora_client import WeKnoraClient, get_weknora_client
 
 SEARCH = "/api/v1/knowledge/search"
 _ALPHA_KB = f"wk-kb-proj-{PROJECT_ALPHA}"
+_BETA_KB = f"wk-kb-proj-{PROJECT_BETA}"
 _COMPANY_KB = "wk-kb-company"
 
 # 含客户敏感实体的原文 chunk（用于断言输出脱敏确实擦洗）。
@@ -275,6 +278,54 @@ async def test_stage1_score_sorted_and_orphan_dropped(client):
     # 孤儿 knowledge 无业务映射 → 丢弃，不透出。
     assert str(KA_COMPANY_L2) in ids
     assert all("orphan" not in i for i in ids)
+
+
+async def test_global_search_uses_cross_project_redacted_summary_not_chunks_or_members(client):
+    docs = [_doc(KA_PROJECT_BETA_L3, _BETA_KB, _SENSITIVE)]
+    _install(FakeSearchWeKnora(docs), FakeScrubLLM())
+    resp = await client.post(
+        SEARCH,
+        headers=_hdr(USER_CONSULTANT),
+        json={"query": "客户访谈", "scope": "all", "intent": "qa"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    card = next(card for card in body["cards"] if card["asset_id"] == str(KA_PROJECT_BETA_L3))
+    assert card["detailed"].startswith("（脱敏）")
+    assert card["can_view_original"] is False
+    assert card["owner_name"] is None
+    assert card["maintainer_name"] is None
+    assert card["phase"] is None
+    assert body["citations"][0]["used_access_layer"] == "summary"
+    assert _SENSITIVE not in resp.text
+    _assert_no_leak(resp.text)
+
+
+async def test_cross_project_original_request_returns_no_chunks_or_member_names(client):
+    docs = [_doc(KA_PROJECT_BETA_L3, _BETA_KB, _SENSITIVE)]
+    _install(FakeSearchWeKnora(docs), FakeScrubLLM())
+    resp = await client.post(
+        SEARCH,
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "query": "客户访谈",
+            "scope": "all",
+            "want_original": True,
+            "asset_id": str(KA_PROJECT_BETA_L3),
+        },
+    )
+    assert resp.status_code == 200
+    original = resp.json()["original"]
+    assert original == {
+        "asset_id": str(KA_PROJECT_BETA_L3),
+        "available": False,
+        "chunks": [],
+        "degraded_reason": "original_requires_request",
+        "owner_name": None,
+        "maintainer_name": None,
+    }
+    assert _SENSITIVE not in resp.text
+    _assert_no_leak(resp.text)
 
 
 # ---------------- 阶段2原文 + 输出脱敏 ----------------

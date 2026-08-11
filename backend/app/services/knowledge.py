@@ -213,12 +213,17 @@ def _build_access_info(
         and o.denied_reason == DeniedReason.original_requires_request
         and not pending_request
     )
+    cross_project_summary = (
+        asset.scope == KnowledgeScope.project.value
+        and asset.project_id not in caller.active_project_ids
+    )
     return AccessInfoOut(
         discovery=d.allowed,
         summary=s.allowed,
         original=o.allowed,
         effective_source=source,
         can_request_original=can_request,
+        cross_project_summary=cross_project_summary,
         existing_request_status="pending" if pending_request else None,
         existing_grant_expires_at=grant_expires_at if has_grant else None,
         can_delete=_can_delete(caller, asset),
@@ -296,10 +301,12 @@ def _to_list_item(
     summary_text = (
         _select_summary_text(asset.confidentiality_level, smap) if access.summary else None
     )
+    # 原文 grant 只提升独立原文端点的读取权限，不能解除列表的跨项目安全投影。
+    cross_project_projection = access.cross_project_summary
     return KnowledgeListItemOut(
         id=asset.id,
         title=asset.title,
-        canonical_name=asset.canonical_name,
+        canonical_name=None if cross_project_projection else asset.canonical_name,
         scope=asset.scope,
         zone=asset.zone,
         asset_type=asset.asset_type,
@@ -310,15 +317,17 @@ def _to_list_item(
         tags=[t.tag_name for t in asset.tags],
         summary_text=summary_text,
         project_name=projects.get(asset.project_id) if asset.project_id else None,
-        lifecycle_phase=asset.lifecycle_phase_key,
+        lifecycle_phase=None if cross_project_projection else asset.lifecycle_phase_key,
         confidence=None,
-        last_called_at=asset.last_called_at,
+        last_called_at=None if cross_project_projection else asset.last_called_at,
         updated_at=asset.updated_at,
         access_info=access,
-        index_status=ver.index_status if ver else None,
-        weknora_parse_status=ver.weknora_parse_status if ver else None,
-        index_error_message=_index_user_message(ver),
-        indexed_at=ver.indexed_at if ver else None,
+        index_status=None if cross_project_projection else ver.index_status if ver else None,
+        weknora_parse_status=(
+            None if cross_project_projection else ver.weknora_parse_status if ver else None
+        ),
+        index_error_message=None if cross_project_projection else _index_user_message(ver),
+        indexed_at=None if cross_project_projection else ver.indexed_at if ver else None,
     )
 
 
@@ -531,6 +540,8 @@ async def get_detail(
         policy=policy,
     )
     smap = _summary_map(asset)
+    # grant 后仍保持跨项目安全投影；原文只能通过受审计的原文端点读取。
+    cross_project_projection = access.cross_project_summary
 
     # 摘要对象仅在 summary 层允许时构建。
     summary_obj: SummaryOut | None = None
@@ -570,8 +581,8 @@ async def get_detail(
             ),
         )
 
-    canonical_markdown_status = "not_generated"
-    if version_obj is not None:
+    canonical_markdown_status: str | None = None if cross_project_projection else "not_generated"
+    if version_obj is not None and not cross_project_projection:
         canonical_exists = await session.scalar(
             select(KnowledgeAssetFileObject.id)
             .where(
@@ -588,7 +599,11 @@ async def get_detail(
 
     projects, users = await _aux_maps(session, [asset])
     maintainer: MaintainerOut | None = None
-    if asset.maintainer_user_id and asset.maintainer_user_id in users:
+    if (
+        not cross_project_projection
+        and asset.maintainer_user_id
+        and asset.maintainer_user_id in users
+    ):
         maintainer = MaintainerOut(
             id=asset.maintainer_user_id, name=users[asset.maintainer_user_id]
         )
@@ -596,7 +611,7 @@ async def get_detail(
     return KnowledgeDetailOut(
         id=asset.id,
         title=asset.title,
-        canonical_name=asset.canonical_name,
+        canonical_name=None if cross_project_projection else asset.canonical_name,
         scope=asset.scope,
         zone=asset.zone,
         asset_type=asset.asset_type,
@@ -607,27 +622,43 @@ async def get_detail(
         tags=[t.tag_name for t in asset.tags],
         project_id=asset.project_id,
         project_name=projects.get(asset.project_id) if asset.project_id else None,
-        lifecycle_phase=asset.lifecycle_phase_key,
+        lifecycle_phase=None if cross_project_projection else asset.lifecycle_phase_key,
         maintainer=maintainer,
         confidence=None,
-        last_called_at=asset.last_called_at,
+        last_called_at=None if cross_project_projection else asset.last_called_at,
         updated_at=asset.updated_at,
         archived_at=asset.archived_at,
         archive_reason=asset.archive_reason,
         summary=summary_obj,
-        current_version=current_version,
+        current_version=None if cross_project_projection else current_version,
         canonical_markdown_status=canonical_markdown_status,
         access_info=access,
-        index_status=version_obj.index_status if version_obj else None,
-        weknora_parse_status=version_obj.weknora_parse_status if version_obj else None,
+        index_status=(
+            None if cross_project_projection else version_obj.index_status if version_obj else None
+        ),
+        weknora_parse_status=(
+            None
+            if cross_project_projection
+            else version_obj.weknora_parse_status
+            if version_obj
+            else None
+        ),
         # 安全目录 code：历史脏 code 也归一，不外显原始上游 code。
         index_error_code=(
             error_catalog.safe_code(version_obj.index_error_code)
-            if (version_obj and version_obj.index_status == "index_failed")
+            if (
+                not cross_project_projection
+                and version_obj
+                and version_obj.index_status == "index_failed"
+            )
             else None
         ),
-        index_error_message=_index_user_message(version_obj),
-        indexed_at=version_obj.indexed_at if version_obj else None,
+        index_error_message=(
+            None if cross_project_projection else _index_user_message(version_obj)
+        ),
+        indexed_at=(
+            None if cross_project_projection else version_obj.indexed_at if version_obj else None
+        ),
     )
 
 

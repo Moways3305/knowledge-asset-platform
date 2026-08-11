@@ -15,6 +15,7 @@
     "test:ui:model-autofill": "node scripts/model-autofill.ui-qa.mjs",
     "test:ui:project-settings": "node scripts/project-settings.ui-qa.mjs",
     "test:ui:knowledge-list": "node scripts/knowledge-list.ui-qa.mjs",
+    "test:ui:cross-project-summary": "node scripts/cross-project-summary.ui-qa.mjs",
     "test:ui:knowledge-detail": "node scripts/knowledge-detail.ui-qa.mjs",
     "test:ui:upload": "node scripts/upload-ingest.ui-qa.mjs",
     "test:ui:project-space": "node scripts/project-space.ui-qa.mjs",

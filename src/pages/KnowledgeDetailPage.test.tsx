@@ -195,6 +195,30 @@ describe("KnowledgeDetailPage", () => {
     expect(await screen.findByText("当前身份不可查看内容摘要。")).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(/MUST-NOT-RENDER/);
   });
+
+  it("keeps cross-project summary navigation out of the project workspace", async () => {
+    vi.mocked(fetchKnowledgeDetail).mockResolvedValue({
+      ...baseAsset,
+      canonicalMarkdownStatus: null,
+      currentVersionNo: null,
+      maintainerName: "",
+      access: {
+        ...baseAsset.access,
+        original: false,
+        canRequestOriginal: true,
+        crossProjectSummary: true,
+      },
+    });
+
+    renderDetail();
+
+    expect(await screen.findByText("其他项目 · 摘要可见")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "返回知识资产库" })).toHaveAttribute(
+      "href",
+      "/knowledge",
+    );
+    expect(screen.queryByText(/Markdown 已生成|Markdown 未生成/)).not.toBeInTheDocument();
+  });
 });
 
 type PreviewEvents = {

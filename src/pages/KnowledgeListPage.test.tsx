@@ -1,8 +1,13 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchKnowledgePage } from "../api/knowledge";
-import type { KnowledgeCardVM, KnowledgePageVM, KnowledgeQueryParams } from "../types/knowledge";
+import { fetchKnowledgeDetail, fetchKnowledgePage, requestOriginalAccess } from "../api/knowledge";
+import type {
+  KnowledgeCardVM,
+  KnowledgeDetailVM,
+  KnowledgePageVM,
+  KnowledgeQueryParams,
+} from "../types/knowledge";
 import KnowledgeListPage from "./KnowledgeListPage";
 
 const PROJECT_A = "00000000-0000-0000-0000-000000000075";
@@ -52,7 +57,9 @@ vi.mock("../auth/AuthContext", () => ({
 }));
 
 vi.mock("../api/knowledge", () => ({
+  fetchKnowledgeDetail: vi.fn(),
   fetchKnowledgePage: vi.fn(),
+  requestOriginalAccess: vi.fn(),
 }));
 
 const restrictedAsset: KnowledgeCardVM = {
@@ -101,6 +108,35 @@ const longProjectAsset: KnowledgeCardVM = {
   access: { ...restrictedAsset.access, original: true },
 };
 
+const crossProjectAsset: KnowledgeCardVM = {
+  ...restrictedAsset,
+  id: "00000000-0000-0000-0000-0000000000a3",
+  title: "其他项目客户访谈洞察",
+  scope: "project",
+  projectName: "北区增长项目",
+  summary: "（脱敏）可跨项目共享的访谈摘要。",
+  access: {
+    ...restrictedAsset.access,
+    effectiveSource: "system_rule",
+    crossProjectSummary: true,
+  },
+  indexStatus: null,
+};
+
+const crossProjectDetail: KnowledgeDetailVM = {
+  ...crossProjectAsset,
+  projectId: "00000000-0000-0000-0000-000000000099",
+  maintainerName: "",
+  archivedAt: null,
+  archiveReason: null,
+  oneLiner: "（脱敏）可跨项目共享的访谈摘要。",
+  detailed: "（脱敏）仅包含可共享结论，不包含访谈原文。",
+  keyPoints: [],
+  currentVersionNo: null,
+  indexErrorCode: null,
+  canonicalMarkdownStatus: null,
+};
+
 function response(
   items: KnowledgeCardVM[] = [restrictedAsset, longProjectAsset],
   overrides: Partial<KnowledgePageVM> = {},
@@ -146,6 +182,13 @@ describe("KnowledgeListPage reference implementation", () => {
       { projectId: PROJECT_B, projectName: "供应链优化项目", projectRole: "coach" },
     ];
     vi.mocked(fetchKnowledgePage).mockResolvedValue(response());
+    vi.mocked(fetchKnowledgeDetail).mockResolvedValue(crossProjectDetail);
+    vi.mocked(requestOriginalAccess).mockResolvedValue({
+      status: "created",
+      message: "created",
+      request: null,
+      grant: null,
+    });
   });
 
   it("loads one server page without the former three-scope fan-out", async () => {
@@ -218,7 +261,7 @@ describe("KnowledgeListPage reference implementation", () => {
     expect(screen.getByRole("tab", { name: "全部" })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("does not request a project scope when the identity has no active project relationship", async () => {
+  it("still loads cross-project summaries when the identity has no active project relationship", async () => {
     auth.authMe.projects = [];
     auth.capabilities.hasProject = false;
     renderPage();
@@ -227,9 +270,12 @@ describe("KnowledgeListPage reference implementation", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "项目" }));
 
-    expect(await screen.findByText("项目范围不可用")).toBeInTheDocument();
     expect(screen.queryByLabelText("项目")).not.toBeInTheDocument();
-    expect(fetchKnowledgePage).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(fetchKnowledgePage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ scope: "project" }),
+      ),
+    );
   });
 
   it("shows safe summaries and an honest original restriction without management actions", async () => {
@@ -245,6 +291,54 @@ describe("KnowledgeListPage reference implementation", () => {
     );
     expect(screen.queryByText(restrictedAsset.id)).not.toBeInTheDocument();
     expect(screen.queryByText(/storage_ref|WeKnora|token/i)).not.toBeInTheDocument();
+  });
+
+  it("opens a cross-project summary drawer and submits an honest original request", async () => {
+    vi.mocked(fetchKnowledgePage).mockResolvedValue(response([crossProjectAsset]));
+    vi.mocked(fetchKnowledgeDetail)
+      .mockResolvedValueOnce(crossProjectDetail)
+      .mockResolvedValueOnce({
+        ...crossProjectDetail,
+        access: {
+          ...crossProjectDetail.access,
+          canRequestOriginal: false,
+          existingRequestStatus: "pending",
+        },
+      });
+    renderPage();
+
+    expect(await screen.findByText("其他项目 · 摘要可见")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "查看摘要" }));
+
+    expect(
+      await screen.findByRole("dialog", { name: crossProjectAsset.title }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(crossProjectDetail.detailed)).toBeInTheDocument();
+    expect(screen.getByText(/不授予项目空间权限/)).toBeInTheDocument();
+    expect(screen.queryByText(/维护人|Markdown|WeKnora|storage_ref/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "申请原文" }));
+    await waitFor(() => expect(requestOriginalAccess).toHaveBeenCalledWith(crossProjectAsset.id));
+    expect(await screen.findByText(/已提交原文访问申请/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "原文申请审批中" })).toBeDisabled();
+  });
+
+  it("shows a safe empty state when no cross-project summary is available", async () => {
+    vi.mocked(fetchKnowledgePage).mockResolvedValue(
+      response([{ ...crossProjectAsset, summary: "" }]),
+    );
+    vi.mocked(fetchKnowledgeDetail).mockResolvedValue({
+      ...crossProjectDetail,
+      summary: "",
+      oneLiner: "",
+      detailed: "",
+    });
+    renderPage();
+
+    expect(await screen.findByText("暂无可共享摘要")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "查看摘要" }));
+    expect(await screen.findByText(/安全摘要尚未生成/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "申请原文" })).toBeInTheDocument();
   });
 
   it("keeps a pure administrator out of the business list without revealing counts", async () => {

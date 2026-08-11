@@ -113,8 +113,8 @@ async def test_governance_company_visibility_preserved(client):
     assert resp.json()["access_info"]["summary"] is True
 
 
-async def test_inactive_project_member_no_member_original(db_session):
-    """顾问 A 在 Beta 为 inactive 成员，因此不能发现或读取 Beta 知识。"""
+async def test_inactive_project_member_gets_cross_project_summary_not_member_original(db_session):
+    """inactive 关系不产生成员原文权，但 active 业务身份仍可读跨项目安全摘要。"""
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
 
@@ -134,7 +134,7 @@ async def test_inactive_project_member_no_member_original(db_session):
     assert beta_l3.project_id not in ctx.active_project_ids
     orig = decide(ctx, beta_l3, AccessLayer.original)
     assert orig.allowed is False
-    assert orig.denied_reason == DeniedReason.no_project_membership
+    assert orig.denied_reason == DeniedReason.original_requires_request
     summ = decide(ctx, beta_l3, AccessLayer.summary)
-    assert summ.allowed is False
-    assert summ.denied_reason == DeniedReason.no_project_membership
+    assert summ.allowed is True
+    assert summ.summary_variant == "redacted_summary"

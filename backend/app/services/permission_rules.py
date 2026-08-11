@@ -166,15 +166,7 @@ DEFAULT_RULES: list[dict] = [
         "天",
         "访问授权到期后需重新申请，防止无限期访问",
     ),
-    # L1/L2 默认原文放行。
-    _toggle(
-        "cross_project_l1_l2_original_for_business_user",
-        GROUP_ACCESS,
-        "跨项目 L1/L2 原文默认放行业务用户",
-        True,
-        "业务用户访问其它项目 L1/L2 原文是否默认放行。"
-        "关闭后非本项目成员对其它项目 L1/L2 最多到摘要层，原文需申请授权",
-    ),
+    # 公司 L1/L2 默认原文放行。跨项目项目知识始终逐资产申请，不提供默认原文开关。
     _toggle(
         "company_l1_l2_original_for_business_user",
         GROUP_ACCESS,
@@ -235,10 +227,7 @@ _GROUP_RANK = {g: i for i, g in enumerate(GROUP_ORDER)}
 # 运行时读取：把已有 permission_rules 接入真实权限运行时。
 # 收口在本服务，业务读路径只调 load_access_policy()，不散落读规则。
 # ---------------------------------------------------------------------------
-_RUNTIME_TOGGLE_KEYS = (
-    "cross_project_l1_l2_original_for_business_user",
-    "company_l1_l2_original_for_business_user",
-)
+_RUNTIME_TOGGLE_KEYS = ("company_l1_l2_original_for_business_user",)
 _TIMEOUT_RULE_KEY = "access_request_timeout_hours"
 
 
@@ -272,10 +261,6 @@ async def load_access_policy(session: AsyncSession) -> DefaultAccessPolicy:
     )
     by_key = {r.rule_key: r for r in rows}
     return DefaultAccessPolicy(
-        cross_project_l1_l2_original_for_business_user=_runtime_toggle(
-            by_key.get("cross_project_l1_l2_original_for_business_user"),
-            default=DEFAULT_POLICY.cross_project_l1_l2_original_for_business_user,
-        ),
         company_l1_l2_original_for_business_user=_runtime_toggle(
             by_key.get("company_l1_l2_original_for_business_user"),
             default=DEFAULT_POLICY.company_l1_l2_original_for_business_user,

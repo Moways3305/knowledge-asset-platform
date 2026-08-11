@@ -451,8 +451,8 @@ async def test_governance_cannot_retry_project_without_membership(client, monkey
     try:
         _set_client(FakeWK())
         r = await client.post(f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_BOSS))
-        assert r.status_code == 404, r.text
-        assert r.json()["detail"]["denied_reason"] == "knowledge_asset_not_found"
+        assert r.status_code == 403, r.text
+        assert r.json()["detail"]["denied_reason"] == "knowledge_index_retry_forbidden"
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)
 

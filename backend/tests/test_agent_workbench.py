@@ -371,7 +371,8 @@ async def test_content_denies_hidden_assets_and_missing_original_right(client, d
         headers=_bearer(),
     )
     assert other_personal.status_code == 404
-    assert nonmember_project.status_code == 404
+    assert nonmember_project.status_code == 403
+    assert nonmember_project.json()["detail"]["denied_reason"] == "original_requires_request"
 
     consultant_token = "kgw_workbench_consultant_content"
     await _insert_rule(
@@ -408,7 +409,7 @@ async def test_summary_token_ceiling_hides_high_conf(client, db_session):
 # ---------------------------------------------------------------------------
 # project knowledge / brief
 # ---------------------------------------------------------------------------
-async def test_project_knowledge_member_ok_excludes_l5(client, db_session):
+async def test_project_knowledge_member_can_read_own_project_l5(client, db_session):
     await _insert_rule(db_session, bound_user_id=USER_CONSULTANT)
     r = await client.get(
         f"/api/v1/agent-gateway/projects/{PROJECT_ALPHA}/knowledge", headers=_bearer()
@@ -416,7 +417,7 @@ async def test_project_knowledge_member_ok_excludes_l5(client, db_session):
     assert r.status_code == 200, r.text
     ids = {c["asset_id"] for c in r.json()["items"]}
     assert str(KA_PROJECT_ALPHA) in ids
-    assert str(KA_PROJECT_ALPHA_L5) not in ids
+    assert str(KA_PROJECT_ALPHA_L5) in ids
     _no_leak(r.text)
 
 

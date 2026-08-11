@@ -314,7 +314,12 @@ async def test_pm_can_appoint_ordinary_active_user_as_coach_without_expanding_pe
     other_project = await client.get(
         f"/api/v1/knowledge/{KA_PROJECT_BETA_L3}", headers=_hdr(USER_CONSULTANT)
     )
-    assert other_project.status_code == 404
+    assert other_project.status_code == 200
+    other_access = other_project.json()["access_info"]
+    assert other_access["cross_project_summary"] is True
+    assert other_access["summary"] is True
+    assert other_access["original"] is False
+    assert other_access["can_manage_lifecycle"] is False
 
 
 async def test_governance_appoints_project_manager_not_coach(client):

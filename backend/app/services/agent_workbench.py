@@ -52,7 +52,7 @@ from app.schemas.enums import (
     KnowledgeScope,
     ReviewTaskStatus,
 )
-from app.schemas.permission import AccessChannel, AccessLayer, CallerContext
+from app.schemas.permission import AccessChannel, AccessLayer, CallerContext, DeniedReason
 from app.services import audit as audit_service
 from app.services import external_agent_gateway as gateway
 from app.services import ingest as ingest_service
@@ -593,6 +593,8 @@ async def get_knowledge_content(
         has_original_grant=has_grant,
     )
     if not original.allowed:
+        if original.denied_reason == DeniedReason.original_requires_request:
+            raise _denied(403, original.denied_reason.value, "原文需申请并经审批后访问")
         raise _denied(403, "knowledge_original_denied", "无权读取该知识原文")
 
     version = (

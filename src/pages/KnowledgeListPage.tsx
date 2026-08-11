@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ChevronLeft, ChevronRight, FileText, Search, Upload } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
-import { fetchKnowledgePage } from "../api/knowledge";
+import { fetchKnowledgeDetail, fetchKnowledgePage, requestOriginalAccess } from "../api/knowledge";
 import { useAuth } from "../auth/AuthContext";
 import { can } from "../auth/permissions";
 import DataTable, { type Column } from "../components/DataTable";
+import DetailDrawer from "../components/DetailDrawer";
 import LoadingError from "../components/LoadingError";
 import {
   EmptyState,
@@ -19,6 +20,7 @@ import type {
   AssetType,
   ConfidentialityLevel,
   KnowledgeCardVM,
+  KnowledgeDetailVM,
   KnowledgePageVM,
   KnowledgeQueryParams,
   KnowledgeScope,
@@ -62,6 +64,9 @@ function pageNumbers(current: number, total: number): number[] {
 }
 
 function accessLabel(asset: KnowledgeCardVM): string {
+  if (asset.access.crossProjectSummary) {
+    return asset.access.original ? "其他项目 · 原文已授权" : "其他项目 · 摘要可见";
+  }
   if (!asset.access.summary) return "仅可发现";
   if (!asset.access.original) return "可查看摘要，原文受限";
   return "可查看摘要与原文";
@@ -95,12 +100,57 @@ export default function KnowledgeListPage() {
   const requestRef = useRef(0);
 
   const projects = authMe?.projects ?? [];
-  const projectScopeUnavailable = scope === "project" && projects.length === 0;
   const validProjectId = projects.some((project) => project.projectId === projectId)
     ? projectId
     : "";
-  const canLoadBusinessKnowledge =
-    status === "authenticated" && capabilities.isBusinessUser && !projectScopeUnavailable;
+  const canLoadBusinessKnowledge = status === "authenticated" && capabilities.isBusinessUser;
+  const [summaryAssetId, setSummaryAssetId] = useState<string | null>(null);
+  const [summaryDetail, setSummaryDetail] = useState<KnowledgeDetailVM | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [requestBusy, setRequestBusy] = useState(false);
+  const [requestNote, setRequestNote] = useState<string | null>(null);
+
+  const openCrossProjectSummary = (assetId: string) => {
+    setSummaryAssetId(assetId);
+    setSummaryDetail(null);
+    setSummaryError(null);
+    setRequestNote(null);
+    setSummaryLoading(true);
+    void fetchKnowledgeDetail(assetId)
+      .then(setSummaryDetail)
+      .catch(() => setSummaryError("摘要暂时无法加载，请稍后重试。"))
+      .finally(() => setSummaryLoading(false));
+  };
+
+  const closeCrossProjectSummary = () => {
+    if (requestBusy) return;
+    setSummaryAssetId(null);
+    setSummaryDetail(null);
+    setSummaryError(null);
+    setRequestNote(null);
+  };
+
+  const submitOriginalRequest = async () => {
+    if (!summaryAssetId) return;
+    setRequestBusy(true);
+    setSummaryError(null);
+    try {
+      const response = await requestOriginalAccess(summaryAssetId);
+      setRequestNote(
+        response.status === "created"
+          ? "已提交原文访问申请，请等待项目负责人审批。"
+          : response.status === "pending_exists"
+            ? "原文访问申请正在审批中。"
+            : "原文访问已开放。",
+      );
+      setSummaryDetail(await fetchKnowledgeDetail(summaryAssetId));
+    } catch {
+      setSummaryError("原文访问申请提交失败，请稍后重试。等待审批前不会开放原文。");
+    } finally {
+      setRequestBusy(false);
+    }
+  };
 
   useEffect(() => {
     const requestId = ++requestRef.current;
@@ -208,6 +258,8 @@ export default function KnowledgeListPage() {
               )}
               {asset.access.summary && asset.summary ? (
                 <p>{asset.summary}</p>
+              ) : asset.access.crossProjectSummary && asset.access.summary ? (
+                <p className="kbl-summary-muted">暂无可共享摘要</p>
               ) : (
                 <p className="kbl-summary-muted">当前身份仅可发现此资产</p>
               )}
@@ -267,11 +319,20 @@ export default function KnowledgeListPage() {
         key: "actions",
         header: "操作",
         className: "kbl-action-cell",
-        render: (asset) => (
-          <Link className="product-button is-secondary is-small" to={`/knowledge/${asset.id}`}>
-            查看详情
-          </Link>
-        ),
+        render: (asset) =>
+          asset.access.crossProjectSummary ? (
+            <button
+              className="product-button is-secondary is-small"
+              type="button"
+              onClick={() => openCrossProjectSummary(asset.id)}
+            >
+              查看摘要
+            </button>
+          ) : (
+            <Link className="product-button is-secondary is-small" to={`/knowledge/${asset.id}`}>
+              查看详情
+            </Link>
+          ),
       },
     ],
     [],
@@ -286,7 +347,7 @@ export default function KnowledgeListPage() {
     <ProductPage className="kbl-page">
       <PageHeader
         title="知识资产库"
-        description="浏览当前身份有权访问的公司、个人与项目知识资产。"
+        description="浏览本项目知识与其他项目可共享摘要；跨项目原文仍需逐项申请。"
         actions={
           can.viewUpload(capabilities) ? (
             <Link className="product-button is-primary" to="/upload">
@@ -463,21 +524,7 @@ export default function KnowledgeListPage() {
           </form>
 
           <PageSection className="kbl-list-section">
-            {projectScopeUnavailable ? (
-              <EmptyState
-                title="项目范围不可用"
-                description="当前身份没有有效的项目成员关系，无法按项目范围浏览。"
-                action={
-                  <button
-                    className="product-button is-secondary is-small"
-                    type="button"
-                    onClick={resetFilters}
-                  >
-                    返回全部范围
-                  </button>
-                }
-              />
-            ) : error ? (
+            {error ? (
               <LoadingError
                 error={error}
                 errorTitle="知识资产加载失败"
@@ -565,6 +612,71 @@ export default function KnowledgeListPage() {
           </PageSection>
         </>
       )}
+
+      <DetailDrawer
+        open={summaryAssetId !== null}
+        title={summaryDetail?.title ?? "跨项目知识摘要"}
+        description="其他项目 · 摘要可见。此处不授予项目空间权限，也不展示原文或项目治理信息。"
+        busy={requestBusy}
+        onClose={closeCrossProjectSummary}
+        footer={
+          summaryDetail ? (
+            summaryDetail.access.original ? (
+              <Link className="product-button is-primary" to={`/knowledge/${summaryDetail.id}`}>
+                原文访问已开放，查看详情
+              </Link>
+            ) : summaryDetail.access.existingRequestStatus === "pending" ? (
+              <button className="product-button is-secondary" type="button" disabled>
+                原文申请审批中
+              </button>
+            ) : summaryDetail.access.canRequestOriginal ? (
+              <button
+                className="product-button is-primary"
+                type="button"
+                disabled={requestBusy}
+                onClick={() => void submitOriginalRequest()}
+              >
+                {requestBusy ? "提交中…" : "申请原文"}
+              </button>
+            ) : undefined
+          ) : undefined
+        }
+      >
+        {summaryLoading ? (
+          <p role="status">正在加载安全摘要…</p>
+        ) : summaryError ? (
+          <div className="kbl-drawer-message is-error" role="alert">
+            {summaryError}
+          </div>
+        ) : summaryDetail ? (
+          <div className="kbl-summary-drawer">
+            <div className="kbl-summary-drawer-meta">
+              <span>{summaryDetail.projectName || "其他项目"}</span>
+              <span>{confidentialityLabels[summaryDetail.confidentialityLevel]}</span>
+            </div>
+            {summaryDetail.detailed || summaryDetail.oneLiner ? (
+              <p>{summaryDetail.detailed || summaryDetail.oneLiner}</p>
+            ) : (
+              <EmptyState
+                title="暂无可共享摘要"
+                description="安全摘要尚未生成。你仍可申请原文，审批通过后再查看受控内容。"
+              />
+            )}
+            {summaryDetail.tags.length > 0 && (
+              <div className="kbl-summary-drawer-tags" aria-label="知识标签">
+                {summaryDetail.tags.map((tag) => (
+                  <span key={tag}>{tag}</span>
+                ))}
+              </div>
+            )}
+            {requestNote && (
+              <div className="kbl-drawer-message is-success" role="status">
+                {requestNote}
+              </div>
+            )}
+          </div>
+        ) : null}
+      </DetailDrawer>
     </ProductPage>
   );
 }

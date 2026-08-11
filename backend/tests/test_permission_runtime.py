@@ -1,7 +1,7 @@
 """运行时权限规则化测试。
 
-覆盖：load_access_policy 缺失/禁用/非法 fail-closed；toggle 关闭后跨项目/公司 L1/L2 原文运行时
-被拒（API access_info.can_view_original 随之变化），但 active access_grant 仍放大；超时自动审批
+覆盖：load_access_policy 缺失/禁用/非法 fail-closed；跨项目知识固定为摘要层并由
+active access_grant 逐资产放大；公司 L1/L2 toggle 与超时自动审批
 （仅 L1/L2、机密除外、各跳过条件、不重复 grant、安全审计）；Celery task 包装可调用 service。
 """
 
@@ -34,7 +34,6 @@ from app.services.permission_rules import (
 )
 
 KN = "/api/v1/knowledge"
-CROSS = "cross_project_l1_l2_original_for_business_user"
 COMPANY = "company_l1_l2_original_for_business_user"
 TIMEOUT = "access_request_timeout_hours"
 GRANT_DAYS = "access_grant_duration_days"
@@ -79,15 +78,13 @@ async def _set_numeric(db_session, key, *, value_number=None, enabled=None):
 async def test_policy_missing_uses_factory_default(db_session):
     # 未 seed → 缺失 → 回退出厂默认（True）。
     p = await load_access_policy(db_session)
-    assert p.cross_project_l1_l2_original_for_business_user is True
     assert p.company_l1_l2_original_for_business_user is True
 
 
 async def test_policy_disabled_fail_closed(db_session):
-    await _set_toggle(db_session, CROSS, enabled=False)  # 禁用 → False（不回到 True）
+    await _set_toggle(db_session, COMPANY, enabled=False)  # 禁用 → False（不回到 True）
     p = await load_access_policy(db_session)
-    assert p.cross_project_l1_l2_original_for_business_user is False
-    assert p.company_l1_l2_original_for_business_user is True  # 另一项未动
+    assert p.company_l1_l2_original_for_business_user is False
 
 
 async def test_policy_value_false(db_session):
@@ -98,11 +95,11 @@ async def test_policy_value_false(db_session):
 
 async def test_policy_invalid_value_fail_closed(db_session):
     # toggle value_bool 置空（非法）→ fail-closed False。
-    r = await _rule(db_session, CROSS)
+    r = await _rule(db_session, COMPANY)
     r.value_bool = None
     await db_session.commit()
     p = await load_access_policy(db_session)
-    assert p.cross_project_l1_l2_original_for_business_user is False
+    assert p.company_l1_l2_original_for_business_user is False
 
 
 # ---------------------------------------------------------------------------
@@ -127,26 +124,18 @@ async def _ctx(db_session, user_id):
     return build_caller_context(u)
 
 
-async def test_cross_project_membership_boundary_cannot_be_bypassed_by_toggle_or_grant(
-    db_session, client
-):
+async def test_cross_project_summary_requires_asset_grant_for_original(db_session):
     asset = await _asset(db_session, KA_PROJECT_ALPHA)  # 项目 Alpha L2
     boss = await _ctx(db_session, USER_BOSS)  # 非 Alpha 成员业务用户
-    # 默认（ON）：跨项目 L1/L2 原文放行。
-    p_on = await load_access_policy(db_session)
-    assert decide(boss, asset, AccessLayer.original, policy=p_on).allowed is False
-    assert decide(boss, asset, AccessLayer.summary, policy=p_on).allowed is False
-    assert decide(boss, asset, AccessLayer.discovery, policy=p_on).allowed is False
-    # 关闭 → 原文被拒，但 summary/discovery 仍可。
-    await _set_toggle(db_session, CROSS, value_bool=False)
-    p_off = await load_access_policy(db_session)
-    assert decide(boss, asset, AccessLayer.original, policy=p_off).allowed is False
-    assert decide(boss, asset, AccessLayer.summary, policy=p_off).allowed is False
-    assert decide(boss, asset, AccessLayer.discovery, policy=p_off).allowed is False
-    # active grant 仍放大到 original。
+    policy = await load_access_policy(db_session)
+    assert decide(boss, asset, AccessLayer.discovery, policy=policy).allowed is True
+    assert decide(boss, asset, AccessLayer.summary, policy=policy).allowed is True
+    original = decide(boss, asset, AccessLayer.original, policy=policy)
+    assert original.allowed is False
+    assert original.denied_reason.value == "original_requires_request"
     assert (
-        decide(boss, asset, AccessLayer.original, has_original_grant=True, policy=p_off).allowed
-        is False
+        decide(boss, asset, AccessLayer.original, has_original_grant=True, policy=policy).allowed
+        is True
     )
 
 
