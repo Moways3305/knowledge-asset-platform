@@ -131,6 +131,84 @@ async def test_member_with_original_no_pending(client, db_session):
     assert count == 0
 
 
+async def test_cross_project_request_grants_only_the_selected_asset(client, db_session):
+    first = await _mk_asset(
+        db_session,
+        scope="project",
+        level="L2",
+        project_id=PROJECT_BETA,
+    )
+    second = await _mk_asset(
+        db_session,
+        scope="project",
+        level="L2",
+        project_id=PROJECT_BETA,
+    )
+    first_asset = await db_session.get(KnowledgeAsset, first)
+    first_asset.canonical_name = "内部规范文件名.md"
+    first_asset.lifecycle_phase_key = "交付"
+    first_asset.last_called_at = datetime.now(timezone.utc)
+    first_asset.maintainer_user_id = USER_PROJECT_MANAGER
+    await db_session.commit()
+
+    before = await client.get(f"/api/v1/knowledge/{first}", headers=_hdr(USER_CONSULTANT))
+    assert before.status_code == 200
+    assert before.json()["access_info"]["cross_project_summary"] is True
+    assert before.json()["access_info"]["original"] is False
+    for field in ("canonical_name", "lifecycle_phase", "last_called_at", "maintainer"):
+        assert before.json()[field] is None
+
+    created = await client.post(
+        _req_path(first), headers=_hdr(USER_CONSULTANT), json={"reason": "复用项目经验"}
+    )
+    assert created.status_code == 200
+    request_id = created.json()["request"]["request_id"]
+    approved = await client.post(
+        f"/api/v1/original-access/requests/{request_id}/approve",
+        headers=_hdr(USER_BOSS),
+        json={"note": "按资产授权"},
+    )
+    assert approved.status_code == 200
+
+    granted = await client.get(f"/api/v1/knowledge/{first}", headers=_hdr(USER_CONSULTANT))
+    untouched = await client.get(f"/api/v1/knowledge/{second}", headers=_hdr(USER_CONSULTANT))
+    assert granted.json()["access_info"]["original"] is True
+    assert granted.json()["access_info"]["effective_source"] == "access_grant"
+    assert granted.json()["access_info"]["cross_project_summary"] is True
+    for field in (
+        "canonical_name",
+        "lifecycle_phase",
+        "last_called_at",
+        "maintainer",
+        "current_version",
+        "canonical_markdown_status",
+        "index_status",
+        "weknora_parse_status",
+        "index_error_code",
+        "index_error_message",
+        "indexed_at",
+    ):
+        assert granted.json()[field] is None
+
+    listed = await client.get("/api/v1/knowledge?scope=project", headers=_hdr(USER_CONSULTANT))
+    listed_first = next(item for item in listed.json()["items"] if item["id"] == str(first))
+    assert listed_first["access_info"]["original"] is True
+    assert listed_first["access_info"]["cross_project_summary"] is True
+    for field in (
+        "canonical_name",
+        "lifecycle_phase",
+        "last_called_at",
+        "index_status",
+        "weknora_parse_status",
+        "index_error_message",
+        "indexed_at",
+    ):
+        assert listed_first[field] is None
+
+    assert untouched.json()["access_info"]["original"] is False
+    assert untouched.json()["access_info"]["can_request_original"] is True
+
+
 # ---------------- 审批 ----------------
 async def _create_pending(client, db_session, requester=USER_CONSULTANT):
     aid = await _mk_asset(db_session)

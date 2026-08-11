@@ -81,11 +81,11 @@ const assetTypeLabel: Record<string, string> = {
 };
 
 const indexStatusLabel: Record<string, string> = {
-  indexed: "已可问答",
-  indexing: "处理中",
-  index_failed: "处理失败",
-  skipped: "暂未进入问答",
-  not_indexed: "待处理",
+  indexed: "可检索",
+  indexing: "WeKnora 处理中",
+  index_failed: "索引失败，可重试",
+  skipped: "已确认，未启用索引",
+  not_indexed: "已确认，等待索引",
 };
 
 const scopeLabel: Record<string, string> = {
@@ -143,8 +143,12 @@ export default function KnowledgeDetailPage() {
   const [retryBusy, setRetryBusy] = useState(false);
   const [retryNote, setRetryNote] = useState<string | null>(null);
   const [retryErr, setRetryErr] = useState<string | null>(null);
-  const backPath = asset?.projectId ? `/project/${asset.projectId}/knowledge` : "/knowledge";
-  const backLabel = asset?.projectId ? "返回项目知识库" : "返回知识资产库";
+  const backPath =
+    asset?.projectId && !asset.access.crossProjectSummary
+      ? `/project/${asset.projectId}/knowledge`
+      : "/knowledge";
+  const backLabel =
+    asset?.projectId && !asset.access.crossProjectSummary ? "返回项目知识库" : "返回知识资产库";
 
   async function reloadAsset() {
     if (!id) return;
@@ -360,15 +364,18 @@ export default function KnowledgeDetailPage() {
 
   const canSummary = asset.access.summary;
   const canOriginal = asset.access.original;
+  const crossProjectSummary = Boolean(asset.access.crossProjectSummary);
   const pendingOriginal = asset.access.existingRequestStatus === "pending";
   const hasSummaryBody = hasText(asset.detailed) || asset.keyPoints.length > 0;
   const hasOpsActions =
     asset.access.canRetryIndex ||
     ((asset.access.canManageLifecycle || asset.access.canDelete) &&
       asset.assetStatus !== "archived");
-  const coreFacts = [
+  const sharedFacts = [
     { label: "所属范围", value: scopeLabel[asset.scope] ?? asset.scope },
     { label: "所属项目", value: asset.projectName },
+  ];
+  const memberFacts = [
     { label: "业务阶段", value: asset.lifecyclePhase },
     { label: "当前版本", value: asset.currentVersionNo },
     { label: "维护人", value: asset.maintainerName },
@@ -378,6 +385,19 @@ export default function KnowledgeDetailPage() {
       label: "问答索引",
       value: asset.indexStatus ? (indexStatusLabel[asset.indexStatus] ?? asset.indexStatus) : "",
     },
+    {
+      label: "规范文本",
+      value:
+        asset.canonicalMarkdownStatus == null
+          ? ""
+          : asset.canonicalMarkdownStatus === "generated"
+            ? "Markdown 已生成"
+            : "Markdown 未生成",
+    },
+  ];
+  const coreFacts = [
+    ...sharedFacts,
+    ...(crossProjectSummary && !canOriginal ? [] : memberFacts),
   ].filter((fact) => hasText(fact.value));
 
   return (
@@ -389,6 +409,9 @@ export default function KnowledgeDetailPage() {
       <header className="kdetail-header">
         <div className="kdetail-header-copy">
           <div className="kdetail-badges">
+            {crossProjectSummary && !canOriginal && (
+              <span className="asset-status-badge">其他项目 · 摘要可见</span>
+            )}
             <span className={`asset-status-badge ${assetStatusCls[asset.assetStatus]}`}>
               {assetStatusLabel[asset.assetStatus]}
             </span>

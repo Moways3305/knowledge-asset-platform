@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+from app.main import app
 from app.models.ingest import IngestTask, IngestTaskAiResult
 from app.schemas.enums import IngestSource, IngestStatus
 from app.seed.dev_seed import (
@@ -20,6 +21,8 @@ from app.seed.dev_seed import (
     USER_CONSULTANT,
     USER_PROJECT_MANAGER,
 )
+from app.services.canonical_markdown import ensure_task_markdown
+from app.services.storage import get_storage
 
 PENDING = "/api/v1/ingest/pending"
 
@@ -71,6 +74,13 @@ async def _make_path_a_task(
         naming_parsed_fields={"topic": "零售渠道策略", "date": "20260522"},
     )
     session.add(task)
+    await session.flush()
+    await ensure_task_markdown(
+        session,
+        app.dependency_overrides[get_storage](),
+        task=task,
+        extracted_text=task.ai_result.extracted_text,
+    )
     await session.commit()
     return task.id
 

@@ -213,7 +213,7 @@ async def test_unauthorized_l5_title_is_absent_from_items_and_total(client, db_s
     assert allowed.json()["items"][0]["title"] == secret_title
 
 
-async def test_project_membership_filters_rows_before_count(client, db_session):
+async def test_cross_project_summary_rows_are_counted_before_pagination(client, db_session):
     alpha = _asset("PBC67-PROJECT Alpha", scope="project", project_id=PROJECT_ALPHA)
     beta = _asset("PBC67-PROJECT Beta", scope="project", project_id=PROJECT_BETA)
     db_session.add_all([alpha, beta])
@@ -232,8 +232,11 @@ async def test_project_membership_filters_rows_before_count(client, db_session):
         params={"scope": "project", "keyword": "PBC67-PROJECT"},
         headers=_headers(USER_CONSULTANT),
     )
-    assert alpha_member.json()["total"] == 1
-    assert alpha_member.json()["items"][0]["id"] == str(alpha.id)
+    assert alpha_member.json()["total"] == 2
+    by_id = {item["id"]: item for item in alpha_member.json()["items"]}
+    assert by_id[str(alpha.id)]["access_info"]["original"] is True
+    assert by_id[str(beta.id)]["access_info"]["cross_project_summary"] is True
+    assert by_id[str(beta.id)]["access_info"]["original"] is False
 
     denied_context = await client.get(
         KNOWLEDGE,
@@ -254,8 +257,10 @@ async def test_project_membership_filters_rows_before_count(client, db_session):
         KNOWLEDGE,
         params={"scope": "project", "keyword": "PBC67-PROJECT"},
     )
-    assert beta_member.json()["total"] == 1
-    assert beta_member.json()["items"][0]["id"] == str(beta.id)
+    assert beta_member.json()["total"] == 2
+    by_id = {item["id"]: item for item in beta_member.json()["items"]}
+    assert by_id[str(beta.id)]["access_info"]["original"] is True
+    assert by_id[str(alpha.id)]["access_info"]["cross_project_summary"] is True
 
 
 async def test_redacted_summary_projection_never_loads_ordinary_summary(client, db_session):

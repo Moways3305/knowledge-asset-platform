@@ -199,13 +199,40 @@ describe("UploadStepB folder drop and batch rejection", () => {
     render(<UploadStepB flow={flowFixture({ localUploadQueue: queue })} />);
 
     expect(screen.queryByRole("heading", { name: "本次上传队列" })).not.toBeInTheDocument();
-    expect(screen.getByText(/本次上传 1 项已完成/)).toBeInTheDocument();
+    expect(screen.getByText(/本次上传 1 项派生处理已完成/)).toBeInTheDocument();
+    expect(screen.getByText(/规范文本已生成；2 项待人工确认，尚未进入检索/)).toBeInTheDocument();
     expect(screen.getByText("内容建议暂不可用，请人工核对后继续")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "前往待确认入库" })).toHaveAttribute(
       "href",
       "#local-pending-title",
     );
     expect(screen.getByRole("heading", { name: "待确认入库" })).toBeInTheDocument();
+  });
+
+  it("shows canonical Markdown generation as a distinct asynchronous stage", () => {
+    render(
+      <UploadStepB
+        flow={flowFixture({
+          batchSelection: [],
+          localUploadQueue: [
+            {
+              id: "queue-markdown",
+              file: null,
+              fileName: "methodology.pdf",
+              fileSize: 1024,
+              fileType: "PDF",
+              status: "processing",
+              error: null,
+              ingestTaskId: "task-markdown",
+              pollAttempts: 1,
+              processingStage: "canonical_markdown_generation",
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByText("正在生成 Markdown")).toBeInTheDocument();
   });
 
   it("prevents browser navigation and delegates the complete DataTransfer", () => {

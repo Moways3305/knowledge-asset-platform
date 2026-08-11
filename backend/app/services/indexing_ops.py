@@ -29,6 +29,7 @@ from app.schemas.indexing_ops import (
     MAX_LIMIT,
     REPARSABLE_PARSE_STATUSES,
     RETRYABLE_STATUSES,
+    CanonicalMarkdownBackfillRequest,
     IndexingJobListResponse,
     IndexingJobSummary,
     IndexingReparseRequest,
@@ -401,6 +402,36 @@ async def create_reparse_job(
         operation_type="reparse",
         scope_filter=scope_filter,
         requested_action=AuditAction.knowledge_index_reparse_requested,
+        weknora=weknora,
+        storage=storage,
+        trace_id=trace_id,
+    )
+
+
+async def create_markdown_backfill_job(
+    session: AsyncSession,
+    caller: CallerContext,
+    req: CanonicalMarkdownBackfillRequest,
+    *,
+    weknora,
+    storage: LocalFileStorage,
+    trace_id: str,
+) -> IndexingJobSummary:
+    """Backfill one bounded page; reruns naturally continue with remaining versions."""
+    _require_ops_viewer(caller)
+    scope = _safe_scope(req.scope)
+    project_id = _resolve_project_id(scope, req.project_id)
+    return await _create_and_run(
+        session,
+        caller,
+        operation_type="markdown_backfill",
+        scope_filter={
+            "scope": scope,
+            "project_id": str(project_id) if project_id else None,
+            "limit": _clamp_limit(req.limit),
+            "rebuild_index": bool(req.rebuild_index),
+        },
+        requested_action=AuditAction.knowledge_markdown_backfill_requested,
         weknora=weknora,
         storage=storage,
         trace_id=trace_id,

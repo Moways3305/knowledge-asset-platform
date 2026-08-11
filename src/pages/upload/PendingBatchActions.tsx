@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Trash2 } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
+import DangerConfirmDialog from "../../components/DangerConfirmDialog";
 import { ApiError } from "../../api/http";
 import {
   classifyBatchNamingCategories,
@@ -1415,26 +1416,24 @@ export default function PendingBatchActions({
         )}
       </ConfirmDialog>
 
-      <ConfirmDialog
+      <DangerConfirmDialog
         open={deleteCandidate !== null}
         title="永久删除这条错误上传资料？"
         description="确认后将永久删除该错误上传资料，不会创建知识资产，操作不可恢复。"
         confirmText="确认永久删除"
         busyText="正在永久删除"
         busy={deletingTaskId !== null}
-        danger
         onCancel={() => setDeleteCandidate(null)}
         onConfirm={() => void confirmSingleDelete()}
       />
 
-      <ConfirmDialog
+      <DangerConfirmDialog
         open={rejectOpen}
         title={`永久拒绝选中的 ${selectedRejectTasks.length} 条待确认任务？`}
         description={`确认后将严格逐条删除这 ${selectedRejectTasks.length} 条待确认任务，操作不可恢复，且不会创建知识资产。`}
         confirmText="确认永久拒绝"
         busyText="正在逐条拒绝"
         busy={flow.batchBusy && flow.batchOperation === "reject"}
-        danger
         onCancel={() => setRejectOpen(false)}
         onConfirm={() => {
           setRejectOpen(false);

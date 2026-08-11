@@ -535,9 +535,15 @@ describe("AdminWeKnoraModelsPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText(/3 完成/)).toHaveTextContent(
-      "3 完成 · 2 重复项已核验 · 1 处理中 · 2 重复项待核验 · 0 失败。 请等待后再次核验。",
-    );
+    const statusCard = await screen.findByRole("status");
+    expect(within(statusCard).getByText("直接完成").nextElementSibling).toHaveTextContent("3");
+    expect(within(statusCard).getByText("重复已核验").nextElementSibling).toHaveTextContent("2");
+    expect(within(statusCard).getByText("处理中").nextElementSibling).toHaveTextContent("1");
+    expect(within(statusCard).getByText("重复待核验").nextElementSibling).toHaveTextContent("2");
+    expect(within(statusCard).getByText("失败").nextElementSibling).toHaveTextContent("0");
+    expect(
+      within(statusCard).getByText("旧库仍保留；请等待处理完成后再次核验。"),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "再次核验" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "重试失败项" })).not.toBeInTheDocument();
   });
@@ -604,7 +610,10 @@ describe("AdminWeKnoraModelsPage", () => {
     fireEvent.change(within(screen.getByRole("dialog")).getByLabelText("问答模型（必选）"), {
       target: { value: "chat-new" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "开始迁移" }));
+    fireEvent.click(screen.getByRole("button", { name: "继续" }));
+    expect(migrateWeknoraKb).not.toHaveBeenCalled();
+    expect(screen.getByText("提交后进入异步迁移，不代表迁移已经完成")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "提交迁移作业" }));
 
     await waitFor(() =>
       expect(migrateWeknoraKb).toHaveBeenCalledWith("safe-mapping-id", {

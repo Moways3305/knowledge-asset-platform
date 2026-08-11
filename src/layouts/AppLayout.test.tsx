@@ -103,6 +103,14 @@ describe("AppLayout shell contract", () => {
     expect(screen.getByRole("button", { name: "退出登录" })).toBeInTheDocument();
   });
 
+  it("groups navigation by the user's work context", () => {
+    renderLayout();
+    expect(screen.getByText("今日工作", { selector: ".rail-group-label" })).toBeInTheDocument();
+    expect(screen.getByText("知识资产", { selector: ".rail-group-label" })).toBeInTheDocument();
+    expect(screen.getByText("项目协作", { selector: ".rail-group-label" })).toBeInTheDocument();
+    expect(screen.getByText("管理后台", { selector: ".rail-group-label" })).toBeInTheDocument();
+  });
+
   it("offers a visible rail logout action and refreshes the shared identity", async () => {
     vi.mocked(logout).mockResolvedValue(undefined);
     auth.reload.mockResolvedValue(undefined);

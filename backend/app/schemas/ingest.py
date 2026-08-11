@@ -48,6 +48,7 @@ class UploadSessionItemResponse(BaseModel):
     error_message: str | None = None
     same_name_warning: bool = False
     retryable: bool = False
+    processing_stage: str | None = None
 
 
 class UploadSessionResponse(BaseModel):
@@ -88,6 +89,7 @@ class UploadClientRejection(BaseModel):
 class IngestTaskStage(str, Enum):
     upload_saved = "upload_saved"
     text_extraction = "text_extraction"
+    canonical_markdown_generation = "canonical_markdown_generation"
     content_generation = "content_generation"
     awaiting_confirmation = "awaiting_confirmation"
     confirmation = "confirmation"

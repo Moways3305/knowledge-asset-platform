@@ -25,6 +25,8 @@ from app.schemas.ingest import IngestConfirmRequest, IngestConfirmResponse
 from app.schemas.naming import NamingPreviewRequest
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
+from app.services import canonical_markdown
+from app.services.storage import LocalFileStorage
 
 if TYPE_CHECKING:
     from app.services.naming_rules import RenderedNaming
@@ -93,6 +95,8 @@ async def validate_and_route_confirmation(
     task_id: uuid.UUID,
     request: IngestConfirmRequest,
     trace_id: str,
+    *,
+    storage: LocalFileStorage,
 ) -> ConfirmationRoute:
     """Validate source locks and destination authority, then route review if needed."""
     if not caller.is_business_user:
@@ -117,7 +121,10 @@ async def validate_and_route_confirmation(
         await session.execute(
             select(IngestTask)
             .where(IngestTask.id == task_id)
-            .options(selectinload(IngestTask.ai_result))
+            .options(
+                selectinload(IngestTask.ai_result),
+                selectinload(IngestTask.canonical_markdown),
+            )
         )
     ).scalar_one_or_none()
     if task is None:
@@ -140,6 +147,12 @@ async def validate_and_route_confirmation(
             409,
             "ingest_processing_not_ready",
             "后台仍在处理该上传，请稍后再确认",
+        )
+    if not canonical_markdown.task_markdown_is_valid(storage, task.canonical_markdown):
+        raise _denied(
+            409,
+            "canonical_markdown_not_ready",
+            "规范文本尚未生成，请等待处理完成或重试",
         )
     if not (request.title or "").strip():
         raise _denied(422, "ingest_title_required", "标题不能为空")

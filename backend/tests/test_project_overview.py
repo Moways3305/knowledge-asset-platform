@@ -123,7 +123,7 @@ async def test_ordinary_members_receive_safe_read_only_overview(client, db_sessi
     }
     assert body["members"] == []
     assert body["knowledge_base"] == {"configured": True, "status": "active"}
-    assert str(KA_PROJECT_ALPHA_L5) not in {item["asset_id"] for item in body["recent_activity"]}
+    assert str(KA_PROJECT_ALPHA_L5) in {item["asset_id"] for item in body["recent_activity"]}
 
 
 async def test_project_manager_receives_governance_sections(client):

@@ -33,8 +33,9 @@ def _hdr(user_id):
 class FakeWK:
     """可切换成功 / 失败的 fake WeKnora（含初始化接口）。"""
 
-    def __init__(self, *, fail: bool = False) -> None:
+    def __init__(self, *, fail: bool = False, parse_status: str = "processing") -> None:
         self.fail = fail
+        self.parse_status = parse_status
         self.uploads: list[str] = []
         self._kb = 0
         self._doc = 0
@@ -72,7 +73,7 @@ class FakeWK:
         self._doc += 1
         doc = f"doc-{self._doc}"
         self.uploads.append(doc)
-        return {"id": doc, "parse_status": "processing", "file_hash": "h"}
+        return {"id": doc, "parse_status": self.parse_status, "file_hash": "h"}
 
     async def get_knowledge(self, knowledge_id, *, trace_id=None):
         return {"id": knowledge_id, "parse_status": "completed"}
@@ -173,7 +174,7 @@ async def test_detail_exposes_safe_index_status_no_leak(client, monkeypatch):
         d = await client.get(f"/api/v1/knowledge/{asset_id}", headers=_hdr(USER_CONSULTANT))
         assert d.status_code == 200
         body = d.json()
-        assert body["index_status"] == "indexed"
+        assert body["index_status"] == "indexing"
         assert "weknora_parse_status" in body
         # indexed 资产不可重试。
         assert body["access_info"]["can_retry_index"] is False
@@ -216,7 +217,7 @@ async def test_owner_retry_personal_success(client, db_session, monkeypatch):
             f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT)
         )
         assert r.status_code == 200, r.text
-        assert r.json()["index_status"] == "indexed"
+        assert r.json()["index_status"] == "indexing"
         ver = (
             await db_session.execute(
                 select(KnowledgeAssetVersion).where(
@@ -224,7 +225,7 @@ async def test_owner_retry_personal_success(client, db_session, monkeypatch):
                 )
             )
         ).scalar_one()
-        assert ver.index_status == "indexed"
+        assert ver.index_status == "indexing"
         assert ver.index_error_code is None
         # 注：weknora_parse_status 是安全字段名（允许出现）；只校验真实内部标识不泄露。
         for token in ["weknora_kb_id", "weknora_doc_id", "kb-", "doc-", "sk-"]:
@@ -255,14 +256,10 @@ async def test_retry_still_failing_keeps_index_failed(client, db_session, monkey
         app.dependency_overrides.pop(get_weknora_client, None)
 
 
-async def test_retry_source_file_unreadable_returns_safe_json_not_coroutine(
+async def test_retry_reuses_saved_markdown_when_original_is_unreadable(
     client, db_session, monkeypatch
 ):
-    """原文不可读时重试：必须返回正常 JSON（index_failed），不得 500、不得返回未 await 的协程。
-
-    回归锁定：retry 的 source_file_unreadable 分支曾漏写 `await _retry_response(...)`，
-    会把协程对象当响应返回（FastAPI 序列化失败 → 500 / 脏数据）。本用例钉住该错误路径。
-    """
+    """原件不可读时仍复用已保存 Markdown，不回退读取原件。"""
     from app.models.ingest import IngestTask
 
     asset_id = await _make_index_failed(client, monkeypatch, USER_CONSULTANT)
@@ -280,17 +277,17 @@ async def test_retry_source_file_unreadable_returns_safe_json_not_coroutine(
         task.source_file_ref = "internal://does-not-exist.bin"
         await db_session.commit()
 
-        _set_client(FakeWK())  # OSError 发生在触达底座之前，fake 不会被用到
+        fake = FakeWK()
+        _set_client(fake)
         r = await client.post(
             f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT)
         )
 
-        # 不是 500，是正常 JSON。
         assert r.status_code == 200, r.text
         body = r.json()
-        assert body["index_status"] == "index_failed"
-        assert body["index_error_code"] == "source_file_unreadable"  # 目录化安全 code
-        # 不泄露协程对象 / 内部存储引用 / 原文路径 / WeKnora server-only 标识。
+        assert body["index_status"] == "indexing"
+        assert body["index_error_code"] is None
+        assert len(fake.uploads) == 1
         for token in [
             "coroutine",
             "internal://",
@@ -302,7 +299,6 @@ async def test_retry_source_file_unreadable_returns_safe_json_not_coroutine(
         ]:
             assert token not in r.text
 
-        # DB 落库为 index_failed + 安全错误码（资产保留、可再试）。
         ver = (
             await db_session.execute(
                 select(KnowledgeAssetVersion).where(
@@ -310,8 +306,8 @@ async def test_retry_source_file_unreadable_returns_safe_json_not_coroutine(
                 )
             )
         ).scalar_one()
-        assert ver.index_status == "index_failed"
-        assert ver.index_error_code == "source_file_unreadable"
+        assert ver.index_status == "indexing"
+        assert ver.index_error_code is None
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)
 
@@ -369,7 +365,7 @@ async def test_retry_skipped_clears_stale_index_error(client, db_session, monkey
 async def test_retry_indexed_is_409(client, monkeypatch):
     asset_id = await _make_index_failed(client, monkeypatch, USER_CONSULTANT)
     try:
-        _set_client(FakeWK())
+        _set_client(FakeWK(parse_status="completed"))
         r1 = await client.post(
             f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT)
         )
@@ -437,7 +433,7 @@ async def test_project_pm_retry_and_consultant_forbidden(client, monkeypatch):
             f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_PROJECT_MANAGER)
         )
         assert r_pm.status_code == 200, r_pm.text
-        assert r_pm.json()["index_status"] == "indexed"
+        assert r_pm.json()["index_status"] == "indexing"
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)
 
@@ -455,8 +451,8 @@ async def test_governance_cannot_retry_project_without_membership(client, monkey
     try:
         _set_client(FakeWK())
         r = await client.post(f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_BOSS))
-        assert r.status_code == 404, r.text
-        assert r.json()["detail"]["denied_reason"] == "knowledge_asset_not_found"
+        assert r.status_code == 403, r.text
+        assert r.json()["detail"]["denied_reason"] == "knowledge_index_retry_forbidden"
     finally:
         app.dependency_overrides.pop(get_weknora_client, None)
 

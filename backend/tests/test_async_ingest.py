@@ -103,26 +103,21 @@ async def test_confirm_one_liner_only_ok(client):
     assert r.status_code == 200, r.text
 
 
-async def test_failed_task_with_manual_summary_can_confirm(client, db_session):
+async def test_failed_task_with_manual_summary_cannot_bypass_markdown_generation(client):
     # 空白文件 → 抽取为空 → status failed。
     up = await client.post(
         UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": ("blank.txt", _BLANK, "text/plain")}
     )
     task_id = up.json()["ingest_task_id"]
     assert up.json()["status"] == "failed"
-    # AI 失败但人工补全标题 + 摘要 → 允许确认。
+    # 人工补全元数据不能绕过规范 Markdown 缺失。
     r = await client.post(
         f"/api/v1/ingest/{task_id}/confirm",
         headers=_hdr(USER_CONSULTANT),
         json=_confirm_body(title="人工补全标题", summary="人工补全的详细摘要"),
     )
-    assert r.status_code == 200, r.text
-    # 资产摘要为人工值，绝不是"（无摘要）"。
-    asset_id = r.json()["result_asset_id"]
-    detail = (
-        await client.get(f"/api/v1/knowledge/{asset_id}", headers=_hdr(USER_CONSULTANT))
-    ).json()
-    assert "（无摘要）" not in str(detail["summary"])
+    assert r.status_code == 409
+    assert r.json()["detail"]["denied_reason"] == "canonical_markdown_not_ready"
 
 
 # ---------------- worker loop-local engine ----------------

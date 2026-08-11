@@ -404,6 +404,8 @@ class AuditAction(str, Enum):
     knowledge_index_batch_retry_completed = "knowledge.index_batch_retry_completed"
     knowledge_index_reparse_requested = "knowledge.index_reparse_requested"
     knowledge_index_reparse_completed = "knowledge.index_reparse_completed"
+    knowledge_markdown_backfill_requested = "knowledge.markdown_backfill_requested"
+    knowledge_markdown_backfill_completed = "knowledge.markdown_backfill_completed"
     knowledge_index_target_retry_requested = "knowledge.index_target_retry_requested"
     knowledge_index_target_retry_denied = "knowledge.index_target_retry_denied"
     knowledge_index_target_retry_completed = "knowledge.index_target_retry_completed"

@@ -5,12 +5,13 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
+from app.main import app
 from app.models.audit import AuditEvent
-from app.models.ingest import IngestTask, IngestTaskAiResult
+from app.models.ingest import IngestTask, IngestTaskAiResult, IngestTaskDerivative
 from app.models.knowledge import KnowledgeAssetVersion
 from app.models.weknora import WeknoraKbMapping
 from app.schemas.enums import AuditAction
@@ -24,7 +25,7 @@ from app.seed.dev_seed import (
 )
 from app.services import ingest as ingest_service
 from app.services import ingest_confirmation
-from app.services.storage import LocalFileStorage, StorageError
+from app.services.storage import LocalFileStorage, StorageError, get_storage
 
 UPLOAD = "/api/v1/ingest/upload"
 KN = "/api/v1/knowledge"
@@ -84,6 +85,69 @@ async def test_business_user_create_upload_no_internal_fields(client):
     assert body["upload_url"] is None
     assert "source_file_ref" not in resp.text
     assert "storage_ref" not in resp.text
+
+
+async def test_upload_worker_persists_one_idempotent_canonical_markdown(client, db_session):
+    resp = await _create_task(client, USER_CONSULTANT, "source-document.txt")
+    task_id = uuid.UUID(resp.json()["ingest_task_id"])
+    derivative = (
+        await db_session.execute(
+            select(IngestTaskDerivative).where(IngestTaskDerivative.ingest_task_id == task_id)
+        )
+    ).scalar_one()
+    assert derivative.status == "ready"
+    assert derivative.format_version == "kap-md-v1"
+    assert derivative.source_content_hash
+    assert derivative.content_hash
+    assert derivative.generated_at is not None
+    assert derivative.linked_version_id is None
+    assert derivative.storage_ref not in resp.text
+
+    storage = app.dependency_overrides[get_storage]()
+    content = storage.resolve_path(derivative.storage_ref).read_bytes()
+    assert content.startswith(b"# source-document")
+    assert "## 正文" in content.decode("utf-8")
+
+    from app.services.desensitization import NullDesensitizer
+    from app.services.jobs.ingest_processing import process_upload_task
+    from app.services.llm_client import NullLLMClient
+
+    assert (
+        await process_upload_task(
+            db_session,
+            task_id,
+            storage=storage,
+            llm=NullLLMClient(),
+            desensitizer=NullDesensitizer(),
+            trace_id="idempotent-markdown",
+        )
+        == "pending_confirmation"
+    )
+    count = await db_session.scalar(
+        select(func.count())
+        .select_from(IngestTaskDerivative)
+        .where(IngestTaskDerivative.ingest_task_id == task_id)
+    )
+    assert count == 1
+
+
+async def test_confirmation_fails_closed_when_markdown_bytes_are_missing(client, db_session):
+    task_id = uuid.UUID((await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"])
+    derivative = (
+        await db_session.execute(
+            select(IngestTaskDerivative).where(IngestTaskDerivative.ingest_task_id == task_id)
+        )
+    ).scalar_one()
+    client._kap_storage.delete(derivative.storage_ref)
+
+    response = await client.post(
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(USER_CONSULTANT),
+        json=_confirm_payload(),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["denied_reason"] == "canonical_markdown_not_ready"
 
 
 async def test_admin_create_upload_403(client):
@@ -940,8 +1004,8 @@ async def test_pending_list_derives_safe_batch_confirmation_capability(client, d
     assert completed_item["can_batch_reject"] is False
 
 
-async def test_upload_unsupported_still_pending(client):
-    """不支持类型：标 unsupported，但任务仍待确认（不阻断人工补全）。"""
+async def test_upload_unsupported_fails_without_canonical_markdown(client, db_session):
+    """不支持类型必须失败，并留下规范 Markdown 无法生成的安全状态。"""
     resp = await client.post(
         UPLOAD,
         headers=_hdr(USER_CONSULTANT),
@@ -954,13 +1018,23 @@ async def test_upload_unsupported_still_pending(client):
         },
     )
     assert resp.status_code == 200
-    assert resp.json()["status"] == "pending_confirmation"
+    assert resp.json()["status"] == "failed"
     task_id = resp.json()["ingest_task_id"]
     ai = (
         await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
     ).json()
     assert ai["extraction_status"] == "unsupported"
     assert "人工补全" in ai["suggested_summary"]
+    derivative = (
+        await db_session.execute(
+            select(IngestTaskDerivative).where(
+                IngestTaskDerivative.ingest_task_id == uuid.UUID(task_id)
+            )
+        )
+    ).scalar_one()
+    assert derivative.status == "failed"
+    assert derivative.failure_code == "canonical_markdown_extraction_failed"
+    assert derivative.storage_ref is None
 
 
 async def test_upload_failed_extraction_persists_and_audits_no_leak(client):

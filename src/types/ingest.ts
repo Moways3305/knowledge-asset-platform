@@ -27,6 +27,7 @@ export interface UploadSessionItemDTO {
   error_message: string | null;
   same_name_warning: boolean;
   retryable: boolean;
+  processing_stage?: IngestTaskStage | null;
 }
 
 export interface UploadSessionDTO {
@@ -52,6 +53,7 @@ export interface UploadSessionListDTO {
 export type IngestTaskStage =
   | "upload_saved"
   | "text_extraction"
+  | "canonical_markdown_generation"
   | "content_generation"
   | "awaiting_confirmation"
   | "confirmation"

@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from app.main import app
 from app.models.audit import AuditEvent
+from app.models.identity import ProjectMember
 from app.models.ingest import IngestTaskAiResult
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.review import ReviewTask
@@ -304,6 +305,135 @@ async def test_project_codes_are_unique_in_draft_validation(client):
         json={"expected_base_version": 1, "config": _config(uuid.uuid4(), duplicate_code=True)},
     )
     assert response.status_code == 422
+
+
+async def test_all_projects_share_categories_but_keep_project_codes(client, db_session):
+    category_id = uuid.uuid4()
+    config = _config(category_id)
+    config["project_codes"].append(
+        {
+            "project_id": str(PROJECT_BETA),
+            "code": "BETA-26",
+            "enabled": True,
+            "default_confidentiality": "L3",
+        }
+    )
+    saved = await client.put(
+        "/api/v1/admin/naming-rules/draft",
+        headers=_hdr(USER_BOSS),
+        json={"expected_base_version": 1, "config": config},
+    )
+    assert saved.status_code == 200, saved.text
+    assert (
+        await client.post(
+            "/api/v1/admin/naming-rules/publish",
+            headers=_hdr(USER_BOSS),
+            json={"expected_base_version": 1},
+        )
+    ).status_code == 200
+
+    options = await client.get(
+        "/api/v1/naming-options",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        params={"scope": "project", "project_id": str(PROJECT_ALPHA)},
+    )
+    assert options.status_code == 200
+    alpha_ids = {item["id"] for item in options.json()["categories"]}
+    db_session.add(
+        ProjectMember(
+            user_id=USER_PROJECT_MANAGER,
+            project_id=PROJECT_BETA,
+            project_role="project_manager",
+            status="active",
+        )
+    )
+    await db_session.commit()
+    beta_options = await client.get(
+        "/api/v1/naming-options",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        params={"scope": "project", "project_id": str(PROJECT_BETA)},
+    )
+    assert beta_options.status_code == 200
+    beta_ids = {item["id"] for item in beta_options.json()["categories"]}
+    assert alpha_ids == beta_ids == {str(category_id)}
+
+    task_id = await _upload(client)
+    preview = await client.post(
+        f"/api/v1/ingest/{task_id}/naming-preview",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_BETA),
+            "confidentiality_level": "L3",
+            "naming": {
+                "category_id": str(category_id),
+                "subject": "统一规则验证",
+                "formed_on": "2026-08-10",
+                "version": "V1",
+            },
+        },
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["canonical_name"].startswith("【BETA-26-2026-")
+
+
+async def test_category_scope_and_enabled_state_still_fail_closed(client):
+    project_category_id = uuid.uuid4()
+    disabled_category_id = uuid.uuid4()
+    company_category_id = uuid.uuid4()
+    config = _config(project_category_id, company_category_id=company_category_id)
+    config["categories"].append(
+        {
+            "id": str(disabled_category_id),
+            "scope": "project",
+            "primary": "项目资料",
+            "secondary": "项目复盘",
+            "prefix": "项目复盘",
+            "default_confidentiality": "L2",
+            "enabled": False,
+            "sort_order": 30,
+        }
+    )
+    saved = await client.put(
+        "/api/v1/admin/naming-rules/draft",
+        headers=_hdr(USER_BOSS),
+        json={"expected_base_version": 1, "config": config},
+    )
+    assert saved.status_code == 200, saved.text
+    assert (
+        await client.post(
+            "/api/v1/admin/naming-rules/publish",
+            headers=_hdr(USER_BOSS),
+            json={"expected_base_version": 1},
+        )
+    ).status_code == 200
+
+    async def preview(category_id: uuid.UUID, scope: str, *, company: bool = False):
+        task_id = await _upload(client)
+        payload = {
+            "target_scope": scope,
+            "target_project_id": None if company else str(PROJECT_ALPHA),
+            "confidentiality_level": "L2",
+            "naming": {
+                "category_id": str(category_id),
+                "subject": "范围校验",
+                "formed_on": "2026-08-10",
+                "version": "V1",
+                **({"applicable_to": "全体顾问"} if company else {}),
+            },
+        }
+        return await client.post(
+            f"/api/v1/ingest/{task_id}/naming-preview",
+            headers=_hdr(USER_BOSS if company else USER_PROJECT_MANAGER),
+            json=payload,
+        )
+
+    company_in_project = await preview(company_category_id, "project")
+    project_in_company = await preview(project_category_id, "company", company=True)
+    disabled_in_project = await preview(disabled_category_id, "project")
+    for response in (company_in_project, project_in_company, disabled_in_project):
+        assert response.status_code == 409
+        assert response.json()["detail"]["denied_reason"] == "naming_category_unavailable"
 
 
 async def test_project_aliases_are_normalized_and_validated(client):

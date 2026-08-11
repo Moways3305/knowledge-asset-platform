@@ -1,0 +1,536 @@
+/* KAP task experience system: one status language across pages and overlays. */
+
+.product-page-current-status {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.product-page-title-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.ao84-job-detail {
+  justify-self: end;
+  border: 0;
+  padding: 0.2rem 0;
+  color: var(--experience-accent, #087ea4);
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ao84-job-detail:hover {
+  text-decoration: underline;
+}
+
+.experience-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(12, 20, 48, 0.58);
+  backdrop-filter: blur(2px);
+  animation: experience-fade 160ms ease-out;
+}
+
+.task-modal {
+  width: min(100%, 640px);
+  max-height: min(88dvh, 820px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  background: var(--color-bg-surface);
+  box-shadow: 0 24px 70px rgba(10, 18, 48, 0.24);
+  animation: experience-rise 180ms var(--ease-out);
+}
+
+.task-modal.is-small {
+  width: min(100%, 460px);
+}
+
+.task-modal.is-large {
+  width: min(100%, 760px);
+}
+
+.task-modal-header,
+.detail-drawer-header {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.task-modal-heading,
+.detail-drawer-header > div {
+  min-width: 0;
+}
+
+.task-modal-eyebrow {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--color-info);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.task-modal h2,
+.detail-drawer h2 {
+  margin: 0;
+  color: var(--color-text-heading);
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.task-modal-header p,
+.detail-drawer-header p {
+  margin: 6px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.task-modal-close,
+.detail-drawer-header button {
+  flex: 0 0 auto;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.task-modal-close:hover,
+.detail-drawer-header button:hover {
+  border-color: var(--color-border);
+  background: var(--color-bg-hover);
+}
+
+.task-modal-body,
+.detail-drawer-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 22px 24px;
+  overscroll-behavior: contain;
+}
+
+.task-modal-footer,
+.detail-drawer-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--color-border-light);
+  background: var(--color-bg-muted);
+}
+
+.task-modal-footer-spacer {
+  flex: 1;
+}
+
+.wizard-track {
+  display: grid;
+  grid-template-columns: repeat(var(--wizard-columns, 2), minmax(0, 1fr));
+  gap: 1px;
+  margin: -22px -24px 22px;
+  padding: 0;
+  list-style: none;
+  border-bottom: 1px solid var(--color-border-light);
+  background: var(--color-border-light);
+}
+
+.wizard-track li {
+  display: flex;
+  min-width: 0;
+  gap: 10px;
+  align-items: center;
+  padding: 14px 18px;
+  background: var(--color-bg-muted);
+  color: var(--color-text-tertiary);
+}
+
+.wizard-track li.is-current {
+  box-shadow: inset 0 -3px var(--color-accent-1);
+  background: var(--color-bg-surface);
+  color: var(--color-text-heading);
+}
+
+.wizard-track li.is-complete {
+  color: var(--color-success);
+}
+
+.wizard-step-marker {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.wizard-track strong,
+.wizard-track small {
+  display: block;
+}
+
+.wizard-track strong {
+  font-size: 12px;
+}
+
+.wizard-track small {
+  margin-top: 2px;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.experience-overlay.is-drawer {
+  justify-items: end;
+  padding: 0;
+}
+
+.detail-drawer {
+  width: min(92vw, 480px);
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-surface);
+  box-shadow: -18px 0 48px rgba(10, 18, 48, 0.2);
+  animation: experience-slide 200ms var(--ease-out);
+}
+
+.operation-status-card {
+  position: relative;
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.operation-status-rail {
+  width: 5px;
+  flex: 0 0 auto;
+  background: var(--color-text-tertiary);
+}
+
+.operation-status-card.is-info .operation-status-rail {
+  background: var(--color-info);
+}
+
+.operation-status-card.is-success .operation-status-rail {
+  background: var(--color-success);
+}
+
+.operation-status-card.is-warning .operation-status-rail {
+  background: var(--color-warning);
+}
+
+.operation-status-card.is-danger .operation-status-rail {
+  background: var(--color-danger);
+}
+
+.operation-status-main {
+  min-width: 0;
+  flex: 1;
+  padding: 17px 18px;
+}
+
+.operation-status-heading {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.operation-status-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--color-bg-muted);
+  color: var(--color-info);
+}
+
+.operation-status-card.is-success .operation-status-icon {
+  color: var(--color-success);
+}
+
+.operation-status-card.is-warning .operation-status-icon {
+  color: var(--color-warning-text);
+}
+
+.operation-status-card.is-danger .operation-status-icon {
+  color: var(--color-danger);
+}
+
+.operation-status-heading > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.operation-status-label {
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.operation-status-card h3 {
+  margin: 2px 0 0;
+  color: var(--color-text-heading);
+  font-size: 15px;
+}
+
+.operation-status-card p {
+  margin: 4px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.operation-status-updated {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 5px;
+  align-items: center;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.operation-status-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 0 44px;
+}
+
+.operation-status-counts div {
+  min-width: 72px;
+  padding: 7px 9px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-muted);
+}
+
+.operation-status-counts dt {
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+}
+
+.operation-status-counts dd {
+  margin: 1px 0 0;
+  color: var(--color-text-heading);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.operation-status-counts .is-success dd {
+  color: var(--color-success);
+}
+
+.operation-status-counts .is-warning dd {
+  color: var(--color-warning-text);
+}
+
+.operation-status-counts .is-danger dd {
+  color: var(--color-danger);
+}
+
+.operation-status-footer {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 14px 0 0 44px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.operation-status-next {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.operation-status-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.operation-status-card.is-compact .operation-status-main {
+  padding: 13px 15px;
+}
+
+.action-feedback {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 11px 13px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  color: var(--color-info);
+}
+
+.action-feedback.is-success {
+  border-color: color-mix(in srgb, var(--color-success) 28%, white);
+  color: var(--color-success);
+}
+
+.action-feedback.is-partial {
+  border-color: color-mix(in srgb, var(--color-warning) 40%, white);
+  color: var(--color-warning-text);
+}
+
+.action-feedback.is-error {
+  border-color: color-mix(in srgb, var(--color-danger) 30%, white);
+  color: var(--color-danger);
+}
+
+.action-feedback > span {
+  min-width: 0;
+  flex: 1;
+}
+
+.action-feedback strong,
+.action-feedback small {
+  display: block;
+}
+
+.action-feedback strong {
+  color: var(--color-text-heading);
+  font-size: 13px;
+}
+
+.action-feedback small {
+  margin-top: 2px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.action-feedback-action {
+  flex: 0 0 auto;
+}
+
+.is-spinning {
+  animation: experience-spin 1s linear infinite;
+}
+
+@keyframes experience-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes experience-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+  }
+}
+
+@keyframes experience-slide {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+@keyframes experience-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 640px) {
+  .experience-overlay {
+    align-items: end;
+    padding: 0;
+  }
+
+  .task-modal {
+    width: 100%;
+    max-height: 94dvh;
+    border-radius: 12px 12px 0 0;
+  }
+
+  .task-modal-header,
+  .task-modal-body,
+  .task-modal-footer,
+  .detail-drawer-header,
+  .detail-drawer-body,
+  .detail-drawer-footer {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .wizard-track {
+    margin-right: -16px;
+    margin-left: -16px;
+    overflow-x: auto;
+  }
+
+  .wizard-track li {
+    min-width: 180px;
+  }
+
+  .detail-drawer {
+    width: 100vw;
+  }
+
+  .operation-status-heading,
+  .operation-status-footer {
+    flex-wrap: wrap;
+  }
+
+  .operation-status-updated {
+    width: 100%;
+    margin-left: 44px;
+  }
+
+  .operation-status-counts,
+  .operation-status-footer {
+    margin-left: 0;
+  }
+
+  .operation-status-actions {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .experience-overlay,
+  .task-modal,
+  .detail-drawer,
+  .is-spinning {
+    animation: none !important;
+  }
+}

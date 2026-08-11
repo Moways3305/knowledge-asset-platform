@@ -37,6 +37,7 @@ from app.schemas.permission import (
     AccessChannel,
     AccessLayer,
     CallerContext,
+    EffectiveAccessSource,
     PermissionDecision,
 )
 from app.services import original_access
@@ -117,9 +118,10 @@ async def _kb_ids_for(
     if scope == KnowledgeScope.personal.value:
         stmt = stmt.where(WeknoraKbMapping.owner_user_id == owner_user_id)
     elif scope == KnowledgeScope.project.value:
-        if not project_ids:
-            return []
-        stmt = stmt.where(WeknoraKbMapping.project_id.in_(list(project_ids)))
+        if project_ids is not None:
+            if not project_ids:
+                return []
+            stmt = stmt.where(WeknoraKbMapping.project_id.in_(list(project_ids)))
     return [r[0] for r in (await session.execute(stmt)).all()]
 
 
@@ -129,7 +131,8 @@ async def resolve_searchable_kbs(
     """按 scope + 调用人可访问范围确定可检索 KB 集（scope 路由预过滤，三道过滤第①道）。
 
     - personal：仅本人个人 KB（且需为业务用户）。
-    - project：仅调用人**所在**（active 成员）项目的 KB。
+    - project：全局知识检索可路由到所有项目 KB；召回后仍逐资产执行 `decide()`，
+      非成员 L1-L4 只使用已保存摘要，L5 丢弃。
     - company：公司 KB。
     - all / None：以上并集。
     """
@@ -141,12 +144,8 @@ async def resolve_searchable_kbs(
                 session, scope=KnowledgeScope.personal.value, owner_user_id=caller.user_id
             )
         )
-    if (want_all or scope == KnowledgeScope.project.value) and caller.active_project_ids:
-        kbs.update(
-            await _kb_ids_for(
-                session, scope=KnowledgeScope.project.value, project_ids=caller.active_project_ids
-            )
-        )
+    if want_all or scope == KnowledgeScope.project.value:
+        kbs.update(await _kb_ids_for(session, scope=KnowledgeScope.project.value))
     if want_all or scope == KnowledgeScope.company.value:
         kbs.update(await _kb_ids_for(session, scope=KnowledgeScope.company.value))
     return list(kbs)
@@ -347,6 +346,11 @@ def build_card(
     asset = recalled.asset
     summary_allowed = bool(recalled.summary and recalled.summary.allowed)
     one_liner, detailed, key_points = _card_summary_fields(asset, summary_allowed)
+    cross_project_summary = (
+        asset.scope == KnowledgeScope.project.value
+        and recalled.discovery is not None
+        and recalled.discovery.effective_access_source == EffectiveAccessSource.system_rule
+    )
     return {
         "asset_id": asset.id,
         "title": asset.title,
@@ -354,15 +358,25 @@ def build_card(
         "scope": asset.scope,
         "zone": asset.zone,
         "confidentiality_level": asset.confidentiality_level,
-        "phase": asset.lifecycle_phase_key,
+        "phase": None if cross_project_summary else asset.lifecycle_phase_key,
         "tags": [t.tag_name for t in asset.tags],
         "one_liner": one_liner,
         "detailed": detailed,
         "key_points": key_points,
-        "owner_name": users.get(asset.owner_user_id) if asset.owner_user_id else None,
-        "maintainer_name": users.get(asset.maintainer_user_id)
-        if asset.maintainer_user_id
-        else None,
+        "owner_name": (
+            None
+            if cross_project_summary
+            else users.get(asset.owner_user_id)
+            if asset.owner_user_id
+            else None
+        ),
+        "maintainer_name": (
+            None
+            if cross_project_summary
+            else users.get(asset.maintainer_user_id)
+            if asset.maintainer_user_id
+            else None
+        ),
         "project_name": projects.get(asset.project_id) if asset.project_id else None,
         "updated_at": asset.updated_at,
         "version": recalled.version.version_no,
@@ -641,6 +655,13 @@ async def fetch_stage2_original(
     _projects, users = await load_card_aux(session, [asset])
     owner_name = users.get(asset.owner_user_id) if asset.owner_user_id else None
     maintainer_name = users.get(asset.maintainer_user_id) if asset.maintainer_user_id else None
+    if (
+        asset.scope == KnowledgeScope.project.value
+        and asset.project_id not in caller.active_project_ids
+    ):
+        # 原文授权不等同项目成员身份；跨项目检索始终不返回成员信息。
+        owner_name = None
+        maintainer_name = None
     if not o.allowed:
         return OriginalResult(
             asset=asset,

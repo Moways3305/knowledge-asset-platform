@@ -11,10 +11,12 @@
 
 from __future__ import annotations
 
+import io
 import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
 
+from docx import Document
 from sqlalchemy import select
 
 import app.services.onlyoffice as oo_mod
@@ -61,6 +63,14 @@ def _enable_onlyoffice(monkeypatch):
     monkeypatch.setattr(pv_mod, "onlyoffice_enabled", lambda: True)
 
 
+def _docx_bytes() -> bytes:
+    buffer = io.BytesIO()
+    document = Document()
+    document.add_paragraph("预览测试正文")
+    document.save(buffer)
+    return buffer.getvalue()
+
+
 async def _upload_confirm_personal(
     client, *, name="doc.txt", content=b"preview content body.", mime="text/plain"
 ):
@@ -102,7 +112,7 @@ async def test_preview_entry_returns_onlyoffice_config(client, monkeypatch):
     asset_id = await _upload_confirm_personal(
         client,
         name="报告.docx",
-        content=b"fake docx bytes",
+        content=_docx_bytes(),
         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
     cred_id = (await _issue(client, asset_id)).json()["credential_id"]
@@ -153,7 +163,7 @@ async def test_preview_office_requires_onlyoffice(client):
     asset_id = await _upload_confirm_personal(
         client,
         name="报告.docx",
-        content=b"fake docx bytes",
+        content=_docx_bytes(),
         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
     cred_id = (await _issue(client, asset_id)).json()["credential_id"]
@@ -164,17 +174,26 @@ async def test_preview_office_requires_onlyoffice(client):
     _assert_no_leak(entry.text)
 
 
-async def test_preview_image_render_type(client, monkeypatch):
-    _enable_onlyoffice(monkeypatch)
-    asset_id = await _upload_confirm_personal(
-        client, name="image.png", content=b"\x89PNG fake bytes", mime="image/png"
+async def test_unsupported_image_cannot_bypass_canonical_markdown(client):
+    uploaded = await client.post(
+        UPLOAD,
+        headers=_hdr(USER_CONSULTANT),
+        files={"file": ("image.png", b"\x89PNG fake bytes", "image/png")},
     )
-    cred_id = (await _issue(client, asset_id)).json()["credential_id"]
-    entry = await client.get(f"/api/v1/preview/{cred_id}", headers=_hdr(USER_CONSULTANT))
-    body = entry.json()
-    assert body["render_type"] == "image"
-    assert body["file_url"] is not None
-    assert body["onlyoffice_config"] is None
+    assert uploaded.json()["status"] == "failed"
+    confirmed = await client.post(
+        f"/api/v1/ingest/{uploaded.json()['ingest_task_id']}/confirm",
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "title": "图片资产",
+            "summary": "人工摘要",
+            "tags": [],
+            "target_scope": "personal",
+            "confidentiality_level": "L2",
+        },
+    )
+    assert confirmed.status_code == 409
+    assert confirmed.json()["detail"]["denied_reason"] == "canonical_markdown_not_ready"
 
 
 # ---------------- 受控取件端点 ----------------

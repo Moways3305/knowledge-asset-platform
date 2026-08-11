@@ -11,6 +11,9 @@ import {
 import { ApiError } from "../api/http";
 import { useAuth } from "../auth/AuthContext";
 import { PageHeader, PageSection, ProductPage } from "../components/ProductLayout";
+import StatusBadge from "../components/StatusBadge";
+import OperationStatusCard from "../components/OperationStatusCard";
+import { operationStatusFromJob } from "../components/operationStatus";
 import KbMigrateDialog from "../components/KbMigrateDialog";
 import UnifiedModelConnectionsSection from "../components/UnifiedModelConnectionsSection";
 import WeknoraModelsSection from "../components/WeknoraModelsSection";
@@ -183,6 +186,20 @@ export default function AdminWeKnoraModelsPage() {
       <PageHeader
         title="模型与知识库底座"
         description="外部 LLM 由 KAP 直接调用；WeKnora 用于知识库底座。"
+        status={
+          <StatusBadge
+            tone={error ? "danger" : anyMigrationActive ? "info" : loading ? "info" : "success"}
+            label={
+              error
+                ? "配置状态需要处理"
+                : anyMigrationActive
+                  ? "知识库迁移处理中"
+                  : loading
+                    ? "正在同步配置"
+                    : "配置状态已同步"
+            }
+          />
+        }
         actions={
           <button className="btn-small mf-refresh" onClick={refreshAll} disabled={loading}>
             <RefreshCw size={14} aria-hidden="true" />
@@ -539,26 +556,44 @@ function KbConfigRow({
           </button>
         )}
         {cfg.migration && (
-          <div className="mf-migrate-status">
-            {cfg.migration.job_status === "completed" &&
-              `迁移完成：${cfg.migration.completed_count} 直接完成，${cfg.migration.verified_duplicate_count} 重复项已核验`}
-            {cfg.migration.job_status === "completed_with_errors" && (
-              <>
-                最终核验：{cfg.migration.completed_count} 完成 ·{" "}
-                {cfg.migration.verified_duplicate_count} 重复项已核验 ·{" "}
-                {cfg.migration.processing_count} 处理中 · {cfg.migration.duplicate_pending_count}{" "}
-                重复项待核验 · {cfg.migration.failed_count} 失败。
-                {cfg.migration.failed_count > 0 ? " 仅重试失败项。" : " 请等待后再次核验。"}
-              </>
-            )}
-            {cfg.migration.job_status === "failed" && "迁移收口失败，旧库仍保留，可重试"}
-            {migrationActive && (
-              <>
-                本轮提交与核验中：{cfg.migration.success_count}/{cfg.migration.total_count} · 待核验{" "}
-                {cfg.migration.pending_count} · 失败 {cfg.migration.failed_count}
-              </>
-            )}
-          </div>
+          <OperationStatusCard
+            compact
+            live={migrationActive}
+            status={operationStatusFromJob(cfg.migration.job_status)}
+            title={
+              cfg.migration.job_status === "completed"
+                ? "知识库迁移已完成"
+                : cfg.migration.job_status === "completed_with_errors"
+                  ? "迁移部分完成"
+                  : cfg.migration.job_status === "failed"
+                    ? "迁移未完成"
+                    : "知识库迁移作业"
+            }
+            description={
+              migrationActive ? "请求已受理，系统仍在处理文档；请等待最终状态。" : undefined
+            }
+            counts={[
+              { label: "总数", value: cfg.migration.total_count },
+              { label: "直接完成", value: cfg.migration.completed_count, tone: "success" },
+              {
+                label: "重复已核验",
+                value: cfg.migration.verified_duplicate_count,
+                tone: "success",
+              },
+              { label: "处理中", value: cfg.migration.processing_count },
+              { label: "重复待核验", value: cfg.migration.duplicate_pending_count },
+              { label: "失败", value: cfg.migration.failed_count, tone: "danger" },
+            ]}
+            nextStep={
+              migrationActive
+                ? "无需重复提交，页面会自动刷新进度。"
+                : cfg.migration.failed_count > 0
+                  ? "旧库仍保留；检查模型与底座状态后，仅重试失败项。"
+                  : cfg.migration.pending_count > 0
+                    ? "旧库仍保留；请等待处理完成后再次核验。"
+                    : "最终核验已完成，迁移达到终态。"
+            }
+          />
         )}
         {cfg.config_error && <div className="ws-cell-suggestion">{cfg.config_error}</div>}
         <KbMigrateDialog

@@ -24,6 +24,7 @@ export interface AccessInfoDTO {
   original: boolean;
   effective_source: string;
   can_request_original: boolean;
+  cross_project_summary?: boolean;
   existing_request_status: string | null;
   existing_grant_expires_at: string | null;
   can_delete: boolean;
@@ -133,6 +134,7 @@ export interface KnowledgeDetailDTO {
     version_status: string;
     display_version?: string | null;
   } | null;
+  canonical_markdown_status?: "generated" | "not_generated" | null;
   access_info: AccessInfoDTO;
   index_status?: string | null;
   weknora_parse_status?: string | null;
@@ -148,6 +150,7 @@ export interface AccessInfoVM {
   original: boolean;
   effectiveSource: string;
   canRequestOriginal: boolean;
+  crossProjectSummary?: boolean;
   existingRequestStatus: string | null;
   existingGrantExpiresAt: string | null;
   canDelete: boolean;
@@ -198,4 +201,5 @@ export interface KnowledgeDetailVM extends KnowledgeCardVM {
   keyPoints: string[];
   currentVersionNo: string | null;
   indexErrorCode: string | null;
+  canonicalMarkdownStatus: "generated" | "not_generated" | null;
 }

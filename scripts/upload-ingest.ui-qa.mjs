@@ -20,6 +20,7 @@ const longPendingSubject =
   "华东区域重点客户战略经营计划执行复盘与下一阶段增长行动方案及关键管理举措";
 const scenarios = [
   "local-empty",
+  "canonical-processing",
   "local-queue",
   "local-degraded",
   "local-upload-failure-retry",
@@ -150,6 +151,8 @@ function assertResult(result) {
     result.sensitiveTextVisible;
   if (commonFailure) return false;
   if (result.scenario === "local-empty") return result.emptyUploadReady;
+  if (result.scenario === "canonical-processing")
+    return result.canonicalGenerating && Boolean(result.canonicalScreenshot);
   if (result.scenario === "local-queue")
     return (
       result.compactCompletionVisible &&
@@ -221,10 +224,10 @@ try {
             : [["upload-item-1", "客户增长复盘.md"]];
         return {
           id: uploadSessionId,
-          status: state === "failed" ? "active" : "completed",
+          status: state === "awaiting_confirmation" ? "completed" : "active",
           total_files: files.length,
           completed_files: state === "awaiting_confirmation" ? files.length : 0,
-          processing_files: 0,
+          processing_files: state === "processing" ? files.length : 0,
           waiting_files: 0,
           failed_files: state === "failed" ? files.length : 0,
           current_batch_number: null,
@@ -239,6 +242,11 @@ try {
             file_size: 42,
             file_type: fileName.endsWith(".txt") ? "TXT" : "MD",
             status: state,
+            ingest_task_id: taskId,
+            processing_stage:
+              state === "processing" && scenario === "canonical-processing"
+                ? "canonical_markdown_generation"
+                : null,
             error_code: state === "failed" ? "upload_failed" : null,
             error_message: itemError,
             same_name_warning: false,
@@ -347,6 +355,7 @@ try {
         if (url.pathname === "/api/v1/ingest/upload-sessions" && request.method() === "POST") {
           uploadCalls += 1;
           if (scenario === "local-upload-failure-retry") return fulfill(uploadSession("failed"));
+          if (scenario === "canonical-processing") return fulfill(uploadSession("processing"));
           localPendingAvailable = true;
           return fulfill(uploadSession("awaiting_confirmation"));
         }
@@ -402,6 +411,19 @@ try {
           });
         }
         if (url.pathname === `/api/v1/ingest/${taskId}/status`) {
+          if (scenario === "canonical-processing") {
+            return fulfill({
+              task_id: taskId,
+              stage: "canonical_markdown_generation",
+              status: "processing",
+              updated_at: null,
+              retryable: false,
+              next_action: null,
+              error: null,
+              result_asset_id: null,
+              review_id: null,
+            });
+          }
           if (scenario === "local-degraded") {
             return fulfill({
               task_id: taskId,
@@ -495,26 +517,30 @@ try {
         }
         await page.locator('input[type="file"]').first().setInputFiles(localFiles);
 
-        if (scenario === "local-upload-failure-retry") {
+        if (scenario === "canonical-processing") {
+          await page.getByText("正在生成 Markdown", { exact: true }).waitFor();
+        } else if (scenario === "local-upload-failure-retry") {
           await page.getByText("上传失败", { exact: true }).first().waitFor();
           await page.getByRole("button", { name: "重试" }).click();
           await page.getByText("上传失败", { exact: true }).first().waitFor({ state: "detached" });
         }
-        await page.getByText("待确认入库", { exact: true }).first().waitFor();
-        if (
-          scenario === "local-queue" ||
-          scenario === "local-upload-failure-retry" ||
-          scenario === "batch-naming-ready"
-        ) {
-          const localPendingSection = page.locator(
-            'section[aria-labelledby="local-pending-title"]',
-          );
-          await localPendingSection.getByRole("button", { name: "刷新" }).click();
-          await localPendingSection.locator("tbody tr").first().waitFor();
-        }
-        if (!scenario.startsWith("local-") && scenario !== "batch-naming-ready") {
-          await page.getByRole("button", { name: longPendingFileName }).click();
-          await page.getByRole("heading", { name: "内容建议预览" }).waitFor();
+        if (scenario !== "canonical-processing") {
+          await page.getByText("待确认入库", { exact: true }).first().waitFor();
+          if (
+            scenario === "local-queue" ||
+            scenario === "local-upload-failure-retry" ||
+            scenario === "batch-naming-ready"
+          ) {
+            const localPendingSection = page.locator(
+              'section[aria-labelledby="local-pending-title"]',
+            );
+            await localPendingSection.getByRole("button", { name: "刷新" }).click();
+            await localPendingSection.locator("tbody tr").first().waitFor();
+          }
+          if (!scenario.startsWith("local-") && scenario !== "batch-naming-ready") {
+            await page.getByRole("button", { name: longPendingFileName }).click();
+            await page.getByRole("heading", { name: "内容建议预览" }).waitFor();
+          }
         }
       }
 
@@ -632,6 +658,7 @@ try {
             compactCompletionVisible:
               Boolean(document.querySelector(".upload77-upload-complete")) &&
               !document.querySelector("#local-upload-queue-title"),
+            canonicalGenerating: text.includes("正在生成 Markdown"),
             localPendingVisible: text.includes("待确认入库") && text.includes(longPendingFileName),
             pendingWrapClientWidth: pendingWrap?.clientWidth ?? 0,
             pendingWrapScrollWidth: pendingWrap?.scrollWidth ?? 0,
@@ -677,7 +704,7 @@ try {
                 text,
               ),
             sensitiveTextVisible:
-              /storage_ref|SECRET-LIKE|task-secret-77|project-secret-77|user-secret-77|review-secret-77|generation-ref-secret|csrf-secret-77|identity-hidden|api[_ -]?key|presigned|weknora/i.test(
+              /storage_ref|SECRET-LIKE|task-secret-77|project-secret-77|user-secret-77|review-secret-77|generation-ref-secret|csrf-secret-77|identity-hidden|api[_ -]?key|presigned|weknora[_ -]?(doc|kb)[_ -]?id/i.test(
                 text,
               ),
           };
@@ -700,6 +727,16 @@ try {
               confirmPayload.target_project_id === projectId))
         : false;
       let pendingScreenshot = null;
+      let canonicalScreenshot = null;
+      if (scenario === "canonical-processing") {
+        const queueSection = page.locator('section[aria-labelledby="local-upload-queue-title"]');
+        await queueSection.scrollIntoViewIfNeeded();
+        canonicalScreenshot = path.join(outDir, `${scenario}-queue-${viewport.name}.png`);
+        await queueSection.screenshot({
+          path: canonicalScreenshot,
+          animations: "disabled",
+        });
+      }
       if (scenario === "local-queue") {
         const pendingSection = page.locator('section[aria-labelledby="local-pending-title"]');
         await pendingSection.scrollIntoViewIfNeeded();
@@ -721,6 +758,7 @@ try {
         confirmPayloadValid,
         screenshot,
         pendingScreenshot,
+        canonicalScreenshot,
         ...metrics,
         queueOrderValid: metrics.queueOrderValid,
         localPendingRefreshed:

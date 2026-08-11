@@ -16,7 +16,7 @@ from app.schemas.permission import (
     DeniedReason,
     EffectiveAccessSource,
 )
-from app.services.permission import decide
+from app.services.permission import decide, lifecycle_actor_allowed
 
 # ---- 固定 id ----
 U_CONSULTANT = uuid.UUID("00000000-0000-0000-0000-0000000000c1")
@@ -101,16 +101,65 @@ def test_project_member_all_layers_allowed_original_audited():
     assert d_orig.effective_access_source == EffectiveAccessSource.project_member
 
 
-def test_non_member_project_l3_l4_not_discoverable():
-    """非项目成员不可发现、摘要或读取任何 project L3/L4 内容。"""
+def test_non_member_project_l3_l4_gets_redacted_summary_and_must_request_original():
+    """非项目成员可发现 L3/L4，但仅能读取脱敏摘要。"""
     caller = _ctx(U_CONSULTANT, {"consultant"}, projects={P_ALPHA})
     asset = _asset(scope="project", level="L4", project_id=P_BETA)  # 非成员项目
+    assert decide(caller, asset, DISCOVERY).allowed is True
     d_sum = decide(caller, asset, SUMMARY)
-    assert d_sum.allowed is False
-    assert d_sum.denied_reason == DeniedReason.no_project_membership
+    assert d_sum.allowed is True
+    assert d_sum.summary_variant == "redacted_summary"
     d_orig = decide(caller, asset, ORIGINAL)
     assert d_orig.allowed is False
-    assert d_orig.denied_reason == DeniedReason.no_project_membership
+    assert d_orig.allowed_layer == SUMMARY
+    assert d_orig.denied_reason == DeniedReason.original_requires_request
+
+
+def test_non_member_project_l1_l2_gets_controlled_summary_not_original():
+    caller = _ctx(U_CONSULTANT, {"consultant"}, projects={P_ALPHA})
+    asset = _asset(scope="project", level="L2", project_id=P_BETA)
+    assert decide(caller, asset, DISCOVERY).allowed is True
+    summary = decide(caller, asset, SUMMARY)
+    assert summary.allowed is True
+    assert summary.summary_variant is None
+    original = decide(caller, asset, ORIGINAL)
+    assert original.allowed is False
+    assert original.denied_reason == DeniedReason.original_requires_request
+
+
+def test_cross_project_grant_lifts_only_discoverable_asset_to_original():
+    caller = _ctx(U_CONSULTANT, {"consultant"}, projects={P_ALPHA})
+    asset = _asset(scope="project", level="L3", project_id=P_BETA)
+    granted = decide(caller, asset, ORIGINAL, has_original_grant=True)
+    assert granted.allowed is True
+    assert granted.audit_required is True
+    assert granted.effective_access_source == EffectiveAccessSource.access_grant
+
+
+def test_non_member_project_l5_hidden_even_from_company_governance():
+    asset = _asset(scope="project", level="L5", project_id=P_BETA)
+    for caller in (
+        _ctx(U_CONSULTANT, {"consultant"}, projects={P_ALPHA}),
+        _ctx(U_BOSS, {"boss"}, projects={P_ALPHA}),
+    ):
+        assert decide(caller, asset, DISCOVERY).allowed is False
+        assert decide(caller, asset, ORIGINAL, has_original_grant=True).allowed is False
+
+
+def test_project_member_can_read_own_project_l5_with_audit():
+    caller = _ctx(U_CONSULTANT, {"consultant"}, projects={P_ALPHA})
+    asset = _asset(scope="project", level="L5", project_id=P_ALPHA)
+    original = decide(caller, asset, ORIGINAL)
+    assert original.allowed is True
+    assert original.audit_required is True
+    assert original.effective_access_source == EffectiveAccessSource.project_member
+
+
+def test_stale_cross_project_maintainer_has_no_governance_action():
+    caller = _ctx(U_CONSULTANT, {"consultant"}, projects={P_ALPHA})
+    asset = _asset(scope="project", level="L2", project_id=P_BETA, owner=U_CONSULTANT)
+    asset.maintainer_user_id = U_CONSULTANT
+    assert lifecycle_actor_allowed(caller, asset) is False
 
 
 def test_non_member_non_business_project_original_denied():

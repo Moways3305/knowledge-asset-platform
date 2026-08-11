@@ -1164,7 +1164,7 @@
 }
 
 /* ---- Responsive ----------------------------------------------------------- */
-@media (max-width: 860px) {
+@media (min-width: 701px) and (max-width: 860px) {
   body {
     overflow: auto;
   }

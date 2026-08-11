@@ -103,7 +103,7 @@ async def test_each_project_role_only_sees_its_active_membership(client, db_sess
     assert projects["items"][0]["project_role"] == project_role
 
 
-async def test_company_governance_roles_do_not_enumerate_projects_or_project_activity(client):
+async def test_company_governance_roles_do_not_enumerate_project_workspaces(client):
     for user_id in (USER_BOSS, USER_DIRECTOR):
         response = await client.get(OVERVIEW, headers=_headers(user_id))
         assert response.status_code == 200
@@ -114,15 +114,23 @@ async def test_company_governance_roles_do_not_enumerate_projects_or_project_act
             "items": [],
             "total": 0,
         }
-        assert all(item["scope"] != "project" for item in body["recent_activity"]["items"])
+        cross_project = [
+            item for item in body["recent_activity"]["items"] if item["scope"] == "project"
+        ]
+        assert cross_project
+        assert all(item["confidentiality_level"] != "L5" for item in cross_project)
+        assert "maintainer" not in response.text
 
 
-async def test_project_member_recent_activity_does_not_include_another_project(client):
+async def test_project_member_recent_activity_includes_other_project_safe_summary(client):
     response = await client.get(OVERVIEW, headers=_headers(USER_CONSULTANT))
 
     assert response.status_code == 200
     recent_items = response.json()["recent_activity"]["items"]
-    assert str(KA_PROJECT_BETA_L3) not in {item["asset_id"] for item in recent_items}
+    beta = next(item for item in recent_items if item["asset_id"] == str(KA_PROJECT_BETA_L3))
+    assert beta["scope"] == "project"
+    assert beta["confidentiality_level"] == "L3"
+    assert beta["summary"].startswith("（脱敏）")
 
 
 async def test_user_without_actionable_work_gets_empty_todos(client, db_session):

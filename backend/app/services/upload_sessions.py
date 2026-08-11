@@ -538,8 +538,31 @@ async def _reconcile_and_promote(
         )
 
 
-def _response(value: UploadSession) -> UploadSessionResponse:
+_VISIBLE_PROCESSING_STAGES = {
+    "upload_saved",
+    "text_extraction",
+    "canonical_markdown_generation",
+    "content_generation",
+}
+
+
+def _visible_processing_stage(stage: str | None) -> str | None:
+    return stage if stage is not None and stage in _VISIBLE_PROCESSING_STAGES else None
+
+
+async def _response(session: AsyncSession, value: UploadSession) -> UploadSessionResponse:
     visible_items = [item for item in value.items if item.status != "cancelled"]
+    task_ids = [item.ingest_task_id for item in visible_items if item.ingest_task_id]
+    task_stages: dict[uuid.UUID, str | None] = {
+        task_id: processing_stage
+        for task_id, processing_stage in (
+            await session.execute(
+                select(IngestTask.id, IngestTask.processing_stage).where(
+                    IngestTask.id.in_(task_ids)
+                )
+            )
+        ).all()
+    }
     states = [item.status for item in visible_items]
     active_batches = [
         item.batch_index for item in visible_items if item.status not in _TERMINAL_ITEM_STATES
@@ -574,6 +597,11 @@ def _response(value: UploadSession) -> UploadSessionResponse:
                 error_message=item.safe_error_message,
                 same_name_warning=item.same_name_warning,
                 retryable=item.status == "failed" and item.ingest_task_id is not None,
+                processing_stage=_visible_processing_stage(
+                    task_stages.get(item.ingest_task_id)
+                    if item.ingest_task_id is not None
+                    else None
+                ),
             )
             for item in visible_items
         ],
@@ -603,7 +631,7 @@ async def get_session(
             desensitizer=desensitizer,
             trace_id=trace_id,
         )
-    return _response(await _load_owned_session(session, caller, session_id))
+    return await _response(session, await _load_owned_session(session, caller, session_id))
 
 
 async def list_sessions(
@@ -686,7 +714,7 @@ async def retry_item(
         desensitizer=desensitizer,
         trace_id=trace_id,
     )
-    return _response(await _load_owned_session(session, caller, session_id))
+    return await _response(session, await _load_owned_session(session, caller, session_id))
 
 
 async def remove_item(
@@ -732,7 +760,7 @@ async def remove_item(
         else "active"
     )
     await session.commit()
-    return _response(await _load_owned_session(session, caller, session_id))
+    return await _response(session, await _load_owned_session(session, caller, session_id))
 
 
 async def remove_failed_items(
@@ -770,4 +798,4 @@ async def remove_failed_items(
         else "active"
     )
     await session.commit()
-    return _response(await _load_owned_session(session, caller, session_id))
+    return await _response(session, await _load_owned_session(session, caller, session_id))

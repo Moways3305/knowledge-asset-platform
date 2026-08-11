@@ -271,7 +271,7 @@ try {
         await page
           .getByText(
             scenario === "target-success"
-              ? /单条索引重试已提交：共 1 项/
+              ? /单条索引重试已到达终态：共 1 项/
               : "任务状态已变化或正在执行，请刷新后重试。",
           )
           .waitFor();
@@ -280,10 +280,7 @@ try {
           await page.getByRole("button", { name: "取消" }).click();
         }
       } else if (scenario === "target-running") {
-        await page
-          .getByRole("button", { name: "正在执行：批量重试索引" })
-          .first()
-          .waitFor();
+        await page.getByRole("button", { name: "正在执行：批量重试索引" }).first().waitFor();
       } else if (scenario === "insufficient-data") {
         await page.getByText("正在积累运维数据").waitFor();
       } else if (scenario === "worker-stale" || scenario === "beat-stale") {
@@ -416,7 +413,7 @@ try {
           categoryFiltered:
             text.includes("请完成平台默认模型配置。") &&
             !text.includes("连接检查未通过，请确认平台配置。"),
-          success: text.includes("单条索引重试已提交：共 1 项"),
+          success: text.includes("单条索引重试已到达终态：共 1 项") && text.includes("作业已完成"),
           conflict: text.includes("任务状态已变化或正在执行，请刷新后重试。"),
           targetHidden: !document.querySelector(".ao85-target-retry"),
           indexingError: text.includes("索引状态暂时无法加载"),

@@ -30,7 +30,6 @@ from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 from app.services import error_catalog
 from app.services.permission import build_caller_context
-from app.services.source_content import resolve_version_source_task
 from app.services.weknora_client import WeKnoraDuplicateError, WeKnoraError, weknora_enabled
 from app.services.weknora_model_selection import _safe_model_meta
 from app.services.weknora_models import _kb_update_config, _model_ref
@@ -240,16 +239,20 @@ async def _upload_version(
     new_kb_id: str,
     trace_id: str | None,
 ) -> dict[str, str | None]:
-    """Upload to the new KB without deleting the old document."""
-    task = await resolve_version_source_task(session, asset_id=asset_id, version_id=version_id)
-    if task is None or not task.source_file_ref:
-        raise WeKnoraError("source_file_unreadable", "原文来源暂不可用")
-    file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
+    """Upload canonical Markdown to the new KB without deleting the old document."""
+    from app.services.canonical_markdown import ensure_version_markdown
+
+    markdown = await ensure_version_markdown(
+        session,
+        storage,
+        asset_id=asset_id,
+        version_id=version_id,
+    )
     from app.services import chunking
     from app.services.indexing import _governance_upload
 
     content, upload_name, upload_mime, governance_text = _governance_upload(
-        file_bytes, task.source_file_name, task.source_file_mime_type
+        markdown.content, markdown.file_name, markdown.mime
     )
     asset = await session.get(KnowledgeAsset, asset_id)
     confidentiality = asset.confidentiality_level if asset is not None else "L2"
@@ -263,10 +266,10 @@ async def _upload_version(
             metadata={
                 "asset_id": str(asset_id),
                 "version_id": str(version_id),
-                "scope": task.target_scope or "",
+                "scope": asset.scope if asset is not None else "",
                 "confidentiality_level": confidentiality,
             },
-            channel=task.source,
+            channel=markdown.task.source,
             trace_id=trace_id,
         )
         doc_id = str(data.get("id") or "") or None

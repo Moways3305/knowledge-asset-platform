@@ -91,6 +91,7 @@ export function useUploadIntake({
       batchNumber: item.batch_number,
       sameNameWarning: item.same_name_warning,
       retryable: item.retryable,
+      processingStage: item.processing_stage ?? undefined,
     }));
     localUploadQueueRef.current = next;
     setLocalUploadQueue(next);
@@ -262,6 +263,7 @@ export function useUploadIntake({
                   ? {
                       ...candidate,
                       pollAttempts,
+                      processingStage: status.stage,
                       status: "failed",
                       error: status.error?.message ?? "文件处理失败，请检查文件后重试",
                     }
@@ -276,6 +278,7 @@ export function useUploadIntake({
                   ? {
                       ...candidate,
                       pollAttempts,
+                      processingStage: status.stage,
                       status: "awaiting_confirmation",
                       error:
                         status.status === "degraded"
@@ -301,7 +304,9 @@ export function useUploadIntake({
           } else {
             updateLocalUploadQueue((items) =>
               items.map((candidate) =>
-                candidate.id === item.id ? { ...candidate, pollAttempts } : candidate,
+                candidate.id === item.id
+                  ? { ...candidate, pollAttempts, processingStage: status.stage }
+                  : candidate,
               ),
             );
           }

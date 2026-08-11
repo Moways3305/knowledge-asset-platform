@@ -22,6 +22,8 @@ class AccessInfoOut(BaseModel):
     original: bool
     effective_source: str
     can_request_original: bool = False
+    # 资产来自调用人的其他项目；可见摘要不代表拥有项目空间成员权限。
+    cross_project_summary: bool = False
     # 以下两项由 真实 access_info 驱动：existing_request_status 反映本人 pending 原文申请，
     # existing_grant_expires_at 反映 active access_grant 过期时间；无申请 / 无授权时为 None。
     existing_request_status: str | None = None
@@ -136,6 +138,7 @@ class KnowledgeDetailOut(BaseModel):
     # summary 仅在 summary 层允许时返回；original 内容不随详情返回（走 Preview API）。
     summary: SummaryOut | None
     current_version: CurrentVersionOut | None
+    canonical_markdown_status: str | None  # generated | not_generated；跨项目摘要投影为 None
     access_info: AccessInfoOut
     # 平台级底座索引安全状态（无 kb_id / doc_id / 内部存储引用）。
     index_status: str | None = None

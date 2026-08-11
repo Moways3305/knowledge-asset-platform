@@ -4,13 +4,12 @@
 **所有权限业务判断只能放在本模块**，不得在 API / 测试 / 其它模块散落。
 
 原文授权运行时联动：
-- 跨项目 / 公司 L3/L4 原文默认按"需要申请"（original_requires_request）；审批通过的
+- 跨项目项目知识（L1-L4）/ 公司受限知识的原文按"需要申请"
+  （original_requires_request）；审批通过的
   active access_grant 经 `decide(..., has_original_grant=True)` 在运行时放行原文层
   （source=access_grant，需审计），过期 / 撤销立即失效。
-- L1/L2 原文默认策略集中在 `DefaultAccessPolicy`（schemas.permission）。**已规则化**
-  ——业务读路径调 `permission_rules.load_access_policy(session)` 把 `permission_rules` 的
-  `cross_project_l1_l2_original_for_business_user` / `company_l1_l2_original_for_business_user`
-  开关注入 `decide(policy=...)`；`decide()` 仍是纯函数（默认 `DEFAULT_POLICY`，便于单测）。
+- `decide()` 仍接收运行时 policy 以兼容公司知识规则；跨项目项目知识不再受历史
+  L1/L2 默认原文开关放大，必须经过逐资产原文授权。
 - A4 的原文边界仅对 access_channel=agent 生效（human 不因 A4 自动拒绝），授权不绕过 A4。
 - archived / deprecated 资产读侧默认不可发现（asset_not_active）。
 """
@@ -122,9 +121,10 @@ def _base_profile(
     1. inactive 用户全部拒绝；
     2. 纯系统身份（非业务用户，如仅 admin）不浏览任何业务知识内容（发现/摘要/原文全拒）；
     3. personal：非本人（或本人但非业务用户）一律 personal_asset_not_owned，不泄露；
-    4. 非 personal 的 L5：非总经理/咨询总监 l5_not_discoverable（连存在信息都不给）；
-    5. archived/deprecated 读侧默认不可发现（asset_not_active）；
-    6. 其余按 scope + 保密级别给出可达层级。
+    4. project：本项目 active 成员可读原文；非成员 L1-L4 仅安全摘要、L5 不可发现；
+    5. company L5：非总经理/咨询总监不可发现；
+    6. archived/deprecated 读侧默认不可发现；
+    7. 其余按 scope + 保密级别给出可达层级。
     """
     if not caller.is_active:
         return _profile_none(DeniedReason.user_inactive)
@@ -154,10 +154,31 @@ def _base_profile(
             source=EffectiveAccessSource.owner,
         )
 
-    # 公司层角色不产生项目成员关系。所有项目知识先校验 active project_members，
-    # 再进入保密等级判定；治理角色也不能跨项目绕过。
-    if scope == KnowledgeScope.project.value and asset.project_id not in caller.active_project_ids:
-        return _profile_none(DeniedReason.no_project_membership)
+    # ---- project：项目空间成员与跨项目摘要严格分层 ----
+    if scope == KnowledgeScope.project.value:
+        if asset.asset_status in _INACTIVE_ASSET_STATUSES:
+            return _profile_none(DeniedReason.asset_not_active)
+        if asset.project_id in caller.active_project_ids:
+            # 本项目 active 成员读取本项目原文；包含 L5，但仍保留原文审计。
+            return _AccessProfile(
+                max_layer=AccessLayer.original,
+                exceed_reason=DeniedReason.allowed,
+                source=EffectiveAccessSource.project_member,
+                original_audit_required=True,
+            )
+        # 公司职务或管理员身份不等同项目成员。跨项目 L5 连发现层都不可达。
+        if level == ConfidentialityLevel.L5.value:
+            return _profile_none(DeniedReason.l5_not_discoverable)
+        # 其他 active 业务用户可发现 L1-L4 项目知识，但最高只到受控摘要；
+        # 原文只能由对应资产的 active access_grant 提升。
+        return _AccessProfile(
+            max_layer=AccessLayer.summary,
+            exceed_reason=DeniedReason.original_requires_request,
+            source=EffectiveAccessSource.system_rule,
+            summary_variant=(
+                SummaryType.redacted_summary.value if level in _REDACTED_SUMMARY_LEVELS else None
+            ),
+        )
 
     # ---- 非 personal 的 L5：发现需总经理/咨询总监 ----
     if level == ConfidentialityLevel.L5.value:
@@ -181,15 +202,6 @@ def _base_profile(
     summary_variant = (
         SummaryType.redacted_summary.value if level in _REDACTED_SUMMARY_LEVELS else None
     )
-
-    if scope == KnowledgeScope.project.value:
-        # 已在上方完成 active 成员校验；项目角色与公司职务分别存储，成员公司角色不影响读取。
-        return _AccessProfile(
-            max_layer=AccessLayer.original,
-            exceed_reason=DeniedReason.allowed,
-            source=EffectiveAccessSource.project_member,
-            original_audit_required=True,
-        )
 
     if scope == KnowledgeScope.company.value:
         # 公司知识：治理角色默认可访问原文；顾问只到安全摘要。L5 已在上方保持原有强边界。
@@ -220,8 +232,8 @@ def _build_profile(
     """在基础画像上叠加 access_grant 原文放大。
 
     `has_original_grant`（调用人对本资产有 active access_grant 原文授权）只在画像
-    「可发现但原文受限」（max_layer=summary，即跨项目/公司 L3/L4、L1/L2 默认未放行等
-    `original_requires_request` / `no_project_membership` 软拒绝）时把原文层放行
+    「可发现但原文受限」（max_layer=summary，即跨项目项目知识或公司摘要知识的
+    `original_requires_request` 软拒绝）时把原文层放行
     （source=access_grant，需审计）。它**不**放大 L5 发现 / 他人个人 / inactive /
     archived（这些 max_layer=None，不予提升）；也**不**绕过 A4-agent（A4 边界在
     `decide()` 放行之后再判，授权不绕过）。
@@ -349,8 +361,10 @@ def discovery_filter(caller: CallerContext) -> ColumnElement[bool]:
     company = and_(KnowledgeAsset.scope == KnowledgeScope.company.value, l5_visible)
     project = and_(
         KnowledgeAsset.scope == KnowledgeScope.project.value,
-        KnowledgeAsset.project_id.in_(caller.active_project_ids),
-        l5_visible,
+        or_(
+            KnowledgeAsset.project_id.in_(caller.active_project_ids),
+            KnowledgeAsset.confidentiality_level != ConfidentialityLevel.L5.value,
+        ),
     )
     return and_(active, or_(personal, project, company))
 
@@ -385,7 +399,7 @@ def lifecycle_actor_allowed(caller: CallerContext, asset: KnowledgeAsset) -> boo
     """按 scope 判断调用人是否为合法的生命周期治理动作人（发起/确认）。
 
     - personal：知识所有者本人。
-    - project：资产 maintainer 或该项目 active project_manager。
+    - project：必须先是该项目 active 成员，再允许资产 maintainer 或 active project_manager。
     - company：boss / consulting_director（治理角色）。
 
     前置：调用方需先确保 caller.is_business_user（纯 admin 由服务层独立拒绝并强审计）。
@@ -394,12 +408,12 @@ def lifecycle_actor_allowed(caller: CallerContext, asset: KnowledgeAsset) -> boo
     if scope == KnowledgeScope.personal.value:
         return asset.owner_user_id == caller.user_id and caller.is_business_user
     if scope == KnowledgeScope.project.value:
+        if asset.project_id is None or asset.project_id not in caller.active_project_ids:
+            return False
         if asset.maintainer_user_id == caller.user_id:
             return True
         return (
-            asset.project_id is not None
-            and caller.active_project_roles.get(asset.project_id)
-            == ProjectRole.project_manager.value
+            caller.active_project_roles.get(asset.project_id) == ProjectRole.project_manager.value
         )
     if scope == KnowledgeScope.company.value:
         return caller.can_discover_l5  # boss / consulting_director
