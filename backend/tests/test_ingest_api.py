@@ -72,6 +72,14 @@ def _confirm_payload(**over):
         "confidentiality_level": "L2",
     }
     base.update(over)
+    base.setdefault(
+        "directory_key",
+        {
+            "personal": "personal.learning_notes",
+            "project": "project.deliverables",
+            "company": "company.methodology",
+        }[base["target_scope"]],
+    )
     return base
 
 

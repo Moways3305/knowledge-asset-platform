@@ -55,6 +55,21 @@ class AgentProjectsResponse(BaseModel):
     items: list[AgentProjectOut]
 
 
+class AgentDirectoryOut(BaseModel):
+    directory_key: str
+    name: str
+    description: str | None = None
+    scope: str
+    display_path: str
+    parent_key: str | None = None
+    project_id: uuid.UUID | None = None
+    project_name: str | None = None
+
+
+class AgentDirectoriesResponse(BaseModel):
+    items: list[AgentDirectoryOut]
+
+
 # ---------------- 接入注册管理（admin）----------------
 class RegistryRuleOut(BaseModel):
     """注册行安全视图：不含 token_hash / provider 内部标识 / agent_identifier。"""

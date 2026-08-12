@@ -19,7 +19,7 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -197,6 +197,12 @@ async def recall_assets(
                 select(KnowledgeAssetVersion)
                 .where(KnowledgeAssetVersion.weknora_doc_id.in_(doc_ids))
                 .where(KnowledgeAssetVersion.version_status == _ACTIVE_VERSION)
+                .where(
+                    or_(
+                        KnowledgeAssetVersion.directory_key.is_(None),
+                        KnowledgeAssetVersion.directory_key != "personal.pending",
+                    )
+                )
                 # residual：仅索引成功的 version 可被召回映射；index_failed 等残留旧 doc 丢弃。
                 .where(KnowledgeAssetVersion.index_status == _INDEXED_STATUS)
             )

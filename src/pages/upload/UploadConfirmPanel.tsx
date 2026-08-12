@@ -39,6 +39,8 @@ export default function UploadConfirmPanel({
     namingOptions,
     namingCategoryId,
     setNamingCategoryId,
+    directoryKey,
+    setDirectoryKey,
     namingFormedOn,
     setNamingFormedOn,
     namingVersion,
@@ -349,6 +351,26 @@ export default function UploadConfirmPanel({
                 个人资料不强制规范命名，保留原文件名用于来源追溯。
               </p>
             )}
+            {targetLibrary && namingOptions?.directories?.length ? (
+              <label className="upload77-field" htmlFor="upload77-directory">
+                <span>最终目录</span>
+                <select
+                  id="upload77-directory"
+                  value={directoryKey}
+                  onChange={(event) => setDirectoryKey(event.target.value)}
+                >
+                  <option value="">请选择标准目录</option>
+                  {namingOptions.directories
+                    .filter((directory) => directory.directory_key !== "personal.pending")
+                    .map((directory) => (
+                      <option key={directory.directory_key} value={directory.directory_key}>
+                        {directory.display_name}
+                      </option>
+                    ))}
+                </select>
+                <small>目录建议来自命名规则，最终选择由本次确认人决定。</small>
+              </label>
+            ) : null}
             {(targetLibrary === "project" || targetLibrary === "company") && namingRequired && (
               <div className="upload77-canonical-form" aria-label="规范命名字段">
                 <label className="upload77-field" htmlFor="upload77-naming-category">

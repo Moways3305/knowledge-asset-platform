@@ -118,6 +118,7 @@ export function useIngestConfirmation({
   const [namingOptions, setNamingOptions] = useState<NamingOptionsDTO | null>(null);
   const [namingPolicyResolved, setNamingPolicyResolved] = useState(false);
   const [namingCategoryId, setNamingCategoryId] = useState("");
+  const [directoryKey, setDirectoryKey] = useState("");
   const [namingFormedOn, setNamingFormedOn] = useState("");
   const [namingVersion, setNamingVersion] = useState("V1");
   const [namingApplicableTo, setNamingApplicableTo] = useState("");
@@ -221,6 +222,11 @@ export function useIngestConfirmation({
         if (!live) return;
         setNamingOptions(value);
         setNamingPolicyResolved(true);
+        setDirectoryKey((current) =>
+          (value.directories ?? []).some((directory) => directory.directory_key === current)
+            ? current
+            : "",
+        );
         if (!value.required) {
           setNamingCategoryId("");
           return;
@@ -259,6 +265,15 @@ export function useIngestConfirmation({
       live = false;
     };
   }, [targetLibrary, targetProjectId, taskId]);
+
+  useEffect(() => {
+    const suggested = namingOptions?.categories.find(
+      (category) => category.id === namingCategoryId,
+    )?.suggested_directory_key;
+    if (suggested && namingOptions?.directories?.some((item) => item.directory_key === suggested)) {
+      setDirectoryKey(suggested);
+    }
+  }, [namingCategoryId, namingOptions]);
 
   useEffect(() => {
     const runId = ++namingPreviewRunRef.current;
@@ -562,6 +577,7 @@ export function useIngestConfirmation({
         acknowledged_naming_warning_codes: (namingPreview?.notices ?? []).flatMap((notice) =>
           notice.code ? [notice.code] : [],
         ),
+        directory_key: selectedTargetLibrary === "personal" ? directoryKey : undefined,
         naming: namingOptions?.required
           ? {
               category_id: namingCategoryId,
@@ -569,6 +585,7 @@ export function useIngestConfirmation({
               formed_on: namingFormedOn,
               version: namingVersion,
               applicable_to: selectedTargetLibrary === "company" ? namingApplicableTo : undefined,
+              directory_key: directoryKey,
             }
           : undefined,
       });
@@ -601,6 +618,7 @@ export function useIngestConfirmation({
     loadPending,
     namingApplicableTo,
     namingCategoryId,
+    directoryKey,
     namingFormedOn,
     namingOptions?.required,
     namingPreview?.notices,
@@ -742,6 +760,8 @@ export function useIngestConfirmation({
     namingOptions,
     namingCategoryId,
     setNamingCategoryId,
+    directoryKey,
+    setDirectoryKey,
     namingFormedOn,
     setNamingFormedOn,
     namingVersion,
@@ -752,9 +772,10 @@ export function useIngestConfirmation({
     namingPreviewBusy,
     namingPreviewError,
     namingPreviewReady:
-      targetLibrary === "personal" ||
+      (targetLibrary === "personal" && Boolean(directoryKey)) ||
       (namingPolicyResolved &&
-        (!namingOptions?.required || Boolean(namingPreview?.canonical_name))),
+        (!namingOptions?.required || Boolean(namingPreview?.canonical_name)) &&
+        Boolean(directoryKey)),
     namingRequired: Boolean(namingOptions?.required),
     applyAiResult,
     pollAiResult,

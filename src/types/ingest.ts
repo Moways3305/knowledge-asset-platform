@@ -191,6 +191,7 @@ export interface IngestConfirmRequestDTO {
   rerank_model_ref?: string;
   acknowledged_naming_warning_codes?: string[];
   naming?: import("./naming").NamingConfirmationDTO;
+  directory_key?: string;
 }
 
 export interface IngestConfirmResponseDTO {

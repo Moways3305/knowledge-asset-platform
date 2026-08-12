@@ -502,6 +502,95 @@
         "title": "AgentCapability",
         "type": "string"
       },
+      "AgentDirectoriesResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AgentDirectoryOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "AgentDirectoriesResponse",
+        "type": "object"
+      },
+      "AgentDirectoryOut": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "directory_key": {
+            "title": "Directory Key",
+            "type": "string"
+          },
+          "display_path": {
+            "title": "Display Path",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Key"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "directory_key",
+          "name",
+          "scope",
+          "display_path"
+        ],
+        "title": "AgentDirectoryOut",
+        "type": "object"
+      },
       "AgentProjectOut": {
         "description": "Agent 可见项目最小安全视图（不含 client_name / 成员 / 生命周期细节）。",
         "properties": {
@@ -3126,6 +3215,139 @@
         "title": "DefaultModelsUpdateRequest",
         "type": "object"
       },
+      "DirectoryListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DirectoryOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "DirectoryListResponse",
+        "type": "object"
+      },
+      "DirectoryOptionItem": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "directory_key": {
+            "title": "Directory Key",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "directory_key",
+          "scope",
+          "display_name",
+          "sort_order"
+        ],
+        "title": "DirectoryOptionItem",
+        "type": "object"
+      },
+      "DirectoryOut": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "directory_key": {
+            "title": "Directory Key",
+            "type": "string"
+          },
+          "display_path": {
+            "title": "Display Path",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Key"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "directory_key",
+          "name",
+          "scope",
+          "display_path"
+        ],
+        "title": "DirectoryOut",
+        "type": "object"
+      },
       "EvidenceCategory": {
         "enum": [
           "meeting_minutes",
@@ -4645,6 +4867,17 @@
           "confidentiality_level": {
             "$ref": "#/components/schemas/ConfidentialityLevel"
           },
+          "directory_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Directory Key"
+          },
           "embedding_model_ref": {
             "anyOf": [
               {
@@ -5856,6 +6089,28 @@
               }
             ]
           },
+          "directory_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Directory Key"
+          },
+          "directory_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Directory Path"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -6133,6 +6388,28 @@
           "confidentiality_level": {
             "title": "Confidentiality Level",
             "type": "string"
+          },
+          "directory_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Directory Key"
+          },
+          "directory_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Directory Path"
           },
           "id": {
             "format": "uuid",
@@ -7709,6 +7986,17 @@
             "minimum": 0.0,
             "title": "Sort Order",
             "type": "integer"
+          },
+          "suggested_directory_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Directory Key"
           }
         },
         "required": [
@@ -7737,6 +8025,17 @@
             "format": "uuid",
             "title": "Category Id",
             "type": "string"
+          },
+          "directory_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Directory Key"
           },
           "formed_on": {
             "format": "date",
@@ -7868,6 +8167,17 @@
           "sort_order": {
             "title": "Sort Order",
             "type": "integer"
+          },
+          "suggested_directory_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Directory Key"
           }
         },
         "required": [
@@ -7901,6 +8211,13 @@
                 "type": "null"
               }
             ]
+          },
+          "directories": {
+            "items": {
+              "$ref": "#/components/schemas/DirectoryOptionItem"
+            },
+            "title": "Directories",
+            "type": "array"
           },
           "message": {
             "anyOf": [
@@ -8145,6 +8462,14 @@
               "$ref": "#/components/schemas/NamingCategoryConfig"
             },
             "title": "Categories",
+            "type": "array"
+          },
+          "directories": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Directories",
             "type": "array"
           },
           "enforced": {
@@ -9617,6 +9942,28 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "directory_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Directory Key"
+          },
+          "directory_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Directory Path"
           },
           "evidence_summary": {
             "anyOf": [
@@ -13020,6 +13367,28 @@
             ],
             "title": "Detailed"
           },
+          "directory_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Directory Key"
+          },
+          "directory_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Directory Path"
+          },
           "key_points": {
             "items": {
               "type": "string"
@@ -13172,6 +13541,28 @@
             "title": "Cited Zone",
             "type": "string"
           },
+          "directory_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Directory Key"
+          },
+          "directory_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Directory Path"
+          },
           "scope": {
             "title": "Scope",
             "type": "string"
@@ -13217,9 +13608,25 @@
       "SearchFilters": {
         "description": "检索过滤项。include_archived 当前不放行归档（archived 始终排除，安全口径一致）。",
         "properties": {
+          "directory_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Directory Key"
+          },
           "include_archived": {
             "default": false,
             "title": "Include Archived",
+            "type": "boolean"
+          },
+          "include_descendants": {
+            "default": false,
+            "title": "Include Descendants",
             "type": "boolean"
           },
           "phase": {
@@ -13232,6 +13639,18 @@
               }
             ],
             "title": "Phase"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
           },
           "tags": {
             "default": [],
@@ -13275,6 +13694,7 @@
             "$ref": "#/components/schemas/SearchFilters",
             "default": {
               "include_archived": false,
+              "include_descendants": false,
               "tags": []
             }
           },
@@ -23003,6 +23423,55 @@
         ]
       }
     },
+    "/api/v1/agent-gateway/knowledge/directories": {
+      "get": {
+        "operationId": "list_knowledge_directories_api_v1_agent_gateway_knowledge_directories_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentDirectoriesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Knowledge Directories",
+        "tags": [
+          "agent-gateway"
+        ]
+      }
+    },
     "/api/v1/agent-gateway/knowledge/personal": {
       "get": {
         "operationId": "list_my_personal_knowledge_api_v1_agent_gateway_knowledge_personal_get",
@@ -27108,6 +27577,34 @@
           },
           {
             "in": "query",
+            "name": "directory_key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Directory Key"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_descendants",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Descendants",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
             "name": "created_from",
             "required": false,
             "schema": {
@@ -27366,6 +27863,121 @@
           }
         },
         "summary": "Bulk Delete Knowledge Assets",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/knowledge/directories": {
+      "get": {
+        "description": "Return only governed directories the current caller may browse.",
+        "operationId": "list_knowledge_directories_api_v1_knowledge_directories_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/KnowledgeScope"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scope"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Knowledge Directories",
         "tags": [
           "knowledge"
         ]

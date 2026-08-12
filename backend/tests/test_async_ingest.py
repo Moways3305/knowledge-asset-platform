@@ -31,6 +31,7 @@ def _confirm_body(**over):
         "tags": ["t"],
         "target_scope": "personal",
         "confidentiality_level": "L2",
+        "directory_key": "personal.learning_notes",
     }
     base.update(over)
     return base

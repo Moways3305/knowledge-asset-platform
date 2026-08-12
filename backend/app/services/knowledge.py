@@ -53,6 +53,8 @@ from app.schemas.enums import (
 from app.schemas.knowledge import (
     AccessInfoOut,
     CurrentVersionOut,
+    DirectoryListResponse,
+    DirectoryOut,
     KnowledgeDeleteResponse,
     KnowledgeDetailOut,
     KnowledgeListItemOut,
@@ -76,7 +78,7 @@ from app.schemas.permission import (
     DeniedReason,
 )
 from app.services import audit as audit_service
-from app.services import error_catalog, indexing, original_access
+from app.services import directories, error_catalog, indexing, original_access
 from app.services.permission import (
     decide,
     discovery_filter,
@@ -387,6 +389,8 @@ async def list_knowledge(
     asset_type: str | None = None,
     asset_status: str | None = None,
     confidentiality_level: str | None = None,
+    directory_key: str | None = None,
+    include_descendants: bool = False,
     created_from: datetime | None = None,
     created_to: datetime | None = None,
     updated_from: datetime | None = None,
@@ -404,6 +408,15 @@ async def list_knowledge(
         if project_id not in caller.active_project_ids:
             raise _denied(403, "project_membership_required", "需为该项目的有效成员")
 
+    if directory_key:
+        directory_scope = scope or directory_key.split(".", 1)[0]
+        await directories.validate_directory(
+            session,
+            directory_key=directory_key,
+            scope=directory_scope,
+            project_id=project_id,
+        )
+
     conditions = [discovery_filter(caller)]
     if scope:
         conditions.append(KnowledgeAsset.scope == scope)
@@ -417,6 +430,14 @@ async def list_knowledge(
         conditions.append(KnowledgeAsset.asset_status == asset_status)
     if confidentiality_level:
         conditions.append(KnowledgeAsset.confidentiality_level == confidentiality_level)
+    if directory_key:
+        conditions.append(
+            KnowledgeAsset.current_version_id.in_(
+                select(KnowledgeAssetVersion.id).where(
+                    KnowledgeAssetVersion.directory_key == directory_key
+                )
+            )
+        )
     if created_from:
         conditions.append(KnowledgeAsset.created_at >= created_from)
     if created_to:
@@ -467,8 +488,9 @@ async def list_knowledge(
     granted = await original_access.active_grant_asset_ids(session, caller, [a.id for a in visible])
     vindex = await _version_index_map(session, visible)
     summary_maps = await _list_summary_maps(session, visible)
-    items = [
-        _to_list_item(
+    items = []
+    for asset in visible:
+        item = _to_list_item(
             caller,
             asset,
             projects,
@@ -477,8 +499,10 @@ async def list_knowledge(
             policy,
             summary_maps.get(asset.id, {}),
         )
-        for asset in visible
-    ]
+        version = vindex.get(asset.current_version_id) if asset.current_version_id else None
+        key = directories.version_directory_key(version)
+        path = await directories.display_path(session, key, asset.project_id)
+        items.append(item.model_copy(update={"directory_key": key, "directory_path": path}))
     return KnowledgeListResponse(
         items=items,
         total=total,
@@ -486,6 +510,24 @@ async def list_knowledge(
         page_size=page_size,
         has_next=page * page_size < total,
     )
+
+
+async def list_directories(
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    scope: str | None = None,
+    project_id: uuid.UUID | None = None,
+) -> DirectoryListResponse:
+    if project_id is not None and project_id not in caller.active_project_ids:
+        raise _denied(403, "project_membership_required", "Active project membership is required")
+    rows = await directories.visible_directory_rows(
+        session,
+        caller,
+        allowed_scope=scope,
+        allowed_project_id=project_id,
+    )
+    return DirectoryListResponse(items=[DirectoryOut(**row) for row in rows])
 
 
 async def get_detail(
@@ -620,6 +662,8 @@ async def get_detail(
         for key in ("category_primary", "category_secondary")
     ]
     category_path = " / ".join(part for part in category_parts if part) or None
+    directory_key = directories.version_directory_key(version_obj)
+    directory_path = await directories.display_path(session, directory_key, asset.project_id)
     safe_version = str(naming_metadata.get("version") or "").strip() or None
     retrieval_available = bool(version_obj and version_obj.index_status == "indexed")
 
@@ -679,6 +723,8 @@ async def get_detail(
         indexed_at=(
             None if cross_project_projection else version_obj.indexed_at if version_obj else None
         ),
+        directory_key=None if cross_project_projection else directory_key,
+        directory_path=None if cross_project_projection else directory_path,
     )
 
 

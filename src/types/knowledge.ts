@@ -80,6 +80,8 @@ export interface KnowledgeListItemDTO {
   weknora_parse_status?: string | null;
   index_error_message?: string | null;
   indexed_at?: string | null;
+  directory_key?: string | null;
+  directory_path?: string | null;
 }
 
 export interface KnowledgeItemsResponseDTO {
@@ -110,6 +112,8 @@ export interface KnowledgeQueryParams {
   sortBy?: KnowledgeSortField;
   sortDirection?: SortDirection;
   includeArchived?: boolean;
+  directoryKey?: string;
+  includeDescendants?: boolean;
 }
 
 export interface KnowledgeDetailDTO {
@@ -152,6 +156,8 @@ export interface KnowledgeDetailDTO {
   index_error_code?: string | null;
   index_error_message?: string | null;
   indexed_at?: string | null;
+  directory_key?: string | null;
+  directory_path?: string | null;
 }
 
 // ---- 前端 ViewModel ----
@@ -192,6 +198,19 @@ export interface KnowledgeCardVM {
   parseStatus: string | null;
   indexErrorMessage: string | null;
   indexedAt: string | null;
+  directoryKey?: string | null;
+  directoryPath?: string | null;
+}
+
+export interface KnowledgeDirectoryDTO {
+  directory_key: string;
+  name: string;
+  description: string | null;
+  scope: KnowledgeScope;
+  display_path: string;
+  parent_key: string | null;
+  project_id: string | null;
+  project_name: string | null;
 }
 
 export interface KnowledgePageVM {

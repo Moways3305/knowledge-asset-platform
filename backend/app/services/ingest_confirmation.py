@@ -45,6 +45,7 @@ class ValidatedConfirmationContext:
     trace_id: str
     session: AsyncSession
     naming_result: RenderedNaming | None = None
+    directory_rule_version: int | None = None
 
 
 ConfirmationRoute = ValidatedConfirmationContext | IngestConfirmResponse
@@ -247,6 +248,28 @@ async def validate_and_route_confirmation(
     else:
         raise _denied(422, "invalid_target_scope", "非法的 target_scope")
 
+    from app.services.directories import validate_directory
+
+    directory_key = (
+        request.naming.directory_key if request.naming is not None else request.directory_key
+    )
+    directory_rule_version: int | None = None
+    if not directory_key and scope == KnowledgeScope.personal.value:
+        raise _denied(422, "directory_required", "请选择一个正式个人目录")
+    if directory_key:
+        directory_rule_version, _directory = await validate_directory(
+            session,
+            directory_key=directory_key,
+            scope=scope,
+            project_id=project_id,
+        )
+        if directory_key == "personal.pending":
+            raise _denied(
+                422,
+                "personal_pending_not_formal",
+                "个人待处理目录不能作为正式入库目录",
+            )
+
     return ValidatedConfirmationContext(
         task=task,
         request=request,
@@ -256,6 +279,7 @@ async def validate_and_route_confirmation(
         caller=caller,
         trace_id=trace_id,
         session=session,
+        directory_rule_version=directory_rule_version,
     )
 
 

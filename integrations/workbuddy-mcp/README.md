@@ -69,7 +69,8 @@ the backend may return more, but the MCP only surfaces the whitelisted fields.
 
 Knowledge / Q&A:
 
-- `kap_search_knowledge(query, scope?, top_k?, tags?, phase?)` → safe summary cards
+- `kap_list_knowledge_directories()` returns authorized stable directory keys and display paths, never asset counts.
+- `kap_search_knowledge(query, scope?, top_k?, tags?, phase?, directory_key?, project_id?)` returns safe summary cards. If the user explicitly names a directory (such as methodology or deliverables), resolve its exact key with the directory tool first. For a general topic, search broadly; never guess a key or silently add a hard directory filter.
 - `kap_answer_from_knowledge(query, scope?)` → `{answer, citations}`
 - `kap_list_accessible_projects()` → `[{project_id, name, status}]`
 

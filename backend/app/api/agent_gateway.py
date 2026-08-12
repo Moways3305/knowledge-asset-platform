@@ -34,6 +34,8 @@ from app.schemas.agent_workbench import (
     WorkbenchTodosResponse,
 )
 from app.schemas.external_agent import (
+    AgentDirectoriesResponse,
+    AgentDirectoryOut,
     AgentProjectOut,
     AgentProjectsResponse,
     AgentToolSearchRequest,
@@ -41,6 +43,7 @@ from app.schemas.external_agent import (
 from app.schemas.permission import AccessChannel, CallerContext
 from app.schemas.search import SearchFilters, SearchRequest, SearchResponse
 from app.services import agent_registry, agent_workbench
+from app.services import directories as directory_service
 from app.services import external_agent_gateway as gateway
 from app.services import projects as projects_service
 from app.services import search as search_service
@@ -111,13 +114,17 @@ async def knowledge_search(
         effective_scope = rule.allowed_scope
     if not gateway.tool_scope_allowed(rule, effective_scope):
         raise denied(403, "agent_scope_denied", "请求范围超出该接入允许的 scope")
+    effective_filters = dict(req.filters or {})
     if rule.allowed_project_id is not None:
-        raise denied(403, "agent_scope_denied", "项目锁定接入不支持统一检索端点")
+        requested_project = effective_filters.get("project_id")
+        if requested_project is not None and requested_project != str(rule.allowed_project_id):
+            raise denied(403, "agent_scope_denied", "请求项目超出该接入允许范围")
+        effective_filters["project_id"] = str(rule.allowed_project_id)
     search_req = SearchRequest(
         query=req.query,
         scope=effective_scope,
         intent=req.intent,
-        filters=SearchFilters(**(req.filters or {})),
+        filters=SearchFilters(**effective_filters),
         want_original=False,  # agent-gateway 永不取原文
         asset_id=None,
     )
@@ -129,7 +136,23 @@ async def knowledge_search(
         llm=llm,
         trace_id=get_trace_id(request),
         channel=AccessChannel.agent,
+        asset_guard=lambda asset: gateway.asset_within_ceiling(rule, asset),
     )
+
+
+@router.get("/knowledge/directories", response_model=AgentDirectoriesResponse)
+async def list_knowledge_directories(
+    bound: tuple[AgentWhitelistRule, CallerContext] = Depends(require_bound_caller),
+    session: AsyncSession = Depends(get_db),
+) -> AgentDirectoriesResponse:
+    rule, caller = bound
+    rows = await directory_service.visible_directory_rows(
+        session,
+        caller,
+        allowed_scope=rule.allowed_scope,
+        allowed_project_id=rule.allowed_project_id,
+    )
+    return AgentDirectoriesResponse(items=[AgentDirectoryOut(**row) for row in rows])
 
 
 @router.get("/projects", response_model=AgentProjectsResponse)

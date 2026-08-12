@@ -23,6 +23,9 @@ class SearchFilters(BaseModel):
     tags: list[str] = []
     phase: str | None = None
     include_archived: bool = False
+    directory_key: str | None = None
+    include_descendants: bool = False
+    project_id: uuid.UUID | None = None
 
 
 class SearchRequest(BaseModel):
@@ -62,6 +65,8 @@ class SearchCardOut(BaseModel):
     version: str | None
     relevance_score: float
     can_view_original: bool
+    directory_key: str | None = None
+    directory_path: str | None = None
 
 
 class SearchCitationOut(BaseModel):
@@ -75,6 +80,8 @@ class SearchCitationOut(BaseModel):
     seq: int | None = None
     snippet: str | None = None
     citation_order: int
+    directory_key: str | None = None
+    directory_path: str | None = None
 
 
 class OriginalChunkOut(BaseModel):

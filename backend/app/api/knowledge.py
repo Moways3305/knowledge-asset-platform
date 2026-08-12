@@ -31,6 +31,7 @@ from app.schemas.enums import (
     PersonalKnowledgeState,
 )
 from app.schemas.knowledge import (
+    DirectoryListResponse,
     KnowledgeDeleteRequest,
     KnowledgeDeleteResponse,
     KnowledgeDetailOut,
@@ -154,6 +155,8 @@ async def list_knowledge(
     asset_type: AssetType | None = Query(default=None),
     asset_status: AssetStatus | None = Query(default=None),
     confidentiality_level: ConfidentialityLevel | None = Query(default=None),
+    directory_key: str | None = Query(default=None, min_length=1, max_length=100),
+    include_descendants: bool = Query(default=False),
     created_from: datetime | None = Query(default=None),
     created_to: datetime | None = Query(default=None),
     updated_from: datetime | None = Query(default=None),
@@ -184,6 +187,8 @@ async def list_knowledge(
         asset_type=asset_type.value if asset_type else None,
         asset_status=asset_status.value if asset_status else None,
         confidentiality_level=confidentiality_level.value if confidentiality_level else None,
+        directory_key=directory_key,
+        include_descendants=include_descendants,
         created_from=created_from,
         created_to=created_to,
         updated_from=updated_from,
@@ -192,6 +197,22 @@ async def list_knowledge(
         sort_direction=sort_direction.value,
         page=page,
         page_size=page_size,
+    )
+
+
+@router.get("/knowledge/directories", response_model=DirectoryListResponse)
+async def list_knowledge_directories(
+    scope: KnowledgeScope | None = Query(default=None),
+    project_id: uuid.UUID | None = Query(default=None),
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> DirectoryListResponse:
+    """Return only governed directories the current caller may browse."""
+    return await knowledge_service.list_directories(
+        session,
+        caller,
+        scope=scope.value if scope else None,
+        project_id=project_id,
     )
 
 

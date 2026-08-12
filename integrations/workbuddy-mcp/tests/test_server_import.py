@@ -34,7 +34,8 @@ def test_all_readonly_tools_registered(monkeypatch):
     tools = asyncio.run(server.mcp.list_tools())
     names = {t.name for t in tools}
     assert _EXPECTED_TOOLS.issubset(names), _EXPECTED_TOOLS - names
-    assert len(names) == 15
+    assert "kap_list_knowledge_directories" in names
+    assert len(names) == 16
 
 
 def test_tool_wrappers_sanitize_errors(monkeypatch):

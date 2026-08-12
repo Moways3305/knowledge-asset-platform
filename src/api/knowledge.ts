@@ -15,6 +15,7 @@ import type {
   KnowledgePageVM,
   KnowledgeQueryParams,
   KnowledgeListResponseDTO,
+  KnowledgeDirectoryDTO,
   RetryIndexResponseDTO,
 } from "../types/knowledge";
 import type { SearchRequestDTO, SearchResponseDTO } from "../types/search";
@@ -73,6 +74,8 @@ export function mapCard(d: KnowledgeListItemDTO): KnowledgeCardVM {
     parseStatus: d.weknora_parse_status ?? null,
     indexErrorMessage: d.index_error_message ?? null,
     indexedAt: d.indexed_at ?? null,
+    directoryKey: d.directory_key ?? null,
+    directoryPath: d.directory_path ?? null,
   };
 }
 
@@ -121,6 +124,8 @@ export async function fetchKnowledgePage(
   if (params.sortBy) qs.set("sort_by", params.sortBy);
   if (params.sortDirection) qs.set("sort_direction", params.sortDirection);
   if (params.includeArchived) qs.set("include_archived", "true");
+  if (params.directoryKey) qs.set("directory_key", params.directoryKey);
+  if (params.includeDescendants) qs.set("include_descendants", "true");
   const query = qs.toString();
   const data = await apiGet<KnowledgeListResponseDTO>(
     `/api/v1/knowledge${query ? `?${query}` : ""}`,
@@ -132,6 +137,22 @@ export async function fetchKnowledgePage(
     pageSize: data.page_size,
     hasNext: data.has_next,
   };
+}
+
+export async function fetchKnowledgeDirectories(
+  params: {
+    scope?: string;
+    projectId?: string;
+  } = {},
+): Promise<KnowledgeDirectoryDTO[]> {
+  const qs = new URLSearchParams();
+  if (params.scope) qs.set("scope", params.scope);
+  if (params.projectId) qs.set("project_id", params.projectId);
+  const query = qs.toString();
+  const data = await apiGet<{ items: KnowledgeDirectoryDTO[] }>(
+    `/api/v1/knowledge/directories${query ? `?${query}` : ""}`,
+  );
+  return data.items;
 }
 
 // Legacy list consumers keep their array contract but now receive the server's

@@ -386,6 +386,7 @@ export default function KnowledgeDetailPage() {
     { label: "所属项目", value: asset.projectName },
   ];
   const memberFacts = [
+    { label: "标准目录", value: asset.directoryPath },
     { label: "业务阶段", value: asset.lifecyclePhase },
     { label: "当前版本", value: asset.currentVersionNo },
     { label: "维护人", value: asset.maintainerName },
@@ -406,7 +407,7 @@ export default function KnowledgeDetailPage() {
     },
   ];
   const crossProjectFacts = [
-    { label: "目录类别", value: asset.categoryPath },
+    { label: "目录类别", value: asset.directoryPath || asset.categoryPath },
     { label: "规范名版本", value: asset.safeVersion },
     { label: "维护人", value: asset.maintainerName },
     {

@@ -25,6 +25,7 @@ from app.services.weknora_client import get_weknora_client
 
 SEARCH = "/api/v1/agent-gateway/tools/knowledge-search"
 PROJECTS = "/api/v1/agent-gateway/projects"
+DIRECTORIES = "/api/v1/agent-gateway/knowledge/directories"
 _TOKEN = "kgw_test_workbuddy_token"
 _ALPHA_KB = f"wk-kb-proj-{PROJECT_ALPHA}"
 _COMPANY_KB = "wk-kb-company"
@@ -140,6 +141,17 @@ async def test_missing_bearer_rejected(client, db_session):
     _install([_doc(KA_PROJECT_ALPHA, _ALPHA_KB, "Alpha 内容")])
     r = await client.post(SEARCH, json={"query": "q", "scope": "project"})
     assert r.status_code == 401
+
+
+async def test_directory_catalog_is_token_bound_and_contains_no_counts(client, db_session):
+    await _insert_rule(db_session, allowed_scope="project")
+    response = await client.get(DIRECTORIES, headers=_bearer())
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert items
+    assert all(item["scope"] == "project" for item in items)
+    assert all(item["project_name"] and "count" not in item for item in items)
+    assert "project_code" not in response.text
 
 
 async def test_unbound_token_fails_closed(client, db_session):
