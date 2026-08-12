@@ -24,14 +24,14 @@ const scenarios = [
   { name: "review-forbidden", path: "/review" },
   { name: "review-list-failure", path: "/review" },
   { name: "review-action-failure", path: "/review" },
-  { name: "access-inbox", path: "/original-access" },
+  { name: "access-inbox", path: "/original-access?box=inbox" },
   { name: "access-mine", path: "/original-access" },
-  { name: "access-actions", path: "/original-access" },
-  { name: "access-loading", path: "/original-access" },
-  { name: "access-empty", path: "/original-access" },
-  { name: "access-forbidden", path: "/original-access" },
-  { name: "access-list-failure", path: "/original-access" },
-  { name: "access-action-failure", path: "/original-access" },
+  { name: "access-actions", path: "/original-access?box=inbox" },
+  { name: "access-loading", path: "/original-access?box=inbox" },
+  { name: "access-empty", path: "/original-access?box=inbox" },
+  { name: "access-forbidden", path: "/original-access?box=inbox" },
+  { name: "access-list-failure", path: "/original-access?box=inbox" },
+  { name: "access-action-failure", path: "/original-access?box=inbox" },
 ];
 
 const secrets = [
@@ -108,6 +108,22 @@ const authMe = {
   is_business_user: true,
   can_discover_l5: false,
   project_memberships: [],
+};
+const workbenchOverview = {
+  task_center: {
+    status: "empty",
+    error_code: null,
+    summary: { needs_action: 0, running: 0, attention: 0, completed_today: 0 },
+    priority_items: [],
+    my_tasks: [],
+    running_jobs: [],
+    attention_items: [],
+    recent_completed: [],
+  },
+  todos: { status: "empty", error_code: null, items: [], total: 0 },
+  operations: { status: "empty", error_code: null, data: null },
+  projects: { status: "empty", error_code: null, items: [], total: 0 },
+  recent_activity: { status: "empty", error_code: null, items: [], total: 0 },
 };
 
 function accepted(result) {
@@ -193,6 +209,16 @@ try {
         if (requestUrl.pathname === "/api/v1/auth/me") return fulfill(authMe);
         if (requestUrl.pathname === "/api/v1/auth/csrf")
           return fulfill({ csrf_token: "csrf-safe" });
+        if (requestUrl.pathname === "/api/v1/workbench/overview") return fulfill(workbenchOverview);
+        if (requestUrl.pathname === "/api/v1/notifications")
+          return fulfill({
+            items: [],
+            total: 0,
+            page: 1,
+            page_size: 20,
+            unread_count: 0,
+            categories: [],
+          });
 
         if (requestUrl.pathname === "/api/v1/reviews" && method === "GET") {
           reviewGetCalls += 1;
@@ -394,7 +420,7 @@ try {
         failureSeen = true;
         await page.getByRole("button", { name: "重试" }).click();
         await page.getByText("客户访谈原文").waitFor();
-      } else if (scenario.path === "/review") {
+      } else if (scenario.path.startsWith("/review")) {
         await page.getByText("客户交付复盘").waitFor();
         if (scenario.name === "review-normal") {
           await page
@@ -402,7 +428,7 @@ try {
             .getByRole("link", { name: "原文访问" })
             .click();
           await page.waitForURL(`${base}/original-access`);
-          await page.getByText("客户访谈原文").waitFor();
+          await page.getByText("本人申请记录").waitFor();
           await page
             .getByRole("navigation", { name: "治理工作区" })
             .getByRole("link", { name: "审核待办" })
@@ -451,7 +477,11 @@ try {
           actionFailureSeen = true;
         }
       } else {
-        await page.getByText("客户访谈原文").waitFor();
+        if (scenario.name === "access-mine") {
+          await page.getByText("本人申请记录").waitFor();
+        } else {
+          await page.getByText("客户访谈原文").waitFor();
+        }
         if (scenario.name === "access-inbox") {
           await page
             .getByRole("navigation", { name: "治理工作区" })
@@ -464,6 +494,8 @@ try {
             .getByRole("link", { name: "原文访问" })
             .click();
           await page.waitForURL(`${base}/original-access`);
+          await page.getByText("本人申请记录").waitFor();
+          await page.getByRole("button", { name: "待我审批" }).click();
           await page.getByText("客户访谈原文").waitFor();
           routeRoundTrip = true;
         }
@@ -553,7 +585,11 @@ try {
               !document.querySelector(".gw-access-table .gw-action.is-danger"),
           };
         },
-        { expectedPath: scenario.path, scenarioName: scenario.name, forbiddenStrings: secrets },
+        {
+          expectedPath: scenario.path.split("?")[0],
+          scenarioName: scenario.name,
+          forbiddenStrings: secrets,
+        },
       );
 
       Object.assign(result, {
