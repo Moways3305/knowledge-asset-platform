@@ -4,8 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchWorkbenchOverview } from "../api/workbench";
 import type { WorkbenchOverviewDTO } from "../types/workbench";
 import HomeDashboardPage from "./HomeDashboardPage";
+import { WorkbenchProvider } from "../workbench/WorkbenchContext";
 
 const auth = vi.hoisted(() => ({
+  status: "authenticated",
   authMe: {
     userId: "secret-user-81",
     name: "林顾问",
@@ -57,6 +59,37 @@ vi.mock("../api/workbuddy", () => ({
 
 function overview(overrides: Partial<WorkbenchOverviewDTO> = {}): WorkbenchOverviewDTO {
   return {
+    task_center: {
+      status: "available",
+      error_code: null,
+      summary: { needs_action: 2, running: 1, attention: 1, completed_today: 1 },
+      priority_items: [
+        {
+          task_ref: "review-safe-ref",
+          task_type: "review",
+          object_name: "客户交付复盘审核",
+          project_name: "华东交付项目",
+          status: "needs_action",
+          priority: "high",
+          assignee: "林顾问",
+          responsibility: "由你处理",
+          created_at: "2026-07-17T01:30:00Z",
+          updated_at: "2026-07-17T02:30:00Z",
+          waiting_minutes: 65,
+          next_action_key: "decide_review",
+          next_action_label: "进入审核",
+          route_key: "reviews",
+          result_summary: null,
+          progress_total: null,
+          progress_success: null,
+          progress_failed: null,
+        },
+      ],
+      my_tasks: [],
+      running_jobs: [],
+      attention_items: [],
+      recent_completed: [],
+    },
     todos: {
       status: "available",
       error_code: null,
@@ -157,7 +190,9 @@ function overview(overrides: Partial<WorkbenchOverviewDTO> = {}): WorkbenchOverv
 function renderPage() {
   return render(
     <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <HomeDashboardPage />
+      <WorkbenchProvider>
+        <HomeDashboardPage />
+      </WorkbenchProvider>
     </MemoryRouter>,
   );
 }
@@ -208,8 +243,9 @@ describe("HomeDashboardPage overview workbench", () => {
     const dashboard = container.querySelector(".wb81-dashboard");
     const primaryRow = container.querySelector(".wb81-row-primary");
     const secondaryRow = container.querySelector(".wb81-row-secondary");
-    expect(dashboard?.children[0]).toBe(primaryRow);
-    expect(dashboard?.children[1]).toBe(secondaryRow);
+    expect(dashboard?.children[0]).toHaveClass("tc90-command");
+    expect(dashboard?.children[1]).toBe(primaryRow);
+    expect(dashboard?.children[2]).toBe(secondaryRow);
     expect(primaryRow?.querySelector(".wb81-panel.is-todos")).toBeInTheDocument();
     expect(primaryRow?.querySelector(".wb81-panel.is-operations")).toBeInTheDocument();
     expect(primaryRow?.querySelector(".wb81-panel.is-projects")).toBeInTheDocument();
@@ -471,7 +507,7 @@ describe("HomeDashboardPage overview workbench", () => {
     renderPage();
 
     const alerts = await screen.findAllByRole("alert");
-    expect(alerts).toHaveLength(4);
+    expect(alerts).toHaveLength(5);
     const projectPanel = screen.getByRole("heading", { name: "项目概览" }).closest("section")!;
     expect(
       projectPanel.querySelector('.wb81-section-state.is-error[data-section-state="error"]'),

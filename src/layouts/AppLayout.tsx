@@ -27,12 +27,14 @@ import {
 } from "lucide-react";
 import IdentityMenu from "../components/IdentityMenu";
 import NotificationBell from "../components/NotificationBell";
+import GlobalTaskStatus from "../components/GlobalTaskStatus";
 import ErrorBoundary from "../components/ErrorBoundary";
 import LoadingError from "../components/LoadingError";
 import { AuthProvider, useAuth } from "../auth/AuthContext";
 import { logout } from "../api/auth";
 import { can, type Capability, type Capabilities } from "../auth/permissions";
 import { SafeNavigationProvider } from "../routing/SafeNavigation";
+import { WorkbenchProvider } from "../workbench/WorkbenchContext";
 import "./AppLayout.css";
 import "../styles/workbench.css";
 import "../styles/workbench-home-admin.css";
@@ -356,6 +358,7 @@ function AppShell() {
           </div>
           {authMe && (
             <div className="deck-actions">
+              <GlobalTaskStatus />
               <NotificationBell />
             </div>
           )}
@@ -378,9 +381,11 @@ export default function AppLayout() {
   // AuthProvider 包裹整个外壳：导航过滤、身份菜单、页面守卫共享同一份 /auth/me。
   return (
     <AuthProvider>
-      <SafeNavigationProvider>
-        <AppShell />
-      </SafeNavigationProvider>
+      <WorkbenchProvider>
+        <SafeNavigationProvider>
+          <AppShell />
+        </SafeNavigationProvider>
+      </WorkbenchProvider>
     </AuthProvider>
   );
 }

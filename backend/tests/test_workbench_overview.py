@@ -289,7 +289,17 @@ async def test_response_is_a_strict_safe_projection(client):
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"todos", "operations", "projects", "recent_activity"}
+    assert set(body) == {"task_center", "todos", "operations", "projects", "recent_activity"}
+    assert set(body["task_center"]) == {
+        "status",
+        "error_code",
+        "summary",
+        "priority_items",
+        "my_tasks",
+        "running_jobs",
+        "attention_items",
+        "recent_completed",
+    }
     assert set(body["todos"]) == {"status", "error_code", "items", "total"}
     assert set(body["projects"]) == {"status", "error_code", "items", "total"}
     assert set(body["recent_activity"]) == {"status", "error_code", "items", "total"}
@@ -305,6 +315,34 @@ async def test_response_is_a_strict_safe_projection(client):
     }
     for item in body["todos"]["items"]:
         assert set(item) == {"key", "count", "severity", "route_key", "action_key"}
+    for group in (
+        "priority_items",
+        "my_tasks",
+        "running_jobs",
+        "attention_items",
+        "recent_completed",
+    ):
+        for item in body["task_center"][group]:
+            assert set(item) == {
+                "task_ref",
+                "task_type",
+                "object_name",
+                "project_name",
+                "status",
+                "priority",
+                "assignee",
+                "responsibility",
+                "created_at",
+                "updated_at",
+                "waiting_minutes",
+                "next_action_key",
+                "next_action_label",
+                "route_key",
+                "result_summary",
+                "progress_total",
+                "progress_success",
+                "progress_failed",
+            }
     for item in body["projects"]["items"]:
         assert set(item) == {
             "project_id",
@@ -329,3 +367,78 @@ async def test_response_is_a_strict_safe_projection(client):
     lowered = response.text.lower()
     for token in _LEAK_TOKENS:
         assert token not in lowered
+
+
+async def test_task_center_maps_real_ingest_states_without_exposing_ids(client, db_session):
+    user_id = await _create_business_user(db_session)
+    task_ids = [uuid.uuid4(), uuid.uuid4(), uuid.uuid4()]
+    db_session.add_all(
+        [
+            IngestTask(
+                id=task_ids[0],
+                source="path_b_upload",
+                source_file_ref="server-only/confirm.docx",
+                source_file_name="待确认方案.docx",
+                status="pending_confirmation",
+                created_by=user_id,
+            ),
+            IngestTask(
+                id=task_ids[1],
+                source="path_b_upload",
+                source_file_ref="server-only/running.docx",
+                source_file_name="处理中方案.docx",
+                status="processing",
+                created_by=user_id,
+            ),
+            IngestTask(
+                id=task_ids[2],
+                source="path_b_upload",
+                source_file_ref="server-only/failed.docx",
+                source_file_name="失败方案.docx",
+                status="failed",
+                created_by=user_id,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    response = await client.get(OVERVIEW, headers=_headers(user_id))
+
+    assert response.status_code == 200
+    center = response.json()["task_center"]
+    mine = {item["object_name"]: item for item in center["my_tasks"]}
+    running = {item["object_name"]: item for item in center["running_jobs"]}
+    assert mine["待确认方案.docx"]["status"] == "needs_action"
+    assert mine["失败方案.docx"]["status"] == "failed"
+    assert mine["失败方案.docx"]["priority"] == "urgent"
+    assert running["处理中方案.docx"]["status"] == "processing"
+    assert center["summary"]["needs_action"] == 2
+    assert center["summary"]["running"] == 1
+    assert all(str(task_id) not in response.text for task_id in task_ids)
+
+
+async def test_task_center_does_not_include_review_waiting_for_another_user(client, db_session):
+    user_id = await _create_business_user(db_session)
+    db_session.add(
+        ReviewTask(
+            review_type="material_to_asset",
+            trigger_source="internal_sharing",
+            target_asset_id=KA_PROJECT_ALPHA_REVIEWABLE,
+            target_project_id=PROJECT_ALPHA,
+            target_scope="project",
+            status="pending_reviewer",
+            reviewer_user_id=USER_PROJECT_MANAGER,
+            submitted_by=user_id,
+        )
+    )
+    await db_session.commit()
+
+    response = await client.get(OVERVIEW, headers=_headers(user_id))
+
+    assert response.status_code == 200
+    center = response.json()["task_center"]
+    assert center["summary"]["needs_action"] == 0
+    submitted = [item for item in center["my_tasks"] if item["task_type"] == "review"]
+    assert len(submitted) == 1
+    assert submitted[0]["status"] == "submitted"
+    assert submitted[0]["responsibility"] == "由你提交"

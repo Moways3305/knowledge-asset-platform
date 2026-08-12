@@ -41,6 +41,47 @@ class WorkbenchTodosSection(BaseModel):
     total: int = 0
 
 
+class WorkbenchTaskItem(BaseModel):
+    """Safe, permission-filtered task projection shared by home and the global drawer."""
+
+    task_ref: str
+    task_type: str
+    object_name: str
+    project_name: str | None = None
+    status: str
+    priority: str
+    assignee: str
+    responsibility: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    waiting_minutes: int | None = None
+    next_action_key: str | None = None
+    next_action_label: str
+    route_key: str | None = None
+    result_summary: str | None = None
+    progress_total: int | None = None
+    progress_success: int | None = None
+    progress_failed: int | None = None
+
+
+class WorkbenchTaskSummary(BaseModel):
+    needs_action: int = 0
+    running: int = 0
+    attention: int = 0
+    completed_today: int = 0
+
+
+class WorkbenchTaskCenterSection(BaseModel):
+    status: WorkbenchSectionStatus
+    error_code: str | None = None
+    summary: WorkbenchTaskSummary = Field(default_factory=WorkbenchTaskSummary)
+    priority_items: list[WorkbenchTaskItem] = Field(default_factory=list)
+    my_tasks: list[WorkbenchTaskItem] = Field(default_factory=list)
+    running_jobs: list[WorkbenchTaskItem] = Field(default_factory=list)
+    attention_items: list[WorkbenchTaskItem] = Field(default_factory=list)
+    recent_completed: list[WorkbenchTaskItem] = Field(default_factory=list)
+
+
 class WorkbenchOperationsIndexing(BaseModel):
     index_failed: int = 0
     skipped: int = 0
@@ -103,6 +144,7 @@ class WorkbenchRecentActivitySection(BaseModel):
 
 
 class WorkbenchOverviewResponse(BaseModel):
+    task_center: WorkbenchTaskCenterSection
     todos: WorkbenchTodosSection
     operations: WorkbenchOperationsSection
     projects: WorkbenchProjectsSection
