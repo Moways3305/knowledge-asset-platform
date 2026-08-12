@@ -43,6 +43,8 @@ def _passes_filters(asset, filters) -> bool:
         return False
     if filters.phase and asset.lifecycle_phase_key != filters.phase:
         return False
+    if filters.project_id and asset.project_id != filters.project_id:
+        return False
     if filters.tags:
         asset_tags = {t.tag_name for t in asset.tags}
         if not set(filters.tags).issubset(asset_tags):
@@ -98,19 +100,22 @@ async def run_search(
         )
 
     # ---- 阶段1：召回 + 卡片 ----
+    if req.filters.project_id is not None:
+        if req.scope != "project":
+            raise _denied(
+                422,
+                "project_filter_scope_mismatch",
+                "Project filtering requires project scope",
+            )
+        if req.filters.project_id not in caller.active_project_ids:
+            raise _denied(
+                403,
+                "project_membership_required",
+                "Active project membership is required",
+            )
+
     knowledge_ids: list[str] | None = None
     if req.filters.directory_key:
-        if (
-            req.filters.project_id is not None
-            and req.filters.project_id not in caller.active_project_ids
-        ):
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "denied_reason": "project_membership_required",
-                    "message": "Active project membership is required",
-                },
-            )
         await directories.validate_directory(
             session,
             directory_key=req.filters.directory_key,
@@ -131,7 +136,11 @@ async def run_search(
             recalled = None
     else:
         recalled = None
-    kb_ids = await retrieval.resolve_searchable_kbs(session, caller, req.scope)
+    kb_ids = (
+        await retrieval.resolve_project_kbs(session, req.filters.project_id)
+        if req.filters.project_id is not None
+        else await retrieval.resolve_searchable_kbs(session, caller, req.scope)
+    )
     if recalled is None:
         recalled = await retrieval.recall_assets(
             session,

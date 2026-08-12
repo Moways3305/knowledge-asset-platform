@@ -577,7 +577,7 @@ export function useIngestConfirmation({
         acknowledged_naming_warning_codes: (namingPreview?.notices ?? []).flatMap((notice) =>
           notice.code ? [notice.code] : [],
         ),
-        directory_key: selectedTargetLibrary === "personal" ? directoryKey : undefined,
+        directory_key: directoryKey,
         naming: namingOptions?.required
           ? {
               category_id: namingCategoryId,

@@ -69,6 +69,7 @@ def _payload(title: str = "待审批项目知识") -> dict:
         "target_project_id": str(PROJECT_ALPHA),
         "target_zone": "material",
         "confidentiality_level": "L2",
+        "directory_key": "project.deliverables",
     }
 
 

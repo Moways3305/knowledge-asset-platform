@@ -200,6 +200,8 @@ async def persist_confirmation(
         directory_key=(
             context.naming_result.metadata.get("directory_key")
             if context.naming_result is not None
+            else request.naming.directory_key
+            if request.naming is not None
             else request.directory_key
         ),
         directory_rule_version=(

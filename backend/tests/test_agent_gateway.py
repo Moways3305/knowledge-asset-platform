@@ -109,6 +109,7 @@ async def _insert_rule(
     enabled=True,
     capability="qa",
     allowed_scope=None,
+    allowed_project_id=None,
     self_service=False,
     max_conf="L5",
 ):
@@ -120,6 +121,7 @@ async def _insert_rule(
         agent_name="WorkBuddy 测试",
         capability=capability,
         allowed_scope=allowed_scope,
+        allowed_project_id=allowed_project_id,
         max_confidentiality_level=max_conf,
         max_ai_access_level="A4",
         token_hash=hash_token(token),
@@ -152,6 +154,39 @@ async def test_directory_catalog_is_token_bound_and_contains_no_counts(client, d
     assert all(item["scope"] == "project" for item in items)
     assert all(item["project_name"] and "count" not in item for item in items)
     assert "project_code" not in response.text
+
+
+async def test_project_locked_agent_plain_search_cannot_recall_other_scopes(client, db_session):
+    await _insert_rule(
+        db_session,
+        allowed_scope="project",
+        allowed_project_id=PROJECT_ALPHA,
+    )
+    fake = FakeSearchWeKnora(
+        [
+            _doc(KA_COMPANY_L2, _COMPANY_KB, "company result"),
+            _doc(KA_PROJECT_ALPHA, _ALPHA_KB, "locked project result"),
+        ]
+    )
+    app.dependency_overrides[get_weknora_client] = lambda: fake
+    response = await client.post(SEARCH, headers=_bearer(), json={"query": "result"})
+    assert response.status_code == 200
+    assert {item["asset_id"] for item in response.json()["cards"]} == {str(KA_PROJECT_ALPHA)}
+
+
+async def test_project_locked_agent_rejects_company_scope(client, db_session):
+    await _insert_rule(
+        db_session,
+        allowed_scope="project",
+        allowed_project_id=PROJECT_ALPHA,
+    )
+    response = await client.post(
+        SEARCH,
+        headers=_bearer(),
+        json={"query": "company", "scope": "company"},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"]["denied_reason"] == "agent_scope_denied"
 
 
 async def test_unbound_token_fails_closed(client, db_session):

@@ -549,6 +549,19 @@ async def test_consultant_company_confirm_rejected_boss_ok(client):
     assert company_detail["visibility"] == "public"
 
 
+async def test_company_formal_ingest_requires_directory(client):
+    task_id = (await _create_task(client, USER_BOSS)).json()["ingest_task_id"]
+    payload = _confirm_payload(target_scope="company")
+    payload.pop("directory_key")
+    response = await client.post(
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(USER_BOSS),
+        json=payload,
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["denied_reason"] == "directory_required"
+
+
 async def test_company_confirm_requires_ready_company_kb(client, db_session):
     await db_session.execute(delete(WeknoraKbMapping).where(WeknoraKbMapping.scope == "company"))
     await db_session.commit()

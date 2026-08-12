@@ -116,6 +116,9 @@ async def knowledge_search(
         raise denied(403, "agent_scope_denied", "请求范围超出该接入允许的 scope")
     effective_filters = dict(req.filters or {})
     if rule.allowed_project_id is not None:
+        if effective_scope not in (None, "project"):
+            raise denied(403, "agent_scope_denied", "项目锁定接入仅允许项目范围检索")
+        effective_scope = "project"
         requested_project = effective_filters.get("project_id")
         if requested_project is not None and requested_project != str(rule.allowed_project_id):
             raise denied(403, "agent_scope_denied", "请求项目超出该接入允许范围")
