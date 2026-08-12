@@ -34,11 +34,11 @@ const pending: OriginalAccessRequestDTO = {
   reviewed_at: null,
 };
 
-function renderPage() {
+function renderPage(path = "/original-access?box=inbox") {
   return render(
     <MemoryRouter
       future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      initialEntries={["/original-access"]}
+      initialEntries={[path]}
     >
       <Routes>
         <Route path="/original-access" element={<OriginalAccessPage />} />
@@ -164,6 +164,35 @@ describe("OriginalAccessPage governance workspace", () => {
     expect(screen.getByText(/李经理 · 2026-07-17/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "通过" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "拒绝" })).not.toBeInTheDocument();
+  });
+
+  it("defaults applicants to mine and shows decision, expiry, and allowed reapplication", async () => {
+    vi.mocked(fetchOriginalAccessRequests).mockResolvedValue({
+      items: [
+        {
+          ...pending,
+          status: "rejected",
+          reviewer_name: "李经理",
+          reviewed_at: "2026-07-17T03:00:00Z",
+          review_note: "请补充业务场景",
+          grant_status: "expired",
+          grant_expires_at: "2026-07-20T03:00:00Z",
+          can_reapply: true,
+        },
+      ],
+      total: 1,
+    });
+
+    renderPage("/original-access");
+
+    expect(await screen.findByRole("table", { name: "我的原文访问申请" })).toBeInTheDocument();
+    expect(fetchOriginalAccessRequests).toHaveBeenCalledWith("mine");
+    expect(screen.getByText("审批意见：请补充业务场景")).toBeInTheDocument();
+    expect(screen.getByText("授权已到期")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "返回资料重新申请" })).toHaveAttribute(
+      "href",
+      `/knowledge/${pending.asset_id}`,
+    );
   });
 
   it("uses generic recoverable errors and a role-neutral forbidden state", async () => {

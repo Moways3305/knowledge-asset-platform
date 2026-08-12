@@ -17,6 +17,10 @@ export interface OriginalAccessRequestDTO {
   review_note: string | null;
   created_at: string;
   reviewed_at: string | null;
+  grant_status?: "active" | "expired" | "revoked" | null;
+  grant_expires_at?: string | null;
+  grant_revoked_at?: string | null;
+  can_reapply?: boolean;
 }
 
 export interface AccessGrantDTO {

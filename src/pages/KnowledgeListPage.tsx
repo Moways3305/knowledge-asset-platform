@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { ChevronLeft, ChevronRight, FileText, Search, Upload } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileText, Search, Sparkles, Upload } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
-import { fetchKnowledgeDetail, fetchKnowledgePage, requestOriginalAccess } from "../api/knowledge";
+import {
+  fetchKnowledgeDetail,
+  fetchKnowledgePage,
+  requestOriginalAccess,
+  searchKnowledge,
+} from "../api/knowledge";
 import { useAuth } from "../auth/AuthContext";
 import { can } from "../auth/permissions";
 import DataTable, { type Column } from "../components/DataTable";
 import DetailDrawer from "../components/DetailDrawer";
+import AccessExplanationDrawer, { accessLabel } from "../components/AccessExplanationDrawer";
+import TaskModal from "../components/TaskModal";
 import LoadingError from "../components/LoadingError";
 import {
   EmptyState,
@@ -25,6 +32,7 @@ import type {
   KnowledgeQueryParams,
   KnowledgeScope,
 } from "../types/knowledge";
+import type { SearchResponseDTO } from "../types/search";
 import { assetStatusLabel, assetTypeLabel, scopeLabels } from "../utils/knowledgeLabels";
 import "./KnowledgeListPage.css";
 
@@ -70,15 +78,6 @@ function pageNumbers(current: number, total: number): number[] {
   );
 }
 
-function accessLabel(asset: KnowledgeCardVM): string {
-  if (asset.access.crossProjectSummary) {
-    return asset.access.original ? "其他项目 · 原文已授权" : "其他项目 · 摘要可见";
-  }
-  if (!asset.access.summary) return "仅可发现";
-  if (!asset.access.original) return "可查看摘要，原文受限";
-  return "可查看摘要与原文";
-}
-
 const SCOPE_TABS: Array<{ value: KnowledgeScope | ""; label: string }> = [
   { value: "", label: "全部" },
   { value: "company", label: "公司" },
@@ -122,6 +121,18 @@ export default function KnowledgeListPage() {
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [requestBusy, setRequestBusy] = useState(false);
   const [requestNote, setRequestNote] = useState<string | null>(null);
+  const [explainAsset, setExplainAsset] = useState<KnowledgeCardVM | KnowledgeDetailVM | null>(
+    null,
+  );
+  const [requestAsset, setRequestAsset] = useState<KnowledgeCardVM | KnowledgeDetailVM | null>(
+    null,
+  );
+  const [requestReason, setRequestReason] = useState("");
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [semanticQuery, setSemanticQuery] = useState("");
+  const [semanticResult, setSemanticResult] = useState<SearchResponseDTO | null>(null);
+  const [semanticBusy, setSemanticBusy] = useState(false);
+  const [semanticError, setSemanticError] = useState<string | null>(null);
 
   const openCrossProjectSummary = (assetId: string) => {
     setSummaryAssetId(assetId);
@@ -144,11 +155,13 @@ export default function KnowledgeListPage() {
   };
 
   const submitOriginalRequest = async () => {
-    if (!summaryAssetId) return;
+    const assetId = requestAsset?.id ?? summaryAssetId;
+    if (!assetId) return;
     setRequestBusy(true);
     setSummaryError(null);
+    setRequestError(null);
     try {
-      const response = await requestOriginalAccess(summaryAssetId);
+      const response = await requestOriginalAccess(assetId, requestReason.trim() || undefined);
       setRequestNote(
         response.status === "created"
           ? "已提交原文访问申请，请等待项目负责人审批。"
@@ -156,11 +169,52 @@ export default function KnowledgeListPage() {
             ? "原文访问申请正在审批中。"
             : "原文访问已开放。",
       );
-      setSummaryDetail(await fetchKnowledgeDetail(summaryAssetId));
+      setResult((current) => ({
+        ...current,
+        items: current.items.map((item) =>
+          item.id !== assetId
+            ? item
+            : {
+                ...item,
+                access: {
+                  ...item.access,
+                  original: response.status === "already_granted" || item.access.original,
+                  canRequestOriginal: false,
+                  existingRequestStatus:
+                    response.status === "created" || response.status === "pending_exists"
+                      ? "pending"
+                      : item.access.existingRequestStatus,
+                },
+              },
+        ),
+      }));
+      if (summaryAssetId === assetId) setSummaryDetail(await fetchKnowledgeDetail(assetId));
+      setRequestAsset(null);
+      setRequestReason("");
     } catch {
-      setSummaryError("原文访问申请提交失败，请稍后重试。等待审批前不会开放原文。");
+      setRequestError("原文访问申请提交失败，请稍后重试。等待审批前不会开放原文。");
     } finally {
       setRequestBusy(false);
+    }
+  };
+
+  const runSemanticSearch = async () => {
+    if (!semanticQuery.trim()) return;
+    setSemanticBusy(true);
+    setSemanticError(null);
+    try {
+      setSemanticResult(
+        await searchKnowledge({
+          query: semanticQuery.trim(),
+          scope: scope || "all",
+          intent: "search",
+          filters: { include_archived: includeArchived },
+        }),
+      );
+    } catch {
+      setSemanticError("语义检索暂时无法完成，请重试。");
+    } finally {
+      setSemanticBusy(false);
     }
   };
 
@@ -297,6 +351,15 @@ export default function KnowledgeListPage() {
               <span className={`kbl-access ${asset.access.original ? "is-full" : "is-limited"}`}>
                 {accessLabel(asset)}
               </span>
+              {(!asset.access.original || asset.indexStatus !== "indexed") && (
+                <button
+                  type="button"
+                  className="kbl-explain-link"
+                  onClick={() => setExplainAsset(asset)}
+                >
+                  为什么？
+                </button>
+              )}
             </div>
           </div>
         ),
@@ -584,7 +647,29 @@ export default function KnowledgeListPage() {
             </FilterBar>
           </form>
 
+          {requestNote && (
+            <div className="kbl-request-feedback" role="status">
+              <span>{requestNote}</span>
+              <Link to="/original-access?box=mine">查看申请进度</Link>
+            </div>
+          )}
+
           <PageSection className="kbl-list-section">
+            <div className="kbl-scope-summary" aria-label="当前生效范围与筛选">
+              <strong>当前浏览范围</strong>
+              <span>{scope ? scopeLabels[scope] : "全部可见范围"}</span>
+              {validProjectId && (
+                <span>
+                  {projects.find((item) => item.projectId === validProjectId)?.projectName}
+                </span>
+              )}
+              {keyword && <span>关键词：{keyword}</span>}
+              {assetType && <span>类型：{assetTypeLabel[assetType]}</span>}
+              {assetStatus && <span>状态：{assetStatusLabel[assetStatus]}</span>}
+              {confidentialityLevel && <span>保密：{confidentialityLevel}</span>}
+              {includeArchived && <span>包含归档</span>}
+              {!hasActiveFilters && <small>未添加额外筛选</small>}
+            </div>
             {error ? (
               <LoadingError
                 error={error}
@@ -626,11 +711,11 @@ export default function KnowledgeListPage() {
                     loadingText="正在加载知识资产…"
                     emptyText={
                       <EmptyState
-                        title={hasActiveFilters ? "当前条件没有匹配资产" : "暂无可浏览的知识资产"}
+                        title={hasActiveFilters ? "当前条件没有匹配资料" : "当前身份暂无可浏览资料"}
                         description={
                           hasActiveFilters
-                            ? "调整或清除筛选条件后重新查看。"
-                            : "当前身份可访问的知识资产会显示在这里。"
+                            ? "仅表示当前可见范围内没有匹配项；不会确认不可见资料是否存在。"
+                            : "部分资料可能因项目或保密权限不在当前可见范围内。"
                         }
                         action={
                           hasActiveFilters ? (
@@ -694,6 +779,85 @@ export default function KnowledgeListPage() {
               </>
             )}
           </PageSection>
+          <PageSection className="kbl-semantic-section">
+            <div className="kbl-semantic-heading">
+              <div>
+                <span>独立能力</span>
+                <h2>语义检索</h2>
+                <p>理解问题含义并调用安全检索 API；与上方标题和标签筛选不同。</p>
+              </div>
+              <Sparkles aria-hidden="true" />
+            </div>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void runSemanticSearch();
+              }}
+              className="kbl-semantic-form"
+            >
+              <label htmlFor="semantic-query">用自然语言描述要找的内容</label>
+              <div>
+                <input
+                  id="semantic-query"
+                  value={semanticQuery}
+                  onChange={(event) => setSemanticQuery(event.target.value)}
+                  placeholder="例如：如何组织项目复盘访谈？"
+                />
+                <button type="submit" disabled={semanticBusy || !semanticQuery.trim()}>
+                  {semanticBusy ? "检索中…" : "语义检索"}
+                </button>
+              </div>
+            </form>
+            {semanticError && (
+              <div role="alert" className="kbl-drawer-message is-error">
+                {semanticError}{" "}
+                <button type="button" onClick={() => void runSemanticSearch()}>
+                  重试
+                </button>
+              </div>
+            )}
+            {semanticResult &&
+              (semanticResult.cards.length || semanticResult.answer ? (
+                <div className="kbl-semantic-results">
+                  {semanticResult.answer && (
+                    <article className="kbl-semantic-answer">
+                      <span>安全回答</span>
+                      <p>{semanticResult.answer}</p>
+                    </article>
+                  )}
+                  {semanticResult.cards.map((card) => (
+                    <article key={card.asset_id}>
+                      <h3>{card.title}</h3>
+                      <p>{card.one_liner || card.detailed || "暂无可展示的安全摘要"}</p>
+                      <span>相关度 {Math.round(card.relevance_score * 100)}%</span>
+                    </article>
+                  ))}
+                  {semanticResult.citations.length > 0 && (
+                    <section className="kbl-semantic-citations" aria-label="安全引用">
+                      <h3>引用</h3>
+                      <ol>
+                        {semanticResult.citations.map((citation) => (
+                          <li key={`${citation.asset_id}-${citation.citation_order}`}>
+                            <strong>{citation.asset_title}</strong>
+                            {citation.snippet && <p>{citation.snippet}</p>}
+                            <small>
+                              {citation.used_access_layer === "original"
+                                ? "授权原文证据"
+                                : "安全摘要证据"}
+                            </small>
+                          </li>
+                        ))}
+                      </ol>
+                    </section>
+                  )}
+                </div>
+              ) : (
+                <EmptyState
+                  title="当前检索没有匹配结果"
+                  description="这只表示当前身份和检索范围内没有可返回结果，不代表系统中不存在相关资料。"
+                />
+              ))}
+          </PageSection>
         </>
       )}
 
@@ -710,15 +874,18 @@ export default function KnowledgeListPage() {
                 原文访问已开放，查看详情
               </Link>
             ) : summaryDetail.access.existingRequestStatus === "pending" ? (
-              <button className="product-button is-secondary" type="button" disabled>
+              <Link className="product-button is-secondary" to="/original-access?box=mine">
                 原文申请审批中
-              </button>
+              </Link>
             ) : summaryDetail.access.canRequestOriginal ? (
               <button
                 className="product-button is-primary"
                 type="button"
                 disabled={requestBusy}
-                onClick={() => void submitOriginalRequest()}
+                onClick={() => {
+                  setRequestAsset(summaryDetail);
+                  setRequestReason("");
+                }}
               >
                 {requestBusy ? "提交中…" : "申请原文"}
               </button>
@@ -787,6 +954,16 @@ export default function KnowledgeListPage() {
                     {summaryDetail.qaAvailable == null && summaryDetail.retrievalAvailable == null
                       ? "暂无"
                       : `${summaryDetail.qaAvailable ? "问答可用" : "问答不可用"} · ${summaryDetail.retrievalAvailable ? "检索可用" : "检索不可用"}`}
+                    {(summaryDetail.qaAvailable === false ||
+                      summaryDetail.retrievalAvailable === false) && (
+                      <button
+                        className="kbl-explain-link"
+                        type="button"
+                        onClick={() => setExplainAsset(summaryDetail)}
+                      >
+                        为什么？
+                      </button>
+                    )}
                   </dd>
                 </div>
                 <div>
@@ -802,14 +979,73 @@ export default function KnowledgeListPage() {
                 ))}
               </div>
             )}
-            {requestNote && (
-              <div className="kbl-drawer-message is-success" role="status">
-                {requestNote}
-              </div>
-            )}
           </div>
         ) : null}
       </DetailDrawer>
+      <AccessExplanationDrawer
+        open={explainAsset !== null}
+        asset={explainAsset}
+        capabilities={capabilities}
+        onClose={() => setExplainAsset(null)}
+        onRequest={() => {
+          setRequestError(null);
+          setRequestAsset(explainAsset);
+          setExplainAsset(null);
+        }}
+      />
+      <TaskModal
+        open={requestAsset !== null}
+        size="small"
+        title="申请原文"
+        description="申请当前资料的受控原文；提交前不会改变资料、授权或审批状态。"
+        busy={requestBusy}
+        onClose={() => {
+          if (!requestBusy) {
+            setRequestAsset(null);
+            setRequestReason("");
+            setRequestError(null);
+          }
+        }}
+        footer={
+          <>
+            <button
+              type="button"
+              className="product-button is-secondary"
+              disabled={requestBusy}
+              onClick={() => {
+                setRequestAsset(null);
+                setRequestReason("");
+                setRequestError(null);
+              }}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="product-button is-primary"
+              disabled={requestBusy}
+              onClick={() => void submitOriginalRequest()}
+            >
+              {requestBusy ? "提交中…" : "提交申请"}
+            </button>
+          </>
+        }
+      >
+        <label className="kbl-request-field">
+          <span>申请理由（可选）</span>
+          <textarea
+            rows={4}
+            value={requestReason}
+            onChange={(event) => setRequestReason(event.target.value)}
+            placeholder="说明需要使用原文的业务场景"
+          />
+        </label>
+        {requestError && (
+          <p className="kbl-request-error" role="alert">
+            {requestError}
+          </p>
+        )}
+      </TaskModal>
     </ProductPage>
   );
 }

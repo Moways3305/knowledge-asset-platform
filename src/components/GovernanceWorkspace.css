@@ -443,3 +443,16 @@
     flex-wrap: wrap;
   }
 }
+.gw-request-result {
+  display: grid;
+  gap: 4px;
+  min-width: 180px;
+}
+.gw-request-result small {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.gw-request-result .gw-reapply-note {
+  color: var(--color-primary);
+}

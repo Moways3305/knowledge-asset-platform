@@ -11,6 +11,9 @@ import {
   Trash2,
 } from "lucide-react";
 import { ApiError } from "../api/http";
+import { useAuth } from "../auth/AuthContext";
+import AccessExplanationDrawer, { accessLabel } from "../components/AccessExplanationDrawer";
+import TaskModal from "../components/TaskModal";
 import {
   deleteKnowledgeAsset,
   fetchKnowledgeDetail,
@@ -110,6 +113,7 @@ function safeActionError(error: unknown, fallback: string) {
 }
 
 export default function KnowledgeDetailPage() {
+  const { capabilities } = useAuth();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const requestRef = useRef(0);
@@ -127,6 +131,9 @@ export default function KnowledgeDetailPage() {
   const [oaBusy, setOaBusy] = useState(false);
   const [oaError, setOaError] = useState<string | null>(null);
   const [oaNote, setOaNote] = useState<string | null>(null);
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [requestReason, setRequestReason] = useState("");
+  const [explainOpen, setExplainOpen] = useState(false);
 
   const [lcEvents, setLcEvents] = useState<LifecycleEventDTO[] | null>(null);
   const [lcLoading, setLcLoading] = useState(false);
@@ -181,7 +188,7 @@ export default function KnowledgeDetailPage() {
     setOaError(null);
     setOaNote(null);
     try {
-      const result = await requestOriginalAccess(id);
+      const result = await requestOriginalAccess(id, requestReason.trim() || undefined);
       const message: Record<string, string> = {
         created: "原文访问申请已提交，待审批。",
         pending_exists: "原文访问申请正在审批中。",
@@ -189,6 +196,8 @@ export default function KnowledgeDetailPage() {
       };
       setOaNote(message[result.status] ?? result.message);
       await reloadAsset();
+      setRequestOpen(false);
+      setRequestReason("");
     } catch (error) {
       setOaError(safeActionError(error, "申请原文访问失败，请重试。"));
     } finally {
@@ -461,14 +470,14 @@ export default function KnowledgeDetailPage() {
               {previewLoading ? "打开中…" : "预览原文"}
             </button>
           ) : pendingOriginal ? (
-            <button type="button" className="btn-secondary" disabled>
-              申请审批中
-            </button>
+            <Link className="btn-secondary" to="/original-access?box=mine">
+              查看申请进度
+            </Link>
           ) : asset.access.canRequestOriginal ? (
             <button
               type="button"
               className="btn-primary"
-              onClick={() => void handleRequestOriginal()}
+              onClick={() => setRequestOpen(true)}
               disabled={oaBusy}
             >
               <FileText size={16} aria-hidden="true" />
@@ -486,6 +495,9 @@ export default function KnowledgeDetailPage() {
           role="status"
         >
           {previewError || oaError || oaNote}
+          {oaNote && asset?.access.existingRequestStatus === "pending" && (
+            <Link to="/original-access?box=mine">查看申请进度</Link>
+          )}
         </div>
       )}
 
@@ -560,6 +572,12 @@ export default function KnowledgeDetailPage() {
             </div>
             <dl className="kdetail-access-list">
               <div>
+                <dt>访问层级</dt>
+                <dd className={canOriginal ? "is-allowed" : "is-restricted"}>
+                  {accessLabel(asset)}
+                </dd>
+              </div>
+              <div>
                 <dt>内容摘要</dt>
                 <dd className={canSummary ? "is-allowed" : "is-restricted"}>
                   {canSummary ? "可访问" : "受限"}
@@ -584,6 +602,13 @@ export default function KnowledgeDetailPage() {
                 </div>
               )}
             </dl>
+            <button
+              type="button"
+              className="kdetail-explain-action"
+              onClick={() => setExplainOpen(true)}
+            >
+              为什么是这个状态？
+            </button>
           </section>
 
           {!crossProjectSummary && (
@@ -769,6 +794,66 @@ export default function KnowledgeDetailPage() {
           </div>
         </div>
       )}
+      <AccessExplanationDrawer
+        open={explainOpen}
+        asset={asset}
+        capabilities={capabilities}
+        onClose={() => setExplainOpen(false)}
+        onRequest={() => {
+          setExplainOpen(false);
+          setRequestOpen(true);
+        }}
+        onRetryIndex={() => {
+          setExplainOpen(false);
+          void handleRetryIndex();
+        }}
+      />
+      <TaskModal
+        open={requestOpen}
+        size="small"
+        title="申请原文"
+        description="申请当前资料的受控原文；提交前不会改变资料、授权或审批状态。"
+        busy={oaBusy}
+        onClose={() => {
+          if (!oaBusy) {
+            setRequestOpen(false);
+            setRequestReason("");
+          }
+        }}
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={oaBusy}
+              onClick={() => {
+                setRequestOpen(false);
+                setRequestReason("");
+              }}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={oaBusy}
+              onClick={() => void handleRequestOriginal()}
+            >
+              {oaBusy ? "提交中…" : "提交申请"}
+            </button>
+          </>
+        }
+      >
+        <label className="kdetail-request-field">
+          <span>申请理由（可选）</span>
+          <textarea
+            rows={4}
+            value={requestReason}
+            onChange={(event) => setRequestReason(event.target.value)}
+            placeholder="说明需要使用原文的业务场景"
+          />
+        </label>
+      </TaskModal>
     </main>
   );
 }

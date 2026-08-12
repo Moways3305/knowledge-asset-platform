@@ -170,8 +170,10 @@ for (const testCase of cases) {
     if (testCase.empty) await page.getByText("暂无可共享摘要").last().waitFor();
     if (testCase.submit) {
       await page.getByRole("button", { name: "申请原文" }).click();
-      await page.getByText(/已提交原文访问申请/).waitFor();
-      await page.getByRole("button", { name: "原文申请审批中" }).waitFor();
+      await page.getByRole("dialog", { name: "申请原文" }).waitFor();
+      await page.getByRole("button", { name: "提交申请" }).click();
+      await page.getByText(/已提交原文访问申请/).first().waitFor();
+      await page.getByRole("link", { name: "原文申请审批中" }).waitFor();
     }
   }
   await page.waitForTimeout(150);

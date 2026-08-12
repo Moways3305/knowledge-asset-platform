@@ -277,7 +277,26 @@ async def _request_out(
         asset = (
             await session.execute(select(KnowledgeAsset).where(KnowledgeAsset.id == req.asset_id))
         ).scalar_one_or_none()
-    names = await _name_map(session, {req.requester_user_id, req.reviewer_user_id or uuid.uuid4()})
+    user_ids = {req.requester_user_id}
+    if req.reviewer_user_id:
+        user_ids.add(req.reviewer_user_id)
+    names = await _name_map(session, user_ids)
+    grant = (
+        (
+            await session.execute(
+                select(AccessGrant)
+                .where(AccessGrant.source_request_id == req.id)
+                .order_by(AccessGrant.created_at.desc())
+            )
+        )
+        .scalars()
+        .first()
+    )
+    grant_status = grant.status if grant else None
+    if grant is not None and grant.status == AccessGrantStatus.active.value:
+        expires_at = _as_aware(grant.expires_at)
+        if expires_at is not None and expires_at <= utc_now():
+            grant_status = AccessGrantStatus.expired.value
     return OriginalAccessRequestOut(
         request_id=req.id,
         asset_id=req.asset_id,
@@ -294,6 +313,13 @@ async def _request_out(
         review_note=req.review_note,
         created_at=req.created_at,
         reviewed_at=req.reviewed_at,
+        grant_status=grant_status,
+        grant_expires_at=grant.expires_at if grant else None,
+        grant_revoked_at=grant.revoked_at if grant else None,
+        can_reapply=(
+            req.status in {AccessRequestStatus.rejected.value, AccessRequestStatus.cancelled.value}
+            or grant_status in {AccessGrantStatus.expired.value, AccessGrantStatus.revoked.value}
+        ),
     )
 
 
