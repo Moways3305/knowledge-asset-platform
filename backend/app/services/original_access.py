@@ -463,7 +463,24 @@ async def list_requests(
         ):
             assets[a.id] = a
 
-    if box != "mine":
+    if box == "mine":
+        # 历史申请不能成为资产发现旁路。资产归档、升密、个人归属或调用人
+        # 项目/身份变化后，仅保留当前仍可发现的申请；缺失资产同样静默排除。
+        policy = await load_access_policy(session)
+        rows = [
+            r
+            for r in rows
+            if (
+                assets.get(r.asset_id) is not None
+                and decide(
+                    caller,
+                    assets[r.asset_id],
+                    AccessLayer.discovery,
+                    policy=policy,
+                ).allowed
+            )
+        ]
+    else:
         # inbox：仅保留调用人可审批的资产对应申请。
         rows = [
             r
