@@ -428,7 +428,14 @@ async def _validated_target(
         return None
     if not caller.is_business_user and not _is_ops_viewer(caller):
         return None
-    if row.project_id is not None and row.event_type != "review.company_confirmation_pending":
+    # Operational jobs are authorized by requester ownership / current ops visibility below.
+    # Their project_id describes the execution scope; it does not make an administrator a
+    # project member and must not hide the terminal notification from its requester.
+    if (
+        row.project_id is not None
+        and row.target_kind not in {"indexing_job", "ops_index"}
+        and row.event_type != "review.company_confirmation_pending"
+    ):
         if row.project_id not in caller.active_project_ids:
             return None
     try:

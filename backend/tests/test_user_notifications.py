@@ -258,6 +258,29 @@ async def test_finished_operation_job_is_deduplicated_and_projects_safe_status(c
     assert body["items"][0]["target"]["route_key"] == "models"
 
 
+async def test_project_scoped_operation_notification_uses_ops_authorization_not_membership(
+    client, db_session
+):
+    job = IndexingOperationJob(
+        operation_type="retry_index",
+        status="completed",
+        requested_by_user_id=USER_ADMIN_ONLY,
+        scope_filter={"project_id": str(PROJECT_ALPHA)},
+    )
+    db_session.add(job)
+    await db_session.flush()
+    await notify_operation_job_finished(db_session, job)
+    await db_session.commit()
+
+    # USER_ADMIN_ONLY deliberately has no PROJECT_ALPHA membership. The project id is an
+    # operation filter, while visibility remains guarded by requester ownership / ops role.
+    body = (await client.get(API, headers=_headers(USER_ADMIN_ONLY))).json()
+    assert body["total"] == 1
+    assert body["items"][0]["category"] == "indexing"
+    assert body["items"][0]["task_status"] == "completed"
+    assert body["items"][0]["target"]["route_key"] == "admin_ingest"
+
+
 async def test_membership_removal_hides_but_terminal_target_keeps_history(client, db_session):
     row = _row()
     db_session.add(row)
