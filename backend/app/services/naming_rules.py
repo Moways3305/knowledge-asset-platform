@@ -28,6 +28,7 @@ from app.schemas.naming import (
     BatchNamingPreviewItemResponse,
     BatchNamingPreviewRequest,
     BatchNamingPreviewResponse,
+    DirectoryOptionItem,
     NamingDraftUpdateRequest,
     NamingDuplicateNotice,
     NamingOptionItem,
@@ -770,7 +771,7 @@ async def options(
             required=False,
             rule_version=None,
             directories=[
-                item
+                DirectoryOptionItem.model_validate(item)
                 for item in directory_rows
                 if item.get("enabled", True) and item.get("scope") == "personal"
             ],
@@ -844,7 +845,7 @@ async def options(
             if item.asset_type is not None
         ],
         directories=[
-            item
+            DirectoryOptionItem.model_validate(item)
             for item in config.directories
             if item.get("enabled", True) and item.get("scope") == scope.value
         ],

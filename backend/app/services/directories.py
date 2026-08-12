@@ -101,6 +101,7 @@ def legacy_directory_key(metadata: dict | None) -> str | None:
     secondary = str(metadata.get("category_secondary") or "").strip()
     scope = str(metadata.get("scope") or "").strip()
     text = f"{primary} {secondary}".lower()
+    mappings: tuple[tuple[tuple[str, ...], str], ...]
     if scope == "project":
         mappings = (
             (("基础", "合同", "nda", "立项"), "project.basic_information"),

@@ -115,13 +115,18 @@ async def run_search(
             )
 
     knowledge_ids: list[str] | None = None
+    recalled: list[retrieval.RecalledAsset] | None = None
     if req.filters.directory_key:
+        directory_scope = (
+            req.scope
+            if req.scope not in (None, "all")
+            else req.filters.directory_key.split(".", 1)[0]
+        )
+        assert directory_scope is not None
         await directories.validate_directory(
             session,
             directory_key=req.filters.directory_key,
-            scope=req.scope
-            if req.scope not in (None, "all")
-            else req.filters.directory_key.split(".", 1)[0],
+            scope=directory_scope,
             project_id=req.filters.project_id,
         )
         knowledge_ids = await directories.directory_document_ids(
@@ -134,8 +139,6 @@ async def run_search(
             recalled = []
         else:
             recalled = None
-    else:
-        recalled = None
     kb_ids = (
         await retrieval.resolve_project_kbs(session, req.filters.project_id)
         if req.filters.project_id is not None
