@@ -65,6 +65,22 @@ const viewports = [
   { name: "1440", width: 1440, height: 1000 },
   { name: "1280", width: 1280, height: 900 },
 ];
+const workbenchOverview = {
+  task_center: {
+    status: "empty",
+    error_code: null,
+    summary: { needs_action: 0, running: 0, attention: 0, completed_today: 0 },
+    priority_items: [],
+    my_tasks: [],
+    running_jobs: [],
+    attention_items: [],
+    recent_completed: [],
+  },
+  todos: { status: "empty", error_code: null, items: [], total: 0 },
+  operations: { status: "empty", error_code: null, data: null },
+  projects: { status: "empty", error_code: null, items: [], total: 0 },
+  recent_activity: { status: "empty", error_code: null, items: [], total: 0 },
+};
 let browser;
 
 try {
@@ -92,6 +108,21 @@ try {
             is_business_user: !pureAdmin,
             can_discover_l5: false,
             project_memberships: [],
+          });
+        }
+
+        if (requestUrl.pathname === "/api/v1/workbench/overview") {
+          return fulfill(workbenchOverview);
+        }
+
+        if (requestUrl.pathname === "/api/v1/notifications") {
+          return fulfill({
+            items: [],
+            total: 0,
+            page: 1,
+            page_size: 20,
+            unread_count: 0,
+            categories: [],
           });
         }
 
@@ -144,7 +175,7 @@ try {
       } else if (scenario === "error") {
         await page.getByText("知识资产加载失败").waitFor();
       } else {
-        await page.getByText("暂无可浏览的知识资产").waitFor();
+        await page.getByText("当前身份暂无可浏览资料").waitFor();
       }
 
       await page.waitForTimeout(160);
