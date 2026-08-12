@@ -273,6 +273,9 @@ for (const scenario of scenarios) {
         ).length,
         oldSectionVisible: /处理进度|原文入口|知识卡片|高级信息/.test(text),
         fakeFeatureVisible: /下载资产|导出|分享|编辑资产|评论|AI 问答|新建项目/.test(text),
+        pendingProgressLinkCount: [
+          ...document.querySelectorAll('a[href="/original-access?box=mine"]'),
+        ].length,
         sensitiveTextVisible:
           /storage_ref|SECRET-LIKE|trace-must-not-render|credential-must-not-render|fingerprint-must-not-render|authorization internals|weknora[_ -]?(doc|kb)[_ -]?id|fetch token|api[_ -]?key/i.test(
             text,
@@ -329,9 +332,10 @@ if (
       result.fakeFeatureVisible ||
       result.sensitiveTextVisible ||
       !result.routedFromList ||
-      (["restricted", "denied"].includes(result.scenario)
+      (["restricted", "denied", "pending"].includes(result.scenario)
         ? result.originalActionCount !== 0
         : result.originalActionCount !== 1) ||
+      (result.scenario === "pending" && result.pendingProgressLinkCount !== 1) ||
       (result.scenario === "failure" && result.detailCalls < 2) ||
       (result.scenario === "denied" && !result.deniedVisible) ||
       (result.scenario === "preview-failure" && !result.previewFailureVisible) ||
