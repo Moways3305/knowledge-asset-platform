@@ -152,6 +152,22 @@ const summary = {
   active_in_project: 8,
   created_this_month: 5,
 };
+const workbenchOverview = {
+  task_center: {
+    status: "empty",
+    error_code: null,
+    summary: { needs_action: 0, running: 0, attention: 0, completed_today: 0 },
+    priority_items: [],
+    my_tasks: [],
+    running_jobs: [],
+    attention_items: [],
+    recent_completed: [],
+  },
+  todos: { status: "empty", error_code: null, items: [], total: 0 },
+  operations: { status: "empty", error_code: null, data: null },
+  projects: { status: "empty", error_code: null, items: [], total: 0 },
+  recent_activity: { status: "empty", error_code: null, items: [], total: 0 },
+};
 
 let server;
 let browser;
@@ -178,6 +194,7 @@ try {
           route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
         if (url.pathname === "/api/v1/auth/me") return fulfill(authMe);
+        if (url.pathname === "/api/v1/workbench/overview") return fulfill(workbenchOverview);
         if (url.pathname === "/api/v1/notifications/unread-count")
           return fulfill({ unread_count: 0 });
         if (url.pathname === "/api/v1/notifications")

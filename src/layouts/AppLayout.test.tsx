@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import AppLayout from "./AppLayout";
 import { logout } from "../api/auth";
 import { fetchNotificationUnreadCount, fetchNotifications } from "../api/notifications";
+import { fetchWorkbenchOverview } from "../api/workbench";
 
 const auth = vi.hoisted(() => ({
   reload: vi.fn(),
@@ -55,6 +56,24 @@ vi.mock("../api/notifications", () => ({
   markNotificationRead: vi.fn(),
   markNotificationsRead: vi.fn(),
 }));
+vi.mock("../api/workbench", () => ({ fetchWorkbenchOverview: vi.fn() }));
+vi.mock("../workbench/WorkbenchContext", () => ({
+  WorkbenchProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+  useWorkbench: () => ({
+    overview: {
+      task_center: {
+        summary: { needs_action: 0, running: 0, attention: 0, completed_today: 0 },
+        priority_items: [],
+        my_tasks: [],
+        running_jobs: [],
+        attention_items: [],
+        recent_completed: [],
+      },
+    },
+    state: "ready",
+    refresh: vi.fn(),
+  }),
+}));
 
 function renderLayout(path = "/") {
   return render(
@@ -77,11 +96,24 @@ describe("AppLayout shell contract", () => {
     auth.reload.mockReset();
     vi.mocked(logout).mockReset();
     vi.mocked(fetchNotificationUnreadCount).mockResolvedValue({ unread_count: 0 });
-    vi.mocked(fetchNotifications).mockResolvedValue({
-      items: [],
-      total: 0,
-      page: 1,
-      page_size: 20,
+    // AppLayout tests cover shell composition, while NotificationBell tests own its async
+    // loading contract. Keep this request pending so it cannot update after a shell assertion.
+    vi.mocked(fetchNotifications).mockImplementation(() => new Promise(() => {}));
+    vi.mocked(fetchWorkbenchOverview).mockResolvedValue({
+      task_center: {
+        status: "empty",
+        error_code: null,
+        summary: { needs_action: 0, running: 0, attention: 0, completed_today: 0 },
+        priority_items: [],
+        my_tasks: [],
+        running_jobs: [],
+        attention_items: [],
+        recent_completed: [],
+      },
+      todos: { status: "empty", error_code: null, items: [], total: 0 },
+      operations: { status: "empty", error_code: null, data: null },
+      projects: { status: "empty", error_code: null, items: [], total: 0 },
+      recent_activity: { status: "empty", error_code: null, items: [], total: 0 },
     });
     auth.capabilities.isAdmin = true;
     auth.capabilities.isBoss = true;
@@ -183,11 +215,12 @@ describe("AppLayout shell contract", () => {
     expect(screen.getByRole("link", { name: "今日工作台" })).toHaveAttribute("title", "今日工作台");
   });
 
-  it("keeps the slim header with only the notification bell as a global action", () => {
+  it("keeps the slim header with the shared task status and notification actions", () => {
     const { container } = renderLayout();
     const header = container.querySelector(".deck");
     expect(header).toHaveTextContent("今日工作台");
-    expect(screen.getByRole("button", { name: "通知" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "通知中心，0 条未读" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /打开任务中心/ })).toBeInTheDocument();
     expect(header).not.toHaveTextContent(/搜索|导出|新建项目/);
     expect(header?.querySelector("input")).toBeNull();
   });
@@ -201,7 +234,7 @@ describe("AppLayout shell contract", () => {
     auth.capabilities.isProjectManager = false;
     renderLayout();
     expect(screen.getByRole("link", { name: "审计日志" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "通知" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "通知中心，0 条未读" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "人员权限" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "项目设置" })).not.toBeInTheDocument();
   });

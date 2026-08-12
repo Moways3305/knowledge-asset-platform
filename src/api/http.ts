@@ -3,6 +3,8 @@
 // 页面组件不直接写 fetch / CSRF / 错误细节。
 
 // 默认走 Vite 的 /api 代理；也可用 VITE_API_BASE_URL 覆盖为绝对地址。
+import { invalidateTaskStatus } from "../workbench/taskStatusEvents";
+
 export const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 // 开发态身份覆盖：本地联调时用 X-Dev-User-Id 指定调用人，方便切换角色。
@@ -155,7 +157,9 @@ export async function apiPost<T>(
       body: JSON.stringify(body),
       credentials: "include",
     });
-    return handleResponse<T>(resp);
+    const result = await handleResponse<T>(resp);
+    invalidateTaskStatus(path);
+    return result;
   });
 }
 
@@ -167,7 +171,9 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
       body: JSON.stringify(body),
       credentials: "include",
     });
-    return handleResponse<T>(resp);
+    const result = await handleResponse<T>(resp);
+    invalidateTaskStatus(path);
+    return result;
   });
 }
 
@@ -179,7 +185,9 @@ export async function apiPut<T>(path: string, body: unknown): Promise<T> {
       body: JSON.stringify(body),
       credentials: "include",
     });
-    return handleResponse<T>(resp);
+    const result = await handleResponse<T>(resp);
+    invalidateTaskStatus(path);
+    return result;
   });
 }
 
@@ -190,7 +198,9 @@ export async function apiDelete<T>(path: string): Promise<T> {
       headers: await csrfHeaders(),
       credentials: "include",
     });
-    return handleResponse<T>(resp);
+    const result = await handleResponse<T>(resp);
+    invalidateTaskStatus(path);
+    return result;
   });
 }
 
@@ -206,7 +216,9 @@ export async function apiPostNoBody<T>(
       body: "{}",
       credentials: "include",
     });
-    return handleResponse<T>(resp);
+    const result = await handleResponse<T>(resp);
+    invalidateTaskStatus(path);
+    return result;
   });
 }
 

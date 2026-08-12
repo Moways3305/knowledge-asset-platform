@@ -2180,6 +2180,13 @@
       },
       "BusinessNotificationListResponse": {
         "properties": {
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/BusinessNotificationOut"
@@ -2198,19 +2205,28 @@
           "total": {
             "title": "Total",
             "type": "integer"
+          },
+          "unread_count": {
+            "title": "Unread Count",
+            "type": "integer"
           }
         },
         "required": [
           "items",
           "total",
           "page",
-          "page_size"
+          "page_size",
+          "unread_count"
         ],
         "title": "BusinessNotificationListResponse",
         "type": "object"
       },
       "BusinessNotificationOut": {
         "properties": {
+          "action_required": {
+            "title": "Action Required",
+            "type": "boolean"
+          },
           "category": {
             "title": "Category",
             "type": "string"
@@ -2218,6 +2234,10 @@
           "created_at": {
             "format": "date-time",
             "title": "Created At",
+            "type": "string"
+          },
+          "delivery_status": {
+            "title": "Delivery Status",
             "type": "string"
           },
           "event_type": {
@@ -2232,6 +2252,25 @@
           "is_read": {
             "title": "Is Read",
             "type": "boolean"
+          },
+          "next_action_label": {
+            "title": "Next Action Label",
+            "type": "string"
+          },
+          "object_name": {
+            "title": "Object Name",
+            "type": "string"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
           },
           "read_at": {
             "anyOf": [
@@ -2252,6 +2291,14 @@
           "target": {
             "$ref": "#/components/schemas/NotificationTarget"
           },
+          "task_group": {
+            "title": "Task Group",
+            "type": "string"
+          },
+          "task_status": {
+            "title": "Task Status",
+            "type": "string"
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -2266,6 +2313,12 @@
           "created_at",
           "is_read",
           "read_at",
+          "object_name",
+          "task_status",
+          "task_group",
+          "action_required",
+          "next_action_label",
+          "delivery_status",
           "target"
         ],
         "title": "BusinessNotificationOut",
@@ -8406,10 +8459,50 @@
             ],
             "title": "Asset Title"
           },
+          "can_reapply": {
+            "default": false,
+            "title": "Can Reapply",
+            "type": "boolean"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "grant_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grant Expires At"
+          },
+          "grant_revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grant Revoked At"
+          },
+          "grant_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grant Status"
           },
           "project_id": {
             "anyOf": [
@@ -14983,11 +15076,15 @@
           "recent_activity": {
             "$ref": "#/components/schemas/WorkbenchRecentActivitySection"
           },
+          "task_center": {
+            "$ref": "#/components/schemas/WorkbenchTaskCenterSection"
+          },
           "todos": {
             "$ref": "#/components/schemas/WorkbenchTodosSection"
           }
         },
         "required": [
+          "task_center",
           "todos",
           "operations",
           "projects",
@@ -15419,6 +15516,254 @@
           "total"
         ],
         "title": "WorkbenchTagsResponse",
+        "type": "object"
+      },
+      "WorkbenchTaskCenterSection": {
+        "properties": {
+          "attention_items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkbenchTaskItem"
+            },
+            "title": "Attention Items",
+            "type": "array"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "my_tasks": {
+            "items": {
+              "$ref": "#/components/schemas/WorkbenchTaskItem"
+            },
+            "title": "My Tasks",
+            "type": "array"
+          },
+          "priority_items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkbenchTaskItem"
+            },
+            "title": "Priority Items",
+            "type": "array"
+          },
+          "recent_completed": {
+            "items": {
+              "$ref": "#/components/schemas/WorkbenchTaskItem"
+            },
+            "title": "Recent Completed",
+            "type": "array"
+          },
+          "running_jobs": {
+            "items": {
+              "$ref": "#/components/schemas/WorkbenchTaskItem"
+            },
+            "title": "Running Jobs",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/WorkbenchSectionStatus"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/WorkbenchTaskSummary"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "WorkbenchTaskCenterSection",
+        "type": "object"
+      },
+      "WorkbenchTaskItem": {
+        "description": "Safe, permission-filtered task projection shared by home and the global drawer.",
+        "properties": {
+          "assignee": {
+            "title": "Assignee",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "next_action_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Action Key"
+          },
+          "next_action_label": {
+            "title": "Next Action Label",
+            "type": "string"
+          },
+          "object_name": {
+            "title": "Object Name",
+            "type": "string"
+          },
+          "priority": {
+            "title": "Priority",
+            "type": "string"
+          },
+          "progress_failed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress Failed"
+          },
+          "progress_success": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress Success"
+          },
+          "progress_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress Total"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
+          },
+          "responsibility": {
+            "title": "Responsibility",
+            "type": "string"
+          },
+          "result_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Summary"
+          },
+          "route_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Route Key"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "task_ref": {
+            "title": "Task Ref",
+            "type": "string"
+          },
+          "task_type": {
+            "title": "Task Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "waiting_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiting Minutes"
+          }
+        },
+        "required": [
+          "task_ref",
+          "task_type",
+          "object_name",
+          "status",
+          "priority",
+          "assignee",
+          "responsibility",
+          "next_action_label"
+        ],
+        "title": "WorkbenchTaskItem",
+        "type": "object"
+      },
+      "WorkbenchTaskSummary": {
+        "properties": {
+          "attention": {
+            "default": 0,
+            "title": "Attention",
+            "type": "integer"
+          },
+          "completed_today": {
+            "default": 0,
+            "title": "Completed Today",
+            "type": "integer"
+          },
+          "needs_action": {
+            "default": 0,
+            "title": "Needs Action",
+            "type": "integer"
+          },
+          "running": {
+            "default": 0,
+            "title": "Running",
+            "type": "integer"
+          }
+        },
+        "title": "WorkbenchTaskSummary",
         "type": "object"
       },
       "WorkbenchTodoCounts": {

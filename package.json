@@ -22,6 +22,8 @@
     "test:ui:project-knowledge": "node scripts/project-knowledge.ui-qa.mjs",
     "test:ui:review-access": "node scripts/review-access.ui-qa.mjs",
     "test:ui:workbench": "node scripts/workbench.ui-qa.mjs",
+    "test:ui:task-center": "node scripts/task-center.ui-qa.mjs",
+    "test:ui:notification-center": "node scripts/notification-center.ui-qa.mjs",
     "test:ui:personal-knowledge": "node scripts/personal-knowledge.ui-qa.mjs",
     "test:ui:admin-operations": "node scripts/admin-operations.ui-qa.mjs",
     "test:ui:model-foundation": "node scripts/model-foundation.ui-qa.mjs",

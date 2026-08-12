@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 
 from app.models.audit import AuditEvent
 from app.models.identity import ProjectMember, User
+from app.models.indexing_job import IndexingOperationJob
 from app.models.notification import BusinessNotification
 from app.models.original_access import OriginalAccessRequest
 from app.models.review import ReviewTask
@@ -24,6 +25,7 @@ from app.seed.dev_seed import (
 )
 from app.services.notifications import (
     dispatch_pending,
+    notify_operation_job_finished,
     notify_original_access_pending,
     notify_review_pending,
 )
@@ -156,6 +158,13 @@ async def test_list_paginates_and_response_is_sensitive_field_whitelist(client, 
         "created_at",
         "is_read",
         "read_at",
+        "project_name",
+        "object_name",
+        "task_status",
+        "task_group",
+        "action_required",
+        "next_action_label",
+        "delivery_status",
         "target",
     }
     serialized = response.text.lower()
@@ -227,9 +236,52 @@ async def test_batch_read_deduplicates_ids_and_is_idempotent(client, db_session)
     }
 
 
-async def test_membership_removal_and_terminal_target_hide_existing_notification(
+async def test_finished_operation_job_is_deduplicated_and_projects_safe_status(client, db_session):
+    job = IndexingOperationJob(
+        operation_type="kb_migrate",
+        status="completed_with_errors",
+        requested_by_user_id=USER_ADMIN_ONLY,
+        scope_filter={},
+    )
+    db_session.add(job)
+    await db_session.flush()
+    await notify_operation_job_finished(db_session, job)
+    await notify_operation_job_finished(db_session, job)
+    await db_session.commit()
+
+    body = (await client.get(API, headers=_headers(USER_ADMIN_ONLY))).json()
+    assert body["total"] == 1
+    assert body["unread_count"] == 1
+    assert body["categories"] == ["knowledge_base"]
+    assert body["items"][0]["task_status"] == "partial"
+    assert body["items"][0]["task_group"] == "attention_items"
+    assert body["items"][0]["target"]["route_key"] == "models"
+
+
+async def test_project_scoped_operation_notification_uses_ops_authorization_not_membership(
     client, db_session
 ):
+    job = IndexingOperationJob(
+        operation_type="retry_index",
+        status="completed",
+        requested_by_user_id=USER_ADMIN_ONLY,
+        scope_filter={"project_id": str(PROJECT_ALPHA)},
+    )
+    db_session.add(job)
+    await db_session.flush()
+    await notify_operation_job_finished(db_session, job)
+    await db_session.commit()
+
+    # USER_ADMIN_ONLY deliberately has no PROJECT_ALPHA membership. The project id is an
+    # operation filter, while visibility remains guarded by requester ownership / ops role.
+    body = (await client.get(API, headers=_headers(USER_ADMIN_ONLY))).json()
+    assert body["total"] == 1
+    assert body["items"][0]["category"] == "indexing"
+    assert body["items"][0]["task_status"] == "completed"
+    assert body["items"][0]["target"]["route_key"] == "admin_ingest"
+
+
+async def test_membership_removal_hides_but_terminal_target_keeps_history(client, db_session):
     row = _row()
     db_session.add(row)
     await db_session.commit()
@@ -255,7 +307,10 @@ async def test_membership_removal_and_terminal_target_hide_existing_notification
     task = await db_session.get(ReviewTask, REVIEW_SEED)
     task.status = "approved"
     await db_session.commit()
-    assert (await client.get(API, headers=_headers(USER_PROJECT_MANAGER))).json()["total"] == 0
+    terminal = (await client.get(API, headers=_headers(USER_PROJECT_MANAGER))).json()
+    assert terminal["total"] == 1
+    assert terminal["items"][0]["task_status"] == "completed"
+    assert terminal["items"][0]["action_required"] is False
 
 
 async def test_non_reviewer_and_pure_admin_cannot_observe_business_notification(client, db_session):

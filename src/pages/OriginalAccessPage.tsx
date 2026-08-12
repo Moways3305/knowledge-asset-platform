@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { ControlledBulkRequestError } from "../api/bulk";
 import { ApiError } from "../api/http";
 import {
@@ -21,6 +22,11 @@ const statusLabel: Record<string, string> = {
   approved: "已通过",
   rejected: "已拒绝",
   cancelled: "已取消",
+};
+const grantLabel: Record<string, string> = {
+  active: "授权有效",
+  expired: "授权已到期",
+  revoked: "授权已撤销",
 };
 
 const statusTone: Record<string, string> = {
@@ -48,7 +54,8 @@ function safeTitle(item: OriginalAccessRequestDTO) {
 }
 
 export default function OriginalAccessPage() {
-  const [box, setBox] = useState<Box>("inbox");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [box, setBox] = useState<Box>(searchParams.get("box") === "inbox" ? "inbox" : "mine");
   const [items, setItems] = useState<OriginalAccessRequestDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
@@ -60,6 +67,11 @@ export default function OriginalAccessPage() {
   const [bulkBusy, setBulkBusy] = useState(false);
   const requestRef = useRef(0);
   const bulkRunRef = useRef(false);
+
+  useEffect(() => {
+    const requested = searchParams.get("box");
+    if (requested === "mine" || requested === "inbox") setBox(requested);
+  }, [searchParams]);
 
   const load = useCallback(async () => {
     const requestId = ++requestRef.current;
@@ -268,14 +280,35 @@ export default function OriginalAccessPage() {
         }
       : {
           key: "reviewed",
-          header: "审批记录",
+          header: "处理结果与授权",
           headerClassName: "gw-col-access-reviewed",
           render: (item) => (
-            <span className="gw-muted">
-              {item.reviewer_name?.trim()
-                ? `${item.reviewer_name} · ${formatBeijingTime(item.reviewed_at)}`
-                : "—"}
-            </span>
+            <div className="gw-request-result">
+              <span className="gw-muted">
+                {item.reviewer_name?.trim()
+                  ? `${item.reviewer_name} · ${formatBeijingTime(item.reviewed_at)}`
+                  : item.status === "pending"
+                    ? "等待审批"
+                    : "未提供审批人"}
+              </span>
+              {item.review_note?.trim() && <small>审批意见：{item.review_note}</small>}
+              {item.grant_status && (
+                <small>
+                  {grantLabel[item.grant_status] ?? "授权状态已变化"}
+                  {item.grant_status === "active" && item.grant_expires_at
+                    ? ` · 至 ${formatBeijingTime(item.grant_expires_at)}`
+                    : ""}
+                </small>
+              )}
+              {item.can_reapply && (
+                <Link
+                  className="gw-reapply-note"
+                  to={`/knowledge/${encodeURIComponent(item.asset_id)}`}
+                >
+                  返回资料重新申请
+                </Link>
+              )}
+            </div>
           ),
         },
   ];
@@ -297,7 +330,10 @@ export default function OriginalAccessPage() {
             type="button"
             disabled={loading || Boolean(busyId)}
             aria-pressed={box === "inbox"}
-            onClick={() => setBox("inbox")}
+            onClick={() => {
+              setBox("inbox");
+              setSearchParams({ box: "inbox" }, { replace: true });
+            }}
           >
             待我审批
           </button>
@@ -306,7 +342,10 @@ export default function OriginalAccessPage() {
             type="button"
             disabled={loading || Boolean(busyId)}
             aria-pressed={box === "mine"}
-            onClick={() => setBox("mine")}
+            onClick={() => {
+              setBox("mine");
+              setSearchParams({ box: "mine" }, { replace: true });
+            }}
           >
             我的申请
           </button>

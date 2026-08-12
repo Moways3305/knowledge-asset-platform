@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Archive,
   ArrowRight,
@@ -11,6 +11,9 @@ import {
   FolderKanban,
   LibraryBig,
   ListChecks,
+  CircleCheckBig,
+  Gauge,
+  TriangleAlert,
   Plus,
   RefreshCw,
   SearchX,
@@ -18,7 +21,6 @@ import {
   UploadCloud,
   type LucideIcon,
 } from "lucide-react";
-import { fetchWorkbenchOverview } from "../api/workbench";
 import { fetchPeople } from "../api/admin";
 import { createProject } from "../api/project";
 import { useAuth } from "../auth/AuthContext";
@@ -26,15 +28,17 @@ import { can, type Capabilities } from "../auth/permissions";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
 import StatusBadge from "../components/StatusBadge";
 import TaskModal from "../components/TaskModal";
+import TaskCenterDrawer, { type TaskCenterGroup } from "../components/TaskCenterDrawer";
 import Button from "../components/Button";
 import WorkbuddyAccessCard from "../components/WorkbuddyAccessCard";
 import type { PersonDTO } from "../types/people";
 import type {
   WorkbenchOperationCardDTO,
-  WorkbenchOverviewDTO,
   WorkbenchSectionStatus,
   WorkbenchTodoItemDTO,
+  WorkbenchTaskItemDTO,
 } from "../types/workbench";
+import { useWorkbench } from "../workbench/WorkbenchContext";
 import { formatBeijingTime } from "../utils/time";
 import "./HomeDashboardPage.css";
 
@@ -117,7 +121,6 @@ const OPERATION_ROUTE: Record<string, string> = {
   reuse_upgrade_candidates: "/knowledge",
 };
 
-type PageState = "loading" | "ready" | "error";
 type UiSectionStatus = WorkbenchSectionStatus | "loading";
 
 function todayLabel(): string {
@@ -235,6 +238,33 @@ function TodoRow({ item }: { item: WorkbenchTodoItemDTO }) {
   );
 }
 
+const TASK_STATUS_LABEL: Record<string, string> = {
+  needs_action: "待处理",
+  submitted: "已提交",
+  processing: "处理中",
+  completed: "已完成",
+  partial: "部分完成",
+  failed: "失败",
+};
+
+function PriorityTaskRow({ item, onOpen }: { item: WorkbenchTaskItemDTO; onOpen: () => void }) {
+  return (
+    <button type="button" className="tc90-priority-row" onClick={onOpen}>
+      <span className={`tc90-priority-rail is-${item.priority}`} aria-hidden="true" />
+      <span className="tc90-priority-copy">
+        <strong>{item.object_name}</strong>
+        <small>
+          {item.project_name || item.responsibility} · {item.next_action_label}
+        </small>
+      </span>
+      <span className={`tc90-status is-${item.status}`}>
+        {TASK_STATUS_LABEL[item.status] || item.status}
+      </span>
+      <ArrowRight size={15} aria-hidden="true" />
+    </button>
+  );
+}
+
 function operationRoute(
   item: WorkbenchOperationCardDTO,
   capabilities: Capabilities,
@@ -307,33 +337,12 @@ function OperationCard({
 }
 
 export default function HomeDashboardPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const { authMe, capabilities, reload } = useAuth();
   const navigate = useNavigate();
-  const [overview, setOverview] = useState<WorkbenchOverviewDTO | null>(null);
-  const [pageState, setPageState] = useState<PageState>("loading");
-  const requestRef = useRef(0);
-
-  const load = useCallback(async () => {
-    const requestId = ++requestRef.current;
-    setPageState("loading");
-    try {
-      const next = await fetchWorkbenchOverview();
-      if (requestId !== requestRef.current) return;
-      setOverview(next);
-      setPageState("ready");
-    } catch {
-      if (requestId !== requestRef.current) return;
-      setOverview(null);
-      setPageState("error");
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-    return () => {
-      requestRef.current += 1;
-    };
-  }, [load]);
+  const { overview, state: pageState, refresh: load } = useWorkbench();
+  const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
+  const [taskDrawerGroup, setTaskDrawerGroup] = useState<TaskCenterGroup>("my_tasks");
 
   // --- create project modal (governance users with no projects) ---
   const [createOpen, setCreateOpen] = useState(false);
@@ -395,6 +404,7 @@ export default function HomeDashboardPage() {
   const operationsStatus = overview?.operations.status ?? fallbackStatus;
   const projectsStatus = overview?.projects.status ?? fallbackStatus;
   const recentStatus = overview?.recent_activity.status ?? fallbackStatus;
+  const taskCenterStatus = overview?.task_center.status ?? fallbackStatus;
   const todoItems = overview?.todos.items.filter((item) => item.count > 0) ?? [];
   const operationCards = overview?.operations.data?.cards.filter((item) => item.count > 0) ?? [];
   const canShowAssetTitles =
@@ -405,6 +415,26 @@ export default function HomeDashboardPage() {
     : SAFE_FALLBACK;
   const displayName = authMe?.name?.trim() || "同事";
   const todoCount = todoItems.reduce((total, item) => total + item.count, 0);
+  const taskCenter = overview?.task_center;
+  const taskGroups = {
+    my_tasks: taskCenter?.my_tasks ?? [],
+    running_jobs: taskCenter?.running_jobs ?? [],
+    attention_items: taskCenter?.attention_items ?? [],
+    recent_completed: taskCenter?.recent_completed ?? [],
+  };
+  const openTaskGroup = (group: TaskCenterGroup) => {
+    setTaskDrawerGroup(group);
+    setTaskDrawerOpen(true);
+  };
+  useEffect(() => {
+    const requested = searchParams.get("task_group");
+    if (
+      ["my_tasks", "running_jobs", "attention_items", "recent_completed"].includes(requested ?? "")
+    ) {
+      setTaskDrawerGroup(requested as TaskCenterGroup);
+      setTaskDrawerOpen(true);
+    }
+  }, [searchParams]);
 
   return (
     <ProductPage className="today-workbench wb81-workbench">
@@ -469,6 +499,89 @@ export default function HomeDashboardPage() {
       />
 
       <div className="wb81-dashboard">
+        <section className="tc90-command" aria-labelledby="tc90-command-title">
+          <header className="tc90-command-header">
+            <div>
+              <span>今日任务调度</span>
+              <h2 id="tc90-command-title">
+                {taskCenter?.summary.needs_action
+                  ? `有 ${taskCenter.summary.needs_action} 项需要你处理`
+                  : "当前没有需要你立即处理的任务"}
+              </h2>
+              <p>已提交、处理中与最终结果分开呈现，避免重复确认。</p>
+            </div>
+            <button type="button" onClick={() => openTaskGroup("my_tasks")}>
+              打开任务中心
+            </button>
+          </header>
+          {taskCenterStatus === "available" || taskCenterStatus === "empty" ? (
+            <>
+              <div className="tc90-summary-grid">
+                <button type="button" onClick={() => openTaskGroup("my_tasks")}>
+                  <ListChecks size={18} />
+                  <span>我的任务</span>
+                  <strong>{taskCenter?.summary.needs_action ?? 0}</strong>
+                  <small>需要动作</small>
+                </button>
+                <button type="button" onClick={() => openTaskGroup("running_jobs")}>
+                  <Gauge size={18} />
+                  <span>进行中的作业</span>
+                  <strong>{taskCenter?.summary.running ?? 0}</strong>
+                  <small>已提交 / 处理中</small>
+                </button>
+                <button type="button" onClick={() => openTaskGroup("attention_items")}>
+                  <TriangleAlert size={18} />
+                  <span>需要关注</span>
+                  <strong>{taskCenter?.summary.attention ?? 0}</strong>
+                  <small>风险与异常</small>
+                </button>
+                <button type="button" onClick={() => openTaskGroup("recent_completed")}>
+                  <CircleCheckBig size={18} />
+                  <span>最近完成</span>
+                  <strong>{taskCenter?.summary.completed_today ?? 0}</strong>
+                  <small>今日业务终态</small>
+                </button>
+              </div>
+              <div className="tc90-priority-board">
+                <div className="tc90-priority-heading">
+                  <span>优先处理</span>
+                  <small>按失败、超时与责任关系排序</small>
+                </div>
+                {taskCenter?.priority_items.length ? (
+                  taskCenter.priority_items
+                    .slice(0, 4)
+                    .map((item) => (
+                      <PriorityTaskRow
+                        key={item.task_ref}
+                        item={item}
+                        onOpen={() =>
+                          openTaskGroup(
+                            item.task_type === "review" ||
+                              item.task_type === "ingest" ||
+                              item.task_type === "original_access"
+                              ? "my_tasks"
+                              : "attention_items",
+                          )
+                        }
+                      />
+                    ))
+                ) : (
+                  <div className="tc90-priority-empty">
+                    优先队列已清空，可以继续关注进行中的作业。
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <SectionMessage
+              status={taskCenterStatus}
+              loadingText="正在同步任务状态…"
+              emptyText="当前没有任务"
+              onRetry={() => void load()}
+              errorText="任务状态暂时不可用，请重新加载"
+            />
+          )}
+        </section>
         <div className="wb81-row wb81-row-primary">
           <div className="wb81-row-tabs" aria-label="工作台主栏切换">
             <select
@@ -645,6 +758,21 @@ export default function HomeDashboardPage() {
           </WorkbenchPanel>
         </div>
       </div>
+
+      <TaskCenterDrawer
+        key={taskDrawerGroup}
+        open={taskDrawerOpen}
+        initialGroup={taskDrawerGroup}
+        groups={taskGroups}
+        onClose={() => {
+          setTaskDrawerOpen(false);
+          if (searchParams.has("task_group")) {
+            const next = new URLSearchParams(searchParams);
+            next.delete("task_group");
+            setSearchParams(next, { replace: true });
+          }
+        }}
+      />
 
       <TaskModal
         open={createOpen}

@@ -14,6 +14,20 @@ import {
 import type { KnowledgeDetailVM } from "../types/knowledge";
 import KnowledgeDetailPage from "./KnowledgeDetailPage";
 
+vi.mock("../auth/AuthContext", () => ({
+  useAuth: () => ({
+    capabilities: {
+      isAdmin: false,
+      isBoss: false,
+      isConsultingDirector: false,
+      isBusinessUser: true,
+      isGovernance: false,
+      hasProject: true,
+      isProjectManager: false,
+    },
+  }),
+}));
+
 vi.mock("../api/knowledge", () => ({
   deleteKnowledgeAsset: vi.fn(),
   fetchKnowledgeDetail: vi.fn(),
@@ -123,7 +137,9 @@ describe("KnowledgeDetailPage reference contract", () => {
     const button = await screen.findByRole("button", { name: "申请原文访问" });
     expect(screen.queryByRole("button", { name: "预览原文" })).not.toBeInTheDocument();
     fireEvent.click(button);
-    await waitFor(() => expect(requestOriginalAccess).toHaveBeenCalledWith("asset-76"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: /提交申请/ }));
+    await waitFor(() => expect(requestOriginalAccess).toHaveBeenCalledWith("asset-76", undefined));
     expect(await screen.findByText("原文访问申请已提交，待审批。")).toBeInTheDocument();
   });
 
@@ -139,7 +155,10 @@ describe("KnowledgeDetailPage reference contract", () => {
     });
     renderDetail();
 
-    expect(await screen.findByRole("button", { name: "申请审批中" })).toBeDisabled();
+    expect(await screen.findByRole("link", { name: "查看申请进度" })).toHaveAttribute(
+      "href",
+      "/original-access?box=mine",
+    );
     expect(screen.queryByRole("button", { name: "申请原文访问" })).not.toBeInTheDocument();
     expect(screen.getByText("审批中")).toBeInTheDocument();
   });

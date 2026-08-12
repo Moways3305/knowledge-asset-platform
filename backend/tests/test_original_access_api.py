@@ -113,6 +113,64 @@ async def test_repeat_request_reuses_pending(client, db_session):
     assert count == 1
 
 
+async def test_mine_hides_request_when_asset_is_no_longer_discoverable(client, db_session):
+    aid = await _mk_asset(db_session)
+    created = await client.post(
+        _req_path(aid), headers=_hdr(USER_CONSULTANT), json={"reason": "申请时可发现"}
+    )
+    assert created.status_code == 200
+    request_id = created.json()["request"]["request_id"]
+
+    asset = await db_session.get(KnowledgeAsset, aid)
+    asset.confidentiality_level = "L5"
+    await db_session.commit()
+
+    mine = await client.get(
+        "/api/v1/original-access/requests?box=mine", headers=_hdr(USER_CONSULTANT)
+    )
+    assert mine.status_code == 200
+    assert mine.json() == {"items": [], "total": 0}
+    assert request_id not in mine.text
+    assert str(aid) not in mine.text
+    assert "公司 L3 资产" not in mine.text
+    _assert_no_leak(mine.text)
+
+
+async def test_mine_projects_safe_terminal_and_grant_state(client, db_session):
+    aid, rid = await _create_pending(client, db_session)
+    approved = await client.post(
+        f"/api/v1/original-access/requests/{rid}/approve",
+        headers=_hdr(USER_BOSS),
+        json={"note": "同意用于复盘"},
+    )
+    assert approved.status_code == 200
+
+    mine = await client.get(
+        "/api/v1/original-access/requests?box=mine", headers=_hdr(USER_CONSULTANT)
+    )
+    assert mine.status_code == 200
+    item = next(row for row in mine.json()["items"] if row["request_id"] == rid)
+    assert item["grant_status"] == "active"
+    assert item["grant_expires_at"] is not None
+    assert item["can_reapply"] is False
+
+    grant_id = approved.json()["grant"]["grant_id"]
+    revoked = await client.post(
+        f"/api/v1/original-access/grants/{grant_id}/revoke",
+        headers=_hdr(USER_BOSS),
+        json={"reason": "授权结束"},
+    )
+    assert revoked.status_code == 200
+    mine_after_revoke = await client.get(
+        "/api/v1/original-access/requests?box=mine", headers=_hdr(USER_CONSULTANT)
+    )
+    item = next(row for row in mine_after_revoke.json()["items"] if row["request_id"] == rid)
+    assert item["grant_status"] == "revoked"
+    assert item["grant_revoked_at"] is not None
+    assert item["can_reapply"] is True
+    _assert_no_leak(mine_after_revoke.text)
+
+
 async def test_member_with_original_no_pending(client, db_session):
     # USER_PROJECT_MANAGER 是 ALPHA PM；建一个 ALPHA L3 资产，PM 本就有原文权 → already_granted。
     from app.seed.dev_seed import PROJECT_ALPHA

@@ -15,6 +15,52 @@ export interface WorkbenchTodosSectionDTO {
   total: number;
 }
 
+export type WorkbenchTaskStatus =
+  | "needs_action"
+  | "submitted"
+  | "processing"
+  | "completed"
+  | "partial"
+  | "failed";
+export type WorkbenchTaskPriority = "urgent" | "high" | "normal" | "low";
+
+export interface WorkbenchTaskItemDTO {
+  task_ref: string;
+  task_type: string;
+  object_name: string;
+  project_name: string | null;
+  status: WorkbenchTaskStatus;
+  priority: WorkbenchTaskPriority;
+  assignee: string;
+  responsibility: string;
+  created_at: string | null;
+  updated_at: string | null;
+  waiting_minutes: number | null;
+  next_action_key: string | null;
+  next_action_label: string;
+  route_key: string | null;
+  result_summary: string | null;
+  progress_total: number | null;
+  progress_success: number | null;
+  progress_failed: number | null;
+}
+
+export interface WorkbenchTaskCenterSectionDTO {
+  status: WorkbenchSectionStatus;
+  error_code: string | null;
+  summary: {
+    needs_action: number;
+    running: number;
+    attention: number;
+    completed_today: number;
+  };
+  priority_items: WorkbenchTaskItemDTO[];
+  my_tasks: WorkbenchTaskItemDTO[];
+  running_jobs: WorkbenchTaskItemDTO[];
+  attention_items: WorkbenchTaskItemDTO[];
+  recent_completed: WorkbenchTaskItemDTO[];
+}
+
 export interface WorkbenchOperationCardDTO {
   key: string;
   label: string;
@@ -96,6 +142,7 @@ export interface WorkbenchRecentActivitySectionDTO {
 }
 
 export interface WorkbenchOverviewDTO {
+  task_center: WorkbenchTaskCenterSectionDTO;
   todos: WorkbenchTodosSectionDTO;
   operations: WorkbenchOperationsSectionDTO;
   projects: WorkbenchProjectsSectionDTO;

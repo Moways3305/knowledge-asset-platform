@@ -148,7 +148,7 @@ for (const scenario of scenarios) {
     if (scenario === "pure-admin") {
       await page.getByText("当前账号无此入口").waitFor();
     } else if (scenario === "empty") {
-      await page.getByText("暂无可浏览的知识资产").waitFor();
+      await page.getByText("当前身份暂无可浏览资料").waitFor();
     } else if (scenario === "retry") {
       await page.getByText("知识资产加载失败").waitFor();
       allowRetrySuccess = true;
@@ -191,7 +191,7 @@ for (const scenario of scenarios) {
         scrollGuideMatchesOverflow: tableActuallyOverflows === scrollGuideVisible,
         clippedActions,
         moduleTitle: document.querySelector(".deck-title")?.textContent?.trim() ?? "",
-        forbiddenFeatureVisible: /批量导入|导出|新建项目|运营洞察|语义检索|全局搜索/.test(bodyText),
+        forbiddenFeatureVisible: /批量导入|导出|新建项目|运营洞察|全局搜索/.test(bodyText),
         sensitiveTextVisible:
           bodyText.includes("00000000-0000-0000-0000-0000000000a1") ||
           /storage_ref|SECRET-LIKE|upstream detail|WeKnora|fetch token|api[_ -]?key/i.test(

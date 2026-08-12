@@ -107,9 +107,7 @@ const detail = (scenario) => ({
   weknora_parse_status: scenario === "indexing" ? "processing" : "success",
   index_error_code: scenario === "governed" ? "safe_retryable" : null,
   index_error_message: scenario === "governed" ? "问答处理未完成，可重新处理。" : null,
-  indexed_at: ["waiting-index", "indexing"].includes(scenario)
-    ? null
-    : "2026-07-15T08:10:00Z",
+  indexed_at: ["waiting-index", "indexing"].includes(scenario) ? null : "2026-07-15T08:10:00Z",
 });
 
 const listItem = {
@@ -270,11 +268,14 @@ for (const scenario of scenarios) {
           ...document.querySelectorAll("button, a.btn-primary, a.btn-secondary"),
         ].filter((element) => element.scrollWidth > element.clientWidth + 2).length,
         moduleTitle: document.querySelector(".deck-title")?.textContent?.trim() ?? "",
-        originalActionCount: [...document.querySelectorAll("button")].filter((button) =>
-          /预览原文|申请原文访问|申请审批中/.test(button.textContent ?? ""),
+        originalActionCount: [...document.querySelectorAll("button, a.btn-secondary")].filter(
+          (button) => /预览原文|申请原文访问|申请审批中/.test(button.textContent ?? ""),
         ).length,
         oldSectionVisible: /处理进度|原文入口|知识卡片|高级信息/.test(text),
         fakeFeatureVisible: /下载资产|导出|分享|编辑资产|评论|AI 问答|新建项目/.test(text),
+        pendingProgressLinkCount: [
+          ...document.querySelectorAll('a[href="/original-access?box=mine"]'),
+        ].length,
         sensitiveTextVisible:
           /storage_ref|SECRET-LIKE|trace-must-not-render|credential-must-not-render|fingerprint-must-not-render|authorization internals|weknora[_ -]?(doc|kb)[_ -]?id|fetch token|api[_ -]?key/i.test(
             text,
@@ -331,9 +332,10 @@ if (
       result.fakeFeatureVisible ||
       result.sensitiveTextVisible ||
       !result.routedFromList ||
-      (["restricted", "denied"].includes(result.scenario)
+      (["restricted", "denied", "pending"].includes(result.scenario)
         ? result.originalActionCount !== 0
         : result.originalActionCount !== 1) ||
+      (result.scenario === "pending" && result.pendingProgressLinkCount !== 1) ||
       (result.scenario === "failure" && result.detailCalls < 2) ||
       (result.scenario === "denied" && !result.deniedVisible) ||
       (result.scenario === "preview-failure" && !result.previewFailureVisible) ||

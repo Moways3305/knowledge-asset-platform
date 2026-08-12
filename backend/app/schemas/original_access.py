@@ -41,6 +41,10 @@ class OriginalAccessRequestOut(BaseModel):
     review_note: str | None = None
     created_at: datetime
     reviewed_at: datetime | None = None
+    grant_status: str | None = None
+    grant_expires_at: datetime | None = None
+    grant_revoked_at: datetime | None = None
+    can_reapply: bool = False
 
 
 class AccessGrantOut(BaseModel):

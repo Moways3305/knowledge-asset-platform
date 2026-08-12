@@ -48,6 +48,16 @@ function overviewFor(scenario, callCount) {
   const hidden = scenario === "titles-hidden";
   const retryReady = scenario === "recent-error-retry" && callCount > 1;
   return {
+    task_center: {
+      status: "empty",
+      error_code: null,
+      summary: { needs_action: 0, running: 0, attention: 0, completed_today: 0 },
+      priority_items: [],
+      my_tasks: [],
+      running_jobs: [],
+      attention_items: [],
+      recent_completed: [],
+    },
     todos:
       scenario === "zero-todos"
         ? { status: "empty", error_code: null, items: [], total: 0 }

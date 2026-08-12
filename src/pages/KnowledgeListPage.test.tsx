@@ -2,7 +2,12 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchKnowledgeDetail, fetchKnowledgePage, requestOriginalAccess } from "../api/knowledge";
+import {
+  fetchKnowledgeDetail,
+  fetchKnowledgePage,
+  requestOriginalAccess,
+  searchKnowledge,
+} from "../api/knowledge";
 import type {
   KnowledgeCardVM,
   KnowledgeDetailVM,
@@ -61,6 +66,7 @@ vi.mock("../api/knowledge", () => ({
   fetchKnowledgeDetail: vi.fn(),
   fetchKnowledgePage: vi.fn(),
   requestOriginalAccess: vi.fn(),
+  searchKnowledge: vi.fn(),
 }));
 
 const restrictedAsset: KnowledgeCardVM = {
@@ -194,6 +200,14 @@ describe("KnowledgeListPage reference implementation", () => {
       request: null,
       grant: null,
     });
+    vi.mocked(searchKnowledge).mockResolvedValue({
+      intent: "search",
+      cards: [],
+      answer: null,
+      citations: [],
+      original: null,
+      trace_id: null,
+    });
   });
 
   it("loads one server page without the former three-scope fan-out", async () => {
@@ -209,7 +223,8 @@ describe("KnowledgeListPage reference implementation", () => {
       includeArchived: false,
     });
     expect(screen.getByRole("link", { name: "上传资产" })).toHaveAttribute("href", "/upload");
-    expect(screen.queryByText(/运营洞察|语义检索|新建项目知识库/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/运营洞察|新建项目知识库/)).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "语义检索" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /删除|预览|下载/ })).not.toBeInTheDocument();
   });
 
@@ -338,9 +353,46 @@ describe("KnowledgeListPage reference implementation", () => {
     expect(screen.queryByText(/Markdown|WeKnora|storage_ref/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "申请原文" }));
-    await waitFor(() => expect(requestOriginalAccess).toHaveBeenCalledWith(crossProjectAsset.id));
-    expect(await screen.findByText(/已提交原文访问申请/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "原文申请审批中" })).toBeDisabled();
+    expect(screen.getByRole("dialog", { name: "申请原文" })).toBeInTheDocument();
+    expect(requestOriginalAccess).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "提交申请" }));
+    await waitFor(() =>
+      expect(requestOriginalAccess).toHaveBeenCalledWith(crossProjectAsset.id, undefined),
+    );
+    expect(await screen.findAllByText(/已提交原文访问申请/)).not.toHaveLength(0);
+    expect(screen.getByRole("link", { name: "原文申请审批中" })).toHaveAttribute(
+      "href",
+      "/original-access?box=mine",
+    );
+  });
+
+  it("cancels the request modal without side effects and keeps semantic empty distinct", async () => {
+    vi.mocked(fetchKnowledgePage).mockResolvedValue(response([restrictedAsset]));
+    renderPage();
+    await screen.findByText(restrictedAsset.title);
+
+    fireEvent.click(screen.getByRole("button", { name: "为什么？" }));
+    expect(await screen.findByRole("dialog", { name: "为什么是这个访问状态" })).toHaveTextContent(
+      "原文需要逐项申请",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "申请原文" }));
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(requestOriginalAccess).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("用自然语言描述要找的内容"), {
+      target: { value: "项目复盘方法" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "语义检索" }));
+    await waitFor(() =>
+      expect(searchKnowledge).toHaveBeenCalledWith({
+        query: "项目复盘方法",
+        scope: "all",
+        intent: "search",
+        filters: { include_archived: false },
+      }),
+    );
+    expect(await screen.findByText("当前检索没有匹配结果")).toBeInTheDocument();
+    expect(screen.queryByText("当前条件没有匹配资料")).not.toBeInTheDocument();
   });
 
   it("shows a safe empty state when no cross-project summary is available", async () => {
@@ -379,10 +431,10 @@ describe("KnowledgeListPage reference implementation", () => {
   it("distinguishes filtered empty results and clears the real request filters", async () => {
     vi.mocked(fetchKnowledgePage).mockResolvedValue(response([]));
     renderPage();
-    await screen.findByText("暂无可浏览的知识资产");
+    await screen.findByText("当前身份暂无可浏览资料");
 
     fireEvent.change(screen.getByLabelText("资产类型"), { target: { value: "template" } });
-    expect(await screen.findByText("当前条件没有匹配资产")).toBeInTheDocument();
+    expect(await screen.findByText("当前条件没有匹配资料")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "清除筛选" }));
 
     await waitFor(() =>

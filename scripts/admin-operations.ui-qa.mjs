@@ -148,6 +148,22 @@ const ingest = {
   ],
   total: 1,
 };
+const workbenchOverview = {
+  task_center: {
+    status: "empty",
+    error_code: null,
+    summary: { needs_action: 0, running: 0, attention: 0, completed_today: 0 },
+    priority_items: [],
+    my_tasks: [],
+    running_jobs: [],
+    attention_items: [],
+    recent_completed: [],
+  },
+  todos: { status: "empty", error_code: null, items: [], total: 0 },
+  operations: { status: "empty", error_code: null, data: null },
+  projects: { status: "empty", error_code: null, items: [], total: 0 },
+  recent_activity: { status: "empty", error_code: null, items: [], total: 0 },
+};
 
 let server;
 let browser;
@@ -178,6 +194,16 @@ try {
         }
         if (url.pathname === "/api/v1/auth/me") return fulfill(authMe);
         if (url.pathname === "/api/v1/auth/csrf") return fulfill({ csrf_token: "safe-csrf-85" });
+        if (url.pathname === "/api/v1/workbench/overview") return fulfill(workbenchOverview);
+        if (url.pathname === "/api/v1/notifications")
+          return fulfill({
+            items: [],
+            total: 0,
+            page: 1,
+            page_size: 20,
+            unread_count: 0,
+            categories: [],
+          });
         if (url.pathname === "/api/v1/weknora/model-options")
           return fulfill({ items: [], default_missing: false });
         const forbidden = scenario === "forbidden";

@@ -12,6 +12,20 @@ import {
 import type { KnowledgeDetailVM } from "../types/knowledge";
 import type { PreviewEntryVM } from "../types/preview";
 
+vi.mock("../auth/AuthContext", () => ({
+  useAuth: () => ({
+    capabilities: {
+      isAdmin: false,
+      isBoss: false,
+      isConsultingDirector: false,
+      isBusinessUser: true,
+      isGovernance: false,
+      hasProject: true,
+      isProjectManager: false,
+    },
+  }),
+}));
+
 vi.mock("../api/knowledge", () => ({
   deleteKnowledgeAsset: vi.fn(),
   fetchKnowledgeDetail: vi.fn(),
@@ -152,7 +166,15 @@ describe("KnowledgeDetailPage", () => {
     expect(screen.getAllByRole("button", { name: "申请原文访问" })).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("button", { name: "申请原文访问" }));
-    await waitFor(() => expect(requestOriginalAccess).toHaveBeenCalledWith("asset-1"));
+    expect(screen.getByRole("dialog", { name: "申请原文" })).toBeInTheDocument();
+    expect(requestOriginalAccess).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("申请理由（可选）"), {
+      target: { value: "项目复盘需要" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "提交申请" }));
+    await waitFor(() =>
+      expect(requestOriginalAccess).toHaveBeenCalledWith("asset-1", "项目复盘需要"),
+    );
     expect(await screen.findByText("原文访问申请已提交，待审批。")).toBeInTheDocument();
     expect(screen.queryByText("原文入口")).not.toBeInTheDocument();
   });
@@ -214,7 +236,7 @@ describe("KnowledgeDetailPage", () => {
 
     renderDetail();
 
-    expect(await screen.findByText("其他项目 · 摘要可见")).toBeInTheDocument();
+    expect(await screen.findAllByText("其他项目 · 摘要可见")).not.toHaveLength(0);
     expect(screen.getByRole("link", { name: "返回知识资产库" })).toHaveAttribute(
       "href",
       "/knowledge",
@@ -250,7 +272,7 @@ describe("KnowledgeDetailPage", () => {
 
     renderDetail();
 
-    expect(await screen.findByText("其他项目 · 原文已授权")).toBeInTheDocument();
+    expect(await screen.findAllByText("其他项目 · 原文已授权")).not.toHaveLength(0);
     expect(screen.getByRole("button", { name: "预览原文" })).toBeInTheDocument();
     expect(screen.getByText("项目资料 / 项目复盘")).toBeInTheDocument();
     expect(screen.getByText("王顾问")).toBeInTheDocument();

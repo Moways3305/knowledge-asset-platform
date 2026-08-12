@@ -24,7 +24,7 @@ const routes: RouteContract[] = [
     route: "/",
     component: "HomeDashboardPage",
     guard: "public",
-    owners: ["pages/HomeDashboardPage.tsx"],
+    owners: ["pages/HomeDashboardPage.tsx", "workbench/WorkbenchContext.tsx"],
     apiModules: ["workbench", "admin", "project"],
   },
   {
@@ -270,7 +270,7 @@ const styleModules = import.meta.glob(["../{layouts,styles}/**/*.css"], {
 }) as Record<string, string>;
 
 const sourceModules = import.meta.glob(
-  ["../App.tsx", "../{pages,components,hooks}/**/*.{ts,tsx}"],
+  ["../App.tsx", "../{pages,components,hooks,workbench}/**/*.{ts,tsx}"],
   { eager: true, query: "?raw", import: "default" },
 ) as Record<string, string>;
 
