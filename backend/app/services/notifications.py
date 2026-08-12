@@ -478,8 +478,10 @@ async def _validated_target(
         elif row.target_kind == "ingest_task":
             from app.services import ingest_status as ingest_status_service
 
-            status = await ingest_status_service.get_task_status(session, caller, row.target_id)
-            workflow_status = getattr(status.status, "value", status.status)
+            task_status = await ingest_status_service.get_task_status(
+                session, caller, row.target_id
+            )
+            workflow_status = getattr(task_status.status, "value", task_status.status)
             action_required = workflow_status in {"action_required", "failed"}
             status = {
                 "action_required": "needs_action",
@@ -600,20 +602,22 @@ async def list_notifications(
     start = (page - 1) * page_size
     selected = visible[start : start + page_size]
     project_ids = {row.project_id for row, _ in selected if row.project_id is not None}
-    project_names = (
-        dict(
-            (
+    project_names: dict[uuid.UUID, str] = {}
+    if project_ids:
+        project_names = {
+            project_id: project_name
+            for project_id, project_name in (
                 await session.execute(
                     select(Project.id, Project.name).where(Project.id.in_(project_ids))
                 )
             ).all()
-        )
-        if project_ids
-        else {}
-    )
+        }
     all_visible = await _visible_rows(session, caller)
     return BusinessNotificationListResponse(
-        items=[_out(row, target, project_names.get(row.project_id)) for row, target in selected],
+        items=[
+            _out(row, target, project_names.get(row.project_id) if row.project_id else None)
+            for row, target in selected
+        ],
         total=len(visible),
         page=page,
         page_size=page_size,
@@ -629,7 +633,7 @@ async def unread_count(session: AsyncSession, caller: CallerContext) -> UnreadCo
 
 async def _owned_visible(
     session: AsyncSession, caller: CallerContext, notification_id: uuid.UUID
-) -> tuple[BusinessNotification, NotificationTarget]:
+) -> tuple[BusinessNotification, _VisibleTarget]:
     row = (
         await session.execute(
             select(BusinessNotification).where(

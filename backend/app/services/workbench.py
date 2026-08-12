@@ -194,27 +194,31 @@ async def build_task_center(
 
     if caller.is_business_user:
         reviews = await review_service.list_reviews(session, caller)
-        for item in reviews:
-            waiting = _waiting_minutes(item.created_at)
-            actionable = item.can_decide and item.status in {"pending_reviewer", "approval_failed"}
+        for review_item in reviews:
+            waiting = _waiting_minutes(review_item.created_at)
+            actionable = review_item.can_decide and review_item.status in {
+                "pending_reviewer",
+                "approval_failed",
+            }
             is_mine = actionable or (
-                item.submitted_by == caller.user_id and item.status not in _REVIEW_TERMINAL_STATUSES
+                review_item.submitted_by == caller.user_id
+                and review_item.status not in _REVIEW_TERMINAL_STATUSES
             )
             if is_mine:
-                failed = item.status == "approval_failed"
+                failed = review_item.status == "approval_failed"
                 my_tasks.append(
                     WorkbenchTaskItem(
-                        task_ref=_task_ref("review", item.id),
+                        task_ref=_task_ref("review", review_item.id),
                         task_type="review",
-                        object_name=(item.asset_title or "待审核知识资产").strip(),
-                        project_name=item.project_name,
+                        object_name=(review_item.asset_title or "待审核知识资产").strip(),
+                        project_name=review_item.project_name,
                         status=(
                             "failed"
                             if failed
                             else "needs_action"
                             if actionable
                             else "processing"
-                            if item.status == "approving"
+                            if review_item.status == "approving"
                             else "submitted"
                         ),
                         priority=_priority(
@@ -222,8 +226,8 @@ async def build_task_center(
                         ),
                         assignee=current_name if actionable else "审核负责人",
                         responsibility="由你处理" if actionable else "由你提交",
-                        created_at=item.created_at,
-                        updated_at=item.reviewed_at or item.created_at,
+                        created_at=review_item.created_at,
+                        updated_at=review_item.reviewed_at or review_item.created_at,
                         waiting_minutes=waiting,
                         next_action_key="resolve_review"
                         if failed
@@ -240,30 +244,31 @@ async def build_task_center(
                         route_key="reviews",
                     )
                 )
-            if item.status in _REVIEW_TERMINAL_STATUSES and item.reviewed_at:
-                reviewed = item.reviewed_at
+            if review_item.status in _REVIEW_TERMINAL_STATUSES and review_item.reviewed_at:
+                reviewed = review_item.reviewed_at
                 reviewed_date = (
                     reviewed if reviewed.tzinfo else reviewed.replace(tzinfo=timezone.utc)
                 ).date()
                 if reviewed_date == datetime.now(timezone.utc).date() and (
-                    item.submitted_by == caller.user_id or item.reviewer_user_id == caller.user_id
+                    review_item.submitted_by == caller.user_id
+                    or review_item.reviewer_user_id == caller.user_id
                 ):
                     recent_completed.append(
                         WorkbenchTaskItem(
-                            task_ref=_task_ref("review", item.id),
+                            task_ref=_task_ref("review", review_item.id),
                             task_type="review",
-                            object_name=(item.asset_title or "知识资产审核").strip(),
-                            project_name=item.project_name,
+                            object_name=(review_item.asset_title or "知识资产审核").strip(),
+                            project_name=review_item.project_name,
                             status="completed",
                             priority="low",
                             assignee=current_name,
                             responsibility="已处理",
-                            created_at=item.created_at,
-                            updated_at=item.reviewed_at,
+                            created_at=review_item.created_at,
+                            updated_at=review_item.reviewed_at,
                             next_action_label="查看审核结果",
                             route_key="reviews",
                             result_summary="审核已通过"
-                            if item.status == "approved"
+                            if review_item.status == "approved"
                             else "审核已结束",
                         )
                     )
@@ -280,21 +285,23 @@ async def build_task_center(
                 "rejected",
             },
         )
-        for item in ingest_items:
-            waiting = _waiting_minutes(item.created_at)
-            actionable = item.status in {"pending_confirmation", "failed", "rejected"}
-            failed = item.status in {"failed", "rejected"}
+        for ingest_item in ingest_items:
+            waiting = _waiting_minutes(ingest_item.created_at)
+            actionable = ingest_item.status in {"pending_confirmation", "failed", "rejected"}
+            failed = ingest_item.status in {"failed", "rejected"}
             task = WorkbenchTaskItem(
-                task_ref=_task_ref("ingest", item.id),
+                task_ref=_task_ref("ingest", ingest_item.id),
                 task_type="ingest",
-                object_name=(item.suggested_title or item.source_file_name or "待入库资料").strip(),
+                object_name=(
+                    ingest_item.suggested_title or ingest_item.source_file_name or "待入库资料"
+                ).strip(),
                 status=(
                     "failed"
                     if failed
                     else "needs_action"
                     if actionable
                     else "processing"
-                    if item.status in {"processing", "waiting_review"}
+                    if ingest_item.status in {"processing", "waiting_review"}
                     else "submitted"
                 ),
                 priority=_priority(
@@ -302,8 +309,8 @@ async def build_task_center(
                 ),
                 assignee=current_name if actionable else "系统作业",
                 responsibility="由你确认" if actionable else "由你发起",
-                created_at=item.created_at,
-                updated_at=item.updated_at or item.created_at,
+                created_at=ingest_item.created_at,
+                updated_at=ingest_item.updated_at or ingest_item.created_at,
                 waiting_minutes=waiting,
                 next_action_key="retry_ingest"
                 if failed
@@ -320,19 +327,19 @@ async def build_task_center(
         access_inbox = await original_access_service.list_requests(
             session, caller, box="inbox", status="pending"
         )
-        for item in access_inbox.items:
-            waiting = _waiting_minutes(item.created_at)
+        for access_item in access_inbox.items:
+            waiting = _waiting_minutes(access_item.created_at)
             my_tasks.append(
                 WorkbenchTaskItem(
-                    task_ref=_task_ref("original_access", item.request_id),
+                    task_ref=_task_ref("original_access", access_item.request_id),
                     task_type="original_access",
-                    object_name=(item.asset_title or "原文访问申请").strip(),
+                    object_name=(access_item.asset_title or "原文访问申请").strip(),
                     status="needs_action",
                     priority=_priority(failed=False, waiting_minutes=waiting, action_required=True),
                     assignee=current_name,
                     responsibility="由你审批",
-                    created_at=item.created_at,
-                    updated_at=item.created_at,
+                    created_at=access_item.created_at,
+                    updated_at=access_item.created_at,
                     waiting_minutes=waiting,
                     next_action_key="decide_original_access",
                     next_action_label="审批原文访问",
@@ -340,46 +347,46 @@ async def build_task_center(
                 )
             )
         mine_access = await original_access_service.list_requests(session, caller, box="mine")
-        for item in mine_access.items:
-            if item.status == "pending":
-                waiting = _waiting_minutes(item.created_at)
+        for access_item in mine_access.items:
+            if access_item.status == "pending":
+                waiting = _waiting_minutes(access_item.created_at)
                 my_tasks.append(
                     WorkbenchTaskItem(
-                        task_ref=_task_ref("original_access", item.request_id),
+                        task_ref=_task_ref("original_access", access_item.request_id),
                         task_type="original_access",
-                        object_name=(item.asset_title or "原文访问申请").strip(),
+                        object_name=(access_item.asset_title or "原文访问申请").strip(),
                         status="submitted",
                         priority="normal",
-                        assignee=item.reviewer_name or "项目审批人",
+                        assignee=access_item.reviewer_name or "项目审批人",
                         responsibility="由你提交",
-                        created_at=item.created_at,
-                        updated_at=item.created_at,
+                        created_at=access_item.created_at,
+                        updated_at=access_item.created_at,
                         waiting_minutes=waiting,
                         next_action_label="等待审批结果",
                         route_key="original_access",
                     )
                 )
-            elif item.reviewed_at:
-                reviewed = item.reviewed_at
+            elif access_item.reviewed_at:
+                reviewed = access_item.reviewed_at
                 reviewed_date = (
                     reviewed if reviewed.tzinfo else reviewed.replace(tzinfo=timezone.utc)
                 ).date()
                 if reviewed_date == datetime.now(timezone.utc).date():
                     recent_completed.append(
                         WorkbenchTaskItem(
-                            task_ref=_task_ref("original_access", item.request_id),
+                            task_ref=_task_ref("original_access", access_item.request_id),
                             task_type="original_access",
-                            object_name=(item.asset_title or "原文访问申请").strip(),
-                            status="completed" if item.status == "approved" else "failed",
+                            object_name=(access_item.asset_title or "原文访问申请").strip(),
+                            status="completed" if access_item.status == "approved" else "failed",
                             priority="low",
-                            assignee=item.reviewer_name or "项目审批人",
+                            assignee=access_item.reviewer_name or "项目审批人",
                             responsibility="由你提交",
-                            created_at=item.created_at,
-                            updated_at=item.reviewed_at,
+                            created_at=access_item.created_at,
+                            updated_at=access_item.reviewed_at,
                             next_action_label="查看审批结果",
                             route_key="original_access",
                             result_summary="访问已授权"
-                            if item.status == "approved"
+                            if access_item.status == "approved"
                             else "申请未通过",
                         )
                     )
@@ -399,22 +406,23 @@ async def build_task_center(
             .scalars()
             .all()
         )
-        for item in completed_ingest:
-            updated = item.updated_at or item.created_at
+        for completed_ingest_item in completed_ingest:
+            updated = completed_ingest_item.updated_at or completed_ingest_item.created_at
             updated_date = (
                 updated if updated.tzinfo else updated.replace(tzinfo=timezone.utc)
             ).date()
             if updated_date == datetime.now(timezone.utc).date():
                 recent_completed.append(
                     WorkbenchTaskItem(
-                        task_ref=_task_ref("ingest", item.id),
+                        task_ref=_task_ref("ingest", completed_ingest_item.id),
                         task_type="ingest",
-                        object_name=item.source_file_name.strip() or "知识资产入库",
+                        object_name=completed_ingest_item.source_file_name.strip()
+                        or "知识资产入库",
                         status="completed",
                         priority="low",
                         assignee=current_name,
                         responsibility="由你发起",
-                        created_at=item.created_at,
+                        created_at=completed_ingest_item.created_at,
                         updated_at=updated,
                         next_action_label="查看入库结果",
                         route_key="upload",
