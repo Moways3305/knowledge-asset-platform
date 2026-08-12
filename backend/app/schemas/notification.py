@@ -22,6 +22,13 @@ class BusinessNotificationOut(BaseModel):
     created_at: datetime
     is_read: bool
     read_at: datetime | None
+    project_name: str | None = None
+    object_name: str
+    task_status: str
+    task_group: str
+    action_required: bool
+    next_action_label: str
+    delivery_status: str
     target: NotificationTarget
 
 
@@ -30,6 +37,8 @@ class BusinessNotificationListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+    unread_count: int
+    categories: list[str] = Field(default_factory=list)
 
 
 class UnreadCountResponse(BaseModel):

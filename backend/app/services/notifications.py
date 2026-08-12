@@ -16,7 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.utils import utc_now
-from app.models.identity import ProjectMember, User, UserCompanyRole
+from app.models.identity import Project, ProjectMember, User, UserCompanyRole
+from app.models.indexing_job import IndexingOperationJob
 from app.models.ingest import IngestTask
 from app.models.notification import BusinessNotification
 from app.models.original_access import OriginalAccessRequest
@@ -74,12 +75,50 @@ _EVENT_COPY = {
         "运维告警：索引失败堆积",
         "存在索引失败存量，请到索引维护重试索引。",
     ),
+    "job.indexing.completed": (
+        "indexing",
+        "索引作业已完成",
+        "你提交的索引作业已完成，可查看处理结果。",
+    ),
+    "job.indexing.partial": (
+        "indexing",
+        "索引作业部分完成",
+        "你提交的索引作业存在未完成项，请查看结果。",
+    ),
+    "job.indexing.failed": ("indexing", "索引作业失败", "你提交的索引作业未能完成，请查看并重试。"),
+    "job.parsing.completed": (
+        "parsing",
+        "解析作业已完成",
+        "你提交的解析作业已完成，可查看处理结果。",
+    ),
+    "job.parsing.partial": (
+        "parsing",
+        "解析作业部分完成",
+        "你提交的解析作业存在未完成项，请查看结果。",
+    ),
+    "job.parsing.failed": ("parsing", "解析作业失败", "你提交的解析作业未能完成，请查看并重试。"),
+    "job.knowledge_base.completed": (
+        "knowledge_base",
+        "知识库迁移已完成",
+        "知识库迁移已完成，可查看迁移结果。",
+    ),
+    "job.knowledge_base.partial": (
+        "knowledge_base",
+        "知识库迁移部分完成",
+        "知识库迁移仍有待处理项，请查看结果。",
+    ),
+    "job.knowledge_base.failed": (
+        "knowledge_base",
+        "知识库迁移失败",
+        "知识库迁移未能完成，请查看并重试。",
+    ),
 }
 _TARGET_ROUTES = {
     "review": "reviews",
     "original_access_request": "original_access",
     "ingest_task": "upload",
     "ops_index": "admin_ingest",
+    "indexing_job": "admin_ingest",
 }
 
 # 运维告警信号 → 业务通知事件类型（仅治理角色可见的业务信号，不包含登录风控）。
@@ -99,6 +138,31 @@ def _not_found() -> HTTPException:
 def _is_ops_viewer(caller: CallerContext) -> bool:
     """运维面板可见性（与 ops.py `_require_ops_viewer` 同口径）。"""
     return CompanyRole.admin.value in caller.active_company_roles or caller.can_discover_l5
+
+
+class _VisibleTarget:
+    def __init__(self, target: NotificationTarget, *, status: str, action_required: bool) -> None:
+        self.target = target
+        self.status = status
+        self.action_required = action_required
+
+
+def _task_projection(
+    row: BusinessNotification, status: str, action_required: bool
+) -> tuple[str, str, str]:
+    if action_required:
+        group = "my_tasks"
+        label = "前往处理"
+    elif status in {"submitted", "processing"}:
+        group = "running_jobs"
+        label = "查看进度"
+    elif status in {"failed", "partial"}:
+        group = "attention_items"
+        label = "查看结果"
+    else:
+        group = "recent_completed"
+        label = "查看记录"
+    return status, group, label
 
 
 async def _active_project_user_ids(
@@ -312,9 +376,54 @@ async def notify_ingest_failed(session: AsyncSession, task: IngestTask) -> None:
     )
 
 
+async def notify_operation_job_finished(session: AsyncSession, job: IndexingOperationJob) -> None:
+    """Create one safe terminal notification for the job requester."""
+    if job.requested_by_user_id is None or job.status not in {
+        "completed",
+        "completed_with_errors",
+        "failed",
+        "no_action",
+    }:
+        return
+    user = await session.get(User, job.requested_by_user_id)
+    if user is None or user.status != "active":
+        return
+    family = (
+        "knowledge_base"
+        if job.operation_type == "kb_migrate"
+        else "parsing"
+        if job.operation_type in {"reparse", "markdown_backfill"}
+        else "indexing"
+    )
+    outcome = (
+        "failed"
+        if job.status == "failed"
+        else "partial"
+        if job.status == "completed_with_errors"
+        else "completed"
+    )
+    project_id = None
+    raw_project_id = (job.scope_filter or {}).get("project_id")
+    if raw_project_id:
+        try:
+            project_id = uuid.UUID(str(raw_project_id))
+        except (TypeError, ValueError):
+            pass
+    event_type = f"job.{family}.{outcome}"
+    await _record(
+        session,
+        recipients=[job.requested_by_user_id],
+        event_type=event_type,
+        target_kind="indexing_job",
+        target_id=job.id,
+        project_id=project_id,
+        dedup_key=f"{event_type}:{job.id}",
+    )
+
+
 async def _validated_target(
     session: AsyncSession, caller: CallerContext, row: BusinessNotification
-) -> NotificationTarget | None:
+) -> _VisibleTarget | None:
     if not caller.is_active:
         return None
     if not caller.is_business_user and not _is_ops_viewer(caller):
@@ -327,33 +436,95 @@ async def _validated_target(
             from app.services import review as review_service
 
             item = await review_service.get_review(session, caller, row.target_id)
-            if not item.can_decide or item.status not in _ACTIONABLE_REVIEW_STATUSES:
+            if row.event_type == "review.project_pending":
+                if (
+                    row.project_id is None
+                    or caller.active_project_roles.get(row.project_id)
+                    != ProjectRole.project_manager.value
+                ):
+                    return None
+            elif row.event_type == "review.company_confirmation_pending" and not any(
+                role in {CompanyRole.boss.value, CompanyRole.consulting_director.value}
+                for role in caller.active_company_roles
+            ):
                 return None
+            action_required = item.can_decide and item.status in _ACTIONABLE_REVIEW_STATUSES
+            status = (
+                "failed"
+                if item.status == "approval_failed"
+                else "completed"
+                if item.status in {"approved", "rejected"}
+                else "processing"
+                if item.status == "approving"
+                else "needs_action"
+                if action_required
+                else "submitted"
+            )
         elif row.target_kind == "original_access_request":
             from app.services import original_access as original_access_service
 
-            inbox = await original_access_service.list_requests(
-                session, caller, box="inbox", status=AccessRequestStatus.pending.value
-            )
-            if not any(item.request_id == row.target_id for item in inbox.items):
+            request, asset = await original_access_service._load_request(session, row.target_id)
+            if not original_access_service._can_approve(caller, asset):
                 return None
+            action_required = request.status == AccessRequestStatus.pending.value
+            status = "needs_action" if action_required else "completed"
         elif row.target_kind == "ingest_task":
             from app.services import ingest_status as ingest_status_service
 
             status = await ingest_status_service.get_task_status(session, caller, row.target_id)
-            if getattr(status.status, "value", status.status) != "failed":
-                return None
+            workflow_status = getattr(status.status, "value", status.status)
+            action_required = workflow_status in {"action_required", "failed"}
+            status = {
+                "action_required": "needs_action",
+                "waiting": "submitted",
+                "processing": "processing",
+                "completed": "completed",
+                "degraded": "partial",
+                "failed": "failed",
+            }.get(workflow_status, "submitted")
         elif row.target_kind == "ops_index":
             if not _is_ops_viewer(caller):
                 return None
+            action_required = False
+            status = "failed"
+        elif row.target_kind == "indexing_job":
+            job = await session.get(IndexingOperationJob, row.target_id)
+            if job is None or (
+                job.requested_by_user_id != caller.user_id and not _is_ops_viewer(caller)
+            ):
+                return None
+            action_required = False
+            status = {
+                "queued": "submitted",
+                "running": "processing",
+                "completed": "completed",
+                "no_action": "completed",
+                "completed_with_errors": "partial",
+                "failed": "failed",
+            }.get(job.status, "submitted")
+            route_key = "models" if job.operation_type == "kb_migrate" else "admin_ingest"
         else:
             return None
     except HTTPException:
         return None
-    return NotificationTarget(route_key=_TARGET_ROUTES[row.target_kind], resource_id=row.target_id)
+    return _VisibleTarget(
+        NotificationTarget(
+            route_key=(
+                route_key if row.target_kind == "indexing_job" else _TARGET_ROUTES[row.target_kind]
+            ),
+            resource_id=row.target_id,
+        ),
+        status=status,
+        action_required=action_required,
+    )
 
 
-def _out(row: BusinessNotification, target: NotificationTarget) -> BusinessNotificationOut:
+def _out(
+    row: BusinessNotification, visible: _VisibleTarget, project_name: str | None = None
+) -> BusinessNotificationOut:
+    task_status, task_group, next_action_label = _task_projection(
+        row, visible.status, visible.action_required
+    )
     return BusinessNotificationOut(
         id=row.id,
         event_type=row.event_type,
@@ -363,7 +534,14 @@ def _out(row: BusinessNotification, target: NotificationTarget) -> BusinessNotif
         created_at=row.created_at,
         is_read=row.read_at is not None,
         read_at=row.read_at,
-        target=target,
+        project_name=project_name,
+        object_name=row.title,
+        task_status=task_status,
+        task_group=task_group,
+        action_required=visible.action_required,
+        next_action_label=next_action_label,
+        delivery_status=row.delivery_status,
+        target=visible.target,
     )
 
 
@@ -373,8 +551,8 @@ async def _visible_rows(
     *,
     category: str | None = None,
     unread_only: bool = False,
-) -> list[tuple[BusinessNotification, NotificationTarget]]:
-    if not caller.is_business_user:
+) -> list[tuple[BusinessNotification, _VisibleTarget]]:
+    if not caller.is_business_user and not _is_ops_viewer(caller):
         return []
     stmt = select(BusinessNotification).where(
         BusinessNotification.recipient_user_id == caller.user_id
@@ -394,7 +572,7 @@ async def _visible_rows(
         .scalars()
         .all()
     )
-    visible: list[tuple[BusinessNotification, NotificationTarget]] = []
+    visible: list[tuple[BusinessNotification, _VisibleTarget]] = []
     for row in rows:
         target = await _validated_target(session, caller, row)
         if target is not None:
@@ -414,11 +592,26 @@ async def list_notifications(
     visible = await _visible_rows(session, caller, category=category, unread_only=unread_only)
     start = (page - 1) * page_size
     selected = visible[start : start + page_size]
+    project_ids = {row.project_id for row, _ in selected if row.project_id is not None}
+    project_names = (
+        dict(
+            (
+                await session.execute(
+                    select(Project.id, Project.name).where(Project.id.in_(project_ids))
+                )
+            ).all()
+        )
+        if project_ids
+        else {}
+    )
+    all_visible = await _visible_rows(session, caller)
     return BusinessNotificationListResponse(
-        items=[_out(row, target) for row, target in selected],
+        items=[_out(row, target, project_names.get(row.project_id)) for row, target in selected],
         total=len(visible),
         page=page,
         page_size=page_size,
+        unread_count=sum(row.read_at is None for row, _ in all_visible),
+        categories=sorted({row.category for row, _ in all_visible}),
     )
 
 
@@ -481,7 +674,12 @@ async def mark_read(
         )
     await session.commit()
     await session.refresh(row)
-    return _out(row, target)
+    project_name = (
+        await session.scalar(select(Project.name).where(Project.id == row.project_id))
+        if row.project_id
+        else None
+    )
+    return _out(row, target, project_name)
 
 
 async def mark_read_batch(
@@ -574,7 +772,11 @@ async def dispatch_pending(
             await _audit_delivery(session, row, failed=True, trace_id=trace_id)
             continue
         caller = build_caller_context(user)
-        if await _validated_target(session, caller, row) is None:
+        visible = await _validated_target(session, caller, row)
+        pending_action_event = (
+            row.event_type.startswith("review.") or row.event_type == "original_access.pending"
+        )
+        if visible is None or (pending_action_event and not visible.action_required):
             row.delivery_status = NotificationStatus.failed.value
             row.failure_code = "target_unavailable"
             row.delivery_attempts = MAX_DELIVERY_ATTEMPTS

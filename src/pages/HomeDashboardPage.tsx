@@ -1,5 +1,5 @@
-import { useCallback, useState, type ReactNode } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Archive,
   ArrowRight,
@@ -337,6 +337,7 @@ function OperationCard({
 }
 
 export default function HomeDashboardPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const { authMe, capabilities, reload } = useAuth();
   const navigate = useNavigate();
   const { overview, state: pageState, refresh: load } = useWorkbench();
@@ -425,6 +426,15 @@ export default function HomeDashboardPage() {
     setTaskDrawerGroup(group);
     setTaskDrawerOpen(true);
   };
+  useEffect(() => {
+    const requested = searchParams.get("task_group");
+    if (
+      ["my_tasks", "running_jobs", "attention_items", "recent_completed"].includes(requested ?? "")
+    ) {
+      setTaskDrawerGroup(requested as TaskCenterGroup);
+      setTaskDrawerOpen(true);
+    }
+  }, [searchParams]);
 
   return (
     <ProductPage className="today-workbench wb81-workbench">
@@ -754,7 +764,14 @@ export default function HomeDashboardPage() {
         open={taskDrawerOpen}
         initialGroup={taskDrawerGroup}
         groups={taskGroups}
-        onClose={() => setTaskDrawerOpen(false)}
+        onClose={() => {
+          setTaskDrawerOpen(false);
+          if (searchParams.has("task_group")) {
+            const next = new URLSearchParams(searchParams);
+            next.delete("task_group");
+            setSearchParams(next, { replace: true });
+          }
+        }}
       />
 
       <TaskModal

@@ -343,6 +343,19 @@ async def run_operation_job(
             job.error_message = error_catalog.user_message(code)
             job.finished_at = utc_now()
             await session.commit()
+            from app.services.notifications import notify_operation_job_finished
+
+            try:
+                await notify_operation_job_finished(session, job)
+                await session.commit()
+            except Exception as notification_exc:  # noqa: BLE001
+                safe_log_exception(
+                    _logger,
+                    "operation_job_notification_failed",
+                    notification_exc,
+                    include_summary=False,
+                )
+                await session.rollback()
         return "failed"
 
     # 重新载入 job（循环内多次 commit/rollback 后以最新状态回写统计）。
@@ -361,6 +374,16 @@ async def run_operation_job(
         job.status = "completed" if failed == 0 else "completed_with_errors"
     job.finished_at = utc_now()
     await session.commit()
+    from app.services.notifications import notify_operation_job_finished
+
+    try:
+        await notify_operation_job_finished(session, job)
+        await session.commit()
+    except Exception as notification_exc:  # noqa: BLE001
+        safe_log_exception(
+            _logger, "operation_job_notification_failed", notification_exc, include_summary=False
+        )
+        await session.rollback()
 
     completed_action = (
         AuditAction.knowledge_index_target_retry_completed
