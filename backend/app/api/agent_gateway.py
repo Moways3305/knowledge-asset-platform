@@ -149,10 +149,11 @@ async def list_knowledge_directories(
     session: AsyncSession = Depends(get_db),
 ) -> AgentDirectoriesResponse:
     rule, caller = bound
+    effective_scope = "project" if rule.allowed_project_id is not None else rule.allowed_scope
     rows = await directory_service.visible_directory_rows(
         session,
         caller,
-        allowed_scope=rule.allowed_scope,
+        allowed_scope=effective_scope,
         allowed_project_id=rule.allowed_project_id,
     )
     return AgentDirectoriesResponse(items=[AgentDirectoryOut(**row) for row in rows])

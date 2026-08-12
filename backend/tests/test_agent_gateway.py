@@ -156,6 +156,23 @@ async def test_directory_catalog_is_token_bound_and_contains_no_counts(client, d
     assert "project_code" not in response.text
 
 
+@pytest.mark.parametrize("allowed_scope", ["all", None])
+async def test_project_locked_agent_directory_catalog_only_lists_locked_project(
+    client, db_session, allowed_scope
+):
+    await _insert_rule(
+        db_session,
+        allowed_scope=allowed_scope,
+        allowed_project_id=PROJECT_ALPHA,
+    )
+    response = await client.get(DIRECTORIES, headers=_bearer())
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert items
+    assert all(item["scope"] == "project" for item in items)
+    assert {item["project_id"] for item in items} == {str(PROJECT_ALPHA)}
+
+
 async def test_project_locked_agent_plain_search_cannot_recall_other_scopes(client, db_session):
     await _insert_rule(
         db_session,
