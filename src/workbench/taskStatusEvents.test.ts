@@ -10,6 +10,7 @@ describe("task status invalidation", () => {
     expect(affectsTaskStatus("/api/v1/reviews/review-id/approve")).toBe(true);
     expect(affectsTaskStatus("/api/v1/ingest/task-id/confirm")).toBe(true);
     expect(affectsTaskStatus("/api/v1/knowledge/asset-id/original-access/request")).toBe(true);
+    expect(affectsTaskStatus("/api/v1/knowledge/asset-id/retry-index")).toBe(true);
     expect(
       affectsTaskStatus("/api/v1/projects/project-id/knowledge/asset-id/upgrade-company"),
     ).toBe(true);
