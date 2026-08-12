@@ -57,6 +57,23 @@ vi.mock("../api/notifications", () => ({
   markNotificationsRead: vi.fn(),
 }));
 vi.mock("../api/workbench", () => ({ fetchWorkbenchOverview: vi.fn() }));
+vi.mock("../workbench/WorkbenchContext", () => ({
+  WorkbenchProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+  useWorkbench: () => ({
+    overview: {
+      task_center: {
+        summary: { needs_action: 0, running: 0, attention: 0, completed_today: 0 },
+        priority_items: [],
+        my_tasks: [],
+        running_jobs: [],
+        attention_items: [],
+        recent_completed: [],
+      },
+    },
+    state: "ready",
+    refresh: vi.fn(),
+  }),
+}));
 
 function renderLayout(path = "/") {
   return render(

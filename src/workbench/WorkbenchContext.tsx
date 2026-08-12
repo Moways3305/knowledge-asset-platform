@@ -11,6 +11,7 @@ import { fetchWorkbenchOverview } from "../api/workbench";
 import type { WorkbenchOverviewDTO } from "../types/workbench";
 import { useAuth } from "../auth/AuthContext";
 import { useLocation } from "react-router-dom";
+import { TASK_STATUS_INVALIDATED_EVENT } from "./taskStatusEvents";
 
 type WorkbenchState = "loading" | "ready" | "error";
 
@@ -58,12 +59,15 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     const onVisible = () => {
       if (document.visibilityState === "visible") void refresh();
     };
+    const onTaskInvalidated = () => void refresh();
     window.addEventListener("focus", onVisible);
+    window.addEventListener(TASK_STATUS_INVALIDATED_EVENT, onTaskInvalidated);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       requestRef.current += 1;
       window.clearInterval(interval);
       window.removeEventListener("focus", onVisible);
+      window.removeEventListener(TASK_STATUS_INVALIDATED_EVENT, onTaskInvalidated);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [authStatus, location.pathname, refresh]);
