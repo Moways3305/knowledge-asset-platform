@@ -32,7 +32,8 @@ const scenarios = [
 ];
 const viewports = [
   { name: "1440", width: 1440, height: 1000 },
-  { name: "1280", width: 1280, height: 900 },
+  { name: "1024", width: 1024, height: 900 },
+  { name: "390", width: 390, height: 844 },
 ];
 
 const knowledgeItem = (overrides = {}) => ({

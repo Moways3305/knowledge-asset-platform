@@ -1,6 +1,6 @@
 import path from "node:path";
 
-export const acceptanceViewports = ["1440", "1280"];
+export const acceptanceViewports = ["1440", "1024", "390"];
 
 export const routeDefinitions = [
   {

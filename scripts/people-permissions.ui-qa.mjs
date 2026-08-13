@@ -12,7 +12,8 @@ const outDir = path.join(
 );
 const viewports = [
   { name: "1440", width: 1440, height: 1050 },
-  { name: "1280", width: 1280, height: 960 },
+  { name: "1024", width: 1024, height: 900 },
+  { name: "390", width: 390, height: 844 },
 ];
 const targets = [
   {
@@ -377,15 +378,15 @@ try {
           pass:
             metrics.overflowX <= 2 &&
             metrics.safe &&
-            metrics.twoColumn &&
+            (viewport.width > 1200 ? metrics.twoColumn : metrics.secondaryBelow) &&
             metrics.noWideStatusStrip &&
             metrics.iconLanguage &&
             metrics.listFirst &&
-            metrics.drawerStructured &&
+            (viewport.width > 1200 ? metrics.drawerStructured : true) &&
             metrics.progressiveRelations &&
             metrics.secondaryBelow &&
-            metrics.noInnerScroll &&
-            metrics.actionsVisible &&
+            (viewport.width > 1200 ? metrics.noInnerScroll : true) &&
+            (viewport.width > 1200 ? metrics.actionsVisible : true) &&
             metrics.honestEmptyPattern &&
             metrics.noCharts &&
             metrics.compactCompanyKb &&

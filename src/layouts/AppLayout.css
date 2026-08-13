@@ -6027,6 +6027,24 @@ body {
   background: var(--color-bg-surface);
 }
 
+.product-table-region {
+  min-width: 0;
+}
+
+.product-table-scroll-hint {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 7px;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
+.product-table-wrap:focus-visible {
+  outline: 2px solid var(--color-accent-1);
+  outline-offset: 2px;
+}
+
 .product-data-table {
   width: 100%;
   min-width: 680px;
@@ -6085,6 +6103,11 @@ body {
   font-weight: 600;
   line-height: 1.25;
   overflow-wrap: anywhere;
+}
+
+.status-pill-icon {
+  flex: 0 0 auto;
+  margin-right: 4px;
 }
 
 .status-pill.is-info {
@@ -6203,6 +6226,17 @@ body {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
+}
+
+.product-page-scope {
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 9px;
+  padding-left: 8px;
+  border-left: 2px solid var(--color-accent-1);
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 .product-page-header h2,
@@ -6516,6 +6550,10 @@ body {
 }
 
 @media (max-width: 720px) {
+  .product-table-scroll-hint {
+    display: flex;
+  }
+
   .product-page,
   :where(
     .ingest-page,

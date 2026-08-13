@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildRouteCoverage } from "./global-frontend-acceptance.coverage.mjs";
+import {
+  acceptanceViewports,
+  buildRouteCoverage,
+} from "./global-frontend-acceptance.coverage.mjs";
 
 const definitions = [
   {
@@ -15,7 +18,7 @@ const definitions = [
 
 function suite(overrides = {}) {
   const cases = ["normal", "forbidden"].flatMap((scenario) =>
-    ["1440", "1280"].map((viewport) => ({
+    acceptanceViewports.map((viewport) => ({
       page: "example",
       scenario,
       viewport,
@@ -32,18 +35,18 @@ test("passes only when every declared state has a concrete case and screenshot",
   const [route] = buildRouteCoverage(definitions, [suite()]);
 
   assert.equal(route.status, "passed");
-  assert.equal(route.checks.length, 4);
+  assert.equal(route.checks.length, 6);
   assert.ok(route.checks.every((check) => check.status === "passed" && check.evidence));
 });
 
 test("fails instead of inheriting a suite pass when a declared case is missing", () => {
   const complete = suite();
   const cases = complete.cases.filter(
-    (item) => !(item.scenario === "forbidden" && item.viewport === "1280"),
+    (item) => !(item.scenario === "forbidden" && item.viewport === "390"),
   );
   const [route] = buildRouteCoverage(definitions, [{ ...complete, cases }]);
   const missing = route.checks.find(
-    (check) => check.state === "forbidden" && check.viewport === "1280",
+    (check) => check.state === "forbidden" && check.viewport === "390",
   );
 
   assert.equal(route.status, "failed");
@@ -74,13 +77,13 @@ test("fails concrete coverage for a failed case or missing screenshot", () => {
 test("fails a legacy child report case that uses pass=false", () => {
   const complete = suite();
   const cases = complete.cases.map(({ passed, ...item }) =>
-    item.scenario === "forbidden" && item.viewport === "1280"
+    item.scenario === "forbidden" && item.viewport === "390"
       ? { ...item, pass: false }
       : { ...item, pass: passed },
   );
   const [route] = buildRouteCoverage(definitions, [{ ...complete, cases }]);
   const failed = route.checks.find(
-    (check) => check.state === "forbidden" && check.viewport === "1280",
+    (check) => check.state === "forbidden" && check.viewport === "390",
   );
 
   assert.equal(route.status, "failed");

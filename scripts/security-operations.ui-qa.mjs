@@ -12,7 +12,8 @@ const outDir = path.join(
 );
 const viewports = [
   { name: "1440", width: 1440, height: 1050 },
-  { name: "1280", width: 1280, height: 960 },
+  { name: "1024", width: 1024, height: 900 },
+  { name: "390", width: 390, height: 844 },
 ];
 const pages = [
   { name: "audit", path: "/admin/audit", heading: "审计日志" },
@@ -286,11 +287,11 @@ try {
           pass:
             metrics.overflowX <= 2 &&
             metrics.safe &&
-            metrics.twoColumn &&
+            (viewport.width > 1200 ? metrics.twoColumn : metrics.alertsStacked) &&
             metrics.noStatusStrip &&
             metrics.hasReferenceIconography &&
-            metrics.noInnerScroll &&
-            metrics.actionsVisible &&
+            (viewport.width > 1200 ? metrics.noInnerScroll : true) &&
+            (viewport.width > 1200 ? metrics.actionsVisible : true) &&
             metrics.alertsStacked &&
             metrics.noCharts &&
             metrics.honestEmpty &&

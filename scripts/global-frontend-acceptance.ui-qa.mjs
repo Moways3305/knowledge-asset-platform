@@ -95,6 +95,16 @@ const suites = [
   },
 ];
 
+const selectedSuites = new Set(
+  (process.env.UI_QA_SUITES || "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean),
+);
+const suitesToRun = selectedSuites.size
+  ? suites.filter((suite) => selectedSuites.has(suite.name))
+  : suites;
+
 let ownedServer = null;
 let serverOutput = "";
 
@@ -197,7 +207,7 @@ const suiteResults = [];
 
 try {
   await ensureServer();
-  for (const suite of suites) {
+  for (const suite of suitesToRun) {
     await ensureServer();
     console.log(`UI QA suite started: ${suite.name}`);
     const startedAt = Date.now();

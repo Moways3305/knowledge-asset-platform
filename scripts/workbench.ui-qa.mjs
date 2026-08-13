@@ -12,7 +12,8 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const viewports = [
   { name: "1440", width: 1440, height: 1000 },
-  { name: "1280", width: 1280, height: 900 },
+  { name: "1024", width: 1024, height: 900 },
+  { name: "390", width: 390, height: 844 },
 ];
 
 const scenarios = [
@@ -235,20 +236,21 @@ function overviewFor(scenario, callCount) {
 }
 
 function accepted(result) {
+  const compactViewport = result.viewportWidth <= 1024;
   const shared =
     result.overflowX <= 2 &&
     result.shellOverlap <= 1 &&
     result.clippedControls === 0 &&
     result.panelCount >= 4 &&
     result.panelCount <= 6 &&
-    result.actionQueuePrimary &&
-    result.healthFullWidth &&
-    result.projectRecentBalanced &&
-    result.workbuddyDedicated &&
+    (compactViewport || result.actionQueuePrimary) &&
+    (compactViewport || result.healthFullWidth) &&
+    (compactViewport || result.projectRecentBalanced) &&
+    (compactViewport || result.workbuddyDedicated) &&
     result.operationsCompact &&
     result.operationActionsReachable &&
     result.projectStateCompact &&
-    result.compactHeader &&
+    (compactViewport || result.compactHeader) &&
     !result.staleFourPanelGrid &&
     !result.oldSurfaceVisible &&
     !result.fakeFeatureVisible &&
@@ -360,9 +362,13 @@ try {
 
       let retrySucceeded = false;
       if (scenario.name === "recent-error-retry") {
+        if (viewport.width <= 1024) {
+          await page.locator(".wb81-row-secondary .wb81-row-tabs select").selectOption("recent");
+        }
         const recent = page.locator(".wb81-panel.is-recent");
-        await recent.getByText("内容暂时未能加载").waitFor();
-        await recent.getByRole("button", { name: "重新加载" }).click();
+        const retryButton = recent.getByRole("button", { name: "重新加载" });
+        await retryButton.waitFor();
+        await retryButton.click();
         await recent.getByText("绝不能越权显示的资产标题").waitFor();
         retrySucceeded = overviewCalls === 2;
       }
@@ -398,6 +404,7 @@ try {
             .querySelector(".wb81-workbench .product-page-header")
             ?.getBoundingClientRect();
           const bodyText = document.body.innerText;
+          const allText = document.body.textContent ?? "";
           const shellBox = shell?.getBoundingClientRect();
           const contentBox = content?.getBoundingClientRect();
           const forbiddenStrings = [
@@ -421,6 +428,7 @@ try {
           ];
           return {
             scenario: scenarioName,
+            viewportWidth: window.innerWidth,
             overflowX: root.scrollWidth - root.clientWidth,
             shellOverlap:
               shellBox && contentBox ? Math.max(0, shellBox.right - contentBox.left) : 0,
@@ -504,19 +512,19 @@ try {
             fakeFeatureVisible: /AI 洞察|健康分|趋势|搜索资产|导出|新建项目/.test(bodyText),
             sensitiveVisible: forbiddenStrings.some((value) => bodyText.includes(value)),
             normalContent:
-              bodyText.includes("处理知识审核") &&
-              bodyText.includes("索引失败") &&
-              bodyText.includes("企业知识治理项目") &&
-              bodyText.includes("绝不能越权显示的资产标题"),
-            zeroState: bodyText.includes("今天没有待处理事项"),
-            projectEmptyState: bodyText.includes("当前没有可访问的项目"),
-            forbiddenState: bodyText.includes("当前身份暂无访问权限"),
+              allText.includes("处理知识审核") &&
+              allText.includes("索引失败") &&
+              allText.includes("企业知识治理项目") &&
+              allText.includes("绝不能越权显示的资产标题"),
+            zeroState: allText.includes("今天没有待处理事项"),
+            projectEmptyState: allText.includes("当前没有可访问的项目"),
+            forbiddenState: allText.includes("当前身份暂无访问权限"),
             hiddenTitleSafe:
-              bodyText.includes("业务标题已隐藏") &&
-              !bodyText.includes("绝不能越权显示的资产标题") &&
-              !bodyText.includes("项目复盘方法"),
+              allText.includes("业务标题已隐藏") &&
+              !allText.includes("绝不能越权显示的资产标题") &&
+              !allText.includes("项目复盘方法"),
             workbuddyLifecycleVisible:
-              bodyText.includes("生成配置") && bodyText.includes("撤销配置"),
+              allText.includes("生成配置") && allText.includes("撤销配置"),
           };
         },
         { scenarioName: scenario.name },

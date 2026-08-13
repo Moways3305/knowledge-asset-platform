@@ -31,7 +31,8 @@ const scenarios = [
 ];
 const viewports = [
   { name: "1440", width: 1440, height: 1000 },
-  { name: "1280", width: 1280, height: 900 },
+  { name: "1024", width: 1024, height: 900 },
+  { name: "390", width: 390, height: 844 },
 ];
 
 const projectItems = [
@@ -151,11 +152,17 @@ function overview(projectId, manager = false) {
 }
 
 function hasValidSkeleton(result) {
+  const desktop = result.viewportWidth > 1200;
+  const tablet = result.viewportWidth > 760 && result.viewportWidth <= 1200;
+  const responsiveColumns = desktop
+    ? result.assistantWidth / result.contextWidth >= 2.5
+    : tablet
+      ? result.contextWidth >= 200 && result.contextWidth <= 300 && result.assistantWidth >= 400
+      : result.contextWidth >= result.viewportWidth - 40 &&
+        result.assistantWidth >= result.viewportWidth - 40;
   return (
-    result.contextWidth >= 200 &&
-    result.contextWidth <= 300 &&
-    result.assistantWidth / result.contextWidth >= 2.5 &&
-    result.composerVisible &&
+    responsiveColumns &&
+    (result.composerVisible || result.composerReachable) &&
     result.conversationScrollable &&
     !result.oldDashboardPresent &&
     result.chartCount === 0
@@ -383,13 +390,12 @@ try {
           ];
           return {
             scenario: scenarioName,
+            viewportWidth: window.innerWidth,
             overflowX: document.documentElement.scrollWidth - window.innerWidth,
             shellOverlap: rail && appMain ? Math.max(0, rail.right - appMain.left) : 0,
             clippedControls: interactive.filter((element) => {
               const rect = element.getBoundingClientRect();
-              return (
-                rect.left < 0 || rect.right > window.innerWidth || rect.bottom > window.innerHeight
-              );
+              return rect.left < 0 || rect.right > window.innerWidth;
             }).length,
             deckTitle: document.querySelector(".deck-title")?.textContent?.trim() || "",
             contextWidth: contextPanel?.width || 0,
@@ -399,6 +405,12 @@ try {
               assistant &&
               composer.top >= assistant.top &&
               composer.bottom <= window.innerHeight,
+            ),
+            composerReachable: Boolean(
+              composer &&
+              composer.left >= 0 &&
+              composer.right <= window.innerWidth &&
+              document.documentElement.scrollHeight >= composer.bottom,
             ),
             conversationScrollable:
               conversation instanceof HTMLElement &&

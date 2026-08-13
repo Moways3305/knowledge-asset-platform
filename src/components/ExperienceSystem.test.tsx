@@ -12,12 +12,17 @@ describe("experience system", () => {
     const states: OperationStatus[] = [
       "not_started",
       "queued",
+      "submitted",
       "processing",
       "awaiting_confirmation",
+      "awaiting_approval",
+      "attention",
       "completed",
       "partial",
       "failed",
-      "attention",
+      "cancelled",
+      "withdrawn",
+      "expired",
     ];
     const { rerender } = render(
       <OperationStatusCard status={states[0]} title="导入任务" nextStep="下一步" />,

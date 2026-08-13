@@ -14,7 +14,8 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const viewports = [
   { name: "1440", width: 1440, height: 1100 },
-  { name: "1280", width: 1280, height: 960 },
+  { name: "1024", width: 1024, height: 900 },
+  { name: "390", width: 390, height: 844 },
 ];
 const scenarios = [
   "normal-trend",
@@ -471,7 +472,7 @@ try {
         result.overflowX <= 2 &&
         result.clipped === 0 &&
         result.panels === 2 &&
-        result.leftNarrower &&
+        (viewport.width > 1200 ? result.leftNarrower : true) &&
         result.safe &&
         result.localized &&
         result.healthVisible &&

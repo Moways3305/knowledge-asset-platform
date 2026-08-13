@@ -13,7 +13,8 @@ const outDir = path.join(
 fs.mkdirSync(outDir, { recursive: true });
 const viewports = [
   { name: "1440", width: 1440, height: 1050 },
-  { name: "1280", width: 1280, height: 960 },
+  { name: "1024", width: 1024, height: 900 },
+  { name: "390", width: 390, height: 844 },
 ];
 const scenarios = [
   "normal",
@@ -260,10 +261,10 @@ try {
         pass:
           metrics.overflowX <= 2 &&
           metrics.safe &&
-          metrics.twoColumn &&
+          (viewport.width > 1200 ? metrics.twoColumn : metrics.recordBelow) &&
           metrics.recordBelow &&
           metrics.recordsAreTable &&
-          metrics.actionsVisible &&
+          (viewport.width > 1200 ? metrics.actionsVisible : true) &&
           metrics.honestSummary &&
           metrics.readOnly &&
           metrics.stateVisible &&

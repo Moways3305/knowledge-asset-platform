@@ -63,7 +63,8 @@ async function stopOwnedServer() {
 const scenarios = ["help", "not-found", "loading", "forbidden", "error", "empty"];
 const viewports = [
   { name: "1440", width: 1440, height: 1000 },
-  { name: "1280", width: 1280, height: 900 },
+  { name: "1024", width: 1024, height: 900 },
+  { name: "390", width: 390, height: 844 },
 ];
 const workbenchOverview = {
   task_center: {
@@ -269,11 +270,12 @@ try {
       result.sensitiveTextVisible ||
       result.consoleErrors.length > 0;
     if (result.scenario === "help") {
+      const desktop = result.viewport === "1440";
       return (
         baseFailure ||
-        result.helpDirectoryWidth < 220 ||
-        result.helpDirectoryWidth > 250 ||
-        result.helpContentRatio < 2.4 ||
+        (desktop && (result.helpDirectoryWidth < 220 || result.helpDirectoryWidth > 250)) ||
+        (desktop && result.helpContentRatio < 2.4) ||
+        (!desktop && result.helpDirectoryWidth <= 0) ||
         result.helpSections !== 12 ||
         result.helpIcons !== 12 ||
         !result.jumpWorked
