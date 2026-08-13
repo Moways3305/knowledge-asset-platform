@@ -677,15 +677,16 @@ async def preflight_assetization(
         .unique()
         .all()
     }
-    counts = dict(
-        (
+    counts: dict[uuid.UUID, int] = {
+        asset_id: int(count)
+        for asset_id, count in (
             await session.execute(
                 select(ValidationEvidence.related_asset_id, func.count())
                 .where(ValidationEvidence.related_asset_id.in_(item_ids))
                 .group_by(ValidationEvidence.related_asset_id)
             )
-        ).all()
-    )
+        ).tuples()
+    }
     items = []
     for item_id in item_ids:
         asset = assets.get(item_id)

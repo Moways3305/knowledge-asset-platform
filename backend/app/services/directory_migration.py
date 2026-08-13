@@ -184,15 +184,16 @@ async def workspace(
         .scalars()
         .all()
     )
-    all_counts = dict(
-        (
+    all_counts: dict[str, int] = {
+        status: int(count)
+        for status, count in (
             await session.execute(
                 select(DirectoryMigrationCandidate.status, func.count()).group_by(
                     DirectoryMigrationCandidate.status
                 )
             )
-        ).all()
-    )
+        ).tuples()
+    }
     active_total = int(
         await session.scalar(
             select(func.count())
@@ -248,10 +249,14 @@ async def workspace(
                 asset_title=assets.get(row.asset_id) or "待治理知识",
                 scope=row.scope,
                 project_id=row.project_id,
-                project_name=projects.get(row.project_id),
+                project_name=projects.get(row.project_id) if row.project_id is not None else None,
                 old_category=row.old_category,
                 suggested_directory_key=row.suggested_directory_key,
-                suggested_directory_name=directory_names.get(row.suggested_directory_key),
+                suggested_directory_name=(
+                    directory_names.get(row.suggested_directory_key)
+                    if row.suggested_directory_key is not None
+                    else None
+                ),
                 candidate_source=row.candidate_source,
                 confidence=row.confidence,
                 status=row.status,
