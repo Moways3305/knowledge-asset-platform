@@ -32,6 +32,7 @@
     "test:ui:people-permissions": "node scripts/people-permissions.ui-qa.mjs",
     "test:ui:help-global": "node scripts/help-global-experience.ui-qa.mjs",
     "test:ui:global-acceptance": "node --test scripts/global-frontend-acceptance.coverage.test.mjs scripts/ui-qa-process.test.mjs && node scripts/global-frontend-acceptance.ui-qa.mjs",
+    "test:acceptance:global-frontend": "npm test -- --run src/components/ExperienceSystem.test.tsx src/components/StatusBadge.test.tsx src/layouts/AppLayout.test.tsx && npm run test:ui:global-acceptance && python -m pytest backend/tests/test_workbench_overview.py backend/tests/test_user_notifications.py -q",
     "test:ui:naming-rules": "node scripts/naming-rules-scoped.ui-qa.mjs",
     "api:export": "python scripts/export_openapi.py"
   },

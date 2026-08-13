@@ -5,7 +5,8 @@ import { chromium } from "playwright";
 import { build, preview } from "vite";
 
 const port = Number(process.env.UI_QA_PORT || 5202);
-const base = `http://127.0.0.1:${port}`;
+const externalBase = process.env.UI_QA_BASE?.replace(/\/$/, "") || null;
+const base = externalBase || `http://127.0.0.1:${port}`;
 const outDir = path.join(
   process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa"),
   "wecom-scan",
@@ -94,11 +95,13 @@ let server;
 let browser;
 const results = [];
 try {
-  await build({ logLevel: "warn" });
-  server = await preview({
-    preview: { host: "127.0.0.1", port, strictPort: true },
-    logLevel: "warn",
-  });
+  if (!externalBase) {
+    await build({ logLevel: "warn" });
+    server = await preview({
+      preview: { host: "127.0.0.1", port, strictPort: true },
+      logLevel: "warn",
+    });
+  }
   browser = await chromium.launch({ args: ["--disable-gpu"] });
   for (const scenario of scenarios)
     for (const viewport of viewports) {
@@ -124,8 +127,7 @@ try {
                     {
                       ...config,
                       enabled: scenario !== "disabled",
-                      scan_space_status:
-                        scenario === "space-unavailable" ? "unavailable" : "ready",
+                      scan_space_status: scenario === "space-unavailable" ? "unavailable" : "ready",
                       manager_access_status:
                         scenario === "identity-missing" ? "identity_link_required" : "ready",
                     },
@@ -145,8 +147,7 @@ try {
               {
                 id: "project-safe",
                 name: "Alpha 项目",
-                scan_space_status:
-                  scenario === "space-unavailable" ? "unavailable" : "ready",
+                scan_space_status: scenario === "space-unavailable" ? "unavailable" : "ready",
                 manager_access_status:
                   scenario === "identity-missing" ? "identity_link_required" : "ready",
               },
