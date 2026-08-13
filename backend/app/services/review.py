@@ -888,13 +888,14 @@ async def bulk_register_evidence(
     )
 
 
-async def create_or_get_confirm_asset(
+async def create_or_get_confirm_asset_with_outcome(
     session: AsyncSession,
     caller: CallerContext,
     project_id: uuid.UUID,
     asset_id: uuid.UUID,
     trace_id: str,
-) -> ReviewListItem:
+) -> tuple[ReviewListItem, bool]:
+    """Return the authoritative item and whether this locked call created it."""
     if not caller.is_business_user:
         await audit_service.record_denied(
             session,
@@ -924,7 +925,7 @@ async def create_or_get_confirm_asset(
     existing = await _find_open_material_review(session, asset_id)
     if existing is not None:
         assets, projects = await _aux_maps(session, [existing])
-        return _to_list_item(existing, assets, projects)
+        return _to_list_item(existing, assets, projects), False
 
     reviewer_id = await _active_pm_of(session, project_id)
     if reviewer_id is None:
@@ -984,7 +985,20 @@ async def create_or_get_confirm_asset(
 
     task = await _load_task(session, task.id)
     assets, projects = await _aux_maps(session, [task])
-    return _to_list_item(task, assets, projects)
+    return _to_list_item(task, assets, projects), True
+
+
+async def create_or_get_confirm_asset(
+    session: AsyncSession,
+    caller: CallerContext,
+    project_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    trace_id: str,
+) -> ReviewListItem:
+    item, _created = await create_or_get_confirm_asset_with_outcome(
+        session, caller, project_id, asset_id, trace_id
+    )
+    return item
 
 
 async def create_or_get_company_upgrade(

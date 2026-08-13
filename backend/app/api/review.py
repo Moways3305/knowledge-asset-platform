@@ -102,16 +102,19 @@ async def submit_assetization(
             )
             continue
         try:
-            created = await review_service.create_or_get_confirm_asset(
+            review, was_created = await review_service.create_or_get_confirm_asset_with_outcome(
                 session, caller, project_id, asset_id, get_trace_id(request)
             )
-            counts["created"] += 1
+            domain_status = "created" if was_created else "existing"
+            counts[domain_status] += 1
             results.append(
                 AssetizationSubmitItem(
                     item_id=asset_id,
-                    status="created",
-                    review_status=created.status,
-                    message="审核已创建，等待审核人处理",
+                    status=domain_status,
+                    review_status=review.status,
+                    message=(
+                        "审核已创建，等待审核人处理" if was_created else "已有待办，已复用现有审核"
+                    ),
                 )
             )
         except HTTPException as exc:

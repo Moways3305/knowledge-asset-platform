@@ -11,6 +11,11 @@ from app.models.identity import UserCompanyRole
 from app.models.knowledge import KnowledgeAsset
 from app.models.review import CompanyAssetReviewDecision, ReviewTask, ValidationEvidence
 from app.schemas.enums import RoleStatus
+from app.schemas.review import (
+    AssetizationPreflightItem,
+    AssetizationPreflightResponse,
+    ReviewListItem,
+)
 from app.seed.dev_seed import (
     KA_PROJECT_ALPHA,
     KA_PROJECT_ALPHA_MATERIAL,
@@ -59,6 +64,63 @@ def _bulk_upgrade_url(project_id=PROJECT_ALPHA):
 
 def _bulk_confirm_url(project_id=PROJECT_ALPHA):
     return f"/api/v1/projects/{project_id}/knowledge/bulk-confirm-asset"
+
+
+def _assetization_submit_url(project_id=PROJECT_ALPHA):
+    return f"/api/v1/projects/{project_id}/knowledge/assetization-submit"
+
+
+async def test_assetization_submit_counts_locked_reuse_as_existing(client, monkeypatch):
+    """A review created after preflight must not be reported as newly created by this request."""
+
+    async def fake_preflight(*_args, **_kwargs):
+        return AssetizationPreflightResponse(
+            items=[
+                AssetizationPreflightItem(
+                    item_id=KA_PROJECT_ALPHA_MATERIAL,
+                    title="项目资料",
+                    status="ready",
+                    evidence_count=1,
+                )
+            ]
+        )
+
+    async def fake_create_or_get(*_args, **_kwargs):
+        return (
+            ReviewListItem(
+                id=uuid.uuid4(),
+                review_type="material_to_asset",
+                trigger_source="project_manager_confirm",
+                status="pending_reviewer",
+                target_asset_id=KA_PROJECT_ALPHA_MATERIAL,
+                asset_title="项目资料",
+                target_scope="project",
+                target_project_id=PROJECT_ALPHA,
+                project_name="Alpha",
+                submitted_by=USER_CONSULTANT,
+                reviewer_user_id=USER_PROJECT_MANAGER,
+                evidence_count=1,
+                review_comment=None,
+                reviewed_at=None,
+                created_at=None,
+            ),
+            False,
+        )
+
+    monkeypatch.setattr("app.services.review.preflight_assetization", fake_preflight)
+    monkeypatch.setattr(
+        "app.services.review.create_or_get_confirm_asset_with_outcome", fake_create_or_get
+    )
+    response = await client.post(
+        _assetization_submit_url(),
+        headers=_hdr(USER_CONSULTANT),
+        json={"item_ids": [str(KA_PROJECT_ALPHA_MATERIAL)]},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert (body["created"], body["existing"]) == (0, 1)
+    assert body["items"][0]["status"] == "existing"
+    assert body["items"][0]["review_status"] == "pending_reviewer"
 
 
 async def test_confirm_asset_without_evidence_fails_closed(client):
