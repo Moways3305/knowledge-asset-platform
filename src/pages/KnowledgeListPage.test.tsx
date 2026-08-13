@@ -412,12 +412,38 @@ describe("KnowledgeListPage reference implementation", () => {
     async (urlScope, directoryKey) => {
       renderPage(`/knowledge?scope=${urlScope}&directory_key=${directoryKey}`);
 
-      expect(await screen.findByRole("button", { name: /公司库/ })).toBeInTheDocument();
+      await waitFor(() => expect(fetchKnowledgeDirectories).toHaveBeenLastCalledWith({}));
+      await waitFor(() =>
+        expect(screen.queryByText("正在读取可进入的目录…")).not.toBeInTheDocument(),
+      );
+      expect(screen.getByRole("button", { name: /公司库/ })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /项目库/ })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /个人库/ })).toBeInTheDocument();
       expect(fetchKnowledgeDirectories).toHaveBeenLastCalledWith({});
       expect(fetchKnowledgePage).not.toHaveBeenCalled();
       expect(screen.queryByText("03 交付成果")).not.toBeInTheDocument();
+    },
+  );
+
+  it.each([
+    ["company", "company.retired"],
+    ["personal", "personal.unknown"],
+    ["project", "project.unknown"],
+  ])(
+    "returns a valid %s scope URL with missing directory %s to the knowledge root",
+    async (urlScope, directoryKey) => {
+      const projectContext = urlScope === "project" ? `&project_id=${PROJECT_A}` : "";
+      renderPage(`/knowledge?scope=${urlScope}${projectContext}&directory_key=${directoryKey}`);
+
+      await waitFor(() => expect(fetchKnowledgeDirectories).toHaveBeenLastCalledWith({}));
+      await waitFor(() =>
+        expect(screen.queryByText("正在读取可进入的目录…")).not.toBeInTheDocument(),
+      );
+      expect(screen.getByRole("button", { name: /公司库/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /项目库/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /个人库/ })).toBeInTheDocument();
+      expect(fetchKnowledgePage).not.toHaveBeenCalled();
+      expect(screen.queryByText(directoryKey)).not.toBeInTheDocument();
     },
   );
 

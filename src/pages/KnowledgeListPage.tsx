@@ -123,6 +123,7 @@ export default function KnowledgeListPage() {
   const [error, setError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
   const requestRef = useRef(0);
+  const directoryRequestRef = useRef(0);
   const restoredDirectoryRef = useRef(false);
   const tableShellRef = useRef<HTMLDivElement>(null);
   const topScrollerRef = useRef<HTMLDivElement>(null);
@@ -338,6 +339,7 @@ export default function KnowledgeListPage() {
 
   useEffect(() => {
     if (!canLoadBusinessKnowledge) return;
+    const directoryRequestId = ++directoryRequestRef.current;
     const invalidProjectDirectoryUrl =
       initialScope === "project" &&
       Boolean(requestedProjectId || directoryKeyFromUrl) &&
@@ -359,7 +361,7 @@ export default function KnowledgeListPage() {
     setDirectoryLoading(true);
     void fetchKnowledgeDirectories(scope ? { scope, projectId: validProjectId || undefined } : {})
       .then((items) => {
-        if (!active) return;
+        if (!active || directoryRequestId !== directoryRequestRef.current) return;
         setDirectoryItems(items);
         if (directoryKeyFromUrl && !restoredDirectoryRef.current) {
           const restored = items.find(
@@ -368,12 +370,25 @@ export default function KnowledgeListPage() {
               item.scope === scope &&
               (scope !== "project" || item.project_id === validProjectId),
           );
-          if (restored) setDirectory(restored);
+          if (!restored) {
+            ++directoryRequestRef.current;
+            setDirectoryItems([]);
+            setDirectory(null);
+            setDirectoryLoading(false);
+            setScope("");
+            setProjectId("");
+            restoredDirectoryRef.current = true;
+            navigate("/knowledge", { replace: true });
+            return;
+          }
+          setDirectory(restored);
           restoredDirectoryRef.current = true;
         }
       })
       .finally(() => {
-        if (active) setDirectoryLoading(false);
+        if (active && directoryRequestId === directoryRequestRef.current) {
+          setDirectoryLoading(false);
+        }
       });
     return () => {
       active = false;
