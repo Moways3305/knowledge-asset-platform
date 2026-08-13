@@ -126,6 +126,23 @@ try {
           });
         }
 
+        if (requestUrl.pathname === "/api/v1/knowledge/directories") {
+          if (requestUrl.searchParams.get("scope") === "company") {
+            return fulfill({
+              items: [
+                {
+                  directory_key: "company.methodology",
+                  name: "方法论",
+                  description: "UI QA governed directory",
+                  scope: "company",
+                  project_id: null,
+                },
+              ],
+            });
+          }
+          return fulfill({ items: [] });
+        }
+
         if (requestUrl.pathname === "/api/v1/knowledge") {
           if (scenario === "loading") {
             await new Promise((resolve) => setTimeout(resolve, 8000));
@@ -152,7 +169,13 @@ try {
       });
 
       const target =
-        scenario === "help" ? "/help" : scenario === "not-found" ? "/missing-pbc90" : "/knowledge";
+        scenario === "help"
+          ? "/help"
+          : scenario === "not-found"
+            ? "/missing-pbc90"
+            : ["loading", "error", "empty"].includes(scenario)
+              ? "/knowledge?scope=company&directory_key=company.methodology"
+              : "/knowledge";
       await page.goto(`${base}${target}`, {
         waitUntil: scenario === "loading" ? "domcontentloaded" : "networkidle",
       });
