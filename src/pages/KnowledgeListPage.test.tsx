@@ -403,6 +403,24 @@ describe("KnowledgeListPage reference implementation", () => {
     expect(fetchKnowledgePage).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["company", "personal.learning_notes"],
+    ["personal", "company.methodology"],
+    ["company", "project.deliverables"],
+  ])(
+    "returns a %s scope URL with a mismatched %s directory to the knowledge root",
+    async (urlScope, directoryKey) => {
+      renderPage(`/knowledge?scope=${urlScope}&directory_key=${directoryKey}`);
+
+      expect(await screen.findByRole("button", { name: /公司库/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /项目库/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /个人库/ })).toBeInTheDocument();
+      expect(fetchKnowledgeDirectories).toHaveBeenLastCalledWith({});
+      expect(fetchKnowledgePage).not.toHaveBeenCalled();
+      expect(screen.queryByText("03 交付成果")).not.toBeInTheDocument();
+    },
+  );
+
   it("keeps the directory return context when an opened original leaves the summary drawer", async () => {
     const user = userEvent.setup();
     vi.mocked(fetchKnowledgePage).mockResolvedValue(response([crossProjectAsset]));

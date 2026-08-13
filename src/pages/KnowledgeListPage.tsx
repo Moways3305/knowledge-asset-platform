@@ -342,7 +342,10 @@ export default function KnowledgeListPage() {
       initialScope === "project" &&
       Boolean(requestedProjectId || directoryKeyFromUrl) &&
       !projects.some((project) => project.projectId === requestedProjectId);
-    if (invalidProjectDirectoryUrl) {
+    const requestedDirectoryScope = directoryKeyFromUrl?.split(".", 1)[0] ?? "";
+    const mismatchedDirectoryScopeUrl =
+      Boolean(directoryKeyFromUrl) && requestedDirectoryScope !== initialScope;
+    if (invalidProjectDirectoryUrl || mismatchedDirectoryScopeUrl) {
       setDirectoryItems([]);
       setDirectory(null);
       setDirectoryLoading(false);
