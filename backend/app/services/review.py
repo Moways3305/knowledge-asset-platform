@@ -43,6 +43,11 @@ from app.schemas.enums import (
 from app.schemas.ingest import IngestConfirmRequest
 from app.schemas.permission import CallerContext
 from app.schemas.review import (
+    AssetizationPreflightItem,
+    AssetizationPreflightResponse,
+    BulkEvidenceItem,
+    BulkEvidenceRequest,
+    BulkEvidenceResponse,
     EvidenceCreateRequest,
     EvidenceOut,
     ReviewActionResponse,
@@ -283,6 +288,16 @@ def _to_list_item(
         evidence_count=len(task.evidence_links),
         can_decide=can_decide,
         can_withdraw=can_withdraw,
+        blocking_reason=(
+            "资料资产化需要至少一项验证证据；请登记适用场景和说明后再交审核人。"
+            if task.review_type == ReviewType.material_to_asset.value
+            and task.status == ReviewTaskStatus.pending_evidence.value
+            else (
+                "上次处理未完成，可在确认业务条件未变化后重试。"
+                if task.status == ReviewTaskStatus.approval_failed.value
+                else None
+            )
+        ),
         general_manager_confirmation_status=(
             states[CompanyRole.boss.value].decision if CompanyRole.boss.value in states else None
         ),
@@ -398,7 +413,18 @@ async def list_reviews_page(
                     )
                 )
             ),
-            can_withdraw=_company_can_withdraw(caller, task, decisions.get(task.id, {})),
+            can_withdraw=(
+                _company_can_withdraw(caller, task, decisions.get(task.id, {}))
+                or (
+                    task.review_type == ReviewType.material_to_asset.value
+                    and task.status
+                    in {
+                        ReviewTaskStatus.pending_evidence.value,
+                        ReviewTaskStatus.pending_reviewer.value,
+                    }
+                    and task.submitted_by == caller.user_id
+                )
+            ),
             decision_states=decisions.get(task.id),
         )
         for task in visible
@@ -439,7 +465,18 @@ async def get_review(
                 )
             )
         ),
-        can_withdraw=_company_can_withdraw(caller, task, decisions),
+        can_withdraw=(
+            _company_can_withdraw(caller, task, decisions)
+            or (
+                task.review_type == ReviewType.material_to_asset.value
+                and task.status
+                in {
+                    ReviewTaskStatus.pending_evidence.value,
+                    ReviewTaskStatus.pending_reviewer.value,
+                }
+                and task.submitted_by == caller.user_id
+            )
+        ),
         decision_states=decisions,
     )
 
@@ -470,11 +507,16 @@ async def get_review(
 
 
 async def _load_project_asset(
-    session: AsyncSession, project_id: uuid.UUID, asset_id: uuid.UUID
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    *,
+    for_update: bool = False,
 ) -> KnowledgeAsset:
-    asset = (
-        await session.execute(select(KnowledgeAsset).where(KnowledgeAsset.id == asset_id))
-    ).scalar_one_or_none()
+    stmt = select(KnowledgeAsset).where(KnowledgeAsset.id == asset_id)
+    if for_update:
+        stmt = stmt.with_for_update()
+    asset = (await session.execute(stmt)).scalar_one_or_none()
     if asset is None:
         raise _denied(404, "knowledge_asset_not_found", "知识资产不存在")
     if asset.scope != KnowledgeScope.project.value or asset.project_id != project_id:
@@ -530,9 +572,20 @@ async def register_evidence(
     if project_id not in caller.active_project_ids:
         raise _denied(403, "project_membership_required", "需为该项目的有效成员")
     _validate_attachments(req.attachments)
-    await _load_project_asset(session, project_id, asset_id)
+    await _load_project_asset(session, project_id, asset_id, for_update=True)
 
-    evidence = ValidationEvidence(
+    existing_evidence = None
+    if req.idempotency_key:
+        existing_evidence = (
+            await session.execute(
+                select(ValidationEvidence).where(
+                    ValidationEvidence.submitted_by == caller.user_id,
+                    ValidationEvidence.related_asset_id == asset_id,
+                    ValidationEvidence.idempotency_key == req.idempotency_key,
+                )
+            )
+        ).scalar_one_or_none()
+    evidence = existing_evidence or ValidationEvidence(
         evidence_type=req.evidence_type.value,
         evidence_category=req.evidence_category.value,
         related_asset_id=asset_id,
@@ -540,14 +593,17 @@ async def register_evidence(
         submitted_by=caller.user_id,
         description=req.description,
         attachments=req.attachments,
+        idempotency_key=req.idempotency_key,
     )
-    session.add(evidence)
-    await session.flush()
+    if existing_evidence is None:
+        session.add(evidence)
+        await session.flush()
 
-    # 若已有非终态的 material_to_asset review，绑定证据并推进状态。
     open_task = await _find_open_material_review(session, asset_id)
     if open_task is not None:
-        session.add(ReviewTaskEvidence(review_task_id=open_task.id, evidence_id=evidence.id))
+        linked = any(link.evidence_id == evidence.id for link in open_task.evidence_links)
+        if not linked:
+            session.add(ReviewTaskEvidence(review_task_id=open_task.id, evidence_id=evidence.id))
         if open_task.status == ReviewTaskStatus.pending_evidence.value:
             open_task.status = ReviewTaskStatus.pending_reviewer.value
 
@@ -582,13 +638,265 @@ async def register_evidence(
     )
 
 
-async def create_or_get_confirm_asset(
+async def preflight_assetization(
+    session: AsyncSession,
+    caller: CallerContext,
+    project_id: uuid.UUID,
+    item_ids: list[uuid.UUID],
+) -> AssetizationPreflightResponse:
+    if not caller.is_business_user:
+        raise _denied(403, "admin_business_permission_denied", "仅业务用户可发起资产化审核")
+    if project_id not in caller.active_project_ids:
+        raise _denied(403, "project_membership_required", "需为该项目的有效成员")
+    rows = list(
+        (
+            await session.execute(
+                select(KnowledgeAsset)
+                .where(KnowledgeAsset.id.in_(item_ids))
+                .options(selectinload(KnowledgeAsset.tags))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assets = {row.id: row for row in rows}
+    open_tasks = {
+        row.target_asset_id: row
+        for row in (
+            await session.execute(
+                select(ReviewTask)
+                .where(
+                    ReviewTask.target_asset_id.in_(item_ids),
+                    ReviewTask.review_type == ReviewType.material_to_asset.value,
+                    ReviewTask.status.in_(list(_NON_TERMINAL)),
+                )
+                .options(selectinload(ReviewTask.evidence_links))
+            )
+        )
+        .scalars()
+        .unique()
+        .all()
+    }
+    counts: dict[uuid.UUID, int] = {
+        asset_id: int(count)
+        for asset_id, count in (
+            await session.execute(
+                select(ValidationEvidence.related_asset_id, func.count())
+                .where(ValidationEvidence.related_asset_id.in_(item_ids))
+                .group_by(ValidationEvidence.related_asset_id)
+            )
+        ).tuples()
+    }
+    items = []
+    for item_id in item_ids:
+        asset = assets.get(item_id)
+        count = int(counts.get(item_id, 0))
+        if (
+            asset is None
+            or asset.project_id != project_id
+            or asset.scope != KnowledgeScope.project.value
+        ):
+            items.append(
+                AssetizationPreflightItem(
+                    item_id=item_id,
+                    title="不可见资料",
+                    status="ineligible",
+                    evidence_count=0,
+                    reason_code="asset_not_in_project",
+                    message="资料不属于当前项目",
+                )
+            )
+        elif asset.zone != "material" or asset.asset_status != "active":
+            items.append(
+                AssetizationPreflightItem(
+                    item_id=item_id,
+                    title=asset.canonical_name or asset.title or "待确认资料",
+                    status="ineligible",
+                    evidence_count=count,
+                    reason_code="asset_not_eligible",
+                    message="仅可对有效资料区内容发起审核",
+                )
+            )
+        elif item_id in open_tasks:
+            task = open_tasks[item_id]
+            task_count = max(count, len(task.evidence_links))
+            if task.status == ReviewTaskStatus.pending_evidence.value and task_count == 0:
+                items.append(
+                    AssetizationPreflightItem(
+                        item_id=item_id,
+                        title=asset.canonical_name or asset.title or "待确认资料",
+                        status="evidence_missing",
+                        evidence_count=0,
+                        reason_code="assetization_evidence_required",
+                        message="已有待补证据任务；补齐后将复用，不会重复建单",
+                    )
+                )
+            else:
+                items.append(
+                    AssetizationPreflightItem(
+                        item_id=item_id,
+                        title=asset.canonical_name or asset.title or "待确认资料",
+                        status="existing",
+                        evidence_count=task_count,
+                        message="已有待办，将复用现有审核",
+                    )
+                )
+        elif count:
+            items.append(
+                AssetizationPreflightItem(
+                    item_id=item_id,
+                    title=asset.canonical_name or asset.title or "待确认资料",
+                    status="ready",
+                    evidence_count=count,
+                    message="已有可绑定证据",
+                )
+            )
+        else:
+            items.append(
+                AssetizationPreflightItem(
+                    item_id=item_id,
+                    title=asset.canonical_name or asset.title or "待确认资料",
+                    status="evidence_missing",
+                    evidence_count=0,
+                    reason_code="assetization_evidence_required",
+                    message="需先登记验证证据",
+                )
+            )
+    return AssetizationPreflightResponse(items=items)
+
+
+async def bulk_register_evidence(
+    session: AsyncSession,
+    caller: CallerContext,
+    body: BulkEvidenceRequest,
+    trace_id: str,
+) -> BulkEvidenceResponse:
+    if not caller.is_business_user:
+        raise _denied(403, "admin_business_permission_denied", "仅业务用户可补充证据")
+    _validate_attachments(body.evidence.attachments)
+    tasks = list(
+        (
+            await session.execute(
+                select(ReviewTask)
+                .where(ReviewTask.id.in_(body.review_ids))
+                .options(selectinload(ReviewTask.evidence_links))
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .unique()
+        .all()
+    )
+    by_id = {row.id: row for row in tasks}
+    if len(tasks) != len(set(body.review_ids)):
+        raise _denied(404, "review_not_found", "部分审核任务不存在或不可用")
+    project_ids = {row.target_project_id for row in tasks}
+    if len(project_ids) != 1 or None in project_ids:
+        raise _denied(422, "bulk_evidence_project_mismatch", "批量补证据仅适用于同一项目")
+    project_id = next(iter(project_ids))
+    if project_id not in caller.active_project_ids:
+        raise _denied(403, "project_membership_required", "需为该项目的有效成员")
+    results: list[BulkEvidenceItem] = []
+    transitioned = existing_count = skipped = failed = 0
+    for review_id in body.review_ids:
+        task = by_id.get(review_id)
+        if task is None:
+            skipped += 1
+            results.append(
+                BulkEvidenceItem(
+                    review_id=review_id, status="skipped", reason_code="review_not_found"
+                )
+            )
+            continue
+        if (
+            task.review_type != ReviewType.material_to_asset.value
+            or task.status
+            not in {
+                ReviewTaskStatus.pending_evidence.value,
+                ReviewTaskStatus.pending_reviewer.value,
+            }
+            or not task.target_asset_id
+        ):
+            skipped += 1
+            results.append(
+                BulkEvidenceItem(
+                    review_id=review_id, status="skipped", reason_code="review_not_eligible"
+                )
+            )
+            continue
+        key = f"{body.evidence.idempotency_key or 'bulk'}:{review_id}"
+        evidence = (
+            await session.execute(
+                select(ValidationEvidence).where(
+                    ValidationEvidence.submitted_by == caller.user_id,
+                    ValidationEvidence.related_asset_id == task.target_asset_id,
+                    ValidationEvidence.idempotency_key == key,
+                )
+            )
+        ).scalar_one_or_none()
+        if evidence is None:
+            evidence = ValidationEvidence(
+                evidence_type=body.evidence.evidence_type.value,
+                evidence_category=body.evidence.evidence_category.value,
+                related_asset_id=task.target_asset_id,
+                project_id=project_id,
+                submitted_by=caller.user_id,
+                description=body.evidence.description,
+                attachments=body.evidence.attachments,
+                idempotency_key=key,
+            )
+            session.add(evidence)
+            await session.flush()
+        if not any(link.evidence_id == evidence.id for link in task.evidence_links):
+            session.add(ReviewTaskEvidence(review_task_id=task.id, evidence_id=evidence.id))
+        else:
+            existing_count += 1
+        if task.status == ReviewTaskStatus.pending_evidence.value:
+            task.status = ReviewTaskStatus.pending_reviewer.value
+            transitioned += 1
+        results.append(
+            BulkEvidenceItem(
+                review_id=review_id,
+                status="transitioned"
+                if task.status == ReviewTaskStatus.pending_reviewer.value
+                else "existing",
+            )
+        )
+        await audit_service.record_event(
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.review_evidence_bound.value,
+            trace_id=trace_id,
+            target_type="review_task",
+            target_id=task.id,
+            after={"status": task.status, "evidence_type": evidence.evidence_type},
+            project_id=project_id,
+        )
+    from app.services.notifications import notify_review_pending
+
+    for task in tasks:
+        if task.status == ReviewTaskStatus.pending_reviewer.value:
+            await notify_review_pending(session, task)
+    await session.commit()
+    return BulkEvidenceResponse(
+        submitted=len(body.review_ids),
+        transitioned=transitioned,
+        existing=existing_count,
+        skipped=skipped,
+        failed=failed,
+        items=results,
+    )
+
+
+async def create_or_get_confirm_asset_with_outcome(
     session: AsyncSession,
     caller: CallerContext,
     project_id: uuid.UUID,
     asset_id: uuid.UUID,
     trace_id: str,
-) -> ReviewListItem:
+) -> tuple[ReviewListItem, bool]:
+    """Return the authoritative item and whether this locked call created it."""
     if not caller.is_business_user:
         await audit_service.record_denied(
             session,
@@ -608,7 +916,7 @@ async def create_or_get_confirm_asset(
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可发起资产确认")
     if project_id not in caller.active_project_ids:
         raise _denied(403, "project_membership_required", "需为该项目的有效成员")
-    asset = await _load_project_asset(session, project_id, asset_id)
+    asset = await _load_project_asset(session, project_id, asset_id, for_update=True)
     if asset.zone != "material":
         raise _denied(422, "asset_not_material", "仅资料区（material）资产可发起资产确认")
     if asset.asset_status != "active":
@@ -618,14 +926,15 @@ async def create_or_get_confirm_asset(
     existing = await _find_open_material_review(session, asset_id)
     if existing is not None:
         assets, projects = await _aux_maps(session, [existing])
-        return _to_list_item(existing, assets, projects)
+        return _to_list_item(existing, assets, projects), False
 
     reviewer_id = await _active_pm_of(session, project_id)
     if reviewer_id is None:
         # 不自动升级到咨询总监；升级策略暂未实现。
         raise _denied(422, "reviewer_not_found", "目标项目无 active 项目经理可作为审核人")
 
-    # 已有证据 → pending_reviewer 并绑定；否则 pending_evidence。
+    # New submissions fail closed. Historical pending_evidence tasks remain recoverable
+    # through the evidence workspace, but this endpoint never creates another one.
     evidences = list(
         (
             await session.execute(
@@ -635,11 +944,9 @@ async def create_or_get_confirm_asset(
         .scalars()
         .all()
     )
-    status = (
-        ReviewTaskStatus.pending_reviewer.value
-        if evidences
-        else ReviewTaskStatus.pending_evidence.value
-    )
+    if not evidences:
+        raise _denied(422, "assetization_evidence_required", "请先登记验证证据，再发起资产化审核")
+    status = ReviewTaskStatus.pending_reviewer.value
     task = ReviewTask(
         review_type=ReviewType.material_to_asset.value,
         trigger_source="project_manager_confirm",
@@ -679,7 +986,20 @@ async def create_or_get_confirm_asset(
 
     task = await _load_task(session, task.id)
     assets, projects = await _aux_maps(session, [task])
-    return _to_list_item(task, assets, projects)
+    return _to_list_item(task, assets, projects), True
+
+
+async def create_or_get_confirm_asset(
+    session: AsyncSession,
+    caller: CallerContext,
+    project_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    trace_id: str,
+) -> ReviewListItem:
+    item, _created = await create_or_get_confirm_asset_with_outcome(
+        session, caller, project_id, asset_id, trace_id
+    )
+    return item
 
 
 async def create_or_get_company_upgrade(
@@ -1502,4 +1822,51 @@ async def withdraw_company_confirmation(
         status=task.status,
         target_asset_id=task.target_asset_id,
         asset_zone=asset.zone if asset is not None else None,
+    )
+
+
+async def withdraw_review(
+    session: AsyncSession,
+    caller: CallerContext,
+    review_id: uuid.UUID,
+    comment: str | None,
+    trace_id: str,
+) -> ReviewActionResponse:
+    task = await _load_task(session, review_id, for_update=True)
+    if task.review_type == ReviewType.project_to_company.value:
+        # Release this lock before the established function reloads it.
+        await session.rollback()
+        return await withdraw_company_confirmation(session, caller, review_id, comment, trace_id)
+    if not caller.is_business_user:
+        raise _denied(403, "admin_business_permission_denied", "仅业务用户可撤回本人任务")
+    if task.review_type != ReviewType.material_to_asset.value:
+        raise _denied(422, "withdraw_not_supported", "该审核类型不支持撤回")
+    if task.submitted_by != caller.user_id:
+        raise _denied(403, "review_withdraw_forbidden", "只能撤回本人发起的任务")
+    if task.status not in {
+        ReviewTaskStatus.pending_evidence.value,
+        ReviewTaskStatus.pending_reviewer.value,
+    }:
+        raise _denied(409, "review_already_decided", "任务已进入处理或终态，不能撤回")
+    task.status = ReviewTaskStatus.rejected.value
+    task.review_comment = (comment or "发起人撤回").strip()
+    task.reviewed_at = datetime.now(timezone.utc)
+    await audit_service.record_event(
+        session,
+        caller=caller,
+        log_type=AuditLogType.operation,
+        action=AuditAction.review_withdrawn.value,
+        trace_id=trace_id,
+        target_type="review_task",
+        target_id=task.id,
+        after={"status": task.status, "withdrawn_by_submitter": True},
+        project_id=task.target_project_id,
+    )
+    await session.commit()
+    asset = await session.get(KnowledgeAsset, task.target_asset_id)
+    return ReviewActionResponse(
+        review_id=task.id,
+        status=task.status,
+        target_asset_id=task.target_asset_id,
+        asset_zone=asset.zone if asset else None,
     )

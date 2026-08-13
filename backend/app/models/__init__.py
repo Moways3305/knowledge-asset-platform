@@ -14,6 +14,7 @@ from app.models.agent_registry import AgentWhitelistRule
 from app.models.audit import AuditEvent
 from app.models.auth_security import AuthLoginAttempt
 from app.models.auth_session import UserSession
+from app.models.directory_migration import DirectoryMigrationCandidate
 from app.models.generation_model import ContentGenerationModel, ContentGenerationSettings
 from app.models.identity import (
     Project,
@@ -103,6 +104,7 @@ __all__ = [
     "AuthLoginAttempt",
     "ContentGenerationModel",
     "ContentGenerationSettings",
+    "DirectoryMigrationCandidate",
     "WeknoraKbMapping",
     "WeknoraDefaultModels",
     "WecomScanConfig",

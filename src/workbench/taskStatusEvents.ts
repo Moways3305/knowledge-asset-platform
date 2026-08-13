@@ -16,7 +16,10 @@ export function affectsTaskStatus(path: string): boolean {
     path.includes("/original-access/") ||
     path.endsWith("/retry-index") ||
     path.endsWith("/upgrade-company") ||
-    path.endsWith("/confirm-asset")
+    path.endsWith("/confirm-asset") ||
+    path.endsWith("/assetization-submit") ||
+    path.endsWith("/bulk-evidence") ||
+    path.endsWith("/evidence")
   );
 }
 

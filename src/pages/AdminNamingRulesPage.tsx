@@ -10,7 +10,13 @@ import {
   Sparkles,
 } from "lucide-react";
 import { ApiError } from "../api/http";
-import { fetchNamingRuleCenter, publishNamingRuleDraft, saveNamingRuleDraft } from "../api/naming";
+import {
+  confirmDirectoryMigration,
+  fetchDirectoryMigration,
+  fetchNamingRuleCenter,
+  publishNamingRuleDraft,
+  saveNamingRuleDraft,
+} from "../api/naming";
 import Button from "../components/Button";
 import DangerConfirmDialog from "../components/DangerConfirmDialog";
 import DetailDrawer from "../components/DetailDrawer";
@@ -21,6 +27,7 @@ import type {
   NamingCategoryConfigDTO,
   NamingRuleCenterDTO,
   NamingScope,
+  DirectoryMigrationWorkspaceDTO,
 } from "../types/naming";
 import "./AdminNamingRulesPage.css";
 
@@ -88,6 +95,12 @@ export default function AdminNamingRulesPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [managerOpen, setManagerOpen] = useState(false);
   const [projectCodesOpen, setProjectCodesOpen] = useState(false);
+  const [migrationOpen, setMigrationOpen] = useState(false);
+  const [migration, setMigration] = useState<DirectoryMigrationWorkspaceDTO | null>(null);
+  const [migrationStatus, setMigrationStatus] = useState("");
+  const [migrationBusy, setMigrationBusy] = useState(false);
+  const [migrationSelection, setMigrationSelection] = useState<string[]>([]);
+  const [migrationManualChoices, setMigrationManualChoices] = useState<Record<string, string>>({});
   const [editor, setEditor] = useState<{
     category: NamingCategoryConfigDTO | null;
     value: CategoryDraft;
@@ -106,6 +119,17 @@ export default function AdminNamingRulesPage() {
       setCenter(await fetchNamingRuleCenter());
     } catch (reason) {
       setError(reason instanceof ApiError ? reason.message : "命名规则暂时无法加载");
+    }
+  };
+
+  const loadMigration = async (nextStatus = migrationStatus) => {
+    setMigrationBusy(true);
+    try {
+      setMigration(await fetchDirectoryMigration({ status: nextStatus || undefined }));
+    } catch (reason) {
+      setError(reason instanceof ApiError ? reason.message : "历史目录迁移暂时无法加载");
+    } finally {
+      setMigrationBusy(false);
     }
   };
   useEffect(() => void load(), []);
@@ -409,6 +433,14 @@ export default function AdminNamingRulesPage() {
             <small>预览只使用当前范围内第一个已启用类别</small>
           </div>
           <div className="naming-primary-actions">
+            <Button
+              onClick={() => {
+                setMigrationOpen(true);
+                void loadMigration();
+              }}
+            >
+              历史目录迁移
+            </Button>
             <Button icon={<FolderCog size={16} />} onClick={() => setManagerOpen(true)}>
               管理目录类别
             </Button>
@@ -449,6 +481,165 @@ export default function AdminNamingRulesPage() {
           </label>
         </section>
       </>
+
+      <DetailDrawer
+        open={migrationOpen}
+        title="历史目录迁移"
+        description="只为当前 active 版本写入正式目录元数据；不会重传、重建索引、改变资料/资产状态或创建审核。"
+        busy={migrationBusy}
+        onClose={() => setMigrationOpen(false)}
+        footer={
+          <>
+            <Button onClick={() => setMigrationOpen(false)}>关闭</Button>
+            <span className="task-modal-footer-spacer" />
+            <Button disabled={migrationBusy} onClick={() => void loadMigration()}>
+              刷新候选
+            </Button>
+            <Button
+              variant="primary"
+              disabled={migrationBusy || migrationSelection.length === 0}
+              onClick={() => {
+                setMigrationBusy(true);
+                void confirmDirectoryMigration(
+                  migrationSelection.map((id) => ({ candidate_id: id })),
+                )
+                  .then((result) => {
+                    setNotice(
+                      `目录迁移完成：迁入 ${result.migrated}，跳过 ${result.skipped}，失败 ${result.failed}。`,
+                    );
+                    setMigrationSelection([]);
+                    return loadMigration();
+                  })
+                  .catch(() => setError("目录迁移未完成，候选仍保留，可重试。"))
+                  .finally(() => setMigrationBusy(false));
+              }}
+            >
+              确认明确匹配（{migrationSelection.length}）
+            </Button>
+          </>
+        }
+      >
+        {migration && (
+          <div className="naming-migration-workspace">
+            <div className="naming-migration-overview">
+              <div>
+                <span>总数</span>
+                <strong>{migration.overview.total}</strong>
+              </div>
+              <div>
+                <span>已迁入</span>
+                <strong>{migration.overview.migrated}</strong>
+              </div>
+              <div>
+                <span>明确匹配</span>
+                <strong>{migration.overview.clear_match}</strong>
+              </div>
+              <div>
+                <span>需人工</span>
+                <strong>{migration.overview.manual_required}</strong>
+              </div>
+              <div>
+                <span>无候选</span>
+                <strong>{migration.overview.no_candidate}</strong>
+              </div>
+              <div>
+                <span>失败</span>
+                <strong>{migration.overview.failed}</strong>
+              </div>
+            </div>
+            <p className="naming-migration-rule">
+              唯一有效来源：当前发布目录规则 v{migration.overview.rule_version ?? "—"}
+            </p>
+            <label className="naming-migration-filter">
+              <span>候选状态</span>
+              <select
+                value={migrationStatus}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setMigrationStatus(next);
+                  void loadMigration(next);
+                }}
+              >
+                <option value="">全部</option>
+                <option value="clear_match">明确匹配</option>
+                <option value="manual_required">需人工选择</option>
+                <option value="no_candidate">无有效候选</option>
+                <option value="failed">失败可重试</option>
+              </select>
+            </label>
+            <div className="naming-migration-list">
+              {migration.items.map((item) => (
+                <article key={item.id}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      disabled={item.status !== "clear_match"}
+                      checked={migrationSelection.includes(item.id)}
+                      onChange={(event) =>
+                        setMigrationSelection((current) =>
+                          event.target.checked
+                            ? [...current, item.id]
+                            : current.filter((id) => id !== item.id),
+                        )
+                      }
+                    />
+                    <span>
+                      <strong>{item.asset_title}</strong>
+                      <small>
+                        {item.project_name || item.scope} · 旧类别 {item.old_category || "未记录"}
+                      </small>
+                    </span>
+                  </label>
+                  {item.status === "clear_match" ? (
+                    <span>{item.suggested_directory_name || "未分类 / 待治理"}</span>
+                  ) : item.status !== "migrated" ? (
+                    <div className="naming-migration-manual">
+                      <select
+                        aria-label={`为 ${item.asset_title} 选择目录`}
+                        value={migrationManualChoices[item.id] || ""}
+                        onChange={(event) =>
+                          setMigrationManualChoices((current) => ({
+                            ...current,
+                            [item.id]: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">人工选择目录</option>
+                        {migration.directories
+                          .filter((directory) => directory.scope === item.scope)
+                          .map((directory) => (
+                            <option key={directory.directory_key} value={directory.directory_key}>
+                              {directory.display_name}
+                            </option>
+                          ))}
+                      </select>
+                      <Button
+                        disabled={migrationBusy || !migrationManualChoices[item.id]}
+                        onClick={() => {
+                          setMigrationBusy(true);
+                          void confirmDirectoryMigration([
+                            {
+                              candidate_id: item.id,
+                              directory_key: migrationManualChoices[item.id],
+                            },
+                          ])
+                            .then(() => loadMigration())
+                            .catch(() => setError("人工目录确认未完成，可重试。"))
+                            .finally(() => setMigrationBusy(false));
+                        }}
+                      >
+                        确认选择
+                      </Button>
+                    </div>
+                  ) : (
+                    <span>已迁入</span>
+                  )}
+                </article>
+              ))}
+            </div>
+          </div>
+        )}
+      </DetailDrawer>
 
       <TaskModal
         open={projectCodesOpen}

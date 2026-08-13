@@ -337,6 +337,7 @@ class AuditAction(str, Enum):
     ingest_bulk_confirmed = "ingest.bulk_confirmed"
     naming_rule_draft_saved = "naming_rule.draft_saved"
     naming_rule_published = "naming_rule.published"
+    directory_migration_confirmed = "directory_migration.confirmed"
     # 资产已确认落库，但底座建库/初始化/上传索引失败，exception。
     # 资产保留 + 人工校正不丢，index_status=index_failed，可重试；区别于 ingest.failed
     # （后者=人工确认前整单失败）。extra 只放安全 error_code / stage，绝不含 kb/doc id。
@@ -355,6 +356,7 @@ class AuditAction(str, Enum):
     review_bulk_decided = "review.bulk_decided"
     review_company_confirmation_recorded = "review.company_confirmation_recorded"
     review_company_confirmation_withdrawn = "review.company_confirmation_withdrawn"
+    review_withdrawn = "review.withdrawn"
     asset_zone_changed = "asset.zone_changed"
     asset_scope_changed = "asset.scope_changed"
     # 预览

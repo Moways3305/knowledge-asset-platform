@@ -456,3 +456,38 @@
 .gw-request-result .gw-reapply-note {
   color: var(--color-primary);
 }
+.gw-blocking-reason {
+  display: block;
+  max-width: 260px;
+  margin-top: 4px;
+  color: #9a6700;
+  line-height: 1.35;
+}
+.gw-evidence-drawer {
+  display: grid;
+  gap: 16px;
+}
+.gw-evidence-requirement {
+  padding: 14px;
+  border-left: 4px solid #b78622;
+  background: #fff9eb;
+}
+.gw-evidence-requirement p {
+  margin: 6px 0;
+}
+.gw-evidence-drawer label {
+  display: grid;
+  gap: 6px;
+}
+.gw-evidence-drawer select,
+.gw-evidence-drawer textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d9ddd6;
+  border-radius: 8px;
+  background: #fff;
+}
+.gw-evidence-drawer textarea {
+  min-height: 110px;
+  resize: vertical;
+}

@@ -128,9 +128,10 @@ def legacy_directory_key(metadata: dict | None) -> str | None:
 
 
 def version_directory_key(version: KnowledgeAssetVersion | None) -> str | None:
+    """Return formal membership only; legacy mapping is never retrieval authority."""
     if version is None:
         return None
-    return version.directory_key or legacy_directory_key(version.naming_metadata)
+    return version.directory_key
 
 
 async def published_directories(session: AsyncSession) -> tuple[int | None, list[dict]]:
@@ -196,7 +197,7 @@ async def display_path(
     session: AsyncSession, directory_key: str | None, project_id: uuid.UUID | None
 ) -> str | None:
     if not directory_key:
-        return None
+        return "未分类 / 待治理"
     _, rows = await published_directories(session)
     item = next((row for row in rows if row.get("directory_key") == directory_key), None)
     if item is None:

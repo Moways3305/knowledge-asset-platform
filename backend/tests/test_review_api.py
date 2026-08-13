@@ -11,6 +11,11 @@ from app.models.identity import UserCompanyRole
 from app.models.knowledge import KnowledgeAsset
 from app.models.review import CompanyAssetReviewDecision, ReviewTask, ValidationEvidence
 from app.schemas.enums import RoleStatus
+from app.schemas.review import (
+    AssetizationPreflightItem,
+    AssetizationPreflightResponse,
+    ReviewListItem,
+)
 from app.seed.dev_seed import (
     KA_PROJECT_ALPHA,
     KA_PROJECT_ALPHA_MATERIAL,
@@ -61,20 +66,79 @@ def _bulk_confirm_url(project_id=PROJECT_ALPHA):
     return f"/api/v1/projects/{project_id}/knowledge/bulk-confirm-asset"
 
 
-async def test_confirm_asset_without_evidence_creates_pending_evidence(client):
-    """consultant 对 material 资产发起 confirm-asset，无证据则 pending_evidence。"""
+def _assetization_submit_url(project_id=PROJECT_ALPHA):
+    return f"/api/v1/projects/{project_id}/knowledge/assetization-submit"
+
+
+async def test_assetization_submit_counts_locked_reuse_as_existing(client, monkeypatch):
+    """A review created after preflight must not be reported as newly created by this request."""
+
+    async def fake_preflight(*_args, **_kwargs):
+        return AssetizationPreflightResponse(
+            items=[
+                AssetizationPreflightItem(
+                    item_id=KA_PROJECT_ALPHA_MATERIAL,
+                    title="项目资料",
+                    status="ready",
+                    evidence_count=1,
+                )
+            ]
+        )
+
+    async def fake_create_or_get(*_args, **_kwargs):
+        return (
+            ReviewListItem(
+                id=uuid.uuid4(),
+                review_type="material_to_asset",
+                trigger_source="project_manager_confirm",
+                status="pending_reviewer",
+                target_asset_id=KA_PROJECT_ALPHA_MATERIAL,
+                asset_title="项目资料",
+                target_scope="project",
+                target_project_id=PROJECT_ALPHA,
+                project_name="Alpha",
+                submitted_by=USER_CONSULTANT,
+                reviewer_user_id=USER_PROJECT_MANAGER,
+                evidence_count=1,
+                review_comment=None,
+                reviewed_at=None,
+                created_at=None,
+            ),
+            False,
+        )
+
+    monkeypatch.setattr("app.services.review.preflight_assetization", fake_preflight)
+    monkeypatch.setattr(
+        "app.services.review.create_or_get_confirm_asset_with_outcome", fake_create_or_get
+    )
+    response = await client.post(
+        _assetization_submit_url(),
+        headers=_hdr(USER_CONSULTANT),
+        json={"item_ids": [str(KA_PROJECT_ALPHA_MATERIAL)]},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert (body["created"], body["existing"]) == (0, 1)
+    assert body["items"][0]["status"] == "existing"
+    assert body["items"][0]["review_status"] == "pending_reviewer"
+
+
+async def test_confirm_asset_without_evidence_fails_closed(client):
+    """新发起路径无证据时拒绝建单，存量 pending_evidence 另走恢复入口。"""
     resp = await client.post(
         _confirm_url(PROJECT_ALPHA, KA_PROJECT_ALPHA_MATERIAL),
         headers=_hdr(USER_CONSULTANT),
     )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["status"] == "pending_evidence"
-    assert body["reviewer_user_id"] == str(USER_PROJECT_MANAGER)
-    assert body["evidence_count"] == 0
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["denied_reason"] == "assetization_evidence_required"
 
 
 async def test_bulk_confirm_asset_preserves_review_flow_and_is_idempotent(client, db_session):
+    await client.post(
+        _evidence_url(PROJECT_ALPHA, KA_PROJECT_ALPHA_MATERIAL),
+        headers=_hdr(USER_CONSULTANT),
+        json=_evidence_body(),
+    )
     payload = {"item_ids": [str(KA_PROJECT_ALPHA_MATERIAL)]}
     first = await client.post(
         _bulk_confirm_url(),
@@ -110,6 +174,11 @@ async def test_bulk_confirm_asset_preserves_review_flow_and_is_idempotent(client
 
 
 async def test_bulk_confirm_asset_revalidates_membership_zone_and_status(client, db_session):
+    await client.post(
+        _evidence_url(PROJECT_ALPHA, KA_PROJECT_ALPHA_MATERIAL),
+        headers=_hdr(USER_CONSULTANT),
+        json=_evidence_body(),
+    )
     mixed = await client.post(
         _bulk_confirm_url(),
         headers=_hdr(USER_CONSULTANT),
@@ -162,18 +231,17 @@ async def test_bulk_confirm_asset_runs_more_than_one_server_batch(client, monkey
 
 async def test_full_loop_evidence_then_pm_approve_changes_zone(client):
     """登记证据 → pending_reviewer → PM approve → zone=asset，且 Knowledge API 可读到。"""
-    # 发起 confirm-asset（pending_evidence）
-    r1 = await client.post(
-        _confirm_url(PROJECT_ALPHA, KA_PROJECT_ALPHA_MATERIAL), headers=_hdr(USER_CONSULTANT)
-    )
-    review_id = r1.json()["id"]
-    # 登记证据 → 绑定并推进到 pending_reviewer
+    # 先登记证据，再发起审核，避免创建不可操作待办。
     r2 = await client.post(
         _evidence_url(PROJECT_ALPHA, KA_PROJECT_ALPHA_MATERIAL),
         headers=_hdr(USER_CONSULTANT),
         json=_evidence_body(),
     )
     assert r2.status_code == 200
+    r1 = await client.post(
+        _confirm_url(PROJECT_ALPHA, KA_PROJECT_ALPHA_MATERIAL), headers=_hdr(USER_CONSULTANT)
+    )
+    review_id = r1.json()["id"]
     detail = (await client.get(f"{REVIEWS}/{review_id}", headers=_hdr(USER_CONSULTANT))).json()
     assert detail["status"] == "pending_reviewer"
     assert detail["evidence_count"] == 1
@@ -194,6 +262,11 @@ async def test_full_loop_evidence_then_pm_approve_changes_zone(client):
 
 
 async def test_bulk_review_reject_requires_reason_and_continues_after_stale_item(client):
+    await client.post(
+        _evidence_url(PROJECT_ALPHA, KA_PROJECT_ALPHA_MATERIAL),
+        headers=_hdr(USER_CONSULTANT),
+        json=_evidence_body(),
+    )
     created = await client.post(
         _confirm_url(PROJECT_ALPHA, KA_PROJECT_ALPHA_MATERIAL),
         headers=_hdr(USER_CONSULTANT),
@@ -229,6 +302,11 @@ async def test_bulk_review_reject_requires_reason_and_continues_after_stale_item
 
 async def test_reject_keeps_material(client):
     """reject 后 review=rejected，资产仍为 material。"""
+    await client.post(
+        _evidence_url(PROJECT_ALPHA, KA_PROJECT_ALPHA_MATERIAL),
+        headers=_hdr(USER_CONSULTANT),
+        json=_evidence_body(),
+    )
     r1 = await client.post(
         _confirm_url(PROJECT_ALPHA, KA_PROJECT_ALPHA_MATERIAL), headers=_hdr(USER_CONSULTANT)
     )
@@ -253,6 +331,11 @@ async def test_reject_keeps_material(client):
 
 async def test_non_reviewer_cannot_approve(client):
     """非 reviewer（提交人 consultant）approve 返回 403。"""
+    await client.post(
+        _evidence_url(PROJECT_ALPHA, KA_PROJECT_ALPHA_MATERIAL),
+        headers=_hdr(USER_CONSULTANT),
+        json=_evidence_body(),
+    )
     r1 = await client.post(
         _confirm_url(PROJECT_ALPHA, KA_PROJECT_ALPHA_MATERIAL), headers=_hdr(USER_CONSULTANT)
     )
@@ -269,6 +352,11 @@ async def test_non_reviewer_cannot_approve(client):
 
 async def test_double_finalize_returns_409(client):
     """终态重复 approve 返回 409。"""
+    await client.post(
+        _evidence_url(PROJECT_ALPHA, KA_PROJECT_ALPHA_MATERIAL),
+        headers=_hdr(USER_CONSULTANT),
+        json=_evidence_body(),
+    )
     r1 = await client.post(
         _confirm_url(PROJECT_ALPHA, KA_PROJECT_ALPHA_MATERIAL), headers=_hdr(USER_CONSULTANT)
     )
@@ -287,16 +375,12 @@ async def test_double_finalize_returns_409(client):
 
 
 async def test_approve_without_evidence_422(client):
-    """无证据 approve 返回 422 review_evidence_required。"""
+    """无证据在创建审核前即被拒绝。"""
     r1 = await client.post(
         _confirm_url(PROJECT_ALPHA, KA_PROJECT_ALPHA_MATERIAL), headers=_hdr(USER_CONSULTANT)
     )
-    review_id = r1.json()["id"]  # pending_evidence，无证据
-    r = await client.post(
-        f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_PROJECT_MANAGER), json={}
-    )
-    assert r.status_code == 422
-    assert r.json()["detail"]["denied_reason"] == "review_evidence_required"
+    assert r1.status_code == 422
+    assert r1.json()["detail"]["denied_reason"] == "assetization_evidence_required"
 
 
 async def test_admin_reviews_403(client):

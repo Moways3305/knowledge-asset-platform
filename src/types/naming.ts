@@ -70,6 +70,35 @@ export interface NamingRuleCenterDTO {
   }>;
 }
 
+export interface DirectoryMigrationWorkspaceDTO {
+  overview: {
+    total: number;
+    migrated: number;
+    clear_match: number;
+    manual_required: number;
+    no_candidate: number;
+    failed: number;
+    rule_version: number | null;
+  };
+  items: Array<{
+    id: string;
+    asset_title: string;
+    scope: string;
+    project_id: string | null;
+    project_name: string | null;
+    old_category: string | null;
+    suggested_directory_key: string | null;
+    suggested_directory_name: string | null;
+    candidate_source: string;
+    confidence: string;
+    status: string;
+    failure_code: string | null;
+    updated_at: string | null;
+  }>;
+  total: number;
+  directories: DirectoryOptionDTO[];
+}
+
 export interface NamingOptionDTO {
   id: string;
   scope?: NamingScope;

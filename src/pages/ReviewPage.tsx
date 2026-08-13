@@ -4,6 +4,7 @@ import { ControlledBulkRequestError } from "../api/bulk";
 import { ApiError } from "../api/http";
 import {
   approveReview,
+  bulkRegisterReviewEvidence,
   bulkReviewAction,
   fetchReviews,
   rejectReview,
@@ -13,6 +14,7 @@ import ConfirmDialog from "../components/ConfirmDialog";
 import { BulkSelectionRail, SelectionCheckbox } from "../components/BulkSelection";
 import DataTable, { type Column } from "../components/DataTable";
 import GovernanceWorkspace from "../components/GovernanceWorkspace";
+import DetailDrawer from "../components/DetailDrawer";
 import type { ReviewItemDTO } from "../types/review";
 import { formatBeijingTime } from "../utils/time";
 
@@ -86,6 +88,16 @@ export default function ReviewPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkAction, setBulkAction] = useState<"approve" | "reject" | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [evidenceTarget, setEvidenceTarget] = useState<ReviewItemDTO | null>(null);
+  const [evidenceReviewIds, setEvidenceReviewIds] = useState<string[]>([]);
+  const [evidenceDescription, setEvidenceDescription] = useState("");
+  const [evidenceType, setEvidenceType] = useState<"internal_sharing" | "client_validation">(
+    "internal_sharing",
+  );
+  const [evidenceCategory, setEvidenceCategory] = useState<
+    "meeting_minutes" | "wecom_record" | "client_email" | "acceptance_doc" | "delivery_adoption"
+  >("meeting_minutes");
+  const [evidenceBusy, setEvidenceBusy] = useState(false);
   const requestRef = useRef(0);
   const bulkRunRef = useRef(false);
   const filtersRef = useRef({ status: "", reviewType: "" });
@@ -152,6 +164,9 @@ export default function ReviewPage() {
   const retryFailed = (item: ReviewItemDTO) => item.can_decide && item.status === "approval_failed";
   const eligibleItems = items.filter(decidePending);
   const selectedEligible = eligibleItems.filter((item) => selectedIds.includes(item.id));
+  const selectedEvidence = items.filter(
+    (item) => item.status === "pending_evidence" && selectedIds.includes(item.id),
+  );
   const pageAllSelected =
     eligibleItems.length > 0 && selectedEligible.length === eligibleItems.length;
   const pageIndeterminate = selectedEligible.length > 0 && !pageAllSelected;
@@ -243,7 +258,7 @@ export default function ReviewPage() {
       render: (item) => (
         <SelectionCheckbox
           checked={selectedIds.includes(item.id)}
-          disabled={!decidePending(item) || bulkBusy}
+          disabled={(!decidePending(item) && item.status !== "pending_evidence") || bulkBusy}
           label={`选择审核项 ${safeTitle(item)}`}
           onChange={() =>
             setSelectedIds((current) =>
@@ -280,10 +295,18 @@ export default function ReviewPage() {
       key: "evidence",
       header: "适用内容",
       headerClassName: "gw-col-review-evidence",
-      render: (item) =>
-        item.review_type === "project_ingest_approval"
-          ? "无需证据"
-          : `${item.evidence_count} 项证据`,
+      render: (item) => (
+        <span title={item.blocking_reason || undefined}>
+          {item.review_type === "project_ingest_approval"
+            ? "无需证据"
+            : `${item.evidence_count} 项证据`}
+          {item.status === "pending_evidence" && (
+            <small className="gw-blocking-reason">
+              {item.blocking_reason || "缺少资产化验证证据"}
+            </small>
+          )}
+        </span>
+      ),
     },
     {
       key: "status",
@@ -308,6 +331,19 @@ export default function ReviewPage() {
       headerClassName: "gw-col-review-actions",
       render: (item) => (
         <div className="gw-actions">
+          {item.status === "pending_evidence" && item.review_type === "material_to_asset" && (
+            <button
+              className="gw-action is-primary"
+              type="button"
+              onClick={() => {
+                setEvidenceTarget(item);
+                setEvidenceReviewIds([item.id]);
+                setEvidenceDescription("");
+              }}
+            >
+              补充证据 / 查看要求
+            </button>
+          )}
           {decidePending(item) && (
             <>
               <button
@@ -363,9 +399,10 @@ export default function ReviewPage() {
               撤回
             </button>
           )}
-          {!decidePending(item) && !retryFailed(item) && !item.can_withdraw && (
-            <span className="gw-muted">—</span>
-          )}
+          {item.status !== "pending_evidence" &&
+            !decidePending(item) &&
+            !retryFailed(item) &&
+            !item.can_withdraw && <span className="gw-muted">—</span>}
         </div>
       ),
     },
@@ -464,6 +501,36 @@ export default function ReviewPage() {
           批量驳回（{selectedEligible.length}）
         </button>
       </BulkSelectionRail>
+      <BulkSelectionRail
+        selectedCount={selectedEvidence.length}
+        pageSelectedCount={selectedEvidence.length}
+        matchingCount={items.filter((item) => item.status === "pending_evidence").length}
+        allMatchingSelected={false}
+        busy={evidenceBusy}
+        onClear={() =>
+          setSelectedIds((current) =>
+            current.filter((id) => !selectedEvidence.some((item) => item.id === id)),
+          )
+        }
+      >
+        <button
+          className="gw-action is-primary"
+          type="button"
+          disabled={evidenceBusy || selectedEvidence.length === 0}
+          onClick={() => {
+            const projects = new Set(selectedEvidence.map((item) => item.target_project_id));
+            if (projects.size !== 1) {
+              setFeedback({ tone: "error", text: "批量补证据只能选择同一项目的任务。" });
+              return;
+            }
+            setEvidenceTarget(selectedEvidence[0]);
+            setEvidenceReviewIds(selectedEvidence.map((item) => item.id));
+            setEvidenceDescription("");
+          }}
+        >
+          批量补充证据（{selectedEvidence.length}）
+        </button>
+      </BulkSelectionRail>
 
       <DataTable
         columns={columns}
@@ -514,6 +581,95 @@ export default function ReviewPage() {
           />
         </label>
       </ConfirmDialog>
+      <DetailDrawer
+        open={Boolean(evidenceTarget)}
+        title="补充资产化验证证据"
+        description={
+          evidenceTarget
+            ? `${evidenceReviewIds.length > 1 ? `${evidenceReviewIds.length} 项资料` : safeTitle(evidenceTarget)} · ${evidenceTarget.project_name || "当前项目"}`
+            : undefined
+        }
+        busy={evidenceBusy}
+        onClose={() => setEvidenceTarget(null)}
+        footer={
+          <>
+            <button
+              className="gw-action"
+              type="button"
+              disabled={evidenceBusy}
+              onClick={() => setEvidenceTarget(null)}
+            >
+              取消
+            </button>
+            <button
+              className="gw-action is-primary"
+              type="button"
+              disabled={evidenceBusy || !evidenceDescription.trim()}
+              onClick={() => {
+                if (!evidenceTarget) return;
+                setEvidenceBusy(true);
+                void bulkRegisterReviewEvidence(evidenceReviewIds, {
+                  evidence_type: evidenceType,
+                  evidence_category: evidenceCategory,
+                  description: evidenceDescription.trim(),
+                  idempotency_key: crypto.randomUUID(),
+                })
+                  .then(async () => {
+                    setEvidenceTarget(null);
+                    setEvidenceReviewIds([]);
+                    await load();
+                    setFeedback({ tone: "success", text: "证据已登记，任务已进入待审核。" });
+                  })
+                  .catch(() => setFeedback({ tone: "error", text: "证据未提交，请稍后重试。" }))
+                  .finally(() => setEvidenceBusy(false));
+              }}
+            >
+              {evidenceBusy ? "正在提交…" : "登记并转待审核"}
+            </button>
+          </>
+        }
+      >
+        <div className="gw-evidence-drawer">
+          <div className="gw-evidence-requirement">
+            <strong>阻塞原因</strong>
+            <p>{evidenceTarget?.blocking_reason || "资料资产化至少需要一项验证证据。"}</p>
+            <small>证据是治理线索，不表示平台已经验证其真实性。</small>
+          </div>
+          <label>
+            <span>证据类型</span>
+            <select
+              value={evidenceType}
+              onChange={(event) => setEvidenceType(event.target.value as typeof evidenceType)}
+            >
+              <option value="internal_sharing">内部分享</option>
+              <option value="client_validation">客户验证</option>
+            </select>
+          </label>
+          <label>
+            <span>证据类别</span>
+            <select
+              value={evidenceCategory}
+              onChange={(event) =>
+                setEvidenceCategory(event.target.value as typeof evidenceCategory)
+              }
+            >
+              <option value="meeting_minutes">会议纪要</option>
+              <option value="wecom_record">企业沟通记录</option>
+              <option value="client_email">客户邮件</option>
+              <option value="acceptance_doc">验收文件</option>
+              <option value="delivery_adoption">交付采纳记录</option>
+            </select>
+          </label>
+          <label>
+            <span>适用说明（必填）</span>
+            <textarea
+              value={evidenceDescription}
+              onChange={(event) => setEvidenceDescription(event.target.value)}
+              placeholder="说明发生场景、适用范围与资料关系"
+            />
+          </label>
+        </div>
+      </DetailDrawer>
       <ConfirmDialog
         open={bulkAction !== null}
         title={bulkAction === "approve" ? "批量通过审核" : "批量驳回审核"}
