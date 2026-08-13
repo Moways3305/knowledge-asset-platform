@@ -373,8 +373,42 @@ try {
         retrySucceeded = overviewCalls === 2;
       }
 
+      const panelText = async (selector, tabSelector, option) => {
+        if (viewport.width <= 1024) await page.locator(tabSelector).selectOption(option);
+        const panel = page.locator(selector);
+        await panel.waitFor({ state: "visible" });
+        return panel.innerText();
+      };
+      const visiblePanelText = {
+        todos: await panelText(
+          ".wb81-panel.is-todos",
+          ".wb81-row-primary .wb81-row-tabs select",
+          "todos",
+        ),
+        operations: await panelText(
+          ".wb81-panel.is-operations",
+          ".wb81-row-primary .wb81-row-tabs select",
+          "operations",
+        ),
+        projects: await panelText(
+          ".wb81-panel.is-projects",
+          ".wb81-row-primary .wb81-row-tabs select",
+          "projects",
+        ),
+        workbuddy: await panelText(
+          ".wb81-panel.is-workbuddy",
+          ".wb81-row-secondary .wb81-row-tabs select",
+          "workbuddy",
+        ),
+        recent: await panelText(
+          ".wb81-panel.is-recent",
+          ".wb81-row-secondary .wb81-row-tabs select",
+          "recent",
+        ),
+      };
+
       const result = await page.evaluate(
-        ({ scenarioName }) => {
+        ({ scenarioName, visibleText }) => {
           const root = document.documentElement;
           const shell = document.querySelector(".rail");
           const content = document.querySelector(".app-content");
@@ -404,7 +438,7 @@ try {
             .querySelector(".wb81-workbench .product-page-header")
             ?.getBoundingClientRect();
           const bodyText = document.body.innerText;
-          const allText = document.body.textContent ?? "";
+          const domText = document.body.textContent ?? "";
           const shellBox = shell?.getBoundingClientRect();
           const contentBox = content?.getBoundingClientRect();
           const forbiddenStrings = [
@@ -439,15 +473,15 @@ try {
             projectPanelHeight: projects?.height ?? 0,
             stitchHierarchyCorrect: Boolean(
               todos &&
-                operations &&
-                projects &&
-                recent &&
-                primaryRow &&
-                secondaryRow &&
-                primaryRow.top < secondaryRow.top &&
-                Math.abs(todos.top - operations.top) <= 1 &&
-                Math.abs(todos.top - projects.top) <= 1 &&
-                (!workbuddy || Math.abs(workbuddy.top - recent.top) <= 1),
+              operations &&
+              projects &&
+              recent &&
+              primaryRow &&
+              secondaryRow &&
+              primaryRow.top < secondaryRow.top &&
+              Math.abs(todos.top - operations.top) <= 1 &&
+              Math.abs(todos.top - projects.top) <= 1 &&
+              (!workbuddy || Math.abs(workbuddy.top - recent.top) <= 1),
             ),
             actionQueuePrimary: Boolean(
               todos &&
@@ -467,13 +501,13 @@ try {
             ),
             workbuddyDedicated: Boolean(
               !workbuddy ||
-                (todos &&
-                  recent &&
-                  operations &&
-                  projects &&
-                  workbuddy.top > Math.max(todos.bottom, operations.bottom, projects.bottom) &&
-                  Math.abs(workbuddy.top - recent.top) <= 1 &&
-                  workbuddy.left < recent.left),
+              (todos &&
+                recent &&
+                operations &&
+                projects &&
+                workbuddy.top > Math.max(todos.bottom, operations.bottom, projects.bottom) &&
+                Math.abs(workbuddy.top - recent.top) <= 1 &&
+                workbuddy.left < recent.left),
             ),
             todoColumnNarrower: Boolean(
               todos &&
@@ -510,24 +544,25 @@ try {
               ),
             ),
             fakeFeatureVisible: /AI 洞察|健康分|趋势|搜索资产|导出|新建项目/.test(bodyText),
-            sensitiveVisible: forbiddenStrings.some((value) => bodyText.includes(value)),
+            sensitiveVisible: forbiddenStrings.some((value) => domText.includes(value)),
             normalContent:
-              allText.includes("处理知识审核") &&
-              allText.includes("索引失败") &&
-              allText.includes("企业知识治理项目") &&
-              allText.includes("绝不能越权显示的资产标题"),
-            zeroState: allText.includes("今天没有待处理事项"),
-            projectEmptyState: allText.includes("当前没有可访问的项目"),
-            forbiddenState: allText.includes("当前身份暂无访问权限"),
+              visibleText.todos.includes("处理知识审核") &&
+              visibleText.operations.includes("索引失败") &&
+              visibleText.projects.includes("企业知识治理项目") &&
+              visibleText.recent.includes("绝不能越权显示的资产标题"),
+            zeroState: visibleText.todos.includes("今天没有待处理事项"),
+            projectEmptyState: visibleText.projects.includes("当前没有可访问的项目"),
+            forbiddenState: visibleText.projects.includes("当前身份暂无访问权限"),
             hiddenTitleSafe:
-              allText.includes("业务标题已隐藏") &&
-              !allText.includes("绝不能越权显示的资产标题") &&
-              !allText.includes("项目复盘方法"),
+              visibleText.recent.includes("业务标题已隐藏") &&
+              !visibleText.recent.includes("绝不能越权显示的资产标题") &&
+              !visibleText.recent.includes("项目复盘方法"),
             workbuddyLifecycleVisible:
-              allText.includes("生成配置") && allText.includes("撤销配置"),
+              visibleText.workbuddy.includes("生成配置") &&
+              visibleText.workbuddy.includes("撤销配置"),
           };
         },
-        { scenarioName: scenario.name },
+        { scenarioName: scenario.name, visibleText: visiblePanelText },
       );
 
       Object.assign(result, {
