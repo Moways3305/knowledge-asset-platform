@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   fetchKnowledgeDetail,
@@ -219,6 +219,11 @@ function renderPage(entry = "/knowledge?scope=company&directory_key=company.meth
   );
 }
 
+function LocationStateProbe() {
+  const location = useLocation();
+  return <output aria-label="detail navigation state">{JSON.stringify(location.state)}</output>;
+}
+
 describe("KnowledgeListPage reference implementation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -369,6 +374,55 @@ describe("KnowledgeListPage reference implementation", () => {
     expect(await screen.findByRole("button", { name: /公司库/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /项目库/ })).not.toBeInTheDocument();
     expect(fetchKnowledgePage).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a project directory URL names a project outside the current identity", async () => {
+    auth.authMe.projects = [
+      { projectId: PROJECT_A, projectName: "华东交付项目", projectRole: "consultant" },
+    ];
+
+    renderPage(
+      `/knowledge?scope=project&project_id=${PROJECT_B}&directory_key=project.deliverables`,
+    );
+
+    await waitFor(() => expect(fetchKnowledgeDirectories).not.toHaveBeenCalled());
+    expect(fetchKnowledgePage).not.toHaveBeenCalled();
+    expect(screen.queryByText("供应链优化项目")).not.toBeInTheDocument();
+    expect(screen.queryByText("03 交付成果")).not.toBeInTheDocument();
+  });
+
+  it("keeps the directory return context when an opened original leaves the summary drawer", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchKnowledgePage).mockResolvedValue(response([crossProjectAsset]));
+    vi.mocked(fetchKnowledgeDetail).mockResolvedValue({
+      ...crossProjectDetail,
+      access: { ...crossProjectDetail.access, original: true },
+    });
+    render(
+      <MemoryRouter
+        initialEntries={["/knowledge?scope=company&directory_key=company.methodology"]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <Routes>
+          <Route path="/knowledge" element={<KnowledgeListPage />} />
+          <Route path="/knowledge/:assetId" element={<LocationStateProbe />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: `查看《${crossProjectAsset.title}》安全摘要`,
+      }),
+    );
+    await user.click(await screen.findByRole("link", { name: "原文访问已开放，查看详情" }));
+
+    expect(screen.getByLabelText("detail navigation state")).toHaveTextContent(
+      '"backTo":"/knowledge?scope=company&directory_key=company.methodology"',
+    );
+    expect(screen.getByLabelText("detail navigation state")).toHaveTextContent(
+      '"source":"directory"',
+    );
   });
 
   it("shows safe summaries and an honest original restriction without management actions", async () => {

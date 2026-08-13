@@ -409,11 +409,16 @@ async def list_knowledge(
             raise _denied(403, "project_membership_required", "需为该项目的有效成员")
 
     if directory_key:
-        directory_scope = scope or directory_key.split(".", 1)[0]
+        if scope is None:
+            raise _denied(
+                422,
+                "directory_scope_required",
+                "目录筛选必须明确指定知识范围",
+            )
         await directories.validate_directory(
             session,
             directory_key=directory_key,
-            scope=directory_scope,
+            scope=scope,
             project_id=project_id,
         )
 

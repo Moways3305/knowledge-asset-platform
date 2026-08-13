@@ -336,6 +336,13 @@ export default function KnowledgeListPage() {
 
   useEffect(() => {
     if (!canLoadBusinessKnowledge) return;
+    if (scope === "project" && !validProjectId) {
+      setDirectoryItems([]);
+      setDirectory(null);
+      setDirectoryLoading(false);
+      if (directoryKeyFromUrl) restoredDirectoryRef.current = true;
+      return;
+    }
     let active = true;
     setDirectoryLoading(true);
     void fetchKnowledgeDirectories(scope ? { scope, projectId: validProjectId || undefined } : {})
@@ -346,7 +353,8 @@ export default function KnowledgeListPage() {
           const restored = items.find(
             (item) =>
               item.directory_key === directoryKeyFromUrl &&
-              (!validProjectId || item.project_id === validProjectId),
+              item.scope === scope &&
+              (scope !== "project" || item.project_id === validProjectId),
           );
           if (restored) setDirectory(restored);
           restoredDirectoryRef.current = true;
@@ -1100,7 +1108,11 @@ export default function KnowledgeListPage() {
         footer={
           summaryDetail ? (
             summaryDetail.access.original ? (
-              <Link className="product-button is-primary" to={`/knowledge/${summaryDetail.id}`}>
+              <Link
+                className="product-button is-primary"
+                to={`/knowledge/${summaryDetail.id}`}
+                state={detailState}
+              >
                 原文访问已开放，查看详情
               </Link>
             ) : summaryDetail.access.existingRequestStatus === "pending" ? (

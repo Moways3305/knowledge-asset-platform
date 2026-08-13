@@ -164,6 +164,30 @@ async def test_project_id_filter_rejects_non_project_scope(client):
     assert response.json()["detail"]["denied_reason"] == "project_filter_scope_mismatch"
 
 
+async def test_directory_filter_requires_explicit_scope(client):
+    response = await client.get(
+        f"{KN}?directory_key=company.methodology", headers=_hdr(USER_CONSULTANT)
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["denied_reason"] == "directory_scope_required"
+
+
+async def test_project_directory_filter_requires_exact_project_context(client):
+    response = await client.get(
+        f"{KN}?scope=project&directory_key=project.deliverables",
+        headers=_hdr(USER_CONSULTANT),
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["denied_reason"] == "directory_project_required"
+
+    allowed = await client.get(
+        f"{KN}?scope=project&project_id={PROJECT_ALPHA}&directory_key=project.deliverables",
+        headers=_hdr(USER_CONSULTANT),
+    )
+    assert allowed.status_code == 200
+    assert all(item["project_name"] == "Alpha 项目" for item in allowed.json()["items"])
+
+
 async def test_archived_not_in_default_list(client):
     """archived 资产默认不在列表中返回。"""
     titles = {i["title"] for i in (await client.get(KN, headers=_hdr(USER_BOSS))).json()["items"]}
