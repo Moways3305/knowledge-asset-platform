@@ -143,7 +143,10 @@ async def test_archived_excluded_in_knowledge_preview_agent(client):
         json={"reason": "归档"},
     )
     # 知识列表（含 include_archived）对普通成员仍不返回该资产。
-    lst = await client.get("/api/v1/knowledge?include_archived=true", headers=_hdr(USER_CONSULTANT))
+    lst = await client.get(
+        f"/api/v1/projects/{PROJECT_ALPHA}/knowledge?include_archived=true",
+        headers=_hdr(USER_CONSULTANT),
+    )
     assert all(item["id"] != str(aid) for item in lst.json()["items"])
 
     # 预览签发被拒（asset_not_active）。

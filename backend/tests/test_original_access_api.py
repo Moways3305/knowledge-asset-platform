@@ -248,20 +248,9 @@ async def test_cross_project_request_grants_only_the_selected_asset(client, db_s
     ):
         assert granted.json()[field] is None
 
-    listed = await client.get("/api/v1/knowledge?scope=project", headers=_hdr(USER_CONSULTANT))
-    listed_first = next(item for item in listed.json()["items"] if item["id"] == str(first))
-    assert listed_first["access_info"]["original"] is True
-    assert listed_first["access_info"]["cross_project_summary"] is True
-    for field in (
-        "canonical_name",
-        "lifecycle_phase",
-        "last_called_at",
-        "index_status",
-        "weknora_parse_status",
-        "index_error_message",
-        "indexed_at",
-    ):
-        assert listed_first[field] is None
+    bypass = await client.get("/api/v1/knowledge?scope=project", headers=_hdr(USER_CONSULTANT))
+    assert bypass.status_code == 422
+    assert bypass.json()["detail"]["denied_reason"] == "directory_context_required"
 
     assert untouched.json()["access_info"]["original"] is False
     assert untouched.json()["access_info"]["can_request_original"] is True

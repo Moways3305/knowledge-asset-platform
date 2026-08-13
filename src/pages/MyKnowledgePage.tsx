@@ -860,7 +860,14 @@ export default function MyKnowledgePage() {
                             <Icon aria-hidden="true" />
                           </span>
                           <div>
-                            <Link to={`/knowledge/${encodeURIComponent(item.id)}`}>
+                            <Link
+                              to={`/knowledge/${encodeURIComponent(item.id)}`}
+                              state={{
+                                backTo: "/my/knowledge",
+                                backLabel: "返回个人知识",
+                                source: "personal",
+                              }}
+                            >
                               {item.title}
                             </Link>
                             <span>
@@ -912,6 +919,11 @@ export default function MyKnowledgePage() {
                           <Link
                             className="btn-small"
                             to={`/knowledge/${encodeURIComponent(item.id)}`}
+                            state={{
+                              backTo: "/my/knowledge",
+                              backLabel: "返回个人知识",
+                              source: "personal",
+                            }}
                           >
                             <Eye size={14} aria-hidden="true" />
                             查看详情
@@ -937,6 +949,11 @@ export default function MyKnowledgePage() {
                               <Link
                                 role="menuitem"
                                 to={`/knowledge/${encodeURIComponent(item.id)}`}
+                                state={{
+                                  backTo: "/my/knowledge",
+                                  backLabel: "返回个人知识",
+                                  source: "personal",
+                                }}
                               >
                                 <Eye size={15} />
                                 查看详情

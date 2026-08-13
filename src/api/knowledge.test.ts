@@ -39,13 +39,14 @@ describe("knowledge query API", () => {
     });
 
     const path = vi.mocked(apiGet).mock.calls[0][0];
+    expect(new URL(path, "https://example.test").pathname).toBe(
+      "/api/v1/projects/project-alpha/knowledge",
+    );
     const query = new URL(path, "https://example.test").searchParams;
     expect(Object.fromEntries(query)).toEqual({
       page: "2",
       page_size: "10",
       keyword: "供应链 100%",
-      scope: "project",
-      project_id: "project-alpha",
       zone: "asset",
       asset_type: "case",
       asset_status: "active",
@@ -62,7 +63,11 @@ describe("knowledge query API", () => {
   });
 
   it("keeps existing array consumers on the bounded first-page response", async () => {
-    await expect(fetchKnowledgeList({ scope: "company" })).resolves.toEqual([]);
-    expect(apiGet).toHaveBeenCalledWith("/api/v1/knowledge?scope=company");
+    await expect(
+      fetchKnowledgeList({ scope: "company", directoryKey: "company.methodology" }),
+    ).resolves.toEqual([]);
+    expect(apiGet).toHaveBeenCalledWith(
+      "/api/v1/knowledge?scope=company&directory_key=company.methodology",
+    );
   });
 });

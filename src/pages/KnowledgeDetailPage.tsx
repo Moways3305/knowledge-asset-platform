@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   Archive,
   ArrowLeft,
@@ -35,6 +35,7 @@ import type {
 } from "../types/knowledge";
 import type { PreviewEntryVM } from "../types/preview";
 import { formatBeijingTime } from "../utils/time";
+import { readKnowledgeDetailSource } from "../routing/knowledgeDetailSource";
 import { OnlyOfficePreview } from "./knowledge/OnlyOfficePreview";
 import "./KnowledgeDetailPage.css";
 
@@ -115,6 +116,7 @@ function safeActionError(error: unknown, fallback: string) {
 export default function KnowledgeDetailPage() {
   const { capabilities } = useAuth();
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
   const requestRef = useRef(0);
   const [asset, setAsset] = useState<KnowledgeDetailVM | null>(null);
@@ -150,12 +152,9 @@ export default function KnowledgeDetailPage() {
   const [retryBusy, setRetryBusy] = useState(false);
   const [retryNote, setRetryNote] = useState<string | null>(null);
   const [retryErr, setRetryErr] = useState<string | null>(null);
-  const backPath =
-    asset?.projectId && !asset.access.crossProjectSummary
-      ? `/project/${asset.projectId}/knowledge`
-      : "/knowledge";
-  const backLabel =
-    asset?.projectId && !asset.access.crossProjectSummary ? "返回项目知识库" : "返回知识资产库";
+  const detailSource = readKnowledgeDetailSource(location.state);
+  const backPath = detailSource.backTo;
+  const backLabel = detailSource.backLabel;
 
   async function reloadAsset() {
     if (!id) return;
@@ -326,8 +325,8 @@ export default function KnowledgeDetailPage() {
   if (loading) {
     return (
       <main className="product-page kdetail-page" aria-busy="true">
-        <Link to="/knowledge" className="kdetail-back">
-          <ArrowLeft size={15} aria-hidden="true" /> 返回知识资产库
+        <Link to={backPath} className="kdetail-back">
+          <ArrowLeft size={15} aria-hidden="true" /> {backLabel}
         </Link>
         <div className="kdetail-state">正在加载资产详情…</div>
       </main>
@@ -340,8 +339,8 @@ export default function KnowledgeDetailPage() {
         <div className="kdetail-state kdetail-state-centered">
           <FileText size={28} aria-hidden="true" />
           <h1>未找到或无权查看</h1>
-          <Link to="/knowledge" className="btn-primary">
-            返回知识资产库
+          <Link to={backPath} className="btn-primary">
+            {backLabel}
           </Link>
         </div>
       </main>
@@ -362,8 +361,8 @@ export default function KnowledgeDetailPage() {
             >
               重新加载
             </button>
-            <Link to="/knowledge" className="btn-secondary">
-              返回知识资产库
+            <Link to={backPath} className="btn-secondary">
+              {backLabel}
             </Link>
           </div>
         </div>

@@ -732,7 +732,11 @@ export default function HomeDashboardPage() {
             overview.recent_activity.items.length > 0 ? (
               <div className="wb81-recent-list">
                 {overview.recent_activity.items.map((item) => (
-                  <Link key={item.asset_id} to={`/knowledge/${encodeURIComponent(item.asset_id)}`}>
+                  <Link
+                    key={item.asset_id}
+                    to={`/knowledge/${encodeURIComponent(item.asset_id)}`}
+                    state={{ backTo: "/", backLabel: "返回首页任务中心", source: "task" }}
+                  >
                     <span className="wb81-activity-copy">
                       <strong>
                         {canShowAssetTitles ? item.title.trim() || "待确认资产" : "业务标题已隐藏"}

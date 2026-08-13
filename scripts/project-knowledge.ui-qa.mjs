@@ -223,15 +223,19 @@ try {
 
         if (requestUrl.pathname === "/api/v1/auth/me") return fulfill(authMe(scenario));
 
-        if (requestUrl.pathname === "/api/v1/knowledge") {
+        const projectKnowledgeMatch = requestUrl.pathname.match(
+          /^\/api\/v1\/projects\/([^/]+)\/knowledge$/,
+        );
+        if (projectKnowledgeMatch) {
           knowledgeCalls += 1;
           const query = Object.fromEntries(requestUrl.searchParams);
+          const requestedProjectId = projectKnowledgeMatch[1];
           if (scenario === "list-failure" && knowledgeCalls === 1) {
             listFailureSeen = true;
             return fulfill({ detail: { message: "storage_ref=s3://secret-upstream" } }, 503);
           }
           if (scenario === "list-failure") retrySucceeded = true;
-          if (scenario === "switch-late" && query.project_id === projectA) {
+          if (scenario === "switch-late" && requestedProjectId === projectA) {
             await lateListGate;
             return fulfill({
               items: [knowledgeItem({ title: "华东迟到知识" })],
@@ -250,7 +254,7 @@ try {
             }
             if (query.page === "2") capturedPageQuery = query;
           }
-          const isProjectB = query.project_id === projectB;
+          const isProjectB = requestedProjectId === projectB;
           const currentPage = Number(query.page || 1);
           const items = [
             knowledgeItem({
@@ -539,8 +543,6 @@ try {
         failureSeen,
         retrySucceeded,
         filterRequestCorrect:
-          capturedFilterQuery?.scope === "project" &&
-          capturedFilterQuery?.project_id === projectA &&
           capturedFilterQuery?.keyword === "交付" &&
           capturedFilterQuery?.zone === "asset" &&
           capturedFilterQuery?.asset_type === "case" &&

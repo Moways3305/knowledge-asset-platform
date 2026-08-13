@@ -112,7 +112,11 @@ async def test_consultant_submission_persists_review_without_visible_asset(clien
     task = await db_session.get(IngestTask, uuid.UUID(task_id))
     assert task is not None and task.status == "waiting_review"
     assert task.result_asset_id is None
-    visible = (await client.get(KNOWLEDGE, headers=_hdr(USER_CONSULTANT))).json()["items"]
+    visible = (
+        await client.get(
+            f"/api/v1/projects/{PROJECT_ALPHA}/knowledge", headers=_hdr(USER_CONSULTANT)
+        )
+    ).json()["items"]
     assert all(item["title"] != "待审批项目知识" for item in visible)
 
 
@@ -169,7 +173,11 @@ async def test_project_manager_rejects_without_exposing_original(client, db_sess
     task = await db_session.get(IngestTask, uuid.UUID(task_id))
     assert task is not None and task.status == "rejected"
     assert task.source_file_ref is not None
-    visible = (await client.get(KNOWLEDGE, headers=_hdr(USER_CONSULTANT))).json()["items"]
+    visible = (
+        await client.get(
+            f"/api/v1/projects/{PROJECT_ALPHA}/knowledge", headers=_hdr(USER_CONSULTANT)
+        )
+    ).json()["items"]
     assert all(item["title"] != "被驳回项目知识" for item in visible)
 
 

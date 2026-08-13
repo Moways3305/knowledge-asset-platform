@@ -53,7 +53,7 @@ async def test_session_user_can_call_protected_api_without_dev_header(client):
     assert me.status_code == 200
     assert me.json()["email"] == BOSS_EMAIL
     # 调用另一受保护读 API。
-    kn = await client.get("/api/v1/knowledge")
+    kn = await client.get("/api/v1/knowledge?scope=company&directory_key=company.methodology")
     assert kn.status_code == 200
 
 

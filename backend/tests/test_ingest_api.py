@@ -499,7 +499,11 @@ async def test_confirm_project_non_member_rejected_consultant_waits_for_review(c
     assert r2.json()["status"] == "waiting_review"
     assert r2.json()["result_asset_id"] is None
     assert r2.json()["review_id"] is not None
-    items = (await client.get(f"{KN}?scope=project", headers=_hdr(USER_CONSULTANT))).json()["items"]
+    items = (
+        await client.get(
+            f"/api/v1/projects/{PROJECT_ALPHA}/knowledge", headers=_hdr(USER_CONSULTANT)
+        )
+    ).json()["items"]
     assert all(i["title"] != "Alpha 入库项目资产" for i in items)
 
 
@@ -519,9 +523,11 @@ async def test_project_manager_self_submission_is_confirmed_directly(client):
     assert response.json()["status"] == "completed"
     assert response.json()["result_asset_id"] is not None
     assert response.json()["review_id"] is None
-    items = (await client.get(f"{KN}?scope=project", headers=_hdr(USER_PROJECT_MANAGER))).json()[
-        "items"
-    ]
+    items = (
+        await client.get(
+            f"/api/v1/projects/{PROJECT_ALPHA}/knowledge", headers=_hdr(USER_PROJECT_MANAGER)
+        )
+    ).json()["items"]
     assert any(item["title"] == "经理自确认项目资产" for item in items)
 
 
