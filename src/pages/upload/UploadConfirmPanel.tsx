@@ -121,7 +121,10 @@ export default function UploadConfirmPanel({
           <div className="upload77-result-actions">
             {awaitingProjectReview && <Link to="/review">查看审批状态</Link>}
             {!awaitingProjectReview && resultAssetId && (
-              <Link to={`/knowledge/${resultAssetId}`}>
+              <Link
+                to={`/knowledge/${resultAssetId}`}
+                state={{ backTo: "/upload", backLabel: "返回上传入库", source: "upload" }}
+              >
                 查看资产 <ArrowRight size={14} aria-hidden="true" />
               </Link>
             )}

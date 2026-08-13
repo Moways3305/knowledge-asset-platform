@@ -11,6 +11,7 @@ import {
 } from "../api/knowledge";
 import type { KnowledgeDetailVM } from "../types/knowledge";
 import type { PreviewEntryVM } from "../types/preview";
+import { ApiError } from "../api/http";
 
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({
@@ -83,11 +84,11 @@ const baseAsset: KnowledgeDetailVM = {
   indexErrorCode: null,
 };
 
-function renderDetail() {
+function renderDetail(state?: unknown) {
   return render(
     <MemoryRouter
       future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      initialEntries={["/knowledge/asset-1"]}
+      initialEntries={[{ pathname: "/knowledge/asset-1", state }]}
     >
       <Routes>
         <Route path="/knowledge/:id" element={<KnowledgeDetailPage />} />
@@ -103,6 +104,50 @@ describe("KnowledgeDetailPage", () => {
     vi.mocked(issuePreview).mockReset();
     vi.mocked(fetchPreviewEntry).mockReset();
     vi.mocked(requestOriginalAccess).mockReset();
+  });
+
+  it("uses the same explicit source while loading and after an authorized detail resolves", async () => {
+    let resolveDetail!: (asset: KnowledgeDetailVM) => void;
+    vi.mocked(fetchKnowledgeDetail).mockReturnValue(
+      new Promise((resolve) => {
+        resolveDetail = resolve;
+      }),
+    );
+    const state = {
+      backTo: "/knowledge?scope=company&directory_key=company.methodology&page=2",
+      backLabel: "返回 01 公司方法论",
+      source: "directory",
+    };
+    renderDetail(state);
+
+    expect(screen.getByRole("link", { name: state.backLabel })).toHaveAttribute(
+      "href",
+      state.backTo,
+    );
+    await act(async () => resolveDetail(baseAsset));
+    expect(await screen.findByRole("link", { name: state.backLabel })).toHaveAttribute(
+      "href",
+      state.backTo,
+    );
+  });
+
+  it.each([
+    [new ApiError(404, "not found"), "未找到或无权查看"],
+    [new Error("network"), "资产详情加载失败"],
+  ])("keeps the explicit source in a failed detail state", async (failure, heading) => {
+    vi.mocked(fetchKnowledgeDetail).mockRejectedValue(failure);
+    const state = {
+      backTo: "/original-access?box=mine",
+      backLabel: "返回我的原文申请",
+      source: "original-access",
+    };
+    renderDetail(state);
+
+    expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: state.backLabel })).toHaveAttribute(
+      "href",
+      state.backTo,
+    );
   });
 
   it("opens a frontend preview shell instead of exposing preview JSON", async () => {
@@ -123,7 +168,11 @@ describe("KnowledgeDetailPage", () => {
       onlyofficeConfig: null,
       message: "onlyoffice_not_configured",
     });
-    renderDetail();
+    renderDetail({
+      backTo: "/project/project-1/knowledge",
+      backLabel: "返回项目知识库",
+      source: "project",
+    });
     expect(await screen.findByText("Markdown 已生成")).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "返回项目知识库" })).toHaveAttribute(
       "href",

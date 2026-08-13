@@ -688,6 +688,7 @@ function ProjectKnowledgeWorkspace({
                 state: {
                   backTo: `/project/${project.projectId}/knowledge`,
                   backLabel: "返回项目知识库",
+                  source: "project",
                 },
               })
             }

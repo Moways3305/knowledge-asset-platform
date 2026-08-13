@@ -304,6 +304,11 @@ export default function OriginalAccessPage() {
                 <Link
                   className="gw-reapply-note"
                   to={`/knowledge/${encodeURIComponent(item.asset_id)}`}
+                  state={{
+                    backTo: "/original-access?box=mine",
+                    backLabel: "返回我的原文申请",
+                    source: "original-access",
+                  }}
                 >
                   返回资料重新申请
                 </Link>

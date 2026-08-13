@@ -10,6 +10,8 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const projectId = "00000000-0000-0000-0000-000000000075";
 const assetId = "00000000-0000-0000-0000-0000000000a1";
+const companyDirectoryKey = "company.methodology";
+const projectDirectoryKey = "project.deliverables";
 const scenarios = ["company", "project", "empty", "retry", "pure-admin"];
 const viewports = [
   { name: "1920", width: 1920, height: 1080 },
@@ -139,6 +141,40 @@ for (const scenario of scenarios) {
         return fulfill({ items, total: 42, page: 1, page_size: 20, has_next: true });
       }
 
+      if (requestUrl.pathname === "/api/v1/knowledge/directories") {
+        const rows = [
+          {
+            directory_key: companyDirectoryKey,
+            name: "01 公司方法论",
+            description: "公司级方法与标准资产",
+            scope: "company",
+            display_path: "公司库 / 01 公司方法论",
+            parent_key: null,
+            project_id: null,
+            project_name: null,
+          },
+          {
+            directory_key: projectDirectoryKey,
+            name: "03 交付成果",
+            description: "正式项目交付成果",
+            scope: "project",
+            display_path: "项目库 / 华东交付项目 / 03 交付成果",
+            parent_key: null,
+            project_id: projectId,
+            project_name: "华东交付项目",
+          },
+        ];
+        const scope = requestUrl.searchParams.get("scope");
+        const requestedProject = requestUrl.searchParams.get("project_id");
+        return fulfill({
+          items: rows.filter(
+            (row) =>
+              (!scope || row.scope === scope) &&
+              (!requestedProject || row.project_id === requestedProject),
+          ),
+        });
+      }
+
       return fulfill({ detail: { message: "UI QA route not configured" } }, 404);
     });
 
@@ -147,19 +183,24 @@ for (const scenario of scenarios) {
 
     if (scenario === "pure-admin") {
       await page.getByText("当前账号无此入口").waitFor();
-    } else if (scenario === "empty") {
+    } else if (scenario === "project") {
+      await page.getByRole("button", { name: /项目库/ }).click();
+      await page.getByRole("button", { name: /华东交付项目/ }).click();
+      await page.getByRole("button", { name: /03 交付成果/ }).click();
+      await page.waitForFunction(() => document.body.innerText.includes("可查看摘要与原文"));
+    } else {
+      await page.getByRole("button", { name: /公司库/ }).click();
+      await page.getByRole("button", { name: /01 公司方法论/ }).click();
+    }
+
+    if (scenario === "empty") {
       await page.getByText("当前身份暂无可浏览资料").waitFor();
     } else if (scenario === "retry") {
       await page.getByText("知识资产加载失败").waitFor();
       allowRetrySuccess = true;
       await page.getByRole("button", { name: "重试" }).click();
       await page.getByText("客户经营诊断方法论与跨部门交付复盘框架").waitFor();
-    } else if (scenario === "project") {
-      await page.getByText("客户经营诊断方法论与跨部门交付复盘框架").waitFor();
-      await page.getByRole("tab", { name: "项目" }).click();
-      await page.getByLabel("项目", { exact: true }).selectOption(projectId);
-      await page.waitForFunction(() => document.body.innerText.includes("可查看摘要与原文"));
-    } else {
+    } else if (scenario !== "pure-admin" && scenario !== "project") {
       await page.getByText("客户经营诊断方法论与跨部门交付复盘框架").waitFor();
       await page.getByText("可查看摘要，原文受限").waitFor();
     }
@@ -262,7 +303,8 @@ if (
       (result.scenario === "retry" && (!result.retried || result.knowledgeCalls < 2)) ||
       (result.scenario === "project" &&
         (result.projectQuery?.scope !== "project" ||
-          result.projectQuery?.project_id !== projectId)) ||
+          result.projectQuery?.project_id !== projectId ||
+          result.projectQuery?.directory_key !== projectDirectoryKey)) ||
       (typeof result.collapsedOverflowX === "number" &&
         (result.collapsedOverflowX > 2 ||
           result.collapsedButtonName !== "展开主导航" ||

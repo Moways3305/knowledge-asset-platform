@@ -10,6 +10,7 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const assetId = "00000000-0000-0000-0000-000000000076";
 const projectId = "00000000-0000-0000-0000-000000000176";
+const directoryKey = "company.methodology";
 const lifecycleCases = [
   ["archive_warning", "归档预警"],
   ["archive_candidate", "归档候选"],
@@ -171,6 +172,22 @@ for (const scenario of scenarios) {
       if (url.pathname === "/api/v1/knowledge") {
         return fulfill({ items: [listItem], total: 1, page: 1, page_size: 20, has_next: false });
       }
+      if (url.pathname === "/api/v1/knowledge/directories") {
+        return fulfill({
+          items: [
+            {
+              directory_key: directoryKey,
+              name: "01 公司方法论",
+              description: "公司级方法与标准资产",
+              scope: "company",
+              display_path: "公司库 / 01 公司方法论",
+              parent_key: null,
+              project_id: null,
+              project_name: null,
+            },
+          ],
+        });
+      }
       if (url.pathname === `/api/v1/knowledge/${assetId}`) {
         detailCalls += 1;
         if (scenario === "denied") {
@@ -222,6 +239,8 @@ for (const scenario of scenarios) {
     const page = await context.newPage();
     if (scenario === "full") {
       await page.goto(`${base}/knowledge`, { waitUntil: "networkidle" });
+      await page.getByRole("button", { name: /公司库/ }).click();
+      await page.getByRole("button", { name: /01 公司方法论/ }).click();
       await page.getByRole("link", { name: "查看详情" }).click();
       await page.waitForURL(`**/knowledge/${assetId}`);
     } else {
