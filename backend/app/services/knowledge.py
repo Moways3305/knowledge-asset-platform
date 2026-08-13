@@ -399,6 +399,7 @@ async def list_knowledge(
     sort_direction: str = "desc",
     page: int = 1,
     page_size: int = 50,
+    require_directory_context: bool = True,
 ) -> KnowledgeListResponse:
     """Return a permission-filtered, stable page of discoverable assets."""
     # include_archived is retained for legacy clients; discovery policy still excludes archived assets.
@@ -407,6 +408,13 @@ async def list_knowledge(
             raise _denied(422, "project_filter_scope_mismatch", "项目筛选仅适用于项目知识")
         if project_id not in caller.active_project_ids:
             raise _denied(403, "project_membership_required", "需为该项目的有效成员")
+
+    if require_directory_context and not directory_key:
+        raise _denied(
+            422,
+            "directory_context_required",
+            "知识目录列表必须指定正式目录上下文",
+        )
 
     if directory_key:
         if scope is None:

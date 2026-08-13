@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -43,8 +44,9 @@ def _asset(
     asset_status: str = "active",
     created_at: datetime | None = None,
     updated_at: datetime | None = None,
+    with_directory_version: bool = True,
 ) -> KnowledgeAsset:
-    return KnowledgeAsset(
+    asset = KnowledgeAsset(
         title=title,
         scope=scope,
         project_id=project_id,
@@ -58,17 +60,23 @@ def _asset(
         created_at=created_at or datetime.now(timezone.utc),
         updated_at=updated_at or datetime.now(timezone.utc),
     )
+    if with_directory_version:
+        version = KnowledgeAssetVersion(
+            id=uuid.uuid4(),
+            version_no="v1",
+            version_status="active",
+            created_by=USER_CONSULTANT,
+            directory_key=("project.deliverables" if scope == "project" else "company.methodology"),
+        )
+        asset.versions.append(version)
+        asset.current_version_id = version.id
+    return asset
 
 
-async def test_legacy_request_uses_bounded_first_page(client):
+async def test_cross_directory_list_requires_directory_context(client):
     response = await client.get(KNOWLEDGE, headers=_headers(USER_CONSULTANT))
-    assert response.status_code == 200
-    body = response.json()
-    assert body["page"] == 1
-    assert body["page_size"] == 50
-    assert len(body["items"]) <= 50
-    assert body["total"] >= len(body["items"])
-    assert body["has_next"] is (body["total"] > 50)
+    assert response.status_code == 422
+    assert response.json()["detail"]["denied_reason"] == "directory_context_required"
 
 
 @pytest.mark.parametrize(
@@ -119,6 +127,7 @@ async def test_combined_filters_and_stable_pagination(client, db_session):
     common = {
         "keyword": "PBC67-PAGE",
         "scope": "company",
+        "directory_key": "company.methodology",
         "zone": "asset",
         "asset_type": "case",
         "asset_status": "active",
@@ -181,7 +190,11 @@ async def test_keyword_matches_tags_without_wildcard_expansion(client, db_sessio
 
     response = await client.get(
         KNOWLEDGE,
-        params={"keyword": "PBC67_100%"},
+        params={
+            "keyword": "PBC67_100%",
+            "scope": "company",
+            "directory_key": "company.methodology",
+        },
         headers=_headers(USER_CONSULTANT),
     )
     assert response.status_code == 200
@@ -196,7 +209,11 @@ async def test_unauthorized_l5_title_is_absent_from_items_and_total(client, db_s
 
     denied = await client.get(
         KNOWLEDGE,
-        params={"keyword": "PBC67-SECRET"},
+        params={
+            "keyword": "PBC67-SECRET",
+            "scope": "company",
+            "directory_key": "company.methodology",
+        },
         headers=_headers(USER_CONSULTANT),
     )
     assert denied.status_code == 200
@@ -205,7 +222,11 @@ async def test_unauthorized_l5_title_is_absent_from_items_and_total(client, db_s
 
     allowed = await client.get(
         KNOWLEDGE,
-        params={"keyword": "PBC67-SECRET"},
+        params={
+            "keyword": "PBC67-SECRET",
+            "scope": "company",
+            "directory_key": "company.methodology",
+        },
         headers=_headers(USER_BOSS),
     )
     assert allowed.status_code == 200
@@ -213,7 +234,7 @@ async def test_unauthorized_l5_title_is_absent_from_items_and_total(client, db_s
     assert allowed.json()["items"][0]["title"] == secret_title
 
 
-async def test_cross_project_summary_rows_are_counted_before_pagination(client, db_session):
+async def test_project_workspace_uses_exact_authorized_project(client, db_session):
     alpha = _asset("PBC67-PROJECT Alpha", scope="project", project_id=PROJECT_ALPHA)
     beta = _asset("PBC67-PROJECT Beta", scope="project", project_id=PROJECT_BETA)
     db_session.add_all([alpha, beta])
@@ -228,19 +249,17 @@ async def test_cross_project_summary_rows_are_counted_before_pagination(client, 
     await db_session.commit()
 
     alpha_member = await client.get(
-        KNOWLEDGE,
-        params={"scope": "project", "keyword": "PBC67-PROJECT"},
+        f"/api/v1/projects/{PROJECT_ALPHA}/knowledge",
+        params={"keyword": "PBC67-PROJECT"},
         headers=_headers(USER_CONSULTANT),
     )
-    assert alpha_member.json()["total"] == 2
+    assert alpha_member.json()["total"] == 1
     by_id = {item["id"]: item for item in alpha_member.json()["items"]}
     assert by_id[str(alpha.id)]["access_info"]["original"] is True
-    assert by_id[str(beta.id)]["access_info"]["cross_project_summary"] is True
-    assert by_id[str(beta.id)]["access_info"]["original"] is False
+    assert str(beta.id) not in by_id
 
     denied_context = await client.get(
-        KNOWLEDGE,
-        params={"scope": "project", "project_id": str(PROJECT_BETA)},
+        f"/api/v1/projects/{PROJECT_BETA}/knowledge",
         headers=_headers(USER_CONSULTANT),
     )
     assert denied_context.status_code == 403
@@ -254,17 +273,17 @@ async def test_cross_project_summary_rows_are_counted_before_pagination(client, 
     )
     assert switched.status_code == 200
     beta_member = await client.get(
-        KNOWLEDGE,
-        params={"scope": "project", "keyword": "PBC67-PROJECT"},
+        f"/api/v1/projects/{PROJECT_BETA}/knowledge",
+        params={"keyword": "PBC67-PROJECT"},
     )
-    assert beta_member.json()["total"] == 2
+    assert beta_member.json()["total"] == 1
     by_id = {item["id"]: item for item in beta_member.json()["items"]}
     assert by_id[str(beta.id)]["access_info"]["original"] is True
-    assert by_id[str(alpha.id)]["access_info"]["cross_project_summary"] is True
+    assert str(alpha.id) not in by_id
 
 
 async def test_redacted_summary_projection_never_loads_ordinary_summary(client, db_session):
-    asset = _asset("PBC67-REDACTED", confidentiality_level="L3")
+    asset = _asset("PBC67-REDACTED", confidentiality_level="L3", with_directory_version=False)
     db_session.add(asset)
     await db_session.flush()
     version = KnowledgeAssetVersion(
@@ -272,6 +291,7 @@ async def test_redacted_summary_projection_never_loads_ordinary_summary(client, 
         version_no="v1",
         version_status="active",
         created_by=USER_CONSULTANT,
+        directory_key="company.methodology",
     )
     db_session.add(version)
     await db_session.flush()
@@ -296,7 +316,11 @@ async def test_redacted_summary_projection_never_loads_ordinary_summary(client, 
 
     response = await client.get(
         KNOWLEDGE,
-        params={"keyword": "PBC67-REDACTED"},
+        params={
+            "keyword": "PBC67-REDACTED",
+            "scope": "company",
+            "directory_key": "company.methodology",
+        },
         headers=_headers(USER_CONSULTANT),
     )
     assert response.status_code == 200
@@ -305,7 +329,7 @@ async def test_redacted_summary_projection_never_loads_ordinary_summary(client, 
 
 
 async def test_missing_current_version_never_falls_back_to_historical_summaries(client, db_session):
-    asset = _asset("PBC67-NO-CURRENT", confidentiality_level="L4")
+    asset = _asset("PBC67-NO-CURRENT", confidentiality_level="L4", with_directory_version=False)
     db_session.add(asset)
     await db_session.flush()
     historical_version = KnowledgeAssetVersion(
@@ -348,9 +372,13 @@ async def test_missing_current_version_never_falls_back_to_historical_summaries(
 
     listing = await client.get(
         KNOWLEDGE,
-        params={"keyword": "PBC67-NO-CURRENT"},
+        params={
+            "keyword": "PBC67-NO-CURRENT",
+            "scope": "company",
+            "directory_key": "company.methodology",
+        },
         headers=_headers(USER_CONSULTANT),
     )
     assert listing.status_code == 200
-    assert listing.json()["items"][0]["summary_text"] is None
+    assert listing.json()["items"] == []
     assert "PBC67-HISTORICAL" not in listing.text

@@ -30,7 +30,7 @@ def _hdr(user_id):
 
 async def test_list_default_user_no_storage_ref(client):
     """默认用户可获取列表，且响应中不出现 storage_ref。"""
-    resp = await client.get(KN)
+    resp = await client.get(f"{KN}?scope=company&directory_key=company.methodology")
     assert resp.status_code == 200
     body = resp.json()
     assert body["total"] >= 1
@@ -53,10 +53,22 @@ async def test_project_directory_path_uses_current_project_name(client, db_sessi
 async def test_consultant_cannot_see_l5_but_boss_can(client):
     """consultant 列表不含 L5；boss 列表包含 L5。"""
     consultant_titles = {
-        i["title"] for i in (await client.get(KN, headers=_hdr(USER_CONSULTANT))).json()["items"]
+        i["title"]
+        for i in (
+            await client.get(
+                f"{KN}?scope=company&directory_key=company.methodology",
+                headers=_hdr(USER_CONSULTANT),
+            )
+        ).json()["items"]
     }
     boss_titles = {
-        i["title"] for i in (await client.get(KN, headers=_hdr(USER_BOSS))).json()["items"]
+        i["title"]
+        for i in (
+            await client.get(
+                f"{KN}?scope=company&directory_key=company.methodology",
+                headers=_hdr(USER_BOSS),
+            )
+        ).json()["items"]
     }
     assert "公司级绝密战略备忘" not in consultant_titles
     assert "公司级绝密战略备忘" in boss_titles
@@ -66,7 +78,13 @@ async def test_others_personal_not_in_list_but_owner_in_my(client):
     """他人 personal 不出现在 boss 的列表；owner 的 /my/knowledge 能看到自己的。"""
     # boss 看公司列表不应出现 consultant 的个人草稿。
     boss_titles = {
-        i["title"] for i in (await client.get(KN, headers=_hdr(USER_BOSS))).json()["items"]
+        i["title"]
+        for i in (
+            await client.get(
+                f"{KN}?scope=company&directory_key=company.methodology",
+                headers=_hdr(USER_BOSS),
+            )
+        ).json()["items"]
     }
     assert "个人方法论草稿" not in boss_titles
     # owner（consultant）的 my/knowledge 能看到自己的个人草稿。
@@ -136,21 +154,25 @@ async def test_project_non_member_l3_gets_only_redacted_summary_projection(clien
 
 async def test_project_member_can_get_original(client):
     """consultant 是 Alpha active 成员：Alpha 项目资产 original=true。"""
-    items = (await client.get(f"{KN}?scope=project", headers=_hdr(USER_CONSULTANT))).json()["items"]
+    items = (
+        await client.get(
+            f"/api/v1/projects/{PROJECT_ALPHA}/knowledge", headers=_hdr(USER_CONSULTANT)
+        )
+    ).json()["items"]
     alpha = next(i for i in items if i["title"].startswith("Alpha 项目"))
     assert alpha["access_info"]["original"] is True
 
 
 async def test_project_list_uses_exact_authorized_project_id(client):
     response = await client.get(
-        f"{KN}?scope=project&project_id={PROJECT_ALPHA}", headers=_hdr(USER_CONSULTANT)
+        f"/api/v1/projects/{PROJECT_ALPHA}/knowledge", headers=_hdr(USER_CONSULTANT)
     )
     assert response.status_code == 200
     assert response.json()["items"]
     assert all(item["project_name"] == "Alpha 项目" for item in response.json()["items"])
 
     denied = await client.get(
-        f"{KN}?scope=project&project_id={PROJECT_BETA}", headers=_hdr(USER_CONSULTANT)
+        f"/api/v1/projects/{PROJECT_BETA}/knowledge", headers=_hdr(USER_CONSULTANT)
     )
     assert denied.status_code == 403
     assert denied.json()["detail"]["denied_reason"] == "project_membership_required"
@@ -172,6 +194,17 @@ async def test_directory_filter_requires_explicit_scope(client):
     assert response.json()["detail"]["denied_reason"] == "directory_scope_required"
 
 
+async def test_list_rejects_cross_directory_scope_and_project_queries(client):
+    for query in (
+        "",
+        "?scope=company",
+        f"?scope=project&project_id={PROJECT_ALPHA}",
+    ):
+        response = await client.get(f"{KN}{query}", headers=_hdr(USER_CONSULTANT))
+        assert response.status_code == 422
+        assert response.json()["detail"]["denied_reason"] == "directory_context_required"
+
+
 async def test_project_directory_filter_requires_exact_project_context(client):
     response = await client.get(
         f"{KN}?scope=project&directory_key=project.deliverables",
@@ -190,7 +223,15 @@ async def test_project_directory_filter_requires_exact_project_context(client):
 
 async def test_archived_not_in_default_list(client):
     """archived 资产默认不在列表中返回。"""
-    titles = {i["title"] for i in (await client.get(KN, headers=_hdr(USER_BOSS))).json()["items"]}
+    titles = {
+        i["title"]
+        for i in (
+            await client.get(
+                f"{KN}?scope=company&directory_key=company.methodology",
+                headers=_hdr(USER_BOSS),
+            )
+        ).json()["items"]
+    }
     assert "已归档的旧组织诊断指南" not in titles
 
 

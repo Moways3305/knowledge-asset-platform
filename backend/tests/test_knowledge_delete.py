@@ -205,7 +205,13 @@ async def test_deleted_exits_list_detail_mykn(client):
     await client.post(_del(KA_PERSONAL), headers=_hdr(USER_CONSULTANT), json={})
     # 列表（含 include_archived）不返回。
     for q in ["", "?include_archived=true"]:
-        items = (await client.get(f"{KN}{q}", headers=_hdr(USER_CONSULTANT))).json()["items"]
+        separator = "&" if q else "?"
+        items = (
+            await client.get(
+                f"{KN}{q}{separator}scope=personal&directory_key=personal.learning_notes",
+                headers=_hdr(USER_CONSULTANT),
+            )
+        ).json()["items"]
         assert all(i["id"] != str(KA_PERSONAL) for i in items)
     # 个人知识不返回。
     my = (await client.get("/api/v1/my/knowledge", headers=_hdr(USER_CONSULTANT))).json()["items"]

@@ -126,9 +126,18 @@ export async function fetchKnowledgePage(
   if (params.includeArchived) qs.set("include_archived", "true");
   if (params.directoryKey) qs.set("directory_key", params.directoryKey);
   if (params.includeDescendants) qs.set("include_descendants", "true");
-  const query = qs.toString();
+  const projectWorkspace =
+    params.scope === "project" && Boolean(params.projectId) && !params.directoryKey;
+  if (projectWorkspace) {
+    qs.delete("scope");
+    qs.delete("project_id");
+  }
+  const finalQuery = qs.toString();
+  const basePath = projectWorkspace
+    ? `/api/v1/projects/${encodeURIComponent(params.projectId!)}/knowledge`
+    : "/api/v1/knowledge";
   const data = await apiGet<KnowledgeListResponseDTO>(
-    `/api/v1/knowledge${query ? `?${query}` : ""}`,
+    `${basePath}${finalQuery ? `?${finalQuery}` : ""}`,
   );
   return {
     items: data.items.map(mapCard),

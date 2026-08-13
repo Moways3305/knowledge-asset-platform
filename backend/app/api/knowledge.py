@@ -197,6 +197,59 @@ async def list_knowledge(
         sort_direction=sort_direction.value,
         page=page,
         page_size=page_size,
+        require_directory_context=True,
+    )
+
+
+@router.get("/projects/{project_id}/knowledge", response_model=KnowledgeListResponse)
+async def list_project_workspace_knowledge(
+    project_id: uuid.UUID,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    keyword: str | None = Query(default=None, min_length=1, max_length=100),
+    zone: KnowledgeZone | None = Query(default=None),
+    asset_type: AssetType | None = Query(default=None),
+    asset_status: AssetStatus | None = Query(default=None),
+    confidentiality_level: ConfidentialityLevel | None = Query(default=None),
+    created_from: datetime | None = Query(default=None),
+    created_to: datetime | None = Query(default=None),
+    updated_from: datetime | None = Query(default=None),
+    updated_to: datetime | None = Query(default=None),
+    sort_by: KnowledgeSortField = Query(default=KnowledgeSortField.updated_at),
+    sort_direction: SortDirection = Query(default=SortDirection.desc),
+    include_archived: bool = Query(default=False),
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> KnowledgeListResponse:
+    """Project workspace listing; separate from governed directory browsing."""
+    _validate_time_range(created_from, created_to, field="created_time", message="创建时间范围无效")
+    _validate_time_range(updated_from, updated_to, field="updated_time", message="更新时间范围无效")
+    clean_keyword = keyword.strip() if keyword else None
+    if keyword is not None and not clean_keyword:
+        raise HTTPException(
+            status_code=422,
+            detail={"denied_reason": "keyword_invalid", "message": "关键词不能为空"},
+        )
+    return await knowledge_service.list_knowledge(
+        session,
+        caller,
+        scope=KnowledgeScope.project.value,
+        project_id=project_id,
+        include_archived=include_archived,
+        keyword=clean_keyword,
+        zone=zone.value if zone else None,
+        asset_type=asset_type.value if asset_type else None,
+        asset_status=asset_status.value if asset_status else None,
+        confidentiality_level=confidentiality_level.value if confidentiality_level else None,
+        created_from=created_from,
+        created_to=created_to,
+        updated_from=updated_from,
+        updated_to=updated_to,
+        sort_by=sort_by.value,
+        sort_direction=sort_direction.value,
+        page=page,
+        page_size=page_size,
+        require_directory_context=False,
     )
 
 

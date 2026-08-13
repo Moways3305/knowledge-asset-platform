@@ -385,10 +385,22 @@ describe("KnowledgeListPage reference implementation", () => {
       `/knowledge?scope=project&project_id=${PROJECT_B}&directory_key=project.deliverables`,
     );
 
-    await waitFor(() => expect(fetchKnowledgeDirectories).not.toHaveBeenCalled());
+    expect(await screen.findByRole("button", { name: /公司库/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /项目库/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /个人库/ })).toBeInTheDocument();
+    expect(fetchKnowledgeDirectories).toHaveBeenLastCalledWith({});
     expect(fetchKnowledgePage).not.toHaveBeenCalled();
     expect(screen.queryByText("供应链优化项目")).not.toBeInTheDocument();
     expect(screen.queryByText("03 交付成果")).not.toBeInTheDocument();
+  });
+
+  it("returns a project directory URL without a project id to the knowledge root", async () => {
+    renderPage("/knowledge?scope=project&directory_key=project.deliverables");
+
+    expect(await screen.findByRole("button", { name: /公司库/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /项目库/ })).toBeInTheDocument();
+    expect(screen.queryByText("03 交付成果")).not.toBeInTheDocument();
+    expect(fetchKnowledgePage).not.toHaveBeenCalled();
   });
 
   it("keeps the directory return context when an opened original leaves the summary drawer", async () => {

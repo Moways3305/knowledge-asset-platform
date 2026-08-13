@@ -671,6 +671,7 @@ async def build_recent_activity(
         sort_direction="desc",
         page=1,
         page_size=10,
+        require_directory_context=False,
     )
     items = [
         WorkbenchRecentActivityItem(

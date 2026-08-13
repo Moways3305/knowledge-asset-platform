@@ -73,6 +73,7 @@ async def _knowledge_page(
         sort_direction="desc",
         page=1,
         page_size=page_size,
+        require_directory_context=False,
     )
 
 

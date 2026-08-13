@@ -12,7 +12,7 @@ import {
   Upload,
   UserRound,
 } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   fetchKnowledgeDetail,
   fetchKnowledgeDirectories,
@@ -95,8 +95,10 @@ function pageNumbers(current: number, total: number): number[] {
 
 export default function KnowledgeListPage() {
   const { authMe, capabilities, status } = useAuth();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialScope = (searchParams.get("scope") as KnowledgeScope | null) ?? "";
+  const requestedProjectId = searchParams.get("project_id") ?? "";
   const [keywordInput, setKeywordInput] = useState(searchParams.get("keyword") ?? "");
   const [keyword, setKeyword] = useState(searchParams.get("keyword") ?? "");
   const [scope, setScope] = useState<KnowledgeScope | "">(initialScope);
@@ -128,7 +130,7 @@ export default function KnowledgeListPage() {
   const [tableScrollWidth, setTableScrollWidth] = useState(0);
   const [tableAtEnd, setTableAtEnd] = useState(false);
 
-  const projects = authMe?.projects ?? [];
+  const projects = useMemo(() => authMe?.projects ?? [], [authMe?.projects]);
   const validProjectId = projects.some((project) => project.projectId === projectId)
     ? projectId
     : "";
@@ -336,11 +338,18 @@ export default function KnowledgeListPage() {
 
   useEffect(() => {
     if (!canLoadBusinessKnowledge) return;
-    if (scope === "project" && !validProjectId) {
+    const invalidProjectDirectoryUrl =
+      initialScope === "project" &&
+      Boolean(requestedProjectId || directoryKeyFromUrl) &&
+      !projects.some((project) => project.projectId === requestedProjectId);
+    if (invalidProjectDirectoryUrl) {
       setDirectoryItems([]);
       setDirectory(null);
       setDirectoryLoading(false);
-      if (directoryKeyFromUrl) restoredDirectoryRef.current = true;
+      setScope("");
+      setProjectId("");
+      restoredDirectoryRef.current = true;
+      navigate("/knowledge", { replace: true });
       return;
     }
     let active = true;
@@ -366,7 +375,16 @@ export default function KnowledgeListPage() {
     return () => {
       active = false;
     };
-  }, [canLoadBusinessKnowledge, directoryKeyFromUrl, scope, validProjectId]);
+  }, [
+    canLoadBusinessKnowledge,
+    directoryKeyFromUrl,
+    initialScope,
+    navigate,
+    projects,
+    requestedProjectId,
+    scope,
+    validProjectId,
+  ]);
 
   const resetFilters = () => {
     setKeywordInput("");

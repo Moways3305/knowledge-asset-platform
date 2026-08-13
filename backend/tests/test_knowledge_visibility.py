@@ -34,8 +34,11 @@ def _hdr(uid):
 
 # ================= 纯 admin（非业务身份）不见任何业务知识 =================
 async def test_admin_knowledge_list_excludes_all_business_assets(client):
-    for scope in ("company", "project", "personal", None):
-        url = f"{KN}?scope={scope}" if scope else KN
+    for scope, directory in (
+        ("company", "company.methodology"),
+        ("personal", "personal.learning_notes"),
+    ):
+        url = f"{KN}?scope={scope}&directory_key={directory}"
         resp = await client.get(url, headers=_hdr(USER_ADMIN_ONLY))
         assert resp.status_code == 200
         assert resp.json()["items"] == [], f"admin 不应在 {scope} 列表看到任何业务资产"
