@@ -1,6 +1,12 @@
 // 审核流：待审核列表与通过 / 拒绝动作。响应只含安全治理元数据。
 import { apiGet, apiPost } from "./http";
-import type { ReviewItemDTO, ReviewListResponseDTO } from "../types/review";
+import type {
+  AssetizationPreflightItemDTO,
+  AssetizationSubmitResponseDTO,
+  EvidenceInputDTO,
+  ReviewItemDTO,
+  ReviewListResponseDTO,
+} from "../types/review";
 import type { BulkOperationResponseDTO } from "../types/bulk";
 import { runControlledBulkRequests } from "./bulk";
 
@@ -119,5 +125,44 @@ export async function bulkRequestAssetConfirmation(input: {
           total_submitted: context.totalSubmitted,
         },
       ),
+  });
+}
+
+export async function preflightAssetization(
+  projectId: string,
+  itemIds: string[],
+): Promise<AssetizationPreflightItemDTO[]> {
+  const response = await apiPost<{ items: AssetizationPreflightItemDTO[] }>(
+    `/api/v1/projects/${projectId}/knowledge/assetization-preflight`,
+    { item_ids: itemIds },
+  );
+  return response.items;
+}
+
+export async function submitAssetization(
+  projectId: string,
+  itemIds: string[],
+): Promise<AssetizationSubmitResponseDTO> {
+  return apiPost<AssetizationSubmitResponseDTO>(
+    `/api/v1/projects/${projectId}/knowledge/assetization-submit`,
+    { item_ids: itemIds },
+  );
+}
+
+export async function registerAssetEvidence(
+  projectId: string,
+  assetId: string,
+  evidence: EvidenceInputDTO,
+): Promise<void> {
+  await apiPost(`/api/v1/projects/${projectId}/knowledge/${assetId}/evidence`, evidence);
+}
+
+export async function bulkRegisterReviewEvidence(
+  reviewIds: string[],
+  evidence: EvidenceInputDTO,
+): Promise<{ transitioned: number; existing: number; skipped: number; failed: number }> {
+  return apiPost("/api/v1/reviews/bulk-evidence", {
+    review_ids: reviewIds,
+    evidence,
   });
 }

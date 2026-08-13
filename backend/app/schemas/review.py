@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.enums import EvidenceCategory, EvidenceType
 
@@ -21,6 +21,7 @@ class EvidenceCreateRequest(BaseModel):
     # 占位 metadata（如 {"name": "...", "note": "..."}）；不接收真实文件路径/下载 URL。
     # 真实 URL / 路径 / 内部引用 / 凭证的拦截在 services/review.py（避免 schema 文件出现敏感字段名）。
     attachments: list[dict] | None = None
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=100)
 
 
 class EvidenceOut(BaseModel):
@@ -47,6 +48,7 @@ class ReviewListItem(BaseModel):
     evidence_count: int
     can_decide: bool = False
     can_withdraw: bool = False
+    blocking_reason: str | None = None
     general_manager_confirmation_status: str | None = None
     consulting_director_confirmation_status: str | None = None
     review_comment: str | None
@@ -83,3 +85,58 @@ class ReviewActionResponse(BaseModel):
 
 class ReviewWithdrawRequest(BaseModel):
     review_comment: str | None = None
+
+
+class AssetizationPreflightRequest(BaseModel):
+    item_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+
+
+class AssetizationPreflightItem(BaseModel):
+    item_id: uuid.UUID
+    title: str
+    status: str
+    evidence_count: int
+    reason_code: str | None = None
+    message: str | None = None
+
+
+class AssetizationPreflightResponse(BaseModel):
+    items: list[AssetizationPreflightItem]
+
+
+class AssetizationSubmitItem(BaseModel):
+    item_id: uuid.UUID
+    status: str
+    review_status: str | None = None
+    reason_code: str | None = None
+    message: str | None = None
+
+
+class AssetizationSubmitResponse(BaseModel):
+    submitted: int
+    created: int
+    existing: int
+    evidence_missing: int
+    ineligible: int
+    failed: int
+    items: list[AssetizationSubmitItem]
+
+
+class BulkEvidenceRequest(BaseModel):
+    review_ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+    evidence: EvidenceCreateRequest
+
+
+class BulkEvidenceItem(BaseModel):
+    review_id: uuid.UUID
+    status: str
+    reason_code: str | None = None
+
+
+class BulkEvidenceResponse(BaseModel):
+    submitted: int
+    transitioned: int
+    existing: int
+    skipped: int
+    failed: int
+    items: list[BulkEvidenceItem]

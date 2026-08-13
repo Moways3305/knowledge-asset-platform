@@ -37,6 +37,15 @@ class ValidationEvidence(Base):
     __tablename__ = "validation_evidences"
     __table_args__ = (
         Index("ix_validation_evidences_asset_created", "related_asset_id", "created_at"),
+        Index(
+            "uq_validation_evidence_idempotency",
+            "submitted_by",
+            "related_asset_id",
+            "idempotency_key",
+            unique=True,
+            sqlite_where=text("idempotency_key IS NOT NULL"),
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -50,6 +59,7 @@ class ValidationEvidence(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 占位 metadata 列表，不含真实文件路径/下载 URL。
     attachments: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now

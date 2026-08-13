@@ -5,9 +5,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { bulkDeleteKnowledgeAssets, fetchKnowledgePage } from "../api/knowledge";
 import { fetchProjectQaModelOptions, projectQa } from "../api/project";
 import {
-  bulkRequestAssetConfirmation,
   bulkRequestCompanyUpgrade,
+  preflightAssetization,
+  registerAssetEvidence,
   requestCompanyUpgrade,
+  submitAssetization,
 } from "../api/review";
 import type { KnowledgeCardVM, KnowledgePageVM } from "../types/knowledge";
 import ProjectKnowledgePage from "./ProjectKnowledgePage";
@@ -38,9 +40,11 @@ vi.mock("../api/project", () => ({
   projectQa: vi.fn(),
 }));
 vi.mock("../api/review", () => ({
-  bulkRequestAssetConfirmation: vi.fn(),
   bulkRequestCompanyUpgrade: vi.fn(),
+  preflightAssetization: vi.fn(),
+  registerAssetEvidence: vi.fn(),
   requestCompanyUpgrade: vi.fn(),
+  submitAssetization: vi.fn(),
 }));
 
 function card(overrides: Partial<KnowledgeCardVM> = {}): KnowledgeCardVM {
@@ -186,18 +190,28 @@ describe("ProjectKnowledgePage reference workspace", () => {
         failed: 0,
         items: [{ item_id: "asset-2", status: "succeeded", reason_code: null, message: null }],
       });
-    vi.mocked(bulkRequestAssetConfirmation)
+    vi.mocked(preflightAssetization)
       .mockReset()
-      .mockResolvedValue({
-        operation_id: "bulk-assetize",
-        status: "completed",
-        execution_mode: "synchronous",
-        submitted: 1,
-        succeeded: 1,
-        skipped: 0,
-        failed: 0,
-        items: [{ item_id: "material-1", status: "succeeded", reason_code: null, message: null }],
-      });
+      .mockImplementation(async (_projectId, ids) =>
+        ids.map((id) => ({
+          item_id: id,
+          title: id,
+          status: "ready",
+          evidence_count: 1,
+          reason_code: null,
+          message: "已有可绑定证据",
+        })),
+      );
+    vi.mocked(registerAssetEvidence).mockReset().mockResolvedValue();
+    vi.mocked(submitAssetization).mockReset().mockResolvedValue({
+      submitted: 1,
+      created: 1,
+      existing: 0,
+      evidence_missing: 0,
+      ineligible: 0,
+      failed: 0,
+      items: [],
+    });
     vi.mocked(bulkDeleteKnowledgeAssets).mockReset().mockResolvedValue({
       operation_id: "bulk-delete",
       status: "completed",
@@ -397,17 +411,15 @@ describe("ProjectKnowledgePage reference workspace", () => {
     await act(async () => {
       fireEvent.click(screen.getByLabelText("全选当前页项目知识"));
     });
-    expect(screen.getByRole("button", { name: "批量发起资产化确认（1）" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "发起资产化审核（1）" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "批量升级为公司资产（1）" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "批量删除（3）" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "批量发起资产化确认（1）" }));
+    fireEvent.click(screen.getByRole("button", { name: "发起资产化审核（1）" }));
     await waitFor(() =>
-      expect(bulkRequestAssetConfirmation).toHaveBeenCalledWith({
-        projectId: PROJECT_B,
-        itemIds: ["material-1"],
-      }),
+      expect(preflightAssetization).toHaveBeenCalledWith(PROJECT_B, ["material-1"]),
     );
+    expect(await screen.findByRole("dialog", { name: "发起资产化审核" })).toBeInTheDocument();
   });
 
   it("keeps pure material assetization and pure asset company upgrade as distinct actions", async () => {
@@ -426,7 +438,7 @@ describe("ProjectKnowledgePage reference workspace", () => {
     await act(async () => {
       fireEvent.click(screen.getByLabelText("全选当前页项目知识"));
     });
-    expect(screen.getByRole("button", { name: "批量发起资产化确认（1）" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "发起资产化审核（1）" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /批量升级为公司资产/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "批量删除（1）" })).toBeInTheDocument();
     materialView.unmount();
@@ -447,49 +459,46 @@ describe("ProjectKnowledgePage reference workspace", () => {
       fireEvent.click(screen.getByLabelText("全选当前页项目知识"));
     });
     expect(screen.getByRole("button", { name: "批量升级为公司资产（1）" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /批量发起资产化确认/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /发起资产化审核/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "批量删除（1）" })).toBeInTheDocument();
   });
 
-  it("keeps per-item assetization failures selected for an immediate retry", async () => {
+  it("opens an evidence preflight without silently creating review tasks", async () => {
     vi.mocked(fetchKnowledgePage).mockResolvedValue(
       page([
         card({ id: "material-ok", title: "成功资料", zone: "material" }),
         card({ id: "material-failed", title: "失败资料", zone: "material" }),
       ]),
     );
-    vi.mocked(bulkRequestAssetConfirmation).mockResolvedValue({
-      operation_id: "bulk-assetize-partial",
-      status: "completed_with_errors",
-      execution_mode: "synchronous",
-      submitted: 2,
-      succeeded: 1,
-      skipped: 0,
-      failed: 1,
-      items: [
-        { item_id: "material-ok", status: "succeeded", reason_code: null, message: null },
-        {
-          item_id: "material-failed",
-          status: "failed",
-          reason_code: "item_failed",
-          message: null,
-        },
-      ],
-    });
+    vi.mocked(preflightAssetization).mockResolvedValue([
+      {
+        item_id: "material-ok",
+        title: "成功资料",
+        status: "ready",
+        evidence_count: 1,
+        reason_code: null,
+        message: "已有可绑定证据",
+      },
+      {
+        item_id: "material-failed",
+        title: "失败资料",
+        status: "evidence_missing",
+        evidence_count: 0,
+        reason_code: "assetization_evidence_required",
+        message: "需先登记验证证据",
+      },
+    ]);
     renderPage(`/project/${PROJECT_B}/knowledge`);
     await screen.findByText("失败资料");
 
     await act(async () => {
       fireEvent.click(screen.getByLabelText("全选当前页项目知识"));
     });
-    fireEvent.click(screen.getByRole("button", { name: "批量发起资产化确认（2）" }));
-
-    await waitFor(() => {
-      expect(screen.getByLabelText("选择项目知识 失败资料")).toBeChecked();
-      expect(screen.getByLabelText("选择项目知识 成功资料")).not.toBeChecked();
-    });
-    expect(screen.getByRole("button", { name: "批量发起资产化确认（1）" })).toBeInTheDocument();
-    expect(screen.getByText(/已保留 1 个失败项，可直接重试/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "发起资产化审核（2）" }));
+    expect(await screen.findByText("需先登记验证证据")).toBeInTheDocument();
+    expect(submitAssetization).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("选择项目知识 失败资料")).toBeChecked();
+    expect(screen.getByLabelText("选择项目知识 成功资料")).toBeChecked();
   });
 
   it("uses the default model and renders only safe QA fields", async () => {

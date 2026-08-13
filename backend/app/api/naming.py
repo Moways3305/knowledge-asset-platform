@@ -10,6 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_caller_context
 from app.core.trace import get_trace_id
 from app.db.session import get_db
+from app.schemas.directory_migration import (
+    DirectoryMigrationConfirmRequest,
+    DirectoryMigrationConfirmResponse,
+    DirectoryMigrationWorkspaceOut,
+)
 from app.schemas.enums import KnowledgeScope
 from app.schemas.naming import (
     BatchNamingPreviewRequest,
@@ -27,11 +32,46 @@ from app.schemas.naming import (
     NamingRuleRevisionOut,
 )
 from app.schemas.permission import CallerContext
-from app.services import category_classification, naming_rules
+from app.services import category_classification, directory_migration, naming_rules
 from app.services.generation_models import get_generation_llm_client
 from app.services.llm_client import LLMClient, NullLLMClient
 
 router = APIRouter(prefix="/api/v1", tags=["naming-rules"])
+
+
+@router.get("/admin/directory-migration", response_model=DirectoryMigrationWorkspaceOut)
+async def get_directory_migration_workspace(
+    scope: str | None = Query(default=None),
+    project_id: uuid.UUID | None = Query(default=None),
+    old_category: str | None = Query(default=None),
+    directory_key: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> DirectoryMigrationWorkspaceOut:
+    return await directory_migration.workspace(
+        session,
+        caller,
+        scope=scope,
+        project_id=project_id,
+        old_category=old_category,
+        directory_key=directory_key,
+        status=status,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.post("/admin/directory-migration/confirm", response_model=DirectoryMigrationConfirmResponse)
+async def confirm_directory_migration(
+    body: DirectoryMigrationConfirmRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> DirectoryMigrationConfirmResponse:
+    return await directory_migration.confirm(session, caller, body, get_trace_id(request))
 
 
 @router.get("/admin/naming-rules", response_model=NamingRuleCenterOut)

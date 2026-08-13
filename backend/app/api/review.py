@@ -22,6 +22,12 @@ from app.schemas.bulk_operations import (
 from app.schemas.enums import AuditAction, ReviewTaskStatus, ReviewType
 from app.schemas.permission import CallerContext
 from app.schemas.review import (
+    AssetizationPreflightRequest,
+    AssetizationPreflightResponse,
+    AssetizationSubmitItem,
+    AssetizationSubmitResponse,
+    BulkEvidenceRequest,
+    BulkEvidenceResponse,
     EvidenceCreateRequest,
     EvidenceOut,
     ReviewActionRequest,
@@ -42,6 +48,115 @@ from app.services.weknora_client import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["review"])
+
+
+@router.post(
+    "/projects/{project_id}/knowledge/assetization-preflight",
+    response_model=AssetizationPreflightResponse,
+)
+async def assetization_preflight(
+    project_id: uuid.UUID,
+    body: AssetizationPreflightRequest,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> AssetizationPreflightResponse:
+    return await review_service.preflight_assetization(session, caller, project_id, body.item_ids)
+
+
+@router.post(
+    "/projects/{project_id}/knowledge/assetization-submit",
+    response_model=AssetizationSubmitResponse,
+)
+async def submit_assetization(
+    project_id: uuid.UUID,
+    body: AssetizationPreflightRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> AssetizationSubmitResponse:
+    from fastapi import HTTPException
+
+    preflight = await review_service.preflight_assetization(
+        session, caller, project_id, body.item_ids
+    )
+    preflight_by_id = {row.item_id: row for row in preflight.items}
+    results: list[AssetizationSubmitItem] = []
+    counts = {"created": 0, "existing": 0, "evidence_missing": 0, "ineligible": 0, "failed": 0}
+    for asset_id in body.item_ids:
+        state = preflight_by_id[asset_id]
+        if state.status in {"evidence_missing", "ineligible"}:
+            counts[state.status] += 1
+            results.append(
+                AssetizationSubmitItem(
+                    item_id=asset_id,
+                    status=state.status,
+                    reason_code=state.reason_code,
+                    message=state.message,
+                )
+            )
+            continue
+        if state.status == "existing":
+            counts["existing"] += 1
+            results.append(
+                AssetizationSubmitItem(item_id=asset_id, status="existing", message=state.message)
+            )
+            continue
+        try:
+            created = await review_service.create_or_get_confirm_asset(
+                session, caller, project_id, asset_id, get_trace_id(request)
+            )
+            counts["created"] += 1
+            results.append(
+                AssetizationSubmitItem(
+                    item_id=asset_id,
+                    status="created",
+                    review_status=created.status,
+                    message="审核已创建，等待审核人处理",
+                )
+            )
+        except HTTPException as exc:
+            await session.rollback()
+            reason = (
+                exc.detail.get("denied_reason") if isinstance(exc.detail, dict) else "ineligible"
+            )
+            domain = (
+                "evidence_missing" if reason == "assetization_evidence_required" else "ineligible"
+            )
+            counts[domain] += 1
+            results.append(
+                AssetizationSubmitItem(
+                    item_id=asset_id,
+                    status=domain,
+                    reason_code=reason,
+                    message=(
+                        exc.detail.get("message")
+                        if isinstance(exc.detail, dict)
+                        else "当前不可发起"
+                    ),
+                )
+            )
+        except Exception:
+            await session.rollback()
+            counts["failed"] += 1
+            results.append(
+                AssetizationSubmitItem(
+                    item_id=asset_id,
+                    status="failed",
+                    reason_code="request_failed",
+                    message="本项提交未完成，可重试",
+                )
+            )
+    return AssetizationSubmitResponse(submitted=len(results), items=results, **counts)
+
+
+@router.post("/reviews/bulk-evidence", response_model=BulkEvidenceResponse)
+async def bulk_review_evidence(
+    body: BulkEvidenceRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> BulkEvidenceResponse:
+    return await review_service.bulk_register_evidence(session, caller, body, get_trace_id(request))
 
 
 @router.post("/reviews/bulk-action", response_model=BulkOperationResponse)
@@ -351,6 +466,6 @@ async def withdraw_review_confirmation(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> ReviewActionResponse:
-    return await review_service.withdraw_company_confirmation(
+    return await review_service.withdraw_review(
         session, caller, review_id, req.review_comment, get_trace_id(request)
     )

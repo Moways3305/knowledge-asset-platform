@@ -16,13 +16,16 @@ import {
 import { ControlledBulkRequestError } from "../api/bulk";
 import { fetchProjectQaModelOptions, projectQa } from "../api/project";
 import {
-  bulkRequestAssetConfirmation,
   bulkRequestCompanyUpgrade,
+  preflightAssetization,
+  registerAssetEvidence,
   requestCompanyUpgrade,
+  submitAssetization,
 } from "../api/review";
 import { useAuth } from "../auth/AuthContext";
 import DataTable, { type Column } from "../components/DataTable";
 import ConfirmDialog from "../components/ConfirmDialog";
+import WizardModal from "../components/WizardModal";
 import { BulkSelectionRail, SelectionCheckbox } from "../components/BulkSelection";
 import LoadingError from "../components/LoadingError";
 import {
@@ -34,6 +37,7 @@ import {
 } from "../components/ProductLayout";
 import StatusBadge from "../components/StatusBadge";
 import type { ProjectQaModelOptionDTO, ProjectQaResponseDTO } from "../types/agent";
+import type { AssetizationPreflightItemDTO, EvidenceInputDTO } from "../types/review";
 import type {
   AssetStatus,
   AssetType,
@@ -177,6 +181,15 @@ function ProjectKnowledgeWorkspace({
   const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false);
   const [bulkUpgradeBusy, setBulkUpgradeBusy] = useState(false);
   const [bulkAssetizeBusy, setBulkAssetizeBusy] = useState(false);
+  const [assetizationOpen, setAssetizationOpen] = useState(false);
+  const [assetizationStep, setAssetizationStep] = useState(0);
+  const [assetizationItems, setAssetizationItems] = useState<AssetizationPreflightItemDTO[]>([]);
+  const [assetizationError, setAssetizationError] = useState<string | null>(null);
+  const [evidenceType, setEvidenceType] =
+    useState<EvidenceInputDTO["evidence_type"]>("internal_sharing");
+  const [evidenceCategory, setEvidenceCategory] =
+    useState<EvidenceInputDTO["evidence_category"]>("meeting_minutes");
+  const [evidenceDescription, setEvidenceDescription] = useState("");
   const bulkDeleteRunRef = useRef(false);
   const bulkRetrySelectionRef = useRef<KnowledgeCardVM[] | null>(null);
 
@@ -521,50 +534,66 @@ function ProjectKnowledgeWorkspace({
     }
   };
 
-  const handleBulkAssetize = async () => {
+  const openAssetization = async () => {
     const materialAssets = selectedAssets.filter(
       (asset) => asset.zone === "material" && asset.assetStatus === "active",
     );
     if (materialAssets.length === 0 || bulkAssetizeBusy) return;
-    const selectionSnapshot = [...materialAssets];
-    const selectionRequest = listRequestRef.current;
+    setAssetizationOpen(true);
+    setAssetizationStep(0);
+    setAssetizationError(null);
+    setAssetizationItems([]);
     setBulkAssetizeBusy(true);
     try {
-      const response = await bulkRequestAssetConfirmation({
-        projectId: project.projectId,
-        itemIds: selectionSnapshot.map((asset) => asset.id),
-      });
-      const retryIds = new Set(
-        response.items.filter((item) => item.status === "failed").map((item) => item.item_id),
+      setAssetizationItems(
+        await preflightAssetization(
+          project.projectId,
+          materialAssets.map((asset) => asset.id),
+        ),
       );
-      if (listRequestRef.current === selectionRequest && retryIds.size > 0) {
-        bulkRetrySelectionRef.current = selectionSnapshot.filter((asset) => retryIds.has(asset.id));
+    } catch {
+      setAssetizationError("证据预检暂时未完成，请稍后重试。未创建任何审核任务。");
+    } finally {
+      setBulkAssetizeBusy(false);
+    }
+  };
+
+  const completeAssetization = async () => {
+    const missing = assetizationItems.filter((item) => item.status === "evidence_missing");
+    const eligible = assetizationItems.filter((item) => item.status !== "ineligible");
+    if (!evidenceDescription.trim() && missing.length > 0) {
+      setAssetizationError("请填写证据适用说明，说明为何可用于这些资料。");
+      return;
+    }
+    setBulkAssetizeBusy(true);
+    setAssetizationError(null);
+    try {
+      const evidence: EvidenceInputDTO = {
+        evidence_type: evidenceType,
+        evidence_category: evidenceCategory,
+        description: evidenceDescription.trim(),
+        idempotency_key: crypto.randomUUID(),
+      };
+      for (const item of missing) {
+        await registerAssetEvidence(project.projectId, item.item_id, evidence);
       }
+      const response = await submitAssetization(
+        project.projectId,
+        eligible.map((item) => item.item_id),
+      );
+      setAssetizationOpen(false);
       setSelectedAssets([]);
       setAllMatchingSelected(false);
       setUpgradeNotice({
-        tone: response.failed > 0 || response.skipped > 0 ? "error" : "success",
-        text: `批量资产化确认已发起：提交 ${response.submitted}，成功 ${response.succeeded}，跳过 ${response.skipped}，失败 ${response.failed}。${retryIds.size > 0 ? ` 已保留 ${retryIds.size} 个失败项，可直接重试。` : ""}`,
+        tone:
+          response.failed || response.evidence_missing || response.ineligible ? "error" : "success",
+        text: `资产化审核已提交：新建 ${response.created}，复用待办 ${response.existing}，缺证据 ${response.evidence_missing}，不可发起 ${response.ineligible}，失败 ${response.failed}。`,
       });
-    } catch (error) {
-      const retryIds =
-        error instanceof ControlledBulkRequestError
-          ? new Set(error.retryItems as string[])
-          : new Set(selectionSnapshot.map((asset) => asset.id));
-      const partial = error instanceof ControlledBulkRequestError ? error.partialResult : null;
-      if (listRequestRef.current === selectionRequest) {
-        bulkRetrySelectionRef.current = selectionSnapshot.filter((asset) => retryIds.has(asset.id));
-      }
-      setAllMatchingSelected(false);
-      setUpgradeNotice({
-        tone: "error",
-        text: partial
-          ? `批量资产化确认中断：已完成提交 ${partial.submitted} 项（成功 ${partial.succeeded}，跳过 ${partial.skipped}，失败 ${partial.failed}），剩余 ${retryIds.size} 项可重试。`
-          : `批量资产化确认未开始，${retryIds.size} 项仍保留选择，可重试。`,
-      });
+      setListRetryKey((value) => value + 1);
+    } catch {
+      setAssetizationError("提交未全部完成。已成功登记的证据会保留，可再次预检后重试。");
     } finally {
       setBulkAssetizeBusy(false);
-      setListRetryKey((value) => value + 1);
     }
   };
 
@@ -988,10 +1017,10 @@ function ProjectKnowledgeWorkspace({
                 <button
                   className="product-button is-small"
                   disabled={bulkAssetizeBusy || bulkUpgradeBusy || bulkDeleteBusy}
-                  onClick={() => void handleBulkAssetize()}
+                  onClick={() => void openAssetization()}
                   type="button"
                 >
-                  批量发起资产化确认（{selectedMaterialAssets.length}）
+                  发起资产化审核（{selectedMaterialAssets.length}）
                 </button>
               )}
               {selectedUpgradeableAssets.length > 0 && (
@@ -1136,6 +1165,115 @@ function ProjectKnowledgeWorkspace({
               }}
               onConfirm={() => void handleBulkDelete()}
             />
+            <WizardModal
+              open={assetizationOpen}
+              title="发起资产化审核"
+              description="资料区转为资产区需要验证证据。证据只是支持内部分享或客户验证的治理线索，不代表平台已核验业务事实。"
+              steps={[
+                { label: "核对资料", description: "查看证据与资格" },
+                { label: "补充证据", description: "仅为缺失项登记" },
+                { label: "提交审核", description: "等待项目经理处理" },
+              ]}
+              currentStep={assetizationStep}
+              busy={bulkAssetizeBusy}
+              nextDisabled={
+                assetizationItems.length === 0 ||
+                (assetizationStep === 1 &&
+                  assetizationItems.some((item) => item.status === "evidence_missing") &&
+                  !evidenceDescription.trim())
+              }
+              completeDisabled={assetizationItems.every((item) => item.status === "ineligible")}
+              completeText="提交资产化审核"
+              onBack={() => setAssetizationStep((value) => Math.max(0, value - 1))}
+              onNext={() => setAssetizationStep((value) => Math.min(2, value + 1))}
+              onCancel={() => {
+                if (!bulkAssetizeBusy) setAssetizationOpen(false);
+              }}
+              onComplete={() => void completeAssetization()}
+            >
+              {assetizationError && (
+                <p className="pk-assetization-error" role="alert">
+                  {assetizationError}
+                </p>
+              )}
+              {assetizationStep === 0 && (
+                <div className="pk-assetization-review">
+                  <div className="pk-assetization-counts">
+                    <strong>
+                      {assetizationItems.filter((item) => item.status === "ready").length}
+                    </strong>
+                    <span>已有证据</span>
+                    <strong>
+                      {
+                        assetizationItems.filter((item) => item.status === "evidence_missing")
+                          .length
+                      }
+                    </strong>
+                    <span>缺少证据</span>
+                    <strong>
+                      {assetizationItems.filter((item) => item.status === "ineligible").length}
+                    </strong>
+                    <span>不可发起</span>
+                  </div>
+                  <ul>
+                    {assetizationItems.map((item) => (
+                      <li key={item.item_id}>
+                        <strong>{item.title}</strong>
+                        <span>{item.message}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {assetizationStep === 1 && (
+                <div className="pk-assetization-form">
+                  <p>以下登记仅绑定到本次选择中缺少证据的资料；已有证据项不会重复创建。</p>
+                  <label>
+                    <span>证据类型</span>
+                    <select
+                      value={evidenceType}
+                      onChange={(event) =>
+                        setEvidenceType(event.target.value as EvidenceInputDTO["evidence_type"])
+                      }
+                    >
+                      <option value="internal_sharing">内部分享</option>
+                      <option value="client_validation">客户验证</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>证据类别</span>
+                    <select
+                      value={evidenceCategory}
+                      onChange={(event) =>
+                        setEvidenceCategory(
+                          event.target.value as EvidenceInputDTO["evidence_category"],
+                        )
+                      }
+                    >
+                      <option value="meeting_minutes">会议纪要</option>
+                      <option value="wecom_record">企业沟通记录</option>
+                      <option value="client_email">客户邮件</option>
+                      <option value="acceptance_doc">验收文件</option>
+                      <option value="delivery_adoption">交付采纳记录</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>适用说明</span>
+                    <textarea
+                      value={evidenceDescription}
+                      onChange={(event) => setEvidenceDescription(event.target.value)}
+                      placeholder="说明适用项目、场景和资料范围"
+                    />
+                  </label>
+                </div>
+              )}
+              {assetizationStep === 2 && (
+                <div className="pk-assetization-summary">
+                  <strong>提交后状态是“待审核”，不是已完成资产化。</strong>
+                  <p>服务端会逐项复核项目归属、资料状态和证据。已有待办会复用，不会重复建单。</p>
+                </div>
+              )}
+            </WizardModal>
           </>
         )}
       </PageSection>

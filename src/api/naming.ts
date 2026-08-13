@@ -10,7 +10,28 @@ import type {
   NamingRuleCenterDTO,
   NamingRuleConfigDTO,
   NamingRuleRevisionDTO,
+  DirectoryMigrationWorkspaceDTO,
 } from "../types/naming";
+
+export function fetchDirectoryMigration(
+  params: {
+    scope?: string;
+    projectId?: string;
+    status?: string;
+  } = {},
+): Promise<DirectoryMigrationWorkspaceDTO> {
+  const qs = new URLSearchParams();
+  if (params.scope) qs.set("scope", params.scope);
+  if (params.projectId) qs.set("project_id", params.projectId);
+  if (params.status) qs.set("status", params.status);
+  return apiGet(`/api/v1/admin/directory-migration?${qs.toString()}`);
+}
+
+export function confirmDirectoryMigration(
+  items: Array<{ candidate_id: string; directory_key?: string }>,
+): Promise<{ submitted: number; migrated: number; skipped: number; failed: number }> {
+  return apiPost("/api/v1/admin/directory-migration/confirm", { items });
+}
 
 export function fetchNamingRuleCenter(): Promise<NamingRuleCenterDTO> {
   return apiGet("/api/v1/admin/naming-rules");
