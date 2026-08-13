@@ -230,6 +230,9 @@ def _payload(scope, project_id, **over):
         "summary": "摘要",
         "tags": ["t"],
         "target_scope": scope,
+        "directory_key": "project.deliverables"
+        if scope == "project"
+        else "personal.learning_notes",
         "confidentiality_level": "L2",
     }
     if project_id is not None:

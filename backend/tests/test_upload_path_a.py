@@ -184,6 +184,7 @@ async def test_path_a_task_confirmable_via_shared_chain(client, db_session):
             "summary": "人工校正后的摘要内容",
             "tags": ["零售", "渠道"],
             "target_scope": "personal",
+            "directory_key": "personal.learning_notes",
             "target_zone": "material",
             "confidentiality_level": "L2",
         },
@@ -218,6 +219,7 @@ async def test_path_a_project_task_confirmable_by_member(client, db_session):
             "tags": ["渠道"],
             "target_scope": "project",
             "target_project_id": str(PROJECT_ALPHA),
+            "directory_key": "project.deliverables",
             "target_zone": "material",
             "confidentiality_level": "L2",
         },
@@ -233,6 +235,7 @@ async def test_second_confirm_returns_409(client, db_session):
         "summary": "摘要",
         "tags": [],
         "target_scope": "personal",
+        "directory_key": "personal.learning_notes",
         "target_zone": "material",
         "confidentiality_level": "L2",
     }

@@ -280,6 +280,7 @@ try {
                   secondary: "项目基础信息",
                   prefix: "项目资料-项目基础信息",
                   default_confidentiality: "L2",
+                  suggested_directory_key: "project.basic_information",
                 },
                 {
                   id: "category-deliverable",
@@ -287,16 +288,58 @@ try {
                   secondary: "交付成果",
                   prefix: "项目资料-交付成果",
                   default_confidentiality: "L2",
+                  suggested_directory_key: "project.deliverables",
+                },
+              ],
+              directories: [
+                {
+                  directory_key: "project.basic_information",
+                  scope: "project",
+                  display_name: "项目基础信息",
+                  description: null,
+                  sort_order: 10,
+                  enabled: true,
+                },
+                {
+                  directory_key: "project.deliverables",
+                  scope: "project",
+                  display_name: "交付成果",
+                  description: null,
+                  sort_order: 30,
+                  enabled: true,
                 },
               ],
               default_confidentiality: "L2",
               message: null,
             });
           }
+          const namingScope = url.searchParams.get("scope");
           return fulfill({
             required: false,
             rule_version: null,
             categories: [],
+            directories:
+              namingScope === "project"
+                ? [
+                    {
+                      directory_key: "project.basic_information",
+                      scope: "project",
+                      display_name: "项目基础信息",
+                      description: null,
+                      sort_order: 10,
+                      enabled: true,
+                    },
+                  ]
+                : [
+                    {
+                      directory_key: "personal.learning_notes",
+                      scope: "personal",
+                      display_name: "个人学习笔记",
+                      description: null,
+                      sort_order: 10,
+                      enabled: true,
+                    },
+                  ],
             default_confidentiality: null,
             message: "命名规则尚未发布，不强制规范命名",
           });
@@ -557,6 +600,7 @@ try {
       if (scenario === "project-submitted") {
         await page.locator("#upload77-target-library").selectOption("project");
         await page.locator("#upload77-target-project").selectOption(projectId);
+        await page.locator("#upload77-directory").selectOption("project.basic_information");
         await page.getByRole("button", { name: "确认入库" }).click();
         await page.getByRole("heading", { name: "已提交，等待项目经理确认" }).waitFor();
       }
@@ -572,6 +616,7 @@ try {
       }
       if (scenario === "personal-submitted") {
         await page.locator("#upload77-target-library").selectOption("personal");
+        await page.locator("#upload77-directory").selectOption("personal.learning_notes");
         await page.getByRole("button", { name: "确认入库" }).click();
         await page.getByRole("link", { name: /查看资产/ }).waitFor();
       }

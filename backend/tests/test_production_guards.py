@@ -596,6 +596,7 @@ async def _make_index_failed(client, monkeypatch, user):
         "summary": "摘要",
         "tags": ["t"],
         "target_scope": "personal",
+        "directory_key": "personal.learning_notes",
         "confidentiality_level": "L2",
     }
     r = await client.post(f"/api/v1/ingest/{task_id}/confirm", headers=_hdr(user), json=payload)

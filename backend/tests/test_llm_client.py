@@ -693,6 +693,7 @@ async def test_confirm_writes_three_layer_summaries(client, monkeypatch):
             "key_points": ["人工要点1", "人工要点2"],
             "tags": ["t"],
             "target_scope": "personal",
+            "directory_key": "personal.learning_notes",
             "confidentiality_level": "L2",
         },
     )
@@ -728,6 +729,7 @@ async def test_confirm_with_suggested_subject_yields_clean_asset_title(client, m
             "summary": ai["suggested_summary"],
             "tags": ["t"],
             "target_scope": "personal",
+            "directory_key": "personal.learning_notes",
             "confidentiality_level": "L3",
         },
     )

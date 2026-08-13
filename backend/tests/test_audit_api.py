@@ -149,6 +149,7 @@ async def _do_ingest_confirm(client, trace):
             "summary": "占位",
             "tags": ["t"],
             "target_scope": "personal",
+            "directory_key": "personal.learning_notes",
             "confidentiality_level": "L2",
         },
     )
