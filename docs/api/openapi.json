@@ -1067,6 +1067,190 @@
         "title": "AssetType",
         "type": "string"
       },
+      "AssetizationPreflightItem": {
+        "properties": {
+          "evidence_count": {
+            "title": "Evidence Count",
+            "type": "integer"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "title",
+          "status",
+          "evidence_count"
+        ],
+        "title": "AssetizationPreflightItem",
+        "type": "object"
+      },
+      "AssetizationPreflightRequest": {
+        "properties": {
+          "item_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Item Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "item_ids"
+        ],
+        "title": "AssetizationPreflightRequest",
+        "type": "object"
+      },
+      "AssetizationPreflightResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AssetizationPreflightItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "AssetizationPreflightResponse",
+        "type": "object"
+      },
+      "AssetizationSubmitItem": {
+        "properties": {
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "review_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Status"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "status"
+        ],
+        "title": "AssetizationSubmitItem",
+        "type": "object"
+      },
+      "AssetizationSubmitResponse": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "integer"
+          },
+          "evidence_missing": {
+            "title": "Evidence Missing",
+            "type": "integer"
+          },
+          "existing": {
+            "title": "Existing",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "ineligible": {
+            "title": "Ineligible",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AssetizationSubmitItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "submitted": {
+            "title": "Submitted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "submitted",
+          "created",
+          "existing",
+          "evidence_missing",
+          "ineligible",
+          "failed",
+          "items"
+        ],
+        "title": "AssetizationSubmitResponse",
+        "type": "object"
+      },
       "AuditEventOut": {
         "description": "单条审计事件（字段按视图档位选择性填充）。",
         "properties": {
@@ -2092,6 +2276,100 @@
           }
         },
         "title": "Body_create_upload_session_api_v1_ingest_upload_sessions_post",
+        "type": "object"
+      },
+      "BulkEvidenceItem": {
+        "properties": {
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "review_id": {
+            "format": "uuid",
+            "title": "Review Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "review_id",
+          "status"
+        ],
+        "title": "BulkEvidenceItem",
+        "type": "object"
+      },
+      "BulkEvidenceRequest": {
+        "properties": {
+          "evidence": {
+            "$ref": "#/components/schemas/EvidenceCreateRequest"
+          },
+          "review_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Review Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "review_ids",
+          "evidence"
+        ],
+        "title": "BulkEvidenceRequest",
+        "type": "object"
+      },
+      "BulkEvidenceResponse": {
+        "properties": {
+          "existing": {
+            "title": "Existing",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BulkEvidenceItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "submitted": {
+            "title": "Submitted",
+            "type": "integer"
+          },
+          "transitioned": {
+            "title": "Transitioned",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "submitted",
+          "transitioned",
+          "existing",
+          "skipped",
+          "failed",
+          "items"
+        ],
+        "title": "BulkEvidenceResponse",
         "type": "object"
       },
       "BulkIdsRequest": {
@@ -3231,6 +3509,325 @@
         "title": "DirectoryListResponse",
         "type": "object"
       },
+      "DirectoryMigrationCandidateOut": {
+        "properties": {
+          "asset_title": {
+            "title": "Asset Title",
+            "type": "string"
+          },
+          "candidate_source": {
+            "title": "Candidate Source",
+            "type": "string"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "string"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "old_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Category"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "suggested_directory_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Directory Key"
+          },
+          "suggested_directory_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Directory Name"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "id",
+          "asset_title",
+          "scope",
+          "project_id",
+          "project_name",
+          "old_category",
+          "suggested_directory_key",
+          "suggested_directory_name",
+          "candidate_source",
+          "confidence",
+          "status",
+          "failure_code",
+          "updated_at"
+        ],
+        "title": "DirectoryMigrationCandidateOut",
+        "type": "object"
+      },
+      "DirectoryMigrationConfirmItem": {
+        "properties": {
+          "candidate_id": {
+            "format": "uuid",
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "directory_key": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Directory Key"
+          }
+        },
+        "required": [
+          "candidate_id"
+        ],
+        "title": "DirectoryMigrationConfirmItem",
+        "type": "object"
+      },
+      "DirectoryMigrationConfirmRequest": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DirectoryMigrationConfirmItem"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "DirectoryMigrationConfirmRequest",
+        "type": "object"
+      },
+      "DirectoryMigrationConfirmResponse": {
+        "properties": {
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DirectoryMigrationConfirmResult"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "migrated": {
+            "title": "Migrated",
+            "type": "integer"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "submitted": {
+            "title": "Submitted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "submitted",
+          "migrated",
+          "skipped",
+          "failed",
+          "items"
+        ],
+        "title": "DirectoryMigrationConfirmResponse",
+        "type": "object"
+      },
+      "DirectoryMigrationConfirmResult": {
+        "properties": {
+          "candidate_id": {
+            "format": "uuid",
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "status"
+        ],
+        "title": "DirectoryMigrationConfirmResult",
+        "type": "object"
+      },
+      "DirectoryMigrationOverview": {
+        "properties": {
+          "clear_match": {
+            "title": "Clear Match",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "manual_required": {
+            "title": "Manual Required",
+            "type": "integer"
+          },
+          "migrated": {
+            "title": "Migrated",
+            "type": "integer"
+          },
+          "no_candidate": {
+            "title": "No Candidate",
+            "type": "integer"
+          },
+          "rule_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Version"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "migrated",
+          "clear_match",
+          "manual_required",
+          "no_candidate",
+          "failed",
+          "rule_version"
+        ],
+        "title": "DirectoryMigrationOverview",
+        "type": "object"
+      },
+      "DirectoryMigrationWorkspaceOut": {
+        "properties": {
+          "directories": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Directories",
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DirectoryMigrationCandidateOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "overview": {
+            "$ref": "#/components/schemas/DirectoryMigrationOverview"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "overview",
+          "items",
+          "total",
+          "directories"
+        ],
+        "title": "DirectoryMigrationWorkspaceOut",
+        "type": "object"
+      },
       "DirectoryOptionItem": {
         "properties": {
           "description": {
@@ -3392,6 +3989,19 @@
           },
           "evidence_type": {
             "$ref": "#/components/schemas/EvidenceType"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
           }
         },
         "required": [
@@ -12812,6 +13422,17 @@
             ],
             "title": "Asset Title"
           },
+          "blocking_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocking Reason"
+          },
           "can_decide": {
             "default": false,
             "title": "Can Decide",
@@ -13011,6 +13632,17 @@
               }
             ],
             "title": "Asset Title"
+          },
+          "blocking_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocking Reason"
           },
           "can_decide": {
             "default": false,
@@ -18519,6 +19151,282 @@
         "summary": "Mark Processed",
         "tags": [
           "audit"
+        ]
+      }
+    },
+    "/api/v1/admin/directory-migration": {
+      "get": {
+        "operationId": "get_directory_migration_workspace_api_v1_admin_directory_migration_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scope"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "old_category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Old Category"
+            }
+          },
+          {
+            "in": "query",
+            "name": "directory_key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Directory Key"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryMigrationWorkspaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Directory Migration Workspace",
+        "tags": [
+          "naming-rules"
+        ]
+      }
+    },
+    "/api/v1/admin/directory-migration/confirm": {
+      "post": {
+        "operationId": "confirm_directory_migration_api_v1_admin_directory_migration_confirm_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectoryMigrationConfirmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryMigrationConfirmResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Confirm Directory Migration",
+        "tags": [
+          "naming-rules"
         ]
       }
     },
@@ -32045,6 +32953,208 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/knowledge/assetization-preflight": {
+      "post": {
+        "operationId": "assetization_preflight_api_v1_projects__project_id__knowledge_assetization_preflight_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssetizationPreflightRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetizationPreflightResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Assetization Preflight",
+        "tags": [
+          "review"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/knowledge/assetization-submit": {
+      "post": {
+        "operationId": "submit_assetization_api_v1_projects__project_id__knowledge_assetization_submit_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssetizationPreflightRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetizationSubmitResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Assetization",
+        "tags": [
+          "review"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/knowledge/bulk-confirm-asset": {
       "post": {
         "description": "Create material-to-asset reviews with bounded per-item revalidation.",
@@ -33684,6 +34794,97 @@
           }
         },
         "summary": "Bulk Review Action",
+        "tags": [
+          "review"
+        ]
+      }
+    },
+    "/api/v1/reviews/bulk-evidence": {
+      "post": {
+        "operationId": "bulk_review_evidence_api_v1_reviews_bulk_evidence_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkEvidenceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkEvidenceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Review Evidence",
         "tags": [
           "review"
         ]
