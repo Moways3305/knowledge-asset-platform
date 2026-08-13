@@ -87,6 +87,7 @@ async def _upload_confirm_personal(
             "summary": "摘要",
             "tags": ["t"],
             "target_scope": "personal",
+            "directory_key": "personal.learning_notes",
             "confidentiality_level": "L2",
         },
     )

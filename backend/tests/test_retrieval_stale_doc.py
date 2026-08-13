@@ -296,6 +296,7 @@ async def _upload_and_confirm_indexed(client, db_session, ok_wk):
             "tags": ["t"],
             "target_scope": "project",
             "target_project_id": str(PROJECT_ALPHA),
+            "directory_key": "project.deliverables",
             "confidentiality_level": "L2",
         },
     )

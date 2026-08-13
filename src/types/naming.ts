@@ -27,6 +27,16 @@ export interface NamingCategoryConfigDTO {
   default_confidentiality: string;
   enabled: boolean;
   sort_order: number;
+  suggested_directory_key?: string | null;
+}
+
+export interface DirectoryOptionDTO {
+  directory_key: string;
+  scope: "personal" | "project" | "company";
+  display_name: string;
+  description?: string | null;
+  sort_order: number;
+  enabled: boolean;
 }
 
 export interface NamingRuleConfigDTO {
@@ -34,6 +44,7 @@ export interface NamingRuleConfigDTO {
   enforced: boolean;
   project_codes: ProjectCodeConfigDTO[];
   categories: NamingCategoryConfigDTO[];
+  directories?: DirectoryOptionDTO[];
   migration_missing_asset_type_category_ids?: string[];
 }
 
@@ -70,12 +81,14 @@ export interface NamingOptionDTO {
   default_confidentiality: string;
   enabled?: boolean;
   sort_order?: number;
+  suggested_directory_key?: string | null;
 }
 
 export interface NamingOptionsDTO {
   required: boolean;
   rule_version: number | null;
   categories: NamingOptionDTO[];
+  directories: DirectoryOptionDTO[];
   default_confidentiality: string | null;
   message: string | null;
 }
@@ -86,6 +99,7 @@ export interface NamingConfirmationDTO {
   formed_on: string;
   version: string;
   applicable_to?: string;
+  directory_key?: string;
 }
 
 export interface NamingPreviewDTO {

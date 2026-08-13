@@ -64,6 +64,8 @@ class KnowledgeListItemOut(BaseModel):
     weknora_parse_status: str | None = None
     index_error_message: str | None = None
     indexed_at: datetime | None = None
+    directory_key: str | None = None
+    directory_path: str | None = None
 
 
 class KnowledgeSortField(str, Enum):
@@ -151,6 +153,23 @@ class KnowledgeDetailOut(BaseModel):
     index_error_code: str | None = None
     index_error_message: str | None = None
     indexed_at: datetime | None = None
+    directory_key: str | None = None
+    directory_path: str | None = None
+
+
+class DirectoryOut(BaseModel):
+    directory_key: str
+    name: str
+    description: str | None = None
+    scope: str
+    display_path: str
+    parent_key: str | None = None
+    project_id: uuid.UUID | None = None
+    project_name: str | None = None
+
+
+class DirectoryListResponse(BaseModel):
+    items: list[DirectoryOut]
 
 
 class KnowledgeDeleteRequest(BaseModel):

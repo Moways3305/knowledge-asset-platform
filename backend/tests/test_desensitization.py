@@ -366,6 +366,7 @@ async def _confirm(client, task_id, **over):
         "summary": "摘要",
         "tags": ["t"],
         "target_scope": "personal",
+        "directory_key": "personal.learning_notes",
         "confidentiality_level": "L2",
     }
     payload.update(over)

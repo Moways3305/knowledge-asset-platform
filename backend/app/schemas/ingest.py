@@ -235,6 +235,8 @@ class IngestConfirmRequest(BaseModel):
     # Project/company canonical naming facts. The final filename is deliberately
     # absent: the backend renders it from the currently published policy.
     naming: NamingConfirmationFields | None = None
+    # Exactly one stable governed directory. Never accept a free-form path.
+    directory_key: str | None = None
 
 
 class IngestConfirmResponse(BaseModel):

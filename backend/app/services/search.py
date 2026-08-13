@@ -7,6 +7,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +24,7 @@ from app.schemas.search import (
     SearchResponse,
 )
 from app.services import audit as audit_service
-from app.services import retrieval
+from app.services import directories, retrieval
 from app.services.desensitization import LlmOutputDesensitizer
 from app.services.intent import classify_intent, wants_answer
 from app.services.llm_client import LLMClient, NullLLMClient
@@ -40,6 +43,8 @@ def _passes_filters(asset, filters) -> bool:
         return False
     if filters.phase and asset.lifecycle_phase_key != filters.phase:
         return False
+    if filters.project_id and asset.project_id != filters.project_id:
+        return False
     if filters.tags:
         asset_tags = {t.tag_name for t in asset.tags}
         if not set(filters.tags).issubset(asset_tags):
@@ -56,6 +61,7 @@ async def run_search(
     llm: LLMClient | NullLLMClient,
     trace_id: str | None,
     channel: AccessChannel = AccessChannel.human,
+    asset_guard: Callable[[Any], bool] | None = None,
 ) -> SearchResponse:
     """统一检索 / 问答主流程。
 
@@ -94,19 +100,80 @@ async def run_search(
         )
 
     # ---- 阶段1：召回 + 卡片 ----
-    kb_ids = await retrieval.resolve_searchable_kbs(session, caller, req.scope)
-    recalled = await retrieval.recall_assets(
-        session,
-        caller,
-        weknora,
-        query=query,
-        kb_ids=kb_ids,
-        channel=channel,
-        trace_id=trace_id,
+    if req.filters.project_id is not None:
+        if req.scope != "project":
+            raise _denied(
+                422,
+                "project_filter_scope_mismatch",
+                "Project filtering requires project scope",
+            )
+        if req.filters.project_id not in caller.active_project_ids:
+            raise _denied(
+                403,
+                "project_membership_required",
+                "Active project membership is required",
+            )
+
+    knowledge_ids: list[str] | None = None
+    recalled: list[retrieval.RecalledAsset] | None = None
+    if req.filters.directory_key:
+        directory_scope = (
+            req.scope
+            if req.scope not in (None, "all")
+            else req.filters.directory_key.split(".", 1)[0]
+        )
+        assert directory_scope is not None
+        await directories.validate_directory(
+            session,
+            directory_key=req.filters.directory_key,
+            scope=directory_scope,
+            project_id=req.filters.project_id,
+        )
+        knowledge_ids = await directories.directory_document_ids(
+            session,
+            directory_key=req.filters.directory_key,
+            scope=req.scope,
+            project_id=req.filters.project_id,
+        )
+        if not knowledge_ids:
+            recalled = []
+        else:
+            recalled = None
+    kb_ids = (
+        await retrieval.resolve_project_kbs(session, req.filters.project_id)
+        if req.filters.project_id is not None
+        else await retrieval.resolve_searchable_kbs(session, caller, req.scope)
     )
-    recalled = [r for r in recalled if _passes_filters(r.asset, req.filters)]
+    if recalled is None:
+        recalled = await retrieval.recall_assets(
+            session,
+            caller,
+            weknora,
+            query=query,
+            kb_ids=kb_ids,
+            knowledge_ids=knowledge_ids,
+            channel=channel,
+            trace_id=trace_id,
+        )
+    recalled = [
+        r
+        for r in recalled
+        if _passes_filters(r.asset, req.filters) and (asset_guard is None or asset_guard(r.asset))
+    ]
     projects, users = await retrieval.load_card_aux(session, [r.asset for r in recalled])
-    cards = [SearchCardOut(**retrieval.build_card(r, projects, users)) for r in recalled]
+    cards = []
+    directory_paths: dict = {}
+    for r in recalled:
+        key = directories.version_directory_key(r.version)
+        path = await directories.display_path(session, key, r.asset.project_id)
+        directory_paths[r.asset.id] = (key, path)
+        cards.append(
+            SearchCardOut(
+                **retrieval.build_card(r, projects, users),
+                directory_key=key,
+                directory_path=path,
+            )
+        )
 
     # ---- 问答 / 生成 / 总结 / 检查：放行证据 → 脱敏 → LLM 自拼答案 + 引用
     # D1 阶段4：子块召回 → 父文件全文给 Agent（无 chunk 存量资产自动回退片段/摘要）。
@@ -131,6 +198,8 @@ async def run_search(
                     seq=e.seq,
                     snippet=e.snippet,
                     citation_order=order,
+                    directory_key=directory_paths.get(e.asset.id, (None, None))[0],
+                    directory_path=directory_paths.get(e.asset.id, (None, None))[1],
                 )
             )
 
@@ -148,6 +217,7 @@ async def run_search(
             "card_count": len(cards),
             "answered": answer is not None,
             "channel": channel.value,
+            "directory_key": req.filters.directory_key,
         },
     )
     await session.commit()

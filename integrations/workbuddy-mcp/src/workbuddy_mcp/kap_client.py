@@ -12,6 +12,7 @@ import httpx
 from .config import Config
 
 _SEARCH_PATH = "/api/v1/agent-gateway/tools/knowledge-search"
+_DIRECTORIES_PATH = "/api/v1/agent-gateway/knowledge/directories"
 _PROJECTS_PATH = "/api/v1/agent-gateway/projects"
 # 只读工作台端点（PBC-37）。
 _TODOS_PATH = "/api/v1/agent-gateway/todos"
@@ -38,8 +39,28 @@ CARD_FIELDS = (
     "detailed",
     "relevance_score",
     "can_view_original",
+    "directory_key",
+    "directory_path",
 )
-CITATION_FIELDS = ("asset_id", "asset_title", "scope", "snippet", "citation_order")
+CITATION_FIELDS = (
+    "asset_id",
+    "asset_title",
+    "scope",
+    "snippet",
+    "citation_order",
+    "directory_key",
+    "directory_path",
+)
+DIRECTORY_FIELDS = (
+    "directory_key",
+    "name",
+    "description",
+    "scope",
+    "display_path",
+    "parent_key",
+    "project_id",
+    "project_name",
+)
 PROJECT_FIELDS = ("project_id", "name", "status")
 
 # 工作台端点字段白名单（后端即便多回字段，MCP 也只透出这些）。
@@ -210,6 +231,8 @@ def search_knowledge(
     top_k: int | None = None,
     tags: list[str] | None = None,
     phase: str | None = None,
+    directory_key: str | None = None,
+    project_id: str | None = None,
     bearer: str | None = None,
 ) -> list[dict]:
     body: dict = {"query": query, "intent": "search"}
@@ -220,11 +243,21 @@ def search_knowledge(
         filters["tags"] = tags
     if phase:
         filters["phase"] = phase
+    if directory_key:
+        filters["directory_key"] = directory_key
+        filters["include_descendants"] = False
+    if project_id:
+        filters["project_id"] = project_id
     if filters:
         body["filters"] = filters
     data = client.post(_SEARCH_PATH, body, bearer=bearer)
     cards = [_pick(c, CARD_FIELDS) for c in data.get("cards", [])]
     return cards[:top_k] if top_k else cards
+
+
+def list_directories(client: KapClient, *, bearer: str | None = None) -> list[dict]:
+    data = client.get(_DIRECTORIES_PATH, bearer=bearer)
+    return [_pick(item, DIRECTORY_FIELDS) for item in data.get("items", [])]
 
 
 def answer_from_knowledge(

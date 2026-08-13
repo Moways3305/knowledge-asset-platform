@@ -67,8 +67,10 @@ class FakeSearchWeKnora:
 
     def __init__(self, docs):
         self.docs = docs
+        self.last_knowledge_ids = None
 
     async def search(self, *, query, kb_ids, knowledge_ids=None, top_k=20, trace_id=None):
+        self.last_knowledge_ids = knowledge_ids
         out = []
         for i, d in enumerate(self.docs):
             if d["kb_id"] not in kb_ids:
@@ -88,6 +90,33 @@ class FakeSearchWeKnora:
 
     async def hybrid_search(self, **_):
         return []
+
+
+async def test_directory_filter_constrains_candidates_before_top_k(client, db_session):
+    for asset_id in (KA_COMPANY_L4, KA_COMPANY_L5):
+        asset = await db_session.get(KnowledgeAsset, asset_id)
+        version = await db_session.get(KnowledgeAssetVersion, asset.current_version_id)
+        version.directory_key = "company.key_materials"
+    await db_session.commit()
+    fake = FakeSearchWeKnora(
+        [
+            _doc(KA_COMPANY_L4, _COMPANY_KB, "globally stronger"),
+            _doc(KA_COMPANY_L2, _COMPANY_KB, "methodology result"),
+        ]
+    )
+    app.dependency_overrides[get_weknora_client] = lambda: fake
+    response = await client.post(
+        SEARCH,
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "query": "methodology",
+            "scope": "company",
+            "filters": {"directory_key": "company.methodology"},
+        },
+    )
+    assert response.status_code == 200
+    assert fake.last_knowledge_ids == [f"wk-doc-{KA_COMPANY_L2}"]
+    assert [item["asset_id"] for item in response.json()["cards"]] == [str(KA_COMPANY_L2)]
 
 
 class FakeScrubLLM:

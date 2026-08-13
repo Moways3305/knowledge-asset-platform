@@ -7,10 +7,11 @@ storage_ref 不外泄。
 
 from __future__ import annotations
 
-from app.models.knowledge import KnowledgeAsset
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.seed.dev_seed import (
     KA_COMPANY_L4,
     KA_COMPANY_L5,
+    KA_PROJECT_ALPHA,
     KA_PROJECT_BETA_L3,
     PROJECT_ALPHA,
     PROJECT_BETA,
@@ -34,6 +35,19 @@ async def test_list_default_user_no_storage_ref(client):
     body = resp.json()
     assert body["total"] >= 1
     assert "storage_ref" not in resp.text
+
+
+async def test_project_directory_path_uses_current_project_name(client, db_session):
+    asset = await db_session.get(KnowledgeAsset, KA_PROJECT_ALPHA)
+    version = await db_session.get(KnowledgeAssetVersion, asset.current_version_id)
+    version.directory_key = "project.deliverables"
+    await db_session.commit()
+    response = await client.get(f"{KN}/{asset.id}", headers=_hdr(USER_CONSULTANT))
+    assert response.status_code == 200
+    body = response.json()
+    assert body["directory_key"] == "project.deliverables"
+    assert body["project_name"] in body["directory_path"]
+    assert "project_code" not in body["directory_path"]
 
 
 async def test_consultant_cannot_see_l5_but_boss_can(client):

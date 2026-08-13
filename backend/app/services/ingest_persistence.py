@@ -197,6 +197,19 @@ async def persist_confirmation(
         naming_rule_version=(
             context.naming_result.rule_version if context.naming_result is not None else None
         ),
+        directory_key=(
+            context.naming_result.metadata.get("directory_key")
+            if context.naming_result is not None
+            else request.naming.directory_key
+            if request.naming is not None
+            else request.directory_key
+        ),
+        directory_rule_version=(
+            context.naming_result.metadata.get("directory_rule_version")
+            if context.naming_result is not None
+            else context.directory_rule_version
+        ),
+        directory_confirmed_by=context.caller.user_id,
     )
     asset.versions.append(version)
     for summary in build_summaries(
@@ -269,6 +282,8 @@ async def persist_confirmation(
             "naming_warnings_acknowledged": bool(
                 context.naming_result is not None and context.naming_result.notices
             ),
+            "directory_key": version.directory_key,
+            "directory_rule_version": version.directory_rule_version,
         },
         project_id=context.project_id,
     )

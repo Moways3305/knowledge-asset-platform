@@ -9,6 +9,9 @@ export interface SearchFiltersDTO {
   tags?: string[];
   phase?: string | null;
   include_archived?: boolean;
+  directory_key?: string | null;
+  include_descendants?: boolean;
+  project_id?: string | null;
 }
 
 export interface SearchRequestDTO {
@@ -40,6 +43,8 @@ export interface SearchCardDTO {
   version: string | null;
   relevance_score: number;
   can_view_original: boolean;
+  directory_key?: string | null;
+  directory_path?: string | null;
 }
 
 // 问答引用：业务标识 + 脱敏片段 + 使用的访问层，无内部 id。
@@ -52,6 +57,8 @@ export interface SearchCitationDTO {
   seq: number | null;
   snippet: string | null;
   citation_order: number;
+  directory_key?: string | null;
+  directory_path?: string | null;
 }
 
 export interface OriginalChunkDTO {

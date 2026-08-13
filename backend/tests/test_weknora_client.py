@@ -165,6 +165,7 @@ def _confirm_payload(**over):
         "summary": "摘要",
         "tags": ["t"],
         "target_scope": "personal",
+        "directory_key": "personal.learning_notes",
         "confidentiality_level": "L2",
     }
     base.update(over)

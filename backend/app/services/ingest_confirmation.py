@@ -45,6 +45,7 @@ class ValidatedConfirmationContext:
     trace_id: str
     session: AsyncSession
     naming_result: RenderedNaming | None = None
+    directory_rule_version: int | None = None
 
 
 ConfirmationRoute = ValidatedConfirmationContext | IngestConfirmResponse
@@ -210,6 +211,23 @@ async def validate_and_route_confirmation(
         )
         require_naming_warning_acknowledgement(request, naming_result)
         request = apply_authoritative_project_subject(request, naming_result)
+        directory_key = (
+            naming_result.metadata.get("directory_key")
+            if naming_result is not None
+            else request.naming.directory_key
+            if request.naming is not None
+            else request.directory_key
+        )
+        if not directory_key:
+            raise _denied(422, "directory_required", "请选择一个正式项目目录")
+        from app.services.directories import validate_directory
+
+        await validate_directory(
+            session,
+            directory_key=directory_key,
+            scope=scope,
+            project_id=target_project_id,
+        )
         can_self_confirm = (
             caller.active_project_roles.get(target_project_id) == ProjectRole.project_manager.value
         )
@@ -247,6 +265,28 @@ async def validate_and_route_confirmation(
     else:
         raise _denied(422, "invalid_target_scope", "非法的 target_scope")
 
+    from app.services.directories import validate_directory
+
+    directory_key = (
+        request.naming.directory_key if request.naming is not None else request.directory_key
+    )
+    directory_rule_version: int | None = None
+    if not directory_key and scope == KnowledgeScope.personal.value:
+        raise _denied(422, "directory_required", "请选择一个正式个人目录")
+    if directory_key:
+        directory_rule_version, _directory = await validate_directory(
+            session,
+            directory_key=directory_key,
+            scope=scope,
+            project_id=project_id,
+        )
+        if directory_key == "personal.pending":
+            raise _denied(
+                422,
+                "personal_pending_not_formal",
+                "个人待处理目录不能作为正式入库目录",
+            )
+
     return ValidatedConfirmationContext(
         task=task,
         request=request,
@@ -256,6 +296,7 @@ async def validate_and_route_confirmation(
         caller=caller,
         trace_id=trace_id,
         session=session,
+        directory_rule_version=directory_rule_version,
     )
 
 
@@ -277,7 +318,29 @@ async def apply_confirmation_extensions(
         ),
     )
     require_naming_warning_acknowledgement(context.request, result)
+    directory_key = (
+        result.metadata.get("directory_key")
+        if result is not None
+        else context.request.naming.directory_key
+        if context.request.naming is not None
+        else context.request.directory_key
+    )
+    if not directory_key:
+        raise _denied(422, "directory_required", "请选择一个正式入库目录")
+    from app.services.directories import validate_directory
+
+    directory_rule_version, _directory = await validate_directory(
+        context.session,
+        directory_key=directory_key,
+        scope=context.scope,
+        project_id=context.project_id,
+    )
     # Governed project subject is authoritative for the asset title, review
     # snapshot, naming facts, and canonical filename, including direct callers.
     request = apply_authoritative_project_subject(context.request, result)
-    return replace(context, request=request, naming_result=result)
+    return replace(
+        context,
+        request=request,
+        naming_result=result,
+        directory_rule_version=directory_rule_version,
+    )

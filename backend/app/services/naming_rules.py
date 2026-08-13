@@ -28,6 +28,7 @@ from app.schemas.naming import (
     BatchNamingPreviewItemResponse,
     BatchNamingPreviewRequest,
     BatchNamingPreviewResponse,
+    DirectoryOptionItem,
     NamingDraftUpdateRequest,
     NamingDuplicateNotice,
     NamingOptionItem,
@@ -41,6 +42,12 @@ from app.schemas.naming import (
 )
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
+from app.services.directories import (
+    default_directory_config,
+    legacy_directory_key,
+    published_directories,
+    validate_directory,
+)
 from app.services.naming_advice import safe_naming_advice
 
 
@@ -82,7 +89,9 @@ async def _ensure_initial_revisions(session: AsyncSession) -> None:
     existing = await session.scalar(select(func.count()).select_from(NamingRuleRevision))
     if existing:
         return
-    initial = NamingRuleConfig(enforced=False).model_dump(mode="json")
+    initial = NamingRuleConfig(enforced=False, directories=default_directory_config()).model_dump(
+        mode="json"
+    )
     session.add_all(
         [
             NamingRuleRevision(
@@ -104,7 +113,10 @@ async def _ensure_initial_revisions(session: AsyncSession) -> None:
 
 def _config(revision: NamingRuleRevision) -> NamingRuleConfig:
     try:
-        return NamingRuleConfig.model_validate(revision.config)
+        config = NamingRuleConfig.model_validate(revision.config)
+        return config.model_copy(
+            update={"directories": config.directories or default_directory_config()}
+        )
     except Exception:
         raise _denied(503, "naming_rule_unavailable", "命名规则暂时不可用") from None
 
@@ -128,6 +140,7 @@ def _normalized_config(config: NamingRuleConfig) -> NamingRuleConfig:
     return config.model_copy(
         update={
             "schema_version": 2,
+            "directories": config.directories or default_directory_config(),
             "migration_missing_asset_type_category_ids": _missing_asset_type_ids(config),
         }
     )
@@ -464,7 +477,6 @@ async def render(
             "naming_asset_type_mapping_missing",
             "该目录类别尚未配置资产分类，请联系管理员补充后重试",
         )
-
     project_code: str | None = None
     rendered_subject = naming.subject
     subject_has_business_name = False
@@ -497,6 +509,25 @@ async def render(
             f"【{bracket}】{naming.subject}_{naming.applicable_to}_"
             f"{naming.formed_on:%Y%m%d}_{naming.version}_{request.confidentiality_level.value}"
         )
+    directory_key = (
+        naming.directory_key
+        or category.suggested_directory_key
+        or legacy_directory_key(
+            {
+                "scope": scope,
+                "category_primary": category.primary,
+                "category_secondary": category.secondary,
+            }
+        )
+    )
+    if not directory_key:
+        raise _denied(422, "directory_required", "该命名类别无法唯一映射目录，请人工选择")
+    directory_rule_version, _directory = await validate_directory(
+        session,
+        directory_key=directory_key,
+        scope=scope,
+        project_id=request.target_project_id,
+    )
     canonical = f"{stem}{_extension(task.source_file_name)}"
     if len(canonical) > 500:
         raise _denied(422, "canonical_name_too_long", "规范名过长，请缩短主题或适用对象")
@@ -517,6 +548,11 @@ async def render(
         "confidentiality": request.confidentiality_level.value,
         "extension": _extension(task.source_file_name),
         "rule_version": revision.version,
+        "directory_key": directory_key,
+        "directory_rule_version": directory_rule_version,
+        "directory_source": (
+            "rule_suggestion" if category.suggested_directory_key == directory_key else "manual"
+        ),
         "canonical_name": canonical,
     }
     notices: list[NamingDuplicateNotice] = []
@@ -730,9 +766,15 @@ async def options(
     if not caller.is_business_user:
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可读取命名选项")
     if scope == KnowledgeScope.personal:
+        _version, directory_rows = await published_directories(session)
         return NamingOptionsResponse(
             required=False,
             rule_version=None,
+            directories=[
+                DirectoryOptionItem.model_validate(item)
+                for item in directory_rows
+                if item.get("enabled", True) and item.get("scope") == "personal"
+            ],
             message="个人资料不强制规范命名",
         )
     revision = (
@@ -790,9 +832,22 @@ async def options(
                 default_confidentiality=item.default_confidentiality,
                 enabled=item.enabled,
                 sort_order=item.sort_order,
+                suggested_directory_key=item.suggested_directory_key
+                or legacy_directory_key(
+                    {
+                        "scope": item.scope,
+                        "category_primary": item.primary,
+                        "category_secondary": item.secondary,
+                    }
+                ),
             )
             for item in categories
             if item.asset_type is not None
+        ],
+        directories=[
+            DirectoryOptionItem.model_validate(item)
+            for item in config.directories
+            if item.get("enabled", True) and item.get("scope") == scope.value
         ],
         default_confidentiality=default_confidentiality,
         message=None if categories else "当前目标尚未配置启用的目录类别",

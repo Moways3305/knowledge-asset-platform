@@ -247,6 +247,16 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       required: false,
       rule_version: null,
       categories: [],
+      directories: [
+        {
+          directory_key: "personal.learning_notes",
+          scope: "personal",
+          display_name: "个人学习笔记",
+          description: null,
+          sort_order: 10,
+          enabled: true,
+        },
+      ],
       default_confidentiality: null,
       message: null,
     });
@@ -309,6 +319,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
   it("默认模型存在时可提交，confirm payload 携带选中的 model_ref", async () => {
     const { result } = renderHook(() => useUploadFlow());
     await driveToReady(result);
+    act(() => result.current.setDirectoryKey("personal.learning_notes"));
     expect(result.current.canSubmit).toBe(true);
 
     await act(async () => {
@@ -431,6 +442,17 @@ describe("useUploadFlow model selection (PBC-38)", () => {
           secondary: "辅导过程",
           prefix: "辅导过程",
           default_confidentiality: "L3",
+          suggested_directory_key: "project.guidance_process",
+        },
+      ],
+      directories: [
+        {
+          directory_key: "project.guidance_process",
+          scope: "project",
+          display_name: "辅导过程",
+          description: null,
+          sort_order: 20,
+          enabled: true,
         },
       ],
       default_confidentiality: "L3",

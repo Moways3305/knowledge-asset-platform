@@ -247,6 +247,7 @@ async def test_upstream_leaky_error_not_exposed_anywhere(client, db_session, mon
                 "summary": "s",
                 "tags": [],
                 "target_scope": "personal",
+                "directory_key": "personal.learning_notes",
                 "confidentiality_level": "L2",
             },
         )
@@ -336,6 +337,7 @@ async def test_upstream_leaky_code_not_exposed(client, db_session, monkeypatch):
                 "summary": "s",
                 "tags": [],
                 "target_scope": "personal",
+                "directory_key": "personal.learning_notes",
                 "confidentiality_level": "L2",
             },
         )

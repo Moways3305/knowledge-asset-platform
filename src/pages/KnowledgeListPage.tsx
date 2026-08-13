@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { ChevronLeft, ChevronRight, FileText, Search, Sparkles, Upload } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  FileText,
+  FolderTree,
+  Search,
+  Sparkles,
+  Upload,
+} from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   fetchKnowledgeDetail,
+  fetchKnowledgeDirectories,
   fetchKnowledgePage,
   requestOriginalAccess,
   searchKnowledge,
@@ -28,6 +37,7 @@ import type {
   ConfidentialityLevel,
   KnowledgeCardVM,
   KnowledgeDetailVM,
+  KnowledgeDirectoryDTO,
   KnowledgePageVM,
   KnowledgeQueryParams,
   KnowledgeScope,
@@ -97,6 +107,10 @@ export default function KnowledgeListPage() {
   const [assetStatus, setAssetStatus] = useState<AssetStatus | "">("");
   const [confidentialityLevel, setConfidentialityLevel] = useState<ConfidentialityLevel | "">("");
   const [includeArchived, setIncludeArchived] = useState(false);
+  const [directory, setDirectory] = useState<KnowledgeDirectoryDTO | null>(null);
+  const [directoryDrawerOpen, setDirectoryDrawerOpen] = useState(false);
+  const [directoryItems, setDirectoryItems] = useState<KnowledgeDirectoryDTO[]>([]);
+  const [directoryLoading, setDirectoryLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<KnowledgePageVM>(emptyPage);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -208,7 +222,11 @@ export default function KnowledgeListPage() {
           query: semanticQuery.trim(),
           scope: scope || "all",
           intent: "search",
-          filters: { include_archived: includeArchived },
+          filters: {
+            include_archived: includeArchived,
+            directory_key: directory?.directory_key,
+            project_id: directory?.project_id,
+          },
         }),
       );
     } catch {
@@ -240,6 +258,10 @@ export default function KnowledgeListPage() {
     if (assetType) params.assetType = assetType;
     if (assetStatus) params.assetStatus = assetStatus;
     if (confidentialityLevel) params.confidentialityLevel = confidentialityLevel;
+    if (directory) {
+      params.directoryKey = directory.directory_key;
+      if (directory.project_id) params.projectId = directory.project_id;
+    }
 
     setLoading(true);
     setError(null);
@@ -272,7 +294,24 @@ export default function KnowledgeListPage() {
     retryKey,
     scope,
     validProjectId,
+    directory,
   ]);
+
+  useEffect(() => {
+    if (!directoryDrawerOpen || !canLoadBusinessKnowledge) return;
+    let active = true;
+    setDirectoryLoading(true);
+    void fetchKnowledgeDirectories()
+      .then((items) => {
+        if (active) setDirectoryItems(items);
+      })
+      .finally(() => {
+        if (active) setDirectoryLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [canLoadBusinessKnowledge, directoryDrawerOpen]);
 
   const resetFilters = () => {
     setKeywordInput("");
@@ -283,6 +322,7 @@ export default function KnowledgeListPage() {
     setAssetStatus("");
     setConfidentialityLevel("");
     setIncludeArchived(false);
+    setDirectory(null);
     setPage(1);
   };
 
@@ -305,7 +345,8 @@ export default function KnowledgeListPage() {
     assetType ||
     assetStatus ||
     confidentialityLevel ||
-    includeArchived,
+    includeArchived ||
+    directory,
   );
 
   const columns = useMemo<Column<KnowledgeCardVM>[]>(
@@ -481,6 +522,35 @@ export default function KnowledgeListPage() {
           ) : undefined
         }
       />
+
+      {capabilities.isBusinessUser && (
+        <div className="kbl-directory-track" aria-label="当前目录路径">
+          <FolderTree size={17} aria-hidden="true" />
+          <div>
+            <span>当前目录</span>
+            <strong>{directory?.display_path ?? "全部有权查看的目录"}</strong>
+          </div>
+          {directory && (
+            <button
+              type="button"
+              className="product-button is-ghost is-small"
+              onClick={() => {
+                setDirectory(null);
+                setPage(1);
+              }}
+            >
+              清除目录
+            </button>
+          )}
+          <button
+            type="button"
+            className="product-button is-secondary is-small"
+            onClick={() => setDirectoryDrawerOpen(true)}
+          >
+            浏览目录
+          </button>
+        </div>
+      )}
 
       {status !== "loading" && !capabilities.isBusinessUser ? (
         <PageSection>
@@ -860,6 +930,42 @@ export default function KnowledgeListPage() {
           </PageSection>
         </>
       )}
+
+      <DetailDrawer
+        open={directoryDrawerOpen}
+        title="浏览标准目录"
+        description="目录用于缩小当前浏览范围；标签仍可补充行业、职能等多维分类。"
+        onClose={() => setDirectoryDrawerOpen(false)}
+      >
+        {directoryLoading ? (
+          <p>正在读取可用目录…</p>
+        ) : (
+          <div className="kbl-directory-list">
+            {directoryItems.map((item) => (
+              <button
+                type="button"
+                key={`${item.directory_key}-${item.project_id ?? "global"}`}
+                className={
+                  directory?.directory_key === item.directory_key &&
+                  directory?.project_id === item.project_id
+                    ? "is-active"
+                    : ""
+                }
+                onClick={() => {
+                  setDirectory(item);
+                  setScope(item.scope);
+                  setProjectId(item.project_id ?? "");
+                  setPage(1);
+                  setDirectoryDrawerOpen(false);
+                }}
+              >
+                <strong>{item.display_path}</strong>
+                {item.description && <span>{item.description}</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </DetailDrawer>
 
       <DetailDrawer
         open={summaryAssetId !== null}

@@ -18,6 +18,68 @@
   min-width: 0;
 }
 
+.kbl-directory-track {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-primary);
+  border-radius: 6px;
+  background: var(--color-bg-muted);
+}
+
+.kbl-directory-track > div {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.kbl-directory-track span,
+.kbl-directory-list span {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.kbl-directory-track strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kbl-directory-list {
+  display: grid;
+  gap: 8px;
+}
+
+.kbl-directory-list button {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-surface);
+  color: var(--color-text-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.kbl-directory-list button:hover,
+.kbl-directory-list button.is-active {
+  border-color: var(--color-primary);
+  background: var(--color-bg-hover);
+}
+
+@media (max-width: 640px) {
+  .kbl-directory-track {
+    flex-wrap: wrap;
+  }
+  .kbl-directory-track > div {
+    flex-basis: calc(100% - 32px);
+  }
+}
+
 /* 页面级范围 Tab */
 .kbl-scope-tabs {
   display: flex;

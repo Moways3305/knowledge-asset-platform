@@ -28,6 +28,7 @@ from .kap_client import (
     get_project_brief,
     list_accessible_knowledge,
     list_accessible_projects,
+    list_directories,
     list_my_todos,
     list_original_access_requests,
     list_pending_reviews,
@@ -63,7 +64,17 @@ def _read_bearer(ctx: Context | None) -> str | None:
 
 
 # 纯函数工具层（可单测；不依赖 MCP 运行时）。bearer=None → KapClient 用进程级 token。
-def _search_tool(query, scope=None, top_k=None, tags=None, phase=None, *, bearer=None):
+def _search_tool(
+    query,
+    scope=None,
+    top_k=None,
+    tags=None,
+    phase=None,
+    directory_key=None,
+    project_id=None,
+    *,
+    bearer=None,
+):
     try:
         return search_knowledge(
             _client,
@@ -72,8 +83,17 @@ def _search_tool(query, scope=None, top_k=None, tags=None, phase=None, *, bearer
             top_k=top_k,
             tags=tags,
             phase=phase,
+            directory_key=directory_key,
+            project_id=project_id,
             bearer=bearer,
         )
+    except KapError as exc:
+        return {"error": str(exc)}
+
+
+def _directories_tool(*, bearer=None):
+    try:
+        return list_directories(_client, bearer=bearer)
     except KapError as exc:
         return {"error": str(exc)}
 
@@ -204,10 +224,27 @@ def kap_search_knowledge(
     top_k: int | None = None,
     tags: list[str] | None = None,
     phase: str | None = None,
+    directory_key: str | None = None,
+    project_id: str | None = None,
     ctx: Context | None = None,
 ) -> object:
     """检索 KAP 知识，返回安全摘要卡片（按调用人权限裁剪 + 脱敏）。"""
-    return _search_tool(query, scope, top_k, tags, phase, bearer=_read_bearer(ctx))
+    return _search_tool(
+        query,
+        scope,
+        top_k,
+        tags,
+        phase,
+        directory_key,
+        project_id,
+        bearer=_read_bearer(ctx),
+    )
+
+
+@mcp.tool()
+def kap_list_knowledge_directories(ctx: Context | None = None) -> object:
+    """List authorized stable directory keys and paths without asset counts."""
+    return _directories_tool(bearer=_read_bearer(ctx))
 
 
 @mcp.tool()

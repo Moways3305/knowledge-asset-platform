@@ -14,6 +14,25 @@ from app.schemas.enums import AssetType, ConfidentialityLevel, KnowledgeScope
 _PROJECT_CODE = re.compile(r"^[A-Z][A-Z0-9-]{1,19}$")
 _VERSION = re.compile(r"^V[1-9]\d*(?:\.\d+)*$")
 _UNSAFE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_DIRECTORY_SCOPES = {
+    "company.introduction": "company",
+    "company.thoughts_knowledge": "company",
+    "company.methodology": "company",
+    "company.industry_research": "company",
+    "company.client_cases": "company",
+    "company.key_materials": "company",
+    "company.investment_capital": "company",
+    "company.ai_materials": "company",
+    "project.basic_information": "project",
+    "project.guidance_process": "project",
+    "project.deliverables": "project",
+    "project.key_materials": "project",
+    "project.retrospective": "project",
+    "personal.learning_notes": "personal",
+    "personal.project_materials": "personal",
+    "personal.methodology_favorites": "personal",
+    "personal.pending": "personal",
+}
 
 
 def _safe_text(value: str, *, label: str, maximum: int) -> str:
@@ -66,6 +85,7 @@ class NamingCategoryConfig(BaseModel):
     default_confidentiality: ConfidentialityLevel = ConfidentialityLevel.L2
     enabled: bool = True
     sort_order: int = Field(default=100, ge=0, le=10000)
+    suggested_directory_key: str | None = None
 
     @field_validator("primary")
     @classmethod
@@ -95,6 +115,7 @@ class NamingRuleConfig(BaseModel):
     enforced: bool = True
     project_codes: list[ProjectCodeConfig] = Field(default_factory=list)
     categories: list[NamingCategoryConfig] = Field(default_factory=list)
+    directories: list[dict] = Field(default_factory=list)
     migration_missing_asset_type_category_ids: list[uuid.UUID] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -108,6 +129,24 @@ class NamingRuleConfig(BaseModel):
             raise ValueError("项目代码必须唯一")
         if len(category_ids) != len(set(category_ids)):
             raise ValueError("目录类别标识不能重复")
+        directory_keys = [str(item.get("directory_key") or "") for item in self.directories]
+        if any(not key for key in directory_keys) or len(directory_keys) != len(
+            set(directory_keys)
+        ):
+            raise ValueError("目录稳定键不能为空或重复")
+        valid_keys = set(directory_keys)
+        if any(key not in _DIRECTORY_SCOPES for key in directory_keys):
+            raise ValueError("目录只能使用公司统一发布的稳定 key")
+        if any(
+            item.get("scope") != _DIRECTORY_SCOPES.get(str(item.get("directory_key") or ""))
+            for item in self.directories
+        ):
+            raise ValueError("目录 key 与适用范围不一致")
+        if any(
+            item.suggested_directory_key and item.suggested_directory_key not in valid_keys
+            for item in self.categories
+        ):
+            raise ValueError("命名类别建议目录必须来自同一规则版本")
         return self
 
 
@@ -141,6 +180,7 @@ class NamingConfirmationFields(BaseModel):
     formed_on: date
     version: str
     applicable_to: str | None = None
+    directory_key: str | None = None
 
     @field_validator("subject")
     @classmethod
@@ -280,12 +320,23 @@ class NamingOptionItem(BaseModel):
     default_confidentiality: ConfidentialityLevel
     enabled: bool = True
     sort_order: int
+    suggested_directory_key: str | None = None
+
+
+class DirectoryOptionItem(BaseModel):
+    directory_key: str
+    scope: str
+    display_name: str
+    description: str | None = None
+    sort_order: int
+    enabled: bool = True
 
 
 class NamingOptionsResponse(BaseModel):
     required: bool
     rule_version: int | None
     categories: list[NamingOptionItem] = Field(default_factory=list)
+    directories: list[DirectoryOptionItem] = Field(default_factory=list)
     default_confidentiality: ConfidentialityLevel | None = None
     message: str | None = None
 

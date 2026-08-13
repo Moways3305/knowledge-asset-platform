@@ -373,6 +373,14 @@ async def seed_dev_knowledge(session: AsyncSession) -> None:
         version.weknora_kb_id = _kb_for(asset)
         version.weknora_doc_id = f"wk-doc-{asset.id}"
         version.weknora_parse_status = "completed"
+        if asset.scope == "company":
+            version.directory_key = "company.methodology"
+        elif asset.scope == "project":
+            version.directory_key = (
+                "project.deliverables" if asset.zone == "asset" else "project.guidance_process"
+            )
+        else:
+            version.directory_key = "personal.learning_notes"
         # seed 资产已有底座 doc + 解析完成 → 平台索引状态标 indexed。
         from datetime import datetime, timezone
 

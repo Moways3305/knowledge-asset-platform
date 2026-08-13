@@ -184,6 +184,13 @@ class KnowledgeAssetVersion(Base):
     # remain stable when later naming policies are published.
     naming_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     naming_rule_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Stable governed directory assignment for this formal version. Display paths
+    # are derived from the published template and current project name.
+    directory_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    directory_rule_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    directory_confirmed_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
