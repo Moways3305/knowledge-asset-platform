@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchAudit, markAuditProcessed } from "../api/admin";
 import { ApiError } from "../api/http";
@@ -86,15 +86,14 @@ describe("AdminAuditPage", () => {
     });
   });
 
-  it("renders truthful summary and hides raw audit fields", async () => {
+  it("renders the unprocessed exception queue first and hides raw audit fields", async () => {
     const { container } = render(<AdminAuditPage />);
-    expect(await screen.findByText("创建项目知识库")).toBeInTheDocument();
-    const summary = screen.getByLabelText("需要判断");
-    expect(within(summary).getAllByText("1", { selector: ".secops-summary-value" })).toHaveLength(
-      3,
-    );
+    expect(await screen.findByText("预览被拒")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "异常" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByLabelText("处理状态")).toHaveValue("unprocessed");
     const console = container.querySelector(".secops-console");
-    expect(console?.children).toHaveLength(2);
+    expect(console?.children).toHaveLength(1);
+    expect(container.querySelector(".secops-summary-panel")).not.toBeInTheDocument();
     expect(container.querySelector(".secops-main-workspace")).toContainElement(
       container.querySelector(".secops-workspace"),
     );
@@ -163,7 +162,7 @@ describe("AdminAuditPage", () => {
     expect(
       await screen.findByText("当前为只读审计视图，可核查记录但不能标记处理。"),
     ).toBeInTheDocument();
-    await waitFor(() => expect(fetchAudit).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetchAudit).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole("tab", { name: "异常" }));
     await waitFor(() =>
       expect(fetchAudit).toHaveBeenCalledWith(expect.objectContaining({ logType: "exception" })),
@@ -172,7 +171,7 @@ describe("AdminAuditPage", () => {
   });
 
   it.each([
-    [[], "暂无操作记录"],
+    [[], "暂无符合条件的异常记录"],
     [new ApiError(503, "raw server token"), "审计日志暂时无法加载，请稍后重试。"],
     [new ApiError(403, "raw forbidden", "raw_reason"), "当前身份没有审计日志查看权限。"],
   ])("handles empty and safe error states", async (result, expected) => {

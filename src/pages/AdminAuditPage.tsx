@@ -1,24 +1,9 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import {
-  ChevronDown,
-  ChevronRight,
-  LogIn,
-  RefreshCw,
-  ScrollText,
-  ShieldAlert,
-  ShieldCheck,
-  SlidersHorizontal,
-  TriangleAlert,
-} from "lucide-react";
+import { Fragment, useCallback, useEffect, useState } from "react";
+import { ChevronDown, ChevronRight, RefreshCw, ScrollText, SlidersHorizontal } from "lucide-react";
 import { fetchAudit, markAuditProcessed } from "../api/admin";
 import { ApiError } from "../api/http";
 import { Link } from "react-router-dom";
-import {
-  OperationsSummary,
-  PageHeader,
-  PageToolbar,
-  ProductPage,
-} from "../components/ProductLayout";
+import { PageHeader, PageToolbar, ProductPage } from "../components/ProductLayout";
 import type { AuditEventDTO } from "../types/audit";
 import { auditActionLabel, auditLoginSummary, auditTargetTypeLabel } from "../utils/auditDisplay";
 import { formatBeijingTime } from "../utils/time";
@@ -55,10 +40,7 @@ function stateHref(event: AuditEventDTO): string | null {
 }
 
 export default function AdminAuditPage() {
-  const [activeTab, setActiveTab] = useState<LogTab>("operation");
-  // 汇总卡片数据源：一次性拉取未筛选的最新 200 条（仅用于摘要统计）。
-  const [events, setEvents] = useState<AuditEventDTO[]>([]);
-  // 当前 tab 的服务器端分页数据。
+  const [activeTab, setActiveTab] = useState<LogTab>("exception");
   const [items, setItems] = useState<AuditEventDTO[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -67,26 +49,10 @@ export default function AdminAuditPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [filterSeverity, setFilterSeverity] = useState("");
-  const [filterProcessed, setFilterProcessed] = useState("");
+  const [filterProcessed, setFilterProcessed] = useState("unprocessed");
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const PAGE_SIZE = 50;
-
-  const loadSummary = useCallback(async () => {
-    try {
-      const response = await fetchAudit({ pageSize: 200 });
-      setEvents(response.items);
-      setView(response.view);
-    } catch (reason) {
-      setEvents([]);
-      setView("");
-      setError(
-        reason instanceof ApiError && reason.status === 403
-          ? "当前身份没有审计日志查看权限。"
-          : "审计日志暂时无法加载，请稍后重试。",
-      );
-    }
-  }, []);
 
   const loadList = useCallback(
     async (tab: LogTab, pageNum: number) => {
@@ -104,6 +70,7 @@ export default function AdminAuditPage() {
         setItems(response.items);
         setTotal(response.total);
         setPage(response.page);
+        setView(response.view);
         setExpandedId(null);
       } catch (reason) {
         setItems([]);
@@ -122,18 +89,9 @@ export default function AdminAuditPage() {
   );
 
   useEffect(() => {
-    void loadSummary();
-  }, [loadSummary]);
-
-  useEffect(() => {
     void loadList(activeTab, 1);
   }, [activeTab, filterProcessed, filterSeverity, loadList]);
 
-  const exceptionLogs = useMemo(
-    () => events.filter((item) => item.log_type === "exception"),
-    [events],
-  );
-  const loginLogs = useMemo(() => events.filter((item) => item.log_type === "login"), [events]);
   const canProcess = view === "admin_metadata";
 
   const handleMarkProcessed = useCallback(
@@ -143,9 +101,6 @@ export default function AdminAuditPage() {
       setNotice(null);
       try {
         await markAuditProcessed(event.id);
-        setEvents((current) =>
-          current.map((item) => (item.id === event.id ? { ...item, is_processed: true } : item)),
-        );
         setItems((current) =>
           current.map((item) => (item.id === event.id ? { ...item, is_processed: true } : item)),
         );
@@ -169,39 +124,8 @@ export default function AdminAuditPage() {
 
   return (
     <ProductPage className="secops-page audit-page admin-control-page">
-      <PageHeader
-        eyebrow="安全运营"
-        title="审计日志"
-        description="核查需要处置的异常与登录风险；完整历史保留在筛选列表中。"
-      />
+      <PageHeader eyebrow="安全运营" title="审计日志" />
       <div className="secops-console">
-        <OperationsSummary
-          label="需要判断"
-          title="需要判断"
-          titleIcon={<ShieldCheck size={15} aria-hidden="true" />}
-          items={[
-            {
-              label: "未处理异常",
-              value: exceptionLogs.filter((item) => !item.is_processed).length,
-              tone: "warning",
-              icon: <TriangleAlert size={14} />,
-            },
-            {
-              label: "登录失败",
-              value: loginLogs.filter((item) => item.action === "login.failed").length,
-              tone: "danger",
-              icon: <LogIn size={14} />,
-            },
-            {
-              label: "严重 / 错误",
-              value: exceptionLogs.filter(
-                (item) => item.severity === "critical" || item.severity === "error",
-              ).length,
-              tone: "danger",
-              icon: <ShieldAlert size={14} />,
-            },
-          ]}
-        />
         <main className="secops-main-workspace">
           {view === "governance" && !error && (
             <div className="secops-banner is-readonly">
@@ -281,7 +205,6 @@ export default function AdminAuditPage() {
                   <button
                     className="btn-small"
                     onClick={() => {
-                      void loadSummary();
                       void loadList(activeTab, page);
                     }}
                     disabled={loading}
@@ -306,7 +229,11 @@ export default function AdminAuditPage() {
                 <tbody>
                   {logs.map((item) => (
                     <Fragment key={item.id}>
-                      <tr>
+                      <tr
+                        className={
+                          activeTab === "exception" && !item.is_processed ? "is-actionable" : ""
+                        }
+                      >
                         <td className="secops-time">{formatBeijingTime(item.created_at)}</td>
                         <td className="secops-primary">
                           {activeTab === "login"

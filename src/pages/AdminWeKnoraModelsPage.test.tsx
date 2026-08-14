@@ -397,9 +397,7 @@ describe("AdminWeKnoraModelsPage modal workspace", () => {
     const header = heading.closest("header");
     expect(header).not.toBeNull();
     expect(within(header!).getByRole("button", { name: "管理知识库配置" })).toBeInTheDocument();
-    expect(screen.getByLabelText("连接运行状态")).toHaveTextContent(
-      "0需要处理知识库初始化或迁移异常",
-    );
+    expect(screen.queryByLabelText("连接运行状态")).not.toBeInTheDocument();
     expect(fetchModelConnections).not.toHaveBeenCalled();
     expect(fetchWeknoraDefaultModels).not.toHaveBeenCalled();
 

@@ -110,7 +110,6 @@ export default function AdminCompanyKbPage() {
       <PageHeader
         eyebrow="身份与权限治理"
         title="公司知识库"
-        description="确认当前库状态，并执行唯一可用的恢复或创建操作。"
         actions={
           <button
             type="button"

@@ -77,12 +77,18 @@ export default function WecomScanConfigList({
         <tbody>
           {configs.map((config) => {
             const busy = busyId === config.id;
+            const needsAction =
+              config.enabled &&
+              (config.scan_space_status !== "ready" ||
+                config.manager_access_status !== "ready" ||
+                (latest[config.id]?.failed_count ?? 0) > 0);
             return (
               <tr
                 key={config.id}
-                className={`${!config.enabled ? "is-disabled" : ""} ${selectedId === config.id ? "is-selected" : ""}`}
+                className={`${needsAction ? "is-actionable" : ""} ${!config.enabled ? "is-disabled" : ""} ${selectedId === config.id ? "is-selected" : ""}`}
               >
                 <td>
+                  {needsAction && <span className="ws87-disposition">需处置</span>}
                   <strong>{config.name || "未命名配置"}</strong>
                   <button className="ws87-record-link" onClick={() => onSelect(config.id)}>
                     查看记录

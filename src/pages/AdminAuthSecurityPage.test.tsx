@@ -64,7 +64,8 @@ describe("AdminAuthSecurityPage", () => {
     expect(await screen.findByText("李顾问")).toBeInTheDocument();
     expect(screen.getByText("账号短时锁定")).toBeInTheDocument();
     const console = container.querySelector(".secops-console");
-    expect(console?.children).toHaveLength(2);
+    expect(console?.children).toHaveLength(1);
+    expect(container.querySelector(".secops-summary-panel")).not.toBeInTheDocument();
     expect(container.querySelector(".secops-main-workspace")).toContainElement(
       container.querySelector(".secops-workspace"),
     );

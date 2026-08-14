@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchAlertRules, updateAlertRule } from "../api/admin";
 import { ApiError } from "../api/http";
@@ -31,11 +31,10 @@ describe("AdminAlertSettingsPage", () => {
   it("renders a focused rules workspace without a redundant notification log", async () => {
     const { container } = render(<AdminAlertSettingsPage />);
     expect(await screen.findByText("连续登录失败")).toBeInTheDocument();
-    const summary = screen.getByLabelText("告警摘要");
-    expect(within(summary).getByText("启用规则")).toBeInTheDocument();
     const main = container.querySelector<HTMLElement>(".secops-main-workspace");
     const sections = container.querySelectorAll<HTMLElement>(".secops-workspace");
-    expect(container.querySelector(".secops-console")?.children).toHaveLength(2);
+    expect(container.querySelector(".secops-console")?.children).toHaveLength(1);
+    expect(container.querySelector(".secops-summary-panel")).not.toBeInTheDocument();
     expect(main).toContainElement(sections[0]);
     expect(sections).toHaveLength(1);
     expect(screen.queryByText("通知记录")).not.toBeInTheDocument();

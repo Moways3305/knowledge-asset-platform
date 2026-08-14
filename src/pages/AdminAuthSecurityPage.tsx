@@ -1,13 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Ban, CircleX, Clock3, LockKeyhole, RefreshCw, ShieldCheck } from "lucide-react";
+import { Clock3, RefreshCw, ShieldCheck } from "lucide-react";
 import { fetchAuthSecurityOverview, unlockAuthLockout } from "../api/admin";
 import { ApiError } from "../api/http";
-import {
-  OperationsSummary,
-  PageHeader,
-  PageToolbar,
-  ProductPage,
-} from "../components/ProductLayout";
+import { PageHeader, PageToolbar, ProductPage } from "../components/ProductLayout";
 import type { AuthSecurityEventDTO, AuthSecurityOverviewDTO } from "../types/authSecurity";
 import { formatBeijingTime } from "../utils/time";
 
@@ -88,39 +83,10 @@ export default function AdminAuthSecurityPage() {
     [load],
   );
 
-  const counts = data?.counts;
   return (
     <ProductPage className="secops-page auth-security-page admin-control-page">
-      <PageHeader
-        eyebrow="安全运营"
-        title="登录安全"
-        description="查看选定时间范围内的登录结果，并处理可解锁的账号状态。"
-      />
+      <PageHeader eyebrow="安全运营" title="登录安全" />
       <div className="secops-console">
-        <OperationsSummary
-          label="登录安全摘要"
-          titleIcon={<ShieldCheck size={15} aria-hidden="true" />}
-          items={[
-            {
-              label: "失败",
-              value: counts?.failed ?? 0,
-              tone: "warning",
-              icon: <CircleX size={14} />,
-            },
-            {
-              label: "锁定",
-              value: counts?.locked ?? 0,
-              tone: "danger",
-              icon: <LockKeyhole size={14} />,
-            },
-            {
-              label: "访问限流",
-              value: counts?.rate_limited ?? 0,
-              tone: "danger",
-              icon: <Ban size={14} />,
-            },
-          ]}
-        />
         <main className="secops-main-workspace">
           {error && (
             <div className="secops-banner is-error" role="alert">
@@ -185,35 +151,44 @@ export default function AdminAuthSecurityPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(data?.recent_events ?? []).map((event) => (
-                    <tr key={event.attempt_id}>
-                      <td className="secops-time">{formatBeijingTime(event.created_at)}</td>
-                      <td>
-                        <span className={`secops-pill result-${event.result}`}>
-                          {resultLabel[event.result] ?? "其他结果"}
-                        </span>
-                      </td>
-                      <td className="secops-col-secondary">
-                        {reasonLabel[event.reason_code ?? ""] ?? "安全校验未通过"}
-                      </td>
-                      <td className="secops-primary">{event.user_name ?? "未识别账号"}</td>
-                      <td>{userStatusLabel[event.user_status ?? ""] ?? "状态未知"}</td>
-                      <td>
-                        {UNLOCKABLE.has(event.result) &&
-                        (event.user_id || event.identifier_hash_prefix) ? (
-                          <button
-                            className="btn-small"
-                            disabled={unlocking === event.attempt_id}
-                            onClick={() => void onUnlock(event)}
-                          >
-                            {unlocking === event.attempt_id ? "解锁中…" : "解除锁定"}
-                          </button>
-                        ) : (
-                          <span className="secops-muted">无需操作</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {[...(data?.recent_events ?? [])]
+                    .sort(
+                      (left, right) =>
+                        Number(!UNLOCKABLE.has(left.result)) -
+                        Number(!UNLOCKABLE.has(right.result)),
+                    )
+                    .map((event) => (
+                      <tr
+                        key={event.attempt_id}
+                        className={UNLOCKABLE.has(event.result) ? "is-actionable" : ""}
+                      >
+                        <td className="secops-time">{formatBeijingTime(event.created_at)}</td>
+                        <td>
+                          <span className={`secops-pill result-${event.result}`}>
+                            {resultLabel[event.result] ?? "其他结果"}
+                          </span>
+                        </td>
+                        <td className="secops-col-secondary">
+                          {reasonLabel[event.reason_code ?? ""] ?? "安全校验未通过"}
+                        </td>
+                        <td className="secops-primary">{event.user_name ?? "未识别账号"}</td>
+                        <td>{userStatusLabel[event.user_status ?? ""] ?? "状态未知"}</td>
+                        <td>
+                          {UNLOCKABLE.has(event.result) &&
+                          (event.user_id || event.identifier_hash_prefix) ? (
+                            <button
+                              className="btn-small"
+                              disabled={unlocking === event.attempt_id}
+                              onClick={() => void onUnlock(event)}
+                            >
+                              {unlocking === event.attempt_id ? "解锁中…" : "解除锁定"}
+                            </button>
+                          ) : (
+                            <span className="secops-muted">无需操作</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
                   {!loading && data && data.recent_events.length === 0 && (
                     <tr>
                       <td colSpan={6} className="secops-empty">

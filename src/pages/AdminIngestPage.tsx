@@ -53,16 +53,6 @@ const JOB_POLL_INTERVAL_MS = 1_500;
 const JOB_POLL_MAX_ATTEMPTS = 20;
 const OPS_AUTO_REFRESH_MS = 60_000;
 
-function formatClock(value: Date): string {
-  return new Intl.DateTimeFormat("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-    timeZone: "Asia/Shanghai",
-  }).format(value);
-}
-
 const jobOpLabel: Record<string, string> = {
   retry_index: "批量重试索引",
   reparse: "重新解析",
@@ -203,7 +193,6 @@ export default function AdminIngestPage() {
   const [opsBusyOperation, setOpsBusyOperation] = useState<string | null>(null);
   const [opsNote, setOpsNote] = useState<string | null>(null);
   const [opsFeedbackState, setOpsFeedbackState] = useState<ActionFeedbackState>("info");
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [retryTarget, setRetryTarget] = useState<OpsIndexingFailedItemDTO | null>(null);
   const [targetBusy, setTargetBusy] = useState(false);
   const [targetError, setTargetError] = useState<string | null>(null);
@@ -328,7 +317,6 @@ export default function AdminIngestPage() {
         loadHealth(),
         loadLLMUsage(),
       ]);
-      setLastRefreshedAt(new Date());
     },
     [loadHealth, loadIngest, loadLLMUsage, loadOpsIndex, loadOpsJobs],
   );
@@ -571,14 +559,6 @@ export default function AdminIngestPage() {
     (opsIndex?.counts.index_failed ?? 0) +
     (opsIndex?.counts.parse_failed ?? 0) +
     (opsIndex?.counts.parse_stalled ?? 0);
-  const processingCount =
-    (ingestCounts.get("processing") ?? 0) +
-    (opsIndex?.counts.indexing ?? 0) +
-    (opsIndex?.counts.parse_processing ?? 0);
-  const recentlyCompletedCount = opsJobs.filter((job) =>
-    ["completed", "completed_with_errors"].includes(job.status),
-  ).length;
-
   const trendMax = useMemo(
     () =>
       Math.max(
@@ -624,13 +604,17 @@ export default function AdminIngestPage() {
         description="优先恢复失败、卡住和待确认的入库与索引任务。"
         status={
           <StatusBadge
-            tone={activeJob ? "info" : opsState === "error" ? "danger" : "success"}
+            tone={
+              activeJob ? "info" : opsState === "error" || attentionCount ? "danger" : "success"
+            }
             label={
               activeJob
                 ? `${safeJobOperation(activeJob.operation_type)}${activeJob.status === "queued" ? "已排队" : "处理中"}`
                 : opsState === "error"
                   ? "运行状态读取失败"
-                  : "当前可执行运维操作"
+                  : attentionCount
+                    ? `${attentionCount} 项待处置`
+                    : "当前无失败任务"
             }
           />
         }
@@ -656,26 +640,6 @@ export default function AdminIngestPage() {
           </div>
         }
       />
-
-      <section className="admin-status-band" aria-label="入库处置状态">
-        <div className={attentionCount ? "is-danger" : ""}>
-          <strong>{attentionCount}</strong>
-          <span>需要处理</span>
-          <small>失败、卡住或待恢复</small>
-        </div>
-        <div className="is-processing">
-          <strong>{processingCount}</strong>
-          <span>处理中</span>
-          <small>入库、解析与索引任务</small>
-        </div>
-        <div>
-          <strong>{recentlyCompletedCount}</strong>
-          <span>最近完成</span>
-          <small>
-            {lastRefreshedAt ? `状态更新于 ${formatClock(lastRefreshedAt)}` : "等待首次刷新"}
-          </small>
-        </div>
-      </section>
 
       <nav className="ao84-tabs" aria-label="管理员运维页面">
         <Link className="is-active" to="/admin/ingest" aria-current="page">
@@ -1083,111 +1047,117 @@ export default function AdminIngestPage() {
             )}
           </div>
 
-          <section className="ao85-runtime" aria-labelledby="ao85-runtime-title">
-            <div className="ao85-runtime-head">
-              <div>
-                <HeartPulse size={17} aria-hidden="true" />
-                <h3 id="ao85-runtime-title">运行健康</h3>
-              </div>
-              <span>最近 24 小时</span>
-            </div>
-            {healthState === "loading" ? (
-              <div className="ao85-runtime-state" role="status">
-                正在读取运行健康…
-              </div>
-            ) : healthState === "error" || !health ? (
-              <div className="ao85-runtime-state is-error" role="alert">
-                运行健康暂时无法加载。
-              </div>
-            ) : (
-              <>
-                <div className="ao85-runtime-statuses">
-                  {healthCards.map((card) => (
-                    <div key={card.label}>
-                      <span>{card.label}</span>
-                      <strong className={`is-${card.status}`}>{healthLabels[card.status]}</strong>
-                      {card.lastHeartbeat && <time>{formatBeijingTime(card.lastHeartbeat)}</time>}
-                      {card.detail && <small>{card.detail}</small>}
-                    </div>
-                  ))}
+          <details className="ao85-runtime-details">
+            <summary>
+              <span>运行健康与近 24 小时趋势</span>
+              <small>次级诊断</small>
+            </summary>
+            <section className="ao85-runtime" aria-labelledby="ao85-runtime-title">
+              <div className="ao85-runtime-head">
+                <div>
+                  <HeartPulse size={17} aria-hidden="true" />
+                  <h3 id="ao85-runtime-title">运行健康</h3>
                 </div>
-                {health.insufficient_data ? (
-                  <div className="ao85-trend-empty">
-                    <BarChart3 size={18} aria-hidden="true" />
-                    <strong>正在积累运维数据</strong>
-                    <span>形成至少两个真实小时快照后展示趋势。</span>
+                <span>最近 24 小时</span>
+              </div>
+              {healthState === "loading" ? (
+                <div className="ao85-runtime-state" role="status">
+                  正在读取运行健康…
+                </div>
+              ) : healthState === "error" || !health ? (
+                <div className="ao85-runtime-state is-error" role="alert">
+                  运行健康暂时无法加载。
+                </div>
+              ) : (
+                <>
+                  <div className="ao85-runtime-statuses">
+                    {healthCards.map((card) => (
+                      <div key={card.label}>
+                        <span>{card.label}</span>
+                        <strong className={`is-${card.status}`}>{healthLabels[card.status]}</strong>
+                        {card.lastHeartbeat && <time>{formatBeijingTime(card.lastHeartbeat)}</time>}
+                        {card.detail && <small>{card.detail}</small>}
+                      </div>
+                    ))}
                   </div>
-                ) : (
-                  <div className="ao85-trend-block">
-                    <div className="ao85-trend-heading">
-                      <strong>近 24 小时索引运维趋势</strong>
-                      <div className="ao85-trend-legend" aria-label="趋势图例">
-                        <span>
-                          <i className="is-completed" aria-hidden="true" />
-                          深蓝：已完成索引运维作业数
-                        </span>
-                        <span>
-                          <i className="is-failed" aria-hidden="true" />
-                          红色：失败或部分失败的索引运维作业数
-                        </span>
+                  {health.insufficient_data ? (
+                    <div className="ao85-trend-empty">
+                      <BarChart3 size={18} aria-hidden="true" />
+                      <strong>正在积累运维数据</strong>
+                      <span>形成至少两个真实小时快照后展示趋势。</span>
+                    </div>
+                  ) : (
+                    <div className="ao85-trend-block">
+                      <div className="ao85-trend-heading">
+                        <strong>近 24 小时索引运维趋势</strong>
+                        <div className="ao85-trend-legend" aria-label="趋势图例">
+                          <span>
+                            <i className="is-completed" aria-hidden="true" />
+                            深蓝：已完成索引运维作业数
+                          </span>
+                          <span>
+                            <i className="is-failed" aria-hidden="true" />
+                            红色：失败或部分失败的索引运维作业数
+                          </span>
+                        </div>
+                      </div>
+                      <div className="ao85-trend" aria-label="近 24 小时索引运维趋势">
+                        {health.trend_points.map((point, index) => {
+                          const label = trendPointLabel(point);
+                          const tooltipId = `ao85-trend-tooltip-${index}`;
+                          return (
+                            <div
+                              key={point.observed_at}
+                              className={`ao85-trend-point${index < 3 ? " is-near-start" : ""}${index >= health.trend_points.length - 3 ? " is-near-end" : ""}`}
+                              role="img"
+                              tabIndex={0}
+                              aria-label={label}
+                              aria-describedby={tooltipId}
+                            >
+                              <div className="ao85-trend-bars" aria-hidden="true">
+                                <span
+                                  className="is-completed"
+                                  style={{
+                                    height:
+                                      point.completed_jobs === 0
+                                        ? "0%"
+                                        : `${Math.max(2, (point.completed_jobs / trendMax) * 100)}%`,
+                                  }}
+                                />
+                                <span
+                                  className="is-failed"
+                                  style={{
+                                    height:
+                                      point.failed_jobs === 0
+                                        ? "0%"
+                                        : `${Math.max(2, (point.failed_jobs / trendMax) * 100)}%`,
+                                  }}
+                                />
+                              </div>
+                              <time
+                                className={`ao85-trend-tick${visibleTrendTicks.has(index) ? "" : " is-hidden"}`}
+                                aria-hidden="true"
+                              >
+                                {trendTickLabel(health.trend_points, index)}
+                              </time>
+                              <div id={tooltipId} className="ao85-trend-tooltip" role="tooltip">
+                                <strong>{formatBeijingTime(point.observed_at)}</strong>
+                                <span>已完成作业 {point.completed_jobs}</span>
+                                <span>失败或部分失败作业 {point.failed_jobs}</span>
+                                <span>排队作业 {point.queued_jobs}</span>
+                                <span>索引失败存量 {point.index_failed}</span>
+                                <span>解析失败存量 {point.parse_failed}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
-                    <div className="ao85-trend" aria-label="近 24 小时索引运维趋势">
-                      {health.trend_points.map((point, index) => {
-                        const label = trendPointLabel(point);
-                        const tooltipId = `ao85-trend-tooltip-${index}`;
-                        return (
-                          <div
-                            key={point.observed_at}
-                            className={`ao85-trend-point${index < 3 ? " is-near-start" : ""}${index >= health.trend_points.length - 3 ? " is-near-end" : ""}`}
-                            role="img"
-                            tabIndex={0}
-                            aria-label={label}
-                            aria-describedby={tooltipId}
-                          >
-                            <div className="ao85-trend-bars" aria-hidden="true">
-                              <span
-                                className="is-completed"
-                                style={{
-                                  height:
-                                    point.completed_jobs === 0
-                                      ? "0%"
-                                      : `${Math.max(2, (point.completed_jobs / trendMax) * 100)}%`,
-                                }}
-                              />
-                              <span
-                                className="is-failed"
-                                style={{
-                                  height:
-                                    point.failed_jobs === 0
-                                      ? "0%"
-                                      : `${Math.max(2, (point.failed_jobs / trendMax) * 100)}%`,
-                                }}
-                              />
-                            </div>
-                            <time
-                              className={`ao85-trend-tick${visibleTrendTicks.has(index) ? "" : " is-hidden"}`}
-                              aria-hidden="true"
-                            >
-                              {trendTickLabel(health.trend_points, index)}
-                            </time>
-                            <div id={tooltipId} className="ao85-trend-tooltip" role="tooltip">
-                              <strong>{formatBeijingTime(point.observed_at)}</strong>
-                              <span>已完成作业 {point.completed_jobs}</span>
-                              <span>失败或部分失败作业 {point.failed_jobs}</span>
-                              <span>排队作业 {point.queued_jobs}</span>
-                              <span>索引失败存量 {point.index_failed}</span>
-                              <span>解析失败存量 {point.parse_failed}</span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </section>
+                  )}
+                </>
+              )}
+            </section>
+          </details>
         </section>
       </div>
 

@@ -84,6 +84,7 @@ const makeCenter = (emptyProject = false) => ({
   ],
 });
 const scenarios = [
+  { name: "governance-landing", width: 1440, action: "landing" },
   { name: "company-scope", width: 1440, action: "company" },
   { name: "unified-project-scope", width: 1440, action: "project" },
   { name: "mid-unified-project", width: 1024, action: "project" },
@@ -182,7 +183,7 @@ try {
       await page.getByText("发布请求已完成；新版本仅影响此后确认入库的资料。").waitFor();
     } else if (scenario.action === "failure")
       await page.getByText("命名规则服务暂时不可用").waitFor();
-    else
+    else if (scenario.action !== "landing")
       await page
         .getByText(/无权|权限|访问/)
         .first()
@@ -196,6 +197,7 @@ try {
       ].filter((button) => button.getBoundingClientRect().width > 0);
       return {
         overflowX: root.scrollWidth - root.clientWidth,
+        noSummaryMatrix: !document.querySelector(".naming-overview"),
         actionsReachable: actions.every((button) => {
           const rect = button.getBoundingClientRect();
           return rect.left >= -2 && rect.right <= root.clientWidth + 2;
@@ -207,7 +209,7 @@ try {
       viewport: scenario.width,
       screenshot: file,
       ...metrics,
-      passed: metrics.overflowX <= 2 && metrics.actionsReachable,
+      passed: metrics.overflowX <= 2 && metrics.noSummaryMatrix && metrics.actionsReachable,
     });
     await context.close();
   }

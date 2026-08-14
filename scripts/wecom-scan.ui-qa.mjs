@@ -222,9 +222,9 @@ try {
                 : document.querySelectorAll(".ws87-record-table tbody tr").length >= 2,
             actionsVisible,
             honestSummary:
-              document.querySelectorAll(".admin-status-band > div").length === 3 &&
-              text.includes("需要处理") &&
-              text.includes("可用配置") &&
+              !document.querySelector(".admin-status-band") &&
+              (document.querySelectorAll(".ws87-table tr.is-actionable").length === 0 ||
+                text.includes("异常已置顶")) &&
               fictionalLabels.every((label) => !text.includes(label)),
             readOnly:
               scenario !== "forbidden" ||

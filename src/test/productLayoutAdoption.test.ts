@@ -63,7 +63,8 @@ describe("product layout and route contract", () => {
     const source = read("src/pages/AdminIngestPage.tsx");
     expect(source).toContain('className="ao84-console"');
     expect(source).toContain('className="ao84-panel ao84-failures"');
-    expect(source).toContain('className="admin-status-band"');
+    expect(source).toContain('className="ao85-runtime-details"');
+    expect(source).not.toContain('className="admin-status-band"');
     expect(source).toContain('aria-current="page"');
     expect(source).toContain("当前没有索引失败任务");
     expect(source).not.toContain("source_file_name");

@@ -289,14 +289,26 @@ try {
             (Boolean(document.querySelector(".mf-connection-card")) ||
               Boolean(document.querySelector(".mf-kb-drawer-row"))),
           connectionRows: document.querySelectorAll(".mf-connection-row").length,
-          statusItems: document.querySelectorAll(".admin-status-band > div").length,
+          noMetricMatrix: !document.querySelector(
+            ".admin-status-band, .mf-overview-strip, .mf-overview-metric",
+          ),
+          actionableFirst: (() => {
+            const rows = [...document.querySelectorAll(".mf-connection-row")];
+            const actionable = rows.filter((row) => row.classList.contains("is-actionable"));
+            if (actionable.length === 0) return true;
+            const firstVisualTop = Math.min(...rows.map((row) => row.getBoundingClientRect().top));
+            return actionable.some(
+              (row) => Math.abs(row.getBoundingClientRect().top - firstVisualTop) <= 2,
+            );
+          })(),
           hasInternalError: text.includes("UI QA route not configured"),
         };
       }, scenario);
       const expectedDialogs = scenario === "normal" || scenario === "forbidden" ? 0 : 1;
       const scenarioPass =
         metrics.connectionRows === 3 &&
-        metrics.statusItems === 3 &&
+        metrics.noMetricMatrix &&
+        metrics.actionableFirst &&
         !metrics.mainHasGrowingRows &&
         metrics.dialogCount === expectedDialogs;
       results.push({

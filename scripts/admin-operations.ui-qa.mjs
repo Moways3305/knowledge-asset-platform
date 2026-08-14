@@ -290,6 +290,9 @@ try {
       page.on("pageerror", (error) => messages.push(error.message));
       await page.goto(`${base}/admin/ingest`, { waitUntil: "networkidle" });
       await page.getByRole("heading", { name: "入库管理" }).waitFor();
+      const runtimeDetails = page.locator(".ao85-runtime-details");
+      const runtimeSummary = runtimeDetails.locator("summary");
+      await runtimeSummary.click();
 
       if (scenario === "category-filter") {
         await page.locator(".ao85-diagnostics button", { hasText: "配置问题" }).click();
@@ -326,6 +329,12 @@ try {
       } else {
         await page.getByLabel("近 24 小时索引运维趋势").waitFor();
       }
+
+      await runtimeSummary.click();
+      const trendInitiallyDeferred = await runtimeDetails.evaluate((node) => !node.open);
+      const screenshot = path.join(outDir, `${scenario}-${viewport.name}.png`);
+      await page.screenshot({ path: screenshot, animations: "disabled", fullPage: true });
+      await runtimeSummary.click();
 
       const trendExpected = !["insufficient-data", "health-error", "forbidden"].includes(scenario);
       const trendReadability = {
@@ -392,8 +401,6 @@ try {
         trendReadability.noUnexpectedTrend = (await page.locator(".ao85-trend").count()) === 0;
       }
 
-      const screenshot = path.join(outDir, `${scenario}-${viewport.name}.png`);
-      await page.screenshot({ path: screenshot, animations: "disabled", fullPage: true });
       releaseTarget?.();
       const result = await page.evaluate((scenarioName) => {
         const text = document.body.innerText;
@@ -459,6 +466,7 @@ try {
       result.targetCalls = targetCalls;
       result.targetPathSafe = targetPathSafe;
       result.conflict = result.conflict || conflictObserved;
+      result.trendInitiallyDeferred = trendInitiallyDeferred;
       Object.assign(result, trendReadability);
       const scenarioPass = {
         "normal-trend": result.trendVisible,
@@ -479,6 +487,7 @@ try {
         result.clipped === 0 &&
         result.panels === 2 &&
         result.dispositionFirst &&
+        result.trendInitiallyDeferred &&
         result.safe &&
         result.localized &&
         result.healthVisible &&

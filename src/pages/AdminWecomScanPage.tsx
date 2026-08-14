@@ -213,6 +213,20 @@ export default function AdminWecomScanPage() {
       failedRuns,
     };
   }, [configs, latest]);
+  const prioritizedConfigs = useMemo(
+    () =>
+      [...configs].sort((left, right) => {
+        const issueScore = (config: WecomScanConfigDTO) =>
+          Number(
+            config.enabled &&
+              (config.scan_space_status !== "ready" ||
+                config.manager_access_status !== "ready" ||
+                (latest[config.id]?.failed_count ?? 0) > 0),
+          );
+        return issueScore(right) - issueScore(left);
+      }),
+    [configs, latest],
+  );
 
   const mergeConfig = (saved: WecomScanConfigDTO) => {
     setConfigs((current) => {
@@ -277,7 +291,6 @@ export default function AdminWecomScanPage() {
     <ProductPage className="ws87-page admin-control-page">
       <PageHeader
         title="微盘扫描"
-        description="先修复不可用连接，再运行项目微盘扫描。"
         status={
           <StatusBadge
             tone={
@@ -318,24 +331,6 @@ export default function AdminWecomScanPage() {
         }
       />
 
-      <section className="admin-status-band" aria-label="微盘连接状态">
-        <div className={summary.unavailable + summary.failedRuns ? "is-danger" : ""}>
-          <strong>{summary.unavailable + summary.failedRuns}</strong>
-          <span>需要处理</span>
-          <small>连接不可用或最近扫描失败</small>
-        </div>
-        <div className="is-processing">
-          <strong>{busyId ? 1 : 0}</strong>
-          <span>处理中</span>
-          <small>正在保存或执行扫描</small>
-        </div>
-        <div>
-          <strong>{Math.max(0, summary.enabled - summary.unavailable)}</strong>
-          <span>可用配置</span>
-          <small>已启用且身份、空间可访问</small>
-        </div>
-      </section>
-
       {!canEdit && (
         <div className="ws87-message">
           <ShieldCheck size={15} />
@@ -355,10 +350,15 @@ export default function AdminWecomScanPage() {
         <main className="ws87-main-workspace">
           <section className="ws87-config-panel admin-workspace-panel">
             <div className="ws87-panel-heading">
-              <h3>扫描配置</h3>
+              <h3>{summary.unavailable + summary.failedRuns ? "配置处置队列" : "扫描配置"}</h3>
+              <span className={summary.unavailable + summary.failedRuns ? "is-danger" : ""}>
+                {summary.unavailable + summary.failedRuns
+                  ? `${summary.unavailable + summary.failedRuns} 项异常已置顶`
+                  : "当前连接均可用"}
+              </span>
             </div>
             <WecomScanConfigList
-              configs={configs}
+              configs={prioritizedConfigs}
               latest={latest}
               loading={loading}
               error={configError}

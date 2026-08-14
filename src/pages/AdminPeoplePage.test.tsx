@@ -180,15 +180,8 @@ describe("AdminPeoplePage governance controls", () => {
     );
     expect(await screen.findByText("人员名册")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    const summary = screen.getByLabelText("人员摘要");
-    expect(summary).toHaveClass("gp-summary-panel");
-    expect(summary).toHaveTextContent("需要判断");
-    expect(summary).toHaveTextContent("停用账号");
-    expect(summary).toHaveTextContent("无有效公司角色");
-    expect(summary).toHaveTextContent("无有效项目关系");
-    expect(summary.querySelectorAll(".gp-summary-icon svg")).toHaveLength(3);
-    expect(container.querySelector(".gp-governance-console")?.children).toHaveLength(2);
-    expect(container.querySelector(".gp-summary")).not.toBeInTheDocument();
+    expect(container.querySelector(".gp-governance-console")?.children).toHaveLength(1);
+    expect(container.querySelector(".gp-summary-panel")).not.toBeInTheDocument();
     expect(container.innerHTML).not.toMatch(
       /person-ref|person@example\.test|membership-ref|project-ref|role-boss/,
     );

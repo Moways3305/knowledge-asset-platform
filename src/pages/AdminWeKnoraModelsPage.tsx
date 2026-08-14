@@ -171,13 +171,6 @@ export default function AdminWeKnoraModelsPage() {
     (connection) => connection.enabled && connection.health_status !== "healthy",
   ).length;
   const connectionIssues = counts.anomalies + (isGlobalOperator ? modelIssues + externalIssues : 0);
-  const availableConnections = isGlobalOperator
-    ? externalConnections.filter(
-        (connection) => connection.enabled && connection.health_status === "healthy",
-      ).length +
-      models.filter((model) => model.enabled && model.credential_status !== "missing").length
-    : kbConfigs.filter((config) => config.mapping_status === "active").length;
-
   const filteredKbs = useMemo(() => {
     const query = kbQuery.trim().toLowerCase();
     return kbConfigs.filter((item) => {
@@ -366,24 +359,6 @@ export default function AdminWeKnoraModelsPage() {
         }
       />
 
-      <section className="admin-status-band" aria-label="连接运行状态">
-        <div className={connectionIssues ? "is-danger" : ""}>
-          <strong>{connectionIssues}</strong>
-          <span>需要处理</span>
-          <small>{isGlobalOperator ? "凭据、初始化或迁移异常" : "知识库初始化或迁移异常"}</small>
-        </div>
-        <div className="is-processing">
-          <strong>{counts.migrating}</strong>
-          <span>处理中</span>
-          <small>知识库迁移任务</small>
-        </div>
-        <div>
-          <strong>{availableConnections}</strong>
-          <span>{isGlobalOperator ? "可用连接" : "可用知识库"}</span>
-          <small>{isGlobalOperator ? "已启用且通过状态检查" : "当前项目范围"}</small>
-        </div>
-      </section>
-
       {error && (
         <div className="mf-inline-message is-danger" role="alert">
           {error}
@@ -401,10 +376,13 @@ export default function AdminWeKnoraModelsPage() {
       <section className="mf-connection-workspace admin-workspace-panel" aria-label="连接管理">
         <div className="admin-workspace-heading">
           <h2>连接管理</h2>
-          <span>名称 · 可用状态 · 影响范围 · 下一步</span>
+          <span>{connectionIssues ? "异常连接已置顶" : "所有连接均可继续使用"}</span>
         </div>
         <div className="mf-connection-rows">
-          <div className="mf-connection-row">
+          <div
+            className={`mf-connection-row${externalIssues ? " is-actionable" : ""}`}
+            style={{ order: externalIssues ? 0 : 10 }}
+          >
             <Sparkles size={19} aria-hidden="true" />
             <div>
               <h3>外部 LLM</h3>
@@ -427,7 +405,10 @@ export default function AdminWeKnoraModelsPage() {
               查看连接
             </button>
           </div>
-          <div className="mf-connection-row">
+          <div
+            className={`mf-connection-row${modelIssues ? " is-actionable" : ""}`}
+            style={{ order: modelIssues ? 0 : 20 }}
+          >
             <Bot size={19} aria-hidden="true" />
             <div>
               <h3>WeKnora 底座</h3>
@@ -452,7 +433,10 @@ export default function AdminWeKnoraModelsPage() {
               查看底座
             </button>
           </div>
-          <div className="mf-connection-row">
+          <div
+            className={`mf-connection-row${counts.anomalies ? " is-actionable" : ""}`}
+            style={{ order: counts.anomalies ? 0 : 30 }}
+          >
             <Database size={19} aria-hidden="true" />
             <div>
               <h3>知识库配置</h3>
