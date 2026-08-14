@@ -2,7 +2,11 @@ import { useState, useCallback } from "react";
 import { ControlledBulkRequestError } from "../../api/bulk";
 import { ApiError } from "../../api/http";
 import { bulkConfirmIngest, deletePendingTask } from "../../api/ingest";
-import type { IngestConfirmRequestDTO, PendingIngestItemDTO } from "../../types/ingest";
+import type {
+  IngestAiReviewDraftDTO,
+  IngestConfirmRequestDTO,
+  PendingIngestItemDTO,
+} from "../../types/ingest";
 import type { BatchNamingValuesDTO } from "../../types/naming";
 import { useModelSelection } from "../../hooks/useModelSelection";
 import { type PathBranch, type TargetLibrary } from "./uploadConstants";
@@ -207,6 +211,7 @@ export function useUploadFlow() {
       warningCodesByTask?: Record<string, string[]>,
       preserveUnsubmittedSelection = false,
       onCompleted?: (result: BatchConfirmResult) => void,
+      aiReviewDrafts?: Record<string, IngestAiReviewDraftDTO>,
     ): Promise<void> => {
       if (batchRunRef.current !== null || tasks.length === 0) {
         return;
@@ -274,22 +279,35 @@ export function useUploadFlow() {
               throw new Error("该资料目标项目已由来源规则锁定");
             }
             const governedNaming = namingByTask?.[task.id];
+            const reviewedAi = aiReviewDrafts?.[task.id];
+            const reviewedTitle = reviewedAi?.title.trim();
             const title =
+              reviewedTitle ||
               governedNaming?.subject.trim() ||
               ai.suggested_title?.trim() ||
               task.suggested_title?.trim() ||
               "";
-            const summary = ai.suggested_summary?.trim() || ai.suggested_one_liner?.trim() || "";
+            const summary =
+              reviewedAi?.summary.trim() ||
+              reviewedAi?.one_liner.trim() ||
+              ai.suggested_summary?.trim() ||
+              ai.suggested_one_liner?.trim() ||
+              "";
             if (!title || !summary) throw new Error("该资料缺少可确认的标题或摘要");
             if (!isCurrent()) return;
             prepared.push({
               task,
               confirmation: {
                 title,
-                one_liner: ai.suggested_one_liner || undefined,
+                one_liner: reviewedAi
+                  ? reviewedAi.one_liner || undefined
+                  : ai.suggested_one_liner || undefined,
                 summary,
-                key_points: ai.suggested_key_points?.filter(Boolean) || [],
-                tags: ai.suggested_tags?.filter(Boolean) || [],
+                key_points:
+                  reviewedAi?.key_points.filter(Boolean) ||
+                  ai.suggested_key_points?.filter(Boolean) ||
+                  [],
+                tags: reviewedAi?.tags.filter(Boolean) || ai.suggested_tags?.filter(Boolean) || [],
                 target_scope: destination,
                 target_project_id: destination === "project" ? destinationProjectId : undefined,
                 target_zone: "material",
@@ -303,7 +321,7 @@ export function useUploadFlow() {
                 naming: governedNaming
                   ? {
                       category_id: governedNaming.category_id,
-                      subject: governedNaming.subject,
+                      subject: reviewedTitle || governedNaming.subject,
                       formed_on: governedNaming.formed_on,
                       version: governedNaming.version,
                       applicable_to:
@@ -467,6 +485,7 @@ export function useUploadFlow() {
       destinationProjectId: string | undefined,
       naming: BatchNamingValuesDTO,
       warningCodes: string[] = [],
+      aiReviewDraft?: IngestAiReviewDraftDTO,
     ): Promise<BatchConfirmResult> => {
       let result: BatchConfirmResult = {
         succeededIds: [],
@@ -483,6 +502,7 @@ export function useUploadFlow() {
         (completed) => {
           result = completed;
         },
+        aiReviewDraft ? { [task.id]: aiReviewDraft } : undefined,
       );
       return result;
     },

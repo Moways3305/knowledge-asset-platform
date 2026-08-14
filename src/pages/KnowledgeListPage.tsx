@@ -131,8 +131,34 @@ export default function KnowledgeListPage() {
   const [tableScrollWidth, setTableScrollWidth] = useState(0);
   const [tableAtEnd, setTableAtEnd] = useState(false);
 
-  const projects = useMemo(() => authMe?.projects ?? [], [authMe?.projects]);
-  const validProjectId = projects.some((project) => project.projectId === projectId)
+  const memberProjects = useMemo(() => authMe?.projects ?? [], [authMe?.projects]);
+  const availableProjects = useMemo(() => {
+    const rows = new Map<
+      string,
+      { projectId: string; projectName: string; accessLabel: "可查看资料" | "摘要可见" }
+    >(
+      memberProjects.map((project) => [
+        project.projectId,
+        {
+          projectId: project.projectId,
+          projectName: project.projectName,
+          accessLabel: "可查看资料" as const,
+        },
+      ]),
+    );
+    directoryItems.forEach((item) => {
+      if (item.scope !== "project" || !item.project_id || !item.project_name) return;
+      if (!rows.has(item.project_id)) {
+        rows.set(item.project_id, {
+          projectId: item.project_id,
+          projectName: item.project_name,
+          accessLabel: "摘要可见",
+        });
+      }
+    });
+    return [...rows.values()];
+  }, [directoryItems, memberProjects]);
+  const validProjectId = availableProjects.some((project) => project.projectId === projectId)
     ? projectId
     : "";
   const canLoadBusinessKnowledge = status === "authenticated" && capabilities.isBusinessUser;
@@ -340,14 +366,12 @@ export default function KnowledgeListPage() {
   useEffect(() => {
     if (!canLoadBusinessKnowledge) return;
     const directoryRequestId = ++directoryRequestRef.current;
-    const invalidProjectDirectoryUrl =
-      initialScope === "project" &&
-      Boolean(requestedProjectId || directoryKeyFromUrl) &&
-      !projects.some((project) => project.projectId === requestedProjectId);
     const requestedDirectoryScope = directoryKeyFromUrl?.split(".", 1)[0] ?? "";
     const mismatchedDirectoryScopeUrl =
       Boolean(directoryKeyFromUrl) && requestedDirectoryScope !== initialScope;
-    if (invalidProjectDirectoryUrl || mismatchedDirectoryScopeUrl) {
+    const missingProjectDirectoryContext =
+      initialScope === "project" && Boolean(directoryKeyFromUrl) && !requestedProjectId;
+    if (mismatchedDirectoryScopeUrl || missingProjectDirectoryContext) {
       setDirectoryItems([]);
       setDirectory(null);
       setDirectoryLoading(false);
@@ -359,7 +383,7 @@ export default function KnowledgeListPage() {
     }
     let active = true;
     setDirectoryLoading(true);
-    void fetchKnowledgeDirectories(scope ? { scope, projectId: validProjectId || undefined } : {})
+    void fetchKnowledgeDirectories(scope ? { scope, projectId: projectId || undefined } : {})
       .then((items) => {
         if (!active || directoryRequestId !== directoryRequestRef.current) return;
         setDirectoryItems(items);
@@ -368,7 +392,7 @@ export default function KnowledgeListPage() {
             (item) =>
               item.directory_key === directoryKeyFromUrl &&
               item.scope === scope &&
-              (scope !== "project" || item.project_id === validProjectId),
+              (scope !== "project" || item.project_id === projectId),
           );
           if (!restored) {
             ++directoryRequestRef.current;
@@ -385,6 +409,17 @@ export default function KnowledgeListPage() {
           restoredDirectoryRef.current = true;
         }
       })
+      .catch(() => {
+        if (!active || directoryRequestId !== directoryRequestRef.current) return;
+        if (directoryKeyFromUrl) {
+          setDirectoryItems([]);
+          setDirectory(null);
+          setScope("");
+          setProjectId("");
+          restoredDirectoryRef.current = true;
+          navigate("/knowledge", { replace: true });
+        }
+      })
       .finally(() => {
         if (active && directoryRequestId === directoryRequestRef.current) {
           setDirectoryLoading(false);
@@ -398,10 +433,9 @@ export default function KnowledgeListPage() {
     directoryKeyFromUrl,
     initialScope,
     navigate,
-    projects,
+    projectId,
     requestedProjectId,
     scope,
-    validProjectId,
   ]);
 
   const resetFilters = () => {
@@ -663,7 +697,7 @@ export default function KnowledgeListPage() {
                     setPage(1);
                   }}
                 >
-                  {projects.find((item) => item.projectId === validProjectId)?.projectName}
+                  {availableProjects.find((item) => item.projectId === validProjectId)?.projectName}
                 </button>
               </>
             )}
@@ -709,7 +743,7 @@ export default function KnowledgeListPage() {
                         <strong>公司库</strong>
                         <span>公司级方法、案例与标准资产</span>
                       </button>
-                      {projects.length > 0 && (
+                      {availableProjects.length > 0 && (
                         <button type="button" onClick={() => setScope("project")}>
                           <BriefcaseBusiness aria-hidden="true" />
                           <strong>项目库</strong>
@@ -737,7 +771,7 @@ export default function KnowledgeListPage() {
                   )}
                   {scope === "project" &&
                     !validProjectId &&
-                    projects.map((project) => (
+                    availableProjects.map((project) => (
                       <button
                         type="button"
                         key={project.projectId}
@@ -745,7 +779,7 @@ export default function KnowledgeListPage() {
                       >
                         <Folder aria-hidden="true" />
                         <strong>{project.projectName}</strong>
-                        <span>进入项目标准目录</span>
+                        <span>{project.accessLabel}</span>
                       </button>
                     ))}
                   {scope &&
@@ -811,7 +845,7 @@ export default function KnowledgeListPage() {
                   />
                 </div>
 
-                {scope === "project" && projects.length > 0 && (
+                {scope === "project" && availableProjects.length > 0 && (
                   <label className="kbl-select-field is-project">
                     <span className="sr-only">项目</span>
                     <select
@@ -822,8 +856,8 @@ export default function KnowledgeListPage() {
                         setPage(1);
                       }}
                     >
-                      <option value="">项目：全部所属项目</option>
-                      {projects.map((project) => (
+                      <option value="">项目：全部可见项目</option>
+                      {availableProjects.map((project) => (
                         <option key={project.projectId} value={project.projectId}>
                           {project.projectName}
                         </option>
@@ -918,7 +952,10 @@ export default function KnowledgeListPage() {
                 <span>{scope ? scopeLabels[scope] : "全部可见范围"}</span>
                 {validProjectId && (
                   <span>
-                    {projects.find((item) => item.projectId === validProjectId)?.projectName}
+                    {
+                      availableProjects.find((item) => item.projectId === validProjectId)
+                        ?.projectName
+                    }
                   </span>
                 )}
                 {keyword && <span>关键词：{keyword}</span>}

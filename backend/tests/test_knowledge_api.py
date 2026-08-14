@@ -221,6 +221,55 @@ async def test_project_directory_filter_requires_exact_project_context(client):
     assert all(item["project_name"] == "Alpha 项目" for item in allowed.json()["items"])
 
 
+async def test_cross_project_directory_is_exposed_only_from_discoverable_assets(client, db_session):
+    beta_asset = await db_session.get(KnowledgeAsset, KA_PROJECT_BETA_L3)
+    beta_version = await db_session.get(KnowledgeAssetVersion, beta_asset.current_version_id)
+    beta_version.directory_key = "project.deliverables"
+    await db_session.commit()
+
+    catalog = await client.get(f"{KN}/directories?scope=project", headers=_hdr(USER_CONSULTANT))
+    assert catalog.status_code == 200
+    beta_rows = [
+        item for item in catalog.json()["items"] if item["project_id"] == str(PROJECT_BETA)
+    ]
+    assert beta_rows
+    assert {item["directory_key"] for item in beta_rows} == {"project.deliverables"}
+
+    listing = await client.get(
+        f"{KN}?scope=project&project_id={PROJECT_BETA}&directory_key=project.deliverables",
+        headers=_hdr(USER_CONSULTANT),
+    )
+    assert listing.status_code == 200
+    assert listing.json()["items"]
+    assert all(item["access_info"]["cross_project_summary"] for item in listing.json()["items"])
+    assert all(item["access_info"]["original"] is False for item in listing.json()["items"])
+
+
+async def test_l5_only_cross_project_is_not_enumerable_in_directory_catalog(client, db_session):
+    beta_asset = await db_session.get(KnowledgeAsset, KA_PROJECT_BETA_L3)
+    beta_version = await db_session.get(KnowledgeAssetVersion, beta_asset.current_version_id)
+    beta_version.directory_key = "project.deliverables"
+    beta_asset.confidentiality_level = "L5"
+    await db_session.commit()
+
+    catalog = await client.get(f"{KN}/directories?scope=project", headers=_hdr(USER_CONSULTANT))
+    assert catalog.status_code == 200
+    assert all(item["project_id"] != str(PROJECT_BETA) for item in catalog.json()["items"])
+
+    hidden = await client.get(
+        f"{KN}/directories?scope=project&project_id={PROJECT_BETA}",
+        headers=_hdr(USER_CONSULTANT),
+    )
+    assert hidden.status_code == 404
+    assert "Beta" not in hidden.text
+    hidden_listing = await client.get(
+        f"{KN}?scope=project&project_id={PROJECT_BETA}&directory_key=project.deliverables",
+        headers=_hdr(USER_CONSULTANT),
+    )
+    assert hidden_listing.status_code == 404
+    assert "Beta" not in hidden_listing.text
+
+
 async def test_archived_not_in_default_list(client):
     """archived 资产默认不在列表中返回。"""
     titles = {

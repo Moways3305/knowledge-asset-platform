@@ -104,6 +104,39 @@ async def test_confirm_one_liner_only_ok(client):
     assert r.status_code == 200, r.text
 
 
+async def test_confirm_persists_reviewed_ai_fields_exactly(client):
+    up = await client.post(
+        UPLOAD,
+        headers=_hdr(USER_CONSULTANT),
+        files={"file": ("reviewed.txt", _TXT, "text/plain")},
+    )
+    task_id = up.json()["ingest_task_id"]
+    confirmed = await client.post(
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(USER_CONSULTANT),
+        json=_confirm_body(
+            title="人工核对标题",
+            one_liner="人工核对一句话",
+            summary="人工核对详细摘要",
+            key_points=["人工知识点一", "人工知识点二"],
+            tags=["人工标签", "复核完成"],
+        ),
+    )
+    assert confirmed.status_code == 200, confirmed.text
+
+    detail = await client.get(
+        f"/api/v1/knowledge/{confirmed.json()['result_asset_id']}",
+        headers=_hdr(USER_CONSULTANT),
+    )
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+    assert body["title"] == "人工核对标题"
+    assert body["summary"]["one_liner"] == "人工核对一句话"
+    assert body["summary"]["detailed"] == "人工核对详细摘要"
+    assert body["summary"]["key_points"] == ["人工知识点一", "人工知识点二"]
+    assert set(body["tags"]) == {"人工标签", "复核完成"}
+
+
 async def test_failed_task_with_manual_summary_cannot_bypass_markdown_generation(client):
     # 空白文件 → 抽取为空 → status failed。
     up = await client.post(

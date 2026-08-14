@@ -148,7 +148,9 @@ async def test_project_manager_receives_governance_sections(client):
 
 
 @pytest.mark.parametrize("user_id", [USER_BOSS, USER_DIRECTOR, USER_ADMIN_ONLY])
-async def test_nonmembers_cannot_enter_project_overview_or_knowledge(client, user_id):
+async def test_nonmembers_cannot_enter_project_overview_and_knowledge_requires_directory_context(
+    client, user_id
+):
     overview = await client.get(f"{PROJECTS}/{PROJECT_ALPHA}/overview", headers=_headers(user_id))
     knowledge = await client.get(
         "/api/v1/knowledge",
@@ -157,7 +159,8 @@ async def test_nonmembers_cannot_enter_project_overview_or_knowledge(client, use
     )
 
     assert overview.status_code == 404
-    assert knowledge.status_code in {403, 404}
+    assert knowledge.status_code == 422
+    assert knowledge.json()["detail"]["denied_reason"] == "directory_context_required"
 
 
 async def test_missing_and_inaccessible_projects_are_indistinguishable(client):

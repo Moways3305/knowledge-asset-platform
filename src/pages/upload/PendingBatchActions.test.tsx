@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../../api/http";
 import type { PendingIngestItemDTO } from "../../types/ingest";
 import PendingBatchActions from "./PendingBatchActions";
 import type { UploadFlow } from "./useUploadFlow";
@@ -11,7 +12,12 @@ const namingApi = vi.hoisted(() => ({
   previewBatchIngestNaming: vi.fn(),
   saveManualNamingCategory: vi.fn(),
 }));
+const ingestApi = vi.hoisted(() => ({
+  fetchIngestAiResult: vi.fn(),
+  retryIngestTask: vi.fn(),
+}));
 vi.mock("../../api/naming", () => namingApi);
+vi.mock("../../api/ingest", () => ingestApi);
 
 function task(id: string, overrides: Partial<PendingIngestItemDTO> = {}): PendingIngestItemDTO {
   return {
@@ -112,11 +118,32 @@ describe("PendingBatchActions governed review", () => {
           asset_type: "deliverable",
           default_confidentiality: "L2",
         },
+        {
+          id: "method",
+          primary: "项目资料",
+          secondary: "工作方法",
+          prefix: "项目资料-工作方法",
+          asset_type: "methodology",
+          default_confidentiality: "L2",
+        },
       ],
       default_confidentiality: "L2",
       message: null,
     });
     namingApi.previewBatchIngestNaming.mockReset();
+    ingestApi.fetchIngestAiResult.mockReset().mockResolvedValue({
+      ingest_task_id: "safe-task",
+      status: "ready",
+      suggested_title: "AI 标题",
+      suggested_one_liner: "AI 一句话摘要",
+      suggested_summary: "AI 详细摘要",
+      summary: "AI 详细摘要",
+      suggested_key_points: ["关键点一"],
+      suggested_tags: ["标签一"],
+      suggestion_generation_status: "generated",
+      suggestion_generation_reason: "已生成",
+    });
+    ingestApi.retryIngestTask.mockReset().mockResolvedValue({});
     namingApi.saveManualNamingCategory.mockReset().mockResolvedValue({});
     namingApi.classifyBatchNamingCategories.mockReset().mockImplementation((input) =>
       Promise.resolve({
@@ -153,7 +180,7 @@ describe("PendingBatchActions governed review", () => {
     expect(category).toHaveValue("deliverable");
   });
 
-  it("reloads naming rules in the still-open target dialog after a temporary options failure", async () => {
+  it("retries target category loading without losing the still-open confirmation", async () => {
     namingApi.fetchNamingOptions.mockRejectedValueOnce(new Error("temporary outage"));
     const tasks = [task("reload-options")];
     render(<PendingBatchActions tasks={tasks} flow={flowFixture(tasks)} />);
@@ -167,9 +194,130 @@ describe("PendingBatchActions governed review", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("命名规则暂时无法加载");
+    expect(await screen.findByRole("button", { name: "重新加载规则" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "重新加载规则" }));
     expect(await screen.findByLabelText("核对状态筛选")).toBeInTheDocument();
+  });
+
+  it("applies one manual category to the batch, bypasses AI classification, and permits exceptions", async () => {
+    const tasks = [task("bulk-one"), task("bulk-two")];
+    render(<PendingBatchActions tasks={tasks} flow={flowFixture(tasks)} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /批量确认入库/ }));
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标知识库" }), {
+      target: { value: "project" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标项目" }), {
+      target: { value: "project-a" },
+    });
+    const bulkCategory = await screen.findByRole("combobox", { name: "本批目录类别" });
+    await waitFor(() => expect(bulkCategory).toHaveTextContent("项目资料 / 交付成果"));
+    fireEvent.change(bulkCategory, { target: { value: "deliverable" } });
+    fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
+
+    expect(await screen.findAllByText("批量设置")).toHaveLength(2);
+    expect(namingApi.classifyBatchNamingCategories).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "重试待分类项" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重试此项" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("bulk-two.pdf 目录类别"), {
+      target: { value: "method" },
+    });
+    expect(screen.getByLabelText("bulk-one.pdf 目录类别")).toHaveValue("deliverable");
+    expect(screen.getByLabelText("bulk-two.pdf 目录类别")).toHaveValue("method");
+    expect(screen.getByText("人工已选择")).toBeInTheDocument();
+    expect(namingApi.classifyBatchNamingCategories).not.toHaveBeenCalled();
+  });
+
+  it("loads AI extraction only on demand and retains the reviewed draft for final confirmation", async () => {
+    const item = task("ai-draft");
+    namingApi.previewBatchIngestNaming.mockResolvedValue({
+      items: [
+        {
+          task_id: item.id,
+          submittable: true,
+          canonical_name: "项目资料-AI核对-20260803-V1-L3",
+          fields: {},
+          notices: [],
+        },
+      ],
+    });
+    const handleBatchConfirm = vi.fn();
+    render(
+      <PendingBatchActions tasks={[item]} flow={flowFixture([item], { handleBatchConfirm })} />,
+    );
+
+    await openProjectReview();
+    expect(ingestApi.fetchIngestAiResult).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "查看 AI 提取" }));
+    expect(await screen.findByRole("dialog", { name: "AI 提取核对" })).toBeInTheDocument();
+    expect(ingestApi.fetchIngestAiResult).toHaveBeenCalledTimes(1);
+    fireEvent.change(screen.getByRole("textbox", { name: "建议标题" }), {
+      target: { value: "人工核对标题" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "详细摘要" }), {
+      target: { value: "人工核对后的详细摘要" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存本条修改" }));
+    fireEvent.click(screen.getByRole("button", { name: "查看 AI 提取" }));
+    expect(await screen.findByRole("textbox", { name: "建议标题" })).toHaveValue("人工核对标题");
+    fireEvent.click(screen.getByRole("button", { name: "保存本条修改" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "确认已选择的 1 项入库" })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "确认已选择的 1 项入库" }));
+    expect(handleBatchConfirm).toHaveBeenCalledWith(
+      [item],
+      "project",
+      "project-a",
+      expect.any(Object),
+      expect.any(Object),
+      true,
+      expect.any(Function),
+      {
+        [item.id]: expect.objectContaining({
+          title: "人工核对标题",
+          summary: "人工核对后的详细摘要",
+        }),
+      },
+    );
+  });
+
+  it("keeps processing, failed, and forbidden AI results safe and item-scoped", async () => {
+    const tasks = [task("processing-ai"), task("failed-ai"), task("forbidden-ai")];
+    ingestApi.fetchIngestAiResult
+      .mockReset()
+      .mockResolvedValueOnce({
+        ingest_task_id: tasks[0].id,
+        status: "processing",
+        suggestion_generation_status: "needs_manual_completion",
+      })
+      .mockResolvedValueOnce({
+        ingest_task_id: tasks[1].id,
+        status: "failed",
+        suggestion_generation_status: "needs_manual_completion",
+      })
+      .mockRejectedValueOnce(new ApiError(403, "internal detail", "ingest_result_forbidden"));
+    render(<PendingBatchActions tasks={tasks} flow={flowFixture(tasks)} />);
+    await openProjectReview();
+
+    const reviewButtons = screen.getAllByRole("button", { name: "查看 AI 提取" });
+    fireEvent.click(reviewButtons[0]);
+    expect(await screen.findByText("AI 提取仍在处理中，完成前不会提交入库。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "刷新状态" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /确认入库/ }).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "关闭详情" }));
+
+    fireEvent.click(reviewButtons[1]);
+    expect(
+      await screen.findByText("AI 提取未完成，可重试生成；当前资料不会因此入库。"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重试生成" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "关闭详情" }));
+
+    fireEvent.click(reviewButtons[2]);
+    expect(await screen.findByText("当前身份无权查看这条资料的 AI 提取结果。")).toBeInTheDocument();
+    expect(screen.queryByText("internal detail")).not.toBeInTheDocument();
   });
 
   it("filters and counts AI-ready, manual, reviewed, and exceptional rows", async () => {

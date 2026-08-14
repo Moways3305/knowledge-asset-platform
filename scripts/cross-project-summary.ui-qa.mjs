@@ -12,6 +12,7 @@ const alphaProject = "00000000-0000-0000-0000-000000000075";
 const betaProject = "00000000-0000-0000-0000-000000000076";
 const memberAsset = "00000000-0000-0000-0000-0000000000a1";
 const crossAsset = "00000000-0000-0000-0000-0000000000a2";
+const projectDirectoryKey = "project.deliverables";
 const cases = [
   { name: "member-desktop", width: 1440, height: 1000, member: true },
   { name: "member-mobile", width: 390, height: 844, member: true },
@@ -105,6 +106,8 @@ const results = [];
 
 for (const testCase of cases) {
   let pending = false;
+  let listedProjectId = null;
+  let listedDirectoryKey = null;
   const context = await browser.newContext({
     viewport: { width: testCase.width, height: testCase.height },
   });
@@ -133,7 +136,42 @@ for (const testCase of cases) {
       });
     }
     if (url.pathname === "/api/v1/auth/csrf") return fulfill({ csrf_token: "ui-qa-csrf" });
+    if (url.pathname === "/api/v1/knowledge/directories") {
+      const rows = [
+        {
+          directory_key: projectDirectoryKey,
+          name: "03 交付成果",
+          description: "项目交付与复盘资料",
+          scope: "project",
+          display_path: "项目库 / Alpha 项目 / 03 交付成果",
+          parent_key: null,
+          project_id: alphaProject,
+          project_name: "Alpha 项目",
+        },
+        {
+          directory_key: projectDirectoryKey,
+          name: "03 交付成果",
+          description: "可跨项目发现的安全摘要",
+          scope: "project",
+          display_path: "项目库 / Beta 项目 / 03 交付成果",
+          parent_key: null,
+          project_id: betaProject,
+          project_name: "Beta 项目",
+        },
+      ];
+      const requestedScope = url.searchParams.get("scope");
+      const requestedProject = url.searchParams.get("project_id");
+      return fulfill({
+        items: rows.filter(
+          (row) =>
+            (!requestedScope || row.scope === requestedScope) &&
+            (!requestedProject || row.project_id === requestedProject),
+        ),
+      });
+    }
     if (url.pathname === "/api/v1/knowledge") {
+      listedProjectId = url.searchParams.get("project_id");
+      listedDirectoryKey = url.searchParams.get("directory_key");
       return fulfill({
         items: [listAsset(testCase)],
         total: 1,
@@ -157,6 +195,11 @@ for (const testCase of cases) {
 
   const page = await context.newPage();
   await page.goto(`${base}/knowledge`, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: /项目库/ }).click();
+  await page
+    .getByRole("button", { name: new RegExp(testCase.member ? "Alpha 项目" : "Beta 项目") })
+    .click();
+  await page.getByRole("button", { name: /03 交付成果/ }).click();
   if (testCase.member) {
     await page.getByText("可查看摘要与原文").waitFor();
   } else {
@@ -172,7 +215,10 @@ for (const testCase of cases) {
       await page.getByRole("button", { name: "申请原文" }).click();
       await page.getByRole("dialog", { name: "申请原文" }).waitFor();
       await page.getByRole("button", { name: "提交申请" }).click();
-      await page.getByText(/已提交原文访问申请/).first().waitFor();
+      await page
+        .getByText(/已提交原文访问申请/)
+        .first()
+        .waitFor();
       await page.getByRole("link", { name: "原文申请审批中" }).waitFor();
     }
   }
@@ -216,10 +262,15 @@ for (const testCase of cases) {
     drawerOpen: metrics.drawerOpen,
     unsafeVisible: metrics.unsafeVisible,
     projectWorkspaceLink: metrics.projectWorkspaceLink,
+    directoryFlow:
+      listedProjectId === (testCase.member ? alphaProject : betaProject) &&
+      listedDirectoryKey === projectDirectoryKey,
     passed:
       metrics.overflowX <= 2 &&
       !metrics.unsafeVisible &&
       !metrics.projectWorkspaceLink &&
+      listedProjectId === (testCase.member ? alphaProject : betaProject) &&
+      listedDirectoryKey === projectDirectoryKey &&
       (testCase.member || (metrics.drawerOpen && metrics.safeCoreVisible)),
   });
   await context.close();

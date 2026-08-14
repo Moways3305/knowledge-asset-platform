@@ -1606,6 +1606,76 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     });
   });
 
+  it("keeps a reviewed AI draft authoritative when the final readiness poll returns newer suggestions", async () => {
+    ingest.fetchIngestAiResult.mockReset().mockResolvedValue({
+      ...readyAiResult,
+      ingest_task_id: "draft-a",
+      suggested_summary: "轮询返回的新摘要",
+      suggested_key_points: ["轮询关键点"],
+      suggested_tags: ["轮询标签"],
+    });
+    ingest.bulkConfirmIngest.mockResolvedValue({
+      operation_id: "bulk-draft",
+      status: "completed",
+      execution_mode: "synchronous",
+      submitted: 1,
+      succeeded: 1,
+      skipped: 0,
+      failed: 0,
+      items: [{ item_id: "draft-a", status: "succeeded", reason_code: null, message: null }],
+    });
+    const { result } = renderHook(() => useUploadFlow());
+    const task = { ...pendingTask("draft-a", "Draft.pdf"), target_scope: null };
+
+    await act(async () => {
+      await result.current.handleBatchConfirm(
+        [task],
+        "project",
+        "project-a",
+        {
+          [task.id]: {
+            category_id: "category-a",
+            subject: "主表单中的不同主题",
+            formed_on: "2026-08-14",
+            version: "V1",
+            confidentiality_level: "L3",
+          },
+        },
+        undefined,
+        true,
+        undefined,
+        {
+          [task.id]: {
+            title: "人工核对标题",
+            one_liner: "人工一句话",
+            summary: "人工详细摘要",
+            key_points: ["人工关键点"],
+            tags: ["人工标签"],
+          },
+        },
+      );
+    });
+
+    expect(ingest.bulkConfirmIngest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: [
+          expect.objectContaining({
+            confirmation: expect.objectContaining({
+              title: "人工核对标题",
+              one_liner: "人工一句话",
+              summary: "人工详细摘要",
+              key_points: ["人工关键点"],
+              tags: ["人工标签"],
+              naming: expect.objectContaining({
+                subject: "人工核对标题",
+              }),
+            }),
+          }),
+        ],
+      }),
+    );
+  });
+
   it("reconciles local pending refresh without clearing selections that still exist", async () => {
     const first = { ...pendingTask("local-first", "First.docx"), source: "path_b_upload" };
     const second = { ...pendingTask("local-second", "Second.docx"), source: "path_b_upload" };

@@ -406,7 +406,7 @@ async def list_knowledge(
     if project_id is not None:
         if scope not in {None, KnowledgeScope.project.value}:
             raise _denied(422, "project_filter_scope_mismatch", "项目筛选仅适用于项目知识")
-        if project_id not in caller.active_project_ids:
+        if not require_directory_context and project_id not in caller.active_project_ids:
             raise _denied(403, "project_membership_required", "需为该项目的有效成员")
 
     if require_directory_context and not directory_key:
@@ -429,6 +429,19 @@ async def list_knowledge(
             scope=scope,
             project_id=project_id,
         )
+        if (
+            scope == KnowledgeScope.project.value
+            and project_id is not None
+            and project_id not in caller.active_project_ids
+        ):
+            visible_rows = await directories.visible_directory_rows(
+                session,
+                caller,
+                allowed_scope=KnowledgeScope.project.value,
+                allowed_project_id=project_id,
+            )
+            if not any(row["directory_key"] == directory_key for row in visible_rows):
+                raise _denied(404, "directory_not_found", "目录不存在或当前不可进入")
 
     conditions = [discovery_filter(caller)]
     if scope:
@@ -532,14 +545,16 @@ async def list_directories(
     scope: str | None = None,
     project_id: uuid.UUID | None = None,
 ) -> DirectoryListResponse:
-    if project_id is not None and project_id not in caller.active_project_ids:
-        raise _denied(403, "project_membership_required", "Active project membership is required")
     rows = await directories.visible_directory_rows(
         session,
         caller,
         allowed_scope=scope,
         allowed_project_id=project_id,
     )
+    if project_id is not None and not rows:
+        # Do not distinguish a missing project from a project with no
+        # discoverable assets for this caller.
+        raise _denied(404, "directory_not_found", "目录不存在或当前不可进入")
     return DirectoryListResponse(items=[DirectoryOut(**row) for row in rows])
 
 

@@ -10,10 +10,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.identity import Project
-from app.models.knowledge import KnowledgeAssetVersion
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.naming import NamingRuleRevision
 from app.schemas.enums import KnowledgeScope
 from app.schemas.permission import CallerContext
+from app.services.permission import discovery_filter
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,19 +222,54 @@ async def visible_directory_rows(
     allowed_project_id: uuid.UUID | None = None,
 ) -> list[dict]:
     _, rows = await published_directories(session)
-    projects = []
-    if caller.active_project_ids:
-        projects = list(
+    # Member projects expose their complete governed directory template. A
+    # non-member project is exposed only through directory rows which contain at
+    # least one asset allowed by the authoritative discovery policy. This keeps
+    # empty projects, empty directories and L5-only projects non-enumerable.
+    discoverable_rows: list[tuple[uuid.UUID | None, str | None]] = []
+    if allowed_scope in (None, "all", KnowledgeScope.project.value):
+        rows_with_discovery = (
+            await session.execute(
+                select(KnowledgeAsset.project_id, KnowledgeAssetVersion.directory_key)
+                .join(
+                    KnowledgeAssetVersion,
+                    KnowledgeAssetVersion.id == KnowledgeAsset.current_version_id,
+                )
+                .where(
+                    KnowledgeAsset.scope == KnowledgeScope.project.value,
+                    KnowledgeAsset.project_id.is_not(None),
+                    KnowledgeAssetVersion.directory_key.is_not(None),
+                    discovery_filter(caller),
+                )
+                .distinct()
+            )
+        ).all()
+        discoverable_rows = [
+            (project_id, directory_key) for project_id, directory_key in rows_with_discovery
+        ]
+    discoverable_by_project: dict[uuid.UUID, set[str]] = {}
+    for project_id, directory_key in discoverable_rows:
+        if project_id is not None and directory_key:
+            discoverable_by_project.setdefault(project_id, set()).add(directory_key)
+
+    visible_project_ids = set(caller.active_project_ids) | set(discoverable_by_project)
+    if allowed_project_id is not None:
+        visible_project_ids &= {allowed_project_id}
+    projects = (
+        list(
             (
                 await session.execute(
                     select(Project).where(
-                        Project.id.in_(caller.active_project_ids), Project.status == "active"
+                        Project.id.in_(visible_project_ids), Project.status == "active"
                     )
                 )
             )
             .scalars()
             .all()
         )
+        if visible_project_ids
+        else []
+    )
     out: list[dict] = []
     for row in rows:
         if not row.get("enabled", True):
@@ -250,7 +286,9 @@ async def visible_directory_rows(
         }
         if scope == "project":
             for project in projects:
-                if allowed_project_id and project.id != allowed_project_id:
+                if project.id not in caller.active_project_ids and row.get(
+                    "directory_key"
+                ) not in discoverable_by_project.get(project.id, set()):
                     continue
                 out.append(
                     {
