@@ -8,6 +8,7 @@ import {
   Link2,
   RefreshCw,
   Search,
+  ShieldAlert,
   ShieldCheck,
   UserCheck,
   UsersRound,
@@ -237,12 +238,13 @@ export default function AdminPeoplePage() {
     [load],
   );
 
-  const totalUsers = people.length;
-  const activeUsers = people.filter((p) => p.status === "active").length;
-  const withMembership = people.filter((p) =>
-    p.project_memberships.some((m) => m.status === "active"),
+  const inactiveUsers = people.filter((p) => p.status !== "active").length;
+  const withoutMembership = people.filter(
+    (p) => !p.project_memberships.some((m) => m.status === "active"),
   ).length;
-  const wecomBound = people.filter((p) => p.wecom_bound).length;
+  const withoutCompanyRole = people.filter(
+    (p) => !p.company_roles.some((role) => role.status === "active"),
+  ).length;
 
   return (
     <ProductPage className="people-page gp-page people89-page">
@@ -257,44 +259,39 @@ export default function AdminPeoplePage() {
             <span className="gp-summary-heading-icon">
               <UsersRound size={16} />
             </span>
-            人员概览
+            需要判断
           </div>
           <div className="gp-summary-list">
-            <div className="gp-summary-item">
-              <span className="gp-summary-copy">
-                <span className="gp-summary-icon">
-                  <UsersRound size={14} />
-                </span>
-                <span className="gp-summary-label">当前加载</span>
-              </span>
-              <strong className="gp-summary-value">{totalUsers}</strong>
-            </div>
-            <div className="gp-summary-item is-success">
+            <div className={`gp-summary-item ${inactiveUsers > 0 ? "is-warning" : "is-success"}`}>
               <span className="gp-summary-copy">
                 <span className="gp-summary-icon">
                   <UserCheck size={14} />
                 </span>
-                <span className="gp-summary-label">正常账号</span>
+                <span className="gp-summary-label">停用账号</span>
               </span>
-              <strong className="gp-summary-value">{activeUsers}</strong>
+              <strong className="gp-summary-value">{inactiveUsers}</strong>
             </div>
-            <div className="gp-summary-item is-linked">
+            <div
+              className={`gp-summary-item ${withoutCompanyRole > 0 ? "is-warning" : "is-success"}`}
+            >
               <span className="gp-summary-copy">
                 <span className="gp-summary-icon">
-                  <Link2 size={14} />
+                  <ShieldAlert size={14} />
                 </span>
-                <span className="gp-summary-label">已绑定企微</span>
+                <span className="gp-summary-label">无有效公司角色</span>
               </span>
-              <strong className="gp-summary-value">{wecomBound}</strong>
+              <strong className="gp-summary-value">{withoutCompanyRole}</strong>
             </div>
-            <div className="gp-summary-item is-project">
+            <div
+              className={`gp-summary-item ${withoutMembership > 0 ? "is-warning" : "is-success"}`}
+            >
               <span className="gp-summary-copy">
                 <span className="gp-summary-icon">
                   <BriefcaseBusiness size={14} />
                 </span>
-                <span className="gp-summary-label">拥有项目关系</span>
+                <span className="gp-summary-label">无有效项目关系</span>
               </span>
-              <strong className="gp-summary-value">{withMembership}</strong>
+              <strong className="gp-summary-value">{withoutMembership}</strong>
             </div>
           </div>
         </aside>

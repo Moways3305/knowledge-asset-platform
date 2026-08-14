@@ -1,12 +1,11 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchAlertNotifications, fetchAlertRules, updateAlertRule } from "../api/admin";
+import { fetchAlertRules, updateAlertRule } from "../api/admin";
 import { ApiError } from "../api/http";
-import type { AlertRuleDTO, NotificationDTO } from "../types/alert";
+import type { AlertRuleDTO } from "../types/alert";
 import AdminAlertSettingsPage from "./AdminAlertSettingsPage";
 
 vi.mock("../api/admin", () => ({
-  fetchAlertNotifications: vi.fn(),
   fetchAlertRules: vi.fn(),
   updateAlertRule: vi.fn(),
 }));
@@ -22,29 +21,14 @@ const rule: AlertRuleDTO = {
   dedup_strategy: "cooldown",
   updated_at: "2026-07-20T01:00:00Z",
 };
-const notification: NotificationDTO = {
-  id: "notification-secret",
-  alert_rule_id: "rule-secret",
-  audit_event_id: "audit-secret",
-  recipient_user_id: "recipient-secret",
-  recipient_name: "安全管理员",
-  channel: "in_app",
-  title: "登录失败告警",
-  content: "raw content token=secret",
-  send_status: "pending",
-  sent_at: null,
-  created_at: "2026-07-20T02:00:00Z",
-};
-
 describe("AdminAlertSettingsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(fetchAlertRules).mockResolvedValue({ items: [rule] });
-    vi.mocked(fetchAlertNotifications).mockResolvedValue({ items: [notification] });
     vi.mocked(updateAlertRule).mockImplementation(async (_id, patch) => ({ ...rule, ...patch }));
   });
 
-  it("renders truthful summaries and no internal notification fields", async () => {
+  it("renders a focused rules workspace without a redundant notification log", async () => {
     const { container } = render(<AdminAlertSettingsPage />);
     expect(await screen.findByText("连续登录失败")).toBeInTheDocument();
     const summary = screen.getByLabelText("告警摘要");
@@ -53,19 +37,9 @@ describe("AdminAlertSettingsPage", () => {
     const sections = container.querySelectorAll<HTMLElement>(".secops-workspace");
     expect(container.querySelector(".secops-console")?.children).toHaveLength(2);
     expect(main).toContainElement(sections[0]);
-    expect(main).toContainElement(sections[1]);
-    expect(
-      sections[0].compareDocumentPosition(sections[1]) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    for (const secret of [
-      "rule-secret",
-      "notification-secret",
-      "audit-secret",
-      "recipient-secret",
-      "raw content",
-      "token=secret",
-    ])
-      expect(container.innerHTML).not.toContain(secret);
+    expect(sections).toHaveLength(1);
+    expect(screen.queryByText("通知记录")).not.toBeInTheDocument();
+    for (const secret of ["rule-secret"]) expect(container.innerHTML).not.toContain(secret);
   });
 
   it("saves threshold on blur and toggles only the selected rule", async () => {
@@ -90,7 +64,6 @@ describe("AdminAlertSettingsPage", () => {
     fireEvent.blur(input);
     expect(await screen.findByText("保存失败，请重试。")).toBeInTheDocument();
     expect(input).toHaveValue(5);
-    expect(screen.getByText("登录失败告警")).toBeInTheDocument();
     expect(document.body.innerHTML).not.toContain("raw webhook credential");
   });
 
@@ -101,7 +74,6 @@ describe("AdminAlertSettingsPage", () => {
   ])("handles empty, failure and forbidden safely", async (result, expected) => {
     if (result === "empty") {
       vi.mocked(fetchAlertRules).mockResolvedValueOnce({ items: [] });
-      vi.mocked(fetchAlertNotifications).mockResolvedValueOnce({ items: [] });
     } else {
       vi.mocked(fetchAlertRules).mockRejectedValueOnce(result);
     }

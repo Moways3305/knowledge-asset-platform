@@ -15,6 +15,7 @@ const KnowledgeListPage = lazy(() => import("./pages/KnowledgeListPage"));
 const KnowledgeDetailPage = lazy(() => import("./pages/KnowledgeDetailPage"));
 const MyKnowledgePage = lazy(() => import("./pages/MyKnowledgePage"));
 const UploadPage = lazy(() => import("./pages/UploadPage"));
+const AdminOverviewPage = lazy(() => import("./pages/AdminOverviewPage"));
 const AdminIngestPage = lazy(() => import("./pages/AdminIngestPage"));
 const AdminWecomScanPage = lazy(() => import("./pages/AdminWecomScanPage"));
 const AdminWeKnoraModelsPage = lazy(() => import("./pages/AdminWeKnoraModelsPage"));
@@ -72,6 +73,14 @@ export default function App() {
               element={
                 <RouteGuard cap={can.viewUpload}>
                   <UploadPage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="admin"
+              element={
+                <RouteGuard cap={can.viewAdminHome}>
+                  <AdminOverviewPage />
                 </RouteGuard>
               }
             />

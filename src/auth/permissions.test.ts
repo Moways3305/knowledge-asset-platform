@@ -127,6 +127,14 @@ describe("can (nav / route capability predicates)", () => {
     expect(can.viewModels(consultant)).toBe(false);
   });
 
+  it("shows the admin overview only when at least one management workspace is available", () => {
+    expect(can.viewAdminHome(admin)).toBe(true);
+    expect(can.viewAdminHome(governance)).toBe(true);
+    expect(can.viewAdminHome(projectManager)).toBe(true);
+    expect(can.viewAdminHome(consultant)).toBe(false);
+    expect(can.viewAdminHome(anon)).toBe(false);
+  });
+
   it("restricts login risk control to admin only", () => {
     expect(can.viewAuthSecurity(admin)).toBe(true);
     expect(can.viewAuthSecurity(governance)).toBe(false);

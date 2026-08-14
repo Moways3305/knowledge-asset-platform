@@ -261,13 +261,10 @@ try {
               }),
               alertsStacked:
                 targetName !== "alerts" ||
-                (workspaces.length === 2 &&
-                  workspaces[1].getBoundingClientRect().top >=
-                    workspaces[0].getBoundingClientRect().bottom + 8 &&
-                  Math.abs(
-                    workspaces[0].getBoundingClientRect().width -
-                      workspaces[1].getBoundingClientRect().width,
-                  ) <= 2),
+                (workspaces.length === 1 &&
+                  (!main ||
+                    workspaces[0].getBoundingClientRect().width <=
+                      main.width + 2)),
               noCharts: !document.querySelector(
                 "canvas, svg[data-chart], .chart, [class*='trend']",
               ),

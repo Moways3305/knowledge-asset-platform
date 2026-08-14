@@ -89,9 +89,9 @@ describe("AdminAuditPage", () => {
   it("renders truthful summary and hides raw audit fields", async () => {
     const { container } = render(<AdminAuditPage />);
     expect(await screen.findByText("创建项目知识库")).toBeInTheDocument();
-    const summary = screen.getByLabelText("审计摘要");
+    const summary = screen.getByLabelText("需要判断");
     expect(within(summary).getAllByText("1", { selector: ".secops-summary-value" })).toHaveLength(
-      4,
+      3,
     );
     const console = container.querySelector(".secops-console");
     expect(console?.children).toHaveLength(2);
@@ -163,7 +163,11 @@ describe("AdminAuditPage", () => {
     expect(
       await screen.findByText("当前为只读审计视图，可核查记录但不能标记处理。"),
     ).toBeInTheDocument();
+    await waitFor(() => expect(fetchAudit).toHaveBeenCalledTimes(2));
     fireEvent.click(screen.getByRole("tab", { name: "异常" }));
+    await waitFor(() =>
+      expect(fetchAudit).toHaveBeenCalledWith(expect.objectContaining({ logType: "exception" })),
+    );
     expect(screen.queryByRole("button", { name: "标记已处理" })).not.toBeInTheDocument();
   });
 

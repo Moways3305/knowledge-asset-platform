@@ -129,10 +129,6 @@ export default function AdminAuditPage() {
     void loadList(activeTab, 1);
   }, [activeTab, filterProcessed, filterSeverity, loadList]);
 
-  const operationLogs = useMemo(
-    () => events.filter((item) => item.log_type === "operation"),
-    [events],
-  );
   const exceptionLogs = useMemo(
     () => events.filter((item) => item.log_type === "exception"),
     [events],
@@ -176,14 +172,14 @@ export default function AdminAuditPage() {
       <PageHeader
         eyebrow="安全运营"
         title="审计日志"
-        description="核查关键操作、异常处置与登录结果。页面时间均为北京时间。审计为不可变事件流，仅记录已发生的事项；资产的当前解析/索引状态请到「管理员运维 → 索引维护」查看。"
+        description="核查需要处置的异常与登录风险；完整历史保留在筛选列表中。"
       />
       <div className="secops-console">
         <OperationsSummary
-          label="审计摘要"
+          label="需要判断"
+          title="需要判断"
           titleIcon={<ShieldCheck size={15} aria-hidden="true" />}
           items={[
-            { label: "操作记录", value: operationLogs.length, icon: <ScrollText size={14} /> },
             {
               label: "未处理异常",
               value: exceptionLogs.filter((item) => !item.is_processed).length,

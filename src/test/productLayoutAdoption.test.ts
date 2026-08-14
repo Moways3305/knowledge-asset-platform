@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 const sourceModules = import.meta.glob(
-  ["../App.tsx", "../{pages,components,styles}/**/*.{ts,tsx,css}"],
+  ["../App.tsx", "../{pages,components,styles,api}/**/*.{ts,tsx,css}"],
   {
     eager: true,
     query: "?raw",
@@ -22,6 +22,32 @@ describe("product layout and route contract", () => {
       expect(source).toContain("<ProductPage");
       expect(source).toContain("<PageHeader");
     }
+  });
+
+  it("keeps every administration workspace on the shared page heading hierarchy", () => {
+    for (const page of [
+      "AdminIngestPage.tsx",
+      "AdminWecomScanPage.tsx",
+      "AdminWeKnoraModelsPage.tsx",
+      "AdminAuditPage.tsx",
+      "AdminAuthSecurityPage.tsx",
+      "AdminAlertSettingsPage.tsx",
+      "AdminPermissionsPage.tsx",
+      "AdminPeoplePage.tsx",
+      "AdminNamingRulesPage.tsx",
+      "AdminCompanyKbPage.tsx",
+    ]) {
+      const source = read(`src/pages/${page}`);
+      expect(source).toContain("<ProductPage");
+      expect(source).toContain("<PageHeader");
+    }
+  });
+
+  it("keeps the alert settings workspace focused on rules without loading notification history", () => {
+    const source = read("src/pages/AdminAlertSettingsPage.tsx");
+    expect(source).not.toContain("fetchAlertNotifications");
+    expect(source).not.toContain("通知记录");
+    expect(read("src/api/admin.ts")).toContain("fetchAlertNotifications");
   });
 
   it("keeps the admin operations page on the safe two-column reference contract", () => {
@@ -92,6 +118,7 @@ describe("product layout and route contract", () => {
       "/project/:id",
       "/project/:id/knowledge",
       "/project/:id/settings",
+      "/admin",
       "/admin/ingest",
       "/admin/wecom-scan",
       "/admin/weknora-models",
@@ -100,6 +127,8 @@ describe("product layout and route contract", () => {
       "/admin/alert-settings",
       "/admin/people",
       "/admin/permissions",
+      "/admin/naming-rules",
+      "/admin/company-kb",
       "/help",
     ]) {
       expect(app).toContain(`path="${route.slice(1)}"`);

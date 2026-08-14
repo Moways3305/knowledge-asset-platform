@@ -22,6 +22,7 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  Gauge,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -46,7 +47,7 @@ import "../styles/experience-system.css";
 // 每个导航项带一个能力谓词 `cap`，与页面级守卫（RouteGuard）共用 `can` 判定，
 // 保证「看得到的入口 = 进得去的页面」。无权入口直接不渲染，而非渲染后再报错。
 type NavItem = { to: string; label: string; icon: LucideIcon; end?: boolean; cap: Capability };
-type NavGroup = { label: string; items: NavItem[] };
+type NavGroup = { label: string; description?: string; items: NavItem[] };
 
 const navGroups: NavGroup[] = [
   {
@@ -108,10 +109,22 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "管理后台",
+    description: "先识别风险，再进入对应工作区。",
+    items: [{ to: "/admin", label: "运营中枢", icon: Gauge, end: true, cap: can.viewAdminHome }],
+  },
+  {
+    label: "运行与接入",
+    description: "保障入库、扫描与模型连接可用。",
     items: [
       { to: "/admin/ingest", label: "入库管理", icon: Inbox, cap: can.viewIngestAdmin },
       { to: "/admin/wecom-scan", label: "微盘扫描", icon: ScanLine, cap: can.viewWecomScan },
       { to: "/admin/weknora-models", label: "模型配置", icon: Cpu, cap: can.viewModels },
+    ],
+  },
+  {
+    label: "安全与治理",
+    description: "核查风险、告警与访问边界。",
+    items: [
       { to: "/admin/audit", label: "审计日志", icon: ScrollText, cap: can.viewAudit },
       {
         to: "/admin/auth-security",
@@ -121,6 +134,12 @@ const navGroups: NavGroup[] = [
       },
       { to: "/admin/alert-settings", label: "告警设置", icon: BellRing, cap: can.viewAlerts },
       { to: "/admin/permissions", label: "权限规则", icon: KeySquare, cap: can.viewPermissions },
+    ],
+  },
+  {
+    label: "组织与知识治理",
+    description: "维护人员、命名与公司知识范围。",
+    items: [
       { to: "/admin/people", label: "人员权限", icon: Users, cap: can.viewPeople },
       { to: "/admin/naming-rules", label: "命名规则", icon: BookType, cap: can.viewNamingRules },
       {
@@ -150,6 +169,7 @@ const moduleTitles: Array<[prefix: string, title: string]> = [
   ["/admin/people", "人员权限"],
   ["/admin/naming-rules", "命名规则中心"],
   ["/admin/company-kb", "公司知识库"],
+  ["/admin", "运营中枢"],
   ["/help", "帮助"],
   ["/", "今日工作台"],
 ];
@@ -208,6 +228,7 @@ function RailNav({
       {groups.map((group) => (
         <div key={group.label} className="rail-group">
           <div className="rail-group-label">{group.label}</div>
+          {group.description && <div className="rail-group-description">{group.description}</div>}
           <ul>
             {group.items.map((item) => (
               <RailLink key={item.to} item={item} collapsed={collapsed} />

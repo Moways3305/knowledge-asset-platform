@@ -124,6 +124,12 @@
   text-transform: uppercase;
   color: var(--rail-text-dim);
 }
+.rail-group-description {
+  margin: -3px 24px 7px;
+  color: color-mix(in srgb, var(--rail-text-dim) 88%, transparent);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
 .rail-group-no {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -327,6 +333,7 @@
 .app-layout.is-rail-collapsed .rail-mark,
 .app-layout.is-rail-collapsed .rail-sub,
 .app-layout.is-rail-collapsed .rail-group-label,
+.app-layout.is-rail-collapsed .rail-group-description,
 .app-layout.is-rail-collapsed .rail-label,
 .app-layout.is-rail-collapsed .rail-foot-label,
 .app-layout.is-rail-collapsed .rail-identity .idm-trigger-text,
@@ -1207,6 +1214,9 @@
     flex-shrink: 0;
   }
   .rail-group-label {
+    display: none;
+  }
+  .rail-group-description {
     display: none;
   }
   .rail-nav ul {
