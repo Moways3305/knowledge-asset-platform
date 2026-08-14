@@ -221,9 +221,9 @@ describe("AdminWeKnoraModelsPage modal workspace", () => {
     Element.prototype.scrollIntoView = vi.fn();
   });
 
-  it("keeps the landing page as a fixed overview without growing lists", async () => {
+  it("keeps the landing page as a fixed connection workspace without growing lists", async () => {
     renderPage();
-    expect(await screen.findByRole("heading", { name: "模型与知识库底座" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "模型配置" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "外部 LLM" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "WeKnora 底座" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "知识库配置" })).toBeInTheDocument();
@@ -257,11 +257,13 @@ describe("AdminWeKnoraModelsPage modal workspace", () => {
 
   it("edits defaults in task modals instead of inline controls", async () => {
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "编辑默认用途" }));
+    fireEvent.click(await screen.findByRole("button", { name: "管理外部 LLM" }));
+    fireEvent.click(screen.getByRole("button", { name: "编辑默认用途" }));
     const externalModal = screen.getByRole("dialog", { name: "编辑默认用途" });
     fireEvent.click(within(externalModal).getByRole("button", { name: "保存默认用途" }));
     await waitFor(() => expect(updateModelUsageAssignments).toHaveBeenCalledTimes(1));
 
+    fireEvent.click(screen.getByRole("button", { name: "管理 WeKnora 模型" }));
     fireEvent.click(screen.getByRole("button", { name: "编辑默认底座" }));
     const foundationModal = screen.getByRole("dialog", { name: "编辑默认底座" });
     fireEvent.click(within(foundationModal).getByRole("button", { name: "保存默认底座" }));

@@ -244,6 +244,11 @@ try {
                 summary.width <= 250 &&
                 main.width >= summary.width * 2.4 &&
                 Math.abs(summary.y - main.y) <= 2,
+              statusFirst:
+                Boolean(console && summary && main) &&
+                console.children.length === 2 &&
+                main.y >= summary.bottom + 8 &&
+                Math.abs(summary.width - main.width) <= 2,
               noStatusStrip: !document.querySelector(".product-status-strip"),
               hasReferenceIconography:
                 document.querySelectorAll(".secops-summary-icon svg").length ===
@@ -262,9 +267,7 @@ try {
               alertsStacked:
                 targetName !== "alerts" ||
                 (workspaces.length === 1 &&
-                  (!main ||
-                    workspaces[0].getBoundingClientRect().width <=
-                      main.width + 2)),
+                  (!main || workspaces[0].getBoundingClientRect().width <= main.width + 2)),
               noCharts: !document.querySelector(
                 "canvas, svg[data-chart], .chart, [class*='trend']",
               ),
@@ -287,7 +290,7 @@ try {
           pass:
             metrics.overflowX <= 2 &&
             metrics.safe &&
-            (viewport.width > 1200 ? metrics.twoColumn : metrics.alertsStacked) &&
+            metrics.statusFirst &&
             metrics.noStatusStrip &&
             metrics.hasReferenceIconography &&
             (viewport.width > 1200 ? metrics.noInnerScroll : true) &&

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 const sourceModules = import.meta.glob(
-  ["../App.tsx", "../{pages,components,styles,api}/**/*.{ts,tsx,css}"],
+  ["../App.tsx", "../{pages,components,styles,api,layouts}/**/*.{ts,tsx,css}"],
   {
     eager: true,
     query: "?raw",
@@ -11,6 +11,15 @@ const sourceModules = import.meta.glob(
 const read = (file: string) => sourceModules[`../${file.replace(/^src\//, "")}`];
 
 describe("product layout and route contract", () => {
+  it("redirects the retired admin overview without retaining its implementation", () => {
+    const app = read("src/App.tsx");
+    expect(app).toContain(
+      '<Route path="admin" element={<Navigate to="/admin/ingest" replace />} />',
+    );
+    expect(app).not.toContain("AdminOverviewPage");
+    expect(read("src/layouts/AppLayout.tsx")).not.toContain("运营中枢");
+  });
+
   it("shares the product page primitive across representative user and admin routes", () => {
     expect(read("src/pages/KnowledgeListPage.tsx")).toContain("<ProductPage");
     for (const page of [
@@ -50,11 +59,11 @@ describe("product layout and route contract", () => {
     expect(read("src/api/admin.ts")).toContain("fetchAlertNotifications");
   });
 
-  it("keeps the admin operations page on the safe two-column reference contract", () => {
+  it("keeps the admin operations page on the status-first disposition contract", () => {
     const source = read("src/pages/AdminIngestPage.tsx");
     expect(source).toContain('className="ao84-console"');
-    expect(source).toContain('className="ao84-panel ao84-summary"');
     expect(source).toContain('className="ao84-panel ao84-failures"');
+    expect(source).toContain('className="admin-status-band"');
     expect(source).toContain('aria-current="page"');
     expect(source).toContain("当前没有索引失败任务");
     expect(source).not.toContain("source_file_name");
@@ -75,10 +84,10 @@ describe("product layout and route contract", () => {
     expect(source).toContain("当前身份仅可查看，修改需系统管理员");
   });
 
-  it("keeps model administration on the overview, drawer, and modal contract", () => {
+  it("keeps model administration on the connection-row, drawer, and modal contract", () => {
     const page = read("src/pages/AdminWeKnoraModelsPage.tsx");
     const connections = read("src/components/UnifiedModelConnectionsSection.tsx");
-    expect(page).toContain('className="mf-overview-grid"');
+    expect(page).toContain('className="mf-connection-rows"');
     expect(page).toContain('title="管理知识库配置"');
     expect(page).toContain("<DetailDrawer");
     expect(page).toContain("<TaskModal");

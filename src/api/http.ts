@@ -4,7 +4,6 @@
 
 // 默认走 Vite 的 /api 代理；也可用 VITE_API_BASE_URL 覆盖为绝对地址。
 import { invalidateTaskStatus } from "../workbench/taskStatusEvents";
-import { invalidateAdminOverview } from "../admin/adminOverviewEvents";
 
 export const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -160,7 +159,6 @@ export async function apiPost<T>(
     });
     const result = await handleResponse<T>(resp);
     invalidateTaskStatus(path);
-    invalidateAdminOverview(path);
     return result;
   });
 }
@@ -175,7 +173,6 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
     });
     const result = await handleResponse<T>(resp);
     invalidateTaskStatus(path);
-    invalidateAdminOverview(path);
     return result;
   });
 }
@@ -190,7 +187,6 @@ export async function apiPut<T>(path: string, body: unknown): Promise<T> {
     });
     const result = await handleResponse<T>(resp);
     invalidateTaskStatus(path);
-    invalidateAdminOverview(path);
     return result;
   });
 }
@@ -204,7 +200,6 @@ export async function apiDelete<T>(path: string): Promise<T> {
     });
     const result = await handleResponse<T>(resp);
     invalidateTaskStatus(path);
-    invalidateAdminOverview(path);
     return result;
   });
 }
@@ -223,7 +218,6 @@ export async function apiPostNoBody<T>(
     });
     const result = await handleResponse<T>(resp);
     invalidateTaskStatus(path);
-    invalidateAdminOverview(path);
     return result;
   });
 }

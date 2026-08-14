@@ -81,18 +81,26 @@
 
 .ao84-console {
   display: grid;
-  grid-template-columns: minmax(330px, 0.76fr) minmax(0, 1.55fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   align-items: stretch;
 }
 
 .ao84-panel {
   min-width: 0;
-  min-height: 590px;
+  min-height: 0;
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
+}
+
+.ao84-failures {
+  order: 1;
+}
+
+.ao84-summary {
+  order: 2;
 }
 
 .ao84-panel-head {

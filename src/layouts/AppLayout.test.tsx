@@ -140,14 +140,14 @@ describe("AppLayout shell contract", () => {
     expect(screen.getByText("今日工作", { selector: ".rail-group-label" })).toBeInTheDocument();
     expect(screen.getByText("知识资产", { selector: ".rail-group-label" })).toBeInTheDocument();
     expect(screen.getByText("项目协作", { selector: ".rail-group-label" })).toBeInTheDocument();
-    expect(screen.getByText("管理后台", { selector: ".rail-group-label" })).toBeInTheDocument();
     expect(screen.getByText("运行与接入", { selector: ".rail-group-label" })).toBeInTheDocument();
     expect(screen.getByText("安全与治理", { selector: ".rail-group-label" })).toBeInTheDocument();
     expect(
       screen.getByText("组织与知识治理", { selector: ".rail-group-label" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("保障入库、扫描与模型连接可用。")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "运营中枢" })).toHaveAttribute("href", "/admin");
+    expect(screen.queryByText("保障入库、扫描与模型连接可用。")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "运营中枢" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "入库管理" })).toHaveAttribute("href", "/admin/ingest");
   });
 
   it("offers a visible rail logout action and refreshes the shared identity", async () => {

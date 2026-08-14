@@ -294,11 +294,17 @@ try {
                   summaryRect.width <= 250 &&
                   mainRect.width >= summaryRect.width * 2.25 &&
                   Math.abs(summaryRect.top - mainRect.top) <= 2),
+              statusFirst:
+                target.name === "company-kb" ||
+                (Boolean(console && summaryRect && mainRect) &&
+                  console.children.length === 2 &&
+                  mainRect.top >= summaryRect.bottom + 8 &&
+                  Math.abs(summaryRect.width - mainRect.width) <= 2),
               noWideStatusStrip: !pageRoot?.querySelector(".gp-summary"),
               iconLanguage:
                 target.name === "company-kb"
                   ? Boolean(pageRoot?.querySelector(".ckb-empty-icon svg"))
-                  : summaryValues.length === (target.name === "people" ? 3 : 4) &&
+                  : summaryValues.length === (target.name === "people" ? 3 : 2) &&
                     summaryIcons.length === summaryValues.length &&
                     (scenario !== "normal" || fieldMarks.length >= 3),
               listFirst: target.name !== "people" || Boolean(primary),
@@ -381,7 +387,7 @@ try {
           pass:
             metrics.overflowX <= 2 &&
             metrics.safe &&
-            (viewport.width > 1200 ? metrics.twoColumn : metrics.secondaryBelow) &&
+            metrics.statusFirst &&
             metrics.noWideStatusStrip &&
             metrics.iconLanguage &&
             metrics.listFirst &&

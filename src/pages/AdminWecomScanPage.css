@@ -28,7 +28,7 @@
 }
 .ws87-console {
   display: grid;
-  grid-template-columns: 230px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   align-items: start;
 }
@@ -312,6 +312,18 @@
   overflow-wrap: anywhere;
 }
 @media (max-width: 900px) {
+  .ws87-table-wrap::before,
+  .ws87-records::before {
+    content: "左右滑动可查看状态与操作";
+    position: sticky;
+    left: 0;
+    display: block;
+    width: fit-content;
+    padding: 6px 10px;
+    color: var(--color-text-tertiary);
+    font-size: 10px;
+  }
+
   .ws87-console {
     grid-template-columns: 1fr;
   }

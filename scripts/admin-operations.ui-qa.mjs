@@ -289,7 +289,7 @@ try {
       page.on("console", (message) => messages.push(message.text()));
       page.on("pageerror", (error) => messages.push(error.message));
       await page.goto(`${base}/admin/ingest`, { waitUntil: "networkidle" });
-      await page.getByRole("heading", { name: "管理员运维" }).waitFor();
+      await page.getByRole("heading", { name: "入库管理" }).waitFor();
 
       if (scenario === "category-filter") {
         await page.locator(".ao85-diagnostics button", { hasText: "配置问题" }).click();
@@ -433,7 +433,10 @@ try {
             (node) => node.scrollWidth > node.clientWidth + 2,
           ).length,
           panels: panels.length,
-          leftNarrower: panels.length === 2 && panels[0].width < panels[1].width,
+          dispositionFirst:
+            panels.length === 2 &&
+            panels[1].y < panels[0].y &&
+            Math.abs(panels[0].width - panels[1].width) <= 2,
           safe: secrets.every((term) => !text.includes(term)),
           localized: enums.every((term) => !text.includes(term)),
           healthVisible: text.includes("运行健康"),
@@ -475,7 +478,7 @@ try {
         result.overflowX <= 2 &&
         result.clipped === 0 &&
         result.panels === 2 &&
-        (viewport.width > 1200 ? result.leftNarrower : true) &&
+        result.dispositionFirst &&
         result.safe &&
         result.localized &&
         result.healthVisible &&

@@ -115,16 +115,12 @@ export default function AdminAlertSettingsPage() {
   const enabledCount = rules.filter((rule) => rule.enabled).length;
   const criticalCount = rules.filter((rule) => rule.severity === "critical").length;
   return (
-    <ProductPage className="secops-page alert-settings-page">
+    <ProductPage className="secops-page alert-settings-page admin-control-page">
       <PageHeader
         eyebrow="安全运营"
         title="告警设置"
         description="维护安全告警触发条件与通知渠道。"
       />
-      <div className="secops-banner is-readonly" style={{ marginBottom: 12 }}>
-        告警触发后，通知通过以下渠道发送：站内通知（默认）、企业微信（需在系统设置中配置企微群机器人
-        Webhook）、邮件（需配置 SMTP）。阈值表示触发条件的最小值（如"连续失败 3 次"中阈值为 3）。
-      </div>
       <div className="secops-console">
         <OperationsSummary
           label="告警摘要"

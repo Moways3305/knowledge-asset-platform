@@ -2,6 +2,89 @@
   max-width: 1320px;
 }
 
+.mf-page-actions,
+.mf-drawer-secondary-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.mf-drawer-secondary-actions {
+  padding: 0 0 12px;
+}
+
+.mf-connection-workspace {
+  margin-top: 0;
+}
+
+.mf-connection-workspace .admin-workspace-heading > span {
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
+.mf-connection-rows {
+  display: grid;
+}
+
+.mf-connection-row {
+  display: grid;
+  grid-template-columns: 28px minmax(190px, 1.15fr) auto minmax(180px, 0.9fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 66px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.mf-connection-row:last-child {
+  border-bottom: 0;
+}
+
+.mf-connection-row > svg {
+  color: var(--color-primary);
+}
+
+.mf-connection-row div h3,
+.mf-connection-row div small {
+  display: block;
+}
+
+.mf-connection-row div h3 {
+  margin: 0;
+  color: var(--color-text-heading);
+  font-size: 14px;
+}
+
+.mf-connection-row div small,
+.mf-connection-row > span {
+  margin-top: 2px;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
+@media (max-width: 760px) {
+  .mf-connection-workspace .admin-workspace-heading > span {
+    display: none;
+  }
+
+  .mf-connection-row {
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    gap: 9px;
+  }
+
+  .mf-connection-row > .status-badge,
+  .mf-connection-row > span {
+    grid-column: 2 / 4;
+    justify-self: start;
+  }
+
+  .mf-connection-row > button {
+    grid-column: 2 / 4;
+    width: 100%;
+  }
+}
+
 .mf-page .product-page-header {
   padding-bottom: 16px;
 }

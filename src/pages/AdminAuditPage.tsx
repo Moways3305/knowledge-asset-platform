@@ -168,7 +168,7 @@ export default function AdminAuditPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <ProductPage className="secops-page audit-page">
+    <ProductPage className="secops-page audit-page admin-control-page">
       <PageHeader
         eyebrow="安全运营"
         title="审计日志"

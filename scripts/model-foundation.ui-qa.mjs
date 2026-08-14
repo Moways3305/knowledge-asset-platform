@@ -240,7 +240,7 @@ try {
       page.on("console", (message) => messages.push(message.text()));
       page.on("pageerror", (error) => messages.push(error.message));
       await page.goto(`${base}/admin/weknora-models`, { waitUntil: "networkidle" });
-      await page.getByRole("heading", { name: "模型与知识库底座" }).waitFor();
+      await page.getByRole("heading", { name: "模型配置" }).waitFor();
 
       if (scenario === "external-drawer") {
         await page.getByRole("button", { name: "管理外部 LLM" }).click();
@@ -288,13 +288,15 @@ try {
             !document.querySelector('[role="dialog"]') &&
             (Boolean(document.querySelector(".mf-connection-card")) ||
               Boolean(document.querySelector(".mf-kb-drawer-row"))),
-          overviewCards: document.querySelectorAll(".mf-overview-card").length,
+          connectionRows: document.querySelectorAll(".mf-connection-row").length,
+          statusItems: document.querySelectorAll(".admin-status-band > div").length,
           hasInternalError: text.includes("UI QA route not configured"),
         };
       }, scenario);
       const expectedDialogs = scenario === "normal" || scenario === "forbidden" ? 0 : 1;
       const scenarioPass =
-        metrics.overviewCards === 3 &&
+        metrics.connectionRows === 3 &&
+        metrics.statusItems === 3 &&
         !metrics.mainHasGrowingRows &&
         metrics.dialogCount === expectedDialogs;
       results.push({

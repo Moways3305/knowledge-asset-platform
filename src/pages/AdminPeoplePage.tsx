@@ -247,11 +247,11 @@ export default function AdminPeoplePage() {
   ).length;
 
   return (
-    <ProductPage className="people-page gp-page people89-page">
+    <ProductPage className="people-page gp-page people89-page admin-control-page">
       <PageHeader
         eyebrow="身份与权限治理"
         title="人员治理"
-        description="管理人员账号状态、公司角色与项目成员关系。"
+        description="优先处理停用账号和缺失角色，再维护人员关系。"
       />
       <div className="gp-governance-console">
         <aside className="gp-summary-panel" aria-label="人员摘要">
@@ -297,10 +297,11 @@ export default function AdminPeoplePage() {
         </aside>
 
         <main className="gp-main-workspace">
-          <div className="pp-multi-role-card">
+          <details className="pp-multi-role-card">
+            <summary>查看权限边界</summary>
             公司角色和项目角色分别管理。项目知识访问以有效项目成员关系为准；系统管理员不因此获得业务原文权限。
             系统管理员也不进入人员治理。
-          </div>
+          </details>
 
           <section className="pp-section pp-filter-section">
             <div className="pp-toolbar">

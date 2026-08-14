@@ -54,16 +54,6 @@ export const routeDefinitions = [
     ],
   },
   {
-    route: "/admin",
-    suite: "admin-information-architecture",
-    states: [
-      { name: "normal", scenario: "normal" },
-      { name: "empty", scenario: "empty" },
-      { name: "failure", scenario: "partial-failure" },
-      { name: "scoped", scenario: "scoped-manager" },
-    ],
-  },
-  {
     route: "/admin/ingest",
     suite: "admin-ingest",
     states: [

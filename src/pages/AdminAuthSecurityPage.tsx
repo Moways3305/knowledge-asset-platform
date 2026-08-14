@@ -1,16 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  Ban,
-  CheckCircle2,
-  CircleX,
-  Clock3,
-  LockKeyhole,
-  Network,
-  RefreshCw,
-  ShieldCheck,
-  Unlock,
-  UserRound,
-} from "lucide-react";
+import { Ban, CircleX, Clock3, LockKeyhole, RefreshCw, ShieldCheck } from "lucide-react";
 import { fetchAuthSecurityOverview, unlockAuthLockout } from "../api/admin";
 import { ApiError } from "../api/http";
 import {
@@ -101,7 +90,7 @@ export default function AdminAuthSecurityPage() {
 
   const counts = data?.counts;
   return (
-    <ProductPage className="secops-page auth-security-page">
+    <ProductPage className="secops-page auth-security-page admin-control-page">
       <PageHeader
         eyebrow="安全运营"
         title="登录安全"
@@ -130,19 +119,6 @@ export default function AdminAuthSecurityPage() {
               tone: "danger",
               icon: <Ban size={14} />,
             },
-            {
-              label: "成功",
-              value: counts?.success ?? 0,
-              tone: "success",
-              icon: <CheckCircle2 size={14} />,
-            },
-            { label: "人工解锁", value: counts?.unlocked ?? 0, icon: <Unlock size={14} /> },
-            {
-              label: "独立账号",
-              value: counts?.unique_identifier_count ?? 0,
-              icon: <UserRound size={14} />,
-            },
-            { label: "独立来源", value: counts?.unique_ip_count ?? 0, icon: <Network size={14} /> },
           ]}
         />
         <main className="secops-main-workspace">

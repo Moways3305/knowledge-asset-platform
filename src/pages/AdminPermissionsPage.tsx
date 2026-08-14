@@ -193,11 +193,11 @@ export default function AdminPermissionsPage() {
   );
 
   return (
-    <ProductPage className="gp-page permissions89-page">
+    <ProductPage className="gp-page permissions89-page admin-control-page">
       <PageHeader
         eyebrow="身份与权限治理"
         title="权限规则"
-        description="维护知识流转规则与外部助手接入状态，所有修改仍由服务端权限校验。"
+        description="优先处理停用规则与异常接入，再维护知识访问边界。"
       />
       <div className="gp-governance-console">
         <aside className="gp-summary-panel" aria-label="权限规则摘要">
@@ -208,24 +208,6 @@ export default function AdminPermissionsPage() {
             规则概览
           </div>
           <div className="gp-summary-list">
-            <div className="gp-summary-item">
-              <span className="gp-summary-copy">
-                <span className="gp-summary-icon">
-                  <Layers3 size={14} />
-                </span>
-                <span className="gp-summary-label">规则总数</span>
-              </span>
-              <strong className="gp-summary-value">{rules.length}</strong>
-            </div>
-            <div className="gp-summary-item is-success">
-              <span className="gp-summary-copy">
-                <span className="gp-summary-icon">
-                  <CircleCheck size={14} />
-                </span>
-                <span className="gp-summary-label">启用规则</span>
-              </span>
-              <strong className="gp-summary-value">{enabledRules}</strong>
-            </div>
             <div className="gp-summary-item is-muted">
               <span className="gp-summary-copy">
                 <span className="gp-summary-icon">

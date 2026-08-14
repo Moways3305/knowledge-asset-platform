@@ -342,11 +342,11 @@ export default function AdminNamingRulesPage() {
         : "启用一个公司类别后可预览";
 
   return (
-    <ProductPage className="naming-center">
+    <ProductPage className="naming-center admin-control-page">
       <PageHeader
         eyebrow="组织与知识治理"
         title="命名规则中心"
-        description="维护公司与全项目共用的目录类别；草稿只有显式发布后才会生效。"
+        description="在已发布规则与工作草稿之间切换并完成发布。"
         scope={currentScopeName}
         status={
           <StatusBadge

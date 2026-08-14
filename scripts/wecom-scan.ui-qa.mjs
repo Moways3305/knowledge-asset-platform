@@ -188,7 +188,6 @@ try {
           const root = document.documentElement;
           const text = document.body.innerText;
           const console = document.querySelector(".ws87-console");
-          const summary = document.querySelector(".ws87-summary")?.getBoundingClientRect();
           const main = document.querySelector(".ws87-main-workspace")?.getBoundingClientRect();
           const config = document.querySelector(".ws87-config-panel")?.getBoundingClientRect();
           const records = document.querySelector(".ws87-record-panel")?.getBoundingClientRect();
@@ -203,13 +202,10 @@ try {
             scenario,
             overflowX: root.scrollWidth - root.clientWidth,
             safe: secrets.every((secret) => !document.documentElement.innerHTML.includes(secret)),
-            twoColumn:
-              Boolean(console && summary && main) &&
-              console.children.length === 2 &&
-              Math.abs(summary.y - main.y) <= 2 &&
-              summary.width >= 220 &&
-              summary.width <= 250 &&
-              main.width >= summary.width * 2.4,
+            oneColumn:
+              Boolean(console && main) &&
+              console.children.length === 1 &&
+              Math.abs(console.getBoundingClientRect().width - main.width) <= 2,
             recordBelow:
               scenario === "empty" || scenario === "forbidden"
                 ? !records
@@ -226,8 +222,9 @@ try {
                 : document.querySelectorAll(".ws87-record-table tbody tr").length >= 2,
             actionsVisible,
             honestSummary:
-              text.includes("最近扫描失败") &&
-              text.includes("最近扫描新增") &&
+              document.querySelectorAll(".admin-status-band > div").length === 3 &&
+              text.includes("需要处理") &&
+              text.includes("可用配置") &&
               fictionalLabels.every((label) => !text.includes(label)),
             readOnly:
               scenario !== "forbidden" ||
@@ -262,7 +259,7 @@ try {
         pass:
           metrics.overflowX <= 2 &&
           metrics.safe &&
-          (viewport.width > 1200 ? metrics.twoColumn : metrics.recordBelow) &&
+          metrics.oneColumn &&
           metrics.recordBelow &&
           metrics.recordsAreTable &&
           (viewport.width > 1200 ? metrics.actionsVisible : true) &&

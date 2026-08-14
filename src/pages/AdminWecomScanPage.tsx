@@ -11,6 +11,7 @@ import {
 import { ApiError } from "../api/http";
 import { useAuth } from "../auth/AuthContext";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
+import StatusBadge from "../components/StatusBadge";
 import type {
   WecomOwnerOptionDTO,
   WecomProjectOptionDTO,
@@ -200,13 +201,18 @@ export default function AdminWecomScanPage() {
   const selectedConfig = configs.find((item) => item.id === selectedId) ?? null;
   const summary = useMemo(() => {
     const enabled = configs.filter((item) => item.enabled).length;
-    const selectedRun = selectedId ? latest[selectedId] : null;
+    const unavailable = configs.filter(
+      (item) =>
+        item.enabled &&
+        (item.scan_space_status !== "ready" || item.manager_access_status !== "ready"),
+    ).length;
+    const failedRuns = Object.values(latest).filter((item) => (item?.failed_count ?? 0) > 0).length;
     return {
       enabled,
-      failed: selectedRun?.failed_count ?? null,
-      discoveredNew: selectedRun?.new_count ?? null,
+      unavailable,
+      failedRuns,
     };
-  }, [configs, latest, selectedId]);
+  }, [configs, latest]);
 
   const mergeConfig = (saved: WecomScanConfigDTO) => {
     setConfigs((current) => {
@@ -268,10 +274,24 @@ export default function AdminWecomScanPage() {
   };
 
   return (
-    <ProductPage className="ws87-page">
+    <ProductPage className="ws87-page admin-control-page">
       <PageHeader
         title="微盘扫描"
-        description="递归扫描项目专属空间根目录；文件进入待确认队列，不会直接入库。"
+        description="先修复不可用连接，再运行项目微盘扫描。"
+        status={
+          <StatusBadge
+            tone={
+              summary.unavailable || summary.failedRuns ? "danger" : busyId ? "info" : "success"
+            }
+            label={
+              summary.unavailable || summary.failedRuns
+                ? "存在需要处理的配置"
+                : busyId
+                  ? "扫描处理中"
+                  : "连接可用"
+            }
+          />
+        }
         actions={
           <>
             {canEdit && (
@@ -298,6 +318,24 @@ export default function AdminWecomScanPage() {
         }
       />
 
+      <section className="admin-status-band" aria-label="微盘连接状态">
+        <div className={summary.unavailable + summary.failedRuns ? "is-danger" : ""}>
+          <strong>{summary.unavailable + summary.failedRuns}</strong>
+          <span>需要处理</span>
+          <small>连接不可用或最近扫描失败</small>
+        </div>
+        <div className="is-processing">
+          <strong>{busyId ? 1 : 0}</strong>
+          <span>处理中</span>
+          <small>正在保存或执行扫描</small>
+        </div>
+        <div>
+          <strong>{Math.max(0, summary.enabled - summary.unavailable)}</strong>
+          <span>可用配置</span>
+          <small>已启用且身份、空间可访问</small>
+        </div>
+      </section>
+
       {!canEdit && (
         <div className="ws87-message">
           <ShieldCheck size={15} />
@@ -314,34 +352,9 @@ export default function AdminWecomScanPage() {
       )}
 
       <div className="ws87-console">
-        <aside className="ws87-summary" aria-label="运行摘要">
-          <div className="ws87-panel-heading">
-            <span>RUN CONTROL</span>
-            <h3>运行摘要</h3>
-          </div>
-          <dl>
-            <div>
-              <dt>启用配置</dt>
-              <dd>{summary.enabled}</dd>
-            </div>
-            <div>
-              <dt>最近扫描失败</dt>
-              <dd className={summary.failed ? "is-danger" : ""}>
-                {summary.failed ?? <span>尚未运行</span>}
-              </dd>
-            </div>
-            <div>
-              <dt>最近扫描新增</dt>
-              <dd>{summary.discoveredNew ?? <span>尚未运行</span>}</dd>
-            </div>
-          </dl>
-          <p>摘要跟随当前所选配置。扫描只创建待确认任务，入库仍需人工确认。</p>
-        </aside>
-
         <main className="ws87-main-workspace">
-          <section className="ws87-config-panel">
+          <section className="ws87-config-panel admin-workspace-panel">
             <div className="ws87-panel-heading">
-              <span>SCAN CONFIGS</span>
               <h3>扫描配置</h3>
             </div>
             <WecomScanConfigList
@@ -380,7 +393,6 @@ export default function AdminWecomScanPage() {
           {selectedConfig && (
             <section className="ws87-record-panel" aria-label="最近扫描记录">
               <div className="ws87-panel-heading">
-                <span>RUN HISTORY</span>
                 <h3>{selectedConfig.name || "未命名配置"} · 最近扫描记录</h3>
               </div>
               {recordError ? (

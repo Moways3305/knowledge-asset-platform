@@ -73,11 +73,6 @@ const suites = [
     evidence: "admin-operations",
   },
   {
-    name: "admin-information-architecture",
-    script: "admin-information-architecture.ui-qa.mjs",
-    evidence: "admin-information-architecture",
-  },
-  {
     name: "model-foundation",
     script: "model-foundation.ui-qa.mjs",
     evidence: "model-foundation",

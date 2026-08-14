@@ -10,7 +10,6 @@ import {
   FileSearch,
   ListFilter,
   HeartPulse,
-  RefreshCw,
   RotateCw,
   ScanLine,
   ShieldCheck,
@@ -356,12 +355,6 @@ export default function AdminIngestPage() {
   const activeJobOperation = activeJob?.operation_type ?? null;
   const activeOperation = opsBusyOperation ?? activeJobOperation;
   const actionLocked = opsBusy || activeJobId !== null || opsState !== "ready";
-  const refreshing =
-    ingestState === "loading" ||
-    opsState === "loading" ||
-    jobsState === "loading" ||
-    healthState === "loading" ||
-    llmUsageState === "loading";
   const llmUsageTotals = llmUsage.reduce(
     (total, item) => ({
       requests: total.requests + item.request_count,
@@ -573,6 +566,18 @@ export default function AdminIngestPage() {
       (retryIncludeNotIndexed ? (opsIndex?.counts.not_indexed ?? 0) : 0),
   );
   const reparseActionableCount = Math.min(opsLimit, opsIndex?.reparse_actionable_count ?? 0);
+  const attentionCount =
+    failedIngestItems.length +
+    (opsIndex?.counts.index_failed ?? 0) +
+    (opsIndex?.counts.parse_failed ?? 0) +
+    (opsIndex?.counts.parse_stalled ?? 0);
+  const processingCount =
+    (ingestCounts.get("processing") ?? 0) +
+    (opsIndex?.counts.indexing ?? 0) +
+    (opsIndex?.counts.parse_processing ?? 0);
+  const recentlyCompletedCount = opsJobs.filter((job) =>
+    ["completed", "completed_with_errors"].includes(job.status),
+  ).length;
 
   const trendMax = useMemo(
     () =>
@@ -613,10 +618,10 @@ export default function AdminIngestPage() {
     : [];
 
   return (
-    <ProductPage className="ao84-page">
+    <ProductPage className="ao84-page admin-control-page">
       <PageHeader
-        title="管理员运维"
-        description="查看索引运行、扫描任务和安全审计状态。"
+        title="入库管理"
+        description="优先恢复失败、卡住和待确认的入库与索引任务。"
         status={
           <StatusBadge
             tone={activeJob ? "info" : opsState === "error" ? "danger" : "success"}
@@ -631,21 +636,46 @@ export default function AdminIngestPage() {
         }
         actions={
           <div className="ao84-refresh-actions">
-            <span className="ao84-refresh-meta">
-              {lastRefreshedAt ? `上次刷新 ${formatClock(lastRefreshedAt)}` : "尚未刷新"} · 每 60
-              秒自动刷新
-            </span>
             <button
-              className="btn-small ao84-refresh"
-              onClick={() => void refreshAll()}
-              disabled={refreshing || opsBusy}
+              className="btn-small-primary ao84-refresh"
+              onClick={() => void handleBatchRetry()}
+              disabled={actionLocked || retryActionableCount === 0}
             >
-              <RefreshCw size={15} aria-hidden="true" />
-              {refreshing ? "刷新中…" : "刷新"}
+              <RotateCw size={15} aria-hidden="true" />
+              {activeOperation ? `正在执行：${safeJobOperation(activeOperation)}` : "批量重试索引"}
+            </button>
+            <button
+              className="btn-icon"
+              aria-label="刷新"
+              title="刷新"
+              onClick={() => void refreshAll(false)}
+              disabled={opsBusy}
+            >
+              <RotateCw size={15} aria-hidden="true" />
             </button>
           </div>
         }
       />
+
+      <section className="admin-status-band" aria-label="入库处置状态">
+        <div className={attentionCount ? "is-danger" : ""}>
+          <strong>{attentionCount}</strong>
+          <span>需要处理</span>
+          <small>失败、卡住或待恢复</small>
+        </div>
+        <div className="is-processing">
+          <strong>{processingCount}</strong>
+          <span>处理中</span>
+          <small>入库、解析与索引任务</small>
+        </div>
+        <div>
+          <strong>{recentlyCompletedCount}</strong>
+          <span>最近完成</span>
+          <small>
+            {lastRefreshedAt ? `状态更新于 ${formatClock(lastRefreshedAt)}` : "等待首次刷新"}
+          </small>
+        </div>
+      </section>
 
       <nav className="ao84-tabs" aria-label="管理员运维页面">
         <Link className="is-active" to="/admin/ingest" aria-current="page">
@@ -856,14 +886,14 @@ export default function AdminIngestPage() {
             </div>
             <div className="ao84-action-buttons">
               <button
-                className="btn-small-primary"
+                className="btn-small"
                 disabled={actionLocked}
                 onClick={() => void handleBatchRetry()}
               >
                 <RotateCw size={15} aria-hidden="true" />
                 {activeOperation
                   ? `正在执行：${safeJobOperation(activeOperation)}`
-                  : `批量重试索引（${retryActionableCount} 项）`}
+                  : `再次执行批量重试（${retryActionableCount} 项）`}
               </button>
               <button
                 className="btn-small"
@@ -982,10 +1012,10 @@ export default function AdminIngestPage() {
             <table className="ao84-table">
               <thead>
                 <tr>
-                  <th>错误类型</th>
-                  <th>最后尝试时间</th>
-                  <th>状态</th>
-                  <th>处理方式</th>
+                  <th>对象与原因</th>
+                  <th>当前状态</th>
+                  <th>下一步</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -1002,10 +1032,11 @@ export default function AdminIngestPage() {
                         </div>
                       </td>
                       <td>
-                        <time>{formatBeijingTime(item.updated_at)}</time>
+                        <span className={`ao84-status is-${failureTone(item)}`}>索引失败</span>
                       </td>
                       <td>
-                        <span className={`ao84-status is-${failureTone(item)}`}>索引失败</span>
+                        <span>{item.retry_eligible ? "重新尝试索引" : "核查配置或内容"}</span>
+                        <small>{formatBeijingTime(item.updated_at)}</small>
                       </td>
                       <td>
                         {item.retry_eligible && item.retry_target ? (
