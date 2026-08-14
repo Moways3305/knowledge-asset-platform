@@ -9,6 +9,7 @@ import {
   acceptanceViewports,
   buildRouteCoverage,
   explicitCaseResult,
+  groupScreenshotEvidenceByViewport,
   routeDefinitions,
 } from "./global-frontend-acceptance.coverage.mjs";
 import { waitForChildProcess } from "./ui-qa-process.mjs";
@@ -297,12 +298,22 @@ const failedSuites = suiteResults.filter((suite) => suite.status === "failed");
 const skippedRoutes = routeCoverage.filter((route) => route.status === "skipped");
 const passedRoutes = routeCoverage.filter((route) => route.status === "passed");
 const allScreenshots = [...new Set(suiteResults.flatMap((suite) => suite.screenshots))];
-const viewportEvidence = Object.fromEntries(
-  acceptanceViewports.map((viewport) => [
-    viewport,
-    allScreenshots.filter((file) => file.endsWith(`-${viewport}.png`)),
+const reportedViewports = [
+  ...new Set([
+    ...acceptanceViewports,
+    ...suiteResults.flatMap((suite) =>
+      suite.cases
+        .map((item) => item.viewport)
+        .filter((viewport) => viewport !== undefined && viewport !== null)
+        .map(String),
+    ),
   ]),
-);
+].sort((left, right) => Number(left) - Number(right));
+const {
+  evidence: viewportEvidence,
+  unclassified: unclassifiedScreenshots,
+  ambiguous: ambiguousScreenshots,
+} = groupScreenshotEvidenceByViewport(allScreenshots, reportedViewports);
 const acceptanceChecks = routeCoverage.flatMap((route) =>
   route.checks.map((check) => ({ route: route.route, ...check })),
 );
@@ -331,6 +342,10 @@ const report = {
   suites: suiteResults,
   screenshots: allScreenshots,
   viewportEvidence,
+  screenshotAccounting: {
+    unclassified: unclassifiedScreenshots,
+    ambiguous: ambiguousScreenshots,
+  },
 };
 const reportPath = path.join(outDir, "report.json");
 fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
@@ -343,9 +358,16 @@ if (failedAcceptanceChecks.length > 0) {
   console.error(JSON.stringify({ failedAcceptanceChecks }, null, 2));
 }
 
+const screenshotAccountingFailed =
+  unclassifiedScreenshots.length > 0 || ambiguousScreenshots.length > 0;
+if (screenshotAccountingFailed) {
+  console.error(JSON.stringify({ unclassifiedScreenshots, ambiguousScreenshots }, null, 2));
+}
+
 if (
   failedSuites.length > 0 ||
   passedRoutes.length !== routeCoverage.length ||
-  failedAcceptanceChecks.length > 0
+  failedAcceptanceChecks.length > 0 ||
+  screenshotAccountingFailed
 )
   process.exitCode = 1;

@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   acceptanceViewports,
   buildRouteCoverage,
+  groupScreenshotEvidenceByViewport,
 } from "./global-frontend-acceptance.coverage.mjs";
 
 const definitions = [
@@ -97,4 +98,49 @@ test("uses the page discriminator when one suite covers multiple routes", () => 
 
   assert.equal(route.status, "failed");
   assert.ok(route.checks.every((check) => check.reason === "missing-case"));
+});
+
+test("accounts for every screenshot across standard, extended, and suffixed viewports", () => {
+  const screenshots = [
+    "C:\\evidence\\normal-390.png",
+    "C:\\evidence\\normal-1024-first-fold.png",
+    "C:\\evidence\\normal-1280.png",
+    "C:\\evidence\\normal-1440-collapsed.png",
+    "C:\\evidence\\normal-1920.png",
+  ];
+  const grouped = groupScreenshotEvidenceByViewport(screenshots, [
+    "390",
+    "1024",
+    "1280",
+    "1440",
+    "1920",
+  ]);
+
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.entries(grouped.evidence).map(([viewport, files]) => [viewport, files.length]),
+    ),
+    { 390: 1, 1024: 1, 1280: 1, 1440: 1, 1920: 1 },
+  );
+  assert.equal(
+    Object.values(grouped.evidence).reduce((total, files) => total + files.length, 0),
+    screenshots.length,
+  );
+  assert.deepEqual(grouped.unclassified, []);
+  assert.deepEqual(grouped.ambiguous, []);
+});
+
+test("reports screenshots that cannot be assigned to exactly one viewport", () => {
+  const grouped = groupScreenshotEvidenceByViewport(
+    ["C:\\evidence\\missing-width.png", "C:\\evidence\\ambiguous-390-1024.png"],
+    ["390", "1024"],
+  );
+
+  assert.deepEqual(grouped.unclassified, ["C:\\evidence\\missing-width.png"]);
+  assert.deepEqual(grouped.ambiguous, [
+    {
+      screenshot: "C:\\evidence\\ambiguous-390-1024.png",
+      viewports: ["390", "1024"],
+    },
+  ]);
 });
