@@ -221,9 +221,12 @@ describe("AdminWeKnoraModelsPage modal workspace", () => {
     Element.prototype.scrollIntoView = vi.fn();
   });
 
-  it("keeps the landing page as a fixed overview without growing lists", async () => {
+  it("keeps the landing page as a fixed connection workspace without growing lists", async () => {
     renderPage();
-    expect(await screen.findByRole("heading", { name: "模型与知识库底座" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "模型配置" })).toBeInTheDocument();
+    expect(
+      screen.queryByText("先处理不可用连接，再维护模型与知识库底座。"),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "外部 LLM" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "WeKnora 底座" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "知识库配置" })).toBeInTheDocument();
@@ -257,11 +260,13 @@ describe("AdminWeKnoraModelsPage modal workspace", () => {
 
   it("edits defaults in task modals instead of inline controls", async () => {
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "编辑默认用途" }));
+    fireEvent.click(await screen.findByRole("button", { name: "管理外部 LLM" }));
+    fireEvent.click(screen.getByRole("button", { name: "编辑默认用途" }));
     const externalModal = screen.getByRole("dialog", { name: "编辑默认用途" });
     fireEvent.click(within(externalModal).getByRole("button", { name: "保存默认用途" }));
     await waitFor(() => expect(updateModelUsageAssignments).toHaveBeenCalledTimes(1));
 
+    fireEvent.click(screen.getByRole("button", { name: "管理 WeKnora 模型" }));
     fireEvent.click(screen.getByRole("button", { name: "编辑默认底座" }));
     const foundationModal = screen.getByRole("dialog", { name: "编辑默认底座" });
     fireEvent.click(within(foundationModal).getByRole("button", { name: "保存默认底座" }));
@@ -367,5 +372,40 @@ describe("AdminWeKnoraModelsPage modal workspace", () => {
     expect(screen.queryByRole("button", { name: "编辑默认用途" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "管理知识库配置" }));
     expect(screen.queryByRole("button", { name: "配置" })).not.toBeInTheDocument();
+  });
+
+  it("routes project managers to their actionable knowledge-base workspace", async () => {
+    Object.assign(auth.capabilities, {
+      isAdmin: false,
+      isGovernance: false,
+      isProjectManager: true,
+    });
+    vi.mocked(fetchWeknoraModels).mockResolvedValue([
+      { ...models[0], credential_status: "missing" },
+    ]);
+    vi.mocked(fetchWeknoraKbConfigs).mockResolvedValue([
+      {
+        ...kb,
+        migration: {
+          ...kb.migration!,
+          job_status: "completed",
+          completed_count: 8,
+          failed_count: 0,
+        },
+      },
+    ]);
+    renderPage();
+
+    const heading = await screen.findByRole("heading", { name: "模型配置" });
+    const header = heading.closest("header");
+    expect(header).not.toBeNull();
+    expect(within(header!).getByRole("button", { name: "管理知识库配置" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("连接运行状态")).not.toBeInTheDocument();
+    expect(fetchModelConnections).not.toHaveBeenCalled();
+    expect(fetchWeknoraDefaultModels).not.toHaveBeenCalled();
+
+    fireEvent.click(within(header!).getByRole("button", { name: "管理知识库配置" }));
+    expect(screen.getByRole("dialog", { name: "管理知识库配置" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "新增 WeKnora 模型" })).not.toBeInTheDocument();
   });
 });

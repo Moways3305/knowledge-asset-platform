@@ -81,11 +81,8 @@ describe("AdminPermissionsPage", () => {
     expect(await screen.findByText("原文访问有效期")).toBeInTheDocument();
     expect(screen.getByText("外部助手白名单")).toBeInTheDocument();
     expect(screen.getByText("语义检索")).toBeInTheDocument();
-    const summary = screen.getByLabelText("权限规则摘要");
-    expect(summary).toHaveClass("gp-summary-panel");
-    expect(summary.querySelectorAll(".gp-summary-icon svg")).toHaveLength(4);
-    expect(container.querySelector(".gp-governance-console")?.children).toHaveLength(2);
-    expect(container.querySelector(".gp-summary")).not.toBeInTheDocument();
+    expect(container.querySelector(".gp-governance-console")?.children).toHaveLength(1);
+    expect(container.querySelector(".gp-summary-panel")).not.toBeInTheDocument();
     expect(container.querySelector(".gp-primary-panel .gp-row-icon svg")).toBeInTheDocument();
     expect(
       screen.getByText("当前身份为只读模式，规则修改需总经理或咨询总监权限。"),

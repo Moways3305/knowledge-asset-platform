@@ -199,8 +199,10 @@ describe("AdminIngestPage operations reference", () => {
   it("renders the three operations tabs and only safe aggregate failure data", async () => {
     renderPage();
 
-    expect(await screen.findByRole("heading", { name: "管理员运维" })).toBeInTheDocument();
-    expect(screen.getByText("查看索引运行、扫描任务和安全审计状态。")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "入库管理" })).toBeInTheDocument();
+    expect(
+      screen.queryByText("优先恢复失败、卡住和待确认的入库与索引任务。"),
+    ).not.toBeInTheDocument();
     const tabs = screen.getByRole("navigation", { name: "管理员运维页面" });
     expect(within(tabs).getByRole("link", { name: "索引维护" })).toHaveAttribute(
       "aria-current",
@@ -434,7 +436,7 @@ describe("AdminIngestPage operations reference", () => {
       statuses: ["index_failed", "skipped", "not_indexed"],
       limit: 100,
     });
-    expect(screen.getAllByRole("button", { name: "正在执行：批量重试索引" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "正在执行：批量重试索引" })).toHaveLength(3);
     expect(screen.getAllByRole("button", { name: "正在执行：批量重试索引" })[1]).toBeDisabled();
 
     resolveJob({ ...completedJob, status: "running" });
@@ -489,9 +491,7 @@ describe("AdminIngestPage operations reference", () => {
     await waitFor(() => expect(fetchIndexingJobs).toHaveBeenCalledTimes(3), {
       timeout: 3_500,
     });
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /^批量重试索引（/ })).toBeEnabled(),
-    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "批量重试索引" })).toBeEnabled());
     expect(fetchAdminIngest).toHaveBeenCalledTimes(3);
     expect(fetchOpsIndexing).toHaveBeenCalledTimes(3);
     expect(fetchIndexingHealth).toHaveBeenCalledTimes(3);
@@ -581,7 +581,7 @@ describe("AdminIngestPage operations reference", () => {
     expect(await screen.findByText("索引状态暂时无法加载")).toBeInTheDocument();
     expect(screen.getByText("失败任务暂时无法加载")).toBeInTheDocument();
     expect(screen.getByText("共 1 项")).toBeInTheDocument();
-    expect(screen.getByText("处理中")).toBeInTheDocument();
+    expect(screen.getAllByText("处理中").length).toBeGreaterThan(0);
     expect(document.body).not.toHaveTextContent("SECRET upstream failure");
   });
 
@@ -599,6 +599,7 @@ describe("AdminIngestPage operations reference", () => {
   });
 
   it("warns when only parse failures remain and shows the actionable reparse count", async () => {
+    const user = userEvent.setup();
     vi.mocked(fetchOpsIndexing).mockResolvedValue({
       ...ops,
       counts: { ...ops.counts, index_failed: 0, parse_failed: 5 },
@@ -610,6 +611,17 @@ describe("AdminIngestPage operations reference", () => {
     expect(await screen.findByText("存在 5 项底座解析异常，可重新解析")).toBeInTheDocument();
     expect(screen.queryByText("当前没有索引失败项")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "重新解析（2 项）" })).toBeInTheDocument();
+    const primaryAction = screen.getByRole("button", { name: "重新解析" });
+    expect(primaryAction).toBeEnabled();
+
+    await user.click(primaryAction);
+    await waitFor(() =>
+      expect(triggerIndexingReparse).toHaveBeenCalledWith({
+        scope: "all",
+        limit: 50,
+        parse_statuses: ["failed", "pending"],
+      }),
+    );
   });
 
   it("reports action-specific empty results without claiming parse failures were handled", async () => {

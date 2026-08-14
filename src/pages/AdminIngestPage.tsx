@@ -10,7 +10,6 @@ import {
   FileSearch,
   ListFilter,
   HeartPulse,
-  RefreshCw,
   RotateCw,
   ScanLine,
   ShieldCheck,
@@ -53,16 +52,6 @@ type FailureFilter = "all" | DiagnosticCategory;
 const JOB_POLL_INTERVAL_MS = 1_500;
 const JOB_POLL_MAX_ATTEMPTS = 20;
 const OPS_AUTO_REFRESH_MS = 60_000;
-
-function formatClock(value: Date): string {
-  return new Intl.DateTimeFormat("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-    timeZone: "Asia/Shanghai",
-  }).format(value);
-}
 
 const jobOpLabel: Record<string, string> = {
   retry_index: "批量重试索引",
@@ -204,7 +193,6 @@ export default function AdminIngestPage() {
   const [opsBusyOperation, setOpsBusyOperation] = useState<string | null>(null);
   const [opsNote, setOpsNote] = useState<string | null>(null);
   const [opsFeedbackState, setOpsFeedbackState] = useState<ActionFeedbackState>("info");
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [retryTarget, setRetryTarget] = useState<OpsIndexingFailedItemDTO | null>(null);
   const [targetBusy, setTargetBusy] = useState(false);
   const [targetError, setTargetError] = useState<string | null>(null);
@@ -329,7 +317,6 @@ export default function AdminIngestPage() {
         loadHealth(),
         loadLLMUsage(),
       ]);
-      setLastRefreshedAt(new Date());
     },
     [loadHealth, loadIngest, loadLLMUsage, loadOpsIndex, loadOpsJobs],
   );
@@ -356,12 +343,6 @@ export default function AdminIngestPage() {
   const activeJobOperation = activeJob?.operation_type ?? null;
   const activeOperation = opsBusyOperation ?? activeJobOperation;
   const actionLocked = opsBusy || activeJobId !== null || opsState !== "ready";
-  const refreshing =
-    ingestState === "loading" ||
-    opsState === "loading" ||
-    jobsState === "loading" ||
-    healthState === "loading" ||
-    llmUsageState === "loading";
   const llmUsageTotals = llmUsage.reduce(
     (total, item) => ({
       requests: total.requests + item.request_count,
@@ -573,7 +554,12 @@ export default function AdminIngestPage() {
       (retryIncludeNotIndexed ? (opsIndex?.counts.not_indexed ?? 0) : 0),
   );
   const reparseActionableCount = Math.min(opsLimit, opsIndex?.reparse_actionable_count ?? 0);
-
+  const headerActionIsReparse = retryActionableCount === 0 && reparseActionableCount > 0;
+  const attentionCount =
+    failedIngestItems.length +
+    (opsIndex?.counts.index_failed ?? 0) +
+    (opsIndex?.counts.parse_failed ?? 0) +
+    (opsIndex?.counts.parse_stalled ?? 0);
   const trendMax = useMemo(
     () =>
       Math.max(
@@ -613,35 +599,50 @@ export default function AdminIngestPage() {
     : [];
 
   return (
-    <ProductPage className="ao84-page">
+    <ProductPage className="ao84-page admin-control-page">
       <PageHeader
-        title="管理员运维"
-        description="查看索引运行、扫描任务和安全审计状态。"
+        title="入库管理"
         status={
           <StatusBadge
-            tone={activeJob ? "info" : opsState === "error" ? "danger" : "success"}
+            tone={
+              activeJob ? "info" : opsState === "error" || attentionCount ? "danger" : "success"
+            }
             label={
               activeJob
                 ? `${safeJobOperation(activeJob.operation_type)}${activeJob.status === "queued" ? "已排队" : "处理中"}`
                 : opsState === "error"
                   ? "运行状态读取失败"
-                  : "当前可执行运维操作"
+                  : attentionCount
+                    ? `${attentionCount} 项待处置`
+                    : "当前无失败任务"
             }
           />
         }
         actions={
           <div className="ao84-refresh-actions">
-            <span className="ao84-refresh-meta">
-              {lastRefreshedAt ? `上次刷新 ${formatClock(lastRefreshedAt)}` : "尚未刷新"} · 每 60
-              秒自动刷新
-            </span>
             <button
-              className="btn-small ao84-refresh"
-              onClick={() => void refreshAll()}
-              disabled={refreshing || opsBusy}
+              className="btn-small-primary ao84-refresh"
+              data-operation={headerActionIsReparse ? "reparse" : "retry_index"}
+              onClick={() => void (headerActionIsReparse ? handleReparse() : handleBatchRetry())}
+              disabled={
+                actionLocked || (retryActionableCount === 0 && reparseActionableCount === 0)
+              }
             >
-              <RefreshCw size={15} aria-hidden="true" />
-              {refreshing ? "刷新中…" : "刷新"}
+              <RotateCw size={15} aria-hidden="true" />
+              {activeOperation
+                ? `正在执行：${safeJobOperation(activeOperation)}`
+                : headerActionIsReparse
+                  ? "重新解析"
+                  : "批量重试索引"}
+            </button>
+            <button
+              className="btn-icon"
+              aria-label="刷新"
+              title="刷新"
+              onClick={() => void refreshAll(false)}
+              disabled={opsBusy}
+            >
+              <RotateCw size={15} aria-hidden="true" />
             </button>
           </div>
         }
@@ -856,14 +857,14 @@ export default function AdminIngestPage() {
             </div>
             <div className="ao84-action-buttons">
               <button
-                className="btn-small-primary"
+                className="btn-small"
                 disabled={actionLocked}
                 onClick={() => void handleBatchRetry()}
               >
                 <RotateCw size={15} aria-hidden="true" />
                 {activeOperation
                   ? `正在执行：${safeJobOperation(activeOperation)}`
-                  : `批量重试索引（${retryActionableCount} 项）`}
+                  : `再次执行批量重试（${retryActionableCount} 项）`}
               </button>
               <button
                 className="btn-small"
@@ -982,17 +983,17 @@ export default function AdminIngestPage() {
             <table className="ao84-table">
               <thead>
                 <tr>
-                  <th>错误类型</th>
-                  <th>最后尝试时间</th>
-                  <th>状态</th>
-                  <th>处理方式</th>
+                  <th>对象与原因</th>
+                  <th>当前状态</th>
+                  <th>下一步</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
                 {opsState === "ready" &&
                   failedItems.map((item) => (
                     <tr key={item.retry_target ?? `${item.scope}-${item.updated_at}`}>
-                      <td>
+                      <td data-label="对象与原因">
                         <div className="ao84-failure-kind">
                           <AlertTriangle size={16} aria-hidden="true" />
                           <div>
@@ -1001,13 +1002,16 @@ export default function AdminIngestPage() {
                           </div>
                         </div>
                       </td>
-                      <td>
-                        <time>{formatBeijingTime(item.updated_at)}</time>
-                      </td>
-                      <td>
+                      <td data-label="当前状态">
                         <span className={`ao84-status is-${failureTone(item)}`}>索引失败</span>
                       </td>
-                      <td>
+                      <td data-label="下一步">
+                        <div className="ao84-cell-value">
+                          <span>{item.retry_eligible ? "重新尝试索引" : "核查配置或内容"}</span>
+                          <small>{formatBeijingTime(item.updated_at)}</small>
+                        </div>
+                      </td>
+                      <td data-label="操作">
                         {item.retry_eligible && item.retry_target ? (
                           <button
                             type="button"
@@ -1038,125 +1042,153 @@ export default function AdminIngestPage() {
               <div className="ao84-table-state is-error" role="alert">
                 <AlertTriangle size={21} aria-hidden="true" />
                 <strong>失败任务暂时无法加载</strong>
-                <span>刷新后可重新获取安全任务摘要。</span>
+                <button
+                  type="button"
+                  className="btn-small"
+                  onClick={() => void refreshAll(false)}
+                  disabled={opsBusy}
+                >
+                  <RotateCw size={14} aria-hidden="true" />
+                  刷新
+                </button>
               </div>
             )}
             {opsState === "ready" && failedItems.length === 0 && (
               <div className="ao84-table-state">
                 <CheckCircle2 size={22} aria-hidden="true" />
-                <strong>当前没有索引失败任务</strong>
-                <span>
-                  {failureFilter === "all" ? "索引失败列表为空。" : "当前筛选条件下没有任务。"}
-                </span>
+                <strong>
+                  {failureFilter === "all" ? "当前没有索引失败任务" : "当前筛选下没有任务"}
+                </strong>
+                <button
+                  type="button"
+                  className="btn-small"
+                  onClick={() =>
+                    failureFilter === "all" ? void refreshAll(false) : setFailureFilter("all")
+                  }
+                  disabled={opsBusy}
+                >
+                  {failureFilter === "all" ? (
+                    <RotateCw size={14} aria-hidden="true" />
+                  ) : (
+                    <ListFilter size={14} aria-hidden="true" />
+                  )}
+                  {failureFilter === "all" ? "刷新" : "查看全部"}
+                </button>
               </div>
             )}
           </div>
 
-          <section className="ao85-runtime" aria-labelledby="ao85-runtime-title">
-            <div className="ao85-runtime-head">
-              <div>
-                <HeartPulse size={17} aria-hidden="true" />
-                <h3 id="ao85-runtime-title">运行健康</h3>
-              </div>
-              <span>最近 24 小时</span>
-            </div>
-            {healthState === "loading" ? (
-              <div className="ao85-runtime-state" role="status">
-                正在读取运行健康…
-              </div>
-            ) : healthState === "error" || !health ? (
-              <div className="ao85-runtime-state is-error" role="alert">
-                运行健康暂时无法加载。
-              </div>
-            ) : (
-              <>
-                <div className="ao85-runtime-statuses">
-                  {healthCards.map((card) => (
-                    <div key={card.label}>
-                      <span>{card.label}</span>
-                      <strong className={`is-${card.status}`}>{healthLabels[card.status]}</strong>
-                      {card.lastHeartbeat && <time>{formatBeijingTime(card.lastHeartbeat)}</time>}
-                      {card.detail && <small>{card.detail}</small>}
-                    </div>
-                  ))}
+          <details className="ao85-runtime-details">
+            <summary>
+              <span>运行健康与近 24 小时趋势</span>
+              <small>次级诊断</small>
+            </summary>
+            <section className="ao85-runtime" aria-labelledby="ao85-runtime-title">
+              <div className="ao85-runtime-head">
+                <div>
+                  <HeartPulse size={17} aria-hidden="true" />
+                  <h3 id="ao85-runtime-title">运行健康</h3>
                 </div>
-                {health.insufficient_data ? (
-                  <div className="ao85-trend-empty">
-                    <BarChart3 size={18} aria-hidden="true" />
-                    <strong>正在积累运维数据</strong>
-                    <span>形成至少两个真实小时快照后展示趋势。</span>
+                <span>最近 24 小时</span>
+              </div>
+              {healthState === "loading" ? (
+                <div className="ao85-runtime-state" role="status">
+                  正在读取运行健康…
+                </div>
+              ) : healthState === "error" || !health ? (
+                <div className="ao85-runtime-state is-error" role="alert">
+                  运行健康暂时无法加载。
+                </div>
+              ) : (
+                <>
+                  <div className="ao85-runtime-statuses">
+                    {healthCards.map((card) => (
+                      <div key={card.label}>
+                        <span>{card.label}</span>
+                        <strong className={`is-${card.status}`}>{healthLabels[card.status]}</strong>
+                        {card.lastHeartbeat && <time>{formatBeijingTime(card.lastHeartbeat)}</time>}
+                        {card.detail && <small>{card.detail}</small>}
+                      </div>
+                    ))}
                   </div>
-                ) : (
-                  <div className="ao85-trend-block">
-                    <div className="ao85-trend-heading">
-                      <strong>近 24 小时索引运维趋势</strong>
-                      <div className="ao85-trend-legend" aria-label="趋势图例">
-                        <span>
-                          <i className="is-completed" aria-hidden="true" />
-                          深蓝：已完成索引运维作业数
-                        </span>
-                        <span>
-                          <i className="is-failed" aria-hidden="true" />
-                          红色：失败或部分失败的索引运维作业数
-                        </span>
+                  {health.insufficient_data ? (
+                    <div className="ao85-trend-empty">
+                      <BarChart3 size={18} aria-hidden="true" />
+                      <strong>正在积累运维数据</strong>
+                      <span>形成至少两个真实小时快照后展示趋势。</span>
+                    </div>
+                  ) : (
+                    <div className="ao85-trend-block">
+                      <div className="ao85-trend-heading">
+                        <strong>近 24 小时索引运维趋势</strong>
+                        <div className="ao85-trend-legend" aria-label="趋势图例">
+                          <span>
+                            <i className="is-completed" aria-hidden="true" />
+                            深蓝：已完成索引运维作业数
+                          </span>
+                          <span>
+                            <i className="is-failed" aria-hidden="true" />
+                            红色：失败或部分失败的索引运维作业数
+                          </span>
+                        </div>
+                      </div>
+                      <div className="ao85-trend" aria-label="近 24 小时索引运维趋势">
+                        {health.trend_points.map((point, index) => {
+                          const label = trendPointLabel(point);
+                          const tooltipId = `ao85-trend-tooltip-${index}`;
+                          return (
+                            <div
+                              key={point.observed_at}
+                              className={`ao85-trend-point${index < 3 ? " is-near-start" : ""}${index >= health.trend_points.length - 3 ? " is-near-end" : ""}`}
+                              role="img"
+                              tabIndex={0}
+                              aria-label={label}
+                              aria-describedby={tooltipId}
+                            >
+                              <div className="ao85-trend-bars" aria-hidden="true">
+                                <span
+                                  className="is-completed"
+                                  style={{
+                                    height:
+                                      point.completed_jobs === 0
+                                        ? "0%"
+                                        : `${Math.max(2, (point.completed_jobs / trendMax) * 100)}%`,
+                                  }}
+                                />
+                                <span
+                                  className="is-failed"
+                                  style={{
+                                    height:
+                                      point.failed_jobs === 0
+                                        ? "0%"
+                                        : `${Math.max(2, (point.failed_jobs / trendMax) * 100)}%`,
+                                  }}
+                                />
+                              </div>
+                              <time
+                                className={`ao85-trend-tick${visibleTrendTicks.has(index) ? "" : " is-hidden"}`}
+                                aria-hidden="true"
+                              >
+                                {trendTickLabel(health.trend_points, index)}
+                              </time>
+                              <div id={tooltipId} className="ao85-trend-tooltip" role="tooltip">
+                                <strong>{formatBeijingTime(point.observed_at)}</strong>
+                                <span>已完成作业 {point.completed_jobs}</span>
+                                <span>失败或部分失败作业 {point.failed_jobs}</span>
+                                <span>排队作业 {point.queued_jobs}</span>
+                                <span>索引失败存量 {point.index_failed}</span>
+                                <span>解析失败存量 {point.parse_failed}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
-                    <div className="ao85-trend" aria-label="近 24 小时索引运维趋势">
-                      {health.trend_points.map((point, index) => {
-                        const label = trendPointLabel(point);
-                        const tooltipId = `ao85-trend-tooltip-${index}`;
-                        return (
-                          <div
-                            key={point.observed_at}
-                            className={`ao85-trend-point${index < 3 ? " is-near-start" : ""}${index >= health.trend_points.length - 3 ? " is-near-end" : ""}`}
-                            role="img"
-                            tabIndex={0}
-                            aria-label={label}
-                            aria-describedby={tooltipId}
-                          >
-                            <div className="ao85-trend-bars" aria-hidden="true">
-                              <span
-                                className="is-completed"
-                                style={{
-                                  height:
-                                    point.completed_jobs === 0
-                                      ? "0%"
-                                      : `${Math.max(2, (point.completed_jobs / trendMax) * 100)}%`,
-                                }}
-                              />
-                              <span
-                                className="is-failed"
-                                style={{
-                                  height:
-                                    point.failed_jobs === 0
-                                      ? "0%"
-                                      : `${Math.max(2, (point.failed_jobs / trendMax) * 100)}%`,
-                                }}
-                              />
-                            </div>
-                            <time
-                              className={`ao85-trend-tick${visibleTrendTicks.has(index) ? "" : " is-hidden"}`}
-                              aria-hidden="true"
-                            >
-                              {trendTickLabel(health.trend_points, index)}
-                            </time>
-                            <div id={tooltipId} className="ao85-trend-tooltip" role="tooltip">
-                              <strong>{formatBeijingTime(point.observed_at)}</strong>
-                              <span>已完成作业 {point.completed_jobs}</span>
-                              <span>失败或部分失败作业 {point.failed_jobs}</span>
-                              <span>排队作业 {point.queued_jobs}</span>
-                              <span>索引失败存量 {point.index_failed}</span>
-                              <span>解析失败存量 {point.parse_failed}</span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </section>
+                  )}
+                </>
+              )}
+            </section>
+          </details>
         </section>
       </div>
 

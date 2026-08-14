@@ -1,0 +1,124 @@
+.admin-control-page {
+  --admin-page-gap: 14px;
+  --admin-section-gap: 12px;
+  --admin-row-height: 54px;
+  --admin-table-head-height: 38px;
+  width: min(100%, 1320px);
+  gap: var(--admin-page-gap);
+}
+
+.admin-control-page .product-page-header {
+  padding-bottom: 12px;
+  border-bottom-color: color-mix(in srgb, var(--color-border) 72%, transparent);
+}
+
+.admin-control-page .product-page-heading > p {
+  max-width: 660px;
+}
+
+.admin-control-page :where(.gp-governance-console, .secops-console) {
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--admin-section-gap);
+}
+
+.admin-control-page :where(.gp-summary-panel, .secops-summary-panel) {
+  width: 100%;
+  border: 0;
+  border-block: 1px solid var(--color-border);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.admin-control-page :where(.gp-summary-list, .secops-summary-list) {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.admin-control-page :where(.gp-summary-item, .secops-summary-item) {
+  min-height: 50px;
+  border-bottom: 0;
+}
+
+.admin-control-page :where(.gp-main-workspace, .secops-main-workspace) {
+  min-width: 0;
+}
+
+.admin-control-page .pp-multi-role-card {
+  padding: 9px 12px;
+  color: var(--color-text-tertiary);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--color-border-light);
+  font-size: 11px;
+}
+
+.admin-control-page .pp-multi-role-card summary {
+  color: var(--color-text-secondary);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.admin-workspace-panel {
+  min-width: 0;
+  overflow: hidden;
+  background: var(--color-bg-surface);
+  border-block: 1px solid var(--color-border);
+}
+
+.admin-workspace-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 52px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.admin-workspace-heading h2,
+.admin-workspace-heading h3 {
+  margin: 0;
+  color: var(--color-text-heading);
+  font-size: 16px;
+}
+
+.admin-control-page :where(th) {
+  height: var(--admin-table-head-height);
+}
+
+.admin-control-page :where(tbody tr) {
+  min-height: var(--admin-row-height);
+}
+
+.admin-control-page :where(tbody tr.is-actionable td) {
+  background: color-mix(in srgb, var(--color-danger-bg) 46%, var(--color-bg-surface));
+}
+
+.admin-control-page :where(tbody tr.is-actionable td:first-child) {
+  box-shadow: inset 4px 0 var(--color-danger);
+}
+
+.admin-control-page :where(.detail-drawer-header) {
+  padding-block: 18px 14px;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+@media (max-width: 720px) {
+  .admin-control-page {
+    --admin-page-gap: 11px;
+    --admin-row-height: 50px;
+  }
+
+  .admin-control-page .product-page-actions,
+  .admin-control-page .product-page-actions > * {
+    width: 100%;
+  }
+
+  .admin-control-page .product-page-actions button {
+    justify-content: center;
+  }
+
+  .admin-control-page :where(.gp-summary-list, .secops-summary-list) {
+    grid-template-columns: 1fr;
+  }
+}

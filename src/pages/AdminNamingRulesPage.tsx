@@ -159,7 +159,6 @@ export default function AdminNamingRulesPage() {
   }, [categories, query]);
   const pageCount = Math.max(1, Math.ceil(filteredCategories.length / pageSize));
   const visibleCategories = filteredCategories.slice((page - 1) * pageSize, page * pageSize);
-  const enabledCount = categories.filter((item) => item.enabled).length;
 
   useEffect(() => setPage(1), [query, scope]);
   useEffect(() => {
@@ -342,11 +341,10 @@ export default function AdminNamingRulesPage() {
         : "启用一个公司类别后可预览";
 
   return (
-    <ProductPage className="naming-center">
+    <ProductPage className="naming-center admin-control-page">
       <PageHeader
         eyebrow="组织与知识治理"
         title="命名规则中心"
-        description="维护公司与全项目共用的目录类别；草稿只有显式发布后才会生效。"
         scope={currentScopeName}
         status={
           <StatusBadge
@@ -419,24 +417,6 @@ export default function AdminNamingRulesPage() {
       )}
 
       <>
-        <section className="naming-overview" aria-label={`${currentScopeName}摘要`}>
-          <div>
-            <span>目录类别</span>
-            <strong>{categories.length}</strong>
-            <small>仅当前范围</small>
-          </div>
-          <div>
-            <span>已启用</span>
-            <strong>{enabledCount}</strong>
-            <small>{categories.length - enabledCount} 个停用</small>
-          </div>
-          <div>
-            <span>草稿更新</span>
-            <strong>{new Date(center.draft.updated_at).toLocaleDateString("zh-CN")}</strong>
-            <small>v{center.draft.version} · 尚未发布</small>
-          </div>
-        </section>
-
         <section className="naming-action-deck">
           <div className="naming-preview-card">
             <span>规范名预览</span>

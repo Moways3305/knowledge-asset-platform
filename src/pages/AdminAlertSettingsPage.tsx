@@ -1,14 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BellRing, RefreshCw, ShieldCheck, Siren, SlidersHorizontal } from "lucide-react";
+import { RefreshCw, Siren, SlidersHorizontal } from "lucide-react";
 import { fetchAlertRules, updateAlertRule } from "../api/admin";
 import { ApiError } from "../api/http";
-import {
-  PageHeader,
-  OperationsSummary,
-  PageSection,
-  PageToolbar,
-  ProductPage,
-} from "../components/ProductLayout";
+import { PageHeader, PageSection, PageToolbar, ProductPage } from "../components/ProductLayout";
 import type { AlertRuleDTO } from "../types/alert";
 import { formatBeijingTime } from "../utils/time";
 
@@ -62,11 +56,16 @@ export default function AdminAlertSettingsPage() {
 
   const filteredRules = useMemo(
     () =>
-      rules.filter(
-        (rule) =>
-          (!filterLevel || rule.severity === filterLevel) &&
-          (!filterEnabled || (filterEnabled === "enabled" ? rule.enabled : !rule.enabled)),
-      ),
+      rules
+        .filter(
+          (rule) =>
+            (!filterLevel || rule.severity === filterLevel) &&
+            (!filterEnabled || (filterEnabled === "enabled" ? rule.enabled : !rule.enabled)),
+        )
+        .sort((left, right) => {
+          const priority: Record<string, number> = { critical: 0, error: 1, warning: 2 };
+          return (priority[left.severity] ?? 3) - (priority[right.severity] ?? 3);
+        }),
     [filterEnabled, filterLevel, rules],
   );
 
@@ -112,33 +111,10 @@ export default function AdminAlertSettingsPage() {
     [drafts, saveRule],
   );
 
-  const enabledCount = rules.filter((rule) => rule.enabled).length;
-  const criticalCount = rules.filter((rule) => rule.severity === "critical").length;
   return (
-    <ProductPage className="secops-page alert-settings-page">
-      <PageHeader
-        eyebrow="安全运营"
-        title="告警设置"
-        description="维护安全告警触发条件与通知渠道。"
-      />
-      <div className="secops-banner is-readonly" style={{ marginBottom: 12 }}>
-        告警触发后，通知通过以下渠道发送：站内通知（默认）、企业微信（需在系统设置中配置企微群机器人
-        Webhook）、邮件（需配置 SMTP）。阈值表示触发条件的最小值（如"连续失败 3 次"中阈值为 3）。
-      </div>
+    <ProductPage className="secops-page alert-settings-page admin-control-page">
+      <PageHeader eyebrow="安全运营" title="告警设置" />
       <div className="secops-console">
-        <OperationsSummary
-          label="告警摘要"
-          titleIcon={<ShieldCheck size={15} aria-hidden="true" />}
-          items={[
-            {
-              label: "启用规则",
-              value: enabledCount,
-              tone: "success",
-              icon: <BellRing size={14} />,
-            },
-            { label: "严重规则", value: criticalCount, tone: "danger", icon: <Siren size={14} /> },
-          ]}
-        />
         <main className="secops-main-workspace">
           {error && (
             <div className="secops-banner is-error" role="alert">
@@ -154,7 +130,6 @@ export default function AdminAlertSettingsPage() {
                 告警规则
               </span>
             }
-            description="修改仅作用于当前规则，保存期间其他规则仍可查看。"
             className="secops-workspace secops-primary-section"
           >
             <PageToolbar
@@ -213,7 +188,10 @@ export default function AdminAlertSettingsPage() {
                 </thead>
                 <tbody>
                   {filteredRules.map((rule) => (
-                    <tr key={rule.id} className={!rule.enabled ? "is-disabled" : ""}>
+                    <tr
+                      key={rule.id}
+                      className={`${rule.severity === "critical" && rule.enabled ? "is-actionable" : ""} ${!rule.enabled ? "is-disabled" : ""}`}
+                    >
                       <td>
                         <span className={`secops-pill severity-${rule.severity}`}>
                           {severityLabel[rule.severity] ?? "未分级"}

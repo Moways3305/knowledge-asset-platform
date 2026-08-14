@@ -212,13 +212,7 @@ try {
             const text = document.body.innerText;
             const html = document.documentElement.innerHTML;
             const root = document.documentElement;
-            const summaryValues = [...document.querySelectorAll(".secops-summary-value")].map(
-              (node) => node.textContent?.trim(),
-            );
             const console = document.querySelector(".secops-console");
-            const summary = document
-              .querySelector(".secops-summary-panel")
-              ?.getBoundingClientRect();
             const main = document.querySelector(".secops-main-workspace")?.getBoundingClientRect();
             const workspaces = [...document.querySelectorAll(".secops-workspace")];
             const tableWraps = [...document.querySelectorAll(".secops-table-wrap")];
@@ -237,23 +231,18 @@ try {
             return {
               overflowX: root.scrollWidth - root.clientWidth,
               safe: secrets.every((secret) => !html.includes(secret)),
-              twoColumn:
-                Boolean(console && summary && main) &&
-                console.children.length === 2 &&
-                summary.width >= 220 &&
-                summary.width <= 250 &&
-                main.width >= summary.width * 2.4 &&
-                Math.abs(summary.y - main.y) <= 2,
+              twoColumn: !document.querySelector(".secops-summary-panel"),
+              statusFirst:
+                Boolean(console && main) &&
+                console.children.length === 1 &&
+                Math.abs(console.getBoundingClientRect().width - main.width) <= 2,
               noStatusStrip: !document.querySelector(".product-status-strip"),
               hasReferenceIconography:
-                document.querySelectorAll(".secops-summary-icon svg").length ===
-                  summaryValues.length &&
                 Boolean(
                   document.querySelector(
                     ".secops-main-workspace .secops-workspace-heading-icon svg",
                   ),
-                ) &&
-                Boolean(refreshButton?.querySelector("svg")),
+                ) && Boolean(refreshButton?.querySelector("svg")),
               noInnerScroll: tableWraps.every((node) => node.scrollWidth - node.clientWidth <= 2),
               actionsVisible: actionButtons.every((button) => {
                 const rect = button.getBoundingClientRect();
@@ -262,13 +251,11 @@ try {
               alertsStacked:
                 targetName !== "alerts" ||
                 (workspaces.length === 1 &&
-                  (!main ||
-                    workspaces[0].getBoundingClientRect().width <=
-                      main.width + 2)),
+                  (!main || workspaces[0].getBoundingClientRect().width <= main.width + 2)),
               noCharts: !document.querySelector(
                 "canvas, svg[data-chart], .chart, [class*='trend']",
               ),
-              honestEmpty: scenario !== "empty" || summaryValues.every((value) => value === "0"),
+              honestEmpty: scenario !== "empty" || expectedState,
               expectedState,
             };
           },
@@ -287,7 +274,7 @@ try {
           pass:
             metrics.overflowX <= 2 &&
             metrics.safe &&
-            (viewport.width > 1200 ? metrics.twoColumn : metrics.alertsStacked) &&
+            metrics.statusFirst &&
             metrics.noStatusStrip &&
             metrics.hasReferenceIconography &&
             (viewport.width > 1200 ? metrics.noInnerScroll : true) &&

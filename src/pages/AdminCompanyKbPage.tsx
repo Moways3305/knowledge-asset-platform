@@ -106,11 +106,10 @@ export default function AdminCompanyKbPage() {
   };
 
   return (
-    <ProductPage className="company-kb-page people89-page">
+    <ProductPage className="company-kb-page people89-page admin-control-page">
       <PageHeader
         eyebrow="身份与权限治理"
         title="公司知识库"
-        description="管理公司级知识库的创建与删除。"
         actions={
           <button
             type="button"

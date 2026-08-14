@@ -11,6 +11,7 @@ import {
 import { ApiError } from "../api/http";
 import { useAuth } from "../auth/AuthContext";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
+import StatusBadge from "../components/StatusBadge";
 import type {
   WecomOwnerOptionDTO,
   WecomProjectOptionDTO,
@@ -200,13 +201,32 @@ export default function AdminWecomScanPage() {
   const selectedConfig = configs.find((item) => item.id === selectedId) ?? null;
   const summary = useMemo(() => {
     const enabled = configs.filter((item) => item.enabled).length;
-    const selectedRun = selectedId ? latest[selectedId] : null;
+    const unavailable = configs.filter(
+      (item) =>
+        item.enabled &&
+        (item.scan_space_status !== "ready" || item.manager_access_status !== "ready"),
+    ).length;
+    const failedRuns = Object.values(latest).filter((item) => (item?.failed_count ?? 0) > 0).length;
     return {
       enabled,
-      failed: selectedRun?.failed_count ?? null,
-      discoveredNew: selectedRun?.new_count ?? null,
+      unavailable,
+      failedRuns,
     };
-  }, [configs, latest, selectedId]);
+  }, [configs, latest]);
+  const prioritizedConfigs = useMemo(
+    () =>
+      [...configs].sort((left, right) => {
+        const issueScore = (config: WecomScanConfigDTO) =>
+          Number(
+            config.enabled &&
+              (config.scan_space_status !== "ready" ||
+                config.manager_access_status !== "ready" ||
+                (latest[config.id]?.failed_count ?? 0) > 0),
+          );
+        return issueScore(right) - issueScore(left);
+      }),
+    [configs, latest],
+  );
 
   const mergeConfig = (saved: WecomScanConfigDTO) => {
     setConfigs((current) => {
@@ -268,10 +288,23 @@ export default function AdminWecomScanPage() {
   };
 
   return (
-    <ProductPage className="ws87-page">
+    <ProductPage className="ws87-page admin-control-page">
       <PageHeader
         title="微盘扫描"
-        description="递归扫描项目专属空间根目录；文件进入待确认队列，不会直接入库。"
+        status={
+          <StatusBadge
+            tone={
+              summary.unavailable || summary.failedRuns ? "danger" : busyId ? "info" : "success"
+            }
+            label={
+              summary.unavailable || summary.failedRuns
+                ? "存在需要处理的配置"
+                : busyId
+                  ? "扫描处理中"
+                  : "连接可用"
+            }
+          />
+        }
         actions={
           <>
             {canEdit && (
@@ -314,38 +347,18 @@ export default function AdminWecomScanPage() {
       )}
 
       <div className="ws87-console">
-        <aside className="ws87-summary" aria-label="运行摘要">
-          <div className="ws87-panel-heading">
-            <span>RUN CONTROL</span>
-            <h3>运行摘要</h3>
-          </div>
-          <dl>
-            <div>
-              <dt>启用配置</dt>
-              <dd>{summary.enabled}</dd>
-            </div>
-            <div>
-              <dt>最近扫描失败</dt>
-              <dd className={summary.failed ? "is-danger" : ""}>
-                {summary.failed ?? <span>尚未运行</span>}
-              </dd>
-            </div>
-            <div>
-              <dt>最近扫描新增</dt>
-              <dd>{summary.discoveredNew ?? <span>尚未运行</span>}</dd>
-            </div>
-          </dl>
-          <p>摘要跟随当前所选配置。扫描只创建待确认任务，入库仍需人工确认。</p>
-        </aside>
-
         <main className="ws87-main-workspace">
-          <section className="ws87-config-panel">
+          <section className="ws87-config-panel admin-workspace-panel">
             <div className="ws87-panel-heading">
-              <span>SCAN CONFIGS</span>
-              <h3>扫描配置</h3>
+              <h3>{summary.unavailable + summary.failedRuns ? "配置处置队列" : "扫描配置"}</h3>
+              <span className={summary.unavailable + summary.failedRuns ? "is-danger" : ""}>
+                {summary.unavailable + summary.failedRuns
+                  ? `${summary.unavailable + summary.failedRuns} 项异常已置顶`
+                  : "当前连接均可用"}
+              </span>
             </div>
             <WecomScanConfigList
-              configs={configs}
+              configs={prioritizedConfigs}
               latest={latest}
               loading={loading}
               error={configError}
@@ -380,7 +393,6 @@ export default function AdminWecomScanPage() {
           {selectedConfig && (
             <section className="ws87-record-panel" aria-label="最近扫描记录">
               <div className="ws87-panel-heading">
-                <span>RUN HISTORY</span>
                 <h3>{selectedConfig.name || "未命名配置"} · 最近扫描记录</h3>
               </div>
               {recordError ? (
@@ -412,20 +424,24 @@ export default function AdminWecomScanPage() {
                         const safeError = safeRecordError(record);
                         return (
                           <tr key={`${record.scan_started_at}-${index}`}>
-                            <td>{formatBeijingTime(record.scan_started_at)}</td>
-                            <td>{formatBeijingTime(record.scan_completed_at)}</td>
-                            <td>
+                            <td data-label="开始时间">
+                              {formatBeijingTime(record.scan_started_at)}
+                            </td>
+                            <td data-label="完成时间">
+                              {formatBeijingTime(record.scan_completed_at)}
+                            </td>
+                            <td data-label="状态">
                               <span
                                 className={`ws87-pill ${scanStatusCls[record.scan_status] ?? "ws-result-empty"}`}
                               >
                                 {scanStatusLabel[record.scan_status] ?? "未知"}
                               </span>
                             </td>
-                            <td>{record.discovered_count}</td>
-                            <td>{record.new_count}</td>
-                            <td>{record.duplicate_count}</td>
-                            <td>{record.failed_count}</td>
-                            <td className="ws87-record-guidance">
+                            <td data-label="发现">{record.discovered_count}</td>
+                            <td data-label="新增">{record.new_count}</td>
+                            <td data-label="重复">{record.duplicate_count}</td>
+                            <td data-label="失败">{record.failed_count}</td>
+                            <td data-label="处理提示" className="ws87-record-guidance">
                               {safeError ? (
                                 <>
                                   <strong>{safeError.category}</strong>

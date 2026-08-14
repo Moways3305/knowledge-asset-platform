@@ -113,11 +113,13 @@ export default function AdminPermissionsPage() {
   useEffect(() => void load(), [load]);
 
   const visibleRules = useMemo(
-    () => rules.filter((rule) => !groupFilter || rule.rule_group === groupFilter),
+    () =>
+      rules
+        .filter((rule) => !groupFilter || rule.rule_group === groupFilter)
+        .sort((left, right) => Number(left.enabled) - Number(right.enabled)),
     [groupFilter, rules],
   );
   const groups = useMemo(() => Array.from(new Set(rules.map((rule) => rule.rule_group))), [rules]);
-  const enabledRules = rules.filter((rule) => rule.enabled).length;
 
   // 外部助手白名单去重：按 (provider, capability, allowed_scope, allowed_project_id) 分组，
   // 同组只保留一行（enabled 优先），并记录是否发生过去重以提示用户。
@@ -193,62 +195,9 @@ export default function AdminPermissionsPage() {
   );
 
   return (
-    <ProductPage className="gp-page permissions89-page">
-      <PageHeader
-        eyebrow="身份与权限治理"
-        title="权限规则"
-        description="维护知识流转规则与外部助手接入状态，所有修改仍由服务端权限校验。"
-      />
+    <ProductPage className="gp-page permissions89-page admin-control-page">
+      <PageHeader eyebrow="身份与权限治理" title="权限规则" />
       <div className="gp-governance-console">
-        <aside className="gp-summary-panel" aria-label="权限规则摘要">
-          <div className="gp-summary-heading">
-            <span className="gp-summary-heading-icon">
-              <ShieldCheck size={16} />
-            </span>
-            规则概览
-          </div>
-          <div className="gp-summary-list">
-            <div className="gp-summary-item">
-              <span className="gp-summary-copy">
-                <span className="gp-summary-icon">
-                  <Layers3 size={14} />
-                </span>
-                <span className="gp-summary-label">规则总数</span>
-              </span>
-              <strong className="gp-summary-value">{rules.length}</strong>
-            </div>
-            <div className="gp-summary-item is-success">
-              <span className="gp-summary-copy">
-                <span className="gp-summary-icon">
-                  <CircleCheck size={14} />
-                </span>
-                <span className="gp-summary-label">启用规则</span>
-              </span>
-              <strong className="gp-summary-value">{enabledRules}</strong>
-            </div>
-            <div className="gp-summary-item is-muted">
-              <span className="gp-summary-copy">
-                <span className="gp-summary-icon">
-                  <CircleOff size={14} />
-                </span>
-                <span className="gp-summary-label">停用规则</span>
-              </span>
-              <strong className="gp-summary-value">{rules.length - enabledRules}</strong>
-            </div>
-            <div className="gp-summary-item is-agent">
-              <span className="gp-summary-copy">
-                <span className="gp-summary-icon">
-                  <Bot size={14} />
-                </span>
-                <span className="gp-summary-label">启用助手</span>
-              </span>
-              <strong className="gp-summary-value">
-                {dedupedAgents.filter((item) => item.enabled).length}
-              </strong>
-            </div>
-          </div>
-        </aside>
-
         <main className="gp-main-workspace">
           {!loading && !error && (
             <div className={`gp-access-note ${canEditRules ? "is-edit" : "is-readonly"}`}>
@@ -269,7 +218,6 @@ export default function AdminPermissionsPage() {
                 权限规则列表
               </span>
             }
-            description="编辑仅影响当前规则，其他行保持可用。"
             className="gp-panel gp-primary-panel"
           >
             <PageToolbar
@@ -315,7 +263,7 @@ export default function AdminPermissionsPage() {
                 </thead>
                 <tbody>
                   {visibleRules.map((rule) => (
-                    <tr key={rule.rule_id}>
+                    <tr key={rule.rule_id} className={!rule.enabled ? "is-actionable" : ""}>
                       <td>
                         <span className="gp-row-title-mark">
                           <span className="gp-row-icon">
@@ -457,7 +405,6 @@ export default function AdminPermissionsPage() {
                 外部助手白名单
               </span>
             }
-            description="仅展示已登记助手的业务名称、能力范围和状态。"
             className="gp-panel gp-secondary-panel"
           >
             {agentError && <div className="gp-banner is-readonly">{agentError}</div>}

@@ -240,7 +240,7 @@ try {
       page.on("console", (message) => messages.push(message.text()));
       page.on("pageerror", (error) => messages.push(error.message));
       await page.goto(`${base}/admin/weknora-models`, { waitUntil: "networkidle" });
-      await page.getByRole("heading", { name: "模型与知识库底座" }).waitFor();
+      await page.getByRole("heading", { name: "模型配置" }).waitFor();
 
       if (scenario === "external-drawer") {
         await page.getByRole("button", { name: "管理外部 LLM" }).click();
@@ -288,13 +288,29 @@ try {
             !document.querySelector('[role="dialog"]') &&
             (Boolean(document.querySelector(".mf-connection-card")) ||
               Boolean(document.querySelector(".mf-kb-drawer-row"))),
-          overviewCards: document.querySelectorAll(".mf-overview-card").length,
+          connectionRows: document.querySelectorAll(".mf-connection-row").length,
+          noMetricMatrix: !document.querySelector(
+            ".admin-status-band, .mf-overview-strip, .mf-overview-metric",
+          ),
+          noInstructionCopy: !text.includes("先处理不可用连接，再维护模型与知识库底座。"),
+          actionableFirst: (() => {
+            const rows = [...document.querySelectorAll(".mf-connection-row")];
+            const actionable = rows.filter((row) => row.classList.contains("is-actionable"));
+            if (actionable.length === 0) return true;
+            const firstVisualTop = Math.min(...rows.map((row) => row.getBoundingClientRect().top));
+            return actionable.some(
+              (row) => Math.abs(row.getBoundingClientRect().top - firstVisualTop) <= 2,
+            );
+          })(),
           hasInternalError: text.includes("UI QA route not configured"),
         };
       }, scenario);
       const expectedDialogs = scenario === "normal" || scenario === "forbidden" ? 0 : 1;
       const scenarioPass =
-        metrics.overviewCards === 3 &&
+        metrics.connectionRows === 3 &&
+        metrics.noMetricMatrix &&
+        metrics.noInstructionCopy &&
+        metrics.actionableFirst &&
         !metrics.mainHasGrowingRows &&
         metrics.dialogCount === expectedDialogs;
       results.push({

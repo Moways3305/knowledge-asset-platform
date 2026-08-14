@@ -28,7 +28,7 @@
 }
 .ws87-console {
   display: grid;
-  grid-template-columns: 230px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   align-items: start;
 }
@@ -54,12 +54,22 @@
   padding: 11px 14px;
   border-bottom: 1px solid var(--color-border);
 }
+.ws87-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
 .ws87-panel-heading span {
   display: block;
   color: var(--color-gold-deep);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.08em;
+}
+.ws87-panel-heading span.is-danger {
+  color: var(--color-danger);
+  letter-spacing: 0;
 }
 .ws87-panel-heading h3 {
   margin: 3px 0 0;
@@ -130,6 +140,12 @@
 .ws87-table tr.is-selected td:first-child {
   box-shadow: inset 3px 0 var(--color-gold);
 }
+.ws87-table tr.is-actionable td {
+  background: color-mix(in srgb, var(--color-danger-bg) 52%, var(--color-bg-surface));
+}
+.ws87-table tr.is-actionable td:first-child {
+  box-shadow: inset 4px 0 var(--color-danger);
+}
 .ws87-table tr.is-disabled td {
   color: var(--color-text-tertiary);
   background: var(--color-bg-muted);
@@ -138,9 +154,27 @@
 .ws87-table td small {
   display: block;
 }
+.ws87-disposition {
+  display: inline-flex;
+  margin-bottom: 5px;
+  padding: 2px 6px;
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+}
 .ws87-table td small {
   margin-top: 3px;
   color: var(--color-text-tertiary);
+}
+.ws87-issue {
+  display: block;
+  color: var(--color-success);
+  font-weight: 700;
+}
+.ws87-issue.is-danger {
+  color: var(--color-danger);
 }
 .ws87-record-link {
   display: block;
@@ -314,5 +348,135 @@
 @media (max-width: 900px) {
   .ws87-console {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .ws87-panel-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 0;
+    padding: 12px;
+  }
+
+  .ws87-table-wrap,
+  .ws87-records {
+    overflow: visible;
+    padding: 10px;
+  }
+
+  .ws87-table,
+  .ws87-record-table,
+  .ws87-table tbody,
+  .ws87-record-table tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .ws87-table thead,
+  .ws87-record-table thead {
+    display: none;
+  }
+
+  .ws87-table tbody,
+  .ws87-record-table tbody {
+    display: grid;
+    gap: 10px;
+  }
+
+  .ws87-table tr,
+  .ws87-record-table tr {
+    display: block;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-surface);
+  }
+
+  .ws87-table tr.is-actionable {
+    border-left: 4px solid var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger-bg) 44%, var(--color-bg-surface));
+  }
+
+  .ws87-table tr.is-selected:not(.is-actionable) {
+    border-left: 4px solid var(--color-gold);
+  }
+
+  .ws87-table tr.is-actionable td,
+  .ws87-table tr.is-disabled td {
+    background: transparent;
+  }
+
+  .ws87-table tr.is-actionable td:first-child,
+  .ws87-table tr.is-selected td:first-child {
+    box-shadow: none;
+  }
+
+  .ws87-table td,
+  .ws87-record-table td {
+    display: flex;
+    width: 100%;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--color-border-light);
+    text-align: right;
+  }
+
+  .ws87-table td::before,
+  .ws87-record-table td::before {
+    flex: 0 0 72px;
+    color: var(--color-text-tertiary);
+    content: attr(data-label);
+    font-size: 11px;
+    font-weight: 650;
+    text-align: left;
+  }
+
+  .ws87-table td:first-child {
+    display: block;
+    padding: 12px 10px 9px;
+    text-align: left;
+  }
+
+  .ws87-table td:first-child::before {
+    display: none;
+  }
+
+  .ws87-table td:last-child,
+  .ws87-record-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .ws87-table td small,
+  .ws87-table td .ws87-issue,
+  .ws87-record-guidance strong,
+  .ws87-record-guidance span {
+    overflow-wrap: anywhere;
+    text-align: right;
+  }
+
+  .ws87-row-actions {
+    width: 100%;
+    white-space: normal;
+  }
+
+  .ws87-row-actions button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .ws87-table td[data-label="操作"]::before {
+    display: none;
+  }
+
+  .ws87-table td[data-label="操作"] {
+    padding-top: 10px;
+  }
+
+  .ws87-record-guidance {
+    min-width: 0;
   }
 }

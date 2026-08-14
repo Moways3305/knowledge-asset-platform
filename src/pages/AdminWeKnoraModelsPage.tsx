@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Bot, Database, RefreshCw, Settings2, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Bot, Database, RefreshCw, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
   fetchWeknoraDefaultModels,
@@ -164,7 +164,13 @@ export default function AdminWeKnoraModelsPage() {
       personal: kbConfigs.filter((item) => item.scope === "personal").length,
     };
   }, [kbConfigs]);
-
+  const modelIssues = models.filter(
+    (model) => model.enabled && model.credential_status === "missing",
+  ).length;
+  const externalIssues = externalConnections.filter(
+    (connection) => connection.enabled && connection.health_status !== "healthy",
+  ).length;
+  const connectionIssues = counts.anomalies + (isGlobalOperator ? modelIssues + externalIssues : 0);
   const filteredKbs = useMemo(() => {
     const query = kbQuery.trim().toLowerCase();
     return kbConfigs.filter((item) => {
@@ -299,10 +305,9 @@ export default function AdminWeKnoraModelsPage() {
   };
 
   return (
-    <ProductPage className="ws-page mf-page mf-overview-page">
+    <ProductPage className="ws-page mf-page mf-overview-page admin-control-page">
       <PageHeader
-        title="模型与知识库底座"
-        description="在一个稳定概览中确认默认模型、连接健康和知识库迁移状态。"
+        title="模型配置"
         status={
           <StatusBadge
             tone={error ? "danger" : migrationActive ? "info" : loading ? "info" : "success"}
@@ -318,10 +323,38 @@ export default function AdminWeKnoraModelsPage() {
           />
         }
         actions={
-          <button className="btn-small mf-refresh" onClick={refreshAll} disabled={loading}>
-            <RefreshCw size={14} aria-hidden="true" />
-            {loading ? "刷新中…" : "刷新"}
-          </button>
+          <div className="mf-page-actions">
+            <button
+              className="btn-small-primary"
+              onClick={() =>
+                setDrawer(
+                  !isGlobalOperator || counts.anomalies
+                    ? "knowledge"
+                    : externalIssues
+                      ? "external"
+                      : modelIssues
+                        ? "weknora"
+                        : "external",
+                )
+              }
+            >
+              {!isGlobalOperator
+                ? counts.anomalies
+                  ? "处理知识库异常"
+                  : "管理知识库配置"
+                : connectionIssues
+                  ? "处理连接异常"
+                  : "管理模型连接"}
+            </button>
+            <button
+              className="btn-small mf-refresh"
+              onClick={refreshAll}
+              disabled={loading}
+              aria-label="刷新连接状态"
+            >
+              <RefreshCw size={14} aria-hidden="true" />
+            </button>
+          </div>
         }
       />
 
@@ -339,84 +372,97 @@ export default function AdminWeKnoraModelsPage() {
         <div className="mf-inline-message">当前身份为只读视图，修改与迁移动作已隐藏。</div>
       )}
 
-      <section className="mf-overview-strip" aria-label="配置总览">
-        <OverviewMetric label="外部 LLM" value={externalConnections.length} detail="KAP 直连" />
-        <OverviewMetric label="WeKnora 模型" value={models.length} detail="底座可选" />
-        <OverviewMetric label="知识库" value={kbConfigs.length} detail="全部可见范围" />
-        <OverviewMetric
-          label="待初始化"
-          value={counts.pending}
-          detail="需要补齐底座配置"
-          tone={counts.pending ? "danger" : undefined}
-        />
-        <OverviewMetric
-          label="迁移中"
-          value={counts.migrating}
-          detail="异步作业"
-          tone={counts.migrating ? "info" : undefined}
-        />
-        <OverviewMetric
-          label="需要处理"
-          value={counts.anomalies}
-          detail="初始化或迁移异常"
-          tone={counts.anomalies ? "danger" : undefined}
-        />
-      </section>
-
-      <section className="mf-overview-grid" aria-label="模型与底座入口">
-        <OverviewCard
-          icon={<Sparkles size={19} />}
-          kicker="KAP DIRECT"
-          title="外部 LLM"
-          status={`${externalConnections.filter((item) => item.health_status === "healthy" && item.enabled).length}/${externalConnections.length} 连接正常`}
-          facts={[
-            [
-              "内容生成",
-              externalConnections.find((item) => item.model_ref === externalDefaultRef)
-                ?.display_name ?? "未设置",
-            ],
-            [
-              "项目问答",
-              externalConnections.find((item) => item.model_ref === externalDefaultRef)
-                ?.display_name ?? "未设置",
-            ],
-          ]}
-          primary={{ label: "管理外部 LLM", onClick: () => setDrawer("external") }}
-          secondary={
-            canEdit
-              ? { label: "编辑默认用途", onClick: () => setDefaultsModal("external") }
-              : undefined
-          }
-        />
-        <OverviewCard
-          icon={<Bot size={19} />}
-          kicker="WEKNORA BASE"
-          title="WeKnora 底座"
-          status={`${models.filter((item) => item.enabled).length}/${models.length} 模型启用`}
-          facts={[
-            ["默认嵌入", slotName(defaults.embedding)],
-            ["兼容 LLM", slotName(defaults.chat)],
-            ["重排 / 多模态", `${slotName(defaults.rerank)} / ${slotName(defaults.multimodal)}`],
-          ]}
-          primary={{ label: "管理 WeKnora 模型", onClick: () => setDrawer("weknora") }}
-          secondary={
-            canEdit && isGlobalOperator
-              ? { label: "编辑默认底座", onClick: openFoundationDefaults }
-              : undefined
-          }
-        />
-        <OverviewCard
-          icon={<Database size={19} />}
-          kicker="KNOWLEDGE BASES"
-          title="知识库配置"
-          status={counts.anomalies ? `${counts.anomalies} 项需要处理` : "配置状态稳定"}
-          facts={[
-            ["范围", `公司 ${counts.company} · 项目 ${counts.project} · 个人 ${counts.personal}`],
-            ["初始化", `${counts.pending} 项待处理`],
-            ["迁移", `${counts.migrating} 项进行中`],
-          ]}
-          primary={{ label: "管理知识库配置", onClick: () => setDrawer("knowledge") }}
-        />
+      <section className="mf-connection-workspace admin-workspace-panel" aria-label="连接管理">
+        <div className="admin-workspace-heading">
+          <h2>连接管理</h2>
+          <span>{connectionIssues ? "异常连接已置顶" : "所有连接均可继续使用"}</span>
+        </div>
+        <div className="mf-connection-rows">
+          <div
+            className={`mf-connection-row${externalIssues ? " is-actionable" : ""}`}
+            style={{ order: externalIssues ? 0 : 10 }}
+          >
+            <Sparkles size={19} aria-hidden="true" />
+            <div>
+              <h3>外部 LLM</h3>
+              <small>内容生成与项目问答</small>
+            </div>
+            <StatusBadge
+              tone={externalIssues ? "danger" : "success"}
+              label={
+                externalIssues
+                  ? `${externalIssues} 个连接异常`
+                  : `${externalConnections.filter((item) => item.enabled).length} 个连接可用`
+              }
+            />
+            <span>{externalDefaultRef ? "默认用途已配置" : "下一步：设置默认用途"}</span>
+            <button
+              className="btn-small"
+              aria-label="管理外部 LLM"
+              onClick={() => setDrawer("external")}
+            >
+              查看连接
+            </button>
+          </div>
+          <div
+            className={`mf-connection-row${modelIssues ? " is-actionable" : ""}`}
+            style={{ order: modelIssues ? 0 : 20 }}
+          >
+            <Bot size={19} aria-hidden="true" />
+            <div>
+              <h3>WeKnora 底座</h3>
+              <small>嵌入、对话、重排与多模态</small>
+            </div>
+            <StatusBadge
+              tone={modelIssues ? "danger" : "success"}
+              label={
+                modelIssues
+                  ? `${modelIssues} 个凭据缺失`
+                  : `${models.filter((item) => item.enabled).length} 个模型启用`
+              }
+            />
+            <span>
+              {modelIssues ? "下一步：补齐凭据" : `默认嵌入：${slotName(defaults.embedding)}`}
+            </span>
+            <button
+              className="btn-small"
+              aria-label="管理 WeKnora 模型"
+              onClick={() => setDrawer("weknora")}
+            >
+              查看底座
+            </button>
+          </div>
+          <div
+            className={`mf-connection-row${counts.anomalies ? " is-actionable" : ""}`}
+            style={{ order: counts.anomalies ? 0 : 30 }}
+          >
+            <Database size={19} aria-hidden="true" />
+            <div>
+              <h3>知识库配置</h3>
+              <small>公司、项目与个人知识库</small>
+            </div>
+            <StatusBadge
+              tone={counts.anomalies ? "danger" : counts.migrating ? "info" : "success"}
+              label={
+                counts.anomalies
+                  ? `${counts.anomalies} 项异常`
+                  : counts.migrating
+                    ? `${counts.migrating} 项迁移中`
+                    : `${kbConfigs.length} 个知识库可用`
+              }
+            />
+            <span>
+              {counts.anomalies ? "下一步：修复初始化或迁移" : `待初始化 ${counts.pending} 项`}
+            </span>
+            <button
+              className="btn-small"
+              aria-label="管理知识库配置"
+              onClick={() => setDrawer("knowledge")}
+            >
+              查看知识库
+            </button>
+          </div>
+        </div>
       </section>
 
       {notConfigured && (
@@ -438,6 +484,13 @@ export default function AdminWeKnoraModelsPage() {
           void load();
         }}
       >
+        {canEdit && isGlobalOperator && (
+          <div className="mf-drawer-secondary-actions">
+            <button className="btn-small" onClick={() => setDefaultsModal("external")}>
+              编辑默认用途
+            </button>
+          </div>
+        )}
         <UnifiedModelConnectionsSection
           canEdit={canEdit && isGlobalOperator}
           refreshSignal={refreshSignal}
@@ -454,6 +507,13 @@ export default function AdminWeKnoraModelsPage() {
           void load();
         }}
       >
+        {canEdit && isGlobalOperator && (
+          <div className="mf-drawer-secondary-actions">
+            <button className="btn-small" onClick={openFoundationDefaults}>
+              编辑默认底座
+            </button>
+          </div>
+        )}
         <WeknoraModelsSection canEdit={canEdit && isGlobalOperator} refreshSignal={refreshSignal} />
       </DetailDrawer>
 
@@ -792,76 +852,6 @@ export default function AdminWeKnoraModelsPage() {
         )}
       </DetailDrawer>
     </ProductPage>
-  );
-}
-
-function OverviewMetric({
-  label,
-  value,
-  detail,
-  tone,
-}: {
-  label: string;
-  value: number;
-  detail: string;
-  tone?: "info" | "danger";
-}) {
-  return (
-    <div className={`mf-overview-metric ${tone ? `is-${tone}` : ""}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{detail}</small>
-    </div>
-  );
-}
-
-function OverviewCard({
-  icon,
-  kicker,
-  title,
-  status,
-  facts,
-  primary,
-  secondary,
-}: {
-  icon: ReactNode;
-  kicker: string;
-  title: string;
-  status: string;
-  facts: [string, string][];
-  primary: { label: string; onClick: () => void };
-  secondary?: { label: string; onClick: () => void };
-}) {
-  return (
-    <article className="mf-overview-card">
-      <header>
-        <span className="mf-overview-icon">{icon}</span>
-        <div>
-          <small>{kicker}</small>
-          <h3>{title}</h3>
-        </div>
-        <StatusBadge tone="neutral" label={status} />
-      </header>
-      <dl>
-        {facts.map(([label, value]) => (
-          <div key={label}>
-            <dt>{label}</dt>
-            <dd>{value}</dd>
-          </div>
-        ))}
-      </dl>
-      <footer>
-        <button className="btn-small-primary" onClick={primary.onClick}>
-          {primary.label}
-        </button>
-        {secondary && (
-          <button className="btn-small" onClick={secondary.onClick}>
-            {secondary.label}
-          </button>
-        )}
-        <Settings2 size={15} aria-hidden="true" />
-      </footer>
-    </article>
   );
 }
 

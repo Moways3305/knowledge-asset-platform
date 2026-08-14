@@ -22,7 +22,15 @@ const targets = [
     path: "/admin/people",
     root: ".people89-page",
     table: ".pp-table",
-    scenarios: ["normal", "relations-1", "relations-2", "empty", "failure", "forbidden"],
+    scenarios: [
+      "landing",
+      "normal",
+      "relations-1",
+      "relations-2",
+      "empty",
+      "failure",
+      "forbidden",
+    ],
   },
   {
     name: "permissions",
@@ -233,7 +241,6 @@ try {
             const html = root.innerHTML;
             const pageRoot = document.querySelector(target.root);
             const console = pageRoot?.querySelector(".gp-governance-console");
-            const summary = pageRoot?.querySelector(".gp-summary-panel");
             const main = pageRoot?.querySelector(".gp-main-workspace");
             const primary = pageRoot?.querySelector(
               target.name === "people" ? ".pp-list-section" : ".gp-primary-panel",
@@ -243,7 +250,7 @@ try {
               ...(pageRoot?.querySelectorAll(".pp-table-wrap, .gp-table-wrap") ?? []),
             ];
             const rows = pageRoot?.querySelectorAll(`${target.table} tbody tr`) ?? [];
-            const isPeopleDataScenario = ["normal", "relations-1", "relations-2"].includes(
+            const isPeopleDataScenario = ["landing", "normal", "relations-1", "relations-2"].includes(
               scenario,
             );
             const stateOkay =
@@ -256,12 +263,9 @@ try {
                     : Boolean(
                         pageRoot?.querySelector("[role='alert'], .ig-empty-state, .gp-banner"),
                       );
-            const summaryRect = summary?.getBoundingClientRect();
             const mainRect = main?.getBoundingClientRect();
             const primaryRect = primary?.getBoundingClientRect();
             const secondaryRect = secondary?.getBoundingClientRect();
-            const summaryValues = [...(summary?.querySelectorAll(".gp-summary-value") ?? [])];
-            const summaryIcons = [...(summary?.querySelectorAll(".gp-summary-icon svg") ?? [])];
             const fieldMarks = [
               ...(primary?.querySelectorAll(
                 ".gp-row-icon svg, .gp-field-mark svg, .pp-field-mark svg, .pp-role-tag svg, .pp-project-role-item > svg, .gp-status svg, .pp-status-pill svg",
@@ -287,20 +291,17 @@ try {
               overflowX: root.scrollWidth - root.clientWidth,
               safe: secrets.every((secret) => !html.includes(secret)),
               twoColumn:
+                target.name === "company-kb" || !pageRoot?.querySelector(".gp-summary-panel"),
+              statusFirst:
                 target.name === "company-kb" ||
-                (Boolean(console && summaryRect && mainRect && primaryRect) &&
-                  console.children.length === 2 &&
-                  summaryRect.width >= 220 &&
-                  summaryRect.width <= 250 &&
-                  mainRect.width >= summaryRect.width * 2.25 &&
-                  Math.abs(summaryRect.top - mainRect.top) <= 2),
+                (Boolean(console && mainRect) &&
+                  console.children.length === 1 &&
+                  Math.abs(console.getBoundingClientRect().width - mainRect.width) <= 2),
               noWideStatusStrip: !pageRoot?.querySelector(".gp-summary"),
               iconLanguage:
                 target.name === "company-kb"
                   ? Boolean(pageRoot?.querySelector(".ckb-empty-icon svg"))
-                  : summaryValues.length === (target.name === "people" ? 3 : 4) &&
-                    summaryIcons.length === summaryValues.length &&
-                    (scenario !== "normal" || fieldMarks.length >= 3),
+                  : scenario !== "normal" || fieldMarks.length >= 3,
               listFirst: target.name !== "people" || Boolean(primary),
               drawerStructured:
                 target.name !== "people" ||
@@ -381,7 +382,7 @@ try {
           pass:
             metrics.overflowX <= 2 &&
             metrics.safe &&
-            (viewport.width > 1200 ? metrics.twoColumn : metrics.secondaryBelow) &&
+            metrics.statusFirst &&
             metrics.noWideStatusStrip &&
             metrics.iconLanguage &&
             metrics.listFirst &&

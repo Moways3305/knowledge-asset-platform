@@ -188,7 +188,6 @@ try {
           const root = document.documentElement;
           const text = document.body.innerText;
           const console = document.querySelector(".ws87-console");
-          const summary = document.querySelector(".ws87-summary")?.getBoundingClientRect();
           const main = document.querySelector(".ws87-main-workspace")?.getBoundingClientRect();
           const config = document.querySelector(".ws87-config-panel")?.getBoundingClientRect();
           const records = document.querySelector(".ws87-record-panel")?.getBoundingClientRect();
@@ -199,17 +198,26 @@ try {
             return !panel || rect.right <= panel.right + 1;
           });
           const fictionalLabels = ["健康分数", "成功率", "待处理总量", "系统容量", "扫描趋势"];
+          const configWrap = document.querySelector(".ws87-table-wrap");
+          const recordWrap = document.querySelector(".ws87-records");
+          const responsiveCards =
+            root.clientWidth > 720 ||
+            !configWrap ||
+            Boolean(
+              configWrap.scrollWidth <= configWrap.clientWidth + 2 &&
+              [...document.querySelectorAll(".ws87-table tbody tr")].every(
+                (row) => getComputedStyle(row).display === "block",
+              ) &&
+              (!recordWrap || recordWrap.scrollWidth <= recordWrap.clientWidth + 2),
+            );
           return {
             scenario,
             overflowX: root.scrollWidth - root.clientWidth,
             safe: secrets.every((secret) => !document.documentElement.innerHTML.includes(secret)),
-            twoColumn:
-              Boolean(console && summary && main) &&
-              console.children.length === 2 &&
-              Math.abs(summary.y - main.y) <= 2 &&
-              summary.width >= 220 &&
-              summary.width <= 250 &&
-              main.width >= summary.width * 2.4,
+            oneColumn:
+              Boolean(console && main) &&
+              console.children.length === 1 &&
+              Math.abs(console.getBoundingClientRect().width - main.width) <= 2,
             recordBelow:
               scenario === "empty" || scenario === "forbidden"
                 ? !records
@@ -225,9 +233,12 @@ try {
                 ? true
                 : document.querySelectorAll(".ws87-record-table tbody tr").length >= 2,
             actionsVisible,
+            responsiveCards,
+            noScrollInstruction: !text.includes("左右滑动可查看状态与操作"),
             honestSummary:
-              text.includes("最近扫描失败") &&
-              text.includes("最近扫描新增") &&
+              !document.querySelector(".admin-status-band") &&
+              (document.querySelectorAll(".ws87-table tr.is-actionable").length === 0 ||
+                text.includes("异常已置顶")) &&
               fictionalLabels.every((label) => !text.includes(label)),
             readOnly:
               scenario !== "forbidden" ||
@@ -262,10 +273,12 @@ try {
         pass:
           metrics.overflowX <= 2 &&
           metrics.safe &&
-          (viewport.width > 1200 ? metrics.twoColumn : metrics.recordBelow) &&
+          metrics.oneColumn &&
           metrics.recordBelow &&
           metrics.recordsAreTable &&
-          (viewport.width > 1200 ? metrics.actionsVisible : true) &&
+          metrics.actionsVisible &&
+          metrics.responsiveCards &&
+          metrics.noScrollInstruction &&
           metrics.honestSummary &&
           metrics.readOnly &&
           metrics.stateVisible &&

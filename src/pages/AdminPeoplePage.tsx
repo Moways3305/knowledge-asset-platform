@@ -8,9 +8,7 @@ import {
   Link2,
   RefreshCw,
   Search,
-  ShieldAlert,
   ShieldCheck,
-  UserCheck,
   UsersRound,
   X,
 } from "lucide-react";
@@ -238,69 +236,16 @@ export default function AdminPeoplePage() {
     [load],
   );
 
-  const inactiveUsers = people.filter((p) => p.status !== "active").length;
-  const withoutMembership = people.filter(
-    (p) => !p.project_memberships.some((m) => m.status === "active"),
-  ).length;
-  const withoutCompanyRole = people.filter(
-    (p) => !p.company_roles.some((role) => role.status === "active"),
-  ).length;
-
   return (
-    <ProductPage className="people-page gp-page people89-page">
-      <PageHeader
-        eyebrow="身份与权限治理"
-        title="人员治理"
-        description="管理人员账号状态、公司角色与项目成员关系。"
-      />
+    <ProductPage className="people-page gp-page people89-page admin-control-page">
+      <PageHeader eyebrow="身份与权限治理" title="人员治理" />
       <div className="gp-governance-console">
-        <aside className="gp-summary-panel" aria-label="人员摘要">
-          <div className="gp-summary-heading">
-            <span className="gp-summary-heading-icon">
-              <UsersRound size={16} />
-            </span>
-            需要判断
-          </div>
-          <div className="gp-summary-list">
-            <div className={`gp-summary-item ${inactiveUsers > 0 ? "is-warning" : "is-success"}`}>
-              <span className="gp-summary-copy">
-                <span className="gp-summary-icon">
-                  <UserCheck size={14} />
-                </span>
-                <span className="gp-summary-label">停用账号</span>
-              </span>
-              <strong className="gp-summary-value">{inactiveUsers}</strong>
-            </div>
-            <div
-              className={`gp-summary-item ${withoutCompanyRole > 0 ? "is-warning" : "is-success"}`}
-            >
-              <span className="gp-summary-copy">
-                <span className="gp-summary-icon">
-                  <ShieldAlert size={14} />
-                </span>
-                <span className="gp-summary-label">无有效公司角色</span>
-              </span>
-              <strong className="gp-summary-value">{withoutCompanyRole}</strong>
-            </div>
-            <div
-              className={`gp-summary-item ${withoutMembership > 0 ? "is-warning" : "is-success"}`}
-            >
-              <span className="gp-summary-copy">
-                <span className="gp-summary-icon">
-                  <BriefcaseBusiness size={14} />
-                </span>
-                <span className="gp-summary-label">无有效项目关系</span>
-              </span>
-              <strong className="gp-summary-value">{withoutMembership}</strong>
-            </div>
-          </div>
-        </aside>
-
         <main className="gp-main-workspace">
-          <div className="pp-multi-role-card">
+          <details className="pp-multi-role-card">
+            <summary>查看权限边界</summary>
             公司角色和项目角色分别管理。项目知识访问以有效项目成员关系为准；系统管理员不因此获得业务原文权限。
             系统管理员也不进入人员治理。
-          </div>
+          </details>
 
           <section className="pp-section pp-filter-section">
             <div className="pp-toolbar">
@@ -798,126 +743,142 @@ export default function AdminPeoplePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {people.map((u) => {
-                      const activeCompanyRoles = u.company_roles.filter(
-                        (role) => role.status === "active",
-                      );
-                      const activeMemberships = u.project_memberships.filter(
-                        (membership) => membership.status === "active",
-                      );
-                      return (
-                        <tr
-                          key={u.user_id}
-                          className={u.status === "inactive" ? "pp-row-disabled" : ""}
-                        >
-                          <td className="pp-cell-name">{u.name}</td>
-                          <td>
-                            <span
-                              className={`pp-field-mark ${u.wecom_bound ? "is-linked" : "is-muted"}`}
-                            >
-                              <Link2 size={13} />
-                              {u.wecom_bound ? "已绑定" : "未绑定"}
-                            </span>
-                          </td>
-                          <td className="pp-cell-roles">
-                            <span className="pp-role-tags">
-                              {(expandedRoles.has(u.user_id)
-                                ? activeCompanyRoles
-                                : activeCompanyRoles.slice(0, 2)
-                              ).map((c) => (
-                                <span key={c.role_id} className="pp-role-tag">
-                                  <ShieldCheck size={12} />
-                                  {companyRoleLabel[c.company_role] ?? "其他角色"}
-                                </span>
-                              ))}
-                              {activeCompanyRoles.length > 2 && (
-                                <button
-                                  type="button"
-                                  className="pp-expand-toggle"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleRoleExpand(u.user_id);
-                                  }}
-                                >
-                                  {expandedRoles.has(u.user_id) ? (
-                                    <>
-                                      <ChevronUp size={12} /> 收起
-                                    </>
-                                  ) : (
-                                    <>
-                                      +{activeCompanyRoles.length - 2} 查看全部{" "}
-                                      <ChevronDown size={12} />
-                                    </>
-                                  )}
-                                </button>
-                              )}
-                            </span>
-                          </td>
-                          <td className="pp-cell-projects">
-                            {activeMemberships.length > 0 ? (
-                              <span className="pp-project-summary">
-                                {(expandedMemberships.has(u.user_id)
-                                  ? activeMemberships
-                                  : activeMemberships.slice(0, 2)
-                                ).map((m) => (
-                                  <span key={m.membership_id} className="pp-project-role-item">
-                                    <BriefcaseBusiness size={12} />
-                                    <span className="pp-pr-project">{m.project_name}</span>
-                                    <span className="pp-pr-role">
-                                      {projectRoleLabel[m.project_role] ?? "项目成员"}
-                                    </span>
+                    {[...people]
+                      .sort((left, right) => {
+                        const issueScore = (person: PersonDTO) =>
+                          Number(person.status !== "active") +
+                          Number(!person.company_roles.some((role) => role.status === "active")) +
+                          Number(
+                            !person.project_memberships.some(
+                              (membership) => membership.status === "active",
+                            ),
+                          );
+                        return issueScore(right) - issueScore(left);
+                      })
+                      .map((u) => {
+                        const activeCompanyRoles = u.company_roles.filter(
+                          (role) => role.status === "active",
+                        );
+                        const activeMemberships = u.project_memberships.filter(
+                          (membership) => membership.status === "active",
+                        );
+                        const needsAction =
+                          u.status !== "active" ||
+                          activeCompanyRoles.length === 0 ||
+                          activeMemberships.length === 0;
+                        return (
+                          <tr
+                            key={u.user_id}
+                            className={`${needsAction ? "is-actionable" : ""} ${u.status === "inactive" ? "pp-row-disabled" : ""}`}
+                          >
+                            <td className="pp-cell-name">{u.name}</td>
+                            <td>
+                              <span
+                                className={`pp-field-mark ${u.wecom_bound ? "is-linked" : "is-muted"}`}
+                              >
+                                <Link2 size={13} />
+                                {u.wecom_bound ? "已绑定" : "未绑定"}
+                              </span>
+                            </td>
+                            <td className="pp-cell-roles">
+                              <span className="pp-role-tags">
+                                {(expandedRoles.has(u.user_id)
+                                  ? activeCompanyRoles
+                                  : activeCompanyRoles.slice(0, 2)
+                                ).map((c) => (
+                                  <span key={c.role_id} className="pp-role-tag">
+                                    <ShieldCheck size={12} />
+                                    {companyRoleLabel[c.company_role] ?? "其他角色"}
                                   </span>
                                 ))}
-                                {activeMemberships.length > 2 && (
+                                {activeCompanyRoles.length > 2 && (
                                   <button
                                     type="button"
                                     className="pp-expand-toggle"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      toggleMembershipExpand(u.user_id);
+                                      toggleRoleExpand(u.user_id);
                                     }}
                                   >
-                                    {expandedMemberships.has(u.user_id) ? (
+                                    {expandedRoles.has(u.user_id) ? (
                                       <>
                                         <ChevronUp size={12} /> 收起
                                       </>
                                     ) : (
                                       <>
-                                        +{activeMemberships.length - 2} 查看全部{" "}
+                                        +{activeCompanyRoles.length - 2} 查看全部{" "}
                                         <ChevronDown size={12} />
                                       </>
                                     )}
                                   </button>
                                 )}
                               </span>
-                            ) : (
-                              <span className="pp-no-project">—</span>
-                            )}
-                          </td>
-                          <td>
-                            <span className={`pp-status-pill ${statusCls[u.status] ?? ""}`}>
-                              {u.status === "active" ? (
-                                <CircleCheck size={12} />
+                            </td>
+                            <td className="pp-cell-projects">
+                              {activeMemberships.length > 0 ? (
+                                <span className="pp-project-summary">
+                                  {(expandedMemberships.has(u.user_id)
+                                    ? activeMemberships
+                                    : activeMemberships.slice(0, 2)
+                                  ).map((m) => (
+                                    <span key={m.membership_id} className="pp-project-role-item">
+                                      <BriefcaseBusiness size={12} />
+                                      <span className="pp-pr-project">{m.project_name}</span>
+                                      <span className="pp-pr-role">
+                                        {projectRoleLabel[m.project_role] ?? "项目成员"}
+                                      </span>
+                                    </span>
+                                  ))}
+                                  {activeMemberships.length > 2 && (
+                                    <button
+                                      type="button"
+                                      className="pp-expand-toggle"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleMembershipExpand(u.user_id);
+                                      }}
+                                    >
+                                      {expandedMemberships.has(u.user_id) ? (
+                                        <>
+                                          <ChevronUp size={12} /> 收起
+                                        </>
+                                      ) : (
+                                        <>
+                                          +{activeMemberships.length - 2} 查看全部{" "}
+                                          <ChevronDown size={12} />
+                                        </>
+                                      )}
+                                    </button>
+                                  )}
+                                </span>
                               ) : (
-                                <CircleOff size={12} />
+                                <span className="pp-no-project">—</span>
                               )}
-                              {statusLabel[u.status] ?? "状态未知"}
-                            </span>
-                          </td>
-                          <td className="pp-cell-time">{fmtTime(u.recent_session_at)}</td>
-                          <td>
-                            <button
-                              type="button"
-                              className="btn-small"
-                              disabled={detailLoadingId === u.user_id}
-                              onClick={(event) => void openDetail(u.user_id, event.currentTarget)}
-                            >
-                              {detailLoadingId === u.user_id ? "加载中…" : "查看 / 治理"}
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                            </td>
+                            <td>
+                              <span className={`pp-status-pill ${statusCls[u.status] ?? ""}`}>
+                                {u.status === "active" ? (
+                                  <CircleCheck size={12} />
+                                ) : (
+                                  <CircleOff size={12} />
+                                )}
+                                {statusLabel[u.status] ?? "状态未知"}
+                              </span>
+                            </td>
+                            <td className="pp-cell-time">{fmtTime(u.recent_session_at)}</td>
+                            <td>
+                              <button
+                                type="button"
+                                className="btn-small"
+                                disabled={detailLoadingId === u.user_id}
+                                onClick={(event) => void openDetail(u.user_id, event.currentTarget)}
+                              >
+                                {detailLoadingId === u.user_id ? "加载中…" : "查看 / 治理"}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>

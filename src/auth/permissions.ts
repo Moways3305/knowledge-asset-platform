@@ -75,8 +75,6 @@ export const can = {
   viewProject: (c: Capabilities) => c.hasProject || c.isGovernance,
 
   // 管理后台（与后端各端点真实放行条件对齐）：
-  // 运营中枢只聚合调用人本来就能进入的管理工作区，不新增任何后端权限。
-  viewAdminHome: (c: Capabilities) => c.isAdmin || c.isGovernance || c.isProjectManager,
   // 入库管理：list_admin_ingest → admin 或治理角色。
   viewIngestAdmin: adminOrGovernance,
   // 微盘扫描：项目经理仅访问自己当前管理的项目；治理角色可跨项目。

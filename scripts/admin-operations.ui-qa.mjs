@@ -20,6 +20,7 @@ const viewports = [
 ];
 const scenarios = [
   "normal-trend",
+  "parse-only",
   "category-filter",
   "insufficient-data",
   "worker-stale",
@@ -253,21 +254,28 @@ try {
           if (scenario === "indexing-error")
             return fulfill({ detail: "SECRET indexing payload" }, 500);
           const empty = scenario === "empty";
+          const parseOnly = scenario === "parse-only";
           const retryEligible = scenario !== "target-running";
           return fulfill({
-            counts: empty ? { ...counts, index_failed: 0 } : counts,
-            recent_failed: empty
-              ? []
-              : [
-                  failure({ retry_eligible: retryEligible }),
-                  failure({
-                    retry_target: null,
-                    diagnostic_category: "configuration",
-                    diagnostic_label: "配置问题",
-                    operator_error_message: "请完成平台默认模型配置。",
-                    retry_eligible: false,
-                  }),
-                ],
+            counts: empty
+              ? { ...counts, index_failed: 0 }
+              : parseOnly
+                ? { ...counts, index_failed: 0, parse_failed: 5 }
+                : counts,
+            reparse_actionable_count: parseOnly ? 2 : 0,
+            recent_failed:
+              empty || parseOnly
+                ? []
+                : [
+                    failure({ retry_eligible: retryEligible }),
+                    failure({
+                      retry_target: null,
+                      diagnostic_category: "configuration",
+                      diagnostic_label: "配置问题",
+                      operator_error_message: "请完成平台默认模型配置。",
+                      retry_eligible: false,
+                    }),
+                  ],
             diagnostic_counts: {
               configuration: empty ? 0 : 1,
               external_service: empty ? 0 : 2,
@@ -289,7 +297,10 @@ try {
       page.on("console", (message) => messages.push(message.text()));
       page.on("pageerror", (error) => messages.push(error.message));
       await page.goto(`${base}/admin/ingest`, { waitUntil: "networkidle" });
-      await page.getByRole("heading", { name: "管理员运维" }).waitFor();
+      await page.getByRole("heading", { name: "入库管理" }).waitFor();
+      const runtimeDetails = page.locator(".ao85-runtime-details");
+      const runtimeSummary = runtimeDetails.locator("summary");
+      await runtimeSummary.click();
 
       if (scenario === "category-filter") {
         await page.locator(".ao85-diagnostics button", { hasText: "配置问题" }).click();
@@ -326,6 +337,18 @@ try {
       } else {
         await page.getByLabel("近 24 小时索引运维趋势").waitFor();
       }
+
+      await runtimeSummary.click();
+      const trendInitiallyDeferred = await runtimeDetails.evaluate((node) => !node.open);
+      await page.evaluate(() => {
+        window.scrollTo(0, 0);
+        document.querySelectorAll("*").forEach((node) => {
+          if (node instanceof HTMLElement && node.scrollTop > 0) node.scrollTop = 0;
+        });
+      });
+      const screenshot = path.join(outDir, `${scenario}-${viewport.name}.png`);
+      await page.screenshot({ path: screenshot, animations: "disabled", fullPage: true });
+      await runtimeSummary.click();
 
       const trendExpected = !["insufficient-data", "health-error", "forbidden"].includes(scenario);
       const trendReadability = {
@@ -392,8 +415,6 @@ try {
         trendReadability.noUnexpectedTrend = (await page.locator(".ao85-trend").count()) === 0;
       }
 
-      const screenshot = path.join(outDir, `${scenario}-${viewport.name}.png`);
-      await page.screenshot({ path: screenshot, animations: "disabled", fullPage: true });
       releaseTarget?.();
       const result = await page.evaluate((scenarioName) => {
         const text = document.body.innerText;
@@ -426,6 +447,18 @@ try {
           "healthy",
           "stale",
         ];
+        const failureWrap = document.querySelector(".ao84-failures .ao84-table-wrap");
+        const failureState = failureWrap?.querySelector(".ao84-table-state");
+        const mobileFailureLayout =
+          root.clientWidth > 640 ||
+          Boolean(
+            failureWrap &&
+            failureWrap.scrollWidth <= failureWrap.clientWidth + 2 &&
+            [...failureWrap.querySelectorAll("tbody tr")].every(
+              (row) => getComputedStyle(row).display === "block",
+            ),
+          );
+        const stateRect = failureState?.getBoundingClientRect();
         return {
           scenario: scenarioName,
           overflowX: root.scrollWidth - root.clientWidth,
@@ -433,9 +466,22 @@ try {
             (node) => node.scrollWidth > node.clientWidth + 2,
           ).length,
           panels: panels.length,
-          leftNarrower: panels.length === 2 && panels[0].width < panels[1].width,
+          dispositionFirst:
+            panels.length === 2 &&
+            panels[1].y < panels[0].y &&
+            Math.abs(panels[0].width - panels[1].width) <= 2,
           safe: secrets.every((term) => !text.includes(term)),
           localized: enums.every((term) => !text.includes(term)),
+          noInstructionCopy: !text.includes("优先恢复失败、卡住和待确认的入库与索引任务。"),
+          mobileFailureLayout,
+          compactFailureState:
+            root.clientWidth > 640 ||
+            !failureState ||
+            Boolean(
+              stateRect &&
+              stateRect.width <= (failureWrap?.clientWidth ?? 0) + 2 &&
+              stateRect.height <= 180,
+            ),
           healthVisible: text.includes("运行健康"),
           trendVisible: Boolean(document.querySelector(".ao85-trend")),
           insufficient: text.includes("正在积累运维数据"),
@@ -450,15 +496,22 @@ try {
           healthError: text.includes("运行健康暂时无法加载"),
           forbidden: text.includes("入库概览暂时无法加载") && text.includes("索引状态暂时无法加载"),
           empty: text.includes("当前没有索引失败任务"),
+          parsePrimaryAction: Boolean(
+            document.querySelector(
+              '.product-page-actions .ao84-refresh[data-operation="reparse"]:not(:disabled)',
+            ),
+          ),
         };
       }, scenario);
       result.consoleLeak = messages.some((message) => /secret|storage_ref|token/i.test(message));
       result.targetCalls = targetCalls;
       result.targetPathSafe = targetPathSafe;
       result.conflict = result.conflict || conflictObserved;
+      result.trendInitiallyDeferred = trendInitiallyDeferred;
       Object.assign(result, trendReadability);
       const scenarioPass = {
         "normal-trend": result.trendVisible,
+        "parse-only": result.parsePrimaryAction,
         "category-filter": result.categoryFiltered,
         "insufficient-data": result.insufficient && !result.trendVisible,
         "worker-stale": result.stale,
@@ -475,9 +528,13 @@ try {
         result.overflowX <= 2 &&
         result.clipped === 0 &&
         result.panels === 2 &&
-        (viewport.width > 1200 ? result.leftNarrower : true) &&
+        result.dispositionFirst &&
+        result.trendInitiallyDeferred &&
         result.safe &&
         result.localized &&
+        result.noInstructionCopy &&
+        result.mobileFailureLayout &&
+        result.compactFailureState &&
         result.healthVisible &&
         !result.consoleLeak &&
         (trendExpected
