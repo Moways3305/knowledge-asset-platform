@@ -2,15 +2,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Trash2 } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import DangerConfirmDialog from "../../components/DangerConfirmDialog";
+import DetailDrawer from "../../components/DetailDrawer";
 import NamingReviewWorkspace from "../../components/NamingReviewWorkspace";
 import { ApiError } from "../../api/http";
+import { fetchIngestAiResult, retryIngestTask } from "../../api/ingest";
 import {
   classifyBatchNamingCategories,
   fetchNamingOptions,
   previewBatchIngestNaming,
   saveManualNamingCategory,
 } from "../../api/naming";
-import type { PendingIngestItemDTO } from "../../types/ingest";
+import type {
+  IngestAiResultDTO,
+  IngestAiReviewDraftDTO,
+  PendingIngestItemDTO,
+} from "../../types/ingest";
 import type {
   BatchNamingPreviewItemDTO,
   BatchNamingValuesDTO,
@@ -216,6 +222,19 @@ export default function PendingBatchActions({
     Record<string, CategoryClassificationItemDTO>
   >({});
   const [categoryTargetLabel, setCategoryTargetLabel] = useState("");
+  const [bulkCategoryId, setBulkCategoryId] = useState("");
+  const [bulkCategoryTaskIds, setBulkCategoryTaskIds] = useState<Set<string>>(() => new Set());
+  const [targetOptionsBusy, setTargetOptionsBusy] = useState(false);
+  const [targetOptionsError, setTargetOptionsError] = useState<string | null>(null);
+  const targetOptionsRunRef = useRef(0);
+  const targetOptionsPromiseRef = useRef<Promise<NamingOptionsDTO> | null>(null);
+  const aiReviewRunRef = useRef(0);
+  const [aiReviewTask, setAiReviewTask] = useState<PendingIngestItemDTO | null>(null);
+  const [aiReviewResult, setAiReviewResult] = useState<IngestAiResultDTO | null>(null);
+  const [aiReviewForm, setAiReviewForm] = useState<IngestAiReviewDraftDTO | null>(null);
+  const [aiReviewDrafts, setAiReviewDrafts] = useState<Record<string, IngestAiReviewDraftDTO>>({});
+  const [aiReviewBusy, setAiReviewBusy] = useState(false);
+  const [aiReviewError, setAiReviewError] = useState<string | null>(null);
   const [classificationBusy, setClassificationBusy] = useState(false);
   const [closeGuardOpen, setCloseGuardOpen] = useState(false);
   const [reviewTasks, setReviewTasks] = useState<PendingIngestItemDTO[]>([]);
@@ -324,6 +343,34 @@ export default function PendingBatchActions({
     Boolean(targetLibrary) && (targetLibrary !== "project" || Boolean(targetProjectId));
 
   const targetKey = `${targetLibrary}:${targetProjectId}`;
+
+  useEffect(() => {
+    const canLoad =
+      targetLibrary === "company" || (targetLibrary === "project" && Boolean(targetProjectId));
+    if (!confirmOpen || stage !== "target" || !canLoad) return;
+    const runId = ++targetOptionsRunRef.current;
+    setTargetOptionsBusy(true);
+    setTargetOptionsError(null);
+    setOptions(null);
+    const request = fetchNamingOptions(targetLibrary, targetProjectId || undefined);
+    targetOptionsPromiseRef.current = request;
+    void request
+      .then((value) => {
+        if (targetOptionsRunRef.current === runId) setOptions(value);
+      })
+      .catch((error) => {
+        if (targetOptionsRunRef.current !== runId) return;
+        setTargetOptionsError(
+          error instanceof ApiError ? error.message : "目录类别暂时无法加载，将在下一步重试。",
+        );
+      })
+      .finally(() => {
+        if (targetOptionsRunRef.current === runId) {
+          targetOptionsPromiseRef.current = null;
+          setTargetOptionsBusy(false);
+        }
+      });
+  }, [confirmOpen, stage, targetLibrary, targetProjectId]);
   const statesByTask = useMemo(
     () =>
       Object.fromEntries(
@@ -486,6 +533,12 @@ export default function PendingBatchActions({
 
   const selectManualCategory = (taskId: string, categoryId: string) => {
     updateRow(taskId, { category_id: categoryId });
+    setBulkCategoryTaskIds((current) => {
+      const next = new Set(current);
+      if (categoryId && categoryId === bulkCategoryId) next.add(taskId);
+      else next.delete(taskId);
+      return next;
+    });
     if (!categoryId || (targetLibrary !== "project" && targetLibrary !== "company")) return;
     setCategorySuggestions((current) => ({
       ...current,
@@ -511,6 +564,81 @@ export default function PendingBatchActions({
         [taskId]: error instanceof ApiError ? error.message : "人工目录类别暂未保存，请重试",
       }));
     });
+  };
+
+  const resetTargetReviewContext = () => {
+    ++targetOptionsRunRef.current;
+    targetOptionsPromiseRef.current = null;
+    cancelPendingPreviews();
+    setOptions(null);
+    setBulkCategoryId("");
+    setBulkCategoryTaskIds(new Set());
+    setRows({});
+    setPreviews({});
+    setReviewTargetKey("");
+    setCategorySuggestions({});
+    setCategoryTargetLabel("");
+    setEditedTaskIds(new Set());
+    setReviewedTaskIds(new Set());
+    setAiReviewDrafts({});
+    setAiReviewTask(null);
+    setAiReviewResult(null);
+    setAiReviewForm(null);
+    setAiReviewError(null);
+    setTargetOptionsError(null);
+  };
+
+  const loadAiReview = async (task: PendingIngestItemDTO, retry = false) => {
+    const runId = ++aiReviewRunRef.current;
+    setAiReviewTask(task);
+    setAiReviewBusy(true);
+    setAiReviewError(null);
+    try {
+      if (retry) await retryIngestTask(task.id);
+      const result = await fetchIngestAiResult(task.id);
+      if (aiReviewRunRef.current !== runId) return;
+      setAiReviewResult(result);
+      const saved = aiReviewDrafts[task.id];
+      setAiReviewForm(
+        saved ?? {
+          title: result.suggested_title ?? "",
+          one_liner: result.suggested_one_liner ?? "",
+          summary: result.suggested_summary ?? result.summary ?? "",
+          key_points: result.suggested_key_points?.filter(Boolean) ?? [],
+          tags: result.suggested_tags?.filter(Boolean) ?? [],
+        },
+      );
+    } catch (error) {
+      if (aiReviewRunRef.current !== runId) return;
+      setAiReviewResult(null);
+      setAiReviewForm(aiReviewDrafts[task.id] ?? null);
+      setAiReviewError(
+        error instanceof ApiError && error.status === 403
+          ? "当前身份无权查看这条资料的 AI 提取结果。"
+          : error instanceof ApiError
+            ? error.message
+            : "AI 提取结果暂时无法加载，请刷新重试。",
+      );
+    } finally {
+      if (aiReviewRunRef.current === runId) setAiReviewBusy(false);
+    }
+  };
+
+  const saveAiReviewDraft = () => {
+    if (!aiReviewTask || !aiReviewForm) return;
+    const draft = {
+      ...aiReviewForm,
+      title: aiReviewForm.title.trim(),
+      one_liner: aiReviewForm.one_liner.trim(),
+      summary: aiReviewForm.summary.trim(),
+      key_points: aiReviewForm.key_points.map((item) => item.trim()).filter(Boolean),
+      tags: aiReviewForm.tags.map((item) => item.trim()).filter(Boolean),
+    };
+    setAiReviewDrafts((current) => ({ ...current, [aiReviewTask.id]: draft }));
+    if (draft.title && draft.title !== rows[aiReviewTask.id]?.subject) {
+      updateRow(aiReviewTask.id, { subject: draft.title });
+    }
+    setAiReviewTask(null);
   };
 
   const classifyCategories = async (retry: boolean) => {
@@ -580,7 +708,10 @@ export default function PendingBatchActions({
     setLoading(true);
     setDialogError(null);
     try {
-      const value = await fetchNamingOptions(destination, targetProjectId || undefined);
+      const value =
+        options ??
+        (await (targetOptionsPromiseRef.current ??
+          fetchNamingOptions(destination, targetProjectId || undefined)));
       if (!value.required) {
         const projectId = targetProjectId || undefined;
         closeAndResetReview();
@@ -605,27 +736,47 @@ export default function PendingBatchActions({
           previewRunsRef.current[taskId] += 1;
         });
         let classified: Record<string, CategoryClassificationItemDTO> = {};
-        try {
-          classified = (await classifyCategories(false)) ?? {};
-        } catch {
+        if (bulkCategoryId) {
           classified = Object.fromEntries(
             selectedConfirmTasks.map((task) => [
               task.id,
               {
                 task_id: task.id,
-                suggested_category_id: null,
-                category_source: "needs_manual" as const,
-                category_confidence: "low" as const,
-                category_reason: "AI 目录建议暂时失败，请人工选择或重试 AI 建议",
+                suggested_category_id: bulkCategoryId,
+                category_source: "manual" as const,
+                category_confidence: "high" as const,
+                category_reason: "本批目录类别",
                 candidate_rule_revision: value.rule_version,
-                status: "failed" as const,
-                retryable: true,
+                status: "classified" as const,
+                retryable: false,
               },
             ]),
           );
           setCategorySuggestions(classified);
-          setDialogError("AI 目录建议暂时失败；目录选项已保留，可人工选择或重试 AI 建议。");
-        }
+          setCategoryTargetLabel("本批人工设置");
+          setBulkCategoryTaskIds(new Set(selectedConfirmTasks.map((task) => task.id)));
+        } else
+          try {
+            classified = (await classifyCategories(false)) ?? {};
+          } catch {
+            classified = Object.fromEntries(
+              selectedConfirmTasks.map((task) => [
+                task.id,
+                {
+                  task_id: task.id,
+                  suggested_category_id: null,
+                  category_source: "needs_manual" as const,
+                  category_confidence: "low" as const,
+                  category_reason: "AI 目录建议暂时失败，请人工选择或重试 AI 建议",
+                  candidate_rule_revision: value.rule_version,
+                  status: "failed" as const,
+                  retryable: true,
+                },
+              ]),
+            );
+            setCategorySuggestions(classified);
+            setDialogError("AI 目录建议暂时失败；目录选项已保留，可人工选择或重试 AI 建议。");
+          }
         const nextRows = initialRows(selectedConfirmTasks, value, classified ?? {});
         setRows(nextRows);
         setPreviews({});
@@ -782,13 +933,23 @@ export default function PendingBatchActions({
       return;
     }
     setConfirmingTaskId(task.id);
-    const result = await flow.handleSingleBatchConfirm(
-      task,
-      targetLibrary,
-      targetProjectId || undefined,
-      row,
-      warningCodesByTask[task.id] ?? [],
-    );
+    const singleDraft = aiReviewDrafts[task.id];
+    const result = singleDraft
+      ? await flow.handleSingleBatchConfirm(
+          task,
+          targetLibrary,
+          targetProjectId || undefined,
+          row,
+          warningCodesByTask[task.id] ?? [],
+          singleDraft,
+        )
+      : await flow.handleSingleBatchConfirm(
+          task,
+          targetLibrary,
+          targetProjectId || undefined,
+          row,
+          warningCodesByTask[task.id] ?? [],
+        );
     setConfirmingTaskId(null);
     setConfirmCandidate(null);
     if (result.succeededIds.includes(task.id)) {
@@ -844,43 +1005,54 @@ export default function PendingBatchActions({
     const submittedRows = Object.fromEntries(
       selectedConfirmTasks.map((task) => [task.id, rows[task.id]]),
     );
-    void flow.handleBatchConfirm(
+    const onCompleted = (result: {
+      succeededIds: string[];
+      failedIds: string[];
+      resultAssetIds?: Record<string, string>;
+    }) => {
+      if (result.failedIds.length === 0) {
+        closeAndResetReview();
+        return;
+      }
+      const succeeded = new Set(result.succeededIds);
+      const completed = selectedConfirmTasks
+        .filter((task) => succeeded.has(task.id))
+        .map((task) => ({
+          taskId: task.id,
+          title:
+            rows[task.id]?.subject.trim() || task.suggested_title?.trim() || task.source_file_name,
+          assetId: result.resultAssetIds?.[task.id],
+        }));
+      setCompletedReviewItems((current) => [
+        ...current.filter((item) => !succeeded.has(item.taskId)),
+        ...completed,
+      ]);
+      setReviewTasks((current) => current.filter((task) => !succeeded.has(task.id)));
+      setDialogError(
+        `${result.failedIds.length} 项资料确认未完成，已保留本次核对内容，请根据行内提示修正后重试。`,
+      );
+    };
+    const commonArgs = [
       selectedConfirmTasks,
       destination,
       projectId,
       submittedRows,
       warningCodesByTask,
       true,
-      (result) => {
-        if (result.failedIds.length === 0) {
-          closeAndResetReview();
-          return;
-        }
-        const succeeded = new Set(result.succeededIds);
-        const completed = selectedConfirmTasks
-          .filter((task) => succeeded.has(task.id))
-          .map((task) => ({
-            taskId: task.id,
-            title:
-              rows[task.id]?.subject.trim() ||
-              task.suggested_title?.trim() ||
-              task.source_file_name,
-            assetId: result.resultAssetIds?.[task.id],
-          }));
-        setCompletedReviewItems((current) => [
-          ...current.filter((item) => !succeeded.has(item.taskId)),
-          ...completed,
-        ]);
-        setReviewTasks((current) => current.filter((task) => !succeeded.has(task.id)));
-        setDialogError(
-          `${result.failedIds.length} 项资料确认未完成，已保留本次核对内容，请根据行内提示修正后重试。`,
-        );
-      },
-    );
+      onCompleted,
+    ] as const;
+    if (Object.keys(aiReviewDrafts).length > 0) {
+      void flow.handleBatchConfirm(...commonArgs, aiReviewDrafts);
+    } else {
+      void flow.handleBatchConfirm(...commonArgs);
+    }
   };
 
   const closeAndResetReview = () => {
     cancelPendingPreviews();
+    ++targetOptionsRunRef.current;
+    ++aiReviewRunRef.current;
+    targetOptionsPromiseRef.current = null;
     setConfirmOpen(false);
     setCloseGuardOpen(false);
     setStage("target");
@@ -898,6 +1070,15 @@ export default function PendingBatchActions({
     setPreviewFeedback({});
     setCategorySuggestions({});
     setCategoryTargetLabel("");
+    setBulkCategoryId("");
+    setBulkCategoryTaskIds(new Set());
+    setTargetOptionsBusy(false);
+    setTargetOptionsError(null);
+    setAiReviewTask(null);
+    setAiReviewResult(null);
+    setAiReviewForm(null);
+    setAiReviewDrafts({});
+    setAiReviewError(null);
     setDialogError(null);
     setReviewTasks([]);
     setReviewInitialCount(0);
@@ -996,8 +1177,10 @@ export default function PendingBatchActions({
                 aria-label="批量入库目标知识库"
                 value={targetLibrary}
                 onChange={(event) => {
+                  resetTargetReviewContext();
                   setTargetLibrary(event.target.value as TargetLibrary);
                   setTargetProjectId("");
+                  setDialogError(null);
                 }}
               >
                 <option value="">请选择目标知识库</option>
@@ -1012,7 +1195,11 @@ export default function PendingBatchActions({
                 <select
                   aria-label="批量入库目标项目"
                   value={targetProjectId}
-                  onChange={(event) => setTargetProjectId(event.target.value)}
+                  onChange={(event) => {
+                    resetTargetReviewContext();
+                    setTargetProjectId(event.target.value);
+                    setDialogError(null);
+                  }}
                 >
                   <option value="">请选择目标项目</option>
                   {(flow.projects ?? []).map((project) => (
@@ -1023,6 +1210,26 @@ export default function PendingBatchActions({
                 </select>
               </label>
             )}
+            {(targetLibrary === "company" ||
+              (targetLibrary === "project" && Boolean(targetProjectId))) && (
+              <label className="upload77-field">
+                <span>本批目录类别</span>
+                <select
+                  aria-label="本批目录类别"
+                  disabled={targetOptionsBusy}
+                  value={bulkCategoryId}
+                  onChange={(event) => setBulkCategoryId(event.target.value)}
+                >
+                  <option value="">暂不统一指定，下一步逐条选择</option>
+                  {(options?.categories ?? []).map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.primary} / {category.secondary}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {targetOptionsError && <div role="alert">{targetOptionsError}</div>}
           </>
         ) : (
           <div className="upload77-batch-naming-review">
@@ -1157,6 +1364,13 @@ export default function PendingBatchActions({
                             : "待核对"}
                         </span>
                         <button
+                          className="btn-secondary"
+                          onClick={() => void loadAiReview(task)}
+                          type="button"
+                        >
+                          查看 AI 提取
+                        </button>
+                        <button
                           aria-label={`确认入库 ${task.source_file_name}`}
                           className="btn-primary upload77-batch-confirm-one"
                           disabled={
@@ -1254,7 +1468,9 @@ export default function PendingBatchActions({
                             <small className="upload77-batch-naming-notice">规则唯一选项</small>
                           )}
                         {categorySuggestion?.category_source === "manual" && (
-                          <small className="upload77-batch-naming-notice">人工已选择</small>
+                          <small className="upload77-batch-naming-notice">
+                            {bulkCategoryTaskIds.has(task.id) ? "批量设置" : "人工已选择"}
+                          </small>
                         )}
                         {(!categorySuggestion ||
                           categorySuggestion.category_source === "needs_manual") && (
@@ -1414,6 +1630,150 @@ export default function PendingBatchActions({
           </div>
         )}
       </GovernedConfirmSurface>
+
+      <DetailDrawer
+        open={aiReviewTask !== null}
+        title="AI 提取核对"
+        description={aiReviewTask?.source_file_name}
+        busy={aiReviewBusy}
+        onClose={() => {
+          if (!aiReviewBusy) {
+            ++aiReviewRunRef.current;
+            setAiReviewTask(null);
+          }
+        }}
+        footer={
+          <>
+            <button
+              className="btn-secondary"
+              disabled={aiReviewBusy}
+              onClick={() => {
+                ++aiReviewRunRef.current;
+                setAiReviewTask(null);
+              }}
+              type="button"
+            >
+              取消
+            </button>
+            <button
+              className="btn-primary"
+              disabled={
+                aiReviewBusy || !aiReviewForm?.title.trim() || !aiReviewForm?.summary.trim()
+              }
+              onClick={saveAiReviewDraft}
+              type="button"
+            >
+              保存本条修改
+            </button>
+          </>
+        }
+      >
+        {aiReviewBusy ? (
+          <p role="status">正在读取 AI 提取结果…</p>
+        ) : aiReviewError ? (
+          <div role="alert">
+            <p>{aiReviewError}</p>
+            <button
+              className="btn-secondary"
+              onClick={() => aiReviewTask && void loadAiReview(aiReviewTask)}
+              type="button"
+            >
+              刷新
+            </button>
+          </div>
+        ) : aiReviewResult?.status === "processing" ? (
+          <div role="status">
+            <p>AI 提取仍在处理中，完成前不会提交入库。</p>
+            <button
+              className="btn-secondary"
+              onClick={() => aiReviewTask && void loadAiReview(aiReviewTask)}
+              type="button"
+            >
+              刷新状态
+            </button>
+          </div>
+        ) : aiReviewResult?.status === "failed" ? (
+          <div role="alert">
+            <p>AI 提取未完成，可重试生成；当前资料不会因此入库。</p>
+            <button
+              className="btn-secondary"
+              onClick={() => aiReviewTask && void loadAiReview(aiReviewTask, true)}
+              type="button"
+            >
+              重试生成
+            </button>
+          </div>
+        ) : aiReviewForm ? (
+          <div className="upload77-ai-review-form">
+            <label>
+              <span>建议标题</span>
+              <input
+                value={aiReviewForm.title}
+                onChange={(event) =>
+                  setAiReviewForm((current) =>
+                    current ? { ...current, title: event.target.value } : current,
+                  )
+                }
+              />
+            </label>
+            <label>
+              <span>一句话摘要</span>
+              <textarea
+                rows={2}
+                value={aiReviewForm.one_liner}
+                onChange={(event) =>
+                  setAiReviewForm((current) =>
+                    current ? { ...current, one_liner: event.target.value } : current,
+                  )
+                }
+              />
+            </label>
+            <label>
+              <span>详细摘要</span>
+              <textarea
+                rows={8}
+                value={aiReviewForm.summary}
+                onChange={(event) =>
+                  setAiReviewForm((current) =>
+                    current ? { ...current, summary: event.target.value } : current,
+                  )
+                }
+              />
+            </label>
+            <label>
+              <span>关键点（每行一项）</span>
+              <textarea
+                rows={5}
+                value={aiReviewForm.key_points.join("\n")}
+                onChange={(event) =>
+                  setAiReviewForm((current) =>
+                    current ? { ...current, key_points: event.target.value.split("\n") } : current,
+                  )
+                }
+              />
+            </label>
+            <label>
+              <span>标签（用逗号分隔）</span>
+              <input
+                value={aiReviewForm.tags.join("，")}
+                onChange={(event) =>
+                  setAiReviewForm((current) =>
+                    current ? { ...current, tags: event.target.value.split(/[,，]/) } : current,
+                  )
+                }
+              />
+            </label>
+            <div role="status">
+              生成状态：
+              {aiReviewResult?.suggestion_generation_status === "generated"
+                ? "已生成"
+                : aiReviewResult?.suggestion_generation_status === "needs_correction"
+                  ? "需校正"
+                  : "需人工补齐"}
+            </div>
+          </div>
+        ) : null}
+      </DetailDrawer>
 
       <ConfirmDialog
         open={closeGuardOpen}

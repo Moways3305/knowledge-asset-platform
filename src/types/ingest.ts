@@ -175,6 +175,15 @@ export interface IngestAiResultDTO {
   extracted_text_preview: string | null;
 }
 
+/** User-reviewed AI fields kept locally until the governed confirm request. */
+export interface IngestAiReviewDraftDTO {
+  title: string;
+  one_liner: string;
+  summary: string;
+  key_points: string[];
+  tags: string[];
+}
+
 export interface IngestConfirmRequestDTO {
   title: string;
   one_liner?: string;

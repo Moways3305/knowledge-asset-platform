@@ -372,20 +372,28 @@ describe("KnowledgeListPage reference implementation", () => {
     auth.capabilities.hasProject = false;
     renderPage("/knowledge");
     expect(await screen.findByRole("button", { name: /公司库/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /项目库/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /项目库/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /项目库/ }));
+    expect(await screen.findByRole("button", { name: /供应链优化项目/ })).toHaveTextContent(
+      "摘要可见",
+    );
     expect(fetchKnowledgePage).not.toHaveBeenCalled();
   });
 
-  it("fails closed when a project directory URL names a project outside the current identity", async () => {
+  it("fails closed when a project directory URL is not returned by the governed catalog", async () => {
     auth.authMe.projects = [
       { projectId: PROJECT_A, projectName: "华东交付项目", projectRole: "consultant" },
     ];
 
     renderPage(
-      `/knowledge?scope=project&project_id=${PROJECT_B}&directory_key=project.deliverables`,
+      "/knowledge?scope=project&project_id=00000000-0000-0000-0000-0000000000ff&directory_key=project.deliverables",
     );
 
-    expect(await screen.findByRole("button", { name: /公司库/ })).toBeInTheDocument();
+    await waitFor(() => expect(fetchKnowledgeDirectories).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.queryByText("正在读取可进入的目录…")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: /公司库/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /项目库/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /个人库/ })).toBeInTheDocument();
     expect(fetchKnowledgeDirectories).toHaveBeenLastCalledWith({});
@@ -394,10 +402,38 @@ describe("KnowledgeListPage reference implementation", () => {
     expect(screen.queryByText("03 交付成果")).not.toBeInTheDocument();
   });
 
+  it("restores a cross-project directory URL when the governed catalog returns it", async () => {
+    auth.authMe.projects = [
+      { projectId: PROJECT_A, projectName: "华东交付项目", projectRole: "consultant" },
+    ];
+    renderPage(
+      `/knowledge?scope=project&project_id=${PROJECT_B}&directory_key=project.deliverables`,
+    );
+
+    expect(await screen.findByText(restrictedAsset.title)).toBeInTheDocument();
+    expect(fetchKnowledgeDirectories).toHaveBeenCalledWith({
+      scope: "project",
+      projectId: PROJECT_B,
+    });
+    expect(fetchKnowledgePage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: "project",
+        projectId: PROJECT_B,
+        directoryKey: "project.deliverables",
+      }),
+    );
+    expect(screen.getByRole("navigation", { name: "知识资产目录路径" })).toHaveTextContent(
+      "供应链优化项目",
+    );
+  });
+
   it("returns a project directory URL without a project id to the knowledge root", async () => {
     renderPage("/knowledge?scope=project&directory_key=project.deliverables");
 
-    expect(await screen.findByRole("button", { name: /公司库/ })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByText("正在读取可进入的目录…")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: /公司库/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /项目库/ })).toBeInTheDocument();
     expect(screen.queryByText("03 交付成果")).not.toBeInTheDocument();
     expect(fetchKnowledgePage).not.toHaveBeenCalled();

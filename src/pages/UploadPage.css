@@ -731,6 +731,28 @@
   font-size: 11px;
 }
 
+.upload77-ai-review-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.upload77-ai-review-form label {
+  display: grid;
+  gap: 0.4rem;
+  font-weight: 600;
+}
+
+.upload77-ai-review-form input,
+.upload77-ai-review-form textarea {
+  width: 100%;
+  border: 1px solid var(--color-border, #d8dee8);
+  border-radius: 8px;
+  padding: 0.65rem 0.75rem;
+  font: inherit;
+  font-weight: 400;
+  resize: vertical;
+}
+
 .upload77-batch-naming-grid input,
 .upload77-batch-naming-grid select {
   min-width: 0;

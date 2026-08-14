@@ -1357,6 +1357,68 @@ async def test_category_classifier_invalid_id_fails_to_manual(client):
     assert low.json()["items"][0]["category_source"] == "needs_manual"
 
 
+async def test_manual_batch_category_confirmation_overrides_stored_ai_suggestion(
+    client, db_session
+):
+    ai_category, manual_category = uuid.uuid4(), uuid.uuid4()
+    await _publish_categories(
+        client,
+        [(ai_category, "项目复盘"), (manual_category, "交付成果")],
+    )
+    task_id = await _upload(client)
+    ai = await db_session.scalar(
+        select(IngestTaskAiResult).where(IngestTaskAiResult.ingest_task_id == uuid.UUID(task_id))
+    )
+    ai.naming_parsed_fields = {
+        **(ai.naming_parsed_fields or {}),
+        "category_suggestion": {
+            "suggested_category_id": str(ai_category),
+            "category_source": "ai_content",
+            "category_confidence": "high",
+            "category_reason": "旧 AI 建议",
+            "candidate_rule_revision": 2,
+            "status": "classified",
+        },
+    }
+    await db_session.commit()
+
+    naming = {
+        "category_id": str(manual_category),
+        "subject": "人工批量类别覆盖",
+        "formed_on": "2026-08-14",
+        "version": "V1",
+    }
+    preview = await client.post(
+        f"/api/v1/ingest/{task_id}/naming-preview",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "confidentiality_level": "L2",
+            "naming": naming,
+        },
+    )
+    assert preview.status_code == 200, preview.text
+    confirmed = await client.post(
+        f"/api/v1/ingest/{task_id}/confirm",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "title": "人工批量类别覆盖",
+            "summary": "人工确认摘要",
+            "tags": [],
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+            "target_zone": "material",
+            "confidentiality_level": "L2",
+            "acknowledged_naming_warning_codes": _warning_codes(preview.json()),
+            "naming": naming,
+        },
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert "交付成果" in confirmed.json()["canonical_name"]
+    assert "项目复盘" not in confirmed.json()["canonical_name"]
+
+
 async def test_category_classifier_batches_twenty_safe_drafts_without_extracted_text(client):
     first, second = uuid.uuid4(), uuid.uuid4()
     await _publish_categories(client, [(first, "辅导过程"), (second, "项目复盘")])
