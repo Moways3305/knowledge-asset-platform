@@ -1635,7 +1635,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         {
           [task.id]: {
             category_id: "category-a",
-            subject: "人工核对标题",
+            subject: "主表单中的不同主题",
             formed_on: "2026-08-14",
             version: "V1",
             confidentiality_level: "L3",
@@ -1666,6 +1666,9 @@ describe("useUploadFlow model selection (PBC-38)", () => {
               summary: "人工详细摘要",
               key_points: ["人工关键点"],
               tags: ["人工标签"],
+              naming: expect.objectContaining({
+                subject: "人工核对标题",
+              }),
             }),
           }),
         ],

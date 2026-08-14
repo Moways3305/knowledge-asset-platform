@@ -280,9 +280,10 @@ export function useUploadFlow() {
             }
             const governedNaming = namingByTask?.[task.id];
             const reviewedAi = aiReviewDrafts?.[task.id];
+            const reviewedTitle = reviewedAi?.title.trim();
             const title =
+              reviewedTitle ||
               governedNaming?.subject.trim() ||
-              reviewedAi?.title.trim() ||
               ai.suggested_title?.trim() ||
               task.suggested_title?.trim() ||
               "";
@@ -320,7 +321,7 @@ export function useUploadFlow() {
                 naming: governedNaming
                   ? {
                       category_id: governedNaming.category_id,
-                      subject: governedNaming.subject,
+                      subject: reviewedTitle || governedNaming.subject,
                       formed_on: governedNaming.formed_on,
                       version: governedNaming.version,
                       applicable_to:

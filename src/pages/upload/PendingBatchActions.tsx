@@ -801,6 +801,7 @@ export default function PendingBatchActions({
   };
 
   const retryCategoryClassifications = async () => {
+    if (bulkCategoryId) return;
     try {
       const classified = await classifyCategories(true);
       if (!classified) return;
@@ -826,6 +827,7 @@ export default function PendingBatchActions({
 
   const retryOneCategoryClassification = async (taskId: string) => {
     if (targetLibrary !== "project" && targetLibrary !== "company") return;
+    if (bulkCategoryId || bulkCategoryTaskIds.has(taskId)) return;
     setClassificationBusy(true);
     try {
       const response = await classifyBatchNamingCategories({
@@ -1246,14 +1248,16 @@ export default function PendingBatchActions({
                 )}
               </div>
               <div className="upload77-batch-naming-row-actions">
-                <button
-                  className="btn-secondary"
-                  disabled={loading || classificationBusy}
-                  onClick={() => void retryCategoryClassifications()}
-                  type="button"
-                >
-                  {classificationBusy ? "正在分类…" : "重试待分类项"}
-                </button>
+                {!bulkCategoryId && (
+                  <button
+                    className="btn-secondary"
+                    disabled={loading || classificationBusy}
+                    onClick={() => void retryCategoryClassifications()}
+                    type="button"
+                  >
+                    {classificationBusy ? "正在分类…" : "重试待分类项"}
+                  </button>
+                )}
                 <button
                   className="btn-secondary"
                   disabled={loading}
@@ -1476,15 +1480,17 @@ export default function PendingBatchActions({
                           categorySuggestion.category_source === "needs_manual") && (
                           <small className="upload77-batch-naming-error">
                             {categorySuggestion?.category_reason ?? "尚未按当前规则分类"}
-                            {categorySuggestion?.retryable && (
-                              <button
-                                disabled={classificationBusy || editedTaskIds.has(task.id)}
-                                onClick={() => void retryOneCategoryClassification(task.id)}
-                                type="button"
-                              >
-                                重试此项
-                              </button>
-                            )}
+                            {categorySuggestion?.retryable &&
+                              !bulkCategoryId &&
+                              !bulkCategoryTaskIds.has(task.id) && (
+                                <button
+                                  disabled={classificationBusy || editedTaskIds.has(task.id)}
+                                  onClick={() => void retryOneCategoryClassification(task.id)}
+                                  type="button"
+                                >
+                                  重试此项
+                                </button>
+                              )}
                           </small>
                         )}
                       </label>

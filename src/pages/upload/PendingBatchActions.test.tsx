@@ -217,12 +217,15 @@ describe("PendingBatchActions governed review", () => {
 
     expect(await screen.findAllByText("批量设置")).toHaveLength(2);
     expect(namingApi.classifyBatchNamingCategories).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "重试待分类项" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重试此项" })).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("bulk-two.pdf 目录类别"), {
       target: { value: "method" },
     });
     expect(screen.getByLabelText("bulk-one.pdf 目录类别")).toHaveValue("deliverable");
     expect(screen.getByLabelText("bulk-two.pdf 目录类别")).toHaveValue("method");
     expect(screen.getByText("人工已选择")).toBeInTheDocument();
+    expect(namingApi.classifyBatchNamingCategories).not.toHaveBeenCalled();
   });
 
   it("loads AI extraction only on demand and retains the reviewed draft for final confirmation", async () => {
