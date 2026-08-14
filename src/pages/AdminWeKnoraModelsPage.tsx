@@ -170,12 +170,13 @@ export default function AdminWeKnoraModelsPage() {
   const externalIssues = externalConnections.filter(
     (connection) => connection.enabled && connection.health_status !== "healthy",
   ).length;
-  const connectionIssues = counts.anomalies + modelIssues + externalIssues;
-  const availableConnections =
-    externalConnections.filter(
-      (connection) => connection.enabled && connection.health_status === "healthy",
-    ).length +
-    models.filter((model) => model.enabled && model.credential_status !== "missing").length;
+  const connectionIssues = counts.anomalies + (isGlobalOperator ? modelIssues + externalIssues : 0);
+  const availableConnections = isGlobalOperator
+    ? externalConnections.filter(
+        (connection) => connection.enabled && connection.health_status === "healthy",
+      ).length +
+      models.filter((model) => model.enabled && model.credential_status !== "missing").length
+    : kbConfigs.filter((config) => config.mapping_status === "active").length;
 
   const filteredKbs = useMemo(() => {
     const query = kbQuery.trim().toLowerCase();
@@ -335,7 +336,7 @@ export default function AdminWeKnoraModelsPage() {
               className="btn-small-primary"
               onClick={() =>
                 setDrawer(
-                  counts.anomalies
+                  !isGlobalOperator || counts.anomalies
                     ? "knowledge"
                     : externalIssues
                       ? "external"
@@ -345,7 +346,13 @@ export default function AdminWeKnoraModelsPage() {
                 )
               }
             >
-              {connectionIssues ? "处理连接异常" : "管理模型连接"}
+              {!isGlobalOperator
+                ? counts.anomalies
+                  ? "处理知识库异常"
+                  : "管理知识库配置"
+                : connectionIssues
+                  ? "处理连接异常"
+                  : "管理模型连接"}
             </button>
             <button
               className="btn-small mf-refresh"
@@ -363,7 +370,7 @@ export default function AdminWeKnoraModelsPage() {
         <div className={connectionIssues ? "is-danger" : ""}>
           <strong>{connectionIssues}</strong>
           <span>需要处理</span>
-          <small>凭据、初始化或迁移异常</small>
+          <small>{isGlobalOperator ? "凭据、初始化或迁移异常" : "知识库初始化或迁移异常"}</small>
         </div>
         <div className="is-processing">
           <strong>{counts.migrating}</strong>
@@ -372,8 +379,8 @@ export default function AdminWeKnoraModelsPage() {
         </div>
         <div>
           <strong>{availableConnections}</strong>
-          <span>可用连接</span>
-          <small>已启用且通过状态检查</small>
+          <span>{isGlobalOperator ? "可用连接" : "可用知识库"}</span>
+          <small>{isGlobalOperator ? "已启用且通过状态检查" : "当前项目范围"}</small>
         </div>
       </section>
 

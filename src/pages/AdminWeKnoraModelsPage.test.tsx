@@ -370,4 +370,41 @@ describe("AdminWeKnoraModelsPage modal workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "管理知识库配置" }));
     expect(screen.queryByRole("button", { name: "配置" })).not.toBeInTheDocument();
   });
+
+  it("routes project managers to their actionable knowledge-base workspace", async () => {
+    Object.assign(auth.capabilities, {
+      isAdmin: false,
+      isGovernance: false,
+      isProjectManager: true,
+    });
+    vi.mocked(fetchWeknoraModels).mockResolvedValue([
+      { ...models[0], credential_status: "missing" },
+    ]);
+    vi.mocked(fetchWeknoraKbConfigs).mockResolvedValue([
+      {
+        ...kb,
+        migration: {
+          ...kb.migration!,
+          job_status: "completed",
+          completed_count: 8,
+          failed_count: 0,
+        },
+      },
+    ]);
+    renderPage();
+
+    const heading = await screen.findByRole("heading", { name: "模型配置" });
+    const header = heading.closest("header");
+    expect(header).not.toBeNull();
+    expect(within(header!).getByRole("button", { name: "管理知识库配置" })).toBeInTheDocument();
+    expect(screen.getByLabelText("连接运行状态")).toHaveTextContent(
+      "0需要处理知识库初始化或迁移异常",
+    );
+    expect(fetchModelConnections).not.toHaveBeenCalled();
+    expect(fetchWeknoraDefaultModels).not.toHaveBeenCalled();
+
+    fireEvent.click(within(header!).getByRole("button", { name: "管理知识库配置" }));
+    expect(screen.getByRole("dialog", { name: "管理知识库配置" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "新增 WeKnora 模型" })).not.toBeInTheDocument();
+  });
 });
