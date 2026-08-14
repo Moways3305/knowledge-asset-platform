@@ -200,7 +200,9 @@ describe("AdminIngestPage operations reference", () => {
     renderPage();
 
     expect(await screen.findByRole("heading", { name: "入库管理" })).toBeInTheDocument();
-    expect(screen.getByText("优先恢复失败、卡住和待确认的入库与索引任务。")).toBeInTheDocument();
+    expect(
+      screen.queryByText("优先恢复失败、卡住和待确认的入库与索引任务。"),
+    ).not.toBeInTheDocument();
     const tabs = screen.getByRole("navigation", { name: "管理员运维页面" });
     expect(within(tabs).getByRole("link", { name: "索引维护" })).toHaveAttribute(
       "aria-current",

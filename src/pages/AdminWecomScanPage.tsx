@@ -424,20 +424,24 @@ export default function AdminWecomScanPage() {
                         const safeError = safeRecordError(record);
                         return (
                           <tr key={`${record.scan_started_at}-${index}`}>
-                            <td>{formatBeijingTime(record.scan_started_at)}</td>
-                            <td>{formatBeijingTime(record.scan_completed_at)}</td>
-                            <td>
+                            <td data-label="开始时间">
+                              {formatBeijingTime(record.scan_started_at)}
+                            </td>
+                            <td data-label="完成时间">
+                              {formatBeijingTime(record.scan_completed_at)}
+                            </td>
+                            <td data-label="状态">
                               <span
                                 className={`ws87-pill ${scanStatusCls[record.scan_status] ?? "ws-result-empty"}`}
                               >
                                 {scanStatusLabel[record.scan_status] ?? "未知"}
                               </span>
                             </td>
-                            <td>{record.discovered_count}</td>
-                            <td>{record.new_count}</td>
-                            <td>{record.duplicate_count}</td>
-                            <td>{record.failed_count}</td>
-                            <td className="ws87-record-guidance">
+                            <td data-label="发现">{record.discovered_count}</td>
+                            <td data-label="新增">{record.new_count}</td>
+                            <td data-label="重复">{record.duplicate_count}</td>
+                            <td data-label="失败">{record.failed_count}</td>
+                            <td data-label="处理提示" className="ws87-record-guidance">
                               {safeError ? (
                                 <>
                                   <strong>{safeError.category}</strong>

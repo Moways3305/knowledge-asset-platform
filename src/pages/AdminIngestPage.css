@@ -618,6 +618,16 @@
   line-height: 1.45;
 }
 
+.ao84-cell-value span,
+.ao84-cell-value small {
+  display: block;
+}
+
+.ao84-cell-value small {
+  margin-top: 3px;
+  color: var(--color-text-tertiary);
+}
+
 .ao84-table-state {
   position: absolute;
   inset: 41px 0 0;
@@ -1046,7 +1056,11 @@
     grid-template-columns: 1fr;
   }
 
-  .ao85-diagnostics,
+  .ao85-diagnostics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 8px 10px;
+  }
+
   .ao85-runtime-statuses {
     grid-template-columns: 1fr;
   }
@@ -1055,8 +1069,108 @@
     grid-column: auto;
   }
 
-  .ao84-panel-head {
+  .ao84-failures .ao84-panel-head {
     align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+    padding: 12px;
+  }
+
+  .ao84-failure-filter,
+  .ao84-failure-filter select {
+    width: 100%;
+    max-width: none;
+  }
+
+  .ao84-table-wrap {
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .ao84-table,
+  .ao84-table tbody {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .ao84-table thead {
+    display: none;
+  }
+
+  .ao84-table tbody {
+    display: grid;
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .ao84-table tr {
+    display: block;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-left: 4px solid var(--color-danger);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--color-danger-bg) 42%, var(--color-bg-surface));
+  }
+
+  .ao84-table td {
+    display: flex;
+    width: 100%;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--color-border-light);
+    text-align: right;
+  }
+
+  .ao84-cell-value {
+    min-width: 0;
+  }
+
+  .ao84-table td::before {
+    flex: 0 0 72px;
+    color: var(--color-text-tertiary);
+    content: attr(data-label);
+    font-size: 11px;
+    font-weight: 650;
+    text-align: left;
+  }
+
+  .ao84-table td:first-child {
+    display: block;
+    padding: 12px 10px;
+    text-align: left;
+  }
+
+  .ao84-table td:first-child::before,
+  .ao84-table td[data-label="操作"]::before {
+    display: none;
+  }
+
+  .ao84-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .ao84-table td[data-label="操作"] .btn-small,
+  .ao84-table td[data-label="操作"] .ao84-batch-hint {
+    width: 100%;
+  }
+
+  .ao84-table-state {
+    position: relative;
+    inset: auto;
+    gap: 9px;
+    min-width: 0;
+    min-height: 132px;
+    padding: 22px 14px;
+  }
+
+  .ao84-table-state .btn-small {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
 }
 .ao84-ingest-failures {

@@ -99,7 +99,6 @@ describe("AdminWecomScanPage project scan spaces", () => {
   it("lets a project manager operate only the project-space workflow", async () => {
     render(<AdminWecomScanPage />);
     expect(await screen.findByText("Alpha 项目资料")).toBeInTheDocument();
-    expect(screen.getByText("项目空间已就绪")).toBeInTheDocument();
     expect(screen.getByText("项目经理需绑定企微身份")).toBeInTheDocument();
     expect(screen.queryByText(/选择微盘目录|企业空间/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "新增扫描配置" })).toBeEnabled();

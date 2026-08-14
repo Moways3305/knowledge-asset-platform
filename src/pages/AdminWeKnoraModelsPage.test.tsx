@@ -224,6 +224,9 @@ describe("AdminWeKnoraModelsPage modal workspace", () => {
   it("keeps the landing page as a fixed connection workspace without growing lists", async () => {
     renderPage();
     expect(await screen.findByRole("heading", { name: "模型配置" })).toBeInTheDocument();
+    expect(
+      screen.queryByText("先处理不可用连接，再维护模型与知识库底座。"),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "外部 LLM" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "WeKnora 底座" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "知识库配置" })).toBeInTheDocument();

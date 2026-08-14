@@ -602,7 +602,6 @@ export default function AdminIngestPage() {
     <ProductPage className="ao84-page admin-control-page">
       <PageHeader
         title="入库管理"
-        description="优先恢复失败、卡住和待确认的入库与索引任务。"
         status={
           <StatusBadge
             tone={
@@ -994,7 +993,7 @@ export default function AdminIngestPage() {
                 {opsState === "ready" &&
                   failedItems.map((item) => (
                     <tr key={item.retry_target ?? `${item.scope}-${item.updated_at}`}>
-                      <td>
+                      <td data-label="对象与原因">
                         <div className="ao84-failure-kind">
                           <AlertTriangle size={16} aria-hidden="true" />
                           <div>
@@ -1003,14 +1002,16 @@ export default function AdminIngestPage() {
                           </div>
                         </div>
                       </td>
-                      <td>
+                      <td data-label="当前状态">
                         <span className={`ao84-status is-${failureTone(item)}`}>索引失败</span>
                       </td>
-                      <td>
-                        <span>{item.retry_eligible ? "重新尝试索引" : "核查配置或内容"}</span>
-                        <small>{formatBeijingTime(item.updated_at)}</small>
+                      <td data-label="下一步">
+                        <div className="ao84-cell-value">
+                          <span>{item.retry_eligible ? "重新尝试索引" : "核查配置或内容"}</span>
+                          <small>{formatBeijingTime(item.updated_at)}</small>
+                        </div>
                       </td>
-                      <td>
+                      <td data-label="操作">
                         {item.retry_eligible && item.retry_target ? (
                           <button
                             type="button"
@@ -1041,16 +1042,38 @@ export default function AdminIngestPage() {
               <div className="ao84-table-state is-error" role="alert">
                 <AlertTriangle size={21} aria-hidden="true" />
                 <strong>失败任务暂时无法加载</strong>
-                <span>刷新后可重新获取安全任务摘要。</span>
+                <button
+                  type="button"
+                  className="btn-small"
+                  onClick={() => void refreshAll(false)}
+                  disabled={opsBusy}
+                >
+                  <RotateCw size={14} aria-hidden="true" />
+                  刷新
+                </button>
               </div>
             )}
             {opsState === "ready" && failedItems.length === 0 && (
               <div className="ao84-table-state">
                 <CheckCircle2 size={22} aria-hidden="true" />
-                <strong>当前没有索引失败任务</strong>
-                <span>
-                  {failureFilter === "all" ? "索引失败列表为空。" : "当前筛选条件下没有任务。"}
-                </span>
+                <strong>
+                  {failureFilter === "all" ? "当前没有索引失败任务" : "当前筛选下没有任务"}
+                </strong>
+                <button
+                  type="button"
+                  className="btn-small"
+                  onClick={() =>
+                    failureFilter === "all" ? void refreshAll(false) : setFailureFilter("all")
+                  }
+                  disabled={opsBusy}
+                >
+                  {failureFilter === "all" ? (
+                    <RotateCw size={14} aria-hidden="true" />
+                  ) : (
+                    <ListFilter size={14} aria-hidden="true" />
+                  )}
+                  {failureFilter === "all" ? "刷新" : "查看全部"}
+                </button>
               </div>
             )}
           </div>

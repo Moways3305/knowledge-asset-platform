@@ -263,18 +263,19 @@ try {
                 ? { ...counts, index_failed: 0, parse_failed: 5 }
                 : counts,
             reparse_actionable_count: parseOnly ? 2 : 0,
-            recent_failed: empty || parseOnly
-              ? []
-              : [
-                  failure({ retry_eligible: retryEligible }),
-                  failure({
-                    retry_target: null,
-                    diagnostic_category: "configuration",
-                    diagnostic_label: "配置问题",
-                    operator_error_message: "请完成平台默认模型配置。",
-                    retry_eligible: false,
-                  }),
-                ],
+            recent_failed:
+              empty || parseOnly
+                ? []
+                : [
+                    failure({ retry_eligible: retryEligible }),
+                    failure({
+                      retry_target: null,
+                      diagnostic_category: "configuration",
+                      diagnostic_label: "配置问题",
+                      operator_error_message: "请完成平台默认模型配置。",
+                      retry_eligible: false,
+                    }),
+                  ],
             diagnostic_counts: {
               configuration: empty ? 0 : 1,
               external_service: empty ? 0 : 2,
@@ -339,6 +340,12 @@ try {
 
       await runtimeSummary.click();
       const trendInitiallyDeferred = await runtimeDetails.evaluate((node) => !node.open);
+      await page.evaluate(() => {
+        window.scrollTo(0, 0);
+        document.querySelectorAll("*").forEach((node) => {
+          if (node instanceof HTMLElement && node.scrollTop > 0) node.scrollTop = 0;
+        });
+      });
       const screenshot = path.join(outDir, `${scenario}-${viewport.name}.png`);
       await page.screenshot({ path: screenshot, animations: "disabled", fullPage: true });
       await runtimeSummary.click();
@@ -440,6 +447,18 @@ try {
           "healthy",
           "stale",
         ];
+        const failureWrap = document.querySelector(".ao84-failures .ao84-table-wrap");
+        const failureState = failureWrap?.querySelector(".ao84-table-state");
+        const mobileFailureLayout =
+          root.clientWidth > 640 ||
+          Boolean(
+            failureWrap &&
+            failureWrap.scrollWidth <= failureWrap.clientWidth + 2 &&
+            [...failureWrap.querySelectorAll("tbody tr")].every(
+              (row) => getComputedStyle(row).display === "block",
+            ),
+          );
+        const stateRect = failureState?.getBoundingClientRect();
         return {
           scenario: scenarioName,
           overflowX: root.scrollWidth - root.clientWidth,
@@ -453,6 +472,16 @@ try {
             Math.abs(panels[0].width - panels[1].width) <= 2,
           safe: secrets.every((term) => !text.includes(term)),
           localized: enums.every((term) => !text.includes(term)),
+          noInstructionCopy: !text.includes("优先恢复失败、卡住和待确认的入库与索引任务。"),
+          mobileFailureLayout,
+          compactFailureState:
+            root.clientWidth > 640 ||
+            !failureState ||
+            Boolean(
+              stateRect &&
+              stateRect.width <= (failureWrap?.clientWidth ?? 0) + 2 &&
+              stateRect.height <= 180,
+            ),
           healthVisible: text.includes("运行健康"),
           trendVisible: Boolean(document.querySelector(".ao85-trend")),
           insufficient: text.includes("正在积累运维数据"),
@@ -503,6 +532,9 @@ try {
         result.trendInitiallyDeferred &&
         result.safe &&
         result.localized &&
+        result.noInstructionCopy &&
+        result.mobileFailureLayout &&
+        result.compactFailureState &&
         result.healthVisible &&
         !result.consoleLeak &&
         (trendExpected

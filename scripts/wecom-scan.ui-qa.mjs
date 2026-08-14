@@ -198,6 +198,18 @@ try {
             return !panel || rect.right <= panel.right + 1;
           });
           const fictionalLabels = ["健康分数", "成功率", "待处理总量", "系统容量", "扫描趋势"];
+          const configWrap = document.querySelector(".ws87-table-wrap");
+          const recordWrap = document.querySelector(".ws87-records");
+          const responsiveCards =
+            root.clientWidth > 720 ||
+            !configWrap ||
+            Boolean(
+              configWrap.scrollWidth <= configWrap.clientWidth + 2 &&
+              [...document.querySelectorAll(".ws87-table tbody tr")].every(
+                (row) => getComputedStyle(row).display === "block",
+              ) &&
+              (!recordWrap || recordWrap.scrollWidth <= recordWrap.clientWidth + 2),
+            );
           return {
             scenario,
             overflowX: root.scrollWidth - root.clientWidth,
@@ -221,6 +233,8 @@ try {
                 ? true
                 : document.querySelectorAll(".ws87-record-table tbody tr").length >= 2,
             actionsVisible,
+            responsiveCards,
+            noScrollInstruction: !text.includes("左右滑动可查看状态与操作"),
             honestSummary:
               !document.querySelector(".admin-status-band") &&
               (document.querySelectorAll(".ws87-table tr.is-actionable").length === 0 ||
@@ -262,7 +276,9 @@ try {
           metrics.oneColumn &&
           metrics.recordBelow &&
           metrics.recordsAreTable &&
-          (viewport.width > 1200 ? metrics.actionsVisible : true) &&
+          metrics.actionsVisible &&
+          metrics.responsiveCards &&
+          metrics.noScrollInstruction &&
           metrics.honestSummary &&
           metrics.readOnly &&
           metrics.stateVisible &&

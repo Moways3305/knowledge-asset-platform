@@ -308,7 +308,6 @@ export default function AdminWeKnoraModelsPage() {
     <ProductPage className="ws-page mf-page mf-overview-page admin-control-page">
       <PageHeader
         title="模型配置"
-        description="先处理不可用连接，再维护模型与知识库底座。"
         status={
           <StatusBadge
             tone={error ? "danger" : migrationActive ? "info" : loading ? "info" : "success"}

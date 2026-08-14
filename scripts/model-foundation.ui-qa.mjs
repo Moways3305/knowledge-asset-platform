@@ -292,6 +292,7 @@ try {
           noMetricMatrix: !document.querySelector(
             ".admin-status-band, .mf-overview-strip, .mf-overview-metric",
           ),
+          noInstructionCopy: !text.includes("先处理不可用连接，再维护模型与知识库底座。"),
           actionableFirst: (() => {
             const rows = [...document.querySelectorAll(".mf-connection-row")];
             const actionable = rows.filter((row) => row.classList.contains("is-actionable"));
@@ -308,6 +309,7 @@ try {
       const scenarioPass =
         metrics.connectionRows === 3 &&
         metrics.noMetricMatrix &&
+        metrics.noInstructionCopy &&
         metrics.actionableFirst &&
         !metrics.mainHasGrowingRows &&
         metrics.dialogCount === expectedDialogs;
