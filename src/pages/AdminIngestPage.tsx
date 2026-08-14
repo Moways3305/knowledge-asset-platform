@@ -554,6 +554,7 @@ export default function AdminIngestPage() {
       (retryIncludeNotIndexed ? (opsIndex?.counts.not_indexed ?? 0) : 0),
   );
   const reparseActionableCount = Math.min(opsLimit, opsIndex?.reparse_actionable_count ?? 0);
+  const headerActionIsReparse = retryActionableCount === 0 && reparseActionableCount > 0;
   const attentionCount =
     failedIngestItems.length +
     (opsIndex?.counts.index_failed ?? 0) +
@@ -622,11 +623,18 @@ export default function AdminIngestPage() {
           <div className="ao84-refresh-actions">
             <button
               className="btn-small-primary ao84-refresh"
-              onClick={() => void handleBatchRetry()}
-              disabled={actionLocked || retryActionableCount === 0}
+              data-operation={headerActionIsReparse ? "reparse" : "retry_index"}
+              onClick={() => void (headerActionIsReparse ? handleReparse() : handleBatchRetry())}
+              disabled={
+                actionLocked || (retryActionableCount === 0 && reparseActionableCount === 0)
+              }
             >
               <RotateCw size={15} aria-hidden="true" />
-              {activeOperation ? `正在执行：${safeJobOperation(activeOperation)}` : "批量重试索引"}
+              {activeOperation
+                ? `正在执行：${safeJobOperation(activeOperation)}`
+                : headerActionIsReparse
+                  ? "重新解析"
+                  : "批量重试索引"}
             </button>
             <button
               className="btn-icon"

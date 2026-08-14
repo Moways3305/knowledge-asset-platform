@@ -597,6 +597,7 @@ describe("AdminIngestPage operations reference", () => {
   });
 
   it("warns when only parse failures remain and shows the actionable reparse count", async () => {
+    const user = userEvent.setup();
     vi.mocked(fetchOpsIndexing).mockResolvedValue({
       ...ops,
       counts: { ...ops.counts, index_failed: 0, parse_failed: 5 },
@@ -608,6 +609,17 @@ describe("AdminIngestPage operations reference", () => {
     expect(await screen.findByText("存在 5 项底座解析异常，可重新解析")).toBeInTheDocument();
     expect(screen.queryByText("当前没有索引失败项")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "重新解析（2 项）" })).toBeInTheDocument();
+    const primaryAction = screen.getByRole("button", { name: "重新解析" });
+    expect(primaryAction).toBeEnabled();
+
+    await user.click(primaryAction);
+    await waitFor(() =>
+      expect(triggerIndexingReparse).toHaveBeenCalledWith({
+        scope: "all",
+        limit: 50,
+        parse_statuses: ["failed", "pending"],
+      }),
+    );
   });
 
   it("reports action-specific empty results without claiming parse failures were handled", async () => {

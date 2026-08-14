@@ -20,6 +20,7 @@ const viewports = [
 ];
 const scenarios = [
   "normal-trend",
+  "parse-only",
   "category-filter",
   "insufficient-data",
   "worker-stale",
@@ -253,10 +254,16 @@ try {
           if (scenario === "indexing-error")
             return fulfill({ detail: "SECRET indexing payload" }, 500);
           const empty = scenario === "empty";
+          const parseOnly = scenario === "parse-only";
           const retryEligible = scenario !== "target-running";
           return fulfill({
-            counts: empty ? { ...counts, index_failed: 0 } : counts,
-            recent_failed: empty
+            counts: empty
+              ? { ...counts, index_failed: 0 }
+              : parseOnly
+                ? { ...counts, index_failed: 0, parse_failed: 5 }
+                : counts,
+            reparse_actionable_count: parseOnly ? 2 : 0,
+            recent_failed: empty || parseOnly
               ? []
               : [
                   failure({ retry_eligible: retryEligible }),
@@ -460,6 +467,11 @@ try {
           healthError: text.includes("运行健康暂时无法加载"),
           forbidden: text.includes("入库概览暂时无法加载") && text.includes("索引状态暂时无法加载"),
           empty: text.includes("当前没有索引失败任务"),
+          parsePrimaryAction: Boolean(
+            document.querySelector(
+              '.product-page-actions .ao84-refresh[data-operation="reparse"]:not(:disabled)',
+            ),
+          ),
         };
       }, scenario);
       result.consoleLeak = messages.some((message) => /secret|storage_ref|token/i.test(message));
@@ -470,6 +482,7 @@ try {
       Object.assign(result, trendReadability);
       const scenarioPass = {
         "normal-trend": result.trendVisible,
+        "parse-only": result.parsePrimaryAction,
         "category-filter": result.categoryFiltered,
         "insufficient-data": result.insufficient && !result.trendVisible,
         "worker-stale": result.stale,
