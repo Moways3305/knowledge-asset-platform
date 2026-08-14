@@ -33,7 +33,8 @@ const scenarios = [
 ];
 const viewports = [
   { name: "1440", width: 1440, height: 1000 },
-  { name: "1280", width: 1280, height: 900 },
+  { name: "1024", width: 1024, height: 900 },
+  { name: "390", width: 390, height: 844 },
 ];
 
 const access = (overrides = {}) => ({
@@ -343,8 +344,8 @@ if (
       result.shellOverlap > 1 ||
       (result.scenario !== "denied" &&
         (result.layoutWidth === 0 ||
-          result.mainWidth <= result.sideWidth ||
-          result.sideWidth < 280)) ||
+          (result.viewport === "1440" && result.mainWidth <= result.sideWidth) ||
+          (result.viewport !== "390" && result.sideWidth < 280))) ||
       result.clippedActions > 0 ||
       result.moduleTitle !== "知识资产库" ||
       result.oldSectionVisible ||

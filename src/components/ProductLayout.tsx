@@ -17,15 +17,19 @@ export function PageHeader({
   actions,
   eyebrow,
   status,
+  scope,
+  className = "",
 }: {
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
   eyebrow?: ReactNode;
   status?: ReactNode;
+  scope?: ReactNode;
+  className?: string;
 }) {
   return (
-    <header className="product-page-header">
+    <header className={`product-page-header ${className}`.trim()}>
       <div className="product-page-heading">
         {eyebrow && <div className="product-page-eyebrow">{eyebrow}</div>}
         <div className="product-page-title-line">
@@ -33,6 +37,7 @@ export function PageHeader({
           {status && <div className="product-page-current-status">{status}</div>}
         </div>
         {description && <p>{description}</p>}
+        {scope && <div className="product-page-scope">当前范围：{scope}</div>}
       </div>
       {actions && <div className="product-page-actions">{actions}</div>}
     </header>

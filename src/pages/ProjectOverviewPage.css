@@ -644,6 +644,11 @@
 }
 
 @media (max-width: 760px) {
+  .project78-page {
+    height: calc(100dvh - var(--shell-header-height) - 24px);
+    min-height: 620px;
+  }
+
   .project78-switchbar,
   .project78-switchbar > div:first-child {
     align-items: stretch;
@@ -659,16 +664,19 @@
   .project78-workspace {
     display: flex;
     flex-direction: column;
+    min-height: 0;
   }
 
   .project78-context {
     flex: 0 0 auto;
+    max-height: 250px;
     border-right: 0;
     border-bottom: 1px solid var(--color-border);
   }
 
   .project78-assistant {
-    min-height: 620px;
+    flex: 1 1 360px;
+    min-height: 340px;
   }
 
   .project78-message {

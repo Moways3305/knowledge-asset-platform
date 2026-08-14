@@ -1,6 +1,6 @@
 import path from "node:path";
 
-export const acceptanceViewports = ["1440", "1280"];
+export const acceptanceViewports = ["1440", "1024", "390"];
 
 export const routeDefinitions = [
   {
@@ -186,6 +186,28 @@ export function explicitCaseResult(item) {
   if (item.passed === false || item.pass === false) return false;
   if (item.passed === true || item.pass === true) return true;
   return null;
+}
+
+export function groupScreenshotEvidenceByViewport(screenshots, viewports) {
+  const normalizedViewports = [...new Set(viewports.map(String))];
+  const evidence = Object.fromEntries(normalizedViewports.map((viewport) => [viewport, []]));
+  const unclassified = [];
+  const ambiguous = [];
+
+  for (const screenshot of screenshots) {
+    const fileName = path.basename(screenshot.replace(/\\/g, "/"), path.extname(screenshot));
+    const tokens = fileName.split("-");
+    const matches = normalizedViewports.filter((viewport) => tokens.includes(viewport));
+    if (matches.length === 0) {
+      unclassified.push(screenshot);
+    } else if (matches.length > 1) {
+      ambiguous.push({ screenshot, viewports: matches });
+    } else {
+      evidence[matches[0]].push(screenshot);
+    }
+  }
+
+  return { evidence, unclassified, ambiguous };
 }
 
 export function buildRouteCoverage(definitions, suiteResults) {

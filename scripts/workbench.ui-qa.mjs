@@ -5,14 +5,16 @@ import { chromium } from "playwright";
 import { build, preview } from "vite";
 
 const port = Number(process.env.UI_QA_PORT || 5196);
-const base = `http://127.0.0.1:${port}`;
+const externalBase = process.env.UI_QA_BASE?.replace(/\/$/, "") || null;
+const base = externalBase || `http://127.0.0.1:${port}`;
 const outRoot = process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa");
 const outDir = path.join(outRoot, "workbench");
 fs.mkdirSync(outDir, { recursive: true });
 
 const viewports = [
   { name: "1440", width: 1440, height: 1000 },
-  { name: "1280", width: 1280, height: 900 },
+  { name: "1024", width: 1024, height: 900 },
+  { name: "390", width: 390, height: 844 },
 ];
 
 const scenarios = [
@@ -235,20 +237,21 @@ function overviewFor(scenario, callCount) {
 }
 
 function accepted(result) {
+  const compactViewport = result.viewportWidth <= 1024;
   const shared =
     result.overflowX <= 2 &&
     result.shellOverlap <= 1 &&
     result.clippedControls === 0 &&
     result.panelCount >= 4 &&
     result.panelCount <= 6 &&
-    result.actionQueuePrimary &&
-    result.healthFullWidth &&
-    result.projectRecentBalanced &&
-    result.workbuddyDedicated &&
+    (compactViewport || result.actionQueuePrimary) &&
+    (compactViewport || result.healthFullWidth) &&
+    (compactViewport || result.projectRecentBalanced) &&
+    (compactViewport || result.workbuddyDedicated) &&
     result.operationsCompact &&
     result.operationActionsReachable &&
     result.projectStateCompact &&
-    result.compactHeader &&
+    (compactViewport || result.compactHeader) &&
     !result.staleFourPanelGrid &&
     !result.oldSurfaceVisible &&
     !result.fakeFeatureVisible &&
@@ -272,11 +275,13 @@ let browser;
 const results = [];
 
 try {
-  await build({ logLevel: "warn" });
-  previewServer = await preview({
-    preview: { host: "127.0.0.1", port, strictPort: true },
-    logLevel: "warn",
-  });
+  if (!externalBase) {
+    await build({ logLevel: "warn" });
+    previewServer = await preview({
+      preview: { host: "127.0.0.1", port, strictPort: true },
+      logLevel: "warn",
+    });
+  }
   browser = await chromium.launch({ args: ["--disable-gpu"] });
 
   for (const scenario of scenarios) {
@@ -360,15 +365,53 @@ try {
 
       let retrySucceeded = false;
       if (scenario.name === "recent-error-retry") {
+        if (viewport.width <= 1024) {
+          await page.locator(".wb81-row-secondary .wb81-row-tabs select").selectOption("recent");
+        }
         const recent = page.locator(".wb81-panel.is-recent");
-        await recent.getByText("内容暂时未能加载").waitFor();
-        await recent.getByRole("button", { name: "重新加载" }).click();
+        const retryButton = recent.getByRole("button", { name: "重新加载" });
+        await retryButton.waitFor();
+        await retryButton.click();
         await recent.getByText("绝不能越权显示的资产标题").waitFor();
         retrySucceeded = overviewCalls === 2;
       }
 
+      const panelText = async (selector, tabSelector, option) => {
+        if (viewport.width <= 1024) await page.locator(tabSelector).selectOption(option);
+        const panel = page.locator(selector);
+        await panel.waitFor({ state: "visible" });
+        return panel.innerText();
+      };
+      const visiblePanelText = {
+        todos: await panelText(
+          ".wb81-panel.is-todos",
+          ".wb81-row-primary .wb81-row-tabs select",
+          "todos",
+        ),
+        operations: await panelText(
+          ".wb81-panel.is-operations",
+          ".wb81-row-primary .wb81-row-tabs select",
+          "operations",
+        ),
+        projects: await panelText(
+          ".wb81-panel.is-projects",
+          ".wb81-row-primary .wb81-row-tabs select",
+          "projects",
+        ),
+        workbuddy: await panelText(
+          ".wb81-panel.is-workbuddy",
+          ".wb81-row-secondary .wb81-row-tabs select",
+          "workbuddy",
+        ),
+        recent: await panelText(
+          ".wb81-panel.is-recent",
+          ".wb81-row-secondary .wb81-row-tabs select",
+          "recent",
+        ),
+      };
+
       const result = await page.evaluate(
-        ({ scenarioName }) => {
+        ({ scenarioName, visibleText }) => {
           const root = document.documentElement;
           const shell = document.querySelector(".rail");
           const content = document.querySelector(".app-content");
@@ -398,6 +441,7 @@ try {
             .querySelector(".wb81-workbench .product-page-header")
             ?.getBoundingClientRect();
           const bodyText = document.body.innerText;
+          const domText = document.body.textContent ?? "";
           const shellBox = shell?.getBoundingClientRect();
           const contentBox = content?.getBoundingClientRect();
           const forbiddenStrings = [
@@ -421,6 +465,7 @@ try {
           ];
           return {
             scenario: scenarioName,
+            viewportWidth: window.innerWidth,
             overflowX: root.scrollWidth - root.clientWidth,
             shellOverlap:
               shellBox && contentBox ? Math.max(0, shellBox.right - contentBox.left) : 0,
@@ -431,15 +476,15 @@ try {
             projectPanelHeight: projects?.height ?? 0,
             stitchHierarchyCorrect: Boolean(
               todos &&
-                operations &&
-                projects &&
-                recent &&
-                primaryRow &&
-                secondaryRow &&
-                primaryRow.top < secondaryRow.top &&
-                Math.abs(todos.top - operations.top) <= 1 &&
-                Math.abs(todos.top - projects.top) <= 1 &&
-                (!workbuddy || Math.abs(workbuddy.top - recent.top) <= 1),
+              operations &&
+              projects &&
+              recent &&
+              primaryRow &&
+              secondaryRow &&
+              primaryRow.top < secondaryRow.top &&
+              Math.abs(todos.top - operations.top) <= 1 &&
+              Math.abs(todos.top - projects.top) <= 1 &&
+              (!workbuddy || Math.abs(workbuddy.top - recent.top) <= 1),
             ),
             actionQueuePrimary: Boolean(
               todos &&
@@ -459,13 +504,13 @@ try {
             ),
             workbuddyDedicated: Boolean(
               !workbuddy ||
-                (todos &&
-                  recent &&
-                  operations &&
-                  projects &&
-                  workbuddy.top > Math.max(todos.bottom, operations.bottom, projects.bottom) &&
-                  Math.abs(workbuddy.top - recent.top) <= 1 &&
-                  workbuddy.left < recent.left),
+              (todos &&
+                recent &&
+                operations &&
+                projects &&
+                workbuddy.top > Math.max(todos.bottom, operations.bottom, projects.bottom) &&
+                Math.abs(workbuddy.top - recent.top) <= 1 &&
+                workbuddy.left < recent.left),
             ),
             todoColumnNarrower: Boolean(
               todos &&
@@ -502,24 +547,25 @@ try {
               ),
             ),
             fakeFeatureVisible: /AI 洞察|健康分|趋势|搜索资产|导出|新建项目/.test(bodyText),
-            sensitiveVisible: forbiddenStrings.some((value) => bodyText.includes(value)),
+            sensitiveVisible: forbiddenStrings.some((value) => domText.includes(value)),
             normalContent:
-              bodyText.includes("处理知识审核") &&
-              bodyText.includes("索引失败") &&
-              bodyText.includes("企业知识治理项目") &&
-              bodyText.includes("绝不能越权显示的资产标题"),
-            zeroState: bodyText.includes("今天没有待处理事项"),
-            projectEmptyState: bodyText.includes("当前没有可访问的项目"),
-            forbiddenState: bodyText.includes("当前身份暂无访问权限"),
+              visibleText.todos.includes("处理知识审核") &&
+              visibleText.operations.includes("索引失败") &&
+              visibleText.projects.includes("企业知识治理项目") &&
+              visibleText.recent.includes("绝不能越权显示的资产标题"),
+            zeroState: visibleText.todos.includes("今天没有待处理事项"),
+            projectEmptyState: visibleText.projects.includes("当前没有可访问的项目"),
+            forbiddenState: visibleText.projects.includes("当前身份暂无访问权限"),
             hiddenTitleSafe:
-              bodyText.includes("业务标题已隐藏") &&
-              !bodyText.includes("绝不能越权显示的资产标题") &&
-              !bodyText.includes("项目复盘方法"),
+              visibleText.recent.includes("业务标题已隐藏") &&
+              !visibleText.recent.includes("绝不能越权显示的资产标题") &&
+              !visibleText.recent.includes("项目复盘方法"),
             workbuddyLifecycleVisible:
-              bodyText.includes("生成配置") && bodyText.includes("撤销配置"),
+              visibleText.workbuddy.includes("生成配置") &&
+              visibleText.workbuddy.includes("撤销配置"),
           };
         },
-        { scenarioName: scenario.name },
+        { scenarioName: scenario.name, visibleText: visiblePanelText },
       );
 
       Object.assign(result, {

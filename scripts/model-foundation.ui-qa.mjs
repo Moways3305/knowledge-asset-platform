@@ -5,7 +5,8 @@ import { chromium } from "playwright";
 import { build, preview } from "vite";
 
 const port = Number(process.env.UI_QA_PORT || 5201);
-const base = `http://127.0.0.1:${port}`;
+const externalBase = process.env.UI_QA_BASE?.replace(/\/$/, "") || null;
+const base = externalBase || `http://127.0.0.1:${port}`;
 const outDir = path.join(
   process.env.UI_QA_OUT_DIR || path.join(os.tmpdir(), "kap-ui-qa"),
   "model-foundation",
@@ -14,8 +15,8 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const viewports = [
   { name: "1440", width: 1440, height: 1080 },
-  { name: "1280", width: 1280, height: 900 },
-  { name: "mobile-390", width: 390, height: 844 },
+  { name: "1024", width: 1024, height: 900 },
+  { name: "390", width: 390, height: 844 },
 ];
 const scenarios = [
   "normal",
@@ -179,11 +180,13 @@ let server;
 let browser;
 const results = [];
 try {
-  await build({ logLevel: "warn" });
-  server = await preview({
-    preview: { host: "127.0.0.1", port, strictPort: true },
-    logLevel: "warn",
-  });
+  if (!externalBase) {
+    await build({ logLevel: "warn" });
+    server = await preview({
+      preview: { host: "127.0.0.1", port, strictPort: true },
+      logLevel: "warn",
+    });
+  }
   browser = await chromium.launch({ args: ["--disable-gpu"] });
 
   for (const scenario of scenarios) {

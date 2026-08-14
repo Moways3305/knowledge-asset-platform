@@ -4,9 +4,12 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createServer } from "node:net";
+import { build } from "vite";
 import {
+  acceptanceViewports,
   buildRouteCoverage,
   explicitCaseResult,
+  groupScreenshotEvidenceByViewport,
   routeDefinitions,
 } from "./global-frontend-acceptance.coverage.mjs";
 import { waitForChildProcess } from "./ui-qa-process.mjs";
@@ -19,6 +22,7 @@ const outDir = path.join(outRoot, "global-frontend-acceptance");
 const evidenceDir = path.join(outDir, "evidence");
 const suiteTimeoutMs = Number(process.env.UI_QA_SUITE_TIMEOUT_MS || 90_000);
 const suiteMaxAttempts = Number(process.env.UI_QA_SUITE_MAX_ATTEMPTS || 2);
+const suiteConcurrency = Math.max(1, Number(process.env.UI_QA_SUITE_CONCURRENCY || 4));
 if (path.basename(outDir) !== "global-frontend-acceptance") {
   throw new Error(`Refusing to reset unexpected UI QA output path: ${outDir}`);
 }
@@ -95,8 +99,19 @@ const suites = [
   },
 ];
 
+const selectedSuites = new Set(
+  (process.env.UI_QA_SUITES || "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean),
+);
+const suitesToRun = selectedSuites.size
+  ? suites.filter((suite) => selectedSuites.has(suite.name))
+  : suites;
+
 let ownedServer = null;
 let serverOutput = "";
+let productionBuilt = false;
 
 async function isServerReady() {
   if (!base) return false;
@@ -132,10 +147,16 @@ async function ensureServer() {
   const port = await availablePort();
   base = `http://127.0.0.1:${port}`;
 
+  if (!productionBuilt) {
+    await build({ logLevel: "warn" });
+    productionBuilt = true;
+  }
+
   ownedServer = spawn(
     process.execPath,
     [
       path.join(rootDir, "node_modules/vite/bin/vite.js"),
+      "preview",
       "--host",
       "127.0.0.1",
       "--port",
@@ -195,65 +216,79 @@ function filesRecursively(directory, extension) {
 
 const suiteResults = [];
 
+async function executeSuite(suite) {
+  console.log(`UI QA suite started: ${suite.name}`);
+  const startedAt = Date.now();
+  const suiteDir = path.join(evidenceDir, suite.evidence);
+  let execution = null;
+  const attemptFailures = [];
+  for (let attempt = 1; attempt <= suiteMaxAttempts; attempt += 1) {
+    fs.rmSync(suiteDir, { recursive: true, force: true });
+    execution = await runSuite(suite);
+    if (execution.code === 0) break;
+    attemptFailures.push(`Attempt ${attempt}/${suiteMaxAttempts}\n${execution.output}`);
+    if (attempt < suiteMaxAttempts) {
+      console.warn(`UI QA suite retrying after failure: ${suite.name} (${attempt})`);
+      await ensureServer();
+    }
+  }
+  if (!execution) throw new Error(`UI QA suite did not execute: ${suite.name}`);
+  const reportPath = path.join(suiteDir, "report.json");
+  let cases = [];
+  if (fs.existsSync(reportPath)) {
+    const parsed = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+    cases = Array.isArray(parsed) ? parsed : parsed.results || [];
+  }
+  const screenshots = filesRecursively(suiteDir, ".png").map((file) => path.resolve(file));
+  const explicitPassed = cases.filter((item) => explicitCaseResult(item) === true).length;
+  const explicitFailed = cases.filter((item) => explicitCaseResult(item) === false).length;
+  const hasExplicitCaseStatus = explicitPassed + explicitFailed > 0;
+  suiteResults.push({
+    name: suite.name,
+    script: suite.script,
+    status: execution.code === 0 ? "passed" : "failed",
+    caseCount: cases.length,
+    passedCount:
+      execution.code === 0
+        ? cases.length - explicitFailed
+        : hasExplicitCaseStatus
+          ? explicitPassed
+          : 0,
+    failedCount:
+      execution.code === 0
+        ? explicitFailed
+        : hasExplicitCaseStatus
+          ? explicitFailed || 1
+          : cases.length || 1,
+    durationMs: Date.now() - startedAt,
+    reportPath: fs.existsSync(reportPath) ? path.resolve(reportPath) : null,
+    cases,
+    screenshots,
+    timedOut: execution.timedOut,
+    attempts: execution.code === 0 ? attemptFailures.length + 1 : suiteMaxAttempts,
+    failureOutput: execution.code === 0 ? null : attemptFailures.join("\n\n"),
+  });
+  console.log(
+    `UI QA suite ${execution.code === 0 ? "passed" : "failed"}: ${suite.name} (${Date.now() - startedAt}ms)`,
+  );
+}
+
+async function runSuites() {
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < suitesToRun.length) {
+      const suite = suitesToRun[nextIndex];
+      nextIndex += 1;
+      await executeSuite(suite);
+    }
+  };
+  const workerCount = Math.min(suiteConcurrency, suitesToRun.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+}
+
 try {
   await ensureServer();
-  for (const suite of suites) {
-    await ensureServer();
-    console.log(`UI QA suite started: ${suite.name}`);
-    const startedAt = Date.now();
-    const suiteDir = path.join(evidenceDir, suite.evidence);
-    let execution = null;
-    const attemptFailures = [];
-    for (let attempt = 1; attempt <= suiteMaxAttempts; attempt += 1) {
-      fs.rmSync(suiteDir, { recursive: true, force: true });
-      execution = await runSuite(suite);
-      if (execution.code === 0) break;
-      attemptFailures.push(`Attempt ${attempt}/${suiteMaxAttempts}\n${execution.output}`);
-      if (attempt < suiteMaxAttempts) {
-        console.warn(`UI QA suite retrying after failure: ${suite.name} (${attempt})`);
-        await ensureServer();
-      }
-    }
-    if (!execution) throw new Error(`UI QA suite did not execute: ${suite.name}`);
-    const reportPath = path.join(suiteDir, "report.json");
-    let cases = [];
-    if (fs.existsSync(reportPath)) {
-      const parsed = JSON.parse(fs.readFileSync(reportPath, "utf8"));
-      cases = Array.isArray(parsed) ? parsed : parsed.results || [];
-    }
-    const screenshots = filesRecursively(suiteDir, ".png").map((file) => path.resolve(file));
-    const explicitPassed = cases.filter((item) => explicitCaseResult(item) === true).length;
-    const explicitFailed = cases.filter((item) => explicitCaseResult(item) === false).length;
-    const hasExplicitCaseStatus = explicitPassed + explicitFailed > 0;
-    suiteResults.push({
-      name: suite.name,
-      script: suite.script,
-      status: execution.code === 0 ? "passed" : "failed",
-      caseCount: cases.length,
-      passedCount:
-        execution.code === 0
-          ? cases.length - explicitFailed
-          : hasExplicitCaseStatus
-            ? explicitPassed
-            : 0,
-      failedCount:
-        execution.code === 0
-          ? explicitFailed
-          : hasExplicitCaseStatus
-            ? explicitFailed || 1
-            : cases.length || 1,
-      durationMs: Date.now() - startedAt,
-      reportPath: fs.existsSync(reportPath) ? path.resolve(reportPath) : null,
-      cases,
-      screenshots,
-      timedOut: execution.timedOut,
-      attempts: execution.code === 0 ? attemptFailures.length + 1 : suiteMaxAttempts,
-      failureOutput: execution.code === 0 ? null : attemptFailures.join("\n\n"),
-    });
-    console.log(
-      `UI QA suite ${execution.code === 0 ? "passed" : "failed"}: ${suite.name} (${Date.now() - startedAt}ms)`,
-    );
-  }
+  await runSuites();
 } finally {
   await stopOwnedServer();
 }
@@ -263,6 +298,22 @@ const failedSuites = suiteResults.filter((suite) => suite.status === "failed");
 const skippedRoutes = routeCoverage.filter((route) => route.status === "skipped");
 const passedRoutes = routeCoverage.filter((route) => route.status === "passed");
 const allScreenshots = [...new Set(suiteResults.flatMap((suite) => suite.screenshots))];
+const reportedViewports = [
+  ...new Set([
+    ...acceptanceViewports,
+    ...suiteResults.flatMap((suite) =>
+      suite.cases
+        .map((item) => item.viewport)
+        .filter((viewport) => viewport !== undefined && viewport !== null)
+        .map(String),
+    ),
+  ]),
+].sort((left, right) => Number(left) - Number(right));
+const {
+  evidence: viewportEvidence,
+  unclassified: unclassifiedScreenshots,
+  ambiguous: ambiguousScreenshots,
+} = groupScreenshotEvidenceByViewport(allScreenshots, reportedViewports);
 const acceptanceChecks = routeCoverage.flatMap((route) =>
   route.checks.map((check) => ({ route: route.route, ...check })),
 );
@@ -283,10 +334,18 @@ const report = {
     passedCases: suiteResults.reduce((sum, suite) => sum + suite.passedCount, 0),
     failedCases: suiteResults.reduce((sum, suite) => sum + suite.failedCount, 0),
     screenshots: allScreenshots.length,
+    viewportScreenshots: Object.fromEntries(
+      Object.entries(viewportEvidence).map(([viewport, files]) => [viewport, files.length]),
+    ),
   },
   routeCoverage,
   suites: suiteResults,
   screenshots: allScreenshots,
+  viewportEvidence,
+  screenshotAccounting: {
+    unclassified: unclassifiedScreenshots,
+    ambiguous: ambiguousScreenshots,
+  },
 };
 const reportPath = path.join(outDir, "report.json");
 fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
@@ -299,9 +358,16 @@ if (failedAcceptanceChecks.length > 0) {
   console.error(JSON.stringify({ failedAcceptanceChecks }, null, 2));
 }
 
+const screenshotAccountingFailed =
+  unclassifiedScreenshots.length > 0 || ambiguousScreenshots.length > 0;
+if (screenshotAccountingFailed) {
+  console.error(JSON.stringify({ unclassifiedScreenshots, ambiguousScreenshots }, null, 2));
+}
+
 if (
   failedSuites.length > 0 ||
   passedRoutes.length !== routeCoverage.length ||
-  failedAcceptanceChecks.length > 0
+  failedAcceptanceChecks.length > 0 ||
+  screenshotAccountingFailed
 )
   process.exitCode = 1;

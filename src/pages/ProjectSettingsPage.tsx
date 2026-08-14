@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, Check, ClipboardCheck, RotateCcw, Save, Trash2, X } from "lucide-react";
 import ConfirmDialog from "../components/ConfirmDialog";
+import ActionFeedback from "../components/ActionFeedback";
+import LoadingError from "../components/LoadingError";
+import { PageHeader, ProductPage } from "../components/ProductLayout";
+import StatusBadge from "../components/StatusBadge";
 import { useAuth } from "../auth/AuthContext";
 import { ApiError } from "../api/http";
 import {
@@ -536,84 +540,97 @@ export default function ProjectSettingsPage() {
 
   if (loading) {
     return (
-      <div className="project-settings-page">
-        <div className="ps74-page-state" role="status">
-          正在加载项目设置…
-        </div>
-      </div>
+      <ProductPage className="project-settings-page">
+        <LoadingError loading loadingTitle="正在加载项目设置…" wrapperClassName="ps74-page-state" />
+      </ProductPage>
     );
   }
 
   if (pageError || !settings || !draft || !projectId) {
     return (
-      <div className="project-settings-page">
-        <div className="ps74-page-state is-error">
-          <strong>无法加载项目设置</strong>
-          <p>{pageError ?? "当前项目不可用"}</p>
-          {projectId && (
-            <button
-              className="product-button is-secondary"
-              onClick={() => void loadProject(projectId)}
-            >
-              重试
-            </button>
-          )}
-        </div>
-      </div>
+      <ProductPage className="project-settings-page">
+        <LoadingError
+          error={pageError ?? "当前项目不可用"}
+          errorTitle="无法加载项目设置"
+          errorDescription={pageError ?? "当前项目不可用"}
+          onRetry={projectId ? () => void loadProject(projectId) : undefined}
+          wrapperClassName="ps74-page-state"
+        />
+      </ProductPage>
     );
   }
 
   return (
-    <div className="project-settings-page">
-      <header className="ps74-header">
-        <div className="ps74-heading">
-          <div className="ps74-heading-meta">
-            <span className={`ps74-status is-${settings.status}`}>
-              {projectStatusLabel[settings.status] ?? "项目状态未知"}
-            </span>
-            <Link to={`/project/${projectId}/knowledge`}>返回项目知识库</Link>
-          </div>
-          <h1>{settings.name}</h1>
-          <p>管理项目入库策略、企微群绑定与项目成员关系。</p>
-          {switchProjects.length > 1 && (
-            <label className="ps74-project-switcher">
-              <span>切换项目</span>
-              <select value={projectId} onChange={(event) => switchToProject(event.target.value)}>
-                {switchProjects.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-        </div>
-        {canWrite && dirty && (
-          <div className="ps74-header-actions" aria-label="未保存设置操作">
-            <button
-              className="product-button is-secondary"
-              disabled={saving}
-              onClick={discardDraft}
-            >
-              <RotateCcw size={16} aria-hidden="true" />
-              放弃未保存
-            </button>
-            <button
-              className="product-button is-primary"
-              disabled={saving}
-              onClick={() => void saveDraft()}
-            >
-              <Save size={16} aria-hidden="true" />
-              {saving ? "保存中…" : "保存设置"}
-            </button>
-          </div>
-        )}
-      </header>
+    <ProductPage className="project-settings-page">
+      <PageHeader
+        className="ps74-header"
+        eyebrow="项目协作 · 项目设置"
+        title={settings.name}
+        description="管理项目入库策略、企微群绑定与项目成员关系。"
+        scope={settings.name}
+        status={
+          <StatusBadge
+            label={projectStatusLabel[settings.status] ?? "项目状态未知"}
+            variant={`ps74-status is-${settings.status}`}
+            tone={settings.status === "active" ? "success" : "neutral"}
+          />
+        }
+        actions={
+          <>
+            <Link className="product-button is-secondary" to={`/project/${projectId}/knowledge`}>
+              返回项目知识库
+            </Link>
+            {switchProjects.length > 1 && (
+              <label className="ps74-project-switcher">
+                <span>切换项目</span>
+                <select value={projectId} onChange={(event) => switchToProject(event.target.value)}>
+                  {switchProjects.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {canWrite && dirty && (
+              <div className="ps74-header-actions" aria-label="未保存设置操作">
+                <button
+                  className="product-button is-secondary"
+                  disabled={saving}
+                  onClick={discardDraft}
+                >
+                  <RotateCcw size={16} aria-hidden="true" />
+                  放弃未保存
+                </button>
+                <button
+                  className="product-button is-primary"
+                  disabled={saving}
+                  onClick={() => void saveDraft()}
+                >
+                  <Save size={16} aria-hidden="true" />
+                  {saving ? "保存中…" : "保存设置"}
+                </button>
+              </div>
+            )}
+          </>
+        }
+      />
 
-      {actionError && <div className="ps74-feedback is-error">{actionError}</div>}
-      {actionNote && <div className="ps74-feedback is-success">{actionNote}</div>}
+      {actionError && (
+        <ActionFeedback
+          state="error"
+          title="设置未保存"
+          description={actionError}
+          nextStep="检查输入后重试；当前编辑内容仍会保留。"
+        />
+      )}
+      {actionNote && <ActionFeedback state="success" title="设置已更新" description={actionNote} />}
       {!canWrite && (
-        <div className="ps74-readonly-note">当前身份可查看项目设置，修改仅由本项目经理完成。</div>
+        <ActionFeedback
+          state="info"
+          title="当前为只读模式"
+          description="当前身份可查看项目设置，修改仅由本项目经理完成。"
+        />
       )}
 
       <div className="ps74-layout">
@@ -1156,6 +1173,6 @@ export default function ProjectSettingsPage() {
           <small id="project-review-reject-hint">该理由将随审核记录保存，并反馈给提交人。</small>
         </div>
       </ConfirmDialog>
-    </div>
+    </ProductPage>
   );
 }
