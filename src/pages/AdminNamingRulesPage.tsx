@@ -22,6 +22,8 @@ import DangerConfirmDialog from "../components/DangerConfirmDialog";
 import DetailDrawer from "../components/DetailDrawer";
 import TaskModal from "../components/TaskModal";
 import WizardModal from "../components/WizardModal";
+import { PageHeader, ProductPage } from "../components/ProductLayout";
+import StatusBadge from "../components/StatusBadge";
 import type {
   NamingAssetType,
   NamingCategoryConfigDTO,
@@ -177,14 +179,18 @@ export default function AdminNamingRulesPage() {
 
   if (!center || !config) {
     return (
-      <main className="naming-center">
+      <ProductPage className="naming-center">
+        <PageHeader
+          eyebrow="组织与知识治理"
+          title="命名规则中心"
+          description="维护公司与全项目共用的目录类别；只有发布后的规则才会生效。"
+        />
         <div className="naming-center-state">
           <BookType aria-hidden="true" />
-          <h1>命名规则中心</h1>
           <p>{error ?? "正在读取已发布规则与草稿…"}</p>
           {error && <Button onClick={() => void load()}>重新加载</Button>}
         </div>
-      </main>
+      </ProductPage>
     );
   }
 
@@ -336,26 +342,31 @@ export default function AdminNamingRulesPage() {
         : "启用一个公司类别后可预览";
 
   return (
-    <main className="naming-center">
-      <header className="naming-center-hero">
+    <ProductPage className="naming-center">
+      <PageHeader
+        eyebrow="组织与知识治理"
+        title="命名规则中心"
+        description="维护公司与全项目共用的目录类别；草稿只有显式发布后才会生效。"
+        scope={currentScopeName}
+        status={
+          <StatusBadge
+            label={missingAssetTypeCategories.length > 0 ? "规则待补全" : "草稿待发布"}
+            tone={missingAssetTypeCategories.length > 0 ? "warning" : "info"}
+          />
+        }
+      />
+      <div className="naming-version-cluster" aria-label="规则版本状态">
         <div>
-          <span className="naming-center-kicker">Knowledge naming policy</span>
-          <h1>命名规则中心</h1>
-          <p>先锁定规则范围，再维护该范围内的目录类别。草稿只有显式发布后才生效。</p>
+          <span>当前发布</span>
+          <strong>v{center.published.version}</strong>
+          <small>{center.published.config.enforced ? "正在执行" : "尚未强制"}</small>
         </div>
-        <div className="naming-version-cluster" aria-label="规则版本状态">
-          <div>
-            <span>当前发布</span>
-            <strong>v{center.published.version}</strong>
-            <small>{center.published.config.enforced ? "正在执行" : "尚未强制"}</small>
-          </div>
-          <div>
-            <span>工作草稿</span>
-            <strong>v{center.draft.version}</strong>
-            <small>{center.draft.status === "draft" ? "等待发布" : center.draft.status}</small>
-          </div>
+        <div>
+          <span>工作草稿</span>
+          <strong>v{center.draft.version}</strong>
+          <small>{center.draft.status === "draft" ? "等待发布" : center.draft.status}</small>
         </div>
-      </header>
+      </div>
 
       <section className="naming-scope-console" aria-labelledby="scope-heading">
         <div className="naming-scope-rail">
@@ -459,7 +470,7 @@ export default function AdminNamingRulesPage() {
             <Button icon={<RefreshCw size={16} />} disabled={busy} onClick={() => void load()}>
               刷新
             </Button>
-            <Button variant="primary" disabled={busy} onClick={() => void save()}>
+            <Button disabled={busy} onClick={() => void save()}>
               保存草稿
             </Button>
             <Button
@@ -1089,6 +1100,6 @@ export default function AdminNamingRulesPage() {
           </div>
         )}
       </WizardModal>
-    </main>
+    </ProductPage>
   );
 }

@@ -1,14 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  BellRing,
-  Clock3,
-  Inbox,
-  RefreshCw,
-  ShieldCheck,
-  Siren,
-  SlidersHorizontal,
-} from "lucide-react";
-import { fetchAlertNotifications, fetchAlertRules, updateAlertRule } from "../api/admin";
+import { BellRing, RefreshCw, ShieldCheck, Siren, SlidersHorizontal } from "lucide-react";
+import { fetchAlertRules, updateAlertRule } from "../api/admin";
 import { ApiError } from "../api/http";
 import {
   PageHeader,
@@ -17,15 +9,10 @@ import {
   PageToolbar,
   ProductPage,
 } from "../components/ProductLayout";
-import type { AlertRuleDTO, NotificationDTO } from "../types/alert";
+import type { AlertRuleDTO } from "../types/alert";
 import { formatBeijingTime } from "../utils/time";
 
 const severityLabel: Record<string, string> = { critical: "严重", error: "错误", warning: "警告" };
-const statusLabel: Record<string, string> = {
-  pending: "待发送",
-  sent: "已发送",
-  failed: "发送失败",
-};
 const channelLabel: Record<string, string> = {
   in_app: "站内通知",
   wecom: "企业微信",
@@ -39,7 +26,6 @@ const dedupLabel: Record<string, string> = {
 
 export default function AdminAlertSettingsPage() {
   const [rules, setRules] = useState<AlertRuleDTO[]>([]);
-  const [notifications, setNotifications] = useState<NotificationDTO[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<Set<string>>(new Set());
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
@@ -52,12 +38,8 @@ export default function AdminAlertSettingsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [ruleResponse, notificationResponse] = await Promise.all([
-        fetchAlertRules(),
-        fetchAlertNotifications(),
-      ]);
+      const ruleResponse = await fetchAlertRules();
       setRules(ruleResponse.items);
-      setNotifications(notificationResponse.items);
       setDrafts(
         Object.fromEntries(
           ruleResponse.items.map((rule) => [rule.id, String(rule.threshold ?? "")]),
@@ -66,7 +48,6 @@ export default function AdminAlertSettingsPage() {
       setRowErrors({});
     } catch (reason) {
       setRules([]);
-      setNotifications([]);
       setError(
         reason instanceof ApiError && reason.status === 403
           ? "当前身份没有告警设置查看权限。"
@@ -133,14 +114,12 @@ export default function AdminAlertSettingsPage() {
 
   const enabledCount = rules.filter((rule) => rule.enabled).length;
   const criticalCount = rules.filter((rule) => rule.severity === "critical").length;
-  const pendingCount = notifications.filter((item) => item.send_status === "pending").length;
-
   return (
     <ProductPage className="secops-page alert-settings-page">
       <PageHeader
         eyebrow="安全运营"
         title="告警设置"
-        description="维护安全告警触发条件，并核查最近通知的发送状态。"
+        description="维护安全告警触发条件与通知渠道。"
       />
       <div className="secops-banner is-readonly" style={{ marginBottom: 12 }}>
         告警触发后，通知通过以下渠道发送：站内通知（默认）、企业微信（需在系统设置中配置企微群机器人
@@ -158,8 +137,6 @@ export default function AdminAlertSettingsPage() {
               icon: <BellRing size={14} />,
             },
             { label: "严重规则", value: criticalCount, tone: "danger", icon: <Siren size={14} /> },
-            { label: "通知记录", value: notifications.length, icon: <Inbox size={14} /> },
-            { label: "待发送", value: pendingCount, tone: "warning", icon: <Clock3 size={14} /> },
           ]}
         />
         <main className="secops-main-workspace">
@@ -304,65 +281,6 @@ export default function AdminAlertSettingsPage() {
                     <tr>
                       <td colSpan={7} className="secops-empty">
                         正在加载告警规则…
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </PageSection>
-          <PageSection
-            title={
-              <span className="secops-section-title">
-                <span className="secops-workspace-heading-icon">
-                  <Inbox size={16} />
-                </span>
-                通知记录
-              </span>
-            }
-            description="仅显示业务可识别的接收人与发送状态。"
-            className="secops-workspace secops-secondary-section"
-          >
-            <div className="secops-table-wrap">
-              <table className="secops-table">
-                <thead>
-                  <tr>
-                    <th>时间</th>
-                    <th>通知</th>
-                    <th>接收人</th>
-                    <th className="secops-col-secondary">渠道</th>
-                    <th>状态</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {notifications.map((item) => (
-                    <tr key={item.id}>
-                      <td className="secops-time">{formatBeijingTime(item.created_at)}</td>
-                      <td className="secops-primary">{item.title}</td>
-                      <td>{item.recipient_name ?? "未指定接收人"}</td>
-                      <td className="secops-col-secondary">
-                        <span className="secops-channel">
-                          {channelLabel[item.channel] ?? "其他渠道"}
-                        </span>
-                      </td>
-                      <td>
-                        <span className={`secops-pill notification-${item.send_status}`}>
-                          {statusLabel[item.send_status] ?? "状态未知"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                  {!loading && notifications.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="secops-empty">
-                        暂无通知记录
-                      </td>
-                    </tr>
-                  )}
-                  {loading && (
-                    <tr>
-                      <td colSpan={5} className="secops-empty">
-                        正在加载通知记录…
                       </td>
                     </tr>
                   )}

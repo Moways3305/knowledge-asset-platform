@@ -298,7 +298,7 @@ try {
               iconLanguage:
                 target.name === "company-kb"
                   ? Boolean(pageRoot?.querySelector(".ckb-empty-icon svg"))
-                  : summaryValues.length === 4 &&
+                  : summaryValues.length === (target.name === "people" ? 3 : 4) &&
                     summaryIcons.length === summaryValues.length &&
                     (scenario !== "normal" || fieldMarks.length >= 3),
               listFirst: target.name !== "people" || Boolean(primary),
