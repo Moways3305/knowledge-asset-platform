@@ -226,9 +226,9 @@ async def visible_directory_rows(
     # non-member project is exposed only through directory rows which contain at
     # least one asset allowed by the authoritative discovery policy. This keeps
     # empty projects, empty directories and L5-only projects non-enumerable.
-    discoverable_rows = []
+    discoverable_rows: list[tuple[uuid.UUID | None, str | None]] = []
     if allowed_scope in (None, "all", KnowledgeScope.project.value):
-        discoverable_rows = (
+        rows_with_discovery = (
             await session.execute(
                 select(KnowledgeAsset.project_id, KnowledgeAssetVersion.directory_key)
                 .join(
@@ -244,6 +244,9 @@ async def visible_directory_rows(
                 .distinct()
             )
         ).all()
+        discoverable_rows = [
+            (project_id, directory_key) for project_id, directory_key in rows_with_discovery
+        ]
     discoverable_by_project: dict[uuid.UUID, set[str]] = {}
     for project_id, directory_key in discoverable_rows:
         if project_id is not None and directory_key:
