@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import uuid
+
+import pytest_asyncio
 from sqlalchemy import select
 
 from app.models.audit import AuditEvent
-from app.models.identity import ProjectMember
-from app.models.knowledge import KnowledgeAsset, KnowledgeAssetTag
+from app.models.identity import Project, ProjectMember
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetTag, KnowledgeAssetVersion
+from app.models.naming import NamingRuleRevision
 from app.models.review import PersonalKnowledgeSubmission, ReviewTask
 from app.seed.dev_seed import (
     PROJECT_ALPHA,
@@ -16,8 +20,48 @@ from app.seed.dev_seed import (
     USER_PROJECT_MANAGER,
 )
 from app.services import knowledge as knowledge_service
+from app.services.directories import default_directory_config
 
 MY = "/api/v1/my/knowledge"
+PROJECT_CATEGORY_ID = uuid.UUID("10000000-0000-0000-0000-000000000001")
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def governed_publication_policy(sessionmaker_fixture):
+    """Keep read-model submission scenarios on the governed publication contract."""
+    async with sessionmaker_fixture() as session:
+        for project_id, project_code in ((PROJECT_ALPHA, "ALPHA"), (PROJECT_BETA, "BETA")):
+            project = await session.get(Project, project_id)
+            project.project_code = project_code
+            project.project_code_active = True
+        session.add(
+            NamingRuleRevision(
+                version=10,
+                status="published",
+                base_published_version=9,
+                config={
+                    "schema_version": 2,
+                    "enforced": True,
+                    "project_codes": [],
+                    "categories": [
+                        {
+                            "id": str(PROJECT_CATEGORY_ID),
+                            "scope": "project",
+                            "primary": "项目资料",
+                            "secondary": "交付成果",
+                            "prefix": "交付",
+                            "asset_type": "deliverable",
+                            "default_confidentiality": "L2",
+                            "enabled": True,
+                            "sort_order": 10,
+                            "suggested_directory_key": "project.deliverables",
+                        }
+                    ],
+                    "directories": default_directory_config(),
+                },
+            )
+        )
+        await session.commit()
 
 
 def _hdr(user_id):
@@ -38,15 +82,36 @@ async def _asset(db_session, title: str, *, zone="asset", asset_type="methodolog
     )
     asset.tags.append(KnowledgeAssetTag(tag_name="PBC83安全标签"))
     db_session.add(asset)
+    await db_session.flush()
+    version = KnowledgeAssetVersion(
+        asset_id=asset.id,
+        version_no="V1",
+        version_status="active",
+        created_by=USER_CONSULTANT,
+        index_status="skipped",
+    )
+    db_session.add(version)
+    await db_session.flush()
+    asset.current_version_id = version.id
     await db_session.commit()
     return asset.id
 
 
-async def _submit(client, asset_id):
+async def _submit(client, asset_id, project_id=PROJECT_ALPHA):
     response = await client.post(
         f"{MY}/{asset_id}/submit-to-project",
         headers=_hdr(USER_CONSULTANT),
-        json={"target_project_id": str(PROJECT_ALPHA)},
+        json={
+            "target_project_id": str(project_id),
+            "confidentiality_level": "L2",
+            "naming": {
+                "category_id": str(PROJECT_CATEGORY_ID),
+                "subject": "个人知识读模型",
+                "formed_on": "2026-08-17",
+                "version": "V1",
+                "directory_key": "project.deliverables",
+            },
+        },
     )
     assert response.status_code == 200, response.text
     return response.json()["review_task_id"]
@@ -300,14 +365,9 @@ async def test_active_project_copy_wins_over_later_cross_project_rejection(clien
     )
     assert approved.status_code == 200, approved.text
 
-    beta_submission = await client.post(
-        f"{MY}/{asset_id}/submit-to-project",
-        headers=_hdr(USER_CONSULTANT),
-        json={"target_project_id": str(PROJECT_BETA)},
-    )
-    assert beta_submission.status_code == 200, beta_submission.text
+    beta_submission_id = await _submit(client, asset_id, PROJECT_BETA)
     rejected = await client.post(
-        f"/api/v1/reviews/{beta_submission.json()['review_task_id']}/reject",
+        f"/api/v1/reviews/{beta_submission_id}/reject",
         headers=_hdr(USER_PROJECT_MANAGER),
         json={"review_comment": "暂不进入 Beta 项目"},
     )
