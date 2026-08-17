@@ -260,6 +260,57 @@ try {
           const empty = scenario === "empty";
           const parseOnly = scenario === "parse-only";
           const retryEligible = scenario !== "target-running";
+          const allRecoveryItems = [
+            failure({ retry_eligible: retryEligible }),
+            failure({
+              retry_target: null,
+              diagnostic_category: "configuration",
+              diagnostic_label: "配置问题",
+              operator_error_message: "请完成平台默认模型配置。",
+              retry_eligible: false,
+              recovery_state: "failed",
+            }),
+            failure({
+              retry_target: "opaque-failed-target-86",
+              operator_error_message: "索引提交失败，可再次恢复。",
+              recovery_state: "failed",
+              wait_seconds: 2400,
+            }),
+            failure({
+              retry_target: "opaque-waiting-target-87",
+              operator_error_message: "正在等待可用运行资源。",
+              recovery_state: "waiting",
+              wait_seconds: 1200,
+            }),
+            failure({
+              retry_target: "opaque-waiting-target-88",
+              operator_error_message: "恢复请求正在排队。",
+              recovery_state: "waiting",
+              wait_seconds: 600,
+            }),
+            failure({
+              retry_target: "opaque-skipped-target-89",
+              operator_error_message: "当前条件不满足，已安全跳过。",
+              recovery_state: "skipped",
+              wait_seconds: 300,
+            }),
+            failure({
+              retry_target: "opaque-skipped-target-90",
+              operator_error_message: "等待治理范围确认。",
+              recovery_state: "skipped",
+              wait_seconds: 240,
+            }),
+            failure({
+              retry_target: "opaque-skipped-target-91",
+              operator_error_message: "等待恢复条件满足。",
+              recovery_state: "skipped",
+              wait_seconds: 180,
+            }),
+          ];
+          const visibleRecoveryItems =
+            url.searchParams.get("include_all") === "true"
+              ? allRecoveryItems
+              : allRecoveryItems.slice(0, 4);
           return fulfill({
             counts: empty
               ? { ...counts, index_failed: 0, not_indexed: 0, skipped: 0, parse_failed: 0 }
@@ -280,44 +331,7 @@ try {
                       retry_eligible: false,
                     }),
                   ],
-            recovery_items:
-              empty || parseOnly
-                ? []
-                : [
-                    failure({ retry_eligible: retryEligible }),
-                    failure({
-                      retry_target: null,
-                      diagnostic_category: "configuration",
-                      diagnostic_label: "配置问题",
-                      operator_error_message: "请完成平台默认模型配置。",
-                      retry_eligible: false,
-                      recovery_state: "failed",
-                    }),
-                    failure({
-                      retry_target: "opaque-failed-target-86",
-                      operator_error_message: "索引提交失败，可再次恢复。",
-                      recovery_state: "failed",
-                      wait_seconds: 2400,
-                    }),
-                    failure({
-                      retry_target: "opaque-waiting-target-87",
-                      operator_error_message: "正在等待可用运行资源。",
-                      recovery_state: "waiting",
-                      wait_seconds: 1200,
-                    }),
-                    failure({
-                      retry_target: "opaque-waiting-target-88",
-                      operator_error_message: "恢复请求正在排队。",
-                      recovery_state: "waiting",
-                      wait_seconds: 600,
-                    }),
-                    failure({
-                      retry_target: "opaque-skipped-target-89",
-                      operator_error_message: "当前条件不满足，已安全跳过。",
-                      recovery_state: "skipped",
-                      wait_seconds: 300,
-                    }),
-                  ],
+            recovery_items: empty || parseOnly ? [] : visibleRecoveryItems,
             recovery_summary: {
               interrupted: empty || parseOnly ? 0 : 1,
               needs_recovery: empty || parseOnly ? 0 : 8,
@@ -363,7 +377,7 @@ try {
         await page.getByLabel("诊断类别筛选").selectOption("configuration");
         await page.getByText("请完成平台默认模型配置。").waitFor();
       } else if (scenario === "view-all") {
-        await page.getByRole("button", { name: "查看全部 6 项" }).click();
+        await page.getByRole("button", { name: "查看全部 8 项" }).click();
         await page.getByText("当前条件不满足，已安全跳过。").waitFor();
       } else if (scenario === "target-success" || scenario === "target-conflict") {
         await page.locator(".ao85-target-retry").first().click();

@@ -329,11 +329,19 @@ describe("AdminIngestPage operations reference", () => {
         wait_seconds: 300,
       },
     ];
-    vi.mocked(fetchOpsIndexing).mockResolvedValue({
-      ...ops,
-      recent_failed: recoveryItems,
-      recovery_summary: { interrupted: 1, needs_recovery: 6, processing: 2, searchable: 12 },
-    });
+    vi.mocked(fetchOpsIndexing)
+      .mockResolvedValueOnce({
+        ...ops,
+        recent_failed: recoveryItems.slice(0, 4),
+        recovery_items: recoveryItems.slice(0, 4),
+        recovery_summary: { interrupted: 1, needs_recovery: 6, processing: 2, searchable: 12 },
+      })
+      .mockResolvedValueOnce({
+        ...ops,
+        recent_failed: recoveryItems,
+        recovery_items: recoveryItems,
+        recovery_summary: { interrupted: 1, needs_recovery: 6, processing: 2, searchable: 12 },
+      });
     const user = userEvent.setup();
     renderPage();
 
@@ -345,9 +353,28 @@ describe("AdminIngestPage operations reference", () => {
     expect(screen.queryByText("等待任务二")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "查看全部 6 项" }));
-    expect(within(taskList).getAllByRole("listitem")).toHaveLength(6);
+    await waitFor(() => expect(fetchOpsIndexing).toHaveBeenLastCalledWith(true));
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("list", { name: "待恢复任务列表" })).getAllByRole("listitem"),
+      ).toHaveLength(6),
+    );
     expect(screen.getByText("等待任务二")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "收起为优先项" })).toBeInTheDocument();
+  });
+
+  it("keeps the current candidate projection when loading all candidates fails", async () => {
+    vi.mocked(fetchOpsIndexing)
+      .mockResolvedValueOnce(ops)
+      .mockRejectedValueOnce(new Error("SECRET full candidate failure"));
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText("绝不能显示的业务标题")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "查看全部 8 项" }));
+    expect(await screen.findByText("全部恢复候选暂时无法加载，请稍后重试。")).toBeInTheDocument();
+    expect(screen.getByText("绝不能显示的业务标题")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("SECRET full candidate failure");
   });
 
   it("confirms and completes one safe targeted retry", async () => {

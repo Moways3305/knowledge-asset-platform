@@ -729,6 +729,55 @@ async def test_recovery_summary_counts_only_active_jobs_for_current_candidates(
     assert candidate["processing"] == baseline["processing"] + 1
 
 
+async def test_ops_indexing_include_all_is_not_truncated_to_default_twenty(client, db_session):
+    for index in range(21):
+        asset = KnowledgeAsset(
+            title=f"Recovery candidate {index:02d}",
+            scope="company",
+            zone="material",
+            asset_type="deliverable",
+            owner_user_id=USER_CONSULTANT,
+            asset_status="active",
+            confidentiality_level="L2",
+        )
+        db_session.add(asset)
+        await db_session.flush()
+        version = KnowledgeAssetVersion(
+            asset_id=asset.id,
+            version_no="V1",
+            version_status="active",
+            created_by=USER_CONSULTANT,
+            index_status="index_failed",
+            index_error_code="weknora_call_failed",
+        )
+        db_session.add(version)
+        await db_session.flush()
+        asset.current_version_id = version.id
+    await db_session.commit()
+
+    default_response = await client.get("/admin/ops/indexing", headers=_hdr(USER_ADMIN_ONLY))
+    assert default_response.status_code == 200
+    assert len(default_response.json()["recovery_items"]) == 20
+
+    all_response = await client.get(
+        "/admin/ops/indexing?include_all=true", headers=_hdr(USER_ADMIN_ONLY)
+    )
+    assert all_response.status_code == 200
+    body = all_response.json()
+    assert len(body["recovery_items"]) >= 21
+    assert len(body["recovery_items"]) == body["recovery_summary"]["needs_recovery"]
+
+
+def test_ops_indexing_openapi_declares_include_all_query_contract():
+    operation = app.openapi()["paths"]["/admin/ops/indexing"]["get"]
+    parameter = next(item for item in operation["parameters"] if item["name"] == "include_all")
+
+    assert parameter["in"] == "query"
+    assert parameter["required"] is False
+    assert parameter["schema"]["type"] == "boolean"
+    assert parameter["schema"]["default"] is False
+
+
 # ---------------------------------------------------------------------------
 # 单条安全 retry
 # ---------------------------------------------------------------------------

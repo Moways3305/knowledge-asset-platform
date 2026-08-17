@@ -427,6 +427,10 @@ async def ops_llm_usage(
 
 @router.get("/admin/ops/indexing")
 async def ops_indexing(
+    include_all: bool = Query(
+        default=False,
+        description="是否返回全部安全恢复候选；默认仅返回最近 20 条。",
+    ),
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -448,15 +452,17 @@ async def ops_indexing(
 
     # 恢复候选：明确失败、此前跳过、尚未进入索引。正常 indexing/indexed 永不进入。
     recovery_statuses = ("index_failed", "skipped", "not_indexed")
-    rows = (
-        await session.execute(
-            select(KnowledgeAsset, KnowledgeAssetVersion)
-            .join(KnowledgeAssetVersion, KnowledgeAssetVersion.asset_id == KnowledgeAsset.id)
-            .where(*active_non_deleted, KnowledgeAssetVersion.index_status.in_(recovery_statuses))
-            .order_by(KnowledgeAsset.updated_at.desc())
-            .limit(20)
-        )
-    ).all()
+    recovery_query = (
+        select(KnowledgeAsset, KnowledgeAssetVersion)
+        .join(KnowledgeAssetVersion, KnowledgeAssetVersion.asset_id == KnowledgeAsset.id)
+        .where(*active_non_deleted, KnowledgeAssetVersion.index_status.in_(recovery_statuses))
+        .order_by(KnowledgeAsset.updated_at.desc(), KnowledgeAsset.id.desc())
+    )
+    # 首屏只取最近 20 条；管理员明确点击“查看全部”时才读取完整安全候选投影。
+    # 不用更大的固定上限冒充“全部”，也不改变恢复候选或权限语义。
+    if not include_all:
+        recovery_query = recovery_query.limit(20)
+    rows = (await session.execute(recovery_query)).all()
     project_ids = {a.project_id for a, _v in rows if a.project_id}
     owner_ids = {a.owner_user_id for a, _v in rows if a.owner_user_id}
     pmap: dict = {}

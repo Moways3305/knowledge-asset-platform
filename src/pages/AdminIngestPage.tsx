@@ -215,7 +215,9 @@ export default function AdminIngestPage() {
   const [targetError, setTargetError] = useState<string | null>(null);
   const [selectedJob, setSelectedJob] = useState<IndexingJobSummaryDTO | null>(null);
   const [showAllRecoveryItems, setShowAllRecoveryItems] = useState(false);
+  const [recoveryListBusy, setRecoveryListBusy] = useState(false);
   const runtimeDetailsRef = useRef<HTMLDetailsElement>(null);
+  const showAllRecoveryItemsRef = useRef(false);
   const ingestRequestRef = useRef(0);
   const opsRequestRef = useRef(0);
   const jobsRequestRef = useRef(0);
@@ -241,11 +243,11 @@ export default function AdminIngestPage() {
     }
   }, []);
 
-  const loadOpsIndex = useCallback(async () => {
+  const loadOpsIndex = useCallback(async (includeAll = showAllRecoveryItemsRef.current) => {
     const requestId = ++opsRequestRef.current;
     setOpsState("loading");
     try {
-      const index = await fetchOpsIndexing();
+      const index = await fetchOpsIndexing(includeAll);
       if (opsRequestRef.current !== requestId) return null;
       setOpsIndex(index);
       setOpsState("ready");
@@ -257,6 +259,30 @@ export default function AdminIngestPage() {
       return null;
     }
   }, []);
+
+  const toggleAllRecoveryItems = async () => {
+    if (showAllRecoveryItems) {
+      showAllRecoveryItemsRef.current = false;
+      setShowAllRecoveryItems(false);
+      return;
+    }
+    setRecoveryListBusy(true);
+    const requestId = ++opsRequestRef.current;
+    try {
+      const index = await fetchOpsIndexing(true);
+      if (opsRequestRef.current !== requestId) return;
+      setOpsIndex(index);
+      setOpsState("ready");
+      showAllRecoveryItemsRef.current = true;
+      setShowAllRecoveryItems(true);
+    } catch {
+      if (opsRequestRef.current !== requestId) return;
+      setOpsFeedbackState("error");
+      setOpsNote("全部恢复候选暂时无法加载，请稍后重试。");
+    } finally {
+      setRecoveryListBusy(false);
+    }
+  };
 
   const fetchJobsSerialized = useCallback(() => {
     const inFlight = jobsFetchInFlightRef.current;
@@ -1151,15 +1177,18 @@ export default function AdminIngestPage() {
             </div>
             <div className="irc-task-controls">
               <span className="irc-candidate-count">候选总数 {displayedNeedsRecovery}</span>
-              {filteredRecoveryItems.length > DEFAULT_VISIBLE_RECOVERY_ITEMS && (
+              {displayedNeedsRecovery > DEFAULT_VISIBLE_RECOVERY_ITEMS && (
                 <button
                   type="button"
                   className="btn-small"
-                  onClick={() => setShowAllRecoveryItems((current) => !current)}
+                  onClick={() => void toggleAllRecoveryItems()}
+                  disabled={recoveryListBusy}
                 >
-                  {showAllRecoveryItems
-                    ? "收起为优先项"
-                    : `查看全部 ${filteredRecoveryItems.length} 项`}
+                  {recoveryListBusy
+                    ? "正在读取全部候选…"
+                    : showAllRecoveryItems
+                      ? "收起为优先项"
+                      : `查看全部 ${displayedNeedsRecovery} 项`}
                 </button>
               )}
               <label className="ao84-failure-filter">
@@ -1169,6 +1198,7 @@ export default function AdminIngestPage() {
                   value={failureFilter}
                   onChange={(event) => {
                     setFailureFilter(event.target.value as FailureFilter);
+                    showAllRecoveryItemsRef.current = false;
                     setShowAllRecoveryItems(false);
                   }}
                 >

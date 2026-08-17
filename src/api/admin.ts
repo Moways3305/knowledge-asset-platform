@@ -73,8 +73,10 @@ import type {
 // ---- 索引运维 ----
 // 注：ops 路由不带 /api/v1 前缀（与 /admin/ops/summary 一致）。
 // 索引运维面板。admin 或业务治理角色可看安全计数 + 最近失败列表。
-export async function fetchOpsIndexing(): Promise<OpsIndexingDTO> {
-  return apiGet<OpsIndexingDTO>(`/admin/ops/indexing`);
+export async function fetchOpsIndexing(includeAll = false): Promise<OpsIndexingDTO> {
+  return apiGet<OpsIndexingDTO>(
+    includeAll ? `/admin/ops/indexing?include_all=true` : `/admin/ops/indexing`,
+  );
 }
 
 export async function fetchLLMUsage(days = 14): Promise<LLMUsageAggregateResponseDTO> {
