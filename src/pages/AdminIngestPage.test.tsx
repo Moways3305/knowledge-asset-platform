@@ -145,7 +145,7 @@ function renderPage() {
 }
 
 async function openRuntimeDetails(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(await screen.findByText("运行详情与高级操作"));
+  await user.click(await screen.findByText("运行详情", { selector: "summary span" }));
 }
 
 describe("AdminIngestPage operations reference", () => {
@@ -208,7 +208,7 @@ describe("AdminIngestPage operations reference", () => {
     });
   });
 
-  it("renders the three operations tabs and only safe aggregate failure data", async () => {
+  it("renders the recovery track without the old operations tabs and only safe failure data", async () => {
     renderPage();
 
     expect(await screen.findByRole("heading", { name: "索引恢复控制台" })).toBeInTheDocument();
@@ -216,19 +216,19 @@ describe("AdminIngestPage operations reference", () => {
     expect(
       screen.queryByText("优先恢复失败、卡住和待确认的入库与索引任务。"),
     ).not.toBeInTheDocument();
-    const tabs = screen.getByRole("navigation", { name: "管理员运维页面" });
-    expect(within(tabs).getByRole("link", { name: "索引维护" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-    expect(within(tabs).getByRole("link", { name: "微盘扫描" })).toHaveAttribute(
-      "href",
-      "/admin/wecom-scan",
-    );
-    expect(within(tabs).getByRole("link", { name: "安全日志" })).toHaveAttribute(
-      "href",
-      "/admin/audit",
-    );
+    expect(screen.queryByRole("navigation", { name: "管理员运维页面" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "微盘扫描" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "安全日志" })).not.toBeInTheDocument();
+
+    const track = screen.getByRole("list", { name: "索引处理轨道" });
+    expect(within(track).getByText("已入库").closest("li")).toHaveTextContent("—");
+    expect(within(track).getByText("索引提交").closest("li")).toHaveTextContent("2");
+    expect(within(track).getByText("中断待恢复").closest("li")).toHaveTextContent("1");
+    expect(within(track).getByText("可检索").closest("li")).toHaveTextContent("12");
+    const currentState = screen.getByLabelText("索引当前状态");
+    expect(within(currentState).getByText("需恢复").closest("p")).toHaveTextContent("8");
+    expect(within(currentState).getByText("处理中").closest("p")).toHaveTextContent("2");
+    expect(within(currentState).getByText("已可检索").closest("p")).toHaveTextContent("12");
 
     expect(await screen.findByText("连接检查未通过，请确认平台配置。")).toBeInTheDocument();
     expect(screen.getByText("1 项索引中断，等待恢复")).toBeInTheDocument();
@@ -270,16 +270,91 @@ describe("AdminIngestPage operations reference", () => {
     renderPage();
 
     await screen.findByText("请完成平台默认模型配置。");
-    await user.click(screen.getByRole("button", { name: "配置问题1" }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "诊断类别筛选" }),
+      "configuration",
+    );
     expect(screen.getByText("请完成平台默认模型配置。")).toBeInTheDocument();
     expect(screen.queryByText("连接检查未通过，请确认平台配置。")).not.toBeInTheDocument();
+  });
+
+  it("shows interrupted tasks first and reveals the remaining candidates on demand", async () => {
+    const recoveryItems = [
+      {
+        ...ops.recent_failed[0],
+        retry_target: "waiting-1",
+        title: "等待任务一",
+        operator_error_message: "等待重新提交。",
+        recovery_state: "waiting" as const,
+        wait_seconds: 900,
+      },
+      {
+        ...ops.recent_failed[0],
+        retry_target: "failed-1",
+        title: "失败任务一",
+        operator_error_message: "本次提交失败。",
+        recovery_state: "failed" as const,
+        wait_seconds: 1800,
+      },
+      {
+        ...ops.recent_failed[0],
+        retry_target: "interrupted-1",
+        title: "中断任务一",
+        operator_error_message: "长时间没有进展。",
+        recovery_state: "interrupted" as const,
+        wait_seconds: 7200,
+      },
+      {
+        ...ops.recent_failed[0],
+        retry_target: "failed-2",
+        title: "失败任务二",
+        operator_error_message: "再次提交失败。",
+        recovery_state: "failed" as const,
+        wait_seconds: 1200,
+      },
+      {
+        ...ops.recent_failed[0],
+        retry_target: "waiting-2",
+        title: "等待任务二",
+        operator_error_message: "等待运行资源。",
+        recovery_state: "waiting" as const,
+        wait_seconds: 600,
+      },
+      {
+        ...ops.recent_failed[0],
+        retry_target: "skipped-1",
+        title: "跳过任务一",
+        operator_error_message: "当前不满足条件。",
+        recovery_state: "skipped" as const,
+        wait_seconds: 300,
+      },
+    ];
+    vi.mocked(fetchOpsIndexing).mockResolvedValue({
+      ...ops,
+      recent_failed: recoveryItems,
+      recovery_summary: { interrupted: 1, needs_recovery: 6, processing: 2, searchable: 12 },
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    const taskList = await screen.findByRole("list", { name: "待恢复任务列表" });
+    const visibleItems = within(taskList).getAllByRole("listitem");
+    expect(visibleItems).toHaveLength(4);
+    expect(visibleItems[0]).toHaveTextContent("中断任务一");
+    expect(visibleItems[1]).toHaveTextContent("失败任务一");
+    expect(screen.queryByText("等待任务二")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "查看全部 6 项" }));
+    expect(within(taskList).getAllByRole("listitem")).toHaveLength(6);
+    expect(screen.getByText("等待任务二")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "收起为优先项" })).toBeInTheDocument();
   });
 
   it("confirms and completes one safe targeted retry", async () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByRole("button", { name: "恢复此项" }));
+    await user.click(await screen.findByRole("button", { name: "查看详情" }));
     expect(screen.getByRole("dialog")).toHaveTextContent(
       "此操作仅重新发起索引恢复，不查看、不下载、不修改原文。",
     );
@@ -303,7 +378,7 @@ describe("AdminIngestPage operations reference", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByRole("button", { name: "恢复此项" }));
+    await user.click(await screen.findByRole("button", { name: "查看详情" }));
     await user.click(screen.getByRole("button", { name: "确认恢复" }));
     expect(await screen.findByText(message)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "确认恢复" })).toBeEnabled();
@@ -481,7 +556,7 @@ describe("AdminIngestPage operations reference", () => {
     await waitFor(() => expect(fetchOpsIndexing).toHaveBeenCalledTimes(2));
     expect(screen.getByText("绝不能显示的业务标题")).toBeInTheDocument();
     const currentState = screen.getByLabelText("索引当前状态");
-    expect(within(currentState).getByText("待恢复").closest("p")).toHaveTextContent("8");
+    expect(within(currentState).getByText("需恢复").closest("p")).toHaveTextContent("8");
     expect(within(currentState).getByText("处理中").closest("p")).toHaveTextContent("2");
   });
 
@@ -616,7 +691,7 @@ describe("AdminIngestPage operations reference", () => {
     renderPage();
 
     expect(await screen.findByText("索引状态暂时无法加载")).toBeInTheDocument();
-    expect(screen.getByText("失败任务暂时无法加载")).toBeInTheDocument();
+    expect(screen.getByText("恢复任务暂时无法加载")).toBeInTheDocument();
     expect(screen.getByText("共 1 项")).toBeInTheDocument();
     expect(screen.getAllByText("处理中").length).toBeGreaterThan(0);
     expect(document.body).not.toHaveTextContent("SECRET upstream failure");
@@ -632,11 +707,10 @@ describe("AdminIngestPage operations reference", () => {
     });
     renderPage();
 
-    expect(await screen.findByText("当前没有索引失败任务")).toBeInTheDocument();
-    expect(screen.getByText("当前没有待恢复索引")).toBeInTheDocument();
+    expect(await screen.findAllByText("当前没有待恢复索引")).toHaveLength(2);
   });
 
-  it("warns when only parse failures remain and shows the actionable reparse count", async () => {
+  it("keeps parse-only recovery in the folded runtime details", async () => {
     const user = userEvent.setup();
     vi.mocked(fetchOpsIndexing).mockResolvedValue({
       ...ops,
@@ -647,14 +721,15 @@ describe("AdminIngestPage operations reference", () => {
     });
     renderPage();
 
-    await openRuntimeDetails(user);
-    expect(await screen.findByText("存在 5 项底座解析异常，可重新解析")).toBeInTheDocument();
+    expect(await screen.findAllByText("当前没有待恢复索引")).toHaveLength(2);
+    expect(
+      screen.getByText("底座对账仍有异常；恢复前会再次校验连接与嵌入模型。"),
+    ).toBeInTheDocument();
     expect(screen.queryByText("当前没有索引失败项")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重新解析" })).not.toBeInTheDocument();
+    await openRuntimeDetails(user);
     expect(screen.getByRole("button", { name: "重新解析（2 项）" })).toBeInTheDocument();
-    const primaryAction = screen.getByRole("button", { name: "重新解析" });
-    expect(primaryAction).toBeEnabled();
-
-    await user.click(primaryAction);
+    await user.click(screen.getByRole("button", { name: "重新解析（2 项）" }));
     await waitFor(() =>
       expect(triggerIndexingReparse).toHaveBeenCalledWith({
         scope: "all",

@@ -16,69 +16,6 @@
   gap: 12px;
 }
 
-.ao84-refresh-meta {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-  white-space: nowrap;
-}
-
-.ao84-tabs {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  width: min(620px, 100%);
-  min-height: 42px;
-  background: var(--color-bg-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-
-.ao84-tabs a {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 10px 14px;
-  color: var(--color-text-secondary);
-  font-size: 14px;
-  font-weight: 650;
-  text-decoration: none;
-  border-right: 1px solid var(--color-border-light);
-}
-
-.ao84-tabs a:last-child {
-  border-right: 0;
-}
-
-.ao84-tabs a:hover {
-  color: var(--color-primary);
-  background: var(--color-bg-hover);
-}
-
-.ao84-tabs a.is-active {
-  color: var(--color-primary);
-  background: var(--color-accent-soft);
-}
-
-.ao84-tabs a.is-active::after {
-  content: "";
-  position: absolute;
-  right: 14px;
-  bottom: 0;
-  left: 14px;
-  height: 2px;
-  background: var(--color-gold);
-}
-
-.ao84-tabs a:focus-visible {
-  z-index: 1;
-  outline: 2px solid var(--color-gold);
-  outline-offset: -3px;
-}
-
 .ao84-console {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -97,10 +34,6 @@
 
 .ao84-failures {
   order: 2;
-}
-
-.ao84-summary {
-  order: 1;
 }
 
 .ao84-panel-head {
@@ -1039,16 +972,6 @@
 }
 
 @media (max-width: 640px) {
-  .ao84-tabs {
-    width: 100%;
-  }
-
-  .ao84-tabs a {
-    gap: 5px;
-    padding-inline: 7px;
-    font-size: 12px;
-  }
-
   .ao84-index-grid,
   .ao84-ingest-counts,
   .ao84-action-options,
@@ -1202,86 +1125,192 @@
   }
 }
 /* Index recovery console -------------------------------------------------- */
+.irc-recovery-overview {
+  order: 1;
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
 .irc-risk {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
-  margin: 4px 0 22px;
-  padding: 16px 18px;
-  border: 1px solid var(--color-border, #d9e0e8);
+  min-height: 72px;
+  padding: 14px 18px;
+  border: 1px solid #dce3eb;
   border-left: 4px solid #0f766e;
-  background: #f7faf9;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgb(24 58 102 / 5%);
 }
 
 .irc-risk.is-warning {
   border-left-color: #c2413b;
-  background: #fff8f6;
+  background: #fffafa;
+}
+
+.irc-risk > svg {
+  color: #0f766e;
+}
+
+.irc-risk.is-warning > svg {
+  color: #b93834;
 }
 
 .irc-risk > div {
   display: grid;
-  gap: 4px;
+  gap: 3px;
 }
+
 .irc-risk strong {
   color: #17253b;
   font-size: 15px;
+  line-height: 1.35;
 }
+
 .irc-risk span {
-  color: #59677a;
-  font-size: 13px;
-  line-height: 1.5;
+  color: #657286;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.irc-risk .btn-small-primary {
+  min-width: 158px;
+  min-height: 38px;
+  justify-content: center;
+  background: #1f3478;
+}
+
+.irc-progress-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2.15fr) minmax(250px, 0.85fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.irc-progress-card,
+.irc-current-state {
+  min-width: 0;
+  border: 1px solid #dce3eb;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgb(24 58 102 / 5%);
+}
+
+.irc-progress-card > header,
+.irc-current-state > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 58px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e5eaf0;
+}
+
+.irc-progress-card > header > div {
+  display: grid;
+  gap: 2px;
+}
+
+.irc-progress-card > header span,
+.irc-current-state > header span {
+  color: #9a6819;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.irc-progress-card h2 {
+  margin: 0;
+  color: #17253b;
+  font-size: 17px;
+  line-height: 1.3;
+}
+
+.irc-progress-card > header svg {
+  color: #1f3478;
 }
 
 .irc-track {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 0;
-  padding: 0;
+  padding: 28px 18px 26px;
   list-style: none;
-}
-
-.irc-progress-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
-  gap: 28px;
-  align-items: center;
 }
 
 .irc-track li {
   position: relative;
   display: grid;
   justify-items: center;
-  gap: 8px;
-  color: #758195;
-  font-size: 13px;
-  font-weight: 650;
+  gap: 9px;
+  min-width: 0;
+  color: #718095;
+  text-align: center;
 }
 
 .irc-track li::after {
   content: "";
   position: absolute;
+  z-index: 0;
   top: 8px;
   left: calc(50% + 18px);
   width: calc(100% - 36px);
   height: 2px;
   background: #dbe2ea;
 }
+
 .irc-track li:last-child::after {
   display: none;
 }
+
+.irc-track li > svg {
+  position: relative;
+  z-index: 1;
+  box-sizing: content-box;
+  padding: 0 6px;
+  background: #fff;
+}
+
+.irc-track li > div {
+  display: grid;
+  gap: 5px;
+}
+
+.irc-track li span {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.irc-track li strong {
+  color: #17253b;
+  font:
+    700 22px/1 ui-monospace,
+    "SFMono-Regular",
+    Consolas,
+    monospace;
+}
+
 .irc-track li.is-complete {
   color: #0f766e;
 }
+
 .irc-track li.is-active {
-  color: #183a66;
+  color: #1f3478;
 }
-.irc-track li.is-interrupted {
-  color: #c2413b;
+
+.irc-track li.is-interrupted,
+.irc-track li.is-interrupted strong {
+  color: #b93834;
 }
+
 .irc-track li.is-active svg {
   animation: irc-spin 2s linear infinite;
 }
+
 @keyframes irc-spin {
   to {
     transform: rotate(360deg);
@@ -1290,43 +1319,234 @@
 
 .irc-current-state {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1px;
-  margin-top: 0;
-  background: #dfe5ec;
-  border: 1px solid #dfe5ec;
+  grid-template-rows: auto repeat(3, 1fr) auto;
 }
+
+.irc-current-state > header strong {
+  color: #718095;
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .irc-current-state p {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 12px;
-  margin: 0;
-  padding: 12px 14px;
-  background: #fff;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin: 0 14px;
+  padding: 10px 2px;
+  border-bottom: 1px solid #edf0f4;
 }
-.irc-current-state span {
-  color: #657286;
+
+.irc-current-state p:nth-of-type(1) svg {
+  color: #b93834;
+}
+
+.irc-current-state p:nth-of-type(2) svg {
+  color: #9a6819;
+}
+
+.irc-current-state p:nth-of-type(3) svg {
+  color: #0f766e;
+}
+
+.irc-current-state p span {
+  color: #526176;
   font-size: 12px;
+  font-weight: 650;
 }
-.irc-current-state strong {
+
+.irc-current-state p strong {
   color: #17253b;
   font:
     700 20px/1 ui-monospace,
+    "SFMono-Regular",
+    Consolas,
     monospace;
 }
 
-.irc-runtime-details {
-  margin-top: 24px;
-  border-top: 1px solid #e2e7ed;
+.irc-current-state footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  color: #718095;
+  font-size: 10px;
+  background: #f7f9fb;
 }
-.irc-runtime-details > summary {
-  cursor: pointer;
-  padding: 16px 2px 4px;
+
+.irc-task-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 66px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e5eaf0;
+}
+
+.irc-task-head h2 {
+  margin: 0;
+  color: #17253b;
+  font-size: 17px;
+}
+
+.irc-task-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.irc-candidate-count {
+  color: #657286;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.irc-task-list-wrap {
+  position: relative;
+  min-height: 132px;
+}
+
+.irc-task-list-wrap > .ao84-table-state {
+  position: relative;
+  inset: auto;
+  min-width: 0;
+  min-height: 132px;
+  padding: 22px 14px;
+}
+
+.irc-task-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.irc-task-list > li {
+  display: grid;
+  grid-template-columns:
+    minmax(240px, 2fr) minmax(110px, 0.7fr) minmax(100px, 0.6fr) minmax(120px, 0.7fr)
+    auto;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  padding: 14px 16px;
+  border-bottom: 1px solid #edf0f4;
+}
+
+.irc-task-list > li:last-child {
+  border-bottom: 0;
+}
+
+.irc-task-list > li:hover {
+  background: #fafbfd;
+}
+
+.irc-task-object {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.irc-task-object > svg {
+  margin-top: 2px;
+  color: #b93834;
+}
+
+.irc-task-object > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.irc-task-object strong,
+.irc-task-object span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.irc-task-object strong {
+  color: #17253b;
+  font-size: 13px;
+}
+
+.irc-task-object span {
+  color: #657286;
+  font-size: 12px;
+}
+
+.irc-task-fact {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.irc-task-fact > span {
+  color: #8590a0;
+  font-size: 10px;
+}
+
+.irc-task-fact > strong:not(.ao84-status) {
+  overflow: hidden;
   color: #33445b;
+  font-size: 12px;
   font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+.irc-task-list .btn-small {
+  white-space: nowrap;
+}
+
+.irc-empty-state {
+  min-height: 146px;
+}
+
+.irc-empty-state > span {
+  color: #718095;
+  font-size: 12px;
+}
+
+.irc-runtime-details {
+  order: 3;
+  border: 1px solid #dce3eb;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgb(24 58 102 / 5%);
+}
+
+.irc-runtime-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  padding: 15px 16px;
+  color: #33445b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.irc-runtime-details > summary strong {
+  color: #9a3412;
+  font-size: 11px;
+}
+
 .irc-runtime-details[open] > summary {
+  border-bottom: 1px solid #e5eaf0;
+}
+
+.irc-runtime-details > :not(summary) {
+  margin-inline: 14px;
+}
+
+.irc-runtime-details > :last-child {
   margin-bottom: 14px;
 }
 
@@ -1410,6 +1630,10 @@
 }
 
 @media (max-width: 640px) {
+  .irc-recovery-overview {
+    gap: 12px;
+  }
+
   .irc-risk {
     grid-template-columns: auto 1fr;
     padding: 14px;
@@ -1418,62 +1642,99 @@
     grid-column: 1 / -1;
     width: 100%;
   }
-  .irc-track {
-    grid-template-columns: 1fr;
-    gap: 0;
-  }
+
   .irc-progress-grid {
     grid-template-columns: 1fr;
-    gap: 18px;
+    gap: 12px;
   }
+
+  .irc-track {
+    grid-template-columns: 1fr;
+    padding: 18px 16px;
+  }
+
   .irc-track li {
-    grid-template-columns: 28px 1fr;
+    grid-template-columns: 30px minmax(0, 1fr);
     justify-items: start;
     align-items: center;
-    min-height: 46px;
+    gap: 10px;
+    min-height: 52px;
+    text-align: left;
   }
+
   .irc-track li::after {
-    top: 31px;
+    top: 34px;
     left: 8px;
     width: 2px;
-    height: 28px;
+    height: 34px;
   }
-  .irc-current-state {
-    grid-template-columns: 1fr;
+
+  .irc-track li > svg {
+    padding: 6px 0;
   }
-  .ao84-table-wrap {
-    overflow: visible;
-  }
-  .ao84-table,
-  .ao84-table tbody {
-    display: block;
+
+  .irc-track li > div {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
     width: 100%;
   }
-  .ao84-table thead {
-    display: none;
+
+  .irc-current-state {
+    min-height: 250px;
   }
-  .ao84-table tr {
-    display: grid;
+
+  .irc-current-state footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .irc-task-head {
+    align-items: flex-start;
+    flex-direction: column;
     gap: 10px;
-    margin-bottom: 12px;
+  }
+
+  .irc-task-controls {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    width: 100%;
+  }
+
+  .irc-candidate-count {
+    grid-column: 1 / -1;
+  }
+
+  .irc-task-list {
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .irc-task-list > li {
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
     padding: 14px;
     border: 1px solid #dfe5ec;
+    border-radius: 5px;
     background: #fff;
   }
-  .ao84-table td {
-    display: grid;
-    grid-template-columns: 92px minmax(0, 1fr);
-    gap: 10px;
-    padding: 0;
-    border: 0;
+
+  .irc-task-object,
+  .irc-task-list .btn-small {
+    grid-column: 1 / -1;
   }
-  .ao84-table td::before {
-    content: attr(data-label);
-    color: #708096;
-    font-size: 12px;
+
+  .irc-task-object strong,
+  .irc-task-object span,
+  .irc-task-fact > strong:not(.ao84-status) {
+    white-space: normal;
   }
-  .ao84-table td .btn-small {
+
+  .irc-task-list .btn-small {
     width: 100%;
+  }
+
+  .irc-runtime-details > :not(summary) {
+    margin-inline: 10px;
   }
 }
 
