@@ -106,6 +106,12 @@ _CATALOG: dict[str, ErrorInfo] = {
         remediation_hint="查看后端日志中对应 trace 定位；资产已保留，可从索引运维面板重试。",
         severity="error",
     ),
+    "index_interrupted": ErrorInfo(
+        user_message="索引处理中断，资产已保留，可安全恢复索引。",
+        operator_message="连续对账无法确认底座解析状态，索引已转入恢复队列。",
+        remediation_hint="先确认知识底座与当前嵌入模型可用，再从索引恢复控制台重试。",
+        severity="error",
+    ),
     "wecom_scan_failed": ErrorInfo(
         user_message="企业微信同步失败，可稍后重试或联系管理员。",
         operator_message="企业微信微盘扫描失败。",
@@ -148,12 +154,13 @@ _DIAGNOSTIC_CATEGORIES: dict[str, str] = {
     "canonical_markdown_extraction_failed": "source_content",
     "weknora_parse_failed": "external_service",
     "index_unexpected_error": "platform",
+    "index_interrupted": "external_service",
     "wecom_scan_failed": "external_service",
     "unknown": "unknown",
 }
 
 # 单条索引重试只对明确的瞬时外部服务失败开放。未知、配置、权限和源文件问题 fail closed。
-_TARGET_RETRY_ELIGIBLE = {"weknora_call_failed"}
+_TARGET_RETRY_ELIGIBLE = {"weknora_call_failed", "index_interrupted"}
 
 
 def _resolve_key(code: str | None) -> str:

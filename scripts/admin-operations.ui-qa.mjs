@@ -56,7 +56,7 @@ const counts = {
 };
 const failure = (overrides = {}) => ({
   retry_target: "opaque-retry-target-85",
-  title: "绝不能显示的业务标题",
+  title: "（业务资产标题已隐藏）",
   scope: "project",
   project_name: "绝不能显示的项目名称",
   owner_name: "绝不能显示的人员名称",
@@ -70,6 +70,8 @@ const failure = (overrides = {}) => ({
   diagnostic_label: "外部服务",
   retry_eligible: true,
   updated_at: "2026-07-17T02:30:00Z",
+  recovery_state: "interrupted",
+  wait_seconds: 3600,
   ...overrides,
 });
 const job = (status = "completed") => ({
@@ -258,9 +260,9 @@ try {
           const retryEligible = scenario !== "target-running";
           return fulfill({
             counts: empty
-              ? { ...counts, index_failed: 0 }
+              ? { ...counts, index_failed: 0, not_indexed: 0, skipped: 0, parse_failed: 0 }
               : parseOnly
-                ? { ...counts, index_failed: 0, parse_failed: 5 }
+                ? { ...counts, index_failed: 0, not_indexed: 0, skipped: 0, parse_failed: 5 }
                 : counts,
             reparse_actionable_count: parseOnly ? 2 : 0,
             recent_failed:
@@ -276,6 +278,26 @@ try {
                       retry_eligible: false,
                     }),
                   ],
+            recovery_items:
+              empty || parseOnly
+                ? []
+                : [
+                    failure({ retry_eligible: retryEligible }),
+                    failure({
+                      retry_target: null,
+                      diagnostic_category: "configuration",
+                      diagnostic_label: "配置问题",
+                      operator_error_message: "请完成平台默认模型配置。",
+                      retry_eligible: false,
+                      recovery_state: "failed",
+                    }),
+                  ],
+            recovery_summary: {
+              interrupted: empty || parseOnly ? 0 : 1,
+              needs_recovery: empty || parseOnly ? 0 : 8,
+              processing: 2,
+              searchable: 18,
+            },
             diagnostic_counts: {
               configuration: empty ? 0 : 1,
               external_service: empty ? 0 : 2,
@@ -297,7 +319,9 @@ try {
       page.on("console", (message) => messages.push(message.text()));
       page.on("pageerror", (error) => messages.push(error.message));
       await page.goto(`${base}/admin/ingest`, { waitUntil: "networkidle" });
-      await page.getByRole("heading", { name: "入库管理" }).waitFor();
+      await page.getByRole("heading", { name: "索引恢复控制台" }).waitFor();
+      const outerRuntimeDetails = page.locator(".irc-runtime-details");
+      await outerRuntimeDetails.locator(":scope > summary").click();
       const runtimeDetails = page.locator(".ao85-runtime-details");
       const runtimeSummary = runtimeDetails.locator("summary");
       await runtimeSummary.click();
@@ -339,7 +363,8 @@ try {
       }
 
       await runtimeSummary.click();
-      const trendInitiallyDeferred = await runtimeDetails.evaluate((node) => !node.open);
+      await outerRuntimeDetails.locator(":scope > summary").click();
+      const trendInitiallyDeferred = await outerRuntimeDetails.evaluate((node) => !node.open);
       await page.evaluate(() => {
         window.scrollTo(0, 0);
         document.querySelectorAll("*").forEach((node) => {
@@ -348,6 +373,7 @@ try {
       });
       const screenshot = path.join(outDir, `${scenario}-${viewport.name}.png`);
       await page.screenshot({ path: screenshot, animations: "disabled", fullPage: true });
+      await outerRuntimeDetails.locator(":scope > summary").click();
       await runtimeSummary.click();
 
       const trendExpected = !["insufficient-data", "health-error", "forbidden"].includes(scenario);
@@ -455,7 +481,7 @@ try {
             failureWrap &&
             failureWrap.scrollWidth <= failureWrap.clientWidth + 2 &&
             [...failureWrap.querySelectorAll("tbody tr")].every(
-              (row) => getComputedStyle(row).display === "block",
+              (row) => ["block", "grid"].includes(getComputedStyle(row).display),
             ),
           );
         const stateRect = failureState?.getBoundingClientRect();
@@ -468,7 +494,7 @@ try {
           panels: panels.length,
           dispositionFirst:
             panels.length === 2 &&
-            panels[1].y < panels[0].y &&
+            panels[0].y < panels[1].y &&
             Math.abs(panels[0].width - panels[1].width) <= 2,
           safe: secrets.every((term) => !text.includes(term)),
           localized: enums.every((term) => !text.includes(term)),
@@ -495,12 +521,19 @@ try {
           indexingError: text.includes("索引状态暂时无法加载"),
           healthError: text.includes("运行健康暂时无法加载"),
           forbidden: text.includes("入库概览暂时无法加载") && text.includes("索引状态暂时无法加载"),
-          empty: text.includes("当前没有索引失败任务"),
+          empty: text.includes("当前没有索引失败任务") && text.includes("当前没有待恢复索引"),
           parsePrimaryAction: Boolean(
-            document.querySelector(
-              '.product-page-actions .ao84-refresh[data-operation="reparse"]:not(:disabled)',
+            [...document.querySelectorAll("button")].find(
+              (button) => button.getAttribute("aria-label") === "重新解析" && !button.disabled,
             ),
           ),
+          recoveryHierarchy:
+            text.includes("索引恢复控制台") &&
+            text.includes("让未完成索引恢复为可检索资料") &&
+            text.includes("已入库") &&
+            text.includes("索引提交") &&
+            text.includes("解析中") &&
+            text.includes("可检索"),
         };
       }, scenario);
       result.consoleLeak = messages.some((message) => /secret|storage_ref|token/i.test(message));
@@ -536,6 +569,7 @@ try {
         result.mobileFailureLayout &&
         result.compactFailureState &&
         result.healthVisible &&
+        (["indexing-error", "forbidden"].includes(scenario) || result.recoveryHierarchy) &&
         !result.consoleLeak &&
         (trendExpected
           ? result.legendVisible &&

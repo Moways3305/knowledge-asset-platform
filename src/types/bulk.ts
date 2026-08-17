@@ -18,6 +18,7 @@ export interface BulkOperationResponseDTO {
 
 export interface IngestBulkItemResultDTO extends BulkItemResultDTO {
   result_asset_id?: string;
+  index_status?: string | null;
 }
 
 export interface IngestBulkOperationResponseDTO extends Omit<BulkOperationResponseDTO, "items"> {

@@ -114,6 +114,10 @@ class Settings(BaseSettings):
     weknora_summary_model_id: str = ""
     weknora_tenant_id: str = ""
     weknora_timeout: float = 30.0
+    # 索引中断判定必须同时满足最小时长与连续对账失败次数，避免把底座仍在正常
+    # pending/processing 的长文档误判为失败。运维可通过环境变量集中调整。
+    index_interrupted_min_age_minutes: int = 30
+    index_interrupted_reconcile_failures: int = 2
     # 模型配置中心把 WeKnora server-only model_id 经单向 HMAC 映射成对前端不可逆的
     # model_ref。该 secret 仅后端可读、用于 HMAC key；未配置时回退到稳定常量（仍单向，
     # 因 model_id 本身是 server-only 高熵标识）。不入响应 / 审计 / 前端。

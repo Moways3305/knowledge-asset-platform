@@ -445,7 +445,7 @@ async def test_batch_retry_is_blocked_before_enqueue_when_embedding_is_unavailab
     _set_client(FakeWK(fail=True))
     response = await client.post(RETRY, headers=_hdr(USER_ADMIN_ONLY), json={"scope": "all"})
     assert response.status_code == 409
-    assert response.json()["detail"]["denied_reason"] == "weknora_embedding_not_ready"
+    assert response.json()["detail"]["denied_reason"] == "index_recovery_foundation_unavailable"
     jobs = (
         (
             await db_session.execute(
@@ -861,6 +861,11 @@ async def test_concurrent_targeted_retry_with_independent_sessions_creates_one_j
         return "queued"
 
     monkeypatch.setattr(indexing_ops, "_target_configuration_ready", _ready)
+    monkeypatch.setattr(
+        indexing_ops,
+        "_require_recovery_ready",
+        lambda *_args, **_kwargs: _async_return(None),
+    )
     monkeypatch.setattr(indexing_ops, "enqueue_indexing_operation", _leave_queued)
     storage = LocalFileStorage(tmp_path / "targeted-concurrency")
 

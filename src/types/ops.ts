@@ -8,7 +8,7 @@ export interface OpsIndexingCountsDTO {
   skipped: number;
   parse_pending: number;
   parse_processing: number;
-  // 解析状态停留 pending/processing 超过 30 分钟的数量（运维面板卡住判定）。
+  // 经最小时长 + 连续底座对账失败证据确认的索引中断数量（保留旧字段名兼容趋势）。
   parse_stalled: number;
   parse_failed: number;
   kb_init_failed: number;
@@ -45,12 +45,30 @@ export interface OpsIndexingFailedItemDTO {
   diagnostic_label: string;
   retry_eligible: boolean;
   updated_at: string | null;
+  recovery_state?: "interrupted" | "failed" | "waiting" | "skipped";
+  wait_seconds?: number;
+  latest_job?: {
+    status: string;
+    requested_at: string | null;
+    finished_at: string | null;
+    success_count: number;
+    failed_count: number;
+  } | null;
+}
+
+export interface OpsRecoverySummaryDTO {
+  interrupted: number;
+  needs_recovery: number;
+  processing: number;
+  searchable: number;
 }
 
 export interface OpsIndexingDTO {
   counts: OpsIndexingCountsDTO;
   reparse_actionable_count: number;
   recent_failed: OpsIndexingFailedItemDTO[];
+  recovery_items?: OpsIndexingFailedItemDTO[];
+  recovery_summary?: OpsRecoverySummaryDTO;
   diagnostic_counts: Record<OpsIndexingFailedItemDTO["diagnostic_category"], number>;
   title_visible: boolean;
   // 最近一次解析对账心跳；从未对账过为 null。

@@ -93,7 +93,7 @@ const TODO_ROUTE: Record<string, string> = {
 };
 
 const OPERATION_LABEL: Record<string, string> = {
-  index_failed: "索引失败",
+  index_failed: "索引失败或中断",
   parse_failed: "解析失败",
   kb_init_failed: "知识库初始化失败",
   pending_original_requests: "原文申请待处理",

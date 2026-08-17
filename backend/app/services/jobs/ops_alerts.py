@@ -41,6 +41,7 @@ from app.schemas.enums import AssetStatus, AuditAction, AuditLogType, CompanyRol
 from app.services import alert as alert_service
 from app.services import audit as audit_service
 from app.services import notifications as notification_service
+from app.services.index_recovery import INTERRUPTED_ERROR_CODE
 
 # 规则名（与 alert.DEFAULT_OPS_ALERT_RULES 落库名一致）。
 RULE_INDEX_FAILED = "索引失败堆积告警"
@@ -133,10 +134,12 @@ async def _index_failed_error_codes(session: AsyncSession, limit: int = 5) -> di
 
 
 async def _count_parse_stalled(session: AsyncSession, now: datetime, stall_minutes: int) -> int:
-    cutoff = now - timedelta(minutes=stall_minutes)
+    # 保留旧信号名以兼容既有告警规则，但口径改为已由连续对账证据确认的中断；
+    # 单纯运行时间长的 pending/processing 不再触发告警风暴。
+    _ = (now, stall_minutes)
     stmt = _version_count_stmt(
-        KnowledgeAssetVersion.weknora_parse_status.in_(_STALLED_PARSE_STATUSES),
-        func.coalesce(KnowledgeAssetVersion.indexed_at, KnowledgeAssetVersion.created_at) <= cutoff,
+        KnowledgeAssetVersion.index_status == "index_failed",
+        KnowledgeAssetVersion.index_error_code == INTERRUPTED_ERROR_CODE,
     )
     return int((await session.execute(stmt)).scalar() or 0)
 
@@ -303,9 +306,8 @@ async def scan_ops_alerts(
                 signal=SIGNAL_PARSE_STALLED,
                 title=TITLE_PARSE_STALLED,
                 content=(
-                    f"有 {count} 个活跃版本的解析状态停留在 pending/processing 超过 "
-                    f"{stall_minutes} 分钟，达到阈值 {threshold}。"
-                    "可在运维面板触发重新解析或检查底座对账任务。"
+                    f"有 {count} 个活跃版本经连续对账确认索引处理中断，达到阈值 {threshold}。"
+                    "请在索引恢复控制台确认底座可用后发起恢复。"
                 ),
                 extra={
                     "signal": SIGNAL_PARSE_STALLED,

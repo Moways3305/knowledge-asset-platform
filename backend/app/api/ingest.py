@@ -21,6 +21,7 @@ from app.api.deps import get_caller_context
 from app.core.trace import get_trace_id
 from app.db.session import get_db
 from app.models.ingest import IngestTask
+from app.models.knowledge import KnowledgeAssetVersion
 from app.schemas.enums import AuditAction
 from app.schemas.ingest import (
     AdminIngestListResponse,
@@ -97,11 +98,23 @@ async def _confirmed_task_result(
     """残差防御：确认已落库（result_asset_id 已回填）后仍抛出异常时，返回 succeeded 并带回资产 id，
     避免"已入库但报失败"误导前端。正常前置校验失败（未落库）返回 None，由调用方走原错误分支。"""
     row = (
-        await session.execute(select(IngestTask.result_asset_id).where(IngestTask.id == task_id))
-    ).scalar_one_or_none()
-    if row is None:
+        await session.execute(
+            select(IngestTask.result_asset_id, KnowledgeAssetVersion.index_status)
+            .outerjoin(
+                KnowledgeAssetVersion,
+                KnowledgeAssetVersion.id == IngestTask.result_version_id,
+            )
+            .where(IngestTask.id == task_id)
+        )
+    ).one_or_none()
+    if row is None or row.result_asset_id is None:
         return None
-    return IngestBulkConfirmItemResult(item_id=task_id, status="succeeded", result_asset_id=row)
+    return IngestBulkConfirmItemResult(
+        item_id=task_id,
+        status="succeeded",
+        result_asset_id=row.result_asset_id,
+        index_status=row.index_status,
+    )
 
 
 @router.post("/ingest/upload", response_model=IngestUploadResponse)
@@ -620,6 +633,7 @@ async def bulk_confirm(
                         item_id=item.task_id,
                         status="succeeded",
                         result_asset_id=confirmation_result.result_asset_id,
+                        index_status=confirmation_result.index_status,
                     )
                 )
             except ValidationError as exc:
