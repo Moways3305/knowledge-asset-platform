@@ -236,13 +236,15 @@ async def ensure_version_markdown(
                     derivative.failure_code = None
                     derivative.linked_version_id = version_id
                 await session.flush()
+                if file_object is not None:
+                    file_name = file_object.file_name
+                elif task is not None:
+                    file_name = canonical_file_name(task.source_file_name)
+                else:
+                    raise CanonicalMarkdownUnavailable("canonical_markdown_source_missing")
                 return CanonicalMarkdownPayload(
                     content=content,
-                    file_name=(
-                        file_object.file_name
-                        if file_object is not None
-                        else canonical_file_name(task.source_file_name)
-                    ),
+                    file_name=file_name,
                     mime=MARKDOWN_MIME,
                     text=text,
                     content_hash=actual_hash or "",
