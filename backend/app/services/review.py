@@ -95,6 +95,13 @@ async def _render_publication_snapshot(
     confidentiality_level,
     naming,
 ) -> tuple[dict, naming_rules.RenderedNaming]:
+    source_version = await session.get(KnowledgeAssetVersion, asset.current_version_id)
+    if (
+        asset.asset_status != "active"
+        or source_version is None
+        or source_version.version_status != "active"
+    ):
+        raise _denied(409, "publication_source_unavailable", "来源资料当前不可用于发布")
     request = NamingPreviewRequest(
         target_scope=target_scope,
         target_project_id=target_project_id,
@@ -104,6 +111,11 @@ async def _render_publication_snapshot(
     rendered = await naming_rules.render_asset_publication(session, caller, asset, request)
     snapshot = {
         "source_asset_id": str(asset.id),
+        "source_scope": asset.scope,
+        "source_project_id": str(asset.project_id) if asset.project_id else None,
+        "source_asset_status": asset.asset_status,
+        "source_version_id": str(source_version.id),
+        "source_version_status": source_version.version_status,
         "target_scope": target_scope.value,
         "target_project_id": str(target_project_id) if target_project_id else None,
         "confidentiality_level": confidentiality_level.value,
@@ -114,6 +126,39 @@ async def _render_publication_snapshot(
     return snapshot, rendered
 
 
+async def _validate_locked_publication_source(
+    session: AsyncSession,
+    source: KnowledgeAsset,
+    task: ReviewTask,
+) -> KnowledgeAssetVersion:
+    """Fail closed if an approval no longer refers to the submitted source revision."""
+    snapshot = task.confirmation_snapshot or {}
+    expected_asset_id = snapshot.get("source_asset_id")
+    expected_version_id = snapshot.get("source_version_id")
+    if not expected_asset_id or not expected_version_id:
+        raise _denied(409, "publication_snapshot_invalid", "发布来源信息不完整，请重新提交")
+    if (
+        expected_asset_id != str(source.id)
+        or snapshot.get("source_scope") != source.scope
+        or snapshot.get("source_project_id")
+        != (str(source.project_id) if source.project_id else None)
+        or source.asset_status != "active"
+    ):
+        raise _denied(409, "publication_source_changed", "来源资料已变更或不可用，请重新提交")
+    if source.current_version_id is None or str(source.current_version_id) != expected_version_id:
+        raise _denied(409, "publication_source_version_changed", "来源资料已有新版本，请重新提交")
+    source_version = (
+        await session.execute(
+            select(KnowledgeAssetVersion)
+            .where(KnowledgeAssetVersion.id == source.current_version_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if source_version is None or source_version.version_status != "active":
+        raise _denied(409, "publication_source_version_unavailable", "来源资料当前版本不可用于发布")
+    return source_version
+
+
 async def _render_locked_publication(
     session: AsyncSession,
     caller: CallerContext,
@@ -121,6 +166,7 @@ async def _render_locked_publication(
     task: ReviewTask,
 ) -> naming_rules.RenderedNaming:
     snapshot = task.confirmation_snapshot or {}
+    await _validate_locked_publication_source(session, source, task)
     try:
         request = NamingPreviewRequest.model_validate(
             {

@@ -701,6 +701,75 @@ async def test_same_person_cannot_fill_both_company_confirmation_roles(client, d
     assert second.json()["detail"]["denied_reason"] == "company_confirmation_role_required"
 
 
+async def test_company_upgrade_final_approval_refuses_changed_source_version(client, db_session):
+    created = await client.post(
+        _upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER), json=_company_publication_body()
+    )
+    review_id = created.json()["id"]
+    first = await client.post(f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_BOSS), json={})
+    assert first.status_code == 200
+
+    source = await db_session.get(KnowledgeAsset, KA_PROJECT_ALPHA)
+    previous = await db_session.get(KnowledgeAssetVersion, source.current_version_id)
+    previous.version_status = "superseded"
+    replacement = KnowledgeAssetVersion(
+        asset_id=source.id,
+        version_no="V2",
+        version_status="active",
+        created_by=USER_PROJECT_MANAGER,
+        index_status="indexed",
+        directory_key=previous.directory_key,
+        directory_rule_version=previous.directory_rule_version,
+    )
+    db_session.add(replacement)
+    await db_session.flush()
+    source.current_version_id = replacement.id
+    await db_session.commit()
+
+    final = await client.post(
+        f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_DIRECTOR), json={}
+    )
+    assert final.status_code == 409
+    assert final.json()["detail"]["denied_reason"] == "publication_source_version_changed"
+    derivative_count = await db_session.scalar(
+        select(func.count())
+        .select_from(KnowledgeAsset)
+        .where(
+            KnowledgeAsset.source_asset_id == KA_PROJECT_ALPHA,
+            KnowledgeAsset.scope == "company",
+        )
+    )
+    assert derivative_count == 0
+
+
+async def test_company_upgrade_final_approval_refuses_inactive_source(client, db_session):
+    created = await client.post(
+        _upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER), json=_company_publication_body()
+    )
+    review_id = created.json()["id"]
+    first = await client.post(f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_BOSS), json={})
+    assert first.status_code == 200
+
+    source = await db_session.get(KnowledgeAsset, KA_PROJECT_ALPHA)
+    source.asset_status = "archived"
+    await db_session.commit()
+
+    final = await client.post(
+        f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_DIRECTOR), json={}
+    )
+    assert final.status_code == 409
+    assert final.json()["detail"]["denied_reason"] == "publication_source_changed"
+    derivative_count = await db_session.scalar(
+        select(func.count())
+        .select_from(KnowledgeAsset)
+        .where(
+            KnowledgeAsset.source_asset_id == KA_PROJECT_ALPHA,
+            KnowledgeAsset.scope == "company",
+        )
+    )
+    assert derivative_count == 0
+
+
 async def test_company_upgrade_reject_and_withdraw_are_terminal(client, db_session):
     created = await client.post(
         _upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER), json=_company_publication_body()
