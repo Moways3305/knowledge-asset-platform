@@ -331,12 +331,12 @@ try {
         await page.getByText("请完成平台默认模型配置。").waitFor();
       } else if (scenario === "target-success" || scenario === "target-conflict") {
         await page.locator(".ao85-target-retry").first().click();
-        await page.getByText("此操作仅重新尝试索引，不查看、不下载、不修改原文。").waitFor();
-        await page.getByRole("button", { name: "确认重试" }).click();
+        await page.getByText("此操作仅重新发起索引恢复，不查看、不下载、不修改原文。").waitFor();
+        await page.getByRole("button", { name: "确认恢复" }).click();
         await page
           .getByText(
             scenario === "target-success"
-              ? /单条索引重试已到达终态：共 1 项/
+              ? /单条索引恢复已到达终态：共 1 项/
               : "任务状态已变化或正在执行，请刷新后重试。",
           )
           .waitFor();
@@ -345,7 +345,7 @@ try {
           await page.getByRole("button", { name: "取消" }).click();
         }
       } else if (scenario === "target-running") {
-        await page.getByRole("button", { name: "正在执行：批量重试索引" }).first().waitFor();
+        await page.getByRole("button", { name: "正在执行：恢复索引" }).first().waitFor();
       } else if (scenario === "insufficient-data") {
         await page.getByText("正在积累运维数据").waitFor();
       } else if (scenario === "worker-stale" || scenario === "beat-stale") {
@@ -480,8 +480,8 @@ try {
           Boolean(
             failureWrap &&
             failureWrap.scrollWidth <= failureWrap.clientWidth + 2 &&
-            [...failureWrap.querySelectorAll("tbody tr")].every(
-              (row) => ["block", "grid"].includes(getComputedStyle(row).display),
+            [...failureWrap.querySelectorAll("tbody tr")].every((row) =>
+              ["block", "grid"].includes(getComputedStyle(row).display),
             ),
           );
         const stateRect = failureState?.getBoundingClientRect();
@@ -515,7 +515,7 @@ try {
           categoryFiltered:
             text.includes("请完成平台默认模型配置。") &&
             !text.includes("连接检查未通过，请确认平台配置。"),
-          success: text.includes("单条索引重试已到达终态：共 1 项") && text.includes("作业已完成"),
+          success: text.includes("单条索引恢复已到达终态：共 1 项") && text.includes("作业已完成"),
           conflict: text.includes("任务状态已变化或正在执行，请刷新后重试。"),
           targetHidden: !document.querySelector(".ao85-target-retry"),
           indexingError: text.includes("索引状态暂时无法加载"),

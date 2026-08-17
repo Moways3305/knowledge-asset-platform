@@ -279,15 +279,15 @@ describe("AdminIngestPage operations reference", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByRole("button", { name: "重试索引" }));
+    await user.click(await screen.findByRole("button", { name: "恢复此项" }));
     expect(screen.getByRole("dialog")).toHaveTextContent(
-      "此操作仅重新尝试索引，不查看、不下载、不修改原文。",
+      "此操作仅重新发起索引恢复，不查看、不下载、不修改原文。",
     );
-    await user.click(screen.getByRole("button", { name: "确认重试" }));
+    await user.click(screen.getByRole("button", { name: "确认恢复" }));
     await waitFor(() =>
       expect(triggerTargetedIndexingRetry).toHaveBeenCalledWith("opaque-retry-target-84"),
     );
-    expect(await screen.findByText(/单条索引重试已到达终态：共 1 项/)).toBeInTheDocument();
+    expect(await screen.findByText(/单条索引恢复已到达终态：共 1 项/)).toBeInTheDocument();
     expect(screen.getByText("作业已完成")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
@@ -303,10 +303,10 @@ describe("AdminIngestPage operations reference", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByRole("button", { name: "重试索引" }));
-    await user.click(screen.getByRole("button", { name: "确认重试" }));
+    await user.click(await screen.findByRole("button", { name: "恢复此项" }));
+    await user.click(screen.getByRole("button", { name: "确认恢复" }));
     expect(await screen.findByText(message)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "确认重试" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "确认恢复" })).toBeEnabled();
     expect(document.body).not.toHaveTextContent("SECRET upstream response");
   });
 
@@ -438,7 +438,7 @@ describe("AdminIngestPage operations reference", () => {
     const user = userEvent.setup();
     renderPage();
 
-    const retry = await screen.findByRole("button", { name: /^批量重试索引/ });
+    const retry = await screen.findByRole("button", { name: /^恢复索引/ });
     await openRuntimeDetails(user);
     await user.click(screen.getByRole("checkbox", { name: "包含已跳过" }));
     await user.click(screen.getByRole("checkbox", { name: "包含未索引" }));
@@ -450,18 +450,39 @@ describe("AdminIngestPage operations reference", () => {
       statuses: ["index_failed", "skipped", "not_indexed"],
       limit: 100,
     });
-    expect(screen.getAllByRole("button", { name: "正在执行：批量重试索引" })).toHaveLength(3);
-    expect(screen.getAllByRole("button", { name: "正在执行：批量重试索引" })[1]).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "正在执行：恢复索引" })).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: "正在执行：恢复索引" })[1]).toBeDisabled();
 
     resolveJob({ ...completedJob, status: "running" });
     await waitFor(() =>
-      expect(screen.getAllByRole("button", { name: "正在执行：批量重试索引" })[0]).toBeDisabled(),
+      expect(screen.getAllByRole("button", { name: "正在执行：恢复索引" })[0]).toBeDisabled(),
     );
     expect(
-      screen.getByText(/批量重试索引请求已提交，共 6 项；作业仍在排队或处理中/),
+      screen.getByText(/恢复索引请求已提交，共 6 项；作业仍在排队或处理中/),
     ).toBeInTheDocument();
     expect(screen.getByText("请求已提交")).toBeInTheDocument();
     expect(triggerIndexingRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps candidates returned by the refreshed server projection after recovery submission", async () => {
+    const runningJob = { ...completedJob, status: "running", total_count: 1 };
+    vi.mocked(triggerIndexingRetry).mockResolvedValue(runningJob);
+    vi.mocked(fetchIndexingJobs)
+      .mockResolvedValueOnce({ items: [], total: 0 })
+      .mockResolvedValue({ items: [runningJob], total: 1 });
+    vi.mocked(fetchOpsIndexing).mockResolvedValue(ops);
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText("绝不能显示的业务标题")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^恢复索引/ }));
+
+    await screen.findByText(/恢复索引请求已提交，共 1 项/);
+    await waitFor(() => expect(fetchOpsIndexing).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("绝不能显示的业务标题")).toBeInTheDocument();
+    const currentState = screen.getByLabelText("索引当前状态");
+    expect(within(currentState).getByText("待恢复").closest("p")).toHaveTextContent("8");
+    expect(within(currentState).getByText("处理中").closest("p")).toHaveTextContent("2");
   });
 
   it("treats a zero-target reparse as terminal and refreshes every dependent summary", async () => {
@@ -499,16 +520,14 @@ describe("AdminIngestPage operations reference", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByRole("button", { name: /^批量重试索引/ }));
+    await user.click(await screen.findByRole("button", { name: /^恢复索引/ }));
     await waitFor(() =>
-      expect(screen.getAllByRole("button", { name: "正在执行：批量重试索引" })[0]).toBeDisabled(),
+      expect(screen.getAllByRole("button", { name: "正在执行：恢复索引" })[0]).toBeDisabled(),
     );
     await waitFor(() => expect(fetchIndexingJobs).toHaveBeenCalledTimes(3), {
       timeout: 3_500,
     });
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /^批量重试索引/ })).toBeEnabled(),
-    );
+    await waitFor(() => expect(screen.getByRole("button", { name: /^恢复索引/ })).toBeEnabled());
     expect(fetchAdminIngest).toHaveBeenCalledTimes(3);
     expect(fetchOpsIndexing).toHaveBeenCalledTimes(3);
     expect(fetchIndexingHealth).toHaveBeenCalledTimes(3);
@@ -650,9 +669,9 @@ describe("AdminIngestPage operations reference", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByRole("button", { name: /^批量重试索引/ }));
+    await user.click(await screen.findByRole("button", { name: /^恢复索引/ }));
     expect(
-      await screen.findByText(/批量重试索引未找到可处理项：本次没有符合条件的索引失败/),
+      await screen.findByText(/恢复索引未找到可处理项：本次没有符合条件的索引失败/),
     ).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent("解析失败已处理");
   });
@@ -662,8 +681,8 @@ describe("AdminIngestPage operations reference", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByRole("button", { name: /^批量重试索引/ }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("批量重试未能发起，请稍后重试。");
+    await user.click(await screen.findByRole("button", { name: /^恢复索引/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("索引恢复未能发起，请稍后重试。");
     expect(document.body).not.toHaveTextContent("SECRET TOKEN IN ERROR");
   });
 });

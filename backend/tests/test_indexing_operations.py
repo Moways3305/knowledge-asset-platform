@@ -675,6 +675,60 @@ async def test_reparse_requires_ops_viewer(client, monkeypatch):
     assert r.json()["detail"]["denied_reason"] == "ops_viewer_required"
 
 
+async def test_recovery_summary_counts_only_active_jobs_for_current_candidates(
+    client, db_session, monkeypatch
+):
+    failed_asset_id = await _make_index_failed(
+        client,
+        monkeypatch,
+        USER_CONSULTANT,
+        content=b"current recovery candidate",
+        title="Current recovery candidate",
+    )
+    indexed_asset_id = await _make_indexed(
+        client,
+        monkeypatch,
+        USER_CONSULTANT,
+        content=b"unrelated active retry job",
+        title="Unrelated indexed asset",
+    )
+    baseline_response = await client.get("/admin/ops/indexing", headers=_hdr(USER_ADMIN_ONLY))
+    assert baseline_response.status_code == 200
+    baseline = baseline_response.json()["recovery_summary"]
+
+    db_session.add(
+        IndexingOperationJob(
+            operation_type="retry_index",
+            status="running",
+            scope_filter={"scope": "all", "statuses": ["indexing"], "limit": 1},
+            target_asset_id=uuid.UUID(indexed_asset_id),
+        )
+    )
+    await db_session.commit()
+
+    unrelated_response = await client.get("/admin/ops/indexing", headers=_hdr(USER_ADMIN_ONLY))
+    assert unrelated_response.status_code == 200
+    unrelated = unrelated_response.json()["recovery_summary"]
+    assert unrelated["needs_recovery"] == baseline["needs_recovery"]
+    assert unrelated["processing"] == baseline["processing"]
+
+    db_session.add(
+        IndexingOperationJob(
+            operation_type="retry_index",
+            status="running",
+            scope_filter={"scope": "all", "statuses": ["index_failed"], "limit": 1},
+            target_asset_id=uuid.UUID(failed_asset_id),
+        )
+    )
+    await db_session.commit()
+
+    candidate_response = await client.get("/admin/ops/indexing", headers=_hdr(USER_ADMIN_ONLY))
+    assert candidate_response.status_code == 200
+    candidate = candidate_response.json()["recovery_summary"]
+    assert candidate["needs_recovery"] == baseline["needs_recovery"] - 1
+    assert candidate["processing"] == baseline["processing"] + 1
+
+
 # ---------------------------------------------------------------------------
 # 单条安全 retry
 # ---------------------------------------------------------------------------

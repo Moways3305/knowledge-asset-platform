@@ -51,7 +51,7 @@ const JOB_POLL_MAX_ATTEMPTS = 20;
 const OPS_AUTO_REFRESH_MS = 60_000;
 
 const jobOpLabel: Record<string, string> = {
-  retry_index: "批量重试索引",
+  retry_index: "恢复索引",
   reparse: "重新解析",
 };
 
@@ -201,7 +201,6 @@ export default function AdminIngestPage() {
   const [targetBusy, setTargetBusy] = useState(false);
   const [targetError, setTargetError] = useState<string | null>(null);
   const [selectedJob, setSelectedJob] = useState<IndexingJobSummaryDTO | null>(null);
-  const [submittedRecoveryCount, setSubmittedRecoveryCount] = useState(0);
   const runtimeDetailsRef = useRef<HTMLDetailsElement>(null);
   const ingestRequestRef = useRef(0);
   const opsRequestRef = useRef(0);
@@ -360,12 +359,6 @@ export default function AdminIngestPage() {
   );
 
   useEffect(() => {
-    if (submittedRecoveryCount > 0 && !activeJob && !opsBusy) {
-      setSubmittedRecoveryCount(0);
-    }
-  }, [activeJob, opsBusy, submittedRecoveryCount]);
-
-  useEffect(() => {
     if (!activeJobId) return;
     let cancelled = false;
     let timer: ReturnType<typeof window.setTimeout> | null = null;
@@ -484,17 +477,14 @@ export default function AdminIngestPage() {
       if (retryIncludeSkipped) statuses.push("skipped");
       if (retryIncludeNotIndexed) statuses.push("not_indexed");
       const job = await triggerIndexingRetry({ scope: "all", statuses, limit: opsLimit });
-      recordJob(job, "批量重试索引");
-      setSubmittedRecoveryCount(
-        ["queued", "running"].includes(job.status) ? Math.min(job.total_count, opsLimit) : 0,
-      );
+      recordJob(job, "恢复索引");
       await refreshAll(false);
     } catch (error) {
       setOpsFeedbackState("error");
       setOpsNote(
         error instanceof ApiError && error.deniedReason === "index_recovery_foundation_unavailable"
           ? "知识底座暂不可用，恢复未发起。请先恢复底座连接后重试。"
-          : "批量重试未能发起，请稍后重试。",
+          : "索引恢复未能发起，请稍后重试。",
       );
     } finally {
       setOpsBusy(false);
@@ -532,7 +522,7 @@ export default function AdminIngestPage() {
     setTargetError(null);
     try {
       if (!retryTarget.retry_target) return;
-      recordJob(await triggerTargetedIndexingRetry(retryTarget.retry_target), "单条索引重试");
+      recordJob(await triggerTargetedIndexingRetry(retryTarget.retry_target), "单条索引恢复");
       setRetryTarget(null);
       await refreshAll(false);
     } catch (error) {
@@ -564,11 +554,10 @@ export default function AdminIngestPage() {
 
   const failedItems = useMemo(() => {
     const items = opsIndex?.recovery_items ?? opsIndex?.recent_failed ?? [];
-    const pendingItems = submittedRecoveryCount ? items.slice(submittedRecoveryCount) : items;
     return failureFilter === "all"
-      ? pendingItems
-      : pendingItems.filter((item) => item.diagnostic_category === failureFilter);
-  }, [failureFilter, opsIndex, submittedRecoveryCount]);
+      ? items
+      : items.filter((item) => item.diagnostic_category === failureFilter);
+  }, [failureFilter, opsIndex]);
   const retryActionableCount = Math.min(
     opsLimit,
     (opsIndex?.counts.index_failed ?? 0) +
@@ -627,11 +616,8 @@ export default function AdminIngestPage() {
     processing: opsIndex?.counts.indexing ?? 0,
     searchable: 0,
   };
-  const displayedNeedsRecovery = Math.max(
-    0,
-    recoverySummary.needs_recovery - submittedRecoveryCount,
-  );
-  const displayedProcessing = recoverySummary.processing + submittedRecoveryCount;
+  const displayedNeedsRecovery = recoverySummary.needs_recovery;
+  const displayedProcessing = recoverySummary.processing;
 
   const showRuntimeDetails = () => {
     if (runtimeDetailsRef.current) {
@@ -748,7 +734,7 @@ export default function AdminIngestPage() {
                       ? `正在执行：${safeJobOperation(activeOperation)}`
                       : primaryIsReparse
                         ? "重新解析"
-                        : `批量重试索引（${retryActionableCount} 项）`
+                        : `恢复索引（${retryActionableCount} 项）`
                   }
                   onClick={() => void (primaryIsReparse ? handleReparse() : handleBatchRetry())}
                   disabled={actionLocked || (retryActionableCount === 0 && !primaryIsReparse)}
@@ -890,9 +876,9 @@ export default function AdminIngestPage() {
               )}
             </div>
 
-            <div className="ao84-actions" aria-label="索引批量操作">
+            <div className="ao84-actions" aria-label="索引恢复操作">
               <div className="ao84-action-explanation">
-                <strong>批量重试索引</strong>
+                <strong>恢复索引</strong>
                 <span>处理索引失败，可选未索引或已跳过；当前最多 {retryActionableCount} 项。</span>
                 <strong>重新解析</strong>
                 <span>
@@ -940,7 +926,7 @@ export default function AdminIngestPage() {
                   <RotateCw size={15} aria-hidden="true" />
                   {activeOperation
                     ? `正在执行：${safeJobOperation(activeOperation)}`
-                    : `再次执行批量重试（${retryActionableCount} 项）`}
+                    : `再次恢复索引（${retryActionableCount} 项）`}
                 </button>
                 <button
                   className="btn-small"
@@ -1086,7 +1072,7 @@ export default function AdminIngestPage() {
                       </td>
                       <td data-label="下一步">
                         <div className="ao84-cell-value">
-                          <span>{item.retry_eligible ? "重新尝试索引" : "核查配置或内容"}</span>
+                          <span>{item.retry_eligible ? "恢复索引" : "核查配置或内容"}</span>
                           <small>{formatBeijingTime(item.updated_at)}</small>
                         </div>
                       </td>
@@ -1101,10 +1087,10 @@ export default function AdminIngestPage() {
                             }}
                           >
                             <RotateCw size={14} aria-hidden="true" />
-                            重试索引
+                            恢复此项
                           </button>
                         ) : (
-                          <span className="ao84-batch-hint">通过左侧批量重试处理</span>
+                          <span className="ao84-batch-hint">通过左侧恢复索引处理</span>
                         )}
                       </td>
                     </tr>
@@ -1274,7 +1260,7 @@ export default function AdminIngestPage() {
       <DetailDrawer
         open={retryTarget !== null}
         title="索引恢复详情"
-        description="此操作仅重新尝试索引，不查看、不下载、不修改原文。"
+        description="此操作仅重新发起索引恢复，不查看、不下载、不修改原文。"
         busy={targetBusy}
         onClose={() => {
           setRetryTarget(null);
@@ -1296,7 +1282,7 @@ export default function AdminIngestPage() {
               disabled={targetBusy || !retryTarget?.retry_eligible || !retryTarget.retry_target}
               onClick={() => void handleTargetRetry()}
             >
-              {targetBusy ? "提交中…" : "确认重试"}
+              {targetBusy ? "提交中…" : "确认恢复"}
             </Button>
           </>
         }

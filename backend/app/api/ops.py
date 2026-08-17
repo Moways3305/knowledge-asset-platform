@@ -474,13 +474,26 @@ async def ops_indexing(
         ).all():
             omap[uid] = uname
 
+    # 只把“当前仍是恢复候选”的活跃目标计入处理中。发布索引、已恢复完成但
+    # 作业行尚未收口等其他 retry_index 作业不得稀释待恢复统计。
     active_target_ids = set(
         (
             await session.execute(
-                select(IndexingOperationJob.target_asset_id).where(
+                select(IndexingOperationJob.target_asset_id)
+                .join(
+                    KnowledgeAsset,
+                    KnowledgeAsset.id == IndexingOperationJob.target_asset_id,
+                )
+                .join(
+                    KnowledgeAssetVersion,
+                    KnowledgeAssetVersion.asset_id == KnowledgeAsset.id,
+                )
+                .where(
                     IndexingOperationJob.target_asset_id.is_not(None),
                     IndexingOperationJob.operation_type == "retry_index",
                     IndexingOperationJob.status.in_(("queued", "running")),
+                    *active_non_deleted,
+                    KnowledgeAssetVersion.index_status.in_(recovery_statuses),
                 )
             )
         ).scalars()

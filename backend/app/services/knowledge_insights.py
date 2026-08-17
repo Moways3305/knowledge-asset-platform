@@ -473,7 +473,7 @@ def _build_cards(
 ) -> list[InsightCard]:
     """从真实计数构建概要卡片（仅非零信号，空则前端显示「暂无需要处理的运营项」）。"""
     specs = [
-        ("index_failed", "索引失败", indexing.index_failed, "warning", "进入索引运维面板批量重试"),
+        ("index_failed", "索引失败", indexing.index_failed, "warning", "进入索引恢复控制台处理"),
         (
             "parse_failed",
             "解析失败",
@@ -532,7 +532,7 @@ def _build_recommendations(
                 Recommendation(
                     key="retry_index_failed",
                     severity="warning",
-                    message=f"有 {indexing.index_failed} 个资产索引失败，建议进入索引运维面板批量重试。",
+                    message=f"有 {indexing.index_failed} 个资产索引失败，建议进入索引恢复控制台处理。",
                     target="/admin/ingest",
                 )
             )
@@ -541,7 +541,7 @@ def _build_recommendations(
                 Recommendation(
                     key="retry_index_failed",
                     severity="warning",
-                    message=f"你可见范围内有 {indexing.index_failed} 个资产索引失败，可在资产详情页重试索引。",
+                    message=f"你可见范围内有 {indexing.index_failed} 个资产索引失败，可在资产详情页恢复索引。",
                     target=None,
                 )
             )
