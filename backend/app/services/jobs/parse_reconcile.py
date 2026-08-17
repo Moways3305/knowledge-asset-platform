@@ -65,7 +65,7 @@ async def reconcile_parse_statuses(
         .all()
     )
 
-    processed = updated = failed = interrupted = 0
+    processed = updated = failed = interrupted = interrupted_recovered = 0
     for v in rows:
         # 查询已过滤 weknora_doc_id IS NOT NULL（见上方 where），此处必非 None。
         if v.weknora_doc_id is None:
@@ -104,10 +104,39 @@ async def reconcile_parse_statuses(
         v.index_reconcile_failure_count = 0
         v.index_last_reconcile_failed_at = None
         new_status = str(data.get("parse_status") or v.weknora_parse_status)
+        recovered_interruption = False
+        if (
+            new_status in _PENDING_STATUSES
+            and v.index_status == "index_failed"
+            and v.index_error_code == index_recovery.INTERRUPTED_ERROR_CODE
+        ):
+            v.index_status = "indexing"
+            v.index_error_code = None
+            v.index_error_message = None
+            recovered_interruption = True
+            interrupted_recovered += 1
+            await audit_service.record_system_event(
+                session,
+                log_type=AuditLogType.operation,
+                action=AuditAction.knowledge_index_interrupted_recovered.value,
+                trace_id=trace_id or "",
+                target_type="knowledge_asset_version",
+                target_id=v.id,
+                before={
+                    "index_status": "index_failed",
+                    "reason_code": index_recovery.INTERRUPTED_ERROR_CODE,
+                },
+                after={
+                    "index_status": "indexing",
+                    "parse_status": new_status,
+                },
+            )
         if new_status != v.weknora_parse_status and new_status in (_TERMINAL | _PENDING_STATUSES):
             from app.services.indexing import _apply_parse_state
 
             _apply_parse_state(v, new_status)
+            updated += 1
+        elif recovered_interruption:
             updated += 1
     await _record_heartbeat(
         session,
@@ -122,6 +151,7 @@ async def reconcile_parse_statuses(
         "updated": updated,
         "failed": failed,
         "interrupted": interrupted,
+        "interrupted_recovered": interrupted_recovered,
     }
 
 

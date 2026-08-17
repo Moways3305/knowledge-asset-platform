@@ -359,6 +359,53 @@ async def test_parse_reconcile_confirmed_processing_never_becomes_interrupted(
     assert version.index_reconcile_failure_count == 0
 
 
+async def test_parse_reconcile_restores_interrupted_item_when_processing_is_queryable(
+    db_session, monkeypatch
+):
+    monkeypatch.setattr(parse_reconcile, "weknora_enabled", lambda: True)
+    version = await _new_version(
+        db_session, doc_id="r5-recovered-interruption", parse_status="pending"
+    )
+    version.index_status = "index_failed"
+    version.index_error_code = "index_interrupted"
+    version.index_error_message = "索引处理中断，等待恢复"
+    version.index_reconcile_failure_count = 2
+    version.index_last_reconcile_failed_at = _now()
+    await db_session.commit()
+
+    result = await parse_reconcile.reconcile_parse_statuses(
+        db_session,
+        FakeParseWeKnora({"r5-recovered-interruption": "processing"}),
+        trace_id="interruption-recovered",
+    )
+    await db_session.refresh(version)
+
+    assert result["interrupted_recovered"] == 1
+    assert result["updated"] == 1
+    assert version.index_status == "indexing"
+    assert version.weknora_parse_status == "processing"
+    assert version.index_error_code is None
+    assert version.index_error_message is None
+    assert version.index_reconcile_failure_count == 0
+    assert version.index_last_reconcile_failed_at is None
+    audit = (
+        await db_session.execute(
+            select(AuditEvent).where(
+                AuditEvent.action == "knowledge.index_interrupted_recovered",
+                AuditEvent.target_id == version.id,
+            )
+        )
+    ).scalar_one()
+    assert audit.before_snapshot == {
+        "index_status": "index_failed",
+        "reason_code": "index_interrupted",
+    }
+    assert audit.after_snapshot == {
+        "index_status": "indexing",
+        "parse_status": "processing",
+    }
+
+
 # ---------------- 生命周期归档扫描 ----------------
 async def _insert_inactive_asset(db_session, *, title, last_called_days_ago):
     asset = KnowledgeAsset(
