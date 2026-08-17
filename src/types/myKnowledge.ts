@@ -1,4 +1,5 @@
 import type { KnowledgeCardVM, KnowledgeListItemDTO } from "./knowledge";
+import type { NamingConfirmationDTO } from "./naming";
 
 export type PersonalKnowledgeState =
   | "awaiting_confirmation"
@@ -87,6 +88,8 @@ export interface ConfirmAssetResponseDTO {
 
 export interface SubmitToProjectRequestDTO {
   target_project_id: string;
+  confidentiality_level: string;
+  naming: NamingConfirmationDTO;
   note?: string;
 }
 

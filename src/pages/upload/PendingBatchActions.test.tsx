@@ -127,6 +127,43 @@ describe("PendingBatchActions governed review", () => {
           default_confidentiality: "L2",
         },
       ],
+      directories: [
+        {
+          directory_key: "personal.learning_notes",
+          scope: "personal",
+          display_name: "01 个人学习笔记",
+          sort_order: 10,
+          enabled: true,
+        },
+        {
+          directory_key: "personal.project_materials",
+          scope: "personal",
+          display_name: "02 个人项目资料",
+          sort_order: 20,
+          enabled: true,
+        },
+        {
+          directory_key: "personal.pending",
+          scope: "personal",
+          display_name: "04 待处理",
+          sort_order: 40,
+          enabled: true,
+        },
+        {
+          directory_key: "project.deliverables",
+          scope: "project",
+          display_name: "03 项目交付成果",
+          sort_order: 30,
+          enabled: true,
+        },
+        {
+          directory_key: "company.methodology",
+          scope: "company",
+          display_name: "03 公司方法论",
+          sort_order: 30,
+          enabled: true,
+        },
+      ],
       default_confidentiality: "L2",
       message: null,
     });
@@ -162,6 +199,124 @@ describe("PendingBatchActions governed review", () => {
         })),
       }),
     );
+  });
+
+  it("requires a formal personal directory, keeps item exceptions, and submits no naming requests", async () => {
+    const tasks = [task("personal-one"), task("personal-two")];
+    const handleBatchConfirm = vi.fn();
+    render(<PendingBatchActions tasks={tasks} flow={flowFixture(tasks, { handleBatchConfirm })} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /批量确认入库/ }));
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标知识库" }), {
+      target: { value: "personal" },
+    });
+
+    const directory = await screen.findByRole("combobox", { name: "本批个人目录" });
+    expect(directory).toHaveTextContent("01 个人学习笔记");
+    expect(directory).toHaveTextContent("02 个人项目资料");
+    expect(directory).not.toHaveTextContent("04 待处理");
+    expect(screen.getByRole("button", { name: "下一步：核对入库" })).toBeDisabled();
+
+    fireEvent.change(directory, { target: { value: "personal.learning_notes" } });
+    fireEvent.click(screen.getByRole("button", { name: "下一步：核对入库" }));
+
+    expect(await screen.findByText(/本批默认进入“01 个人学习笔记”/)).toBeInTheDocument();
+    expect(screen.queryByText("目录类别")).not.toBeInTheDocument();
+    expect(screen.queryByText("文件形成日期")).not.toBeInTheDocument();
+    expect(screen.queryByText("规范名预览")).not.toBeInTheDocument();
+    expect(namingApi.classifyBatchNamingCategories).not.toHaveBeenCalled();
+    expect(namingApi.previewBatchIngestNaming).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("personal-two.pdf 个人目录"), {
+      target: { value: "personal.project_materials" },
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "查看 AI 提取" })[0]);
+    const aiDrawer = await screen.findByRole("dialog", { name: "AI 提取核对" });
+    fireEvent.click(within(aiDrawer).getByRole("button", { name: "取消" }));
+    expect(screen.getByLabelText("personal-one.pdf 个人目录")).toHaveValue(
+      "personal.learning_notes",
+    );
+    expect(screen.getByLabelText("personal-two.pdf 个人目录")).toHaveValue(
+      "personal.project_materials",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "确认已选择的 2 项入库" }));
+    expect(handleBatchConfirm).toHaveBeenCalledWith(
+      tasks,
+      "personal",
+      undefined,
+      undefined,
+      expect.any(Object),
+      true,
+      expect.any(Function),
+      undefined,
+      {
+        "personal-one": "personal.learning_notes",
+        "personal-two": "personal.project_materials",
+      },
+    );
+  });
+
+  it("offers a scoped directory fallback only after governed preview reports a missing mapping", async () => {
+    const item = task("company-fallback");
+    namingApi.previewBatchIngestNaming
+      .mockResolvedValueOnce({
+        items: [
+          {
+            task_id: item.id,
+            submittable: false,
+            canonical_name: null,
+            fields: {},
+            notices: [],
+            error_code: "directory_required",
+            message: "该命名类别无法唯一映射目录，请人工选择",
+          },
+        ],
+      })
+      .mockResolvedValue({
+        items: [
+          {
+            task_id: item.id,
+            submittable: true,
+            canonical_name: "公司规范名.pdf",
+            fields: {},
+            notices: [],
+            error_code: null,
+            message: null,
+          },
+        ],
+      });
+    render(<PendingBatchActions tasks={[item]} flow={flowFixture([item])} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /批量确认入库/ }));
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标知识库" }), {
+      target: { value: "company" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
+    const applicableTo = await screen.findByLabelText("company-fallback.pdf 适用对象");
+    fireEvent.change(applicableTo, { target: { value: "咨询项目团队" } });
+
+    const fallback = await screen.findByRole("button", { name: "选择正式公司目录" });
+    fireEvent.click(fallback);
+    const directory = screen.getByRole("combobox", { name: "正式公司目录" });
+    expect(directory).toHaveTextContent("03 公司方法论");
+    expect(directory).not.toHaveTextContent("03 项目交付成果");
+    fireEvent.change(directory, { target: { value: "company.methodology" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存并重新预览" }));
+
+    await waitFor(() =>
+      expect(namingApi.previewBatchIngestNaming).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          targetScope: "company",
+          items: [
+            expect.objectContaining({
+              naming: expect.objectContaining({ directory_key: "company.methodology" }),
+            }),
+          ],
+        }),
+      ),
+    );
+    expect(screen.getByLabelText("company-fallback.pdf 目录类别")).toHaveValue("deliverable");
   });
 
   it("uses a wide review workspace and retains manual categories when AI classification fails", async () => {

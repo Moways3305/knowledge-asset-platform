@@ -90,6 +90,7 @@ export function previewBatchIngestNaming(input: {
         subject: item.naming.subject,
         formed_on: item.naming.formed_on,
         version: item.naming.version,
+        ...(item.naming.directory_key ? { directory_key: item.naming.directory_key } : {}),
         ...(input.targetScope === "company" ? { applicable_to: item.naming.applicable_to } : {}),
       },
     })),

@@ -21,6 +21,7 @@ import type {
   BatchNamingPreviewItemDTO,
   BatchNamingValuesDTO,
   CategoryClassificationItemDTO,
+  DirectoryOptionDTO,
   NamingOptionsDTO,
 } from "../../types/naming";
 import type { UploadFlow } from "./useUploadFlow";
@@ -224,8 +225,15 @@ export default function PendingBatchActions({
   const [categoryTargetLabel, setCategoryTargetLabel] = useState("");
   const [bulkCategoryId, setBulkCategoryId] = useState("");
   const [bulkCategoryTaskIds, setBulkCategoryTaskIds] = useState<Set<string>>(() => new Set());
+  const [bulkPersonalDirectoryKey, setBulkPersonalDirectoryKey] = useState("");
+  const [personalDirectoryByTask, setPersonalDirectoryByTask] = useState<Record<string, string>>(
+    {},
+  );
+  const [fallbackDirectoryTaskId, setFallbackDirectoryTaskId] = useState<string | null>(null);
+  const [fallbackDirectoryKey, setFallbackDirectoryKey] = useState("");
   const [targetOptionsBusy, setTargetOptionsBusy] = useState(false);
   const [targetOptionsError, setTargetOptionsError] = useState<string | null>(null);
+  const [targetOptionsRetryKey, setTargetOptionsRetryKey] = useState(0);
   const targetOptionsRunRef = useRef(0);
   const targetOptionsPromiseRef = useRef<Promise<NamingOptionsDTO> | null>(null);
   const aiReviewRunRef = useRef(0);
@@ -290,6 +298,7 @@ export default function PendingBatchActions({
     setPreviewBusyByTask(withoutVanished);
     setPreviewFeedback(withoutVanished);
     setCategorySuggestions(withoutVanished);
+    setPersonalDirectoryByTask(withoutVanished);
     setEditedTaskIds(withoutVanishedIds);
     setReviewedTaskIds(withoutVanishedIds);
     setFilterSnapshot((current) =>
@@ -327,26 +336,48 @@ export default function PendingBatchActions({
   );
   const company = targetLibrary === "company";
   const categories = useMemo(() => options?.categories ?? [], [options]);
+  const formalDirectories = useMemo(
+    () =>
+      (options?.directories ?? []).filter(
+        (item) =>
+          item.enabled !== false &&
+          item.scope === targetLibrary &&
+          item.directory_key !== "personal.pending",
+      ),
+    [options, targetLibrary],
+  );
+  const directoryLabel = (directoryKey: string) =>
+    formalDirectories.find((item) => item.directory_key === directoryKey)?.display_name ?? "";
   const missingDates = selectedConfirmTasks.filter(
     (task) => !DATE_PATTERN.test(rows[task.id]?.formed_on ?? ""),
   ).length;
   const allPreviewed =
     stage === "review" &&
     selectedConfirmTasks.length > 0 &&
-    selectedConfirmTasks.every(
-      (task) =>
-        Boolean(rows[task.id]) &&
-        !rowMissing(rows[task.id], company) &&
-        previews[task.id]?.submittable,
-    );
+    (targetLibrary === "personal"
+      ? selectedConfirmTasks.every((task) => Boolean(personalDirectoryByTask[task.id]))
+      : selectedConfirmTasks.every(
+          (task) =>
+            Boolean(rows[task.id]) &&
+            !rowMissing(rows[task.id], company) &&
+            previews[task.id]?.submittable,
+        ));
   const targetReady =
-    Boolean(targetLibrary) && (targetLibrary !== "project" || Boolean(targetProjectId));
+    Boolean(targetLibrary) &&
+    (targetLibrary !== "project" || Boolean(targetProjectId)) &&
+    (targetLibrary !== "personal" ||
+      (!targetOptionsBusy &&
+        !targetOptionsError &&
+        Boolean(bulkPersonalDirectoryKey) &&
+        formalDirectories.some((item) => item.directory_key === bulkPersonalDirectoryKey)));
 
-  const targetKey = `${targetLibrary}:${targetProjectId}`;
+  const targetKey = `${targetLibrary}:${targetProjectId}:${bulkPersonalDirectoryKey}`;
 
   useEffect(() => {
     const canLoad =
-      targetLibrary === "company" || (targetLibrary === "project" && Boolean(targetProjectId));
+      targetLibrary === "personal" ||
+      targetLibrary === "company" ||
+      (targetLibrary === "project" && Boolean(targetProjectId));
     if (!confirmOpen || stage !== "target" || !canLoad) return;
     const runId = ++targetOptionsRunRef.current;
     setTargetOptionsBusy(true);
@@ -361,7 +392,11 @@ export default function PendingBatchActions({
       .catch((error) => {
         if (targetOptionsRunRef.current !== runId) return;
         setTargetOptionsError(
-          error instanceof ApiError ? error.message : "目录类别暂时无法加载，将在下一步重试。",
+          targetLibrary === "personal"
+            ? "个人目录暂时无法加载，请重试。"
+            : error instanceof ApiError
+              ? error.message
+              : "目录类别暂时无法加载，将在下一步重试。",
         );
       })
       .finally(() => {
@@ -370,7 +405,7 @@ export default function PendingBatchActions({
           setTargetOptionsBusy(false);
         }
       });
-  }, [confirmOpen, stage, targetLibrary, targetProjectId]);
+  }, [confirmOpen, stage, targetLibrary, targetProjectId, targetOptionsRetryKey]);
   const statesByTask = useMemo(
     () =>
       Object.fromEntries(
@@ -573,6 +608,10 @@ export default function PendingBatchActions({
     setOptions(null);
     setBulkCategoryId("");
     setBulkCategoryTaskIds(new Set());
+    setBulkPersonalDirectoryKey("");
+    setPersonalDirectoryByTask({});
+    setFallbackDirectoryTaskId(null);
+    setFallbackDirectoryKey("");
     setRows({});
     setPreviews({});
     setReviewTargetKey("");
@@ -635,7 +674,11 @@ export default function PendingBatchActions({
       tags: aiReviewForm.tags.map((item) => item.trim()).filter(Boolean),
     };
     setAiReviewDrafts((current) => ({ ...current, [aiReviewTask.id]: draft }));
-    if (draft.title && draft.title !== rows[aiReviewTask.id]?.subject) {
+    if (
+      targetLibrary !== "personal" &&
+      draft.title &&
+      draft.title !== rows[aiReviewTask.id]?.subject
+    ) {
       updateRow(aiReviewTask.id, { subject: draft.title });
     }
     setAiReviewTask(null);
@@ -699,8 +742,17 @@ export default function PendingBatchActions({
   const advanceTarget = async () => {
     if (!targetReady) return;
     if (targetLibrary === "personal") {
-      closeAndResetReview();
-      void flow.handleBatchConfirm(selectedConfirmTasks, "personal", undefined);
+      if (
+        !formalDirectories.some((directory) => directory.directory_key === bulkPersonalDirectoryKey)
+      ) {
+        setDialogError("请选择正式个人目录");
+        return;
+      }
+      setPersonalDirectoryByTask(
+        Object.fromEntries(selectedConfirmTasks.map((task) => [task.id, bulkPersonalDirectoryKey])),
+      );
+      setReviewTargetKey(targetKey);
+      setStage("review");
       return;
     }
     if (targetLibrary !== "project" && targetLibrary !== "company") return;
@@ -994,19 +1046,20 @@ export default function PendingBatchActions({
     }));
   };
 
-  const submitGovernedBatch = () => {
+  const submitBatchReview = () => {
     if (
       !allPreviewed ||
       flow.batchBusy ||
-      (targetLibrary !== "project" && targetLibrary !== "company")
+      (targetLibrary !== "personal" && targetLibrary !== "project" && targetLibrary !== "company")
     ) {
       return;
     }
     const destination = targetLibrary;
     const projectId = targetProjectId || undefined;
-    const submittedRows = Object.fromEntries(
-      selectedConfirmTasks.map((task) => [task.id, rows[task.id]]),
-    );
+    const submittedRows =
+      destination === "personal"
+        ? undefined
+        : Object.fromEntries(selectedConfirmTasks.map((task) => [task.id, rows[task.id]]));
     const onCompleted = (result: {
       succeededIds: string[];
       failedIds: string[];
@@ -1022,7 +1075,10 @@ export default function PendingBatchActions({
         .map((task) => ({
           taskId: task.id,
           title:
-            rows[task.id]?.subject.trim() || task.suggested_title?.trim() || task.source_file_name,
+            aiReviewDrafts[task.id]?.title.trim() ||
+            rows[task.id]?.subject.trim() ||
+            task.suggested_title?.trim() ||
+            task.source_file_name,
           assetId: result.resultAssetIds?.[task.id],
         }));
       setCompletedReviewItems((current) => [
@@ -1043,7 +1099,13 @@ export default function PendingBatchActions({
       true,
       onCompleted,
     ] as const;
-    if (Object.keys(aiReviewDrafts).length > 0) {
+    if (destination === "personal") {
+      void flow.handleBatchConfirm(
+        ...commonArgs,
+        Object.keys(aiReviewDrafts).length > 0 ? aiReviewDrafts : undefined,
+        personalDirectoryByTask,
+      );
+    } else if (Object.keys(aiReviewDrafts).length > 0) {
       void flow.handleBatchConfirm(...commonArgs, aiReviewDrafts);
     } else {
       void flow.handleBatchConfirm(...commonArgs);
@@ -1074,6 +1136,10 @@ export default function PendingBatchActions({
     setCategoryTargetLabel("");
     setBulkCategoryId("");
     setBulkCategoryTaskIds(new Set());
+    setBulkPersonalDirectoryKey("");
+    setPersonalDirectoryByTask({});
+    setFallbackDirectoryTaskId(null);
+    setFallbackDirectoryKey("");
     setTargetOptionsBusy(false);
     setTargetOptionsError(null);
     setAiReviewTask(null);
@@ -1139,7 +1205,9 @@ export default function PendingBatchActions({
         title={
           stage === "target"
             ? `确认入库 ${selectedConfirmTasks.length} 项资料`
-            : `逐条核对 ${reviewInitialCount} 项规范命名`
+            : targetLibrary === "personal"
+              ? `核对 ${reviewInitialCount} 项个人入库`
+              : `逐条核对 ${reviewInitialCount} 项规范命名`
         }
         description={
           stage === "target"
@@ -1149,11 +1217,13 @@ export default function PendingBatchActions({
         confirmText={
           stage === "target" && dialogError && targetLibrary !== "personal"
             ? "重新加载规则"
-            : stage === "review" || targetLibrary === "personal" || !targetLibrary
+            : stage === "review" || !targetLibrary
               ? warningNotices.length > 0
                 ? `仍然确认已选择的 ${selectedConfirmTasks.length} 项入库`
                 : `确认已选择的 ${selectedConfirmTasks.length} 项入库`
-              : "下一步：核对命名"
+              : targetLibrary === "personal"
+                ? "下一步：核对入库"
+                : "下一步：核对命名"
         }
         busyText={
           stage === "target"
@@ -1166,10 +1236,22 @@ export default function PendingBatchActions({
         confirmDisabled={stage === "target" ? !targetReady : !allPreviewed}
         error={dialogError}
         errorDescription={dialogError}
-        panelClassName={stage === "review" ? "upload77-batch-naming-dialog" : undefined}
-        closeButtonLabel={stage === "review" ? "关闭批量命名核对" : undefined}
+        panelClassName={
+          stage === "review"
+            ? targetLibrary === "personal"
+              ? "upload77-personal-directory-dialog"
+              : "upload77-batch-naming-dialog"
+            : undefined
+        }
+        closeButtonLabel={
+          stage === "review"
+            ? targetLibrary === "personal"
+              ? "关闭个人入库核对"
+              : "关闭批量命名核对"
+            : undefined
+        }
         onCancel={requestCloseReview}
-        onConfirm={stage === "target" ? () => void advanceTarget() : submitGovernedBatch}
+        onConfirm={stage === "target" ? () => void advanceTarget() : submitBatchReview}
       >
         {stage === "target" ? (
           <>
@@ -1212,6 +1294,38 @@ export default function PendingBatchActions({
                 </select>
               </label>
             )}
+            {targetLibrary === "personal" && (
+              <label className="upload77-field">
+                <span>本批个人目录</span>
+                <select
+                  aria-label="本批个人目录"
+                  disabled={targetOptionsBusy}
+                  value={bulkPersonalDirectoryKey}
+                  onChange={(event) => {
+                    setBulkPersonalDirectoryKey(event.target.value);
+                    setDialogError(null);
+                  }}
+                >
+                  <option value="">请选择正式个人目录</option>
+                  {formalDirectories.map((directory) => (
+                    <option key={directory.directory_key} value={directory.directory_key}>
+                      {directory.display_name}
+                    </option>
+                  ))}
+                </select>
+                {!targetOptionsBusy && !targetOptionsError && !bulkPersonalDirectoryKey && (
+                  <small className="upload77-batch-naming-error">请选择正式个人目录</small>
+                )}
+                {!targetOptionsBusy &&
+                  !targetOptionsError &&
+                  options &&
+                  formalDirectories.length === 0 && (
+                    <small className="upload77-batch-naming-error">
+                      当前没有可用于正式入库的个人目录，请联系管理员。
+                    </small>
+                  )}
+              </label>
+            )}
             {(targetLibrary === "company" ||
               (targetLibrary === "project" && Boolean(targetProjectId))) && (
               <label className="upload77-field">
@@ -1231,8 +1345,70 @@ export default function PendingBatchActions({
                 </select>
               </label>
             )}
-            {targetOptionsError && <div role="alert">{targetOptionsError}</div>}
+            {targetOptionsError && (
+              <div role="alert">
+                <span>{targetOptionsError}</span>
+                {targetLibrary === "personal" && (
+                  <button
+                    className="btn-secondary"
+                    onClick={() => setTargetOptionsRetryKey((value) => value + 1)}
+                    type="button"
+                  >
+                    重试加载个人目录
+                  </button>
+                )}
+              </div>
+            )}
           </>
+        ) : targetLibrary === "personal" ? (
+          <div className="upload77-personal-directory-review">
+            <div className="upload77-personal-directory-summary" role="status">
+              本批默认进入“{directoryLabel(bulkPersonalDirectoryKey)}”，可为单条资料调整目录。
+            </div>
+            <div className="upload77-personal-directory-list">
+              {selectedConfirmTasks.map((task, index) => (
+                <article className="upload77-personal-directory-row" key={task.id}>
+                  <div className="upload77-personal-directory-file">
+                    <strong title={task.source_file_name}>
+                      {index + 1}. {task.source_file_name}
+                    </strong>
+                    <button
+                      className="btn-secondary"
+                      onClick={() => void loadAiReview(task)}
+                      type="button"
+                    >
+                      查看 AI 提取
+                    </button>
+                  </div>
+                  <label>
+                    <span>个人目录</span>
+                    <select
+                      aria-label={`${task.source_file_name} 个人目录`}
+                      value={personalDirectoryByTask[task.id] ?? ""}
+                      onChange={(event) =>
+                        setPersonalDirectoryByTask((current) => ({
+                          ...current,
+                          [task.id]: event.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">请选择正式个人目录</option>
+                      {formalDirectories.map((directory) => (
+                        <option key={directory.directory_key} value={directory.directory_key}>
+                          {directory.display_name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {flow.batchErrors[task.id] && (
+                    <div className="upload77-batch-naming-error" role="alert">
+                      {flow.batchErrors[task.id]}
+                    </div>
+                  )}
+                </article>
+              ))}
+            </div>
+          </div>
         ) : (
           <div className="upload77-batch-naming-review">
             <div className="upload77-batch-naming-toolbar">
@@ -1476,6 +1652,11 @@ export default function PendingBatchActions({
                             {bulkCategoryTaskIds.has(task.id) ? "批量设置" : "人工已选择"}
                           </small>
                         )}
+                        {row.directory_key && (
+                          <small className="upload77-batch-naming-notice">
+                            正式目录：{directoryLabel(row.directory_key)}
+                          </small>
+                        )}
                         {(!categorySuggestion ||
                           categorySuggestion.category_source === "needs_manual") && (
                           <small className="upload77-batch-naming-error">
@@ -1619,7 +1800,21 @@ export default function PendingBatchActions({
                       </div>
                     )}
                     {serverError?.field === null && (
-                      <div className="upload77-batch-naming-error">{serverError.message}</div>
+                      <div className="upload77-batch-naming-error">
+                        <span>{serverError.message}</span>
+                        {preview?.error_code === "directory_required" && (
+                          <button
+                            className="btn-secondary"
+                            onClick={() => {
+                              setFallbackDirectoryTaskId(task.id);
+                              setFallbackDirectoryKey(row.directory_key ?? "");
+                            }}
+                            type="button"
+                          >
+                            选择正式{targetLibrary === "company" ? "公司" : "项目"}目录
+                          </button>
+                        )}
+                      </div>
                     )}
                     {preview?.notices.map((notice) => (
                       <div
@@ -1636,6 +1831,43 @@ export default function PendingBatchActions({
           </div>
         )}
       </GovernedConfirmSurface>
+
+      <ConfirmDialog
+        open={fallbackDirectoryTaskId !== null}
+        title={`选择正式${targetLibrary === "company" ? "公司" : "项目"}目录`}
+        description="目录类别和其他命名字段保持不变；这里只补充正式目录归属。"
+        confirmText="保存并重新预览"
+        confirmDisabled={
+          !fallbackDirectoryKey ||
+          !formalDirectories.some((item) => item.directory_key === fallbackDirectoryKey)
+        }
+        onCancel={() => {
+          setFallbackDirectoryTaskId(null);
+          setFallbackDirectoryKey("");
+        }}
+        onConfirm={() => {
+          if (!fallbackDirectoryTaskId || !fallbackDirectoryKey) return;
+          updateRow(fallbackDirectoryTaskId, { directory_key: fallbackDirectoryKey });
+          setFallbackDirectoryTaskId(null);
+          setFallbackDirectoryKey("");
+        }}
+      >
+        <label className="upload77-field">
+          <span>正式目录</span>
+          <select
+            aria-label={`正式${targetLibrary === "company" ? "公司" : "项目"}目录`}
+            value={fallbackDirectoryKey}
+            onChange={(event) => setFallbackDirectoryKey(event.target.value)}
+          >
+            <option value="">请选择正式目录</option>
+            {formalDirectories.map((directory: DirectoryOptionDTO) => (
+              <option key={directory.directory_key} value={directory.directory_key}>
+                {directory.display_name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </ConfirmDialog>
 
       <DetailDrawer
         open={aiReviewTask !== null}

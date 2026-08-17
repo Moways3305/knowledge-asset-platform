@@ -29,6 +29,7 @@ const scenarios = [
   "no-model",
   "qa-success",
   "qa-failure",
+  "upgrade-publication",
   "upgrade-failure",
 ];
 const viewports = [
@@ -185,6 +186,9 @@ function accepted(result) {
   if (result.scenario === "qa-failure") {
     return result.modelOptionsLazy && result.qaModelCalls === 1 && result.qaFailureVisible;
   }
+  if (result.scenario === "upgrade-publication") {
+    return result.upgradePublicationVisible && result.upgradePayloadValid;
+  }
   if (result.scenario === "upgrade-failure") return result.upgradeFailureVisible;
   return true;
 }
@@ -213,6 +217,8 @@ try {
       let retrySucceeded = false;
       let qaFailureSeen = false;
       let upgradeFailureSeen = false;
+      let upgradePayload = null;
+      let upgradePreviewScreenshot = null;
       let releaseLateList = () => {};
       const lateListGate = new Promise((resolve) => {
         releaseLateList = resolve;
@@ -226,6 +232,37 @@ try {
           route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
         if (requestUrl.pathname === "/api/v1/auth/me") return fulfill(authMe(scenario));
+        if (requestUrl.pathname === "/api/v1/naming-options") {
+          return fulfill({
+            required: true,
+            rule_version: 8,
+            categories: [
+              {
+                id: "category-company-safe",
+                scope: "company",
+                primary: "公司资产",
+                secondary: "方法论",
+                prefix: "方法",
+                asset_type: "methodology",
+                default_confidentiality: "L2",
+                enabled: true,
+                sort_order: 10,
+                suggested_directory_key: "company.methodology",
+              },
+            ],
+            directories: [
+              {
+                directory_key: "company.methodology",
+                scope: "company",
+                display_name: "02 方法论",
+                sort_order: 20,
+                enabled: true,
+              },
+            ],
+            default_confidentiality: "L2",
+            message: null,
+          });
+        }
 
         const projectKnowledgeMatch = requestUrl.pathname.match(
           /^\/api\/v1\/projects\/([^/]+)\/knowledge$/,
@@ -305,7 +342,19 @@ try {
           return fulfill(qaResponse);
         }
 
+        if (requestUrl.pathname.endsWith("/upgrade-company-preview") && method === "POST") {
+          return fulfill({
+            required: true,
+            canonical_name: "【公司资产-方法论】年度辅导项目知识_全公司_20260817_V1_L2.docx",
+            rule_version: 8,
+            fields: { directory_key: "company.methodology" },
+            notices: [],
+            message: null,
+          });
+        }
+
         if (requestUrl.pathname.endsWith("/upgrade-company") && method === "POST") {
+          upgradePayload = route.request().postDataJSON();
           if (scenario === "upgrade-failure") {
             upgradeFailureSeen = true;
             return fulfill({ detail: { message: "internal approval secret" } }, 500);
@@ -317,7 +366,9 @@ try {
       });
 
       const page = await context.newPage();
-      const initialProject = ["manager-list", "upgrade-failure"].includes(scenario)
+      const initialProject = ["manager-list", "upgrade-publication", "upgrade-failure"].includes(
+        scenario,
+      )
         ? projectB
         : scenario === "inaccessible"
           ? inaccessibleProject
@@ -332,6 +383,7 @@ try {
       let qaFailureVisible = false;
       let noModelVisible = false;
       let upgradeFailureVisible = false;
+      let upgradePublicationVisible = false;
       let failureSeen = false;
       let switchedToB = false;
       let lateProjectContentHidden = true;
@@ -367,7 +419,7 @@ try {
       } else {
         await page
           .getByText(
-            ["manager-list", "upgrade-failure"].includes(scenario)
+            ["manager-list", "upgrade-publication", "upgrade-failure"].includes(scenario)
               ? "年度辅导项目知识"
               : "客户经营诊断与交付复盘框架",
           )
@@ -461,11 +513,27 @@ try {
           await page.getByRole("button", { name: "申请升格公司资产" }).waitFor();
         }
 
-        if (scenario === "upgrade-failure") {
+        if (["upgrade-publication", "upgrade-failure"].includes(scenario)) {
           await page.getByLabel("更多操作：年度辅导项目知识").click();
           await page.getByRole("button", { name: "申请升格公司资产" }).click();
-          await page.getByText("升级申请提交失败，请稍后重试。").waitFor();
-          upgradeFailureVisible = true;
+          const dialog = page.getByRole("dialog", { name: "升格为公司资产" });
+          await dialog.getByLabel("正式目录").waitFor();
+          await dialog.getByLabel("适用对象").fill("全公司");
+          await dialog.getByRole("button", { name: "预览目标文件名" }).click();
+          await dialog.getByText(/【公司资产-方法论】/).waitFor();
+          upgradePreviewScreenshot = path.join(
+            outDir,
+            `${scenario}-preview-${viewport.name}.png`,
+          );
+          await dialog.screenshot({ path: upgradePreviewScreenshot, animations: "disabled" });
+          await dialog.getByRole("button", { name: "提交双角色确认" }).click();
+          if (scenario === "upgrade-failure") {
+            await page.getByText("升格申请提交失败，请检查目标命名后重试。").waitFor();
+            upgradeFailureVisible = true;
+          } else {
+            await page.getByText("公司资产升格申请已提交。").waitFor();
+            upgradePublicationVisible = true;
+          }
         }
       }
 
@@ -504,7 +572,7 @@ try {
               bodyText.includes("访谈材料显示，客户当前最关注交付节奏与复盘机制。") &&
               bodyText.includes("内容待审核，请谨慎参考"),
             qaFailureVisible: bodyText.includes("问答暂时未完成，请稍后重试。"),
-            upgradeFailureVisible: bodyText.includes("升级申请提交失败，请稍后重试。"),
+            upgradeFailureVisible: bodyText.includes("升格申请提交失败，请检查目标命名后重试。"),
             filteredEmptyVisible: bodyText.includes("当前条件没有匹配内容"),
             oldImplementationVisible:
               Boolean(document.querySelector(".pj-asset-grid, .lifecycle-row, .risk-list")) ||
@@ -565,6 +633,14 @@ try {
         safeAnswerVisible,
         qaFailureVisible: qaFailureVisible && qaFailureSeen,
         upgradeFailureVisible: upgradeFailureVisible && upgradeFailureSeen,
+        upgradePublicationVisible,
+        upgradePayloadValid:
+          scenario !== "upgrade-publication" ||
+          (upgradePayload?.confidentiality_level === "L2" &&
+            upgradePayload?.naming?.category_id === "category-company-safe" &&
+            upgradePayload?.naming?.directory_key === "company.methodology" &&
+            upgradePayload?.naming?.applicable_to === "全公司"),
+        upgradePreviewScreenshot,
         listFailureSeen,
         knowledgeCalls,
         qaModelCalls,

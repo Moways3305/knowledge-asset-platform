@@ -168,6 +168,7 @@ export interface BatchNamingValuesDTO {
   version: string;
   applicable_to?: string;
   confidentiality_level: string;
+  directory_key?: string;
 }
 
 export interface BatchNamingPreviewItemDTO {

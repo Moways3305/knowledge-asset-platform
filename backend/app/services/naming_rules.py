@@ -7,6 +7,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import PurePath
+from types import SimpleNamespace
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -15,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.identity import Project
 from app.models.ingest import IngestTask, IngestTaskAiResult
-from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetFileObject, KnowledgeAssetVersion
 from app.models.naming import NamingRuleRevision
 from app.schemas.enums import (
     AuditAction,
@@ -606,6 +607,43 @@ async def render(
     return RenderedNaming(canonical, revision.version, metadata, notices)
 
 
+async def render_asset_publication(
+    session: AsyncSession,
+    caller: CallerContext,
+    asset: KnowledgeAsset,
+    request: NamingPreviewRequest,
+) -> RenderedNaming:
+    """Render target-scope naming for a governed derivative publication.
+
+    Existing assets do not have an ingest task. A read-only source projection lets
+    the established renderer enforce the same published categories, project code,
+    directory scope, canonical name and duplicate checks without mutating the source.
+    """
+    version = await session.get(KnowledgeAssetVersion, asset.current_version_id)
+    original_name = None
+    if version is not None:
+        original_name = await session.scalar(
+            select(KnowledgeAssetFileObject.file_name).where(
+                KnowledgeAssetFileObject.version_id == version.id,
+                KnowledgeAssetFileObject.file_variant == "original",
+            )
+        )
+    source_name = asset.canonical_name or original_name or asset.title
+    proxy = SimpleNamespace(
+        id=uuid.uuid4(),
+        source_file_name=source_name,
+        source_file_hash=version.file_hash if version is not None else None,
+    )
+    rendered = await render(session, caller, proxy, request)
+    if rendered is None:
+        raise _denied(
+            409,
+            "publication_naming_policy_required",
+            "目标知识库尚未发布可用的命名规则",
+        )
+    return rendered
+
+
 async def preview(
     session: AsyncSession,
     caller: CallerContext,
@@ -801,7 +839,10 @@ async def options(
             raise _denied(409, "project_naming_code_unavailable", "目标项目尚未启用项目代码")
         default_confidentiality = ConfidentialityLevel(project.naming_default_confidentiality)
     else:
-        if not caller.can_discover_l5:
+        is_project_manager = any(
+            role == "project_manager" for role in caller.active_project_roles.values()
+        )
+        if not caller.can_discover_l5 and not is_project_manager:
             raise _denied(403, "company_confirmation_requires_governance", "公司知识需治理角色确认")
         if config is None or not config.enforced:
             return NamingOptionsResponse(required=False, rule_version=None)

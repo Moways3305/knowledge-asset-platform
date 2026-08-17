@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_caller_context
@@ -20,6 +20,7 @@ from app.schemas.bulk_operations import (
     ReviewBulkActionRequest,
 )
 from app.schemas.enums import AuditAction, ReviewTaskStatus, ReviewType
+from app.schemas.naming import NamingPreviewResponse
 from app.schemas.permission import CallerContext
 from app.schemas.review import (
     AssetizationPreflightRequest,
@@ -28,6 +29,7 @@ from app.schemas.review import (
     AssetizationSubmitResponse,
     BulkEvidenceRequest,
     BulkEvidenceResponse,
+    CompanyUpgradeRequest,
     EvidenceCreateRequest,
     EvidenceOut,
     ReviewActionRequest,
@@ -39,6 +41,7 @@ from app.schemas.review import (
     ReviewWithdrawRequest,
 )
 from app.services import bulk_operations as bulk_service
+from app.services import governance_policy
 from app.services import review as review_service
 from app.services.storage import LocalFileStorage, get_storage
 from app.services.weknora_client import (
@@ -266,51 +269,31 @@ async def bulk_request_company_upgrade(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> BulkOperationResponse:
-    """Create project-to-company reviews with bounded, per-item revalidation."""
-    from fastapi import HTTPException
+    """Do not create empty company-publication reviews from an ID-only bulk request."""
+    if not caller.is_business_user:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "denied_reason": "admin_business_permission_denied",
+                "message": "admin 不可发起公司资产升格",
+            },
+        )
+    if not governance_policy.is_project_manager(caller, project_id):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "denied_reason": "project_manager_required",
+                "message": "仅目标项目经理可发起公司资产升格",
+            },
+        )
 
-    operation_id = uuid.uuid4()
-    trace_id = get_trace_id(request)
-
-    async def process_batch(batch):
-        batch_results = []
-        for asset_id in batch:
-            try:
-                await review_service.create_or_get_company_upgrade(
-                    session,
-                    caller,
-                    project_id,
-                    asset_id,
-                    trace_id,
-                )
-                batch_results.append(
-                    bulk_service.BulkItemResult(item_id=asset_id, status="succeeded")
-                )
-            except HTTPException as exc:
-                await session.rollback()
-                batch_results.append(bulk_service.skipped_from_http(asset_id, exc))
-            except Exception:
-                await session.rollback()
-                batch_results.append(bulk_service.failed_item(asset_id))
-        return batch_results
-
-    results = await bulk_service.execute_in_controlled_batches(body.item_ids, process_batch)
-    response = bulk_service.terminal_response(operation_id, body.item_ids, results)
-    await bulk_service.record_terminal_audit(
-        session,
-        caller=caller,
-        action=AuditAction.review_bulk_decided.value,
-        trace_id=trace_id,
-        response=response,
-        operation="upgrade_company",
-        target_scope="project",
-        project_id=project_id,
-        client_operation_id=body.client_operation_id,
-        request_index=body.request_index,
-        request_count=body.request_count,
-        total_submitted=body.total_submitted,
+    raise HTTPException(
+        status_code=422,
+        detail={
+            "denied_reason": "publication_naming_required",
+            "message": "请逐条核对公司命名与目录后发起升级",
+        },
     )
-    return response
 
 
 @router.post(
@@ -417,13 +400,28 @@ async def confirm_asset(
 async def request_company_upgrade(
     project_id: uuid.UUID,
     asset_id: uuid.UUID,
+    body: CompanyUpgradeRequest,
     request: Request,
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> ReviewListItem:
     return await review_service.create_or_get_company_upgrade(
-        session, caller, project_id, asset_id, get_trace_id(request)
+        session, caller, project_id, asset_id, body, get_trace_id(request)
     )
+
+
+@router.post(
+    "/projects/{project_id}/knowledge/{asset_id}/upgrade-company-preview",
+    response_model=NamingPreviewResponse,
+)
+async def preview_company_upgrade(
+    project_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    body: CompanyUpgradeRequest,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> NamingPreviewResponse:
+    return await review_service.preview_company_upgrade(session, caller, project_id, asset_id, body)
 
 
 @router.post("/reviews/{review_id}/approve", response_model=ReviewActionResponse)

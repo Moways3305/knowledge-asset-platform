@@ -13,6 +13,7 @@ import type {
   SubmitToProjectRequestDTO,
   ValidationCandidateRequestDTO,
 } from "../types/myKnowledge";
+import type { NamingPreviewDTO } from "../types/naming";
 
 function mapPersonalItem(data: PersonalKnowledgeItemDTO): PersonalKnowledgeItemVM {
   return {
@@ -70,6 +71,16 @@ export async function submitPersonalKnowledge(
     `/api/v1/my/knowledge/${assetId}/submit-to-project`,
     body,
     { "Idempotency-Key": createIdempotencyKey() },
+  );
+}
+
+export async function previewPersonalKnowledgePublication(
+  assetId: string,
+  body: SubmitToProjectRequestDTO,
+): Promise<NamingPreviewDTO> {
+  return apiPost<NamingPreviewDTO>(
+    `/api/v1/my/knowledge/${assetId}/submit-to-project-preview`,
+    body,
   );
 }
 

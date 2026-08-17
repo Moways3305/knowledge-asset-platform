@@ -3,10 +3,11 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { bulkDeleteKnowledgeAssets, fetchKnowledgePage } from "../api/knowledge";
+import { fetchNamingOptions } from "../api/naming";
 import { fetchProjectQaModelOptions, projectQa } from "../api/project";
 import {
-  bulkRequestCompanyUpgrade,
   preflightAssetization,
+  previewCompanyUpgrade,
   registerAssetEvidence,
   requestCompanyUpgrade,
   submitAssetization,
@@ -39,9 +40,10 @@ vi.mock("../api/project", () => ({
   fetchProjectQaModelOptions: vi.fn(),
   projectQa: vi.fn(),
 }));
+vi.mock("../api/naming", () => ({ fetchNamingOptions: vi.fn() }));
 vi.mock("../api/review", () => ({
-  bulkRequestCompanyUpgrade: vi.fn(),
   preflightAssetization: vi.fn(),
+  previewCompanyUpgrade: vi.fn(),
   registerAssetEvidence: vi.fn(),
   requestCompanyUpgrade: vi.fn(),
   submitAssetization: vi.fn(),
@@ -178,18 +180,43 @@ describe("ProjectKnowledgePage reference workspace", () => {
     vi.mocked(requestCompanyUpgrade)
       .mockReset()
       .mockResolvedValue({} as never);
-    vi.mocked(bulkRequestCompanyUpgrade)
+    vi.mocked(fetchNamingOptions)
       .mockReset()
       .mockResolvedValue({
-        operation_id: "bulk-upgrade",
-        status: "completed",
-        execution_mode: "synchronous",
-        submitted: 1,
-        succeeded: 1,
-        skipped: 0,
-        failed: 0,
-        items: [{ item_id: "asset-2", status: "succeeded", reason_code: null, message: null }],
+        required: true,
+        rule_version: 7,
+        categories: [
+          {
+            id: "category-company",
+            scope: "company",
+            primary: "公司资产",
+            secondary: "方法论",
+            prefix: "方法",
+            asset_type: "methodology",
+            default_confidentiality: "L2",
+            suggested_directory_key: "company.methodology",
+          },
+        ],
+        directories: [
+          {
+            directory_key: "company.methodology",
+            scope: "company",
+            display_name: "公司方法论",
+            sort_order: 1,
+            enabled: true,
+          },
+        ],
+        default_confidentiality: "L2",
+        message: null,
       });
+    vi.mocked(previewCompanyUpgrade).mockReset().mockResolvedValue({
+      required: true,
+      canonical_name: "【公司资产-方法论】项目资产_全公司_20260817_V1_L2.docx",
+      rule_version: 7,
+      fields: {},
+      notices: [],
+      message: null,
+    });
     vi.mocked(preflightAssetization)
       .mockReset()
       .mockImplementation(async (_projectId, ids) =>
@@ -375,8 +402,27 @@ describe("ProjectKnowledgePage reference workspace", () => {
     const assetDetails = screen.getByLabelText("更多操作：项目资产").closest("details")!;
     fireEvent.click(screen.getByLabelText("更多操作：项目资产"));
     fireEvent.click(within(assetDetails).getByRole("button", { name: "申请升格公司资产" }));
-    await waitFor(() => expect(requestCompanyUpgrade).toHaveBeenCalledWith(PROJECT_B, "asset-2"));
-    expect(await screen.findByText("公司资产升级申请已提交。")).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog", { name: "升格为公司资产" });
+    await within(dialog).findByLabelText("正式目录");
+    fireEvent.change(within(dialog).getByLabelText("适用对象"), {
+      target: { value: "全公司" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "预览目标文件名" }));
+    await within(dialog).findByText(/【公司资产-方法论】/);
+    fireEvent.click(within(dialog).getByRole("button", { name: "提交双角色确认" }));
+    await waitFor(() =>
+      expect(requestCompanyUpgrade).toHaveBeenCalledWith(
+        PROJECT_B,
+        "asset-2",
+        expect.objectContaining({
+          naming: expect.objectContaining({
+            applicable_to: "全公司",
+            directory_key: "company.methodology",
+          }),
+        }),
+      ),
+    );
+    expect(await screen.findByText("公司资产升格申请已提交。")).toBeInTheDocument();
     expectDocumentOrder(".pk-upgrade-notice", ".pk-qa-section");
   });
 
@@ -412,7 +458,7 @@ describe("ProjectKnowledgePage reference workspace", () => {
       fireEvent.click(screen.getByLabelText("全选当前页项目知识"));
     });
     expect(screen.getByRole("button", { name: "发起资产化审核（1）" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "批量升级为公司资产（1）" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /批量升级为公司资产/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "批量删除（3）" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "发起资产化审核（1）" }));
@@ -422,7 +468,7 @@ describe("ProjectKnowledgePage reference workspace", () => {
     expect(await screen.findByRole("dialog", { name: "发起资产化审核" })).toBeInTheDocument();
   });
 
-  it("keeps pure material assetization and pure asset company upgrade as distinct actions", async () => {
+  it("keeps assetization bulk-only while company publication remains item governed", async () => {
     vi.mocked(fetchKnowledgePage).mockResolvedValue(
       page([
         card({
@@ -458,9 +504,10 @@ describe("ProjectKnowledgePage reference workspace", () => {
     await act(async () => {
       fireEvent.click(screen.getByLabelText("全选当前页项目知识"));
     });
-    expect(screen.getByRole("button", { name: "批量升级为公司资产（1）" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /批量升级为公司资产/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /发起资产化审核/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "批量删除（1）" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "申请升格公司资产" })).toBeInTheDocument();
   });
 
   it("opens an evidence preflight without silently creating review tasks", async () => {

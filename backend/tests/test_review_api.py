@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import uuid
 
+import pytest_asyncio
 from sqlalchemy import func, select
 
 from app.models.audit import AuditEvent
 from app.models.identity import UserCompanyRole
-from app.models.knowledge import KnowledgeAsset
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
+from app.models.naming import NamingRuleRevision
 from app.models.review import CompanyAssetReviewDecision, ReviewTask, ValidationEvidence
 from app.schemas.enums import RoleStatus
 from app.schemas.review import (
@@ -28,9 +30,58 @@ from app.seed.dev_seed import (
     USER_DIRECTOR,
     USER_PROJECT_MANAGER,
 )
+from app.services.directories import default_directory_config
 
 REVIEWS = "/api/v1/reviews"
 KN = "/api/v1/knowledge"
+COMPANY_CATEGORY_ID = uuid.UUID("10000000-0000-0000-0000-000000000002")
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def governed_company_publication_policy(sessionmaker_fixture):
+    async with sessionmaker_fixture() as session:
+        session.add(
+            NamingRuleRevision(
+                version=11,
+                status="published",
+                base_published_version=10,
+                config={
+                    "schema_version": 2,
+                    "enforced": True,
+                    "project_codes": [],
+                    "categories": [
+                        {
+                            "id": str(COMPANY_CATEGORY_ID),
+                            "scope": "company",
+                            "primary": "公司资产",
+                            "secondary": "方法论",
+                            "prefix": "方法",
+                            "asset_type": "methodology",
+                            "default_confidentiality": "L2",
+                            "enabled": True,
+                            "sort_order": 10,
+                            "suggested_directory_key": "company.methodology",
+                        }
+                    ],
+                    "directories": default_directory_config(),
+                },
+            )
+        )
+        await session.commit()
+
+
+def _company_publication_body():
+    return {
+        "confidentiality_level": "L2",
+        "naming": {
+            "category_id": str(COMPANY_CATEGORY_ID),
+            "subject": "公司方法论资产",
+            "applicable_to": "全公司",
+            "formed_on": "2026-08-17",
+            "version": "V1",
+            "directory_key": "company.methodology",
+        },
+    }
 
 
 def _hdr(user_id):
@@ -452,7 +503,9 @@ async def test_reviews_list_no_internal_fields(client):
 
 
 async def test_review_queue_filters_terminal_items_and_validates_pagination(client):
-    created = await client.post(_upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER))
+    created = await client.post(
+        _upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER), json=_company_publication_body()
+    )
     review_id = created.json()["id"]
     rejected = await client.post(
         f"{REVIEWS}/{review_id}/reject",
@@ -483,68 +536,47 @@ async def test_review_queue_filters_terminal_items_and_validates_pagination(clie
     ).status_code == 422
 
 
-async def test_bulk_company_upgrade_runs_more_than_one_server_batch(client, monkeypatch):
+async def test_bulk_company_upgrade_rejects_id_only_requests(client):
     item_ids = [str(uuid.uuid4()) for _ in range(51)]
-    calls: list[uuid.UUID] = []
-
-    async def fake_create_or_get(session, caller, project_id, asset_id, trace_id):
-        calls.append(asset_id)
-
-    monkeypatch.setattr(
-        "app.services.review.create_or_get_company_upgrade",
-        fake_create_or_get,
-    )
     response = await client.post(
         _bulk_upgrade_url(),
         headers=_hdr(USER_PROJECT_MANAGER),
         json={"item_ids": item_ids},
     )
 
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["execution_mode"] == "controlled_batch"
-    assert (body["submitted"], body["succeeded"], body["skipped"], body["failed"]) == (
-        51,
-        51,
-        0,
-        0,
-    )
-    assert calls == [uuid.UUID(item_id) for item_id in item_ids]
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["denied_reason"] == "publication_naming_required"
 
 
-async def test_bulk_company_upgrade_revalidates_each_item_and_is_idempotent(client):
+async def test_bulk_company_upgrade_checks_role_before_requiring_item_naming(client):
     payload = {"item_ids": [str(KA_PROJECT_ALPHA), str(KA_PROJECT_ALPHA_MATERIAL)]}
     first = await client.post(
         _bulk_upgrade_url(),
         headers=_hdr(USER_PROJECT_MANAGER),
         json=payload,
     )
-    assert first.status_code == 200, first.text
-    assert (first.json()["succeeded"], first.json()["skipped"]) == (1, 1)
+    assert first.status_code == 422, first.text
 
     repeated = await client.post(
         _bulk_upgrade_url(),
         headers=_hdr(USER_PROJECT_MANAGER),
         json={"item_ids": [str(KA_PROJECT_ALPHA)]},
     )
-    assert repeated.status_code == 200
-    assert repeated.json()["succeeded"] == 1
+    assert repeated.status_code == 422
 
     non_manager = await client.post(
         _bulk_upgrade_url(),
         headers=_hdr(USER_CONSULTANT),
         json={"item_ids": [str(KA_PROJECT_ALPHA)]},
     )
-    assert non_manager.status_code == 200
-    assert non_manager.json()["skipped"] == 1
+    assert non_manager.status_code == 403
 
     wrong_project = await client.post(
         _bulk_upgrade_url(PROJECT_BETA),
         headers=_hdr(USER_PROJECT_MANAGER),
         json={"item_ids": [str(KA_PROJECT_ALPHA)]},
     )
-    assert wrong_project.status_code == 200
-    assert wrong_project.json()["skipped"] == 1
+    assert wrong_project.status_code == 403
 
 
 async def test_governance_sees_reviews(client):
@@ -556,7 +588,14 @@ async def test_governance_sees_reviews(client):
 async def test_company_upgrade_requires_independent_general_manager_and_director(
     client, db_session
 ):
-    created = await client.post(_upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER))
+    source_before = await db_session.get(KnowledgeAsset, KA_PROJECT_ALPHA)
+    source_version_id = source_before.current_version_id
+    source_canonical_name = source_before.canonical_name
+    source_version_before = await db_session.get(KnowledgeAssetVersion, source_version_id)
+    source_directory_key = source_version_before.directory_key
+    created = await client.post(
+        _upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER), json=_company_publication_body()
+    )
     assert created.status_code == 200, created.text
     review_id = created.json()["id"]
 
@@ -578,10 +617,25 @@ async def test_company_upgrade_requires_independent_general_manager_and_director
     )
     assert second.status_code == 200, second.text
     assert second.json()["status"] == "approved"
+    target_id = uuid.UUID(second.json()["target_asset_id"])
+    assert target_id != KA_PROJECT_ALPHA
     db_session.expire_all()
-    asset = await db_session.get(KnowledgeAsset, KA_PROJECT_ALPHA)
-    assert asset.scope == "company"
-    assert asset.project_id is None
+    source = await db_session.get(KnowledgeAsset, KA_PROJECT_ALPHA)
+    target = await db_session.get(KnowledgeAsset, target_id)
+    target_version = await db_session.get(KnowledgeAssetVersion, target.current_version_id)
+    assert source.scope == "project"
+    assert source.project_id == PROJECT_ALPHA
+    assert source.current_version_id == source_version_id
+    assert source.canonical_name == source_canonical_name
+    source_version_after = await db_session.get(KnowledgeAssetVersion, source.current_version_id)
+    assert source_version_after.directory_key == source_directory_key
+    assert target.scope == "company"
+    assert target.project_id is None
+    assert target.source_asset_id == source.id
+    assert target.current_version_id != source.current_version_id
+    assert target_version.directory_key == "company.methodology"
+    assert target_version.naming_rule_version == 11
+    assert target.canonical_name.startswith("【公司资产-方法论】")
 
     decisions = list(
         (
@@ -599,15 +653,32 @@ async def test_company_upgrade_requires_independent_general_manager_and_director
         ("consulting_director", USER_DIRECTOR),
     }
     audits = list(
-        (
-            await db_session.execute(
-                select(AuditEvent).where(AuditEvent.target_id == KA_PROJECT_ALPHA)
-            )
-        )
+        (await db_session.execute(select(AuditEvent).where(AuditEvent.target_id == target_id)))
         .scalars()
         .all()
     )
-    assert "asset.scope_changed" in {row.action for row in audits}
+    assert "asset.published" in {row.action for row in audits}
+
+    repeated = await client.post(
+        _upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER), json=_company_publication_body()
+    )
+    assert repeated.status_code == 200
+    repeated_id = repeated.json()["id"]
+    await client.post(f"{REVIEWS}/{repeated_id}/approve", headers=_hdr(USER_BOSS), json={})
+    repeated_approved = await client.post(
+        f"{REVIEWS}/{repeated_id}/approve", headers=_hdr(USER_DIRECTOR), json={}
+    )
+    assert repeated_approved.status_code == 200
+    assert repeated_approved.json()["target_asset_id"] == str(target_id)
+    derivative_count = await db_session.scalar(
+        select(func.count())
+        .select_from(KnowledgeAsset)
+        .where(
+            KnowledgeAsset.source_asset_id == KA_PROJECT_ALPHA,
+            KnowledgeAsset.scope == "company",
+        )
+    )
+    assert derivative_count == 1
 
 
 async def test_same_person_cannot_fill_both_company_confirmation_roles(client, db_session):
@@ -619,7 +690,9 @@ async def test_same_person_cannot_fill_both_company_confirmation_roles(client, d
         )
     )
     await db_session.commit()
-    created = await client.post(_upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER))
+    created = await client.post(
+        _upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER), json=_company_publication_body()
+    )
     review_id = created.json()["id"]
     first = await client.post(f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_BOSS), json={})
     assert first.status_code == 200
@@ -629,7 +702,9 @@ async def test_same_person_cannot_fill_both_company_confirmation_roles(client, d
 
 
 async def test_company_upgrade_reject_and_withdraw_are_terminal(client, db_session):
-    created = await client.post(_upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER))
+    created = await client.post(
+        _upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER), json=_company_publication_body()
+    )
     review_id = created.json()["id"]
     rejected = await client.post(
         f"{REVIEWS}/{review_id}/reject",
@@ -642,7 +717,9 @@ async def test_company_upgrade_reject_and_withdraw_are_terminal(client, db_sessi
     assert asset.scope == "project"
 
     # 终态后可重新发起一个独立审核；已拒绝历史保留。
-    retry = await client.post(_upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER))
+    retry = await client.post(
+        _upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER), json=_company_publication_body()
+    )
     retry_id = retry.json()["id"]
     await client.post(f"{REVIEWS}/{retry_id}/approve", headers=_hdr(USER_BOSS), json={})
     withdrawn = await client.post(
@@ -669,7 +746,9 @@ async def test_missing_director_keeps_company_upgrade_pending(client, db_session
     role.status = RoleStatus.inactive.value
     await db_session.commit()
 
-    created = await client.post(_upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER))
+    created = await client.post(
+        _upgrade_url(), headers=_hdr(USER_PROJECT_MANAGER), json=_company_publication_body()
+    )
     review_id = created.json()["id"]
     confirmed = await client.post(
         f"{REVIEWS}/{review_id}/approve", headers=_hdr(USER_BOSS), json={}
@@ -681,7 +760,9 @@ async def test_missing_director_keeps_company_upgrade_pending(client, db_session
 
 
 async def test_admin_and_company_role_cannot_bypass_project_confirmation(client):
-    created = await client.post(_upgrade_url(), headers=_hdr(USER_ADMIN_ONLY))
+    created = await client.post(
+        _upgrade_url(), headers=_hdr(USER_ADMIN_ONLY), json=_company_publication_body()
+    )
     assert created.status_code == 403
     review = await client.post(
         f"{REVIEWS}/{REVIEW_SEED}/approve", headers=_hdr(USER_DIRECTOR), json={}

@@ -28,12 +28,12 @@ import { ApiError } from "../api/http";
 import { bulkDeleteKnowledgeAssets, deleteKnowledgeAsset } from "../api/knowledge";
 import {
   confirmPersonalAsset,
-  bulkSubmitPersonalKnowledge,
   createMyKnowledgeBase,
   fetchMyKnowledge,
   fetchMyKnowledgeBase,
   registerPersonalKnowledgeEvidence,
   renameMyKnowledgeBase,
+  previewPersonalKnowledgePublication,
   submitPersonalKnowledge,
   updatePersonalKnowledge,
   type PersonalKbDTO,
@@ -41,6 +41,10 @@ import {
 import ConfirmDialog from "../components/ConfirmDialog";
 import { BulkSelectionRail, SelectionCheckbox } from "../components/BulkSelection";
 import ModelAdvancedSettings from "../components/ModelAdvancedSettings";
+import PublicationNamingFields, {
+  createPublicationNamingValue,
+  type PublicationNamingValue,
+} from "../components/PublicationNamingFields";
 import { PageHeader, PageSection, ProductPage } from "../components/ProductLayout";
 import { useModelSelection } from "../hooks/useModelSelection";
 import type {
@@ -48,6 +52,7 @@ import type {
   PersonalKnowledgeState,
   PersonalKnowledgeSummaryDTO,
 } from "../types/myKnowledge";
+import type { NamingPreviewDTO } from "../types/naming";
 import { formatBeijingDate } from "../utils/time";
 import "./MyKnowledgePage.css";
 
@@ -94,7 +99,6 @@ type DialogKind =
   | "evidence"
   | "edit"
   | "delete"
-  | "bulk-submit"
   | "bulk-delete"
   | null;
 type LoadState = "loading" | "ready" | "error" | "forbidden";
@@ -147,6 +151,10 @@ export default function MyKnowledgePage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [kbName, setKbName] = useState("");
   const [targetProject, setTargetProject] = useState("");
+  const [publicationNaming, setPublicationNaming] = useState<PublicationNamingValue>(() =>
+    createPublicationNamingValue(""),
+  );
+  const [publicationPreview, setPublicationPreview] = useState<NamingPreviewDTO | null>(null);
   const [evidenceType, setEvidenceType] = useState<EvidenceType>("internal_sharing");
   const [evidenceCategory, setEvidenceCategory] = useState(evidenceCategories[0]);
   const [evidenceDescription, setEvidenceDescription] = useState("");
@@ -242,6 +250,8 @@ export default function MyKnowledgePage() {
     setActiveItem(item);
     setDialogKind(kind);
     setTargetProject("");
+    setPublicationNaming(createPublicationNamingValue(item.title));
+    setPublicationPreview(null);
     setEvidenceType("internal_sharing");
     setEvidenceCategory(evidenceCategories[0]);
     setEvidenceDescription("");
@@ -341,12 +351,9 @@ export default function MyKnowledgePage() {
     setPage(1);
   };
 
-  const canBulkSubmit = (item: PersonalKnowledgeItemVM) =>
-    ["ready_to_submit", "project_rejected"].includes(item.personalState);
   const canBulkDelete = (item: PersonalKnowledgeItemVM) =>
     item.access.canDelete && !isProjectLocked(item);
-  const isBulkSelectable = (item: PersonalKnowledgeItemVM) =>
-    canBulkSubmit(item) || canBulkDelete(item);
+  const isBulkSelectable = canBulkDelete;
   const selectablePageItems = items.filter(isBulkSelectable);
   const selectedPageItems = selectablePageItems.filter((item) =>
     selectedItems.some((selected) => selected.id === item.id),
@@ -354,7 +361,6 @@ export default function MyKnowledgePage() {
   const pageAllSelected =
     selectablePageItems.length > 0 && selectedPageItems.length === selectablePageItems.length;
   const pageIndeterminate = selectedPageItems.length > 0 && !pageAllSelected;
-  const selectedSubmitItems = selectedItems.filter(canBulkSubmit);
   const selectedDeleteItems = selectedItems.filter(canBulkDelete);
 
   const loadMatchingSelectableItems = async () => {
@@ -400,29 +406,19 @@ export default function MyKnowledgePage() {
     setAllMatchingSelected(true);
   };
 
-  const runPersonalBulk = async (kind: "submit" | "delete") => {
-    const targets = kind === "submit" ? selectedSubmitItems : selectedDeleteItems;
+  const runPersonalBulkDelete = async () => {
+    const targets = selectedDeleteItems;
     if (targets.length === 0 || bulkRunRef.current) return;
     const selectionRequest = requestRef.current;
-    if (kind === "submit" && !targetProject) {
-      setActionError("请选择目标项目");
-      return;
-    }
     bulkRunRef.current = true;
     setActionBusy(true);
     setActionError(null);
     try {
-      const result =
-        kind === "submit"
-          ? await bulkSubmitPersonalKnowledge({
-              itemIds: targets.map((item) => item.id),
-              targetProjectId: targetProject,
-            })
-          : await bulkDeleteKnowledgeAssets({
-              itemIds: targets.map((item) => item.id),
-              scope: "personal",
-              reason: deleteReason.trim() || undefined,
-            });
+      const result = await bulkDeleteKnowledgeAssets({
+        itemIds: targets.map((item) => item.id),
+        scope: "personal",
+        reason: deleteReason.trim() || undefined,
+      });
       setDialogKind(null);
       await load();
       setNotice(
@@ -710,18 +706,6 @@ export default function MyKnowledgePage() {
             setAllMatchingSelected(false);
           }}
         >
-          <button
-            className="btn-small-primary"
-            disabled={!hasProjects || selectedSubmitItems.length === 0 || actionBusy}
-            onClick={() => {
-              setTargetProject("");
-              setActionError(null);
-              setDialogKind("bulk-submit");
-            }}
-            type="button"
-          >
-            批量提交项目（{selectedSubmitItems.length}）
-          </button>
           <button
             className="btn-small"
             disabled={selectedDeleteItems.length === 0 || actionBusy}
@@ -1105,13 +1089,17 @@ export default function MyKnowledgePage() {
         errorDescription={actionError}
         onCancel={closeDialog}
         onConfirm={() =>
-          activeItem && targetProject
+          activeItem && targetProject && publicationPreview?.canonical_name
             ? void runItemAction(
-                () => submitPersonalKnowledge(activeItem.id, { target_project_id: targetProject }),
+                () =>
+                  submitPersonalKnowledge(activeItem.id, {
+                    target_project_id: targetProject,
+                    ...publicationNaming,
+                  }),
                 "已提交，等待项目经理确认",
                 "提交失败，请稍后重试",
               )
-            : setActionError("请选择目标项目")
+            : setActionError(targetProject ? "请先预览并确认目标文件名" : "请选择目标项目")
         }
       >
         <label className="mk83-field" htmlFor="mk83-submit-target-project">
@@ -1119,7 +1107,11 @@ export default function MyKnowledgePage() {
           <select
             id="mk83-submit-target-project"
             value={targetProject}
-            onChange={(event) => setTargetProject(event.target.value)}
+            onChange={(event) => {
+              setTargetProject(event.target.value);
+              setPublicationNaming(createPublicationNamingValue(activeItem?.title ?? ""));
+              setPublicationPreview(null);
+            }}
           >
             <option value="">请选择目标项目</option>
             {projects.map((project) => (
@@ -1129,6 +1121,22 @@ export default function MyKnowledgePage() {
             ))}
           </select>
         </label>
+        {activeItem && targetProject && (
+          <PublicationNamingFields
+            scope="project"
+            projectId={targetProject}
+            value={publicationNaming}
+            disabled={actionBusy}
+            onChange={setPublicationNaming}
+            onPreviewed={setPublicationPreview}
+            onPreview={(value) =>
+              previewPersonalKnowledgePublication(activeItem.id, {
+                target_project_id: targetProject,
+                ...value,
+              })
+            }
+          />
+        )}
       </ConfirmDialog>
       <ConfirmDialog
         open={dialogKind === "evidence"}
@@ -1302,33 +1310,6 @@ export default function MyKnowledgePage() {
         </label>
       </ConfirmDialog>
       <ConfirmDialog
-        open={dialogKind === "bulk-submit"}
-        title={`批量提交 ${selectedSubmitItems.length} 项到项目`}
-        description={`本次仅提交状态适用的 ${selectedSubmitItems.length} 项；服务端会逐项重新核验所有权、状态、项目有效性与成员资格。`}
-        confirmText="确认批量提交"
-        busy={actionBusy}
-        error={actionError}
-        errorDescription={actionError}
-        onCancel={closeDialog}
-        onConfirm={() => void runPersonalBulk("submit")}
-      >
-        <label className="mk83-field" htmlFor="mk83-bulk-target-project">
-          <span>目标项目</span>
-          <select
-            id="mk83-bulk-target-project"
-            value={targetProject}
-            onChange={(event) => setTargetProject(event.target.value)}
-          >
-            <option value="">请选择目标项目</option>
-            {projects.map((project) => (
-              <option key={project.projectId} value={project.projectId}>
-                {project.projectName}
-              </option>
-            ))}
-          </select>
-        </label>
-      </ConfirmDialog>
-      <ConfirmDialog
         open={dialogKind === "bulk-delete"}
         title={`批量删除 ${selectedDeleteItems.length} 项个人资料`}
         description={`删除后这些资料将立即退出列表、检索、问答和原文授权；项目审核、引用或保留约束项会被安全跳过。另有 ${selectedItems.length - selectedDeleteItems.length} 项当前不可删除，不会提交。`}
@@ -1338,7 +1319,7 @@ export default function MyKnowledgePage() {
         error={actionError}
         errorDescription={actionError}
         onCancel={closeDialog}
-        onConfirm={() => void runPersonalBulk("delete")}
+        onConfirm={() => void runPersonalBulkDelete()}
       >
         <label className="mk83-field" htmlFor="mk83-bulk-delete-reason">
           <span>删除原因（可选）</span>

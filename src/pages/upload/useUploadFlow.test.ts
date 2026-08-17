@@ -1676,6 +1676,69 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     );
   });
 
+  it("sends each selected personal directory without governed naming fields", async () => {
+    ingest.bulkConfirmIngest.mockResolvedValue({
+      operation_id: "bulk-personal-directories",
+      status: "completed",
+      execution_mode: "synchronous",
+      submitted: 2,
+      succeeded: 2,
+      skipped: 0,
+      failed: 0,
+      items: [
+        { item_id: "personal-a", status: "succeeded", reason_code: null, message: null },
+        { item_id: "personal-b", status: "succeeded", reason_code: null, message: null },
+      ],
+    });
+    const { result } = renderHook(() => useUploadFlow());
+    const tasks = [
+      { ...pendingTask("personal-a", "A.pdf"), target_scope: null },
+      { ...pendingTask("personal-b", "B.pdf"), target_scope: null },
+    ];
+
+    await act(async () => {
+      await result.current.handleBatchConfirm(
+        tasks,
+        "personal",
+        undefined,
+        undefined,
+        undefined,
+        true,
+        undefined,
+        undefined,
+        {
+          "personal-a": "personal.learning_notes",
+          "personal-b": "personal.project_materials",
+        },
+      );
+    });
+
+    expect(ingest.bulkConfirmIngest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetScope: "personal",
+        items: [
+          expect.objectContaining({
+            taskId: "personal-a",
+            confirmation: expect.objectContaining({
+              directory_key: "personal.learning_notes",
+            }),
+          }),
+          expect.objectContaining({
+            taskId: "personal-b",
+            confirmation: expect.objectContaining({
+              directory_key: "personal.project_materials",
+            }),
+          }),
+        ],
+      }),
+    );
+    const latestCall =
+      ingest.bulkConfirmIngest.mock.calls[ingest.bulkConfirmIngest.mock.calls.length - 1];
+    for (const item of latestCall?.[0].items ?? []) {
+      expect(item.confirmation.naming).toBeUndefined();
+    }
+  });
+
   it("reconciles local pending refresh without clearing selections that still exist", async () => {
     const first = { ...pendingTask("local-first", "First.docx"), source: "path_b_upload" };
     const second = { ...pendingTask("local-second", "Second.docx"), source: "path_b_upload" };
