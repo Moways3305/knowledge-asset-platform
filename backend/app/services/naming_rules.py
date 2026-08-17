@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import PurePath
 from types import SimpleNamespace
+from typing import cast
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -634,7 +635,10 @@ async def render_asset_publication(
         source_file_name=source_name,
         source_file_hash=version.file_hash if version is not None else None,
     )
-    rendered = await render(session, caller, proxy, request)
+    # The shared renderer reads only these task projection fields. This source
+    # is an existing asset rather than an ingest task, so keep that contract
+    # explicit to mypy without widening the renderer's production input.
+    rendered = await render(session, caller, cast(IngestTask, proxy), request)
     if rendered is None:
         raise _denied(
             409,

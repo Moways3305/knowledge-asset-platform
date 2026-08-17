@@ -261,26 +261,26 @@ async def _copy_publication_asset(
             select(KnowledgeAssetTag).where(KnowledgeAssetTag.asset_id == source.id)
         )
     ).scalars()
-    for row in source_tags:
-        session.add(KnowledgeAssetTag(asset_id=target.id, tag_name=row.tag_name))
+    for tag in source_tags:
+        session.add(KnowledgeAssetTag(asset_id=target.id, tag_name=tag.tag_name))
     source_chunks = (
         await session.execute(
             select(KnowledgeAssetChunk).where(KnowledgeAssetChunk.version_id == source_version.id)
         )
     ).scalars()
-    for row in source_chunks:
+    for chunk in source_chunks:
         session.add(
             KnowledgeAssetChunk(
                 asset_id=target.id,
                 version_id=target_version.id,
-                chunk_index=row.chunk_index,
-                chunk_type=row.chunk_type,
-                content_text=row.content_text,
-                source_page=row.source_page,
-                source_section=row.source_section,
-                token_count=row.token_count,
-                chunk_hash=row.chunk_hash,
-                chunk_status=row.chunk_status,
+                chunk_index=chunk.chunk_index,
+                chunk_type=chunk.chunk_type,
+                content_text=chunk.content_text,
+                source_page=chunk.source_page,
+                source_section=chunk.source_section,
+                token_count=chunk.token_count,
+                chunk_hash=chunk.chunk_hash,
+                chunk_status=chunk.chunk_status,
             )
         )
     source_files = (
@@ -290,19 +290,21 @@ async def _copy_publication_asset(
             )
         )
     ).scalars()
-    for row in source_files:
+    for file_object in source_files:
         session.add(
             KnowledgeAssetFileObject(
                 asset_id=target.id,
                 version_id=target_version.id,
-                file_variant=row.file_variant,
+                file_variant=file_object.file_variant,
                 file_name=(
-                    rendered.canonical_name if row.file_variant == "original" else row.file_name
+                    rendered.canonical_name
+                    if file_object.file_variant == "original"
+                    else file_object.file_name
                 ),
-                file_mime_type=row.file_mime_type,
-                file_size=row.file_size,
-                storage_ref=row.storage_ref,
-                file_hash=row.file_hash,
+                file_mime_type=file_object.file_mime_type,
+                file_size=file_object.file_size,
+                storage_ref=file_object.storage_ref,
+                file_hash=file_object.file_hash,
                 confidentiality_level=confidentiality_level,
             )
         )
@@ -313,13 +315,13 @@ async def _copy_publication_asset(
             )
         )
     ).scalars()
-    for row in source_summaries:
+    for summary in source_summaries:
         session.add(
             KnowledgeAssetSummary(
                 asset_id=target.id,
                 version_id=target_version.id,
-                summary_type=row.summary_type,
-                content=row.content,
+                summary_type=summary.summary_type,
+                content=summary.content,
             )
         )
     await session.flush()
