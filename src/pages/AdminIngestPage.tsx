@@ -535,7 +535,7 @@ export default function AdminIngestPage() {
             : "任务状态已变化或正在执行，请刷新后重试。",
         );
       } else {
-        setTargetError("单条重试未能发起，请稍后重试。");
+        setTargetError("单项恢复未能发起，请稍后重试。");
       }
     } finally {
       setTargetBusy(false);

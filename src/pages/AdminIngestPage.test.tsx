@@ -295,7 +295,7 @@ describe("AdminIngestPage operations reference", () => {
   it.each([
     [409, "任务状态已变化或正在执行，请刷新后重试。"],
     [403, "当前身份无权执行此操作。"],
-    [500, "单条重试未能发起，请稍后重试。"],
+    [500, "单项恢复未能发起，请稍后重试。"],
   ])("unlocks targeted retry after safe HTTP %s feedback", async (status, message) => {
     vi.mocked(triggerTargetedIndexingRetry).mockRejectedValue(
       new ApiError(status, "SECRET upstream response"),
