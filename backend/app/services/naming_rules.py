@@ -7,6 +7,8 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import PurePath
+from types import SimpleNamespace
+from typing import cast
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -15,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.identity import Project
 from app.models.ingest import IngestTask, IngestTaskAiResult
-from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetFileObject, KnowledgeAssetVersion
 from app.models.naming import NamingRuleRevision
 from app.schemas.enums import (
     AuditAction,
@@ -509,19 +511,33 @@ async def render(
             f"【{bracket}】{naming.subject}_{naming.applicable_to}_"
             f"{naming.formed_on:%Y%m%d}_{naming.version}_{request.confidentiality_level.value}"
         )
-    directory_key = (
-        naming.directory_key
-        or category.suggested_directory_key
-        or legacy_directory_key(
-            {
-                "scope": scope,
-                "category_primary": category.primary,
-                "category_secondary": category.secondary,
-            }
-        )
+    mapped_directory_key = category.suggested_directory_key or legacy_directory_key(
+        {
+            "scope": scope,
+            "category_primary": category.primary,
+            "category_secondary": category.secondary,
+        }
     )
-    if not directory_key:
-        raise _denied(422, "directory_required", "该命名类别无法唯一映射目录，请人工选择")
+    if mapped_directory_key:
+        if naming.directory_key and naming.directory_key != mapped_directory_key:
+            raise _denied(
+                409,
+                "directory_category_mismatch",
+                "正式目录由目录类别唯一确定，不能改选其他目录",
+            )
+        directory_key = mapped_directory_key
+        directory_source = "rule_suggestion"
+    else:
+        if not naming.directory_key:
+            raise _denied(422, "directory_required", "该命名类别尚未映射目录，请补选正式目录")
+        if not naming.directory_fallback_confirmed:
+            raise _denied(
+                422,
+                "directory_fallback_confirmation_required",
+                "仅在类别缺少目录映射时可人工补选正式目录",
+            )
+        directory_key = naming.directory_key
+        directory_source = "manual_fallback"
     directory_rule_version, _directory = await validate_directory(
         session,
         directory_key=directory_key,
@@ -550,9 +566,7 @@ async def render(
         "rule_version": revision.version,
         "directory_key": directory_key,
         "directory_rule_version": directory_rule_version,
-        "directory_source": (
-            "rule_suggestion" if category.suggested_directory_key == directory_key else "manual"
-        ),
+        "directory_source": directory_source,
         "canonical_name": canonical,
     }
     notices: list[NamingDuplicateNotice] = []
@@ -604,6 +618,46 @@ async def render(
         await _duplicate_notices(session, caller, task, scope, request.target_project_id, metadata)
     )
     return RenderedNaming(canonical, revision.version, metadata, notices)
+
+
+async def render_asset_publication(
+    session: AsyncSession,
+    caller: CallerContext,
+    asset: KnowledgeAsset,
+    request: NamingPreviewRequest,
+) -> RenderedNaming:
+    """Render target-scope naming for a governed derivative publication.
+
+    Existing assets do not have an ingest task. A read-only source projection lets
+    the established renderer enforce the same published categories, project code,
+    directory scope, canonical name and duplicate checks without mutating the source.
+    """
+    version = await session.get(KnowledgeAssetVersion, asset.current_version_id)
+    original_name = None
+    if version is not None:
+        original_name = await session.scalar(
+            select(KnowledgeAssetFileObject.file_name).where(
+                KnowledgeAssetFileObject.version_id == version.id,
+                KnowledgeAssetFileObject.file_variant == "original",
+            )
+        )
+    source_name = asset.canonical_name or original_name or asset.title
+    proxy = SimpleNamespace(
+        id=uuid.uuid4(),
+        source_file_name=source_name,
+        source_file_hash=version.file_hash if version is not None else None,
+    )
+    # The shared renderer reads only these task projection fields. This source
+    # is an existing asset rather than an ingest task, so keep that contract
+    # explicit to mypy without widening the renderer's production input.
+    rendered = await render(session, caller, cast(IngestTask, proxy), request)
+    if rendered is None:
+        raise _denied(
+            409,
+            "publication_naming_policy_required",
+            "目标知识库尚未发布可用的命名规则",
+        )
+    return rendered
 
 
 async def preview(
@@ -801,7 +855,10 @@ async def options(
             raise _denied(409, "project_naming_code_unavailable", "目标项目尚未启用项目代码")
         default_confidentiality = ConfidentialityLevel(project.naming_default_confidentiality)
     else:
-        if not caller.can_discover_l5:
+        is_project_manager = any(
+            role == "project_manager" for role in caller.active_project_roles.values()
+        )
+        if not caller.can_discover_l5 and not is_project_manager:
             raise _denied(403, "company_confirmation_requires_governance", "公司知识需治理角色确认")
         if config is None or not config.enforced:
             return NamingOptionsResponse(required=False, rule_version=None)

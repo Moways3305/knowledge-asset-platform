@@ -17,7 +17,14 @@ from sqlalchemy.orm import selectinload
 
 from app.models.identity import Project, ProjectMember
 from app.models.ingest import IngestTask
-from app.models.knowledge import KnowledgeAsset, KnowledgeAssetTag
+from app.models.knowledge import (
+    KnowledgeAsset,
+    KnowledgeAssetChunk,
+    KnowledgeAssetFileObject,
+    KnowledgeAssetSummary,
+    KnowledgeAssetTag,
+    KnowledgeAssetVersion,
+)
 from app.models.review import (
     CompanyAssetReviewDecision,
     PersonalKnowledgeSubmission,
@@ -41,6 +48,7 @@ from app.schemas.enums import (
     ReviewType,
 )
 from app.schemas.ingest import IngestConfirmRequest
+from app.schemas.naming import NamingPreviewRequest, NamingPreviewResponse
 from app.schemas.permission import CallerContext
 from app.schemas.review import (
     AssetizationPreflightItem,
@@ -48,6 +56,7 @@ from app.schemas.review import (
     BulkEvidenceItem,
     BulkEvidenceRequest,
     BulkEvidenceResponse,
+    CompanyUpgradeRequest,
     EvidenceCreateRequest,
     EvidenceOut,
     ReviewActionResponse,
@@ -55,7 +64,7 @@ from app.schemas.review import (
     ReviewListItem,
 )
 from app.services import audit as audit_service
-from app.services import governance_policy
+from app.services import governance_policy, naming_rules
 
 _TERMINAL = {ReviewTaskStatus.approved.value, ReviewTaskStatus.rejected.value}
 _NON_TERMINAL = {
@@ -74,6 +83,249 @@ def _denied(status_code: int, reason: str, message: str) -> HTTPException:
 
 def _is_admin(caller: CallerContext) -> bool:
     return governance_policy.is_admin(caller)
+
+
+async def _render_publication_snapshot(
+    session: AsyncSession,
+    caller: CallerContext,
+    asset: KnowledgeAsset,
+    *,
+    target_scope: KnowledgeScope,
+    target_project_id: uuid.UUID | None,
+    confidentiality_level,
+    naming,
+) -> tuple[dict, naming_rules.RenderedNaming]:
+    source_version = await session.get(KnowledgeAssetVersion, asset.current_version_id)
+    if (
+        asset.asset_status != "active"
+        or source_version is None
+        or source_version.version_status != "active"
+    ):
+        raise _denied(409, "publication_source_unavailable", "来源资料当前不可用于发布")
+    request = NamingPreviewRequest(
+        target_scope=target_scope,
+        target_project_id=target_project_id,
+        confidentiality_level=confidentiality_level,
+        naming=naming,
+    )
+    rendered = await naming_rules.render_asset_publication(session, caller, asset, request)
+    snapshot = {
+        "source_asset_id": str(asset.id),
+        "source_scope": asset.scope,
+        "source_project_id": str(asset.project_id) if asset.project_id else None,
+        "source_asset_status": asset.asset_status,
+        "source_version_id": str(source_version.id),
+        "source_version_status": source_version.version_status,
+        "target_scope": target_scope.value,
+        "target_project_id": str(target_project_id) if target_project_id else None,
+        "confidentiality_level": confidentiality_level.value,
+        "naming": naming.model_dump(mode="json"),
+        "naming_rule_version": rendered.rule_version,
+        "canonical_name": rendered.canonical_name,
+    }
+    return snapshot, rendered
+
+
+async def _validate_locked_publication_source(
+    session: AsyncSession,
+    source: KnowledgeAsset,
+    task: ReviewTask,
+) -> KnowledgeAssetVersion:
+    """Fail closed if an approval no longer refers to the submitted source revision."""
+    snapshot = task.confirmation_snapshot or {}
+    expected_asset_id = snapshot.get("source_asset_id")
+    expected_version_id = snapshot.get("source_version_id")
+    if not expected_asset_id or not expected_version_id:
+        raise _denied(409, "publication_snapshot_invalid", "发布来源信息不完整，请重新提交")
+    if (
+        expected_asset_id != str(source.id)
+        or snapshot.get("source_scope") != source.scope
+        or snapshot.get("source_project_id")
+        != (str(source.project_id) if source.project_id else None)
+        or source.asset_status != "active"
+    ):
+        raise _denied(409, "publication_source_changed", "来源资料已变更或不可用，请重新提交")
+    if source.current_version_id is None or str(source.current_version_id) != expected_version_id:
+        raise _denied(409, "publication_source_version_changed", "来源资料已有新版本，请重新提交")
+    source_version = (
+        await session.execute(
+            select(KnowledgeAssetVersion)
+            .where(KnowledgeAssetVersion.id == source.current_version_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if source_version is None or source_version.version_status != "active":
+        raise _denied(409, "publication_source_version_unavailable", "来源资料当前版本不可用于发布")
+    return source_version
+
+
+async def _render_locked_publication(
+    session: AsyncSession,
+    caller: CallerContext,
+    source: KnowledgeAsset,
+    task: ReviewTask,
+) -> naming_rules.RenderedNaming:
+    snapshot = task.confirmation_snapshot or {}
+    await _validate_locked_publication_source(session, source, task)
+    try:
+        request = NamingPreviewRequest.model_validate(
+            {
+                "target_scope": snapshot["target_scope"],
+                "target_project_id": snapshot.get("target_project_id"),
+                "confidentiality_level": snapshot["confidentiality_level"],
+                "naming": snapshot["naming"],
+            }
+        )
+    except (KeyError, ValueError) as exc:
+        raise _denied(
+            409, "publication_snapshot_invalid", "发布命名信息不完整，请重新提交"
+        ) from exc
+    rendered = await naming_rules.render_asset_publication(session, caller, source, request)
+    if rendered.rule_version != snapshot.get(
+        "naming_rule_version"
+    ) or rendered.canonical_name != snapshot.get("canonical_name"):
+        raise _denied(409, "publication_naming_changed", "目标命名规则已更新，请修改后重新提交")
+    return rendered
+
+
+async def _copy_publication_asset(
+    session: AsyncSession,
+    *,
+    source: KnowledgeAsset,
+    target_scope: str,
+    target_project_id: uuid.UUID | None,
+    actor_user_id: uuid.UUID,
+    confidentiality_level: str,
+    rendered: naming_rules.RenderedNaming,
+) -> KnowledgeAsset:
+    existing = (
+        await session.execute(
+            select(KnowledgeAsset).where(
+                KnowledgeAsset.source_asset_id == source.id,
+                KnowledgeAsset.scope == target_scope,
+                KnowledgeAsset.project_id.is_(None)
+                if target_project_id is None
+                else KnowledgeAsset.project_id == target_project_id,
+                KnowledgeAsset.asset_status == "active",
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
+    source_version = await session.get(KnowledgeAssetVersion, source.current_version_id)
+    if source_version is None or source_version.version_status != "active":
+        raise _denied(409, "publication_source_version_unavailable", "来源资料当前版本不可用于发布")
+
+    metadata = rendered.metadata
+    target = KnowledgeAsset(
+        title=str(metadata.get("subject") or source.title),
+        scope=target_scope,
+        zone="material" if target_scope == KnowledgeScope.project.value else "asset",
+        asset_type=str(metadata.get("asset_type") or source.asset_type),
+        owner_user_id=source.owner_user_id,
+        maintainer_user_id=actor_user_id,
+        project_id=target_project_id,
+        source_asset_id=source.id,
+        visibility="project_only" if target_scope == KnowledgeScope.project.value else "public",
+        confidentiality_level=confidentiality_level,
+        ai_access_level=source.ai_access_level,
+        asset_status="active",
+        canonical_name=rendered.canonical_name,
+    )
+    session.add(target)
+    await session.flush()
+    target_version = KnowledgeAssetVersion(
+        asset_id=target.id,
+        version_no=str(metadata.get("version") or source_version.version_no),
+        version_status="active",
+        file_hash=source_version.file_hash,
+        version_hash=source_version.version_hash,
+        source_hash=source_version.source_hash,
+        change_summary="由受控跨知识库发布生成",
+        created_by=actor_user_id,
+        index_status="indexing",
+        naming_metadata=metadata,
+        naming_rule_version=rendered.rule_version,
+        directory_key=str(metadata["directory_key"]),
+        directory_rule_version=int(metadata["directory_rule_version"]),
+        directory_confirmed_by=actor_user_id,
+        activated_at=datetime.now(timezone.utc),
+    )
+    session.add(target_version)
+    await session.flush()
+    target.current_version_id = target_version.id
+
+    source_tags = (
+        await session.execute(
+            select(KnowledgeAssetTag).where(KnowledgeAssetTag.asset_id == source.id)
+        )
+    ).scalars()
+    for tag in source_tags:
+        session.add(KnowledgeAssetTag(asset_id=target.id, tag_name=tag.tag_name))
+    source_chunks = (
+        await session.execute(
+            select(KnowledgeAssetChunk).where(KnowledgeAssetChunk.version_id == source_version.id)
+        )
+    ).scalars()
+    for chunk in source_chunks:
+        session.add(
+            KnowledgeAssetChunk(
+                asset_id=target.id,
+                version_id=target_version.id,
+                chunk_index=chunk.chunk_index,
+                chunk_type=chunk.chunk_type,
+                content_text=chunk.content_text,
+                source_page=chunk.source_page,
+                source_section=chunk.source_section,
+                token_count=chunk.token_count,
+                chunk_hash=chunk.chunk_hash,
+                chunk_status=chunk.chunk_status,
+            )
+        )
+    source_files = (
+        await session.execute(
+            select(KnowledgeAssetFileObject).where(
+                KnowledgeAssetFileObject.version_id == source_version.id
+            )
+        )
+    ).scalars()
+    for file_object in source_files:
+        session.add(
+            KnowledgeAssetFileObject(
+                asset_id=target.id,
+                version_id=target_version.id,
+                file_variant=file_object.file_variant,
+                file_name=(
+                    rendered.canonical_name
+                    if file_object.file_variant == "original"
+                    else file_object.file_name
+                ),
+                file_mime_type=file_object.file_mime_type,
+                file_size=file_object.file_size,
+                storage_ref=file_object.storage_ref,
+                file_hash=file_object.file_hash,
+                confidentiality_level=confidentiality_level,
+            )
+        )
+    source_summaries = (
+        await session.execute(
+            select(KnowledgeAssetSummary).where(
+                KnowledgeAssetSummary.version_id == source_version.id
+            )
+        )
+    ).scalars()
+    for summary in source_summaries:
+        session.add(
+            KnowledgeAssetSummary(
+                asset_id=target.id,
+                version_id=target_version.id,
+                summary_type=summary.summary_type,
+                content=summary.content,
+            )
+        )
+    await session.flush()
+    return target
 
 
 # 附件 metadata 黑名单：禁止携带真实 URL / 文件路径 / 内部存储引用 / 凭证。
@@ -1007,6 +1259,7 @@ async def create_or_get_company_upgrade(
     caller: CallerContext,
     project_id: uuid.UUID,
     asset_id: uuid.UUID,
+    req: CompanyUpgradeRequest,
     trace_id: str,
 ) -> ReviewListItem:
     """项目经理发起项目资产升格；创建后等待两个公司治理角色分别确认。"""
@@ -1051,12 +1304,22 @@ async def create_or_get_company_upgrade(
         states = (await _decision_states(session, [existing])).get(existing.id, {})
         return _to_list_item(existing, assets, projects, decision_states=states)
 
+    publication_snapshot, _rendered = await _render_publication_snapshot(
+        session,
+        caller,
+        asset,
+        target_scope=KnowledgeScope.company,
+        target_project_id=None,
+        confidentiality_level=req.confidentiality_level,
+        naming=req.naming,
+    )
     task = ReviewTask(
         review_type=ReviewType.project_to_company.value,
         trigger_source="project_manager_upgrade",
         target_asset_id=asset.id,
         target_project_id=project_id,
         target_scope=KnowledgeScope.company.value,
+        confirmation_snapshot=publication_snapshot,
         status=ReviewTaskStatus.pending_reviewer.value,
         reviewer_user_id=None,
         submitted_by=caller.user_id,
@@ -1089,6 +1352,38 @@ async def create_or_get_company_upgrade(
     task = await _load_task(session, task.id)
     assets, projects = await _aux_maps(session, [task])
     return _to_list_item(task, assets, projects)
+
+
+async def preview_company_upgrade(
+    session: AsyncSession,
+    caller: CallerContext,
+    project_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    req: CompanyUpgradeRequest,
+) -> NamingPreviewResponse:
+    if not caller.is_business_user:
+        raise _denied(403, "admin_business_permission_denied", "admin 不可发起公司资产升格")
+    if not governance_policy.is_project_manager(caller, project_id):
+        raise _denied(403, "project_manager_required", "仅目标项目经理可发起公司资产升格")
+    asset = await _load_project_asset(session, project_id, asset_id)
+    if asset.zone != "asset" or asset.asset_status != "active":
+        raise _denied(422, "project_asset_required", "仅 active 项目资产可升格为公司资产")
+    _snapshot, rendered = await _render_publication_snapshot(
+        session,
+        caller,
+        asset,
+        target_scope=KnowledgeScope.company,
+        target_project_id=None,
+        confidentiality_level=req.confidentiality_level,
+        naming=req.naming,
+    )
+    return NamingPreviewResponse(
+        required=True,
+        canonical_name=rendered.canonical_name,
+        rule_version=rendered.rule_version,
+        fields=rendered.metadata,
+        notices=rendered.notices,
+    )
 
 
 async def create_or_get_project_ingest_review(
@@ -1198,6 +1493,9 @@ async def _approve_company_upgrade(
     task: ReviewTask,
     comment: str | None,
     trace_id: str,
+    *,
+    storage,
+    weknora,
 ) -> ReviewActionResponse:
     if task.status != ReviewTaskStatus.pending_reviewer.value:
         raise _denied(409, "review_already_finalized", "审核任务当前不可确认")
@@ -1249,12 +1547,20 @@ async def _approve_company_upgrade(
         )
     ).scalar_one()
     if complete:
-        before = {"scope": asset.scope, "project_id": str(asset.project_id)}
-        asset.scope = KnowledgeScope.company.value
-        asset.project_id = None
+        rendered = await _render_locked_publication(session, caller, asset, task)
+        target_asset = await _copy_publication_asset(
+            session,
+            source=asset,
+            target_scope=KnowledgeScope.company.value,
+            target_project_id=None,
+            actor_user_id=caller.user_id,
+            confidentiality_level=str((task.confirmation_snapshot or {})["confidentiality_level"]),
+            rendered=rendered,
+        )
         task.status = ReviewTaskStatus.approved.value
         task.review_comment = comment
         task.reviewed_at = datetime.now(timezone.utc)
+        task.target_asset_id = target_asset.id
         await audit_service.record_event(
             session,
             caller=caller,
@@ -1270,21 +1576,62 @@ async def _approve_company_upgrade(
             session,
             caller=caller,
             log_type=AuditLogType.operation,
-            action=AuditAction.asset_scope_changed.value,
+            action=AuditAction.asset_published.value,
             trace_id=trace_id,
             target_type="knowledge_asset",
-            target_id=asset.id,
-            before=before,
-            after={"scope": asset.scope, "project_id": None},
-            extra={"review_id": str(task.id), "change": "project_to_company"},
+            target_id=target_asset.id,
+            before={"source_scope": asset.scope, "source_project_id": str(asset.project_id)},
+            after={
+                "target_scope": target_asset.scope,
+                "target_asset_id": str(target_asset.id),
+                "naming_rule_version": rendered.rule_version,
+                "directory_key": rendered.metadata["directory_key"],
+            },
+            extra={
+                "review_id": str(task.id),
+                "source_asset_id": str(asset.id),
+                "operator_id": str(caller.user_id),
+            },
             project_id=task.target_project_id,
         )
+        asset = target_asset
+    response_review_id = task.id
+    response_review_status = task.status
+    response_asset_id = asset.id
+    response_asset_zone = asset.zone
+    response_asset_scope = asset.scope
+    response_project_id = asset.project_id
     await session.commit()
+    if complete:
+        from app.services import indexing_ops
+
+        try:
+            await indexing_ops.create_publication_index_job(
+                session,
+                caller,
+                response_asset_id,
+                scope=response_asset_scope,
+                project_id=response_project_id,
+                weknora=weknora,
+                storage=storage,
+                trace_id=trace_id,
+            )
+        except Exception:
+            # Publication is already committed. Queue failure is represented on the
+            # preserved derivative and remains retryable from its detail page.
+            await session.rollback()
+    version = await session.scalar(
+        select(KnowledgeAssetVersion).where(
+            KnowledgeAssetVersion.asset_id == response_asset_id,
+            KnowledgeAssetVersion.version_status == "active",
+        )
+    )
     return ReviewActionResponse(
-        review_id=task.id,
-        status=task.status,
-        target_asset_id=asset.id,
-        asset_zone=asset.zone,
+        review_id=response_review_id,
+        status=response_review_status,
+        target_asset_id=response_asset_id,
+        asset_zone=response_asset_zone,
+        index_status=version.index_status if version is not None else None,
     )
 
 
@@ -1317,7 +1664,15 @@ async def approve(
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可审批")
     task = await _load_task(session, review_id, for_update=True)
     if task.review_type == ReviewType.project_to_company.value:
-        return await _approve_company_upgrade(session, caller, task, comment, trace_id)
+        return await _approve_company_upgrade(
+            session,
+            caller,
+            task,
+            comment,
+            trace_id,
+            storage=storage,
+            weknora=weknora,
+        )
     if task.review_type == ReviewType.project_ingest_approval.value:
         target_project_id = task.target_project_id
         if not _can_decide_project_ingest(caller, task):
@@ -1405,55 +1760,63 @@ async def approve(
         ).scalar_one_or_none()
         if submission is None:
             raise _denied(409, "personal_submission_missing", "个人知识提交记录不可用")
+        result_asset = (
+            await session.execute(
+                select(KnowledgeAsset)
+                .where(KnowledgeAsset.id == submission.source_asset_id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if result_asset is None:
+            raise _denied(409, "publication_source_missing", "来源个人资料已不存在，无法发布")
+        if (
+            submission.submission_type == PersonalSubmissionType.submit_to_project.value
+            and task.target_project_id is not None
+        ):
+            source = result_asset
+            rendered = await _render_locked_publication(session, caller, source, task)
+            result_asset = await _copy_publication_asset(
+                session,
+                source=source,
+                target_scope=KnowledgeScope.project.value,
+                target_project_id=task.target_project_id,
+                actor_user_id=caller.user_id,
+                confidentiality_level=str(
+                    (task.confirmation_snapshot or {})["confidentiality_level"]
+                ),
+                rendered=rendered,
+            )
+            task.target_asset_id = result_asset.id
+            await audit_service.record_event(
+                session,
+                caller=caller,
+                log_type=AuditLogType.operation,
+                action=AuditAction.asset_published.value,
+                trace_id=trace_id,
+                target_type="knowledge_asset",
+                target_id=result_asset.id,
+                before={
+                    "source_scope": source.scope,
+                    "source_project_id": None,
+                },
+                after={
+                    "target_scope": result_asset.scope,
+                    "target_project_id": str(result_asset.project_id),
+                    "target_asset_id": str(result_asset.id),
+                    "naming_rule_version": rendered.rule_version,
+                    "directory_key": rendered.metadata["directory_key"],
+                },
+                extra={
+                    "review_id": str(task.id),
+                    "source_asset_id": str(source.id),
+                    "operator_id": str(caller.user_id),
+                },
+                project_id=task.target_project_id,
+            )
         task.status = ReviewTaskStatus.approved.value
         task.review_comment = comment
         task.reviewed_at = datetime.now(timezone.utc)
         submission.status = PersonalSubmissionStatus.approved.value
-        result_asset = await session.get(KnowledgeAsset, task.target_asset_id)
-        if (
-            submission.submission_type == PersonalSubmissionType.submit_to_project.value
-            and result_asset is not None
-            and task.target_project_id is not None
-        ):
-            existing_copy = (
-                await session.execute(
-                    select(KnowledgeAsset).where(
-                        KnowledgeAsset.source_asset_id == result_asset.id,
-                        KnowledgeAsset.scope == KnowledgeScope.project.value,
-                        KnowledgeAsset.project_id == task.target_project_id,
-                        KnowledgeAsset.asset_status == "active",
-                    )
-                )
-            ).scalar_one_or_none()
-            if existing_copy is None:
-                source = (
-                    await session.execute(
-                        select(KnowledgeAsset)
-                        .where(KnowledgeAsset.id == result_asset.id)
-                        .options(selectinload(KnowledgeAsset.tags))
-                    )
-                ).scalar_one()
-                existing_copy = KnowledgeAsset(
-                    title=source.title,
-                    scope=KnowledgeScope.project.value,
-                    zone="material",
-                    asset_type=source.asset_type,
-                    owner_user_id=source.owner_user_id,
-                    maintainer_user_id=source.maintainer_user_id or source.owner_user_id,
-                    project_id=task.target_project_id,
-                    source_asset_id=source.id,
-                    current_version_id=source.current_version_id,
-                    visibility="project_only",
-                    confidentiality_level=source.confidentiality_level,
-                    ai_access_level=source.ai_access_level,
-                    asset_status="active",
-                )
-                existing_copy.tags.extend(
-                    KnowledgeAssetTag(tag_name=tag.tag_name) for tag in source.tags
-                )
-                session.add(existing_copy)
-                await session.flush()
-            result_asset = existing_copy
         await audit_service.record_event(
             session,
             caller=caller,
@@ -1468,12 +1831,46 @@ async def approve(
             },
             project_id=task.target_project_id,
         )
+        should_index_publication = bool(
+            submission.submission_type == PersonalSubmissionType.submit_to_project.value
+            and task.target_project_id is not None
+        )
+        response_review_id = task.id
+        response_review_status = task.status
+        response_asset_id = result_asset.id
+        response_asset_zone = result_asset.zone
+        response_asset_scope = result_asset.scope
+        response_project_id = result_asset.project_id
         await session.commit()
+        if should_index_publication:
+            from app.services import indexing_ops
+
+            try:
+                await indexing_ops.create_publication_index_job(
+                    session,
+                    caller,
+                    response_asset_id,
+                    scope=response_asset_scope,
+                    project_id=response_project_id,
+                    weknora=weknora,
+                    storage=storage,
+                    trace_id=trace_id,
+                )
+            except Exception:
+                # The target copy remains published; its safe failure status exposes retry.
+                await session.rollback()
+        version = await session.scalar(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == response_asset_id,
+                KnowledgeAssetVersion.version_status == "active",
+            )
+        )
         return ReviewActionResponse(
-            review_id=task.id,
-            status=task.status,
-            target_asset_id=result_asset.id if result_asset else task.target_asset_id,
-            asset_zone=result_asset.zone if result_asset else None,
+            review_id=response_review_id,
+            status=response_review_status,
+            target_asset_id=response_asset_id,
+            asset_zone=response_asset_zone,
+            index_status=version.index_status if version is not None else None,
         )
     if task.reviewer_user_id != caller.user_id:
         raise _denied(403, "review_action_forbidden", "只有被分配的审核人可审批")

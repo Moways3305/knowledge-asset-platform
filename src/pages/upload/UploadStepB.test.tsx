@@ -103,6 +103,29 @@ describe("UploadStepB folder drop and batch rejection", () => {
           default_confidentiality: "L2",
         },
       ],
+      directories: [
+        {
+          directory_key: "personal.learning_notes",
+          scope: "personal",
+          display_name: "01 个人学习笔记",
+          sort_order: 10,
+          enabled: true,
+        },
+        {
+          directory_key: "personal.project_materials",
+          scope: "personal",
+          display_name: "02 个人项目资料",
+          sort_order: 20,
+          enabled: true,
+        },
+        {
+          directory_key: "personal.pending",
+          scope: "personal",
+          display_name: "04 待处理",
+          sort_order: 40,
+          enabled: true,
+        },
+      ],
       default_confidentiality: "L2",
       message: null,
     });
@@ -340,7 +363,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(document.body).not.toHaveTextContent(/task-secret|原始正文|storage_ref/);
   });
 
-  it("requires one explicit destination before batch confirmation", () => {
+  it("requires one explicit destination and a formal personal directory before confirmation", async () => {
     const flow = flowFixture();
     render(<UploadStepB flow={flow} />);
 
@@ -353,11 +376,25 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(flow.handleBatchConfirm).not.toHaveBeenCalled();
 
     fireEvent.change(target, { target: { value: "personal" } });
+    const directory = await screen.findByRole("combobox", { name: "本批个人目录" });
+    expect(directory).not.toHaveTextContent("04 待处理");
+    expect(screen.getByRole("button", { name: "下一步：核对入库" })).toBeDisabled();
+    fireEvent.change(directory, { target: { value: "personal.learning_notes" } });
+    fireEvent.click(screen.getByRole("button", { name: "下一步：核对入库" }));
     fireEvent.click(screen.getByRole("button", { name: "确认已选择的 2 项入库" }));
     expect(flow.handleBatchConfirm).toHaveBeenCalledWith(
       flow.localPendingTasks,
       "personal",
       undefined,
+      undefined,
+      expect.any(Object),
+      true,
+      expect.any(Function),
+      undefined,
+      {
+        "task-secret-a": "personal.learning_notes",
+        "task-secret-b": "personal.learning_notes",
+      },
     );
   });
 
@@ -851,7 +888,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(screen.getAllByText(/已核对 0\/213 条/).length).toBeGreaterThan(0);
   });
 
-  it("selects all actionable rows, exposes half-selected state, and excludes disabled rows", () => {
+  it("selects all actionable rows, exposes half-selected state, and excludes disabled rows", async () => {
     const first = pending("first", "First.pdf");
     const second = pending("second", "Second.pdf");
     const disabled = {
@@ -880,8 +917,21 @@ describe("UploadStepB folder drop and batch rejection", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标知识库" }), {
       target: { value: "personal" },
     });
+    const directory = await screen.findByRole("combobox", { name: "本批个人目录" });
+    fireEvent.change(directory, { target: { value: "personal.learning_notes" } });
+    fireEvent.click(screen.getByRole("button", { name: "下一步：核对入库" }));
     fireEvent.click(screen.getByRole("button", { name: "确认已选择的 1 项入库" }));
-    expect(flow.handleBatchConfirm).toHaveBeenCalledWith([first], "personal", undefined);
+    expect(flow.handleBatchConfirm).toHaveBeenCalledWith(
+      [first],
+      "personal",
+      undefined,
+      undefined,
+      expect.any(Object),
+      true,
+      expect.any(Function),
+      undefined,
+      { first: "personal.learning_notes" },
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "批量拒绝入库（1）" }));
     fireEvent.click(screen.getByRole("button", { name: "确认永久拒绝" }));

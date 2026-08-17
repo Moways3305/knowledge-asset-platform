@@ -14,11 +14,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.schemas.enums import (
     AssetType,
+    ConfidentialityLevel,
     EvidenceCategory,
     EvidenceType,
     PersonalKnowledgeState,
 )
 from app.schemas.knowledge import KnowledgeListItemOut
+from app.schemas.naming import NamingConfirmationFields
 
 
 class PersonalProjectSubmissionSummary(BaseModel):
@@ -107,6 +109,8 @@ class SubmitToProjectRequest(BaseModel):
     """个人知识提交到项目资料区。"""
 
     target_project_id: uuid.UUID
+    confidentiality_level: ConfidentialityLevel
+    naming: NamingConfirmationFields
     note: str | None = None
 
 

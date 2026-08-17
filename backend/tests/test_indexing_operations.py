@@ -9,6 +9,7 @@ reparse 入队与执行（已进底座但解析异常）；refresh-parse 仍只�
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import uuid
 from types import SimpleNamespace
 
@@ -31,6 +32,7 @@ from app.seed.dev_seed import (
     seed_dev_identities,
 )
 from app.services import indexing, indexing_ops
+from app.services.canonical_markdown import ensure_version_markdown
 from app.services.storage import LocalFileStorage
 from app.services.weknora_client import WeKnoraError, get_weknora_client
 
@@ -62,6 +64,62 @@ def test_indexing_boundary_requires_canonical_markdown_filename():
         "text/markdown",
         "# canonical markdown",
     )
+
+
+async def test_published_derivative_can_load_persisted_markdown_without_ingest_task(
+    client, db_session
+):
+    content = b"# Published derivative\n\nGoverned body"
+    storage = client._kap_storage
+    storage_ref = storage.save(content, original_name="published.canonical.md")
+    asset = KnowledgeAsset(
+        title="Published derivative",
+        scope="project",
+        zone="material",
+        asset_type="deliverable",
+        owner_user_id=USER_CONSULTANT,
+        project_id=None,
+        asset_status="active",
+        confidentiality_level="L2",
+    )
+    db_session.add(asset)
+    await db_session.flush()
+    version = KnowledgeAssetVersion(
+        asset_id=asset.id,
+        version_no="V1",
+        version_status="active",
+        created_by=USER_CONSULTANT,
+        index_status="indexing",
+    )
+    db_session.add(version)
+    await db_session.flush()
+    asset.current_version_id = version.id
+    db_session.add(
+        KnowledgeAssetFileObject(
+            asset_id=asset.id,
+            version_id=version.id,
+            file_variant="canonical_markdown",
+            file_name="published.canonical.md",
+            file_mime_type="text/markdown",
+            file_size=len(content),
+            storage_ref=storage_ref,
+            file_hash=hashlib.sha256(content).hexdigest(),
+            confidentiality_level="L2",
+        )
+    )
+    await db_session.commit()
+
+    markdown = await ensure_version_markdown(
+        db_session,
+        storage,
+        asset_id=asset.id,
+        version_id=version.id,
+    )
+    assert markdown.content == content
+    assert markdown.file_name == "published.canonical.md"
+    assert markdown.task is None
+    assert markdown.derivative is None
+    assert markdown.channel == "publication"
 
 
 def _target_for(asset_id: str | uuid.UUID) -> str:

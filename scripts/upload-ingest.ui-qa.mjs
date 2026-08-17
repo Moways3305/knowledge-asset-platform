@@ -26,6 +26,8 @@ const scenarios = [
   "local-degraded",
   "local-upload-failure-retry",
   "batch-naming-ready",
+  "batch-personal-ready",
+  "batch-company-directory-fallback",
   "confirm-ready",
   "project-naming-ready",
   "project-submitted",
@@ -35,6 +37,12 @@ const scenarios = [
   "wecom-failure",
   "wecom-selected",
 ];
+const scenarioFilter = new Set(
+  (process.env.UI_QA_SCENARIOS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
 const viewports = [
   { name: "1440", width: 1440, height: 1000 },
   { name: "1280", width: 1280, height: 900 },
@@ -174,6 +182,23 @@ function assertResult(result) {
   if (result.scenario === "batch-naming-ready") {
     return result.batchNamingLayoutValid;
   }
+  if (result.scenario === "batch-personal-ready") {
+    return (
+      result.personalBatchReady &&
+      result.personalBatchPayloadValid &&
+      result.personalBatchReviewLayoutValid &&
+      Boolean(result.personalBatchScreenshot) &&
+      result.classificationCalls === 0 &&
+      result.batchNamingPreviewCalls === 0
+    );
+  }
+  if (result.scenario === "batch-company-directory-fallback") {
+    return (
+      result.companyFallbackPayloadValid &&
+      result.companyFallbackPreviewed &&
+      Boolean(result.companyFallbackScreenshot)
+    );
+  }
   if (result.scenario === "confirm-ready") return result.confirmVisible;
   if (result.scenario === "project-naming-ready") {
     return result.confirmVisible && result.projectNamingLayoutValid;
@@ -206,6 +231,7 @@ try {
   browser = await chromium.launch({ args: ["--disable-gpu"] });
 
   for (const scenario of scenarios) {
+    if (scenarioFilter.size > 0 && !scenarioFilter.has(scenario)) continue;
     for (const viewport of viewports) {
       let uploadCalls = 0;
       let aiCalls = 0;
@@ -213,6 +239,13 @@ try {
       let localPendingCalls = 0;
       let localPendingAvailable = false;
       let confirmPayload = null;
+      let bulkConfirmPayload = null;
+      let classificationCalls = 0;
+      let batchNamingPreviewCalls = 0;
+      let companyFallbackPreviewed = false;
+      let companyFallbackScreenshot = null;
+      let personalBatchReviewLayoutValid = false;
+      let personalBatchScreenshot = null;
       const uploadSession = (state) => {
         const itemError =
           state === "failed"
@@ -221,7 +254,9 @@ try {
               ? "内容建议暂不可用，请人工核对后继续"
               : null;
         const files =
-          scenario === "local-queue" || scenario === "batch-naming-ready"
+          scenario === "local-queue" ||
+          scenario === "batch-naming-ready" ||
+          scenario === "batch-personal-ready"
             ? [
                 ["upload-item-1", "客户增长复盘.md"],
                 ["upload-item-2", "客户访谈纪要.txt"],
@@ -266,12 +301,59 @@ try {
         const fulfill = (body, status = 200) =>
           route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
-        if (url.pathname === "/api/v1/auth/me") return fulfill(authMe);
+        if (url.pathname === "/api/v1/auth/me") {
+          return fulfill(
+            scenario === "batch-company-directory-fallback"
+              ? {
+                  ...authMe,
+                  company_roles: ["consulting_director"],
+                  active_company_role: "consulting_director",
+                  can_discover_l5: true,
+                }
+              : authMe,
+          );
+        }
         if (url.pathname === "/api/v1/auth/csrf") return fulfill({ csrf_token: "csrf-secret-77" });
         if (url.pathname === "/api/v1/weknora/model-options") {
           return fulfill({ items: [], default_missing: false });
         }
         if (url.pathname === "/api/v1/naming-options") {
+          if (scenario === "batch-company-directory-fallback") {
+            return fulfill({
+              required: true,
+              rule_version: 5,
+              categories: [
+                {
+                  id: "category-deliverable",
+                  primary: "公司知识",
+                  secondary: "交付成果",
+                  prefix: "公司知识-交付成果",
+                  default_confidentiality: "L2",
+                  suggested_directory_key: null,
+                },
+              ],
+              directories: [
+                {
+                  directory_key: "company.methodology",
+                  scope: "company",
+                  display_name: "03 公司方法论",
+                  description: null,
+                  sort_order: 30,
+                  enabled: true,
+                },
+                {
+                  directory_key: "project.deliverables",
+                  scope: "project",
+                  display_name: "03 项目交付成果",
+                  description: null,
+                  sort_order: 30,
+                  enabled: true,
+                },
+              ],
+              default_confidentiality: "L2",
+              message: null,
+            });
+          }
           if (scenario === "project-naming-ready" || scenario === "batch-naming-ready") {
             return fulfill({
               required: true,
@@ -342,12 +424,29 @@ try {
                       sort_order: 10,
                       enabled: true,
                     },
+                    {
+                      directory_key: "personal.project_materials",
+                      scope: "personal",
+                      display_name: "个人项目资料",
+                      description: null,
+                      sort_order: 20,
+                      enabled: true,
+                    },
+                    {
+                      directory_key: "personal.pending",
+                      scope: "personal",
+                      display_name: "待处理",
+                      description: null,
+                      sort_order: 40,
+                      enabled: true,
+                    },
                   ],
             default_confidentiality: null,
             message: "命名规则尚未发布，不强制规范命名",
           });
         }
         if (url.pathname === "/api/v1/ingest/bulk-category-classification") {
+          classificationCalls += 1;
           const body = request.postDataJSON();
           return fulfill({
             target_label: "项目知识库 / 项目 Alpha",
@@ -365,6 +464,44 @@ try {
             })),
           });
         }
+        if (url.pathname === "/api/v1/ingest/bulk-naming-preview") {
+          batchNamingPreviewCalls += 1;
+          if (scenario === "batch-company-directory-fallback") {
+            const body = request.postDataJSON();
+            return fulfill({
+              items: (body.items || []).map((item) => {
+                const directoryKey = item.naming?.directory_key;
+                if (!directoryKey) {
+                  return {
+                    task_id: item.task_id,
+                    submittable: false,
+                    canonical_name: null,
+                    fields: {},
+                    notices: [],
+                    error_code: "directory_required",
+                    message: "该命名类别无法唯一映射目录，请人工选择",
+                  };
+                }
+                companyFallbackPreviewed = directoryKey === "company.methodology";
+                return {
+                  task_id: item.task_id,
+                  submittable: true,
+                  canonical_name: "【公司知识-交付成果】客户增长复盘_20210307_V1_L2.md",
+                  rule_version: 5,
+                  fields: {
+                    ...item.naming,
+                    directory_key: directoryKey,
+                    directory_rule_version: 5,
+                  },
+                  notices: [],
+                  error_code: null,
+                  message: null,
+                };
+              }),
+            });
+          }
+          return fulfill({ items: [] });
+        }
         if (url.pathname === "/api/v1/ingest/pending") {
           wecomCalls += 1;
           if (scenario === "wecom-failure") {
@@ -374,7 +511,7 @@ try {
           if (local) localPendingCalls += 1;
           const items = local
             ? localPendingAvailable
-              ? scenario === "batch-naming-ready"
+              ? scenario === "batch-naming-ready" || scenario === "batch-personal-ready"
                 ? [
                     { ...localPendingTask, naming_parsed_fields: batchNamingFields },
                     {
@@ -390,7 +527,9 @@ try {
                       },
                     },
                   ]
-                : [localPendingTask]
+                : scenario === "batch-company-directory-fallback"
+                  ? [{ ...localPendingTask, naming_parsed_fields: batchNamingFields }]
+                  : [localPendingTask]
               : []
             : scenario === "wecom-empty"
               ? []
@@ -447,6 +586,14 @@ try {
             };
           }
           return fulfill(result);
+        }
+        if (url.pathname === "/api/v1/ingest/task-safe-78/ai-result") {
+          aiCalls += 1;
+          return fulfill({
+            ...aiResult("ready"),
+            ingest_task_id: "task-safe-78",
+            suggested_title: "年度经营计划",
+          });
         }
         if (url.pathname === `/api/v1/ingest/${taskId}/naming-preview`) {
           return fulfill({
@@ -524,6 +671,24 @@ try {
             index_status: "indexed",
           });
         }
+        if (url.pathname === "/api/v1/ingest/bulk-confirm") {
+          bulkConfirmPayload = request.postDataJSON();
+          return fulfill({
+            operation_id: "bulk-personal-safe",
+            status: "completed",
+            execution_mode: "synchronous",
+            submitted: 2,
+            succeeded: 2,
+            skipped: 0,
+            failed: 0,
+            items: (bulkConfirmPayload.items || []).map((item) => ({
+              item_id: item.task_id,
+              status: "succeeded",
+              reason_code: null,
+              message: null,
+            })),
+          });
+        }
         return fulfill({ detail: { message: "UI QA route not configured" } }, 404);
       });
 
@@ -555,7 +720,9 @@ try {
         if (
           scenario === "local-queue" ||
           scenario === "local-upload-failure-retry" ||
-          scenario === "batch-naming-ready"
+          scenario === "batch-naming-ready" ||
+          scenario === "batch-personal-ready" ||
+          scenario === "batch-company-directory-fallback"
         ) {
           localFiles.push({
             name: "客户访谈纪要.txt",
@@ -577,7 +744,9 @@ try {
           if (
             scenario === "local-queue" ||
             scenario === "local-upload-failure-retry" ||
-            scenario === "batch-naming-ready"
+            scenario === "batch-naming-ready" ||
+            scenario === "batch-personal-ready" ||
+            scenario === "batch-company-directory-fallback"
           ) {
             const localPendingSection = page.locator(
               'section[aria-labelledby="local-pending-title"]',
@@ -585,7 +754,12 @@ try {
             await localPendingSection.getByRole("button", { name: "刷新" }).click();
             await localPendingSection.locator("tbody tr").first().waitFor();
           }
-          if (!scenario.startsWith("local-") && scenario !== "batch-naming-ready") {
+          if (
+            !scenario.startsWith("local-") &&
+            scenario !== "batch-naming-ready" &&
+            scenario !== "batch-personal-ready" &&
+            scenario !== "batch-company-directory-fallback"
+          ) {
             await page.getByRole("button", { name: longPendingFileName }).click();
             await page.getByRole("heading", { name: "内容建议预览" }).waitFor();
           }
@@ -599,6 +773,79 @@ try {
         await page.getByRole("combobox", { name: "批量入库目标项目" }).selectOption(projectId);
         await page.getByRole("button", { name: "下一步：核对命名" }).click();
         await page.getByRole("heading", { name: "逐条核对 2 项规范命名" }).waitFor();
+      }
+      if (scenario === "batch-personal-ready") {
+        await page.getByRole("checkbox", { name: "全选当前可处理的待确认项" }).check();
+        await page.getByRole("button", { name: "批量确认入库（2）" }).click();
+        await page.getByRole("combobox", { name: "批量入库目标知识库" }).selectOption("personal");
+        const defaultDirectory = page.getByRole("combobox", { name: "本批个人目录" });
+        await defaultDirectory.waitFor();
+        const optionsText = await defaultDirectory.locator("option").allTextContents();
+        if (optionsText.some((label) => label.includes("待处理"))) {
+          throw new Error("personal.pending must not be selectable for formal batch ingest");
+        }
+        await defaultDirectory.selectOption("personal.learning_notes");
+        await page.getByRole("button", { name: "下一步：核对入库" }).click();
+        await page.getByRole("heading", { name: "核对 2 项个人入库" }).waitFor();
+        await page
+          .getByRole("combobox", { name: /年度经营计划\.md 个人目录/ })
+          .selectOption("personal.project_materials");
+        const personalReview = page.getByRole("dialog", { name: "核对 2 项个人入库" });
+        personalBatchReviewLayoutValid = await personalReview.evaluate(
+          (element) =>
+            element.scrollWidth <= element.clientWidth + 2 &&
+            element.querySelectorAll(".upload77-personal-directory-row").length === 2 &&
+            element.querySelectorAll('.upload77-personal-directory-row select').length === 2 &&
+            Boolean(element.querySelector(".task-modal-footer")),
+        );
+        personalBatchScreenshot = path.join(
+          outDir,
+          `${scenario}-review-${viewport.name}.png`,
+        );
+        await personalReview.screenshot({
+          path: personalBatchScreenshot,
+          animations: "disabled",
+        });
+        const bulkResponse = page.waitForResponse((response) =>
+          new URL(response.url()).pathname === "/api/v1/ingest/bulk-confirm",
+        );
+        await page.getByRole("button", { name: "确认已选择的 2 项入库" }).click();
+        await bulkResponse;
+      }
+      if (scenario === "batch-company-directory-fallback") {
+        await page.getByRole("checkbox", { name: "全选当前可处理的待确认项" }).check();
+        await page.getByRole("button", { name: "批量确认入库（1）" }).click();
+        await page.getByRole("combobox", { name: "批量入库目标知识库" }).selectOption("company");
+        const batchCategory = page.getByRole("combobox", { name: "本批目录类别" });
+        await batchCategory.waitFor();
+        await batchCategory.selectOption("category-deliverable");
+        await page.getByRole("button", { name: "下一步：核对命名" }).click();
+        await page
+          .getByLabel(`${longPendingFileName} 适用对象`)
+          .fill("公司咨询项目团队");
+        await page.getByRole("button", { name: "选择正式公司目录" }).click();
+        const formalDirectory = page.getByRole("combobox", { name: "正式公司目录" });
+        await formalDirectory.waitFor();
+        const fallbackOptions = await formalDirectory.locator("option").allTextContents();
+        if (fallbackOptions.some((label) => label.includes("项目交付成果"))) {
+          throw new Error("company fallback must not expose project directories");
+        }
+        await formalDirectory.selectOption("company.methodology");
+        await page.getByRole("button", { name: "保存并重新预览" }).click();
+        await page.getByText("【公司知识-交付成果】客户增长复盘_20210307_V1_L2.md").waitFor();
+        companyFallbackScreenshot = path.join(
+          outDir,
+          `${scenario}-preview-${viewport.name}.png`,
+        );
+        await page.getByRole("dialog").screenshot({
+          path: companyFallbackScreenshot,
+          animations: "disabled",
+        });
+        const bulkResponse = page.waitForResponse((response) =>
+          new URL(response.url()).pathname === "/api/v1/ingest/bulk-confirm",
+        );
+        await page.getByRole("button", { name: "确认已选择的 1 项入库" }).click();
+        await bulkResponse;
       }
       if (scenario === "project-submitted") {
         await page.locator("#upload77-target-library").selectOption("project");
@@ -766,6 +1013,8 @@ try {
               /storage_ref|SECRET-LIKE|task-secret-77|project-secret-77|user-secret-77|review-secret-77|generation-ref-secret|csrf-secret-77|identity-hidden|api[_ -]?key|presigned|weknora[_ -]?(doc|kb)[_ -]?id/i.test(
                 text,
               ),
+            personalBatchReady:
+              !text.includes("重试待分类项") && !text.includes("规范名预览"),
           };
         },
         { longPendingFileName, longPendingSubject },
@@ -785,6 +1034,30 @@ try {
             (confirmPayload.target_scope === "project" &&
               confirmPayload.target_project_id === projectId))
         : false;
+      const submittedDirectories = Object.fromEntries(
+        (bulkConfirmPayload?.items || []).map((item) => [
+          item.task_id,
+          item.confirmation?.directory_key,
+        ]),
+      );
+      const personalBatchPayloadValid = Boolean(
+        bulkConfirmPayload &&
+          bulkConfirmPayload.target_scope === "personal" &&
+          bulkConfirmPayload.items?.length === 2 &&
+          submittedDirectories[taskId] === "personal.learning_notes" &&
+          submittedDirectories["task-safe-78"] === "personal.project_materials" &&
+          bulkConfirmPayload.items.every((item) => !("naming" in item.confirmation)),
+      );
+      const companyFallbackPayloadValid = Boolean(
+        bulkConfirmPayload &&
+          bulkConfirmPayload.target_scope === "company" &&
+          bulkConfirmPayload.items?.length === 1 &&
+          bulkConfirmPayload.items[0]?.confirmation?.naming?.category_id ===
+            "category-deliverable" &&
+          bulkConfirmPayload.items[0]?.confirmation?.naming?.directory_key ===
+            "company.methodology" &&
+          bulkConfirmPayload.items[0]?.confirmation?.naming?.directory_fallback_confirmed === true,
+      );
       let pendingScreenshot = null;
       let canonicalScreenshot = null;
       if (scenario === "canonical-processing") {
@@ -815,6 +1088,14 @@ try {
         aiCalls,
         wecomCalls,
         confirmPayloadValid,
+        personalBatchPayloadValid,
+        personalBatchReviewLayoutValid,
+        personalBatchScreenshot,
+        companyFallbackPayloadValid,
+        companyFallbackPreviewed,
+        companyFallbackScreenshot,
+        classificationCalls,
+        batchNamingPreviewCalls,
         screenshot,
         pendingScreenshot,
         canonicalScreenshot,
@@ -836,8 +1117,12 @@ try {
 fs.writeFileSync(path.join(outDir, "report.json"), JSON.stringify(results, null, 2));
 console.log(JSON.stringify({ port, outDir, scenarios, viewports, results }, null, 2));
 
+const expectedScenarioCount =
+  (scenarioFilter.size > 0
+    ? scenarios.filter((scenario) => scenarioFilter.has(scenario)).length
+    : scenarios.length) * viewports.length;
 if (
-  results.length !== scenarios.length * viewports.length ||
+  results.length !== expectedScenarioCount ||
   results.some((item) => !assertResult(item))
 ) {
   process.exit(1);

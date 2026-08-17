@@ -359,6 +359,7 @@ class AuditAction(str, Enum):
     review_withdrawn = "review.withdrawn"
     asset_zone_changed = "asset.zone_changed"
     asset_scope_changed = "asset.scope_changed"
+    asset_published = "asset.published"
     # 预览
     preview_requested = "preview.requested"
     preview_issued = "preview.issued"

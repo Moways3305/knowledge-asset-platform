@@ -181,6 +181,7 @@ class NamingConfirmationFields(BaseModel):
     version: str
     applicable_to: str | None = None
     directory_key: str | None = None
+    directory_fallback_confirmed: bool = False
 
     @field_validator("subject")
     @classmethod

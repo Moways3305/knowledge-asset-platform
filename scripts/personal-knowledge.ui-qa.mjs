@@ -25,6 +25,7 @@ const scenarios = [
   "forbidden",
   "list-error",
   "dialogs",
+  "publication",
   "page-2",
 ];
 
@@ -191,6 +192,8 @@ try {
       const browserMessages = [];
       const listQueries = [];
       let unexpectedCalls = 0;
+      let publicationPayload = null;
+      let publicationScreenshot = null;
       await context.route("**/api/v1/**", async (route) => {
         const url = new URL(route.request().url());
         const method = route.request().method();
@@ -204,6 +207,37 @@ try {
         if (url.pathname === "/api/v1/notifications")
           return fulfill({ items: [], total: 0, page: 1, page_size: 20 });
         if (url.pathname === "/api/v1/auth/csrf") return fulfill({ csrf_token: "csrf-safe-83" });
+        if (url.pathname === "/api/v1/naming-options") {
+          return fulfill({
+            required: true,
+            rule_version: 7,
+            categories: [
+              {
+                id: "category-project-safe",
+                scope: "project",
+                primary: "项目资料",
+                secondary: "交付成果",
+                prefix: "交付",
+                asset_type: "deliverable",
+                default_confidentiality: "L2",
+                enabled: true,
+                sort_order: 10,
+                suggested_directory_key: "project.deliverables",
+              },
+            ],
+            directories: [
+              {
+                directory_key: "project.deliverables",
+                scope: "project",
+                display_name: "03 交付成果",
+                sort_order: 30,
+                enabled: true,
+              },
+            ],
+            default_confidentiality: "L2",
+            message: null,
+          });
+        }
         if (url.pathname === "/api/v1/weknora/model-options")
           return fulfill({ items: [], default_missing: false });
         if (url.pathname === "/api/v1/my/knowledge-base" && method === "GET") {
@@ -243,6 +277,32 @@ try {
           method === "POST"
         ) {
           return fulfill({ status: "deleted" });
+        }
+        if (url.pathname.endsWith("/submit-to-project-preview") && method === "POST") {
+          return fulfill({
+            required: true,
+            canonical_name: "【KAP-2026-交付成果】项目复盘方法模板_20260817_V1_L2.docx",
+            rule_version: 7,
+            fields: { directory_key: "project.deliverables" },
+            notices: [],
+            message: null,
+          });
+        }
+        if (url.pathname.endsWith("/submit-to-project") && method === "POST") {
+          publicationPayload = route.request().postDataJSON();
+          return fulfill({
+            submission_id: "safe-submission",
+            asset_id: allItems[1].id,
+            target_project_id: authMe.project_memberships[0].project_id,
+            target_project_name: "企业知识治理项目",
+            submission_type: "submit_to_project",
+            status: "pending",
+            review_task_id: "safe-review",
+            evidence_id: null,
+            created_at: "2026-08-17T00:00:00Z",
+            message: "已提交，等待项目经理确认",
+            next_action: "等待项目经理确认",
+          });
         }
         unexpectedCalls += 1;
         return fulfill({ detail: "unexpected endpoint" }, 500);
@@ -294,6 +354,23 @@ try {
           path: path.join(outDir, `delete-dialog-${viewport.name}.png`),
           animations: "disabled",
         });
+      } else if (scenario === "publication") {
+        const row = page
+          .getByRole("link", { name: "项目复盘方法模板" })
+          .locator("xpath=ancestor::tr");
+        await row.getByRole("button", { name: "提交项目" }).click();
+        const dialog = page.getByRole("dialog", { name: "提交到项目" });
+        await dialog.getByLabel("目标项目").selectOption(authMe.project_memberships[0].project_id);
+        await dialog.getByText("03 交付成果").waitFor();
+        if ((await dialog.getByRole("combobox", { name: "正式目录" }).count()) !== 0) {
+          throw new Error("mapped publication directory must be read-only");
+        }
+        await dialog.getByRole("button", { name: "预览目标文件名" }).click();
+        await dialog.getByText(/【KAP-2026-交付成果】/).waitFor();
+        publicationScreenshot = path.join(outDir, `publication-preview-${viewport.name}.png`);
+        await dialog.screenshot({ path: publicationScreenshot, animations: "disabled" });
+        await dialog.getByRole("button", { name: "提交" }).click();
+        await page.getByText("已提交，等待项目经理确认").waitFor();
       } else if (scenario === "page-2") {
         await page.getByRole("button", { name: "下一页" }).click();
         await page.getByText("第二页的调研方法").waitFor();
@@ -345,6 +422,7 @@ try {
             text.includes("删除个人资料") &&
             text.includes("项目复盘方法模板") &&
             text.includes("删除原因"),
+          publicationReady: text.includes("已提交，等待项目经理确认"),
           page2Ready: text.includes("第二页的调研方法") && text.includes("第 2 页"),
         };
       }, scenario);
@@ -360,6 +438,13 @@ try {
         queryReady,
         unexpectedCalls,
         consoleLeak: browserMessages.some((message) => /SECRET-LIKE|private_denial/.test(message)),
+        publicationPayloadValid:
+          scenario !== "publication" ||
+          (publicationPayload?.target_project_id === authMe.project_memberships[0].project_id &&
+            publicationPayload?.naming?.directory_key === "project.deliverables" &&
+            publicationPayload?.naming?.category_id === "category-project-safe" &&
+            publicationPayload?.naming?.subject === "项目复盘方法模板"),
+        publicationScreenshot,
       });
       result.passed =
         result.overflowX <= 1 &&
@@ -370,6 +455,7 @@ try {
         !result.consoleLeak &&
         result.unexpectedCalls === 0 &&
         result.queryReady &&
+        result.publicationPayloadValid &&
         Boolean(result[stateKey]);
       await page.screenshot({
         path: path.join(outDir, `${scenario}-${viewport.name}.png`),

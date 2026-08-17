@@ -9,6 +9,12 @@ import type {
 } from "../types/review";
 import type { BulkOperationResponseDTO } from "../types/bulk";
 import { runControlledBulkRequests } from "./bulk";
+import type { NamingConfirmationDTO, NamingPreviewDTO } from "../types/naming";
+
+export interface CompanyUpgradeRequestDTO {
+  confidentiality_level: string;
+  naming: NamingConfirmationDTO;
+}
 
 export async function fetchReviews(
   params: {
@@ -79,10 +85,22 @@ export async function withdrawReviewConfirmation(
 export async function requestCompanyUpgrade(
   projectId: string,
   assetId: string,
+  body: CompanyUpgradeRequestDTO,
 ): Promise<ReviewItemDTO> {
   return apiPost<ReviewItemDTO>(
     `/api/v1/projects/${projectId}/knowledge/${assetId}/upgrade-company`,
-    {},
+    body,
+  );
+}
+
+export async function previewCompanyUpgrade(
+  projectId: string,
+  assetId: string,
+  body: CompanyUpgradeRequestDTO,
+): Promise<NamingPreviewDTO> {
+  return apiPost<NamingPreviewDTO>(
+    `/api/v1/projects/${projectId}/knowledge/${assetId}/upgrade-company-preview`,
+    body,
   );
 }
 

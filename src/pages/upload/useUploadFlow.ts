@@ -212,6 +212,7 @@ export function useUploadFlow() {
       preserveUnsubmittedSelection = false,
       onCompleted?: (result: BatchConfirmResult) => void,
       aiReviewDrafts?: Record<string, IngestAiReviewDraftDTO>,
+      directoryByTask?: Record<string, string>,
     ): Promise<void> => {
       if (batchRunRef.current !== null || tasks.length === 0) {
         return;
@@ -280,6 +281,7 @@ export function useUploadFlow() {
             }
             const governedNaming = namingByTask?.[task.id];
             const reviewedAi = aiReviewDrafts?.[task.id];
+            const selectedDirectory = directoryByTask?.[task.id] || governedNaming?.directory_key;
             const reviewedTitle = reviewedAi?.title.trim();
             const title =
               reviewedTitle ||
@@ -318,12 +320,16 @@ export function useUploadFlow() {
                 embedding_model_ref: models.embeddingRef || undefined,
                 rerank_model_ref: models.rerankRef || undefined,
                 acknowledged_naming_warning_codes: warningCodesByTask?.[task.id] ?? [],
+                directory_key: selectedDirectory || undefined,
                 naming: governedNaming
                   ? {
                       category_id: governedNaming.category_id,
                       subject: reviewedTitle || governedNaming.subject,
                       formed_on: governedNaming.formed_on,
                       version: governedNaming.version,
+                      directory_key: selectedDirectory || undefined,
+                      directory_fallback_confirmed:
+                        governedNaming.directory_fallback_confirmed || undefined,
                       applicable_to:
                         destination === "company" ? governedNaming.applicable_to : undefined,
                     }

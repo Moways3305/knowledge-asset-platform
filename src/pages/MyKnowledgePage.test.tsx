@@ -5,11 +5,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchAuthMe } from "../api/auth";
 import { ApiError } from "../api/http";
 import { deleteKnowledgeAsset } from "../api/knowledge";
+import { fetchNamingOptions } from "../api/naming";
 import {
   confirmPersonalAsset,
   createMyKnowledgeBase,
   fetchMyKnowledge,
   fetchMyKnowledgeBase,
+  previewPersonalKnowledgePublication,
   registerPersonalKnowledgeEvidence,
   renameMyKnowledgeBase,
   submitPersonalKnowledge,
@@ -24,6 +26,7 @@ import MyKnowledgePage from "./MyKnowledgePage";
 
 vi.mock("../api/auth", () => ({ fetchAuthMe: vi.fn() }));
 vi.mock("../api/knowledge", () => ({ deleteKnowledgeAsset: vi.fn() }));
+vi.mock("../api/naming", () => ({ fetchNamingOptions: vi.fn() }));
 vi.mock("../api/personal", () => ({
   fetchMyKnowledge: vi.fn(),
   confirmPersonalAsset: vi.fn(),
@@ -31,6 +34,7 @@ vi.mock("../api/personal", () => ({
   registerPersonalKnowledgeEvidence: vi.fn(),
   updatePersonalKnowledge: vi.fn(),
   fetchMyKnowledgeBase: vi.fn(),
+  previewPersonalKnowledgePublication: vi.fn(),
   createMyKnowledgeBase: vi.fn(),
   renameMyKnowledgeBase: vi.fn(),
 }));
@@ -171,6 +175,41 @@ describe("MyKnowledgePage complete personal workflow", () => {
       message: "secret server copy",
     });
     vi.mocked(submitPersonalKnowledge).mockResolvedValue({} as never);
+    vi.mocked(fetchNamingOptions).mockResolvedValue({
+      required: true,
+      rule_version: 7,
+      categories: [
+        {
+          id: "category-project",
+          scope: "project",
+          primary: "项目资料",
+          secondary: "交付物",
+          prefix: "交付",
+          asset_type: "deliverable",
+          default_confidentiality: "L2",
+          suggested_directory_key: "project.deliverables",
+        },
+      ],
+      directories: [
+        {
+          directory_key: "project.deliverables",
+          scope: "project",
+          display_name: "项目交付物",
+          sort_order: 1,
+          enabled: true,
+        },
+      ],
+      default_confidentiality: "L2",
+      message: null,
+    });
+    vi.mocked(previewPersonalKnowledgePublication).mockResolvedValue({
+      required: true,
+      canonical_name: "【P83-2026-交付物】项目复盘模板_20260817_V1_L2.docx",
+      rule_version: 7,
+      fields: {},
+      notices: [],
+      message: null,
+    });
     vi.mocked(registerPersonalKnowledgeEvidence).mockResolvedValue({} as never);
     vi.mocked(updatePersonalKnowledge).mockResolvedValue(items[1]);
     vi.mocked(deleteKnowledgeAsset).mockResolvedValue({
@@ -302,7 +341,20 @@ describe("MyKnowledgePage complete personal workflow", () => {
     await user.click(screen.getAllByRole("button", { name: "提交项目" })[0]);
     const submitDialog = screen.getByRole("dialog");
     await user.selectOptions(within(submitDialog).getByLabelText("目标项目"), "project-83");
+    expect(await within(submitDialog).findByText("项目交付物")).toBeInTheDocument();
+    expect(within(submitDialog).queryByRole("combobox", { name: "正式目录" })).toBeNull();
+    await user.click(within(submitDialog).getByRole("button", { name: "预览目标文件名" }));
+    await within(submitDialog).findByText(/【P83-2026-交付物】/);
     await user.click(within(submitDialog).getByRole("button", { name: "提交" }));
+    await waitFor(() =>
+      expect(submitPersonalKnowledge).toHaveBeenCalledWith(
+        "ready-83",
+        expect.objectContaining({
+          target_project_id: "project-83",
+          naming: expect.objectContaining({ directory_key: "project.deliverables" }),
+        }),
+      ),
+    );
     expect(await screen.findByText("已提交，等待项目经理确认")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "更多操作：项目复盘模板" }));

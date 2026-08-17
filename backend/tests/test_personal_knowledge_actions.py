@@ -9,10 +9,14 @@ from __future__ import annotations
 
 import uuid
 
+import pytest_asyncio
 from sqlalchemy import func, select
 
 from app.models.audit import AuditEvent
-from app.models.knowledge import KnowledgeAsset
+from app.models.identity import Project
+from app.models.indexing_job import IndexingOperationJob
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
+from app.models.naming import NamingRuleRevision
 from app.models.review import PersonalKnowledgeSubmission, ReviewTask
 from app.seed.dev_seed import (
     PROJECT_ALPHA,
@@ -22,6 +26,7 @@ from app.seed.dev_seed import (
     USER_CONSULTANT,
     USER_PROJECT_MANAGER,
 )
+from app.services.directories import default_directory_config
 
 _LEAK_TOKENS = [
     "storage_ref",
@@ -34,6 +39,57 @@ _LEAK_TOKENS = [
     "app_secret",
     "content_text",
 ]
+PROJECT_CATEGORY_ID = uuid.UUID("10000000-0000-0000-0000-000000000001")
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def governed_publication_policy(sessionmaker_fixture):
+    async with sessionmaker_fixture() as session:
+        project = await session.get(Project, PROJECT_ALPHA)
+        project.project_code = "ALPHA"
+        project.project_code_active = True
+        session.add(
+            NamingRuleRevision(
+                version=10,
+                status="published",
+                base_published_version=9,
+                config={
+                    "schema_version": 2,
+                    "enforced": True,
+                    "project_codes": [],
+                    "categories": [
+                        {
+                            "id": str(PROJECT_CATEGORY_ID),
+                            "scope": "project",
+                            "primary": "项目资料",
+                            "secondary": "交付成果",
+                            "prefix": "交付",
+                            "asset_type": "deliverable",
+                            "default_confidentiality": "L2",
+                            "enabled": True,
+                            "sort_order": 10,
+                            "suggested_directory_key": "project.deliverables",
+                        }
+                    ],
+                    "directories": default_directory_config(),
+                },
+            )
+        )
+        await session.commit()
+
+
+def _project_publication_body(project_id=PROJECT_ALPHA):
+    return {
+        "target_project_id": str(project_id),
+        "confidentiality_level": "L2",
+        "naming": {
+            "category_id": str(PROJECT_CATEGORY_ID),
+            "subject": "个人知识草稿",
+            "formed_on": "2026-08-17",
+            "version": "V1",
+            "directory_key": "project.deliverables",
+        },
+    }
 
 
 def _hdr(user_id, **extra):
@@ -49,18 +105,29 @@ def _assert_no_leak(text: str):
 async def _mk_personal(db_session, *, owner, zone="material", status="active") -> uuid.UUID:
     """插入一条个人知识资产，返回 id。client 与 db_session 共用同一内存库。"""
     aid = uuid.uuid4()
-    db_session.add(
-        KnowledgeAsset(
-            id=aid,
-            title="个人知识草稿",
-            scope="personal",
-            zone=zone,
-            asset_type="methodology",
-            owner_user_id=owner,
-            asset_status=status,
-            confidentiality_level="L2",
-        )
+    asset = KnowledgeAsset(
+        id=aid,
+        title="个人知识草稿",
+        scope="personal",
+        zone=zone,
+        asset_type="methodology",
+        owner_user_id=owner,
+        asset_status=status,
+        confidentiality_level="L2",
     )
+    db_session.add(asset)
+    await db_session.flush()
+    version = KnowledgeAssetVersion(
+        asset_id=aid,
+        version_no="V1",
+        version_status="active",
+        created_by=owner,
+        index_status="indexed",
+        directory_key="personal.learning_notes",
+    )
+    db_session.add(version)
+    await db_session.flush()
+    asset.current_version_id = version.id
     await db_session.commit()
     return aid
 
@@ -126,7 +193,7 @@ async def test_submit_to_member_project_creates_submission_and_review(client, db
     r = await client.post(
         _submit(aid),
         headers=_hdr(USER_CONSULTANT),
-        json={"target_project_id": str(PROJECT_ALPHA)},
+        json=_project_publication_body(),
     )
     assert r.status_code == 200, r.text
     body = r.json()
@@ -143,7 +210,139 @@ async def test_submit_to_member_project_creates_submission_and_review(client, db
     assert task.reviewer_user_id == USER_PROJECT_MANAGER  # ALPHA 的 active PM
 
 
-async def test_bulk_submit_revalidates_ownership_and_returns_partial_result(client, db_session):
+async def test_project_approval_creates_independent_target_version_without_mutating_source(
+    client, db_session, monkeypatch
+):
+    async def leave_queued(*_args, **_kwargs):
+        return "queued"
+
+    monkeypatch.setattr(
+        "app.services.indexing_ops.enqueue_indexing_operation",
+        leave_queued,
+    )
+    source_id = await _mk_personal(db_session, owner=USER_CONSULTANT, zone="asset")
+    source_before = await db_session.get(KnowledgeAsset, source_id)
+    source_version_id = source_before.current_version_id
+    source_canonical_name = source_before.canonical_name
+    source_version_before = await db_session.get(KnowledgeAssetVersion, source_version_id)
+    source_directory_key = source_version_before.directory_key
+    submitted = await client.post(
+        _submit(source_id),
+        headers=_hdr(USER_CONSULTANT),
+        json=_project_publication_body(),
+    )
+    assert submitted.status_code == 200, submitted.text
+
+    approved = await client.post(
+        f"/api/v1/reviews/{submitted.json()['review_task_id']}/approve",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={},
+    )
+    assert approved.status_code == 200, approved.text
+    target_id = uuid.UUID(approved.json()["target_asset_id"])
+    assert target_id != source_id
+
+    db_session.expire_all()
+    source = await db_session.get(KnowledgeAsset, source_id)
+    target = await db_session.get(KnowledgeAsset, target_id)
+    target_version = await db_session.get(KnowledgeAssetVersion, target.current_version_id)
+    assert (source.scope, source.project_id, source.current_version_id) == (
+        "personal",
+        None,
+        source_version_id,
+    )
+    assert source.canonical_name == source_canonical_name
+    source_version_after = await db_session.get(KnowledgeAssetVersion, source.current_version_id)
+    assert source_version_after.directory_key == source_directory_key
+    assert (target.scope, target.project_id, target.source_asset_id) == (
+        "project",
+        PROJECT_ALPHA,
+        source_id,
+    )
+    assert target.current_version_id != source_version_id
+    assert target_version.directory_key == "project.deliverables"
+    assert target_version.naming_rule_version == 10
+    assert target_version.index_status == "indexing"
+    assert target.canonical_name.startswith("【ALPHA-2026-交付成果】")
+    index_job = await db_session.scalar(
+        select(IndexingOperationJob).where(IndexingOperationJob.target_asset_id == target_id)
+    )
+    assert index_job is not None
+    assert index_job.status == "queued"
+    assert index_job.scope_filter == {
+        "scope": "project",
+        "project_id": str(PROJECT_ALPHA),
+        "statuses": ["indexing"],
+        "limit": 1,
+    }
+
+    repeated = await client.post(
+        _submit(source_id),
+        headers=_hdr(USER_CONSULTANT),
+        json=_project_publication_body(),
+    )
+    assert repeated.status_code == 200
+    repeated_approval = await client.post(
+        f"/api/v1/reviews/{repeated.json()['review_task_id']}/approve",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={},
+    )
+    assert repeated_approval.status_code == 200
+    assert repeated_approval.json()["target_asset_id"] == str(target_id)
+    derivative_count = await db_session.scalar(
+        select(func.count())
+        .select_from(KnowledgeAsset)
+        .where(
+            KnowledgeAsset.source_asset_id == source_id,
+            KnowledgeAsset.scope == "project",
+            KnowledgeAsset.project_id == PROJECT_ALPHA,
+        )
+    )
+    assert derivative_count == 1
+
+
+async def test_publication_queue_failure_preserves_retryable_target(
+    client, db_session, monkeypatch
+):
+    async def fail_enqueue(*_args, **_kwargs):
+        raise RuntimeError("broker details must stay private")
+
+    monkeypatch.setattr(
+        "app.services.indexing_ops.enqueue_indexing_operation",
+        fail_enqueue,
+    )
+    source_id = await _mk_personal(db_session, owner=USER_CONSULTANT, zone="asset")
+    submitted = await client.post(
+        _submit(source_id),
+        headers=_hdr(USER_CONSULTANT),
+        json=_project_publication_body(),
+    )
+    approved = await client.post(
+        f"/api/v1/reviews/{submitted.json()['review_task_id']}/approve",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={},
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "approved"
+    assert approved.json()["index_status"] == "index_failed"
+
+    target_id = uuid.UUID(approved.json()["target_asset_id"])
+    db_session.expire_all()
+    target = await db_session.get(KnowledgeAsset, target_id)
+    version = await db_session.get(KnowledgeAssetVersion, target.current_version_id)
+    assert target.source_asset_id == source_id
+    assert target.asset_status == "active"
+    assert version.index_status == "index_failed"
+    assert version.index_error_code == "index_unexpected_error"
+    assert "broker" not in (version.index_error_message or "").lower()
+    job = await db_session.scalar(
+        select(IndexingOperationJob).where(IndexingOperationJob.target_asset_id == target_id)
+    )
+    assert job is not None
+    assert job.status == "failed"
+
+
+async def test_bulk_submit_requires_per_item_governed_naming(client, db_session):
     owned = await _mk_personal(db_session, owner=USER_CONSULTANT)
     not_owned = await _mk_personal(db_session, owner=USER_PROJECT_MANAGER)
     response = await client.post(
@@ -154,10 +353,8 @@ async def test_bulk_submit_revalidates_ownership_and_returns_partial_result(clie
             "target_project_id": str(PROJECT_ALPHA),
         },
     )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["status"] == "completed_with_errors"
-    assert (body["succeeded"], body["skipped"], body["failed"]) == (1, 1, 0)
+    assert response.status_code == 422
+    assert response.json()["detail"]["denied_reason"] == "publication_naming_required"
     _assert_no_leak(response.text)
 
 
@@ -167,7 +364,7 @@ async def test_non_member_submit_forbidden(client, db_session):
     r = await client.post(
         _submit(aid),
         headers=_hdr(USER_CONSULTANT),
-        json={"target_project_id": str(PROJECT_BETA)},
+        json=_project_publication_body(PROJECT_BETA),
     )
     assert r.status_code == 403
     assert r.json()["detail"]["denied_reason"] == "project_membership_required"
@@ -179,7 +376,7 @@ async def test_governance_without_project_membership_cannot_submit_personal(clie
     r = await client.post(
         _submit(aid),
         headers=_hdr(USER_BOSS),
-        json={"target_project_id": str(PROJECT_ALPHA)},
+        json=_project_publication_body(),
     )
     assert r.status_code == 403
     assert r.json()["detail"]["denied_reason"] == "project_membership_required"
@@ -192,12 +389,12 @@ async def test_idempotency_key_returns_same_submission(client, db_session):
     r1 = await client.post(
         _submit(aid),
         headers=_hdr(USER_CONSULTANT, **{"Idempotency-Key": key}),
-        json={"target_project_id": str(PROJECT_ALPHA)},
+        json=_project_publication_body(),
     )
     r2 = await client.post(
         _submit(aid),
         headers=_hdr(USER_CONSULTANT, **{"Idempotency-Key": key}),
-        json={"target_project_id": str(PROJECT_ALPHA)},
+        json=_project_publication_body(),
     )
     assert r1.status_code == 200 and r2.status_code == 200
     assert r1.json()["submission_id"] == r2.json()["submission_id"]
@@ -214,10 +411,10 @@ async def test_idempotency_key_returns_same_submission(client, db_session):
 async def test_no_key_pending_dedup(client, db_session):
     aid = await _mk_personal(db_session, owner=USER_CONSULTANT)
     r1 = await client.post(
-        _submit(aid), headers=_hdr(USER_CONSULTANT), json={"target_project_id": str(PROJECT_ALPHA)}
+        _submit(aid), headers=_hdr(USER_CONSULTANT), json=_project_publication_body()
     )
     r2 = await client.post(
-        _submit(aid), headers=_hdr(USER_CONSULTANT), json={"target_project_id": str(PROJECT_ALPHA)}
+        _submit(aid), headers=_hdr(USER_CONSULTANT), json=_project_publication_body()
     )
     assert r1.json()["submission_id"] == r2.json()["submission_id"]
     tasks = (

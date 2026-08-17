@@ -129,6 +129,7 @@ export interface NamingConfirmationDTO {
   version: string;
   applicable_to?: string;
   directory_key?: string;
+  directory_fallback_confirmed?: boolean;
 }
 
 export interface NamingPreviewDTO {
@@ -168,6 +169,8 @@ export interface BatchNamingValuesDTO {
   version: string;
   applicable_to?: string;
   confidentiality_level: string;
+  directory_key?: string;
+  directory_fallback_confirmed?: boolean;
 }
 
 export interface BatchNamingPreviewItemDTO {

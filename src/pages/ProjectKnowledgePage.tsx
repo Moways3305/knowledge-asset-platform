@@ -16,8 +16,8 @@ import {
 import { ControlledBulkRequestError } from "../api/bulk";
 import { fetchProjectQaModelOptions, projectQa } from "../api/project";
 import {
-  bulkRequestCompanyUpgrade,
   preflightAssetization,
+  previewCompanyUpgrade,
   registerAssetEvidence,
   requestCompanyUpgrade,
   submitAssetization,
@@ -26,6 +26,10 @@ import { useAuth } from "../auth/AuthContext";
 import DataTable, { type Column } from "../components/DataTable";
 import ConfirmDialog from "../components/ConfirmDialog";
 import WizardModal from "../components/WizardModal";
+import PublicationNamingFields, {
+  createPublicationNamingValue,
+  type PublicationNamingValue,
+} from "../components/PublicationNamingFields";
 import { BulkSelectionRail, SelectionCheckbox } from "../components/BulkSelection";
 import LoadingError from "../components/LoadingError";
 import {
@@ -38,6 +42,7 @@ import {
 import StatusBadge from "../components/StatusBadge";
 import type { ProjectQaModelOptionDTO, ProjectQaResponseDTO } from "../types/agent";
 import type { AssetizationPreflightItemDTO, EvidenceInputDTO } from "../types/review";
+import type { NamingPreviewDTO } from "../types/naming";
 import type {
   AssetStatus,
   AssetType,
@@ -161,6 +166,12 @@ function ProjectKnowledgeWorkspace({
   const qaRequestRef = useRef(0);
 
   const [upgradeBusyId, setUpgradeBusyId] = useState<string | null>(null);
+  const [upgradeAsset, setUpgradeAsset] = useState<KnowledgeCardVM | null>(null);
+  const [upgradeNaming, setUpgradeNaming] = useState<PublicationNamingValue>(() =>
+    createPublicationNamingValue(""),
+  );
+  const [upgradePreview, setUpgradePreview] = useState<NamingPreviewDTO | null>(null);
+  const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const [upgradeNotice, setUpgradeNotice] = useState<{
     tone: "success" | "error";
     text: string;
@@ -179,7 +190,6 @@ function ProjectKnowledgeWorkspace({
   const [matchingSelectionLoading, setMatchingSelectionLoading] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false);
-  const [bulkUpgradeBusy, setBulkUpgradeBusy] = useState(false);
   const [bulkAssetizeBusy, setBulkAssetizeBusy] = useState(false);
   const [assetizationOpen, setAssetizationOpen] = useState(false);
   const [assetizationStep, setAssetizationStep] = useState(0);
@@ -354,22 +364,35 @@ function ProjectKnowledgeWorkspace({
     }
   };
 
-  const requestUpgrade = useCallback(
-    async (assetId: string) => {
+  const openUpgrade = useCallback(
+    (asset: KnowledgeCardVM) => {
       if (project.projectRole !== "project_manager" || upgradeBusyId) return;
-      setUpgradeBusyId(assetId);
+      setUpgradeAsset(asset);
+      setUpgradeNaming(createPublicationNamingValue(asset.title));
+      setUpgradePreview(null);
+      setUpgradeError(null);
       setUpgradeNotice(null);
-      try {
-        await requestCompanyUpgrade(project.projectId, assetId);
-        setUpgradeNotice({ tone: "success", text: "公司资产升级申请已提交。" });
-      } catch {
-        setUpgradeNotice({ tone: "error", text: "升级申请提交失败，请稍后重试。" });
-      } finally {
-        setUpgradeBusyId(null);
-      }
     },
-    [project.projectId, project.projectRole, upgradeBusyId],
+    [project.projectRole, upgradeBusyId],
   );
+
+  const submitUpgrade = async () => {
+    if (!upgradeAsset || !upgradePreview?.canonical_name || upgradeBusyId) {
+      setUpgradeError("请先预览并确认目标文件名");
+      return;
+    }
+    setUpgradeBusyId(upgradeAsset.id);
+    setUpgradeError(null);
+    try {
+      await requestCompanyUpgrade(project.projectId, upgradeAsset.id, upgradeNaming);
+      setUpgradeAsset(null);
+      setUpgradeNotice({ tone: "success", text: "公司资产升格申请已提交。" });
+    } catch {
+      setUpgradeError("升格申请提交失败，请检查目标命名后重试。");
+    } finally {
+      setUpgradeBusyId(null);
+    }
+  };
   const handleDelete = useCallback(async (assetId: string) => {
     setDeleteBusyId(assetId);
     setDeleteNotice(null);
@@ -493,47 +516,6 @@ function ProjectKnowledgeWorkspace({
     }
   };
 
-  const handleBulkUpgrade = async () => {
-    const upgradeableAssets = selectedAssets.filter(
-      (asset) => asset.zone === "asset" && asset.assetStatus === "active",
-    );
-    if (upgradeableAssets.length === 0 || bulkUpgradeBusy) return;
-    const selectionSnapshot = [...upgradeableAssets];
-    const selectionRequest = listRequestRef.current;
-    setBulkUpgradeBusy(true);
-    try {
-      const response = await bulkRequestCompanyUpgrade({
-        projectId: project.projectId,
-        itemIds: selectionSnapshot.map((asset) => asset.id),
-      });
-      setSelectedAssets([]);
-      setAllMatchingSelected(false);
-      setUpgradeNotice({
-        tone: response.failed > 0 || response.skipped > 0 ? "error" : "success",
-        text: `批量升级完成：提交 ${response.submitted}，成功 ${response.succeeded}，跳过 ${response.skipped}，失败 ${response.failed}。`,
-      });
-    } catch (error) {
-      const retryIds =
-        error instanceof ControlledBulkRequestError
-          ? new Set(error.retryItems as string[])
-          : new Set(selectionSnapshot.map((asset) => asset.id));
-      const partial = error instanceof ControlledBulkRequestError ? error.partialResult : null;
-      if (listRequestRef.current === selectionRequest) {
-        bulkRetrySelectionRef.current = selectionSnapshot.filter((asset) => retryIds.has(asset.id));
-      }
-      setAllMatchingSelected(false);
-      setUpgradeNotice({
-        tone: "error",
-        text: partial
-          ? `批量升级中断：已完成提交 ${partial.submitted} 项（成功 ${partial.succeeded}，跳过 ${partial.skipped}，失败 ${partial.failed}），剩余 ${retryIds.size} 项可重试。`
-          : `批量升级未开始，${retryIds.size} 项仍保留选择，可重试。`,
-      });
-    } finally {
-      setBulkUpgradeBusy(false);
-      setListRetryKey((value) => value + 1);
-    }
-  };
-
   const openAssetization = async () => {
     const materialAssets = selectedAssets.filter(
       (asset) => asset.zone === "material" && asset.assetStatus === "active",
@@ -597,9 +579,6 @@ function ProjectKnowledgeWorkspace({
     }
   };
 
-  const selectedUpgradeableAssets = selectedAssets.filter(
-    (asset) => asset.zone === "asset" && asset.assetStatus === "active",
-  );
   const selectedMaterialAssets = selectedAssets.filter(
     (asset) => asset.zone === "material" && asset.assetStatus === "active",
   );
@@ -614,12 +593,7 @@ function ProjectKnowledgeWorkspace({
         <SelectionCheckbox
           checked={pageAllSelected}
           indeterminate={pageIndeterminate}
-          disabled={
-            selectablePageAssets.length === 0 ||
-            bulkDeleteBusy ||
-            bulkUpgradeBusy ||
-            bulkAssetizeBusy
-          }
+          disabled={selectablePageAssets.length === 0 || bulkDeleteBusy || bulkAssetizeBusy}
           label="全选当前页项目知识"
           onChange={() => {
             if (pageAllSelected) {
@@ -644,10 +618,7 @@ function ProjectKnowledgeWorkspace({
         <SelectionCheckbox
           checked={selectedAssets.some((selected) => selected.id === asset.id)}
           disabled={
-            !canSelectAsset(asset, project.projectRole) ||
-            bulkDeleteBusy ||
-            bulkUpgradeBusy ||
-            bulkAssetizeBusy
+            !canSelectAsset(asset, project.projectRole) || bulkDeleteBusy || bulkAssetizeBusy
           }
           label={`选择项目知识 ${asset.title}`}
           onChange={() => {
@@ -732,7 +703,7 @@ function ProjectKnowledgeWorkspace({
               <button
                 type="button"
                 disabled={upgradeBusyId === asset.id}
-                onClick={() => void requestUpgrade(asset.id)}
+                onClick={() => openUpgrade(asset)}
               >
                 {upgradeBusyId === asset.id ? "提交中…" : "申请升格公司资产"}
               </button>
@@ -1001,7 +972,7 @@ function ProjectKnowledgeWorkspace({
               matchingCount={matchingSelectableAssets?.length ?? selectedPageAssets.length}
               allMatchingSelected={allMatchingSelected}
               matchingPending={matchingSelectionLoading}
-              busy={bulkDeleteBusy || bulkUpgradeBusy || bulkAssetizeBusy}
+              busy={bulkDeleteBusy || bulkAssetizeBusy}
               onSelectAllMatching={
                 matchingSelectableAssets &&
                 matchingSelectableAssets.length > selectedPageAssets.length
@@ -1016,27 +987,17 @@ function ProjectKnowledgeWorkspace({
               {selectedMaterialAssets.length > 0 && (
                 <button
                   className="product-button is-small"
-                  disabled={bulkAssetizeBusy || bulkUpgradeBusy || bulkDeleteBusy}
+                  disabled={bulkAssetizeBusy || bulkDeleteBusy}
                   onClick={() => void openAssetization()}
                   type="button"
                 >
                   发起资产化审核（{selectedMaterialAssets.length}）
                 </button>
               )}
-              {selectedUpgradeableAssets.length > 0 && (
-                <button
-                  className="product-button is-small"
-                  disabled={bulkUpgradeBusy || bulkDeleteBusy || bulkAssetizeBusy}
-                  onClick={() => void handleBulkUpgrade()}
-                  type="button"
-                >
-                  批量升级为公司资产（{selectedUpgradeableAssets.length}）
-                </button>
-              )}
               {selectedDeletableAssets.length > 0 && (
                 <button
                   className="product-button is-danger is-small"
-                  disabled={bulkDeleteBusy || bulkUpgradeBusy || bulkAssetizeBusy}
+                  disabled={bulkDeleteBusy || bulkAssetizeBusy}
                   onClick={() => setBulkDeleteOpen(true)}
                   type="button"
                 >
@@ -1165,6 +1126,35 @@ function ProjectKnowledgeWorkspace({
               }}
               onConfirm={() => void handleBulkDelete()}
             />
+            <ConfirmDialog
+              open={upgradeAsset !== null}
+              title="升格为公司资产"
+              description="目标公司资产会以独立版本发布；当前项目资产及其项目归属保持不变。"
+              confirmText="提交双角色确认"
+              busy={upgradeBusyId !== null}
+              error={upgradeError}
+              errorDescription={upgradeError ?? undefined}
+              onCancel={() => {
+                if (!upgradeBusyId) {
+                  setUpgradeAsset(null);
+                  setUpgradeError(null);
+                }
+              }}
+              onConfirm={() => void submitUpgrade()}
+            >
+              {upgradeAsset && (
+                <PublicationNamingFields
+                  scope="company"
+                  value={upgradeNaming}
+                  disabled={upgradeBusyId !== null}
+                  onChange={setUpgradeNaming}
+                  onPreviewed={setUpgradePreview}
+                  onPreview={(value) =>
+                    previewCompanyUpgrade(project.projectId, upgradeAsset.id, value)
+                  }
+                />
+              )}
+            </ConfirmDialog>
             <WizardModal
               open={assetizationOpen}
               title="发起资产化审核"

@@ -50,6 +50,7 @@ from app.schemas.my_knowledge import (
     SubmitToProjectRequest,
     ValidationCandidateRequest,
 )
+from app.schemas.naming import NamingPreviewResponse
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 from app.services import knowledge as knowledge_service
@@ -313,6 +314,33 @@ async def confirm_asset(
 # ---------------------------------------------------------------------------
 # 2) 提交到项目资料区
 # ---------------------------------------------------------------------------
+async def preview_submit_to_project(
+    session: AsyncSession,
+    caller: CallerContext,
+    asset_id: uuid.UUID,
+    req: SubmitToProjectRequest,
+) -> NamingPreviewResponse:
+    asset = await _load_owned_personal_asset(session, caller, asset_id)
+    project = await _load_target_project(session, req.target_project_id)
+    _require_can_submit(caller, project)
+    _snapshot, rendered = await review_service._render_publication_snapshot(
+        session,
+        caller,
+        asset,
+        target_scope=KnowledgeScope.project,
+        target_project_id=project.id,
+        confidentiality_level=req.confidentiality_level,
+        naming=req.naming,
+    )
+    return NamingPreviewResponse(
+        required=True,
+        canonical_name=rendered.canonical_name,
+        rule_version=rendered.rule_version,
+        fields=rendered.metadata,
+        notices=rendered.notices,
+    )
+
+
 async def submit_to_project(
     session: AsyncSession,
     caller: CallerContext,
@@ -333,12 +361,22 @@ async def submit_to_project(
         return await _submission_out(session, existing)
 
     reviewer_id = await review_service._active_pm_of(session, project.id)
+    publication_snapshot, _rendered = await review_service._render_publication_snapshot(
+        session,
+        caller,
+        asset,
+        target_scope=KnowledgeScope.project,
+        target_project_id=project.id,
+        confidentiality_level=req.confidentiality_level,
+        naming=req.naming,
+    )
     task = ReviewTask(
         review_type=ReviewType.personal_to_project.value,
         trigger_source=stype,
         target_asset_id=asset.id,
         target_project_id=project.id,
         target_scope=KnowledgeScope.project.value,
+        confirmation_snapshot=publication_snapshot,
         status=ReviewTaskStatus.pending_reviewer.value,
         reviewer_user_id=reviewer_id,
         submitted_by=caller.user_id,

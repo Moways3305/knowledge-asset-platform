@@ -11,7 +11,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.schemas.enums import EvidenceCategory, EvidenceType
+from app.schemas.enums import ConfidentialityLevel, EvidenceCategory, EvidenceType
+from app.schemas.naming import NamingConfirmationFields
 
 
 class EvidenceCreateRequest(BaseModel):
@@ -85,6 +86,11 @@ class ReviewActionResponse(BaseModel):
 
 class ReviewWithdrawRequest(BaseModel):
     review_comment: str | None = None
+
+
+class CompanyUpgradeRequest(BaseModel):
+    confidentiality_level: ConfidentialityLevel
+    naming: NamingConfirmationFields
 
 
 class AssetizationPreflightRequest(BaseModel):

@@ -45,7 +45,14 @@ const suites = [
     script: "knowledge-detail.ui-qa.mjs",
     evidence: "knowledge-detail",
   },
-  { name: "upload", script: "upload-ingest.ui-qa.mjs", evidence: "upload-ingest" },
+  // Upload captures 16 scenarios across five viewports. Under CI's shared
+  // preview server it can legitimately exceed the generic 90-second budget.
+  {
+    name: "upload",
+    script: "upload-ingest.ui-qa.mjs",
+    evidence: "upload-ingest",
+    timeoutMs: 180_000,
+  },
   {
     name: "project-space",
     script: "project-space.ui-qa.mjs",
@@ -197,8 +204,8 @@ function runSuite(suite) {
     windowsHide: true,
   });
   return waitForChildProcess(child, {
-    timeoutMs: suiteTimeoutMs,
-    timeoutMessage: `UI QA suite timed out after ${suiteTimeoutMs}ms: ${suite.name}`,
+    timeoutMs: suite.timeoutMs ?? suiteTimeoutMs,
+    timeoutMessage: `UI QA suite timed out after ${suite.timeoutMs ?? suiteTimeoutMs}ms: ${suite.name}`,
   });
 }
 

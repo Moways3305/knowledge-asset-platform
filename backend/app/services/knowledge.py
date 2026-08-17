@@ -1492,7 +1492,7 @@ async def retry_index(
         file_bytes=markdown.content,
         source_file_name=markdown.file_name,
         source_file_mime=markdown.mime,
-        channel=markdown.task.source,
+        channel=markdown.channel,
         trace_id=trace_id,
         embedding_model_ref=embedding_model_ref,
         rerank_model_ref=rerank_model_ref,

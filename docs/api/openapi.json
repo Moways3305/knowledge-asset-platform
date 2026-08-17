@@ -3122,6 +3122,22 @@
         "title": "CompanyRoleUpdateRequest",
         "type": "object"
       },
+      "CompanyUpgradeRequest": {
+        "properties": {
+          "confidentiality_level": {
+            "$ref": "#/components/schemas/ConfidentialityLevel"
+          },
+          "naming": {
+            "$ref": "#/components/schemas/NamingConfirmationFields"
+          }
+        },
+        "required": [
+          "confidentiality_level",
+          "naming"
+        ],
+        "title": "CompanyUpgradeRequest",
+        "type": "object"
+      },
       "ConfidentialityLevel": {
         "description": "保密级别，L1-L5 敏感度递增。L2 是内部一般资料，不强制脱敏。",
         "enum": [
@@ -8635,6 +8651,11 @@
             "format": "uuid",
             "title": "Category Id",
             "type": "string"
+          },
+          "directory_fallback_confirmed": {
+            "default": false,
+            "title": "Directory Fallback Confirmed",
+            "type": "boolean"
           },
           "directory_key": {
             "anyOf": [
@@ -14557,6 +14578,12 @@
       "SubmitToProjectRequest": {
         "description": "个人知识提交到项目资料区。",
         "properties": {
+          "confidentiality_level": {
+            "$ref": "#/components/schemas/ConfidentialityLevel"
+          },
+          "naming": {
+            "$ref": "#/components/schemas/NamingConfirmationFields"
+          },
           "note": {
             "anyOf": [
               {
@@ -14575,7 +14602,9 @@
           }
         },
         "required": [
-          "target_project_id"
+          "target_project_id",
+          "confidentiality_level",
+          "naming"
         ],
         "title": "SubmitToProjectRequest",
         "type": "object"
@@ -30558,7 +30587,7 @@
     },
     "/api/v1/my/knowledge/bulk-submit-to-project": {
       "post": {
-        "description": "逐项复用个人知识提交服务，并对目标项目和成员资格重新校验。",
+        "description": "Bulk publication is blocked until each item carries a governed target snapshot.",
         "operationId": "bulk_submit_to_project_api_v1_my_knowledge_bulk_submit_to_project_post",
         "parameters": [
           {
@@ -30952,6 +30981,107 @@
           }
         },
         "summary": "Submit To Project",
+        "tags": [
+          "my-knowledge"
+        ]
+      }
+    },
+    "/api/v1/my/knowledge/{asset_id}/submit-to-project-preview": {
+      "post": {
+        "operationId": "preview_submit_to_project_api_v1_my_knowledge__asset_id__submit_to_project_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitToProjectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamingPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Submit To Project",
         "tags": [
           "my-knowledge"
         ]
@@ -33259,7 +33389,7 @@
     },
     "/api/v1/projects/{project_id}/knowledge/bulk-upgrade-company": {
       "post": {
-        "description": "Create project-to-company reviews with bounded, per-item revalidation.",
+        "description": "Do not create empty company-publication reviews from an ID-only bulk request.",
         "operationId": "bulk_request_company_upgrade_api_v1_projects__project_id__knowledge_bulk_upgrade_company_post",
         "parameters": [
           {
@@ -33644,6 +33774,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompanyUpgradeRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -33667,6 +33807,117 @@
           }
         },
         "summary": "Request Company Upgrade",
+        "tags": [
+          "review"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/knowledge/{asset_id}/upgrade-company-preview": {
+      "post": {
+        "operationId": "preview_company_upgrade_api_v1_projects__project_id__knowledge__asset_id__upgrade_company_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompanyUpgradeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamingPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Company Upgrade",
         "tags": [
           "review"
         ]
