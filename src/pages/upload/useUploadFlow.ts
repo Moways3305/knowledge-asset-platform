@@ -328,6 +328,8 @@ export function useUploadFlow() {
                       formed_on: governedNaming.formed_on,
                       version: governedNaming.version,
                       directory_key: selectedDirectory || undefined,
+                      directory_fallback_confirmed:
+                        governedNaming.directory_fallback_confirmed || undefined,
                       applicable_to:
                         destination === "company" ? governedNaming.applicable_to : undefined,
                     }

@@ -310,7 +310,10 @@ describe("PendingBatchActions governed review", () => {
           targetScope: "company",
           items: [
             expect.objectContaining({
-              naming: expect.objectContaining({ directory_key: "company.methodology" }),
+              naming: expect.objectContaining({
+                directory_key: "company.methodology",
+                directory_fallback_confirmed: true,
+              }),
             }),
           ],
         }),

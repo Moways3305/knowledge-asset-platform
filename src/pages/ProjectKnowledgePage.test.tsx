@@ -403,7 +403,8 @@ describe("ProjectKnowledgePage reference workspace", () => {
     fireEvent.click(screen.getByLabelText("更多操作：项目资产"));
     fireEvent.click(within(assetDetails).getByRole("button", { name: "申请升格公司资产" }));
     const dialog = await screen.findByRole("dialog", { name: "升格为公司资产" });
-    await within(dialog).findByLabelText("正式目录");
+    expect(await within(dialog).findByText("公司方法论")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("combobox", { name: "正式目录" })).toBeNull();
     fireEvent.change(within(dialog).getByLabelText("适用对象"), {
       target: { value: "全公司" },
     });

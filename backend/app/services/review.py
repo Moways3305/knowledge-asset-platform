@@ -244,7 +244,7 @@ async def _copy_publication_asset(
         source_hash=source_version.source_hash,
         change_summary="由受控跨知识库发布生成",
         created_by=actor_user_id,
-        index_status="not_indexed",
+        index_status="indexing",
         naming_metadata=metadata,
         naming_rule_version=rendered.rule_version,
         directory_key=str(metadata["directory_key"]),
@@ -1493,6 +1493,9 @@ async def _approve_company_upgrade(
     task: ReviewTask,
     comment: str | None,
     trace_id: str,
+    *,
+    storage,
+    weknora,
 ) -> ReviewActionResponse:
     if task.status != ReviewTaskStatus.pending_reviewer.value:
         raise _denied(409, "review_already_finalized", "审核任务当前不可确认")
@@ -1592,12 +1595,43 @@ async def _approve_company_upgrade(
             project_id=task.target_project_id,
         )
         asset = target_asset
+    response_review_id = task.id
+    response_review_status = task.status
+    response_asset_id = asset.id
+    response_asset_zone = asset.zone
+    response_asset_scope = asset.scope
+    response_project_id = asset.project_id
     await session.commit()
+    if complete:
+        from app.services import indexing_ops
+
+        try:
+            await indexing_ops.create_publication_index_job(
+                session,
+                caller,
+                response_asset_id,
+                scope=response_asset_scope,
+                project_id=response_project_id,
+                weknora=weknora,
+                storage=storage,
+                trace_id=trace_id,
+            )
+        except Exception:
+            # Publication is already committed. Queue failure is represented on the
+            # preserved derivative and remains retryable from its detail page.
+            await session.rollback()
+    version = await session.scalar(
+        select(KnowledgeAssetVersion).where(
+            KnowledgeAssetVersion.asset_id == response_asset_id,
+            KnowledgeAssetVersion.version_status == "active",
+        )
+    )
     return ReviewActionResponse(
-        review_id=task.id,
-        status=task.status,
-        target_asset_id=asset.id,
-        asset_zone=asset.zone,
+        review_id=response_review_id,
+        status=response_review_status,
+        target_asset_id=response_asset_id,
+        asset_zone=response_asset_zone,
+        index_status=version.index_status if version is not None else None,
     )
 
 
@@ -1630,7 +1664,15 @@ async def approve(
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可审批")
     task = await _load_task(session, review_id, for_update=True)
     if task.review_type == ReviewType.project_to_company.value:
-        return await _approve_company_upgrade(session, caller, task, comment, trace_id)
+        return await _approve_company_upgrade(
+            session,
+            caller,
+            task,
+            comment,
+            trace_id,
+            storage=storage,
+            weknora=weknora,
+        )
     if task.review_type == ReviewType.project_ingest_approval.value:
         target_project_id = task.target_project_id
         if not _can_decide_project_ingest(caller, task):
@@ -1789,12 +1831,46 @@ async def approve(
             },
             project_id=task.target_project_id,
         )
+        should_index_publication = bool(
+            submission.submission_type == PersonalSubmissionType.submit_to_project.value
+            and task.target_project_id is not None
+        )
+        response_review_id = task.id
+        response_review_status = task.status
+        response_asset_id = result_asset.id
+        response_asset_zone = result_asset.zone
+        response_asset_scope = result_asset.scope
+        response_project_id = result_asset.project_id
         await session.commit()
+        if should_index_publication:
+            from app.services import indexing_ops
+
+            try:
+                await indexing_ops.create_publication_index_job(
+                    session,
+                    caller,
+                    response_asset_id,
+                    scope=response_asset_scope,
+                    project_id=response_project_id,
+                    weknora=weknora,
+                    storage=storage,
+                    trace_id=trace_id,
+                )
+            except Exception:
+                # The target copy remains published; its safe failure status exposes retry.
+                await session.rollback()
+        version = await session.scalar(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == response_asset_id,
+                KnowledgeAssetVersion.version_status == "active",
+            )
+        )
         return ReviewActionResponse(
-            review_id=task.id,
-            status=task.status,
-            target_asset_id=result_asset.id if result_asset else task.target_asset_id,
-            asset_zone=result_asset.zone if result_asset else None,
+            review_id=response_review_id,
+            status=response_review_status,
+            target_asset_id=response_asset_id,
+            asset_zone=response_asset_zone,
+            index_status=version.index_status if version is not None else None,
         )
     if task.reviewer_user_id != caller.user_id:
         raise _denied(403, "review_action_forbidden", "只有被分配的审核人可审批")

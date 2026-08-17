@@ -1055,7 +1055,8 @@ try {
           bulkConfirmPayload.items[0]?.confirmation?.naming?.category_id ===
             "category-deliverable" &&
           bulkConfirmPayload.items[0]?.confirmation?.naming?.directory_key ===
-            "company.methodology",
+            "company.methodology" &&
+          bulkConfirmPayload.items[0]?.confirmation?.naming?.directory_fallback_confirmed === true,
       );
       let pendingScreenshot = null;
       let canonicalScreenshot = null;

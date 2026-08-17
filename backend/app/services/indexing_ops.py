@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.errors import denied
+from app.db.utils import utc_now
 from app.models.identity import User
 from app.models.indexing_job import IndexingOperationJob
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
@@ -154,15 +155,70 @@ async def _create_and_run(
     await session.commit()
 
     # 入队：eager（默认/本地/测试）内联同步执行并返回最终 status；非 eager 排队返回 queued。
-    await enqueue_indexing_operation(
-        session, job_id, weknora=weknora, storage=storage, trace_id=trace_id
-    )
+    try:
+        await enqueue_indexing_operation(
+            session, job_id, weknora=weknora, storage=storage, trace_id=trace_id
+        )
+    except Exception:
+        await session.rollback()
+        failed_job = await session.get(IndexingOperationJob, job_id)
+        if failed_job is not None:
+            failed_job.status = "failed"
+            failed_job.error_code = "index_unexpected_error"
+            failed_job.error_message = error_catalog.user_message("index_unexpected_error")
+            failed_job.finished_at = utc_now()
+        if target_asset_id is not None:
+            version = (
+                await session.execute(
+                    select(KnowledgeAssetVersion).where(
+                        KnowledgeAssetVersion.asset_id == target_asset_id,
+                        KnowledgeAssetVersion.version_status == "active",
+                    )
+                )
+            ).scalar_one_or_none()
+            if version is not None and version.index_status == "indexing":
+                version.index_status = "index_failed"
+                version.index_error_code = "index_unexpected_error"
+                version.index_error_message = error_catalog.user_message("index_unexpected_error")
+        await session.commit()
+        raise
     # 重新载入 job 拿最终（或 queued）状态构建安全摘要。
     job = (
         await session.execute(select(IndexingOperationJob).where(IndexingOperationJob.id == job_id))
     ).scalar_one()
     name = await _requester_name(session, job.requested_by_user_id)
     return _job_summary(job, name)
+
+
+async def create_publication_index_job(
+    session: AsyncSession,
+    caller: CallerContext,
+    asset_id: uuid.UUID,
+    *,
+    scope: str,
+    project_id: uuid.UUID | None,
+    weknora,
+    storage: LocalFileStorage,
+    trace_id: str,
+) -> IndexingJobSummary:
+    """Queue the exact newly published derivative without granting ops permissions."""
+    scope_filter = {
+        "scope": scope,
+        "project_id": str(project_id) if project_id else None,
+        "statuses": ["indexing"],
+        "limit": 1,
+    }
+    return await _create_and_run(
+        session,
+        caller,
+        operation_type="retry_index",
+        scope_filter=scope_filter,
+        requested_action=AuditAction.knowledge_index_target_retry_requested,
+        weknora=weknora,
+        storage=storage,
+        trace_id=trace_id,
+        target_asset_id=asset_id,
+    )
 
 
 async def _deny_target(

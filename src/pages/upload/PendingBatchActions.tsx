@@ -1847,7 +1847,10 @@ export default function PendingBatchActions({
         }}
         onConfirm={() => {
           if (!fallbackDirectoryTaskId || !fallbackDirectoryKey) return;
-          updateRow(fallbackDirectoryTaskId, { directory_key: fallbackDirectoryKey });
+          updateRow(fallbackDirectoryTaskId, {
+            directory_key: fallbackDirectoryKey,
+            directory_fallback_confirmed: true,
+          });
           setFallbackDirectoryTaskId(null);
           setFallbackDirectoryKey("");
         }}

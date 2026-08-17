@@ -511,19 +511,33 @@ async def render(
             f"【{bracket}】{naming.subject}_{naming.applicable_to}_"
             f"{naming.formed_on:%Y%m%d}_{naming.version}_{request.confidentiality_level.value}"
         )
-    directory_key = (
-        naming.directory_key
-        or category.suggested_directory_key
-        or legacy_directory_key(
-            {
-                "scope": scope,
-                "category_primary": category.primary,
-                "category_secondary": category.secondary,
-            }
-        )
+    mapped_directory_key = category.suggested_directory_key or legacy_directory_key(
+        {
+            "scope": scope,
+            "category_primary": category.primary,
+            "category_secondary": category.secondary,
+        }
     )
-    if not directory_key:
-        raise _denied(422, "directory_required", "该命名类别无法唯一映射目录，请人工选择")
+    if mapped_directory_key:
+        if naming.directory_key and naming.directory_key != mapped_directory_key:
+            raise _denied(
+                409,
+                "directory_category_mismatch",
+                "正式目录由目录类别唯一确定，不能改选其他目录",
+            )
+        directory_key = mapped_directory_key
+        directory_source = "rule_suggestion"
+    else:
+        if not naming.directory_key:
+            raise _denied(422, "directory_required", "该命名类别尚未映射目录，请补选正式目录")
+        if not naming.directory_fallback_confirmed:
+            raise _denied(
+                422,
+                "directory_fallback_confirmation_required",
+                "仅在类别缺少目录映射时可人工补选正式目录",
+            )
+        directory_key = naming.directory_key
+        directory_source = "manual_fallback"
     directory_rule_version, _directory = await validate_directory(
         session,
         directory_key=directory_key,
@@ -552,9 +566,7 @@ async def render(
         "rule_version": revision.version,
         "directory_key": directory_key,
         "directory_rule_version": directory_rule_version,
-        "directory_source": (
-            "rule_suggestion" if category.suggested_directory_key == directory_key else "manual"
-        ),
+        "directory_source": directory_source,
         "canonical_name": canonical,
     }
     notices: list[NamingDuplicateNotice] = []

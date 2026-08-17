@@ -91,6 +91,7 @@ export function previewBatchIngestNaming(input: {
         formed_on: item.naming.formed_on,
         version: item.naming.version,
         ...(item.naming.directory_key ? { directory_key: item.naming.directory_key } : {}),
+        ...(item.naming.directory_fallback_confirmed ? { directory_fallback_confirmed: true } : {}),
         ...(input.targetScope === "company" ? { applicable_to: item.naming.applicable_to } : {}),
       },
     })),

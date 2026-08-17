@@ -361,7 +361,10 @@ try {
         await row.getByRole("button", { name: "提交项目" }).click();
         const dialog = page.getByRole("dialog", { name: "提交到项目" });
         await dialog.getByLabel("目标项目").selectOption(authMe.project_memberships[0].project_id);
-        await dialog.getByLabel("正式目录").waitFor();
+        await dialog.getByText("03 交付成果").waitFor();
+        if ((await dialog.getByRole("combobox", { name: "正式目录" }).count()) !== 0) {
+          throw new Error("mapped publication directory must be read-only");
+        }
         await dialog.getByRole("button", { name: "预览目标文件名" }).click();
         await dialog.getByText(/【KAP-2026-交付成果】/).waitFor();
         publicationScreenshot = path.join(outDir, `publication-preview-${viewport.name}.png`);

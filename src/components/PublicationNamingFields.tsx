@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ApiError } from "../api/http";
 import { fetchNamingOptions } from "../api/naming";
 import type { NamingConfirmationDTO, NamingOptionsDTO, NamingPreviewDTO } from "../types/naming";
 import "./PublicationNamingFields.css";
@@ -17,6 +18,7 @@ export function createPublicationNamingValue(subject: string): PublicationNaming
       formed_on: new Date().toISOString().slice(0, 10),
       version: "V1",
       directory_key: "",
+      directory_fallback_confirmed: false,
     },
   };
 }
@@ -42,6 +44,7 @@ export default function PublicationNamingFields({
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [previewState, setPreviewState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [preview, setPreview] = useState<NamingPreviewDTO | null>(null);
+  const [fallbackNeeded, setFallbackNeeded] = useState(false);
   const requestRef = useRef(0);
 
   useEffect(() => {
@@ -50,6 +53,7 @@ export default function PublicationNamingFields({
     setOptions(null);
     setPreview(null);
     setPreviewState("idle");
+    setFallbackNeeded(false);
     onPreviewed(null);
     fetchNamingOptions(scope, scope === "project" ? projectId : undefined)
       .then((result) => {
@@ -60,10 +64,9 @@ export default function PublicationNamingFields({
         );
         const category =
           categories.find((item) => item.id === value.naming.category_id) ?? categories[0];
-        const suggestedDirectory =
-          directories.find((item) => item.directory_key === category?.suggested_directory_key) ??
-          directories.find((item) => item.directory_key === value.naming.directory_key) ??
-          directories[0];
+        const suggestedDirectory = directories.find(
+          (item) => item.directory_key === category?.suggested_directory_key,
+        );
         setOptions({ ...result, categories, directories });
         setLoadState("ready");
         onChange({
@@ -76,6 +79,7 @@ export default function PublicationNamingFields({
             ...value.naming,
             category_id: category?.id ?? "",
             directory_key: suggestedDirectory?.directory_key ?? "",
+            directory_fallback_confirmed: false,
           },
         });
       })
@@ -103,7 +107,7 @@ export default function PublicationNamingFields({
       !value.naming.subject.trim() ||
       !value.naming.formed_on ||
       !value.naming.version.trim() ||
-      !value.naming.directory_key ||
+      (fallbackNeeded && !value.naming.directory_key) ||
       (scope === "company" && !value.naming.applicable_to?.trim())
     ) {
       setPreviewState("error");
@@ -117,7 +121,18 @@ export default function PublicationNamingFields({
       setPreview(result);
       setPreviewState("ready");
       onPreviewed(result);
-    } catch {
+    } catch (error) {
+      if (error instanceof ApiError && error.deniedReason === "directory_required") {
+        setFallbackNeeded(true);
+        onChange({
+          ...value,
+          naming: {
+            ...value.naming,
+            directory_key: "",
+            directory_fallback_confirmed: false,
+          },
+        });
+      }
       setPreviewState("error");
     }
   };
@@ -150,9 +165,11 @@ export default function PublicationNamingFields({
                 naming: {
                   ...value.naming,
                   category_id: event.target.value,
-                  directory_key: suggested?.directory_key || value.naming.directory_key,
+                  directory_key: suggested?.directory_key || "",
+                  directory_fallback_confirmed: false,
                 },
               });
+              setFallbackNeeded(false);
             }}
           >
             {options.categories.map((item) => (
@@ -162,23 +179,46 @@ export default function PublicationNamingFields({
             ))}
           </select>
         </label>
-        <label>
-          <span>正式目录</span>
-          <select
-            value={value.naming.directory_key ?? ""}
-            disabled={disabled}
-            onChange={(event) =>
-              update({ ...value, naming: { ...value.naming, directory_key: event.target.value } })
-            }
-          >
-            <option value="">请选择正式目录</option>
-            {options.directories.map((item) => (
-              <option key={item.directory_key} value={item.directory_key}>
-                {item.display_name}
-              </option>
-            ))}
-          </select>
-        </label>
+        {fallbackNeeded ? (
+          <label>
+            <span>正式目录（映射缺失补选）</span>
+            <select
+              value={value.naming.directory_key ?? ""}
+              disabled={disabled}
+              onChange={(event) =>
+                update({
+                  ...value,
+                  naming: {
+                    ...value.naming,
+                    directory_key: event.target.value,
+                    directory_fallback_confirmed: Boolean(event.target.value),
+                  },
+                })
+              }
+            >
+              <option value="">请选择正式目录</option>
+              {options.directories.map((item) => (
+                <option key={item.directory_key} value={item.directory_key}>
+                  {item.display_name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <div className="publication-directory-readonly">
+            <span>正式目录</span>
+            <strong>
+              {options.directories.find((item) => item.directory_key === value.naming.directory_key)
+                ?.display_name ||
+                (typeof preview?.fields?.directory_key === "string"
+                  ? options.directories.find(
+                      (item) => item.directory_key === preview.fields?.directory_key,
+                    )?.display_name
+                  : null) ||
+                "由目录类别规则确定"}
+            </strong>
+          </div>
+        )}
         <label className="publication-naming-wide">
           <span>主题</span>
           <input
@@ -250,7 +290,11 @@ export default function PublicationNamingFields({
           {previewState === "loading" ? "校验中…" : "预览目标文件名"}
         </button>
         {previewState === "error" && (
-          <p role="alert">请补全命名和正式目录，或检查目标规则后重试。</p>
+          <p role="alert">
+            {fallbackNeeded
+              ? "该类别尚未配置目录映射，请补选正式目录后重新预览。"
+              : "请补全命名信息，或检查目标规则后重试。"}
+          </p>
         )}
         {preview?.canonical_name && (
           <div className="publication-canonical" role="status">

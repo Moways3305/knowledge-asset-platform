@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 
 from app.models.audit import AuditEvent
 from app.models.identity import Project
+from app.models.indexing_job import IndexingOperationJob
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.naming import NamingRuleRevision
 from app.models.review import PersonalKnowledgeSubmission, ReviewTask
@@ -210,8 +211,15 @@ async def test_submit_to_member_project_creates_submission_and_review(client, db
 
 
 async def test_project_approval_creates_independent_target_version_without_mutating_source(
-    client, db_session
+    client, db_session, monkeypatch
 ):
+    async def leave_queued(*_args, **_kwargs):
+        return "queued"
+
+    monkeypatch.setattr(
+        "app.services.indexing_ops.enqueue_indexing_operation",
+        leave_queued,
+    )
     source_id = await _mk_personal(db_session, owner=USER_CONSULTANT, zone="asset")
     source_before = await db_session.get(KnowledgeAsset, source_id)
     source_version_id = source_before.current_version_id
@@ -254,7 +262,19 @@ async def test_project_approval_creates_independent_target_version_without_mutat
     assert target.current_version_id != source_version_id
     assert target_version.directory_key == "project.deliverables"
     assert target_version.naming_rule_version == 10
+    assert target_version.index_status == "indexing"
     assert target.canonical_name.startswith("【ALPHA-2026-交付成果】")
+    index_job = await db_session.scalar(
+        select(IndexingOperationJob).where(IndexingOperationJob.target_asset_id == target_id)
+    )
+    assert index_job is not None
+    assert index_job.status == "queued"
+    assert index_job.scope_filter == {
+        "scope": "project",
+        "project_id": str(PROJECT_ALPHA),
+        "statuses": ["indexing"],
+        "limit": 1,
+    }
 
     repeated = await client.post(
         _submit(source_id),
@@ -279,6 +299,47 @@ async def test_project_approval_creates_independent_target_version_without_mutat
         )
     )
     assert derivative_count == 1
+
+
+async def test_publication_queue_failure_preserves_retryable_target(
+    client, db_session, monkeypatch
+):
+    async def fail_enqueue(*_args, **_kwargs):
+        raise RuntimeError("broker details must stay private")
+
+    monkeypatch.setattr(
+        "app.services.indexing_ops.enqueue_indexing_operation",
+        fail_enqueue,
+    )
+    source_id = await _mk_personal(db_session, owner=USER_CONSULTANT, zone="asset")
+    submitted = await client.post(
+        _submit(source_id),
+        headers=_hdr(USER_CONSULTANT),
+        json=_project_publication_body(),
+    )
+    approved = await client.post(
+        f"/api/v1/reviews/{submitted.json()['review_task_id']}/approve",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={},
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "approved"
+    assert approved.json()["index_status"] == "index_failed"
+
+    target_id = uuid.UUID(approved.json()["target_asset_id"])
+    db_session.expire_all()
+    target = await db_session.get(KnowledgeAsset, target_id)
+    version = await db_session.get(KnowledgeAssetVersion, target.current_version_id)
+    assert target.source_asset_id == source_id
+    assert target.asset_status == "active"
+    assert version.index_status == "index_failed"
+    assert version.index_error_code == "index_unexpected_error"
+    assert "broker" not in (version.index_error_message or "").lower()
+    job = await db_session.scalar(
+        select(IndexingOperationJob).where(IndexingOperationJob.target_asset_id == target_id)
+    )
+    assert job is not None
+    assert job.status == "failed"
 
 
 async def test_bulk_submit_requires_per_item_governed_naming(client, db_session):

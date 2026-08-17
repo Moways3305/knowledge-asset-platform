@@ -233,7 +233,7 @@ async def _process_one(
             file_bytes=markdown.content,
             source_file_name=markdown.file_name,
             source_file_mime=markdown.mime,
-            channel=markdown.task.source,
+            channel=markdown.channel,
             trace_id=trace_id,
         )
     else:
@@ -249,7 +249,7 @@ async def _process_one(
             file_bytes=markdown.content,
             source_file_name=markdown.file_name,
             source_file_mime=markdown.mime,
-            channel=markdown.task.source,
+            channel=markdown.channel,
             trace_id=trace_id,
         )
     if outcome.index_status in {"indexed", "indexing"}:

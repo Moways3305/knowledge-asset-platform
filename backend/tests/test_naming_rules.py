@@ -439,6 +439,68 @@ async def test_category_scope_and_enabled_state_still_fail_closed(client):
         assert response.json()["detail"]["denied_reason"] == "naming_category_unavailable"
 
 
+async def test_category_directory_mapping_is_authoritative_and_fallback_is_explicit(client):
+    mapped_id = uuid.uuid4()
+    unmapped_id = uuid.uuid4()
+    await _publish_categories(client, [(mapped_id, "交付件"), (unmapped_id, "未映射类别")])
+    task_id = await _upload(client)
+
+    base = {
+        "target_scope": "project",
+        "target_project_id": str(PROJECT_ALPHA),
+        "confidentiality_level": "L2",
+        "naming": {
+            "category_id": str(mapped_id),
+            "subject": "目录治理校验",
+            "formed_on": "2026-08-17",
+            "version": "V1",
+            "directory_key": "project.guidance_process",
+        },
+    }
+    mismatch = await client.post(
+        f"/api/v1/ingest/{task_id}/naming-preview",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json=base,
+    )
+    assert mismatch.status_code == 409
+    assert mismatch.json()["detail"]["denied_reason"] == "directory_category_mismatch"
+
+    task_id = await _upload(client)
+    base["naming"] = {
+        **base["naming"],
+        "category_id": str(unmapped_id),
+    }
+    base["naming"].pop("directory_key")
+    missing = await client.post(
+        f"/api/v1/ingest/{task_id}/naming-preview",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json=base,
+    )
+    assert missing.status_code == 422
+    assert missing.json()["detail"]["denied_reason"] == "directory_required"
+
+    base["naming"]["directory_key"] = "project.deliverables"
+    unconfirmed = await client.post(
+        f"/api/v1/ingest/{task_id}/naming-preview",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json=base,
+    )
+    assert unconfirmed.status_code == 422
+    assert (
+        unconfirmed.json()["detail"]["denied_reason"] == "directory_fallback_confirmation_required"
+    )
+
+    base["naming"]["directory_fallback_confirmed"] = True
+    confirmed = await client.post(
+        f"/api/v1/ingest/{task_id}/naming-preview",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json=base,
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["fields"]["directory_key"] == "project.deliverables"
+    assert confirmed.json()["fields"]["directory_source"] == "manual_fallback"
+
+
 async def test_project_aliases_are_normalized_and_validated(client):
     config = _config(uuid.uuid4(), client_aliases=["A"])
     too_short = await client.put(

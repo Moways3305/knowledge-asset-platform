@@ -341,7 +341,8 @@ describe("MyKnowledgePage complete personal workflow", () => {
     await user.click(screen.getAllByRole("button", { name: "提交项目" })[0]);
     const submitDialog = screen.getByRole("dialog");
     await user.selectOptions(within(submitDialog).getByLabelText("目标项目"), "project-83");
-    await within(submitDialog).findByLabelText("正式目录");
+    expect(await within(submitDialog).findByText("项目交付物")).toBeInTheDocument();
+    expect(within(submitDialog).queryByRole("combobox", { name: "正式目录" })).toBeNull();
     await user.click(within(submitDialog).getByRole("button", { name: "预览目标文件名" }));
     await within(submitDialog).findByText(/【P83-2026-交付物】/);
     await user.click(within(submitDialog).getByRole("button", { name: "提交" }));

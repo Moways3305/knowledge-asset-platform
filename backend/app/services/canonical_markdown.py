@@ -43,8 +43,9 @@ class CanonicalMarkdownPayload:
     mime: str
     text: str
     content_hash: str
-    task: IngestTask
-    derivative: IngestTaskDerivative
+    task: IngestTask | None
+    derivative: IngestTaskDerivative | None
+    channel: str | None
 
 
 def task_markdown_is_valid(
@@ -189,19 +190,18 @@ async def ensure_version_markdown(
     version_id: uuid.UUID,
 ) -> CanonicalMarkdownPayload:
     """Load saved Markdown, or backfill it once from a still-available original."""
-    task = await resolve_version_source_task(session, asset_id=asset_id, version_id=version_id)
-    if task is None:
-        raise CanonicalMarkdownUnavailable("canonical_markdown_source_missing")
-
     file_object = await _file_object(session, asset_id=asset_id, version_id=version_id)
-    derivative = (
-        await session.execute(
-            select(IngestTaskDerivative).where(
-                IngestTaskDerivative.ingest_task_id == task.id,
-                IngestTaskDerivative.derivative_type == DERIVATIVE_TYPE,
+    task = await resolve_version_source_task(session, asset_id=asset_id, version_id=version_id)
+    derivative = None
+    if task is not None:
+        derivative = (
+            await session.execute(
+                select(IngestTaskDerivative).where(
+                    IngestTaskDerivative.ingest_task_id == task.id,
+                    IngestTaskDerivative.derivative_type == DERIVATIVE_TYPE,
+                )
             )
-        )
-    ).scalar_one_or_none()
+        ).scalar_one_or_none()
 
     storage_ref = file_object.storage_ref if file_object is not None else None
     expected_hash = file_object.file_hash if file_object is not None else None
@@ -219,31 +219,40 @@ async def ensure_version_markdown(
                 text = content.decode("utf-8")
             except UnicodeDecodeError:
                 text = ""
-            if text:
-                if derivative is None:
+            if text.strip():
+                if task is not None and derivative is None:
                     derivative = IngestTaskDerivative(
                         ingest_task_id=task.id,
                         derivative_type=DERIVATIVE_TYPE,
                     )
                     session.add(derivative)
-                derivative.status = "ready"
-                derivative.format_version = FORMAT_VERSION
-                derivative.source_content_hash = task.source_file_hash
-                derivative.content_hash = actual_hash
-                derivative.storage_ref = storage_ref
-                derivative.generated_at = derivative.generated_at or utc_now()
-                derivative.failure_code = None
-                derivative.linked_version_id = version_id
+                if derivative is not None and task is not None:
+                    derivative.status = "ready"
+                    derivative.format_version = FORMAT_VERSION
+                    derivative.source_content_hash = task.source_file_hash
+                    derivative.content_hash = actual_hash
+                    derivative.storage_ref = storage_ref
+                    derivative.generated_at = derivative.generated_at or utc_now()
+                    derivative.failure_code = None
+                    derivative.linked_version_id = version_id
                 await session.flush()
                 return CanonicalMarkdownPayload(
                     content=content,
-                    file_name=canonical_file_name(task.source_file_name),
+                    file_name=(
+                        file_object.file_name
+                        if file_object is not None
+                        else canonical_file_name(task.source_file_name)
+                    ),
                     mime=MARKDOWN_MIME,
                     text=text,
                     content_hash=actual_hash or "",
                     task=task,
                     derivative=derivative,
+                    channel=task.source if task is not None else "publication",
                 )
+
+    if task is None:
+        raise CanonicalMarkdownUnavailable("canonical_markdown_source_missing")
 
     # Historical compatibility: regenerate only when the saved derivative is
     # missing or invalid, then persist it before any WeKnora call.
@@ -301,4 +310,5 @@ async def ensure_version_markdown(
         content_hash=derivative.content_hash or "",
         task=task,
         derivative=derivative,
+        channel=task.source,
     )

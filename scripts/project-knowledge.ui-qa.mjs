@@ -517,7 +517,10 @@ try {
           await page.getByLabel("更多操作：年度辅导项目知识").click();
           await page.getByRole("button", { name: "申请升格公司资产" }).click();
           const dialog = page.getByRole("dialog", { name: "升格为公司资产" });
-          await dialog.getByLabel("正式目录").waitFor();
+          await dialog.getByText("02 方法论").waitFor();
+          if ((await dialog.getByRole("combobox", { name: "正式目录" }).count()) !== 0) {
+            throw new Error("mapped publication directory must be read-only");
+          }
           await dialog.getByLabel("适用对象").fill("全公司");
           await dialog.getByRole("button", { name: "预览目标文件名" }).click();
           await dialog.getByText(/【公司资产-方法论】/).waitFor();

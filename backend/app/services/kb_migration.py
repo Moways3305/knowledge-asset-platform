@@ -269,7 +269,7 @@ async def _upload_version(
                 "scope": asset.scope if asset is not None else "",
                 "confidentiality_level": confidentiality,
             },
-            channel=markdown.task.source,
+            channel=markdown.channel,
             trace_id=trace_id,
         )
         doc_id = str(data.get("id") or "") or None
