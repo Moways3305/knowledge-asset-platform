@@ -307,8 +307,8 @@ for (const scenario of scenarios) {
         deleteActionVisible: text.includes("删除资产"),
         lifecycleLabelsLocalized: lifecycleCases.every(([, label]) => text.includes(label)),
         canonicalMarkdownVisible: text.includes("Markdown 已生成"),
-        waitingIndexVisible: text.includes("已确认，等待索引"),
-        indexingVisible: text.includes("WeKnora 处理中"),
+        waitingIndexVisible: text.includes("已入库，等待索引"),
+        indexingVisible: text.includes("索引处理中"),
         internalLifecycleEventVisible: lifecycleCases.some(([eventType]) =>
           text.includes(eventType),
         ),
