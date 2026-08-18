@@ -50,6 +50,7 @@ type BatchConfirmResult = {
   succeededIds: string[];
   failedIds: string[];
   resultAssetIds?: Record<string, string>;
+  resultIndexStatuses?: Record<string, string>;
 };
 
 export type {
@@ -248,6 +249,7 @@ export function useUploadFlow() {
       let retrySelection: string[] = [];
       const succeededIds = new Set<string>();
       const resultAssetIds: Record<string, string> = {};
+      const resultIndexStatuses: Record<string, string> = {};
       const prepared: Array<{
         task: PendingIngestItemDTO;
         confirmation: IngestConfirmRequestDTO;
@@ -371,6 +373,9 @@ export function useUploadFlow() {
             if (succeeded && item.result_asset_id) {
               resultAssetIds[item.item_id] = item.result_asset_id;
             }
+            if (succeeded && item.index_status) {
+              resultIndexStatuses[item.item_id] = item.index_status;
+            }
             if (succeeded && activePath === "b") removeLocalTaskEverywhere(item.item_id);
             if (!succeeded) {
               if (
@@ -420,6 +425,10 @@ export function useUploadFlow() {
           if (succeeded && typeof resultAssetId === "string") {
             resultAssetIds[item.item_id] = resultAssetId;
           }
+          const resultIndexStatus = (item as { index_status?: unknown }).index_status;
+          if (succeeded && typeof resultIndexStatus === "string") {
+            resultIndexStatuses[item.item_id] = resultIndexStatus;
+          }
           if (succeeded && activePath === "b") removeLocalTaskEverywhere(item.item_id);
           if (item.status === "failed") retryIds.add(item.item_id);
         });
@@ -460,6 +469,7 @@ export function useUploadFlow() {
         succeededIds: [...succeededIds],
         failedIds: tasks.map((task) => task.id).filter((id) => !succeededIds.has(id)),
         resultAssetIds,
+        resultIndexStatuses,
       });
     },
     [

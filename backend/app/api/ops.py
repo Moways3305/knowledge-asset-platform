@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Awaitable
+from datetime import timezone
 from typing import cast
 from urllib.parse import urlsplit
 
@@ -29,6 +30,7 @@ from app.core.config import (
 from app.core.logging import safe_log_exception
 from app.core.trace import get_trace_id
 from app.db.session import get_db
+from app.db.utils import utc_now
 from app.models.audit import AuditEvent
 from app.models.identity import Project, User
 from app.models.indexing_job import IndexingOperationJob, OpsReconcileHeartbeat
@@ -70,6 +72,7 @@ from app.services import (
     auth_security_ops,
     error_catalog,
     generation_models,
+    index_recovery,
     indexing_candidates,
     indexing_health,
     llm_usage,
@@ -424,6 +427,10 @@ async def ops_llm_usage(
 
 @router.get("/admin/ops/indexing")
 async def ops_indexing(
+    include_all: bool = Query(
+        default=False,
+        description="是否返回全部安全恢复候选；默认仅返回最近 20 条。",
+    ),
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -443,16 +450,19 @@ async def ops_indexing(
     counts = await indexing_health.indexing_counts(session)
     reparse_actionable_count = await indexing_candidates.count_reparse_candidates(session)
 
-    # 最近失败资产（安全摘要，最多 20 条）。
-    rows = (
-        await session.execute(
-            select(KnowledgeAsset, KnowledgeAssetVersion)
-            .join(KnowledgeAssetVersion, KnowledgeAssetVersion.asset_id == KnowledgeAsset.id)
-            .where(*active_non_deleted, KnowledgeAssetVersion.index_status == "index_failed")
-            .order_by(KnowledgeAsset.updated_at.desc())
-            .limit(20)
-        )
-    ).all()
+    # 恢复候选：明确失败、此前跳过、尚未进入索引。正常 indexing/indexed 永不进入。
+    recovery_statuses = ("index_failed", "skipped", "not_indexed")
+    recovery_query = (
+        select(KnowledgeAsset, KnowledgeAssetVersion)
+        .join(KnowledgeAssetVersion, KnowledgeAssetVersion.asset_id == KnowledgeAsset.id)
+        .where(*active_non_deleted, KnowledgeAssetVersion.index_status.in_(recovery_statuses))
+        .order_by(KnowledgeAsset.updated_at.desc(), KnowledgeAsset.id.desc())
+    )
+    # 首屏只取最近 20 条；管理员明确点击“查看全部”时才读取完整安全候选投影。
+    # 不用更大的固定上限冒充“全部”，也不改变恢复候选或权限语义。
+    if not include_all:
+        recovery_query = recovery_query.limit(20)
+    rows = (await session.execute(recovery_query)).all()
     project_ids = {a.project_id for a, _v in rows if a.project_id}
     owner_ids = {a.owner_user_id for a, _v in rows if a.owner_user_id}
     pmap: dict = {}
@@ -470,17 +480,47 @@ async def ops_indexing(
         ).all():
             omap[uid] = uname
 
+    # 只把“当前仍是恢复候选”的活跃目标计入处理中。发布索引、已恢复完成但
+    # 作业行尚未收口等其他 retry_index 作业不得稀释待恢复统计。
     active_target_ids = set(
         (
             await session.execute(
-                select(IndexingOperationJob.target_asset_id).where(
+                select(IndexingOperationJob.target_asset_id)
+                .join(
+                    KnowledgeAsset,
+                    KnowledgeAsset.id == IndexingOperationJob.target_asset_id,
+                )
+                .join(
+                    KnowledgeAssetVersion,
+                    KnowledgeAssetVersion.asset_id == KnowledgeAsset.id,
+                )
+                .where(
                     IndexingOperationJob.target_asset_id.is_not(None),
                     IndexingOperationJob.operation_type == "retry_index",
                     IndexingOperationJob.status.in_(("queued", "running")),
+                    *active_non_deleted,
+                    KnowledgeAssetVersion.index_status.in_(recovery_statuses),
                 )
             )
         ).scalars()
     )
+    latest_target_jobs: dict[uuid.UUID, IndexingOperationJob] = {}
+    row_asset_ids = {asset.id for asset, _version in rows}
+    if row_asset_ids:
+        job_rows = (
+            (
+                await session.execute(
+                    select(IndexingOperationJob)
+                    .where(IndexingOperationJob.target_asset_id.in_(row_asset_ids))
+                    .order_by(IndexingOperationJob.requested_at.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for target_job in job_rows:
+            if target_job.target_asset_id is not None:
+                latest_target_jobs.setdefault(target_job.target_asset_id, target_job)
     diagnostic_counts = {key: 0 for key in error_catalog.DIAGNOSTIC_LABELS}
     grouped_codes = (
         await session.execute(
@@ -494,16 +534,39 @@ async def ops_indexing(
         category, _label = error_catalog.diagnostic(code)
         diagnostic_counts[category] += int(count or 0)
 
-    recent_failed = []
+    recovery_items = []
     for a, v in rows:
+        # 已受理的单条恢复立即从“待恢复”移出；作业终态后按真实版本状态重新出现或消失。
+        if a.id in active_target_ids:
+            continue
         # 安全目录 code：历史脏 code 也归一，不外显原始上游 code。
         scode = error_catalog.safe_code(v.index_error_code)
         info = error_catalog.get_error(scode)
         diagnostic_category, diagnostic_label = error_catalog.diagnostic(scode)
         retry_eligible = (
-            error_catalog.targeted_retry_eligible(scode) and a.id not in active_target_ids
-        )
-        recent_failed.append(
+            v.index_status in {"skipped", "not_indexed"}
+            or error_catalog.targeted_retry_eligible(scode)
+        ) and a.id not in active_target_ids
+        state = index_recovery.recovery_state(v.index_status, scode)
+        started_at = v.activated_at or v.created_at
+        now = utc_now()
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+        wait_seconds = max(0, int((now - started_at).total_seconds()))
+        if state == "waiting":
+            user_message = "资产已入库，尚未进入索引，可发起恢复。"
+            operator_message = "当前活跃版本尚未提交到底座索引。"
+            remediation_hint = "确认底座与嵌入模型可用后发起索引恢复。"
+        elif state == "skipped":
+            user_message = "此前未进入索引，资产已保留，可发起恢复。"
+            operator_message = "当前活跃版本此前跳过了底座索引。"
+            remediation_hint = "确认当前治理范围允许索引后发起恢复。"
+        else:
+            user_message = info.user_message
+            operator_message = info.operator_message
+            remediation_hint = info.remediation_hint
+        latest_job = latest_target_jobs.get(a.id)
+        recovery_items.append(
             {
                 "retry_target": (
                     indexing_ops_service.issue_targeted_retry_token(a.id)
@@ -517,22 +580,78 @@ async def ops_indexing(
                 "index_status": v.index_status,
                 "index_error_code": scode,
                 # 用户态文案（与详情页一致，按目录派生，不外显旧/上游脏文案）。
-                "index_error_message": info.user_message,
+                "index_error_message": user_message,
                 # 运营态诊断（admin/运营可见；含配置项名，绝不含值/内部 id/secret）。
-                "operator_error_message": info.operator_message,
-                "remediation_hint": info.remediation_hint,
+                "operator_error_message": operator_message,
+                "remediation_hint": remediation_hint,
                 "severity": info.severity,
                 "diagnostic_category": diagnostic_category,
                 "diagnostic_label": diagnostic_label,
                 "retry_eligible": retry_eligible,
                 "updated_at": a.updated_at.isoformat() if a.updated_at else None,
+                "recovery_state": state,
+                "wait_seconds": wait_seconds,
+                "latest_job": (
+                    {
+                        "status": latest_job.status,
+                        "requested_at": (
+                            latest_job.requested_at.isoformat() if latest_job.requested_at else None
+                        ),
+                        "finished_at": (
+                            latest_job.finished_at.isoformat() if latest_job.finished_at else None
+                        ),
+                        "success_count": latest_job.success_count,
+                        "failed_count": latest_job.failed_count,
+                    }
+                    if latest_job is not None
+                    else None
+                ),
             }
         )
 
+    interrupted_count = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(KnowledgeAssetVersion)
+                .join(KnowledgeAsset, KnowledgeAssetVersion.asset_id == KnowledgeAsset.id)
+                .where(
+                    *active_non_deleted,
+                    KnowledgeAssetVersion.index_status == "index_failed",
+                    KnowledgeAssetVersion.index_error_code == index_recovery.INTERRUPTED_ERROR_CODE,
+                )
+            )
+        ).scalar()
+        or 0
+    )
+    active_recovery_count = len(active_target_ids)
+    recovery_count = max(
+        0,
+        counts["index_failed"] + counts["skipped"] + counts["not_indexed"] - active_recovery_count,
+    )
+    searchable_count = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(KnowledgeAssetVersion)
+                .join(KnowledgeAsset, KnowledgeAssetVersion.asset_id == KnowledgeAsset.id)
+                .where(*active_non_deleted, KnowledgeAssetVersion.index_status == "indexed")
+            )
+        ).scalar()
+        or 0
+    )
     return {
         "counts": counts,
         "reparse_actionable_count": reparse_actionable_count,
-        "recent_failed": recent_failed,
+        # Keep the old field during the frontend/API transition; both contain only safe metadata.
+        "recent_failed": recovery_items,
+        "recovery_items": recovery_items,
+        "recovery_summary": {
+            "interrupted": interrupted_count,
+            "needs_recovery": recovery_count,
+            "processing": counts["indexing"] + active_recovery_count,
+            "searchable": searchable_count,
+        },
         "diagnostic_counts": diagnostic_counts,
         "title_visible": show_title,
         "last_reconcile": await _last_reconcile(session),

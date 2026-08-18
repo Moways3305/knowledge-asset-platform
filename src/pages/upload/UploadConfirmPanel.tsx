@@ -10,10 +10,11 @@ import {
 import type { UploadFlow } from "./useUploadFlow";
 
 const indexStatusLabel: Record<string, string> = {
-  indexing: "已确认，WeKnora 正在处理；完成后才可检索",
-  indexed: "WeKnora 处理完成，当前可检索",
-  index_failed: "资产已保存，问答索引暂未完成",
-  skipped: "资产已保存，未启用问答索引",
+  not_indexed: "资产已入库，等待进入索引；当前还不可检索。",
+  indexing: "资产已入库，索引正在处理；完成后才可检索。",
+  indexed: "资产已入库且索引完成，当前可检索与问答。",
+  index_failed: "资产已入库，但索引未完成；可在资产详情查看恢复状态。",
+  skipped: "资产已入库，此前未进入索引；可在资产详情查看恢复状态。",
 };
 
 export function confirmationSubjectLabel(targetLibrary: TargetLibrary): string {
@@ -107,7 +108,7 @@ export default function UploadConfirmPanel({
         <CheckCircle2 size={28} aria-hidden="true" />
         <div>
           <h2 id="upload-result-title">
-            {awaitingProjectReview ? "已提交，等待项目经理确认" : "入库提交已完成"}
+            {awaitingProjectReview ? "已提交，等待项目经理确认" : "资产已入库"}
           </h2>
           {awaitingProjectReview ? (
             <p>项目经理确认后，资料才会进入项目知识库并参与检索与问答。</p>
@@ -125,7 +126,11 @@ export default function UploadConfirmPanel({
                 to={`/knowledge/${resultAssetId}`}
                 state={{ backTo: "/upload", backLabel: "返回上传入库", source: "upload" }}
               >
-                查看资产 <ArrowRight size={14} aria-hidden="true" />
+                {submitIndexStatus &&
+                ["index_failed", "skipped", "not_indexed"].includes(submitIndexStatus)
+                  ? "查看恢复状态"
+                  : "查看资产"}{" "}
+                <ArrowRight size={14} aria-hidden="true" />
               </Link>
             )}
             <button className="btn-secondary" onClick={handleReset} type="button">

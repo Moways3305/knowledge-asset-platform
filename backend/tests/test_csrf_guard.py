@@ -117,12 +117,12 @@ async def test_login_not_csrf_protected(client):
 # 非 cookie 会话不被误伤
 # ---------------------------------------------------------------------------
 async def test_dev_header_mutation_not_csrf_blocked(client):
-    # X-Dev-User-Id（无 cookie 会话）→ CSRF 跳过；请求到达批量操作自身的模型门禁。
+    # X-Dev-User-Id（无 cookie 会话）→ CSRF 跳过；请求到达恢复操作自身的底座门禁。
     r = await client.post(
         RETRY, headers={"X-Dev-User-Id": str(USER_ADMIN_ONLY)}, json={"scope": "all"}
     )
     assert r.status_code == 409, r.text
-    assert r.json()["detail"]["denied_reason"] == "weknora_embedding_not_ready"
+    assert r.json()["detail"]["denied_reason"] == "index_recovery_foundation_unavailable"
 
 
 async def test_bearer_auth_request_not_csrf_blocked(client):

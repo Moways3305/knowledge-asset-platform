@@ -445,7 +445,7 @@ async def test_batch_retry_is_blocked_before_enqueue_when_embedding_is_unavailab
     _set_client(FakeWK(fail=True))
     response = await client.post(RETRY, headers=_hdr(USER_ADMIN_ONLY), json={"scope": "all"})
     assert response.status_code == 409
-    assert response.json()["detail"]["denied_reason"] == "weknora_embedding_not_ready"
+    assert response.json()["detail"]["denied_reason"] == "index_recovery_foundation_unavailable"
     jobs = (
         (
             await db_session.execute(
@@ -675,6 +675,109 @@ async def test_reparse_requires_ops_viewer(client, monkeypatch):
     assert r.json()["detail"]["denied_reason"] == "ops_viewer_required"
 
 
+async def test_recovery_summary_counts_only_active_jobs_for_current_candidates(
+    client, db_session, monkeypatch
+):
+    failed_asset_id = await _make_index_failed(
+        client,
+        monkeypatch,
+        USER_CONSULTANT,
+        content=b"current recovery candidate",
+        title="Current recovery candidate",
+    )
+    indexed_asset_id = await _make_indexed(
+        client,
+        monkeypatch,
+        USER_CONSULTANT,
+        content=b"unrelated active retry job",
+        title="Unrelated indexed asset",
+    )
+    baseline_response = await client.get("/admin/ops/indexing", headers=_hdr(USER_ADMIN_ONLY))
+    assert baseline_response.status_code == 200
+    baseline = baseline_response.json()["recovery_summary"]
+
+    db_session.add(
+        IndexingOperationJob(
+            operation_type="retry_index",
+            status="running",
+            scope_filter={"scope": "all", "statuses": ["indexing"], "limit": 1},
+            target_asset_id=uuid.UUID(indexed_asset_id),
+        )
+    )
+    await db_session.commit()
+
+    unrelated_response = await client.get("/admin/ops/indexing", headers=_hdr(USER_ADMIN_ONLY))
+    assert unrelated_response.status_code == 200
+    unrelated = unrelated_response.json()["recovery_summary"]
+    assert unrelated["needs_recovery"] == baseline["needs_recovery"]
+    assert unrelated["processing"] == baseline["processing"]
+
+    db_session.add(
+        IndexingOperationJob(
+            operation_type="retry_index",
+            status="running",
+            scope_filter={"scope": "all", "statuses": ["index_failed"], "limit": 1},
+            target_asset_id=uuid.UUID(failed_asset_id),
+        )
+    )
+    await db_session.commit()
+
+    candidate_response = await client.get("/admin/ops/indexing", headers=_hdr(USER_ADMIN_ONLY))
+    assert candidate_response.status_code == 200
+    candidate = candidate_response.json()["recovery_summary"]
+    assert candidate["needs_recovery"] == baseline["needs_recovery"] - 1
+    assert candidate["processing"] == baseline["processing"] + 1
+
+
+async def test_ops_indexing_include_all_is_not_truncated_to_default_twenty(client, db_session):
+    for index in range(21):
+        asset = KnowledgeAsset(
+            title=f"Recovery candidate {index:02d}",
+            scope="company",
+            zone="material",
+            asset_type="deliverable",
+            owner_user_id=USER_CONSULTANT,
+            asset_status="active",
+            confidentiality_level="L2",
+        )
+        db_session.add(asset)
+        await db_session.flush()
+        version = KnowledgeAssetVersion(
+            asset_id=asset.id,
+            version_no="V1",
+            version_status="active",
+            created_by=USER_CONSULTANT,
+            index_status="index_failed",
+            index_error_code="weknora_call_failed",
+        )
+        db_session.add(version)
+        await db_session.flush()
+        asset.current_version_id = version.id
+    await db_session.commit()
+
+    default_response = await client.get("/admin/ops/indexing", headers=_hdr(USER_ADMIN_ONLY))
+    assert default_response.status_code == 200
+    assert len(default_response.json()["recovery_items"]) == 20
+
+    all_response = await client.get(
+        "/admin/ops/indexing?include_all=true", headers=_hdr(USER_ADMIN_ONLY)
+    )
+    assert all_response.status_code == 200
+    body = all_response.json()
+    assert len(body["recovery_items"]) >= 21
+    assert len(body["recovery_items"]) == body["recovery_summary"]["needs_recovery"]
+
+
+def test_ops_indexing_openapi_declares_include_all_query_contract():
+    operation = app.openapi()["paths"]["/admin/ops/indexing"]["get"]
+    parameter = next(item for item in operation["parameters"] if item["name"] == "include_all")
+
+    assert parameter["in"] == "query"
+    assert parameter["required"] is False
+    assert parameter["schema"]["type"] == "boolean"
+    assert parameter["schema"]["default"] is False
+
+
 # ---------------------------------------------------------------------------
 # 单条安全 retry
 # ---------------------------------------------------------------------------
@@ -861,6 +964,11 @@ async def test_concurrent_targeted_retry_with_independent_sessions_creates_one_j
         return "queued"
 
     monkeypatch.setattr(indexing_ops, "_target_configuration_ready", _ready)
+    monkeypatch.setattr(
+        indexing_ops,
+        "_require_recovery_ready",
+        lambda *_args, **_kwargs: _async_return(None),
+    )
     monkeypatch.setattr(indexing_ops, "enqueue_indexing_operation", _leave_queued)
     storage = LocalFileStorage(tmp_path / "targeted-concurrency")
 

@@ -19,6 +19,7 @@ from app.schemas.indexing_ops import (
     QueueHealth,
     RuntimeHealth,
 )
+from app.services.index_recovery import INTERRUPTED_ERROR_CODE
 
 HEARTBEAT_STALE_SECONDS = 180
 QUEUE_DEGRADED_SECONDS = 300
@@ -41,8 +42,6 @@ async def indexing_counts(session: AsyncSession, *, now: datetime | None = None)
         KnowledgeAssetVersion.version_status == "active",
         KnowledgeAsset.asset_status != AssetStatus.deleted.value,
     )
-    # 解析卡住判定：pending/processing 且自索引开始超过 30 分钟未变。
-    parse_stall_cutoff = _aware(now or utc_now()) - timedelta(minutes=30)
 
     async def count(stmt) -> int:
         return int((await session.execute(stmt)).scalar() or 0)
@@ -68,9 +67,8 @@ async def indexing_counts(session: AsyncSession, *, now: datetime | None = None)
         ),
         "parse_stalled": await count(
             versions(
-                KnowledgeAssetVersion.weknora_parse_status.in_(("pending", "processing")),
-                func.coalesce(KnowledgeAssetVersion.indexed_at, KnowledgeAssetVersion.created_at)
-                <= parse_stall_cutoff,
+                KnowledgeAssetVersion.index_status == "index_failed",
+                KnowledgeAssetVersion.index_error_code == INTERRUPTED_ERROR_CODE,
             )
         ),
         "parse_failed": await count(

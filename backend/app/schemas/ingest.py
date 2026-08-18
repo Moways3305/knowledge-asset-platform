@@ -293,6 +293,7 @@ class IngestBulkConfirmItemResult(BulkItemResult):
     """Safe confirmation result; the asset link exists only after creation succeeded."""
 
     result_asset_id: uuid.UUID | None = None
+    index_status: str | None = None
 
 
 class IngestBulkConfirmResponse(BulkOperationResponse):

@@ -49,6 +49,28 @@ _TARGET_TOKEN_TTL_SECONDS = 15 * 60
 _TARGET_TOKEN_DOMAIN = b"kap:indexing-target-retry:v1:"
 
 
+async def _require_recovery_ready(session: AsyncSession, weknora, *, trace_id: str) -> None:
+    """Fail closed before creating any recovery job; no job/state has changed yet."""
+    from app.services.weknora_models import _model_ref, require_embedding_ready
+
+    defaults = await weknora_defaults.get_defaults(session)
+    embedding_id = defaults.default_embedding_model_id if defaults else None
+    if not embedding_id:
+        raise denied(
+            409,
+            "index_recovery_foundation_unavailable",
+            "知识底座暂不可用，恢复未发起。请先恢复底座连接后重试。",
+        )
+    try:
+        await require_embedding_ready(weknora, _model_ref(embedding_id), trace_id=trace_id)
+    except HTTPException as exc:
+        raise denied(
+            409,
+            "index_recovery_foundation_unavailable",
+            "知识底座暂不可用，恢复未发起。请先恢复底座连接后重试。",
+        ) from exc
+
+
 def _require_ops_viewer(caller: CallerContext) -> None:
     """索引运维：admin（系统运维）或业务治理角色（boss / 咨询总监）可发起。"""
     if CompanyRole.admin.value in caller.active_company_roles or caller.can_discover_l5:
@@ -306,7 +328,7 @@ async def create_targeted_retry_job(
             trace_id=trace_id,
         )
     asset, version = row
-    if version.index_status != "index_failed":
+    if version.index_status not in RETRYABLE_STATUSES:
         await _deny_target(
             session,
             caller,
@@ -317,7 +339,9 @@ async def create_targeted_retry_job(
             trace_id=trace_id,
         )
     category, _label = error_catalog.diagnostic(version.index_error_code)
-    if not error_catalog.targeted_retry_eligible(version.index_error_code):
+    if version.index_status == "index_failed" and not error_catalog.targeted_retry_eligible(
+        version.index_error_code
+    ):
         await _deny_target(
             session,
             caller,
@@ -337,11 +361,12 @@ async def create_targeted_retry_job(
             category="configuration",
             trace_id=trace_id,
         )
+    await _require_recovery_ready(session, weknora, trace_id=trace_id)
     return await _create_and_run(
         session,
         caller,
         operation_type="retry_index",
-        scope_filter={"scope": asset.scope, "statuses": ["index_failed"], "limit": 1},
+        scope_filter={"scope": asset.scope, "statuses": [version.index_status], "limit": 1},
         requested_action=AuditAction.knowledge_index_target_retry_requested,
         weknora=weknora,
         storage=storage,
@@ -394,19 +419,9 @@ async def create_retry_job(
 ) -> IndexingJobSummary:
     """批量 retry-index：对筛选出的 index_failed / skipped / not_indexed 资产入队重试。"""
     _require_ops_viewer(caller)
-    # A batch can amplify a bad embedding configuration across many assets. Verify the current
-    # default model immediately before enqueueing; no job or asset state is changed on failure.
-    from app.services.weknora_models import _model_ref, require_embedding_ready
-
-    defaults = await weknora_defaults.get_defaults(session)
-    embedding_id = defaults.default_embedding_model_id if defaults else None
-    if not embedding_id:
-        raise denied(
-            409,
-            "weknora_embedding_not_ready",
-            "平台默认嵌入模型未配置，请先到模型配置完成保存与测试",
-        )
-    await require_embedding_ready(weknora, _model_ref(embedding_id), trace_id=trace_id)
+    # Validate the live foundation and current embedding immediately before enqueueing.
+    # A failed gate creates no job and changes no asset state.
+    await _require_recovery_ready(session, weknora, trace_id=trace_id)
     scope = _safe_scope(req.scope)
     project_id = _resolve_project_id(scope, req.project_id)
     # 状态白名单过滤（绝不重试 indexed）；空 → 默认 index_failed。

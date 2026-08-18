@@ -72,7 +72,7 @@ _OPS_OBJECT_NAMES = {
     "markdown_backfill": "规范 Markdown 补齐",
 }
 _ATTENTION_OBJECT_NAMES = {
-    "index_failed": "索引异常资产",
+    "index_failed": "索引失败或中断资产",
     "parse_failed": "解析异常资产",
     "kb_init_failed": "知识库初始化异常",
     "pending_original_requests": "待处理原文申请",
@@ -488,38 +488,39 @@ async def build_task_center(
                 if finished.date() == datetime.now(timezone.utc).date():
                     recent_completed.append(task)
 
-    insights = await insights_service.get_ops_insights(
-        session, caller, scope=None, project_id=None, days=30, limit=8
-    )
-    for index, card in enumerate(insights.cards):
-        if card.count <= 0 or card.key not in _ATTENTION_OBJECT_NAMES:
-            continue
-        attention_items.append(
-            WorkbenchTaskItem(
-                task_ref=_task_ref("attention", f"{card.key}:{card.scope}:{index}"),
-                task_type=card.key,
-                object_name=_ATTENTION_OBJECT_NAMES[card.key],
-                project_name=card.context_label,
-                status="failed" if card.severity == "error" else "needs_action",
-                priority="urgent"
-                if card.severity == "error"
-                else "high"
-                if card.severity == "warning"
-                else "normal",
-                assignee="有权限的治理负责人",
-                responsibility="运营关注",
-                next_action_key="inspect_attention",
-                next_action_label="查看受影响范围",
-                route_key="models"
-                if card.key == "kb_init_failed"
-                else "original_access"
-                if "original" in card.key
-                else "knowledge"
-                if card.key in {"archive_candidates", "reuse_upgrade_candidates"}
-                else "admin_ingest",
-                result_summary=f"当前有 {card.count} 项需要关注",
-            )
+    if is_ops_viewer:
+        insights = await insights_service.get_ops_insights(
+            session, caller, scope=None, project_id=None, days=30, limit=8
         )
+        for index, card in enumerate(insights.cards):
+            if card.count <= 0 or card.key not in _ATTENTION_OBJECT_NAMES:
+                continue
+            attention_items.append(
+                WorkbenchTaskItem(
+                    task_ref=_task_ref("attention", f"{card.key}:{card.scope}:{index}"),
+                    task_type=card.key,
+                    object_name=_ATTENTION_OBJECT_NAMES[card.key],
+                    project_name=card.context_label,
+                    status="failed" if card.severity == "error" else "needs_action",
+                    priority="urgent"
+                    if card.severity == "error"
+                    else "high"
+                    if card.severity == "warning"
+                    else "normal",
+                    assignee="有权限的治理负责人",
+                    responsibility="运营关注",
+                    next_action_key="inspect_attention",
+                    next_action_label="查看受影响范围",
+                    route_key="models"
+                    if card.key == "kb_init_failed"
+                    else "original_access"
+                    if "original" in card.key
+                    else "knowledge"
+                    if card.key in {"archive_candidates", "reuse_upgrade_candidates"}
+                    else "admin_ingest",
+                    result_summary=f"当前有 {card.count} 项需要关注",
+                )
+            )
 
     for items in (my_tasks, running_jobs, attention_items, recent_completed):
         _sort_tasks(items)

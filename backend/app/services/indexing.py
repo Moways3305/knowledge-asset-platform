@@ -75,6 +75,9 @@ def _governance_upload(
 def _apply_parse_state(version: KnowledgeAssetVersion, parse_status: str) -> str:
     """Map provider parse truth to the KAP searchable terminal state."""
     version.weknora_parse_status = parse_status
+    # A real provider response breaks the consecutive reconciliation-failure chain.
+    version.index_reconcile_failure_count = 0
+    version.index_last_reconcile_failed_at = None
     if parse_status in {"completed", "duplicate"}:
         version.index_status = "indexed"
         version.indexed_at = utc_now()

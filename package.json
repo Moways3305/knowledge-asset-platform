@@ -26,6 +26,7 @@
     "test:ui:notification-center": "node scripts/notification-center.ui-qa.mjs",
     "test:ui:personal-knowledge": "node scripts/personal-knowledge.ui-qa.mjs",
     "test:ui:admin-operations": "node scripts/admin-operations.ui-qa.mjs",
+    "test:ui:index-recovery": "node scripts/admin-operations.ui-qa.mjs",
     "test:ui:model-foundation": "node scripts/model-foundation.ui-qa.mjs",
     "test:ui:wecom-scan": "node scripts/wecom-scan.ui-qa.mjs",
     "test:ui:audit-security": "node scripts/security-operations.ui-qa.mjs",

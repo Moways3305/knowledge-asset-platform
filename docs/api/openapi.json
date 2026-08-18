@@ -5271,6 +5271,17 @@
       "IngestBulkConfirmItemResult": {
         "description": "Safe confirmation result; the asset link exists only after creation succeeded.",
         "properties": {
+          "index_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Status"
+          },
           "item_id": {
             "format": "uuid",
             "title": "Item Id",
@@ -17396,6 +17407,18 @@
         "description": "索引运维面板：安全索引计数 + 最近失败列表。\n\n安全：**绝不**返回 kb_id / doc_id / api_key / storage_ref / source_file_ref / 原文。\n标题边界：业务治理角色可见真实 title；纯 admin（无业务发现权）→ 标题隐藏。",
         "operationId": "ops_indexing_admin_ops_indexing_get",
         "parameters": [
+          {
+            "description": "是否返回全部安全恢复候选；默认仅返回最近 20 条。",
+            "in": "query",
+            "name": "include_all",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "是否返回全部安全恢复候选；默认仅返回最近 20 条。",
+              "title": "Include All",
+              "type": "boolean"
+            }
+          },
           {
             "in": "header",
             "name": "X-Dev-User-Id",

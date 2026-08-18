@@ -413,6 +413,8 @@ class AuditAction(str, Enum):
     knowledge_index_target_retry_requested = "knowledge.index_target_retry_requested"
     knowledge_index_target_retry_denied = "knowledge.index_target_retry_denied"
     knowledge_index_target_retry_completed = "knowledge.index_target_retry_completed"
+    knowledge_index_interrupted_detected = "knowledge.index_interrupted_detected"
+    knowledge_index_interrupted_recovered = "knowledge.index_interrupted_recovered"
     # WeKnora 模型配置中心。extra 只放安全字段（provider / type / 名称），
     # 绝不含 api_key / base_url / 真实 model_id / weknora_kb_id。
     weknora_model_created = "weknora.model_created"

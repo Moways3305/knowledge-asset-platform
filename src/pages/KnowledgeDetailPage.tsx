@@ -85,11 +85,11 @@ const assetTypeLabel: Record<string, string> = {
 };
 
 const indexStatusLabel: Record<string, string> = {
-  indexed: "可检索",
-  indexing: "WeKnora 处理中",
-  index_failed: "索引失败，可重试",
-  skipped: "已确认，未启用索引",
-  not_indexed: "已确认，等待索引",
+  indexed: "索引完成，可检索",
+  indexing: "索引处理中",
+  index_failed: "索引未完成，可恢复",
+  skipped: "此前未进入索引",
+  not_indexed: "已入库，等待索引",
 };
 
 const scopeLabel: Record<string, string> = {
@@ -558,7 +558,7 @@ export default function KnowledgeDetailPage() {
             </dl>
             {!crossProjectSummary && asset.indexStatus === "index_failed" && (
               <div className="kdetail-inline-error" role="alert">
-                {asset.indexErrorMessage ?? "问答处理失败，可在更多操作中重新处理。"}
+                {asset.indexErrorMessage ?? "资产已保留，但索引未完成；可在更多操作中恢复索引。"}
               </div>
             )}
           </section>

@@ -225,7 +225,7 @@ describe("HomeDashboardPage overview workbench", () => {
 
     expect(screen.getByRole("link", { name: /处理知识审核/ })).toHaveAttribute("href", "/review");
     expect(screen.getByRole("link", { name: /确认待入库资料/ })).toHaveAttribute("href", "/upload");
-    expect(screen.getByText("索引失败")).toBeInTheDocument();
+    expect(screen.getByText("索引失败或中断")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /华东交付项目.*顾问.*进行中/ })).toHaveAttribute(
       "href",
       "/project/project-real-81",
@@ -308,7 +308,10 @@ describe("HomeDashboardPage overview workbench", () => {
     ).toBeInTheDocument();
     expect(container.querySelectorAll(".wb81-operation")).toHaveLength(4);
     expect(container.querySelectorAll(".wb81-operation-icon svg")).toHaveLength(4);
-    expect(screen.getByText("索引失败").closest("a")).toHaveAttribute("href", "/admin/ingest");
+    expect(screen.getByText("索引失败或中断").closest("a")).toHaveAttribute(
+      "href",
+      "/admin/ingest",
+    );
     expect(screen.getByText("解析失败").closest("a")).toHaveAttribute("href", "/admin/ingest");
     expect(screen.getByText("知识库初始化失败 · 个人知识库").closest("a")).toHaveAttribute(
       "href",

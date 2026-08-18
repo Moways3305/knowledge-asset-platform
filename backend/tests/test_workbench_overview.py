@@ -85,6 +85,10 @@ async def test_company_and_project_role_matrix(client, user_id, expected_status,
         assert body["recent_activity"]["status"] == "forbidden"
         assert body["operations"]["status"] == "available"
         assert body["operations"]["data"]["title_visible"] is False
+    if user_id in {USER_CONSULTANT, USER_PROJECT_MANAGER}:
+        assert not any(
+            item["task_type"] == "index_failed" for item in body["task_center"]["attention_items"]
+        )
 
 
 @pytest.mark.parametrize("project_role", ["consultant", "project_manager", "coach"])

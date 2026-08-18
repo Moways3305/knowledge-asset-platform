@@ -22,6 +22,7 @@ const scenarios = [
   "normal-trend",
   "parse-only",
   "category-filter",
+  "view-all",
   "insufficient-data",
   "worker-stale",
   "beat-stale",
@@ -56,7 +57,7 @@ const counts = {
 };
 const failure = (overrides = {}) => ({
   retry_target: "opaque-retry-target-85",
-  title: "绝不能显示的业务标题",
+  title: "（业务资产标题已隐藏）",
   scope: "project",
   project_name: "绝不能显示的项目名称",
   owner_name: "绝不能显示的人员名称",
@@ -70,6 +71,8 @@ const failure = (overrides = {}) => ({
   diagnostic_label: "外部服务",
   retry_eligible: true,
   updated_at: "2026-07-17T02:30:00Z",
+  recovery_state: "interrupted",
+  wait_seconds: 3600,
   ...overrides,
 });
 const job = (status = "completed") => ({
@@ -188,6 +191,7 @@ try {
       let targetCalls = 0;
       let targetPathSafe = true;
       let conflictObserved = false;
+      let targetReadOnlyObserved = false;
       let releaseTarget;
       await context.route("**/*", async (route) => {
         const request = route.request();
@@ -256,11 +260,62 @@ try {
           const empty = scenario === "empty";
           const parseOnly = scenario === "parse-only";
           const retryEligible = scenario !== "target-running";
+          const allRecoveryItems = [
+            failure({ retry_eligible: retryEligible }),
+            failure({
+              retry_target: null,
+              diagnostic_category: "configuration",
+              diagnostic_label: "配置问题",
+              operator_error_message: "请完成平台默认模型配置。",
+              retry_eligible: false,
+              recovery_state: "failed",
+            }),
+            failure({
+              retry_target: "opaque-failed-target-86",
+              operator_error_message: "索引提交失败，可再次恢复。",
+              recovery_state: "failed",
+              wait_seconds: 2400,
+            }),
+            failure({
+              retry_target: "opaque-waiting-target-87",
+              operator_error_message: "正在等待可用运行资源。",
+              recovery_state: "waiting",
+              wait_seconds: 1200,
+            }),
+            failure({
+              retry_target: "opaque-waiting-target-88",
+              operator_error_message: "恢复请求正在排队。",
+              recovery_state: "waiting",
+              wait_seconds: 600,
+            }),
+            failure({
+              retry_target: "opaque-skipped-target-89",
+              operator_error_message: "当前条件不满足，已安全跳过。",
+              recovery_state: "skipped",
+              wait_seconds: 300,
+            }),
+            failure({
+              retry_target: "opaque-skipped-target-90",
+              operator_error_message: "等待治理范围确认。",
+              recovery_state: "skipped",
+              wait_seconds: 240,
+            }),
+            failure({
+              retry_target: "opaque-skipped-target-91",
+              operator_error_message: "等待恢复条件满足。",
+              recovery_state: "skipped",
+              wait_seconds: 180,
+            }),
+          ];
+          const visibleRecoveryItems =
+            url.searchParams.get("include_all") === "true"
+              ? allRecoveryItems
+              : allRecoveryItems.slice(0, 4);
           return fulfill({
             counts: empty
-              ? { ...counts, index_failed: 0 }
+              ? { ...counts, index_failed: 0, not_indexed: 0, skipped: 0, parse_failed: 0 }
               : parseOnly
-                ? { ...counts, index_failed: 0, parse_failed: 5 }
+                ? { ...counts, index_failed: 0, not_indexed: 0, skipped: 0, parse_failed: 5 }
                 : counts,
             reparse_actionable_count: parseOnly ? 2 : 0,
             recent_failed:
@@ -276,6 +331,20 @@ try {
                       retry_eligible: false,
                     }),
                   ],
+            recovery_items: empty || parseOnly ? [] : visibleRecoveryItems,
+            recovery_summary: {
+              interrupted: empty || parseOnly ? 0 : 1,
+              needs_recovery: empty || parseOnly ? 0 : 8,
+              processing: 2,
+              searchable: 18,
+            },
+            last_reconcile: {
+              observed_at: "2026-08-17T10:30:00Z",
+              processed: 50,
+              updated: 1,
+              failed: empty ? 0 : 2,
+              duration_ms: 420,
+            },
             diagnostic_counts: {
               configuration: empty ? 0 : 1,
               external_service: empty ? 0 : 2,
@@ -297,22 +366,27 @@ try {
       page.on("console", (message) => messages.push(message.text()));
       page.on("pageerror", (error) => messages.push(error.message));
       await page.goto(`${base}/admin/ingest`, { waitUntil: "networkidle" });
-      await page.getByRole("heading", { name: "入库管理" }).waitFor();
+      await page.getByRole("heading", { name: "索引恢复控制台" }).waitFor();
+      const outerRuntimeDetails = page.locator(".irc-runtime-details");
+      await outerRuntimeDetails.locator(":scope > summary").click();
       const runtimeDetails = page.locator(".ao85-runtime-details");
       const runtimeSummary = runtimeDetails.locator("summary");
       await runtimeSummary.click();
 
       if (scenario === "category-filter") {
-        await page.locator(".ao85-diagnostics button", { hasText: "配置问题" }).click();
+        await page.getByLabel("诊断类别筛选").selectOption("configuration");
         await page.getByText("请完成平台默认模型配置。").waitFor();
+      } else if (scenario === "view-all") {
+        await page.getByRole("button", { name: "查看全部 8 项" }).click();
+        await page.getByText("当前条件不满足，已安全跳过。").waitFor();
       } else if (scenario === "target-success" || scenario === "target-conflict") {
         await page.locator(".ao85-target-retry").first().click();
-        await page.getByText("此操作仅重新尝试索引，不查看、不下载、不修改原文。").waitFor();
-        await page.getByRole("button", { name: "确认重试" }).click();
+        await page.getByText("此操作仅重新发起索引恢复，不查看、不下载、不修改原文。").waitFor();
+        await page.getByRole("button", { name: "确认恢复" }).click();
         await page
           .getByText(
             scenario === "target-success"
-              ? /单条索引重试已到达终态：共 1 项/
+              ? /单条索引恢复已到达终态：共 1 项/
               : "任务状态已变化或正在执行，请刷新后重试。",
           )
           .waitFor();
@@ -321,7 +395,10 @@ try {
           await page.getByRole("button", { name: "取消" }).click();
         }
       } else if (scenario === "target-running") {
-        await page.getByRole("button", { name: "正在执行：批量重试索引" }).first().waitFor();
+        await page.getByRole("button", { name: "正在执行：恢复索引" }).first().waitFor();
+        await page.locator(".ao85-target-retry").first().click();
+        targetReadOnlyObserved = await page.getByRole("button", { name: "确认恢复" }).isDisabled();
+        await page.getByRole("button", { name: "取消" }).click();
       } else if (scenario === "insufficient-data") {
         await page.getByText("正在积累运维数据").waitFor();
       } else if (scenario === "worker-stale" || scenario === "beat-stale") {
@@ -333,13 +410,14 @@ try {
       } else if (scenario === "forbidden") {
         await page.getByText("入库概览暂时无法加载。").waitFor();
       } else if (scenario === "empty") {
-        await page.getByText("当前没有索引失败任务").waitFor();
+        await page.getByText("当前没有待恢复索引").first().waitFor();
       } else {
         await page.getByLabel("近 24 小时索引运维趋势").waitFor();
       }
 
       await runtimeSummary.click();
-      const trendInitiallyDeferred = await runtimeDetails.evaluate((node) => !node.open);
+      await outerRuntimeDetails.locator(":scope > summary").click();
+      const trendInitiallyDeferred = await outerRuntimeDetails.evaluate((node) => !node.open);
       await page.evaluate(() => {
         window.scrollTo(0, 0);
         document.querySelectorAll("*").forEach((node) => {
@@ -348,6 +426,7 @@ try {
       });
       const screenshot = path.join(outDir, `${scenario}-${viewport.name}.png`);
       await page.screenshot({ path: screenshot, animations: "disabled", fullPage: true });
+      await outerRuntimeDetails.locator(":scope > summary").click();
       await runtimeSummary.click();
 
       const trendExpected = !["insufficient-data", "health-error", "forbidden"].includes(scenario);
@@ -419,9 +498,10 @@ try {
       const result = await page.evaluate((scenarioName) => {
         const text = document.body.innerText;
         const root = document.documentElement;
-        const panels = [...document.querySelectorAll(".ao84-console > .ao84-panel")].map((node) =>
-          node.getBoundingClientRect(),
-        );
+        const recoveryOverview = document
+          .querySelector(".irc-recovery-overview")
+          ?.getBoundingClientRect();
+        const taskPanel = document.querySelector(".ao84-failures")?.getBoundingClientRect();
         const secrets = [
           "secret-target-asset-85",
           "secret-config-target-85",
@@ -447,15 +527,15 @@ try {
           "healthy",
           "stale",
         ];
-        const failureWrap = document.querySelector(".ao84-failures .ao84-table-wrap");
+        const failureWrap = document.querySelector(".ao84-failures .irc-task-list-wrap");
         const failureState = failureWrap?.querySelector(".ao84-table-state");
         const mobileFailureLayout =
           root.clientWidth > 640 ||
           Boolean(
             failureWrap &&
             failureWrap.scrollWidth <= failureWrap.clientWidth + 2 &&
-            [...failureWrap.querySelectorAll("tbody tr")].every(
-              (row) => getComputedStyle(row).display === "block",
+            [...failureWrap.querySelectorAll(".irc-task-list > li")].every(
+              (row) => getComputedStyle(row).display === "grid",
             ),
           );
         const stateRect = failureState?.getBoundingClientRect();
@@ -465,11 +545,13 @@ try {
           clipped: [...document.querySelectorAll("a, button, select")].filter(
             (node) => node.scrollWidth > node.clientWidth + 2,
           ).length,
-          panels: panels.length,
-          dispositionFirst:
-            panels.length === 2 &&
-            panels[1].y < panels[0].y &&
-            Math.abs(panels[0].width - panels[1].width) <= 2,
+          panels: Number(Boolean(recoveryOverview)) + Number(Boolean(taskPanel)),
+          dispositionFirst: Boolean(
+            recoveryOverview &&
+            taskPanel &&
+            recoveryOverview.y < taskPanel.y &&
+            Math.abs(recoveryOverview.width - taskPanel.width) <= 2,
+          ),
           safe: secrets.every((term) => !text.includes(term)),
           localized: enums.every((term) => !text.includes(term)),
           noInstructionCopy: !text.includes("优先恢复失败、卡住和待确认的入库与索引任务。"),
@@ -489,34 +571,49 @@ try {
           categoryFiltered:
             text.includes("请完成平台默认模型配置。") &&
             !text.includes("连接检查未通过，请确认平台配置。"),
-          success: text.includes("单条索引重试已到达终态：共 1 项") && text.includes("作业已完成"),
+          success: text.includes("单条索引恢复已到达终态：共 1 项") && text.includes("作业已完成"),
           conflict: text.includes("任务状态已变化或正在执行，请刷新后重试。"),
-          targetHidden: !document.querySelector(".ao85-target-retry"),
+          targetLocked:
+            document.querySelectorAll(".ao85-target-retry").length > 0 &&
+            [...document.querySelectorAll(".ao85-target-retry")].every((button) => button.disabled),
           indexingError: text.includes("索引状态暂时无法加载"),
           healthError: text.includes("运行健康暂时无法加载"),
           forbidden: text.includes("入库概览暂时无法加载") && text.includes("索引状态暂时无法加载"),
-          empty: text.includes("当前没有索引失败任务"),
-          parsePrimaryAction: Boolean(
-            document.querySelector(
-              '.product-page-actions .ao84-refresh[data-operation="reparse"]:not(:disabled)',
+          empty: text.includes("当前没有待恢复索引"),
+          parseRuntimeAction: Boolean(
+            [...document.querySelectorAll("button")].find(
+              (button) => button.textContent?.includes("重新解析（2 项）") && !button.disabled,
             ),
           ),
+          viewAll: text.includes("当前条件不满足，已安全跳过。") && text.includes("收起为优先项"),
+          oldTabsRemoved:
+            !document.querySelector('[aria-label="管理员运维页面"]') &&
+            !document.querySelector(".ao84-tabs"),
+          recoveryHierarchy:
+            text.includes("索引恢复控制台") &&
+            text.includes("让未完成索引恢复为可检索资料") &&
+            text.includes("已入库") &&
+            text.includes("索引提交") &&
+            (text.includes("解析中") || text.includes("中断待恢复")) &&
+            text.includes("可检索"),
         };
       }, scenario);
       result.consoleLeak = messages.some((message) => /secret|storage_ref|token/i.test(message));
       result.targetCalls = targetCalls;
       result.targetPathSafe = targetPathSafe;
       result.conflict = result.conflict || conflictObserved;
+      result.targetReadOnly = targetReadOnlyObserved;
       result.trendInitiallyDeferred = trendInitiallyDeferred;
       Object.assign(result, trendReadability);
       const scenarioPass = {
         "normal-trend": result.trendVisible,
-        "parse-only": result.parsePrimaryAction,
+        "parse-only": result.parseRuntimeAction,
         "category-filter": result.categoryFiltered,
+        "view-all": result.viewAll,
         "insufficient-data": result.insufficient && !result.trendVisible,
         "worker-stale": result.stale,
         "beat-stale": result.stale,
-        "target-running": result.targetHidden,
+        "target-running": result.targetReadOnly,
         "target-success": result.success && result.targetCalls === 1 && result.targetPathSafe,
         "target-conflict": result.conflict && result.targetCalls === 1 && result.targetPathSafe,
         "indexing-error": result.indexingError,
@@ -533,9 +630,11 @@ try {
         result.safe &&
         result.localized &&
         result.noInstructionCopy &&
+        result.oldTabsRemoved &&
         result.mobileFailureLayout &&
         result.compactFailureState &&
         result.healthVisible &&
+        (["indexing-error", "forbidden"].includes(scenario) || result.recoveryHierarchy) &&
         !result.consoleLeak &&
         (trendExpected
           ? result.legendVisible &&

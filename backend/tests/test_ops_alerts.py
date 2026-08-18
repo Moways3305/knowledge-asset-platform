@@ -168,17 +168,22 @@ async def test_disabled_rule_skips_signal(db_session):
 # ---------------------------------------------------------------------------
 # 信号二：解析停滞堆积
 # ---------------------------------------------------------------------------
-async def test_parse_stalled_counts_only_old_pending(db_session):
+async def test_parse_stalled_alert_counts_only_confirmed_interrupted(db_session):
     await _set_rule(db_session, ops_alerts.RULE_PARSE_STALLED, threshold=2)
     versions = await _active_versions(db_session, 3)
     old = _now() - timedelta(hours=3)
-    # 两个停滞超过默认 120 分钟；一个刚开始解析（不算停滞）。
+    # 两项已由连续对账证据确认中断；单纯运行时间长的一项不触发告警。
     versions[0].weknora_parse_status = "pending"
     versions[0].indexed_at = old
+    versions[0].index_status = "index_failed"
+    versions[0].index_error_code = "index_interrupted"
     versions[1].weknora_parse_status = "processing"
     versions[1].indexed_at = old
+    versions[1].index_status = "index_failed"
+    versions[1].index_error_code = "index_interrupted"
     versions[2].weknora_parse_status = "pending"
-    versions[2].indexed_at = _now()
+    versions[2].indexed_at = old
+    versions[2].index_status = "indexing"
     await db_session.commit()
 
     result = await ops_alerts.scan_ops_alerts(db_session, trace_id="t-ops")

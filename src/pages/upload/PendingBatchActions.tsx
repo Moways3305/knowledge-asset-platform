@@ -36,6 +36,7 @@ type CompletedReviewItem = {
   taskId: string;
   title: string;
   assetId?: string;
+  indexStatus?: string;
 };
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -1015,6 +1016,7 @@ export default function PendingBatchActions({
           taskId: task.id,
           title: completedTitle,
           assetId: result.resultAssetIds?.[task.id],
+          indexStatus: result.resultIndexStatuses?.[task.id],
         },
       ]);
       setReviewTasks((current) => current.filter((item) => item.id !== task.id));
@@ -1064,6 +1066,7 @@ export default function PendingBatchActions({
       succeededIds: string[];
       failedIds: string[];
       resultAssetIds?: Record<string, string>;
+      resultIndexStatuses?: Record<string, string>;
     }) => {
       if (result.failedIds.length === 0) {
         closeAndResetReview();
@@ -1080,6 +1083,7 @@ export default function PendingBatchActions({
             task.suggested_title?.trim() ||
             task.source_file_name,
           assetId: result.resultAssetIds?.[task.id],
+          indexStatus: result.resultIndexStatuses?.[task.id],
         }));
       setCompletedReviewItems((current) => [
         ...current.filter((item) => !succeeded.has(item.taskId)),
@@ -1489,7 +1493,19 @@ export default function PendingBatchActions({
                         <div>
                           <strong>{item.title}</strong>
                           <span role="status">
-                            {item.assetId ? "已入库" : "已提交，等待后续处理"}
+                            {item.indexStatus === "indexed"
+                              ? "索引完成，可检索"
+                              : item.indexStatus === "indexing"
+                                ? "索引处理中"
+                                : item.indexStatus === "index_failed"
+                                  ? "索引未完成，可恢复"
+                                  : item.indexStatus === "not_indexed"
+                                    ? "等待进入索引"
+                                    : item.indexStatus === "skipped"
+                                      ? "此前未进入索引"
+                                      : item.assetId
+                                        ? "已入库"
+                                        : "已提交，等待后续处理"}
                           </span>
                         </div>
                         {item.assetId && (
@@ -1500,7 +1516,10 @@ export default function PendingBatchActions({
                             rel="noopener noreferrer"
                             target="_blank"
                           >
-                            查看知识资产卡片
+                            {item.indexStatus &&
+                            ["index_failed", "not_indexed", "skipped"].includes(item.indexStatus)
+                              ? "查看恢复状态"
+                              : "查看知识资产卡片"}
                           </a>
                         )}
                       </article>

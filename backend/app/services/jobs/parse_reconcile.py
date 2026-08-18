@@ -19,7 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.utils import utc_now
 from app.models.indexing_job import OpsReconcileHeartbeat
 from app.models.knowledge import KnowledgeAssetVersion
-from app.schemas.enums import VersionStatus
+from app.schemas.enums import AuditAction, AuditLogType, VersionStatus
+from app.services import audit as audit_service
+from app.services import error_catalog, index_recovery
 from app.services.weknora_client import (
     NullWeKnoraClient,
     WeKnoraClient,
@@ -55,6 +57,7 @@ async def reconcile_parse_statuses(
                 .where(KnowledgeAssetVersion.version_status == VersionStatus.active.value)
                 .where(KnowledgeAssetVersion.weknora_doc_id.is_not(None))
                 .where(KnowledgeAssetVersion.weknora_parse_status.in_(_PENDING_STATUSES))
+                .with_for_update(skip_locked=True)
                 .limit(limit)
             )
         )
@@ -62,7 +65,7 @@ async def reconcile_parse_statuses(
         .all()
     )
 
-    processed = updated = failed = 0
+    processed = updated = failed = interrupted = interrupted_recovered = 0
     for v in rows:
         # 查询已过滤 weknora_doc_id IS NOT NULL（见上方 where），此处必非 None。
         if v.weknora_doc_id is None:
@@ -72,13 +75,68 @@ async def reconcile_parse_statuses(
         except WeKnoraError:
             # 单条失败不中断整批。
             failed += 1
+            v.index_reconcile_failure_count = (v.index_reconcile_failure_count or 0) + 1
+            v.index_last_reconcile_failed_at = utc_now()
+            if index_recovery.should_mark_interrupted(v, now=utc_now()):
+                v.index_status = "index_failed"
+                v.index_error_code = index_recovery.INTERRUPTED_ERROR_CODE
+                v.index_error_message = error_catalog.user_message(
+                    index_recovery.INTERRUPTED_ERROR_CODE
+                )
+                interrupted += 1
+                updated += 1
+                await audit_service.record_system_event(
+                    session,
+                    log_type=AuditLogType.operation,
+                    action=AuditAction.knowledge_index_interrupted_detected.value,
+                    trace_id=trace_id or "",
+                    target_type="knowledge_asset_version",
+                    target_id=v.id,
+                    before={"index_status": "indexing"},
+                    after={
+                        "index_status": "index_failed",
+                        "reason_code": index_recovery.INTERRUPTED_ERROR_CODE,
+                    },
+                    extra={"reconcile_failure_count": v.index_reconcile_failure_count},
+                )
             continue
         processed += 1
+        v.index_reconcile_failure_count = 0
+        v.index_last_reconcile_failed_at = None
         new_status = str(data.get("parse_status") or v.weknora_parse_status)
+        recovered_interruption = False
+        if (
+            new_status in _PENDING_STATUSES
+            and v.index_status == "index_failed"
+            and v.index_error_code == index_recovery.INTERRUPTED_ERROR_CODE
+        ):
+            v.index_status = "indexing"
+            v.index_error_code = None
+            v.index_error_message = None
+            recovered_interruption = True
+            interrupted_recovered += 1
+            await audit_service.record_system_event(
+                session,
+                log_type=AuditLogType.operation,
+                action=AuditAction.knowledge_index_interrupted_recovered.value,
+                trace_id=trace_id or "",
+                target_type="knowledge_asset_version",
+                target_id=v.id,
+                before={
+                    "index_status": "index_failed",
+                    "reason_code": index_recovery.INTERRUPTED_ERROR_CODE,
+                },
+                after={
+                    "index_status": "indexing",
+                    "parse_status": new_status,
+                },
+            )
         if new_status != v.weknora_parse_status and new_status in (_TERMINAL | _PENDING_STATUSES):
             from app.services.indexing import _apply_parse_state
 
             _apply_parse_state(v, new_status)
+            updated += 1
+        elif recovered_interruption:
             updated += 1
     await _record_heartbeat(
         session,
@@ -88,7 +146,13 @@ async def reconcile_parse_statuses(
         duration_ms=int((time.perf_counter() - started) * 1000),
     )
     await session.commit()
-    return {"processed": processed, "updated": updated, "failed": failed}
+    return {
+        "processed": processed,
+        "updated": updated,
+        "failed": failed,
+        "interrupted": interrupted,
+        "interrupted_recovered": interrupted_recovered,
+    }
 
 
 async def _record_heartbeat(

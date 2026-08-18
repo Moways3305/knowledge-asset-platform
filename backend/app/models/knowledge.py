@@ -180,6 +180,14 @@ class KnowledgeAssetVersion(Base):
     index_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     index_error_message: Mapped[str | None] = mapped_column(String(255), nullable=True)
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 仅供后台对账判断“索引处理中断”的连续失败证据；成功读到底座状态即清零。
+    # 这些诊断字段不进入业务 API，避免把瞬时失败直接外显为终态。
+    index_reconcile_failure_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    index_last_reconcile_failed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # Published naming facts captured at confirmation time. Historical versions
     # remain stable when later naming policies are published.
     naming_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
