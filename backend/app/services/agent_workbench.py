@@ -54,6 +54,7 @@ from app.schemas.enums import (
 )
 from app.schemas.permission import AccessChannel, AccessLayer, CallerContext, DeniedReason
 from app.services import audit as audit_service
+from app.services import discoverable_projects
 from app.services import external_agent_gateway as gateway
 from app.services import ingest as ingest_service
 from app.services import knowledge as knowledge_service
@@ -236,26 +237,27 @@ async def _audit_agent_read(
     await session.commit()
 
 
-async def _load_visible_project(
-    session: AsyncSession, caller: CallerContext, project_id: uuid.UUID
-) -> Project:
-    """加载对调用人可见的项目；**不存在或不可见一律 404（同一安全文案）**。
-
-    可见 = 本项目 active 成员。公司层职务不自动形成项目访问权；项目外调用人不能借
-    project_id 枚举项目资料 / 概览——「无权项目」与「不存在项目」对外完全不可区分（不可枚举），
-    不返回成员 / 客户 / 项目配置 / 权限判断过程等任何业务信息。
-    """
+async def _load_discoverable_project(
+    session: AsyncSession, caller: CallerContext, rule, project_id: uuid.UUID
+) -> tuple[Project, discoverable_projects.DiscoverableProject]:
+    """Load an evidence-backed project or return the common safe 404."""
     # 无权与不存在共用同一 404 实例，保证错误形态完全一致、不泄露存在性。
     # denied_reason 统一为 project_not_found（不暴露「成员/治理」等区别原因）。
     not_available = _denied(404, "project_not_found", "项目不存在或不可用")
-    project = (
-        await session.execute(select(Project).where(Project.id == project_id))
-    ).scalar_one_or_none()
+    discovered = await discoverable_projects.get_discoverable_project(
+        session,
+        caller,
+        project_id,
+        allowed_scope=rule.allowed_scope,
+        allowed_project_id=rule.allowed_project_id,
+        asset_filter=gateway.asset_ceiling_filter(rule),
+    )
+    if discovered is None:
+        raise not_available
+    project = await session.get(Project, project_id)
     if project is None:
         raise not_available
-    if project_id not in caller.active_project_ids:
-        raise not_available
-    return project
+    return project, discovered
 
 
 # ---------------------------------------------------------------------------
@@ -658,7 +660,7 @@ async def list_project_knowledge(
     phase: str | None = None,
     tags: list[str] | None = None,
 ) -> WorkbenchKnowledgeListResponse:
-    await _load_visible_project(session, caller, project_id)
+    await _load_discoverable_project(session, caller, rule, project_id)
     lim = _clamp(limit, default=30, lo=1, hi=30)
 
     stmt = _active_asset_stmt().where(
@@ -683,7 +685,17 @@ async def list_project_knowledge(
 async def get_project_brief(
     session: AsyncSession, caller: CallerContext, rule, project_id: uuid.UUID
 ) -> WorkbenchProjectBrief:
-    project = await _load_visible_project(session, caller, project_id)
+    project, discovered = await _load_discoverable_project(session, caller, rule, project_id)
+
+    if discovered.access_mode == discoverable_projects.SUMMARY_VISIBLE:
+        return WorkbenchProjectBrief(
+            project_id=project.id,
+            name=project.name,
+            status=project.status,
+            access_mode=discovered.access_mode,
+            access_label=discovered.access_label,
+            message="该项目仅摘要可见",
+        )
 
     stmt = _active_asset_stmt().where(
         KnowledgeAsset.scope == KnowledgeScope.project.value,
@@ -706,6 +718,8 @@ async def get_project_brief(
         project_id=project.id,
         name=project.name,
         status=project.status,
+        access_mode=discovered.access_mode,
+        access_label=discovered.access_label,
         phase=project.lifecycle_phase_key,
         my_role=caller.active_project_roles.get(project_id),
         knowledge_count=len(cards),

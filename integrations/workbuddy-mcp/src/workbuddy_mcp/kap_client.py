@@ -61,7 +61,7 @@ DIRECTORY_FIELDS = (
     "project_id",
     "project_name",
 )
-PROJECT_FIELDS = ("project_id", "name", "status")
+PROJECT_FIELDS = ("project_id", "name", "status", "access_mode", "access_label")
 
 # 工作台端点字段白名单（后端即便多回字段，MCP 也只透出这些）。
 TODO_FIELDS = (
@@ -128,6 +128,9 @@ PROJECT_BRIEF_FIELDS = (
     "project_id",
     "name",
     "status",
+    "access_mode",
+    "access_label",
+    "message",
     "phase",
     "my_role",
     "knowledge_count",

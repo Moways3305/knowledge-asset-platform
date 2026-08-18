@@ -62,6 +62,7 @@ async def run_search(
     trace_id: str | None,
     channel: AccessChannel = AccessChannel.human,
     asset_guard: Callable[[Any], bool] | None = None,
+    allow_cross_project: bool = False,
 ) -> SearchResponse:
     """统一检索 / 问答主流程。
 
@@ -107,7 +108,7 @@ async def run_search(
                 "project_filter_scope_mismatch",
                 "Project filtering requires project scope",
             )
-        if req.filters.project_id not in caller.active_project_ids:
+        if req.filters.project_id not in caller.active_project_ids and not allow_cross_project:
             raise _denied(
                 403,
                 "project_membership_required",
