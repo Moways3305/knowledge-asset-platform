@@ -257,7 +257,7 @@ def kap_answer_from_knowledge(
 
 @mcp.tool()
 def kap_list_accessible_projects(ctx: Context | None = None) -> object:
-    """列出当前调用人可访问的项目（最小安全字段）。"""
+    """列出可发现项目及访问模式；“摘要可见”项目仅可复用安全摘要，并非无项目权限。"""
     return _projects_tool(bearer=_read_bearer(ctx))
 
 
@@ -363,13 +363,13 @@ def kap_list_project_knowledge(
     tags: list[str] | None = None,
     ctx: Context | None = None,
 ) -> object:
-    """列出某项目下我可见的知识资产（先按项目权限校验，再按 decide() 裁剪）。"""
+    """列出项目内可发现资料；非成员摘要项目仅返回权限裁剪后的安全摘要卡片。"""
     return _project_knowledge_tool(project_id, limit, phase, tags, bearer=_read_bearer(ctx))
 
 
 @mcp.tool()
 def kap_get_project_brief(project_id: str, ctx: Context | None = None) -> object:
-    """获取某项目的安全概览（我的角色 / 知识数 / 待办计数；不含客户敏感信息 / 成员名单）。"""
+    """获取项目安全概览；非成员摘要项目仅返回“该项目仅摘要可见”的最小视图。"""
     return _project_brief_tool(project_id, bearer=_read_bearer(ctx))
 
 

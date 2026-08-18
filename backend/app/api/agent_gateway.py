@@ -42,10 +42,9 @@ from app.schemas.external_agent import (
 )
 from app.schemas.permission import AccessChannel, CallerContext
 from app.schemas.search import SearchFilters, SearchRequest, SearchResponse
-from app.services import agent_registry, agent_workbench
+from app.services import agent_registry, agent_workbench, discoverable_projects
 from app.services import directories as directory_service
 from app.services import external_agent_gateway as gateway
-from app.services import projects as projects_service
 from app.services import search as search_service
 from app.services.llm_client import get_llm_client
 from app.services.storage import LocalFileStorage, get_storage
@@ -131,6 +130,17 @@ async def knowledge_search(
         want_original=False,  # agent-gateway 永不取原文
         asset_id=None,
     )
+    if search_req.filters.project_id is not None:
+        discovered = await discoverable_projects.get_discoverable_project(
+            session,
+            caller,
+            search_req.filters.project_id,
+            allowed_scope=effective_scope,
+            allowed_project_id=rule.allowed_project_id,
+            asset_filter=gateway.asset_ceiling_filter(rule),
+        )
+        if discovered is None:
+            raise denied(404, "project_not_found", "项目不存在或不可用")
     return await search_service.run_search(
         session,
         caller,
@@ -140,6 +150,7 @@ async def knowledge_search(
         trace_id=get_trace_id(request),
         channel=AccessChannel.agent,
         asset_guard=lambda asset: gateway.asset_within_ceiling(rule, asset),
+        allow_cross_project=True,
     )
 
 
@@ -155,6 +166,7 @@ async def list_knowledge_directories(
         caller,
         allowed_scope=effective_scope,
         allowed_project_id=rule.allowed_project_id,
+        asset_filter=gateway.asset_ceiling_filter(rule),
     )
     return AgentDirectoriesResponse(items=[AgentDirectoryOut(**row) for row in rows])
 
@@ -164,10 +176,25 @@ async def list_accessible_projects(
     bound: tuple[AgentWhitelistRule, CallerContext] = Depends(require_bound_caller),
     session: AsyncSession = Depends(get_db),
 ) -> AgentProjectsResponse:
-    _, caller = bound
-    full = await projects_service.list_projects(session, caller)
+    rule, caller = bound
+    rows = await discoverable_projects.list_discoverable_projects(
+        session,
+        caller,
+        allowed_scope=rule.allowed_scope,
+        allowed_project_id=rule.allowed_project_id,
+        asset_filter=gateway.asset_ceiling_filter(rule),
+    )
     return AgentProjectsResponse(
-        items=[AgentProjectOut(project_id=p.id, name=p.name, status=p.status) for p in full.items]
+        items=[
+            AgentProjectOut(
+                project_id=row.project_id,
+                name=row.name,
+                status=row.status,
+                access_mode=row.access_mode,
+                access_label=row.access_label,
+            )
+            for row in rows
+        ]
     )
 
 
@@ -333,7 +360,11 @@ async def list_project_knowledge(
     )
 
 
-@router.get("/projects/{project_id}/brief", response_model=WorkbenchProjectBrief)
+@router.get(
+    "/projects/{project_id}/brief",
+    response_model=WorkbenchProjectBrief,
+    response_model_exclude_unset=True,
+)
 async def get_project_brief(
     project_id: uuid.UUID,
     bound: tuple[AgentWhitelistRule, CallerContext] = Depends(require_bound_caller),

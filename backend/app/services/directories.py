@@ -14,7 +14,11 @@ from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.naming import NamingRuleRevision
 from app.schemas.enums import KnowledgeScope
 from app.schemas.permission import CallerContext
-from app.services.permission import discovery_filter
+from app.services.discoverable_projects import (
+    MEMBER,
+    discoverable_project_asset_filter,
+    list_discoverable_projects,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,6 +224,7 @@ async def visible_directory_rows(
     *,
     allowed_scope: str | None = None,
     allowed_project_id: uuid.UUID | None = None,
+    asset_filter=None,
 ) -> list[dict]:
     _, rows = await published_directories(session)
     # Member projects expose their complete governed directory template. A
@@ -239,7 +244,7 @@ async def visible_directory_rows(
                     KnowledgeAsset.scope == KnowledgeScope.project.value,
                     KnowledgeAsset.project_id.is_not(None),
                     KnowledgeAssetVersion.directory_key.is_not(None),
-                    discovery_filter(caller),
+                    discoverable_project_asset_filter(caller, additional_filter=asset_filter),
                 )
                 .distinct()
             )
@@ -252,23 +257,12 @@ async def visible_directory_rows(
         if project_id is not None and directory_key:
             discoverable_by_project.setdefault(project_id, set()).add(directory_key)
 
-    visible_project_ids = set(caller.active_project_ids) | set(discoverable_by_project)
-    if allowed_project_id is not None:
-        visible_project_ids &= {allowed_project_id}
-    projects = (
-        list(
-            (
-                await session.execute(
-                    select(Project).where(
-                        Project.id.in_(visible_project_ids), Project.status == "active"
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        if visible_project_ids
-        else []
+    projects = await list_discoverable_projects(
+        session,
+        caller,
+        allowed_scope=allowed_scope,
+        allowed_project_id=allowed_project_id,
+        asset_filter=asset_filter,
     )
     out: list[dict] = []
     for row in rows:
@@ -286,14 +280,14 @@ async def visible_directory_rows(
         }
         if scope == "project":
             for project in projects:
-                if project.id not in caller.active_project_ids and row.get(
+                if project.access_mode != MEMBER and row.get(
                     "directory_key"
-                ) not in discoverable_by_project.get(project.id, set()):
+                ) not in discoverable_by_project.get(project.project_id, set()):
                     continue
                 out.append(
                     {
                         **base,
-                        "project_id": project.id,
+                        "project_id": project.project_id,
                         "project_name": project.name,
                         "display_path": f"项目库 / {project.name} / {row.get('display_name')}",
                     }

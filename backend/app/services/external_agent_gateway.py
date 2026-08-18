@@ -19,8 +19,11 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy import false, true
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
+from app.models.knowledge import KnowledgeAsset
 from app.schemas.enums import AuditAction, AuditLogType
 from app.schemas.external_agent import ExternalRetrievalRecord
 from app.schemas.permission import AccessChannel, CallerContext
@@ -101,6 +104,21 @@ def asset_within_ceiling(rule, asset) -> bool:
     if is_self_service_workbuddy_rule(rule):
         return True
     return _within_ceiling(asset, rule.max_confidentiality_level, rule.max_ai_access_level)
+
+
+def asset_ceiling_filter(rule) -> ColumnElement[bool]:
+    """SQL equivalent of ``asset_within_ceiling`` for existence queries."""
+    if is_self_service_workbuddy_rule(rule):
+        return true()
+    max_conf = _CONF_RANK.get(rule.max_confidentiality_level, 0)
+    max_ai = _AI_RANK.get(rule.max_ai_access_level, 0)
+    allowed_conf = [level for level, rank in _CONF_RANK.items() if rank <= max_conf]
+    allowed_ai = [level for level, rank in _AI_RANK.items() if rank <= max_ai]
+    if not allowed_conf or not allowed_ai:
+        return false()
+    return KnowledgeAsset.confidentiality_level.in_(
+        allowed_conf
+    ) & KnowledgeAsset.ai_access_level.in_(allowed_ai)
 
 
 def is_self_service_workbuddy_rule(rule) -> bool:

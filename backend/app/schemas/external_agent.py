@@ -14,8 +14,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+ProjectAccessMode = Literal["member", "summary_visible"]
+ProjectAccessLabel = Literal["可查看资料", "摘要可见"]
 
 
 # ---------------- 网关检索结果（provider 中立）----------------
@@ -49,6 +53,8 @@ class AgentProjectOut(BaseModel):
     project_id: uuid.UUID
     name: str
     status: str
+    access_mode: ProjectAccessMode
+    access_label: ProjectAccessLabel
 
 
 class AgentProjectsResponse(BaseModel):

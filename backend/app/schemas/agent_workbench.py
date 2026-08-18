@@ -17,6 +17,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.schemas.external_agent import ProjectAccessLabel, ProjectAccessMode
+
 
 # ---------------- todos ----------------
 class AgentWorkbenchTodoItem(BaseModel):
@@ -137,12 +139,15 @@ class WorkbenchProjectBrief(BaseModel):
     project_id: uuid.UUID
     name: str
     status: str
+    access_mode: ProjectAccessMode
+    access_label: ProjectAccessLabel
+    message: str | None = None
     phase: str | None = None
     my_role: str | None = None
-    knowledge_count: int = 0
-    recent_asset_count: int = 0
-    pending_review_count: int = 0
-    pending_original_request_count: int = 0
+    knowledge_count: int | None = None
+    recent_asset_count: int | None = None
+    pending_review_count: int | None = None
+    pending_original_request_count: int | None = None
 
 
 # ---------------- pending reviews ----------------

@@ -72,7 +72,10 @@ Knowledge / Q&A:
 - `kap_list_knowledge_directories()` returns authorized stable directory keys and display paths, never asset counts.
 - `kap_search_knowledge(query, scope?, top_k?, tags?, phase?, directory_key?, project_id?)` returns safe summary cards. If the user explicitly names a directory (such as methodology or deliverables), resolve its exact key with the directory tool first. For a general topic, search broadly; never guess a key or silently add a hard directory filter.
 - `kap_answer_from_knowledge(query, scope?)` → `{answer, citations}`
-- `kap_list_accessible_projects()` → `[{project_id, name, status}]`
+- `kap_list_accessible_projects()` → `[{project_id, name, status, access_mode, access_label}]`.
+  `summary_visible / 摘要可见` means the non-member project has reusable safe summaries; it must
+  not be described as having no project permission, and it does not grant project workspace or
+  original-file access.
 
 Workbench (PBC-37):
 
@@ -81,7 +84,8 @@ Workbench (PBC-37):
 - `kap_list_recent_knowledge(scope?, project_id?, limit?)` → recent knowledge cards I can see.
 - `kap_get_knowledge_summary(asset_id)` → one asset's safe/redacted summary (discovery/summary layer).
 - `kap_list_project_knowledge(project_id, limit?, phase?, tags?)` → knowledge I can see in a project.
-- `kap_get_project_brief(project_id)` → `{my_role, knowledge_count, recent_asset_count, …}`.
+- `kap_get_project_brief(project_id)` → member metrics, or the minimal
+  `{project_id, name, status, access_mode, access_label, message}` view for a summary-visible project.
 - `kap_list_pending_reviews(limit?)` → review items I can act on / see.
 - `kap_list_original_access_requests(box="mine"|"inbox", limit?)` → original-access requests.
 

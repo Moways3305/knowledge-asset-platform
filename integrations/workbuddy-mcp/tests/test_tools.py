@@ -111,12 +111,33 @@ def test_answer_returns_answer_and_safe_citations():
 def test_projects_safe_fields():
     def handler(request):
         return httpx.Response(
-            200, json={"items": [{"project_id": "p1", "name": "N", "status": "active"}]}
+            200,
+            json={
+                "items": [
+                    {
+                        "project_id": "p1",
+                        "name": "N",
+                        "status": "active",
+                        "access_mode": "summary_visible",
+                        "access_label": "摘要可见",
+                        **_LEAK_EXTRA,
+                    }
+                ]
+            },
         )
 
     client = _client(handler)
     out = list_accessible_projects(client)
-    assert out == [{"project_id": "p1", "name": "N", "status": "active"}]
+    assert out == [
+        {
+            "project_id": "p1",
+            "name": "N",
+            "status": "active",
+            "access_mode": "summary_visible",
+            "access_label": "摘要可见",
+        }
+    ]
+    _assert_no_leak(out)
 
 
 def test_error_is_sanitized():
@@ -418,6 +439,8 @@ def test_project_brief_projection():
                 "project_id": "p1",
                 "name": "Alpha",
                 "status": "active",
+                "access_mode": "member",
+                "access_label": "可查看资料",
                 "phase": "交付",
                 "my_role": "consultant",
                 "knowledge_count": 3,
@@ -433,6 +456,35 @@ def test_project_brief_projection():
     out = get_project_brief(client, "p1", bearer="kgw_user")
     assert "client_name" not in out
     assert out["my_role"] == "consultant"
+    assert out["access_mode"] == "member"
+    _assert_no_leak(out)
+
+
+def test_summary_visible_project_brief_stays_minimal():
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "project_id": "p2",
+                "name": "Beta",
+                "status": "active",
+                "access_mode": "summary_visible",
+                "access_label": "摘要可见",
+                "message": "该项目仅摘要可见",
+                **_LEAK_EXTRA,
+            },
+        )
+
+    out = get_project_brief(_client(handler), "p2", bearer="kgw_user")
+    assert out == {
+        "project_id": "p2",
+        "name": "Beta",
+        "status": "active",
+        "access_mode": "summary_visible",
+        "access_label": "摘要可见",
+        "message": "该项目仅摘要可见",
+    }
+    assert not any(key.endswith("_count") for key in out)
     _assert_no_leak(out)
 
 

@@ -22,6 +22,7 @@ from app.seed.dev_seed import (
     KA_PERSONAL,
     KA_PROJECT_ALPHA,
     KA_PROJECT_ALPHA_L5,
+    KA_PROJECT_BETA_L3,
     PROJECT_ALPHA,
     PROJECT_BETA,
     USER_BOSS,
@@ -67,7 +68,10 @@ async def _insert_rule(
     enabled=True,
     capability="qa",
     max_conf="L5",
+    max_ai="A4",
     self_service=False,
+    allowed_scope=None,
+    allowed_project_id=None,
 ):
     rule = AgentWhitelistRule(
         provider="workbuddy",
@@ -76,9 +80,10 @@ async def _insert_rule(
         ),
         agent_name="WorkBuddy 工作台测试",
         capability=capability,
-        allowed_scope=None,
+        allowed_scope=allowed_scope,
+        allowed_project_id=allowed_project_id,
         max_confidentiality_level=max_conf,
-        max_ai_access_level="A4",
+        max_ai_access_level=max_ai,
         token_hash=hash_token(token),
         enabled=enabled,
         is_self_service=self_service,
@@ -421,33 +426,26 @@ async def test_project_knowledge_member_can_read_own_project_l5(client, db_sessi
     _no_leak(r.text)
 
 
-async def test_project_knowledge_non_member_not_enumerable(client, db_session):
-    """consultant_a 非 Beta active 成员、非治理 → 无权项目与不存在项目不可区分（统一 404）。"""
+async def test_project_knowledge_non_member_gets_only_discoverable_summary(client, db_session):
     await _insert_rule(db_session, bound_user_id=USER_CONSULTANT)
-    no_access = await client.get(
+    response = await client.get(
         f"/api/v1/agent-gateway/projects/{PROJECT_BETA}/knowledge", headers=_bearer()
     )
-    missing = await client.get(
-        f"/api/v1/agent-gateway/projects/{uuid.uuid4()}/knowledge", headers=_bearer()
-    )
-    assert no_access.status_code == 404
-    assert missing.status_code == 404
-    # 错误形态完全一致：无法据此区分 Beta 是否真实存在。
-    assert no_access.json() == missing.json()
-    # 不泄露项目名 / 客户 / 成员 / 权限原因。
-    text = no_access.text
-    for leak in ("Beta 项目", "membership", "project_membership_required", "client", "成员"):
-        assert leak not in text
-    _no_leak(text)
+    assert response.status_code == 200, response.text
+    assert {item["asset_id"] for item in response.json()["items"]} == {str(KA_PROJECT_BETA_L3)}
+    item = response.json()["items"][0]
+    assert item["can_view_original"] is False
+    assert item["one_liner"].startswith("（脱敏）")
+    _no_leak(response.text)
 
 
-async def test_project_knowledge_governance_without_membership_is_hidden(client, db_session):
+async def test_project_knowledge_governance_without_membership_is_summary_only(client, db_session):
     await _insert_rule(db_session, bound_user_id=USER_BOSS)
     r = await client.get(
         f"/api/v1/agent-gateway/projects/{PROJECT_BETA}/knowledge", headers=_bearer()
     )
-    assert r.status_code == 404
-    assert r.json()["detail"]["denied_reason"] == "project_not_found"
+    assert r.status_code == 200
+    assert {item["asset_id"] for item in r.json()["items"]} == {str(KA_PROJECT_BETA_L3)}
 
 
 async def test_project_knowledge_unknown_project_404(client, db_session):
@@ -469,6 +467,8 @@ async def test_project_brief_member(client, db_session):
         "project_id",
         "name",
         "status",
+        "access_mode",
+        "access_label",
         "phase",
         "my_role",
         "knowledge_count",
@@ -476,25 +476,37 @@ async def test_project_brief_member(client, db_session):
         "pending_review_count",
         "pending_original_request_count",
     }
+    assert body["access_mode"] == "member"
     assert "client_name" not in r.text
     _no_leak(r.text)
 
 
-async def test_project_brief_non_member_not_enumerable(client, db_session):
-    """brief 同样把无权项目与不存在项目统一为 404，不可枚举。"""
+async def test_project_brief_non_member_is_minimal_summary_view(client, db_session):
     await _insert_rule(db_session, bound_user_id=USER_CONSULTANT)
-    no_access = await client.get(
+    response = await client.get(
         f"/api/v1/agent-gateway/projects/{PROJECT_BETA}/brief", headers=_bearer()
     )
-    missing = await client.get(
-        f"/api/v1/agent-gateway/projects/{uuid.uuid4()}/brief", headers=_bearer()
+    assert response.status_code == 200
+    assert response.json() == {
+        "project_id": str(PROJECT_BETA),
+        "name": "Beta 项目",
+        "status": "active",
+        "access_mode": "summary_visible",
+        "access_label": "摘要可见",
+        "message": "该项目仅摘要可见",
+    }
+    for leak in ("my_role", "knowledge_count", "pending", "client", "成员"):
+        assert leak not in response.text
+    _no_leak(response.text)
+
+
+async def test_project_entry_ceiling_hides_non_member_project(client, db_session):
+    await _insert_rule(db_session, bound_user_id=USER_CONSULTANT, max_conf="L2")
+    response = await client.get(
+        f"/api/v1/agent-gateway/projects/{PROJECT_BETA}/knowledge", headers=_bearer()
     )
-    assert no_access.status_code == 404
-    assert missing.status_code == 404
-    assert no_access.json() == missing.json()
-    for leak in ("Beta 项目", "membership", "project_membership_required", "client", "成员"):
-        assert leak not in no_access.text
-    _no_leak(no_access.text)
+    assert response.status_code == 404
+    assert response.json()["detail"]["denied_reason"] == "project_not_found"
 
 
 # ---------------------------------------------------------------------------
