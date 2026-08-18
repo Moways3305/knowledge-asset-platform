@@ -609,7 +609,7 @@ async def ops_indexing(
             }
         )
 
-    interrupted_count = int(
+    parse_interrupted_count = int(
         (
             await session.execute(
                 select(func.count())
@@ -619,6 +619,22 @@ async def ops_indexing(
                     *active_non_deleted,
                     KnowledgeAssetVersion.index_status == "index_failed",
                     KnowledgeAssetVersion.index_error_code == index_recovery.INTERRUPTED_ERROR_CODE,
+                )
+            )
+        ).scalar()
+        or 0
+    )
+    submission_interrupted_count = int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(KnowledgeAssetVersion)
+                .join(KnowledgeAsset, KnowledgeAssetVersion.asset_id == KnowledgeAsset.id)
+                .where(
+                    *active_non_deleted,
+                    KnowledgeAssetVersion.index_status == "index_failed",
+                    KnowledgeAssetVersion.index_error_code
+                    == index_recovery.SUBMISSION_INTERRUPTED_ERROR_CODE,
                 )
             )
         ).scalar()
@@ -647,7 +663,9 @@ async def ops_indexing(
         "recent_failed": recovery_items,
         "recovery_items": recovery_items,
         "recovery_summary": {
-            "interrupted": interrupted_count,
+            "interrupted": parse_interrupted_count + submission_interrupted_count,
+            "submission_interrupted": submission_interrupted_count,
+            "parse_interrupted": parse_interrupted_count,
             "needs_recovery": recovery_count,
             "processing": counts["indexing"] + active_recovery_count,
             "searchable": searchable_count,
@@ -674,8 +692,25 @@ async def _last_reconcile(session: AsyncSession) -> dict | None:
         "processed": row.processed,
         "updated": row.updated,
         "failed": row.failed,
+        "submission_scanned": row.submission_scanned,
+        "submission_interrupted": row.submission_interrupted,
+        "submission_fresh_job_skipped": row.submission_fresh_job_skipped,
+        "submission_exceptions": row.submission_exceptions,
         "duration_ms": row.duration_ms,
     }
+
+
+@router.post("/admin/ops/indexing/detect-interruptions")
+async def ops_detect_index_submission_interruptions(
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, int]:
+    """Run the same bounded, idempotent detector used by the five-minute schedule."""
+    _require_ops_viewer(caller)
+    return await index_recovery.detect_submission_interruptions(
+        session, trace_id=get_trace_id(request)
+    )
 
 
 @router.get("/admin/ops/indexing/health", response_model=IndexingHealthResponse)

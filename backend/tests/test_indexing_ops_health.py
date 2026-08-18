@@ -110,6 +110,47 @@ async def test_parse_failed_visibility_excludes_deleted_and_inactive_versions(db
     assert health.trend_points[-1].parse_failed == 1
 
 
+async def test_health_separates_submission_and_parse_interruptions(db_session):
+    now = utc_now()
+    for index, code in enumerate(("index_submission_interrupted", "index_interrupted")):
+        asset_id = uuid.uuid4()
+        version_id = uuid.uuid4()
+        db_session.add(
+            KnowledgeAsset(
+                id=asset_id,
+                title=f"safe interruption {index}",
+                scope="personal",
+                zone="asset",
+                asset_type="methodology",
+                owner_user_id=USER_CONSULTANT,
+                current_version_id=version_id,
+                confidentiality_level="L2",
+                asset_status="active",
+            )
+        )
+        db_session.add(
+            KnowledgeAssetVersion(
+                id=version_id,
+                asset_id=asset_id,
+                version_no="v1",
+                version_status="active",
+                created_by=USER_CONSULTANT,
+                index_status="index_failed",
+                index_error_code=code,
+                weknora_doc_id="server-only" if code == "index_interrupted" else None,
+                weknora_parse_status="processing" if code == "index_interrupted" else None,
+            )
+        )
+    await db_session.commit()
+
+    counts = await indexing_health.indexing_counts(db_session)
+    assert counts["submission_interrupted"] == 1
+    assert counts["parse_stalled"] == 1
+    snapshot = await indexing_health.capture_snapshot(db_session, observed_at=now)
+    assert snapshot.submission_interrupted == 1
+    assert snapshot.parse_stalled == 1
+
+
 async def test_health_reports_real_healthy_stale_and_insufficient_states(db_session, monkeypatch):
     now = utc_now()
     monkeypatch.setattr(

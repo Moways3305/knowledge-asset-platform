@@ -44,10 +44,27 @@ async def reconcile_parse_statuses(
     limit: int = 200,
 ) -> dict:
     """对账一批 pending/processing 版本的解析状态。返回安全计数（无 kb/doc id）。"""
+    submission = await index_recovery.detect_submission_interruptions(
+        session, trace_id=trace_id, limit=limit
+    )
     if not weknora_enabled():
         # 未配置底座：无可对账项，安全空跑。
-        await _record_heartbeat(session, processed=0, updated=0, failed=0, duration_ms=0)
-        return {"processed": 0, "updated": 0, "failed": 0, "skipped": "weknora_not_configured"}
+        await _record_heartbeat(
+            session,
+            processed=0,
+            updated=0,
+            failed=0,
+            duration_ms=0,
+            submission=submission,
+        )
+        await session.commit()
+        return {
+            "processed": 0,
+            "updated": 0,
+            "failed": 0,
+            "skipped": "weknora_not_configured",
+            **{f"submission_{key}": value for key, value in submission.items()},
+        }
 
     started = time.perf_counter()
     rows = list(
@@ -144,6 +161,7 @@ async def reconcile_parse_statuses(
         updated=updated,
         failed=failed,
         duration_ms=int((time.perf_counter() - started) * 1000),
+        submission=submission,
     )
     await session.commit()
     return {
@@ -152,6 +170,7 @@ async def reconcile_parse_statuses(
         "failed": failed,
         "interrupted": interrupted,
         "interrupted_recovered": interrupted_recovered,
+        **{f"submission_{key}": value for key, value in submission.items()},
     }
 
 
@@ -162,14 +181,20 @@ async def _record_heartbeat(
     updated: int,
     failed: int,
     duration_ms: int,
+    submission: dict[str, int] | None = None,
 ) -> None:
     """写入对账心跳并裁剪旧行（同一事务，随 commit 生效）。"""
+    submission = submission or {}
     session.add(
         OpsReconcileHeartbeat(
             observed_at=utc_now(),
             processed=processed,
             updated=updated,
             failed=failed,
+            submission_scanned=submission.get("scanned", 0),
+            submission_interrupted=submission.get("identified", 0),
+            submission_fresh_job_skipped=submission.get("skipped_fresh_jobs", 0),
+            submission_exceptions=submission.get("exceptions", 0),
             duration_ms=duration_ms,
         )
     )

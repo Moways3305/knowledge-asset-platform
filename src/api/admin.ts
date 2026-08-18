@@ -79,6 +79,15 @@ export async function fetchOpsIndexing(includeAll = false): Promise<OpsIndexingD
   );
 }
 
+export async function detectIndexSubmissionInterruptions(): Promise<{
+  scanned: number;
+  identified: number;
+  skipped_fresh_jobs: number;
+  exceptions: number;
+}> {
+  return apiPost(`/admin/ops/indexing/detect-interruptions`, {});
+}
+
 export async function fetchLLMUsage(days = 14): Promise<LLMUsageAggregateResponseDTO> {
   return apiGet<LLMUsageAggregateResponseDTO>(
     `/admin/ops/llm-usage?days=${encodeURIComponent(days)}`,
