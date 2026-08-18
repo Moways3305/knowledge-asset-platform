@@ -4493,12 +4493,22 @@
             "title": "Parse Processing",
             "type": "integer"
           },
+          "parse_stalled": {
+            "default": 0,
+            "title": "Parse Stalled",
+            "type": "integer"
+          },
           "queued_jobs": {
             "title": "Queued Jobs",
             "type": "integer"
           },
           "skipped": {
             "title": "Skipped",
+            "type": "integer"
+          },
+          "submission_interrupted": {
+            "default": 0,
+            "title": "Submission Interrupted",
             "type": "integer"
           }
         },
@@ -17493,6 +17503,92 @@
           }
         },
         "summary": "Ops Indexing",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/admin/ops/indexing/detect-interruptions": {
+      "post": {
+        "description": "Run the same bounded, idempotent detector used by the five-minute schedule.",
+        "operationId": "ops_detect_index_submission_interruptions_admin_ops_indexing_detect_interruptions_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Ops Detect Index Submission Interruptions Admin Ops Indexing Detect Interruptions Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ops Detect Index Submission Interruptions",
         "tags": [
           "ops"
         ]

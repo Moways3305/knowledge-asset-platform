@@ -11,6 +11,7 @@ import {
   RotateCw,
 } from "lucide-react";
 import {
+  detectIndexSubmissionInterruptions,
   fetchIndexingJobs,
   fetchIndexingHealth,
   fetchLLMUsage,
@@ -88,6 +89,8 @@ const diagnosticLabels: Record<DiagnosticCategory, string> = {
 };
 
 const recoveryStatePriority: Record<string, number> = {
+  submission_interrupted: 0,
+  parse_interrupted: 0,
   interrupted: 0,
   failed: 1,
   waiting: 2,
@@ -185,7 +188,9 @@ function safeFailureMessage(item: OpsIndexingFailedItemDTO) {
 }
 
 function recoveryStateLabel(item: OpsIndexingFailedItemDTO) {
-  if (item.recovery_state === "interrupted") return "索引中断";
+  if (item.recovery_state === "submission_interrupted") return "索引提交中断";
+  if (item.recovery_state === "parse_interrupted" || item.recovery_state === "interrupted")
+    return "解析中断";
   if (item.recovery_state === "waiting") return "等待索引";
   if (item.recovery_state === "skipped") return "此前未进入";
   return "索引失败";
@@ -365,6 +370,26 @@ export default function AdminIngestPage() {
     },
     [loadHealth, loadIngest, loadLLMUsage, loadOpsIndex, loadOpsJobs],
   );
+
+  const handleDetectInterruptions = async () => {
+    if (opsBusy) return;
+    setOpsBusy(true);
+    setOpsFeedbackState("submitted");
+    setOpsNote("正在识别超过安全阈值且没有新鲜作业的索引提交…");
+    try {
+      const result = await detectIndexSubmissionInterruptions();
+      await refreshAll(false);
+      setOpsFeedbackState(result.exceptions ? "partial" : "success");
+      setOpsNote(
+        `中断识别完成：扫描 ${result.scanned} 项，识别 ${result.identified} 项，跳过新鲜作业 ${result.skipped_fresh_jobs} 项${result.exceptions ? `，异常 ${result.exceptions} 项` : ""}。`,
+      );
+    } catch {
+      setOpsFeedbackState("error");
+      setOpsNote("中断识别未完成，请稍后重试；现有资产与索引状态未被改写。");
+    } finally {
+      setOpsBusy(false);
+    }
+  };
 
   useEffect(() => {
     void refreshAll();
@@ -671,6 +696,14 @@ export default function AdminIngestPage() {
   };
   const displayedNeedsRecovery = recoverySummary.needs_recovery;
   const displayedProcessing = recoverySummary.processing;
+  const submissionProcessing = opsIndex?.counts.submission_processing ?? displayedProcessing;
+  const parseInProgress =
+    opsIndex?.counts.parse_in_progress ??
+    (opsIndex?.counts.parse_pending ?? 0) + (opsIndex?.counts.parse_processing ?? 0);
+  const submissionInterrupted = recoverySummary.submission_interrupted ?? 0;
+  const parseInterrupted =
+    recoverySummary.parse_interrupted ??
+    Math.max(0, recoverySummary.interrupted - submissionInterrupted);
   const runtimeAttentionCount =
     failedIngestItems.length +
     (opsIndex?.counts.parse_failed ?? 0) +
@@ -702,6 +735,15 @@ export default function AdminIngestPage() {
             <button className="btn-small" type="button" onClick={showRuntimeDetails}>
               <Clock3 size={15} aria-hidden="true" />
               查看作业
+            </button>
+            <button
+              className="btn-small"
+              type="button"
+              onClick={() => void handleDetectInterruptions()}
+              disabled={opsBusy}
+            >
+              <FileSearch size={15} aria-hidden="true" />
+              识别中断索引
             </button>
             <button
               className="btn-icon"
@@ -742,7 +784,9 @@ export default function AdminIngestPage() {
                 <div>
                   <strong>
                     {recoverySummary.interrupted
-                      ? `${recoverySummary.interrupted} 项索引中断，等待恢复`
+                      ? submissionInterrupted
+                        ? `${submissionInterrupted} 项索引提交中断${parseInterrupted ? `，另有 ${parseInterrupted} 项解析中断` : ""}，等待恢复`
+                        : `${parseInterrupted || recoverySummary.interrupted} 项解析中断，等待恢复`
                       : displayedNeedsRecovery
                         ? `${displayedNeedsRecovery} 项索引未完成，可安全恢复`
                         : "当前没有待恢复索引"}
@@ -791,18 +835,25 @@ export default function AdminIngestPage() {
                         <strong title="现有接口未返回去重后的入库总数">—</strong>
                       </div>
                     </li>
-                    <li className={displayedProcessing ? "is-active" : ""}>
+                    <li className={submissionProcessing ? "is-active" : ""}>
                       <RotateCw size={17} aria-hidden="true" />
                       <div>
                         <span>索引提交</span>
-                        <strong>{displayedProcessing}</strong>
+                        <strong>{submissionProcessing}</strong>
                       </div>
                     </li>
-                    <li className={recoverySummary.interrupted ? "is-interrupted" : ""}>
+                    <li className={submissionInterrupted ? "is-interrupted" : ""}>
                       <AlertTriangle size={17} aria-hidden="true" />
                       <div>
-                        <span>{recoverySummary.interrupted ? "中断待恢复" : "解析中"}</span>
-                        <strong>{recoverySummary.interrupted || "—"}</strong>
+                        <span>索引提交中断</span>
+                        <strong>{submissionInterrupted || "—"}</strong>
+                      </div>
+                    </li>
+                    <li className={parseInProgress ? "is-active" : ""}>
+                      <FileSearch size={17} aria-hidden="true" />
+                      <div>
+                        <span>解析中</span>
+                        <strong>{parseInProgress || "—"}</strong>
                       </div>
                     </li>
                     <li className="is-complete">
@@ -821,13 +872,13 @@ export default function AdminIngestPage() {
                   </header>
                   <p>
                     <AlertTriangle size={16} aria-hidden="true" />
-                    <span>需恢复</span>
-                    <strong>{displayedNeedsRecovery}</strong>
+                    <span>索引提交中断</span>
+                    <strong>{submissionInterrupted}</strong>
                   </p>
                   <p>
-                    <Clock3 size={16} aria-hidden="true" />
-                    <span>处理中</span>
-                    <strong>{displayedProcessing}</strong>
+                    <FileSearch size={16} aria-hidden="true" />
+                    <span>解析中断</span>
+                    <strong>{parseInterrupted}</strong>
                   </p>
                   <p>
                     <CheckCircle2 size={16} aria-hidden="true" />
@@ -934,7 +985,9 @@ export default function AdminIngestPage() {
           <div className="ao84-actions" aria-label="索引恢复操作">
             <div className="ao84-action-explanation">
               <strong>恢复索引</strong>
-              <span>处理索引失败，可选未索引或已跳过；当前最多 {retryActionableCount} 项。</span>
+              <span>
+                处理索引提交中断或索引失败，可选未索引或已跳过；当前最多 {retryActionableCount} 项。
+              </span>
               <strong>重新解析</strong>
               <span>
                 仅处理已索引、已有底座文档且解析失败或待解析的资产；当前最多{" "}
@@ -1346,8 +1399,16 @@ export default function AdminIngestPage() {
               <li className="is-complete">
                 <span>2</span>
                 <div>
-                  <strong>已提交索引</strong>
-                  <small>曾进入知识底座处理链</small>
+                  <strong>
+                    {retryTarget.recovery_state === "submission_interrupted"
+                      ? "索引提交未完成"
+                      : "已提交索引"}
+                  </strong>
+                  <small>
+                    {retryTarget.recovery_state === "submission_interrupted"
+                      ? "尚未进入解析，可恢复重试"
+                      : "曾进入知识底座处理链"}
+                  </small>
                 </div>
               </li>
               <li className="is-error">

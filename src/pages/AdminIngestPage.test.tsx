@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  detectIndexSubmissionInterruptions,
   fetchIndexingJobs,
   fetchIndexingHealth,
   fetchLLMUsage,
@@ -17,6 +18,7 @@ import type { IndexingHealthDTO, IndexingJobSummaryDTO, OpsIndexingDTO } from ".
 import AdminIngestPage from "./AdminIngestPage";
 
 vi.mock("../api/admin", () => ({
+  detectIndexSubmissionInterruptions: vi.fn(),
   fetchIndexingJobs: vi.fn(),
   fetchIndexingHealth: vi.fn(),
   fetchLLMUsage: vi.fn(),
@@ -151,6 +153,12 @@ async function openRuntimeDetails(user: ReturnType<typeof userEvent.setup>) {
 describe("AdminIngestPage operations reference", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(detectIndexSubmissionInterruptions).mockResolvedValue({
+      scanned: 0,
+      identified: 0,
+      skipped_fresh_jobs: 0,
+      exceptions: 0,
+    });
     vi.mocked(fetchOpsIndexing).mockResolvedValue(ops);
     vi.mocked(fetchIndexingJobs).mockResolvedValue({ items: [], total: 0 });
     vi.mocked(fetchIndexingHealth).mockResolvedValue(health);
@@ -223,15 +231,16 @@ describe("AdminIngestPage operations reference", () => {
     const track = screen.getByRole("list", { name: "索引处理轨道" });
     expect(within(track).getByText("已入库").closest("li")).toHaveTextContent("—");
     expect(within(track).getByText("索引提交").closest("li")).toHaveTextContent("2");
-    expect(within(track).getByText("中断待恢复").closest("li")).toHaveTextContent("1");
+    expect(within(track).getByText("索引提交中断").closest("li")).toHaveTextContent("—");
+    expect(within(track).getByText("解析中").closest("li")).toHaveTextContent("3");
     expect(within(track).getByText("可检索").closest("li")).toHaveTextContent("12");
     const currentState = screen.getByLabelText("索引当前状态");
-    expect(within(currentState).getByText("需恢复").closest("p")).toHaveTextContent("8");
-    expect(within(currentState).getByText("处理中").closest("p")).toHaveTextContent("2");
+    expect(within(currentState).getByText("索引提交中断").closest("p")).toHaveTextContent("0");
+    expect(within(currentState).getByText("解析中断").closest("p")).toHaveTextContent("1");
     expect(within(currentState).getByText("已可检索").closest("p")).toHaveTextContent("12");
 
     expect(await screen.findByText("连接检查未通过，请确认平台配置。")).toBeInTheDocument();
-    expect(screen.getByText("1 项索引中断，等待恢复")).toBeInTheDocument();
+    expect(screen.getByText("1 项解析中断，等待恢复")).toBeInTheDocument();
     expect(screen.getByText("共 1 项")).toBeInTheDocument();
     expect(screen.getByLabelText("近 14 天模型用量")).toHaveTextContent("2外部请求数");
     expect(screen.getByLabelText("近 14 天模型用量")).toHaveTextContent("30总 token");
@@ -361,6 +370,44 @@ describe("AdminIngestPage operations reference", () => {
     );
     expect(screen.getByText("等待任务二")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "收起为优先项" })).toBeInTheDocument();
+  });
+
+  it("distinguishes submission interruption and can run the bounded detector", async () => {
+    vi.mocked(fetchOpsIndexing).mockResolvedValue({
+      ...ops,
+      recent_failed: [
+        {
+          ...ops.recent_failed[0],
+          index_error_code: "index_submission_interrupted",
+          index_error_message: "索引提交未完成，尚未进入解析，可恢复重试。",
+          operator_error_message: null,
+          recovery_state: "submission_interrupted",
+        },
+      ],
+      recovery_summary: {
+        interrupted: 1,
+        submission_interrupted: 1,
+        parse_interrupted: 0,
+        needs_recovery: 1,
+        processing: 2,
+        searchable: 12,
+      },
+    });
+    vi.mocked(detectIndexSubmissionInterruptions).mockResolvedValue({
+      scanned: 46,
+      identified: 46,
+      skipped_fresh_jobs: 0,
+      exceptions: 0,
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText("1 项索引提交中断，等待恢复")).toBeInTheDocument();
+    expect(screen.getAllByText("索引提交中断").length).toBeGreaterThan(0);
+    expect(screen.getByText("索引提交未完成，尚未进入解析，可恢复重试。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "识别中断索引" }));
+    await screen.findByText(/扫描 46 项，识别 46 项，跳过新鲜作业 0 项/);
+    expect(detectIndexSubmissionInterruptions).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the current candidate projection when loading all candidates fails", async () => {
@@ -512,7 +559,7 @@ describe("AdminIngestPage operations reference", () => {
     renderPage();
 
     expect(await screen.findByText("运行健康暂时无法加载。")).toBeInTheDocument();
-    expect(screen.getByText("1 项索引中断，等待恢复")).toBeInTheDocument();
+    expect(screen.getByText("1 项解析中断，等待恢复")).toBeInTheDocument();
     expect(screen.queryByLabelText("近 24 小时索引运维趋势")).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent("SECRET health payload");
   });
@@ -583,8 +630,8 @@ describe("AdminIngestPage operations reference", () => {
     await waitFor(() => expect(fetchOpsIndexing).toHaveBeenCalledTimes(2));
     expect(screen.getByText("绝不能显示的业务标题")).toBeInTheDocument();
     const currentState = screen.getByLabelText("索引当前状态");
-    expect(within(currentState).getByText("需恢复").closest("p")).toHaveTextContent("8");
-    expect(within(currentState).getByText("处理中").closest("p")).toHaveTextContent("2");
+    expect(within(currentState).getByText("索引提交中断").closest("p")).toHaveTextContent("0");
+    expect(within(currentState).getByText("解析中断").closest("p")).toHaveTextContent("1");
   });
 
   it("treats a zero-target reparse as terminal and refreshes every dependent summary", async () => {

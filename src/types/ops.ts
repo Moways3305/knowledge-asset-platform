@@ -4,12 +4,15 @@
 export interface OpsIndexingCountsDTO {
   index_failed: number;
   indexing: number;
+  submission_processing?: number;
+  parse_in_progress?: number;
   not_indexed: number;
   skipped: number;
   parse_pending: number;
   parse_processing: number;
   // 经最小时长 + 连续底座对账失败证据确认的索引中断数量（保留旧字段名兼容趋势）。
   parse_stalled: number;
+  submission_interrupted?: number;
   parse_failed: number;
   kb_init_failed: number;
 }
@@ -19,6 +22,10 @@ export interface OpsReconcileHeartbeatDTO {
   processed: number;
   updated: number;
   failed: number;
+  submission_scanned?: number;
+  submission_interrupted?: number;
+  submission_fresh_job_skipped?: number;
+  submission_exceptions?: number;
   duration_ms: number;
 }
 
@@ -45,7 +52,13 @@ export interface OpsIndexingFailedItemDTO {
   diagnostic_label: string;
   retry_eligible: boolean;
   updated_at: string | null;
-  recovery_state?: "interrupted" | "failed" | "waiting" | "skipped";
+  recovery_state?:
+    | "submission_interrupted"
+    | "parse_interrupted"
+    | "interrupted"
+    | "failed"
+    | "waiting"
+    | "skipped";
   wait_seconds?: number;
   latest_job?: {
     status: string;
@@ -58,6 +71,8 @@ export interface OpsIndexingFailedItemDTO {
 
 export interface OpsRecoverySummaryDTO {
   interrupted: number;
+  submission_interrupted?: number;
+  parse_interrupted?: number;
   needs_recovery: number;
   processing: number;
   searchable: number;

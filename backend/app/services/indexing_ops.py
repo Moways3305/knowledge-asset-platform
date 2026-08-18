@@ -366,7 +366,12 @@ async def create_targeted_retry_job(
         session,
         caller,
         operation_type="retry_index",
-        scope_filter={"scope": asset.scope, "statuses": [version.index_status], "limit": 1},
+        scope_filter={
+            "scope": asset.scope,
+            "statuses": [version.index_status],
+            "reason_codes": [error_catalog.safe_code(version.index_error_code)],
+            "limit": 1,
+        },
         requested_action=AuditAction.knowledge_index_target_retry_requested,
         weknora=weknora,
         storage=storage,

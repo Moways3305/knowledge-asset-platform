@@ -89,6 +89,12 @@ class IndexingOpsSnapshot(Base):
     parse_failed: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    parse_stalled: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    submission_interrupted: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     kb_init_failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     completed_jobs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     failed_jobs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -125,5 +131,17 @@ class OpsReconcileHeartbeat(Base):
     processed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     updated: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    submission_scanned: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    submission_interrupted: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    submission_fresh_job_skipped: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    submission_exceptions: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

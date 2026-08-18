@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import uuid
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -19,6 +20,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.db.base import Base
+from app.db.utils import utc_now
 from app.main import app
 from app.models.audit import AuditEvent
 from app.models.indexing_job import IndexingOperationJob
@@ -31,7 +33,7 @@ from app.seed.dev_seed import (
     USER_CONSULTANT,
     seed_dev_identities,
 )
-from app.services import indexing, indexing_ops
+from app.services import index_recovery, indexing, indexing_ops
 from app.services.canonical_markdown import ensure_version_markdown
 from app.services.storage import LocalFileStorage
 from app.services.weknora_client import WeKnoraError, get_weknora_client
@@ -42,6 +44,227 @@ REPARSE = "/admin/ops/indexing/reparse"
 JOBS = "/admin/ops/indexing/jobs"
 TARGET_RETRY = "/admin/ops/indexing/failures/{operation_target}/retry"
 MARKDOWN_BACKFILL = "/admin/ops/indexing/markdown-backfill"
+DETECT_INTERRUPTED = "/admin/ops/indexing/detect-interruptions"
+
+
+async def _make_unbound_indexing_version(
+    db_session, *, age_minutes: int, asset_status: str = "active"
+):
+    now = utc_now()
+    asset = KnowledgeAsset(
+        title="Submission interruption fixture",
+        scope="personal",
+        zone="material",
+        asset_type="deliverable",
+        owner_user_id=USER_CONSULTANT,
+        asset_status=asset_status,
+        confidentiality_level="L2",
+        created_at=now - timedelta(minutes=age_minutes),
+        updated_at=now - timedelta(minutes=age_minutes),
+    )
+    db_session.add(asset)
+    await db_session.flush()
+    version = KnowledgeAssetVersion(
+        asset_id=asset.id,
+        version_no="V1",
+        version_status="active",
+        created_by=USER_CONSULTANT,
+        index_status="indexing",
+        weknora_doc_id=None,
+        weknora_parse_status=None,
+        created_at=now - timedelta(minutes=age_minutes),
+        activated_at=now - timedelta(minutes=age_minutes),
+    )
+    db_session.add(version)
+    await db_session.flush()
+    asset.current_version_id = version.id
+    await db_session.commit()
+    return asset, version
+
+
+async def test_submission_interruption_detector_protects_age_and_is_idempotent(
+    db_session, monkeypatch
+):
+    monkeypatch.setenv("INDEX_INTERRUPTED_MIN_AGE_MINUTES", "30")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    _fresh_asset, fresh = await _make_unbound_indexing_version(db_session, age_minutes=10)
+    _old_asset, old = await _make_unbound_indexing_version(db_session, age_minutes=45)
+
+    first = await index_recovery.detect_submission_interruptions(
+        db_session, trace_id="submission-scan"
+    )
+    await db_session.refresh(fresh)
+    await db_session.refresh(old)
+    assert fresh.index_status == "indexing"
+    assert old.index_status == "index_failed"
+    assert old.index_error_code == "index_submission_interrupted"
+    assert old.weknora_parse_status is None
+    assert first["identified"] == 1
+
+    second = await index_recovery.detect_submission_interruptions(
+        db_session, trace_id="submission-scan-repeat"
+    )
+    assert second["identified"] == 0
+    audit_count = int(
+        (
+            await db_session.execute(
+                select(func.count()).where(
+                    AuditEvent.action == "knowledge.index_submission_interrupted_detected",
+                    AuditEvent.target_id == old.id,
+                )
+            )
+        ).scalar()
+        or 0
+    )
+    assert audit_count == 1
+
+
+async def test_submission_interruption_detector_skips_fresh_target_job_and_bound_parse_path(
+    db_session,
+):
+    asset, unbound = await _make_unbound_indexing_version(db_session, age_minutes=45)
+    db_session.add(
+        IndexingOperationJob(
+            operation_type="retry_index",
+            status="running",
+            target_asset_id=asset.id,
+            requested_by_user_id=USER_CONSULTANT,
+            requested_at=utc_now(),
+        )
+    )
+    _bound_asset, bound = await _make_unbound_indexing_version(db_session, age_minutes=45)
+    bound.weknora_doc_id = "server-only-doc"
+    bound.weknora_parse_status = "processing"
+    await db_session.commit()
+
+    result = await index_recovery.detect_submission_interruptions(db_session)
+    await db_session.refresh(unbound)
+    await db_session.refresh(bound)
+    assert result["skipped_fresh_jobs"] == 1
+    assert unbound.index_status == "indexing"
+    assert bound.index_status == "indexing"
+
+
+@pytest.mark.parametrize("asset_status", ["needs_update", "deprecated", "archived", "deleted"])
+async def test_submission_interruption_detector_only_mutates_active_assets(
+    db_session, asset_status
+):
+    _asset, version = await _make_unbound_indexing_version(
+        db_session, age_minutes=45, asset_status=asset_status
+    )
+
+    result = await index_recovery.detect_submission_interruptions(db_session)
+    await db_session.refresh(version)
+    assert result == {
+        "scanned": 0,
+        "identified": 0,
+        "skipped_fresh_jobs": 0,
+        "exceptions": 0,
+    }
+    assert version.index_status == "indexing"
+    audit_count = int(
+        (
+            await db_session.execute(
+                select(func.count()).where(
+                    AuditEvent.action == "knowledge.index_submission_interrupted_detected",
+                    AuditEvent.target_id == version.id,
+                )
+            )
+        ).scalar()
+        or 0
+    )
+    assert audit_count == 0
+
+
+async def test_admin_can_trigger_submission_interruption_detection(client, db_session):
+    _asset, version = await _make_unbound_indexing_version(db_session, age_minutes=45)
+    response = await client.post(DETECT_INTERRUPTED, headers=_hdr(USER_ADMIN_ONLY))
+    assert response.status_code == 200
+    assert response.json()["identified"] == 1
+    await db_session.refresh(version)
+    assert version.index_error_code == "index_submission_interrupted"
+    listing = await client.get("/admin/ops/indexing", headers=_hdr(USER_ADMIN_ONLY))
+    assert listing.status_code == 200
+    body = listing.json()
+    assert body["counts"]["submission_interrupted"] == 1
+    assert body["recovery_summary"]["submission_interrupted"] == 1
+    candidate = next(
+        item
+        for item in body["recovery_items"]
+        if item["index_error_code"] == "index_submission_interrupted"
+    )
+    assert candidate["recovery_state"] == "submission_interrupted"
+    assert candidate["index_error_message"] == "索引提交未完成，尚未进入解析，可恢复重试。"
+    serialized = str(candidate)
+    assert "server-only" not in serialized
+    assert "weknora_doc_id" not in serialized
+
+
+async def test_detected_submission_interruption_reuses_version_and_creates_binding(
+    client, db_session, monkeypatch
+):
+    asset_id = await _make_index_failed(
+        client,
+        monkeypatch,
+        USER_CONSULTANT,
+        content=b"submission recovery keeps this governed asset",
+    )
+    version = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id)
+            )
+        )
+    ).scalar_one()
+    original_version_id = version.id
+    version.index_status = "indexing"
+    version.index_error_code = None
+    version.index_error_message = None
+    version.weknora_doc_id = None
+    version.weknora_parse_status = None
+    version.activated_at = utc_now() - timedelta(minutes=45)
+    version.created_at = utc_now() - timedelta(minutes=45)
+    await db_session.commit()
+
+    detected = await index_recovery.detect_submission_interruptions(db_session)
+    assert detected["identified"] == 1
+    listing = (await client.get("/admin/ops/indexing", headers=_hdr(USER_ADMIN_ONLY))).json()
+    target = next(
+        item["retry_target"]
+        for item in listing["recovery_items"]
+        if item["index_error_code"] == "index_submission_interrupted"
+    )
+    ok = FakeWK()
+    _enable(monkeypatch, ok)
+    monkeypatch.setattr("app.services.indexing_ops.weknora_enabled", lambda: True)
+    recovered = await client.post(
+        TARGET_RETRY.format(operation_target=target), headers=_hdr(USER_ADMIN_ONLY)
+    )
+    assert recovered.status_code == 202
+    assert recovered.json()["success_count"] == 1
+
+    db_session.expire_all()
+    final_version = (
+        await db_session.execute(
+            select(KnowledgeAssetVersion).where(
+                KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id)
+            )
+        )
+    ).scalar_one()
+    assert final_version.id == original_version_id
+    assert final_version.weknora_doc_id is not None
+    assert final_version.index_status in {"indexing", "indexed"}
+    version_count = int(
+        (
+            await db_session.execute(
+                select(func.count()).where(KnowledgeAssetVersion.asset_id == uuid.UUID(asset_id))
+            )
+        ).scalar()
+        or 0
+    )
+    assert version_count == 1
 
 
 def test_indexing_boundary_requires_canonical_markdown_filename():

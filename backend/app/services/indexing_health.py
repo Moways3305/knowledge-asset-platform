@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -19,7 +19,7 @@ from app.schemas.indexing_ops import (
     QueueHealth,
     RuntimeHealth,
 )
-from app.services.index_recovery import INTERRUPTED_ERROR_CODE
+from app.services.index_recovery import INTERRUPTED_ERROR_CODE, SUBMISSION_INTERRUPTED_ERROR_CODE
 
 HEARTBEAT_STALE_SECONDS = 180
 QUEUE_DEGRADED_SECONDS = 300
@@ -57,6 +57,21 @@ async def indexing_counts(session: AsyncSession, *, now: datetime | None = None)
     return {
         "index_failed": await count(versions(KnowledgeAssetVersion.index_status == "index_failed")),
         "indexing": await count(versions(KnowledgeAssetVersion.index_status == "indexing")),
+        "submission_processing": await count(
+            versions(
+                KnowledgeAssetVersion.index_status == "indexing",
+                or_(
+                    KnowledgeAssetVersion.weknora_doc_id.is_(None),
+                    KnowledgeAssetVersion.weknora_parse_status.is_(None),
+                ),
+            )
+        ),
+        "parse_in_progress": await count(
+            versions(
+                KnowledgeAssetVersion.weknora_doc_id.is_not(None),
+                KnowledgeAssetVersion.weknora_parse_status.in_(("pending", "processing")),
+            )
+        ),
         "not_indexed": await count(versions(KnowledgeAssetVersion.index_status == "not_indexed")),
         "skipped": await count(versions(KnowledgeAssetVersion.index_status == "skipped")),
         "parse_pending": await count(
@@ -69,6 +84,12 @@ async def indexing_counts(session: AsyncSession, *, now: datetime | None = None)
             versions(
                 KnowledgeAssetVersion.index_status == "index_failed",
                 KnowledgeAssetVersion.index_error_code == INTERRUPTED_ERROR_CODE,
+            )
+        ),
+        "submission_interrupted": await count(
+            versions(
+                KnowledgeAssetVersion.index_status == "index_failed",
+                KnowledgeAssetVersion.index_error_code == SUBMISSION_INTERRUPTED_ERROR_CODE,
             )
         ),
         "parse_failed": await count(
@@ -263,6 +284,8 @@ async def get_health(
                 parse_pending=getattr(item, "parse_pending", 0),
                 parse_processing=getattr(item, "parse_processing", 0),
                 parse_failed=getattr(item, "parse_failed", 0),
+                parse_stalled=getattr(item, "parse_stalled", 0),
+                submission_interrupted=getattr(item, "submission_interrupted", 0),
                 kb_init_failed=item.kb_init_failed,
                 completed_jobs=item.completed_jobs,
                 failed_jobs=item.failed_jobs,
