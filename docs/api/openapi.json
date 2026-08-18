@@ -594,6 +594,22 @@
       "AgentProjectOut": {
         "description": "Agent 可见项目最小安全视图（不含 client_name / 成员 / 生命周期细节）。",
         "properties": {
+          "access_label": {
+            "enum": [
+              "可查看资料",
+              "摘要可见"
+            ],
+            "title": "Access Label",
+            "type": "string"
+          },
+          "access_mode": {
+            "enum": [
+              "member",
+              "summary_visible"
+            ],
+            "title": "Access Mode",
+            "type": "string"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -611,7 +627,9 @@
         "required": [
           "project_id",
           "name",
-          "status"
+          "status",
+          "access_mode",
+          "access_label"
         ],
         "title": "AgentProjectOut",
         "type": "object"
@@ -16198,10 +16216,43 @@
       "WorkbenchProjectBrief": {
         "description": "调用人可见的项目概览（不含客户敏感信息 / 成员名单 / 内部配置开关）。",
         "properties": {
+          "access_label": {
+            "enum": [
+              "可查看资料",
+              "摘要可见"
+            ],
+            "title": "Access Label",
+            "type": "string"
+          },
+          "access_mode": {
+            "enum": [
+              "member",
+              "summary_visible"
+            ],
+            "title": "Access Mode",
+            "type": "string"
+          },
           "knowledge_count": {
-            "default": 0,
-            "title": "Knowledge Count",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Count"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
           },
           "my_role": {
             "anyOf": [
@@ -16219,14 +16270,26 @@
             "type": "string"
           },
           "pending_original_request_count": {
-            "default": 0,
-            "title": "Pending Original Request Count",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Original Request Count"
           },
           "pending_review_count": {
-            "default": 0,
-            "title": "Pending Review Count",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Review Count"
           },
           "phase": {
             "anyOf": [
@@ -16245,9 +16308,15 @@
             "type": "string"
           },
           "recent_asset_count": {
-            "default": 0,
-            "title": "Recent Asset Count",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recent Asset Count"
           },
           "status": {
             "title": "Status",
@@ -16257,7 +16326,9 @@
         "required": [
           "project_id",
           "name",
-          "status"
+          "status",
+          "access_mode",
+          "access_label"
         ],
         "title": "WorkbenchProjectBrief",
         "type": "object"
