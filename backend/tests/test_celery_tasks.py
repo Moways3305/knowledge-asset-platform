@@ -39,8 +39,10 @@ from app.seed.dev_seed import (
     USER_DIRECTOR,
 )
 from app.services.desensitization import NullDesensitizer
+from app.services.extraction import ExtractionPage, ExtractionResult
 from app.services.jobs import ingest_processing, lifecycle_scan, parse_reconcile, reuse_upgrade
 from app.services.llm_client import NullLLMClient
+from app.services.ocr import OCRError, OCRPageResult, OCRResult
 from app.services.storage import LocalFileStorage
 from app.services.weknora_client import WeKnoraError
 
@@ -85,7 +87,7 @@ async def test_upload_processing_then_job_persists(client, db_session, monkeypat
         db_session,
         task_id,
         storage=client._kap_storage,
-        llm=NullLLMClient(),
+        llm=client._kap_generation_llm,
         desensitizer=NullDesensitizer(),
         trace_id="trc-celery",
     )
@@ -113,7 +115,7 @@ async def test_processing_job_idempotent(client, db_session, monkeypatch):
 
     kw = dict(
         storage=client._kap_storage,
-        llm=NullLLMClient(),
+        llm=client._kap_generation_llm,
         desensitizer=NullDesensitizer(),
         trace_id="trc-idem",
     )
@@ -135,6 +137,142 @@ async def test_processing_job_idempotent(client, db_session, monkeypatch):
         .where(AuditEvent.target_id == task_id)
     )
     assert audits == 1
+
+
+async def test_ocr_failure_persists_mixed_pdf_page_plan_for_exact_retry(
+    client, db_session, monkeypatch
+):
+    ref = client._kap_storage.save(b"fake-pdf", original_name="mixed.pdf")
+    task = IngestTask(
+        source="path_b_upload",
+        source_file_ref=ref,
+        source_file_name="mixed.pdf",
+        source_file_mime_type="application/pdf",
+        source_file_hash="mixed-hash",
+        status="processing",
+        created_by=USER_CONSULTANT,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    mixed = ExtractionResult(
+        text="{{page:1}}\nnative first\n{{page:3}}\nnative third",
+        status="ocr_required",
+        error_type=None,
+        error_message=None,
+        char_count=50,
+        pages=(
+            ExtractionPage(1, "native first", "extracted"),
+            ExtractionPage(2, "", "ocr_required"),
+            ExtractionPage(3, "native third", "extracted"),
+        ),
+        source_kind="pdf",
+    )
+    monkeypatch.setattr(ingest_processing, "extract_text", lambda *_args, **_kwargs: mixed)
+    calls = 0
+    retried_extraction = None
+
+    def fake_recognize(_content, extraction):
+        nonlocal calls, retried_extraction
+        calls += 1
+        if calls == 1:
+            raise OCRError("ocr_timeout", "OCR 服务暂不可用。")
+        retried_extraction = extraction
+        return OCRResult(
+            text="{{page:1}}\nnative first\n{{page:2}}\nrecognized second\n{{page:3}}\nnative third",
+            status="succeeded",
+            confidence=91,
+            pages=(
+                OCRPageResult(1, "native first", "skipped_text", None),
+                OCRPageResult(2, "recognized second", "succeeded", 91),
+                OCRPageResult(3, "native third", "skipped_text", None),
+            ),
+        )
+
+    monkeypatch.setattr(ingest_processing.ocr, "recognize", fake_recognize)
+    kwargs = {
+        "storage": client._kap_storage,
+        "llm": client._kap_generation_llm,
+        "desensitizer": NullDesensitizer(),
+        "trace_id": "mixed-ocr-retry",
+    }
+
+    assert await ingest_processing.process_upload_task(db_session, task.id, **kwargs) == "failed"
+    ai = await db_session.scalar(
+        select(IngestTaskAiResult).where(IngestTaskAiResult.ingest_task_id == task.id)
+    )
+    assert [item["source_status"] for item in ai.ocr_page_results] == [
+        "extracted",
+        "ocr_required",
+        "extracted",
+    ]
+    assert [item["status"] for item in ai.ocr_page_results] == [
+        "skipped_text",
+        "pending",
+        "skipped_text",
+    ]
+    task.status = "processing"
+    task.processing_stage = "ocr_queued"
+    task.error_type = None
+    task.error_message = None
+    await db_session.commit()
+
+    assert (
+        await ingest_processing.process_upload_task(db_session, task.id, **kwargs)
+        == "pending_confirmation"
+    )
+    assert retried_extraction is not None
+    assert [(page.page_number, page.status, page.text) for page in retried_extraction.pages] == [
+        (1, "extracted", "native first"),
+        (2, "ocr_required", ""),
+        (3, "extracted", "native third"),
+    ]
+
+
+async def test_ocr_retry_keeps_image_route_when_mime_is_generic(client, db_session, monkeypatch):
+    ref = client._kap_storage.save(b"fake-image", original_name="scan.PNG")
+    task = IngestTask(
+        source="path_b_upload",
+        source_file_ref=ref,
+        source_file_name="scan.PNG",
+        source_file_mime_type="application/octet-stream",
+        source_file_hash="image-hash",
+        status="processing",
+        created_by=USER_CONSULTANT,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    source_kinds = []
+
+    def fake_recognize(_content, extraction):
+        source_kinds.append(extraction.source_kind)
+        if len(source_kinds) == 1:
+            raise OCRError("ocr_timeout", "OCR 服务暂不可用。")
+        return OCRResult(
+            text="{{page:1}}\nrecognized image",
+            status="succeeded",
+            confidence=90,
+            pages=(OCRPageResult(1, "recognized image", "succeeded", 90),),
+        )
+
+    monkeypatch.setattr(ingest_processing.ocr, "recognize", fake_recognize)
+    kwargs = {
+        "storage": client._kap_storage,
+        "llm": client._kap_generation_llm,
+        "desensitizer": NullDesensitizer(),
+        "trace_id": "image-ocr-retry",
+    }
+    assert await ingest_processing.process_upload_task(db_session, task.id, **kwargs) == "failed"
+    task.status = "processing"
+    task.processing_stage = "ocr_queued"
+    task.error_type = None
+    task.error_message = None
+    await db_session.commit()
+
+    assert (
+        await ingest_processing.process_upload_task(db_session, task.id, **kwargs)
+        == "pending_confirmation"
+    )
+    assert source_kinds == ["image", "image"]
 
 
 async def test_processing_failure_retry_then_failed(db_session, tmp_path):

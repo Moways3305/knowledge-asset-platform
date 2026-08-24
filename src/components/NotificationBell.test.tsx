@@ -45,12 +45,16 @@ function renderBell() {
 describe("NotificationBell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(fetchNotifications).mockReset();
+    vi.mocked(markNotificationRead).mockReset();
+    vi.mocked(markNotificationsRead).mockReset();
     vi.mocked(fetchNotifications).mockResolvedValue({
       items: [notification],
       total: 1,
       page: 1,
       page_size: 20,
       unread_count: 1,
+      pending_count: 1,
       categories: ["review"],
     });
     vi.mocked(markNotificationRead).mockResolvedValue({
@@ -94,52 +98,57 @@ describe("NotificationBell", () => {
       page: 1,
       page_size: 20,
       unread_count: 0,
+      pending_count: 0,
       categories: [],
     });
     renderBell();
     fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-    expect(await screen.findByText("暂时没有通知")).toBeInTheDocument();
+    expect(await screen.findByText("暂时没有待处理事项")).toBeInTheDocument();
   });
 
-  it("keeps the latest filter result when an older response finishes later", async () => {
-    let resolveOld: ((value: Awaited<ReturnType<typeof fetchNotifications>>) => void) | undefined;
-    vi.mocked(fetchNotifications)
-      .mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            resolveOld = resolve;
-          }),
-      )
-      .mockResolvedValueOnce({
-        items: [],
-        total: 0,
-        page: 1,
-        page_size: 20,
-        unread_count: 0,
-        categories: ["review"],
-      });
+  it("separates pending work from status updates", async () => {
+    const update = {
+      ...notification,
+      id: "notif-2",
+      title: "入库已完成",
+      action_required: false,
+      task_status: "completed" as const,
+      task_group: "recent_completed" as const,
+    };
+    vi.mocked(fetchNotifications).mockResolvedValueOnce({
+      items: [notification, update],
+      total: 2,
+      page: 1,
+      page_size: 20,
+      unread_count: 2,
+      pending_count: 1,
+      categories: ["review"],
+    });
     renderBell();
     fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
-    fireEvent.click(screen.getByRole("tab", { name: /未读/ }));
-    expect(await screen.findByText("没有未读通知")).toBeInTheDocument();
-    resolveOld?.({
+    expect(await screen.findByText(notification.title)).toBeInTheDocument();
+    expect(screen.queryByText(update.title)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: /动态/ }));
+    expect(await screen.findByText(update.title)).toBeInTheDocument();
+    expect(screen.queryByText(notification.title)).not.toBeInTheDocument();
+  });
+
+  it("keeps the drawer and unread state when marking read fails", async () => {
+    vi.mocked(fetchNotifications).mockResolvedValueOnce({
       items: [notification],
       total: 1,
       page: 1,
       page_size: 20,
       unread_count: 1,
+      pending_count: 1,
       categories: ["review"],
     });
-    await waitFor(() => expect(screen.queryByText(notification.title)).not.toBeInTheDocument());
-  });
-
-  it("keeps the drawer and unread state when marking read fails", async () => {
     vi.mocked(markNotificationRead).mockRejectedValueOnce(new Error("temporary failure"));
     renderBell();
     fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
     fireEvent.click(await screen.findByRole("button", { name: "前往处理" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("未能标记为已读");
     expect(screen.getByRole("dialog", { name: "通知中心" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /通知中心，1 条未读/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /通知中心，1 项待处理/ })).toBeInTheDocument();
   });
 });

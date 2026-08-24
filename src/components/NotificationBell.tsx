@@ -44,9 +44,8 @@ export default function NotificationBell() {
   const [items, setItems] = useState<BusinessNotificationDTO[]>([]);
   const [unread, setUnread] = useState(0);
   const [total, setTotal] = useState(0);
-  const [categories, setCategories] = useState<string[]>([]);
-  const [unreadOnly, setUnreadOnly] = useState(false);
-  const [category, setCategory] = useState("");
+  const [tab, setTab] = useState<"pending" | "updates">("pending");
+  const [pendingCount, setPendingCount] = useState(0);
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,39 +54,34 @@ export default function NotificationBell() {
   const mutationIds = useRef(new Set<string>());
   const navigate = useNavigate();
 
-  const load = useCallback(
-    async (nextPage = 1, append = false, quiet = false) => {
-      const request = ++sequence.current;
-      if (!quiet) setBusy(true);
-      setError(null);
-      try {
-        const data = await fetchNotifications({
-          page: nextPage,
-          pageSize: PAGE_SIZE,
-          unreadOnly,
-          category,
-        });
-        if (request !== sequence.current) return;
-        setItems((current) =>
-          append
-            ? [
-                ...current,
-                ...data.items.filter((item) => !current.some((old) => old.id === item.id)),
-              ]
-            : data.items,
-        );
-        setUnread(data.unread_count ?? data.total);
-        setTotal(data.total);
-        setCategories(data.categories ?? []);
-        setPage(nextPage);
-      } catch {
-        if (request === sequence.current && !quiet) setError("通知暂时无法加载，请稍后重试。");
-      } finally {
-        if (request === sequence.current && !quiet) setBusy(false);
-      }
-    },
-    [category, unreadOnly],
-  );
+  const load = useCallback(async (nextPage = 1, append = false, quiet = false) => {
+    const request = ++sequence.current;
+    if (!quiet) setBusy(true);
+    setError(null);
+    try {
+      const data = await fetchNotifications({
+        page: nextPage,
+        pageSize: PAGE_SIZE,
+        unreadOnly: false,
+      });
+      if (request !== sequence.current) return;
+      setItems((current) =>
+        append
+          ? [...current, ...data.items.filter((item) => !current.some((old) => old.id === item.id))]
+          : data.items,
+      );
+      setUnread(data.unread_count ?? data.total);
+      setPendingCount(
+        data.pending_count ?? data.items.filter((item) => item.action_required).length,
+      );
+      setTotal(data.total);
+      setPage(nextPage);
+    } catch {
+      if (request === sequence.current && !quiet) setError("通知暂时无法加载，请稍后重试。");
+    } finally {
+      if (request === sequence.current && !quiet) setBusy(false);
+    }
+  }, []);
 
   useEffect(() => {
     void load(1, false, true);
@@ -112,13 +106,8 @@ export default function NotificationBell() {
       const updated = await markNotificationRead(item.id);
       sequence.current += 1;
       setBusy(false);
-      setItems((current) =>
-        unreadOnly
-          ? current.filter((row) => row.id !== item.id)
-          : current.map((row) => (row.id === item.id ? updated : row)),
-      );
+      setItems((current) => current.map((row) => (row.id === item.id ? updated : row)));
       setUnread((value) => Math.max(0, value - 1));
-      if (unreadOnly) setTotal((value) => Math.max(0, value - 1));
       return true;
     } catch {
       setMutationError("未能标记为已读，你可以重试；任务状态未发生改变。");
@@ -129,11 +118,13 @@ export default function NotificationBell() {
   };
 
   const openItem = async (item: BusinessNotificationDTO) => {
-    const marked = await markOne(item);
-    if (!marked) return;
-    setOpen(false);
-    const route = item.action_required ? ROUTES[item.target.route_key] : undefined;
-    navigate(route ?? `/?task_group=${encodeURIComponent(item.task_group)}`);
+    const route = ROUTES[item.target.route_key];
+    if (!route) {
+      setMutationError("目标页暂不可用，通知仍保持未读。");
+      return;
+    }
+    navigate(`${route}?target_id=${encodeURIComponent(item.target.resource_id)}`);
+    if (await markOne(item)) setOpen(false);
   };
 
   const markAll = async () => {
@@ -145,16 +136,13 @@ export default function NotificationBell() {
       await markNotificationsRead(ids);
       sequence.current += 1;
       setItems((current) =>
-        unreadOnly
-          ? current.filter((item) => !ids.includes(item.id))
-          : current.map((item) =>
-              ids.includes(item.id)
-                ? { ...item, is_read: true, read_at: new Date().toISOString() }
-                : item,
-            ),
+        current.map((item) =>
+          ids.includes(item.id)
+            ? { ...item, is_read: true, read_at: new Date().toISOString() }
+            : item,
+        ),
       );
       setUnread((value) => Math.max(0, value - ids.length));
-      if (unreadOnly) setTotal((value) => Math.max(0, value - ids.length));
     } catch {
       setMutationError("全部已读未能保存，列表保持原状，请重试。");
     } finally {
@@ -162,20 +150,24 @@ export default function NotificationBell() {
     }
   };
 
+  const visibleItems = items.filter((item) =>
+    tab === "pending" ? item.action_required : !item.action_required,
+  );
+
   return (
     <div className="notification-bell">
       <button
         type="button"
         className={`notification-bell-trigger ${open ? "is-open" : ""}`}
-        aria-label={`通知中心，${unread} 条未读`}
+        aria-label={`通知中心，${pendingCount} 项待处理`}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen(true)}
       >
         <Bell size={17} strokeWidth={1.8} aria-hidden="true" />
-        {unread > 0 && (
+        {pendingCount > 0 && (
           <span className="notification-bell-badge" aria-hidden="true">
-            {unread > 99 ? "99+" : unread}
+            {pendingCount > 99 ? "99+" : pendingCount}
           </span>
         )}
       </button>
@@ -204,33 +196,22 @@ export default function NotificationBell() {
             <button
               type="button"
               role="tab"
-              aria-selected={!unreadOnly}
-              className={!unreadOnly ? "is-active" : ""}
-              onClick={() => setUnreadOnly(false)}
+              aria-selected={tab === "pending"}
+              className={tab === "pending" ? "is-active" : ""}
+              onClick={() => setTab("pending")}
             >
-              最近通知
+              待处理 <span>{pendingCount}</span>
             </button>
             <button
               type="button"
               role="tab"
-              aria-selected={unreadOnly}
-              className={unreadOnly ? "is-active" : ""}
-              onClick={() => setUnreadOnly(true)}
+              aria-selected={tab === "updates"}
+              className={tab === "updates" ? "is-active" : ""}
+              onClick={() => setTab("updates")}
             >
-              未读 <span>{unread}</span>
+              动态 <span>{unread}</span>
             </button>
           </div>
-          <label>
-            <span>类别</span>
-            <select value={category} onChange={(event) => setCategory(event.target.value)}>
-              <option value="">全部类别</option>
-              {categories.map((key) => (
-                <option key={key} value={key}>
-                  {CATEGORY_LABEL[key] ?? "其他通知"}
-                </option>
-              ))}
-            </select>
-          </label>
         </div>
         {mutationError && (
           <div className="notification-center-alert" role="alert">
@@ -251,15 +232,15 @@ export default function NotificationBell() {
               重试
             </button>
           </div>
-        ) : items.length === 0 ? (
+        ) : visibleItems.length === 0 ? (
           <div className="notification-center-state">
             <BellOff />
-            <strong>{unreadOnly ? "没有未读通知" : "暂时没有通知"}</strong>
+            <strong>{tab === "pending" ? "暂时没有待处理事项" : "暂时没有动态"}</strong>
             <span>新的业务进展会在这里出现。</span>
           </div>
         ) : (
           <div className="notification-center-list" aria-live="polite">
-            {items.map((item) => (
+            {visibleItems.map((item) => (
               <article key={item.id} className={item.is_read ? "is-read" : "is-unread"}>
                 <div className="notification-center-meta">
                   <span>{CATEGORY_LABEL[item.category] ?? "其他通知"}</span>
@@ -270,11 +251,8 @@ export default function NotificationBell() {
                 </div>
                 <h3>{item.title}</h3>
                 <p>{item.summary}</p>
-                {item.delivery_status === "failed" && (
-                  <p className="notification-delivery-warning">
-                    外部提醒未送达，站内通知仍可正常使用。
-                  </p>
-                )}
+                {item.failure_reason && <p>失败原因：{item.failure_reason}</p>}
+                {item.recovery_suggestion && <p>恢复建议：{item.recovery_suggestion}</p>}
                 <div className="notification-center-context">
                   <span>{item.project_name ?? item.object_name}</span>
                   <span>{item.is_read ? "已读" : "未读"}</span>

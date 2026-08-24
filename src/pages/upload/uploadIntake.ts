@@ -23,6 +23,8 @@ export interface LocalUploadQueueItem {
   batchNumber?: number;
   sameNameWarning?: boolean;
   retryable?: boolean;
+  retryCount?: number;
+  lastAttemptAt?: string;
   processingStage?: IngestTaskStage;
 }
 

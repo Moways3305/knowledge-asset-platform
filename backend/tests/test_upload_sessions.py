@@ -388,3 +388,43 @@ async def test_bulk_failed_cleanup_is_caller_scoped_and_immediately_hides_items(
     )
     assert repeated.status_code == 200
     assert repeated.json()["items"] == []
+
+
+async def test_item_retry_atomically_claims_the_failed_row_before_enqueue(
+    client, db_session, monkeypatch
+):
+    created = await client.post(
+        "/api/v1/ingest/upload-sessions",
+        headers=_headers(USER_CONSULTANT),
+        files={"files": ("retry.txt", b"retry body", "text/plain")},
+    )
+    assert created.status_code == 200
+    session_id = created.json()["id"]
+    item_id = created.json()["items"][0]["id"]
+    item = await db_session.get(UploadSessionItem, uuid.UUID(item_id))
+    task = await db_session.get(IngestTask, item.ingest_task_id)
+    item.status = "failed"
+    task.status = IngestStatus.failed.value
+    task.processing_stage = "content_generation_failed"
+    task.error_type = "timeout"
+    await db_session.commit()
+
+    retry_url = f"/api/v1/ingest/upload-sessions/{session_id}/items/{item_id}/retry"
+    enqueue_calls = 0
+    competing_status = None
+
+    async def fake_enqueue(*_args, **_kwargs):
+        nonlocal enqueue_calls, competing_status
+        enqueue_calls += 1
+        competing = await client.post(retry_url, headers=_headers(USER_CONSULTANT))
+        competing_status = competing.status_code
+        return IngestStatus.processing.value
+
+    monkeypatch.setattr(upload_sessions, "enqueue_ingest_processing", fake_enqueue)
+    retried = await client.post(retry_url, headers=_headers(USER_CONSULTANT))
+
+    assert retried.status_code == 200
+    assert competing_status == 409
+    assert enqueue_calls == 1
+    await db_session.refresh(task)
+    assert task.retry_count == 1

@@ -266,8 +266,8 @@ def test_extract_xls_unsupported_with_actionable_hint():
 def test_extract_empty_pdf():
     # 含一页但无文本（如扫描件）→ empty。
     r = extract_text(_make_pdf(""), file_name="scan.pdf", mime="application/pdf")
-    assert r.status == "empty"
-    assert r.error_type == "extraction_empty"
+    assert r.status == "ocr_required"
+    assert r.pages[0].status == "ocr_required"
 
 
 def test_extract_corrupt_pdf_failed():

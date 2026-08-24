@@ -24,6 +24,9 @@ from app.schemas.generation_models import (
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 from app.services import generation_models
+from app.services import ingest_status as ingest_status_service
+from app.services.desensitization import DesensitizationEngine, get_desensitizer
+from app.services.storage import LocalFileStorage, get_storage
 
 router = APIRouter(prefix="/api/v1", tags=["generation-models"])
 
@@ -223,6 +226,8 @@ async def put_generation_default_model(
     request: Request,
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    desensitizer: DesensitizationEngine = Depends(get_desensitizer),
 ) -> GenerationModelSelectionResponse:
     _require_admin(caller)
     try:
@@ -241,6 +246,14 @@ async def put_generation_default_model(
         extra={"model_ref": item["model_ref"] if item else None},
     )
     await session.commit()
+    if item is not None:
+        await ingest_status_service.resume_waiting_generation_tasks(
+            session,
+            storage=storage,
+            llm=await generation_models.resolve_generation_llm_client(session),
+            desensitizer=desensitizer,
+            trace_id=get_trace_id(request),
+        )
     return GenerationModelSelectionResponse(
         current_default=GenerationModelOptionOut(**item) if item else None,
         configured=item is not None,

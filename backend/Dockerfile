@@ -9,7 +9,7 @@ WORKDIR /app
 # procps 提供 pgrep，供 docker-compose 中 beat 服务的存活健康检查使用
 # （beat 无 inspect ping，按进程存活判断，不依赖 celerybeat-schedule 文件）。
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends procps \
+    && apt-get install -y --no-install-recommends procps tesseract-ocr tesseract-ocr-chi-sim \
     && rm -rf /var/lib/apt/lists/*
 
 # 先装锁定依赖（requirements.lock 由 `uv pip compile pyproject.toml build-requirements.in

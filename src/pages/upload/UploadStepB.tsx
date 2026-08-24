@@ -1,5 +1,7 @@
 import { ChevronDown, FileText, FolderOpen, RefreshCw, UploadCloud, X } from "lucide-react";
 import { useState } from "react";
+import { retryIngestTask } from "../../api/ingest";
+import { ApiError } from "../../api/http";
 import { extractionLabel, flowLabel, formatFileSize, pendingStatusLabel } from "./uploadConstants";
 import BatchTaskProgress from "./BatchTaskProgress";
 import PendingBatchActions from "./PendingBatchActions";
@@ -14,8 +16,13 @@ import type { UploadFlow } from "./useUploadFlow";
 const PROCESSING_STAGE_LABELS: Partial<Record<IngestTaskStage, string>> = {
   upload_saved: "原件已接收",
   text_extraction: "正在提取正文",
+  ocr_queued: "OCR 等待中",
+  ocr_in_progress: "正在 OCR 识别",
+  ocr_failed: "OCR 识别失败",
   canonical_markdown_generation: "正在生成 Markdown",
   content_generation: "正在生成内容建议",
+  waiting_generation_config: "等待内容生成模型配置",
+  content_generation_failed: "内容生成失败",
 };
 
 export default function UploadStepB({ flow }: { flow: UploadFlow }) {
@@ -63,6 +70,23 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
   const [isDragging, setIsDragging] = useState(false);
   const [isQueueCollapsed, setIsQueueCollapsed] = useState(false);
   const [isPendingCollapsed, setIsPendingCollapsed] = useState(false);
+  const [pendingRetryId, setPendingRetryId] = useState<string | null>(null);
+  const [pendingRetryError, setPendingRetryError] = useState<Record<string, string>>({});
+  const retryPending = async (id: string) => {
+    setPendingRetryId(id);
+    setPendingRetryError((current) => ({ ...current, [id]: "" }));
+    try {
+      await retryIngestTask(id);
+      await loadLocalPending();
+    } catch (error) {
+      setPendingRetryError((current) => ({
+        ...current,
+        [id]: error instanceof ApiError ? error.message : "重试未发起，请稍后再试。",
+      }));
+    } finally {
+      setPendingRetryId(null);
+    }
+  };
   const flowMeta = flowLabel(flowState);
   const canRefresh = flowState === "processing" && Boolean(processingNote);
   const hasActiveUploadQueue = localUploadQueue.some((item) =>
@@ -379,6 +403,10 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                           <div className={`upload77-batch-progress is-${item.status}`}>
                             <span className="upload77-batch-state">{label}</span>
                             {item.batchNumber && <span>第 {item.batchNumber} 批</span>}
+                            {Boolean(item.retryCount) && <span>第 {item.retryCount} 次恢复</span>}
+                            {item.lastAttemptAt && (
+                              <span>最近尝试 {formatBeijingTime(item.lastAttemptAt)}</span>
+                            )}
                             {item.error && (
                               <span className="upload77-queue-error">{item.error}</span>
                             )}
@@ -580,6 +608,27 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                             <span className={`upload77-status upload77-status-${task.status}`}>
                               {pendingStatusLabel[task.status] ?? "待处理"}
                             </span>
+                            {task.processing_stage && (
+                              <small>
+                                {PROCESSING_STAGE_LABELS[task.processing_stage] ??
+                                  task.processing_stage}
+                              </small>
+                            )}
+                            {task.retryable && (
+                              <button
+                                className="upload77-retry-link"
+                                disabled={pendingRetryId === task.id}
+                                onClick={() => void retryPending(task.id)}
+                                type="button"
+                              >
+                                {pendingRetryId === task.id ? "重试中…" : "重试此文件"}
+                              </button>
+                            )}
+                            {pendingRetryError[task.id] && (
+                              <span className="upload77-queue-error">
+                                {pendingRetryError[task.id]}
+                              </span>
+                            )}
                           </td>
                           <td>
                             <span
@@ -596,7 +645,12 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                                 ? "需人工补全"
                                 : "建议待校正"}
                           </td>
-                          <td>{task.created_at ? formatBeijingTime(task.created_at) : "—"}</td>
+                          <td title="最近尝试时间">
+                            {task.updated_at ? formatBeijingTime(task.updated_at) : "—"}
+                            {Boolean(task.retry_count) && (
+                              <small>第 {task.retry_count} 次恢复</small>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}

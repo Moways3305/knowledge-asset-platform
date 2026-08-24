@@ -174,7 +174,7 @@ class UploadSessionItem(Base):
 
 
 class IngestTaskAiResult(Base):
-    """入库任务的 AI 建议结果（外部 LLM 抽取，未配置 LLM 时回退确定性草稿）。"""
+    """入库任务的抽取 / OCR 事实与 AI 建议结果。"""
 
     __tablename__ = "ingest_task_ai_results"
 
@@ -216,6 +216,14 @@ class IngestTaskAiResult(Base):
     extracted_char_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # extracted / unsupported / failed / empty
     extraction_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # OCR 是本地文字识别阶段，不复用多模态/外部视觉模型。
+    # page_results 只存页码、状态、字数和置信度，不重复存储正文。
+    ocr_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    ocr_page_results: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    ocr_confidence: Mapped[float | None] = mapped_column(nullable=True)
+    ocr_attempted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # 入库前置规则脱敏安全元数据。仅安全状态与类别计数，**绝不**存脱敏文本或原值。
     # status: applied | unchanged | skipped | failed。counts: 类别 → 替换数量（JSON）。
     desensitization_status: Mapped[str | None] = mapped_column(String(20), nullable=True)

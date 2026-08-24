@@ -140,6 +140,12 @@ class Settings(BaseSettings):
     # 生产必须显式配置；不入库、不进响应/日志。
     generation_model_encryption_key: str = ""
 
+    # 入库 OCR：只调用容器内 Tesseract，不把原文发往外部视觉模型。
+    ocr_enabled: bool = True
+    ocr_command: str = "tesseract"
+    ocr_languages: str = "chi_sim+eng"
+    ocr_min_confidence: float = 45.0
+
     # 企业微信 OAuth 真身份 + 微盘扫描。corp_id + app_secret 配齐才启用真实集成；
     # 否则降级（OAuth 端点返回未配置，扫描走注入的 fake/Null）。**secret 绝不外泄**。
     wecom_corp_id: str = ""

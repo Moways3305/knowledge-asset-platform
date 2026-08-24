@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -541,8 +541,13 @@ async def _reconcile_and_promote(
 _VISIBLE_PROCESSING_STAGES = {
     "upload_saved",
     "text_extraction",
+    "ocr_queued",
+    "ocr_in_progress",
+    "ocr_failed",
     "canonical_markdown_generation",
     "content_generation",
+    "waiting_generation_config",
+    "content_generation_failed",
 }
 
 
@@ -553,13 +558,17 @@ def _visible_processing_stage(stage: str | None) -> str | None:
 async def _response(session: AsyncSession, value: UploadSession) -> UploadSessionResponse:
     visible_items = [item for item in value.items if item.status != "cancelled"]
     task_ids = [item.ingest_task_id for item in visible_items if item.ingest_task_id]
-    task_stages: dict[uuid.UUID, str | None] = {
-        task_id: processing_stage
-        for task_id, processing_stage in (
+    task_facts: dict[uuid.UUID, tuple[str | None, int, str | None, datetime | None]] = {
+        task_id: (processing_stage, retry_count, error_type, updated_at)
+        for task_id, processing_stage, retry_count, error_type, updated_at in (
             await session.execute(
-                select(IngestTask.id, IngestTask.processing_stage).where(
-                    IngestTask.id.in_(task_ids)
-                )
+                select(
+                    IngestTask.id,
+                    IngestTask.processing_stage,
+                    IngestTask.retry_count,
+                    IngestTask.error_type,
+                    IngestTask.updated_at,
+                ).where(IngestTask.id.in_(task_ids))
             )
         ).all()
     }
@@ -596,9 +605,24 @@ async def _response(session: AsyncSession, value: UploadSession) -> UploadSessio
                 error_code=item.safe_error_code,
                 error_message=item.safe_error_message,
                 same_name_warning=item.same_name_warning,
-                retryable=item.status == "failed" and item.ingest_task_id is not None,
+                retryable=(
+                    item.status == "failed"
+                    and item.ingest_task_id is not None
+                    and task_facts.get(item.ingest_task_id, (None, 0, None, None))[2]
+                    not in {"configuration_error", "authentication_error", "model_unavailable"}
+                ),
+                retry_count=(
+                    task_facts.get(item.ingest_task_id, (None, 0, None, None))[1]
+                    if item.ingest_task_id is not None
+                    else 0
+                ),
+                last_attempt_at=(
+                    task_facts.get(item.ingest_task_id, (None, 0, None, None))[3]
+                    if item.ingest_task_id is not None
+                    else None
+                ),
                 processing_stage=_visible_processing_stage(
-                    task_stages.get(item.ingest_task_id)
+                    task_facts.get(item.ingest_task_id, (None, 0, None, None))[0]
                     if item.ingest_task_id is not None
                     else None
                 ),
@@ -681,7 +705,7 @@ async def retry_item(
     desensitizer: DesensitizationEngine,
     trace_id: str,
 ) -> UploadSessionResponse:
-    value = await _load_owned_session(session, caller, session_id, lock=True)
+    value = await _load_owned_session(session, caller, session_id)
     item = next((candidate for candidate in value.items if candidate.id == item_id), None)
     if item is None:
         raise _denied(404, "upload_item_not_found", "上传文件不存在")
@@ -689,31 +713,107 @@ async def retry_item(
         raise _denied(409, "upload_item_not_retryable", "该文件当前不可重试")
     task = (
         await session.execute(
-            select(IngestTask).where(
-                IngestTask.id == item.ingest_task_id, IngestTask.created_by == caller.user_id
+            select(IngestTask)
+            .where(IngestTask.id == item.ingest_task_id, IngestTask.created_by == caller.user_id)
+            .options(
+                selectinload(IngestTask.ai_result), selectinload(IngestTask.canonical_markdown)
             )
         )
     ).scalar_one_or_none()
     if task is None or not storage.exists(task.source_file_ref):
         raise _denied(409, "upload_source_unavailable", "源文件不可用，请重新选择文件")
-    task.status = IngestStatus.pending.value
-    task.processing_stage = "upload_waiting"
-    task.error_type = None
-    task.error_message = None
-    item.status = "waiting"
-    item.safe_error_code = None
-    item.safe_error_message = None
-    value.status = "active"
-    await session.commit()
-    await _reconcile_and_promote(
-        session,
-        session_id,
-        caller,
-        storage=storage,
-        llm=llm,
-        desensitizer=desensitizer,
-        trace_id=trace_id,
+    if task.processing_stage == "waiting_generation_config" and isinstance(llm, NullLLMClient):
+        raise _denied(
+            409, "generation_model_not_configured", "内容生成模型尚未配置，本次重试未发起"
+        )
+    resume_stage = (
+        "ocr_queued"
+        if task.processing_stage == "ocr_failed"
+        else "content_generation"
+        if task.canonical_markdown and task.canonical_markdown.status == "ready"
+        else "text_extraction"
     )
+    item_claim = await session.execute(
+        update(UploadSessionItem)
+        .where(
+            UploadSessionItem.id == item.id,
+            UploadSessionItem.session_id == session_id,
+            UploadSessionItem.ingest_task_id == task.id,
+            UploadSessionItem.status == "failed",
+        )
+        .values(status="processing", safe_error_code=None, safe_error_message=None)
+    )
+    task_claim = await session.execute(
+        update(IngestTask)
+        .where(
+            IngestTask.id == task.id,
+            IngestTask.created_by == caller.user_id,
+            IngestTask.status == IngestStatus.failed.value,
+        )
+        .values(
+            status=IngestStatus.processing.value,
+            processing_stage=resume_stage,
+            error_type=None,
+            error_message=None,
+            retry_count=IngestTask.retry_count + 1,
+        )
+    )
+    if getattr(item_claim, "rowcount", 0) != 1 or getattr(task_claim, "rowcount", 0) != 1:
+        await session.rollback()
+        raise _denied(409, "upload_item_not_retryable", "该文件已被处理或正在重试")
+    await session.execute(
+        update(UploadSession)
+        .where(UploadSession.id == session_id, UploadSession.created_by == caller.user_id)
+        .values(status="active")
+    )
+    await session.commit()
+    try:
+        result = await enqueue_ingest_processing(
+            session,
+            task.id,
+            storage=storage,
+            llm=llm,
+            desensitizer=desensitizer,
+            trace_id=trace_id,
+        )
+        await session.execute(
+            update(UploadSessionItem)
+            .where(UploadSessionItem.id == item.id, UploadSessionItem.status == "processing")
+            .values(
+                status=(
+                    "awaiting_confirmation"
+                    if result == IngestStatus.pending_confirmation.value
+                    else "failed"
+                    if result == IngestStatus.failed.value
+                    else "processing"
+                )
+            )
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        failure_stage = "ocr_failed" if resume_stage == "ocr_queued" else resume_stage
+        await session.execute(
+            update(IngestTask)
+            .where(IngestTask.id == task.id, IngestTask.status == IngestStatus.processing.value)
+            .values(
+                status=IngestStatus.failed.value,
+                processing_stage=failure_stage,
+                error_type="queue_unavailable",
+                error_message="处理任务暂时无法排队",
+            )
+        )
+        await session.execute(
+            update(UploadSessionItem)
+            .where(UploadSessionItem.id == item.id, UploadSessionItem.status == "processing")
+            .values(
+                status="failed",
+                safe_error_code="queue_unavailable",
+                safe_error_message="处理任务暂时无法排队，请重试",
+            )
+        )
+        await session.commit()
+    session.expire_all()
     return await _response(session, await _load_owned_session(session, caller, session_id))
 
 

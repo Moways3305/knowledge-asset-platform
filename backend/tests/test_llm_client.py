@@ -23,7 +23,7 @@ from app.services import content_processing
 from app.services.desensitization import RuleBasedDesensitizer
 from app.services.extraction import ExtractionResult
 from app.services.generation_models import get_generation_llm_client
-from app.services.llm_client import LLMClient, LLMError
+from app.services.llm_client import LLMClient, LLMError, NullLLMClient
 
 UPLOAD = "/api/v1/ingest/upload"
 KN = "/api/v1/knowledge"
@@ -518,12 +518,12 @@ async def test_low_confidence_content_level_falls_back_without_filename_influenc
         await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
     ).json()
 
-    assert body["suggested_confidentiality_level"] == "L2"
-    assert body["confidentiality_source"] == "default_needs_confirmation"
-    assert body["confidentiality_confidence"] == "low"
-    assert body["suggested_version"] == "V1"
-    assert body["version_source"] == "default_needs_confirmation"
-    assert body["version_confidence"] == "low"
+    assert body["suggested_confidentiality_level"] is None
+    assert body["confidentiality_source"] is None
+    assert body["confidentiality_confidence"] is None
+    assert body["suggested_version"] is None
+    assert body["version_source"] is None
+    assert body["version_confidence"] is None
 
 
 async def test_upload_llm_fenced_json_parsed(client, monkeypatch):
@@ -535,7 +535,8 @@ async def test_upload_llm_fenced_json_parsed(client, monkeypatch):
 
 # ---- 降级：未配置 / 调用失败 / 脏 JSON ----
 async def test_upload_degraded_when_llm_disabled(client):
-    # 不启用 LLM（默认）→ 降级到确定性草稿。
+    app.dependency_overrides[get_generation_llm_client] = lambda: NullLLMClient()
+    # 不启用 LLM（默认）→ 保留抽取事实，不伪造 AI 建议。
     task_id = await _upload(client)
     r = await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
     b = r.json()
@@ -544,47 +545,30 @@ async def test_upload_degraded_when_llm_disabled(client):
     assert b["summary"] is None
     assert b["generation_model_ref"] is None
     assert b["llm_provider"] is None
-    assert b["suggested_title"]  # 仍有确定性建议
-    # 降级也产出干净主题，不携带完整旧命名模板。
-    assert "【" not in b["suggested_title"]
-    assert b["suggested_title"] != b["suggested_one_liner"]
-    assert b["suggested_version"] == "V1"
-    assert b["version_source"] == "default_needs_confirmation"
-    assert b["suggested_confidentiality_level"] == "L2"
-    assert b["confidentiality_source"] == "default_needs_confirmation"
-    # 低置信度 + 缺失字段被标记（顾问文件名不规范时，分类/客户/日期/版本走默认）。
-    assert b["confidence"] is not None and b["confidence"] <= 0.4
-    naming = b["naming_parsed_fields"]
-    assert "primary_category" in naming["missing_fields"]
-    assert "subject_or_client" in naming["missing_fields"]
-    assert "date" in naming["missing_fields"]
-    assert "version" in naming["missing_fields"]
-    assert naming["date"] == ""
-    # 缺失字段是推断字段的子集。
-    assert set(naming["missing_fields"]).issubset(set(naming["inferred_fields"]))
+    for field in (
+        "suggested_title",
+        "suggested_one_liner",
+        "suggested_summary",
+        "suggested_tags",
+        "suggested_version",
+        "suggested_confidentiality_level",
+        "confidence",
+    ):
+        assert b[field] is None
+    assert b["naming_parsed_fields"]["generation_status"] == "pending_model_config"
 
 
 async def test_compliant_filename_parsed_into_naming(client):
-    """文件名已规范时，降级也能把组件解析进规范标题（不全走默认）。"""
+    app.dependency_overrides[get_generation_llm_client] = lambda: NullLLMClient()
+    """模型不可用时，即使文件名规范也不伪装成 AI 建议。"""
     fn = "【客户项目-交付成果】组织诊断报告_云宏信息_20260327_V3_L4.txt"
     task_id = await _upload(client, file_name=fn)
     b = (
         await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
     ).json()
-    naming = b["naming_parsed_fields"]
-    assert naming["original_naming_compliant"] is True
-    assert naming["primary_category"] == "客户项目"
-    assert naming["subject_or_client"] == "云宏信息"
-    assert naming["date"] == "20260327"
-    assert naming["version"] == "V3"
-    assert b["suggested_version"] == "V3"
-    assert b["version_source"] == "source_filename"
-    assert b["suggested_confidentiality_level"] == "L2"
-    assert b["confidentiality_source"] == "default_needs_confirmation"
-    # 这些字段有文件名依据，不应标 missing。
-    for f in ("primary_category", "subject_or_client", "date", "version"):
-        assert f not in naming["missing_fields"]
-    assert b["suggested_title"] == "组织诊断报告"
+    assert b["suggested_title"] is None
+    assert b["suggested_version"] is None
+    assert b["suggested_confidentiality_level"] is None
 
 
 async def test_upload_degraded_on_llm_failure(client, monkeypatch):
@@ -602,7 +586,8 @@ async def test_upload_degraded_on_llm_failure(client, monkeypatch):
 
     status = await client.get(f"/api/v1/ingest/{task_id}/status", headers=_hdr(USER_CONSULTANT))
     assert status.status_code == 200
-    assert status.json()["status"] == "degraded"
+    assert status.json()["status"] == "failed"
+    assert status.json()["stage"] == "content_generation_failed"
     assert status.json()["error"]["code"] == "server_error"
     assert status.json()["error"]["recovery_hint"] == body["generation_recovery_hint"]
     assert fake.calls == 1
@@ -613,9 +598,9 @@ async def test_llm_json_without_detailed_does_not_mark_summary_generated(client,
     task_id = await _upload(client)
     r = await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
     body = r.json()
-    assert body["content_processing_status"] == "llm"
-    assert body["llm_provider"] == "deepseek"
-    assert body["suggested_summary"]
+    assert body["content_processing_status"] == "degraded"
+    assert body["llm_provider"] is None
+    assert body["suggested_summary"] is None
     assert body["summary"] is None
     assert body["summary_status"] == "failed"
 
@@ -653,9 +638,9 @@ async def test_response_error_task_is_reprocessed_only_after_explicit_retry(
     task_id = await _upload(client, content=b"explicit-response-retry")
 
     before = await client.get(f"/api/v1/ingest/{task_id}/status", headers=_hdr(USER_CONSULTANT))
-    assert before.json()["status"] == "degraded"
+    assert before.json()["status"] == "failed"
     assert before.json()["retryable"] is True
-    assert before.json()["next_action"]["key"] == "retry_processing"
+    assert before.json()["next_action"]["key"] == "retry_generation"
     assert failed.calls == 2
 
     recovered = FakeLLM(mode="ok")

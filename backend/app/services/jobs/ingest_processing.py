@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import uuid
 
 from sqlalchemy import select
@@ -26,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.logging import safe_log_exception
+from app.db.utils import utc_now
 from app.models.identity import ProjectMember, User
 from app.models.ingest import IngestTask, IngestTaskAiResult
 from app.schemas.enums import (
@@ -39,9 +41,9 @@ from app.schemas.enums import (
 from app.schemas.naming import NamingOptionsResponse
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
-from app.services import canonical_markdown, content_processing, llm_usage, naming_rules
+from app.services import canonical_markdown, content_processing, llm_usage, naming_rules, ocr
 from app.services.desensitization import DesensitizationEngine
-from app.services.extraction import extract_text
+from app.services.extraction import ExtractionPage, ExtractionResult, extract_text
 from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.permission import build_caller_context
 from app.services.storage import LocalFileStorage
@@ -50,6 +52,41 @@ _logger = logging.getLogger(__name__)
 
 # 已处理终态（再次入队/重跑直接跳过，保证幂等）。
 _PROCESSED_STATUSES = {IngestStatus.pending_confirmation.value, IngestStatus.completed.value}
+_PAGE_MARKER_RE = re.compile(r"\{\{page:(\d+)\}\}\s*\n?")
+_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "tif", "tiff", "bmp", "webp"}
+
+
+def _marked_page_texts(value: str | None) -> dict[int, str]:
+    """Recover native PDF page text from the persisted marked extraction body."""
+    if not value:
+        return {}
+    matches = list(_PAGE_MARKER_RE.finditer(value))
+    return {
+        int(match.group(1)): value[
+            match.end() : matches[index + 1].start() if index + 1 < len(matches) else len(value)
+        ].strip()
+        for index, match in enumerate(matches)
+    }
+
+
+def _ocr_page_plan(extraction: ExtractionResult) -> list[dict]:
+    return [
+        {
+            "page_number": page.page_number,
+            "source_status": page.status,
+            "status": "skipped_text" if page.status == "extracted" else "pending",
+            "char_count": len(page.text),
+            "confidence": None,
+        }
+        for page in extraction.pages
+    ]
+
+
+def _ocr_source_kind(task: IngestTask) -> str:
+    mime = (task.source_file_mime_type or "").lower()
+    file_name = task.source_file_name or ""
+    extension = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
+    return "image" if mime.startswith("image/") or extension in _IMAGE_EXTENSIONS else "pdf"
 
 
 async def _build_actor(session: AsyncSession, task: IngestTask) -> CallerContext:
@@ -251,18 +288,137 @@ async def process_upload_task(
 
     actor = await _build_actor(session, task)
 
-    # ---- 瞬时区：读盘 + 抽取 + 内容处理。异常 → 递增 retry_count 并退避 ----
+    # ---- 分阶段恢复：已持久化的抽取/OCR/Markdown 事实绝不重做。----
     try:
-        task.processing_stage = "text_extraction"
-        await session.commit()
-        file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
-        extraction = extract_text(
-            file_bytes, file_name=task.source_file_name, mime=task.source_file_mime_type
-        )
-        content_hash = task.source_file_hash or hashlib.sha256(file_bytes).hexdigest()
+        file_bytes: bytes | None = None
+        persisted = task.ai_result
+        if (
+            persisted is not None
+            and persisted.extraction_status == "extracted"
+            and persisted.extracted_text
+        ):
+            extraction = ExtractionResult(
+                text=persisted.extracted_text,
+                status="extracted",
+                error_type=None,
+                error_message=None,
+                char_count=persisted.extracted_char_count or len(persisted.extracted_text),
+            )
+        elif persisted is not None and persisted.ocr_status in {"failed", "low_confidence"}:
+            native_page_text = _marked_page_texts(persisted.extracted_text)
+            saved_plan = [
+                item for item in (persisted.ocr_page_results or []) if isinstance(item, dict)
+            ]
+            pages = tuple(
+                ExtractionPage(
+                    int(item.get("page_number", 1)),
+                    native_page_text.get(int(item.get("page_number", 1)), "")
+                    if item.get("source_status") == "extracted"
+                    or item.get("status") == "skipped_text"
+                    else "",
+                    (
+                        "extracted"
+                        if item.get("source_status") == "extracted"
+                        or item.get("status") == "skipped_text"
+                        else "ocr_required"
+                    ),
+                )
+                for item in saved_plan
+            ) or (ExtractionPage(1, "", "ocr_required"),)
+            extraction = ExtractionResult(
+                text=persisted.extracted_text or "",
+                status="ocr_required",
+                error_type=None,
+                error_message=None,
+                char_count=persisted.extracted_char_count or 0,
+                pages=pages,
+                source_kind=_ocr_source_kind(task),
+            )
+        else:
+            task.processing_stage = "text_extraction"
+            await session.commit()
+            file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
+            extraction = extract_text(
+                file_bytes, file_name=task.source_file_name, mime=task.source_file_mime_type
+            )
+            if task.ai_result is None:
+                task.ai_result = IngestTaskAiResult(ingest_task_id=task.id)
+            task.ai_result.extraction_status = extraction.status
+            task.ai_result.extracted_text = extraction.text or None
+            task.ai_result.extracted_char_count = extraction.char_count
+            await session.commit()
+
+        if extraction.status == "ocr_required":
+            # Persist the full source page plan before OCR starts. If the local engine raises,
+            # retry can still skip native-text pages and recognize exactly the original empty pages.
+            task.ai_result.ocr_page_results = _ocr_page_plan(extraction)
+            task.processing_stage = "ocr_queued"
+            await session.commit()
+            task.processing_stage = "ocr_in_progress"
+            await session.commit()
+            if file_bytes is None:
+                file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
+            try:
+                recognized = ocr.recognize(file_bytes, extraction)
+            except ocr.OCRError as exc:
+                task.ai_result.ocr_status = "failed"
+                task.ai_result.ocr_attempted_at = utc_now()
+                task.status = IngestStatus.failed.value
+                task.processing_stage = "ocr_failed"
+                task.error_type = exc.code
+                task.error_message = str(exc)
+                from app.services.notifications import notify_ingest_failed
+
+                await notify_ingest_failed(session, task)
+                await session.commit()
+                return task.status
+            task.ai_result.ocr_status = recognized.status
+            task.ai_result.ocr_confidence = recognized.confidence
+            task.ai_result.ocr_attempted_at = utc_now()
+            task.ai_result.ocr_page_results = [
+                {
+                    "page_number": page.page_number,
+                    "source_status": extraction.pages[index].status,
+                    "status": page.status,
+                    "char_count": len(page.text),
+                    "confidence": page.confidence,
+                }
+                for index, page in enumerate(recognized.pages)
+            ]
+            task.ai_result.extraction_status = (
+                "extracted" if recognized.status == "succeeded" else "ocr_low_confidence"
+            )
+            if recognized.status != "succeeded":
+                task.status = IngestStatus.failed.value
+                task.processing_stage = "ocr_failed"
+                task.error_type = recognized.error_type
+                task.error_message = recognized.error_message
+                from app.services.notifications import notify_ingest_failed
+
+                await notify_ingest_failed(session, task)
+                await session.commit()
+                return task.status
+            task.ai_result.extracted_text = recognized.text or None
+            task.ai_result.extracted_char_count = len(recognized.text)
+            extraction = ExtractionResult(
+                text=recognized.text,
+                status="extracted",
+                error_type=None,
+                error_message=None,
+                char_count=len(recognized.text),
+            )
+            await session.commit()
+
+        if file_bytes is None and not task.source_file_hash:
+            file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
+        content_hash = task.source_file_hash or hashlib.sha256(file_bytes or b"").hexdigest()
         task.source_file_hash = content_hash
-        markdown_derivative = None
-        if extraction.status == "extracted" and extraction.text:
+        markdown_derivative = task.canonical_markdown
+        if (
+            extraction.status == "extracted"
+            and extraction.text
+            and not (markdown_derivative and markdown_derivative.status == "ready")
+        ):
             task.processing_stage = "canonical_markdown_generation"
             await session.commit()
             task = (
@@ -290,7 +446,7 @@ async def process_upload_task(
                     code="canonical_markdown_generation_failed",
                 )
                 raise
-        else:
+        elif extraction.status != "extracted":
             await canonical_markdown.mark_task_markdown_failed(
                 session,
                 task,
@@ -410,12 +566,30 @@ async def process_upload_task(
 
     # ---- 内容性结果：写 ai_result + 推进状态 ----
     _apply_ai_result(task, ai, dup)
-    failed = extraction.status != "extracted" or markdown_derivative is None
+    fields = ai.get("naming_parsed_fields") if isinstance(ai, dict) else {}
+    generation_status = fields.get("generation_status") if isinstance(fields, dict) else None
+    extraction_failed = extraction.status != "extracted" or markdown_derivative is None
+    generation_failed = generation_status != "generated"
+    failed = extraction_failed or generation_failed
     task.status = IngestStatus.failed.value if failed else IngestStatus.pending_confirmation.value
-    task.processing_stage = None
+    task.processing_stage = (
+        "waiting_generation_config"
+        if generation_failed and fields.get("generation_error_category") == "configuration_error"
+        else "content_generation_failed"
+        if generation_failed
+        else None
+    )
     if failed:
-        task.error_type = extraction.error_type
-        task.error_message = extraction.error_message
+        task.error_type = (
+            extraction.error_type
+            if extraction_failed
+            else fields.get("generation_error_category") or "content_generation_failed"
+        )
+        task.error_message = (
+            extraction.error_message
+            if extraction_failed
+            else content_meta.get("reason") or "内容生成未完成，已保留前置处理结果。"
+        )
     else:
         task.error_type = None
         task.error_message = None
@@ -456,7 +630,7 @@ async def process_upload_task(
             severity=AlertSeverity.warning,
             risk_level=AuditRiskLevel.high.value,
             extra={
-                "failure_stage": "extraction",
+                "failure_stage": "extraction" if extraction_failed else "content_generation",
                 "extraction_status": extraction.status,
                 "error_type": extraction.error_type,
                 "source_file_name": task.source_file_name,

@@ -226,7 +226,7 @@ describe("AppLayout shell contract", () => {
     const { container } = renderLayout();
     const header = container.querySelector(".deck");
     expect(header).toHaveTextContent("今日工作台");
-    expect(screen.getByRole("button", { name: "通知中心，0 条未读" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "通知中心，0 项待处理" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /打开任务中心/ })).toBeInTheDocument();
     expect(header).not.toHaveTextContent(/搜索|导出|新建项目/);
     expect(header?.querySelector("input")).toBeNull();
@@ -241,7 +241,7 @@ describe("AppLayout shell contract", () => {
     auth.capabilities.isProjectManager = false;
     renderLayout();
     expect(screen.getByRole("link", { name: "审计日志" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "通知中心，0 条未读" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "通知中心，0 项待处理" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "人员权限" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "项目设置" })).not.toBeInTheDocument();
   });

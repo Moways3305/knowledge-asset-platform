@@ -27,6 +27,8 @@ export interface UploadSessionItemDTO {
   error_message: string | null;
   same_name_warning: boolean;
   retryable: boolean;
+  retry_count?: number;
+  last_attempt_at?: string | null;
   processing_stage?: IngestTaskStage | null;
 }
 
@@ -53,8 +55,13 @@ export interface UploadSessionListDTO {
 export type IngestTaskStage =
   | "upload_saved"
   | "text_extraction"
+  | "ocr_queued"
+  | "ocr_in_progress"
+  | "ocr_failed"
   | "canonical_markdown_generation"
   | "content_generation"
+  | "waiting_generation_config"
+  | "content_generation_failed"
   | "awaiting_confirmation"
   | "confirmation"
   | "indexing_queued"
@@ -167,6 +174,15 @@ export interface IngestAiResultDTO {
   // 抽取与去重。extracted_text_preview 仅完整视图返回。
   extraction_status: string | null;
   extracted_char_count: number | null;
+  ocr_status?: string | null;
+  ocr_page_results?: Array<{
+    page_number: number;
+    status: string;
+    char_count: number;
+    confidence: number | null;
+  }> | null;
+  ocr_confidence?: number | null;
+  ocr_attempted_at?: string | null;
   error_type: string | null;
   error_message: string | null;
   is_possible_duplicate: boolean;
@@ -257,6 +273,9 @@ export interface PendingIngestItemDTO {
   extraction_status: string | null;
   error_type: string | null;
   error_message: string | null;
+  processing_stage?: IngestTaskStage | null;
+  retryable?: boolean;
+  retry_count?: number;
   suggested_title: string | null;
   suggested_one_liner: string | null;
   suggested_version?: string | null;

@@ -48,6 +48,8 @@ class UploadSessionItemResponse(BaseModel):
     error_message: str | None = None
     same_name_warning: bool = False
     retryable: bool = False
+    retry_count: int = 0
+    last_attempt_at: datetime | None = None
     processing_stage: str | None = None
 
 
@@ -89,8 +91,13 @@ class UploadClientRejection(BaseModel):
 class IngestTaskStage(str, Enum):
     upload_saved = "upload_saved"
     text_extraction = "text_extraction"
+    ocr_queued = "ocr_queued"
+    ocr_in_progress = "ocr_in_progress"
+    ocr_failed = "ocr_failed"
     canonical_markdown_generation = "canonical_markdown_generation"
     content_generation = "content_generation"
+    waiting_generation_config = "waiting_generation_config"
+    content_generation_failed = "content_generation_failed"
     awaiting_confirmation = "awaiting_confirmation"
     confirmation = "confirmation"
     indexing_queued = "indexing_queued"
@@ -157,18 +164,16 @@ class IngestAiResultResponse(BaseModel):
     suggested_key_points: list[str] | None = None
     suggested_tags: list[str] | None = None
     suggested_asset_type: str | None = None
-    suggested_version: str = "V1"
-    version_source: Literal["source_filename", "ai_content", "default_needs_confirmation"] = (
-        "default_needs_confirmation"
-    )
-    version_confidence: Literal["high", "medium", "low"] = "low"
-    version_reason: str = "未能可靠判断版本，已使用规则默认值"
+    suggested_version: str | None = None
+    version_source: (
+        Literal["source_filename", "ai_content", "default_needs_confirmation"] | None
+    ) = None
+    version_confidence: Literal["high", "medium", "low"] | None = None
+    version_reason: str | None = None
     suggested_confidentiality_level: str | None = None
-    confidentiality_source: Literal["ai_content", "default_needs_confirmation"] = (
-        "default_needs_confirmation"
-    )
-    confidentiality_confidence: Literal["high", "medium", "low"] = "low"
-    confidentiality_reason: str = "AI 未能可靠判断内容密级，已使用规则默认值"
+    confidentiality_source: Literal["ai_content", "default_needs_confirmation"] | None = None
+    confidentiality_confidence: Literal["high", "medium", "low"] | None = None
+    confidentiality_reason: str | None = None
     suggested_ai_access_level: str | None = None
     suggested_phase_key: str | None = None
     confidence: float | None = Field(
@@ -185,6 +190,10 @@ class IngestAiResultResponse(BaseModel):
     # extracted_text_preview 是业务内容**仅完整视图**返回，admin 元数据视图为 None。
     extraction_status: str | None = None
     extracted_char_count: int | None = None
+    ocr_status: str | None = None
+    ocr_page_results: list | None = None
+    ocr_confidence: float | None = None
+    ocr_attempted_at: datetime | None = None
     error_type: str | None = None
     error_message: str | None = None
     is_possible_duplicate: bool = False
@@ -364,21 +373,22 @@ class PendingIngestItem(BaseModel):
     extraction_status: str | None = None
     error_type: str | None = None
     error_message: str | None = None
+    processing_stage: str | None = None
+    retryable: bool = False
+    retry_count: int = 0
     # 允许前端在列表预览 / 进入校正前展示的 AI 建议元数据。
     suggested_title: str | None = None
     suggested_one_liner: str | None = None
-    suggested_version: str = "V1"
-    version_source: Literal["source_filename", "ai_content", "default_needs_confirmation"] = (
-        "default_needs_confirmation"
-    )
-    version_confidence: Literal["high", "medium", "low"] = "low"
-    version_reason: str = "未能可靠判断版本，已使用规则默认值"
-    suggested_confidentiality_level: str = "L2"
-    confidentiality_source: Literal["ai_content", "default_needs_confirmation"] = (
-        "default_needs_confirmation"
-    )
-    confidentiality_confidence: Literal["high", "medium", "low"] = "low"
-    confidentiality_reason: str = "AI 未能可靠判断内容密级，已使用规则默认值"
+    suggested_version: str | None = None
+    version_source: (
+        Literal["source_filename", "ai_content", "default_needs_confirmation"] | None
+    ) = None
+    version_confidence: Literal["high", "medium", "low"] | None = None
+    version_reason: str | None = None
+    suggested_confidentiality_level: str | None = None
+    confidentiality_source: Literal["ai_content", "default_needs_confirmation"] | None = None
+    confidentiality_confidence: Literal["high", "medium", "low"] | None = None
+    confidentiality_reason: str | None = None
     naming_parsed_fields: dict | None = None
     confidence: float | None = Field(
         default=None,

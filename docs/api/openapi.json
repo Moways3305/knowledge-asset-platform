@@ -2587,6 +2587,10 @@
             "title": "Page Size",
             "type": "integer"
           },
+          "pending_count": {
+            "title": "Pending Count",
+            "type": "integer"
+          },
           "total": {
             "title": "Total",
             "type": "integer"
@@ -2601,7 +2605,8 @@
           "total",
           "page",
           "page_size",
-          "unread_count"
+          "unread_count",
+          "pending_count"
         ],
         "title": "BusinessNotificationListResponse",
         "type": "object"
@@ -2621,13 +2626,20 @@
             "title": "Created At",
             "type": "string"
           },
-          "delivery_status": {
-            "title": "Delivery Status",
-            "type": "string"
-          },
           "event_type": {
             "title": "Event Type",
             "type": "string"
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
           },
           "id": {
             "format": "uuid",
@@ -2669,6 +2681,17 @@
             ],
             "title": "Read At"
           },
+          "recovery_suggestion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recovery Suggestion"
+          },
           "summary": {
             "title": "Summary",
             "type": "string"
@@ -2703,7 +2726,6 @@
           "task_group",
           "action_required",
           "next_action_label",
-          "delivery_status",
           "target"
         ],
         "title": "BusinessNotificationOut",
@@ -4843,28 +4865,46 @@
             "title": "Confidence"
           },
           "confidentiality_confidence": {
-            "default": "low",
-            "enum": [
-              "high",
-              "medium",
-              "low"
+            "anyOf": [
+              {
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Confidentiality Confidence",
-            "type": "string"
+            "title": "Confidentiality Confidence"
           },
           "confidentiality_reason": {
-            "default": "AI 未能可靠判断内容密级，已使用规则默认值",
-            "title": "Confidentiality Reason",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidentiality Reason"
           },
           "confidentiality_source": {
-            "default": "default_needs_confirmation",
-            "enum": [
-              "ai_content",
-              "default_needs_confirmation"
+            "anyOf": [
+              {
+                "enum": [
+                  "ai_content",
+                  "default_needs_confirmation"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Confidentiality Source",
-            "type": "string"
+            "title": "Confidentiality Source"
           },
           "content_processing_status": {
             "anyOf": [
@@ -5090,6 +5130,52 @@
             ],
             "title": "Naming Parsed Fields"
           },
+          "ocr_attempted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ocr Attempted At"
+          },
+          "ocr_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ocr Confidence"
+          },
+          "ocr_page_results": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ocr Page Results"
+          },
+          "ocr_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ocr Status"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -5200,9 +5286,15 @@
             "title": "Suggested Title"
           },
           "suggested_version": {
-            "default": "V1",
-            "title": "Suggested Version",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Version"
           },
           "suggestion_generation_reason": {
             "title": "Suggestion Generation Reason",
@@ -5235,29 +5327,47 @@
             "title": "Summary Status"
           },
           "version_confidence": {
-            "default": "low",
-            "enum": [
-              "high",
-              "medium",
-              "low"
+            "anyOf": [
+              {
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Version Confidence",
-            "type": "string"
+            "title": "Version Confidence"
           },
           "version_reason": {
-            "default": "未能可靠判断版本，已使用规则默认值",
-            "title": "Version Reason",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Reason"
           },
           "version_source": {
-            "default": "default_needs_confirmation",
-            "enum": [
-              "source_filename",
-              "ai_content",
-              "default_needs_confirmation"
+            "anyOf": [
+              {
+                "enum": [
+                  "source_filename",
+                  "ai_content",
+                  "default_needs_confirmation"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Version Source",
-            "type": "string"
+            "title": "Version Source"
           }
         },
         "required": [
@@ -5818,8 +5928,13 @@
         "enum": [
           "upload_saved",
           "text_extraction",
+          "ocr_queued",
+          "ocr_in_progress",
+          "ocr_failed",
           "canonical_markdown_generation",
           "content_generation",
+          "waiting_generation_config",
+          "content_generation_failed",
           "awaiting_confirmation",
           "confirmation",
           "indexing_queued",
@@ -9740,28 +9855,46 @@
             "title": "Confidence"
           },
           "confidentiality_confidence": {
-            "default": "low",
-            "enum": [
-              "high",
-              "medium",
-              "low"
+            "anyOf": [
+              {
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Confidentiality Confidence",
-            "type": "string"
+            "title": "Confidentiality Confidence"
           },
           "confidentiality_reason": {
-            "default": "AI 未能可靠判断内容密级，已使用规则默认值",
-            "title": "Confidentiality Reason",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidentiality Reason"
           },
           "confidentiality_source": {
-            "default": "default_needs_confirmation",
-            "enum": [
-              "ai_content",
-              "default_needs_confirmation"
+            "anyOf": [
+              {
+                "enum": [
+                  "ai_content",
+                  "default_needs_confirmation"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Confidentiality Source",
-            "type": "string"
+            "title": "Confidentiality Source"
           },
           "created_at": {
             "anyOf": [
@@ -9825,6 +9958,17 @@
             ],
             "title": "Naming Parsed Fields"
           },
+          "processing_stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processing Stage"
+          },
           "result_asset_id": {
             "anyOf": [
               {
@@ -9836,6 +9980,16 @@
               }
             ],
             "title": "Result Asset Id"
+          },
+          "retry_count": {
+            "default": 0,
+            "title": "Retry Count",
+            "type": "integer"
+          },
+          "retryable": {
+            "default": false,
+            "title": "Retryable",
+            "type": "boolean"
           },
           "source": {
             "title": "Source",
@@ -9850,9 +10004,15 @@
             "type": "string"
           },
           "suggested_confidentiality_level": {
-            "default": "L2",
-            "title": "Suggested Confidentiality Level",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Confidentiality Level"
           },
           "suggested_formed_on": {
             "anyOf": [
@@ -9888,9 +10048,15 @@
             "title": "Suggested Title"
           },
           "suggested_version": {
-            "default": "V1",
-            "title": "Suggested Version",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Version"
           },
           "suggestion_generation_reason": {
             "title": "Suggestion Generation Reason",
@@ -9936,29 +10102,47 @@
             "title": "Updated At"
           },
           "version_confidence": {
-            "default": "low",
-            "enum": [
-              "high",
-              "medium",
-              "low"
+            "anyOf": [
+              {
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Version Confidence",
-            "type": "string"
+            "title": "Version Confidence"
           },
           "version_reason": {
-            "default": "未能可靠判断版本，已使用规则默认值",
-            "title": "Version Reason",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Reason"
           },
           "version_source": {
-            "default": "default_needs_confirmation",
-            "enum": [
-              "source_filename",
-              "ai_content",
-              "default_needs_confirmation"
+            "anyOf": [
+              {
+                "enum": [
+                  "source_filename",
+                  "ai_content",
+                  "default_needs_confirmation"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Version Source",
-            "type": "string"
+            "title": "Version Source"
           }
         },
         "required": [
@@ -14764,6 +14948,11 @@
               }
             ],
             "title": "Processing Stage"
+          },
+          "retry_count": {
+            "default": 0,
+            "title": "Retry Count",
+            "type": "integer"
           },
           "retryable": {
             "default": false,

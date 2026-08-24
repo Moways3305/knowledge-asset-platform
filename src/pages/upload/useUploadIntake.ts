@@ -91,6 +91,8 @@ export function useUploadIntake({
       batchNumber: item.batch_number,
       sameNameWarning: item.same_name_warning,
       retryable: item.retryable,
+      retryCount: item.retry_count ?? 0,
+      lastAttemptAt: item.last_attempt_at ?? undefined,
       processingStage: item.processing_stage ?? undefined,
     }));
     localUploadQueueRef.current = next;

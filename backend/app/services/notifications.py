@@ -549,7 +549,12 @@ def _out(
         task_group=task_group,
         action_required=visible.action_required,
         next_action_label=next_action_label,
-        delivery_status=row.delivery_status,
+        failure_reason=row.summary if task_status in {"failed", "partial"} else None,
+        recovery_suggestion=(
+            "打开目标查看安全失败摘要并按提示恢复。"
+            if task_status in {"failed", "partial"}
+            else None
+        ),
         target=visible.target,
     )
 
@@ -622,6 +627,7 @@ async def list_notifications(
         page=page,
         page_size=page_size,
         unread_count=sum(row.read_at is None for row, _ in all_visible),
+        pending_count=sum(target.action_required for _, target in all_visible),
         categories=sorted({row.category for row, _ in all_visible}),
     )
 
