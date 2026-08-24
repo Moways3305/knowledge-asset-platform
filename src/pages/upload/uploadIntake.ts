@@ -21,6 +21,7 @@ export interface LocalUploadQueueItem {
   ingestTaskId: string | null;
   pollAttempts: number;
   batchNumber?: number;
+  transportBatchNumber?: number;
   sameNameWarning?: boolean;
   retryable?: boolean;
   retryCount?: number;
@@ -45,7 +46,9 @@ export interface UploadIntakeFeedback {
   message: string;
 }
 
-const LOCAL_UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
+export const LOCAL_UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
+export const TRANSPORT_BATCH_MAX_BYTES = 20 * 1024 * 1024;
+export const TRANSPORT_BATCH_MAX_FILES = 10;
 const LOCAL_UPLOAD_EXTENSIONS = new Set([
   "md",
   "markdown",
@@ -57,7 +60,42 @@ const LOCAL_UPLOAD_EXTENSIONS = new Set([
   "pptx",
   "xls",
   "xlsx",
+  "png",
+  "jpg",
+  "jpeg",
+  "tif",
+  "tiff",
+  "bmp",
+  "webp",
 ]);
+
+export function buildUploadTransportBatches<T extends { file: File }>(items: T[]): T[][] {
+  const batches: T[][] = [];
+  let current: T[] = [];
+  let currentBytes = 0;
+  for (const item of items) {
+    const mustBeAlone = item.file.size > TRANSPORT_BATCH_MAX_BYTES;
+    if (
+      current.length > 0 &&
+      (mustBeAlone ||
+        current.length >= TRANSPORT_BATCH_MAX_FILES ||
+        currentBytes + item.file.size > TRANSPORT_BATCH_MAX_BYTES)
+    ) {
+      batches.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+    current.push(item);
+    currentBytes += item.file.size;
+    if (mustBeAlone || current.length >= TRANSPORT_BATCH_MAX_FILES) {
+      batches.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+  }
+  if (current.length > 0) batches.push(current);
+  return batches;
+}
 
 export function localFileError(file: File): { code: IntakeRejectionCode; message: string } | null {
   const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
@@ -68,12 +106,6 @@ export function localFileError(file: File): { code: IntakeRejectionCode; message
     return { code: "file_too_large", message: "文件超过 25 MiB 大小上限" };
   }
   return null;
-}
-
-export function uploadBatchSizes(total: number): number[] {
-  return Array.from({ length: Math.ceil(total / 200) }, (_, index) =>
-    Math.min(200, total - index * 200),
-  );
 }
 
 export async function probeReadableFile(

@@ -7,6 +7,7 @@ import subprocess
 from dataclasses import dataclass
 
 from app.core.config import get_settings
+from app.core.text_safety import EXTRACTED_TEXT_MAX_CHARS, SafetyStats, sanitize_text
 from app.services.extraction import MAX_EXTRACT_CHARS, ExtractionPage, ExtractionResult
 
 
@@ -32,6 +33,7 @@ class OCRResult:
     pages: tuple[OCRPageResult, ...]
     error_type: str | None = None
     error_message: str | None = None
+    safety_stats: SafetyStats = SafetyStats()
 
 
 def _image_bytes(content: bytes, *, source_kind: str, page_number: int) -> bytes:
@@ -121,11 +123,13 @@ def recognize(content: bytes, extraction: ExtractionResult) -> OCRResult:
         if all(p.status in {"succeeded", "skipped_text"} for p in pages)
         else "low_confidence"
     )
+    safe_text = sanitize_text("\n".join(merged), max_chars=EXTRACTED_TEXT_MAX_CHARS)
     return OCRResult(
-        text="\n".join(merged)[:MAX_EXTRACT_CHARS],
+        text=safe_text.value[:MAX_EXTRACT_CHARS],
         status=status,
         confidence=overall,
         pages=tuple(pages),
         error_type=None if status == "succeeded" else "ocr_low_confidence",
         error_message=None if status == "succeeded" else "OCR 置信度不足，请检查原文或重试。",
+        safety_stats=safe_text.stats,
     )

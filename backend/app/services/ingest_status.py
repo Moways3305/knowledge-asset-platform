@@ -259,7 +259,12 @@ def _response(ctx: _TaskContext, caller: CallerContext) -> IngestTaskStatusRespo
             retryable = task.created_by == caller.user_id or caller.can_discover_l5
             error = _safe_error("ocr_failed")
             next_action = _action("retry_ocr", "ingest_task_retry", enabled=retryable)
-        elif task.processing_stage in {"waiting_generation_config", "content_generation_failed"}:
+        elif task.processing_stage in {
+            "waiting_generation_config",
+            "content_generation_failed",
+            "content_result_persistence_failed",
+            "processing_state_persistence_failed",
+        }:
             retryable = bool(
                 _generation_response_retryable(task)
                 and (task.created_by == caller.user_id or caller.can_discover_l5)
@@ -354,7 +359,13 @@ async def retry_task(
 
     task = ctx.task
     if task.status in {IngestStatus.pending_confirmation.value, IngestStatus.failed.value} and (
-        task.processing_stage in {"waiting_generation_config", "content_generation_failed"}
+        task.processing_stage
+        in {
+            "waiting_generation_config",
+            "content_generation_failed",
+            "content_result_persistence_failed",
+            "processing_state_persistence_failed",
+        }
         or _generation_response_retryable(task)
     ):
         claim = await session.execute(

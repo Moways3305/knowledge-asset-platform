@@ -91,6 +91,110 @@ export async function createUploadSession(input: {
   });
 }
 
+export interface UploadManifestInput {
+  client_file_key: string;
+  file_name: string;
+  file_size: number;
+  file_type?: string;
+  formed_on?: string;
+  transport_batch_index?: number;
+  rejection?: {
+    file_name: string;
+    file_size: number;
+    file_type?: string;
+    error_code:
+      | "file_unreadable"
+      | "file_read_timeout"
+      | "macos_metadata"
+      | "unsupported_file_type"
+      | "file_too_large";
+  };
+}
+
+export async function initializeUploadSession(input: {
+  sessionId: string;
+  manifest: UploadManifestInput[];
+  totalTransportBatches: number;
+  targetScope?: string;
+  targetProjectId?: string;
+}): Promise<UploadSessionDTO> {
+  return apiPost<UploadSessionDTO>("/api/v1/ingest/upload-sessions/init", {
+    session_id: input.sessionId,
+    manifest: input.manifest,
+    total_transport_batches: input.totalTransportBatches,
+    target_scope: input.targetScope ?? null,
+    target_project_id: input.targetProjectId ?? null,
+  });
+}
+
+export async function appendUploadSessionBatch(input: {
+  sessionId: string;
+  batchId: string;
+  batchIndex: number;
+  itemIds: string[];
+  files: File[];
+}): Promise<UploadSessionDTO> {
+  const form = new FormData();
+  form.append("batch_id", input.batchId);
+  form.append("batch_index", String(input.batchIndex));
+  form.append("item_ids", JSON.stringify(input.itemIds));
+  input.files.forEach((file) => form.append("files", file, file.name));
+  return withCsrfRetry(async () => {
+    const response = await fetch(
+      `${BASE_URL}/api/v1/ingest/upload-sessions/${input.sessionId}/batches`,
+      {
+        method: "POST",
+        headers: await csrfHeaders(),
+        body: form,
+        credentials: "include",
+      },
+    );
+    return handleResponse<UploadSessionDTO>(response);
+  });
+}
+
+export async function completeUploadSession(sessionId: string): Promise<UploadSessionDTO> {
+  return apiPostNoBody<UploadSessionDTO>(`/api/v1/ingest/upload-sessions/${sessionId}/complete`);
+}
+
+export async function recordUploadTransportFailure(
+  sessionId: string,
+  itemIds: string[],
+  errorCode: "proxy_rejected" | "upload_timeout" | "network_interrupted",
+  batch?: { id: string; index: number },
+): Promise<UploadSessionDTO> {
+  return apiPost<UploadSessionDTO>(
+    `/api/v1/ingest/upload-sessions/${sessionId}/transport-failure`,
+    {
+      item_ids: itemIds,
+      error_code: errorCode,
+      batch_id: batch?.id ?? null,
+      batch_index: batch?.index ?? null,
+    },
+  );
+}
+
+export async function replaceUploadSessionItemBytes(input: {
+  sessionId: string;
+  itemId: string;
+  file: File;
+}): Promise<UploadSessionDTO> {
+  const form = new FormData();
+  form.append("file", input.file, input.file.name);
+  return withCsrfRetry(async () => {
+    const response = await fetch(
+      `${BASE_URL}/api/v1/ingest/upload-sessions/${input.sessionId}/items/${input.itemId}/bytes`,
+      {
+        method: "POST",
+        headers: await csrfHeaders(),
+        body: form,
+        credentials: "include",
+      },
+    );
+    return handleResponse<UploadSessionDTO>(response);
+  });
+}
+
 function localDateFromMs(ms: number): string | null {
   if (!Number.isFinite(ms) || ms <= 0) return null;
   const d = new Date(ms);

@@ -114,6 +114,15 @@
   - nginx 反代（server 块 `deploy/nginx.conf.template`，http 级配置 `deploy/nginx-main.conf`）：`/api/v1/`、`/health`（覆盖 `/health/ready`、`/health/config`）、`/admin/ops/` → `backend:8000`（Docker DNS）；其余路径 SPA fallback 到 `index.html`。`nginx.conf.template` 在容器启动时由 nginx 镜像 envsubst 机制渲染（替换 `${ONLYOFFICE_ORIGIN}`）。
   - backend 宿主端口（compose 本地映射 `127.0.0.1:8001`）**仅供调试**，生产正式访问不走它，可在生产移除该映射。本地 compose 前端入口为 `http://<host>:18080/`。
 - **TLS 终止位置**：在 `frontend` nginx 之前（或之上）放置真实 HTTPS/TLS 终止（云 LB / 反代 / Ingress）。本仓库前端 nginx 以**非 root** 用户监听 `8080`（compose 映射 `18080:8080`），TLS 由前置层负责。
+- **宿主机 Nginx 必须由仓库脚本安装，禁止继续使用旧的 `200m` 站点配置**：[`deploy/nginx-host-kap.conf.template`](../../deploy/nginx-host-kap.conf.template) 是完整受管站点，不是示例片段；[`deploy/install-host-nginx.sh`](../../deploy/install-host-nginx.sh) 会在站点目录内生成完整候选文件，再通过同文件系统原子 rename 替换 `/etc/nginx/conf.d/kap.conf` 并执行 `nginx -t`；校验或首次 reload 失败都会以相同方式原子恢复旧文件并尝试回滚 reload，只有成功后才保留新配置。生产发布必须执行：
+  ```sh
+  sudo env \
+    KAP_SERVER_NAME=kap.example.com \
+    KAP_TLS_CERTIFICATE=/etc/letsencrypt/live/kap.example.com/fullchain.pem \
+    KAP_TLS_CERTIFICATE_KEY=/etc/letsencrypt/live/kap.example.com/privkey.pem \
+    sh ./deploy/install-host-nginx.sh
+  ```
+  如发行版不使用 `/etc/nginx/conf.d/kap.conf`，显式设置 `KAP_NGINX_SITE_PATH`；发布检查必须确认该文件来自当前 commit。模板仅对两个上传 location 使用 `32m / 120s`，其余路径保持 `1m` 默认请求体边界。
 - **`APP_ENV=prod` 下 cookie `Secure=True` 的依赖（关键）**：
   - prod 时会话 cookie 与 OAuth state cookie 被**强制** `Secure`（`session_cookie_secure()`），即使显式注入 `SESSION_COOKIE_SECURE=false` 运行时也不退让（且会在 `/health/config` 报 blocker）。
   - **后果**：纯 HTTP 入口下浏览器不会回送 Secure cookie → 登录后会话不生效。**生产必须经真实 HTTPS 访问。**

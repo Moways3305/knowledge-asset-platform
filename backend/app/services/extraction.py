@@ -18,11 +18,12 @@ import logging
 from dataclasses import dataclass
 
 from app.core.logging import safe_log_exception
+from app.core.text_safety import EXTRACTED_TEXT_MAX_CHARS, SafetyStats, sanitize_text
 
 _logger = logging.getLogger(__name__)
 
 # 抽取草稿全文上限（防超大文本放大）；超过则截断。
-MAX_EXTRACT_CHARS = 200_000
+MAX_EXTRACT_CHARS = EXTRACTED_TEXT_MAX_CHARS
 
 # 直接按文本读取的扩展名。
 _TEXT_EXT = {"txt", "md", "markdown", "csv", "log", "text", "rst"}
@@ -50,6 +51,7 @@ class ExtractionResult:
     char_count: int
     pages: tuple[ExtractionPage, ...] = ()
     source_kind: str = "document"
+    safety_stats: SafetyStats = SafetyStats()
 
 
 def _ext(file_name: str | None) -> str:
@@ -162,6 +164,7 @@ def extract_text(content: bytes, *, file_name: str | None, mime: str | None) -> 
     """按扩展名 / mime 路由抽取文本，返回结构化结果（绝不抛出到调用方）。"""
     ext = _ext(file_name)
     mime = (mime or "").lower()
+    pages: tuple[ExtractionPage, ...] = ()
     try:
         if ext in _TEXT_EXT or mime.startswith("text/"):
             # 非 UTF-8 稳健回退：用 replace，不因解码异常把任务打成 failed。
@@ -215,7 +218,17 @@ def extract_text(content: bytes, *, file_name: str | None, mime: str | None) -> 
             char_count=0,
         )
 
-    text = text.strip()
+    safe_text = sanitize_text(text, max_chars=MAX_EXTRACT_CHARS)
+    text = safe_text.value.strip()
+    if pages:
+        pages = tuple(
+            ExtractionPage(
+                page.page_number,
+                sanitize_text(page.text, max_chars=MAX_EXTRACT_CHARS).value,
+                page.status,
+            )
+            for page in pages
+        )
     if (ext == "pdf" or mime == "application/pdf") and any(
         page.status == "ocr_required" for page in pages
     ):
@@ -227,6 +240,7 @@ def extract_text(content: bytes, *, file_name: str | None, mime: str | None) -> 
             char_count=len(text),
             pages=pages,
             source_kind="pdf",
+            safety_stats=safe_text.stats,
         )
     if not text:
         # 纯图片 / 扫描件 PDF 等抽不到文本。
@@ -237,8 +251,6 @@ def extract_text(content: bytes, *, file_name: str | None, mime: str | None) -> 
             error_message="未能从文件内容中抽取到文本（可能是扫描件 / 纯图片），请人工补全",
             char_count=0,
         )
-    if len(text) > MAX_EXTRACT_CHARS:
-        text = text[:MAX_EXTRACT_CHARS]
     return ExtractionResult(
         text=text,
         status="extracted",
@@ -247,4 +259,5 @@ def extract_text(content: bytes, *, file_name: str | None, mime: str | None) -> 
         char_count=len(text),
         pages=pages if (ext == "pdf" or mime == "application/pdf") else (),
         source_kind="pdf" if (ext == "pdf" or mime == "application/pdf") else "document",
+        safety_stats=safe_text.stats,
     )

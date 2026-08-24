@@ -36,8 +36,10 @@ from app.schemas.ingest import (
     IngestUploadResponse,
     PendingIngestListResponse,
     UploadClientRejection,
+    UploadSessionInitRequest,
     UploadSessionListResponse,
     UploadSessionResponse,
+    UploadTransportFailureRequest,
 )
 from app.schemas.permission import CallerContext
 from app.services import bulk_operations as bulk_service
@@ -67,11 +69,19 @@ _LOCAL_UPLOAD_EXTENSIONS = {
     "pptx",
     "xls",
     "xlsx",
+    "png",
+    "jpg",
+    "jpeg",
+    "tif",
+    "tiff",
+    "bmp",
+    "webp",
 }
-_UPLOAD_READ_TIMEOUT_SECONDS = 30
+_UPLOAD_READ_TIMEOUT_SECONDS = 120
 _MAX_CLIENT_REJECTIONS = 5000
 _CLIENT_FORMED_ON_LIMIT = 200
 _CLIENT_REJECTIONS_ADAPTER = TypeAdapter(list[UploadClientRejection])
+_TRANSPORT_ITEM_IDS_ADAPTER = TypeAdapter(list[uuid.UUID])
 
 
 def _normalize_formed_on(value: str | None) -> str | None:
@@ -114,6 +124,366 @@ async def _confirmed_task_result(
         status="succeeded",
         result_asset_id=row.result_asset_id,
         index_status=row.index_status,
+    )
+
+
+@router.post("/ingest/upload-sessions/init", response_model=UploadSessionResponse)
+async def initialize_upload_session(
+    body: UploadSessionInitRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    llm: LLMClient | NullLLMClient = Depends(get_generation_llm_client),
+    desensitizer: DesensitizationEngine = Depends(get_desensitizer),
+) -> UploadSessionResponse:
+    manifest: list[dict] = []
+    for item in body.manifest:
+        rejection = item.rejection
+        file_name = item.file_name
+        metadata_message = upload_session_service.macos_metadata_error(file_name)
+        extension = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
+        if item.file_size > MAX_UPLOAD_BYTES:
+            rejection = UploadClientRejection(
+                file_name=file_name,
+                file_size=item.file_size,
+                file_type=item.file_type,
+                error_code="file_too_large",
+            )
+        elif metadata_message is not None:
+            rejection = UploadClientRejection(
+                file_name=file_name,
+                file_size=item.file_size,
+                file_type=item.file_type,
+                error_code="macos_metadata",
+            )
+        elif extension not in _LOCAL_UPLOAD_EXTENSIONS:
+            rejection = UploadClientRejection(
+                file_name=file_name,
+                file_size=item.file_size,
+                file_type=item.file_type,
+                error_code="unsupported_file_type",
+            )
+        safe_rejection = None
+        if rejection is not None:
+            safe_rejection = {
+                "error_code": rejection.error_code,
+                "error_message": {
+                    "file_too_large": "文件超过 25 MiB 大小上限",
+                    "unsupported_file_type": "该文件类型暂不支持上传",
+                    "macos_metadata": upload_session_service.MACOS_METADATA_MESSAGE,
+                }.get(rejection.error_code, upload_session_service.UNREADABLE_FILE_MESSAGE),
+            }
+        manifest.append(
+            {
+                "client_file_key": item.client_file_key,
+                "file_name": file_name,
+                "file_size": item.file_size,
+                "file_type": item.file_type,
+                "formed_on": _normalize_formed_on(item.formed_on),
+                "transport_batch_index": item.transport_batch_index,
+                "rejection": safe_rejection,
+            }
+        )
+    value = await upload_session_service.initialize_transport_session(
+        session,
+        caller,
+        session_id=body.session_id,
+        manifest=manifest,
+        total_transport_batches=body.total_transport_batches,
+        target_scope=body.target_scope,
+        target_project_id=body.target_project_id,
+    )
+    return await upload_session_service.get_session(
+        session,
+        caller,
+        value.id,
+        storage=storage,
+        llm=llm,
+        desensitizer=desensitizer,
+        trace_id=get_trace_id(request),
+        promote=False,
+    )
+
+
+@router.post("/ingest/upload-sessions/{session_id}/batches", response_model=UploadSessionResponse)
+async def append_upload_transport_batch(
+    session_id: uuid.UUID,
+    request: Request,
+    batch_id: str = Form(),
+    batch_index: int = Form(),
+    item_ids: str = Form(),
+    files: list[UploadFile] = File(),
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    llm: LLMClient | NullLLMClient = Depends(get_generation_llm_client),
+    desensitizer: DesensitizationEngine = Depends(get_desensitizer),
+) -> UploadSessionResponse:
+    if len(batch_id) > 100 or batch_index < 0:
+        raise HTTPException(status_code=422, detail={"denied_reason": "invalid_transport_batch"})
+    try:
+        parsed_item_ids = _TRANSPORT_ITEM_IDS_ADAPTER.validate_python(json.loads(item_ids))
+    except (json.JSONDecodeError, ValidationError):
+        raise HTTPException(
+            status_code=422,
+            detail={"denied_reason": "invalid_transport_batch_manifest", "message": "批次清单无效"},
+        ) from None
+    if len(files) != len(parsed_item_ids) or not 1 <= len(files) <= 10:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "denied_reason": "invalid_transport_batch_count",
+                "message": "批次文件数量无效",
+            },
+        )
+    if await upload_session_service.preflight_transport_batch(
+        session,
+        caller,
+        session_id=session_id,
+        batch_id=batch_id,
+        batch_index=batch_index,
+        manifest=[
+            (item_id, file.filename or "file", max(0, file.size or 0))
+            for item_id, file in zip(parsed_item_ids, files, strict=True)
+        ],
+    ):
+        return await upload_session_service.get_session(
+            session,
+            caller,
+            session_id,
+            storage=storage,
+            llm=llm,
+            desensitizer=desensitizer,
+            trace_id=get_trace_id(request),
+            promote=False,
+        )
+    declared_total = sum(max(0, file.size or 0) for file in files)
+    if declared_total > upload_session_service.TRANSPORT_BATCH_MAX_BYTES and not (
+        len(files) == 1 and declared_total <= MAX_UPLOAD_BYTES
+    ):
+        raise HTTPException(
+            status_code=413,
+            detail={"denied_reason": "transport_batch_too_large", "message": "上传批次超过 20 MiB"},
+        )
+    candidates: list[tuple[uuid.UUID, upload_session_service.UploadCandidate]] = []
+    persisted = False
+    try:
+        for item_id, file in zip(parsed_item_ids, files, strict=True):
+            content = await asyncio.wait_for(
+                file.read(MAX_UPLOAD_BYTES + 1), timeout=_UPLOAD_READ_TIMEOUT_SECONDS
+            )
+            if len(content) > MAX_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail={"denied_reason": "file_too_large", "message": "文件超过 25 MiB"},
+                )
+            storage_ref = storage.save(content, original_name=file.filename or "file")
+            candidates.append(
+                (
+                    item_id,
+                    upload_session_service.UploadCandidate(
+                        file_name=file.filename or "file",
+                        file_size=len(content),
+                        file_type=file.content_type,
+                        storage_ref=storage_ref,
+                        content_hash=hashlib.sha256(content).hexdigest(),
+                    ),
+                )
+            )
+        await upload_session_service.append_transport_batch(
+            session,
+            caller,
+            session_id=session_id,
+            batch_id=batch_id,
+            batch_index=batch_index,
+            candidates=candidates,
+        )
+        persisted = True
+    except asyncio.TimeoutError:
+        await upload_session_service.fail_transport_items(
+            session,
+            caller,
+            session_id=session_id,
+            item_ids=parsed_item_ids,
+            error_code="upload_timeout",
+            message="上传读取超过 120 秒，请检查网络后重试",
+        )
+        raise HTTPException(
+            status_code=408,
+            detail={"denied_reason": "upload_timeout", "message": "上传读取超时"},
+        ) from None
+    except StorageError:
+        await upload_session_service.fail_transport_items(
+            session,
+            caller,
+            session_id=session_id,
+            item_ids=[item_id],
+            error_code="storage_failed",
+            message="文件暂时无法安全保存，请重试",
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={"denied_reason": "storage_failed", "message": "文件保存失败"},
+        ) from None
+    finally:
+        if not persisted:
+            for _item_id, candidate in candidates:
+                if candidate.storage_ref is not None:
+                    try:
+                        storage.delete(candidate.storage_ref)
+                    except OSError:
+                        # Cleanup is best-effort and must not mask the original safe response.
+                        pass
+    return await upload_session_service.get_session(
+        session,
+        caller,
+        session_id,
+        storage=storage,
+        llm=llm,
+        desensitizer=desensitizer,
+        trace_id=get_trace_id(request),
+        promote=False,
+    )
+
+
+@router.post(
+    "/ingest/upload-sessions/{session_id}/transport-failure",
+    response_model=UploadSessionResponse,
+)
+async def record_upload_transport_failure(
+    session_id: uuid.UUID,
+    body: UploadTransportFailureRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    llm: LLMClient | NullLLMClient = Depends(get_generation_llm_client),
+    desensitizer: DesensitizationEngine = Depends(get_desensitizer),
+) -> UploadSessionResponse:
+    message = {
+        "proxy_rejected": "上传请求被网关拒绝，请缩小批次后重试",
+        "upload_timeout": "上传超过 120 秒，请检查网络后重试",
+        "network_interrupted": "上传连接中断；原文件仍在本浏览器时可重试",
+    }[body.error_code]
+    await upload_session_service.fail_transport_items(
+        session,
+        caller,
+        session_id=session_id,
+        item_ids=body.item_ids,
+        error_code=body.error_code,
+        message=message,
+        batch_id=body.batch_id,
+        batch_index=body.batch_index,
+    )
+    return await upload_session_service.get_session(
+        session,
+        caller,
+        session_id,
+        storage=storage,
+        llm=llm,
+        desensitizer=desensitizer,
+        trace_id=get_trace_id(request),
+        promote=False,
+    )
+
+
+@router.post(
+    "/ingest/upload-sessions/{session_id}/items/{item_id}/bytes",
+    response_model=UploadSessionResponse,
+)
+async def replace_upload_transport_item_bytes(
+    session_id: uuid.UUID,
+    item_id: uuid.UUID,
+    request: Request,
+    file: UploadFile = File(),
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    llm: LLMClient | NullLLMClient = Depends(get_generation_llm_client),
+    desensitizer: DesensitizationEngine = Depends(get_desensitizer),
+) -> UploadSessionResponse:
+    try:
+        content = await asyncio.wait_for(
+            file.read(MAX_UPLOAD_BYTES + 1), timeout=_UPLOAD_READ_TIMEOUT_SECONDS
+        )
+    except asyncio.TimeoutError:
+        await upload_session_service.fail_transport_items(
+            session,
+            caller,
+            session_id=session_id,
+            item_ids=[item_id],
+            error_code="upload_timeout",
+            message="上传读取超过 120 秒，请检查网络后重试",
+        )
+        raise HTTPException(
+            status_code=408,
+            detail={"denied_reason": "upload_timeout", "message": "上传读取超时"},
+        ) from None
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail={"denied_reason": "file_too_large", "message": "文件超过 25 MiB"},
+        )
+    try:
+        storage_ref = storage.save(content, original_name=file.filename or "file")
+    except StorageError:
+        await upload_session_service.fail_transport_items(
+            session,
+            caller,
+            session_id=session_id,
+            item_ids=[item_id],
+            error_code="storage_failed",
+            message="文件暂时无法安全保存，请重试",
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={"denied_reason": "storage_failed", "message": "文件保存失败"},
+        ) from None
+    await upload_session_service.replace_transport_item_bytes(
+        session,
+        caller,
+        session_id=session_id,
+        item_id=item_id,
+        candidate=upload_session_service.UploadCandidate(
+            file_name=file.filename or "file",
+            file_size=len(content),
+            file_type=file.content_type,
+            storage_ref=storage_ref,
+            content_hash=hashlib.sha256(content).hexdigest(),
+        ),
+    )
+    return await upload_session_service.get_session(
+        session,
+        caller,
+        session_id,
+        storage=storage,
+        llm=llm,
+        desensitizer=desensitizer,
+        trace_id=get_trace_id(request),
+        promote=False,
+    )
+
+
+@router.post("/ingest/upload-sessions/{session_id}/complete", response_model=UploadSessionResponse)
+async def complete_upload_transport_session(
+    session_id: uuid.UUID,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    llm: LLMClient | NullLLMClient = Depends(get_generation_llm_client),
+    desensitizer: DesensitizationEngine = Depends(get_desensitizer),
+) -> UploadSessionResponse:
+    await upload_session_service.complete_transport_session(session, caller, session_id=session_id)
+    return await upload_session_service.get_session(
+        session,
+        caller,
+        session_id,
+        storage=storage,
+        llm=llm,
+        desensitizer=desensitizer,
+        trace_id=get_trace_id(request),
     )
 
 

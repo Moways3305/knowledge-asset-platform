@@ -132,6 +132,10 @@ class UploadSession(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     total_files: Mapped[int] = mapped_column(Integer, nullable=False)
     total_batches: Mapped[int] = mapped_column(Integer, nullable=False)
+    upload_completed: Mapped[bool] = mapped_column(nullable=False, default=False)
+    next_transport_batch_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    target_scope: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    target_project_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
@@ -161,6 +165,9 @@ class UploadSessionItem(Base):
     file_name: Mapped[str] = mapped_column(String(500), nullable=False)
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     file_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    client_file_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    suggested_formed_on: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    transport_batch_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="waiting")
     safe_error_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     safe_error_message: Mapped[str | None] = mapped_column(String(300), nullable=True)
@@ -171,6 +178,31 @@ class UploadSessionItem(Base):
     )
 
     session: Mapped[UploadSession] = relationship(back_populates="items")
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "client_file_key", name="uq_upload_item_client_file_key"),
+    )
+
+
+class UploadTransportBatch(Base):
+    """Idempotent browser-to-server transport batch; never stores file bytes."""
+
+    __tablename__ = "upload_transport_batches"
+    __table_args__ = (
+        UniqueConstraint("session_id", "batch_id", name="uq_upload_transport_batch_id"),
+        UniqueConstraint("session_id", "batch_index", name="uq_upload_transport_batch_index"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("upload_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    batch_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    batch_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="completed")
+    item_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    raw_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class IngestTaskAiResult(Base):

@@ -40,6 +40,7 @@ class UploadSessionItemResponse(BaseModel):
     id: uuid.UUID
     ordinal: int
     batch_number: int
+    transport_batch_number: int | None = None
     file_name: str
     file_size: int
     file_type: str | None
@@ -51,6 +52,7 @@ class UploadSessionItemResponse(BaseModel):
     retry_count: int = 0
     last_attempt_at: datetime | None = None
     processing_stage: str | None = None
+    bytes_available: bool = False
 
 
 class UploadSessionResponse(BaseModel):
@@ -63,6 +65,9 @@ class UploadSessionResponse(BaseModel):
     failed_files: int
     current_batch_number: int | None
     total_batches: int
+    uploaded_files: int = 0
+    uploaded_batches: int = 0
+    upload_completed: bool = False
     created_at: datetime
     updated_at: datetime
     items: list[UploadSessionItemResponse]
@@ -88,6 +93,56 @@ class UploadClientRejection(BaseModel):
     ]
 
 
+class UploadManifestItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    client_file_key: str = Field(min_length=1, max_length=100)
+    file_name: str = Field(min_length=1, max_length=500)
+    file_size: int = Field(ge=0)
+    file_type: str | None = Field(default=None, max_length=100)
+    formed_on: str | None = None
+    transport_batch_index: int | None = Field(default=None, ge=0, le=999)
+    rejection: UploadClientRejection | None = None
+
+
+class UploadSessionInitRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: uuid.UUID
+    manifest: list[UploadManifestItem] = Field(min_length=1, max_length=1000)
+    total_transport_batches: int = Field(ge=0, le=1000)
+    target_scope: str | None = None
+    target_project_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def transport_plan_matches_manifest(self) -> UploadSessionInitRequest:
+        keys = [item.client_file_key for item in self.manifest]
+        if len(set(keys)) != len(keys):
+            raise ValueError("client_file_key must be unique")
+        for item in self.manifest:
+            if item.rejection is None and (
+                item.transport_batch_index is None
+                or item.transport_batch_index >= self.total_transport_batches
+            ):
+                raise ValueError("accepted manifest item requires a valid transport batch")
+        return self
+
+
+class UploadTransportFailureRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_ids: list[uuid.UUID] = Field(min_length=1, max_length=10)
+    error_code: Literal["proxy_rejected", "upload_timeout", "network_interrupted"]
+    batch_id: str | None = Field(default=None, min_length=1, max_length=100)
+    batch_index: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def batch_identity_is_complete(self) -> UploadTransportFailureRequest:
+        if (self.batch_id is None) != (self.batch_index is None):
+            raise ValueError("batch_id and batch_index must be provided together")
+        return self
+
+
 class IngestTaskStage(str, Enum):
     upload_saved = "upload_saved"
     text_extraction = "text_extraction"
@@ -98,6 +153,8 @@ class IngestTaskStage(str, Enum):
     content_generation = "content_generation"
     waiting_generation_config = "waiting_generation_config"
     content_generation_failed = "content_generation_failed"
+    content_result_persistence_failed = "content_result_persistence_failed"
+    processing_state_persistence_failed = "processing_state_persistence_failed"
     awaiting_confirmation = "awaiting_confirmation"
     confirmation = "confirmation"
     indexing_queued = "indexing_queued"

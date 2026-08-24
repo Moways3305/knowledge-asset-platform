@@ -2170,6 +2170,38 @@
         "title": "BatchNamingPreviewResponse",
         "type": "object"
       },
+      "Body_append_upload_transport_batch_api_v1_ingest_upload_sessions__session_id__batches_post": {
+        "properties": {
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "batch_index": {
+            "title": "Batch Index",
+            "type": "integer"
+          },
+          "files": {
+            "items": {
+              "contentMediaType": "application/octet-stream",
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "item_ids": {
+            "title": "Item Ids",
+            "type": "string"
+          }
+        },
+        "required": [
+          "batch_id",
+          "batch_index",
+          "item_ids",
+          "files"
+        ],
+        "title": "Body_append_upload_transport_batch_api_v1_ingest_upload_sessions__session_id__batches_post",
+        "type": "object"
+      },
       "Body_create_upload_api_v1_ingest_upload_post": {
         "properties": {
           "file": {
@@ -2294,6 +2326,20 @@
           }
         },
         "title": "Body_create_upload_session_api_v1_ingest_upload_sessions_post",
+        "type": "object"
+      },
+      "Body_replace_upload_transport_item_bytes_api_v1_ingest_upload_sessions__session_id__items__item_id__bytes_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_replace_upload_transport_item_bytes_api_v1_ingest_upload_sessions__session_id__items__item_id__bytes_post",
         "type": "object"
       },
       "BulkEvidenceItem": {
@@ -5935,6 +5981,8 @@
           "content_generation",
           "waiting_generation_config",
           "content_generation_failed",
+          "content_result_persistence_failed",
+          "processing_state_persistence_failed",
           "awaiting_confirmation",
           "confirmation",
           "indexing_queued",
@@ -14882,11 +14930,188 @@
         "title": "UnreadCountResponse",
         "type": "object"
       },
+      "UploadClientRejection": {
+        "description": "A client-side intake failure. The server revalidates safe claims.",
+        "properties": {
+          "error_code": {
+            "enum": [
+              "file_unreadable",
+              "file_read_timeout",
+              "macos_metadata",
+              "unsupported_file_type",
+              "file_too_large"
+            ],
+            "title": "Error Code",
+            "type": "string"
+          },
+          "file_name": {
+            "title": "File Name",
+            "type": "string"
+          },
+          "file_size": {
+            "default": 0,
+            "title": "File Size",
+            "type": "integer"
+          },
+          "file_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Type"
+          }
+        },
+        "required": [
+          "file_name",
+          "error_code"
+        ],
+        "title": "UploadClientRejection",
+        "type": "object"
+      },
+      "UploadManifestItem": {
+        "additionalProperties": false,
+        "properties": {
+          "client_file_key": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Client File Key",
+            "type": "string"
+          },
+          "file_name": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "File Name",
+            "type": "string"
+          },
+          "file_size": {
+            "minimum": 0.0,
+            "title": "File Size",
+            "type": "integer"
+          },
+          "file_type": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Type"
+          },
+          "formed_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Formed On"
+          },
+          "rejection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UploadClientRejection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "transport_batch_index": {
+            "anyOf": [
+              {
+                "maximum": 999.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transport Batch Index"
+          }
+        },
+        "required": [
+          "client_file_key",
+          "file_name",
+          "file_size"
+        ],
+        "title": "UploadManifestItem",
+        "type": "object"
+      },
+      "UploadSessionInitRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "manifest": {
+            "items": {
+              "$ref": "#/components/schemas/UploadManifestItem"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Manifest",
+            "type": "array"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "target_project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Project Id"
+          },
+          "target_scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Scope"
+          },
+          "total_transport_batches": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Total Transport Batches",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id",
+          "manifest",
+          "total_transport_batches"
+        ],
+        "title": "UploadSessionInitRequest",
+        "type": "object"
+      },
       "UploadSessionItemResponse": {
         "properties": {
           "batch_number": {
             "title": "Batch Number",
             "type": "integer"
+          },
+          "bytes_available": {
+            "default": false,
+            "title": "Bytes Available",
+            "type": "boolean"
           },
           "error_code": {
             "anyOf": [
@@ -14934,6 +15159,18 @@
             "title": "Id",
             "type": "string"
           },
+          "last_attempt_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Attempt At"
+          },
           "ordinal": {
             "title": "Ordinal",
             "type": "integer"
@@ -14967,6 +15204,17 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "transport_batch_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transport Batch Number"
           }
         },
         "required": [
@@ -15061,6 +15309,21 @@
             "title": "Updated At",
             "type": "string"
           },
+          "upload_completed": {
+            "default": false,
+            "title": "Upload Completed",
+            "type": "boolean"
+          },
+          "uploaded_batches": {
+            "default": 0,
+            "title": "Uploaded Batches",
+            "type": "integer"
+          },
+          "uploaded_files": {
+            "default": 0,
+            "title": "Uploaded Files",
+            "type": "integer"
+          },
           "waiting_files": {
             "title": "Waiting Files",
             "type": "integer"
@@ -15081,6 +15344,61 @@
           "items"
         ],
         "title": "UploadSessionResponse",
+        "type": "object"
+      },
+      "UploadTransportFailureRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "batch_id": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
+          "batch_index": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Index"
+          },
+          "error_code": {
+            "enum": [
+              "proxy_rejected",
+              "upload_timeout",
+              "network_interrupted"
+            ],
+            "title": "Error Code",
+            "type": "string"
+          },
+          "item_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Item Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "item_ids",
+          "error_code"
+        ],
+        "title": "UploadTransportFailureRequest",
         "type": "object"
       },
       "UserSessionItem": {
@@ -27603,6 +27921,97 @@
         ]
       }
     },
+    "/api/v1/ingest/upload-sessions/init": {
+      "post": {
+        "operationId": "initialize_upload_session_api_v1_ingest_upload_sessions_init_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadSessionInitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Initialize Upload Session",
+        "tags": [
+          "ingest"
+        ]
+      }
+    },
     "/api/v1/ingest/upload-sessions/{session_id}": {
       "get": {
         "operationId": "get_upload_session_api_v1_ingest_upload_sessions__session_id__get",
@@ -27689,6 +28098,198 @@
           }
         },
         "summary": "Get Upload Session",
+        "tags": [
+          "ingest"
+        ]
+      }
+    },
+    "/api/v1/ingest/upload-sessions/{session_id}/batches": {
+      "post": {
+        "operationId": "append_upload_transport_batch_api_v1_ingest_upload_sessions__session_id__batches_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_append_upload_transport_batch_api_v1_ingest_upload_sessions__session_id__batches_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Append Upload Transport Batch",
+        "tags": [
+          "ingest"
+        ]
+      }
+    },
+    "/api/v1/ingest/upload-sessions/{session_id}/complete": {
+      "post": {
+        "operationId": "complete_upload_transport_session_api_v1_ingest_upload_sessions__session_id__complete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Complete Upload Transport Session",
         "tags": [
           "ingest"
         ]
@@ -27886,6 +28487,117 @@
         ]
       }
     },
+    "/api/v1/ingest/upload-sessions/{session_id}/items/{item_id}/bytes": {
+      "post": {
+        "operationId": "replace_upload_transport_item_bytes_api_v1_ingest_upload_sessions__session_id__items__item_id__bytes_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_replace_upload_transport_item_bytes_api_v1_ingest_upload_sessions__session_id__items__item_id__bytes_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Replace Upload Transport Item Bytes",
+        "tags": [
+          "ingest"
+        ]
+      }
+    },
     "/api/v1/ingest/upload-sessions/{session_id}/items/{item_id}/retry": {
       "post": {
         "operationId": "retry_upload_session_item_api_v1_ingest_upload_sessions__session_id__items__item_id__retry_post",
@@ -27982,6 +28694,107 @@
           }
         },
         "summary": "Retry Upload Session Item",
+        "tags": [
+          "ingest"
+        ]
+      }
+    },
+    "/api/v1/ingest/upload-sessions/{session_id}/transport-failure": {
+      "post": {
+        "operationId": "record_upload_transport_failure_api_v1_ingest_upload_sessions__session_id__transport_failure_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadTransportFailureRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Upload Transport Failure",
         "tags": [
           "ingest"
         ]

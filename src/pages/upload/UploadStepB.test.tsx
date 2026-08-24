@@ -1010,4 +1010,48 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(screen.getByText("上传失败")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "移除" })).toBeInTheDocument();
   });
+
+  it("shows the real transport batch progress for the session and each file", () => {
+    const queue = [
+      {
+        id: "queue-a",
+        file: new File(["a"], "a.pdf"),
+        fileName: "folder/a.pdf",
+        fileSize: 1,
+        fileType: "PDF",
+        status: "uploading",
+        error: null,
+        ingestTaskId: null,
+        pollAttempts: 0,
+        transportBatchNumber: 4,
+      },
+    ];
+    const uploadSession = {
+      id: "session-a",
+      status: "uploading",
+      total_files: 196,
+      completed_files: 30,
+      processing_files: 8,
+      waiting_files: 158,
+      failed_files: 0,
+      current_batch_number: 1,
+      total_batches: 20,
+      uploaded_files: 38,
+      uploaded_batches: 4,
+      upload_completed: false,
+      created_at: "2026-08-24T00:00:00Z",
+      updated_at: "2026-08-24T00:00:00Z",
+      items: [],
+    };
+
+    render(
+      <UploadStepB
+        flow={flowFixture({ batchSelection: [], localUploadQueue: queue, uploadSession })}
+      />,
+    );
+
+    expect(screen.getByText("已上传 38/196，第 4/20 批")).toBeInTheDocument();
+    expect(screen.getByText("传输第 4 批")).toBeInTheDocument();
+    expect(screen.queryByText(/每批最多\s*200/)).not.toBeInTheDocument();
+  });
 });

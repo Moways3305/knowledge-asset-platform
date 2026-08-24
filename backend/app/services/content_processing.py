@@ -34,6 +34,15 @@ import inspect
 import json
 import re
 
+from app.core.text_safety import (
+    KEY_POINT_MAX_CHARS,
+    ONE_LINER_MAX_CHARS,
+    SUMMARY_MAX_CHARS,
+    TAG_MAX_CHARS,
+    TITLE_MAX_CHARS,
+    sanitize_json,
+    sanitize_text,
+)
 from app.schemas.enums import AiAccessLevel, ConfidentialityLevel
 from app.services import llm_usage
 from app.services.desensitization import DesensitizationEngine
@@ -555,9 +564,31 @@ async def process_content(
             "desensitization_counts": None,
         }
 
+    safe_parsed = sanitize_json(parsed)
+    parsed = safe_parsed.value if isinstance(safe_parsed.value, dict) else None
+    if parsed is None:
+        diagnostic = safe_llm_diagnostic("llm_bad_response")
+        base["naming_parsed_fields"]["generation_status"] = "failed"
+        base["naming_parsed_fields"]["generation_error_category"] = diagnostic.category
+        base["naming_parsed_fields"]["generation_recovery_hint"] = diagnostic.remediation_hint
+        return base, {
+            "status": "degraded",
+            "reason": diagnostic.category,
+            "provider": None,
+            "model": None,
+            "usage_requests": usage_requests,
+            "desensitization_status": "not_applicable",
+            "desensitization_counts": None,
+        }
+
     # 校验 + 落值（脏字段回退默认）。
-    one_liner = str(parsed.get("one_liner") or base["suggested_one_liner"])[:200]
-    detailed_raw = str(parsed.get("detailed") or "").strip()
+    one_liner = sanitize_text(
+        str(parsed.get("one_liner") or base["suggested_one_liner"]),
+        max_chars=ONE_LINER_MAX_CHARS,
+    ).value
+    detailed_raw = sanitize_text(
+        str(parsed.get("detailed") or ""), max_chars=SUMMARY_MAX_CHARS
+    ).value.strip()
     summary_generated = bool(detailed_raw)
     if not summary_generated:
         diagnostic = safe_llm_diagnostic("llm_bad_response")
@@ -574,9 +605,15 @@ async def process_content(
             "desensitization_status": "not_applicable",
             "desensitization_counts": None,
         }
-    detailed = detailed_raw[:2000]
-    key_points = _coerce_list(parsed.get("key_points"), _MAX_KEY_POINTS)
-    tags = _coerce_list(parsed.get("tags"), _MAX_TAGS) or base["suggested_tags"]
+    detailed = detailed_raw
+    key_points = [
+        sanitize_text(value, max_chars=KEY_POINT_MAX_CHARS).value
+        for value in _coerce_list(parsed.get("key_points"), _MAX_KEY_POINTS)
+    ]
+    tags = [
+        sanitize_text(value, max_chars=TAG_MAX_CHARS).value
+        for value in (_coerce_list(parsed.get("tags"), _MAX_TAGS) or base["suggested_tags"] or [])
+    ]
     level = parsed.get("confidentiality_level")
     confidentiality_confidence = str(parsed.get("confidentiality_confidence") or "").lower()
     confidentiality_is_reliable = (
@@ -629,6 +666,7 @@ async def process_content(
     naming["summary_generated"] = summary_generated
     naming["generation_status"] = "generated"
     naming["structured_output_mode"] = structured_output_mode
+    naming["text_safety"] = safe_parsed.stats.as_dict()
 
     if content_hash:
         naming["generation_cache_fingerprint"] = llm_usage.cache_fingerprint(
@@ -719,7 +757,7 @@ async def process_content(
     draft = dict(base)
     draft.update(
         # suggested_title 的产品语义是主题；完整规范名只由已发布规则在确认时生成。
-        suggested_title=naming["topic"],
+        suggested_title=sanitize_text(naming["topic"], max_chars=TITLE_MAX_CHARS).value,
         suggested_one_liner=one_liner,
         suggested_summary=detailed,
         suggested_key_points=key_points,

@@ -22,11 +22,22 @@ import logging
 import re
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.logging import safe_log_exception
+from app.core.text_safety import (
+    EXTRACTED_TEXT_MAX_CHARS,
+    KEY_POINT_MAX_CHARS,
+    ONE_LINER_MAX_CHARS,
+    SUMMARY_MAX_CHARS,
+    TAG_MAX_CHARS,
+    TITLE_MAX_CHARS,
+    sanitize_json,
+    sanitize_text,
+)
 from app.db.utils import utc_now
 from app.models.identity import ProjectMember, User
 from app.models.ingest import IngestTask, IngestTaskAiResult
@@ -244,14 +255,77 @@ def _apply_ai_result(task: IngestTask, ai: dict, dup) -> None:
     if result is None:
         result = IngestTaskAiResult(ingest_task_id=task.id)
         task.ai_result = result
-    for key, value in ai.items():
+    safe_ai = sanitize_json(ai).value
+    if not isinstance(safe_ai, dict):
+        safe_ai = {}
+    text_limits = {
+        "suggested_title": TITLE_MAX_CHARS,
+        "suggested_one_liner": ONE_LINER_MAX_CHARS,
+        "suggested_summary": SUMMARY_MAX_CHARS,
+        "extracted_text": EXTRACTED_TEXT_MAX_CHARS,
+    }
+    for key, value in safe_ai.items():
+        if isinstance(value, str) and key in text_limits:
+            value = sanitize_text(value, max_chars=text_limits[key]).value
+        elif key == "suggested_tags" and isinstance(value, list):
+            value = [
+                sanitize_text(item, max_chars=TAG_MAX_CHARS).value
+                for item in value
+                if isinstance(item, str)
+            ]
+        elif key == "suggested_key_points" and isinstance(value, list):
+            value = [
+                sanitize_text(item, max_chars=KEY_POINT_MAX_CHARS).value
+                for item in value
+                if isinstance(item, str)
+            ]
         setattr(result, key, value)
     if dup is not None:
         result.duplicate_of_task_id = dup[0]
         result.duplicate_of_asset_id = dup[1]
 
 
-async def process_upload_task(
+async def _terminalize_persistence_failure(
+    session: AsyncSession,
+    *,
+    task_id: uuid.UUID,
+    provider: str | None,
+    model: str | None,
+    model_attempted: bool = False,
+    failure_stage: str = "processing_state_persistence_failed",
+) -> str:
+    """Rollback first, then persist a safe per-file terminal state and usage evidence."""
+    await session.rollback()
+    await session.execute(
+        update(IngestTask)
+        .where(IngestTask.id == task_id)
+        .values(
+            status=IngestStatus.failed.value,
+            processing_stage=failure_stage,
+            error_type=failure_stage,
+            error_message=(
+                "内容生成结果保存失败，前置处理结果已保留，请重试。"
+                if failure_stage == "content_result_persistence_failed"
+                else "处理状态保存失败，任务已安全终止，请重试。"
+            ),
+            retry_count=IngestTask.retry_count + 1,
+        )
+    )
+    if model_attempted:
+        await llm_usage.record(
+            session,
+            scenario="content_generation",
+            provider=provider,
+            model=model,
+            batch_size=1,
+            cache_status="miss",
+            outcome="persistence_failure",
+        )
+    await session.commit()
+    return IngestStatus.failed.value
+
+
+async def _process_upload_task_impl(
     session: AsyncSession,
     task_id: uuid.UUID,
     *,
@@ -259,6 +333,7 @@ async def process_upload_task(
     llm: LLMClient | NullLLMClient,
     desensitizer: DesensitizationEngine,
     trace_id: str | None,
+    attempt_state: dict[str, bool],
 ) -> str:
     """处理一个 upload 任务（幂等、可重跑）。返回最终 status。"""
     task = (
@@ -287,6 +362,8 @@ async def process_upload_task(
         return task.status
 
     actor = await _build_actor(session, task)
+
+    model_attempted = False
 
     # ---- 分阶段恢复：已持久化的抽取/OCR/Markdown 事实绝不重做。----
     try:
@@ -406,6 +483,7 @@ async def process_upload_task(
                 error_type=None,
                 error_message=None,
                 char_count=len(recognized.text),
+                safety_stats=recognized.safety_stats,
             )
             await session.commit()
 
@@ -492,6 +570,10 @@ async def process_upload_task(
                 outcome="cache_hit",
             )
         else:
+            model_attempted = extraction.status == "extracted" and not isinstance(
+                llm, NullLLMClient
+            )
+            attempt_state["model_attempted"] = model_attempted
             ai, content_meta = await content_processing.process_content(
                 llm,
                 desensitizer,
@@ -534,11 +616,27 @@ async def process_upload_task(
                     )
     except Exception as exc:  # noqa: BLE001  # 瞬时处理失败 → 可重试
         safe_log_exception(_logger, "ingest_processing_failed", exc, include_summary=False)
-        task.retry_count += 1
-        task.error_type = "processing_error"
-        task.error_message = "入库处理失败（详见审计）"  # 安全文案，无内部引用
-        exhausted = task.retry_count >= task.max_retries
-        task.status = IngestStatus.failed.value if exhausted else IngestStatus.processing.value
+        if isinstance(exc, SQLAlchemyError):
+            return await _terminalize_persistence_failure(
+                session,
+                task_id=task_id,
+                provider=getattr(llm, "provider", None),
+                model=getattr(llm, "model", None),
+                model_attempted=model_attempted,
+            )
+        # Even non-database failures may leave pending ORM mutations. Always rollback before
+        # writing retry state so a prior failed/partial transaction cannot poison this commit.
+        await session.rollback()
+        clean_task = await session.get(IngestTask, task_id)
+        if clean_task is None:
+            return "not_found"
+        clean_task.retry_count += 1
+        clean_task.error_type = "processing_error"
+        clean_task.error_message = "入库处理失败（详见审计）"  # 安全文案，无内部引用
+        exhausted = clean_task.retry_count >= clean_task.max_retries
+        clean_task.status = (
+            IngestStatus.failed.value if exhausted else IngestStatus.processing.value
+        )
         await audit_service.record_event(
             session,
             caller=actor,
@@ -546,25 +644,52 @@ async def process_upload_task(
             action=AuditAction.ingest_failed.value,
             trace_id=trace_id,
             target_type="ingest_task",
-            target_id=task.id,
+            target_id=clean_task.id,
             severity=AlertSeverity.warning,
             risk_level=AuditRiskLevel.high.value,
             extra={
                 "failure_stage": "processing",
                 "error_code": getattr(exc, "code", None) or type(exc).__name__,
-                "retry_count": task.retry_count,
+                "retry_count": clean_task.retry_count,
                 "exhausted": exhausted,
             },
-            project_id=task.target_project_id,
+            project_id=clean_task.target_project_id,
         )
+        if model_attempted:
+            await llm_usage.record(
+                session,
+                scenario="content_generation",
+                provider=getattr(llm, "provider", None),
+                model=getattr(llm, "model", None),
+                batch_size=1,
+                cache_status="miss",
+                outcome="failure",
+            )
         if exhausted:
             from app.services.notifications import notify_ingest_failed
 
-            await notify_ingest_failed(session, task)
-        await session.commit()
-        return task.status
+            await notify_ingest_failed(session, clean_task)
+        try:
+            await session.commit()
+        except SQLAlchemyError:
+            return await _terminalize_persistence_failure(
+                session,
+                task_id=task_id,
+                provider=getattr(llm, "provider", None),
+                model=getattr(llm, "model", None),
+                model_attempted=model_attempted,
+            )
+        return clean_task.status
 
     # ---- 内容性结果：写 ai_result + 推进状态 ----
+    if isinstance(ai, dict):
+        safety_diagnostics = extraction.safety_stats.as_dict()
+        if any(safety_diagnostics.values()):
+            naming_fields = ai.get("naming_parsed_fields")
+            if not isinstance(naming_fields, dict):
+                naming_fields = {}
+                ai["naming_parsed_fields"] = naming_fields
+            naming_fields["extraction_text_safety"] = safety_diagnostics
     _apply_ai_result(task, ai, dup)
     fields = ai.get("naming_parsed_fields") if isinstance(ai, dict) else {}
     generation_status = fields.get("generation_status") if isinstance(fields, dict) else None
@@ -593,7 +718,18 @@ async def process_upload_task(
     else:
         task.error_type = None
         task.error_message = None
-    await session.flush()
+    try:
+        await session.flush()
+    except Exception as exc:  # database encoding/JSON/constraint failure
+        safe_log_exception(_logger, "ingest_result_persistence_failed", exc, include_summary=False)
+        return await _terminalize_persistence_failure(
+            session,
+            task_id=task.id,
+            provider=content_meta.get("provider") or getattr(llm, "provider", None),
+            model=content_meta.get("model") or getattr(llm, "model", None),
+            model_attempted=model_attempted,
+            failure_stage="content_result_persistence_failed",
+        )
 
     if extraction.status == "extracted":
         await audit_service.record_event(
@@ -641,5 +777,48 @@ async def process_upload_task(
         from app.services.notifications import notify_ingest_failed
 
         await notify_ingest_failed(session, task)
-    await session.commit()
+    try:
+        await session.commit()
+    except Exception as exc:  # commit failures invalidate the active transaction
+        safe_log_exception(_logger, "ingest_result_commit_failed", exc, include_summary=False)
+        return await _terminalize_persistence_failure(
+            session,
+            task_id=task.id,
+            provider=content_meta.get("provider") or getattr(llm, "provider", None),
+            model=content_meta.get("model") or getattr(llm, "model", None),
+            model_attempted=model_attempted,
+            failure_stage="content_result_persistence_failed",
+        )
     return task.status
+
+
+async def process_upload_task(
+    session: AsyncSession,
+    task_id: uuid.UUID,
+    *,
+    storage: LocalFileStorage,
+    llm: LLMClient | NullLLMClient,
+    desensitizer: DesensitizationEngine,
+    trace_id: str | None,
+) -> str:
+    """Fail-safe wrapper also covers initial task/actor database reads."""
+    attempt_state = {"model_attempted": False}
+    try:
+        return await _process_upload_task_impl(
+            session,
+            task_id,
+            storage=storage,
+            llm=llm,
+            desensitizer=desensitizer,
+            trace_id=trace_id,
+            attempt_state=attempt_state,
+        )
+    except SQLAlchemyError as exc:
+        safe_log_exception(_logger, "ingest_database_operation_failed", exc, include_summary=False)
+        return await _terminalize_persistence_failure(
+            session,
+            task_id=task_id,
+            provider=getattr(llm, "provider", None),
+            model=getattr(llm, "model", None),
+            model_attempted=attempt_state["model_attempted"],
+        )

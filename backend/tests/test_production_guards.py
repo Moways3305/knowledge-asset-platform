@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -374,6 +375,108 @@ def test_onlyoffice_csp_uses_one_explicit_origin_without_unsafe_expansion():
         assert " *" not in line
     assert "NGINX_ENVSUBST_FILTER=ONLYOFFICE_ORIGIN" in dockerfile
     assert "19-validate-onlyoffice-origin.sh" in dockerfile
+
+
+def test_upload_proxy_limits_are_scoped_and_aligned_at_both_nginx_layers():
+    root = Path(__file__).resolve().parents[2]
+    inner = (root / "deploy" / "nginx.conf.template").read_text(encoding="utf-8")
+    outer_path = root / "deploy" / "nginx-host-kap.conf.template"
+    installer_path = root / "deploy" / "install-host-nginx.sh"
+    runbook = (root / "docs" / "deployment" / "PRODUCTION_DEPLOYMENT_RUNBOOK.md").read_text(
+        encoding="utf-8"
+    )
+    outer = outer_path.read_text(encoding="utf-8")
+    installer = installer_path.read_text(encoding="utf-8")
+
+    assert inner.count("client_max_body_size 32m;") == 2
+    assert outer.count("client_max_body_size 32m;") == 2
+    for config in (inner, outer):
+        assert "location = /api/v1/ingest/upload" in config
+        assert "location ^~ /api/v1/ingest/upload-sessions" in config
+        assert config.count("client_body_timeout 120s;") == 2
+        assert config.count("proxy_send_timeout 120s;") == 2
+        assert config.count("proxy_read_timeout 120s;") == 2
+        assert "client_max_body_size 200m" not in config
+    assert "nginx-host-kap.conf.template" in installer
+    assert "nginx -t" in installer
+    assert "nginx -s reload" in installer
+    assert "install-host-nginx.sh" in runbook
+    assert "nginx-host-kap.conf.template" in runbook
+
+
+def test_host_nginx_installer_restores_previous_site_when_reload_fails(tmp_path):
+    shell = shutil.which("sh")
+    if shell is None:
+        pytest.skip("POSIX sh is required for the host-nginx installer integration test")
+
+    def shell_path(path: Path) -> str:
+        if os.name != "nt":
+            return str(path)
+        converted = subprocess.run(
+            [shell, "-c", 'cygpath -u "$1"', "sh", str(path)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return converted.stdout.strip()
+
+    root = Path(__file__).resolve().parents[2]
+    installer = root / "deploy" / "install-host-nginx.sh"
+    installer_source = installer.read_text(encoding="utf-8")
+    assert 'mktemp "${site_path}.new.XXXXXX"' in installer_source
+    assert 'mv -f "$rendered" "$site_path"' in installer_source
+    assert 'install -m 0644 "$rendered" "$site_path"' not in installer_source
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_nginx = fake_bin / "nginx"
+    reload_log = tmp_path / "reload.log"
+    fake_nginx.write_text(
+        """#!/bin/sh
+if [ "${1:-}" = "-s" ] && [ "${2:-}" = "reload" ]; then
+    if [ ! -f "$FAKE_NGINX_RELOAD_LOG" ]; then
+        echo first > "$FAKE_NGINX_RELOAD_LOG"
+        exit 1
+    fi
+    echo rollback >> "$FAKE_NGINX_RELOAD_LOG"
+fi
+exit 0
+""",
+        encoding="utf-8",
+    )
+    fake_nginx.chmod(0o755)
+    certificate = tmp_path / "certificate.pem"
+    certificate_key = tmp_path / "certificate-key.pem"
+    site = tmp_path / "kap.conf"
+    certificate.write_text("certificate", encoding="utf-8")
+    certificate_key.write_text("certificate-key", encoding="utf-8")
+    site.write_text("# previous production site\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [shell, shell_path(installer)],
+        env={
+            **os.environ,
+            "PATH": (
+                f"{shell_path(fake_bin)}:/usr/bin:/bin"
+                if os.name == "nt"
+                else f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}"
+            ),
+            "FAKE_NGINX_RELOAD_LOG": shell_path(reload_log),
+            "KAP_SERVER_NAME": "kap.example.com",
+            "KAP_TLS_CERTIFICATE": shell_path(certificate),
+            "KAP_TLS_CERTIFICATE_KEY": shell_path(certificate_key),
+            "KAP_NGINX_SITE_PATH": shell_path(site),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert site.read_text(encoding="utf-8") == "# previous production site\n"
+    assert reload_log.read_text(encoding="utf-8").splitlines() == ["first", "rollback"]
+    assert not list(tmp_path.glob("kap.conf.new.*"))
+    assert not list(tmp_path.glob("kap.conf.rollback.*"))
+    assert "previous site restored and reloaded" in result.stderr
 
 
 @pytest.mark.parametrize(

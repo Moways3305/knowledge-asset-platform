@@ -23,6 +23,8 @@ const PROCESSING_STAGE_LABELS: Partial<Record<IngestTaskStage, string>> = {
   content_generation: "正在生成内容建议",
   waiting_generation_config: "等待内容生成模型配置",
   content_generation_failed: "内容生成失败",
+  content_result_persistence_failed: "内容生成结果保存失败",
+  processing_state_persistence_failed: "处理状态保存失败",
 };
 
 export default function UploadStepB({ flow }: { flow: UploadFlow }) {
@@ -302,7 +304,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
           <div className="upload77-section-head">
             <div>
               <h2 id="local-upload-queue-title">本次上传队列</h2>
-              <p>每批最多 200 项连续推进；失败文件不会阻塞后续文件，可单独重试。</p>
+              <p>按 20 MiB / 10 文件顺序传输；失败文件不会影响已成功批次，可逐行重试。</p>
             </div>
             <div className="upload77-section-actions">
               {localUploadQueue.some((item) => item.status === "failed") && (
@@ -356,10 +358,10 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                   <dd>{uploadSession.failed_files}</dd>
                 </div>
                 <div>
-                  <dt>批次</dt>
+                  <dt>传输进度</dt>
                   <dd>
-                    {uploadSession.current_batch_number ?? uploadSession.total_batches}/
-                    {uploadSession.total_batches}
+                    已上传 {uploadSession.uploaded_files ?? 0}/{uploadSession.total_files}，第{" "}
+                    {uploadSession.uploaded_batches ?? 0}/{uploadSession.total_batches} 批
                   </dd>
                 </div>
               </dl>
@@ -402,7 +404,9 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                         <td>
                           <div className={`upload77-batch-progress is-${item.status}`}>
                             <span className="upload77-batch-state">{label}</span>
-                            {item.batchNumber && <span>第 {item.batchNumber} 批</span>}
+                            {item.transportBatchNumber && (
+                              <span>传输第 {item.transportBatchNumber} 批</span>
+                            )}
                             {Boolean(item.retryCount) && <span>第 {item.retryCount} 次恢复</span>}
                             {item.lastAttemptAt && (
                               <span>最近尝试 {formatBeijingTime(item.lastAttemptAt)}</span>

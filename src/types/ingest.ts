@@ -7,6 +7,7 @@ export interface IngestUploadResponseDTO {
 }
 
 export type UploadSessionItemState =
+  | "waiting_upload"
   | "waiting"
   | "uploading"
   | "processing"
@@ -19,6 +20,7 @@ export interface UploadSessionItemDTO {
   id: string;
   ordinal: number;
   batch_number: number;
+  transport_batch_number?: number | null;
   file_name: string;
   file_size: number;
   file_type: string | null;
@@ -30,6 +32,7 @@ export interface UploadSessionItemDTO {
   retry_count?: number;
   last_attempt_at?: string | null;
   processing_stage?: IngestTaskStage | null;
+  bytes_available?: boolean;
 }
 
 export interface UploadSessionDTO {
@@ -42,6 +45,9 @@ export interface UploadSessionDTO {
   failed_files: number;
   current_batch_number: number | null;
   total_batches: number;
+  uploaded_files?: number;
+  uploaded_batches?: number;
+  upload_completed?: boolean;
   created_at: string;
   updated_at: string;
   items: UploadSessionItemDTO[];
@@ -62,6 +68,8 @@ export type IngestTaskStage =
   | "content_generation"
   | "waiting_generation_config"
   | "content_generation_failed"
+  | "content_result_persistence_failed"
+  | "processing_state_persistence_failed"
   | "awaiting_confirmation"
   | "confirmation"
   | "indexing_queued"

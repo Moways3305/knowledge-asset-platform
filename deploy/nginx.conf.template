@@ -16,9 +16,6 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
-    # 允许 Path B 上传（后端上限 25 MiB），放宽代理体积上限。
-    client_max_body_size 30m;
-
     # Docker Compose 内置 DNS。使用变量 proxy_pass 让 nginx 在请求期解析 backend，
     # 避免容器启动瞬间服务名未就绪导致 nginx 直接退出。
     resolver 127.0.0.11 valid=10s ipv6=off;
@@ -51,6 +48,25 @@ server {
     # 登录端点：单独严格限速（防爆破）。
     location = /api/v1/auth/login {
         limit_req zone=api_login burst=10 nodelay;
+        proxy_pass $kap_backend;
+    }
+
+    # Path B 上传专用边界：25 MiB 单文件 + multipart 开销。仅上传路径放宽体积与超时。
+    location = /api/v1/ingest/upload {
+        client_max_body_size 32m;
+        client_body_timeout 120s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
+        limit_req zone=api_all burst=50 nodelay;
+        proxy_pass $kap_backend;
+    }
+
+    location ^~ /api/v1/ingest/upload-sessions {
+        client_max_body_size 32m;
+        client_body_timeout 120s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
+        limit_req zone=api_all burst=50 nodelay;
         proxy_pass $kap_backend;
     }
 

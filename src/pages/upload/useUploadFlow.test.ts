@@ -38,6 +38,11 @@ vi.mock("../../api/auth", () => auth);
 const ingest = vi.hoisted(() => ({
   createIngestUpload: vi.fn(),
   createUploadSession: undefined,
+  initializeUploadSession: undefined,
+  appendUploadSessionBatch: undefined,
+  completeUploadSession: undefined,
+  recordUploadTransportFailure: undefined,
+  replaceUploadSessionItemBytes: undefined,
   fetchUploadSessions: undefined,
   fetchUploadSession: undefined,
   retryUploadSessionItem: undefined,

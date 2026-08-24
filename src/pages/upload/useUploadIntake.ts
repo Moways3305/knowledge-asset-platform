@@ -8,13 +8,18 @@ import {
 } from "react";
 import { ApiError, createClientUuid } from "../../api/http";
 import {
+  appendUploadSessionBatch,
+  completeUploadSession,
   createIngestUpload,
   createUploadSession,
   fetchIngestTaskStatus,
   fetchUploadSession,
   fetchUploadSessions,
+  initializeUploadSession,
+  recordUploadTransportFailure,
   removeFailedUploadSessionItems,
   removeUploadSessionItem,
+  replaceUploadSessionItemBytes,
   retryUploadSessionItem,
 } from "../../api/ingest";
 import type { PendingIngestItemDTO, UploadSessionDTO } from "../../types/ingest";
@@ -28,12 +33,24 @@ import {
   type DroppedFileCandidate,
 } from "./folderDrop";
 import {
+  buildUploadTransportBatches,
   localFileError,
   probeReadableFile,
-  uploadBatchSizes as batchSizes,
   type LocalUploadQueueItem,
   type UploadIntakeFeedback,
 } from "./uploadIntake";
+
+interface TransportPlanItem {
+  itemId: string;
+  file: File;
+}
+
+interface TransportPlan {
+  sessionId: string;
+  batches: TransportPlanItem[][];
+  nextIndex: number;
+  blockedBatch: { id: string; index: number; itemIds: string[]; allItemIds: string[] } | null;
+}
 
 interface UploadIntakeOptions {
   activePath: PathBranch;
@@ -56,6 +73,7 @@ export function useUploadIntake({
   const localStatusPollRunRef = useRef(0);
   const localUploadSequenceRef = useRef(0);
   const directoryReadRunRef = useRef(0);
+  const transportPlanRef = useRef<TransportPlan | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
 
@@ -78,27 +96,61 @@ export function useUploadIntake({
 
   const applyUploadSession = useCallback((value: UploadSessionDTO) => {
     setUploadSession(value);
-    const next: LocalUploadQueueItem[] = value.items.map((item) => ({
-      id: item.id,
-      file: null,
-      fileName: item.file_name,
-      fileSize: item.file_size,
-      fileType: item.file_type || item.file_name.split(".").pop()?.toUpperCase() || "未知",
-      status: item.status === "waiting" ? "queued" : item.status,
-      error: item.status === "failed" ? item.error_message : null,
-      ingestTaskId: null,
-      pollAttempts: 0,
-      batchNumber: item.batch_number,
-      sameNameWarning: item.same_name_warning,
-      retryable: item.retryable,
-      retryCount: item.retry_count ?? 0,
-      lastAttemptAt: item.last_attempt_at ?? undefined,
-      processingStage: item.processing_stage ?? undefined,
-    }));
+    const previous = localUploadQueueRef.current;
+    const next: LocalUploadQueueItem[] = value.items.map((item) => {
+      const local =
+        previous.find((candidate) => candidate.id === item.id) ??
+        (previous[item.ordinal]?.fileName === item.file_name &&
+        previous[item.ordinal]?.fileSize === item.file_size
+          ? previous[item.ordinal]
+          : undefined) ??
+        previous.find(
+          (candidate) =>
+            candidate.file !== null &&
+            candidate.fileName === item.file_name &&
+            candidate.fileSize === item.file_size,
+        );
+      const file = local?.file ?? null;
+      const waitingForBytes = item.status === "waiting_upload";
+      return {
+        id: item.id,
+        file,
+        fileName: item.file_name,
+        fileSize: item.file_size,
+        fileType: item.file_type || item.file_name.split(".").pop()?.toUpperCase() || "未知",
+        status: (waitingForBytes || item.status === "waiting"
+          ? "queued"
+          : item.status) as LocalUploadQueueItem["status"],
+        error:
+          item.status === "failed" && !item.bytes_available && file === null
+            ? "未完成上传，请重新选择原文件"
+            : item.status === "failed"
+              ? item.error_message
+              : waitingForBytes && file === null
+                ? "未完成上传，请重新选择原文件"
+                : null,
+        ingestTaskId: null,
+        pollAttempts: 0,
+        batchNumber: item.batch_number,
+        transportBatchNumber: item.transport_batch_number ?? undefined,
+        sameNameWarning: item.same_name_warning,
+        retryable:
+          item.retryable || (item.status === "failed" && file !== null && !item.bytes_available),
+        retryCount: item.retry_count ?? 0,
+        lastAttemptAt: item.last_attempt_at ?? undefined,
+        processingStage: item.processing_stage ?? undefined,
+      };
+    });
     localUploadQueueRef.current = next;
     setLocalUploadQueue(next);
     const accepted = value.completed_files + value.processing_files + value.waiting_files;
-    const sizes = batchSizes(value.total_files);
+    const transportCounts = Array.from({ length: value.total_batches }, () => 0);
+    for (const item of value.items) {
+      if (item.transport_batch_number) transportCounts[item.transport_batch_number - 1] += 1;
+    }
+    const sizes = transportCounts.some((size) => size > 0)
+      ? transportCounts.filter((size) => size > 0)
+      : [];
     const kind =
       accepted === 0 && value.failed_files > 0
         ? "rejected"
@@ -110,7 +162,7 @@ export function useUploadIntake({
       total: value.total_files,
       accepted,
       rejected: value.failed_files,
-      waitingBatches: value.waiting_files > 0 ? Math.ceil(value.waiting_files / 200) : 0,
+      waitingBatches: Math.max(0, value.total_batches - (value.uploaded_batches ?? 0)),
       batchSizes: sizes,
       message:
         value.items.length === 0 && value.total_files > 0
@@ -119,11 +171,101 @@ export function useUploadIntake({
             ? "本次文件全部被安全门禁拒绝，请按每项原因处理后重新选择。"
             : kind === "partial"
               ? "本次文件已接收，部分项目被拒绝；队列中的逐项状态为最终依据。"
-              : value.total_files > 200
-                ? `全部已接收，后续批次将自动等待（${sizes.join(" + ")}）。`
-                : "文件已接收并进入本次上传队列。",
+              : `已上传 ${value.uploaded_files ?? 0} / ${value.total_files} 项，第 ${value.uploaded_batches ?? 0} / ${value.total_batches} 批。`,
     });
   }, []);
+
+  const continueTransportPlan = useCallback(async () => {
+    const plan = transportPlanRef.current;
+    if (!plan || plan.blockedBatch) return;
+    for (let index = plan.nextIndex; index < plan.batches.length; index += 1) {
+      const batch = plan.batches[index];
+      const batchId = `${plan.sessionId}:${index}`;
+      updateLocalUploadQueue((items) =>
+        items.map((item) =>
+          batch.some((entry) => entry.itemId === item.id)
+            ? { ...item, status: "uploading", error: null }
+            : item,
+        ),
+      );
+      try {
+        const value = await appendUploadSessionBatch({
+          sessionId: plan.sessionId,
+          batchId,
+          batchIndex: index,
+          itemIds: batch.map((item) => item.itemId),
+          files: batch.map((item) => item.file),
+        });
+        plan.nextIndex = index + 1;
+        applyUploadSession(value);
+        setIntakeFeedback(() => ({
+          kind: value.failed_files > 0 ? "partial" : "accepted",
+          total: value.total_files,
+          accepted: value.uploaded_files ?? 0,
+          rejected: value.failed_files,
+          waitingBatches: Math.max(0, value.total_batches - (value.uploaded_batches ?? 0)),
+          batchSizes: plan.batches.map((entry) => entry.length),
+          message: `已上传 ${value.uploaded_files ?? 0} / ${value.total_files} 项，第 ${index + 1} / ${plan.batches.length} 批`,
+        }));
+      } catch (error) {
+        const errorCode =
+          error instanceof ApiError && error.status === 413
+            ? "proxy_rejected"
+            : error instanceof ApiError && error.status === 408
+              ? "upload_timeout"
+              : "network_interrupted";
+        const blockedBatch = {
+          id: batchId,
+          index,
+          itemIds: batch.map((item) => item.itemId),
+          allItemIds: batch.map((item) => item.itemId),
+        };
+        plan.blockedBatch = blockedBatch;
+        plan.nextIndex = index + 1;
+        try {
+          const failed = await recordUploadTransportFailure(
+            plan.sessionId,
+            blockedBatch.itemIds,
+            errorCode,
+            { id: batchId, index },
+          );
+          applyUploadSession(failed);
+        } catch {
+          updateLocalUploadQueue((items) =>
+            items.map((item) =>
+              blockedBatch.itemIds.includes(item.id)
+                ? {
+                    ...item,
+                    status: "failed",
+                    retryable: item.file !== null,
+                    error:
+                      errorCode === "proxy_rejected"
+                        ? "上传请求被网关拒绝，请重试该文件"
+                        : errorCode === "upload_timeout"
+                          ? "上传超过 120 秒，请检查网络后重试"
+                          : "上传连接中断；原文件仍在本浏览器时可重试",
+                  }
+                : item,
+            ),
+          );
+        }
+        setIntakeFeedback((current) => ({
+          kind: "network_error",
+          total: current?.total ?? batch.length,
+          accepted: current?.accepted ?? 0,
+          rejected: batch.length,
+          waitingBatches: plan.batches.length - index - 1,
+          batchSizes: plan.batches.map((entry) => entry.length),
+          message: `第 ${index + 1} / ${plan.batches.length} 批传输中断；成功批次不受影响，请逐行重试。`,
+        }));
+        return;
+      }
+    }
+    const completed = await completeUploadSession(plan.sessionId);
+    transportPlanRef.current = null;
+    applyUploadSession(completed);
+    void loadLocalPending();
+  }, [applyUploadSession, loadLocalPending, updateLocalUploadQueue]);
 
   useEffect(() => {
     if (activePath !== "b") return;
@@ -378,7 +520,7 @@ export function useUploadIntake({
         accepted: 0,
         rejected: 0,
         waitingBatches: 0,
-        batchSizes: batchSizes(source.length),
+        batchSizes: [],
         message: `正在逐项检查 ${source.length} 个文件的可读性与上传条件…`,
       });
       const prepared = await Promise.all(
@@ -417,7 +559,11 @@ export function useUploadIntake({
       updateLocalUploadQueue((current) => [...current, ...items]);
       const rejected = prepared.filter((item) => item.rejection);
       const accepted = prepared.length - rejected.length;
-      const sizes = batchSizes(prepared.length);
+      const acceptedEntries = prepared.flatMap((entry, ordinal) =>
+        entry.rejection ? [] : [{ ...entry, ordinal, file: entry.candidate.file }],
+      );
+      const transportBatches = buildUploadTransportBatches(acceptedEntries);
+      const sizes = transportBatches.map((batch) => batch.length);
       setIntakeFeedback({
         kind: accepted === 0 ? "rejected" : rejected.length > 0 ? "partial" : "accepted",
         total: prepared.length,
@@ -430,82 +576,175 @@ export function useUploadIntake({
             ? "本次文件全部被安全门禁拒绝，请按每项原因处理后重新选择。"
             : rejected.length > 0
               ? `已接收 ${accepted} 项，拒绝 ${rejected.length} 项；详细原因已保留在队列中。`
-              : prepared.length > 200
-                ? `全部已接收，后续批次将自动等待（${sizes.join(" + ")}）。`
-                : `已接收 ${accepted} 项，正在创建上传队列。`,
+              : `已接收 ${accepted} 项，将按 20 MiB / 10 文件拆为 ${sizes.length} 个顺序传输批次。`,
       });
-      if (typeof createUploadSession !== "function") {
-        void processLocalUploadQueue();
-        return;
-      }
-      const uploadFiles = prepared
-        .filter((item) => !item.rejection)
-        .map((item) => item.candidate.file);
-      const rejectedFiles = prepared.flatMap(({ candidate, rejection }) =>
-        rejection
-          ? [
-              {
-                file_name:
-                  rejection.code === "macos_metadata"
-                    ? safeRejectedDisplayName(candidate.displayName)
-                    : candidate.file.name,
-                file_size: candidate.file.size,
-                file_type: candidate.file.type || undefined,
-                error_code: rejection.code,
-              },
-            ]
-          : [],
-      );
-      const requestedSessionId = createClientUuid();
-      void createUploadSession({
-        files: uploadFiles,
-        rejectedFiles,
-        sessionId: requestedSessionId,
-      })
-        .then((session) => {
-          applyUploadSession(session);
-          void loadLocalPending();
-        })
-        .catch(async (error) => {
+      if (typeof initializeUploadSession !== "function") {
+        const acceptedFiles = prepared
+          .filter((entry) => !entry.rejection)
+          .map((entry) => entry.candidate.file);
+        if (typeof createUploadSession === "function") {
+          const requestedSessionId = createClientUuid();
           try {
+            const legacy = await createUploadSession({
+              files: acceptedFiles,
+              rejectedFiles: prepared.flatMap(({ candidate, rejection }) =>
+                rejection
+                  ? [
+                      {
+                        file_name: candidate.file.name,
+                        file_size: candidate.file.size,
+                        file_type: candidate.file.type || undefined,
+                        error_code: rejection.code,
+                      },
+                    ]
+                  : [],
+              ),
+              sessionId: requestedSessionId,
+            });
+            applyUploadSession(legacy);
+          } catch {
             const recovered = await fetchUploadSession(requestedSessionId);
             applyUploadSession(recovered);
-            return;
-          } catch {
-            // Keep the original safe upload error below.
           }
-          updateLocalUploadQueue((current) =>
-            current.map((item) =>
-              items.some((created) => created.id === item.id)
-                ? {
-                    ...item,
-                    status: "failed",
-                    error:
-                      error instanceof ApiError
-                        ? error.message
-                        : "上传会话暂时无法创建，请稍后重试",
-                    retryable: false,
-                  }
-                : item,
-            ),
-          );
-          setIntakeFeedback({
-            kind: "network_error",
-            total: prepared.length,
-            accepted: 0,
-            rejected: prepared.length,
-            waitingBatches: 0,
-            batchSizes: sizes,
-            message: "上传会话未能创建；请检查网络后重新选择文件。",
-          });
+        } else {
+          void processLocalUploadQueue();
+        }
+        return;
+      }
+      const requestedSessionId = createClientUuid();
+      const transportIndexByOrdinal = new Map<number, number>();
+      transportBatches.forEach((batch, batchIndex) => {
+        batch.forEach((entry) => transportIndexByOrdinal.set(entry.ordinal, batchIndex));
+      });
+      try {
+        const initialized = await initializeUploadSession({
+          sessionId: requestedSessionId,
+          totalTransportBatches: transportBatches.length,
+          manifest: prepared.map(({ candidate, rejection }, ordinal) => ({
+            client_file_key: items[ordinal].id,
+            file_name:
+              rejection?.code === "macos_metadata"
+                ? safeRejectedDisplayName(candidate.displayName)
+                : candidate.file.name,
+            file_size: candidate.file.size,
+            file_type: candidate.file.type || undefined,
+            transport_batch_index: transportIndexByOrdinal.get(ordinal),
+            rejection: rejection
+              ? {
+                  file_name: candidate.file.name,
+                  file_size: candidate.file.size,
+                  file_type: candidate.file.type || undefined,
+                  error_code: rejection.code,
+                }
+              : undefined,
+          })),
         });
+        applyUploadSession(initialized);
+        transportPlanRef.current = {
+          sessionId: initialized.id,
+          batches: transportBatches.map((batch) =>
+            batch.map((entry) => ({
+              itemId: initialized.items[entry.ordinal].id,
+              file: entry.file,
+            })),
+          ),
+          nextIndex: initialized.uploaded_batches ?? 0,
+          blockedBatch: null,
+        };
+        await continueTransportPlan();
+      } catch (error) {
+        try {
+          const recovered = await fetchUploadSession(requestedSessionId);
+          applyUploadSession(recovered);
+          return;
+        } catch {
+          // The lightweight manifest could not be confirmed; retain local byte truth below.
+        }
+        updateLocalUploadQueue((current) =>
+          current.map((item) =>
+            items.some((created) => created.id === item.id)
+              ? {
+                  ...item,
+                  status: "failed",
+                  error:
+                    error instanceof ApiError ? error.message : "上传会话暂时无法创建，请稍后重试",
+                  retryable: false,
+                }
+              : item,
+          ),
+        );
+        setIntakeFeedback({
+          kind: "network_error",
+          total: prepared.length,
+          accepted: 0,
+          rejected: prepared.length,
+          waitingBatches: 0,
+          batchSizes: transportBatches.map((batch) => batch.length),
+          message: "上传会话未能创建；请检查网络后重新选择文件。",
+        });
+      }
     },
-    [applyUploadSession, loadLocalPending, processLocalUploadQueue, updateLocalUploadQueue],
+    [applyUploadSession, continueTransportPlan, processLocalUploadQueue, updateLocalUploadQueue],
   );
 
   const retryLocalUpload = useCallback(
     (id: string) => {
-      if (uploadSession?.items.some((item) => item.id === id)) {
+      const sessionItem = uploadSession?.items.find((item) => item.id === id);
+      const localItem = localUploadQueueRef.current.find((item) => item.id === id);
+      if (uploadSession && sessionItem && !sessionItem.bytes_available) {
+        if (!localItem?.file) {
+          updateLocalUploadQueue((items) =>
+            items.map((item) =>
+              item.id === id
+                ? { ...item, retryable: false, error: "未完成上传，请重新选择原文件" }
+                : item,
+            ),
+          );
+          return;
+        }
+        updateLocalUploadQueue((items) =>
+          items.map((item) =>
+            item.id === id ? { ...item, status: "uploading", error: null } : item,
+          ),
+        );
+        void replaceUploadSessionItemBytes({
+          sessionId: uploadSession.id,
+          itemId: id,
+          file: localItem.file,
+        })
+          .then(async (value) => {
+            applyUploadSession(value);
+            const plan = transportPlanRef.current;
+            if (!plan?.blockedBatch) return;
+            plan.blockedBatch.itemIds = plan.blockedBatch.itemIds.filter((itemId) => itemId !== id);
+            if (plan.blockedBatch.itemIds.length > 0) return;
+            const blocked = plan.blockedBatch;
+            await recordUploadTransportFailure(
+              uploadSession.id,
+              blocked.allItemIds,
+              "network_interrupted",
+              { id: blocked.id, index: blocked.index },
+            );
+            plan.blockedBatch = null;
+            await continueTransportPlan();
+          })
+          .catch((error) => {
+            updateLocalUploadQueue((items) =>
+              items.map((item) =>
+                item.id === id
+                  ? {
+                      ...item,
+                      status: "failed",
+                      retryable: true,
+                      error: error instanceof ApiError ? error.message : "文件重传失败，请重试",
+                    }
+                  : item,
+              ),
+            );
+          });
+        return;
+      }
+      if (sessionItem && uploadSession) {
         void retryUploadSessionItem(uploadSession.id, id)
           .then(applyUploadSession)
           .catch((error) => {
@@ -537,7 +776,13 @@ export function useUploadIntake({
       );
       void processLocalUploadQueue();
     },
-    [applyUploadSession, processLocalUploadQueue, updateLocalUploadQueue, uploadSession],
+    [
+      applyUploadSession,
+      continueTransportPlan,
+      processLocalUploadQueue,
+      updateLocalUploadQueue,
+      uploadSession,
+    ],
   );
 
   const removeLocalUpload = useCallback(
@@ -584,7 +829,7 @@ export function useUploadIntake({
           accepted: current?.accepted ?? 0,
           rejected: current?.rejected ?? uploadSession.failed_files,
           waitingBatches: current?.waitingBatches ?? 0,
-          batchSizes: current?.batchSizes ?? batchSizes(uploadSession.total_files),
+          batchSizes: current?.batchSizes ?? [],
           message: error instanceof ApiError ? error.message : "失败项清理未完成，请稍后重试。",
         }));
       });

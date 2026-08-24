@@ -26,6 +26,11 @@ vi.mock("../../api/auth", () => ({
 
 const ingest = vi.hoisted(() => ({
   createUploadSession: vi.fn(),
+  initializeUploadSession: undefined,
+  appendUploadSessionBatch: undefined,
+  completeUploadSession: undefined,
+  recordUploadTransportFailure: undefined,
+  replaceUploadSessionItemBytes: undefined,
   fetchUploadSessions: vi.fn(),
   fetchUploadSession: vi.fn(),
   retryUploadSessionItem: vi.fn(),
@@ -107,7 +112,7 @@ describe("useUploadFlow persistent upload sessions", () => {
     });
   });
 
-  it("submits all 700 selected files once and renders four stable batches", async () => {
+  it("restores legacy processing batches without presenting them as transport batches", async () => {
     ingest.createUploadSession.mockResolvedValue(session(700));
     const { result } = renderHook(() => useUploadFlow());
     const files = Array.from(
@@ -125,7 +130,7 @@ describe("useUploadFlow persistent upload sessions", () => {
           result.current.localUploadQueue.filter((item) => item.batchNumber === batch).length,
       ),
     ).toEqual([200, 200, 200, 100]);
-    expect(result.current.intakeFeedback?.batchSizes).toEqual([200, 200, 200, 100]);
+    expect(result.current.intakeFeedback?.batchSizes).toEqual([]);
   });
 
   it("does not send macOS metadata bytes and keeps a real hidden document", async () => {
