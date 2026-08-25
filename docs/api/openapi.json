@@ -7173,6 +7173,64 @@
         "title": "KnowledgeDetailOut",
         "type": "object"
       },
+      "KnowledgeLibraryProjectListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeLibraryProjectOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "KnowledgeLibraryProjectListResponse",
+        "type": "object"
+      },
+      "KnowledgeLibraryProjectOut": {
+        "properties": {
+          "access_label": {
+            "enum": [
+              "可查看资料",
+              "摘要可见"
+            ],
+            "title": "Access Label",
+            "type": "string"
+          },
+          "access_mode": {
+            "enum": [
+              "member",
+              "summary_visible"
+            ],
+            "title": "Access Mode",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "name",
+          "status",
+          "access_mode",
+          "access_label"
+        ],
+        "title": "KnowledgeLibraryProjectOut",
+        "type": "object"
+      },
       "KnowledgeListItemOut": {
         "description": "知识列表条目。summary_text 已按权限/保密级别过滤（L3/L4 为脱敏/安全摘要）。",
         "properties": {
@@ -30242,6 +30300,88 @@
           }
         },
         "summary": "Knowledge Ops Insights",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/knowledge/projects": {
+      "get": {
+        "description": "Stable active project folders; asset permissions are evaluated elsewhere.",
+        "operationId": "list_knowledge_library_projects_api_v1_knowledge_projects_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeLibraryProjectListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Knowledge Library Projects",
         "tags": [
           "knowledge"
         ]

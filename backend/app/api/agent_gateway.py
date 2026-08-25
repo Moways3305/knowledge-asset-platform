@@ -131,13 +131,12 @@ async def knowledge_search(
         asset_id=None,
     )
     if search_req.filters.project_id is not None:
-        discovered = await discoverable_projects.get_discoverable_project(
+        discovered = await discoverable_projects.get_knowledge_library_project(
             session,
             caller,
             search_req.filters.project_id,
             allowed_scope=effective_scope,
             allowed_project_id=rule.allowed_project_id,
-            asset_filter=gateway.asset_ceiling_filter(rule),
         )
         if discovered is None:
             raise denied(404, "project_not_found", "项目不存在或不可用")
@@ -166,7 +165,6 @@ async def list_knowledge_directories(
         caller,
         allowed_scope=effective_scope,
         allowed_project_id=rule.allowed_project_id,
-        asset_filter=gateway.asset_ceiling_filter(rule),
     )
     return AgentDirectoriesResponse(items=[AgentDirectoryOut(**row) for row in rows])
 
@@ -177,12 +175,11 @@ async def list_accessible_projects(
     session: AsyncSession = Depends(get_db),
 ) -> AgentProjectsResponse:
     rule, caller = bound
-    rows = await discoverable_projects.list_discoverable_projects(
+    rows = await discoverable_projects.list_knowledge_library_projects(
         session,
         caller,
         allowed_scope=rule.allowed_scope,
         allowed_project_id=rule.allowed_project_id,
-        asset_filter=gateway.asset_ceiling_filter(rule),
     )
     return AgentProjectsResponse(
         items=[

@@ -162,23 +162,38 @@ async def test_directory_catalog_is_token_bound_and_contains_no_counts(client, d
     assert "project_code" not in response.text
 
 
-async def test_directory_catalog_hides_non_member_project_excluded_by_ceiling(client, db_session):
+async def test_directory_catalog_is_not_filtered_by_asset_ceiling(client, db_session):
     await _insert_rule(db_session, allowed_scope="project", max_conf="L2")
     response = await client.get(DIRECTORIES, headers=_bearer())
     assert response.status_code == 200
     project_ids = {item["project_id"] for item in response.json()["items"]}
     assert str(PROJECT_ALPHA) in project_ids
-    assert str(PROJECT_BETA) not in project_ids
+    assert str(PROJECT_BETA) in project_ids
 
 
 async def test_gateway_projects_match_web_directory_project_discovery(client, db_session):
     await _insert_rule(db_session, allowed_scope="project")
     projects_response = await client.get(PROJECTS, headers=_bearer())
     directories_response = await client.get(DIRECTORIES, headers=_bearer())
+    web_response = await client.get(
+        "/api/v1/knowledge/projects",
+        headers={"X-Dev-User-Id": str(USER_CONSULTANT)},
+    )
     assert projects_response.status_code == directories_response.status_code == 200
+    assert web_response.status_code == 200
     project_ids = {item["project_id"] for item in projects_response.json()["items"]}
+    web_project_ids = {item["project_id"] for item in web_response.json()["items"]}
     directory_project_ids = {item["project_id"] for item in directories_response.json()["items"]}
-    assert project_ids == directory_project_ids == {str(PROJECT_ALPHA), str(PROJECT_BETA)}
+    assert (
+        project_ids
+        == web_project_ids
+        == directory_project_ids
+        == {
+            str(PROJECT_ALPHA),
+            str(PROJECT_BETA),
+        }
+    )
+    assert projects_response.json()["items"] == web_response.json()["items"]
 
 
 @pytest.mark.parametrize("allowed_scope", ["all", None])
@@ -357,35 +372,38 @@ async def test_project_scope_search_allows_discoverable_non_member_summary(clien
     assert "客户XYZ" not in response.text
 
 
-async def test_project_list_ceiling_can_hide_all_non_member_evidence(client, db_session):
+async def test_project_catalog_is_not_filtered_by_confidentiality_ceiling(client, db_session):
     await _insert_rule(db_session, max_conf="L2")
     response = await client.get(PROJECTS, headers=_bearer())
     assert response.status_code == 200
     ids = {item["project_id"] for item in response.json()["items"]}
-    assert str(PROJECT_ALPHA) in ids  # members survive even when empty under the ceiling
-    assert str(PROJECT_BETA) not in ids
+    assert {str(PROJECT_ALPHA), str(PROJECT_BETA)} <= ids
 
 
-async def test_project_list_ai_ceiling_can_hide_all_non_member_evidence(client, db_session):
+async def test_project_catalog_survives_ai_ceiling_while_content_stays_empty(client, db_session):
     beta = await db_session.get(KnowledgeAsset, KA_PROJECT_BETA_L3)
     beta.ai_access_level = "A4"
     await db_session.commit()
     await _insert_rule(db_session, max_ai="A2")
     response = await client.get(PROJECTS, headers=_bearer())
     assert response.status_code == 200
-    assert str(PROJECT_BETA) not in {item["project_id"] for item in response.json()["items"]}
+    assert str(PROJECT_BETA) in {item["project_id"] for item in response.json()["items"]}
     directories = await client.get(DIRECTORIES, headers=_bearer())
     assert directories.status_code == 200
-    assert str(PROJECT_BETA) not in {
+    assert str(PROJECT_BETA) in {
         item["project_id"] for item in directories.json()["items"] if item["project_id"] is not None
     }
-    for path in (
-        f"/api/v1/agent-gateway/projects/{PROJECT_BETA}/knowledge",
-        f"/api/v1/agent-gateway/projects/{PROJECT_BETA}/brief",
-    ):
-        hidden = await client.get(path, headers=_bearer())
-        assert hidden.status_code == 404
-        assert hidden.json()["detail"]["denied_reason"] == "project_not_found"
+    knowledge = await client.get(
+        f"/api/v1/agent-gateway/projects/{PROJECT_BETA}/knowledge", headers=_bearer()
+    )
+    assert knowledge.status_code == 200
+    assert knowledge.json() == {"items": [], "total": 0}
+    brief = await client.get(
+        f"/api/v1/agent-gateway/projects/{PROJECT_BETA}/brief", headers=_bearer()
+    )
+    assert brief.status_code == 200
+    assert brief.json()["access_label"] == "摘要可见"
+    assert "knowledge_count" not in brief.text
     search = await client.post(
         SEARCH,
         headers=_bearer(),
@@ -395,15 +413,15 @@ async def test_project_list_ai_ceiling_can_hide_all_non_member_evidence(client, 
             "filters": {"project_id": str(PROJECT_BETA)},
         },
     )
-    assert search.status_code == 404
-    assert search.json()["detail"]["denied_reason"] == "project_not_found"
+    assert search.status_code == 200
+    assert search.json()["cards"] == []
 
 
 @pytest.mark.parametrize(
     ("field", "value"),
     [("confidentiality_level", "L5"), ("asset_status", "archived")],
 )
-async def test_project_list_hides_non_member_project_without_discoverable_active_asset(
+async def test_project_catalog_keeps_non_member_project_without_discoverable_active_asset(
     client, db_session, field, value
 ):
     beta = await db_session.get(KnowledgeAsset, KA_PROJECT_BETA_L3)
@@ -412,10 +430,10 @@ async def test_project_list_hides_non_member_project_without_discoverable_active
     await _insert_rule(db_session)
     response = await client.get(PROJECTS, headers=_bearer())
     assert response.status_code == 200
-    assert str(PROJECT_BETA) not in {item["project_id"] for item in response.json()["items"]}
+    assert str(PROJECT_BETA) in {item["project_id"] for item in response.json()["items"]}
 
 
-async def test_l5_capable_non_member_cannot_use_project_l5_as_discovery_evidence(
+async def test_l5_only_non_member_project_keeps_catalog_but_content_is_neutral_empty(
     client, db_session
 ):
     beta = await db_session.get(KnowledgeAsset, KA_PROJECT_BETA_L3)
@@ -424,19 +442,22 @@ async def test_l5_capable_non_member_cannot_use_project_l5_as_discovery_evidence
     await _insert_rule(db_session, bound_user_id=USER_BOSS)
     response = await client.get(PROJECTS, headers=_bearer())
     assert response.status_code == 200
-    assert str(PROJECT_BETA) not in {item["project_id"] for item in response.json()["items"]}
+    assert str(PROJECT_BETA) in {item["project_id"] for item in response.json()["items"]}
     directories = await client.get(DIRECTORIES, headers=_bearer())
     assert directories.status_code == 200
-    assert str(PROJECT_BETA) not in {
+    assert str(PROJECT_BETA) in {
         item["project_id"] for item in directories.json()["items"] if item["project_id"] is not None
     }
-    for path in (
-        f"/api/v1/agent-gateway/projects/{PROJECT_BETA}/knowledge",
-        f"/api/v1/agent-gateway/projects/{PROJECT_BETA}/brief",
-    ):
-        hidden = await client.get(path, headers=_bearer())
-        assert hidden.status_code == 404
-        assert hidden.json()["detail"]["denied_reason"] == "project_not_found"
+    knowledge = await client.get(
+        f"/api/v1/agent-gateway/projects/{PROJECT_BETA}/knowledge", headers=_bearer()
+    )
+    assert knowledge.status_code == 200
+    assert knowledge.json() == {"items": [], "total": 0}
+    brief = await client.get(
+        f"/api/v1/agent-gateway/projects/{PROJECT_BETA}/brief", headers=_bearer()
+    )
+    assert brief.status_code == 200
+    assert brief.json()["access_label"] == "摘要可见"
     search = await client.post(
         SEARCH,
         headers=_bearer(),
@@ -446,8 +467,8 @@ async def test_l5_capable_non_member_cannot_use_project_l5_as_discovery_evidence
             "filters": {"project_id": str(PROJECT_BETA)},
         },
     )
-    assert search.status_code == 404
-    assert search.json()["detail"]["denied_reason"] == "project_not_found"
+    assert search.status_code == 200
+    assert search.json()["cards"] == []
 
 
 async def test_project_locked_token_lists_only_locked_discoverable_project(client, db_session):
@@ -488,3 +509,40 @@ async def test_empty_active_member_project_remains_discoverable(client, db_sessi
         row for row in response.json()["items"] if row["project_id"] == str(empty_project_id)
     )
     assert item["access_mode"] == "member"
+
+
+async def test_empty_active_non_member_project_is_consistent_and_inactive_project_disappears(
+    client, db_session
+):
+    empty_project_id = uuid.uuid4()
+    inactive_project_id = uuid.uuid4()
+    db_session.add_all(
+        [
+            Project(id=empty_project_id, name="Empty Summary Project", status="active"),
+            Project(id=inactive_project_id, name="Inactive Project", status="inactive"),
+        ]
+    )
+    await db_session.commit()
+    await _insert_rule(db_session, allowed_scope="project")
+
+    gateway = await client.get(PROJECTS, headers=_bearer())
+    web = await client.get(
+        "/api/v1/knowledge/projects",
+        headers={"X-Dev-User-Id": str(USER_CONSULTANT)},
+    )
+    directories = await client.get(DIRECTORIES, headers=_bearer())
+
+    assert gateway.status_code == web.status_code == directories.status_code == 200
+    gateway_item = next(
+        item for item in gateway.json()["items"] if item["project_id"] == str(empty_project_id)
+    )
+    assert gateway_item["access_mode"] == "summary_visible"
+    assert gateway_item["access_label"] == "摘要可见"
+    assert gateway_item in web.json()["items"]
+    assert any(
+        item["project_id"] == str(empty_project_id)
+        and item["directory_key"] == "project.unclassified"
+        for item in directories.json()["items"]
+    )
+    assert str(inactive_project_id) not in gateway.text
+    assert str(inactive_project_id) not in web.text

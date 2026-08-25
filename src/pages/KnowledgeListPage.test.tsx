@@ -1,10 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   fetchKnowledgeDetail,
   fetchKnowledgeDirectories,
+  fetchKnowledgeLibraryProjects,
   fetchKnowledgePage,
   requestOriginalAccess,
   searchKnowledge,
@@ -67,6 +68,7 @@ vi.mock("../auth/AuthContext", () => ({
 vi.mock("../api/knowledge", () => ({
   fetchKnowledgeDetail: vi.fn(),
   fetchKnowledgeDirectories: vi.fn(),
+  fetchKnowledgeLibraryProjects: vi.fn(),
   fetchKnowledgePage: vi.fn(),
   requestOriginalAccess: vi.fn(),
   searchKnowledge: vi.fn(),
@@ -224,6 +226,22 @@ function LocationStateProbe() {
   return <output aria-label="detail navigation state">{JSON.stringify(location.state)}</output>;
 }
 
+function CatalogHistoryProbe() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <output aria-label="catalog location">{`${location.pathname}${location.search}`}</output>
+      <button type="button" onClick={() => navigate(-1)}>
+        浏览器后退
+      </button>
+      <button type="button" onClick={() => navigate(1)}>
+        浏览器前进
+      </button>
+    </>
+  );
+}
+
 describe("KnowledgeListPage reference implementation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -238,6 +256,22 @@ describe("KnowledgeListPage reference implementation", () => {
     ];
     vi.mocked(fetchKnowledgePage).mockResolvedValue(response());
     vi.mocked(fetchKnowledgeDirectories).mockResolvedValue(directories);
+    vi.mocked(fetchKnowledgeLibraryProjects).mockResolvedValue([
+      {
+        project_id: PROJECT_A,
+        name: "华东交付项目",
+        status: "active",
+        access_mode: "member",
+        access_label: "可查看资料",
+      },
+      {
+        project_id: PROJECT_B,
+        name: "供应链优化项目",
+        status: "active",
+        access_mode: "summary_visible",
+        access_label: "摘要可见",
+      },
+    ]);
     vi.mocked(fetchKnowledgeDetail).mockResolvedValue(crossProjectDetail);
     vi.mocked(requestOriginalAccess).mockResolvedValue({
       status: "created",
@@ -370,6 +404,25 @@ describe("KnowledgeListPage reference implementation", () => {
   it("still loads cross-project summaries when the identity has no active project relationship", async () => {
     auth.authMe.projects = [];
     auth.capabilities.hasProject = false;
+    vi.mocked(fetchKnowledgeDirectories).mockResolvedValue(
+      directories.filter((item) => item.scope !== "project"),
+    );
+    vi.mocked(fetchKnowledgeLibraryProjects).mockResolvedValue([
+      {
+        project_id: PROJECT_B,
+        name: "供应链优化项目",
+        status: "active",
+        access_mode: "summary_visible",
+        access_label: "摘要可见",
+      },
+      {
+        project_id: "00000000-0000-0000-0000-000000000077",
+        name: "空项目",
+        status: "active",
+        access_mode: "summary_visible",
+        access_label: "摘要可见",
+      },
+    ]);
     renderPage("/knowledge");
     expect(await screen.findByRole("button", { name: /公司库/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /项目库/ })).toBeInTheDocument();
@@ -377,6 +430,8 @@ describe("KnowledgeListPage reference implementation", () => {
     expect(await screen.findByRole("button", { name: /供应链优化项目/ })).toHaveTextContent(
       "摘要可见",
     );
+    expect(screen.getByRole("button", { name: /空项目/ })).toHaveTextContent("摘要可见");
+    expect(fetchKnowledgeLibraryProjects).toHaveBeenCalledTimes(1);
     expect(fetchKnowledgePage).not.toHaveBeenCalled();
   });
 
@@ -424,6 +479,81 @@ describe("KnowledgeListPage reference implementation", () => {
     );
     expect(screen.getByRole("navigation", { name: "知识资产目录路径" })).toHaveTextContent(
       "供应链优化项目",
+    );
+  });
+
+  it("accepts a direct active cross-project folder URL even when no directory is selected", async () => {
+    auth.authMe.projects = [];
+    renderPage(`/knowledge?scope=project&project_id=${PROJECT_B}`);
+
+    expect(await screen.findByRole("button", { name: /03 交付成果/ })).toBeInTheDocument();
+    expect(fetchKnowledgeDirectories).toHaveBeenCalledWith({
+      scope: "project",
+      projectId: PROJECT_B,
+    });
+    expect(screen.getByRole("navigation", { name: "知识资产目录路径" })).toHaveTextContent(
+      "供应链优化项目",
+    );
+    expect(fetchKnowledgePage).not.toHaveBeenCalled();
+  });
+
+  it("exposes the neutral unclassified folder for a cross-project catalog entry", async () => {
+    vi.mocked(fetchKnowledgeDirectories).mockResolvedValue([
+      ...directories,
+      {
+        directory_key: "project.unclassified",
+        name: "未分类 / 待治理",
+        description: "尚未映射正式目录的可见资料",
+        scope: "project",
+        display_path: "项目库 / 供应链优化项目 / 未分类 / 待治理",
+        parent_key: null,
+        project_id: PROJECT_B,
+        project_name: "供应链优化项目",
+      },
+    ]);
+    vi.mocked(fetchKnowledgePage).mockResolvedValue(response([]));
+    renderPage(`/knowledge?scope=project&project_id=${PROJECT_B}`);
+
+    fireEvent.click(await screen.findByRole("button", { name: /未分类 \/ 待治理/ }));
+    await waitFor(() =>
+      expect(fetchKnowledgePage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scope: "project",
+          projectId: PROJECT_B,
+          directoryKey: "project.unclassified",
+        }),
+      ),
+    );
+    expect(await screen.findByText("暂无可复用资料")).toBeInTheDocument();
+  });
+
+  it("keeps project and directory navigation stable across browser back and forward", async () => {
+    render(
+      <MemoryRouter
+        initialEntries={["/knowledge"]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <KnowledgeListPage />
+        <CatalogHistoryProbe />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /项目库/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /供应链优化项目/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /03 交付成果/ }));
+    expect(screen.getByLabelText("catalog location")).toHaveTextContent(
+      `scope=project&directory_key=project.deliverables&project_id=${PROJECT_B}`,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "浏览器后退" }));
+    expect(await screen.findByRole("button", { name: /03 交付成果/ })).toBeInTheDocument();
+    expect(screen.getByLabelText("catalog location")).toHaveTextContent(
+      `scope=project&project_id=${PROJECT_B}`,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "浏览器前进" }));
+    expect(await screen.findByRole("navigation", { name: "知识资产目录路径" })).toHaveTextContent(
+      "03 交付成果",
     );
   });
 
@@ -654,7 +784,7 @@ describe("KnowledgeListPage reference implementation", () => {
   it("distinguishes filtered empty results and clears the real request filters", async () => {
     vi.mocked(fetchKnowledgePage).mockResolvedValue(response([]));
     renderPage();
-    await screen.findByText("当前身份暂无可浏览资料");
+    await screen.findByText("暂无可复用资料");
 
     fireEvent.change(screen.getByLabelText("资产类型"), { target: { value: "template" } });
     expect(await screen.findByText("当前条件没有匹配资料")).toBeInTheDocument();

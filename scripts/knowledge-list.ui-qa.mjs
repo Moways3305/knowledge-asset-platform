@@ -175,6 +175,20 @@ for (const scenario of scenarios) {
         });
       }
 
+      if (requestUrl.pathname === "/api/v1/knowledge/projects") {
+        return fulfill({
+          items: [
+            {
+              project_id: projectId,
+              name: "华东交付项目",
+              status: "active",
+              access_mode: "member",
+              access_label: "可查看资料",
+            },
+          ],
+        });
+      }
+
       return fulfill({ detail: { message: "UI QA route not configured" } }, 404);
     });
 
@@ -194,7 +208,7 @@ for (const scenario of scenarios) {
     }
 
     if (scenario === "empty") {
-      await page.getByText("当前身份暂无可浏览资料").waitFor();
+      await page.getByText("暂无可复用资料").waitFor();
     } else if (scenario === "retry") {
       await page.getByText("知识资产加载失败").waitFor();
       allowRetrySuccess = true;

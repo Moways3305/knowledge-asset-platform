@@ -500,13 +500,15 @@ async def test_project_brief_non_member_is_minimal_summary_view(client, db_sessi
     _no_leak(response.text)
 
 
-async def test_project_entry_ceiling_hides_non_member_project(client, db_session):
+async def test_project_entry_ceiling_keeps_folder_and_returns_neutral_empty_result(
+    client, db_session
+):
     await _insert_rule(db_session, bound_user_id=USER_CONSULTANT, max_conf="L2")
     response = await client.get(
         f"/api/v1/agent-gateway/projects/{PROJECT_BETA}/knowledge", headers=_bearer()
     )
-    assert response.status_code == 404
-    assert response.json()["detail"]["denied_reason"] == "project_not_found"
+    assert response.status_code == 200
+    assert response.json() == {"items": [], "total": 0}
 
 
 # ---------------------------------------------------------------------------

@@ -57,6 +57,8 @@ from app.schemas.knowledge import (
     DirectoryOut,
     KnowledgeDeleteResponse,
     KnowledgeDetailOut,
+    KnowledgeLibraryProjectListResponse,
+    KnowledgeLibraryProjectOut,
     KnowledgeListItemOut,
     KnowledgeListResponse,
     MaintainerOut,
@@ -78,7 +80,13 @@ from app.schemas.permission import (
     DeniedReason,
 )
 from app.services import audit as audit_service
-from app.services import directories, error_catalog, indexing, original_access
+from app.services import (
+    directories,
+    discoverable_projects,
+    error_catalog,
+    indexing,
+    original_access,
+)
 from app.services.permission import (
     decide,
     discovery_filter,
@@ -416,6 +424,15 @@ async def list_knowledge(
             "知识目录列表必须指定正式目录上下文",
         )
 
+    if (
+        require_directory_context
+        and scope == KnowledgeScope.project.value
+        and project_id is not None
+        and await discoverable_projects.get_knowledge_library_project(session, caller, project_id)
+        is None
+    ):
+        raise _denied(404, "directory_not_found", "目录不存在或当前不可进入")
+
     if directory_key:
         if scope is None:
             raise _denied(
@@ -429,19 +446,6 @@ async def list_knowledge(
             scope=scope,
             project_id=project_id,
         )
-        if (
-            scope == KnowledgeScope.project.value
-            and project_id is not None
-            and project_id not in caller.active_project_ids
-        ):
-            visible_rows = await directories.visible_directory_rows(
-                session,
-                caller,
-                allowed_scope=KnowledgeScope.project.value,
-                allowed_project_id=project_id,
-            )
-            if not any(row["directory_key"] == directory_key for row in visible_rows):
-                raise _denied(404, "directory_not_found", "目录不存在或当前不可进入")
 
     conditions = [discovery_filter(caller)]
     if scope:
@@ -457,11 +461,14 @@ async def list_knowledge(
     if confidentiality_level:
         conditions.append(KnowledgeAsset.confidentiality_level == confidentiality_level)
     if directory_key:
+        directory_condition = (
+            KnowledgeAssetVersion.directory_key.is_(None)
+            if directory_key == directories.UNCLASSIFIED_PROJECT_DIRECTORY_KEY
+            else KnowledgeAssetVersion.directory_key == directory_key
+        )
         conditions.append(
             KnowledgeAsset.current_version_id.in_(
-                select(KnowledgeAssetVersion.id).where(
-                    KnowledgeAssetVersion.directory_key == directory_key
-                )
+                select(KnowledgeAssetVersion.id).where(directory_condition)
             )
         )
     if created_from:
@@ -556,6 +563,25 @@ async def list_directories(
         # discoverable assets for this caller.
         raise _denied(404, "directory_not_found", "目录不存在或当前不可进入")
     return DirectoryListResponse(items=[DirectoryOut(**row) for row in rows])
+
+
+async def list_knowledge_library_projects(
+    session: AsyncSession,
+    caller: CallerContext,
+) -> KnowledgeLibraryProjectListResponse:
+    rows = await discoverable_projects.list_knowledge_library_projects(session, caller)
+    return KnowledgeLibraryProjectListResponse(
+        items=[
+            KnowledgeLibraryProjectOut(
+                project_id=row.project_id,
+                name=row.name,
+                status=row.status,
+                access_mode=row.access_mode,
+                access_label=row.access_label,
+            )
+            for row in rows
+        ]
+    )
 
 
 async def get_detail(
