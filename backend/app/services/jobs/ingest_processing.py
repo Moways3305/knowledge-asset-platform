@@ -428,7 +428,9 @@ async def _process_upload_task_impl(
         if extraction.status == "ocr_required":
             # Persist the full source page plan before OCR starts. If the local engine raises,
             # retry can still skip native-text pages and recognize exactly the original empty pages.
-            task.ai_result.ocr_page_results = _ocr_page_plan(extraction)
+            ai_result = task.ai_result
+            assert ai_result is not None
+            ai_result.ocr_page_results = _ocr_page_plan(extraction)
             task.processing_stage = "ocr_queued"
             await session.commit()
             task.processing_stage = "ocr_in_progress"
@@ -438,8 +440,8 @@ async def _process_upload_task_impl(
             try:
                 recognized = ocr.recognize(file_bytes, extraction)
             except ocr.OCRError as exc:
-                task.ai_result.ocr_status = "failed"
-                task.ai_result.ocr_attempted_at = utc_now()
+                ai_result.ocr_status = "failed"
+                ai_result.ocr_attempted_at = utc_now()
                 task.status = IngestStatus.failed.value
                 task.processing_stage = "ocr_failed"
                 task.error_type = exc.code
@@ -449,10 +451,10 @@ async def _process_upload_task_impl(
                 await notify_ingest_failed(session, task)
                 await session.commit()
                 return task.status
-            task.ai_result.ocr_status = recognized.status
-            task.ai_result.ocr_confidence = recognized.confidence
-            task.ai_result.ocr_attempted_at = utc_now()
-            task.ai_result.ocr_page_results = [
+            ai_result.ocr_status = recognized.status
+            ai_result.ocr_confidence = recognized.confidence
+            ai_result.ocr_attempted_at = utc_now()
+            ai_result.ocr_page_results = [
                 {
                     "page_number": page.page_number,
                     "source_status": extraction.pages[index].status,
@@ -462,7 +464,7 @@ async def _process_upload_task_impl(
                 }
                 for index, page in enumerate(recognized.pages)
             ]
-            task.ai_result.extraction_status = (
+            ai_result.extraction_status = (
                 "extracted" if recognized.status == "succeeded" else "ocr_low_confidence"
             )
             if recognized.status != "succeeded":
@@ -475,8 +477,8 @@ async def _process_upload_task_impl(
                 await notify_ingest_failed(session, task)
                 await session.commit()
                 return task.status
-            task.ai_result.extracted_text = recognized.text or None
-            task.ai_result.extracted_char_count = len(recognized.text)
+            ai_result.extracted_text = recognized.text or None
+            ai_result.extracted_char_count = len(recognized.text)
             extraction = ExtractionResult(
                 text=recognized.text,
                 status="extracted",
@@ -691,8 +693,9 @@ async def _process_upload_task_impl(
                 ai["naming_parsed_fields"] = naming_fields
             naming_fields["extraction_text_safety"] = safety_diagnostics
     _apply_ai_result(task, ai, dup)
-    fields = ai.get("naming_parsed_fields") if isinstance(ai, dict) else {}
-    generation_status = fields.get("generation_status") if isinstance(fields, dict) else None
+    raw_fields = ai.get("naming_parsed_fields") if isinstance(ai, dict) else None
+    fields = raw_fields if isinstance(raw_fields, dict) else {}
+    generation_status = fields.get("generation_status")
     extraction_failed = extraction.status != "extracted" or markdown_derivative is None
     generation_failed = generation_status != "generated"
     failed = extraction_failed or generation_failed

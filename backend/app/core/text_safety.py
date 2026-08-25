@@ -116,22 +116,22 @@ def sanitize_json(value: Any, *, string_max_chars: int = MODEL_RESPONSE_MAX_CHAR
         if isinstance(current, (bytes, bytearray, memoryview)):
             return None, SafetyStats(invalid_json_values=1)
         if isinstance(current, (list, tuple)):
-            result: list[Any] = []
+            result_list: list[Any] = []
             stats = SafetyStats()
             for item in current:
                 safe_item, item_stats = visit(item, depth + 1)
-                result.append(safe_item)
+                result_list.append(safe_item)
                 stats = stats.merge(item_stats)
-            return result, stats
+            return result_list, stats
         if isinstance(current, dict):
-            result: dict[str, Any] = {}
+            result_dict: dict[str, Any] = {}
             stats = SafetyStats()
             for key, item in current.items():
                 safe_key = sanitize_text(str(key), max_chars=500)
                 safe_item, item_stats = visit(item, depth + 1)
-                result[safe_key.value] = safe_item
+                result_dict[safe_key.value] = safe_item
                 stats = stats.merge(safe_key.stats).merge(item_stats)
-            return result, stats
+            return result_dict, stats
         return None, SafetyStats(invalid_json_values=1)
 
     safe_value, stats = visit(value, 0)

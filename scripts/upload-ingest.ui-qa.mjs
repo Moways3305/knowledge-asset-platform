@@ -256,7 +256,8 @@ try {
         const files =
           scenario === "local-queue" ||
           scenario === "batch-naming-ready" ||
-          scenario === "batch-personal-ready"
+          scenario === "batch-personal-ready" ||
+          scenario === "batch-company-directory-fallback"
             ? [
                 ["upload-item-1", "客户增长复盘.md"],
                 ["upload-item-2", "客户访谈纪要.txt"],
@@ -265,6 +266,7 @@ try {
         return {
           id: uploadSessionId,
           status: state === "awaiting_confirmation" ? "completed" : "active",
+          upload_completed: state === "awaiting_confirmation",
           total_files: files.length,
           completed_files: state === "awaiting_confirmation" ? files.length : 0,
           processing_files: state === "processing" ? files.length : 0,
@@ -272,17 +274,22 @@ try {
           failed_files: state === "failed" ? files.length : 0,
           current_batch_number: null,
           total_batches: 1,
+          uploaded_files: state === "waiting_upload" || state === "failed" ? 0 : files.length,
+          uploaded_batches: state === "waiting_upload" ? 0 : 1,
           created_at: "2026-07-16T08:00:00Z",
           updated_at: "2026-07-16T08:05:00Z",
           items: files.map(([id, fileName], index) => ({
             id,
-            ordinal: index + 1,
+            ordinal: index,
             batch_number: 1,
+            transport_batch_number: 1,
             file_name: fileName,
-            file_size: 42,
+            file_size: Buffer.byteLength(
+              fileName.endsWith(".txt") ? "安全验收内容" : "# 客户增长复盘\n安全验收内容",
+            ),
             file_type: fileName.endsWith(".txt") ? "TXT" : "MD",
             status: state,
-            ingest_task_id: taskId,
+            ingest_task_id: state === "waiting_upload" || state === "failed" ? null : taskId,
             processing_stage:
               state === "processing" && scenario === "canonical-processing"
                 ? "canonical_markdown_generation"
@@ -291,6 +298,7 @@ try {
             error_message: itemError,
             same_name_warning: false,
             retryable: state === "failed",
+            bytes_available: state !== "waiting_upload" && state !== "failed",
           })),
         };
       };
@@ -546,6 +554,44 @@ try {
           localPendingAvailable = true;
           return fulfill(uploadSession("awaiting_confirmation"));
         }
+        if (url.pathname === "/api/v1/ingest/upload-sessions/init" && request.method() === "POST") {
+          uploadCalls += 1;
+          return fulfill(uploadSession("waiting_upload"));
+        }
+        if (
+          url.pathname === `/api/v1/ingest/upload-sessions/${uploadSessionId}/batches` &&
+          request.method() === "POST"
+        ) {
+          uploadCalls += 1;
+          if (scenario === "local-upload-failure-retry") {
+            return fulfill({ detail: { message: "上传暂时失败" } }, 503);
+          }
+          if (scenario === "canonical-processing") return fulfill(uploadSession("processing"));
+          localPendingAvailable = true;
+          return fulfill(uploadSession("awaiting_confirmation"));
+        }
+        if (
+          url.pathname === `/api/v1/ingest/upload-sessions/${uploadSessionId}/transport-failure` &&
+          request.method() === "POST"
+        ) {
+          return fulfill(uploadSession("failed"));
+        }
+        if (
+          url.pathname ===
+            `/api/v1/ingest/upload-sessions/${uploadSessionId}/items/upload-item-1/bytes` &&
+          request.method() === "POST"
+        ) {
+          uploadCalls += 1;
+          return fulfill(uploadSession("awaiting_confirmation"));
+        }
+        if (
+          url.pathname === `/api/v1/ingest/upload-sessions/${uploadSessionId}/complete` &&
+          request.method() === "POST"
+        ) {
+          if (scenario === "canonical-processing") return fulfill(uploadSession("processing"));
+          localPendingAvailable = true;
+          return fulfill(uploadSession("awaiting_confirmation"));
+        }
         if (
           url.pathname ===
             `/api/v1/ingest/upload-sessions/${uploadSessionId}/items/upload-item-1/retry` &&
@@ -719,7 +765,6 @@ try {
         ];
         if (
           scenario === "local-queue" ||
-          scenario === "local-upload-failure-retry" ||
           scenario === "batch-naming-ready" ||
           scenario === "batch-personal-ready" ||
           scenario === "batch-company-directory-fallback"
@@ -736,7 +781,7 @@ try {
           await page.getByText("正在生成 Markdown", { exact: true }).waitFor();
         } else if (scenario === "local-upload-failure-retry") {
           await page.getByText("上传失败", { exact: true }).first().waitFor();
-          await page.getByRole("button", { name: "重试" }).click();
+          await page.getByRole("button", { name: "重试" }).first().click();
           await page.getByText("上传失败", { exact: true }).first().waitFor({ state: "detached" });
         }
         if (scenario !== "canonical-processing") {
@@ -795,19 +840,16 @@ try {
           (element) =>
             element.scrollWidth <= element.clientWidth + 2 &&
             element.querySelectorAll(".upload77-personal-directory-row").length === 2 &&
-            element.querySelectorAll('.upload77-personal-directory-row select').length === 2 &&
+            element.querySelectorAll(".upload77-personal-directory-row select").length === 2 &&
             Boolean(element.querySelector(".task-modal-footer")),
         );
-        personalBatchScreenshot = path.join(
-          outDir,
-          `${scenario}-review-${viewport.name}.png`,
-        );
+        personalBatchScreenshot = path.join(outDir, `${scenario}-review-${viewport.name}.png`);
         await personalReview.screenshot({
           path: personalBatchScreenshot,
           animations: "disabled",
         });
-        const bulkResponse = page.waitForResponse((response) =>
-          new URL(response.url()).pathname === "/api/v1/ingest/bulk-confirm",
+        const bulkResponse = page.waitForResponse(
+          (response) => new URL(response.url()).pathname === "/api/v1/ingest/bulk-confirm",
         );
         await page.getByRole("button", { name: "确认已选择的 2 项入库" }).click();
         await bulkResponse;
@@ -820,9 +862,7 @@ try {
         await batchCategory.waitFor();
         await batchCategory.selectOption("category-deliverable");
         await page.getByRole("button", { name: "下一步：核对命名" }).click();
-        await page
-          .getByLabel(`${longPendingFileName} 适用对象`)
-          .fill("公司咨询项目团队");
+        await page.getByLabel(`${longPendingFileName} 适用对象`).fill("公司咨询项目团队");
         await page.getByRole("button", { name: "选择正式公司目录" }).click();
         const formalDirectory = page.getByRole("combobox", { name: "正式公司目录" });
         await formalDirectory.waitFor();
@@ -833,16 +873,13 @@ try {
         await formalDirectory.selectOption("company.methodology");
         await page.getByRole("button", { name: "保存并重新预览" }).click();
         await page.getByText("【公司知识-交付成果】客户增长复盘_20210307_V1_L2.md").waitFor();
-        companyFallbackScreenshot = path.join(
-          outDir,
-          `${scenario}-preview-${viewport.name}.png`,
-        );
+        companyFallbackScreenshot = path.join(outDir, `${scenario}-preview-${viewport.name}.png`);
         await page.getByRole("dialog").screenshot({
           path: companyFallbackScreenshot,
           animations: "disabled",
         });
-        const bulkResponse = page.waitForResponse((response) =>
-          new URL(response.url()).pathname === "/api/v1/ingest/bulk-confirm",
+        const bulkResponse = page.waitForResponse(
+          (response) => new URL(response.url()).pathname === "/api/v1/ingest/bulk-confirm",
         );
         await page.getByRole("button", { name: "确认已选择的 1 项入库" }).click();
         await bulkResponse;
@@ -1013,8 +1050,7 @@ try {
               /storage_ref|SECRET-LIKE|task-secret-77|project-secret-77|user-secret-77|review-secret-77|generation-ref-secret|csrf-secret-77|identity-hidden|api[_ -]?key|presigned|weknora[_ -]?(doc|kb)[_ -]?id/i.test(
                 text,
               ),
-            personalBatchReady:
-              !text.includes("重试待分类项") && !text.includes("规范名预览"),
+            personalBatchReady: !text.includes("重试待分类项") && !text.includes("规范名预览"),
           };
         },
         { longPendingFileName, longPendingSubject },
@@ -1042,21 +1078,20 @@ try {
       );
       const personalBatchPayloadValid = Boolean(
         bulkConfirmPayload &&
-          bulkConfirmPayload.target_scope === "personal" &&
-          bulkConfirmPayload.items?.length === 2 &&
-          submittedDirectories[taskId] === "personal.learning_notes" &&
-          submittedDirectories["task-safe-78"] === "personal.project_materials" &&
-          bulkConfirmPayload.items.every((item) => !("naming" in item.confirmation)),
+        bulkConfirmPayload.target_scope === "personal" &&
+        bulkConfirmPayload.items?.length === 2 &&
+        submittedDirectories[taskId] === "personal.learning_notes" &&
+        submittedDirectories["task-safe-78"] === "personal.project_materials" &&
+        bulkConfirmPayload.items.every((item) => !("naming" in item.confirmation)),
       );
       const companyFallbackPayloadValid = Boolean(
         bulkConfirmPayload &&
-          bulkConfirmPayload.target_scope === "company" &&
-          bulkConfirmPayload.items?.length === 1 &&
-          bulkConfirmPayload.items[0]?.confirmation?.naming?.category_id ===
-            "category-deliverable" &&
-          bulkConfirmPayload.items[0]?.confirmation?.naming?.directory_key ===
-            "company.methodology" &&
-          bulkConfirmPayload.items[0]?.confirmation?.naming?.directory_fallback_confirmed === true,
+        bulkConfirmPayload.target_scope === "company" &&
+        bulkConfirmPayload.items?.length === 1 &&
+        bulkConfirmPayload.items[0]?.confirmation?.naming?.category_id === "category-deliverable" &&
+        bulkConfirmPayload.items[0]?.confirmation?.naming?.directory_key ===
+          "company.methodology" &&
+        bulkConfirmPayload.items[0]?.confirmation?.naming?.directory_fallback_confirmed === true,
       );
       let pendingScreenshot = null;
       let canonicalScreenshot = null;
@@ -1121,9 +1156,6 @@ const expectedScenarioCount =
   (scenarioFilter.size > 0
     ? scenarios.filter((scenario) => scenarioFilter.has(scenario)).length
     : scenarios.length) * viewports.length;
-if (
-  results.length !== expectedScenarioCount ||
-  results.some((item) => !assertResult(item))
-) {
+if (results.length !== expectedScenarioCount || results.some((item) => !assertResult(item))) {
   process.exit(1);
 }

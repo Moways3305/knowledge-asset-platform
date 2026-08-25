@@ -50,7 +50,7 @@ def _image_bytes(content: bytes, *, source_kind: str, page_number: int) -> bytes
         document = fitz.open(stream=content, filetype="pdf")
         try:
             page = document.load_page(page_number - 1)
-            return page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False).tobytes("png")
+            return bytes(page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False).tobytes("png"))
         finally:
             document.close()
     except OCRError:
