@@ -69,9 +69,16 @@ async def _make_path_a_task(
         suggested_confidentiality_level="L2",
         suggested_ai_access_level="A2",
         confidence=0.91,
+        llm_provider="wecom-import",
+        llm_model="historical-generation",
         extraction_status="extracted",
         extracted_text="渠道融合的完整抽取正文，绝不应出现在待确认列表响应里。",
-        naming_parsed_fields={"topic": "零售渠道策略", "date": "20260522"},
+        naming_parsed_fields={
+            "topic": "零售渠道策略",
+            "date": "20260522",
+            "generation_status": "generated",
+            "summary_generated": True,
+        },
     )
     session.add(task)
     await session.flush()

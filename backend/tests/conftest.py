@@ -9,6 +9,7 @@ PostgreSQL 语义一致，可放心用于快速测试；正式运行仍以 Postg
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -54,10 +55,35 @@ from app.seed.dev_seed import (  # noqa: E402
     seed_dev_knowledge,
     seed_dev_reviews,
 )
+from app.services.generation_models import get_generation_llm_client  # noqa: E402
 from app.services.storage import LocalFileStorage, get_storage  # noqa: E402
 
 # 若 Settings 已被其它早期 import 缓存，清缓存确保读到上面的测试环境。
 get_settings.cache_clear()
+
+
+class TestGenerationLLM:
+    """Successful local test double; upload tests must not depend on NullLLM fallback."""
+
+    provider = "test"
+    model = "test-generation"
+
+    async def chat_completion(self, _messages, **_kwargs):
+        return json.dumps(
+            {
+                "topic": "零售转型路径",
+                "one_liner": "零售数字化转型方案",
+                "detailed": "介绍零售企业数字化转型的成熟度评估方法与落地路径。",
+                "key_points": ["成熟度评估", "落地路径"],
+                "tags": ["零售", "数字化转型"],
+                "confidentiality_level": "L2",
+                "confidentiality_confidence": "medium",
+                "version": "V1",
+                "version_confidence": "medium",
+                "inferred_fields": [],
+            },
+            ensure_ascii=False,
+        )
 
 
 def patch_default_model(monkeypatch, *, embedding="test-embed", explicit=False):
@@ -134,12 +160,15 @@ async def client(sessionmaker_fixture, tmp_path):
             yield session
 
     storage = LocalFileStorage(tmp_path / "storage")
+    generation_llm = TestGenerationLLM()
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_storage] = lambda: storage
+    app.dependency_overrides[get_generation_llm_client] = lambda: generation_llm
     transport = ASGITransport(app=app)
     # base_url 用 https，使 prod 守卫下发的 Secure cookie 能在测试 cookie jar 中正常回送
     # （prod 会话 cookie 强制 Secure；httpx 不会把 Secure cookie 回送到 http://）。
     async with AsyncClient(transport=transport, base_url="https://test") as ac:
         ac._kap_storage = storage  # 供测试断言文件确实落盘
+        ac._kap_generation_llm = generation_llm
         yield ac
     app.dependency_overrides.clear()

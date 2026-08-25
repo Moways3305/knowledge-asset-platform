@@ -302,6 +302,10 @@ async def get_ai_result(
         # 运营元数据（两视图均可见）：抽取状态 / 字符数 / 错误 / 去重软提示。
         extraction_status=ai.extraction_status if ai else None,
         extracted_char_count=ai.extracted_char_count if ai else None,
+        ocr_status=ai.ocr_status if ai else None,
+        ocr_page_results=ai.ocr_page_results if ai else None,
+        ocr_confidence=ai.ocr_confidence if ai else None,
+        ocr_attempted_at=ai.ocr_attempted_at if ai else None,
         error_type=task.error_type,
         error_message=task.error_message,
         is_possible_duplicate=bool(ai and ai.duplicate_of_task_id is not None),
@@ -340,12 +344,21 @@ async def get_ai_result(
         desensitization_counts=(ai.desensitization_counts if ai else None) or None,
         desensitization_message=_desensitization_message(ai.desensitization_status if ai else None),
     )
+    if not is_full:
+        # Parsed naming facts can contain customer/project/content phrases; admin sees only
+        # operational state and the separately projected safe recovery metadata.
+        base.naming_parsed_fields = None
+        base.naming_anomalies = None
     if is_full and ai is not None:
         # 完整视图（创建人 / 治理角色）：补充业务建议正文（三层摘要）+ 抽取全文截断预览。
-        base.suggested_title = suggested_subject(
-            ai.naming_parsed_fields if isinstance(ai.naming_parsed_fields, dict) else None,
-            ai.suggested_title,
-            task.source_file_name,
+        base.suggested_title = (
+            suggested_subject(
+                ai.naming_parsed_fields if isinstance(ai.naming_parsed_fields, dict) else None,
+                ai.suggested_title,
+                task.source_file_name,
+            )
+            if _has_generated_summary(ai)
+            else None
         )
         base.suggested_one_liner = ai.suggested_one_liner
         base.suggested_summary = ai.suggested_summary
@@ -867,7 +880,7 @@ async def list_pending(
                 ai.suggested_title if ai else None,
                 t.source_file_name,
             )
-            if ai
+            if ai and _has_generated_summary(ai)
             else None
         )
         can_batch_confirm = (
@@ -892,6 +905,13 @@ async def list_pending(
                 extraction_status=ai.extraction_status if ai else None,
                 error_type=t.error_type,
                 error_message=t.error_message,
+                processing_stage=t.processing_stage,
+                retryable=(
+                    t.status == IngestStatus.failed.value
+                    and t.error_type
+                    not in {"configuration_error", "authentication_error", "model_unavailable"}
+                ),
+                retry_count=t.retry_count,
                 suggested_title=display_subject,
                 suggested_one_liner=ai.suggested_one_liner if ai else None,
                 **advice,

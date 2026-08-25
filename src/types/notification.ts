@@ -21,7 +21,10 @@ export interface BusinessNotificationDTO {
   task_group: "my_tasks" | "running_jobs" | "attention_items" | "recent_completed";
   action_required: boolean;
   next_action_label: string;
-  delivery_status: string;
+  failure_reason?: string | null;
+  recovery_suggestion?: string | null;
+  /** Legacy fixture compatibility; the current API no longer returns or renders this field. */
+  delivery_status?: string;
   target: NotificationTargetDTO;
 }
 
@@ -31,6 +34,7 @@ export interface BusinessNotificationListResponseDTO {
   page: number;
   page_size: number;
   unread_count?: number;
+  pending_count?: number;
   categories?: string[];
 }
 

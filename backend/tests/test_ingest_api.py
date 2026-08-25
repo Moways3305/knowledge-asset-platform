@@ -118,14 +118,13 @@ async def test_upload_worker_persists_one_idempotent_canonical_markdown(client, 
 
     from app.services.desensitization import NullDesensitizer
     from app.services.jobs.ingest_processing import process_upload_task
-    from app.services.llm_client import NullLLMClient
 
     assert (
         await process_upload_task(
             db_session,
             task_id,
             storage=storage,
-            llm=NullLLMClient(),
+            llm=client._kap_generation_llm,
             desensitizer=NullDesensitizer(),
             trace_id="idempotent-markdown",
         )
@@ -211,13 +210,13 @@ async def test_legacy_naming_advice_defaults_are_safe_and_stable(client, db_sess
     )
 
     for payload in (detail.json(), first_item, second_item):
-        assert payload["suggested_version"] == "V1"
-        assert payload["version_source"] == "default_needs_confirmation"
-        assert payload["version_confidence"] == "low"
-        assert payload["suggested_confidentiality_level"] == "L2"
-        assert payload["confidentiality_source"] == "default_needs_confirmation"
-        assert payload["confidentiality_confidence"] == "low"
-        assert "L5" not in payload["confidentiality_reason"]
+        assert payload["suggested_version"] is None
+        assert payload["version_source"] is None
+        assert payload["version_confidence"] is None
+        assert payload["suggested_confidentiality_level"] is None
+        assert payload["confidentiality_source"] is None
+        assert payload["confidentiality_confidence"] is None
+        assert payload["confidentiality_reason"] is None
 
 
 async def test_source_locked_destination_cannot_be_overridden(client, db_session):
@@ -943,7 +942,7 @@ async def test_pending_list_derives_safe_batch_confirmation_capability(client, d
         item for item in old_metadata.json()["items"] if item["id"] == str(task_id)
     )
     assert old_metadata_item["suggestion_generation_status"] != "generated"
-    assert old_metadata_item["can_batch_confirm"] is True
+    assert old_metadata_item["can_batch_confirm"] is False
     assert old_metadata_item["can_batch_reject"] is False
 
     task.status = "pending_confirmation"
@@ -952,7 +951,7 @@ async def test_pending_list_derives_safe_batch_confirmation_capability(client, d
     pending_confirmation_item = next(
         item for item in pending_confirmation.json()["items"] if item["id"] == str(task_id)
     )
-    assert pending_confirmation_item["can_batch_confirm"] is True
+    assert pending_confirmation_item["can_batch_confirm"] is False
     assert pending_confirmation_item["can_batch_reject"] is True
 
     task.status = "processing"
@@ -971,8 +970,8 @@ async def test_pending_list_derives_safe_batch_confirmation_capability(client, d
     incomplete_item = next(
         item for item in incomplete.json()["items"] if item["id"] == str(task_id)
     )
-    # 旧 suggested_title 缺失时仍可从结构化 topic / 文件名安全回退主题。
-    assert incomplete_item["can_batch_confirm"] is True
+    # 缺少可信生成事实时不得从结构化字段或文件名伪造可确认主题。
+    assert incomplete_item["can_batch_confirm"] is False
     assert incomplete_item["can_batch_reject"] is True
 
     ai.suggested_title = original_title
@@ -1008,7 +1007,7 @@ async def test_pending_list_derives_safe_batch_confirmation_capability(client, d
     await db_session.commit()
     rejected = await client.get("/api/v1/ingest/pending", headers=_hdr(USER_CONSULTANT))
     rejected_item = next(item for item in rejected.json()["items"] if item["id"] == str(task_id))
-    assert rejected_item["can_batch_confirm"] is True
+    assert rejected_item["can_batch_confirm"] is False
     assert rejected_item["can_batch_reject"] is True
 
     ai.suggested_summary = None
@@ -1051,7 +1050,7 @@ async def test_upload_unsupported_fails_without_canonical_markdown(client, db_se
         await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
     ).json()
     assert ai["extraction_status"] == "unsupported"
-    assert "人工补全" in ai["suggested_summary"]
+    assert ai["suggested_summary"] is None
     derivative = (
         await db_session.execute(
             select(IngestTaskDerivative).where(

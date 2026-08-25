@@ -24,6 +24,7 @@ from app.seed.dev_seed import (
     USER_PROJECT_MANAGER,
 )
 from app.services.generation_models import get_generation_llm_client
+from app.services.llm_client import NullLLMClient
 
 
 def _hdr(user_id: uuid.UUID) -> dict[str, str]:
@@ -1961,6 +1962,7 @@ async def test_unconfigured_classifier_is_retryable_manual_not_default(client):
     first, second = uuid.uuid4(), uuid.uuid4()
     await _publish_categories(client, [(first, "辅导过程"), (second, "项目复盘")])
     task_id = await _upload(client)
+    app.dependency_overrides[get_generation_llm_client] = lambda: NullLLMClient()
     response = await client.post(
         "/api/v1/ingest/bulk-category-classification",
         headers=_hdr(USER_PROJECT_MANAGER),

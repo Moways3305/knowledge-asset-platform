@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from starlette.datastructures import UploadFile
 
 from app.api import ingest as ingest_api
-from app.models.ingest import IngestTask, UploadSessionItem
+from app.models.ingest import IngestTask, UploadSessionItem, UploadTransportBatch
 from app.schemas.enums import IngestSource, IngestStatus
 from app.seed.dev_seed import USER_CONSULTANT, USER_PROJECT_MANAGER
 from app.services import upload_sessions
@@ -26,6 +26,114 @@ def test_stable_batch_boundaries_are_unbounded_and_keep_partial_tail():
     assert stable_batch_sizes(400) == [200, 200]
     assert stable_batch_sizes(401) == [200, 200, 1]
     assert stable_batch_sizes(700) == [200, 200, 200, 100]
+
+
+async def test_transport_session_is_durable_ordered_and_batch_idempotent(client, db_session):
+    session_id = uuid.uuid4()
+    initialized = await client.post(
+        "/api/v1/ingest/upload-sessions/init",
+        headers=_headers(USER_CONSULTANT),
+        json={
+            "session_id": str(session_id),
+            "total_transport_batches": 2,
+            "manifest": [
+                {
+                    "client_file_key": "a",
+                    "file_name": "a.txt",
+                    "file_size": 1,
+                    "transport_batch_index": 0,
+                },
+                {
+                    "client_file_key": "b",
+                    "file_name": "b.txt",
+                    "file_size": 1,
+                    "transport_batch_index": 1,
+                },
+            ],
+        },
+    )
+    assert initialized.status_code == 200
+    body = initialized.json()
+    assert body["uploaded_files"] == 0
+    assert body["upload_completed"] is False
+    item_ids = [item["id"] for item in body["items"]]
+
+    out_of_order = await client.post(
+        f"/api/v1/ingest/upload-sessions/{session_id}/batches",
+        headers=_headers(USER_CONSULTANT),
+        data={"batch_id": "batch-1", "batch_index": "1", "item_ids": f'["{item_ids[1]}"]'},
+        files={"files": ("b.txt", b"b", "text/plain")},
+    )
+    assert out_of_order.status_code == 409
+    assert not any(path.is_file() for path in client._kap_storage.root.rglob("*"))
+
+    request = {
+        "headers": _headers(USER_CONSULTANT),
+        "data": {"batch_id": "batch-0", "batch_index": "0", "item_ids": f'["{item_ids[0]}"]'},
+        "files": {"files": ("a.txt", b"a", "text/plain")},
+    }
+    first = await client.post(f"/api/v1/ingest/upload-sessions/{session_id}/batches", **request)
+    repeated = await client.post(f"/api/v1/ingest/upload-sessions/{session_id}/batches", **request)
+    assert first.status_code == repeated.status_code == 200
+    assert repeated.json()["uploaded_files"] == 1
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(UploadTransportBatch)
+            .where(UploadTransportBatch.session_id == session_id)
+        )
+        == 1
+    )
+
+
+async def test_failed_transport_context_survives_and_row_bytes_can_be_reselected(client):
+    session_id = uuid.uuid4()
+    initialized = await client.post(
+        "/api/v1/ingest/upload-sessions/init",
+        headers=_headers(USER_CONSULTANT),
+        json={
+            "session_id": str(session_id),
+            "total_transport_batches": 1,
+            "manifest": [
+                {
+                    "client_file_key": "a",
+                    "file_name": "recover.txt",
+                    "file_size": 7,
+                    "transport_batch_index": 0,
+                }
+            ],
+        },
+    )
+    item_id = initialized.json()["items"][0]["id"]
+    failed = await client.post(
+        f"/api/v1/ingest/upload-sessions/{session_id}/transport-failure",
+        headers=_headers(USER_CONSULTANT),
+        json={
+            "item_ids": [item_id],
+            "error_code": "proxy_rejected",
+            "batch_id": "batch-0",
+            "batch_index": 0,
+        },
+    )
+    assert failed.status_code == 200
+    assert failed.json()["items"][0]["error_code"] == "proxy_rejected"
+    assert failed.json()["items"][0]["bytes_available"] is False
+
+    replaced = await client.post(
+        f"/api/v1/ingest/upload-sessions/{session_id}/items/{item_id}/bytes",
+        headers=_headers(USER_CONSULTANT),
+        files={"file": ("recover.txt", b"recover", "text/plain")},
+    )
+    assert replaced.status_code == 200
+    assert replaced.json()["uploaded_files"] == 1
+    assert replaced.json()["items"][0]["bytes_available"] is True
+
+    completed = await client.post(
+        f"/api/v1/ingest/upload-sessions/{session_id}/complete",
+        headers=_headers(USER_CONSULTANT),
+    )
+    assert completed.status_code == 200
+    assert completed.json()["upload_completed"] is True
 
 
 async def test_upload_session_persists_all_items_and_separates_same_name_from_hash(client):
@@ -388,3 +496,43 @@ async def test_bulk_failed_cleanup_is_caller_scoped_and_immediately_hides_items(
     )
     assert repeated.status_code == 200
     assert repeated.json()["items"] == []
+
+
+async def test_item_retry_atomically_claims_the_failed_row_before_enqueue(
+    client, db_session, monkeypatch
+):
+    created = await client.post(
+        "/api/v1/ingest/upload-sessions",
+        headers=_headers(USER_CONSULTANT),
+        files={"files": ("retry.txt", b"retry body", "text/plain")},
+    )
+    assert created.status_code == 200
+    session_id = created.json()["id"]
+    item_id = created.json()["items"][0]["id"]
+    item = await db_session.get(UploadSessionItem, uuid.UUID(item_id))
+    task = await db_session.get(IngestTask, item.ingest_task_id)
+    item.status = "failed"
+    task.status = IngestStatus.failed.value
+    task.processing_stage = "content_generation_failed"
+    task.error_type = "timeout"
+    await db_session.commit()
+
+    retry_url = f"/api/v1/ingest/upload-sessions/{session_id}/items/{item_id}/retry"
+    enqueue_calls = 0
+    competing_status = None
+
+    async def fake_enqueue(*_args, **_kwargs):
+        nonlocal enqueue_calls, competing_status
+        enqueue_calls += 1
+        competing = await client.post(retry_url, headers=_headers(USER_CONSULTANT))
+        competing_status = competing.status_code
+        return IngestStatus.processing.value
+
+    monkeypatch.setattr(upload_sessions, "enqueue_ingest_processing", fake_enqueue)
+    retried = await client.post(retry_url, headers=_headers(USER_CONSULTANT))
+
+    assert retried.status_code == 200
+    assert competing_status == 409
+    assert enqueue_calls == 1
+    await db_session.refresh(task)
+    assert task.retry_count == 1

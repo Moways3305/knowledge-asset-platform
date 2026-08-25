@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.text_safety import CANONICAL_MARKDOWN_MAX_CHARS, sanitize_text
 from app.db.utils import utc_now
 from app.models.ingest import IngestTask, IngestTaskDerivative
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetFileObject, KnowledgeAssetVersion
@@ -84,12 +85,13 @@ def render_canonical_markdown(*, extracted_text: str, source_file_name: str) -> 
     source = _display_source_name(source_file_name)
     stem, _suffix = os.path.splitext(source)
     title = (stem or "知识正文").replace("#", "").strip() or "知识正文"
-    body = extracted_text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    body = sanitize_text(extracted_text, max_chars=CANONICAL_MARKDOWN_MAX_CHARS).value.strip()
     if not body:
         raise CanonicalMarkdownUnavailable("canonical_markdown_empty")
-    markdown = (
-        f"# {title}\n\n> 来源文件：{source}（来源事实，非人工确认元数据）\n\n## 正文\n\n{body}\n"
-    )
+    markdown = sanitize_text(
+        f"# {title}\n\n> 来源文件：{source}（来源事实，非人工确认元数据）\n\n## 正文\n\n{body}\n",
+        max_chars=CANONICAL_MARKDOWN_MAX_CHARS,
+    ).value
     return markdown.encode("utf-8")
 
 

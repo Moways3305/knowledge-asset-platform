@@ -164,7 +164,8 @@ async def test_list_paginates_and_response_is_sensitive_field_whitelist(client, 
         "task_group",
         "action_required",
         "next_action_label",
-        "delivery_status",
+        "failure_reason",
+        "recovery_suggestion",
         "target",
     }
     serialized = response.text.lower()

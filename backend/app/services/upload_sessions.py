@@ -9,11 +9,16 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.ingest import IngestTask, UploadSession, UploadSessionItem
+from app.models.ingest import (
+    IngestTask,
+    UploadSession,
+    UploadSessionItem,
+    UploadTransportBatch,
+)
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetFileObject
 from app.schemas.enums import AuditAction, AuditLogType, IngestSource, IngestStatus
 from app.schemas.ingest import (
@@ -30,6 +35,9 @@ from app.services.storage import LocalFileStorage
 from app.worker.enqueue import enqueue_ingest_processing
 
 BATCH_SIZE = 200
+TRANSPORT_BATCH_MAX_FILES = 10
+TRANSPORT_BATCH_MAX_BYTES = 20 * 1024 * 1024
+SINGLE_FILE_MAX_BYTES = 25 * 1024 * 1024
 _TERMINAL_ITEM_STATES = {"awaiting_confirmation", "completed", "failed", "cancelled"}
 _COMPLETED_ITEM_STATES = {"awaiting_confirmation", "completed", "cancelled"}
 _PENDING_NAME_WARNING_STATUSES = {
@@ -188,6 +196,325 @@ def authorize_create(caller: CallerContext) -> None:
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可发起入库")
 
 
+async def initialize_transport_session(
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    session_id: uuid.UUID,
+    manifest: list[dict],
+    total_transport_batches: int,
+    target_scope: str | None,
+    target_project_id: uuid.UUID | None,
+) -> UploadSession:
+    """Create a durable lightweight manifest before any multipart request is sent."""
+    authorize_create(caller)
+    existing = await session.get(UploadSession, session_id)
+    if existing is not None:
+        if existing.created_by != caller.user_id:
+            raise _denied(409, "upload_session_conflict", "上传会话标识冲突，请重新提交")
+        return existing
+    value = UploadSession(
+        id=session_id,
+        created_by=caller.user_id,
+        status="active",
+        total_files=len(manifest),
+        total_batches=total_transport_batches,
+        upload_completed=False,
+        next_transport_batch_index=0,
+        target_scope=target_scope,
+        target_project_id=target_project_id,
+    )
+    session.add(value)
+    existing_names = await _visible_names(session, caller)
+    names_in_manifest: set[str] = set()
+    for ordinal, entry in enumerate(manifest):
+        display_name = _display_name(str(entry["file_name"]))
+        normalized = _normalized_name(display_name)
+        rejection = entry.get("rejection")
+        session.add(
+            UploadSessionItem(
+                session_id=session_id,
+                ordinal=ordinal,
+                batch_index=ordinal // BATCH_SIZE,
+                client_file_key=str(entry["client_file_key"]),
+                file_name=display_name,
+                file_size=max(0, int(entry["file_size"])),
+                file_type=entry.get("file_type"),
+                suggested_formed_on=entry.get("formed_on"),
+                transport_batch_index=entry.get("transport_batch_index"),
+                status="failed" if rejection else "waiting_upload",
+                safe_error_code=rejection.get("error_code") if rejection else None,
+                safe_error_message=rejection.get("error_message") if rejection else None,
+                same_name_warning=(normalized in existing_names or normalized in names_in_manifest),
+            )
+        )
+        names_in_manifest.add(normalized)
+    await session.commit()
+    return value
+
+
+async def append_transport_batch(
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    session_id: uuid.UUID,
+    batch_id: str,
+    batch_index: int,
+    candidates: list[tuple[uuid.UUID, UploadCandidate]],
+) -> UploadSession:
+    authorize_create(caller)
+    if not 1 <= len(candidates) <= TRANSPORT_BATCH_MAX_FILES:
+        raise _denied(422, "invalid_transport_batch_count", "每个上传批次最多包含 10 个文件")
+    raw_bytes = sum(candidate.file_size for _, candidate in candidates)
+    if raw_bytes > TRANSPORT_BATCH_MAX_BYTES and not (
+        len(candidates) == 1 and raw_bytes <= SINGLE_FILE_MAX_BYTES
+    ):
+        raise _denied(413, "transport_batch_too_large", "上传批次超过 20 MiB 安全上限")
+    value = await _load_owned_session(session, caller, session_id, lock=True)
+    existing_batch = await session.scalar(
+        select(UploadTransportBatch).where(
+            UploadTransportBatch.session_id == session_id,
+            UploadTransportBatch.batch_id == batch_id,
+        )
+    )
+    if existing_batch is not None:
+        if existing_batch.batch_index != batch_index:
+            raise _denied(409, "transport_batch_id_conflict", "上传批次标识与顺序不一致")
+        return value
+    if value.upload_completed:
+        raise _denied(409, "upload_session_already_completed", "上传会话已完成")
+    if batch_index != value.next_transport_batch_index:
+        raise _denied(409, "transport_batch_out_of_order", "上传批次顺序不一致，请恢复后重试")
+    item_ids = {item.id for item in value.items}
+    if len({item_id for item_id, _ in candidates}) != len(candidates) or any(
+        item_id not in item_ids for item_id, _ in candidates
+    ):
+        raise _denied(422, "invalid_transport_batch_manifest", "上传批次文件清单无效")
+    for item_id, candidate in candidates:
+        item = next(item for item in value.items if item.id == item_id)
+        if item.ingest_task_id is not None:
+            raise _denied(409, "upload_item_already_received", "文件已上传，不得重复创建")
+        if (
+            candidate.file_size != item.file_size
+            or _display_name(candidate.file_name) != item.file_name
+        ):
+            raise _denied(422, "upload_item_manifest_mismatch", "上传文件与会话清单不一致")
+        if candidate.storage_ref is None or candidate.content_hash is None:
+            raise _denied(422, "upload_bytes_unavailable", "文件字节未安全保存")
+        task = IngestTask(
+            source=IngestSource.path_b_upload.value,
+            source_file_ref=candidate.storage_ref,
+            source_file_name=item.file_name,
+            source_file_mime_type=candidate.file_type,
+            source_file_size=candidate.file_size,
+            source_file_hash=candidate.content_hash,
+            suggested_formed_on=item.suggested_formed_on,
+            status=IngestStatus.pending.value,
+            processing_stage="upload_waiting",
+            target_scope=value.target_scope,
+            target_project_id=value.target_project_id,
+            created_by=caller.user_id,
+        )
+        session.add(task)
+        await session.flush()
+        item.ingest_task_id = task.id
+        item.status = "waiting"
+        item.transport_batch_index = batch_index
+        item.safe_error_code = None
+        item.safe_error_message = None
+    session.add(
+        UploadTransportBatch(
+            session_id=session_id,
+            batch_id=batch_id,
+            batch_index=batch_index,
+            status="completed",
+            item_count=len(candidates),
+            raw_bytes=raw_bytes,
+        )
+    )
+    value.next_transport_batch_index += 1
+    await session.commit()
+    return value
+
+
+async def preflight_transport_batch(
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    session_id: uuid.UUID,
+    batch_id: str,
+    batch_index: int,
+    manifest: list[tuple[uuid.UUID, str, int]],
+) -> bool:
+    """Lock and validate ordering/manifest before any browser bytes are persisted."""
+    authorize_create(caller)
+    value = await _load_owned_session(session, caller, session_id, lock=True)
+    existing = await session.scalar(
+        select(UploadTransportBatch).where(
+            UploadTransportBatch.session_id == session_id,
+            UploadTransportBatch.batch_id == batch_id,
+        )
+    )
+    if existing is None:
+        if value.upload_completed:
+            raise _denied(409, "upload_session_already_completed", "上传会话已完成")
+        if batch_index != value.next_transport_batch_index:
+            raise _denied(409, "transport_batch_out_of_order", "上传批次顺序不一致，请恢复后重试")
+        item_ids = {item.id for item in value.items}
+        manifest_ids = [item_id for item_id, _file_name, _file_size in manifest]
+        if len(set(manifest_ids)) != len(manifest_ids) or any(
+            item_id not in item_ids for item_id in manifest_ids
+        ):
+            raise _denied(422, "invalid_transport_batch_manifest", "上传批次文件清单无效")
+        for item_id, file_name, file_size in manifest:
+            item = next(item for item in value.items if item.id == item_id)
+            if item.ingest_task_id is not None:
+                raise _denied(409, "upload_item_already_received", "文件已上传，不得重复创建")
+            if file_size != item.file_size or _display_name(file_name) != item.file_name:
+                raise _denied(422, "upload_item_manifest_mismatch", "上传文件与会话清单不一致")
+            if item.transport_batch_index is not None and item.transport_batch_index != batch_index:
+                raise _denied(409, "transport_item_batch_mismatch", "文件不属于当前传输批次")
+        return False
+    if existing.batch_index != batch_index:
+        raise _denied(409, "transport_batch_id_conflict", "上传批次标识与顺序不一致")
+    if existing.status != "completed":
+        raise _denied(409, "transport_batch_failed", "失败批次需按文件逐项恢复")
+    return True
+
+
+async def fail_transport_items(
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    session_id: uuid.UUID,
+    item_ids: list[uuid.UUID],
+    error_code: str,
+    message: str,
+    batch_id: str | None = None,
+    batch_index: int | None = None,
+) -> UploadSession:
+    value = await _load_owned_session(session, caller, session_id, lock=True)
+    if batch_id is not None and batch_index is not None:
+        existing = await session.scalar(
+            select(UploadTransportBatch).where(
+                UploadTransportBatch.session_id == session_id,
+                UploadTransportBatch.batch_id == batch_id,
+            )
+        )
+        if existing is None:
+            if batch_index != value.next_transport_batch_index:
+                raise _denied(409, "transport_batch_out_of_order", "上传批次顺序不一致")
+            session.add(
+                UploadTransportBatch(
+                    session_id=session_id,
+                    batch_id=batch_id,
+                    batch_index=batch_index,
+                    status="failed",
+                    item_count=len(item_ids),
+                    raw_bytes=0,
+                )
+            )
+            value.next_transport_batch_index += 1
+        elif existing.batch_index != batch_index:
+            raise _denied(409, "transport_batch_id_conflict", "上传批次标识与顺序不一致")
+    values: dict[str, object] = {
+        "status": "failed",
+        "safe_error_code": error_code,
+        "safe_error_message": message,
+    }
+    if batch_index is not None:
+        values["transport_batch_index"] = batch_index
+    await session.execute(
+        update(UploadSessionItem)
+        .where(
+            UploadSessionItem.session_id == session_id,
+            UploadSessionItem.id.in_(item_ids),
+            UploadSessionItem.ingest_task_id.is_(None),
+        )
+        .values(**values)
+    )
+    await session.commit()
+    return value
+
+
+async def replace_transport_item_bytes(
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    session_id: uuid.UUID,
+    item_id: uuid.UUID,
+    candidate: UploadCandidate,
+) -> UploadSession:
+    """Atomically attach reselected browser bytes to one manifest row."""
+    authorize_create(caller)
+    value = await _load_owned_session(session, caller, session_id, lock=True)
+    item = next((entry for entry in value.items if entry.id == item_id), None)
+    if item is None:
+        raise _denied(404, "upload_item_not_found", "上传文件不存在")
+    if item.ingest_task_id is not None:
+        return value
+    if (
+        candidate.file_size != item.file_size
+        or _display_name(candidate.file_name) != item.file_name
+    ):
+        raise _denied(422, "upload_item_manifest_mismatch", "重新选择的文件与原清单不一致")
+    if candidate.file_size > SINGLE_FILE_MAX_BYTES:
+        raise _denied(413, "file_too_large", "文件超过 25 MiB")
+    if candidate.storage_ref is None or candidate.content_hash is None:
+        raise _denied(422, "upload_bytes_unavailable", "文件字节未安全保存")
+    task = IngestTask(
+        source=IngestSource.path_b_upload.value,
+        source_file_ref=candidate.storage_ref,
+        source_file_name=item.file_name,
+        source_file_mime_type=candidate.file_type,
+        source_file_size=candidate.file_size,
+        source_file_hash=candidate.content_hash,
+        suggested_formed_on=item.suggested_formed_on,
+        status=IngestStatus.pending.value,
+        processing_stage="upload_waiting",
+        target_scope=value.target_scope,
+        target_project_id=value.target_project_id,
+        created_by=caller.user_id,
+    )
+    session.add(task)
+    await session.flush()
+    item.ingest_task_id = task.id
+    item.status = "waiting"
+    item.safe_error_code = None
+    item.safe_error_message = None
+    await session.commit()
+    return value
+
+
+async def complete_transport_session(
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    session_id: uuid.UUID,
+) -> UploadSession:
+    value = await _load_owned_session(session, caller, session_id, lock=True)
+    if value.upload_completed:
+        return value
+    incomplete = [
+        item
+        for item in value.items
+        if item.ingest_task_id is None
+        and item.safe_error_code
+        not in {
+            "file_unreadable",
+            "file_read_timeout",
+            "macos_metadata",
+            "unsupported_file_type",
+            "file_too_large",
+        }
+    ]
+    if incomplete or value.next_transport_batch_index != value.total_batches:
+        raise _denied(409, "upload_session_incomplete", "仍有文件或上传批次未完成")
+    value.upload_completed = True
+    await session.commit()
+    return value
+
+
 async def _visible_names(session: AsyncSession, caller: CallerContext) -> set[str]:
     pending_names = (
         await session.execute(
@@ -235,6 +562,8 @@ async def create_session(
         total_files=len(candidates),
         total_batches=len(batch_sizes),
         status="active",
+        upload_completed=True,
+        next_transport_batch_index=len(batch_sizes),
     )
     session.add(upload_session)
     await session.flush()
@@ -541,8 +870,15 @@ async def _reconcile_and_promote(
 _VISIBLE_PROCESSING_STAGES = {
     "upload_saved",
     "text_extraction",
+    "ocr_queued",
+    "ocr_in_progress",
+    "ocr_failed",
     "canonical_markdown_generation",
     "content_generation",
+    "waiting_generation_config",
+    "content_generation_failed",
+    "content_result_persistence_failed",
+    "processing_state_persistence_failed",
 }
 
 
@@ -553,13 +889,17 @@ def _visible_processing_stage(stage: str | None) -> str | None:
 async def _response(session: AsyncSession, value: UploadSession) -> UploadSessionResponse:
     visible_items = [item for item in value.items if item.status != "cancelled"]
     task_ids = [item.ingest_task_id for item in visible_items if item.ingest_task_id]
-    task_stages: dict[uuid.UUID, str | None] = {
-        task_id: processing_stage
-        for task_id, processing_stage in (
+    task_facts: dict[uuid.UUID, tuple[str | None, int, str | None, datetime | None]] = {
+        task_id: (processing_stage, retry_count, error_type, updated_at)
+        for task_id, processing_stage, retry_count, error_type, updated_at in (
             await session.execute(
-                select(IngestTask.id, IngestTask.processing_stage).where(
-                    IngestTask.id.in_(task_ids)
-                )
+                select(
+                    IngestTask.id,
+                    IngestTask.processing_stage,
+                    IngestTask.retry_count,
+                    IngestTask.error_type,
+                    IngestTask.updated_at,
+                ).where(IngestTask.id.in_(task_ids))
             )
         ).all()
     }
@@ -569,9 +909,9 @@ async def _response(session: AsyncSession, value: UploadSession) -> UploadSessio
     ]
     completed = sum(state in _COMPLETED_ITEM_STATES for state in states)
     processing = states.count("processing") + states.count("uploading")
-    waiting = states.count("waiting")
+    waiting = states.count("waiting") + states.count("waiting_upload")
     failed = states.count("failed")
-    status = "completed" if not active_batches else "active"
+    status = "completed" if value.upload_completed and not active_batches else "active"
     return UploadSessionResponse(
         id=value.id,
         status=status,
@@ -582,6 +922,9 @@ async def _response(session: AsyncSession, value: UploadSession) -> UploadSessio
         failed_files=failed,
         current_batch_number=min(active_batches) + 1 if active_batches else None,
         total_batches=value.total_batches,
+        uploaded_files=sum(item.ingest_task_id is not None for item in visible_items),
+        uploaded_batches=value.next_transport_batch_index,
+        upload_completed=value.upload_completed,
         created_at=value.created_at,
         updated_at=value.updated_at,
         items=[
@@ -589,6 +932,11 @@ async def _response(session: AsyncSession, value: UploadSession) -> UploadSessio
                 id=item.id,
                 ordinal=item.ordinal,
                 batch_number=item.batch_index + 1,
+                transport_batch_number=(
+                    item.transport_batch_index + 1
+                    if item.transport_batch_index is not None
+                    else None
+                ),
                 file_name=item.file_name,
                 file_size=item.file_size,
                 file_type=item.file_type,
@@ -596,12 +944,28 @@ async def _response(session: AsyncSession, value: UploadSession) -> UploadSessio
                 error_code=item.safe_error_code,
                 error_message=item.safe_error_message,
                 same_name_warning=item.same_name_warning,
-                retryable=item.status == "failed" and item.ingest_task_id is not None,
-                processing_stage=_visible_processing_stage(
-                    task_stages.get(item.ingest_task_id)
+                retryable=(
+                    item.status == "failed"
+                    and item.ingest_task_id is not None
+                    and task_facts.get(item.ingest_task_id, (None, 0, None, None))[2]
+                    not in {"configuration_error", "authentication_error", "model_unavailable"}
+                ),
+                retry_count=(
+                    task_facts.get(item.ingest_task_id, (None, 0, None, None))[1]
+                    if item.ingest_task_id is not None
+                    else 0
+                ),
+                last_attempt_at=(
+                    task_facts.get(item.ingest_task_id, (None, 0, None, None))[3]
                     if item.ingest_task_id is not None
                     else None
                 ),
+                processing_stage=_visible_processing_stage(
+                    task_facts.get(item.ingest_task_id, (None, 0, None, None))[0]
+                    if item.ingest_task_id is not None
+                    else None
+                ),
+                bytes_available=item.ingest_task_id is not None,
             )
             for item in visible_items
         ],
@@ -621,7 +985,8 @@ async def get_session(
 ) -> UploadSessionResponse:
     if not caller.is_business_user:
         raise _denied(403, "admin_business_permission_denied", "仅业务用户可查看上传会话")
-    if promote:
+    value = await _load_owned_session(session, caller, session_id)
+    if promote and value.upload_completed:
         await _reconcile_and_promote(
             session,
             session_id,
@@ -681,7 +1046,7 @@ async def retry_item(
     desensitizer: DesensitizationEngine,
     trace_id: str,
 ) -> UploadSessionResponse:
-    value = await _load_owned_session(session, caller, session_id, lock=True)
+    value = await _load_owned_session(session, caller, session_id)
     item = next((candidate for candidate in value.items if candidate.id == item_id), None)
     if item is None:
         raise _denied(404, "upload_item_not_found", "上传文件不存在")
@@ -689,31 +1054,107 @@ async def retry_item(
         raise _denied(409, "upload_item_not_retryable", "该文件当前不可重试")
     task = (
         await session.execute(
-            select(IngestTask).where(
-                IngestTask.id == item.ingest_task_id, IngestTask.created_by == caller.user_id
+            select(IngestTask)
+            .where(IngestTask.id == item.ingest_task_id, IngestTask.created_by == caller.user_id)
+            .options(
+                selectinload(IngestTask.ai_result), selectinload(IngestTask.canonical_markdown)
             )
         )
     ).scalar_one_or_none()
     if task is None or not storage.exists(task.source_file_ref):
         raise _denied(409, "upload_source_unavailable", "源文件不可用，请重新选择文件")
-    task.status = IngestStatus.pending.value
-    task.processing_stage = "upload_waiting"
-    task.error_type = None
-    task.error_message = None
-    item.status = "waiting"
-    item.safe_error_code = None
-    item.safe_error_message = None
-    value.status = "active"
-    await session.commit()
-    await _reconcile_and_promote(
-        session,
-        session_id,
-        caller,
-        storage=storage,
-        llm=llm,
-        desensitizer=desensitizer,
-        trace_id=trace_id,
+    if task.processing_stage == "waiting_generation_config" and isinstance(llm, NullLLMClient):
+        raise _denied(
+            409, "generation_model_not_configured", "内容生成模型尚未配置，本次重试未发起"
+        )
+    resume_stage = (
+        "ocr_queued"
+        if task.processing_stage == "ocr_failed"
+        else "content_generation"
+        if task.canonical_markdown and task.canonical_markdown.status == "ready"
+        else "text_extraction"
     )
+    item_claim = await session.execute(
+        update(UploadSessionItem)
+        .where(
+            UploadSessionItem.id == item.id,
+            UploadSessionItem.session_id == session_id,
+            UploadSessionItem.ingest_task_id == task.id,
+            UploadSessionItem.status == "failed",
+        )
+        .values(status="processing", safe_error_code=None, safe_error_message=None)
+    )
+    task_claim = await session.execute(
+        update(IngestTask)
+        .where(
+            IngestTask.id == task.id,
+            IngestTask.created_by == caller.user_id,
+            IngestTask.status == IngestStatus.failed.value,
+        )
+        .values(
+            status=IngestStatus.processing.value,
+            processing_stage=resume_stage,
+            error_type=None,
+            error_message=None,
+            retry_count=IngestTask.retry_count + 1,
+        )
+    )
+    if getattr(item_claim, "rowcount", 0) != 1 or getattr(task_claim, "rowcount", 0) != 1:
+        await session.rollback()
+        raise _denied(409, "upload_item_not_retryable", "该文件已被处理或正在重试")
+    await session.execute(
+        update(UploadSession)
+        .where(UploadSession.id == session_id, UploadSession.created_by == caller.user_id)
+        .values(status="active")
+    )
+    await session.commit()
+    try:
+        result = await enqueue_ingest_processing(
+            session,
+            task.id,
+            storage=storage,
+            llm=llm,
+            desensitizer=desensitizer,
+            trace_id=trace_id,
+        )
+        await session.execute(
+            update(UploadSessionItem)
+            .where(UploadSessionItem.id == item.id, UploadSessionItem.status == "processing")
+            .values(
+                status=(
+                    "awaiting_confirmation"
+                    if result == IngestStatus.pending_confirmation.value
+                    else "failed"
+                    if result == IngestStatus.failed.value
+                    else "processing"
+                )
+            )
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        failure_stage = "ocr_failed" if resume_stage == "ocr_queued" else resume_stage
+        await session.execute(
+            update(IngestTask)
+            .where(IngestTask.id == task.id, IngestTask.status == IngestStatus.processing.value)
+            .values(
+                status=IngestStatus.failed.value,
+                processing_stage=failure_stage,
+                error_type="queue_unavailable",
+                error_message="处理任务暂时无法排队",
+            )
+        )
+        await session.execute(
+            update(UploadSessionItem)
+            .where(UploadSessionItem.id == item.id, UploadSessionItem.status == "processing")
+            .values(
+                status="failed",
+                safe_error_code="queue_unavailable",
+                safe_error_message="处理任务暂时无法排队，请重试",
+            )
+        )
+        await session.commit()
+    session.expire_all()
     return await _response(session, await _load_owned_session(session, caller, session_id))
 
 

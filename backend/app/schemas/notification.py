@@ -28,7 +28,8 @@ class BusinessNotificationOut(BaseModel):
     task_group: str
     action_required: bool
     next_action_label: str
-    delivery_status: str
+    failure_reason: str | None = None
+    recovery_suggestion: str | None = None
     target: NotificationTarget
 
 
@@ -38,6 +39,7 @@ class BusinessNotificationListResponse(BaseModel):
     page: int
     page_size: int
     unread_count: int
+    pending_count: int
     categories: list[str] = Field(default_factory=list)
 
 

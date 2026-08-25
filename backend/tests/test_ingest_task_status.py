@@ -8,6 +8,7 @@ import uuid
 import pytest
 from sqlalchemy import select
 
+from app.main import app
 from app.models.ingest import IngestTask, IngestTaskAiResult
 from app.models.knowledge import KnowledgeAssetVersion
 from app.models.review import ReviewTask
@@ -19,6 +20,7 @@ from app.seed.dev_seed import (
     USER_PROJECT_MANAGER,
 )
 from app.services.desensitization import NullDesensitizer
+from app.services.generation_models import get_generation_llm_client
 from app.services.ingest_status import retry_task
 from app.services.llm_client import NullLLMClient
 from app.services.storage import LocalFileStorage
@@ -283,6 +285,7 @@ async def test_unauthorized_task_and_missing_task_are_indistinguishable(client, 
 
 
 async def test_processing_failure_can_be_retried_without_leaking_storage(client, db_session):
+    app.dependency_overrides[get_generation_llm_client] = lambda: NullLLMClient()
     content = b"retryable text content"
     ref = client._kap_storage.save(content, original_name="retry.txt")
     task = IngestTask(
@@ -306,8 +309,9 @@ async def test_processing_failure_can_be_retried_without_leaking_storage(client,
     assert before.json()["retryable"] is True
     assert before.json()["error"]["code"] == "ingest_processing_failed"
     assert retried.status_code == 200
-    assert retried.json()["stage"] == "degraded_complete"
-    assert retried.json()["next_action"]["key"] == "review_and_confirm"
+    assert retried.json()["stage"] == "waiting_generation_config"
+    assert retried.json()["next_action"]["key"] == "retry_generation"
+    assert retried.json()["next_action"]["enabled"] is False
     assert ref not in retried.text
     assert "SECRET-LIKE" not in retried.text
 

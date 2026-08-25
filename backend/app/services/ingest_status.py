@@ -59,11 +59,12 @@ _SAFE_ERRORS = {
     ),
     "file_text_unavailable": (
         "文件中未提取到可用文本。",
-        "扫描件或图片请先进行文字识别，再重新上传或人工补全内容。",
+        "请检查扫描清晰度后重试 OCR，或替换原文。",
     ),
+    "ocr_failed": ("OCR 识别未完成，原文已保留。", "检查 OCR 服务或原文清晰度后重试此文件。"),
     "content_generation_unavailable": (
-        "内容建议未完整生成，已提供可人工校正的降级草稿。",
-        "请人工检查并补全标题、摘要和标签后继续确认。",
+        "内容建议未生成，已保留原文和前置处理结果。",
+        "请管理员修复内容生成模型配置，系统将从内容生成阶段恢复。",
     ),
     "review_rejected": (
         "本次入库确认未通过审核。",
@@ -112,7 +113,10 @@ async def _load_context(
         await session.execute(
             select(IngestTask)
             .where(IngestTask.id == task_id)
-            .options(selectinload(IngestTask.ai_result))
+            .options(
+                selectinload(IngestTask.ai_result),
+                selectinload(IngestTask.canonical_markdown),
+            )
         )
     ).scalar_one_or_none()
     if task is None or not caller.is_business_user:
@@ -163,9 +167,12 @@ def _generation_response_retryable(task: IngestTask) -> bool:
     if ai is None or ai.extraction_status != "extracted":
         return False
     fields = ai.naming_parsed_fields if isinstance(ai.naming_parsed_fields, dict) else {}
-    return fields.get("generation_status") == "failed" and fields.get(
-        "generation_error_category"
-    ) in {"response_error", "timeout"}
+    category = fields.get("generation_error_category")
+    return (
+        isinstance(category, str)
+        and fields.get("generation_status") == "failed"
+        and (safe_llm_diagnostic(category).retryable or category == "response_error")
+    )
 
 
 def _generation_error(task: IngestTask) -> IngestTaskSafeError:
@@ -237,12 +244,33 @@ def _response(ctx: _TaskContext, caller: CallerContext) -> IngestTaskStatusRespo
         error = _safe_error("review_rejected")
         next_action = _action("edit_and_resubmit", "upload_task")
     elif task.status == IngestStatus.failed.value:
-        stage = IngestTaskStage.failed
+        stage_value = task.processing_stage or "failed"
+        stage = (
+            IngestTaskStage(stage_value)
+            if stage_value in {item.value for item in IngestTaskStage}
+            else IngestTaskStage.failed
+        )
         status = IngestTaskWorkflowStatus.failed
         if task.error_type == "processing_error":
             retryable = task.created_by == caller.user_id or caller.can_discover_l5
             error = _safe_error("ingest_processing_failed")
             next_action = _action("retry_processing", "ingest_task_retry", enabled=retryable)
+        elif task.processing_stage == "ocr_failed":
+            retryable = task.created_by == caller.user_id or caller.can_discover_l5
+            error = _safe_error("ocr_failed")
+            next_action = _action("retry_ocr", "ingest_task_retry", enabled=retryable)
+        elif task.processing_stage in {
+            "waiting_generation_config",
+            "content_generation_failed",
+            "content_result_persistence_failed",
+            "processing_state_persistence_failed",
+        }:
+            retryable = bool(
+                _generation_response_retryable(task)
+                and (task.created_by == caller.user_id or caller.can_discover_l5)
+            )
+            error = _generation_error(task)
+            next_action = _action("retry_generation", "ingest_task_retry", enabled=retryable)
         elif task.error_type == "extraction_empty":
             error = _safe_error("file_text_unavailable")
             next_action = _action("replace_file", "upload")
@@ -330,18 +358,27 @@ async def retry_task(
         return current
 
     task = ctx.task
-    if task.status == IngestStatus.pending_confirmation.value and _generation_response_retryable(
-        task
+    if task.status in {IngestStatus.pending_confirmation.value, IngestStatus.failed.value} and (
+        task.processing_stage
+        in {
+            "waiting_generation_config",
+            "content_generation_failed",
+            "content_result_persistence_failed",
+            "processing_state_persistence_failed",
+        }
+        or _generation_response_retryable(task)
     ):
         claim = await session.execute(
             update(IngestTask)
             .where(
                 IngestTask.id == task.id,
-                IngestTask.status == IngestStatus.pending_confirmation.value,
+                IngestTask.status.in_(
+                    {IngestStatus.pending_confirmation.value, IngestStatus.failed.value}
+                ),
             )
             .values(
                 status=IngestStatus.processing.value,
-                processing_stage="upload_saved",
+                processing_stage="content_generation",
                 retry_count=0,
                 error_type=None,
                 error_message=None,
@@ -380,9 +417,51 @@ async def retry_task(
                 include_summary=False,
                 task_id=str(task.id),
             )
-            task.status = IngestStatus.pending_confirmation.value
-            task.processing_stage = None
+            task.status = IngestStatus.failed.value
+            task.processing_stage = "content_generation_failed"
             await session.commit()
+    elif task.status == IngestStatus.failed.value and task.processing_stage == "ocr_failed":
+        claim = await session.execute(
+            update(IngestTask)
+            .where(
+                IngestTask.id == task.id,
+                IngestTask.status == IngestStatus.failed.value,
+                IngestTask.processing_stage == "ocr_failed",
+            )
+            .values(
+                status=IngestStatus.processing.value,
+                processing_stage="ocr_queued",
+                error_type=None,
+                error_message=None,
+                retry_count=task.retry_count + 1,
+            )
+        )
+        await session.commit()
+        if getattr(claim, "rowcount", 0) == 1:
+            try:
+                await enqueue_ingest_processing(
+                    session,
+                    task.id,
+                    storage=storage,
+                    llm=llm,
+                    desensitizer=desensitizer,
+                    trace_id=trace_id,
+                )
+            except Exception as exc:
+                safe_log_exception(
+                    _logger, "ingest_ocr_manual_retry_failed", exc, include_summary=False
+                )
+                await session.execute(
+                    update(IngestTask)
+                    .where(IngestTask.id == task.id)
+                    .values(
+                        status=IngestStatus.failed.value,
+                        processing_stage="ocr_failed",
+                        error_type="ocr_enqueue_failed",
+                        error_message="OCR 重试未发起，请稍后再试。",
+                    )
+                )
+                await session.commit()
     elif (
         task.status in {IngestStatus.failed.value, IngestStatus.processing.value}
         and task.error_type == "processing_error"
@@ -396,7 +475,11 @@ async def retry_task(
             )
             .values(
                 status=IngestStatus.processing.value,
-                processing_stage="upload_saved",
+                processing_stage=(
+                    "content_generation"
+                    if task.canonical_markdown and task.canonical_markdown.status == "ready"
+                    else "text_extraction"
+                ),
                 retry_count=0,
                 error_type=None,
                 error_message=None,
@@ -471,3 +554,81 @@ async def retry_task(
                 trace_id=trace_id,
             )
     return await get_task_status(session, caller, task_id)
+
+
+async def resume_waiting_generation_tasks(
+    session: AsyncSession,
+    *,
+    storage: LocalFileStorage,
+    llm: LLMClient | NullLLMClient,
+    desensitizer: DesensitizationEngine,
+    trace_id: str,
+) -> int:
+    """默认模型恢复后自动推进等待任务；每任务仍由作业幂等复核。"""
+    if isinstance(llm, NullLLMClient):
+        return 0
+    task_ids = list(
+        (
+            await session.execute(
+                select(IngestTask.id)
+                .where(
+                    IngestTask.status == IngestStatus.failed.value,
+                    IngestTask.processing_stage == "waiting_generation_config",
+                )
+                .order_by(IngestTask.updated_at)
+                .limit(100)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    resumed = 0
+    for task_id in task_ids:
+        claim = await session.execute(
+            update(IngestTask)
+            .where(
+                IngestTask.id == task_id,
+                IngestTask.status == IngestStatus.failed.value,
+                IngestTask.processing_stage == "waiting_generation_config",
+            )
+            .values(
+                status=IngestStatus.processing.value,
+                processing_stage="content_generation",
+                error_type=None,
+                error_message=None,
+            )
+        )
+        await session.commit()
+        if getattr(claim, "rowcount", 0) != 1:
+            continue
+        try:
+            await enqueue_ingest_processing(
+                session,
+                task_id,
+                storage=storage,
+                llm=llm,
+                desensitizer=desensitizer,
+                trace_id=trace_id,
+            )
+        except Exception as exc:  # one task must not block the remaining recovery set
+            safe_log_exception(
+                _logger,
+                "ingest_generation_auto_resume_failed",
+                exc,
+                include_summary=False,
+                task_id=str(task_id),
+            )
+            await session.execute(
+                update(IngestTask)
+                .where(IngestTask.id == task_id)
+                .values(
+                    status=IngestStatus.failed.value,
+                    processing_stage="content_generation_failed",
+                    error_type="queue_unavailable",
+                    error_message="内容生成恢复任务暂时无法排队。",
+                )
+            )
+            await session.commit()
+        else:
+            resumed += 1
+    return resumed

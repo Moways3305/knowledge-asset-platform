@@ -6,6 +6,7 @@ import json
 
 from sqlalchemy import select
 
+from app.main import app
 from app.models.audit import AuditEvent
 from app.models.generation_model import ContentGenerationModel
 from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT
@@ -186,6 +187,7 @@ async def test_connection_result_is_safe_on_success_and_failure(client, monkeypa
 
 
 async def test_product_config_without_default_keeps_summary_pending(client):
+    app.dependency_overrides.pop(generation_models.get_generation_llm_client, None)
     created = await _create(client, make_default=False)
     assert created.status_code == 201
     upload = await client.post(
@@ -203,6 +205,7 @@ async def test_product_config_without_default_keeps_summary_pending(client):
 
 
 async def test_persisted_default_credentials_drive_content_generation(client, monkeypatch):
+    app.dependency_overrides.pop(generation_models.get_generation_llm_client, None)
     captured = {}
 
     async def generated(self, *args, **kwargs):

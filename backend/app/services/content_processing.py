@@ -15,8 +15,8 @@
 - 原始文件名仅作来源追溯（`naming_parsed_fields.source_file_name`），不强求顾问命名合规。
 
 强约束：
-- LLM 是 **advisory**——未配置 / 调用失败 / JSON 解析失败一律**降级**到确定性最小草稿，
-  **绝不让上传失败**（文件已落盘）。降级原因记审计安全元数据。
+- LLM 是 **advisory**——未配置 / 调用失败 / JSON 解析失败时保留抽取与原文，
+  但不伪造标题、摘要、标签、分类或置信度建议。
 - 入库建议不再做前置脱敏：平台侧外部 API 视为受信处理方，内容建议阶段直接使用
   **抽取文本截断**作为输入（前置脱敏会削弱对客户/项目/金额/合同等上下文的理解，拉低
   命名与摘要质量）。规则脱敏引擎（`DesensitizationEngine`）暂作备用保留，待本地大模型
@@ -34,6 +34,15 @@ import inspect
 import json
 import re
 
+from app.core.text_safety import (
+    KEY_POINT_MAX_CHARS,
+    ONE_LINER_MAX_CHARS,
+    SUMMARY_MAX_CHARS,
+    TAG_MAX_CHARS,
+    TITLE_MAX_CHARS,
+    sanitize_json,
+    sanitize_text,
+)
 from app.schemas.enums import AiAccessLevel, ConfidentialityLevel
 from app.services import llm_usage
 from app.services.desensitization import DesensitizationEngine
@@ -282,64 +291,29 @@ def _naming_anomalies(naming: dict) -> list[str]:
 
 
 def _degraded_draft(file_name: str, extraction: ExtractionResult) -> dict:
-    """确定性最小草稿（LLM 不可用 / 失败时的降级）。
-
-    仍尽量按文件名提取**主题与兼容命名组件**（能解析多少字段就解析多少），缺失用安全默认并
-    标低置信度。标题恒非空、恒符合平台格式，且不等于一句话摘要。
-    """
-    # 文件名若已规范则作为强信号；否则空组件 → 全部走默认。
-    components = _parse_compliant_filename(file_name)
-    source_version = _source_filename_version(file_name)
-    if source_version:
-        components["version"] = source_version
-    # Historical filename L1-L5 remains parse metadata only. It never chooses advice.
-    naming = _build_naming(file_name, components, _DEFAULT_LEVEL, _DEFAULT_AI)
-    if source_version:
-        naming["inferred_fields"] = [
-            field for field in naming["inferred_fields"] if field != "version"
-        ]
-        naming["missing_fields"] = [
-            field for field in naming["missing_fields"] if field != "version"
-        ]
-
-    if extraction.status == "extracted":
-        lines = [ln.strip() for ln in extraction.text.splitlines() if ln.strip()]
-        one_liner = (lines[0][:80] if lines else naming["topic"]) or naming["topic"]
-        detailed = " ".join(extraction.text.split())[:400] or f"已从「{file_name}」抽取文本。"
-        stem = _stem(file_name)
-        tags = ["待校正", stem[:20]] if stem else ["待校正"]
-        confidence = 0.4
-    else:
-        one_liner = naming["topic"]
-        detailed = (
-            f"未能从文件内容抽取（{extraction.error_type or extraction.status}），请人工补全。"
-        )
-        tags = ["待校正", "待补全"]
-        confidence = 0.2
-
+    """失败事实草稿：只保留抽取事实，所有 AI 建议为空。"""
+    del file_name
     return {
-        "suggested_title": naming["topic"],
-        "suggested_one_liner": one_liner,
-        "suggested_summary": detailed,  # detailed
-        "suggested_key_points": [],
-        "suggested_tags": tags,
+        "suggested_title": None,
+        "suggested_one_liner": None,
+        "suggested_summary": None,
+        "suggested_key_points": None,
+        "suggested_tags": None,
         "suggested_asset_type": None,
-        "suggested_version": source_version or _DEFAULT_VERSION,
-        "version_source": "source_filename" if source_version else "default_needs_confirmation",
-        "version_confidence": "high" if source_version else "low",
-        "version_reason": (
-            "从源文件名识别到标准版本" if source_version else "未能可靠判断版本，已使用规则默认值"
-        ),
-        "suggested_confidentiality_level": naming["confidentiality_level"],
-        "confidentiality_source": "default_needs_confirmation",
-        "confidentiality_confidence": "low",
-        "confidentiality_reason": "AI 未能可靠判断内容密级，已使用规则默认值",
+        "suggested_version": None,
+        "version_source": None,
+        "version_confidence": None,
+        "version_reason": None,
+        "suggested_confidentiality_level": None,
+        "confidentiality_source": None,
+        "confidentiality_confidence": None,
+        "confidentiality_reason": None,
         "suggested_ai_access_level": None,
         "suggested_phase_key": None,
-        "confidence": confidence,
-        "naming_compliant": naming["original_naming_compliant"],
-        "naming_parsed_fields": naming,
-        "naming_anomalies": _naming_anomalies(naming),
+        "confidence": None,
+        "naming_compliant": None,
+        "naming_parsed_fields": {},
+        "naming_anomalies": None,
         "llm_provider": None,
         "llm_model": None,
         "extracted_text": extraction.text or None,
@@ -590,13 +564,56 @@ async def process_content(
             "desensitization_counts": None,
         }
 
+    safe_parsed = sanitize_json(parsed)
+    parsed = safe_parsed.value if isinstance(safe_parsed.value, dict) else None
+    if parsed is None:
+        diagnostic = safe_llm_diagnostic("llm_bad_response")
+        base["naming_parsed_fields"]["generation_status"] = "failed"
+        base["naming_parsed_fields"]["generation_error_category"] = diagnostic.category
+        base["naming_parsed_fields"]["generation_recovery_hint"] = diagnostic.remediation_hint
+        return base, {
+            "status": "degraded",
+            "reason": diagnostic.category,
+            "provider": None,
+            "model": None,
+            "usage_requests": usage_requests,
+            "desensitization_status": "not_applicable",
+            "desensitization_counts": None,
+        }
+
     # 校验 + 落值（脏字段回退默认）。
-    one_liner = str(parsed.get("one_liner") or base["suggested_one_liner"])[:200]
-    detailed_raw = str(parsed.get("detailed") or "").strip()
+    one_liner = sanitize_text(
+        str(parsed.get("one_liner") or base["suggested_one_liner"]),
+        max_chars=ONE_LINER_MAX_CHARS,
+    ).value
+    detailed_raw = sanitize_text(
+        str(parsed.get("detailed") or ""), max_chars=SUMMARY_MAX_CHARS
+    ).value.strip()
     summary_generated = bool(detailed_raw)
-    detailed = (detailed_raw if summary_generated else str(base["suggested_summary"]))[:2000]
-    key_points = _coerce_list(parsed.get("key_points"), _MAX_KEY_POINTS)
-    tags = _coerce_list(parsed.get("tags"), _MAX_TAGS) or base["suggested_tags"]
+    if not summary_generated:
+        diagnostic = safe_llm_diagnostic("llm_bad_response")
+        base["naming_parsed_fields"]["generation_status"] = "failed"
+        base["naming_parsed_fields"]["generation_error_category"] = diagnostic.category
+        base["naming_parsed_fields"]["generation_recovery_hint"] = diagnostic.remediation_hint
+        return base, {
+            "status": "degraded",
+            "reason": diagnostic.category,
+            "provider": None,
+            "model": None,
+            "usage_requests": usage_requests,
+            "structured_output_mode": structured_output_mode,
+            "desensitization_status": "not_applicable",
+            "desensitization_counts": None,
+        }
+    detailed = detailed_raw
+    key_points = [
+        sanitize_text(value, max_chars=KEY_POINT_MAX_CHARS).value
+        for value in _coerce_list(parsed.get("key_points"), _MAX_KEY_POINTS)
+    ]
+    tags = [
+        sanitize_text(value, max_chars=TAG_MAX_CHARS).value
+        for value in (_coerce_list(parsed.get("tags"), _MAX_TAGS) or base["suggested_tags"] or [])
+    ]
     level = parsed.get("confidentiality_level")
     confidentiality_confidence = str(parsed.get("confidentiality_confidence") or "").lower()
     confidentiality_is_reliable = (
@@ -647,12 +664,9 @@ async def process_content(
         naming["missing_fields"] = sorted(set(naming["missing_fields"]) | {"version"})
         naming["inferred_fields"] = sorted(set(naming["inferred_fields"]) | {"version"})
     naming["summary_generated"] = summary_generated
-    naming["generation_status"] = "generated" if summary_generated else "failed"
+    naming["generation_status"] = "generated"
     naming["structured_output_mode"] = structured_output_mode
-    if not summary_generated:
-        diagnostic = safe_llm_diagnostic("llm_bad_response")
-        naming["generation_error_category"] = diagnostic.category
-        naming["generation_recovery_hint"] = diagnostic.remediation_hint
+    naming["text_safety"] = safe_parsed.stats.as_dict()
 
     if content_hash:
         naming["generation_cache_fingerprint"] = llm_usage.cache_fingerprint(
@@ -743,7 +757,7 @@ async def process_content(
     draft = dict(base)
     draft.update(
         # suggested_title 的产品语义是主题；完整规范名只由已发布规则在确认时生成。
-        suggested_title=naming["topic"],
+        suggested_title=sanitize_text(naming["topic"], max_chars=TITLE_MAX_CHARS).value,
         suggested_one_liner=one_liner,
         suggested_summary=detailed,
         suggested_key_points=key_points,

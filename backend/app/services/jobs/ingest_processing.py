@@ -19,13 +19,26 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.logging import safe_log_exception
+from app.core.text_safety import (
+    EXTRACTED_TEXT_MAX_CHARS,
+    KEY_POINT_MAX_CHARS,
+    ONE_LINER_MAX_CHARS,
+    SUMMARY_MAX_CHARS,
+    TAG_MAX_CHARS,
+    TITLE_MAX_CHARS,
+    sanitize_json,
+    sanitize_text,
+)
+from app.db.utils import utc_now
 from app.models.identity import ProjectMember, User
 from app.models.ingest import IngestTask, IngestTaskAiResult
 from app.schemas.enums import (
@@ -39,9 +52,9 @@ from app.schemas.enums import (
 from app.schemas.naming import NamingOptionsResponse
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
-from app.services import canonical_markdown, content_processing, llm_usage, naming_rules
+from app.services import canonical_markdown, content_processing, llm_usage, naming_rules, ocr
 from app.services.desensitization import DesensitizationEngine
-from app.services.extraction import extract_text
+from app.services.extraction import ExtractionPage, ExtractionResult, extract_text
 from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.permission import build_caller_context
 from app.services.storage import LocalFileStorage
@@ -50,6 +63,41 @@ _logger = logging.getLogger(__name__)
 
 # 已处理终态（再次入队/重跑直接跳过，保证幂等）。
 _PROCESSED_STATUSES = {IngestStatus.pending_confirmation.value, IngestStatus.completed.value}
+_PAGE_MARKER_RE = re.compile(r"\{\{page:(\d+)\}\}\s*\n?")
+_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "tif", "tiff", "bmp", "webp"}
+
+
+def _marked_page_texts(value: str | None) -> dict[int, str]:
+    """Recover native PDF page text from the persisted marked extraction body."""
+    if not value:
+        return {}
+    matches = list(_PAGE_MARKER_RE.finditer(value))
+    return {
+        int(match.group(1)): value[
+            match.end() : matches[index + 1].start() if index + 1 < len(matches) else len(value)
+        ].strip()
+        for index, match in enumerate(matches)
+    }
+
+
+def _ocr_page_plan(extraction: ExtractionResult) -> list[dict]:
+    return [
+        {
+            "page_number": page.page_number,
+            "source_status": page.status,
+            "status": "skipped_text" if page.status == "extracted" else "pending",
+            "char_count": len(page.text),
+            "confidence": None,
+        }
+        for page in extraction.pages
+    ]
+
+
+def _ocr_source_kind(task: IngestTask) -> str:
+    mime = (task.source_file_mime_type or "").lower()
+    file_name = task.source_file_name or ""
+    extension = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
+    return "image" if mime.startswith("image/") or extension in _IMAGE_EXTENSIONS else "pdf"
 
 
 async def _build_actor(session: AsyncSession, task: IngestTask) -> CallerContext:
@@ -207,14 +255,77 @@ def _apply_ai_result(task: IngestTask, ai: dict, dup) -> None:
     if result is None:
         result = IngestTaskAiResult(ingest_task_id=task.id)
         task.ai_result = result
-    for key, value in ai.items():
+    safe_ai = sanitize_json(ai).value
+    if not isinstance(safe_ai, dict):
+        safe_ai = {}
+    text_limits = {
+        "suggested_title": TITLE_MAX_CHARS,
+        "suggested_one_liner": ONE_LINER_MAX_CHARS,
+        "suggested_summary": SUMMARY_MAX_CHARS,
+        "extracted_text": EXTRACTED_TEXT_MAX_CHARS,
+    }
+    for key, value in safe_ai.items():
+        if isinstance(value, str) and key in text_limits:
+            value = sanitize_text(value, max_chars=text_limits[key]).value
+        elif key == "suggested_tags" and isinstance(value, list):
+            value = [
+                sanitize_text(item, max_chars=TAG_MAX_CHARS).value
+                for item in value
+                if isinstance(item, str)
+            ]
+        elif key == "suggested_key_points" and isinstance(value, list):
+            value = [
+                sanitize_text(item, max_chars=KEY_POINT_MAX_CHARS).value
+                for item in value
+                if isinstance(item, str)
+            ]
         setattr(result, key, value)
     if dup is not None:
         result.duplicate_of_task_id = dup[0]
         result.duplicate_of_asset_id = dup[1]
 
 
-async def process_upload_task(
+async def _terminalize_persistence_failure(
+    session: AsyncSession,
+    *,
+    task_id: uuid.UUID,
+    provider: str | None,
+    model: str | None,
+    model_attempted: bool = False,
+    failure_stage: str = "processing_state_persistence_failed",
+) -> str:
+    """Rollback first, then persist a safe per-file terminal state and usage evidence."""
+    await session.rollback()
+    await session.execute(
+        update(IngestTask)
+        .where(IngestTask.id == task_id)
+        .values(
+            status=IngestStatus.failed.value,
+            processing_stage=failure_stage,
+            error_type=failure_stage,
+            error_message=(
+                "内容生成结果保存失败，前置处理结果已保留，请重试。"
+                if failure_stage == "content_result_persistence_failed"
+                else "处理状态保存失败，任务已安全终止，请重试。"
+            ),
+            retry_count=IngestTask.retry_count + 1,
+        )
+    )
+    if model_attempted:
+        await llm_usage.record(
+            session,
+            scenario="content_generation",
+            provider=provider,
+            model=model,
+            batch_size=1,
+            cache_status="miss",
+            outcome="persistence_failure",
+        )
+    await session.commit()
+    return IngestStatus.failed.value
+
+
+async def _process_upload_task_impl(
     session: AsyncSession,
     task_id: uuid.UUID,
     *,
@@ -222,6 +333,7 @@ async def process_upload_task(
     llm: LLMClient | NullLLMClient,
     desensitizer: DesensitizationEngine,
     trace_id: str | None,
+    attempt_state: dict[str, bool],
 ) -> str:
     """处理一个 upload 任务（幂等、可重跑）。返回最终 status。"""
     task = (
@@ -251,18 +363,142 @@ async def process_upload_task(
 
     actor = await _build_actor(session, task)
 
-    # ---- 瞬时区：读盘 + 抽取 + 内容处理。异常 → 递增 retry_count 并退避 ----
+    model_attempted = False
+
+    # ---- 分阶段恢复：已持久化的抽取/OCR/Markdown 事实绝不重做。----
     try:
-        task.processing_stage = "text_extraction"
-        await session.commit()
-        file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
-        extraction = extract_text(
-            file_bytes, file_name=task.source_file_name, mime=task.source_file_mime_type
-        )
-        content_hash = task.source_file_hash or hashlib.sha256(file_bytes).hexdigest()
+        file_bytes: bytes | None = None
+        persisted = task.ai_result
+        if (
+            persisted is not None
+            and persisted.extraction_status == "extracted"
+            and persisted.extracted_text
+        ):
+            extraction = ExtractionResult(
+                text=persisted.extracted_text,
+                status="extracted",
+                error_type=None,
+                error_message=None,
+                char_count=persisted.extracted_char_count or len(persisted.extracted_text),
+            )
+        elif persisted is not None and persisted.ocr_status in {"failed", "low_confidence"}:
+            native_page_text = _marked_page_texts(persisted.extracted_text)
+            saved_plan = [
+                item for item in (persisted.ocr_page_results or []) if isinstance(item, dict)
+            ]
+            pages = tuple(
+                ExtractionPage(
+                    int(item.get("page_number", 1)),
+                    native_page_text.get(int(item.get("page_number", 1)), "")
+                    if item.get("source_status") == "extracted"
+                    or item.get("status") == "skipped_text"
+                    else "",
+                    (
+                        "extracted"
+                        if item.get("source_status") == "extracted"
+                        or item.get("status") == "skipped_text"
+                        else "ocr_required"
+                    ),
+                )
+                for item in saved_plan
+            ) or (ExtractionPage(1, "", "ocr_required"),)
+            extraction = ExtractionResult(
+                text=persisted.extracted_text or "",
+                status="ocr_required",
+                error_type=None,
+                error_message=None,
+                char_count=persisted.extracted_char_count or 0,
+                pages=pages,
+                source_kind=_ocr_source_kind(task),
+            )
+        else:
+            task.processing_stage = "text_extraction"
+            await session.commit()
+            file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
+            extraction = extract_text(
+                file_bytes, file_name=task.source_file_name, mime=task.source_file_mime_type
+            )
+            if task.ai_result is None:
+                task.ai_result = IngestTaskAiResult(ingest_task_id=task.id)
+            task.ai_result.extraction_status = extraction.status
+            task.ai_result.extracted_text = extraction.text or None
+            task.ai_result.extracted_char_count = extraction.char_count
+            await session.commit()
+
+        if extraction.status == "ocr_required":
+            # Persist the full source page plan before OCR starts. If the local engine raises,
+            # retry can still skip native-text pages and recognize exactly the original empty pages.
+            ai_result = task.ai_result
+            assert ai_result is not None
+            ai_result.ocr_page_results = _ocr_page_plan(extraction)
+            task.processing_stage = "ocr_queued"
+            await session.commit()
+            task.processing_stage = "ocr_in_progress"
+            await session.commit()
+            if file_bytes is None:
+                file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
+            try:
+                recognized = ocr.recognize(file_bytes, extraction)
+            except ocr.OCRError as exc:
+                ai_result.ocr_status = "failed"
+                ai_result.ocr_attempted_at = utc_now()
+                task.status = IngestStatus.failed.value
+                task.processing_stage = "ocr_failed"
+                task.error_type = exc.code
+                task.error_message = str(exc)
+                from app.services.notifications import notify_ingest_failed
+
+                await notify_ingest_failed(session, task)
+                await session.commit()
+                return task.status
+            ai_result.ocr_status = recognized.status
+            ai_result.ocr_confidence = recognized.confidence
+            ai_result.ocr_attempted_at = utc_now()
+            ai_result.ocr_page_results = [
+                {
+                    "page_number": page.page_number,
+                    "source_status": extraction.pages[index].status,
+                    "status": page.status,
+                    "char_count": len(page.text),
+                    "confidence": page.confidence,
+                }
+                for index, page in enumerate(recognized.pages)
+            ]
+            ai_result.extraction_status = (
+                "extracted" if recognized.status == "succeeded" else "ocr_low_confidence"
+            )
+            if recognized.status != "succeeded":
+                task.status = IngestStatus.failed.value
+                task.processing_stage = "ocr_failed"
+                task.error_type = recognized.error_type
+                task.error_message = recognized.error_message
+                from app.services.notifications import notify_ingest_failed
+
+                await notify_ingest_failed(session, task)
+                await session.commit()
+                return task.status
+            ai_result.extracted_text = recognized.text or None
+            ai_result.extracted_char_count = len(recognized.text)
+            extraction = ExtractionResult(
+                text=recognized.text,
+                status="extracted",
+                error_type=None,
+                error_message=None,
+                char_count=len(recognized.text),
+                safety_stats=recognized.safety_stats,
+            )
+            await session.commit()
+
+        if file_bytes is None and not task.source_file_hash:
+            file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
+        content_hash = task.source_file_hash or hashlib.sha256(file_bytes or b"").hexdigest()
         task.source_file_hash = content_hash
-        markdown_derivative = None
-        if extraction.status == "extracted" and extraction.text:
+        markdown_derivative = task.canonical_markdown
+        if (
+            extraction.status == "extracted"
+            and extraction.text
+            and not (markdown_derivative and markdown_derivative.status == "ready")
+        ):
             task.processing_stage = "canonical_markdown_generation"
             await session.commit()
             task = (
@@ -290,7 +526,7 @@ async def process_upload_task(
                     code="canonical_markdown_generation_failed",
                 )
                 raise
-        else:
+        elif extraction.status != "extracted":
             await canonical_markdown.mark_task_markdown_failed(
                 session,
                 task,
@@ -336,6 +572,10 @@ async def process_upload_task(
                 outcome="cache_hit",
             )
         else:
+            model_attempted = extraction.status == "extracted" and not isinstance(
+                llm, NullLLMClient
+            )
+            attempt_state["model_attempted"] = model_attempted
             ai, content_meta = await content_processing.process_content(
                 llm,
                 desensitizer,
@@ -378,11 +618,27 @@ async def process_upload_task(
                     )
     except Exception as exc:  # noqa: BLE001  # 瞬时处理失败 → 可重试
         safe_log_exception(_logger, "ingest_processing_failed", exc, include_summary=False)
-        task.retry_count += 1
-        task.error_type = "processing_error"
-        task.error_message = "入库处理失败（详见审计）"  # 安全文案，无内部引用
-        exhausted = task.retry_count >= task.max_retries
-        task.status = IngestStatus.failed.value if exhausted else IngestStatus.processing.value
+        if isinstance(exc, SQLAlchemyError):
+            return await _terminalize_persistence_failure(
+                session,
+                task_id=task_id,
+                provider=getattr(llm, "provider", None),
+                model=getattr(llm, "model", None),
+                model_attempted=model_attempted,
+            )
+        # Even non-database failures may leave pending ORM mutations. Always rollback before
+        # writing retry state so a prior failed/partial transaction cannot poison this commit.
+        await session.rollback()
+        clean_task = await session.get(IngestTask, task_id)
+        if clean_task is None:
+            return "not_found"
+        clean_task.retry_count += 1
+        clean_task.error_type = "processing_error"
+        clean_task.error_message = "入库处理失败（详见审计）"  # 安全文案，无内部引用
+        exhausted = clean_task.retry_count >= clean_task.max_retries
+        clean_task.status = (
+            IngestStatus.failed.value if exhausted else IngestStatus.processing.value
+        )
         await audit_service.record_event(
             session,
             caller=actor,
@@ -390,36 +646,93 @@ async def process_upload_task(
             action=AuditAction.ingest_failed.value,
             trace_id=trace_id,
             target_type="ingest_task",
-            target_id=task.id,
+            target_id=clean_task.id,
             severity=AlertSeverity.warning,
             risk_level=AuditRiskLevel.high.value,
             extra={
                 "failure_stage": "processing",
                 "error_code": getattr(exc, "code", None) or type(exc).__name__,
-                "retry_count": task.retry_count,
+                "retry_count": clean_task.retry_count,
                 "exhausted": exhausted,
             },
-            project_id=task.target_project_id,
+            project_id=clean_task.target_project_id,
         )
+        if model_attempted:
+            await llm_usage.record(
+                session,
+                scenario="content_generation",
+                provider=getattr(llm, "provider", None),
+                model=getattr(llm, "model", None),
+                batch_size=1,
+                cache_status="miss",
+                outcome="failure",
+            )
         if exhausted:
             from app.services.notifications import notify_ingest_failed
 
-            await notify_ingest_failed(session, task)
-        await session.commit()
-        return task.status
+            await notify_ingest_failed(session, clean_task)
+        try:
+            await session.commit()
+        except SQLAlchemyError:
+            return await _terminalize_persistence_failure(
+                session,
+                task_id=task_id,
+                provider=getattr(llm, "provider", None),
+                model=getattr(llm, "model", None),
+                model_attempted=model_attempted,
+            )
+        return clean_task.status
 
     # ---- 内容性结果：写 ai_result + 推进状态 ----
+    if isinstance(ai, dict):
+        safety_diagnostics = extraction.safety_stats.as_dict()
+        if any(safety_diagnostics.values()):
+            naming_fields = ai.get("naming_parsed_fields")
+            if not isinstance(naming_fields, dict):
+                naming_fields = {}
+                ai["naming_parsed_fields"] = naming_fields
+            naming_fields["extraction_text_safety"] = safety_diagnostics
     _apply_ai_result(task, ai, dup)
-    failed = extraction.status != "extracted" or markdown_derivative is None
+    raw_fields = ai.get("naming_parsed_fields") if isinstance(ai, dict) else None
+    fields = raw_fields if isinstance(raw_fields, dict) else {}
+    generation_status = fields.get("generation_status")
+    extraction_failed = extraction.status != "extracted" or markdown_derivative is None
+    generation_failed = generation_status != "generated"
+    failed = extraction_failed or generation_failed
     task.status = IngestStatus.failed.value if failed else IngestStatus.pending_confirmation.value
-    task.processing_stage = None
+    task.processing_stage = (
+        "waiting_generation_config"
+        if generation_failed and fields.get("generation_error_category") == "configuration_error"
+        else "content_generation_failed"
+        if generation_failed
+        else None
+    )
     if failed:
-        task.error_type = extraction.error_type
-        task.error_message = extraction.error_message
+        task.error_type = (
+            extraction.error_type
+            if extraction_failed
+            else fields.get("generation_error_category") or "content_generation_failed"
+        )
+        task.error_message = (
+            extraction.error_message
+            if extraction_failed
+            else content_meta.get("reason") or "内容生成未完成，已保留前置处理结果。"
+        )
     else:
         task.error_type = None
         task.error_message = None
-    await session.flush()
+    try:
+        await session.flush()
+    except Exception as exc:  # database encoding/JSON/constraint failure
+        safe_log_exception(_logger, "ingest_result_persistence_failed", exc, include_summary=False)
+        return await _terminalize_persistence_failure(
+            session,
+            task_id=task.id,
+            provider=content_meta.get("provider") or getattr(llm, "provider", None),
+            model=content_meta.get("model") or getattr(llm, "model", None),
+            model_attempted=model_attempted,
+            failure_stage="content_result_persistence_failed",
+        )
 
     if extraction.status == "extracted":
         await audit_service.record_event(
@@ -456,7 +769,7 @@ async def process_upload_task(
             severity=AlertSeverity.warning,
             risk_level=AuditRiskLevel.high.value,
             extra={
-                "failure_stage": "extraction",
+                "failure_stage": "extraction" if extraction_failed else "content_generation",
                 "extraction_status": extraction.status,
                 "error_type": extraction.error_type,
                 "source_file_name": task.source_file_name,
@@ -467,5 +780,48 @@ async def process_upload_task(
         from app.services.notifications import notify_ingest_failed
 
         await notify_ingest_failed(session, task)
-    await session.commit()
+    try:
+        await session.commit()
+    except Exception as exc:  # commit failures invalidate the active transaction
+        safe_log_exception(_logger, "ingest_result_commit_failed", exc, include_summary=False)
+        return await _terminalize_persistence_failure(
+            session,
+            task_id=task.id,
+            provider=content_meta.get("provider") or getattr(llm, "provider", None),
+            model=content_meta.get("model") or getattr(llm, "model", None),
+            model_attempted=model_attempted,
+            failure_stage="content_result_persistence_failed",
+        )
     return task.status
+
+
+async def process_upload_task(
+    session: AsyncSession,
+    task_id: uuid.UUID,
+    *,
+    storage: LocalFileStorage,
+    llm: LLMClient | NullLLMClient,
+    desensitizer: DesensitizationEngine,
+    trace_id: str | None,
+) -> str:
+    """Fail-safe wrapper also covers initial task/actor database reads."""
+    attempt_state = {"model_attempted": False}
+    try:
+        return await _process_upload_task_impl(
+            session,
+            task_id,
+            storage=storage,
+            llm=llm,
+            desensitizer=desensitizer,
+            trace_id=trace_id,
+            attempt_state=attempt_state,
+        )
+    except SQLAlchemyError as exc:
+        safe_log_exception(_logger, "ingest_database_operation_failed", exc, include_summary=False)
+        return await _terminalize_persistence_failure(
+            session,
+            task_id=task_id,
+            provider=getattr(llm, "provider", None),
+            model=getattr(llm, "model", None),
+            model_attempted=attempt_state["model_attempted"],
+        )

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 SCENARIOS = {"content_generation", "category_classification"}
 CACHE_STATUSES = {"hit", "miss", "not_applicable"}
-OUTCOMES = {"success", "failure", "degraded", "cache_hit"}
+OUTCOMES = {"success", "failure", "degraded", "cache_hit", "persistence_failure"}
 
 
 def safe_provider(provider: str | None) -> str:

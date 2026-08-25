@@ -128,7 +128,7 @@ try {
     });
     const page = await context.newPage();
     await page.goto(base, { waitUntil: "networkidle" });
-    await page.getByRole("button", { name: /通知中心，1 条未读/ }).click();
+    await page.getByRole("button", { name: /通知中心，1 项待处理/ }).click();
     await page.getByRole("heading", { name: "通知中心" }).waitFor();
     const metrics = await page.evaluate(() => ({
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
