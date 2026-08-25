@@ -50,7 +50,7 @@ from app.services.directories import (
     published_directories,
     validate_directory,
 )
-from app.services.naming_advice import safe_naming_advice
+from app.services.naming_advice import naming_preview_advice, safe_naming_advice
 
 
 @dataclass(frozen=True, slots=True)
@@ -686,7 +686,7 @@ async def preview(
     ai = await session.scalar(
         select(IngestTaskAiResult).where(IngestTaskAiResult.ingest_task_id == task.id)
     )
-    advice = safe_naming_advice(ai)
+    advice = naming_preview_advice(ai)
     rendered = await render(session, caller, task, request)
     if rendered is None:
         return NamingPreviewResponse(
