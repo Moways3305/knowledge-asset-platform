@@ -114,15 +114,24 @@
   - nginx 反代（server 块 `deploy/nginx.conf.template`，http 级配置 `deploy/nginx-main.conf`）：`/api/v1/`、`/health`（覆盖 `/health/ready`、`/health/config`）、`/admin/ops/` → `backend:8000`（Docker DNS）；其余路径 SPA fallback 到 `index.html`。`nginx.conf.template` 在容器启动时由 nginx 镜像 envsubst 机制渲染（替换 `${ONLYOFFICE_ORIGIN}`）。
   - backend 宿主端口（compose 本地映射 `127.0.0.1:8001`）**仅供调试**，生产正式访问不走它，可在生产移除该映射。本地 compose 前端入口为 `http://<host>:18080/`。
 - **TLS 终止位置**：在 `frontend` nginx 之前（或之上）放置真实 HTTPS/TLS 终止（云 LB / 反代 / Ingress）。本仓库前端 nginx 以**非 root** 用户监听 `8080`（compose 映射 `18080:8080`），TLS 由前置层负责。
-- **宿主机 Nginx 必须由仓库脚本安装，禁止继续使用旧的 `200m` 站点配置**：[`deploy/nginx-host-kap.conf.template`](../../deploy/nginx-host-kap.conf.template) 是完整受管站点，不是示例片段；[`deploy/install-host-nginx.sh`](../../deploy/install-host-nginx.sh) 会在站点目录内生成完整候选文件，再通过同文件系统原子 rename 替换 `/etc/nginx/conf.d/kap.conf` 并执行 `nginx -t`；校验或首次 reload 失败都会以相同方式原子恢复旧文件并尝试回滚 reload，只有成功后才保留新配置。生产发布必须执行：
+- **宿主机 Nginx 只由仓库管理上传端点 snippet，绝不接管完整站点**：现有 server block 继续负责 TLS/Certbot、企业微信校验文件、ONLYOFFICE（生产实际转发 `127.0.0.1:8443`）和 KAP 默认入口（`location /` 转发 `127.0.0.1:18080`）。[`deploy/nginx-host-upload-rules.conf`](../../deploy/nginx-host-upload-rules.conf) 仅包含两个上传 location 的 `32m / 120s` 覆盖；[`deploy/install-host-nginx.sh`](../../deploy/install-host-nginx.sh) 只允许显式模式：
   ```sh
-  sudo env \
-    KAP_SERVER_NAME=kap.example.com \
-    KAP_TLS_CERTIFICATE=/etc/letsencrypt/live/kap.example.com/fullchain.pem \
-    KAP_TLS_CERTIFICATE_KEY=/etc/letsencrypt/live/kap.example.com/privkey.pem \
-    sh ./deploy/install-host-nginx.sh
+  # 1. 只读识别现有 KAP server_name、唯一 location / 和 include 状态
+  sudo env KAP_SERVER_NAME=kap.example.com \
+    KAP_NGINX_SITE_PATH=/etc/nginx/sites-available/kap \
+    sh ./deploy/install-host-nginx.sh --check
+
+  # 2. 经变更审批后，安装/更新 snippet 并仅向目标 server 插入一行 include
+  sudo env KAP_SERVER_NAME=kap.example.com \
+    KAP_NGINX_SITE_PATH=/etc/nginx/sites-available/kap \
+    sh ./deploy/install-host-nginx.sh --install
+
+  # 3. 只读运行 nginx -t 并展示实际受管片段
+  sudo env KAP_SERVER_NAME=kap.example.com \
+    KAP_NGINX_SITE_PATH=/etc/nginx/sites-available/kap \
+    sh ./deploy/install-host-nginx.sh --verify
   ```
-  如发行版不使用 `/etc/nginx/conf.d/kap.conf`，显式设置 `KAP_NGINX_SITE_PATH`；发布检查必须确认该文件来自当前 commit。模板仅对两个上传 location 使用 `32m / 120s`，其余路径保持 `1m` 默认请求体边界。
+  默认 snippet 位置为 `/etc/nginx/snippets/kap-upload-rules.conf`。脚本只接受能唯一定位目标 `server_name` 且其中恰有一个 `location /` 的现有站点；歧义时会退出并打印人工插入 include 的准确步骤。`--check` 和 `--verify` 不写文件；没有明确 `--install` 时不会改变宿主机。安装重复执行不会重复 location；`nginx -t` 或 reload 失败会同时恢复旧站点文本与旧 snippet。站点其余路径应继续保持既有 `1m` 默认边界，ONLYOFFICE、TLS 和校验规则必须在安装前后逐项 diff 确认未变。
 - **`APP_ENV=prod` 下 cookie `Secure=True` 的依赖（关键）**：
   - prod 时会话 cookie 与 OAuth state cookie 被**强制** `Secure`（`session_cookie_secure()`），即使显式注入 `SESSION_COOKIE_SECURE=false` 运行时也不退让（且会在 `/health/config` 报 blocker）。
   - **后果**：纯 HTTP 入口下浏览器不会回送 Secure cookie → 登录后会话不生效。**生产必须经真实 HTTPS 访问。**

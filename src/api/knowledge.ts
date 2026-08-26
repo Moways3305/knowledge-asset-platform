@@ -16,6 +16,7 @@ import type {
   KnowledgeQueryParams,
   KnowledgeListResponseDTO,
   KnowledgeDirectoryDTO,
+  KnowledgeLibraryProjectDTO,
   RetryIndexResponseDTO,
 } from "../types/knowledge";
 import type { SearchRequestDTO, SearchResponseDTO } from "../types/search";
@@ -161,6 +162,11 @@ export async function fetchKnowledgeDirectories(
   const data = await apiGet<{ items: KnowledgeDirectoryDTO[] }>(
     `/api/v1/knowledge/directories${query ? `?${query}` : ""}`,
   );
+  return data.items;
+}
+
+export async function fetchKnowledgeLibraryProjects(): Promise<KnowledgeLibraryProjectDTO[]> {
+  const data = await apiGet<{ items: KnowledgeLibraryProjectDTO[] }>("/api/v1/knowledge/projects");
   return data.items;
 }
 

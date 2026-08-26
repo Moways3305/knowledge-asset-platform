@@ -22,9 +22,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.utils import utc_now
-from app.models.knowledge import KnowledgeAssetVersion
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.schemas.enums import KnowledgeScope
-from app.services import chunking, error_catalog
+from app.services import chunking, domain_events, error_catalog
 from app.services.weknora_client import (
     NullWeKnoraClient,
     WeKnoraClient,
@@ -127,6 +127,32 @@ async def _load_version(
     ).scalar_one_or_none()
 
 
+async def _publish_index_status(
+    session: AsyncSession,
+    *,
+    version: KnowledgeAssetVersion | None,
+    status: str,
+) -> None:
+    if version is None:
+        return
+    asset = await session.get(KnowledgeAsset, version.asset_id)
+    await domain_events.publish(
+        session,
+        domain_events.DomainEvent(
+            event_type=domain_events.INDEX_STATUS_CHANGED,
+            aggregate_type="knowledge_asset_version",
+            aggregate_id=version.id,
+            payload=domain_events.safe_payload(
+                asset_id=version.asset_id,
+                version_id=version.id,
+                project_id=asset.project_id if asset is not None else None,
+                status=status,
+            ),
+            idempotency_key=f"index-status:{version.id}:{status}",
+        ),
+    )
+
+
 async def mark_index_failed(
     session: AsyncSession,
     *,
@@ -148,6 +174,7 @@ async def mark_index_failed(
         # 持久化用户态文案。
         version.index_error_message = error_catalog.user_message(code)
         version.weknora_parse_status = version.weknora_parse_status or "failed"
+    await _publish_index_status(session, version=version, status="index_failed")
     await session.commit()
     return IndexOutcome("index_failed", None, code, False)
 
@@ -217,6 +244,7 @@ async def index_asset_version(
             index_status = _apply_parse_state(version, parse_status)
         else:
             index_status = "indexing"
+        await _publish_index_status(session, version=version, status=index_status)
         await session.commit()
         if governance_text:
             await _rebuild_chunks_best_effort(
@@ -242,6 +270,7 @@ async def index_asset_version(
             version.indexed_at = utc_now()
             version.index_error_code = None
             version.index_error_message = None
+        await _publish_index_status(session, version=version, status="indexed")
         await session.commit()
         return IndexOutcome("indexed", "duplicate", None, True)
     except (WeKnoraError, OSError) as exc:
@@ -321,6 +350,7 @@ async def reparse_asset_version(
             index_status = _apply_parse_state(version, parse_status)
         else:
             index_status = "indexing"
+        await _publish_index_status(session, version=version, status=index_status)
         await session.commit()
         if governance_text:
             await _rebuild_chunks_best_effort(
@@ -346,6 +376,7 @@ async def reparse_asset_version(
             version.indexed_at = utc_now()
             version.index_error_code = None
             version.index_error_message = None
+        await _publish_index_status(session, version=version, status="indexed")
         await session.commit()
         return IndexOutcome("indexed", "duplicate", None, True)
     except (WeKnoraError, OSError) as exc:

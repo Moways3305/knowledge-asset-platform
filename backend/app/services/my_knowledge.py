@@ -55,6 +55,8 @@ from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 from app.services import knowledge as knowledge_service
 from app.services import review as review_service
+from app.services import review_events
+from app.worker.enqueue import enqueue_outbox_delivery
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:
@@ -414,10 +416,9 @@ async def submit_to_project(
         },
         project_id=project.id,
     )
-    from app.services.notifications import notify_review_pending
-
-    await notify_review_pending(session, task)
+    await review_events.publish_action_required(session, task)
     await session.commit()
+    await enqueue_outbox_delivery(session)
     return await _submission_out(session, sub)
 
 
@@ -521,8 +522,7 @@ async def register_validation_candidate(
         extra={"target_project_id": str(project.id), "evidence_id": str(evidence.id)},
         project_id=project.id,
     )
-    from app.services.notifications import notify_review_pending
-
-    await notify_review_pending(session, task)
+    await review_events.publish_action_required(session, task)
     await session.commit()
+    await enqueue_outbox_delivery(session)
     return await _submission_out(session, sub)

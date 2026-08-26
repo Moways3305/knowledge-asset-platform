@@ -380,7 +380,7 @@ def test_onlyoffice_csp_uses_one_explicit_origin_without_unsafe_expansion():
 def test_upload_proxy_limits_are_scoped_and_aligned_at_both_nginx_layers():
     root = Path(__file__).resolve().parents[2]
     inner = (root / "deploy" / "nginx.conf.template").read_text(encoding="utf-8")
-    outer_path = root / "deploy" / "nginx-host-kap.conf.template"
+    outer_path = root / "deploy" / "nginx-host-upload-rules.conf"
     installer_path = root / "deploy" / "install-host-nginx.sh"
     runbook = (root / "docs" / "deployment" / "PRODUCTION_DEPLOYMENT_RUNBOOK.md").read_text(
         encoding="utf-8"
@@ -397,14 +397,17 @@ def test_upload_proxy_limits_are_scoped_and_aligned_at_both_nginx_layers():
         assert config.count("proxy_send_timeout 120s;") == 2
         assert config.count("proxy_read_timeout 120s;") == 2
         assert "client_max_body_size 200m" not in config
-    assert "nginx-host-kap.conf.template" in installer
+    assert "nginx-host-upload-rules.conf" in installer
+    assert "--check|--install|--verify" in installer
+    assert "/etc/nginx/sites-available/kap" in installer
+    assert "/etc/nginx/snippets/kap-upload-rules.conf" in installer
     assert "nginx -t" in installer
     assert "nginx -s reload" in installer
     assert "install-host-nginx.sh" in runbook
-    assert "nginx-host-kap.conf.template" in runbook
+    assert "nginx-host-upload-rules.conf" in runbook
 
 
-def test_host_nginx_installer_restores_previous_site_when_reload_fails(tmp_path):
+def test_host_nginx_installer_is_read_only_by_default_and_idempotent(tmp_path):
     shell = shutil.which("sh")
     if shell is None:
         pytest.skip("POSIX sh is required for the host-nginx installer integration test")
@@ -422,10 +425,103 @@ def test_host_nginx_installer_restores_previous_site_when_reload_fails(tmp_path)
 
     root = Path(__file__).resolve().parents[2]
     installer = root / "deploy" / "install-host-nginx.sh"
-    installer_source = installer.read_text(encoding="utf-8")
-    assert 'mktemp "${site_path}.new.XXXXXX"' in installer_source
-    assert 'mv -f "$rendered" "$site_path"' in installer_source
-    assert 'install -m 0644 "$rendered" "$site_path"' not in installer_source
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_nginx = fake_bin / "nginx"
+    fake_nginx.write_text(
+        "#!/bin/sh\nexit 0\n",
+        encoding="utf-8",
+    )
+    fake_nginx.chmod(0o755)
+    site = tmp_path / "kap.conf"
+    snippet_dir = tmp_path / "snippets"
+    snippet_dir.mkdir()
+    snippet = snippet_dir / "kap-upload-rules.conf"
+    original = """server {
+    listen 443 ssl;
+    server_name kap.example.com;
+    ssl_certificate /etc/letsencrypt/live/kap/fullchain.pem;
+    location = /.well-known/wecom-verification.txt { return 200 'proof'; }
+    location /onlyoffice/ { proxy_pass https://127.0.0.1:8443; }
+    location / { proxy_pass http://127.0.0.1:18080; }
+}
+"""
+    site.write_text(original, encoding="utf-8")
+
+    env = {
+        **os.environ,
+        "PATH": (
+            f"{shell_path(fake_bin)}:/usr/bin:/bin"
+            if os.name == "nt"
+            else f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}"
+        ),
+        "KAP_SERVER_NAME": "kap.example.com",
+        "KAP_NGINX_SITE_PATH": shell_path(site),
+        "KAP_NGINX_SNIPPET_PATH": shell_path(snippet),
+        "KAP_NGINX_INCLUDE_PATH": shell_path(snippet),
+    }
+
+    checked = subprocess.run(
+        [shell, shell_path(installer), "--check"], env=env, capture_output=True, text=True
+    )
+    assert checked.returncode == 0, checked.stderr
+    assert site.read_text(encoding="utf-8") == original
+    assert not snippet.exists()
+
+    first = subprocess.run(
+        [shell, shell_path(installer), "--install"], env=env, capture_output=True, text=True
+    )
+    assert first.returncode == 0, first.stderr
+    installed_site = site.read_text(encoding="utf-8")
+    assert installed_site.count(f"include {shell_path(snippet)};") == 1
+    assert "127.0.0.1:8443" in installed_site
+    assert "wecom-verification" in installed_site
+    assert "ssl_certificate /etc/letsencrypt" in installed_site
+    assert snippet.read_text(encoding="utf-8").count("client_max_body_size 32m;") == 2
+
+    second = subprocess.run(
+        [shell, shell_path(installer), "--install"], env=env, capture_output=True, text=True
+    )
+    assert second.returncode == 0, second.stderr
+    assert site.read_text(encoding="utf-8") == installed_site
+
+    verified = subprocess.run(
+        [shell, shell_path(installer), "--verify"], env=env, capture_output=True, text=True
+    )
+    assert verified.returncode == 0, verified.stderr
+    assert "KAP_UPLOAD_RULES_BEGIN" in verified.stdout
+
+    missing_env = {**env, "KAP_SERVER_NAME": "missing.example.com"}
+    before_missing_check = site.read_text(encoding="utf-8")
+    missing = subprocess.run(
+        [shell, shell_path(installer), "--check"],
+        env=missing_env,
+        capture_output=True,
+        text=True,
+    )
+    assert missing.returncode != 0
+    assert "manual" in missing.stderr.lower() or "人工" in missing.stderr
+    assert site.read_text(encoding="utf-8") == before_missing_check
+
+
+def test_host_nginx_installer_restores_site_and_snippet_when_reload_fails(tmp_path):
+    shell = shutil.which("sh")
+    if shell is None:
+        pytest.skip("POSIX sh is required for the host-nginx installer integration test")
+
+    def shell_path(path: Path) -> str:
+        if os.name != "nt":
+            return str(path)
+        converted = subprocess.run(
+            [shell, "-c", 'cygpath -u "$1"', "sh", str(path)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return converted.stdout.strip()
+
+    root = Path(__file__).resolve().parents[2]
+    installer = root / "deploy" / "install-host-nginx.sh"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     fake_nginx = fake_bin / "nginx"
@@ -444,15 +540,20 @@ exit 0
         encoding="utf-8",
     )
     fake_nginx.chmod(0o755)
-    certificate = tmp_path / "certificate.pem"
-    certificate_key = tmp_path / "certificate-key.pem"
     site = tmp_path / "kap.conf"
-    certificate.write_text("certificate", encoding="utf-8")
-    certificate_key.write_text("certificate-key", encoding="utf-8")
-    site.write_text("# previous production site\n", encoding="utf-8")
+    snippet_dir = tmp_path / "snippets"
+    snippet_dir.mkdir()
+    snippet = snippet_dir / "kap-upload-rules.conf"
+    original_site = """server {
+    server_name kap.example.com;
+    location / { proxy_pass http://127.0.0.1:18080; }
+}
+"""
+    site.write_text(original_site, encoding="utf-8")
+    snippet.write_text("# previous upload rules\n", encoding="utf-8")
 
     result = subprocess.run(
-        [shell, shell_path(installer)],
+        [shell, shell_path(installer), "--install"],
         env={
             **os.environ,
             "PATH": (
@@ -462,9 +563,9 @@ exit 0
             ),
             "FAKE_NGINX_RELOAD_LOG": shell_path(reload_log),
             "KAP_SERVER_NAME": "kap.example.com",
-            "KAP_TLS_CERTIFICATE": shell_path(certificate),
-            "KAP_TLS_CERTIFICATE_KEY": shell_path(certificate_key),
             "KAP_NGINX_SITE_PATH": shell_path(site),
+            "KAP_NGINX_SNIPPET_PATH": shell_path(snippet),
+            "KAP_NGINX_INCLUDE_PATH": shell_path(snippet),
         },
         capture_output=True,
         text=True,
@@ -472,11 +573,12 @@ exit 0
     )
 
     assert result.returncode == 1
-    assert site.read_text(encoding="utf-8") == "# previous production site\n"
+    assert site.read_text(encoding="utf-8") == original_site
+    assert snippet.read_text(encoding="utf-8") == "# previous upload rules\n"
     assert reload_log.read_text(encoding="utf-8").splitlines() == ["first", "rollback"]
     assert not list(tmp_path.glob("kap.conf.new.*"))
     assert not list(tmp_path.glob("kap.conf.rollback.*"))
-    assert "previous site restored and reloaded" in result.stderr
+    assert "site and snippet restored and reloaded" in result.stderr
 
 
 @pytest.mark.parametrize(
@@ -656,7 +758,7 @@ def _enable_wk(monkeypatch, fake):
     from app.services.weknora_model_selection import ResolvedModels
 
     monkeypatch.setattr("app.services.ingest.weknora_enabled", lambda: True)
-    monkeypatch.setattr("app.services.knowledge.weknora_enabled", lambda: True)
+    monkeypatch.setattr("app.services.knowledge_index_commands.weknora_enabled", lambda: True)
     monkeypatch.setattr("app.services.jobs.indexing_operations.weknora_enabled", lambda: True)
     # PBC-38：建库模型经 resolver 解析（不再读 settings）；测试直接返回固定 ResolvedModels，
     # 绕过 DB 默认模型配置（本套件专注 trace 链路，不验证模型选择）。

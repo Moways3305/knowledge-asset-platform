@@ -17,9 +17,10 @@ import secrets
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.utils import utc_now
 from app.models.agent_registry import AgentWhitelistRule
 from app.models.identity import User
 from app.schemas.enums import AuditAction, AuditLogType, CompanyRole
@@ -38,6 +39,22 @@ def hash_token(token: str) -> str:
 def generate_token() -> str:
     """生成新的外部 Agent 接入 token（明文仅一次性返回，不入库）。"""
     return "kgw_" + secrets.token_urlsafe(32)
+
+
+async def record_successful_connection(
+    session: AsyncSession,
+    rule_id: uuid.UUID,
+) -> None:
+    """Persist a successful WorkBuddy request without exposing ORM writes to the API layer."""
+    await session.execute(
+        update(AgentWhitelistRule)
+        .where(
+            AgentWhitelistRule.id == rule_id,
+            AgentWhitelistRule.provider == "workbuddy",
+        )
+        .values(last_connected_at=utc_now())
+    )
+    await session.commit()
 
 
 def _denied(status_code: int, reason: str, message: str) -> HTTPException:

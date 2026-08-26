@@ -42,6 +42,9 @@ jobs:
         run: python -m mypy app --config-file pyproject.toml
       - name: Compile check
         run: python -m compileall app
+      - name: Architecture boundaries
+        working-directory: ${{ github.workspace }}
+        run: python scripts/check_architecture.py
       - name: Tests (with coverage)
         # 覆盖率基线：term-missing 把未覆盖行号打进 CI log。首阶段不设 fail_under 阈值，
         # 只观测；source/omit 见 pyproject [tool.coverage.run]。

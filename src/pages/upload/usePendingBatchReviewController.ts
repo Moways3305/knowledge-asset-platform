@@ -1,0 +1,996 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { PendingIngestItemDTO } from "../../types/ingest";
+import type { BatchNamingValuesDTO, CategoryClassificationItemDTO } from "../../types/naming";
+import {
+  classifyBatchNamingCategories,
+  commandErrorMatches,
+  commandErrorMessage,
+  previewBatchIngestNaming,
+  saveManualNamingCategory,
+} from "./pendingBatchCommands";
+import { DATE_PATTERN, initialRows, reviewState, rowMissing } from "./pendingBatchReviewState";
+import type {
+  CompletedReviewItem,
+  DeleteFeedback,
+  PreviewRows,
+  ReviewFilter,
+  ReviewRows,
+  ReviewState,
+} from "./pendingBatchReviewState";
+import { usePendingBatchAiReview } from "./usePendingBatchAiReview";
+import { usePendingBatchTargetOptions } from "./usePendingBatchTargetOptions";
+import type { TargetLibrary } from "./uploadConstants";
+import type { UploadFlow } from "./useUploadFlow";
+
+export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], flow: UploadFlow) {
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [stage, setStage] = useState<"target" | "review">("target");
+  const [targetLibrary, setTargetLibrary] = useState<TargetLibrary>("");
+  const [targetProjectId, setTargetProjectId] = useState("");
+  const targetOptions = usePendingBatchTargetOptions({
+    open: confirmOpen,
+    stage,
+    targetLibrary,
+    targetProjectId,
+  });
+  const { options, setOptions, busy: targetOptionsBusy, error: targetOptionsError } = targetOptions;
+  const [rows, setRows] = useState<ReviewRows>({});
+  const [previews, setPreviews] = useState<PreviewRows>({});
+  const [reviewTargetKey, setReviewTargetKey] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [dialogError, setDialogError] = useState<string | null>(null);
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
+  const [deleteCandidate, setDeleteCandidate] = useState<PendingIngestItemDTO | null>(null);
+  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
+  const [deleteFeedback, setDeleteFeedback] = useState<Record<string, DeleteFeedback>>({});
+  const [editedTaskIds, setEditedTaskIds] = useState<Set<string>>(() => new Set());
+  const [reviewedTaskIds, setReviewedTaskIds] = useState<Set<string>>(() => new Set());
+  const [filterSnapshot, setFilterSnapshot] = useState<{
+    filter: ReviewFilter;
+    taskIds: string[];
+  } | null>(null);
+  const [previewBusyByTask, setPreviewBusyByTask] = useState<Record<string, boolean>>({});
+  const [previewFeedback, setPreviewFeedback] = useState<Record<string, string>>({});
+  const [confirmCandidate, setConfirmCandidate] = useState<PendingIngestItemDTO | null>(null);
+  const [confirmingTaskId, setConfirmingTaskId] = useState<string | null>(null);
+  const [categorySuggestions, setCategorySuggestions] = useState<
+    Record<string, CategoryClassificationItemDTO>
+  >({});
+  const [categoryTargetLabel, setCategoryTargetLabel] = useState("");
+  const [bulkCategoryId, setBulkCategoryId] = useState("");
+  const [bulkCategoryTaskIds, setBulkCategoryTaskIds] = useState<Set<string>>(() => new Set());
+  const [bulkPersonalDirectoryKey, setBulkPersonalDirectoryKey] = useState("");
+  const [personalDirectoryByTask, setPersonalDirectoryByTask] = useState<Record<string, string>>(
+    {},
+  );
+  const [fallbackDirectoryTaskId, setFallbackDirectoryTaskId] = useState<string | null>(null);
+  const [fallbackDirectoryKey, setFallbackDirectoryKey] = useState("");
+  const aiReview = usePendingBatchAiReview();
+  const aiReviewDrafts = aiReview.drafts;
+  const [classificationBusy, setClassificationBusy] = useState(false);
+  const [closeGuardOpen, setCloseGuardOpen] = useState(false);
+  const [reviewTasks, setReviewTasks] = useState<PendingIngestItemDTO[]>([]);
+  const [reviewInitialCount, setReviewInitialCount] = useState(0);
+  const [completedReviewItems, setCompletedReviewItems] = useState<CompletedReviewItem[]>([]);
+  const previewRunsRef = useRef<Record<string, number>>({});
+  const previewTimersRef = useRef<Record<string, number>>({});
+
+  const cancelPendingPreviews = () => {
+    Object.values(previewTimersRef.current).forEach((timer) => window.clearTimeout(timer));
+    Object.keys(previewTimersRef.current).forEach((taskId) => {
+      delete previewTimersRef.current[taskId];
+    });
+    Object.keys(previewRunsRef.current).forEach((taskId) => {
+      previewRunsRef.current[taskId] += 1;
+    });
+  };
+
+  useEffect(() => {
+    if (!confirmOpen) {
+      cancelPendingPreviews();
+    }
+  }, [confirmOpen]);
+
+  useEffect(() => {
+    if (!confirmOpen) return;
+    const liveTaskIds = new Set(tasks.map((task) => task.id));
+    const vanishedTaskIds = new Set(
+      reviewTasks.filter((task) => !liveTaskIds.has(task.id)).map((task) => task.id),
+    );
+    if (vanishedTaskIds.size === 0) return;
+
+    vanishedTaskIds.forEach((taskId) => {
+      const timer = previewTimersRef.current[taskId];
+      if (timer) window.clearTimeout(timer);
+      delete previewTimersRef.current[taskId];
+      previewRunsRef.current[taskId] = (previewRunsRef.current[taskId] ?? 0) + 1;
+    });
+    const withoutVanished = <T>(current: Record<string, T>) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([taskId]) => !vanishedTaskIds.has(taskId)),
+      ) as Record<string, T>;
+    const withoutVanishedIds = (current: Set<string>) => {
+      const next = new Set(current);
+      vanishedTaskIds.forEach((taskId) => next.delete(taskId));
+      return next;
+    };
+
+    setReviewTasks((current) => current.filter((task) => !vanishedTaskIds.has(task.id)));
+    setRows(withoutVanished);
+    setPreviews(withoutVanished);
+    setDeleteFeedback(withoutVanished);
+    setPreviewBusyByTask(withoutVanished);
+    setPreviewFeedback(withoutVanished);
+    setCategorySuggestions(withoutVanished);
+    setPersonalDirectoryByTask(withoutVanished);
+    setEditedTaskIds(withoutVanishedIds);
+    setReviewedTaskIds(withoutVanishedIds);
+    setFilterSnapshot((current) =>
+      current
+        ? {
+            ...current,
+            taskIds: current.taskIds.filter((taskId) => !vanishedTaskIds.has(taskId)),
+          }
+        : null,
+    );
+    setDeleteCandidate((current) => (current && vanishedTaskIds.has(current.id) ? null : current));
+    setConfirmCandidate((current) => (current && vanishedTaskIds.has(current.id) ? null : current));
+  }, [confirmOpen, reviewTasks, tasks]);
+
+  useEffect(() => {
+    const timers = previewTimersRef.current;
+    const runs = previewRunsRef.current;
+    return () => {
+      Object.values(timers).forEach((timer) => window.clearTimeout(timer));
+      Object.keys(timers).forEach((taskId) => {
+        delete timers[taskId];
+      });
+      Object.keys(runs).forEach((taskId) => {
+        runs[taskId] += 1;
+      });
+    };
+  }, []);
+
+  const liveSelectedConfirmTasks = tasks.filter(
+    (task) => flow.batchSelection.includes(task.id) && task.can_batch_confirm,
+  );
+  const selectedConfirmTasks = confirmOpen ? reviewTasks : liveSelectedConfirmTasks;
+  const selectedRejectTasks = tasks.filter(
+    (task) => flow.batchSelection.includes(task.id) && task.can_batch_reject,
+  );
+  const company = targetLibrary === "company";
+  const categories = useMemo(() => options?.categories ?? [], [options]);
+  const formalDirectories = useMemo(
+    () =>
+      (options?.directories ?? []).filter(
+        (item) =>
+          item.enabled !== false &&
+          item.scope === targetLibrary &&
+          item.directory_key !== "personal.pending",
+      ),
+    [options, targetLibrary],
+  );
+  const directoryLabel = (directoryKey: string) =>
+    formalDirectories.find((item) => item.directory_key === directoryKey)?.display_name ?? "";
+  const missingDates = selectedConfirmTasks.filter(
+    (task) => !DATE_PATTERN.test(rows[task.id]?.formed_on ?? ""),
+  ).length;
+  const allPreviewed =
+    stage === "review" &&
+    selectedConfirmTasks.length > 0 &&
+    (targetLibrary === "personal"
+      ? selectedConfirmTasks.every((task) => Boolean(personalDirectoryByTask[task.id]))
+      : selectedConfirmTasks.every(
+          (task) =>
+            Boolean(rows[task.id]) &&
+            !rowMissing(rows[task.id], company) &&
+            previews[task.id]?.submittable,
+        ));
+  const targetReady =
+    Boolean(targetLibrary) &&
+    (targetLibrary !== "project" || Boolean(targetProjectId)) &&
+    (targetLibrary !== "personal" ||
+      (!targetOptionsBusy &&
+        !targetOptionsError &&
+        Boolean(bulkPersonalDirectoryKey) &&
+        formalDirectories.some((item) => item.directory_key === bulkPersonalDirectoryKey)));
+
+  const targetKey = `${targetLibrary}:${targetProjectId}:${bulkPersonalDirectoryKey}`;
+
+  const statesByTask = useMemo(
+    () =>
+      Object.fromEntries(
+        selectedConfirmTasks.flatMap((task) => {
+          const row = rows[task.id];
+          if (!row) return [];
+          return [
+            [
+              task.id,
+              reviewState(
+                task,
+                row,
+                previews[task.id],
+                company,
+                flow.batchErrors[task.id],
+                editedTaskIds.has(task.id),
+                reviewedTaskIds.has(task.id),
+                categorySuggestions[task.id],
+              ),
+            ],
+          ];
+        }),
+      ) as Record<string, ReviewState>,
+    [
+      company,
+      editedTaskIds,
+      flow.batchErrors,
+      previews,
+      reviewedTaskIds,
+      categorySuggestions,
+      rows,
+      selectedConfirmTasks,
+    ],
+  );
+  const stateCounts = useMemo(
+    () => ({
+      all: selectedConfirmTasks.length,
+      ai_ready: selectedConfirmTasks.filter((task) => statesByTask[task.id] === "ai_ready").length,
+      manual: selectedConfirmTasks.filter((task) => statesByTask[task.id] === "manual").length,
+      reviewed: selectedConfirmTasks.filter((task) => statesByTask[task.id] === "reviewed").length,
+      exception: selectedConfirmTasks.filter((task) => statesByTask[task.id] === "exception")
+        .length,
+    }),
+    [selectedConfirmTasks, statesByTask],
+  );
+  const visibleTaskIds =
+    reviewFilter === "all"
+      ? selectedConfirmTasks.map((task) => task.id)
+      : filterSnapshot?.filter === reviewFilter
+        ? filterSnapshot.taskIds
+        : selectedConfirmTasks
+            .filter((task) => statesByTask[task.id] === reviewFilter)
+            .map((task) => task.id);
+  const visibleConfirmTasks = selectedConfirmTasks.filter((task) =>
+    visibleTaskIds.includes(task.id),
+  );
+  const previewSummary = useMemo(
+    () =>
+      `已核对 ${stateCounts.reviewed}/${selectedConfirmTasks.length} 条，仍有 ${missingDates} 条需补充形成日期`,
+    [missingDates, selectedConfirmTasks.length, stateCounts.reviewed],
+  );
+  const warningNotices = selectedConfirmTasks.flatMap((task) => previews[task.id]?.notices ?? []);
+  const warningCodesByTask = Object.fromEntries(
+    selectedConfirmTasks.map((task) => [
+      task.id,
+      (previews[task.id]?.notices ?? []).flatMap((notice) => (notice.code ? [notice.code] : [])),
+    ]),
+  );
+
+  const scheduleRowPreview = (taskId: string, row: BatchNamingValuesDTO) => {
+    const previousTimer = previewTimersRef.current[taskId];
+    if (previousTimer) window.clearTimeout(previousTimer);
+    const runId = (previewRunsRef.current[taskId] ?? 0) + 1;
+    previewRunsRef.current[taskId] = runId;
+    const missing = rowMissing(row, company);
+    if (missing) {
+      setPreviewBusyByTask((current) => ({ ...current, [taskId]: false }));
+      setPreviewFeedback((current) => ({ ...current, [taskId]: `${missing.message}后生成规范名` }));
+      return;
+    }
+    if (targetLibrary !== "project" && targetLibrary !== "company") return;
+    setPreviewBusyByTask((current) => ({ ...current, [taskId]: true }));
+    setPreviewFeedback((current) => {
+      const next = { ...current };
+      delete next[taskId];
+      return next;
+    });
+    previewTimersRef.current[taskId] = window.setTimeout(() => {
+      delete previewTimersRef.current[taskId];
+      void Promise.resolve()
+        .then(() =>
+          previewBatchIngestNaming({
+            targetScope: targetLibrary,
+            targetProjectId: targetProjectId || undefined,
+            items: [{ taskId, naming: row }],
+          }),
+        )
+        .then((response) => {
+          if (previewRunsRef.current[taskId] !== runId) return;
+          const preview = response?.items?.[0];
+          if (!preview) throw new Error("empty naming preview response");
+          setPreviews((current) => ({ ...current, [taskId]: preview }));
+          const subject = preview.fields?.subject;
+          if (typeof subject === "string" && subject !== row.subject) {
+            setRows((current) => ({
+              ...current,
+              [taskId]: { ...current[taskId], subject },
+            }));
+          }
+          if (!preview.submittable && preview.message) {
+            setPreviewFeedback((current) => ({ ...current, [taskId]: preview.message! }));
+          }
+        })
+        .catch((error) => {
+          if (previewRunsRef.current[taskId] !== runId) return;
+          setPreviewFeedback((current) => ({
+            ...current,
+            [taskId]: commandErrorMessage(
+              error,
+              "规范名预览暂时失败，请重试；已保留上一次有效预览",
+            ),
+          }));
+        })
+        .finally(() => {
+          if (previewRunsRef.current[taskId] === runId) {
+            setPreviewBusyByTask((current) => ({ ...current, [taskId]: false }));
+          }
+        });
+    }, 250);
+  };
+
+  const updateRow = (taskId: string, patch: Partial<BatchNamingValuesDTO>) => {
+    const nextRow = { ...rows[taskId], ...patch };
+    setRows((current) => ({ ...current, [taskId]: nextRow }));
+    // Keep the last canonical name visible as a reference, but revoke its submit
+    // authority immediately. A fresh server preview is required for edited values.
+    setPreviews((current) => {
+      const previous = current[taskId];
+      if (!previous?.submittable) return current;
+      return { ...current, [taskId]: { ...previous, submittable: false } };
+    });
+    setEditedTaskIds((current) => new Set(current).add(taskId));
+    setReviewedTaskIds((current) => {
+      const next = new Set(current);
+      next.delete(taskId);
+      return next;
+    });
+    scheduleRowPreview(taskId, nextRow);
+  };
+
+  const selectManualCategory = (taskId: string, categoryId: string) => {
+    updateRow(taskId, { category_id: categoryId });
+    setBulkCategoryTaskIds((current) => {
+      const next = new Set(current);
+      if (categoryId && categoryId === bulkCategoryId) next.add(taskId);
+      else next.delete(taskId);
+      return next;
+    });
+    if (!categoryId || (targetLibrary !== "project" && targetLibrary !== "company")) return;
+    setCategorySuggestions((current) => ({
+      ...current,
+      [taskId]: {
+        task_id: taskId,
+        suggested_category_id: categoryId,
+        category_source: "manual",
+        category_confidence: "high",
+        category_reason: "人工已选择",
+        candidate_rule_revision: options?.rule_version ?? null,
+        status: "classified",
+        retryable: false,
+      },
+    }));
+    void saveManualNamingCategory({
+      taskId,
+      targetScope: targetLibrary,
+      targetProjectId: targetProjectId || undefined,
+      categoryId,
+    }).catch((error) => {
+      setPreviewFeedback((current) => ({
+        ...current,
+        [taskId]: commandErrorMessage(error, "人工目录类别暂未保存，请重试"),
+      }));
+    });
+  };
+
+  const resetTargetReviewContext = () => {
+    targetOptions.reset();
+    cancelPendingPreviews();
+    setOptions(null);
+    setBulkCategoryId("");
+    setBulkCategoryTaskIds(new Set());
+    setBulkPersonalDirectoryKey("");
+    setPersonalDirectoryByTask({});
+    setFallbackDirectoryTaskId(null);
+    setFallbackDirectoryKey("");
+    setRows({});
+    setPreviews({});
+    setReviewTargetKey("");
+    setCategorySuggestions({});
+    setCategoryTargetLabel("");
+    setEditedTaskIds(new Set());
+    setReviewedTaskIds(new Set());
+    aiReview.reset();
+  };
+
+  const loadAiReview = aiReview.open;
+
+  const saveAiReviewDraft = () => {
+    const saved = aiReview.saveDraft();
+    if (!saved) return;
+    if (targetLibrary !== "personal" && saved.draft.title) {
+      updateRow(saved.taskId, { subject: saved.draft.title });
+    }
+  };
+
+  const classifyCategories = async (retry: boolean) => {
+    if (targetLibrary !== "project" && targetLibrary !== "company") return null;
+    setClassificationBusy(true);
+    try {
+      const response = await classifyBatchNamingCategories({
+        taskIds: selectedConfirmTasks.map((task) => task.id),
+        targetScope: targetLibrary,
+        targetProjectId: targetProjectId || undefined,
+        retry,
+      });
+      const next = Object.fromEntries(response.items.map((item) => [item.task_id, item]));
+      setCategorySuggestions(next);
+      setCategoryTargetLabel(response.target_label);
+      return next;
+    } finally {
+      setClassificationBusy(false);
+    }
+  };
+
+  const confirmSingleDelete = async () => {
+    const task = deleteCandidate;
+    if (!task) return;
+    const pendingTimer = previewTimersRef.current[task.id];
+    if (pendingTimer) window.clearTimeout(pendingTimer);
+    delete previewTimersRef.current[task.id];
+    previewRunsRef.current[task.id] = (previewRunsRef.current[task.id] ?? 0) + 1;
+    setDeletingTaskId(task.id);
+    const result = await flow.handleDeleteBatchReviewItem(task.id);
+    setDeletingTaskId(null);
+    setDeleteCandidate(null);
+    if (!result.ok) {
+      setDeleteFeedback((current) => ({
+        ...current,
+        [task.id]: { message: result.message, retryable: result.retryable },
+      }));
+      return;
+    }
+    setReviewTasks((current) => current.filter((item) => item.id !== task.id));
+    setRows((current) => {
+      const next = { ...current };
+      delete next[task.id];
+      return next;
+    });
+    setPreviews((current) => {
+      const next = { ...current };
+      delete next[task.id];
+      return next;
+    });
+    setDeleteFeedback((current) => {
+      const next = { ...current };
+      delete next[task.id];
+      return next;
+    });
+  };
+
+  const advanceTarget = async () => {
+    if (!targetReady) return;
+    if (targetLibrary === "personal") {
+      if (
+        !formalDirectories.some((directory) => directory.directory_key === bulkPersonalDirectoryKey)
+      ) {
+        setDialogError("请选择正式个人目录");
+        return;
+      }
+      setPersonalDirectoryByTask(
+        Object.fromEntries(selectedConfirmTasks.map((task) => [task.id, bulkPersonalDirectoryKey])),
+      );
+      setReviewTargetKey(targetKey);
+      setStage("review");
+      return;
+    }
+    if (targetLibrary !== "project" && targetLibrary !== "company") return;
+    const destination = targetLibrary;
+    setLoading(true);
+    setDialogError(null);
+    try {
+      const value = options ?? (await targetOptions.get(destination, targetProjectId || undefined));
+      if (!value.required) {
+        const projectId = targetProjectId || undefined;
+        closeAndResetReview();
+        void flow.handleBatchConfirm(selectedConfirmTasks, destination, projectId);
+        return;
+      }
+      setOptions(value);
+      if (value.categories.length === 0) {
+        setDialogError(
+          destination === "project"
+            ? "当前没有已发布的全局项目目录类别，请联系治理管理员配置并发布规则。"
+            : "当前没有已发布的公司目录类别，请联系治理管理员配置并发布规则。",
+        );
+        return;
+      }
+      if (reviewTargetKey !== targetKey) {
+        Object.values(previewTimersRef.current).forEach((timer) => window.clearTimeout(timer));
+        Object.keys(previewTimersRef.current).forEach((taskId) => {
+          delete previewTimersRef.current[taskId];
+        });
+        Object.keys(previewRunsRef.current).forEach((taskId) => {
+          previewRunsRef.current[taskId] += 1;
+        });
+        let classified: Record<string, CategoryClassificationItemDTO> = {};
+        if (bulkCategoryId) {
+          classified = Object.fromEntries(
+            selectedConfirmTasks.map((task) => [
+              task.id,
+              {
+                task_id: task.id,
+                suggested_category_id: bulkCategoryId,
+                category_source: "manual" as const,
+                category_confidence: "high" as const,
+                category_reason: "本批目录类别",
+                candidate_rule_revision: value.rule_version,
+                status: "classified" as const,
+                retryable: false,
+              },
+            ]),
+          );
+          setCategorySuggestions(classified);
+          setCategoryTargetLabel("本批人工设置");
+          setBulkCategoryTaskIds(new Set(selectedConfirmTasks.map((task) => task.id)));
+        } else
+          try {
+            classified = (await classifyCategories(false)) ?? {};
+          } catch {
+            classified = Object.fromEntries(
+              selectedConfirmTasks.map((task) => [
+                task.id,
+                {
+                  task_id: task.id,
+                  suggested_category_id: null,
+                  category_source: "needs_manual" as const,
+                  category_confidence: "low" as const,
+                  category_reason: "AI 目录建议暂时失败，请人工选择或重试 AI 建议",
+                  candidate_rule_revision: value.rule_version,
+                  status: "failed" as const,
+                  retryable: true,
+                },
+              ]),
+            );
+            setCategorySuggestions(classified);
+            setDialogError("AI 目录建议暂时失败；目录选项已保留，可人工选择或重试 AI 建议。");
+          }
+        const nextRows = initialRows(selectedConfirmTasks, value, classified ?? {});
+        setRows(nextRows);
+        setPreviews({});
+        setEditedTaskIds(new Set());
+        setReviewedTaskIds(new Set());
+        setPreviewFeedback({});
+        setReviewTargetKey(targetKey);
+        selectedConfirmTasks.forEach((task) => scheduleRowPreview(task.id, nextRows[task.id]));
+      }
+      setStage("review");
+    } catch (error) {
+      setDialogError(
+        commandErrorMatches(error, { deniedReason: "project_naming_code_unavailable" })
+          ? "目标项目尚未启用项目代码。请到项目设置完成项目代码后，返回此窗口重新加载规则。"
+          : commandErrorMessage(error, "命名规则暂时无法加载，请重试"),
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const retryCategoryClassifications = async () => {
+    if (bulkCategoryId) return;
+    try {
+      const classified = await classifyCategories(true);
+      if (!classified) return;
+      setRows((current) => {
+        const next = { ...current };
+        selectedConfirmTasks.forEach((task) => {
+          if (editedTaskIds.has(task.id)) return;
+          const item = classified[task.id];
+          next[task.id] = {
+            ...next[task.id],
+            category_id:
+              item?.status === "classified" && item.suggested_category_id
+                ? item.suggested_category_id
+                : "",
+          };
+        });
+        return next;
+      });
+    } catch (error) {
+      setDialogError(commandErrorMessage(error, "AI 目录分类暂时失败"));
+    }
+  };
+
+  const retryOneCategoryClassification = async (taskId: string) => {
+    if (targetLibrary !== "project" && targetLibrary !== "company") return;
+    if (bulkCategoryId || bulkCategoryTaskIds.has(taskId)) return;
+    setClassificationBusy(true);
+    try {
+      const response = await classifyBatchNamingCategories({
+        taskIds: [taskId],
+        targetScope: targetLibrary,
+        targetProjectId: targetProjectId || undefined,
+        retry: true,
+      });
+      const item = response.items[0];
+      if (!item) return;
+      setCategorySuggestions((current) => ({ ...current, [taskId]: item }));
+      if (!editedTaskIds.has(taskId)) {
+        setRows((current) => ({
+          ...current,
+          [taskId]: {
+            ...current[taskId],
+            category_id:
+              item.status === "classified" && item.suggested_category_id
+                ? item.suggested_category_id
+                : "",
+          },
+        }));
+      }
+    } catch (error) {
+      setPreviewFeedback((current) => ({
+        ...current,
+        [taskId]: commandErrorMessage(error, "AI 目录分类暂时失败"),
+      }));
+    } finally {
+      setClassificationBusy(false);
+    }
+  };
+
+  const refreshPreviews = async () => {
+    if (targetLibrary !== "project" && targetLibrary !== "company") return;
+    setLoading(true);
+    setDialogError(null);
+    const refreshRuns: Record<string, number> = {};
+    selectedConfirmTasks.forEach((task) => {
+      previewRunsRef.current[task.id] = (previewRunsRef.current[task.id] ?? 0) + 1;
+      refreshRuns[task.id] = previewRunsRef.current[task.id];
+      const timer = previewTimersRef.current[task.id];
+      if (timer) window.clearTimeout(timer);
+    });
+    try {
+      const response = await previewBatchIngestNaming({
+        targetScope: targetLibrary,
+        targetProjectId: targetProjectId || undefined,
+        items: selectedConfirmTasks.map((task) => ({ taskId: task.id, naming: rows[task.id] })),
+      });
+      const currentItems = response.items.filter(
+        (item) => previewRunsRef.current[item.task_id] === refreshRuns[item.task_id],
+      );
+      setPreviews((current) => ({
+        ...current,
+        ...Object.fromEntries(currentItems.map((item) => [item.task_id, item])),
+      }));
+      setReviewedTaskIds(
+        new Set(currentItems.filter((item) => item.submittable).map((item) => item.task_id)),
+      );
+      setRows((current) => {
+        const updated = { ...current };
+        currentItems.forEach((item) => {
+          const subject = item.fields?.subject;
+          if (typeof subject === "string" && updated[item.task_id]) {
+            updated[item.task_id] = { ...updated[item.task_id], subject };
+          }
+        });
+        return updated;
+      });
+    } catch (error) {
+      setDialogError(commandErrorMessage(error, "批量预览暂时失败，资料仍保留，可稍后重试"));
+    } finally {
+      setLoading(false);
+      setPreviewBusyByTask((current) => {
+        const next = { ...current };
+        selectedConfirmTasks.forEach((task) => {
+          next[task.id] = false;
+        });
+        return next;
+      });
+    }
+  };
+
+  const confirmSingle = async () => {
+    const task = confirmCandidate;
+    if (
+      !task ||
+      confirmingTaskId ||
+      deletingTaskId ||
+      (targetLibrary !== "project" && targetLibrary !== "company")
+    ) {
+      return;
+    }
+    const row = rows[task.id];
+    const missing = row ? rowMissing(row, company) : null;
+    if (!row || missing || !previews[task.id]?.submittable) {
+      setPreviewFeedback((current) => ({
+        ...current,
+        [task.id]: missing?.message ?? "请先生成有效的规范名预览",
+      }));
+      setConfirmCandidate(null);
+      return;
+    }
+    setConfirmingTaskId(task.id);
+    const singleDraft = aiReviewDrafts[task.id];
+    const result = singleDraft
+      ? await flow.handleSingleBatchConfirm(
+          task,
+          targetLibrary,
+          targetProjectId || undefined,
+          row,
+          warningCodesByTask[task.id] ?? [],
+          singleDraft,
+        )
+      : await flow.handleSingleBatchConfirm(
+          task,
+          targetLibrary,
+          targetProjectId || undefined,
+          row,
+          warningCodesByTask[task.id] ?? [],
+        );
+    setConfirmingTaskId(null);
+    setConfirmCandidate(null);
+    if (result.succeededIds.includes(task.id)) {
+      const completedTitle =
+        row.subject.trim() || task.suggested_title?.trim() || task.source_file_name;
+      setCompletedReviewItems((current) => [
+        ...current.filter((item) => item.taskId !== task.id),
+        {
+          taskId: task.id,
+          title: completedTitle,
+          assetId: result.resultAssetIds?.[task.id],
+          indexStatus: result.resultIndexStatuses?.[task.id],
+        },
+      ]);
+      setReviewTasks((current) => current.filter((item) => item.id !== task.id));
+      setRows((current) => {
+        const next = { ...current };
+        delete next[task.id];
+        return next;
+      });
+      setPreviews((current) => {
+        const next = { ...current };
+        delete next[task.id];
+        return next;
+      });
+      setEditedTaskIds((current) => {
+        const next = new Set(current);
+        next.delete(task.id);
+        return next;
+      });
+      setReviewedTaskIds((current) => {
+        const next = new Set(current);
+        next.delete(task.id);
+        return next;
+      });
+      return;
+    }
+    setPreviewFeedback((current) => ({
+      ...current,
+      [task.id]: "确认未完成，资料仍保留，请根据提示修改后重试",
+    }));
+  };
+
+  const submitBatchReview = () => {
+    if (
+      !allPreviewed ||
+      flow.batchBusy ||
+      (targetLibrary !== "personal" && targetLibrary !== "project" && targetLibrary !== "company")
+    ) {
+      return;
+    }
+    const destination = targetLibrary;
+    const projectId = targetProjectId || undefined;
+    const submittedRows =
+      destination === "personal"
+        ? undefined
+        : Object.fromEntries(selectedConfirmTasks.map((task) => [task.id, rows[task.id]]));
+    const onCompleted = (result: {
+      succeededIds: string[];
+      failedIds: string[];
+      resultAssetIds?: Record<string, string>;
+      resultIndexStatuses?: Record<string, string>;
+    }) => {
+      if (result.failedIds.length === 0) {
+        closeAndResetReview();
+        return;
+      }
+      const succeeded = new Set(result.succeededIds);
+      const completed = selectedConfirmTasks
+        .filter((task) => succeeded.has(task.id))
+        .map((task) => ({
+          taskId: task.id,
+          title:
+            aiReviewDrafts[task.id]?.title.trim() ||
+            rows[task.id]?.subject.trim() ||
+            task.suggested_title?.trim() ||
+            task.source_file_name,
+          assetId: result.resultAssetIds?.[task.id],
+          indexStatus: result.resultIndexStatuses?.[task.id],
+        }));
+      setCompletedReviewItems((current) => [
+        ...current.filter((item) => !succeeded.has(item.taskId)),
+        ...completed,
+      ]);
+      setReviewTasks((current) => current.filter((task) => !succeeded.has(task.id)));
+      setDialogError(
+        `${result.failedIds.length} 项资料确认未完成，已保留本次核对内容，请根据行内提示修正后重试。`,
+      );
+    };
+    const commonArgs = [
+      selectedConfirmTasks,
+      destination,
+      projectId,
+      submittedRows,
+      warningCodesByTask,
+      true,
+      onCompleted,
+    ] as const;
+    if (destination === "personal") {
+      void flow.handleBatchConfirm(
+        ...commonArgs,
+        Object.keys(aiReviewDrafts).length > 0 ? aiReviewDrafts : undefined,
+        personalDirectoryByTask,
+      );
+    } else if (Object.keys(aiReviewDrafts).length > 0) {
+      void flow.handleBatchConfirm(...commonArgs, aiReviewDrafts);
+    } else {
+      void flow.handleBatchConfirm(...commonArgs);
+    }
+  };
+
+  const closeAndResetReview = () => {
+    cancelPendingPreviews();
+    targetOptions.reset();
+    aiReview.reset();
+    setConfirmOpen(false);
+    setCloseGuardOpen(false);
+    setStage("target");
+    setTargetLibrary("");
+    setTargetProjectId("");
+    setOptions(null);
+    setRows({});
+    setPreviews({});
+    setReviewTargetKey("");
+    setReviewFilter("all");
+    setFilterSnapshot(null);
+    setEditedTaskIds(new Set());
+    setReviewedTaskIds(new Set());
+    setPreviewBusyByTask({});
+    setPreviewFeedback({});
+    setCategorySuggestions({});
+    setCategoryTargetLabel("");
+    setBulkCategoryId("");
+    setBulkCategoryTaskIds(new Set());
+    setBulkPersonalDirectoryKey("");
+    setPersonalDirectoryByTask({});
+    setFallbackDirectoryTaskId(null);
+    setFallbackDirectoryKey("");
+    setDialogError(null);
+    setReviewTasks([]);
+    setReviewInitialCount(0);
+    setCompletedReviewItems([]);
+  };
+
+  const requestCloseReview = () => {
+    const previewInProgress = Object.values(previewBusyByTask).some(Boolean);
+    if (editedTaskIds.size > 0 || previewInProgress || classificationBusy || confirmingTaskId) {
+      setCloseGuardOpen(true);
+      return;
+    }
+    closeAndResetReview();
+  };
+
+  return {
+    advanceTarget,
+    aiReview,
+    aiReviewDrafts,
+    allPreviewed,
+    bulkCategoryId,
+    bulkCategoryTaskIds,
+    bulkPersonalDirectoryKey,
+    cancelPendingPreviews,
+    categories,
+    categorySuggestions,
+    categoryTargetLabel,
+    classificationBusy,
+    classifyCategories,
+    closeAndResetReview,
+    closeGuardOpen,
+    company,
+    completedReviewItems,
+    confirmCandidate,
+    confirmOpen,
+    confirmSingle,
+    confirmSingleDelete,
+    confirmingTaskId,
+    deleteCandidate,
+    deleteFeedback,
+    deletingTaskId,
+    dialogError,
+    directoryLabel,
+    editedTaskIds,
+    fallbackDirectoryKey,
+    fallbackDirectoryTaskId,
+    filterSnapshot,
+    formalDirectories,
+    liveSelectedConfirmTasks,
+    loadAiReview,
+    loading,
+    missingDates,
+    options,
+    personalDirectoryByTask,
+    previewBusyByTask,
+    previewFeedback,
+    previewRunsRef,
+    previewSummary,
+    previewTimersRef,
+    previews,
+    refreshPreviews,
+    rejectOpen,
+    requestCloseReview,
+    resetTargetReviewContext,
+    retryCategoryClassifications,
+    retryOneCategoryClassification,
+    reviewFilter,
+    reviewInitialCount,
+    reviewTargetKey,
+    reviewTasks,
+    reviewedTaskIds,
+    rows,
+    saveAiReviewDraft,
+    scheduleRowPreview,
+    selectManualCategory,
+    selectedConfirmTasks,
+    selectedRejectTasks,
+    setBulkCategoryId,
+    setBulkCategoryTaskIds,
+    setBulkPersonalDirectoryKey,
+    setCategorySuggestions,
+    setCategoryTargetLabel,
+    setClassificationBusy,
+    setCloseGuardOpen,
+    setCompletedReviewItems,
+    setConfirmCandidate,
+    setConfirmOpen,
+    setConfirmingTaskId,
+    setDeleteCandidate,
+    setDeleteFeedback,
+    setDeletingTaskId,
+    setDialogError,
+    setEditedTaskIds,
+    setFallbackDirectoryKey,
+    setFallbackDirectoryTaskId,
+    setFilterSnapshot,
+    setLoading,
+    setOptions,
+    setPersonalDirectoryByTask,
+    setPreviewBusyByTask,
+    setPreviewFeedback,
+    setPreviews,
+    setRejectOpen,
+    setReviewFilter,
+    setReviewInitialCount,
+    setReviewTargetKey,
+    setReviewTasks,
+    setReviewedTaskIds,
+    setRows,
+    setStage,
+    setTargetLibrary,
+    setTargetProjectId,
+    stage,
+    stateCounts,
+    statesByTask,
+    submitBatchReview,
+    targetKey,
+    targetLibrary,
+    targetOptions,
+    targetOptionsBusy,
+    targetOptionsError,
+    targetProjectId,
+    targetReady,
+    updateRow,
+    visibleConfirmTasks,
+    visibleTaskIds,
+    warningCodesByTask,
+    warningNotices,
+  };
+}

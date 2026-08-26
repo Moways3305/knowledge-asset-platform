@@ -213,6 +213,14 @@ export interface KnowledgeDirectoryDTO {
   project_name: string | null;
 }
 
+export interface KnowledgeLibraryProjectDTO {
+  project_id: string;
+  name: string;
+  status: "active";
+  access_mode: "member" | "summary_visible";
+  access_label: "可查看资料" | "摘要可见";
+}
+
 export interface KnowledgePageVM {
   items: KnowledgeCardVM[];
   total: number;

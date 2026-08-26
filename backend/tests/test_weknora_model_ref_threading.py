@@ -115,7 +115,7 @@ class FullFakeWK:
 def _enable_real(monkeypatch, fake: FullFakeWK) -> None:
     """启用底座但**不**绕过 resolver（用真实 resolve_models_for_kb 读 DB 默认 + 解析 ref）。"""
     monkeypatch.setattr("app.services.ingest.weknora_enabled", lambda: True)
-    monkeypatch.setattr("app.services.knowledge.weknora_enabled", lambda: True)
+    monkeypatch.setattr("app.services.knowledge_index_commands.weknora_enabled", lambda: True)
     app.dependency_overrides[get_weknora_client] = lambda: fake
 
 

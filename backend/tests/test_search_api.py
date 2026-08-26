@@ -330,6 +330,25 @@ async def test_global_search_uses_cross_project_redacted_summary_not_chunks_or_m
     _assert_no_leak(resp.text)
 
 
+async def test_active_non_member_project_filter_is_accepted_with_per_asset_summary_policy(client):
+    docs = [_doc(KA_PROJECT_BETA_L3, _BETA_KB, _SENSITIVE)]
+    _install(FakeSearchWeKnora(docs), FakeScrubLLM())
+    response = await client.post(
+        SEARCH,
+        headers=_hdr(USER_CONSULTANT),
+        json={
+            "query": "客户访谈",
+            "scope": "project",
+            "filters": {"project_id": str(PROJECT_BETA)},
+        },
+    )
+
+    assert response.status_code == 200
+    assert {card["asset_id"] for card in response.json()["cards"]} == {str(KA_PROJECT_BETA_L3)}
+    assert response.json()["cards"][0]["can_view_original"] is False
+    assert _SENSITIVE not in response.text
+
+
 async def test_cross_project_original_request_returns_no_chunks_or_member_names(client):
     docs = [_doc(KA_PROJECT_BETA_L3, _BETA_KB, _SENSITIVE)]
     _install(FakeSearchWeKnora(docs), FakeScrubLLM())

@@ -199,7 +199,7 @@ try {
       } else if (scenario === "error") {
         await page.getByText("知识资产加载失败").waitFor();
       } else {
-        await page.getByText("当前身份暂无可浏览资料").waitFor();
+        await page.getByText("暂无可复用资料").waitFor();
       }
 
       await page.waitForTimeout(160);

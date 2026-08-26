@@ -10,15 +10,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.identity import Project
-from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
+from app.models.knowledge import KnowledgeAssetVersion
 from app.models.naming import NamingRuleRevision
 from app.schemas.enums import KnowledgeScope
 from app.schemas.permission import CallerContext
-from app.services.discoverable_projects import (
-    MEMBER,
-    discoverable_project_asset_filter,
-    list_discoverable_projects,
-)
+from app.services.discoverable_projects import list_knowledge_library_projects
+
+UNCLASSIFIED_PROJECT_DIRECTORY_KEY = "project.unclassified"
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +163,22 @@ async def validate_directory(
     project_id: uuid.UUID | None,
 ) -> tuple[int | None, dict]:
     version, rows = await published_directories(session)
+    if directory_key == UNCLASSIFIED_PROJECT_DIRECTORY_KEY:
+        if scope != KnowledgeScope.project.value or project_id is None:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "denied_reason": "directory_scope_mismatch",
+                    "message": "未分类目录仅适用于指定项目",
+                },
+            )
+        return version, {
+            "directory_key": UNCLASSIFIED_PROJECT_DIRECTORY_KEY,
+            "scope": KnowledgeScope.project.value,
+            "display_name": "未分类 / 待治理",
+            "description": "尚未映射正式目录的可见资料",
+            "enabled": True,
+        }
     item = next((row for row in rows if row.get("directory_key") == directory_key), None)
     if item is None or not item.get("enabled", True):
         raise HTTPException(
@@ -224,45 +238,16 @@ async def visible_directory_rows(
     *,
     allowed_scope: str | None = None,
     allowed_project_id: uuid.UUID | None = None,
-    asset_filter=None,
 ) -> list[dict]:
     _, rows = await published_directories(session)
-    # Member projects expose their complete governed directory template. A
-    # non-member project is exposed only through directory rows which contain at
-    # least one asset allowed by the authoritative discovery policy. This keeps
-    # empty projects, empty directories and L5-only projects non-enumerable.
-    discoverable_rows: list[tuple[uuid.UUID | None, str | None]] = []
-    if allowed_scope in (None, "all", KnowledgeScope.project.value):
-        rows_with_discovery = (
-            await session.execute(
-                select(KnowledgeAsset.project_id, KnowledgeAssetVersion.directory_key)
-                .join(
-                    KnowledgeAssetVersion,
-                    KnowledgeAssetVersion.id == KnowledgeAsset.current_version_id,
-                )
-                .where(
-                    KnowledgeAsset.scope == KnowledgeScope.project.value,
-                    KnowledgeAsset.project_id.is_not(None),
-                    KnowledgeAssetVersion.directory_key.is_not(None),
-                    discoverable_project_asset_filter(caller, additional_filter=asset_filter),
-                )
-                .distinct()
-            )
-        ).all()
-        discoverable_rows = [
-            (project_id, directory_key) for project_id, directory_key in rows_with_discovery
-        ]
-    discoverable_by_project: dict[uuid.UUID, set[str]] = {}
-    for project_id, directory_key in discoverable_rows:
-        if project_id is not None and directory_key:
-            discoverable_by_project.setdefault(project_id, set()).add(directory_key)
-
-    projects = await list_discoverable_projects(
+    # Directory navigation is structure inside an already-visible project, not
+    # evidence that a project or asset exists. Content endpoints still apply
+    # discovery and channel ceilings to every returned asset.
+    projects = await list_knowledge_library_projects(
         session,
         caller,
         allowed_scope=allowed_scope,
         allowed_project_id=allowed_project_id,
-        asset_filter=asset_filter,
     )
     out: list[dict] = []
     for row in rows:
@@ -280,10 +265,6 @@ async def visible_directory_rows(
         }
         if scope == "project":
             for project in projects:
-                if project.access_mode != MEMBER and row.get(
-                    "directory_key"
-                ) not in discoverable_by_project.get(project.project_id, set()):
-                    continue
                 out.append(
                     {
                         **base,
@@ -311,6 +292,20 @@ async def visible_directory_rows(
                     "display_path": f"公司库 / {row.get('display_name')}",
                 }
             )
+    if allowed_scope in (None, "all", KnowledgeScope.project.value):
+        for project in projects:
+            out.append(
+                {
+                    "directory_key": UNCLASSIFIED_PROJECT_DIRECTORY_KEY,
+                    "name": "未分类 / 待治理",
+                    "description": "尚未映射正式目录的可见资料",
+                    "scope": KnowledgeScope.project.value,
+                    "parent_key": None,
+                    "project_id": project.project_id,
+                    "project_name": project.name,
+                    "display_path": f"项目库 / {project.name} / 未分类 / 待治理",
+                }
+            )
     return out
 
 
@@ -322,10 +317,15 @@ async def directory_document_ids(
     project_id: uuid.UUID | None,
 ) -> list[str]:
     """Resolve formal directory membership before semantic recall."""
+    directory_condition = (
+        KnowledgeAssetVersion.directory_key.is_(None)
+        if directory_key == UNCLASSIFIED_PROJECT_DIRECTORY_KEY
+        else KnowledgeAssetVersion.directory_key == directory_key
+    )
     stmt = select(KnowledgeAssetVersion.weknora_doc_id).where(
         KnowledgeAssetVersion.version_status == "active",
         KnowledgeAssetVersion.index_status == "indexed",
-        KnowledgeAssetVersion.directory_key == directory_key,
+        directory_condition,
         KnowledgeAssetVersion.weknora_doc_id.is_not(None),
     )
     from app.models.knowledge import KnowledgeAsset

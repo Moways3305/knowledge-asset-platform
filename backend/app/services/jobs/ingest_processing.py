@@ -52,14 +52,40 @@ from app.schemas.enums import (
 from app.schemas.naming import NamingOptionsResponse
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
-from app.services import canonical_markdown, content_processing, llm_usage, naming_rules, ocr
+from app.services import (
+    canonical_markdown,
+    content_processing,
+    domain_events,
+    llm_usage,
+    naming_rules,
+    ocr,
+)
 from app.services.desensitization import DesensitizationEngine
 from app.services.extraction import ExtractionPage, ExtractionResult, extract_text
 from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.permission import build_caller_context
 from app.services.storage import LocalFileStorage
+from app.worker.enqueue import enqueue_outbox_delivery
 
 _logger = logging.getLogger(__name__)
+
+
+async def _publish_ingest_failed(session: AsyncSession, task: IngestTask) -> None:
+    await domain_events.publish(
+        session,
+        domain_events.DomainEvent(
+            event_type=domain_events.INGEST_FAILED,
+            aggregate_type="ingest_task",
+            aggregate_id=task.id,
+            payload=domain_events.safe_payload(
+                task_id=task.id,
+                project_id=task.target_project_id,
+                status=task.status,
+            ),
+            idempotency_key=f"ingest-failed:{task.id}:{task.retry_count}",
+        ),
+    )
+
 
 # 已处理终态（再次入队/重跑直接跳过，保证幂等）。
 _PROCESSED_STATUSES = {IngestStatus.pending_confirmation.value, IngestStatus.completed.value}
@@ -446,10 +472,9 @@ async def _process_upload_task_impl(
                 task.processing_stage = "ocr_failed"
                 task.error_type = exc.code
                 task.error_message = str(exc)
-                from app.services.notifications import notify_ingest_failed
-
-                await notify_ingest_failed(session, task)
+                await _publish_ingest_failed(session, task)
                 await session.commit()
+                await enqueue_outbox_delivery(session)
                 return task.status
             ai_result.ocr_status = recognized.status
             ai_result.ocr_confidence = recognized.confidence
@@ -472,10 +497,9 @@ async def _process_upload_task_impl(
                 task.processing_stage = "ocr_failed"
                 task.error_type = recognized.error_type
                 task.error_message = recognized.error_message
-                from app.services.notifications import notify_ingest_failed
-
-                await notify_ingest_failed(session, task)
+                await _publish_ingest_failed(session, task)
                 await session.commit()
+                await enqueue_outbox_delivery(session)
                 return task.status
             ai_result.extracted_text = recognized.text or None
             ai_result.extracted_char_count = len(recognized.text)
@@ -668,9 +692,7 @@ async def _process_upload_task_impl(
                 outcome="failure",
             )
         if exhausted:
-            from app.services.notifications import notify_ingest_failed
-
-            await notify_ingest_failed(session, clean_task)
+            await _publish_ingest_failed(session, clean_task)
         try:
             await session.commit()
         except SQLAlchemyError:
@@ -681,6 +703,8 @@ async def _process_upload_task_impl(
                 model=getattr(llm, "model", None),
                 model_attempted=model_attempted,
             )
+        if exhausted:
+            await enqueue_outbox_delivery(session)
         return clean_task.status
 
     # ---- 内容性结果：写 ai_result + 推进状态 ----
@@ -777,9 +801,7 @@ async def _process_upload_task_impl(
             },
             project_id=task.target_project_id,
         )
-        from app.services.notifications import notify_ingest_failed
-
-        await notify_ingest_failed(session, task)
+        await _publish_ingest_failed(session, task)
     try:
         await session.commit()
     except Exception as exc:  # commit failures invalidate the active transaction
@@ -792,6 +814,8 @@ async def _process_upload_task_impl(
             model_attempted=model_attempted,
             failure_stage="content_result_persistence_failed",
         )
+    if failed:
+        await enqueue_outbox_delivery(session)
     return task.status
 
 

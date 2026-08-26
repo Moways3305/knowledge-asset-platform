@@ -35,8 +35,9 @@ from app.schemas.enums import (
     CompanyRole,
     KnowledgeScope,
 )
-from app.services import alert as alert_service
 from app.services import audit as audit_service
+from app.services import operation_events
+from app.worker.enqueue import enqueue_outbox_delivery
 
 _DEFAULT_MIN_PROJECTS = 2  # 被 >=2 个项目复用
 _DEFAULT_MIN_CALLS = 3  # 或调用次数 >= 3
@@ -135,23 +136,16 @@ async def scan_reuse_and_recommend(
                 },
             )
             await session.flush()
-            from app.services.wecom_notification import default_notification_channel
-
-            channel = default_notification_channel()
             for uid in recipients:
-                await alert_service.record_local_notification(
+                await operation_events.publish_local_notification(
                     session,
-                    recipient_user_id=uid,
-                    title=f"升格推荐：{asset.title}",
-                    content=(
-                        f"项目资产「{asset.title}」被 {int(project_count)} 个项目、共 "
-                        f"{int(call_count)} 次复用，建议评估升格为公司知识资产"
-                        f"（需总经理 / 咨询总监审核，系统不自动升格）。"
-                    ),
+                    notice_type="reuse_upgrade",
+                    recipient_id=uid,
+                    asset_id=asset.id,
                     audit_event_id=audit_event.id,
-                    channel=channel,
                 )
             recommended += 1
 
     await session.commit()
+    await enqueue_outbox_delivery(session)
     return {"usage_updated": updated, "recommended": recommended, "assets": len(rows)}

@@ -19,7 +19,7 @@ from app.seed.dev_seed import (
     USER_CONSULTANT,
     USER_PROJECT_MANAGER,
 )
-from app.services import knowledge as knowledge_service
+from app.services import knowledge_personal_query as knowledge_service
 from app.services.directories import default_directory_config
 
 MY = "/api/v1/my/knowledge"

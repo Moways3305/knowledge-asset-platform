@@ -223,7 +223,7 @@ def _enable_leaky(monkeypatch):
     from conftest import patch_default_model
 
     monkeypatch.setattr("app.services.ingest.weknora_enabled", lambda: True)
-    monkeypatch.setattr("app.services.knowledge.weknora_enabled", lambda: True)
+    monkeypatch.setattr("app.services.knowledge_index_commands.weknora_enabled", lambda: True)
     patch_default_model(monkeypatch)
     app.dependency_overrides[get_weknora_client] = lambda: _LeakyWK()
 
@@ -318,7 +318,7 @@ async def test_upstream_leaky_code_not_exposed(client, db_session, monkeypatch):
     from conftest import patch_default_model
 
     monkeypatch.setattr("app.services.ingest.weknora_enabled", lambda: True)
-    monkeypatch.setattr("app.services.knowledge.weknora_enabled", lambda: True)
+    monkeypatch.setattr("app.services.knowledge_index_commands.weknora_enabled", lambda: True)
     patch_default_model(monkeypatch)
     app.dependency_overrides[get_weknora_client] = lambda: _LeakyCodeWK()
     try:

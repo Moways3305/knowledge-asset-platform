@@ -9,7 +9,7 @@
 - 复用既有 `asset_lifecycle_events` / 审计 action / 本地 `notification_records`。
 - 阈值取 `ensure_default_rules` 落库的规则；规则缺失/停用时回退默认值。
 - 去重：按 asset + event_type + 时间窗口，避免重复扫描刷屏。
-- 生命周期 reason / 通知文本沿用值级脱敏（经 record_local_notification + system 审计）。
+- 生命周期 reason / 通知文本沿用值级脱敏（经 Outbox 消费端 + system 审计）。
 """
 
 from __future__ import annotations
@@ -31,6 +31,8 @@ from app.schemas.enums import (
 )
 from app.services import alert as alert_service
 from app.services import audit as audit_service
+from app.services import operation_events
+from app.worker.enqueue import enqueue_outbox_delivery
 
 # 阈值回退默认值（与 alert.DEFAULT_ARCHIVE_RULES 一致；仅在规则缺失/停用时使用）。
 _DEFAULT_INACTIVITY_DAYS = 730
@@ -79,7 +81,7 @@ async def _emit(
     inactive_days: int,
     trace_id: str | None,
 ) -> None:
-    """写一条系统生命周期事件 + 安全审计 + 本地通知（不改 asset_status）。"""
+    """写系统生命周期事件、审计和同事务通知事件（不改 asset_status）。"""
     reason = f"系统扫描：长期未调用 {inactive_days} 天"
     event = AssetLifecycleEvent(
         asset_id=asset.id,
@@ -110,15 +112,17 @@ async def _emit(
     await session.flush()
     recipient = asset.maintainer_user_id or asset.owner_user_id
     if recipient is not None:
-        from app.services.wecom_notification import default_notification_channel
-
-        await alert_service.record_local_notification(
+        notice_type = (
+            "lifecycle_archive_candidate"
+            if event_type == LifecycleEventType.archive_candidate.value
+            else "lifecycle_archive_warning"
+        )
+        await operation_events.publish_local_notification(
             session,
-            recipient_user_id=recipient,
-            title=f"归档{'候选' if event_type == LifecycleEventType.archive_candidate.value else '预警'}：{asset.title}",
-            content=f"资产「{asset.title}」（{asset.scope}）长期未调用（{inactive_days} 天），请评估是否归档。",
+            notice_type=notice_type,
+            recipient_id=recipient,
+            asset_id=asset.id,
             audit_event_id=audit_event.id,
-            channel=default_notification_channel(),
         )
 
 
@@ -190,4 +194,5 @@ async def scan_archive_candidates(
         # 预警期内重复扫描 → 去重跳过。
 
     await session.commit()
+    await enqueue_outbox_delivery(session)
     return {"warnings": warnings, "candidates": candidates, "scanned": len(assets)}

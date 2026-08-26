@@ -20,6 +20,7 @@ const ROUTES: Record<string, string> = {
   upload: "/upload",
   admin_ingest: "/admin/ingest",
   models: "/admin/weknora-models",
+  knowledge_detail: "/knowledge/:id",
 };
 const STATUS_LABEL: Record<string, string> = {
   needs_action: "待处理",
@@ -118,11 +119,12 @@ export default function NotificationBell() {
   };
 
   const openItem = async (item: BusinessNotificationDTO) => {
-    const route = ROUTES[item.target.route_key];
-    if (!route) {
+    const routeTemplate = ROUTES[item.target.route_key];
+    if (!routeTemplate) {
       setMutationError("目标页暂不可用，通知仍保持未读。");
       return;
     }
+    const route = routeTemplate.replace(":id", encodeURIComponent(item.target.resource_id));
     navigate(`${route}?target_id=${encodeURIComponent(item.target.resource_id)}`);
     if (await markOne(item)) setOpen(false);
   };

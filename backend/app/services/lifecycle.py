@@ -46,13 +46,14 @@ from app.schemas.lifecycle import (
     ReenableRequestBody,
 )
 from app.schemas.permission import CallerContext, DeniedReason
-from app.services import alert as alert_service
 from app.services import audit as audit_service
+from app.services import operation_events
 from app.services.permission import (
     lifecycle_actor_allowed,
     lifecycle_is_strong_audit,
     lifecycle_visibility,
 )
+from app.worker.enqueue import enqueue_outbox_delivery
 
 # 重新启用允许的目标状态。
 _REENABLE_TARGETS = {AssetStatus.active.value, AssetStatus.needs_update.value}
@@ -120,27 +121,23 @@ async def _load_governable_asset(
     return asset
 
 
-async def _notify(
+async def _publish_notification(
     session: AsyncSession,
     asset: KnowledgeAsset,
     *,
-    title: str,
-    content: str,
-    audit_event_id: uuid.UUID | None,
+    notice_type: str,
+    audit_event_id: uuid.UUID,
 ) -> None:
-    """对资产维护人 / 所有者发一条本地站内通知（安全元数据）。"""
+    """在当前业务事务发布资产维护人 / 所有者通知事件。"""
     recipient = asset.maintainer_user_id or asset.owner_user_id
     if recipient is None:
         return
-    from app.services.wecom_notification import default_notification_channel
-
-    await alert_service.record_local_notification(
+    await operation_events.publish_local_notification(
         session,
-        recipient_user_id=recipient,
-        title=title,
-        content=content,
+        notice_type=notice_type,
+        recipient_id=recipient,
+        asset_id=asset.id,
         audit_event_id=audit_event_id,
-        channel=default_notification_channel(),
     )
 
 
@@ -277,17 +274,14 @@ async def archive_confirm(
         project_id=asset.project_id,
     )
     await session.flush()
-    await _notify(
+    await _publish_notification(
         session,
         asset,
-        title=f"知识资产已归档：{asset.title}",
-        content=(
-            f"资产「{asset.title}」（{asset.scope}/{asset.confidentiality_level}）"
-            f"已由 {old_status} 归档。原因：{reason}。"
-        ),
+        notice_type="lifecycle_archived",
         audit_event_id=audit_event.id,
     )
     await session.commit()
+    await enqueue_outbox_delivery(session)
     return ArchiveConfirmResponse(
         asset_id=asset.id,
         asset_status=asset.asset_status,
@@ -423,17 +417,14 @@ async def reenable_confirm(
         project_id=asset.project_id,
     )
     await session.flush()
-    await _notify(
+    await _publish_notification(
         session,
         asset,
-        title=f"知识资产已重新启用：{asset.title}",
-        content=(
-            f"资产「{asset.title}」已重新启用为 {body.target_status}（曾归档，"
-            f"归档记录保留用于追溯）。原因：{reason}。"
-        ),
+        notice_type="lifecycle_reenabled",
         audit_event_id=audit_event.id,
     )
     await session.commit()
+    await enqueue_outbox_delivery(session)
     return ReenableConfirmResponse(
         asset_id=asset.id,
         asset_status=asset.asset_status,

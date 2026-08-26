@@ -1,7 +1,7 @@
 """运维告警信号扫描作业（PBC-28 最小告警环）。
 
-对三类高价值运维信号做阈值检查，超阈值时写系统审计 + 给 active admin 写
-notification_records（默认渠道走 `default_notification_channel`，由既有
+对三类高价值运维信号做阈值检查，超阈值时同事务写系统审计 + Outbox 事件，
+消费端给 active admin 写 notification_records（默认渠道走 `default_notification_channel`，由既有
 `notifications.dispatch_pending` beat 任务真实下发；企微未启用时保持 in_app
 pending，不假装已发送）：
 
@@ -14,8 +14,8 @@ pending，不假装已发送）：
 阈值 / 时间窗 / 冷却均来自 alert_rules（`alert.DEFAULT_OPS_ALERT_RULES` 落库的可
 配置默认值）：计数规则停用即关闭对应信号；参数规则（分钟数）停用/缺失回退默认。
 
-冷却去重（状态持久化在 notification_records，beat/worker 重启不重发、不轰炸）：
-- 同一信号距上一条同标题通知不足冷却期（默认 360 分钟）→ 不重发；
+冷却去重（状态持久化在业务审计事实，通知消费延迟不影响判断）：
+- 同一告警规则距上一条触发审计不足冷却期（默认 360 分钟）→ 不重发；
 - 持续超阈值 → 每个冷却期至多 1 条（不永久哑火）；
 - 恢复（低于阈值）→ 不发；冷却期满后再次超阈值 → 再发。
 
@@ -27,21 +27,24 @@ ref / email / IP / identifier·ip hash（含前缀）/ token / cookie / 密钥 /
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.utils import utc_now
+from app.models.audit import AuditEvent
 from app.models.auth_security import AuthLoginAttempt
 from app.models.identity import User, UserCompanyRole
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
-from app.models.lifecycle import AlertRule, NotificationRecord
+from app.models.lifecycle import AlertRule
 from app.schemas.enums import AssetStatus, AuditAction, AuditLogType, CompanyRole
 from app.services import alert as alert_service
 from app.services import audit as audit_service
-from app.services import notifications as notification_service
+from app.services import operation_events
 from app.services.index_recovery import INTERRUPTED_ERROR_CODE
+from app.worker.enqueue import enqueue_outbox_delivery
 
 # 规则名（与 alert.DEFAULT_OPS_ALERT_RULES 落库名一致）。
 RULE_INDEX_FAILED = "索引失败堆积告警"
@@ -51,7 +54,7 @@ RULE_PARSE_STALL_MINUTES = "解析停滞判定时长"
 RULE_LOGIN_WINDOW_MINUTES = "登录安全统计时间窗"
 RULE_COOLDOWN_MINUTES = "运维告警冷却期"
 
-# 通知标题常量：既是用户可读标题，也是冷却去重的匹配键（精确等值查询）。
+# 通知标题常量（消费端保持同一用户文案）。
 TITLE_INDEX_FAILED = "运维告警：索引失败堆积"
 TITLE_PARSE_STALLED = "运维告警：解析停滞堆积"
 TITLE_LOGIN_GUARD = "运维告警：登录安全异常"
@@ -160,14 +163,18 @@ async def _count_login_guard_events(
 
 
 async def _in_cooldown(
-    session: AsyncSession, title: str, now: datetime, cooldown_minutes: int
+    session: AsyncSession, rule_id: uuid.UUID, now: datetime, cooldown_minutes: int
 ) -> bool:
-    """距上一条同标题通知是否不足冷却期。状态在 DB，重启后口径不变。"""
+    """距该规则上一条业务触发事实是否不足冷却期。"""
     latest = (
         await session.execute(
-            select(NotificationRecord.created_at)
-            .where(NotificationRecord.title == title)
-            .order_by(NotificationRecord.created_at.desc())
+            select(AuditEvent.created_at)
+            .where(
+                AuditEvent.action == AuditAction.ops_alert_triggered.value,
+                AuditEvent.target_type == "alert_rule",
+                AuditEvent.target_id == rule_id,
+            )
+            .order_by(AuditEvent.created_at.desc())
             .limit(1)
         )
     ).scalar_one_or_none()
@@ -197,15 +204,11 @@ async def _emit(
     *,
     rule: AlertRule,
     signal: str,
-    title: str,
-    content: str,
     extra: dict,
     trace_id: str | None,
-    admins: list,
+    occurred_at: datetime,
 ) -> None:
-    """系统审计 + 每个 active admin 一条通知（默认渠道，复用既有 dispatch 链路）。"""
-    from app.services.wecom_notification import default_notification_channel
-
+    """Write the audit fact and notification event in the same transaction."""
     audit_event = await audit_service.record_system_event(
         session,
         log_type=AuditLogType.operation,
@@ -216,17 +219,14 @@ async def _emit(
         extra=extra,
     )
     await session.flush()
-    channel = default_notification_channel()
-    for admin_id in admins:
-        await alert_service.record_local_notification(
-            session,
-            recipient_user_id=admin_id,
-            title=title,
-            content=content,
-            audit_event_id=audit_event.id,
-            channel=channel,
-            alert_rule_id=rule.id,
-        )
+    await operation_events.publish_ops_signal(
+        session,
+        signal=signal,
+        count=int(extra.get("count", 0)),
+        hour_bucket=_as_aware(occurred_at).strftime("%Y%m%d%H"),
+        audit_event_id=audit_event.id,
+        alert_rule_id=rule.id,
+    )
 
 
 async def scan_ops_alerts(
@@ -262,20 +262,12 @@ async def scan_ops_alerts(
         threshold = int(rule.threshold)
         count = await _count_index_failed(session)
         counts[SIGNAL_INDEX_FAILED] = count
-        if count >= threshold and not await _in_cooldown(
-            session, TITLE_INDEX_FAILED, now, cooldown
-        ):
+        if count >= threshold and not await _in_cooldown(session, rule.id, now, cooldown):
             codes = await _index_failed_error_codes(session)
-            codes_text = "、".join(f"{c}×{n}" for c, n in codes.items()) or "unknown"
             await _emit(
                 session,
                 rule=rule,
                 signal=SIGNAL_INDEX_FAILED,
-                title=TITLE_INDEX_FAILED,
-                content=(
-                    f"活跃版本中索引失败 {count} 个，达到阈值 {threshold}。"
-                    f"失败码分布：{codes_text}。请在运维面板重试索引或排查底座配置。"
-                ),
                 extra={
                     "signal": SIGNAL_INDEX_FAILED,
                     "count": count,
@@ -283,11 +275,9 @@ async def scan_ops_alerts(
                     "error_codes": codes,
                 },
                 trace_id=trace_id,
-                admins=await _admins(),
+                occurred_at=now,
             )
-            await notification_service.notify_ops_signal(
-                session, signal=SIGNAL_INDEX_FAILED, count=count
-            )
+            await _admins()
             triggered.append(SIGNAL_INDEX_FAILED)
 
     # ---- 信号二：解析停滞堆积 ----
@@ -297,18 +287,11 @@ async def scan_ops_alerts(
         stall_minutes = _param_minutes(rules, RULE_PARSE_STALL_MINUTES, DEFAULT_PARSE_STALL_MINUTES)
         count = await _count_parse_stalled(session, now, stall_minutes)
         counts[SIGNAL_PARSE_STALLED] = count
-        if count >= threshold and not await _in_cooldown(
-            session, TITLE_PARSE_STALLED, now, cooldown
-        ):
+        if count >= threshold and not await _in_cooldown(session, rule.id, now, cooldown):
             await _emit(
                 session,
                 rule=rule,
                 signal=SIGNAL_PARSE_STALLED,
-                title=TITLE_PARSE_STALLED,
-                content=(
-                    f"有 {count} 个活跃版本经连续对账确认索引处理中断，达到阈值 {threshold}。"
-                    "请在索引恢复控制台确认底座可用后发起恢复。"
-                ),
                 extra={
                     "signal": SIGNAL_PARSE_STALLED,
                     "count": count,
@@ -316,11 +299,9 @@ async def scan_ops_alerts(
                     "stall_minutes": stall_minutes,
                 },
                 trace_id=trace_id,
-                admins=await _admins(),
+                occurred_at=now,
             )
-            await notification_service.notify_ops_signal(
-                session, signal=SIGNAL_PARSE_STALLED, count=count
-            )
+            await _admins()
             triggered.append(SIGNAL_PARSE_STALLED)
 
     # ---- 信号三：登录安全异常 ----
@@ -332,16 +313,11 @@ async def scan_ops_alerts(
         )
         count = await _count_login_guard_events(session, now, window_minutes)
         counts[SIGNAL_LOGIN_GUARD] = count
-        if count >= threshold and not await _in_cooldown(session, TITLE_LOGIN_GUARD, now, cooldown):
+        if count >= threshold and not await _in_cooldown(session, rule.id, now, cooldown):
             await _emit(
                 session,
                 rule=rule,
                 signal=SIGNAL_LOGIN_GUARD,
-                title=TITLE_LOGIN_GUARD,
-                content=(
-                    f"最近 {window_minutes} 分钟内发生登录锁定/限流事件 {count} 起，"
-                    f"达到阈值 {threshold}。请关注登录安全运维面板，必要时收紧风控参数。"
-                ),
                 extra={
                     "signal": SIGNAL_LOGIN_GUARD,
                     "count": count,
@@ -349,11 +325,13 @@ async def scan_ops_alerts(
                     "window_minutes": window_minutes,
                 },
                 trace_id=trace_id,
-                admins=await _admins(),
+                occurred_at=now,
             )
+            await _admins()
             triggered.append(SIGNAL_LOGIN_GUARD)
 
     await session.commit()
+    await enqueue_outbox_delivery(session)
     return {
         "triggered": triggered,
         "counts": counts,

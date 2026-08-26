@@ -13,6 +13,8 @@ from enum import Enum
 
 from pydantic import BaseModel
 
+from app.schemas.external_agent import ProjectAccessLabel, ProjectAccessMode
+
 
 class AccessInfoOut(BaseModel):
     """调用人对某资产的三层权限状态（由权限服务决策得到）。"""
@@ -170,6 +172,18 @@ class DirectoryOut(BaseModel):
 
 class DirectoryListResponse(BaseModel):
     items: list[DirectoryOut]
+
+
+class KnowledgeLibraryProjectOut(BaseModel):
+    project_id: uuid.UUID
+    name: str
+    status: str
+    access_mode: ProjectAccessMode
+    access_label: ProjectAccessLabel
+
+
+class KnowledgeLibraryProjectListResponse(BaseModel):
+    items: list[KnowledgeLibraryProjectOut]
 
 
 class KnowledgeDeleteRequest(BaseModel):

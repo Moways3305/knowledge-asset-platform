@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import NotificationBell from "./NotificationBell";
 import {
@@ -35,9 +35,14 @@ const notification: BusinessNotificationDTO = {
 };
 
 function renderBell() {
+  function LocationProbe() {
+    const location = useLocation();
+    return <span data-testid="location-probe">{`${location.pathname}${location.search}`}</span>;
+  }
   return render(
     <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <NotificationBell />
+      <LocationProbe />
     </MemoryRouter>,
   );
 }
@@ -150,5 +155,38 @@ describe("NotificationBell", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("未能标记为已读");
     expect(screen.getByRole("dialog", { name: "通知中心" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /通知中心，1 项待处理/ })).toBeInTheDocument();
+  });
+
+  it("opens an index update at the governed knowledge detail route", async () => {
+    const indexUpdate = {
+      ...notification,
+      id: "notif-index",
+      event_type: "index.status_changed",
+      category: "indexing",
+      title: "索引状态已更新",
+      action_required: false,
+      task_status: "completed" as const,
+      task_group: "recent_completed" as const,
+      next_action_label: "查看记录",
+      target: { route_key: "knowledge_detail", resource_id: "asset-safe-1" },
+    };
+    vi.mocked(fetchNotifications).mockResolvedValue({
+      items: [indexUpdate],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      unread_count: 1,
+      pending_count: 0,
+      categories: ["indexing"],
+    });
+    renderBell();
+    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
+    fireEvent.click(await screen.findByRole("tab", { name: /动态/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "查看记录" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("location-probe")).toHaveTextContent(
+        "/knowledge/asset-safe-1?target_id=asset-safe-1",
+      ),
+    );
   });
 });

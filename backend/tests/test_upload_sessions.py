@@ -11,7 +11,7 @@ from app.api import ingest as ingest_api
 from app.models.ingest import IngestTask, UploadSessionItem, UploadTransportBatch
 from app.schemas.enums import IngestSource, IngestStatus
 from app.seed.dev_seed import USER_CONSULTANT, USER_PROJECT_MANAGER
-from app.services import upload_sessions
+from app.services import upload_session_recovery
 from app.services.upload_sessions import BATCH_SIZE, stable_batch_sizes
 
 
@@ -255,7 +255,7 @@ async def test_next_batch_waits_then_advances_when_the_current_batch_releases_ca
     async def queued_without_worker(*args, **kwargs):
         return "processing"
 
-    monkeypatch.setattr(upload_sessions, "enqueue_ingest_processing", queued_without_worker)
+    monkeypatch.setattr(upload_session_recovery, "enqueue_ingest_processing", queued_without_worker)
     files = [("files", (f"ordered-{index:03}.txt", b"x", "text/plain")) for index in range(401)]
     created = await client.post(
         "/api/v1/ingest/upload-sessions",
@@ -416,7 +416,7 @@ async def test_stale_processing_requires_total_age_and_missing_recent_activity(
     async def queued_without_worker(*args, **kwargs):
         return "processing"
 
-    monkeypatch.setattr(upload_sessions, "enqueue_ingest_processing", queued_without_worker)
+    monkeypatch.setattr(upload_session_recovery, "enqueue_ingest_processing", queued_without_worker)
     created = await client.post(
         "/api/v1/ingest/upload-sessions",
         headers=_headers(USER_CONSULTANT),
@@ -528,7 +528,7 @@ async def test_item_retry_atomically_claims_the_failed_row_before_enqueue(
         competing_status = competing.status_code
         return IngestStatus.processing.value
 
-    monkeypatch.setattr(upload_sessions, "enqueue_ingest_processing", fake_enqueue)
+    monkeypatch.setattr(upload_session_recovery, "enqueue_ingest_processing", fake_enqueue)
     retried = await client.post(retry_url, headers=_headers(USER_CONSULTANT))
 
     assert retried.status_code == 200

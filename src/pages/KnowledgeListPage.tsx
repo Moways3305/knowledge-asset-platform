@@ -16,6 +16,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   fetchKnowledgeDetail,
   fetchKnowledgeDirectories,
+  fetchKnowledgeLibraryProjects,
   fetchKnowledgePage,
   requestOriginalAccess,
   searchKnowledge,
@@ -42,6 +43,7 @@ import type {
   KnowledgeCardVM,
   KnowledgeDetailVM,
   KnowledgeDirectoryDTO,
+  KnowledgeLibraryProjectDTO,
   KnowledgePageVM,
   KnowledgeQueryParams,
   KnowledgeScope,
@@ -94,7 +96,7 @@ function pageNumbers(current: number, total: number): number[] {
 }
 
 export default function KnowledgeListPage() {
-  const { authMe, capabilities, status } = useAuth();
+  const { capabilities, status } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialScope = (searchParams.get("scope") as KnowledgeScope | null) ?? "";
@@ -115,6 +117,8 @@ export default function KnowledgeListPage() {
   const [includeArchived, setIncludeArchived] = useState(searchParams.get("archived") === "1");
   const [directory, setDirectory] = useState<KnowledgeDirectoryDTO | null>(null);
   const [directoryItems, setDirectoryItems] = useState<KnowledgeDirectoryDTO[]>([]);
+  const [projectCatalog, setProjectCatalog] = useState<KnowledgeLibraryProjectDTO[]>([]);
+  const [projectCatalogLoaded, setProjectCatalogLoaded] = useState(false);
   const [directoryLoading, setDirectoryLoading] = useState(false);
   const [page, setPage] = useState(Math.max(1, Number(searchParams.get("page")) || 1));
   const [result, setResult] = useState<KnowledgePageVM>(emptyPage);
@@ -125,39 +129,20 @@ export default function KnowledgeListPage() {
   const requestRef = useRef(0);
   const directoryRequestRef = useRef(0);
   const restoredDirectoryRef = useRef(false);
+  const restoredUrlContextRef = useRef("");
   const tableShellRef = useRef<HTMLDivElement>(null);
   const topScrollerRef = useRef<HTMLDivElement>(null);
   const [tableOverflow, setTableOverflow] = useState(false);
   const [tableScrollWidth, setTableScrollWidth] = useState(0);
   const [tableAtEnd, setTableAtEnd] = useState(false);
 
-  const memberProjects = useMemo(() => authMe?.projects ?? [], [authMe?.projects]);
   const availableProjects = useMemo(() => {
-    const rows = new Map<
-      string,
-      { projectId: string; projectName: string; accessLabel: "可查看资料" | "摘要可见" }
-    >(
-      memberProjects.map((project) => [
-        project.projectId,
-        {
-          projectId: project.projectId,
-          projectName: project.projectName,
-          accessLabel: "可查看资料" as const,
-        },
-      ]),
-    );
-    directoryItems.forEach((item) => {
-      if (item.scope !== "project" || !item.project_id || !item.project_name) return;
-      if (!rows.has(item.project_id)) {
-        rows.set(item.project_id, {
-          projectId: item.project_id,
-          projectName: item.project_name,
-          accessLabel: "摘要可见",
-        });
-      }
-    });
-    return [...rows.values()];
-  }, [directoryItems, memberProjects]);
+    return projectCatalog.map((project) => ({
+      projectId: project.project_id,
+      projectName: project.name,
+      accessLabel: project.access_label,
+    }));
+  }, [projectCatalog]);
   const validProjectId = availableProjects.some((project) => project.projectId === projectId)
     ? projectId
     : "";
@@ -362,6 +347,70 @@ export default function KnowledgeListPage() {
     validProjectId,
     directory,
   ]);
+
+  useEffect(() => {
+    const urlContext = searchParams.toString();
+    if (restoredUrlContextRef.current === urlContext) return;
+    restoredUrlContextRef.current = urlContext;
+    const nextScope = (searchParams.get("scope") as KnowledgeScope | null) ?? "";
+    const nextProjectId = searchParams.get("project_id") ?? "";
+    const nextDirectoryKey = searchParams.get("directory_key");
+    setScope(nextScope);
+    setProjectId(nextProjectId);
+    setGlobalSearchMode(searchParams.get("search") === "global");
+    setDirectory((currentDirectory) => {
+      const matchesUrl =
+        Boolean(nextDirectoryKey) &&
+        currentDirectory?.directory_key === nextDirectoryKey &&
+        (nextScope !== "project" || currentDirectory.project_id === nextProjectId);
+      if (matchesUrl) return currentDirectory;
+      restoredDirectoryRef.current = false;
+      return null;
+    });
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!canLoadBusinessKnowledge) {
+      setProjectCatalog([]);
+      setProjectCatalogLoaded(true);
+      return;
+    }
+    let active = true;
+    setProjectCatalogLoaded(false);
+    void fetchKnowledgeLibraryProjects()
+      .then((items) => {
+        if (active) setProjectCatalog(items);
+      })
+      .catch(() => {
+        if (active) setProjectCatalog([]);
+      })
+      .finally(() => {
+        if (active) setProjectCatalogLoaded(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [canLoadBusinessKnowledge]);
+
+  useEffect(() => {
+    if (
+      !projectCatalogLoaded ||
+      scope !== "project" ||
+      !projectId ||
+      availableProjects.some((project) => project.projectId === projectId)
+    ) {
+      return;
+    }
+    setProjectId("");
+    setDirectory(null);
+    setPage(1);
+    if (directoryKeyFromUrl) {
+      setScope("");
+      navigate("/knowledge", { replace: true });
+    } else {
+      navigate("/knowledge?scope=project", { replace: true });
+    }
+  }, [availableProjects, directoryKeyFromUrl, navigate, projectCatalogLoaded, projectId, scope]);
 
   useEffect(() => {
     if (!canLoadBusinessKnowledge) return;
@@ -662,6 +711,7 @@ export default function KnowledgeListPage() {
                 setDirectory(null);
                 setGlobalSearchMode(false);
                 setPage(1);
+                navigate("/knowledge");
               }}
               aria-current={!scope && !globalSearchMode ? "page" : undefined}
             >
@@ -680,6 +730,7 @@ export default function KnowledgeListPage() {
                     setDirectory(null);
                     setGlobalSearchMode(false);
                     setPage(1);
+                    navigate(`/knowledge?scope=${scope}`);
                   }}
                 >
                   {scope === "company" ? "公司库" : scope === "project" ? "项目库" : "个人库"}
@@ -695,6 +746,7 @@ export default function KnowledgeListPage() {
                   onClick={() => {
                     setDirectory(null);
                     setPage(1);
+                    navigate(`/knowledge?scope=project&project_id=${validProjectId}`);
                   }}
                 >
                   {availableProjects.find((item) => item.projectId === validProjectId)?.projectName}
@@ -738,19 +790,37 @@ export default function KnowledgeListPage() {
                 <div className="kbl-folder-grid">
                   {!scope && (
                     <>
-                      <button type="button" onClick={() => setScope("company")}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setScope("company");
+                          navigate("/knowledge?scope=company");
+                        }}
+                      >
                         <Building2 aria-hidden="true" />
                         <strong>公司库</strong>
                         <span>公司级方法、案例与标准资产</span>
                       </button>
                       {availableProjects.length > 0 && (
-                        <button type="button" onClick={() => setScope("project")}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setScope("project");
+                            navigate("/knowledge?scope=project");
+                          }}
+                        >
                           <BriefcaseBusiness aria-hidden="true" />
                           <strong>项目库</strong>
                           <span>按所属项目进入交付资料目录</span>
                         </button>
                       )}
-                      <button type="button" onClick={() => setScope("personal")}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setScope("personal");
+                          navigate("/knowledge?scope=personal");
+                        }}
+                      >
                         <UserRound aria-hidden="true" />
                         <strong>个人库</strong>
                         <span>个人学习、项目资料与待处理内容</span>
@@ -761,6 +831,7 @@ export default function KnowledgeListPage() {
                           setScope("");
                           setProjectId("");
                           setGlobalSearchMode(true);
+                          navigate("/knowledge?search=global");
                         }}
                       >
                         <Search aria-hidden="true" />
@@ -775,7 +846,14 @@ export default function KnowledgeListPage() {
                       <button
                         type="button"
                         key={project.projectId}
-                        onClick={() => setProjectId(project.projectId)}
+                        onClick={() => {
+                          setProjectId(project.projectId);
+                          setDirectory(null);
+                          setPage(1);
+                          navigate(
+                            `/knowledge?scope=project&project_id=${encodeURIComponent(project.projectId)}`,
+                          );
+                        }}
                       >
                         <Folder aria-hidden="true" />
                         <strong>{project.projectName}</strong>
@@ -791,6 +869,12 @@ export default function KnowledgeListPage() {
                         onClick={() => {
                           setDirectory(item);
                           setPage(1);
+                          const next = new URLSearchParams({
+                            scope: item.scope,
+                            directory_key: item.directory_key,
+                          });
+                          if (item.project_id) next.set("project_id", item.project_id);
+                          navigate(`/knowledge?${next}`);
                         }}
                       >
                         <Folder aria-hidden="true" />
@@ -853,7 +937,13 @@ export default function KnowledgeListPage() {
                       value={validProjectId}
                       onChange={(event) => {
                         setProjectId(event.target.value);
+                        setDirectory(null);
                         setPage(1);
+                        navigate(
+                          event.target.value
+                            ? `/knowledge?scope=project&project_id=${encodeURIComponent(event.target.value)}`
+                            : "/knowledge?scope=project",
+                        );
                       }}
                     >
                       <option value="">项目：全部可见项目</option>
@@ -1006,9 +1096,7 @@ export default function KnowledgeListPage() {
                       loadingText="正在加载知识资产…"
                       emptyText={
                         <EmptyState
-                          title={
-                            hasActiveFilters ? "当前条件没有匹配资料" : "当前身份暂无可浏览资料"
-                          }
+                          title={hasActiveFilters ? "当前条件没有匹配资料" : "暂无可复用资料"}
                           description={
                             hasActiveFilters
                               ? "仅表示当前可见范围内没有匹配项；不会确认不可见资料是否存在。"

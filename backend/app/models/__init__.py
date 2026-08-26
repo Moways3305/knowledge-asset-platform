@@ -47,6 +47,7 @@ from app.models.llm_usage import LLMUsageEvent
 from app.models.naming import NamingRuleRevision
 from app.models.notification import BusinessNotification
 from app.models.original_access import AccessGrant, OriginalAccessRequest
+from app.models.outbox import DomainEventOutbox
 from app.models.permission_rule import PermissionRule
 from app.models.preview import PreviewCredential
 from app.models.review import (
@@ -100,6 +101,7 @@ __all__ = [
     "LLMUsageEvent",
     "NamingRuleRevision",
     "BusinessNotification",
+    "DomainEventOutbox",
     "UserSession",
     "AuthLoginAttempt",
     "ContentGenerationModel",

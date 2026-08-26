@@ -35,6 +35,7 @@ from app.schemas.knowledge import (
     KnowledgeDeleteRequest,
     KnowledgeDeleteResponse,
     KnowledgeDetailOut,
+    KnowledgeLibraryProjectListResponse,
     KnowledgeListResponse,
     KnowledgeSortField,
     RetryIndexRequest,
@@ -267,6 +268,15 @@ async def list_knowledge_directories(
         scope=scope.value if scope else None,
         project_id=project_id,
     )
+
+
+@router.get("/knowledge/projects", response_model=KnowledgeLibraryProjectListResponse)
+async def list_knowledge_library_projects(
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> KnowledgeLibraryProjectListResponse:
+    """Stable active project folders; asset permissions are evaluated elsewhere."""
+    return await knowledge_service.list_knowledge_library_projects(session, caller)
 
 
 @router.get("/knowledge/ops-insights", response_model=KnowledgeOpsInsightsResponse)

@@ -237,20 +237,19 @@ async def _audit_agent_read(
     await session.commit()
 
 
-async def _load_discoverable_project(
+async def _load_knowledge_library_project(
     session: AsyncSession, caller: CallerContext, rule, project_id: uuid.UUID
-) -> tuple[Project, discoverable_projects.DiscoverableProject]:
-    """Load an evidence-backed project or return the common safe 404."""
+) -> tuple[Project, discoverable_projects.KnowledgeLibraryProject]:
+    """Load an active catalog project or return the common safe 404."""
     # 无权与不存在共用同一 404 实例，保证错误形态完全一致、不泄露存在性。
     # denied_reason 统一为 project_not_found（不暴露「成员/治理」等区别原因）。
     not_available = _denied(404, "project_not_found", "项目不存在或不可用")
-    discovered = await discoverable_projects.get_discoverable_project(
+    discovered = await discoverable_projects.get_knowledge_library_project(
         session,
         caller,
         project_id,
         allowed_scope=rule.allowed_scope,
         allowed_project_id=rule.allowed_project_id,
-        asset_filter=gateway.asset_ceiling_filter(rule),
     )
     if discovered is None:
         raise not_available
@@ -660,7 +659,7 @@ async def list_project_knowledge(
     phase: str | None = None,
     tags: list[str] | None = None,
 ) -> WorkbenchKnowledgeListResponse:
-    await _load_discoverable_project(session, caller, rule, project_id)
+    await _load_knowledge_library_project(session, caller, rule, project_id)
     lim = _clamp(limit, default=30, lo=1, hi=30)
 
     stmt = _active_asset_stmt().where(
@@ -685,7 +684,7 @@ async def list_project_knowledge(
 async def get_project_brief(
     session: AsyncSession, caller: CallerContext, rule, project_id: uuid.UUID
 ) -> WorkbenchProjectBrief:
-    project, discovered = await _load_discoverable_project(session, caller, rule, project_id)
+    project, discovered = await _load_knowledge_library_project(session, caller, rule, project_id)
 
     if discovered.access_mode == discoverable_projects.SUMMARY_VISIBLE:
         return WorkbenchProjectBrief(
