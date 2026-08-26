@@ -19,6 +19,7 @@ from app.schemas.enums import (
     KnowledgeZone,
 )
 from app.schemas.naming import NamingConfirmationFields, NamingWarningCode
+from app.schemas.upload_duplicates import UploadDuplicateReadModel
 
 
 class IngestUploadRequest(BaseModel):
@@ -34,6 +35,7 @@ class IngestUploadResponse(BaseModel):
     status: str
     # 不返回签名上传地址：固定为 None（上传走平台中转，见 README）。
     upload_url: None = None
+    duplicate: UploadDuplicateReadModel | None = None
 
 
 class UploadSessionItemResponse(BaseModel):
@@ -53,6 +55,7 @@ class UploadSessionItemResponse(BaseModel):
     last_attempt_at: datetime | None = None
     processing_stage: str | None = None
     bytes_available: bool = False
+    duplicate: UploadDuplicateReadModel | None = None
 
 
 class UploadSessionResponse(BaseModel):
@@ -243,7 +246,7 @@ class IngestAiResultResponse(BaseModel):
     naming_compliant: bool | None = None
     naming_parsed_fields: dict | None = None
     naming_anomalies: list | None = None
-    # 抽取与去重。extraction_status / 错误为运营元数据（两视图均可见）；
+    # 抽取状态 / 错误为运营元数据（两视图均可见）；
     # extracted_text_preview 是业务内容**仅完整视图**返回，admin 元数据视图为 None。
     extraction_status: str | None = None
     extracted_char_count: int | None = None
@@ -253,9 +256,6 @@ class IngestAiResultResponse(BaseModel):
     ocr_attempted_at: datetime | None = None
     error_type: str | None = None
     error_message: str | None = None
-    is_possible_duplicate: bool = False
-    duplicate_of_task_id: uuid.UUID | None = None
-    duplicate_of_asset_id: uuid.UUID | None = None
     extracted_text_preview: str | None = None
     # 内容处理所用 provider/model（安全运营元数据，非密钥）+ 状态（llm/degraded）。
     llm_provider: str | None = None
@@ -418,6 +418,7 @@ class PendingIngestItem(BaseModel):
     source: str
     status: str
     source_file_name: str
+    source_file_size: int | None = None
     target_scope: str | None = None
     target_project_id: uuid.UUID | None = None
     # 文件形成日期建议（YYYY-MM-DD；客户端文件修改时间 / 文件名兜底），人工可改可清空。
@@ -457,6 +458,7 @@ class PendingIngestItem(BaseModel):
     result_asset_id: uuid.UUID | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    duplicate: UploadDuplicateReadModel | None = None
 
 
 class PendingIngestListResponse(BaseModel):

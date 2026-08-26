@@ -12,7 +12,7 @@ import json
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,9 +39,14 @@ from app.schemas.ingest import (
     UploadTransportFailureRequest,
 )
 from app.schemas.permission import CallerContext
+from app.schemas.upload_duplicates import (
+    DuplicateDecisionRequest,
+    DuplicateDecisionResponse,
+    MyUploadListResponse,
+)
 from app.services import bulk_operations as bulk_service
 from app.services import ingest as ingest_service
-from app.services import ingest_bulk
+from app.services import ingest_bulk, upload_duplicates
 from app.services import ingest_status as ingest_status_service
 from app.services import upload_sessions as upload_session_service
 from app.services.desensitization import DesensitizationEngine, get_desensitizer
@@ -875,6 +880,51 @@ async def list_pending(
     """
     items = await ingest_service.list_pending(session, caller, source=source)
     return PendingIngestListResponse(items=items, total=len(items))
+
+
+@router.get("/ingest/my-uploads", response_model=MyUploadListResponse)
+async def list_my_uploads(
+    scope: str | None = Query(default=None),
+    final_status: str | None = Query(default=None),
+    duplicate_result: str | None = Query(default=None),
+    since: datetime | None = Query(default=None),
+    until: datetime | None = Query(default=None),
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> MyUploadListResponse:
+    items = await upload_duplicates.list_my_uploads(
+        session,
+        caller,
+        scope=scope,
+        final_status=final_status,
+        duplicate_result=duplicate_result,
+        since=since,
+        until=until,
+    )
+    return MyUploadListResponse(items=items, total=len(items))
+
+
+@router.post(
+    "/ingest/{task_id}/duplicate-decision",
+    response_model=DuplicateDecisionResponse,
+)
+async def decide_upload_duplicate(
+    task_id: uuid.UUID,
+    body: DuplicateDecisionRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+) -> DuplicateDecisionResponse:
+    return await upload_duplicates.decide_duplicate(
+        session,
+        caller,
+        task_id,
+        action=body.action,
+        reason=body.reason,
+        scope=body.target_scope.value,
+        project_id=body.target_project_id,
+        trace_id=get_trace_id(request),
+    )
 
 
 @router.delete("/ingest/{task_id}")

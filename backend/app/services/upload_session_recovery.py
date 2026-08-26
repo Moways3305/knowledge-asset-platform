@@ -190,7 +190,7 @@ async def get_session(
             desensitizer=desensitizer,
             trace_id=trace_id,
         )
-    return await _response(session, await _load_owned_session(session, caller, session_id))
+    return await _response(session, caller, await _load_owned_session(session, caller, session_id))
 
 
 async def list_sessions(
@@ -326,7 +326,7 @@ async def retry_item(
         )
         await session.commit()
     session.expire_all()
-    return await _response(session, await _load_owned_session(session, caller, session_id))
+    return await _response(session, caller, await _load_owned_session(session, caller, session_id))
 
 
 async def remove_item(
@@ -372,7 +372,7 @@ async def remove_item(
         else "active"
     )
     await session.commit()
-    return await _response(session, await _load_owned_session(session, caller, session_id))
+    return await _response(session, caller, await _load_owned_session(session, caller, session_id))
 
 
 async def remove_failed_items(
@@ -410,4 +410,4 @@ async def remove_failed_items(
         else "active"
     )
     await session.commit()
-    return await _response(session, await _load_owned_session(session, caller, session_id))
+    return await _response(session, caller, await _load_owned_session(session, caller, session_id))

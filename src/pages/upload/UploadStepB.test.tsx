@@ -7,6 +7,7 @@ import type { UploadFlow } from "./useUploadFlow";
 const namingApi = vi.hoisted(() => ({
   classifyBatchNamingCategories: vi.fn(),
   fetchNamingOptions: vi.fn(),
+  previewIngestNaming: vi.fn(),
   previewBatchIngestNaming: vi.fn(),
   saveManualNamingCategory: vi.fn(),
 }));
@@ -88,6 +89,24 @@ function flowFixture(overrides: Record<string, unknown> = {}): UploadFlow {
 
 describe("UploadStepB folder drop and batch rejection", () => {
   beforeEach(() => {
+    namingApi.previewIngestNaming.mockReset().mockResolvedValue({
+      required: false,
+      canonical_name: null,
+      rule_version: null,
+      fields: null,
+      notices: [],
+      message: "个人资料不强制规范命名",
+      duplicate: {
+        duplicate_state: "none",
+        match_type: "none",
+        match_count: 0,
+        preferred_candidate: null,
+        same_batch_group_id: null,
+        same_batch_first_ordinal: null,
+        default_selected: true,
+        decision: null,
+      },
+    });
     namingApi.fetchNamingOptions.mockReset();
     namingApi.previewBatchIngestNaming.mockReset();
     namingApi.saveManualNamingCategory.mockReset().mockResolvedValue({});
@@ -381,7 +400,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(screen.getByRole("button", { name: "下一步：核对入库" })).toBeDisabled();
     fireEvent.change(directory, { target: { value: "personal.learning_notes" } });
     fireEvent.click(screen.getByRole("button", { name: "下一步：核对入库" }));
-    fireEvent.click(screen.getByRole("button", { name: "确认已选择的 2 项入库" }));
+    fireEvent.click(await screen.findByRole("button", { name: "确认已选择的 2 项入库" }));
     expect(flow.handleBatchConfirm).toHaveBeenCalledWith(
       flow.localPendingTasks,
       "personal",
@@ -920,7 +939,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
     const directory = await screen.findByRole("combobox", { name: "本批个人目录" });
     fireEvent.change(directory, { target: { value: "personal.learning_notes" } });
     fireEvent.click(screen.getByRole("button", { name: "下一步：核对入库" }));
-    fireEvent.click(screen.getByRole("button", { name: "确认已选择的 1 项入库" }));
+    fireEvent.click(await screen.findByRole("button", { name: "确认已选择的 1 项入库" }));
     expect(flow.handleBatchConfirm).toHaveBeenCalledWith(
       [first],
       "personal",

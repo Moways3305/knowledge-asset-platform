@@ -1,9 +1,44 @@
 ﻿// 入库流水线 API 的 DTO 类型。
 
+export type DuplicateState = "none" | "exact_content" | "same_batch" | "suspected_metadata";
+export type DuplicateMatchType = DuplicateState | "restricted_match";
+
+export interface DuplicateComparisonCandidateDTO {
+  match_type: DuplicateMatchType;
+  title: string | null;
+  file_name: string | null;
+  file_size: number | null;
+  scope: "personal" | "project" | "company" | null;
+  scope_label: string | null;
+  directory_key: string | null;
+  subject: string | null;
+  formed_on: string | null;
+  version: string | null;
+  asset_status: string | null;
+  ingested_at: string | null;
+  safe_summary: string | null;
+  asset_id: string | null;
+  can_view_detail: boolean;
+  can_view_original: boolean;
+  same_batch_ordinal: number | null;
+}
+
+export interface UploadDuplicateDTO {
+  duplicate_state: DuplicateState;
+  match_type: DuplicateMatchType;
+  match_count: number | null;
+  preferred_candidate: DuplicateComparisonCandidateDTO | null;
+  same_batch_group_id: string | null;
+  same_batch_first_ordinal: number | null;
+  default_selected: boolean;
+  decision: "skip" | "independent" | "batch_keep" | null;
+}
+
 export interface IngestUploadResponseDTO {
   ingest_task_id: string;
   status: string;
   upload_url: null;
+  duplicate?: UploadDuplicateDTO | null;
 }
 
 export type UploadSessionItemState =
@@ -13,6 +48,7 @@ export type UploadSessionItemState =
   | "processing"
   | "awaiting_confirmation"
   | "completed"
+  | "duplicate_skipped"
   | "failed"
   | "cancelled";
 
@@ -33,6 +69,7 @@ export interface UploadSessionItemDTO {
   last_attempt_at?: string | null;
   processing_stage?: IngestTaskStage | null;
   bytes_available?: boolean;
+  duplicate?: UploadDuplicateDTO | null;
 }
 
 export interface UploadSessionDTO {
@@ -193,9 +230,6 @@ export interface IngestAiResultDTO {
   ocr_attempted_at?: string | null;
   error_type: string | null;
   error_message: string | null;
-  is_possible_duplicate: boolean;
-  duplicate_of_task_id: string | null;
-  duplicate_of_asset_id: string | null;
   extracted_text_preview: string | null;
 }
 
@@ -272,6 +306,7 @@ export interface PendingIngestItemDTO {
   source: string;
   status: string;
   source_file_name: string;
+  source_file_size?: number | null;
   target_scope: string | null;
   target_project_id: string | null;
   // 文件形成日期建议（YYYY-MM-DD；客户端文件修改时间 / 文件名兜底），人工可改可清空。
@@ -301,9 +336,35 @@ export interface PendingIngestItemDTO {
   result_asset_id: string | null;
   created_at: string | null;
   updated_at: string | null;
+  duplicate?: UploadDuplicateDTO | null;
 }
 
 export interface PendingIngestListResponseDTO {
   items: PendingIngestItemDTO[];
+  total: number;
+}
+
+export interface MyUploadItemDTO {
+  task_id: string;
+  source_file_name: string;
+  source_file_size: number | null;
+  uploaded_at: string;
+  target_scope: string | null;
+  target_project_id: string | null;
+  target_project_name: string | null;
+  processing_status: string;
+  final_status:
+    | "processing"
+    | "awaiting_confirmation"
+    | "waiting_review"
+    | "completed"
+    | "failed"
+    | "duplicate_skipped";
+  duplicate_result: "none" | "skipped" | "independent";
+  result_asset_id: string | null;
+}
+
+export interface MyUploadListDTO {
+  items: MyUploadItemDTO[];
   total: number;
 }

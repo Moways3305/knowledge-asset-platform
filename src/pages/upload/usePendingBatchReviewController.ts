@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { PendingIngestItemDTO } from "../../types/ingest";
+import type { PendingIngestItemDTO, UploadDuplicateDTO } from "../../types/ingest";
 import type { BatchNamingValuesDTO, CategoryClassificationItemDTO } from "../../types/naming";
 import {
   classifyBatchNamingCategories,
   commandErrorMatches,
   commandErrorMessage,
+  decideUploadDuplicate,
   previewBatchIngestNaming,
+  previewIngestNaming,
   saveManualNamingCategory,
 } from "./pendingBatchCommands";
 import { DATE_PATTERN, initialRows, reviewState, rowMissing } from "./pendingBatchReviewState";
@@ -21,6 +23,17 @@ import { usePendingBatchAiReview } from "./usePendingBatchAiReview";
 import { usePendingBatchTargetOptions } from "./usePendingBatchTargetOptions";
 import type { TargetLibrary } from "./uploadConstants";
 import type { UploadFlow } from "./useUploadFlow";
+
+const EMPTY_DUPLICATE: UploadDuplicateDTO = {
+  duplicate_state: "none",
+  match_type: "none",
+  match_count: 0,
+  preferred_candidate: null,
+  same_batch_group_id: null,
+  same_batch_first_ordinal: null,
+  default_selected: true,
+  decision: null,
+};
 
 export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], flow: UploadFlow) {
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -73,6 +86,13 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
   const [reviewTasks, setReviewTasks] = useState<PendingIngestItemDTO[]>([]);
   const [reviewInitialCount, setReviewInitialCount] = useState(0);
   const [completedReviewItems, setCompletedReviewItems] = useState<CompletedReviewItem[]>([]);
+  const [personalDuplicates, setPersonalDuplicates] = useState<Record<string, UploadDuplicateDTO>>(
+    {},
+  );
+  const [duplicateDecisionTaskId, setDuplicateDecisionTaskId] = useState<string | null>(null);
+  const [skippedDuplicateItems, setSkippedDuplicateItems] = useState<
+    import("./pendingBatchReviewState").SkippedDuplicateItem[]
+  >([]);
   const previewRunsRef = useRef<Record<string, number>>({});
   const previewTimersRef = useRef<Record<string, number>>({});
 
@@ -176,16 +196,27 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
   const missingDates = selectedConfirmTasks.filter(
     (task) => !DATE_PATTERN.test(rows[task.id]?.formed_on ?? ""),
   ).length;
+  const duplicateReady = (task: PendingIngestItemDTO) => {
+    const duplicate =
+      targetLibrary === "personal" ? personalDuplicates[task.id] : previews[task.id]?.duplicate;
+    if (!duplicate || duplicate.duplicate_state === "none") return true;
+    if (duplicate.duplicate_state === "suspected_metadata") return true;
+    if (duplicate.decision === "independent") return true;
+    return duplicate.duplicate_state === "same_batch" && duplicate.default_selected;
+  };
   const allPreviewed =
     stage === "review" &&
     selectedConfirmTasks.length > 0 &&
     (targetLibrary === "personal"
-      ? selectedConfirmTasks.every((task) => Boolean(personalDirectoryByTask[task.id]))
+      ? selectedConfirmTasks.every(
+          (task) => Boolean(personalDirectoryByTask[task.id]) && duplicateReady(task),
+        )
       : selectedConfirmTasks.every(
           (task) =>
             Boolean(rows[task.id]) &&
             !rowMissing(rows[task.id], company) &&
-            previews[task.id]?.submittable,
+            previews[task.id]?.submittable &&
+            duplicateReady(task),
         ));
   const targetReady =
     Boolean(targetLibrary) &&
@@ -400,6 +431,7 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     setCategoryTargetLabel("");
     setEditedTaskIds(new Set());
     setReviewedTaskIds(new Set());
+    setSkippedDuplicateItems([]);
     aiReview.reset();
   };
 
@@ -480,6 +512,31 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
       setPersonalDirectoryByTask(
         Object.fromEntries(selectedConfirmTasks.map((task) => [task.id, bulkPersonalDirectoryKey])),
       );
+      setLoading(true);
+      try {
+        const values = await Promise.all(
+          selectedConfirmTasks.map(
+            async (task) =>
+              [
+                task.id,
+                (
+                  await previewIngestNaming(task.id, {
+                    target_scope: "personal",
+                    confidentiality_level: task.suggested_confidentiality_level ?? "L2",
+                  })
+                ).duplicate ??
+                  task.duplicate ??
+                  EMPTY_DUPLICATE,
+              ] as const,
+          ),
+        );
+        setPersonalDuplicates(Object.fromEntries(values));
+      } catch (error) {
+        setDialogError(commandErrorMessage(error, "重复状态暂时无法核对，请重试"));
+        return;
+      } finally {
+        setLoading(false);
+      }
       setReviewTargetKey(targetKey);
       setStage("review");
       return;
@@ -837,6 +894,114 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     }
   };
 
+  const handleDuplicateDecision = async (
+    task: PendingIngestItemDTO,
+    action: "skip" | "independent" | "keep",
+  ) => {
+    if (
+      duplicateDecisionTaskId ||
+      (targetLibrary !== "personal" && targetLibrary !== "project" && targetLibrary !== "company")
+    ) {
+      return;
+    }
+    if (
+      action === "independent" &&
+      !window.confirm("仍作为独立资料入库会创建新的独立资产，且不会覆盖已有资料。是否继续？")
+    ) {
+      return;
+    }
+    setDuplicateDecisionTaskId(task.id);
+    setDialogError(null);
+    try {
+      const response = await decideUploadDuplicate({
+        taskId: task.id,
+        action,
+        targetScope: targetLibrary,
+        targetProjectId: targetProjectId || undefined,
+      });
+      if (action === "keep") {
+        const knownTasks = new Map(
+          [...reviewTasks, ...skippedDuplicateItems.map((item) => item.task)].map((item) => [
+            item.id,
+            item,
+          ]),
+        );
+        const skippedIds = new Set(response.skipped_task_ids);
+        setReviewTasks((current) => [
+          ...current.filter((item) => !skippedIds.has(item.id) && item.id !== task.id),
+          task,
+        ]);
+        setSkippedDuplicateItems((current) => {
+          const byId = new Map(current.map((item) => [item.task.id, item]));
+          byId.delete(task.id);
+          response.skipped_task_ids.forEach((taskId) => {
+            const skippedTask = knownTasks.get(taskId);
+            const existingDuplicate =
+              personalDuplicates[taskId] ??
+              previews[taskId]?.duplicate ??
+              byId.get(taskId)?.duplicate;
+            if (skippedTask && existingDuplicate) {
+              byId.set(taskId, {
+                task: skippedTask,
+                duplicate: { ...existingDuplicate, default_selected: false, decision: "skip" },
+              });
+            }
+          });
+          return [...byId.values()];
+        });
+        if (targetLibrary === "personal" && response.duplicate) {
+          setPersonalDuplicates((current) => ({ ...current, [task.id]: response.duplicate! }));
+        } else if (response.duplicate) {
+          setPreviews((current) =>
+            current[task.id]
+              ? {
+                  ...current,
+                  [task.id]: { ...current[task.id], duplicate: response.duplicate! },
+                }
+              : current,
+          );
+          if (!previews[task.id] && rows[task.id]) scheduleRowPreview(task.id, rows[task.id]);
+        }
+      } else if (action === "skip") {
+        const skippedDuplicate =
+          targetLibrary === "personal" ? personalDuplicates[task.id] : previews[task.id]?.duplicate;
+        if (skippedDuplicate) {
+          setSkippedDuplicateItems((current) =>
+            current.some((item) => item.task.id === task.id)
+              ? current
+              : [...current, { task, duplicate: skippedDuplicate }],
+          );
+        }
+        setReviewTasks((current) => current.filter((item) => item.id !== task.id));
+        setPersonalDuplicates((current) => {
+          const next = { ...current };
+          delete next[task.id];
+          return next;
+        });
+        setPreviews((current) => {
+          const next = { ...current };
+          delete next[task.id];
+          return next;
+        });
+      } else if (targetLibrary === "personal") {
+        const refreshed = await previewIngestNaming(task.id, {
+          target_scope: "personal",
+          confidentiality_level: task.suggested_confidentiality_level ?? "L2",
+        });
+        setPersonalDuplicates((current) => ({
+          ...current,
+          [task.id]: refreshed.duplicate ?? task.duplicate ?? EMPTY_DUPLICATE,
+        }));
+      } else {
+        await refreshPreviews();
+      }
+    } catch (error) {
+      setDialogError(commandErrorMessage(error, "重复处理决定未保存，请刷新后重试"));
+    } finally {
+      setDuplicateDecisionTaskId(null);
+    }
+  };
+
   const closeAndResetReview = () => {
     cancelPendingPreviews();
     targetOptions.reset();
@@ -868,6 +1033,9 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     setReviewTasks([]);
     setReviewInitialCount(0);
     setCompletedReviewItems([]);
+    setPersonalDuplicates({});
+    setDuplicateDecisionTaskId(null);
+    setSkippedDuplicateItems([]);
   };
 
   const requestCloseReview = () => {
@@ -905,6 +1073,8 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     deleteCandidate,
     deleteFeedback,
     deletingTaskId,
+    duplicateDecisionTaskId,
+    skippedDuplicateItems,
     dialogError,
     directoryLabel,
     editedTaskIds,
@@ -918,6 +1088,7 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     missingDates,
     options,
     personalDirectoryByTask,
+    personalDuplicates,
     previewBusyByTask,
     previewFeedback,
     previewRunsRef,
@@ -927,6 +1098,7 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     refreshPreviews,
     rejectOpen,
     requestCloseReview,
+    handleDuplicateDecision,
     resetTargetReviewContext,
     retryCategoryClassifications,
     retryOneCategoryClassification,

@@ -10,6 +10,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.enums import AssetType, ConfidentialityLevel, KnowledgeScope
+from app.schemas.upload_duplicates import UploadDuplicateReadModel
 
 _PROJECT_CODE = re.compile(r"^[A-Z][A-Z0-9-]{1,19}$")
 _VERSION = re.compile(r"^V[1-9]\d*(?:\.\d+)*$")
@@ -247,6 +248,7 @@ class NamingPreviewResponse(BaseModel):
     )
     confidentiality_confidence: Literal["high", "medium", "low"] = "low"
     confidentiality_reason: str = "AI 未能可靠判断内容密级，已使用规则默认值"
+    duplicate: UploadDuplicateReadModel = Field(default_factory=UploadDuplicateReadModel)
 
 
 class BatchNamingConfirmationFields(BaseModel):
@@ -292,6 +294,7 @@ class BatchNamingPreviewItemResponse(BaseModel):
     notices: list[NamingDuplicateNotice] = Field(default_factory=list)
     error_code: str | None = None
     message: str | None = None
+    duplicate: UploadDuplicateReadModel = Field(default_factory=UploadDuplicateReadModel)
     suggested_version: str = "V1"
     version_source: Literal["source_filename", "ai_content", "default_needs_confirmation"] = (
         "default_needs_confirmation"

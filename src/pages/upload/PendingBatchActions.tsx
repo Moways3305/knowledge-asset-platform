@@ -39,6 +39,8 @@ export default function PendingBatchActions({
     deleteCandidate,
     deleteFeedback,
     deletingTaskId,
+    duplicateDecisionTaskId,
+    skippedDuplicateItems,
     dialogError,
     directoryLabel,
     editedTaskIds,
@@ -50,6 +52,7 @@ export default function PendingBatchActions({
     loading,
     options,
     personalDirectoryByTask,
+    personalDuplicates,
     previewBusyByTask,
     previewFeedback,
     previewSummary,
@@ -57,6 +60,7 @@ export default function PendingBatchActions({
     refreshPreviews,
     rejectOpen,
     requestCloseReview,
+    handleDuplicateDecision,
     resetTargetReviewContext,
     retryCategoryClassifications,
     retryOneCategoryClassification,
@@ -226,6 +230,10 @@ export default function PendingBatchActions({
             setDirectoryByTask={setPersonalDirectoryByTask}
             batchErrors={flow.batchErrors}
             onOpenAi={loadAiReview}
+            duplicates={personalDuplicates}
+            duplicateDecisionTaskId={duplicateDecisionTaskId}
+            onDuplicateDecision={handleDuplicateDecision}
+            skippedDuplicateItems={skippedDuplicateItems}
           />
         ) : (
           <PendingBatchNamingReview
@@ -271,11 +279,24 @@ export default function PendingBatchActions({
             targetLibrary={targetLibrary}
             setFallbackDirectoryTaskId={setFallbackDirectoryTaskId}
             setFallbackDirectoryKey={setFallbackDirectoryKey}
+            duplicateDecisionTaskId={duplicateDecisionTaskId}
+            onDuplicateDecision={handleDuplicateDecision}
+            skippedDuplicateItems={skippedDuplicateItems}
           />
         )}
       </GovernedConfirmSurface>
 
-      <PendingBatchAiReviewDrawer review={aiReview} onSave={saveAiReviewDraft} />
+      <PendingBatchAiReviewDrawer
+        review={aiReview}
+        duplicate={
+          aiReview.task
+            ? targetLibrary === "personal"
+              ? personalDuplicates[aiReview.task.id]
+              : previews[aiReview.task.id]?.duplicate
+            : null
+        }
+        onSave={saveAiReviewDraft}
+      />
       <PendingBatchDecisionDialogs
         fallbackDirectoryTaskId={fallbackDirectoryTaskId}
         fallbackDirectoryKey={fallbackDirectoryKey}

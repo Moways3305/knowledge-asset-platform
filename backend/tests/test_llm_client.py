@@ -17,7 +17,7 @@ from sqlalchemy import select
 from app.main import app
 from app.models.audit import AuditEvent
 from app.schemas.enums import AssetType, ConfidentialityLevel
-from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT
+from app.seed.dev_seed import USER_ADMIN_ONLY, USER_CONSULTANT, USER_PROJECT_MANAGER
 from app.services import audit as audit_service
 from app.services import content_processing
 from app.services.desensitization import RuleBasedDesensitizer
@@ -124,10 +124,14 @@ def _cleanup():
     app.dependency_overrides.pop(get_generation_llm_client, None)
 
 
-async def _upload(client, content=_TXT, file_name="retail.txt", mime="text/plain"):
-    r = await client.post(
-        UPLOAD, headers=_hdr(USER_CONSULTANT), files={"file": (file_name, content, mime)}
-    )
+async def _upload(
+    client,
+    content=_TXT,
+    file_name="retail.txt",
+    mime="text/plain",
+    user_id=USER_CONSULTANT,
+):
+    r = await client.post(UPLOAD, headers=_hdr(user_id), files={"file": (file_name, content, mime)})
     return r.json()["ingest_task_id"]
 
 
@@ -425,6 +429,16 @@ async def test_duplicate_content_reuses_generation_and_records_cache_hit(client,
     assert generation["request_count"] == 1
     assert generation["cache_hits"] == 1
     assert generation["cache_misses"] == 1
+
+
+async def test_unscoped_generation_cache_does_not_cross_users(client, monkeypatch):
+    fake = FakeLLM(mode="ok")
+    _enable_llm(monkeypatch, fake)
+    content = b"identical bytes owned by separate uploaders"
+    await _upload(client, content=content, user_id=USER_CONSULTANT)
+    await _upload(client, content=content, user_id=USER_PROJECT_MANAGER)
+
+    assert fake.calls == 2
 
 
 async def test_first_generation_persists_target_rule_category_suggestion():

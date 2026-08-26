@@ -1,8 +1,10 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { PendingIngestItemDTO } from "../../types/ingest";
+import type { PendingIngestItemDTO, UploadDuplicateDTO } from "../../types/ingest";
 import type { DirectoryOptionDTO, NamingOptionsDTO } from "../../types/naming";
 import type { TargetLibrary } from "./uploadConstants";
+import type { SkippedDuplicateItem } from "./pendingBatchReviewState";
 import type { UploadFlow } from "./useUploadFlow";
+import DuplicateComparisonPopover from "./DuplicateComparisonPopover";
 
 type TargetProps = {
   flow: UploadFlow;
@@ -142,6 +144,13 @@ type PersonalProps = {
   setDirectoryByTask: Dispatch<SetStateAction<Record<string, string>>>;
   batchErrors: Record<string, string>;
   onOpenAi: (task: PendingIngestItemDTO) => Promise<void>;
+  duplicates: Record<string, UploadDuplicateDTO>;
+  duplicateDecisionTaskId: string | null;
+  skippedDuplicateItems: SkippedDuplicateItem[];
+  onDuplicateDecision: (
+    task: PendingIngestItemDTO,
+    action: "skip" | "independent" | "keep",
+  ) => Promise<void>;
 };
 
 export function PendingBatchPersonalReview(props: PersonalProps) {
@@ -151,6 +160,20 @@ export function PendingBatchPersonalReview(props: PersonalProps) {
         本批默认进入“{props.directoryLabel}”，可为单条资料调整目录。
       </div>
       <div className="upload77-personal-directory-list">
+        {props.skippedDuplicateItems.map(({ task, duplicate }) => (
+          <article className="upload77-personal-directory-row" key={`skipped-${task.id}`}>
+            <div className="upload77-personal-directory-file">
+              <strong title={task.source_file_name}>{task.source_file_name}</strong>
+              <span role="status">本次不入库</span>
+            </div>
+            <DuplicateComparisonPopover
+              duplicate={duplicate}
+              current={{ fileName: task.source_file_name, fileSize: task.source_file_size }}
+              busy={props.duplicateDecisionTaskId === task.id}
+              onKeep={() => void props.onDuplicateDecision(task, "keep")}
+            />
+          </article>
+        ))}
         {props.tasks.map((task, index) => (
           <article className="upload77-personal-directory-row" key={task.id}>
             <div className="upload77-personal-directory-file">
@@ -165,6 +188,21 @@ export function PendingBatchPersonalReview(props: PersonalProps) {
                 查看 AI 提取
               </button>
             </div>
+            <DuplicateComparisonPopover
+              duplicate={props.duplicates[task.id]}
+              current={{
+                fileName: task.source_file_name,
+                scopeLabel: "我的个人库",
+                directory: props.directoryLabel,
+                subject: task.suggested_title,
+                formedOn: task.suggested_formed_on,
+                version: task.suggested_version,
+              }}
+              busy={props.duplicateDecisionTaskId === task.id}
+              onSkip={() => void props.onDuplicateDecision(task, "skip")}
+              onIndependent={() => void props.onDuplicateDecision(task, "independent")}
+              onKeep={() => void props.onDuplicateDecision(task, "keep")}
+            />
             <label>
               <span>个人目录</span>
               <select

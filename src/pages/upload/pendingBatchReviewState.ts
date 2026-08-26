@@ -1,4 +1,5 @@
 import type { PendingIngestItemDTO } from "../../types/ingest";
+import type { UploadDuplicateDTO } from "../../types/ingest";
 import type {
   BatchNamingPreviewItemDTO,
   BatchNamingValuesDTO,
@@ -16,6 +17,10 @@ export type CompletedReviewItem = {
   title: string;
   assetId?: string;
   indexStatus?: string;
+};
+export type SkippedDuplicateItem = {
+  task: PendingIngestItemDTO;
+  duplicate: UploadDuplicateDTO;
 };
 
 export const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;

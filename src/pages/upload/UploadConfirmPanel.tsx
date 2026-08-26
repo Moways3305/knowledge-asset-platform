@@ -8,6 +8,7 @@ import {
   type TargetLibrary,
 } from "./uploadConstants";
 import type { UploadFlow } from "./useUploadFlow";
+import DuplicateComparisonPopover from "./DuplicateComparisonPopover";
 
 const indexStatusLabel: Record<string, string> = {
   not_indexed: "资产已入库，等待进入索引；当前还不可检索。",
@@ -51,6 +52,9 @@ export default function UploadConfirmPanel({
     namingPreview,
     namingPreviewBusy,
     namingPreviewError,
+    duplicateDecisionBusy,
+    duplicateSkipped,
+    handleDuplicateDecision,
     namingRequired,
     editTitle,
     setEditTitle,
@@ -108,9 +112,15 @@ export default function UploadConfirmPanel({
         <CheckCircle2 size={28} aria-hidden="true" />
         <div>
           <h2 id="upload-result-title">
-            {awaitingProjectReview ? "已提交，等待项目经理确认" : "资产已入库"}
+            {duplicateSkipped
+              ? "本次已跳过重复资料"
+              : awaitingProjectReview
+                ? "已提交，等待项目经理确认"
+                : "资产已入库"}
           </h2>
-          {awaitingProjectReview ? (
+          {duplicateSkipped ? (
+            <p>本次文件仍保留在上传历史中，没有创建资产、提交索引或删除已有资料。</p>
+          ) : awaitingProjectReview ? (
             <p>项目经理确认后，资料才会进入项目知识库并参与检索与问答。</p>
           ) : (
             <p>
@@ -272,6 +282,27 @@ export default function UploadConfirmPanel({
               </span>
             </details>
           )}
+
+          <DuplicateComparisonPopover
+            duplicate={namingPreview?.duplicate}
+            current={{
+              fileName: sourceFile,
+              fileSize: flow.fileSize,
+              scopeLabel:
+                targetLibrary === "personal"
+                  ? "我的个人库"
+                  : targetLibrary === "company"
+                    ? "公司知识库"
+                    : "当前项目库",
+              directory: directoryKey,
+              subject: editTitle,
+              formedOn: namingFormedOn,
+              version: namingVersion,
+            }}
+            busy={duplicateDecisionBusy}
+            onSkip={() => void handleDuplicateDecision("skip")}
+            onIndependent={() => void handleDuplicateDecision("independent")}
+          />
 
           <div className="upload77-targets">
             <h3>入库目标</h3>

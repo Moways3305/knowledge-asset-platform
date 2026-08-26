@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { PageHeader, ProductPage } from "../components/ProductLayout";
 import StatusBadge from "../components/StatusBadge";
+import MyUploadsPanel from "../components/MyUploadsPanel";
 import UploadConfirmPanel from "./upload/UploadConfirmPanel";
 import UploadStepA from "./upload/UploadStepA";
 import UploadStepB from "./upload/UploadStepB";
@@ -12,6 +13,7 @@ export default function UploadPage() {
   const flow = useUploadFlow();
   const [searchParams, setSearchParams] = useSearchParams();
   const [rejectError, setRejectError] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const {
     activePath,
     switchPath,
@@ -83,11 +85,16 @@ export default function UploadPage() {
         >
           企微微盘待确认
         </button>
+        <button type="button" onClick={() => setHistoryOpen(true)}>
+          我上传的资料
+        </button>
       </div>
 
-      {activePath === "a" && !confirmationOpen && <UploadStepA flow={flow} />}
-      {activePath === "b" && !confirmationOpen && <UploadStepB flow={flow} />}
-      {confirmationOpen && (
+      {historyOpen && <MyUploadsPanel onClose={() => setHistoryOpen(false)} />}
+
+      {!historyOpen && activePath === "a" && !confirmationOpen && <UploadStepA flow={flow} />}
+      {!historyOpen && activePath === "b" && !confirmationOpen && <UploadStepB flow={flow} />}
+      {!historyOpen && confirmationOpen && (
         <>
           {rejectError && (
             <div className="upload77-confirm-error" role="alert">

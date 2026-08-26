@@ -1111,8 +1111,20 @@ async def test_batch_preview_and_confirm_keep_naming_failures_item_scoped(client
     duplicate_item = duplicate_preview.json()["items"][0]
     assert duplicate_item["submittable"] is True
     assert duplicate_item["error_code"] is None
-    assert {"exact", "suspected"}.issubset({notice["kind"] for notice in duplicate_item["notices"]})
+    assert "exact" in {notice["kind"] for notice in duplicate_item["notices"]}
+    assert duplicate_item["duplicate"]["duplicate_state"] == "exact_content"
     assert all(set(notice) == {"code", "kind", "message"} for notice in duplicate_item["notices"])
+
+    independent = await client.post(
+        f"/api/v1/ingest/{exact_duplicate_task}/duplicate-decision",
+        headers=_hdr(USER_PROJECT_MANAGER),
+        json={
+            "action": "independent",
+            "target_scope": "project",
+            "target_project_id": str(PROJECT_ALPHA),
+        },
+    )
+    assert independent.status_code == 200
 
     duplicate_confirm = await client.post(
         "/api/v1/ingest/bulk-confirm",
@@ -1297,7 +1309,9 @@ async def test_batch_preview_requires_company_applicable_to_per_item(client):
     )
 
     assert response.status_code == 200
-    assert response.json()["items"][0] == {
+    item = response.json()["items"][0]
+    assert item.pop("duplicate")["duplicate_state"] == "none"
+    assert item == {
         "task_id": task_id,
         "submittable": False,
         "canonical_name": None,

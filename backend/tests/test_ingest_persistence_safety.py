@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.models.ingest import IngestTask
+from app.models.ingest import IngestTask, IngestTaskAiResult
 from app.seed.dev_seed import USER_CONSULTANT
 from app.services.desensitization import NullDesensitizer
 from app.services.jobs import ingest_processing
@@ -14,7 +14,12 @@ from app.services.storage import LocalFileStorage
 
 
 def test_ai_result_database_boundary_sanitizes_text_and_json():
-    task = IngestTask(id=uuid.uuid4())
+    task = IngestTask(
+        id=uuid.uuid4(),
+        ai_result=IngestTaskAiResult(
+            duplicate_of_task_id=uuid.uuid4(), duplicate_of_asset_id=uuid.uuid4()
+        ),
+    )
     ingest_processing._apply_ai_result(
         task,
         {
@@ -23,13 +28,14 @@ def test_ai_result_database_boundary_sanitizes_text_and_json():
             "suggested_tags": ["安全\x00", b"binary"],
             "naming_parsed_fields": {"score": float("nan"), "payload": b"binary"},
         },
-        None,
     )
 
     assert task.ai_result.suggested_title == "正常中文标题"
     assert task.ai_result.suggested_summary == "第一行\n第二行"
     assert task.ai_result.suggested_tags == ["安全"]
     assert task.ai_result.naming_parsed_fields == {"score": None, "payload": None}
+    assert task.ai_result.duplicate_of_task_id is None
+    assert task.ai_result.duplicate_of_asset_id is None
 
 
 async def test_persistence_failure_rolls_back_before_terminal_state_and_usage(monkeypatch):

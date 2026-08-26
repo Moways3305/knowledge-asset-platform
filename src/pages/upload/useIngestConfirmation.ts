@@ -4,6 +4,7 @@ import { ApiError } from "../../api/http";
 import {
   confirmIngest,
   createIngestUpload,
+  decideUploadDuplicate,
   fetchIngestAiResult,
   fetchIngestTaskStatus,
   retryIngestTask,
@@ -125,6 +126,8 @@ export function useIngestConfirmation({
   const [namingPreview, setNamingPreview] = useState<NamingPreviewDTO | null>(null);
   const [namingPreviewBusy, setNamingPreviewBusy] = useState(false);
   const [namingPreviewError, setNamingPreviewError] = useState<string | null>(null);
+  const [duplicateDecisionBusy, setDuplicateDecisionBusy] = useState(false);
+  const [duplicateSkipped, setDuplicateSkipped] = useState(false);
   const namingPreviewRunRef = useRef(0);
   const reliableAiConfidentialityRef = useRef(false);
 
@@ -202,7 +205,9 @@ export function useIngestConfirmation({
     setExtraction({
       status: ai.extraction_status,
       charCount: ai.extracted_char_count,
-      isDuplicate: ai.is_possible_duplicate,
+      // Duplicate state is destination-dependent and comes exclusively from
+      // the permission-trimmed naming preview read model.
+      isDuplicate: false,
     });
   }, []);
 
@@ -278,8 +283,55 @@ export function useIngestConfirmation({
   useEffect(() => {
     const runId = ++namingPreviewRunRef.current;
     setNamingPreview(null);
-    if (!namingOptions?.required || !taskId) {
+    if (!taskId) {
       setNamingPreviewBusy(false);
+      return;
+    }
+    if (targetLibrary === "personal") {
+      setNamingPreviewBusy(true);
+      setNamingPreviewError(null);
+      void previewIngestNaming(taskId, {
+        target_scope: "personal",
+        confidentiality_level: editConfidentiality,
+      })
+        .then((value) => {
+          if (namingPreviewRunRef.current === runId) setNamingPreview(value);
+        })
+        .catch((reason) => {
+          if (namingPreviewRunRef.current === runId) {
+            setNamingPreviewError(reason instanceof ApiError ? reason.message : "重复状态核对失败");
+          }
+        })
+        .finally(() => {
+          if (namingPreviewRunRef.current === runId) setNamingPreviewBusy(false);
+        });
+      return;
+    }
+    if (!namingOptions?.required) {
+      if (targetLibrary === "project" || targetLibrary === "company") {
+        setNamingPreviewBusy(true);
+        setNamingPreviewError(null);
+        void previewIngestNaming(taskId, {
+          target_scope: targetLibrary,
+          target_project_id: targetLibrary === "project" ? targetProjectId : undefined,
+          confidentiality_level: editConfidentiality,
+        })
+          .then((value) => {
+            if (namingPreviewRunRef.current === runId) setNamingPreview(value);
+          })
+          .catch((reason) => {
+            if (namingPreviewRunRef.current === runId) {
+              setNamingPreviewError(
+                reason instanceof ApiError ? reason.message : "重复状态核对失败",
+              );
+            }
+          })
+          .finally(() => {
+            if (namingPreviewRunRef.current === runId) setNamingPreviewBusy(false);
+          });
+      } else {
+        setNamingPreviewBusy(false);
+      }
       return;
     }
     if (
@@ -671,7 +723,85 @@ export function useIngestConfirmation({
     setNamingPreview(null);
     setNamingPreviewBusy(false);
     setNamingPreviewError(null);
+    setDuplicateDecisionBusy(false);
+    setDuplicateSkipped(false);
   }, [beginWorkflowRun]);
+
+  const handleDuplicateDecision = useCallback(
+    async (action: "skip" | "independent") => {
+      if (
+        !taskId ||
+        duplicateDecisionBusy ||
+        (targetLibrary !== "personal" && targetLibrary !== "project" && targetLibrary !== "company")
+      ) {
+        return;
+      }
+      if (
+        action === "independent" &&
+        !window.confirm("仍作为独立资料入库会创建新的独立资产，且不会覆盖已有资料。是否继续？")
+      ) {
+        return;
+      }
+      setDuplicateDecisionBusy(true);
+      setApiError(null);
+      try {
+        await decideUploadDuplicate({
+          taskId,
+          action,
+          targetScope: targetLibrary,
+          targetProjectId: targetProjectId || undefined,
+        });
+        if (action === "skip") {
+          setDuplicateSkipped(true);
+          setResultAssetId(null);
+          setSubmitReviewId(null);
+          setSubmitIndexStatus(null);
+          setFlowState("submitted");
+          if (activePath === "a") void loadPending();
+          else {
+            removeLocalTask(taskId);
+            void loadLocalPending();
+          }
+        } else {
+          setNamingPreview((current) =>
+            current
+              ? {
+                  ...current,
+                  duplicate: {
+                    ...(current.duplicate ?? {
+                      duplicate_state: "none",
+                      match_type: "none",
+                      match_count: 0,
+                      preferred_candidate: null,
+                      same_batch_group_id: null,
+                      same_batch_first_ordinal: null,
+                      default_selected: true,
+                      decision: null,
+                    }),
+                    decision: "independent",
+                    default_selected: true,
+                  },
+                }
+              : current,
+          );
+        }
+      } catch (error) {
+        setApiError(error instanceof ApiError ? error.message : "重复处理决定未保存，请重试");
+      } finally {
+        setDuplicateDecisionBusy(false);
+      }
+    },
+    [
+      activePath,
+      duplicateDecisionBusy,
+      loadLocalPending,
+      loadPending,
+      removeLocalTask,
+      targetLibrary,
+      targetProjectId,
+      taskId,
+    ],
+  );
 
   const namingPreviewState = useMemo<ConfirmationNamingState>(
     () => ({
@@ -709,6 +839,15 @@ export function useIngestConfirmation({
       taskId,
     ],
   );
+
+  const duplicateReady =
+    Boolean(namingPreview) &&
+    (!namingPreview?.duplicate ||
+      namingPreview.duplicate.duplicate_state === "none" ||
+      namingPreview?.duplicate?.duplicate_state === "suspected_metadata" ||
+      namingPreview?.duplicate?.decision === "independent" ||
+      (namingPreview?.duplicate?.duplicate_state === "same_batch" &&
+        namingPreview.duplicate.default_selected));
 
   return {
     flowState,
@@ -771,11 +910,15 @@ export function useIngestConfirmation({
     namingPreview,
     namingPreviewBusy,
     namingPreviewError,
+    duplicateDecisionBusy,
+    duplicateSkipped,
+    handleDuplicateDecision,
     namingPreviewReady:
-      (targetLibrary === "personal" && Boolean(directoryKey)) ||
+      (targetLibrary === "personal" && Boolean(directoryKey) && duplicateReady) ||
       (namingPolicyResolved &&
         (!namingOptions?.required || Boolean(namingPreview?.canonical_name)) &&
-        Boolean(directoryKey)),
+        Boolean(directoryKey) &&
+        duplicateReady),
     namingRequired: Boolean(namingOptions?.required),
     applyAiResult,
     pollAiResult,

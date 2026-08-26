@@ -150,22 +150,6 @@ async def _build_actor(session: AsyncSession, task: IngestTask) -> CallerContext
     )
 
 
-async def _find_duplicate(session: AsyncSession, content_hash: str, exclude_task_id: uuid.UUID):
-    """按内容哈希查最早的既有任务（去重软提示）。返回 (task_id, result_asset_id|None)。"""
-    if not content_hash:
-        return None
-    row = (
-        await session.execute(
-            select(IngestTask.id, IngestTask.result_asset_id)
-            .where(IngestTask.source_file_hash == content_hash)
-            .where(IngestTask.id != exclude_task_id)
-            .order_by(IngestTask.created_at)
-            .limit(1)
-        )
-    ).first()
-    return (row[0], row[1]) if row is not None else None
-
-
 async def _generation_category_context(
     session: AsyncSession, task: IngestTask, actor: CallerContext
 ) -> dict | None:
@@ -232,21 +216,33 @@ async def _generation_category_context(
 
 
 async def _reusable_ai_draft(
-    session: AsyncSession, *, content_hash: str, fingerprint: str, exclude_task_id: uuid.UUID
+    session: AsyncSession, *, task: IngestTask, content_hash: str, fingerprint: str
 ) -> dict | None:
-    rows = (
-        (
-            await session.execute(
-                select(IngestTaskAiResult)
-                .join(IngestTask, IngestTask.id == IngestTaskAiResult.ingest_task_id)
-                .where(IngestTask.source_file_hash == content_hash)
-                .where(IngestTask.id != exclude_task_id)
-                .order_by(IngestTaskAiResult.created_at)
-            )
-        )
-        .scalars()
-        .all()
+    stmt = (
+        select(IngestTaskAiResult)
+        .join(IngestTask, IngestTask.id == IngestTaskAiResult.ingest_task_id)
+        .where(IngestTask.source_file_hash == content_hash)
+        .where(IngestTask.id != task.id)
     )
+    if task.target_scope == KnowledgeScope.project.value:
+        stmt = stmt.where(
+            IngestTask.target_scope == KnowledgeScope.project.value,
+            IngestTask.target_project_id == task.target_project_id,
+        )
+    elif task.target_scope == KnowledgeScope.company.value:
+        stmt = stmt.where(
+            IngestTask.target_scope == KnowledgeScope.company.value,
+            IngestTask.target_project_id.is_(None),
+        )
+    else:
+        # An unscoped task has no authority to discover another user's work.
+        # Personal and pre-target drafts may only reuse the creator's own result.
+        stmt = stmt.where(IngestTask.created_by == task.created_by)
+        if task.target_scope == KnowledgeScope.personal.value:
+            stmt = stmt.where(IngestTask.target_scope == KnowledgeScope.personal.value)
+        else:
+            stmt = stmt.where(IngestTask.target_scope.is_(None))
+    rows = (await session.execute(stmt.order_by(IngestTaskAiResult.created_at))).scalars().all()
     excluded = {
         "id",
         "ingest_task_id",
@@ -275,7 +271,7 @@ async def _reusable_ai_draft(
     return None
 
 
-def _apply_ai_result(task: IngestTask, ai: dict, dup) -> None:
+def _apply_ai_result(task: IngestTask, ai: dict) -> None:
     """把内容处理草稿 upsert 到 task.ai_result（已存在则更新，**不新建第二行**）。"""
     result = task.ai_result
     if result is None:
@@ -306,9 +302,11 @@ def _apply_ai_result(task: IngestTask, ai: dict, dup) -> None:
                 if isinstance(item, str)
             ]
         setattr(result, key, value)
-    if dup is not None:
-        result.duplicate_of_task_id = dup[0]
-        result.duplicate_of_asset_id = dup[1]
+    # Historical workers populated raw cross-task/asset references here. They
+    # are not permission-trimmed read models and must never drive user-visible
+    # duplicate hints. Clear them whenever a task is processed or retried.
+    result.duplicate_of_task_id = None
+    result.duplicate_of_asset_id = None
 
 
 async def _terminalize_persistence_failure(
@@ -556,7 +554,6 @@ async def _process_upload_task_impl(
                 task,
                 code="canonical_markdown_extraction_failed",
             )
-        dup = await _find_duplicate(session, content_hash, task.id)
         category_context = await _generation_category_context(session, task, actor)
         target_scope = task.target_scope or "unscoped"
         target_project = str(task.target_project_id) if task.target_project_id else None
@@ -572,9 +569,9 @@ async def _process_upload_task_impl(
         await session.commit()
         ai = await _reusable_ai_draft(
             session,
+            task=task,
             content_hash=content_hash,
             fingerprint=generation_fingerprint,
-            exclude_task_id=task.id,
         )
         if ai is not None:
             content_meta = {
@@ -716,7 +713,7 @@ async def _process_upload_task_impl(
                 naming_fields = {}
                 ai["naming_parsed_fields"] = naming_fields
             naming_fields["extraction_text_safety"] = safety_diagnostics
-    _apply_ai_result(task, ai, dup)
+        _apply_ai_result(task, ai)
     raw_fields = ai.get("naming_parsed_fields") if isinstance(ai, dict) else None
     fields = raw_fields if isinstance(raw_fields, dict) else {}
     generation_status = fields.get("generation_status")

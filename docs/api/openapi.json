@@ -2017,6 +2017,9 @@
             "title": "Confidentiality Source",
             "type": "string"
           },
+          "duplicate": {
+            "$ref": "#/components/schemas/UploadDuplicateReadModel"
+          },
           "error_code": {
             "anyOf": [
               {
@@ -4047,6 +4050,292 @@
         "title": "DirectoryOut",
         "type": "object"
       },
+      "DuplicateComparisonCandidate": {
+        "description": "At most one permission-trimmed candidate; never carries hashes or storage ids.",
+        "properties": {
+          "asset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Id"
+          },
+          "asset_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Status"
+          },
+          "can_view_detail": {
+            "default": false,
+            "title": "Can View Detail",
+            "type": "boolean"
+          },
+          "can_view_original": {
+            "default": false,
+            "title": "Can View Original",
+            "type": "boolean"
+          },
+          "directory_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Directory Key"
+          },
+          "file_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Name"
+          },
+          "file_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Size"
+          },
+          "formed_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Formed On"
+          },
+          "ingested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ingested At"
+          },
+          "match_type": {
+            "enum": [
+              "none",
+              "exact_content",
+              "same_batch",
+              "suspected_metadata",
+              "restricted_match"
+            ],
+            "title": "Match Type",
+            "type": "string"
+          },
+          "safe_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Safe Summary"
+          },
+          "same_batch_ordinal": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Same Batch Ordinal"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "enum": [
+                  "personal",
+                  "project",
+                  "company"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "scope_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Label"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "match_type"
+        ],
+        "title": "DuplicateComparisonCandidate",
+        "type": "object"
+      },
+      "DuplicateDecisionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "skip",
+              "independent",
+              "keep"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "target_project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Project Id"
+          },
+          "target_scope": {
+            "$ref": "#/components/schemas/KnowledgeScope"
+          }
+        },
+        "required": [
+          "action",
+          "target_scope"
+        ],
+        "title": "DuplicateDecisionRequest",
+        "type": "object"
+      },
+      "DuplicateDecisionResponse": {
+        "properties": {
+          "decision": {
+            "enum": [
+              "skip",
+              "independent",
+              "batch_keep"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "duplicate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UploadDuplicateReadModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "skipped_task_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Skipped Task Ids",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "status",
+          "decision"
+        ],
+        "title": "DuplicateDecisionResponse",
+        "type": "object"
+      },
       "EvidenceCategory": {
         "enum": [
           "meeting_minutes",
@@ -4997,30 +5286,6 @@
             ],
             "title": "Desensitization Status"
           },
-          "duplicate_of_asset_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Duplicate Of Asset Id"
-          },
-          "duplicate_of_task_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Duplicate Of Task Id"
-          },
           "error_message": {
             "anyOf": [
               {
@@ -5113,11 +5378,6 @@
             "format": "uuid",
             "title": "Ingest Task Id",
             "type": "string"
-          },
-          "is_possible_duplicate": {
-            "default": false,
-            "title": "Is Possible Duplicate",
-            "type": "boolean"
           },
           "llm_model": {
             "anyOf": [
@@ -6093,6 +6353,16 @@
       },
       "IngestUploadResponse": {
         "properties": {
+          "duplicate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UploadDuplicateReadModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "ingest_task_id": {
             "format": "uuid",
             "title": "Ingest Task Id",
@@ -8809,6 +9079,137 @@
         "title": "ModelUsageSlotOut",
         "type": "object"
       },
+      "MyUploadItem": {
+        "properties": {
+          "duplicate_result": {
+            "default": "none",
+            "enum": [
+              "none",
+              "skipped",
+              "independent"
+            ],
+            "title": "Duplicate Result",
+            "type": "string"
+          },
+          "final_status": {
+            "enum": [
+              "processing",
+              "awaiting_confirmation",
+              "waiting_review",
+              "completed",
+              "failed",
+              "duplicate_skipped"
+            ],
+            "title": "Final Status",
+            "type": "string"
+          },
+          "processing_status": {
+            "title": "Processing Status",
+            "type": "string"
+          },
+          "result_asset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Asset Id"
+          },
+          "source_file_name": {
+            "title": "Source File Name",
+            "type": "string"
+          },
+          "source_file_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source File Size"
+          },
+          "target_project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Project Id"
+          },
+          "target_project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Project Name"
+          },
+          "target_scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Scope"
+          },
+          "task_id": {
+            "format": "uuid",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "uploaded_at": {
+            "format": "date-time",
+            "title": "Uploaded At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "source_file_name",
+          "uploaded_at",
+          "processing_status",
+          "final_status"
+        ],
+        "title": "MyUploadItem",
+        "type": "object"
+      },
+      "MyUploadListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MyUploadItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "MyUploadListResponse",
+        "type": "object"
+      },
       "NamingCategoryConfig": {
         "properties": {
           "asset_type": {
@@ -9218,6 +9619,9 @@
             ],
             "title": "Confidentiality Source",
             "type": "string"
+          },
+          "duplicate": {
+            "$ref": "#/components/schemas/UploadDuplicateReadModel"
           },
           "fields": {
             "anyOf": [
@@ -10014,6 +10418,16 @@
             ],
             "title": "Created At"
           },
+          "duplicate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UploadDuplicateReadModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "error_message": {
             "anyOf": [
               {
@@ -10104,6 +10518,17 @@
           "source_file_name": {
             "title": "Source File Name",
             "type": "string"
+          },
+          "source_file_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source File Size"
           },
           "status": {
             "title": "Status",
@@ -15030,6 +15455,101 @@
         "title": "UploadClientRejection",
         "type": "object"
       },
+      "UploadDuplicateReadModel": {
+        "properties": {
+          "decision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "skip",
+                  "independent",
+                  "batch_keep"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
+          },
+          "default_selected": {
+            "default": true,
+            "title": "Default Selected",
+            "type": "boolean"
+          },
+          "duplicate_state": {
+            "default": "none",
+            "enum": [
+              "none",
+              "exact_content",
+              "same_batch",
+              "suspected_metadata"
+            ],
+            "title": "Duplicate State",
+            "type": "string"
+          },
+          "match_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "title": "Match Count"
+          },
+          "match_type": {
+            "default": "none",
+            "enum": [
+              "none",
+              "exact_content",
+              "same_batch",
+              "suspected_metadata",
+              "restricted_match"
+            ],
+            "title": "Match Type",
+            "type": "string"
+          },
+          "preferred_candidate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DuplicateComparisonCandidate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "same_batch_first_ordinal": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Same Batch First Ordinal"
+          },
+          "same_batch_group_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Same Batch Group Id"
+          }
+        },
+        "title": "UploadDuplicateReadModel",
+        "type": "object"
+      },
       "UploadManifestItem": {
         "additionalProperties": false,
         "properties": {
@@ -15170,6 +15690,16 @@
             "default": false,
             "title": "Bytes Available",
             "type": "boolean"
+          },
+          "duplicate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UploadDuplicateReadModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "error_code": {
             "anyOf": [
@@ -27619,6 +28149,169 @@
         ]
       }
     },
+    "/api/v1/ingest/my-uploads": {
+      "get": {
+        "operationId": "list_my_uploads_api_v1_ingest_my_uploads_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scope"
+            }
+          },
+          {
+            "in": "query",
+            "name": "final_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Final Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "duplicate_result",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Duplicate Result"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyUploadListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List My Uploads",
+        "tags": [
+          "ingest"
+        ]
+      }
+    },
     "/api/v1/ingest/pending": {
       "get": {
         "description": "业务侧待确认任务列表。\n\n`?source=path_a_wecom` 拉取企微微盘扫描创建的待确认任务。\n只返回调用人本人创建的待确认任务；纯 admin → 403。",
@@ -29240,6 +29933,107 @@
           }
         },
         "summary": "Confirm",
+        "tags": [
+          "ingest"
+        ]
+      }
+    },
+    "/api/v1/ingest/{task_id}/duplicate-decision": {
+      "post": {
+        "operationId": "decide_upload_duplicate_api_v1_ingest__task_id__duplicate_decision_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DuplicateDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DuplicateDecisionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decide Upload Duplicate",
         "tags": [
           "ingest"
         ]

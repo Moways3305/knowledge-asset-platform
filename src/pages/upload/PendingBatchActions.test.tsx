@@ -9,15 +9,28 @@ import type { UploadFlow } from "./useUploadFlow";
 const namingApi = vi.hoisted(() => ({
   classifyBatchNamingCategories: vi.fn(),
   fetchNamingOptions: vi.fn(),
+  previewIngestNaming: vi.fn(),
   previewBatchIngestNaming: vi.fn(),
   saveManualNamingCategory: vi.fn(),
 }));
 const ingestApi = vi.hoisted(() => ({
+  decideUploadDuplicate: vi.fn(),
   fetchIngestAiResult: vi.fn(),
   retryIngestTask: vi.fn(),
 }));
 vi.mock("../../api/naming", () => namingApi);
 vi.mock("../../api/ingest", () => ingestApi);
+
+const noDuplicate = {
+  duplicate_state: "none",
+  match_type: null,
+  match_count: 0,
+  preferred_candidate: null,
+  same_batch_group_id: null,
+  same_batch_first_ordinal: null,
+  default_selected: true,
+  decision: null,
+};
 
 function task(id: string, overrides: Partial<PendingIngestItemDTO> = {}): PendingIngestItemDTO {
   return {
@@ -106,6 +119,16 @@ function topDialog(): HTMLElement {
 
 describe("PendingBatchActions governed review", () => {
   beforeEach(() => {
+    ingestApi.decideUploadDuplicate.mockReset();
+    namingApi.previewIngestNaming.mockReset().mockResolvedValue({
+      required: false,
+      canonical_name: null,
+      rule_version: null,
+      fields: null,
+      notices: [],
+      message: "个人资料不强制规范命名",
+      duplicate: noDuplicate,
+    });
     namingApi.fetchNamingOptions.mockReset().mockResolvedValue({
       required: true,
       rule_version: 3,
@@ -1017,5 +1040,81 @@ describe("PendingBatchActions governed review", () => {
       "当前资料不能永久删除",
     );
     expect(deleteItem).not.toHaveBeenCalled();
+  });
+
+  it("atomically switches the retained same-batch item and keeps the skipped row visible", async () => {
+    const first = task("same-a");
+    const second = task("same-b");
+    const sameBatch = (taskId: string) => ({
+      duplicate_state: "same_batch",
+      match_type: "same_batch",
+      match_count: 2,
+      preferred_candidate: {
+        match_type: "same_batch",
+        title: null,
+        file_name: null,
+        file_size: null,
+        scope: "personal",
+        scope_label: "我的个人库",
+        directory_key: null,
+        subject: null,
+        formed_on: null,
+        version: null,
+        asset_status: null,
+        ingested_at: null,
+        safe_summary: null,
+        asset_id: null,
+        can_view_detail: false,
+        can_view_original: false,
+        same_batch_ordinal: taskId === first.id ? 1 : 0,
+      },
+      same_batch_group_id: "group-1",
+      same_batch_first_ordinal: 0,
+      default_selected: taskId === first.id,
+      decision: null,
+    });
+    namingApi.previewIngestNaming.mockImplementation((taskId: string) =>
+      Promise.resolve({
+        required: false,
+        canonical_name: null,
+        rule_version: null,
+        fields: null,
+        notices: [],
+        message: null,
+        duplicate: sameBatch(taskId),
+      }),
+    );
+    ingestApi.decideUploadDuplicate.mockResolvedValue({
+      task_id: second.id,
+      status: "pending_confirmation",
+      decision: "batch_keep",
+      skipped_task_ids: [first.id],
+      duplicate: { ...sameBatch(second.id), default_selected: true, decision: "batch_keep" },
+    });
+    render(<PendingBatchActions tasks={[first, second]} flow={flowFixture([first, second])} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /批量确认入库/ }));
+    fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标知识库" }), {
+      target: { value: "personal" },
+    });
+    const directory = await screen.findByRole("combobox", { name: "本批个人目录" });
+    fireEvent.change(directory, { target: { value: "personal.learning_notes" } });
+    fireEvent.click(screen.getByRole("button", { name: "下一步：核对入库" }));
+
+    const secondRow = (await screen.findByText(/2\. same-b\.pdf/)).closest("article")!;
+    fireEvent.click(within(secondRow).getByRole("button", { name: "对比" }));
+    fireEvent.click(within(secondRow).getByRole("button", { name: "设为本批保留项" }));
+
+    await waitFor(() =>
+      expect(ingestApi.decideUploadDuplicate).toHaveBeenCalledWith(
+        expect.objectContaining({ taskId: second.id, action: "keep" }),
+      ),
+    );
+    expect(
+      (await screen.findAllByText("本次不入库")).some(
+        (element) => element.getAttribute("role") === "status",
+      ),
+    ).toBe(true);
+    expect(screen.getByText("same-a.pdf")).toBeInTheDocument();
   });
 });

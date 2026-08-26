@@ -147,6 +147,7 @@ export interface NamingPreviewDTO {
   confidentiality_source?: "ai_content" | "default_needs_confirmation";
   confidentiality_confidence?: "high" | "medium" | "low";
   confidentiality_reason?: string;
+  duplicate?: import("./ingest").UploadDuplicateDTO;
 }
 
 export interface NamingWarningNoticeDTO {
@@ -190,6 +191,7 @@ export interface BatchNamingPreviewItemDTO {
   confidentiality_source?: "ai_content" | "default_needs_confirmation";
   confidentiality_confidence?: "high" | "medium" | "low";
   confidentiality_reason?: string;
+  duplicate?: import("./ingest").UploadDuplicateDTO;
 }
 
 export interface BatchNamingPreviewResponseDTO {

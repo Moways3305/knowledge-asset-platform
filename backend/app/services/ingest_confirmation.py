@@ -25,7 +25,7 @@ from app.schemas.ingest import IngestConfirmRequest, IngestConfirmResponse
 from app.schemas.naming import NamingPreviewRequest
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
-from app.services import canonical_markdown
+from app.services import canonical_markdown, upload_duplicates
 from app.services.storage import LocalFileStorage
 
 if TYPE_CHECKING:
@@ -126,6 +126,7 @@ async def validate_and_route_confirmation(
                 selectinload(IngestTask.ai_result),
                 selectinload(IngestTask.canonical_markdown),
             )
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if task is None:
@@ -143,6 +144,8 @@ async def validate_and_route_confirmation(
             "ingest_already_confirmed",
             "该入库任务已确认，不可重复确认",
         )
+    if task.status == IngestStatus.duplicate_skipped.value:
+        raise _denied(409, "duplicate_already_skipped", "该资料已选择本次不入库")
     if task.status == IngestStatus.processing.value:
         raise _denied(
             409,
@@ -210,6 +213,15 @@ async def validate_and_route_confirmation(
             ),
         )
         require_naming_warning_acknowledgement(request, naming_result)
+        await upload_duplicates.require_independent_confirmation(
+            session,
+            caller,
+            task,
+            scope=scope,
+            project_id=target_project_id,
+            metadata=naming_result.metadata if naming_result is not None else None,
+            acknowledged_warning_codes=set(request.acknowledged_naming_warning_codes),
+        )
         request = apply_authoritative_project_subject(request, naming_result)
         directory_key = (
             naming_result.metadata.get("directory_key")
@@ -318,6 +330,15 @@ async def apply_confirmation_extensions(
         ),
     )
     require_naming_warning_acknowledgement(context.request, result)
+    await upload_duplicates.require_independent_confirmation(
+        context.session,
+        context.caller,
+        context.task,
+        scope=context.scope,
+        project_id=context.project_id,
+        metadata=result.metadata if result is not None else None,
+        acknowledged_warning_codes=set(context.request.acknowledged_naming_warning_codes),
+    )
     directory_key = (
         result.metadata.get("directory_key")
         if result is not None

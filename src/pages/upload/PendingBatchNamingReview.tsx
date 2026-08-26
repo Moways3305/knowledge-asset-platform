@@ -8,6 +8,7 @@ import type {
 } from "../../types/naming";
 import type { UploadFlow } from "./useUploadFlow";
 import type { TargetLibrary } from "./uploadConstants";
+import DuplicateComparisonPopover from "./DuplicateComparisonPopover";
 import {
   hasReliableAiConfidentiality,
   previewError,
@@ -22,6 +23,7 @@ import type {
   ReviewFilter,
   ReviewRows,
   ReviewState,
+  SkippedDuplicateItem,
 } from "./pendingBatchReviewState";
 
 type FilterSnapshot = { filter: ReviewFilter; taskIds: string[] } | null;
@@ -69,6 +71,12 @@ type Props = {
   targetLibrary: TargetLibrary;
   setFallbackDirectoryTaskId: Dispatch<SetStateAction<string | null>>;
   setFallbackDirectoryKey: Dispatch<SetStateAction<string>>;
+  duplicateDecisionTaskId: string | null;
+  skippedDuplicateItems: SkippedDuplicateItem[];
+  onDuplicateDecision: (
+    task: PendingIngestItemDTO,
+    action: "skip" | "independent" | "keep",
+  ) => Promise<void>;
 };
 
 export default function PendingBatchNamingReview(props: Props) {
@@ -115,6 +123,9 @@ export default function PendingBatchNamingReview(props: Props) {
     targetLibrary,
     setFallbackDirectoryTaskId,
     setFallbackDirectoryKey,
+    duplicateDecisionTaskId,
+    skippedDuplicateItems,
+    onDuplicateDecision,
   } = props;
 
   return (
@@ -185,6 +196,22 @@ export default function PendingBatchNamingReview(props: Props) {
         ))}
       </div>
       <div className="upload77-batch-naming-scroll">
+        {skippedDuplicateItems.length > 0 && (
+          <section className="upload77-batch-completed" aria-label="本次跳过的重复资料">
+            <h4>本次不入库（{skippedDuplicateItems.length}）</h4>
+            {skippedDuplicateItems.map(({ task, duplicate }) => (
+              <article className="upload77-batch-completed-item" key={`skipped-${task.id}`}>
+                <strong>{task.source_file_name}</strong>
+                <DuplicateComparisonPopover
+                  duplicate={duplicate}
+                  current={{ fileName: task.source_file_name, fileSize: task.source_file_size }}
+                  busy={duplicateDecisionTaskId === task.id}
+                  onKeep={() => void props.onDuplicateDecision(task, "keep")}
+                />
+              </article>
+            ))}
+          </section>
+        )}
         {completedReviewItems.length > 0 && (
           <section className="upload77-batch-completed" aria-labelledby="batch-completed-title">
             <h4 id="batch-completed-title">本次已入库（{completedReviewItems.length}）</h4>
@@ -310,6 +337,22 @@ export default function PendingBatchNamingReview(props: Props) {
                   </button>
                 </div>
               </header>
+              <DuplicateComparisonPopover
+                duplicate={preview?.duplicate}
+                current={{
+                  fileName: task.source_file_name,
+                  fileSize: task.source_file_size,
+                  scopeLabel: targetLibrary === "company" ? "公司知识库" : "当前项目库",
+                  directory: row.directory_key ? directoryLabel(row.directory_key) : null,
+                  subject: row.subject,
+                  formedOn: row.formed_on,
+                  version: row.version,
+                }}
+                busy={duplicateDecisionTaskId === task.id}
+                onSkip={() => void onDuplicateDecision(task, "skip")}
+                onIndependent={() => void onDuplicateDecision(task, "independent")}
+                onKeep={() => void onDuplicateDecision(task, "keep")}
+              />
               {deleteFeedback[task.id] && (
                 <div className="upload77-batch-delete-error" role="alert">
                   <span>{deleteFeedback[task.id].message}</span>

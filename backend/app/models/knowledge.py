@@ -145,6 +145,11 @@ class KnowledgeAssetVersion(Base):
             sqlite_where=text("version_status = 'active'"),
             postgresql_where=text("version_status = 'active'"),
         ),
+        Index(
+            "ix_asset_versions_file_hash_status",
+            "file_hash",
+            "version_status",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)

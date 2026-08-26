@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ingest import IngestTask, UploadSession
 from app.schemas.ingest import UploadSessionItemResponse, UploadSessionResponse
+from app.schemas.permission import CallerContext
+from app.services.upload_duplicates import read_duplicate
 from app.services.upload_session_state import COMPLETED_ITEM_STATES, TERMINAL_ITEM_STATES
 
 _VISIBLE_PROCESSING_STAGES = {
@@ -31,7 +33,9 @@ def visible_processing_stage(stage: str | None) -> str | None:
     return stage if stage is not None and stage in _VISIBLE_PROCESSING_STAGES else None
 
 
-async def build_response(session: AsyncSession, value: UploadSession) -> UploadSessionResponse:
+async def build_response(
+    session: AsyncSession, caller: CallerContext, value: UploadSession
+) -> UploadSessionResponse:
     visible_items = [item for item in value.items if item.status != "cancelled"]
     task_ids = [item.ingest_task_id for item in visible_items if item.ingest_task_id]
     task_facts: dict[uuid.UUID, tuple[str | None, int, str | None, datetime | None]] = {
@@ -47,6 +51,24 @@ async def build_response(session: AsyncSession, value: UploadSession) -> UploadS
                 ).where(IngestTask.id.in_(task_ids))
             )
         ).all()
+    }
+    tasks = {
+        task.id: task
+        for task in (
+            (await session.execute(select(IngestTask).where(IngestTask.id.in_(task_ids))))
+            .scalars()
+            .all()
+        )
+    }
+    duplicates = {
+        task_id: await read_duplicate(
+            session,
+            caller,
+            task,
+            scope=value.target_scope or "",
+            project_id=value.target_project_id,
+        )
+        for task_id, task in tasks.items()
     }
     states = [item.status for item in visible_items]
     active_batches = [
@@ -106,6 +128,9 @@ async def build_response(session: AsyncSession, value: UploadSession) -> UploadS
                     else None
                 ),
                 bytes_available=item.ingest_task_id is not None,
+                duplicate=(
+                    duplicates.get(item.ingest_task_id) if item.ingest_task_id is not None else None
+                ),
             )
             for item in visible_items
         ],
