@@ -13,12 +13,29 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import get_settings
 from app.services.desensitization import DesensitizationEngine
 from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.storage import LocalFileStorage
+
+
+async def enqueue_outbox_delivery(session: AsyncSession) -> None:
+    """Run only after the publishing transaction committed."""
+    if get_settings().celery_task_always_eager:
+        from app.services.outbox import process_pending
+
+        # A dispatcher owns its transaction boundary. Reusing the request
+        # session would expire/rollback domain objects still needed to build
+        # the HTTP response after the publishing transaction committed.
+        maker = async_sessionmaker(bind=session.bind, expire_on_commit=False)
+        async with maker() as delivery_session:
+            await process_pending(delivery_session)
+        return
+    from app.worker.tasks.outbox import dispatch_pending
+
+    dispatch_pending.delay()
 
 
 async def enqueue_ingest_processing(

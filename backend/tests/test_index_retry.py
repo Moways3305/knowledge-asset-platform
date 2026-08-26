@@ -96,7 +96,7 @@ def _enable(monkeypatch, fake, *, embedding="test-embed"):
     from app.services.weknora_model_selection import ResolvedModels
 
     monkeypatch.setattr("app.services.ingest.weknora_enabled", lambda: True)
-    monkeypatch.setattr("app.services.knowledge.weknora_enabled", lambda: True)
+    monkeypatch.setattr("app.services.knowledge_index_commands.weknora_enabled", lambda: True)
     # 绕过 DB resolve（测试无需配置 WeknoraDefaultModels 行），直接返回测试用 ResolvedModels。
     _resolved = ResolvedModels(
         embedding_model_id=embedding, explicit_embedding=False, chat_model_id="test-chat"
@@ -332,7 +332,7 @@ async def test_retry_skipped_clears_stale_index_error(client, db_session, monkey
         db_session.expunge(ver0)
 
         # 关闭底座后重试 → skipped，且清理旧失败残留。
-        monkeypatch.setattr("app.services.knowledge.weknora_enabled", lambda: False)
+        monkeypatch.setattr("app.services.knowledge_index_commands.weknora_enabled", lambda: False)
         r = await client.post(
             f"/api/v1/knowledge/{asset_id}/retry-index", headers=_hdr(USER_CONSULTANT)
         )

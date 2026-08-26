@@ -355,7 +355,7 @@ def _enable_weknora(monkeypatch, fake, *, embedding="test-embed"):
     from conftest import patch_default_model
 
     monkeypatch.setattr("app.services.ingest.weknora_enabled", lambda: True)
-    monkeypatch.setattr("app.services.knowledge.weknora_enabled", lambda: True)
+    monkeypatch.setattr("app.services.knowledge_index_commands.weknora_enabled", lambda: True)
     patch_default_model(monkeypatch, embedding=embedding)
     app.dependency_overrides[get_weknora_client] = lambda: fake
 

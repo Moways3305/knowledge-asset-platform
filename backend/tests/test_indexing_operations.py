@@ -471,7 +471,7 @@ def _enable(monkeypatch, fake, *, embedding="test-embed"):
     from app.services.weknora_model_selection import ResolvedModels
 
     monkeypatch.setattr("app.services.ingest.weknora_enabled", lambda: True)
-    monkeypatch.setattr("app.services.knowledge.weknora_enabled", lambda: True)
+    monkeypatch.setattr("app.services.knowledge_index_commands.weknora_enabled", lambda: True)
     monkeypatch.setattr("app.services.jobs.indexing_operations.weknora_enabled", lambda: True)
     # 绕过 DB resolve（测试无需配置 WeknoraDefaultModels 行），直接返回测试用 ResolvedModels。
     _resolved = ResolvedModels(

@@ -47,8 +47,10 @@ from app.schemas.original_access import (
 )
 from app.schemas.permission import AccessLayer, CallerContext
 from app.services import audit as audit_service
+from app.services import domain_events
 from app.services.permission import build_caller_context, decide
 from app.services.permission_rules import access_request_timeout_hours, load_access_policy
+from app.worker.enqueue import enqueue_outbox_delivery
 
 _logger = logging.getLogger(__name__)
 
@@ -414,10 +416,22 @@ async def create_request(
         extra={"asset_id": str(asset.id), "requester_user_id": str(caller.user_id)},
         project_id=asset.project_id,
     )
-    from app.services.notifications import notify_original_access_pending
-
-    await notify_original_access_pending(session, req)
+    await domain_events.publish(
+        session,
+        domain_events.DomainEvent(
+            event_type=domain_events.ORIGINAL_ACCESS_REQUESTED,
+            aggregate_type="original_access_request",
+            aggregate_id=req.id,
+            payload=domain_events.safe_payload(
+                request_id=req.id,
+                project_id=req.project_id,
+                status=req.status,
+            ),
+            idempotency_key=f"original-access-requested:{req.id}",
+        ),
+    )
     await session.commit()
+    await enqueue_outbox_delivery(session)
     return CreateRequestResponse(
         status="created",
         request=await _request_out(session, req, asset=asset),
@@ -513,6 +527,26 @@ async def _load_request(
     return req, asset
 
 
+async def _publish_original_access_decided(
+    session: AsyncSession, request: OriginalAccessRequest
+) -> None:
+    await domain_events.publish(
+        session,
+        domain_events.DomainEvent(
+            event_type=domain_events.ORIGINAL_ACCESS_DECIDED,
+            aggregate_type="original_access_request",
+            aggregate_id=request.id,
+            payload=domain_events.safe_payload(
+                request_id=request.id,
+                project_id=request.project_id,
+                decision=request.status,
+                status=request.status,
+            ),
+            idempotency_key=f"original-access-decided:{request.id}:{request.status}",
+        ),
+    )
+
+
 async def approve_request(
     session: AsyncSession,
     caller: CallerContext,
@@ -571,7 +605,9 @@ async def approve_request(
             "grantee_user_id": str(req.requester_user_id),
         },
     )
+    await _publish_original_access_decided(session, req)
     await session.commit()
+    await enqueue_outbox_delivery(session)
     return CreateRequestResponse(
         status="approved",
         request=await _request_out(session, req, asset=asset),
@@ -614,7 +650,9 @@ async def reject_request(
         "original_access_rejected",
         extra={"asset_id": str(asset.id), "request_id": str(req.id)},
     )
+    await _publish_original_access_decided(session, req)
     await session.commit()
+    await enqueue_outbox_delivery(session)
     return CreateRequestResponse(
         status="rejected",
         request=await _request_out(session, req, asset=asset),
@@ -774,7 +812,9 @@ async def _auto_approve_one(
             "project_id": str(asset.project_id) if asset.project_id else None,
         },
     )
+    await _publish_original_access_decided(session, req)
     await session.commit()
+    await enqueue_outbox_delivery(session)
     return "approved"
 
 

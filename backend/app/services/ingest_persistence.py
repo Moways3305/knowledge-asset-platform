@@ -22,9 +22,11 @@ from app.schemas.enums import (
     IngestStatus,
 )
 from app.services import audit as audit_service
+from app.services import domain_events
 from app.services.authorized_summary import build_authorized_summary_variants
 from app.services.canonical_markdown import FILE_VARIANT, MARKDOWN_MIME, canonical_file_name
 from app.services.ingest_confirmation import ValidatedConfirmationContext
+from app.worker.enqueue import enqueue_outbox_delivery
 
 _REDACTED_LEVELS = {ConfidentialityLevel.L3.value, ConfidentialityLevel.L4.value}
 
@@ -287,7 +289,23 @@ async def persist_confirmation(
         },
         project_id=context.project_id,
     )
+    await domain_events.publish(
+        session,
+        domain_events.DomainEvent(
+            event_type=domain_events.INGEST_CONFIRMED,
+            aggregate_type="ingest_task",
+            aggregate_id=task.id,
+            payload=domain_events.safe_payload(
+                task_id=task.id,
+                asset_id=asset.id,
+                project_id=context.project_id,
+                status=task.status,
+            ),
+            idempotency_key=f"ingest-confirmed:{task.id}:{asset.id}",
+        ),
+    )
     await session.commit()
+    await enqueue_outbox_delivery(session)
     return PersistedConfirmation(
         task=task,
         asset=asset,

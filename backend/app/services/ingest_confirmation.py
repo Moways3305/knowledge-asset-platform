@@ -232,7 +232,7 @@ async def validate_and_route_confirmation(
             caller.active_project_roles.get(target_project_id) == ProjectRole.project_manager.value
         )
         if not can_self_confirm:
-            from app.services.review import create_or_get_project_ingest_review
+            from app.services.review_ingest_commands import create_or_get_project_ingest_review
 
             review = await create_or_get_project_ingest_review(
                 session,

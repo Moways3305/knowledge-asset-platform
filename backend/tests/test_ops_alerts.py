@@ -20,6 +20,7 @@ from app.models.identity import User, UserCompanyRole
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.lifecycle import AlertRule, NotificationRecord
 from app.models.notification import BusinessNotification
+from app.models.outbox import DomainEventOutbox
 from app.seed.dev_seed import USER_ADMIN_ONLY, USER_BOSS
 from app.services import alert as alert_service
 from app.services.jobs import ops_alerts
@@ -245,6 +246,34 @@ async def test_cooldown_suppresses_repeat_within_window(db_session):
     notifs = await _notifications(db_session, ops_alerts.TITLE_INDEX_FAILED, USER_ADMIN_ONLY)
     assert len(notifs) == 1, "冷却期内不得重复发送"
     assert len(await _audit_events(db_session)) == 1
+
+
+async def test_consumer_delay_does_not_bypass_outbox_or_cooldown(db_session, monkeypatch):
+    """业务事务只落审计和 Outbox；消费延迟时也不会重复触发。"""
+
+    async def leave_pending(_session):
+        return None
+
+    monkeypatch.setattr(ops_alerts, "enqueue_outbox_delivery", leave_pending)
+    await _set_rule(db_session, ops_alerts.RULE_INDEX_FAILED, threshold=1)
+    await _mark_index_failed(db_session, 2)
+
+    await ops_alerts.scan_ops_alerts(db_session, trace_id="t-pending-1")
+    await ops_alerts.scan_ops_alerts(db_session, trace_id="t-pending-2")
+
+    assert await _notifications(db_session, ops_alerts.TITLE_INDEX_FAILED) == []
+    assert len(await _audit_events(db_session)) == 1
+    rows = list(
+        (
+            await db_session.execute(
+                select(DomainEventOutbox).where(DomainEventOutbox.event_type == "OpsSignalRaised")
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1
+    assert rows[0].status == "pending"
 
 
 async def test_resend_after_cooldown_expiry(db_session):

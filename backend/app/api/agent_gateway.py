@@ -20,7 +20,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import denied
 from app.core.trace import get_trace_id
 from app.db.session import get_db
-from app.db.utils import utc_now
 from app.models.agent_registry import AgentWhitelistRule
 from app.schemas.agent_workbench import (
     WorkbenchKnowledgeContent,
@@ -93,8 +92,7 @@ async def require_bound_caller(
     else:
         # 只有完整成功返回的 WorkBuddy 请求才记录活动；不写审计 extra/请求内容。
         if rule.provider == "workbuddy":
-            rule.last_connected_at = utc_now()
-            await session.commit()
+            await agent_registry.record_successful_connection(session, rule.id)
 
 
 @router.post("/tools/knowledge-search", response_model=SearchResponse)

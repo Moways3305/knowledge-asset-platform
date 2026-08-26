@@ -362,7 +362,7 @@ async def test_weknora_delete_network_failure_still_soft_deletes(client, db_sess
     await db_session.commit()
 
     # 让 knowledge 模块认为 WeKnora 已启用，并注入会抛 httpx 异常的 client。
-    monkeypatch.setattr("app.services.knowledge.weknora_enabled", lambda: True)
+    monkeypatch.setattr("app.services.knowledge_index_commands.weknora_enabled", lambda: True)
     app.dependency_overrides[get_weknora_client] = lambda: _BoomWeKnora()
     try:
         r = await client.post(

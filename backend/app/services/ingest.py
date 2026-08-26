@@ -56,6 +56,7 @@ from app.schemas.review import ReviewActionResponse
 from app.services import audit as audit_service
 from app.services import (
     canonical_markdown,
+    domain_events,
     indexing,
     ingest_confirmation,
     ingest_indexing,
@@ -73,7 +74,7 @@ from app.services.weknora_client import (
     WeKnoraError,
     weknora_enabled,
 )
-from app.worker.enqueue import enqueue_ingest_processing
+from app.worker.enqueue import enqueue_ingest_processing, enqueue_outbox_delivery
 
 if TYPE_CHECKING:
     # 运行时延迟到函数体内导入（避免与 schemas.ingest 的环依赖），此处仅供类型标注。
@@ -749,7 +750,38 @@ async def approve_project_ingest_review(
         },
         project_id=req.target_project_id,
     )
+    await domain_events.publish(
+        session,
+        domain_events.DomainEvent(
+            event_type=domain_events.REVIEW_DECIDED,
+            aggregate_type="review",
+            aggregate_id=review.id,
+            payload=domain_events.safe_payload(
+                review_id=review.id,
+                project_id=review.target_project_id,
+                decision=review.status,
+                status=review.status,
+            ),
+            idempotency_key=f"review-decided:{review.id}:{review.status}",
+        ),
+    )
+    await domain_events.publish(
+        session,
+        domain_events.DomainEvent(
+            event_type=domain_events.INGEST_CONFIRMED,
+            aggregate_type="ingest_task",
+            aggregate_id=task.id,
+            payload=domain_events.safe_payload(
+                task_id=task.id,
+                asset_id=asset.id,
+                project_id=req.target_project_id,
+                status=task.status,
+            ),
+            idempotency_key=f"ingest-confirmed:{task.id}:{asset.id}",
+        ),
+    )
     await session.commit()
+    await enqueue_outbox_delivery(session)
     return ReviewActionResponse(
         review_id=review.id,
         status=review.status,

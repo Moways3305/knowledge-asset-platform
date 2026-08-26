@@ -26,7 +26,7 @@ from app.models.knowledge import KnowledgeAsset, KnowledgeAssetFileObject, Knowl
 from app.schemas.enums import AssetStatus, AuditAction, AuditLogType
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
-from app.services import error_catalog, indexing
+from app.services import error_catalog, indexing, operation_events
 from app.services.indexing_candidates import reparse_candidate_conditions, scope_conditions
 from app.services.permission import build_caller_context
 from app.services.storage import LocalFileStorage
@@ -35,6 +35,7 @@ from app.services.weknora_client import (
     WeKnoraClient,
     weknora_enabled,
 )
+from app.worker.enqueue import enqueue_outbox_delivery
 
 _logger = logging.getLogger(__name__)
 
@@ -342,20 +343,9 @@ async def run_operation_job(
             job.error_code = code
             job.error_message = error_catalog.user_message(code)
             job.finished_at = utc_now()
+            await operation_events.publish_job_finished(session, job)
             await session.commit()
-            from app.services.notifications import notify_operation_job_finished
-
-            try:
-                await notify_operation_job_finished(session, job)
-                await session.commit()
-            except Exception as notification_exc:  # noqa: BLE001
-                safe_log_exception(
-                    _logger,
-                    "operation_job_notification_failed",
-                    notification_exc,
-                    include_summary=False,
-                )
-                await session.rollback()
+            await enqueue_outbox_delivery(session)
         return "failed"
 
     # 重新载入 job（循环内多次 commit/rollback 后以最新状态回写统计）。
@@ -373,17 +363,9 @@ async def run_operation_job(
     else:
         job.status = "completed" if failed == 0 else "completed_with_errors"
     job.finished_at = utc_now()
+    await operation_events.publish_job_finished(session, job)
     await session.commit()
-    from app.services.notifications import notify_operation_job_finished
-
-    try:
-        await notify_operation_job_finished(session, job)
-        await session.commit()
-    except Exception as notification_exc:  # noqa: BLE001
-        safe_log_exception(
-            _logger, "operation_job_notification_failed", notification_exc, include_summary=False
-        )
-        await session.rollback()
+    await enqueue_outbox_delivery(session)
 
     completed_action = (
         AuditAction.knowledge_index_target_retry_completed

@@ -17,6 +17,8 @@ from app.models.identity import Project
 from app.models.indexing_job import IndexingOperationJob
 from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.naming import NamingRuleRevision
+from app.models.notification import BusinessNotification
+from app.models.outbox import DomainEventOutbox
 from app.models.review import PersonalKnowledgeSubmission, ReviewTask
 from app.seed.dev_seed import (
     PROJECT_ALPHA,
@@ -208,6 +210,23 @@ async def test_submit_to_member_project_creates_submission_and_review(client, db
     ).scalar_one()
     assert task.review_type == "personal_to_project"
     assert task.reviewer_user_id == USER_PROJECT_MANAGER  # ALPHA 的 active PM
+    event = (
+        await db_session.execute(
+            select(DomainEventOutbox).where(
+                DomainEventOutbox.event_type == "ReviewActionRequired",
+                DomainEventOutbox.aggregate_id == task.id,
+            )
+        )
+    ).scalar_one()
+    assert event.status == "completed"
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(BusinessNotification)
+            .where(BusinessNotification.target_id == task.id)
+        )
+        == 1
+    )
 
 
 async def test_project_approval_creates_independent_target_version_without_mutating_source(

@@ -43,6 +43,7 @@ def _make_celery() -> Celery:
             "app.worker.tasks.indexing",
             "app.worker.tasks.ops_alerts",
             "app.worker.tasks.ops_health",
+            "app.worker.tasks.outbox",
         ],
     )
     app.conf.update(
@@ -71,6 +72,10 @@ def _make_celery() -> Celery:
             "notifications-dispatch": {
                 "task": "notifications.dispatch_pending",
                 "schedule": 120.0,  # 每 2 分钟下发待发 wecom 通知
+            },
+            "domain-events-dispatch": {
+                "task": "domain_events.dispatch_pending",
+                "schedule": 15.0,
             },
             "original-access-auto-approve": {
                 "task": "access.auto_approve_timed_out",

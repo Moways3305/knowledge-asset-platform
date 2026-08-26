@@ -14,14 +14,11 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_caller_context
 from app.core.trace import get_trace_id
 from app.db.session import get_db
-from app.models.ingest import IngestTask
-from app.models.knowledge import KnowledgeAssetVersion
 from app.schemas.enums import AuditAction
 from app.schemas.ingest import (
     AdminIngestListResponse,
@@ -44,6 +41,7 @@ from app.schemas.ingest import (
 from app.schemas.permission import CallerContext
 from app.services import bulk_operations as bulk_service
 from app.services import ingest as ingest_service
+from app.services import ingest_bulk
 from app.services import ingest_status as ingest_status_service
 from app.services import upload_sessions as upload_session_service
 from app.services.desensitization import DesensitizationEngine, get_desensitizer
@@ -100,31 +98,6 @@ def _formed_on_for(client_map: dict[str, str], file_name: str) -> str | None:
     if client_value:
         return client_value
     return upload_session_service.extract_formed_on_from_filename(file_name)
-
-
-async def _confirmed_task_result(
-    session: AsyncSession, task_id: uuid.UUID
-) -> IngestBulkConfirmItemResult | None:
-    """残差防御：确认已落库（result_asset_id 已回填）后仍抛出异常时，返回 succeeded 并带回资产 id，
-    避免"已入库但报失败"误导前端。正常前置校验失败（未落库）返回 None，由调用方走原错误分支。"""
-    row = (
-        await session.execute(
-            select(IngestTask.result_asset_id, KnowledgeAssetVersion.index_status)
-            .outerjoin(
-                KnowledgeAssetVersion,
-                KnowledgeAssetVersion.id == IngestTask.result_version_id,
-            )
-            .where(IngestTask.id == task_id)
-        )
-    ).one_or_none()
-    if row is None or row.result_asset_id is None:
-        return None
-    return IngestBulkConfirmItemResult(
-        item_id=task_id,
-        status="succeeded",
-        result_asset_id=row.result_asset_id,
-        index_status=row.index_status,
-    )
 
 
 @router.post("/ingest/upload-sessions/init", response_model=UploadSessionResponse)
@@ -1014,7 +987,7 @@ async def bulk_confirm(
                 batch_results.append(bulk_service.skipped_from_http(item.task_id, exc))
             except Exception:
                 await session.rollback()
-                already = await _confirmed_task_result(session, item.task_id)
+                already = await ingest_bulk.confirmed_task_result(session, item.task_id)
                 batch_results.append(
                     already if already is not None else bulk_service.failed_item(item.task_id)
                 )
@@ -1081,3 +1054,6 @@ async def list_admin_ingest(
 ) -> AdminIngestListResponse:
     items = await ingest_service.list_admin_ingest(session, caller, trace_id=get_trace_id(request))
     return AdminIngestListResponse(items=items, total=len(items))
+
+
+_confirmed_task_result = ingest_bulk.confirmed_task_result

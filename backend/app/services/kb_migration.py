@@ -28,11 +28,12 @@ from app.models.weknora import WeknoraKbMapping
 from app.schemas.enums import AssetStatus, AuditAction, AuditLogType, KnowledgeScope
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
-from app.services import error_catalog
+from app.services import error_catalog, operation_events
 from app.services.permission import build_caller_context
 from app.services.weknora_client import WeKnoraDuplicateError, WeKnoraError, weknora_enabled
 from app.services.weknora_model_selection import _safe_model_meta
 from app.services.weknora_models import _kb_update_config, _model_ref
+from app.worker.enqueue import enqueue_outbox_delivery
 
 _logger = logging.getLogger(__name__)
 
@@ -609,17 +610,9 @@ async def run_kb_migrate_job(
         else:
             job.status = "completed" if close_ready else "completed_with_errors"
         job.finished_at = utc_now()
+        await operation_events.publish_job_finished(session, job)
         await session.commit()
-        from app.services.notifications import notify_operation_job_finished
-
-        try:
-            await notify_operation_job_finished(session, job)
-            await session.commit()
-        except Exception as notification_exc:  # noqa: BLE001
-            safe_log_exception(
-                _logger, "kb_migrate_notification_failed", notification_exc, include_summary=False
-            )
-            await session.rollback()
+        await enqueue_outbox_delivery(session)
 
         await audit_service.record_event(
             session,
@@ -654,15 +647,7 @@ async def _fail_job(session: AsyncSession, job: IndexingOperationJob, code: str)
     job.error_code = error_catalog.safe_code(code)
     job.error_message = error_catalog.user_message(job.error_code)
     job.finished_at = utc_now()
+    await operation_events.publish_job_finished(session, job)
     await session.commit()
-    from app.services.notifications import notify_operation_job_finished
-
-    try:
-        await notify_operation_job_finished(session, job)
-        await session.commit()
-    except Exception as notification_exc:  # noqa: BLE001
-        safe_log_exception(
-            _logger, "kb_migrate_notification_failed", notification_exc, include_summary=False
-        )
-        await session.rollback()
+    await enqueue_outbox_delivery(session)
     return "failed"

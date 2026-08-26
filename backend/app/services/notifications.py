@@ -19,6 +19,7 @@ from app.db.utils import utc_now
 from app.models.identity import Project, ProjectMember, User, UserCompanyRole
 from app.models.indexing_job import IndexingOperationJob
 from app.models.ingest import IngestTask
+from app.models.knowledge import KnowledgeAsset, KnowledgeAssetVersion
 from app.models.notification import BusinessNotification
 from app.models.original_access import OriginalAccessRequest
 from app.models.review import ReviewTask
@@ -39,11 +40,12 @@ from app.schemas.notification import (
     BusinessNotificationListResponse,
     BusinessNotificationOut,
     MarkReadBatchResponse,
-    NotificationTarget,
     UnreadCountResponse,
 )
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
+from app.services.notification_targets import VisibleNotificationTarget
+from app.services.notification_targets import resolve as resolve_notification_target
 from app.services.permission import build_caller_context
 from app.services.wecom_client import WeComError
 
@@ -65,6 +67,18 @@ _EVENT_COPY = {
         "有一项原文访问申请等待处理。",
     ),
     "ingest.failed": ("ingest", "入库处理未完成", "你提交的一项入库任务需要处理。"),
+    "ingest.confirmed": ("ingest", "资料已确认入库", "你提交的一项资料已完成入库确认。"),
+    "review.decided": ("review", "审核结果已更新", "你提交的一项审核事项已有处理结果。"),
+    "original_access.decided": (
+        "original_access",
+        "原文访问审批已处理",
+        "你提交的一项原文访问申请已有处理结果。",
+    ),
+    "index.status_changed": (
+        "indexing",
+        "索引状态已更新",
+        "你维护的一项知识资产索引状态已更新，可查看结果。",
+    ),
     "ops.parse_stalled": (
         "ops",
         "运维告警：索引中断待恢复",
@@ -119,6 +133,7 @@ _TARGET_ROUTES = {
     "ingest_task": "upload",
     "ops_index": "admin_ingest",
     "indexing_job": "admin_ingest",
+    "knowledge_asset": "knowledge_detail",
 }
 
 # 运维告警信号 → 业务通知事件类型（仅治理角色可见的业务信号，不包含登录风控）。
@@ -138,13 +153,6 @@ def _not_found() -> HTTPException:
 def _is_ops_viewer(caller: CallerContext) -> bool:
     """运维面板可见性（与 ops.py `_require_ops_viewer` 同口径）。"""
     return CompanyRole.admin.value in caller.active_company_roles or caller.can_discover_l5
-
-
-class _VisibleTarget:
-    def __init__(self, target: NotificationTarget, *, status: str, action_required: bool) -> None:
-        self.target = target
-        self.status = status
-        self.action_required = action_required
 
 
 def _task_projection(
@@ -376,6 +384,107 @@ async def notify_ingest_failed(session: AsyncSession, task: IngestTask) -> None:
     )
 
 
+async def _active_domain_recipient(
+    session: AsyncSession,
+    user_id: uuid.UUID | None,
+    project_id: uuid.UUID | None,
+) -> list[uuid.UUID]:
+    if user_id is None:
+        return []
+    user = await session.get(User, user_id)
+    if user is None or user.status != "active":
+        return []
+    if project_id is not None and user_id not in await _active_project_user_ids(
+        session, project_id
+    ):
+        return []
+    return [user_id]
+
+
+async def notify_review_decided(
+    session: AsyncSession,
+    task: ReviewTask,
+    *,
+    dedup_key: str,
+) -> None:
+    await _record(
+        session,
+        recipients=await _active_domain_recipient(
+            session, task.submitted_by, task.target_project_id
+        ),
+        event_type="review.decided",
+        target_kind="review",
+        target_id=task.id,
+        project_id=task.target_project_id,
+        dedup_key=dedup_key,
+    )
+
+
+async def notify_ingest_confirmed(
+    session: AsyncSession,
+    task: IngestTask,
+    *,
+    dedup_key: str,
+) -> None:
+    await _record(
+        session,
+        recipients=await _active_domain_recipient(session, task.created_by, task.target_project_id),
+        event_type="ingest.confirmed",
+        target_kind="ingest_task",
+        target_id=task.id,
+        project_id=task.target_project_id,
+        dedup_key=dedup_key,
+    )
+
+
+async def notify_original_access_decided(
+    session: AsyncSession,
+    request: OriginalAccessRequest,
+    *,
+    dedup_key: str,
+) -> None:
+    await _record(
+        session,
+        recipients=await _active_domain_recipient(
+            session, request.requester_user_id, request.project_id
+        ),
+        event_type="original_access.decided",
+        target_kind="original_access_request",
+        target_id=request.id,
+        project_id=request.project_id,
+        dedup_key=dedup_key,
+    )
+
+
+async def notify_index_status_changed(
+    session: AsyncSession,
+    version: KnowledgeAssetVersion,
+    *,
+    status: str | None,
+    dedup_key: str,
+) -> None:
+    # Transient indexing is still a handled event but not a user notification.
+    if status not in {"indexed", "index_failed", "skipped", "duplicate"}:
+        return
+    asset = await session.get(KnowledgeAsset, version.asset_id)
+    if asset is None:
+        raise LookupError("index_event_asset_missing")
+    recipients: list[uuid.UUID] = []
+    for user_id in {asset.owner_user_id, asset.maintainer_user_id}:
+        for recipient in await _active_domain_recipient(session, user_id, asset.project_id):
+            if recipient not in recipients:
+                recipients.append(recipient)
+    await _record(
+        session,
+        recipients=recipients,
+        event_type="index.status_changed",
+        target_kind="knowledge_asset",
+        target_id=asset.id,
+        project_id=asset.project_id,
+        dedup_key=dedup_key,
+    )
+
+
 async def notify_operation_job_finished(session: AsyncSession, job: IndexingOperationJob) -> None:
     """Create one safe terminal notification for the job requester."""
     if job.requested_by_user_id is None or job.status not in {
@@ -421,115 +530,10 @@ async def notify_operation_job_finished(session: AsyncSession, job: IndexingOper
     )
 
 
-async def _validated_target(
-    session: AsyncSession, caller: CallerContext, row: BusinessNotification
-) -> _VisibleTarget | None:
-    if not caller.is_active:
-        return None
-    if not caller.is_business_user and not _is_ops_viewer(caller):
-        return None
-    # Operational jobs are authorized by requester ownership / current ops visibility below.
-    # Their project_id describes the execution scope; it does not make an administrator a
-    # project member and must not hide the terminal notification from its requester.
-    if (
-        row.project_id is not None
-        and row.target_kind not in {"indexing_job", "ops_index"}
-        and row.event_type != "review.company_confirmation_pending"
-    ):
-        if row.project_id not in caller.active_project_ids:
-            return None
-    try:
-        if row.target_kind == "review":
-            from app.services import review as review_service
-
-            item = await review_service.get_review(session, caller, row.target_id)
-            if row.event_type == "review.project_pending":
-                if (
-                    row.project_id is None
-                    or caller.active_project_roles.get(row.project_id)
-                    != ProjectRole.project_manager.value
-                ):
-                    return None
-            elif row.event_type == "review.company_confirmation_pending" and not any(
-                role in {CompanyRole.boss.value, CompanyRole.consulting_director.value}
-                for role in caller.active_company_roles
-            ):
-                return None
-            action_required = item.can_decide and item.status in _ACTIONABLE_REVIEW_STATUSES
-            status = (
-                "failed"
-                if item.status == "approval_failed"
-                else "completed"
-                if item.status in {"approved", "rejected"}
-                else "processing"
-                if item.status == "approving"
-                else "needs_action"
-                if action_required
-                else "submitted"
-            )
-        elif row.target_kind == "original_access_request":
-            from app.services import original_access as original_access_service
-
-            request, asset = await original_access_service._load_request(session, row.target_id)
-            if not original_access_service._can_approve(caller, asset):
-                return None
-            action_required = request.status == AccessRequestStatus.pending.value
-            status = "needs_action" if action_required else "completed"
-        elif row.target_kind == "ingest_task":
-            from app.services import ingest_status as ingest_status_service
-
-            task_status = await ingest_status_service.get_task_status(
-                session, caller, row.target_id
-            )
-            workflow_status = getattr(task_status.status, "value", task_status.status)
-            action_required = workflow_status in {"action_required", "failed"}
-            status = {
-                "action_required": "needs_action",
-                "waiting": "submitted",
-                "processing": "processing",
-                "completed": "completed",
-                "degraded": "partial",
-                "failed": "failed",
-            }.get(workflow_status, "submitted")
-        elif row.target_kind == "ops_index":
-            if not _is_ops_viewer(caller):
-                return None
-            action_required = False
-            status = "failed"
-        elif row.target_kind == "indexing_job":
-            job = await session.get(IndexingOperationJob, row.target_id)
-            if job is None or (
-                job.requested_by_user_id != caller.user_id and not _is_ops_viewer(caller)
-            ):
-                return None
-            action_required = False
-            status = {
-                "queued": "submitted",
-                "running": "processing",
-                "completed": "completed",
-                "no_action": "completed",
-                "completed_with_errors": "partial",
-                "failed": "failed",
-            }.get(job.status, "submitted")
-            route_key = "models" if job.operation_type == "kb_migrate" else "admin_ingest"
-        else:
-            return None
-    except HTTPException:
-        return None
-    return _VisibleTarget(
-        NotificationTarget(
-            route_key=(
-                route_key if row.target_kind == "indexing_job" else _TARGET_ROUTES[row.target_kind]
-            ),
-            resource_id=row.target_id,
-        ),
-        status=status,
-        action_required=action_required,
-    )
-
-
 def _out(
-    row: BusinessNotification, visible: _VisibleTarget, project_name: str | None = None
+    row: BusinessNotification,
+    visible: VisibleNotificationTarget,
+    project_name: str | None = None,
 ) -> BusinessNotificationOut:
     task_status, task_group, next_action_label = _task_projection(
         row, visible.status, visible.action_required
@@ -565,7 +569,7 @@ async def _visible_rows(
     *,
     category: str | None = None,
     unread_only: bool = False,
-) -> list[tuple[BusinessNotification, _VisibleTarget]]:
+) -> list[tuple[BusinessNotification, VisibleNotificationTarget]]:
     if not caller.is_business_user and not _is_ops_viewer(caller):
         return []
     stmt = select(BusinessNotification).where(
@@ -586,9 +590,9 @@ async def _visible_rows(
         .scalars()
         .all()
     )
-    visible: list[tuple[BusinessNotification, _VisibleTarget]] = []
+    visible: list[tuple[BusinessNotification, VisibleNotificationTarget]] = []
     for row in rows:
-        target = await _validated_target(session, caller, row)
+        target = await resolve_notification_target(session, caller, row)
         if target is not None:
             visible.append((row, target))
     return visible
@@ -639,7 +643,7 @@ async def unread_count(session: AsyncSession, caller: CallerContext) -> UnreadCo
 
 async def _owned_visible(
     session: AsyncSession, caller: CallerContext, notification_id: uuid.UUID
-) -> tuple[BusinessNotification, _VisibleTarget]:
+) -> tuple[BusinessNotification, VisibleNotificationTarget]:
     row = (
         await session.execute(
             select(BusinessNotification).where(
@@ -650,7 +654,7 @@ async def _owned_visible(
     ).scalar_one_or_none()
     if row is None:
         raise _not_found()
-    target = await _validated_target(session, caller, row)
+    target = await resolve_notification_target(session, caller, row)
     if target is None:
         raise _not_found()
     return row, target
@@ -789,10 +793,12 @@ async def dispatch_pending(
             await _audit_delivery(session, row, failed=True, trace_id=trace_id)
             continue
         caller = build_caller_context(user)
-        visible = await _validated_target(session, caller, row)
-        pending_action_event = (
-            row.event_type.startswith("review.") or row.event_type == "original_access.pending"
-        )
+        visible = await resolve_notification_target(session, caller, row)
+        pending_action_event = row.event_type in {
+            "review.project_pending",
+            "review.company_confirmation_pending",
+            "original_access.pending",
+        }
         if visible is None or (pending_action_event and not visible.action_required):
             row.delivery_status = NotificationStatus.failed.value
             row.failure_code = "target_unavailable"

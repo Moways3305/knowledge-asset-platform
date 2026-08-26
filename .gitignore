@@ -56,9 +56,11 @@ pgdata/
 .claude/
 
 # docs — internal collaboration docs stay private; only published guides under
-# docs/deployment/ are tracked. To publish another docs subdir, add its own "!docs/<dir>/".
+# docs/deployment/ and executable architecture guidance are tracked. To publish
+# another docs subdir, add its own "!docs/<dir>/".
 docs/*
 !docs/deployment/
+!docs/architecture/
 # 版本化的 API 契约（OpenAPI spec + 系统能力清单），供前后端一致性校验与 CI 漂移检测。
 !docs/api/
 !docs/MUTATION_STATE_CONSISTENCY_AUDIT.md

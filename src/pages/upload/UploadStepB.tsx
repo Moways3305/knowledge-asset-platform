@@ -1,7 +1,6 @@
 import { ChevronDown, FileText, FolderOpen, RefreshCw, UploadCloud, X } from "lucide-react";
 import { useState } from "react";
-import { retryIngestTask } from "../../api/ingest";
-import { ApiError } from "../../api/http";
+import { commandErrorMessage, retryIngestTask } from "./pendingBatchCommands";
 import { extractionLabel, flowLabel, formatFileSize, pendingStatusLabel } from "./uploadConstants";
 import BatchTaskProgress from "./BatchTaskProgress";
 import PendingBatchActions from "./PendingBatchActions";
@@ -83,7 +82,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
     } catch (error) {
       setPendingRetryError((current) => ({
         ...current,
-        [id]: error instanceof ApiError ? error.message : "重试未发起，请稍后再试。",
+        [id]: commandErrorMessage(error, "重试未发起，请稍后再试。"),
       }));
     } finally {
       setPendingRetryId(null);
