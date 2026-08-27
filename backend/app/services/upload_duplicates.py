@@ -425,9 +425,10 @@ async def require_independent_confirmation(
 
 
 async def _task_ordinal(session: AsyncSession, task_id: uuid.UUID) -> int | None:
-    return await session.scalar(
+    ordinal = await session.scalar(
         select(UploadSessionItem.ordinal).where(UploadSessionItem.ingest_task_id == task_id)
     )
+    return int(ordinal) if ordinal is not None else None
 
 
 async def _keep_same_batch_item(
@@ -720,19 +721,23 @@ async def list_my_uploads(
         if task.target_project_id is not None
         and task.target_project_id in caller.active_project_ids
     }
-    project_names = (
-        dict(
-            (
-                await session.execute(
-                    select(Project.id, Project.name).where(Project.id.in_(permitted_project_ids))
-                )
-            ).all()
-        )
-        if permitted_project_ids
-        else {}
-    )
+    project_names: dict[uuid.UUID, str] = {}
+    if permitted_project_ids:
+        project_rows = (
+            await session.execute(
+                select(Project.id, Project.name).where(Project.id.in_(permitted_project_ids))
+            )
+        ).tuples()
+        project_names = {project_id: project_name for project_id, project_name in project_rows}
     items = [
-        my_upload_projection(task, project_name=project_names.get(task.target_project_id))
+        my_upload_projection(
+            task,
+            project_name=(
+                project_names.get(task.target_project_id)
+                if task.target_project_id is not None
+                else None
+            ),
+        )
         for task in tasks
     ]
     if final_status is not None:
