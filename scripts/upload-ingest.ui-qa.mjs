@@ -641,7 +641,10 @@ try {
             suggested_title: "年度经营计划",
           });
         }
-        if (url.pathname === `/api/v1/ingest/${taskId}/naming-preview`) {
+        if (
+          url.pathname === `/api/v1/ingest/${taskId}/naming-preview` ||
+          url.pathname === "/api/v1/ingest/task-safe-78/naming-preview"
+        ) {
           return fulfill({
             required: true,
             canonical_name: "【PROJECT-2021-交付成果】客户增长项目复盘方法论_20210307_V1_L2.md",
