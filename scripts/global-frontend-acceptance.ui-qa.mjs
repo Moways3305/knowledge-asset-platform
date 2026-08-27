@@ -234,6 +234,12 @@ async function executeSuite(suite) {
     execution = await runSuite(suite);
     if (execution.code === 0) break;
     attemptFailures.push(`Attempt ${attempt}/${suiteMaxAttempts}\n${execution.output}`);
+    // Surface the child output immediately.  Keeping it only in report.json
+    // makes CI failures effectively unactionable when the artifact is not
+    // available (or expires before the failure is investigated).
+    console.error(
+      `UI QA suite attempt failed: ${suite.name} (${attempt}/${suiteMaxAttempts})\n${execution.output}`,
+    );
     if (attempt < suiteMaxAttempts) {
       console.warn(`UI QA suite retrying after failure: ${suite.name} (${attempt})`);
       await ensureServer();
@@ -281,16 +287,23 @@ async function executeSuite(suite) {
 }
 
 async function runSuites() {
+  // The upload suite creates 80 isolated browser contexts.  Running it beside
+  // other visual suites starves CI runners and makes ordinary locator waits
+  // flaky.  Keep the lighter suites parallel, then run the upload matrix with
+  // the preview server to itself.
+  const uploadSuites = suitesToRun.filter((suite) => suite.name === "upload");
+  const concurrentSuites = suitesToRun.filter((suite) => suite.name !== "upload");
   let nextIndex = 0;
   const worker = async () => {
-    while (nextIndex < suitesToRun.length) {
-      const suite = suitesToRun[nextIndex];
+    while (nextIndex < concurrentSuites.length) {
+      const suite = concurrentSuites[nextIndex];
       nextIndex += 1;
       await executeSuite(suite);
     }
   };
-  const workerCount = Math.min(suiteConcurrency, suitesToRun.length);
+  const workerCount = Math.min(suiteConcurrency, concurrentSuites.length);
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  for (const suite of uploadSuites) await executeSuite(suite);
 }
 
 try {
