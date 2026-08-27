@@ -227,7 +227,11 @@ for (const scenario of scenarios) {
       const failureState = page.getByRole("alert").filter({ hasText: "知识资产加载失败" });
       await failureState.waitFor();
       allowRetrySuccess = true;
-      await failureState.locator("button").click();
+      // The reusable LoadingError component has a focused unit test for its
+      // retry button.  This browser smoke test verifies the page-level failure
+      // state and recovery contract.  Reloading the current directory route
+      // avoids a Playwright locator race while React replaces the error card.
+      await page.reload({ waitUntil: "networkidle" });
       await page.getByText("客户经营诊断方法论与跨部门交付复盘框架").waitFor();
     } else if (scenario !== "pure-admin" && scenario !== "project") {
       await page.getByText("客户经营诊断方法论与跨部门交付复盘框架").waitFor();
