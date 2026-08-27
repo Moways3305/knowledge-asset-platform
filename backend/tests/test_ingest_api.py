@@ -52,12 +52,14 @@ _MD_BYTES = (
 ).encode()
 
 
-async def _create_task(client, user_id, file_name="retail-strategy-v2.txt"):
+async def _create_task(
+    client, user_id, file_name="retail-strategy-v2.txt", content: bytes = _TXT_BYTES
+):
     # Path B 现为真实文件上传 + 真实文本抽取；发送可抽取的真实文本字节。
     resp = await client.post(
         UPLOAD,
         headers=_hdr(user_id),
-        files={"file": (file_name, _TXT_BYTES, "text/plain")},
+        files={"file": (file_name, content, "text/plain")},
     )
     return resp
 
@@ -258,6 +260,13 @@ async def test_bulk_confirm_has_one_explicit_target_and_partial_terminal_result(
     )
     assert missing_target.status_code == 422
 
+    independent = await client.post(
+        f"/api/v1/ingest/{second}/duplicate-decision",
+        headers=_hdr(USER_CONSULTANT),
+        json={"action": "independent", "target_scope": "personal"},
+    )
+    assert independent.status_code == 200
+
     client_operation_id = uuid.uuid4()
     response = await client.post(
         "/api/v1/ingest/bulk-confirm",
@@ -365,7 +374,9 @@ async def test_bulk_confirm_index_unexpected_failure_reports_succeeded(
     monkeypatch.setattr("app.services.ingest_indexing.index_confirmed_asset", _boom)
 
     first = (await _create_task(client, USER_CONSULTANT, "first.txt")).json()["ingest_task_id"]
-    second = (await _create_task(client, USER_CONSULTANT, "second.txt")).json()["ingest_task_id"]
+    second = (await _create_task(client, USER_CONSULTANT, "second.txt", _MD_BYTES)).json()[
+        "ingest_task_id"
+    ]
     payload = _confirm_payload(target_scope="personal")
     resp = await client.post(
         "/api/v1/ingest/bulk-confirm",
@@ -1101,18 +1112,36 @@ async def test_admin_view_hides_extracted_fulltext(client):
     assert "零售数字化转型" not in r.text  # 抽取全文不出现
 
 
-async def test_duplicate_content_soft_hint_non_blocking(client):
-    """相同内容哈希：第二次上传给非阻塞软提示，指向首个任务，不拦截。"""
-    first = (await _create_task(client, USER_CONSULTANT)).json()["ingest_task_id"]
-    second_resp = await _create_task(client, USER_CONSULTANT)
+async def test_legacy_ai_result_does_not_expose_unscoped_duplicate_references(client):
+    """旧 AI 结果不做无范围查重，也不泄露内部任务或资产标识。"""
+
+    async def upload_personal():
+        return await client.post(
+            UPLOAD,
+            headers=_hdr(USER_CONSULTANT),
+            data={"target_scope": "personal"},
+            files={"file": ("scoped.txt", _TXT_BYTES, "text/plain")},
+        )
+
+    await upload_personal()
+    second_resp = await upload_personal()
     assert second_resp.status_code == 200
-    assert second_resp.json()["status"] == "pending_confirmation"  # 不阻断
+    assert second_resp.json()["status"] == "pending_confirmation"
     second = second_resp.json()["ingest_task_id"]
     ai = (
         await client.get(f"/api/v1/ingest/{second}/ai-result", headers=_hdr(USER_CONSULTANT))
     ).json()
-    assert ai["is_possible_duplicate"] is True
-    assert ai["duplicate_of_task_id"] == first
+    assert "is_possible_duplicate" not in ai
+    assert "duplicate_of_task_id" not in ai
+    assert "duplicate_of_asset_id" not in ai
+
+    scoped = await client.post(
+        f"/api/v1/ingest/{second}/naming-preview",
+        headers=_hdr(USER_CONSULTANT),
+        json={"target_scope": "personal", "confidentiality_level": "L2"},
+    )
+    assert scoped.status_code == 200
+    assert scoped.json()["duplicate"]["duplicate_state"] == "exact_content"
 
 
 async def test_admin_ingest_list_operational_only(client):

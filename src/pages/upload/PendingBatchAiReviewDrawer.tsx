@@ -1,12 +1,15 @@
 import DetailDrawer from "../../components/DetailDrawer";
+import type { UploadDuplicateDTO } from "../../types/ingest";
+import DuplicateComparisonPopover from "./DuplicateComparisonPopover";
 import type { PendingBatchAiReviewController } from "./usePendingBatchAiReview";
 
 type Props = {
   review: PendingBatchAiReviewController;
+  duplicate?: UploadDuplicateDTO | null;
   onSave: () => void;
 };
 
-export default function PendingBatchAiReviewDrawer({ review, onSave }: Props) {
+export default function PendingBatchAiReviewDrawer({ review, duplicate, onSave }: Props) {
   const { task, result, form, setForm, busy, error } = review;
 
   return (
@@ -34,6 +37,18 @@ export default function PendingBatchAiReviewDrawer({ review, onSave }: Props) {
         </>
       }
     >
+      {task && (
+        <DuplicateComparisonPopover
+          duplicate={duplicate}
+          current={{
+            fileName: task.source_file_name,
+            fileSize: task.source_file_size,
+            subject: task.naming_parsed_fields?.topic,
+            formedOn: task.suggested_formed_on,
+            version: task.suggested_version,
+          }}
+        />
+      )}
       {busy ? (
         <p role="status">正在读取 AI 提取结果…</p>
       ) : error ? (

@@ -17,6 +17,8 @@ import type {
   IngestConfirmResponseDTO,
   IngestUploadResponseDTO,
   IngestTaskStatusDTO,
+  MyUploadItemDTO,
+  MyUploadListDTO,
   PendingIngestItemDTO,
   PendingIngestListResponseDTO,
   UploadSessionDTO,
@@ -267,6 +269,49 @@ export async function confirmIngest(
   payload: IngestConfirmRequestDTO,
 ): Promise<IngestConfirmResponseDTO> {
   return apiPost<IngestConfirmResponseDTO>(`/api/v1/ingest/${taskId}/confirm`, payload);
+}
+
+export async function decideUploadDuplicate(input: {
+  taskId: string;
+  action: "skip" | "independent" | "keep";
+  reason?: string;
+  targetScope: "personal" | "project" | "company";
+  targetProjectId?: string;
+}): Promise<{
+  task_id: string;
+  status: string;
+  decision: "skip" | "independent" | "batch_keep";
+  skipped_task_ids: string[];
+  duplicate: import("../types/ingest").UploadDuplicateDTO | null;
+}> {
+  return apiPost(`/api/v1/ingest/${input.taskId}/duplicate-decision`, {
+    action: input.action,
+    reason: input.reason ?? null,
+    target_scope: input.targetScope,
+    target_project_id: input.targetProjectId ?? null,
+  });
+}
+
+export async function fetchMyUploads(
+  filters: {
+    scope?: string;
+    finalStatus?: string;
+    duplicateResult?: string;
+    since?: string;
+    until?: string;
+  } = {},
+): Promise<MyUploadItemDTO[]> {
+  const query = new URLSearchParams();
+  if (filters.scope) query.set("scope", filters.scope);
+  if (filters.finalStatus) query.set("final_status", filters.finalStatus);
+  if (filters.duplicateResult) query.set("duplicate_result", filters.duplicateResult);
+  if (filters.since) query.set("since", filters.since);
+  if (filters.until) query.set("until", filters.until);
+  const suffix = query.toString();
+  const response = await apiGet<MyUploadListDTO>(
+    `/api/v1/ingest/my-uploads${suffix ? `?${suffix}` : ""}`,
+  );
+  return response.items;
 }
 
 export async function bulkConfirmIngest(input: {

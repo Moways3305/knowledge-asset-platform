@@ -101,9 +101,6 @@ const readyAiResult: IngestAiResultDTO = {
   extracted_char_count: 100,
   error_type: null,
   error_message: null,
-  is_possible_duplicate: false,
-  duplicate_of_task_id: null,
-  duplicate_of_asset_id: null,
 };
 
 function taskStatus(
@@ -265,7 +262,24 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       default_confidentiality: null,
       message: null,
     });
-    namingApi.previewIngestNaming.mockReset();
+    namingApi.previewIngestNaming.mockReset().mockResolvedValue({
+      required: false,
+      canonical_name: null,
+      rule_version: null,
+      fields: null,
+      notices: [],
+      message: "个人资料不强制规范命名",
+      duplicate: {
+        duplicate_state: "none",
+        match_type: "none",
+        match_count: 0,
+        preferred_candidate: null,
+        same_batch_group_id: null,
+        same_batch_first_ordinal: null,
+        default_selected: true,
+        decision: null,
+      },
+    });
     namingApi.classifyBatchNamingCategories.mockReset().mockResolvedValue({
       target_label: "项目知识库",
       candidate_rule_revision: null,

@@ -23,7 +23,6 @@ from app.schemas.enums import (
     AuditAction,
     AuditLogType,
     ConfidentialityLevel,
-    IngestStatus,
     KnowledgeScope,
 )
 from app.schemas.naming import (
@@ -43,6 +42,7 @@ from app.schemas.naming import (
     NamingRuleRevisionOut,
 )
 from app.schemas.permission import CallerContext
+from app.schemas.upload_duplicates import UploadDuplicateReadModel
 from app.services import audit as audit_service
 from app.services.directories import (
     default_directory_config,
@@ -51,6 +51,7 @@ from app.services.directories import (
     validate_directory,
 )
 from app.services.naming_advice import naming_preview_advice, safe_naming_advice
+from app.services.upload_duplicates import read_duplicate
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +60,7 @@ class RenderedNaming:
     rule_version: int
     metadata: dict
     notices: list[NamingDuplicateNotice]
+    duplicate: UploadDuplicateReadModel
 
 
 def _denied(status: int, reason: str, message: str) -> HTTPException:
@@ -357,80 +359,21 @@ def _deidentify_project_subject(subject: str, aliases: list[str]) -> tuple[str, 
     return normalized, _subject_contains_alias(normalized, aliases)
 
 
-async def _duplicate_notices(
-    session: AsyncSession,
-    caller: CallerContext,
-    task: IngestTask,
-    scope: str,
-    project_id: uuid.UUID | None,
-    metadata: dict,
-) -> list[NamingDuplicateNotice]:
+def _duplicate_notices(duplicate: UploadDuplicateReadModel) -> list[NamingDuplicateNotice]:
     notices: list[NamingDuplicateNotice] = []
-    if task.source_file_hash:
-        pending_conditions = [
-            IngestTask.id != task.id,
-            IngestTask.source_file_hash == task.source_file_hash,
-            IngestTask.result_asset_id.is_(None),
-            IngestTask.status.in_(
-                [
-                    IngestStatus.pending_confirmation.value,
-                    IngestStatus.waiting_review.value,
-                    IngestStatus.rejected.value,
-                ]
-            ),
-        ]
-        if scope == KnowledgeScope.personal.value:
-            pending_conditions.append(IngestTask.created_by == caller.user_id)
-        elif scope == KnowledgeScope.project.value:
-            pending_conditions.extend(
-                [
-                    IngestTask.target_scope == scope,
-                    IngestTask.target_project_id == project_id,
-                ]
+    if duplicate.duplicate_state in {"exact_content", "same_batch"}:
+        notices.append(
+            NamingDuplicateNotice(
+                code="exact_duplicate",
+                kind="exact",
+                message=(
+                    "本批存在内容完全相同的文件，请选择保留项"
+                    if duplicate.duplicate_state == "same_batch"
+                    else "已存在内容完全相同的资料，请确认是否仍需独立入库"
+                ),
             )
-        else:
-            pending_conditions.append(IngestTask.target_scope == scope)
-        pending_match = await session.scalar(
-            select(func.count()).select_from(IngestTask).where(*pending_conditions)
         )
-        asset_conditions = [
-            KnowledgeAsset.scope == scope,
-            KnowledgeAsset.asset_status == "active",
-            KnowledgeAssetVersion.file_hash == task.source_file_hash,
-        ]
-        if scope == KnowledgeScope.personal.value:
-            asset_conditions.append(KnowledgeAsset.owner_user_id == caller.user_id)
-        elif scope == KnowledgeScope.project.value:
-            asset_conditions.append(KnowledgeAsset.project_id == project_id)
-        confirmed_match = await session.scalar(
-            select(func.count())
-            .select_from(KnowledgeAssetVersion)
-            .join(KnowledgeAsset, KnowledgeAsset.id == KnowledgeAssetVersion.asset_id)
-            .where(*asset_conditions)
-        )
-        if pending_match or confirmed_match:
-            notices.append(
-                NamingDuplicateNotice(
-                    code="exact_duplicate",
-                    kind="exact",
-                    message="已存在相同文件，请确认是否仍需独立入库",
-                )
-            )
-
-    candidate_stmt = (
-        select(KnowledgeAssetVersion.naming_metadata)
-        .join(KnowledgeAsset, KnowledgeAsset.id == KnowledgeAssetVersion.asset_id)
-        .where(KnowledgeAsset.scope == scope, KnowledgeAsset.asset_status == "active")
-    )
-    if scope == KnowledgeScope.personal.value:
-        candidate_stmt = candidate_stmt.where(KnowledgeAsset.owner_user_id == caller.user_id)
-    elif scope == KnowledgeScope.project.value:
-        candidate_stmt = candidate_stmt.where(KnowledgeAsset.project_id == project_id)
-    candidates = (await session.execute(candidate_stmt.limit(500))).scalars().all()
-    keys = ("category_id", "subject", "formed_on", "version")
-    if any(
-        value and all(value.get(key) == metadata.get(key) for key in keys) for value in candidates
-    ):
+    if duplicate.duplicate_state == "suspected_metadata":
         notices.append(
             NamingDuplicateNotice(
                 code="suspected_duplicate",
@@ -614,10 +557,20 @@ async def render(
                 message="AI 对部分命名建议不确定，请人工核对",
             )
         )
-    notices.extend(
-        await _duplicate_notices(session, caller, task, scope, request.target_project_id, metadata)
+    duplicate = (
+        await read_duplicate(
+            session,
+            caller,
+            task,
+            scope=scope,
+            project_id=request.target_project_id,
+            metadata=metadata,
+        )
+        if isinstance(task, IngestTask)
+        else UploadDuplicateReadModel()
     )
-    return RenderedNaming(canonical, revision.version, metadata, notices)
+    notices.extend(_duplicate_notices(duplicate))
+    return RenderedNaming(canonical, revision.version, metadata, notices, duplicate)
 
 
 async def render_asset_publication(
@@ -689,6 +642,14 @@ async def preview(
     advice = naming_preview_advice(ai)
     rendered = await render(session, caller, task, request)
     if rendered is None:
+        duplicate = await read_duplicate(
+            session,
+            caller,
+            task,
+            scope=scope,
+            project_id=request.target_project_id,
+            metadata=request.naming.model_dump(mode="json") if request.naming else None,
+        )
         return NamingPreviewResponse(
             required=False,
             canonical_name=None,
@@ -699,6 +660,7 @@ async def preview(
                 if scope == KnowledgeScope.personal.value
                 else "命名规则尚未发布，不强制规范命名"
             ),
+            duplicate=duplicate,
             **advice,
         )
     return NamingPreviewResponse(
@@ -707,6 +669,7 @@ async def preview(
         rule_version=rendered.rule_version,
         fields=rendered.metadata,
         notices=rendered.notices,
+        duplicate=rendered.duplicate,
         **advice,
     )
 
@@ -776,6 +739,7 @@ async def batch_preview(
                     rule_version=rendered.rule_version,
                     fields=rendered.fields,
                     notices=rendered.notices,
+                    duplicate=rendered.duplicate,
                     error_code=None,
                     message=None,
                     suggested_version=rendered.suggested_version,

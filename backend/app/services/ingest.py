@@ -61,6 +61,7 @@ from app.services import (
     ingest_confirmation,
     ingest_indexing,
     ingest_persistence,
+    upload_duplicates,
 )
 from app.services.desensitization import DesensitizationEngine
 from app.services.generation_models import generation_model_ref
@@ -253,7 +254,22 @@ async def create_upload(
     status = await enqueue_ingest_processing(
         session, task.id, storage=storage, llm=llm, desensitizer=desensitizer, trace_id=trace_id
     )
-    return IngestUploadResponse(ingest_task_id=task.id, status=status, upload_url=None)
+    refreshed = await session.get(IngestTask, task.id)
+    duplicate = None
+    if refreshed is not None and target_scope in {"personal", "project", "company"}:
+        duplicate = await upload_duplicates.read_duplicate(
+            session,
+            caller,
+            refreshed,
+            scope=target_scope,
+            project_id=target_project_id,
+        )
+    return IngestUploadResponse(
+        ingest_task_id=task.id,
+        status=status,
+        upload_url=None,
+        duplicate=duplicate,
+    )
 
 
 async def _load_task(
@@ -300,7 +316,7 @@ async def get_ai_result(
         naming_compliant=ai.naming_compliant if ai else None,
         naming_parsed_fields=ai.naming_parsed_fields if ai else None,
         naming_anomalies=ai.naming_anomalies if ai else None,
-        # 运营元数据（两视图均可见）：抽取状态 / 字符数 / 错误 / 去重软提示。
+        # 运营元数据（两视图均可见）：抽取状态 / 字符数 / 错误。
         extraction_status=ai.extraction_status if ai else None,
         extracted_char_count=ai.extracted_char_count if ai else None,
         ocr_status=ai.ocr_status if ai else None,
@@ -309,9 +325,6 @@ async def get_ai_result(
         ocr_attempted_at=ai.ocr_attempted_at if ai else None,
         error_type=task.error_type,
         error_message=task.error_message,
-        is_possible_duplicate=bool(ai and ai.duplicate_of_task_id is not None),
-        duplicate_of_task_id=ai.duplicate_of_task_id if ai else None,
-        duplicate_of_asset_id=ai.duplicate_of_asset_id if ai else None,
         # 运营元数据（两视图均可见；provider/model 非密钥）。
         llm_provider=ai.llm_provider if ai else None,
         llm_model=ai.llm_model if ai else None,
@@ -551,6 +564,41 @@ async def approve_project_ingest_review(
         ),
     )
     ingest_confirmation.require_naming_warning_acknowledgement(req, naming_result)
+    try:
+        await upload_duplicates.require_independent_confirmation(
+            session,
+            caller,
+            task,
+            scope=KnowledgeScope.project.value,
+            project_id=req.target_project_id,
+            metadata=naming_result.metadata if naming_result is not None else None,
+            acknowledged_warning_codes=set(req.acknowledged_naming_warning_codes),
+        )
+    except HTTPException:
+        # Approval is claimed in a committed transaction before materialization. If the
+        # destination changed while the review waited, return it to a retryable state
+        # instead of leaving it permanently stuck in ``approving``.
+        review.status = ReviewTaskStatus.approval_failed.value
+        review.review_comment = comment
+        review.reviewed_at = None
+        task.status = IngestStatus.waiting_review.value
+        await audit_service.record_event(
+            session,
+            caller=caller,
+            log_type=AuditLogType.exception,
+            action=AuditAction.review_approval_failed.value,
+            trace_id=trace_id,
+            target_type="review_task",
+            target_id=review.id,
+            after={
+                "status": review.status,
+                "failure_stage": "duplicate_revalidation",
+                "error_code": "duplicate_decision_required",
+            },
+            project_id=req.target_project_id,
+        )
+        await session.commit()
+        raise
     # Re-normalize snapshots at approval time as well so reviews created before
     # this protection cannot retain a historical customer-bearing subject.
     req = ingest_confirmation.apply_authoritative_project_subject(req, naming_result)
@@ -886,7 +934,11 @@ async def list_pending(
     stmt = (
         select(IngestTask)
         # 仅返回当前用户的待确认任务：result_asset_id 为空 且 created_by 匹配。
-        .where(IngestTask.result_asset_id.is_(None), IngestTask.created_by == caller.user_id)
+        .where(
+            IngestTask.result_asset_id.is_(None),
+            IngestTask.created_by == caller.user_id,
+            IngestTask.status != IngestStatus.duplicate_skipped.value,
+        )
         .options(
             # 列表不返回抽取全文：defer extracted_text 避免查询放大与内容外泄。
             selectinload(IngestTask.ai_result).options(defer(IngestTaskAiResult.extracted_text))
@@ -929,6 +981,7 @@ async def list_pending(
                 source=t.source,
                 status=t.status,
                 source_file_name=t.source_file_name,
+                source_file_size=t.source_file_size,
                 target_scope=t.target_scope,
                 target_project_id=t.target_project_id,
                 suggested_formed_on=t.suggested_formed_on,
@@ -954,6 +1007,18 @@ async def list_pending(
                 result_asset_id=t.result_asset_id,
                 created_at=t.created_at,
                 updated_at=t.updated_at,
+                duplicate=await upload_duplicates.read_duplicate(
+                    session,
+                    caller,
+                    t,
+                    scope=t.target_scope or "",
+                    project_id=t.target_project_id,
+                    metadata=(
+                        ai.naming_parsed_fields
+                        if ai and isinstance(ai.naming_parsed_fields, dict)
+                        else None
+                    ),
+                ),
             )
         )
     return items

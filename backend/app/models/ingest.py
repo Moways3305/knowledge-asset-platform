@@ -15,6 +15,7 @@ from sqlalchemy import (
     JSON,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -31,6 +32,15 @@ class IngestTask(Base):
     """入库任务（Path B 本地上传；Path A 暂不真实实现）。"""
 
     __tablename__ = "ingest_tasks"
+    __table_args__ = (
+        Index(
+            "ix_ingest_tasks_source_hash_status_scope",
+            "source_file_hash",
+            "status",
+            "target_scope",
+            "target_project_id",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     source: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -59,6 +69,12 @@ class IngestTask(Base):
     # 猜测最新入库任务；该字段及其关联的 source_file_ref 均不得进入响应。
     result_version_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("knowledge_asset_versions.id"), nullable=True, index=True
+    )
+    # Explicit duplicate handling survives refresh/retry. Hashes remain server-only.
+    duplicate_decision: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    duplicate_decision_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    duplicate_decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=3)

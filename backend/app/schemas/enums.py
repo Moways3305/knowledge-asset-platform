@@ -330,6 +330,9 @@ class AuditAction(str, Enum):
     ingest_task_created = "ingest.task_created"
     ingest_confirmed = "ingest.confirmed"
     ingest_task_deleted = "ingest.task_deleted"
+    ingest_duplicate_skipped = "ingest.duplicate_skipped"
+    ingest_duplicate_independent = "ingest.duplicate_independent"
+    ingest_duplicate_batch_kept = "ingest.duplicate_batch_kept"
     # 入库失败（含抽取失败/空文件/WeKnora 写入失败），exception。
     ingest_failed = "ingest.failed"
     # 原文已推进 WeKnora 底座并回写 doc id，operation。
@@ -628,4 +631,5 @@ class IngestStatus(str, Enum):
     waiting_review = "waiting_review"
     rejected = "rejected"
     completed = "completed"
+    duplicate_skipped = "duplicate_skipped"
     failed = "failed"

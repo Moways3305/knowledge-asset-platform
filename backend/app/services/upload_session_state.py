@@ -5,13 +5,19 @@ from __future__ import annotations
 from app.models.ingest import IngestTask
 from app.schemas.enums import IngestStatus
 
-TERMINAL_ITEM_STATES = frozenset({"awaiting_confirmation", "completed", "failed", "cancelled"})
-COMPLETED_ITEM_STATES = frozenset({"awaiting_confirmation", "completed", "cancelled"})
+TERMINAL_ITEM_STATES = frozenset(
+    {"awaiting_confirmation", "completed", "duplicate_skipped", "failed", "cancelled"}
+)
+COMPLETED_ITEM_STATES = frozenset(
+    {"awaiting_confirmation", "completed", "duplicate_skipped", "cancelled"}
+)
 
 
 def task_item_state(task: IngestTask) -> str:
     if task.status == IngestStatus.pending_confirmation.value:
         return "awaiting_confirmation"
+    if task.status == IngestStatus.duplicate_skipped.value:
+        return "duplicate_skipped"
     if task.status in {
         IngestStatus.completed.value,
         IngestStatus.waiting_review.value,

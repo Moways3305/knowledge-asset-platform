@@ -1,10 +1,11 @@
 /** Network command boundary for the governed pending-batch workflow. */
 import { ApiError } from "../../api/http";
-export { fetchIngestAiResult, retryIngestTask } from "../../api/ingest";
+export { decideUploadDuplicate, fetchIngestAiResult, retryIngestTask } from "../../api/ingest";
 export {
   classifyBatchNamingCategories,
   fetchNamingOptions,
   previewBatchIngestNaming,
+  previewIngestNaming,
   saveManualNamingCategory,
 } from "../../api/naming";
 

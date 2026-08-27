@@ -7,6 +7,7 @@ export type LocalUploadQueueState =
   | "processing"
   | "awaiting_confirmation"
   | "completed"
+  | "duplicate_skipped"
   | "cancelled"
   | "failed";
 

@@ -387,6 +387,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                       processing: processingLabel ?? "派生处理中",
                       awaiting_confirmation: "规范文本已生成，待人工确认",
                       completed: "已完成",
+                      duplicate_skipped: "因重复已跳过",
                       cancelled: "已取消",
                       failed: "上传失败",
                     }[item.status];
