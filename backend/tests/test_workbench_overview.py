@@ -215,6 +215,34 @@ async def test_only_confirm_ready_ingest_is_an_actionable_todo(client, db_sessio
     assert "server-only" not in response.text
 
 
+async def test_duplicate_skipped_ingest_remains_a_distinct_recent_terminal_state(
+    client, db_session
+):
+    user_id = await _create_business_user(db_session)
+    db_session.add(
+        IngestTask(
+            source="path_b_upload",
+            source_file_ref="server-only/duplicate.txt",
+            source_file_name="duplicate.txt",
+            status="duplicate_skipped",
+            created_by=user_id,
+        )
+    )
+    await db_session.commit()
+
+    response = await client.get(OVERVIEW, headers=_headers(user_id))
+
+    assert response.status_code == 200
+    task_center = response.json()["task_center"]
+    duplicate = next(
+        item for item in task_center["recent_completed"] if item["object_name"] == "duplicate.txt"
+    )
+    assert duplicate["status"] == "duplicate_skipped"
+    assert duplicate["result_summary"] == "因内容重复已跳过"
+    assert not any(item["object_name"] == "duplicate.txt" for item in task_center["my_tasks"])
+    assert "server-only" not in response.text
+
+
 async def test_failed_and_rejected_ingest_appear_as_separate_ingest_failed_todo(client, db_session):
     """收窄口径：failed / rejected 任务归入独立 ingest_failed 待办（error），不混入 ingest_pending。"""
     user_id = await _create_business_user(db_session)

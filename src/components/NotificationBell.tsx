@@ -10,6 +10,7 @@ import type { BusinessNotificationDTO } from "../types/notification";
 import { TASK_STATUS_INVALIDATED_EVENT } from "../workbench/taskStatusEvents";
 import { formatBeijingTime } from "../utils/time";
 import DetailDrawer from "./DetailDrawer";
+import { taskStatusLabel } from "./taskCenterLabels";
 import "./NotificationBell.css";
 
 const POLL_MS = 60_000;
@@ -21,14 +22,6 @@ const ROUTES: Record<string, string> = {
   admin_ingest: "/admin/ingest",
   models: "/admin/weknora-models",
   knowledge_detail: "/knowledge/:id",
-};
-const STATUS_LABEL: Record<string, string> = {
-  needs_action: "待处理",
-  submitted: "已提交",
-  processing: "处理中",
-  completed: "已完成",
-  partial: "部分完成",
-  failed: "失败",
 };
 const CATEGORY_LABEL: Record<string, string> = {
   review: "审核",
@@ -247,7 +240,7 @@ export default function NotificationBell() {
                 <div className="notification-center-meta">
                   <span>{CATEGORY_LABEL[item.category] ?? "其他通知"}</span>
                   <span className={`task-status is-${item.task_status}`}>
-                    {STATUS_LABEL[item.task_status] ?? "状态更新"}
+                    {taskStatusLabel(item.task_status)}
                   </span>
                   <time>{formatBeijingTime(item.created_at)}</time>
                 </div>

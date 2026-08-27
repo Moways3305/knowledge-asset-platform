@@ -397,7 +397,7 @@ async def build_task_center(
                     select(IngestTask)
                     .where(
                         IngestTask.created_by == caller.user_id,
-                        IngestTask.status == "completed",
+                        IngestTask.status.in_({"completed", "duplicate_skipped"}),
                     )
                     .order_by(IngestTask.updated_at.desc())
                     .limit(10)
@@ -418,7 +418,11 @@ async def build_task_center(
                         task_type="ingest",
                         object_name=completed_ingest_item.source_file_name.strip()
                         or "知识资产入库",
-                        status="completed",
+                        status=(
+                            "duplicate_skipped"
+                            if completed_ingest_item.status == "duplicate_skipped"
+                            else "completed"
+                        ),
                         priority="low",
                         assignee=current_name,
                         responsibility="由你发起",
@@ -426,7 +430,11 @@ async def build_task_center(
                         updated_at=updated,
                         next_action_label="查看入库结果",
                         route_key="upload",
-                        result_summary="入库已完成",
+                        result_summary=(
+                            "因内容重复已跳过"
+                            if completed_ingest_item.status == "duplicate_skipped"
+                            else "入库已完成"
+                        ),
                     )
                 )
 

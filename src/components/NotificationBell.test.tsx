@@ -138,6 +138,34 @@ describe("NotificationBell", () => {
     expect(screen.queryByText(notification.title)).not.toBeInTheDocument();
   });
 
+  it("renders duplicate skipped as a distinct terminal notification status", async () => {
+    const duplicate = {
+      ...notification,
+      id: "notif-duplicate",
+      category: "ingest",
+      title: "重复资料已跳过",
+      action_required: false,
+      task_status: "duplicate_skipped" as const,
+      task_group: "recent_completed" as const,
+      next_action_label: "查看记录",
+      target: { route_key: "upload", resource_id: "ingest-safe-1" },
+    };
+    vi.mocked(fetchNotifications).mockResolvedValueOnce({
+      items: [duplicate],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      unread_count: 1,
+      pending_count: 0,
+      categories: ["ingest"],
+    });
+    renderBell();
+    fireEvent.click(screen.getByRole("button", { name: /通知中心/ }));
+    fireEvent.click(await screen.findByRole("tab", { name: /动态/ }));
+    expect(await screen.findByText("重复跳过")).toBeInTheDocument();
+    expect(screen.queryByText("状态更新")).not.toBeInTheDocument();
+  });
+
   it("keeps the drawer and unread state when marking read fails", async () => {
     vi.mocked(fetchNotifications).mockResolvedValueOnce({
       items: [notification],

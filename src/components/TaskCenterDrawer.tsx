@@ -1,9 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Clock3 } from "lucide-react";
+import { useAuth } from "../auth/AuthContext";
+import { can, type Capabilities } from "../auth/permissions";
 import DetailDrawer from "./DetailDrawer";
+import { taskPriorityLabel, taskStatusLabel, taskTypeLabel } from "./taskCenterLabels";
 import type { WorkbenchTaskItemDTO } from "../types/workbench";
 import { formatBeijingTime } from "../utils/time";
+import "./TaskCenterDrawer.css";
 
 export type TaskCenterGroup = "my_tasks" | "running_jobs" | "attention_items" | "recent_completed";
 
@@ -13,27 +17,13 @@ const GROUP_LABEL: Record<TaskCenterGroup, string> = {
   attention_items: "需要关注",
   recent_completed: "最近完成",
 };
-const STATUS_LABEL: Record<string, string> = {
-  needs_action: "待处理",
-  submitted: "已提交",
-  processing: "处理中",
-  completed: "已完成",
-  partial: "部分完成",
-  failed: "失败",
-};
-const PRIORITY_LABEL: Record<string, string> = {
-  urgent: "紧急",
-  high: "高优先级",
-  normal: "常规",
-  low: "低优先级",
-};
-const ROUTES: Record<string, string> = {
-  reviews: "/review",
-  upload: "/upload",
-  original_access: "/original-access",
-  admin_ingest: "/admin/ingest",
-  models: "/admin/weknora-models",
-  knowledge: "/knowledge",
+const ROUTES: Record<string, { path: string; allowed: (capabilities: Capabilities) => boolean }> = {
+  reviews: { path: "/review", allowed: can.viewReview },
+  upload: { path: "/upload", allowed: can.viewUpload },
+  original_access: { path: "/original-access", allowed: can.viewOriginalAccess },
+  admin_ingest: { path: "/admin/ingest", allowed: can.viewIngestAdmin },
+  models: { path: "/admin/weknora-models", allowed: can.viewModels },
+  knowledge: { path: "/knowledge", allowed: can.viewKnowledge },
 };
 
 function waitLabel(minutes: number | null): string | null {
@@ -46,14 +36,17 @@ function waitLabel(minutes: number | null): string | null {
 export default function TaskCenterDrawer({
   open,
   initialGroup = "my_tasks",
+  initialTaskRef = null,
   groups,
   onClose,
 }: {
   open: boolean;
   initialGroup?: TaskCenterGroup;
+  initialTaskRef?: string | null;
   groups: Record<TaskCenterGroup, WorkbenchTaskItemDTO[]>;
   onClose: () => void;
 }) {
+  const { capabilities } = useAuth();
   const [group, setGroup] = useState<TaskCenterGroup>(initialGroup);
   const [selectedRef, setSelectedRef] = useState<string | null>(null);
   const items = groups[group];
@@ -61,7 +54,14 @@ export default function TaskCenterDrawer({
     () => items.find((item) => item.task_ref === selectedRef) ?? items[0] ?? null,
     [items, selectedRef],
   );
-  const route = selected?.route_key ? ROUTES[selected.route_key] : undefined;
+  const routeDefinition = selected?.route_key ? ROUTES[selected.route_key] : undefined;
+  const route = routeDefinition?.allowed(capabilities) ? routeDefinition.path : undefined;
+
+  useEffect(() => {
+    if (!open) return;
+    setGroup(initialGroup);
+    setSelectedRef(initialTaskRef);
+  }, [initialGroup, initialTaskRef, open]);
 
   return (
     <DetailDrawer
@@ -113,7 +113,7 @@ export default function TaskCenterDrawer({
                   <strong>{item.object_name}</strong>
                   <small>{item.project_name || item.responsibility}</small>
                 </span>
-                <em>{STATUS_LABEL[item.status] || item.status}</em>
+                <em>{taskStatusLabel(item.status)}</em>
               </button>
             ))}
           </div>
@@ -121,17 +121,17 @@ export default function TaskCenterDrawer({
             <article className="tc90-detail">
               <div className="tc90-detail-heading">
                 <span className={`tc90-priority is-${selected.priority}`}>
-                  {PRIORITY_LABEL[selected.priority] || selected.priority}
+                  {taskPriorityLabel(selected.priority)}
                 </span>
                 <span className={`tc90-status is-${selected.status}`}>
-                  {STATUS_LABEL[selected.status] || selected.status}
+                  {taskStatusLabel(selected.status)}
                 </span>
               </div>
               <h3>{selected.object_name}</h3>
               <dl>
                 <div>
                   <dt>任务类型</dt>
-                  <dd>{selected.task_type}</dd>
+                  <dd>{taskTypeLabel(selected.task_type)}</dd>
                 </div>
                 <div>
                   <dt>所属项目</dt>

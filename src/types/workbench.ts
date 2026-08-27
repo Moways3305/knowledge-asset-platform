@@ -21,7 +21,8 @@ export type WorkbenchTaskStatus =
   | "processing"
   | "completed"
   | "partial"
-  | "failed";
+  | "failed"
+  | "duplicate_skipped";
 export type WorkbenchTaskPriority = "urgent" | "high" | "normal" | "low";
 
 export interface WorkbenchTaskItemDTO {
