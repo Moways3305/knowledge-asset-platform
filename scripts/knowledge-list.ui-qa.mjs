@@ -13,6 +13,18 @@ const assetId = "00000000-0000-0000-0000-0000000000a1";
 const companyDirectoryKey = "company.methodology";
 const projectDirectoryKey = "project.deliverables";
 const scenarios = ["company", "project", "empty", "retry", "pure-admin"];
+const scenarioFilter = new Set(
+  (process.env.UI_QA_SCENARIOS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
+const viewportFilter = new Set(
+  (process.env.UI_QA_VIEWPORTS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
 const viewports = [
   { name: "1920", width: 1920, height: 1080 },
   { name: "1440", width: 1440, height: 1000 },
@@ -60,7 +72,9 @@ const browser = await chromium.launch({ args: ["--disable-gpu"] });
 const results = [];
 
 for (const scenario of scenarios) {
+  if (scenarioFilter.size > 0 && !scenarioFilter.has(scenario)) continue;
   for (const viewport of viewports) {
+    if (viewportFilter.size > 0 && !viewportFilter.has(viewport.name)) continue;
     let knowledgeCalls = 0;
     let retried = false;
     let allowRetrySuccess = false;
@@ -210,9 +224,10 @@ for (const scenario of scenarios) {
     if (scenario === "empty") {
       await page.getByText("暂无可复用资料").waitFor();
     } else if (scenario === "retry") {
-      await page.getByText("知识资产加载失败").waitFor();
+      const failureState = page.getByRole("alert").filter({ hasText: "知识资产加载失败" });
+      await failureState.waitFor();
       allowRetrySuccess = true;
-      await page.getByRole("button", { name: "重试" }).click();
+      await failureState.locator("button").click();
       await page.getByText("客户经营诊断方法论与跨部门交付复盘框架").waitFor();
     } else if (scenario !== "pure-admin" && scenario !== "project") {
       await page.getByText("客户经营诊断方法论与跨部门交付复盘框架").waitFor();
