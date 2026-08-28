@@ -434,7 +434,9 @@ try {
         await drawer.getByText("客户交付复盘审核", { exact: true }).last().waitFor();
         await page.keyboard.press("Escape");
         await drawer.waitFor({ state: "hidden" });
-        await page.waitForURL(`${base}/?from=uiqa`);
+        await page.waitForFunction(
+          () => !new URL(window.location.href).searchParams.has("task_group"),
+        );
       }
       const metrics = await page.evaluate(
         ({ scenarioName, viewportWidth }) => {
