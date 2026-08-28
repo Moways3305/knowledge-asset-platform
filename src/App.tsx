@@ -32,6 +32,7 @@ const ProjectOverviewPage = lazy(() => import("./pages/ProjectOverviewPage"));
 const ProjectKnowledgePage = lazy(() => import("./pages/ProjectKnowledgePage"));
 const ProjectSettingsPage = lazy(() => import("./pages/ProjectSettingsPage"));
 const HelpPage = lazy(() => import("./pages/HelpPage"));
+const WorkbuddyAccessPage = lazy(() => import("./pages/WorkbuddyAccessPage"));
 
 export default function App() {
   return (
@@ -64,6 +65,14 @@ export default function App() {
               element={
                 <RouteGuard cap={can.viewMyKnowledge}>
                   <MyKnowledgePage />
+                </RouteGuard>
+              }
+            />
+            <Route
+              path="my/workbuddy"
+              element={
+                <RouteGuard cap={can.viewWorkbuddy}>
+                  <WorkbuddyAccessPage />
                 </RouteGuard>
               }
             />

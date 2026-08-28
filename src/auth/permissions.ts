@@ -68,6 +68,7 @@ export const can = {
   // 公司知识库入口：仅治理角色（boss / 咨询总监）可见。
   viewCompanyKnowledge: (c: Capabilities) => c.isBoss || c.isConsultingDirector,
   viewMyKnowledge: businessOnly,
+  viewWorkbuddy: businessOnly,
   viewUpload: businessOnly,
   viewReview: businessOnly,
   viewOriginalAccess: businessOnly,

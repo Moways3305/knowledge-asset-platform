@@ -2,6 +2,9 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchWorkbenchOverview } from "../api/workbench";
+import { fetchWorkbuddyToken } from "../api/workbuddy";
+import { fetchPeople } from "../api/admin";
+import { createProject } from "../api/project";
 import type { WorkbenchOverviewDTO, WorkbenchTaskItemDTO } from "../types/workbench";
 import { TASK_STATUS_INVALIDATED_EVENT } from "../workbench/taskStatusEvents";
 import { WorkbenchProvider } from "../workbench/WorkbenchContext";
@@ -23,6 +26,9 @@ vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({ status: "authenticated", capabilities: auth.capabilities }),
 }));
 vi.mock("../api/workbench", () => ({ fetchWorkbenchOverview: vi.fn() }));
+vi.mock("../api/workbuddy", () => ({ fetchWorkbuddyToken: vi.fn() }));
+vi.mock("../api/admin", () => ({ fetchPeople: vi.fn() }));
+vi.mock("../api/project", () => ({ createProject: vi.fn() }));
 
 function task(overrides: Partial<WorkbenchTaskItemDTO> = {}): WorkbenchTaskItemDTO {
   return {
@@ -116,7 +122,33 @@ function overview(overrides: Partial<WorkbenchOverviewDTO> = {}): WorkbenchOverv
         },
       },
     },
-    projects: { status: "available", error_code: null, items: [], total: 0 },
+    projects: {
+      status: "available",
+      error_code: null,
+      total: 2,
+      items: [
+        {
+          project_id: "project-safe-1",
+          name: "华东交付项目",
+          status: "active",
+          project_role: "consultant",
+          access_mode: "member",
+          access_label: "可查看资料",
+          lifecycle_route_key: null,
+          lifecycle_phase_key: null,
+        },
+        {
+          project_id: "project-summary-safe-2",
+          name: "行业研究项目",
+          status: "active",
+          project_role: null,
+          access_mode: "summary_visible",
+          access_label: "摘要可见",
+          lifecycle_route_key: null,
+          lifecycle_phase_key: null,
+        },
+      ],
+    },
     recent_activity: {
       status: "available",
       error_code: null,
@@ -128,6 +160,7 @@ function overview(overrides: Partial<WorkbenchOverviewDTO> = {}): WorkbenchOverv
           scope: "project",
           zone: "project",
           asset_type: "document",
+          access_mode: "member",
           confidentiality_level: "L2",
           summary: null,
           project_name: "华东交付项目",
@@ -175,6 +208,14 @@ describe("HomeDashboardPage task-first workbench", () => {
       isProjectManager: false,
     });
     vi.mocked(fetchWorkbenchOverview).mockReset().mockResolvedValue(overview());
+    vi.mocked(fetchWorkbuddyToken).mockReset().mockResolvedValue({
+      enabled: false,
+      boundUserName: null,
+      lastRotatedAt: null,
+      lastConnectedAt: null,
+    });
+    vi.mocked(fetchPeople).mockReset().mockResolvedValue({ items: [], total: 0 });
+    vi.mocked(createProject).mockReset();
   });
 
   it("uses the overview read model for the task-first layout and removes legacy dashboard regions", async () => {
@@ -186,14 +227,31 @@ describe("HomeDashboardPage task-first workbench", () => {
     expect(screen.getByRole("tab", { name: "待处理1" })).toHaveAttribute("aria-selected", "true");
     expect(
       screen.getByRole("button", { name: /客户交付复盘审核.*知识审核.*华东交付项目.*进入审核/ }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "进行中的作业" })).toBeInTheDocument();
-    expect(screen.getByText("4/10")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "最近更新" })).toBeInTheDocument();
+    ).toHaveClass("material-review");
+    fireEvent.click(screen.getByRole("tab", { name: "进行中1" }));
+    expect(screen.getByText(/处理中 · 4\/10/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "最近动态" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "我的项目" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /华东交付项目.*可查看资料/ })).toHaveAttribute(
+      "href",
+      "/project/project-safe-1",
+    );
+    expect(screen.getByRole("link", { name: /华东交付项目.*可查看资料/ })).toHaveClass(
+      "material-project",
+    );
+    expect(screen.getByRole("link", { name: /行业研究项目.*摘要可见/ })).toHaveAttribute(
+      "href",
+      "/knowledge?scope=project&project_id=project-summary-safe-2",
+    );
+    expect(screen.getByRole("link", { name: /行业研究项目.*摘要可见/ })).toHaveClass(
+      "material-summary",
+    );
+    expect(await screen.findByText("尚未启用")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /交付复盘方法/ })).toHaveAttribute(
       "href",
       "/knowledge/asset-safe-1",
     );
+    expect(screen.getByRole("link", { name: /交付复盘方法/ })).toHaveClass("material-source");
     expect(container.querySelector(".workbench-layout")).toBeInTheDocument();
     expect(screen.queryByText("今日任务调度")).not.toBeInTheDocument();
     expect(screen.queryByText("项目概览")).not.toBeInTheDocument();
@@ -201,6 +259,41 @@ describe("HomeDashboardPage task-first workbench", () => {
     expect(fetchWorkbenchOverview).toHaveBeenCalledTimes(1);
     expect(networkSpy).not.toHaveBeenCalled();
     networkSpy.mockRestore();
+  });
+
+  it("shows project creation only to governance users and reuses the shared modal", async () => {
+    Object.assign(auth.capabilities, { isGovernance: true, isBoss: true });
+    vi.mocked(fetchPeople).mockResolvedValue({
+      total: 1,
+      items: [
+        {
+          user_id: "manager-safe-1",
+          name: "项目经理",
+          email: "manager@example.com",
+          phone: null,
+          wecom_bound: false,
+          status: "active",
+          created_at: "2026-08-28T01:00:00Z",
+          updated_at: "2026-08-28T01:00:00Z",
+          company_roles: [],
+          project_memberships: [],
+          recent_session_at: null,
+          password_set: true,
+          password_set_at: "2026-08-28T01:00:00Z",
+        },
+      ],
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "新建项目" }));
+    expect(screen.getByRole("dialog", { name: "新建项目" })).toBeInTheDocument();
+    await waitFor(() => expect(fetchPeople).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not render project creation hints for non-governance users", async () => {
+    renderPage();
+    expect(await screen.findByRole("heading", { name: "我的项目" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "新建项目" })).not.toBeInTheDocument();
+    expect(screen.queryByText("仅治理角色可见")).not.toBeInTheDocument();
   });
 
   it("opens the same task drawer on the selected row and preserves strict status labels", async () => {
@@ -213,8 +306,24 @@ describe("HomeDashboardPage task-first workbench", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("/?task_group=my_tasks");
 
     fireEvent.click(screen.getByRole("tab", { name: "已完成" }));
-    expect(await screen.findByText("因内容重复已跳过")).toBeInTheDocument();
+    expect(await screen.findByText(/因内容重复已跳过/)).toBeInTheDocument();
     expect(screen.getByText(/重复跳过 ·/)).toBeInTheDocument();
+  });
+
+  it("opens the priority task from the focus surface and switches groups from the rhythm rail", async () => {
+    renderPage();
+
+    const focus = await screen.findByRole("button", { name: "打开今日焦点任务" });
+    const rhythm = screen.getByLabelText("今日工作节奏");
+    const running = within(rhythm).getByRole("button", { name: /进行中1/ });
+
+    fireEvent.click(running);
+    expect(running).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/处理中 · 4\/10/)).toBeInTheDocument();
+
+    fireEvent.click(focus);
+    expect(screen.getByRole("heading", { name: "任务中心" })).toBeInTheDocument();
+    expect(screen.getByText("客户交付复盘审核", { selector: "h3" })).toBeInTheDocument();
   });
 
   it("uses the real migration and markdown backfill task type labels", async () => {
@@ -318,6 +427,24 @@ describe("HomeDashboardPage task-first workbench", () => {
     renderPage();
     expect(await screen.findByText("业务标题已隐藏")).toBeInTheDocument();
     expect(screen.queryByText("交付复盘方法")).not.toBeInTheDocument();
+  });
+
+  it("uses projected access mode for cross-project summary material", async () => {
+    const data = overview();
+    data.recent_activity.items.push({
+      ...data.recent_activity.items[0],
+      asset_id: "asset-summary-safe-2",
+      title: "跨项目安全摘要",
+      access_mode: "summary_visible",
+    });
+    vi.mocked(fetchWorkbenchOverview).mockResolvedValue(data);
+
+    renderPage();
+
+    expect(await screen.findByRole("link", { name: /跨项目安全摘要/ })).toHaveClass(
+      "material-summary",
+    );
+    expect(screen.getByRole("link", { name: /交付复盘方法/ })).toHaveClass("material-source");
   });
 
   it("does not send a pure administrator to business-only task or knowledge routes", async () => {
