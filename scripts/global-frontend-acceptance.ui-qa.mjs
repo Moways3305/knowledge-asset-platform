@@ -22,7 +22,10 @@ const outDir = path.join(outRoot, "global-frontend-acceptance");
 const evidenceDir = path.join(outDir, "evidence");
 const suiteTimeoutMs = Number(process.env.UI_QA_SUITE_TIMEOUT_MS || 90_000);
 const suiteMaxAttempts = Number(process.env.UI_QA_SUITE_MAX_ATTEMPTS || 2);
-const suiteConcurrency = Math.max(1, Number(process.env.UI_QA_SUITE_CONCURRENCY || 4));
+// Browser suites share one preview server and a Chromium installation. Two
+// concurrent suites leave enough headroom for locator and mocked-response
+// waits on GitHub's two-core runners; callers may still raise this explicitly.
+const suiteConcurrency = Math.max(1, Number(process.env.UI_QA_SUITE_CONCURRENCY || 2));
 if (path.basename(outDir) !== "global-frontend-acceptance") {
   throw new Error(`Refusing to reset unexpected UI QA output path: ${outDir}`);
 }
