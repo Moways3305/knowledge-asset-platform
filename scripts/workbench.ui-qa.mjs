@@ -428,6 +428,10 @@ try {
         await retry.click();
         await page.getByRole("button", { name: /客户交付复盘审核/ }).waitFor();
       }
+      // The page heading renders before the asynchronous overview projection.
+      // Wait for all task tabs so layout metrics never sample the loading shell
+      // under contention on CI runners.
+      await page.locator(".workbench-tabs button").nth(2).waitFor();
       if (scenario === "normal" && viewport.width === 1440) {
         await page.getByRole("button", { name: /客户交付复盘审核/ }).click();
         const drawer = page.getByRole("dialog", { name: "任务中心" });
