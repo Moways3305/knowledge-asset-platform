@@ -8,9 +8,9 @@ export const routeDefinitions = [
     suite: "workbench",
     states: [
       { name: "normal", scenario: "normal" },
-      { name: "empty", scenario: "projects-empty" },
-      { name: "failure", scenario: "recent-error-retry" },
-      { name: "forbidden", scenario: "projects-forbidden" },
+      { name: "empty", scenario: "empty" },
+      { name: "failure", scenario: "error-retry" },
+      { name: "forbidden", scenario: "pure-admin" },
     ],
   },
   {

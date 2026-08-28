@@ -586,6 +586,7 @@ try {
       });
       results.push({
         scenario,
+        viewport: viewport.name,
         ...viewport,
         ...metrics,
         overviewCalls,
