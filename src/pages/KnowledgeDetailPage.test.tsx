@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import KnowledgeDetailPage, { OnlyOfficePreview } from "./KnowledgeDetailPage";
@@ -12,20 +12,25 @@ import {
 import type { KnowledgeDetailVM } from "../types/knowledge";
 import type { PreviewEntryVM } from "../types/preview";
 import { ApiError } from "../api/http";
+import { fetchNamingOptions } from "../api/naming";
+import { previewCompanyUpgrade, requestCompanyUpgrade } from "../api/review";
 
-vi.mock("../auth/AuthContext", () => ({
-  useAuth: () => ({
-    capabilities: {
-      isAdmin: false,
-      isBoss: false,
-      isConsultingDirector: false,
-      isBusinessUser: true,
-      isGovernance: false,
-      hasProject: true,
-      isProjectManager: false,
-    },
-  }),
-}));
+const authState = {
+  authMe: {
+    projects: [] as Array<{ projectId: string; projectName: string; projectRole: string }>,
+  },
+  capabilities: {
+    isAdmin: false,
+    isBoss: false,
+    isConsultingDirector: false,
+    isBusinessUser: true,
+    isGovernance: false,
+    hasProject: true,
+    isProjectManager: false,
+  },
+};
+
+vi.mock("../auth/AuthContext", () => ({ useAuth: () => authState }));
 
 vi.mock("../api/knowledge", () => ({
   deleteKnowledgeAsset: vi.fn(),
@@ -37,6 +42,11 @@ vi.mock("../api/knowledge", () => ({
   lifecycleArchiveRequest: vi.fn(),
   requestOriginalAccess: vi.fn(),
   retryKnowledgeIndex: vi.fn(),
+}));
+vi.mock("../api/naming", () => ({ fetchNamingOptions: vi.fn() }));
+vi.mock("../api/review", () => ({
+  previewCompanyUpgrade: vi.fn(),
+  requestCompanyUpgrade: vi.fn(),
 }));
 
 const baseAsset: KnowledgeDetailVM = {
@@ -99,11 +109,91 @@ function renderDetail(state?: unknown) {
 
 describe("KnowledgeDetailPage", () => {
   beforeEach(() => {
+    authState.authMe.projects = [];
     vi.mocked(fetchKnowledgeDetail).mockReset();
     vi.mocked(fetchLifecycleEvents).mockReset();
     vi.mocked(issuePreview).mockReset();
     vi.mocked(fetchPreviewEntry).mockReset();
     vi.mocked(requestOriginalAccess).mockReset();
+    vi.mocked(fetchNamingOptions).mockReset();
+    vi.mocked(previewCompanyUpgrade).mockReset();
+    vi.mocked(requestCompanyUpgrade).mockReset();
+  });
+
+  it("uses the governed project-to-company request from a manager's project detail", async () => {
+    authState.authMe.projects = [
+      { projectId: "project-1", projectName: "Alpha 项目", projectRole: "project_manager" },
+    ];
+    vi.mocked(fetchKnowledgeDetail).mockResolvedValue({
+      ...baseAsset,
+      scope: "project",
+      zone: "asset",
+    });
+    vi.mocked(fetchNamingOptions).mockResolvedValue({
+      required: true,
+      rule_version: 7,
+      categories: [
+        {
+          id: "company-methodology",
+          scope: "company",
+          primary: "公司资产",
+          secondary: "方法论",
+          prefix: "方法",
+          asset_type: "methodology",
+          default_confidentiality: "L2",
+          suggested_directory_key: "company.methodology",
+        },
+      ],
+      directories: [
+        {
+          directory_key: "company.methodology",
+          scope: "company",
+          display_name: "公司方法论",
+          sort_order: 1,
+          enabled: true,
+        },
+      ],
+      default_confidentiality: "L2",
+      message: null,
+    });
+    vi.mocked(previewCompanyUpgrade).mockResolvedValue({
+      required: true,
+      canonical_name: "【公司资产-方法论】项目复盘_全公司_20260831_V1_L2.docx",
+      rule_version: 7,
+      fields: {},
+      notices: [],
+      message: null,
+    });
+    vi.mocked(requestCompanyUpgrade).mockResolvedValue({} as never);
+
+    renderDetail({
+      backTo: "/project/project-1/knowledge",
+      backLabel: "返回项目知识库",
+      source: "project",
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "发布到公司知识库" }));
+    const dialog = await screen.findByRole("dialog", { name: "发布到公司知识库" });
+    fireEvent.change(within(dialog).getByLabelText("适用对象"), {
+      target: { value: "全公司" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "预览目标文件名" }));
+    await within(dialog).findByText(/【公司资产-方法论】/);
+    fireEvent.click(within(dialog).getByRole("button", { name: "提交公司发布申请" }));
+
+    await waitFor(() =>
+      expect(requestCompanyUpgrade).toHaveBeenCalledWith(
+        "project-1",
+        "asset-1",
+        expect.objectContaining({
+          naming: expect.objectContaining({ applicable_to: "全公司" }),
+        }),
+      ),
+    );
+    expect(screen.getByRole("link", { name: "返回项目知识库" })).toHaveAttribute(
+      "href",
+      "/project/project-1/knowledge",
+    );
+    expect(await screen.findByText("已提交公司发布申请。")).toBeInTheDocument();
   });
 
   it("uses the same explicit source while loading and after an authorized detail resolves", async () => {

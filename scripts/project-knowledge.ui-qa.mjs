@@ -35,6 +35,7 @@ const scenarios = [
 const viewports = [
   { name: "1440", width: 1440, height: 1000 },
   { name: "1024", width: 1024, height: 900 },
+  { name: "768", width: 768, height: 900 },
   { name: "390", width: 390, height: 844 },
 ];
 
@@ -303,6 +304,18 @@ try {
               title: isProjectB ? "年度辅导项目知识" : "客户经营诊断与交付复盘框架",
               zone: isProjectB ? "asset" : "material",
               project_name: isProjectB ? "年度辅导项目" : "华东增长项目",
+              access_info: {
+                discovery: true,
+                summary: true,
+                original: false,
+                effective_source: "internal_access_secret",
+                can_request_original: true,
+                existing_request_status: null,
+                existing_grant_expires_at: null,
+                can_delete: isProjectB,
+                can_manage_lifecycle: false,
+                can_retry_index: false,
+              },
             }),
             knowledgeItem({
               id: `${isProjectB ? assetB : assetA}-2`,
@@ -509,14 +522,14 @@ try {
         }
 
         if (scenario === "manager-list") {
+          await page.getByRole("button", { name: "发布到公司知识库" }).waitFor();
           await page.getByLabel("更多操作：年度辅导项目知识").click();
-          await page.getByRole("button", { name: "申请升格公司资产" }).waitFor();
+          await page.getByRole("menuitem", { name: "删除" }).waitFor();
         }
 
         if (["upgrade-publication", "upgrade-failure"].includes(scenario)) {
-          await page.getByLabel("更多操作：年度辅导项目知识").click();
-          await page.getByRole("button", { name: "申请升格公司资产" }).click();
-          const dialog = page.getByRole("dialog", { name: "升格为公司资产" });
+          await page.getByRole("button", { name: "发布到公司知识库" }).click();
+          const dialog = page.getByRole("dialog", { name: "发布到公司知识库" });
           await dialog.getByText("02 方法论").waitFor();
           if ((await dialog.getByRole("combobox", { name: "正式目录" }).count()) !== 0) {
             throw new Error("mapped publication directory must be read-only");
@@ -524,17 +537,14 @@ try {
           await dialog.getByLabel("适用对象").fill("全公司");
           await dialog.getByRole("button", { name: "预览目标文件名" }).click();
           await dialog.getByText(/【公司资产-方法论】/).waitFor();
-          upgradePreviewScreenshot = path.join(
-            outDir,
-            `${scenario}-preview-${viewport.name}.png`,
-          );
+          upgradePreviewScreenshot = path.join(outDir, `${scenario}-preview-${viewport.name}.png`);
           await dialog.screenshot({ path: upgradePreviewScreenshot, animations: "disabled" });
-          await dialog.getByRole("button", { name: "提交双角色确认" }).click();
+          await dialog.getByRole("button", { name: "提交公司发布申请" }).click();
           if (scenario === "upgrade-failure") {
-            await page.getByText("升格申请提交失败，请检查目标命名后重试。").waitFor();
+            await page.getByText("公司发布申请提交失败，请检查目标命名后重试。").waitFor();
             upgradeFailureVisible = true;
           } else {
-            await page.getByText("公司资产升格申请已提交。").waitFor();
+            await page.getByText("已提交公司发布申请。").waitFor();
             upgradePublicationVisible = true;
           }
         }
@@ -557,7 +567,8 @@ try {
           return {
             scenario: scenarioName,
             overflowX: root.scrollWidth - root.clientWidth,
-            shellOverlap: rail && deck ? Math.max(0, rail.right - deck.left) : 1,
+            shellOverlap:
+              window.innerWidth >= 1000 && rail && deck ? Math.max(0, rail.right - deck.left) : 0,
             clippedControls,
             moduleTitle: document.querySelector(".deck-title")?.textContent?.trim() ?? "",
             tableVisible: Boolean(document.querySelector(".pk-table")),
@@ -565,7 +576,7 @@ try {
             maxRowHeight: Math.max(0, ...rows.map((row) => row.getBoundingClientRect().height)),
             qaInitiallyCollapsed:
               document.querySelector(".pk-qa-toggle")?.getAttribute("aria-expanded") === "false",
-            managerActionVisible: Boolean(document.querySelector('[aria-label^="更多操作："]')),
+            managerActionVisible: Boolean(document.querySelector(".pk-publish-action")),
             qaInputDisabled:
               document.querySelector(".pk-qa-body textarea") instanceof HTMLTextAreaElement &&
               document.querySelector(".pk-qa-body textarea").disabled,
@@ -575,7 +586,8 @@ try {
               bodyText.includes("访谈材料显示，客户当前最关注交付节奏与复盘机制。") &&
               bodyText.includes("内容待审核，请谨慎参考"),
             qaFailureVisible: bodyText.includes("问答暂时未完成，请稍后重试。"),
-            upgradeFailureVisible: bodyText.includes("升格申请提交失败，请检查目标命名后重试。"),
+            upgradeFailureVisible:
+              bodyText.includes("公司发布申请提交失败，请检查目标命名后重试。"),
             filteredEmptyVisible: bodyText.includes("当前条件没有匹配内容"),
             oldImplementationVisible:
               Boolean(document.querySelector(".pj-asset-grid, .lifecycle-row, .risk-list")) ||

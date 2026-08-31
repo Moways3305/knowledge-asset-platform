@@ -72,6 +72,20 @@
   align-self: center;
 }
 
+.kdetail-publication-action {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+
+.kdetail-action-reason {
+  max-width: 220px;
+  color: #687187;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: right;
+}
+
 .kdetail-primary-action .btn-primary,
 .kdetail-primary-action .btn-secondary {
   display: inline-flex;
