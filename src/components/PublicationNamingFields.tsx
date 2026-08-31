@@ -61,11 +61,16 @@ export default function PublicationNamingFields({
         )
           ? value.naming.directory_key
           : (directories[0]?.directory_key ?? "");
+        const selectedDirectoryConfig = directories.find(
+          (item) => item.directory_key === selectedDirectory,
+        );
         setOptions({ ...result, directories });
         setLoadState("ready");
         onChange({
           confidentiality_level:
-            value.confidentiality_level || result.default_confidentiality || "L2",
+            selectedDirectoryConfig?.default_confidentiality ||
+            result.default_confidentiality ||
+            "L2",
           naming: {
             ...value.naming,
             directory_key: selectedDirectory,
@@ -131,15 +136,21 @@ export default function PublicationNamingFields({
             aria-label="正式目录"
             value={value.naming.directory_key}
             disabled={disabled}
-            onChange={(event) =>
+            onChange={(event) => {
+              const directoryKey = event.target.value;
+              const directory = options.directories.find(
+                (item) => item.directory_key === directoryKey,
+              );
               update({
                 ...value,
+                confidentiality_level:
+                  directory?.default_confidentiality || options.default_confidentiality || "L2",
                 naming: {
                   ...value.naming,
-                  directory_key: event.target.value,
+                  directory_key: directoryKey,
                 },
-              })
-            }
+              });
+            }}
           >
             {options.directories.map((item) => (
               <option key={item.directory_key} value={item.directory_key}>

@@ -8,7 +8,13 @@ import {
   previewBatchIngestNaming,
   previewIngestNaming,
 } from "./pendingBatchCommands";
-import { DATE_PATTERN, initialRows, reviewState, rowMissing } from "./pendingBatchReviewState";
+import {
+  DATE_PATTERN,
+  directoryDefaultConfidentiality,
+  initialRows,
+  reviewState,
+  rowMissing,
+} from "./pendingBatchReviewState";
 import type {
   CompletedReviewItem,
   DeleteFeedback,
@@ -505,6 +511,10 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
         if (bulkDirectoryKey) {
           selectedConfirmTasks.forEach((task) => {
             nextRows[task.id].directory_key = bulkDirectoryKey;
+            nextRows[task.id].confidentiality_level = directoryDefaultConfidentiality(
+              value,
+              bulkDirectoryKey,
+            );
           });
         }
         setRows(nextRows);

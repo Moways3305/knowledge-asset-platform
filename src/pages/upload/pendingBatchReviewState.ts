@@ -60,9 +60,22 @@ export function hasReliableAiConfidentiality(task: PendingIngestItemDTO): boolea
 export function suggestedConfidentiality(
   task: PendingIngestItemDTO,
   options: NamingOptionsDTO,
+  directoryKey?: string,
 ): string {
   if (hasReliableAiConfidentiality(task)) return task.suggested_confidentiality_level!;
-  return options.default_confidentiality || "L2";
+  return directoryDefaultConfidentiality(options, directoryKey);
+}
+
+export function directoryDefaultConfidentiality(
+  options: NamingOptionsDTO,
+  directoryKey?: string,
+): string {
+  return (
+    options.directories.find((directory) => directory.directory_key === directoryKey)
+      ?.default_confidentiality ||
+    options.default_confidentiality ||
+    "L2"
+  );
 }
 
 export function initialRows(tasks: PendingIngestItemDTO[], options: NamingOptionsDTO): ReviewRows {
@@ -81,7 +94,7 @@ export function initialRows(tasks: PendingIngestItemDTO[], options: NamingOption
               : "") || parsedValue(task, "date"),
           version: suggestedVersion(task),
           applicable_to: "",
-          confidentiality_level: suggestedConfidentiality(task, options),
+          confidentiality_level: suggestedConfidentiality(task, options, defaultDirectoryKey),
         },
       ];
     }),

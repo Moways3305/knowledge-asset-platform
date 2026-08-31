@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from sqlalchemy import select
 
 from app.models.identity import Project
@@ -45,7 +46,7 @@ def _config(*, with_legacy_category: bool = False) -> dict:
                 "display_name": "03 交付成果",
                 "description": "诊断 / 战略 / 方案",
                 "naming_code": "交付成果",
-                "default_confidentiality": "L3",
+                "default_confidentiality": "L4",
                 "enabled": True,
                 "sort_order": 30,
             },
@@ -55,7 +56,7 @@ def _config(*, with_legacy_category: bool = False) -> dict:
                 "display_name": "02 方法论",
                 "description": "模型与工具",
                 "naming_code": "方法论",
-                "default_confidentiality": "L2",
+                "default_confidentiality": "L5",
                 "enabled": True,
                 "sort_order": 20,
             },
@@ -122,10 +123,43 @@ async def test_options_expose_only_scoped_formal_directories(client):
             "scope": "project",
             "display_name": "03 交付成果",
             "description": "诊断 / 战略 / 方案",
+            "naming_code": "交付成果",
+            "default_confidentiality": "L4",
             "sort_order": 30,
             "enabled": True,
         }
     ]
+    assert payload["default_confidentiality"] == "L4"
+
+    company = await client.get(
+        "/api/v1/naming-options",
+        headers=_hdr(USER_BOSS),
+        params={"scope": "company"},
+    )
+    assert company.status_code == 200, company.text
+    assert company.json()["default_confidentiality"] == "L5"
+    assert company.json()["directories"][0]["default_confidentiality"] == "L5"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("display_name", ""),
+        ("naming_code", ""),
+        ("sort_order", "not-a-number"),
+        ("enabled", "not-a-bool"),
+        ("default_confidentiality", "L99"),
+    ],
+)
+async def test_directory_draft_rejects_invalid_writable_fields(client, field, value):
+    directory = _config()["directories"][0]
+    directory[field] = value
+    response = await client.put(
+        "/api/v1/admin/naming-rules/draft",
+        headers=_hdr(USER_BOSS),
+        json={"expected_base_version": 1, "directories": [directory]},
+    )
+    assert response.status_code == 422, response.text
 
 
 async def test_direct_directory_generates_project_name_without_category_metadata(client):

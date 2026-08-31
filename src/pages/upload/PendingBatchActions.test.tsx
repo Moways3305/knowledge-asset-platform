@@ -176,6 +176,7 @@ describe("PendingBatchActions governed review", () => {
           directory_key: "project.deliverables",
           scope: "project",
           display_name: "03 项目交付成果",
+          default_confidentiality: "L4",
           sort_order: 30,
           enabled: true,
         },
@@ -183,6 +184,7 @@ describe("PendingBatchActions governed review", () => {
           directory_key: "project.key_materials",
           scope: "project",
           display_name: "04 关键资料",
+          default_confidentiality: "L5",
           sort_order: 40,
           enabled: true,
         },
@@ -374,6 +376,8 @@ describe("PendingBatchActions governed review", () => {
     });
     expect(screen.getByLabelText("bulk-one.pdf 正式目录")).toHaveValue("project.deliverables");
     expect(screen.getByLabelText("bulk-two.pdf 正式目录")).toHaveValue("project.key_materials");
+    expect(screen.getByLabelText("bulk-one.pdf 密级")).toHaveValue("L4");
+    expect(screen.getByLabelText("bulk-two.pdf 密级")).toHaveValue("L5");
   });
 
   it("loads AI extraction only on demand and retains the reviewed draft for final confirmation", async () => {

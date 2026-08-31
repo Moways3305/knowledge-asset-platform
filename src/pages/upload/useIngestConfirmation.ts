@@ -114,7 +114,7 @@ export function useIngestConfirmation({
   const [naming, setNaming] = useState<NamingFields | null>(null);
   const [namingOptions, setNamingOptions] = useState<NamingOptionsDTO | null>(null);
   const [namingPolicyResolved, setNamingPolicyResolved] = useState(false);
-  const [directoryKey, setDirectoryKey] = useState("");
+  const [directoryKey, setDirectoryKeyState] = useState("");
   const [namingFormedOn, setNamingFormedOn] = useState("");
   const [namingVersion, setNamingVersion] = useState("V1");
   const [namingApplicableTo, setNamingApplicableTo] = useState("");
@@ -213,7 +213,7 @@ export function useIngestConfirmation({
     setNamingPolicyResolved(targetLibrary === "personal");
     if (!targetLibrary || (targetLibrary === "project" && !targetProjectId)) {
       setNamingOptions(null);
-      setDirectoryKey("");
+      setDirectoryKeyState("");
       return;
     }
     let live = true;
@@ -222,15 +222,21 @@ export function useIngestConfirmation({
         if (!live) return;
         setNamingOptions(value);
         setNamingPolicyResolved(true);
-        setDirectoryKey((current) => {
+        setDirectoryKeyState((current) => {
           const directories = value.directories ?? [];
-          return directories.some((directory) => directory.directory_key === current)
+          const selectedKey = directories.some((directory) => directory.directory_key === current)
             ? current
             : (directories.find((directory) => directory.enabled)?.directory_key ?? "");
+          const selectedDirectory = directories.find(
+            (directory) => directory.directory_key === selectedKey,
+          );
+          if (!reliableAiConfidentialityRef.current) {
+            setEditConfidentiality(
+              selectedDirectory?.default_confidentiality || value.default_confidentiality || "L2",
+            );
+          }
+          return selectedKey;
         });
-        if (value.default_confidentiality && !reliableAiConfidentialityRef.current) {
-          setEditConfidentiality(value.default_confidentiality);
-        }
       })
       .catch((reason) => {
         if (!live) return;
@@ -242,6 +248,19 @@ export function useIngestConfirmation({
       live = false;
     };
   }, [targetLibrary, targetProjectId, taskId]);
+
+  const setDirectoryKey = useCallback(
+    (nextDirectoryKey: string) => {
+      setDirectoryKeyState(nextDirectoryKey);
+      const directory = namingOptions?.directories.find(
+        (item) => item.directory_key === nextDirectoryKey,
+      );
+      setEditConfidentiality(
+        directory?.default_confidentiality || namingOptions?.default_confidentiality || "L2",
+      );
+    },
+    [namingOptions],
+  );
 
   useEffect(() => {
     const runId = ++namingPreviewRunRef.current;
@@ -677,7 +696,7 @@ export function useIngestConfirmation({
     setSubmitIndexStatus(null);
     setNamingOptions(null);
     setNamingPolicyResolved(false);
-    setDirectoryKey("");
+    setDirectoryKeyState("");
     setNamingFormedOn("");
     setNamingVersion("V1");
     setNamingApplicableTo("");

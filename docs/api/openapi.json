@@ -3775,6 +3775,9 @@
       },
       "DirectoryOptionItem": {
         "properties": {
+          "default_confidentiality": {
+            "$ref": "#/components/schemas/ConfidentialityLevel"
+          },
           "description": {
             "anyOf": [
               {
@@ -3799,6 +3802,10 @@
             "title": "Enabled",
             "type": "boolean"
           },
+          "naming_code": {
+            "title": "Naming Code",
+            "type": "string"
+          },
           "scope": {
             "title": "Scope",
             "type": "string"
@@ -3812,6 +3819,8 @@
           "directory_key",
           "scope",
           "display_name",
+          "naming_code",
+          "default_confidentiality",
           "sort_order"
         ],
         "title": "DirectoryOptionItem",
@@ -4304,6 +4313,68 @@
         ],
         "title": "EvidenceType",
         "type": "string"
+      },
+      "FormalDirectoryConfig": {
+        "additionalProperties": false,
+        "description": "Strict writable contract for one governed formal directory.",
+        "properties": {
+          "default_confidentiality": {
+            "$ref": "#/components/schemas/ConfidentialityLevel"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "directory_key": {
+            "title": "Directory Key",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "naming_code": {
+            "title": "Naming Code",
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "personal",
+              "project",
+              "company"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "sort_order": {
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Sort Order",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "directory_key",
+          "scope",
+          "display_name",
+          "naming_code",
+          "default_confidentiality",
+          "sort_order",
+          "enabled"
+        ],
+        "title": "FormalDirectoryConfig",
+        "type": "object"
       },
       "GenerationModelAdminListResponse": {
         "properties": {
@@ -9156,8 +9227,7 @@
         "properties": {
           "directories": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/FormalDirectoryConfig"
             },
             "title": "Directories",
             "type": "array"
@@ -9481,8 +9551,7 @@
           },
           "directories": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/FormalDirectoryConfig"
             },
             "title": "Directories",
             "type": "array"

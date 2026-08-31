@@ -18,11 +18,20 @@ const options: NamingOptionsDTO = {
       directory_key: "project.deliverables",
       scope: "project",
       display_name: "项目交付物",
+      default_confidentiality: "L4",
       enabled: true,
       sort_order: 10,
     },
+    {
+      directory_key: "project.key_materials",
+      scope: "project",
+      display_name: "项目关键资料",
+      default_confidentiality: "L5",
+      enabled: true,
+      sort_order: 20,
+    },
   ],
-  default_confidentiality: "L2",
+  default_confidentiality: "L3",
   message: null,
 };
 
@@ -59,14 +68,18 @@ describe("PublicationNamingFields directory governance", () => {
 
     const directory = await screen.findByRole("combobox", { name: "正式目录" });
     expect(directory).toHaveValue("project.deliverables");
+    expect(screen.getByRole("combobox", { name: "密级" })).toHaveValue("L4");
+    fireEvent.change(directory, { target: { value: "project.key_materials" } });
+    expect(screen.getByRole("combobox", { name: "密级" })).toHaveValue("L5");
     expect(screen.queryByText("目录类别")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "预览目标文件名" }));
 
     await waitFor(() => expect(onPreview).toHaveBeenCalledTimes(1));
     expect(onPreview.mock.calls[0][0].naming).toEqual(
       expect.objectContaining({
-        directory_key: "project.deliverables",
+        directory_key: "project.key_materials",
       }),
     );
+    expect(onPreview.mock.calls[0][0].confidentiality_level).toBe("L5");
   });
 });

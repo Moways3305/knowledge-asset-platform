@@ -338,7 +338,19 @@ export default function PendingBatchNamingReview(props: Props) {
                   <select
                     aria-label={`${task.source_file_name} 正式目录`}
                     value={row.directory_key}
-                    onChange={(event) => updateRow(task.id, { directory_key: event.target.value })}
+                    onChange={(event) => {
+                      const directoryKey = event.target.value;
+                      const directory = options?.directories.find(
+                        (item) => item.directory_key === directoryKey,
+                      );
+                      updateRow(task.id, {
+                        directory_key: directoryKey,
+                        confidentiality_level:
+                          directory?.default_confidentiality ||
+                          options?.default_confidentiality ||
+                          "L2",
+                      });
+                    }}
                   >
                     <option value="">请选择</option>
                     {(options?.directories ?? [])

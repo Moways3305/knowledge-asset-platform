@@ -30,6 +30,7 @@ from app.schemas.naming import (
     BatchNamingPreviewRequest,
     BatchNamingPreviewResponse,
     DirectoryOptionItem,
+    FormalDirectoryConfig,
     NamingDraftUpdateRequest,
     NamingDuplicateNotice,
     NamingOptionsResponse,
@@ -114,11 +115,15 @@ async def _ensure_initial_revisions(session: AsyncSession) -> None:
     await session.commit()
 
 
+def _default_directories() -> list[FormalDirectoryConfig]:
+    return [FormalDirectoryConfig.model_validate(item) for item in default_directory_config()]
+
+
 def _config(revision: NamingRuleRevision) -> NamingRuleConfig:
     try:
         config = NamingRuleConfig.model_validate(revision.config)
         return config.model_copy(
-            update={"directories": config.directories or default_directory_config()}
+            update={"directories": config.directories or _default_directories()}
         )
     except Exception:
         raise _denied(503, "naming_rule_unavailable", "命名规则暂时不可用") from None
@@ -143,7 +148,7 @@ def _normalized_config(config: NamingRuleConfig) -> NamingRuleConfig:
     return config.model_copy(
         update={
             "schema_version": 2,
-            "directories": config.directories or default_directory_config(),
+            "directories": config.directories or _default_directories(),
             "migration_missing_asset_type_category_ids": _missing_asset_type_ids(config),
         }
     )
@@ -782,7 +787,7 @@ async def options(
             or not project.project_code
         ):
             raise _denied(409, "project_naming_code_unavailable", "目标项目尚未启用项目代码")
-        default_confidentiality = ConfidentialityLevel(project.naming_default_confidentiality)
+        fallback_confidentiality = ConfidentialityLevel(project.naming_default_confidentiality)
     else:
         is_project_manager = any(
             role == "project_manager" for role in caller.active_project_roles.values()
@@ -791,20 +796,18 @@ async def options(
             raise _denied(403, "company_confirmation_requires_governance", "公司知识需治理角色确认")
         if config is None:
             return NamingOptionsResponse(required=False, rule_version=None)
-        default_confidentiality = ConfidentialityLevel.L2
+        fallback_confidentiality = ConfidentialityLevel.L2
     assert revision is not None and config is not None
     directories = sorted(
-        [
-            item
-            for item in config.directories
-            if item.get("enabled", True) and item.get("scope") == scope.value
-        ],
-        key=lambda item: (int(item.get("sort_order") or 0), str(item.get("display_name") or "")),
+        [item for item in config.directories if item.enabled and item.scope == scope.value],
+        key=lambda item: (item.sort_order, item.display_name),
     )
     return NamingOptionsResponse(
         required=True,
         rule_version=revision.version,
-        directories=[DirectoryOptionItem.model_validate(item) for item in directories],
-        default_confidentiality=default_confidentiality,
+        directories=[DirectoryOptionItem.model_validate(item.model_dump()) for item in directories],
+        default_confidentiality=(
+            directories[0].default_confidentiality if directories else fallback_confidentiality
+        ),
         message=None if directories else "当前目标尚未配置启用的正式目录",
     )
