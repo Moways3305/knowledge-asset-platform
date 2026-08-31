@@ -30,4 +30,5 @@ def recover_orphaned_ingest_tasks() -> dict[str, int]:
         "scheduled": len(summary.scheduled),
         "source_unavailable": summary.source_unavailable,
         "exhausted": summary.exhausted,
+        "redispatched": summary.redispatched,
     }

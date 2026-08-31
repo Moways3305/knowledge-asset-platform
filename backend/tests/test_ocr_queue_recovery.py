@@ -124,6 +124,52 @@ async def test_stale_unclaimed_queue_item_identifies_broker_or_restart(client, d
     assert task.error_type == "broker_or_container_restart"
 
 
+async def test_due_recovery_is_redispatched_without_spending_retry_budget(client, db_session):
+    ref = client._kap_storage.save(b"valid", original_name="incident.pdf")
+    task = _task(ref, retry_count=1)
+    task.processing_stage = "processing_interrupted"
+    task.processing_worker_id = None
+    task.processing_job_id = None
+    previous_not_before = utc_now() - timedelta(seconds=1)
+    task.recovery_not_before = previous_not_before
+    db_session.add(task)
+    await db_session.commit()
+
+    summary = await recover_stale_tasks(db_session, client._kap_storage)
+
+    await db_session.refresh(task)
+    assert summary.redispatched == 1
+    assert len(summary.scheduled) == 1
+    assert summary.scheduled[0].countdown == 0
+    assert summary.scheduled[0].queue == get_settings().celery_ocr_queue
+    assert task.retry_count == 1
+    assert task.recovery_not_before.replace(tzinfo=previous_not_before.tzinfo) > previous_not_before
+    audits = (await db_session.execute(select(AuditEvent))).scalars().all()
+    assert any(
+        event.extra.get("error_code") == "lost_recovery_message_redispatched" for event in audits
+    )
+
+
+async def test_redispatch_lease_prevents_requeue_storm(client, db_session):
+    ref = client._kap_storage.save(b"valid", original_name="incident.pdf")
+    task = _task(ref, retry_count=1)
+    task.processing_stage = "processing_interrupted"
+    task.processing_worker_id = None
+    task.processing_job_id = None
+    task.recovery_not_before = utc_now() - timedelta(seconds=1)
+    db_session.add(task)
+    await db_session.commit()
+
+    first = await recover_stale_tasks(db_session, client._kap_storage)
+    second = await recover_stale_tasks(db_session, client._kap_storage)
+
+    assert first.redispatched == 1
+    assert second.scheduled == ()
+    assert second.redispatched == 0
+    await db_session.refresh(task)
+    assert task.retry_count == 1
+
+
 async def test_completed_ocr_page_is_skipped_on_resume(monkeypatch):
     extraction = ExtractionResult(
         text="",

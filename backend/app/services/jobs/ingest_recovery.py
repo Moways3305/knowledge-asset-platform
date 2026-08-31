@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -40,6 +40,7 @@ class RecoverySummary:
     scheduled: tuple[RecoveryCandidate, ...]
     source_unavailable: int
     exhausted: int
+    redispatched: int
 
 
 def _has_source_bytes(storage: LocalFileStorage, task: IngestTask) -> bool:
@@ -82,16 +83,28 @@ async def recover_stale_tasks(
 ) -> RecoverySummary:
     """Classify stale leases and schedule only bounded, byte-backed recoveries.
 
-    No source reference or path is written to logs/audit. Repeated scans are idempotent because
-    candidates leave ACTIVE_STAGES in the same transaction that records the audit event.
+    No source reference or path is written to logs/audit. Stale active candidates leave
+    ACTIVE_STAGES, while due interrupted candidates renew a dispatch lease in the same
+    transaction that records the audit event. Both paths are safe under repeated scans.
     """
     settings = get_settings()
     current = now or utc_now()
-    cutoff = current - timedelta(seconds=max(30, settings.ingest_lease_timeout_seconds))
+    lease_seconds = max(30, settings.ingest_lease_timeout_seconds)
+    cutoff = current - timedelta(seconds=lease_seconds)
     conditions = [
         IngestTask.status == IngestStatus.processing.value,
-        IngestTask.processing_stage.in_(ACTIVE_STAGES),
-        func.coalesce(IngestTask.processing_heartbeat_at, IngestTask.updated_at) < cutoff,
+        or_(
+            and_(
+                IngestTask.processing_stage.in_(ACTIVE_STAGES),
+                func.coalesce(IngestTask.processing_heartbeat_at, IngestTask.updated_at) < cutoff,
+            ),
+            and_(
+                IngestTask.processing_stage == "processing_interrupted",
+                IngestTask.recovery_not_before.is_not(None),
+                IngestTask.recovery_not_before <= current,
+                IngestTask.processing_job_id.is_(None),
+            ),
+        ),
     ]
     if task_ids:
         conditions.append(IngestTask.id.in_(task_ids))
@@ -111,7 +124,9 @@ async def recover_stale_tasks(
     scheduled: list[RecoveryCandidate] = []
     source_unavailable = 0
     exhausted = 0
+    redispatched = 0
     for task in tasks:
+        is_due_recovery = task.processing_stage == "processing_interrupted"
         if not _has_source_bytes(storage, task):
             source_unavailable += 1
             if dry_run:
@@ -121,7 +136,9 @@ async def recover_stale_tasks(
             task.error_type = "source_file_unavailable"
             task.error_message = "原文件不可用，请重新选择原文件。"
             reason = "source_file_unavailable"
-        elif task.retry_count >= min(task.max_retries, settings.ingest_recovery_max_attempts):
+        elif not is_due_recovery and task.retry_count >= min(
+            task.max_retries, settings.ingest_recovery_max_attempts
+        ):
             exhausted += 1
             if dry_run:
                 continue
@@ -131,23 +148,37 @@ async def recover_stale_tasks(
             task.error_message = "处理多次中断，请重试处理或联系管理员。"
             reason = "worker_lost_recovery_exhausted"
         else:
-            delay = min(
-                3600,
-                max(1, settings.ingest_recovery_base_delay_seconds) * (2**task.retry_count),
+            delay = (
+                0
+                if is_due_recovery
+                else min(
+                    3600,
+                    max(1, settings.ingest_recovery_base_delay_seconds) * (2**task.retry_count),
+                )
             )
             queue = _recovery_queue(task)
             scheduled.append(RecoveryCandidate(task.id, queue, delay))
+            if is_due_recovery:
+                redispatched += 1
             if dry_run:
                 continue
-            task.retry_count += 1
-            task.processing_stage = "processing_interrupted"
-            interruption_code = (
-                "worker_lost" if task.processing_worker_id else "broker_or_container_restart"
-            )
-            task.error_type = interruption_code
-            task.error_message = "处理意外中断，系统已安排有限重试。"
-            task.recovery_not_before = current + timedelta(seconds=delay)
-            reason = f"{interruption_code}_recovery_scheduled"
+            if is_due_recovery:
+                # The previous delayed broker message may have disappeared. Renew a dispatch
+                # lease before publishing an immediate replacement so periodic scans cannot
+                # create a requeue storm. This is the same business retry, so retry_count is
+                # deliberately unchanged; a worker claim clears recovery_not_before.
+                task.recovery_not_before = current + timedelta(seconds=lease_seconds)
+                reason = "lost_recovery_message_redispatched"
+            else:
+                task.retry_count += 1
+                task.processing_stage = "processing_interrupted"
+                interruption_code = (
+                    "worker_lost" if task.processing_worker_id else "broker_or_container_restart"
+                )
+                task.error_type = interruption_code
+                task.error_message = "处理意外中断，系统已安排有限重试。"
+                task.recovery_not_before = current + timedelta(seconds=delay)
+                reason = f"{interruption_code}_recovery_scheduled"
         if not dry_run:
             task.processing_heartbeat_at = current
             task.processing_worker_id = None
@@ -164,9 +195,11 @@ async def recover_stale_tasks(
                 extra={
                     "error_code": reason,
                     "retry_count": task.retry_count,
-                    "recovery_scheduled": reason.endswith("scheduled"),
+                    "recovery_scheduled": reason.endswith(("scheduled", "redispatched")),
                 },
             )
     if not dry_run:
         await session.commit()
-    return RecoverySummary(len(tasks), tuple(scheduled), source_unavailable, exhausted)
+    return RecoverySummary(
+        len(tasks), tuple(scheduled), source_unavailable, exhausted, redispatched
+    )
