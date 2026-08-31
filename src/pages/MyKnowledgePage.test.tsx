@@ -178,18 +178,6 @@ describe("MyKnowledgePage complete personal workflow", () => {
     vi.mocked(fetchNamingOptions).mockResolvedValue({
       required: true,
       rule_version: 7,
-      categories: [
-        {
-          id: "category-project",
-          scope: "project",
-          primary: "项目资料",
-          secondary: "交付物",
-          prefix: "交付",
-          asset_type: "deliverable",
-          default_confidentiality: "L2",
-          suggested_directory_key: "project.deliverables",
-        },
-      ],
       directories: [
         {
           directory_key: "project.deliverables",
@@ -342,7 +330,9 @@ describe("MyKnowledgePage complete personal workflow", () => {
     const submitDialog = screen.getByRole("dialog");
     await user.selectOptions(within(submitDialog).getByLabelText("目标项目"), "project-83");
     expect(await within(submitDialog).findByText("项目交付物")).toBeInTheDocument();
-    expect(within(submitDialog).queryByRole("combobox", { name: "正式目录" })).toBeNull();
+    expect(within(submitDialog).getByRole("combobox", { name: "正式目录" })).toHaveValue(
+      "project.deliverables",
+    );
     await user.click(within(submitDialog).getByRole("button", { name: "预览目标文件名" }));
     await within(submitDialog).findByText(/【P83-2026-交付物】/);
     await user.click(within(submitDialog).getByRole("button", { name: "提交" }));

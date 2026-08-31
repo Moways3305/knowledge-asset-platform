@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { ApiError } from "../api/http";
 import { fetchNamingOptions } from "../api/naming";
 import type { NamingConfirmationDTO, NamingOptionsDTO, NamingPreviewDTO } from "../types/naming";
 import "./PublicationNamingFields.css";
@@ -13,12 +12,10 @@ export function createPublicationNamingValue(subject: string): PublicationNaming
   return {
     confidentiality_level: "L2",
     naming: {
-      category_id: "",
+      directory_key: "",
       subject,
       formed_on: new Date().toISOString().slice(0, 10),
       version: "V1",
-      directory_key: "",
-      directory_fallback_confirmed: false,
     },
   };
 }
@@ -44,7 +41,6 @@ export default function PublicationNamingFields({
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [previewState, setPreviewState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [preview, setPreview] = useState<NamingPreviewDTO | null>(null);
-  const [fallbackNeeded, setFallbackNeeded] = useState(false);
   const requestRef = useRef(0);
 
   useEffect(() => {
@@ -53,33 +49,26 @@ export default function PublicationNamingFields({
     setOptions(null);
     setPreview(null);
     setPreviewState("idle");
-    setFallbackNeeded(false);
     onPreviewed(null);
     fetchNamingOptions(scope, scope === "project" ? projectId : undefined)
       .then((result) => {
         if (request !== requestRef.current) return;
-        const categories = result.categories.filter((item) => item.enabled !== false);
         const directories = result.directories.filter(
           (item) => item.enabled && item.scope === scope,
         );
-        const category =
-          categories.find((item) => item.id === value.naming.category_id) ?? categories[0];
-        const suggestedDirectory = directories.find(
-          (item) => item.directory_key === category?.suggested_directory_key,
-        );
-        setOptions({ ...result, categories, directories });
+        const selectedDirectory = directories.some(
+          (item) => item.directory_key === value.naming.directory_key,
+        )
+          ? value.naming.directory_key
+          : (directories[0]?.directory_key ?? "");
+        setOptions({ ...result, directories });
         setLoadState("ready");
         onChange({
           confidentiality_level:
-            value.confidentiality_level ||
-            category?.default_confidentiality ||
-            result.default_confidentiality ||
-            "L2",
+            value.confidentiality_level || result.default_confidentiality || "L2",
           naming: {
             ...value.naming,
-            category_id: category?.id ?? "",
-            directory_key: suggestedDirectory?.directory_key ?? "",
-            directory_fallback_confirmed: false,
+            directory_key: selectedDirectory,
           },
         });
       })
@@ -103,11 +92,10 @@ export default function PublicationNamingFields({
 
   const runPreview = async () => {
     if (
-      !value.naming.category_id ||
+      !value.naming.directory_key ||
       !value.naming.subject.trim() ||
       !value.naming.formed_on ||
       !value.naming.version.trim() ||
-      (fallbackNeeded && !value.naming.directory_key) ||
       (scope === "company" && !value.naming.applicable_to?.trim())
     ) {
       setPreviewState("error");
@@ -121,18 +109,7 @@ export default function PublicationNamingFields({
       setPreview(result);
       setPreviewState("ready");
       onPreviewed(result);
-    } catch (error) {
-      if (error instanceof ApiError && error.deniedReason === "directory_required") {
-        setFallbackNeeded(true);
-        onChange({
-          ...value,
-          naming: {
-            ...value.naming,
-            directory_key: "",
-            directory_fallback_confirmed: false,
-          },
-        });
-      }
+    } catch {
       setPreviewState("error");
     }
   };
@@ -141,84 +118,36 @@ export default function PublicationNamingFields({
   if (loadState === "error") {
     return <p role="alert">目标库命名规则暂时无法加载，请关闭后重试。</p>;
   }
-  if (!options?.categories.length || !options.directories.length) {
-    return <p role="alert">目标库没有可用的正式类别或目录，暂时不能发布。</p>;
+  if (!options?.directories.length) {
+    return <p role="alert">目标库没有可用的正式目录，暂时不能发布。</p>;
   }
 
   return (
     <div className="publication-naming-fields">
       <div className="publication-naming-grid">
         <label>
-          <span>目录类别</span>
+          <span>正式目录</span>
           <select
-            value={value.naming.category_id}
+            aria-label="正式目录"
+            value={value.naming.directory_key}
             disabled={disabled}
-            onChange={(event) => {
-              const category = options.categories.find((item) => item.id === event.target.value);
-              const suggested = options.directories.find(
-                (item) => item.directory_key === category?.suggested_directory_key,
-              );
+            onChange={(event) =>
               update({
                 ...value,
-                confidentiality_level:
-                  category?.default_confidentiality || value.confidentiality_level,
                 naming: {
                   ...value.naming,
-                  category_id: event.target.value,
-                  directory_key: suggested?.directory_key || "",
-                  directory_fallback_confirmed: false,
+                  directory_key: event.target.value,
                 },
-              });
-              setFallbackNeeded(false);
-            }}
+              })
+            }
           >
-            {options.categories.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.primary} / {item.secondary}
+            {options.directories.map((item) => (
+              <option key={item.directory_key} value={item.directory_key}>
+                {item.display_name}
               </option>
             ))}
           </select>
         </label>
-        {fallbackNeeded ? (
-          <label>
-            <span>正式目录（映射缺失补选）</span>
-            <select
-              value={value.naming.directory_key ?? ""}
-              disabled={disabled}
-              onChange={(event) =>
-                update({
-                  ...value,
-                  naming: {
-                    ...value.naming,
-                    directory_key: event.target.value,
-                    directory_fallback_confirmed: Boolean(event.target.value),
-                  },
-                })
-              }
-            >
-              <option value="">请选择正式目录</option>
-              {options.directories.map((item) => (
-                <option key={item.directory_key} value={item.directory_key}>
-                  {item.display_name}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <div className="publication-directory-readonly">
-            <span>正式目录</span>
-            <strong>
-              {options.directories.find((item) => item.directory_key === value.naming.directory_key)
-                ?.display_name ||
-                (typeof preview?.fields?.directory_key === "string"
-                  ? options.directories.find(
-                      (item) => item.directory_key === preview.fields?.directory_key,
-                    )?.display_name
-                  : null) ||
-                "由目录类别规则确定"}
-            </strong>
-          </div>
-        )}
         <label className="publication-naming-wide">
           <span>主题</span>
           <input
@@ -290,11 +219,7 @@ export default function PublicationNamingFields({
           {previewState === "loading" ? "校验中…" : "预览目标文件名"}
         </button>
         {previewState === "error" && (
-          <p role="alert">
-            {fallbackNeeded
-              ? "该类别尚未配置目录映射，请补选正式目录后重新预览。"
-              : "请补全命名信息，或检查目标规则后重试。"}
-          </p>
+          <p role="alert">请补全正式目录和命名信息，或刷新目录后重试。</p>
         )}
         {preview?.canonical_name && (
           <div className="publication-canonical" role="status">

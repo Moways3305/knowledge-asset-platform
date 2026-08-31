@@ -11,6 +11,9 @@ export interface ProjectSettingsDTO {
   lifecycle_route_key: string | null;
   lifecycle_phase_key: string | null;
   force_review_on_ingest: boolean;
+  project_code: string | null;
+  project_code_active: boolean;
+  naming_default_confidentiality: string;
   wecom_group_bound: boolean;
   wecom_group_label: string | null;
   updated_at: string;
@@ -22,6 +25,9 @@ export interface ProjectSettingsUpdateDTO {
   lifecycle_phase_key?: string;
   force_review_on_ingest?: boolean;
   wecom_group_id?: string;
+  project_code?: string;
+  project_code_active?: boolean;
+  naming_default_confidentiality?: string;
 }
 
 export interface ProjectDeletionReadinessDTO {

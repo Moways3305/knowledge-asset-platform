@@ -9,11 +9,7 @@ import {
   fetchIngestTaskStatus,
   retryIngestTask,
 } from "../../api/ingest";
-import {
-  classifyBatchNamingCategories,
-  fetchNamingOptions,
-  previewIngestNaming,
-} from "../../api/naming";
+import { fetchNamingOptions, previewIngestNaming } from "../../api/naming";
 import type { IngestAiResultDTO, NamingFields, PendingIngestItemDTO } from "../../types/ingest";
 import type { NamingOptionsDTO, NamingPreviewDTO } from "../../types/naming";
 import {
@@ -118,7 +114,6 @@ export function useIngestConfirmation({
   const [naming, setNaming] = useState<NamingFields | null>(null);
   const [namingOptions, setNamingOptions] = useState<NamingOptionsDTO | null>(null);
   const [namingPolicyResolved, setNamingPolicyResolved] = useState(false);
-  const [namingCategoryId, setNamingCategoryId] = useState("");
   const [directoryKey, setDirectoryKey] = useState("");
   const [namingFormedOn, setNamingFormedOn] = useState("");
   const [namingVersion, setNamingVersion] = useState("V1");
@@ -218,7 +213,7 @@ export function useIngestConfirmation({
     setNamingPolicyResolved(targetLibrary === "personal");
     if (!targetLibrary || (targetLibrary === "project" && !targetProjectId)) {
       setNamingOptions(null);
-      setNamingCategoryId("");
+      setDirectoryKey("");
       return;
     }
     let live = true;
@@ -227,35 +222,12 @@ export function useIngestConfirmation({
         if (!live) return;
         setNamingOptions(value);
         setNamingPolicyResolved(true);
-        setDirectoryKey((current) =>
-          (value.directories ?? []).some((directory) => directory.directory_key === current)
+        setDirectoryKey((current) => {
+          const directories = value.directories ?? [];
+          return directories.some((directory) => directory.directory_key === current)
             ? current
-            : "",
-        );
-        if (!value.required) {
-          setNamingCategoryId("");
-          return;
-        }
-        if (taskId && (targetLibrary === "project" || targetLibrary === "company")) {
-          const classified = await classifyBatchNamingCategories({
-            taskIds: [taskId],
-            targetScope: targetLibrary,
-            targetProjectId: targetLibrary === "project" ? targetProjectId : undefined,
-          });
-          if (!live) return;
-          const item = classified.items[0];
-          setNamingCategoryId((current) =>
-            value.categories.some((category) => category.id === current)
-              ? current
-              : item?.status === "classified" &&
-                  item.suggested_category_id &&
-                  item.candidate_rule_revision === value.rule_version
-                ? item.suggested_category_id
-                : "",
-          );
-        } else {
-          setNamingCategoryId("");
-        }
+            : (directories.find((directory) => directory.enabled)?.directory_key ?? "");
+        });
         if (value.default_confidentiality && !reliableAiConfidentialityRef.current) {
           setEditConfidentiality(value.default_confidentiality);
         }
@@ -270,15 +242,6 @@ export function useIngestConfirmation({
       live = false;
     };
   }, [targetLibrary, targetProjectId, taskId]);
-
-  useEffect(() => {
-    const suggested = namingOptions?.categories.find(
-      (category) => category.id === namingCategoryId,
-    )?.suggested_directory_key;
-    if (suggested && namingOptions?.directories?.some((item) => item.directory_key === suggested)) {
-      setDirectoryKey(suggested);
-    }
-  }, [namingCategoryId, namingOptions]);
 
   useEffect(() => {
     const runId = ++namingPreviewRunRef.current;
@@ -335,14 +298,14 @@ export function useIngestConfirmation({
       return;
     }
     if (
-      !namingCategoryId ||
+      !directoryKey ||
       !editTitle.trim() ||
       !namingFormedOn ||
       !/^V[1-9]\d*(?:\.\d+)*$/.test(namingVersion) ||
       (targetLibrary === "company" && !namingApplicableTo.trim())
     ) {
       setNamingPreviewBusy(false);
-      setNamingPreviewError("请完整填写目录类别、主题、形成日期和规范版本");
+      setNamingPreviewError("请完整填写正式目录、主题、形成日期和规范版本");
       return;
     }
     setNamingPreviewBusy(true);
@@ -353,7 +316,7 @@ export function useIngestConfirmation({
         target_project_id: targetLibrary === "project" ? targetProjectId : undefined,
         confidentiality_level: editConfidentiality,
         naming: {
-          category_id: namingCategoryId,
+          directory_key: directoryKey,
           subject: editTitle,
           formed_on: namingFormedOn,
           version: namingVersion,
@@ -381,7 +344,7 @@ export function useIngestConfirmation({
     editConfidentiality,
     editTitle,
     namingApplicableTo,
-    namingCategoryId,
+    directoryKey,
     namingFormedOn,
     namingOptions?.required,
     namingVersion,
@@ -632,12 +595,11 @@ export function useIngestConfirmation({
         directory_key: directoryKey,
         naming: namingOptions?.required
           ? {
-              category_id: namingCategoryId,
+              directory_key: directoryKey,
               subject: editTitle,
               formed_on: namingFormedOn,
               version: namingVersion,
               applicable_to: selectedTargetLibrary === "company" ? namingApplicableTo : undefined,
-              directory_key: directoryKey,
             }
           : undefined,
       });
@@ -669,7 +631,6 @@ export function useIngestConfirmation({
     loadLocalPending,
     loadPending,
     namingApplicableTo,
-    namingCategoryId,
     directoryKey,
     namingFormedOn,
     namingOptions?.required,
@@ -716,7 +677,7 @@ export function useIngestConfirmation({
     setSubmitIndexStatus(null);
     setNamingOptions(null);
     setNamingPolicyResolved(false);
-    setNamingCategoryId("");
+    setDirectoryKey("");
     setNamingFormedOn("");
     setNamingVersion("V1");
     setNamingApplicableTo("");
@@ -897,8 +858,6 @@ export function useIngestConfirmation({
     naming,
     setNaming,
     namingOptions,
-    namingCategoryId,
-    setNamingCategoryId,
     directoryKey,
     setDirectoryKey,
     namingFormedOn,

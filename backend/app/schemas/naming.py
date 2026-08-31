@@ -168,7 +168,14 @@ class NamingRuleCenterOut(BaseModel):
 
 class NamingDraftUpdateRequest(BaseModel):
     expected_base_version: int
-    config: NamingRuleConfig
+    directories: list[dict]
+
+    @field_validator("directories")
+    @classmethod
+    def validate_directories(cls, value: list[dict]) -> list[dict]:
+        # Reuse the published directory invariants without accepting any of the
+        # retired category or project-code configuration as writable input.
+        return NamingRuleConfig(directories=value).directories
 
 
 class NamingPublishRequest(BaseModel):
@@ -176,13 +183,27 @@ class NamingPublishRequest(BaseModel):
 
 
 class NamingConfirmationFields(BaseModel):
-    category_id: uuid.UUID
+    # New publication contracts use one formal directory as their only
+    # membership key.  ``extra=allow`` intentionally keeps old category_id
+    # payloads readable during the compatibility window without advertising
+    # that retired field in OpenAPI or new clients.
+    model_config = ConfigDict(extra="allow")
+
+    directory_key: str | None = None
     subject: str
     formed_on: date
     version: str
     applicable_to: str | None = None
-    directory_key: str | None = None
-    directory_fallback_confirmed: bool = False
+
+    @field_validator("directory_key")
+    @classmethod
+    def validate_directory_key(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized or len(normalized) > 100:
+            raise ValueError("请选择有效的正式目录")
+        return normalized
 
     @field_validator("subject")
     @classmethod
@@ -254,9 +275,9 @@ class NamingPreviewResponse(BaseModel):
 class BatchNamingConfirmationFields(BaseModel):
     """Field-shaped carrier that keeps business validation item-scoped."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
-    category_id: uuid.UUID | str | None = None
+    directory_key: str | None = None
     subject: str | None = None
     formed_on: date | str | None = None
     version: str | None = None
@@ -339,7 +360,6 @@ class DirectoryOptionItem(BaseModel):
 class NamingOptionsResponse(BaseModel):
     required: bool
     rule_version: int | None
-    categories: list[NamingOptionItem] = Field(default_factory=list)
     directories: list[DirectoryOptionItem] = Field(default_factory=list)
     default_confidentiality: ConfidentialityLevel | None = None
     message: str | None = None

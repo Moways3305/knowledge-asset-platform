@@ -132,18 +132,6 @@ describe("KnowledgeDetailPage", () => {
     vi.mocked(fetchNamingOptions).mockResolvedValue({
       required: true,
       rule_version: 7,
-      categories: [
-        {
-          id: "company-methodology",
-          scope: "company",
-          primary: "公司资产",
-          secondary: "方法论",
-          prefix: "方法",
-          asset_type: "methodology",
-          default_confidentiality: "L2",
-          suggested_directory_key: "company.methodology",
-        },
-      ],
       directories: [
         {
           directory_key: "company.methodology",
@@ -413,7 +401,8 @@ describe("KnowledgeDetailPage", () => {
 
     expect(await screen.findAllByText("其他项目 · 原文已授权")).not.toHaveLength(0);
     expect(screen.getByRole("button", { name: "预览原文" })).toBeInTheDocument();
-    expect(screen.getByText("项目资料 / 项目复盘")).toBeInTheDocument();
+    expect(screen.queryByText("项目资料 / 项目复盘")).not.toBeInTheDocument();
+    expect(screen.getByText("正式目录")).toBeInTheDocument();
     expect(screen.getByText("王顾问")).toBeInTheDocument();
     expect(screen.getByText("问答不可用 · 检索可用")).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(/MUST-NOT-RENDER/);

@@ -37,7 +37,6 @@ import type { ProjectQaModelOptionDTO, ProjectQaResponseDTO } from "../types/age
 import type { AssetizationPreflightItemDTO, EvidenceInputDTO } from "../types/review";
 import type {
   AssetStatus,
-  AssetType,
   ConfidentialityLevel,
   KnowledgeCardVM,
   KnowledgePageVM,
@@ -46,12 +45,11 @@ import type {
   KnowledgeZone,
   SortDirection,
 } from "../types/knowledge";
-import { assetStatusLabel, assetTypeLabel } from "../utils/knowledgeLabels";
+import { assetStatusLabel } from "../utils/knowledgeLabels";
 import "./ProjectKnowledgePage.css";
 
 const PAGE_SIZE = 20;
 const SAFE_FALLBACK = "信息待确认";
-const ASSET_TYPES: AssetType[] = ["methodology", "deliverable", "case", "template", "insight"];
 const ASSET_STATUSES: AssetStatus[] = ["active", "needs_update", "deprecated", "archived"];
 const CONFIDENTIALITY_LEVELS: ConfidentialityLevel[] = ["L1", "L2", "L3", "L4", "L5"];
 
@@ -90,10 +88,6 @@ function safeZone(value: string): string {
   return SAFE_FALLBACK;
 }
 
-function safeType(value: string): string {
-  return assetTypeLabel[value] ?? SAFE_FALLBACK;
-}
-
 function safeStatus(value: string): string {
   return assetStatusLabel[value as AssetStatus] ?? SAFE_FALLBACK;
 }
@@ -128,7 +122,6 @@ function ProjectKnowledgeWorkspace({
   const [keywordInput, setKeywordInput] = useState("");
   const [keyword, setKeyword] = useState("");
   const [zone, setZone] = useState<KnowledgeZone | "">("");
-  const [assetType, setAssetType] = useState<AssetType | "">("");
   const [assetStatus, setAssetStatus] = useState<AssetStatus | "">("");
   const [confidentialityLevel, setConfidentialityLevel] = useState<ConfidentialityLevel | "">("");
   const [updatedFrom, setUpdatedFrom] = useState("");
@@ -204,7 +197,6 @@ function ProjectKnowledgeWorkspace({
     };
     if (keyword) params.keyword = keyword;
     if (zone) params.zone = zone;
-    if (assetType) params.assetType = assetType;
     if (assetStatus) params.assetStatus = assetStatus;
     if (confidentialityLevel) params.confidentialityLevel = confidentialityLevel;
     if (updatedFrom) params.updatedFrom = updatedFrom;
@@ -236,7 +228,6 @@ function ProjectKnowledgeWorkspace({
     };
   }, [
     assetStatus,
-    assetType,
     confidentialityLevel,
     includeArchived,
     keyword,
@@ -289,7 +280,6 @@ function ProjectKnowledgeWorkspace({
   const hasActiveFilters = Boolean(
     keyword ||
     zone ||
-    assetType ||
     assetStatus ||
     confidentialityLevel ||
     updatedFrom ||
@@ -303,7 +293,6 @@ function ProjectKnowledgeWorkspace({
     setKeywordInput("");
     setKeyword("");
     setZone("");
-    setAssetType("");
     setAssetStatus("");
     setConfidentialityLevel("");
     setUpdatedFrom("");
@@ -402,7 +391,6 @@ function ProjectKnowledgeWorkspace({
           pageSize: 100,
           keyword: keyword || undefined,
           zone: zone || undefined,
-          assetType: assetType || undefined,
           assetStatus: assetStatus || undefined,
           confidentialityLevel: confidentialityLevel || undefined,
           updatedFrom: updatedFrom || undefined,
@@ -624,7 +612,6 @@ function ProjectKnowledgeWorkspace({
       ),
     },
     { key: "zone", header: "所属区域", render: (asset) => safeZone(asset.zone) },
-    { key: "type", header: "类型", render: (asset) => safeType(asset.assetType) },
     {
       key: "confidentiality",
       header: "保密级别",
@@ -785,25 +772,6 @@ function ProjectKnowledgeWorkspace({
               <option value="">区域：全部</option>
               <option value="material">区域：资料区</option>
               <option value="asset">区域：资产区</option>
-            </select>
-          </label>
-          <label className="pk-select-field" htmlFor="pk-filter-type">
-            <span className="sr-only">资产类型</span>
-            <select
-              id="pk-filter-type"
-              aria-label="资产类型"
-              value={assetType}
-              onChange={(event) => {
-                setAssetType(event.target.value as AssetType | "");
-                setPage(1);
-              }}
-            >
-              <option value="">类型：全部</option>
-              {ASSET_TYPES.map((value) => (
-                <option key={value} value={value}>
-                  类型：{assetTypeLabel[value]}
-                </option>
-              ))}
             </select>
           </label>
           <label className="pk-select-field" htmlFor="pk-filter-status">

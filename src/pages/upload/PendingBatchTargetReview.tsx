@@ -13,14 +13,14 @@ type TargetProps = {
   targetOptionsBusy: boolean;
   targetOptionsError: string | null;
   bulkPersonalDirectoryKey: string;
-  bulkCategoryId: string;
+  bulkDirectoryKey: string;
   formalDirectories: DirectoryOptionDTO[];
   options: NamingOptionsDTO | null;
   onResetReview: () => void;
   onLibraryChange: (value: TargetLibrary) => void;
   onProjectChange: (value: string) => void;
   onPersonalDirectoryChange: (value: string) => void;
-  onCategoryChange: (value: string) => void;
+  onDirectoryChange: (value: string) => void;
   onRetryOptions: () => void;
 };
 
@@ -32,7 +32,7 @@ export function PendingBatchTargetStep(props: TargetProps) {
     targetOptionsBusy,
     targetOptionsError,
     bulkPersonalDirectoryKey,
-    bulkCategoryId,
+    bulkDirectoryKey,
     formalDirectories,
     options,
   } = props;
@@ -106,17 +106,17 @@ export function PendingBatchTargetStep(props: TargetProps) {
       {(targetLibrary === "company" ||
         (targetLibrary === "project" && Boolean(targetProjectId))) && (
         <label className="upload77-field">
-          <span>本批目录类别</span>
+          <span>本批正式目录</span>
           <select
-            aria-label="本批目录类别"
+            aria-label="本批正式目录"
             disabled={targetOptionsBusy}
-            value={bulkCategoryId}
-            onChange={(event) => props.onCategoryChange(event.target.value)}
+            value={bulkDirectoryKey}
+            onChange={(event) => props.onDirectoryChange(event.target.value)}
           >
             <option value="">暂不统一指定，下一步逐条选择</option>
-            {(options?.categories ?? []).map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.primary} / {category.secondary}
+            {formalDirectories.map((directory) => (
+              <option key={directory.directory_key} value={directory.directory_key}>
+                {directory.display_name}
               </option>
             ))}
           </select>

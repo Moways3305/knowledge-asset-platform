@@ -102,7 +102,6 @@ export interface KnowledgeQueryParams {
   scope?: KnowledgeScope;
   projectId?: string;
   zone?: KnowledgeZone;
-  assetType?: AssetType;
   assetStatus?: AssetStatus;
   confidentialityLevel?: ConfidentialityLevel;
   createdFrom?: string;

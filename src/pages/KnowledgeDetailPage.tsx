@@ -79,14 +79,6 @@ const assetStatusCls: Record<AssetStatus, string> = {
   archived: "asset-status-archived",
 };
 
-const assetTypeLabel: Record<string, string> = {
-  methodology: "方法论",
-  deliverable: "交付物",
-  case: "案例",
-  template: "模板",
-  insight: "洞察",
-};
-
 const indexStatusLabel: Record<string, string> = {
   indexed: "索引完成，可检索",
   indexing: "索引处理中",
@@ -417,7 +409,7 @@ export default function KnowledgeDetailPage() {
     },
   ];
   const crossProjectFacts = [
-    { label: "目录类别", value: asset.directoryPath || asset.categoryPath },
+    { label: "正式目录", value: asset.directoryPath ?? "待治理" },
     { label: "规范名版本", value: asset.safeVersion },
     { label: "维护人", value: asset.maintainerName },
     {
@@ -449,9 +441,6 @@ export default function KnowledgeDetailPage() {
             )}
             <span className={`asset-status-badge ${assetStatusCls[asset.assetStatus]}`}>
               {assetStatusLabel[asset.assetStatus]}
-            </span>
-            <span className="asset-type-badge">
-              {assetTypeLabel[asset.assetType] ?? asset.assetType}
             </span>
             <span className={`confidentiality-badge confidentiality-${asset.confidentialityLevel}`}>
               {confidentialityLabelMap[asset.confidentialityLevel]}

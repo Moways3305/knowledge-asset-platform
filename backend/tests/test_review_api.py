@@ -635,7 +635,7 @@ async def test_company_upgrade_requires_independent_general_manager_and_director
     assert target.current_version_id != source.current_version_id
     assert target_version.directory_key == "company.methodology"
     assert target_version.naming_rule_version == 11
-    assert target.canonical_name.startswith("【公司资产-方法论】")
+    assert target.canonical_name.startswith("【方法论】")
 
     decisions = list(
         (

@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PendingIngestItemDTO, UploadDuplicateDTO } from "../../types/ingest";
-import type { BatchNamingValuesDTO, CategoryClassificationItemDTO } from "../../types/naming";
+import type { BatchNamingValuesDTO } from "../../types/naming";
 import {
-  classifyBatchNamingCategories,
   commandErrorMatches,
   commandErrorMessage,
   decideUploadDuplicate,
   previewBatchIngestNaming,
   previewIngestNaming,
-  saveManualNamingCategory,
 } from "./pendingBatchCommands";
 import { DATE_PATTERN, initialRows, reviewState, rowMissing } from "./pendingBatchReviewState";
 import type {
@@ -67,12 +65,7 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
   const [previewFeedback, setPreviewFeedback] = useState<Record<string, string>>({});
   const [confirmCandidate, setConfirmCandidate] = useState<PendingIngestItemDTO | null>(null);
   const [confirmingTaskId, setConfirmingTaskId] = useState<string | null>(null);
-  const [categorySuggestions, setCategorySuggestions] = useState<
-    Record<string, CategoryClassificationItemDTO>
-  >({});
-  const [categoryTargetLabel, setCategoryTargetLabel] = useState("");
-  const [bulkCategoryId, setBulkCategoryId] = useState("");
-  const [bulkCategoryTaskIds, setBulkCategoryTaskIds] = useState<Set<string>>(() => new Set());
+  const [bulkDirectoryKey, setBulkDirectoryKey] = useState("");
   const [bulkPersonalDirectoryKey, setBulkPersonalDirectoryKey] = useState("");
   const [personalDirectoryByTask, setPersonalDirectoryByTask] = useState<Record<string, string>>(
     {},
@@ -81,7 +74,6 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
   const [fallbackDirectoryKey, setFallbackDirectoryKey] = useState("");
   const aiReview = usePendingBatchAiReview();
   const aiReviewDrafts = aiReview.drafts;
-  const [classificationBusy, setClassificationBusy] = useState(false);
   const [closeGuardOpen, setCloseGuardOpen] = useState(false);
   const [reviewTasks, setReviewTasks] = useState<PendingIngestItemDTO[]>([]);
   const [reviewInitialCount, setReviewInitialCount] = useState(0);
@@ -142,7 +134,6 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     setDeleteFeedback(withoutVanished);
     setPreviewBusyByTask(withoutVanished);
     setPreviewFeedback(withoutVanished);
-    setCategorySuggestions(withoutVanished);
     setPersonalDirectoryByTask(withoutVanished);
     setEditedTaskIds(withoutVanishedIds);
     setReviewedTaskIds(withoutVanishedIds);
@@ -180,7 +171,6 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     (task) => flow.batchSelection.includes(task.id) && task.can_batch_reject,
   );
   const company = targetLibrary === "company";
-  const categories = useMemo(() => options?.categories ?? [], [options]);
   const formalDirectories = useMemo(
     () =>
       (options?.directories ?? []).filter(
@@ -246,7 +236,6 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
                 flow.batchErrors[task.id],
                 editedTaskIds.has(task.id),
                 reviewedTaskIds.has(task.id),
-                categorySuggestions[task.id],
               ),
             ],
           ];
@@ -258,7 +247,6 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
       flow.batchErrors,
       previews,
       reviewedTaskIds,
-      categorySuggestions,
       rows,
       selectedConfirmTasks,
     ],
@@ -379,47 +367,11 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     scheduleRowPreview(taskId, nextRow);
   };
 
-  const selectManualCategory = (taskId: string, categoryId: string) => {
-    updateRow(taskId, { category_id: categoryId });
-    setBulkCategoryTaskIds((current) => {
-      const next = new Set(current);
-      if (categoryId && categoryId === bulkCategoryId) next.add(taskId);
-      else next.delete(taskId);
-      return next;
-    });
-    if (!categoryId || (targetLibrary !== "project" && targetLibrary !== "company")) return;
-    setCategorySuggestions((current) => ({
-      ...current,
-      [taskId]: {
-        task_id: taskId,
-        suggested_category_id: categoryId,
-        category_source: "manual",
-        category_confidence: "high",
-        category_reason: "人工已选择",
-        candidate_rule_revision: options?.rule_version ?? null,
-        status: "classified",
-        retryable: false,
-      },
-    }));
-    void saveManualNamingCategory({
-      taskId,
-      targetScope: targetLibrary,
-      targetProjectId: targetProjectId || undefined,
-      categoryId,
-    }).catch((error) => {
-      setPreviewFeedback((current) => ({
-        ...current,
-        [taskId]: commandErrorMessage(error, "人工目录类别暂未保存，请重试"),
-      }));
-    });
-  };
-
   const resetTargetReviewContext = () => {
     targetOptions.reset();
     cancelPendingPreviews();
     setOptions(null);
-    setBulkCategoryId("");
-    setBulkCategoryTaskIds(new Set());
+    setBulkDirectoryKey("");
     setBulkPersonalDirectoryKey("");
     setPersonalDirectoryByTask({});
     setFallbackDirectoryTaskId(null);
@@ -427,8 +379,6 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     setRows({});
     setPreviews({});
     setReviewTargetKey("");
-    setCategorySuggestions({});
-    setCategoryTargetLabel("");
     setEditedTaskIds(new Set());
     setReviewedTaskIds(new Set());
     setSkippedDuplicateItems([]);
@@ -442,25 +392,6 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     if (!saved) return;
     if (targetLibrary !== "personal" && saved.draft.title) {
       updateRow(saved.taskId, { subject: saved.draft.title });
-    }
-  };
-
-  const classifyCategories = async (retry: boolean) => {
-    if (targetLibrary !== "project" && targetLibrary !== "company") return null;
-    setClassificationBusy(true);
-    try {
-      const response = await classifyBatchNamingCategories({
-        taskIds: selectedConfirmTasks.map((task) => task.id),
-        targetScope: targetLibrary,
-        targetProjectId: targetProjectId || undefined,
-        retry,
-      });
-      const next = Object.fromEntries(response.items.map((item) => [item.task_id, item]));
-      setCategorySuggestions(next);
-      setCategoryTargetLabel(response.target_label);
-      return next;
-    } finally {
-      setClassificationBusy(false);
     }
   };
 
@@ -554,11 +485,11 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
         return;
       }
       setOptions(value);
-      if (value.categories.length === 0) {
+      if (value.directories.length === 0) {
         setDialogError(
           destination === "project"
-            ? "当前没有已发布的全局项目目录类别，请联系治理管理员配置并发布规则。"
-            : "当前没有已发布的公司目录类别，请联系治理管理员配置并发布规则。",
+            ? "当前没有可用的正式项目目录，请联系治理管理员配置并发布规则。"
+            : "当前没有可用的正式公司目录，请联系治理管理员配置并发布规则。",
         );
         return;
       }
@@ -570,49 +501,12 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
         Object.keys(previewRunsRef.current).forEach((taskId) => {
           previewRunsRef.current[taskId] += 1;
         });
-        let classified: Record<string, CategoryClassificationItemDTO> = {};
-        if (bulkCategoryId) {
-          classified = Object.fromEntries(
-            selectedConfirmTasks.map((task) => [
-              task.id,
-              {
-                task_id: task.id,
-                suggested_category_id: bulkCategoryId,
-                category_source: "manual" as const,
-                category_confidence: "high" as const,
-                category_reason: "本批目录类别",
-                candidate_rule_revision: value.rule_version,
-                status: "classified" as const,
-                retryable: false,
-              },
-            ]),
-          );
-          setCategorySuggestions(classified);
-          setCategoryTargetLabel("本批人工设置");
-          setBulkCategoryTaskIds(new Set(selectedConfirmTasks.map((task) => task.id)));
-        } else
-          try {
-            classified = (await classifyCategories(false)) ?? {};
-          } catch {
-            classified = Object.fromEntries(
-              selectedConfirmTasks.map((task) => [
-                task.id,
-                {
-                  task_id: task.id,
-                  suggested_category_id: null,
-                  category_source: "needs_manual" as const,
-                  category_confidence: "low" as const,
-                  category_reason: "AI 目录建议暂时失败，请人工选择或重试 AI 建议",
-                  candidate_rule_revision: value.rule_version,
-                  status: "failed" as const,
-                  retryable: true,
-                },
-              ]),
-            );
-            setCategorySuggestions(classified);
-            setDialogError("AI 目录建议暂时失败；目录选项已保留，可人工选择或重试 AI 建议。");
-          }
-        const nextRows = initialRows(selectedConfirmTasks, value, classified ?? {});
+        const nextRows = initialRows(selectedConfirmTasks, value);
+        if (bulkDirectoryKey) {
+          selectedConfirmTasks.forEach((task) => {
+            nextRows[task.id].directory_key = bulkDirectoryKey;
+          });
+        }
         setRows(nextRows);
         setPreviews({});
         setEditedTaskIds(new Set());
@@ -630,67 +524,6 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
       );
     } finally {
       setLoading(false);
-    }
-  };
-
-  const retryCategoryClassifications = async () => {
-    if (bulkCategoryId) return;
-    try {
-      const classified = await classifyCategories(true);
-      if (!classified) return;
-      setRows((current) => {
-        const next = { ...current };
-        selectedConfirmTasks.forEach((task) => {
-          if (editedTaskIds.has(task.id)) return;
-          const item = classified[task.id];
-          next[task.id] = {
-            ...next[task.id],
-            category_id:
-              item?.status === "classified" && item.suggested_category_id
-                ? item.suggested_category_id
-                : "",
-          };
-        });
-        return next;
-      });
-    } catch (error) {
-      setDialogError(commandErrorMessage(error, "AI 目录分类暂时失败"));
-    }
-  };
-
-  const retryOneCategoryClassification = async (taskId: string) => {
-    if (targetLibrary !== "project" && targetLibrary !== "company") return;
-    if (bulkCategoryId || bulkCategoryTaskIds.has(taskId)) return;
-    setClassificationBusy(true);
-    try {
-      const response = await classifyBatchNamingCategories({
-        taskIds: [taskId],
-        targetScope: targetLibrary,
-        targetProjectId: targetProjectId || undefined,
-        retry: true,
-      });
-      const item = response.items[0];
-      if (!item) return;
-      setCategorySuggestions((current) => ({ ...current, [taskId]: item }));
-      if (!editedTaskIds.has(taskId)) {
-        setRows((current) => ({
-          ...current,
-          [taskId]: {
-            ...current[taskId],
-            category_id:
-              item.status === "classified" && item.suggested_category_id
-                ? item.suggested_category_id
-                : "",
-          },
-        }));
-      }
-    } catch (error) {
-      setPreviewFeedback((current) => ({
-        ...current,
-        [taskId]: commandErrorMessage(error, "AI 目录分类暂时失败"),
-      }));
-    } finally {
-      setClassificationBusy(false);
     }
   };
 
@@ -1021,10 +854,7 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     setReviewedTaskIds(new Set());
     setPreviewBusyByTask({});
     setPreviewFeedback({});
-    setCategorySuggestions({});
-    setCategoryTargetLabel("");
-    setBulkCategoryId("");
-    setBulkCategoryTaskIds(new Set());
+    setBulkDirectoryKey("");
     setBulkPersonalDirectoryKey("");
     setPersonalDirectoryByTask({});
     setFallbackDirectoryTaskId(null);
@@ -1040,7 +870,7 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
 
   const requestCloseReview = () => {
     const previewInProgress = Object.values(previewBusyByTask).some(Boolean);
-    if (editedTaskIds.size > 0 || previewInProgress || classificationBusy || confirmingTaskId) {
+    if (editedTaskIds.size > 0 || previewInProgress || confirmingTaskId) {
       setCloseGuardOpen(true);
       return;
     }
@@ -1052,15 +882,9 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     aiReview,
     aiReviewDrafts,
     allPreviewed,
-    bulkCategoryId,
-    bulkCategoryTaskIds,
+    bulkDirectoryKey,
     bulkPersonalDirectoryKey,
     cancelPendingPreviews,
-    categories,
-    categorySuggestions,
-    categoryTargetLabel,
-    classificationBusy,
-    classifyCategories,
     closeAndResetReview,
     closeGuardOpen,
     company,
@@ -1100,8 +924,6 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     requestCloseReview,
     handleDuplicateDecision,
     resetTargetReviewContext,
-    retryCategoryClassifications,
-    retryOneCategoryClassification,
     reviewFilter,
     reviewInitialCount,
     reviewTargetKey,
@@ -1110,15 +932,10 @@ export function usePendingBatchReviewController(tasks: PendingIngestItemDTO[], f
     rows,
     saveAiReviewDraft,
     scheduleRowPreview,
-    selectManualCategory,
     selectedConfirmTasks,
     selectedRejectTasks,
-    setBulkCategoryId,
-    setBulkCategoryTaskIds,
+    setBulkDirectoryKey,
     setBulkPersonalDirectoryKey,
-    setCategorySuggestions,
-    setCategoryTargetLabel,
-    setClassificationBusy,
     setCloseGuardOpen,
     setCompletedReviewItems,
     setConfirmCandidate,

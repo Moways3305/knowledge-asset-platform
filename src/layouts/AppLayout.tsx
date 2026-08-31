@@ -133,7 +133,7 @@ const navGroups: NavGroup[] = [
     label: "组织与知识治理",
     items: [
       { to: "/admin/people", label: "人员权限", icon: Users, cap: can.viewPeople },
-      { to: "/admin/naming-rules", label: "命名规则", icon: BookType, cap: can.viewNamingRules },
+      { to: "/admin/naming-rules", label: "目录治理", icon: BookType, cap: can.viewNamingRules },
       {
         to: "/admin/company-kb",
         label: "公司知识库",
@@ -160,7 +160,7 @@ const moduleTitles: Array<[prefix: string, title: string]> = [
   ["/admin/alert-settings", "告警设置"],
   ["/admin/permissions", "权限规则"],
   ["/admin/people", "人员权限"],
-  ["/admin/naming-rules", "命名规则中心"],
+  ["/admin/naming-rules", "目录治理"],
   ["/admin/company-kb", "公司知识库"],
   ["/help", "帮助"],
   ["/", "今日工作台"],

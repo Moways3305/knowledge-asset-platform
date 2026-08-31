@@ -38,7 +38,6 @@ import {
 import StatusBadge from "../components/StatusBadge";
 import type {
   AssetStatus,
-  AssetType,
   ConfidentialityLevel,
   KnowledgeCardVM,
   KnowledgeDetailVM,
@@ -49,20 +48,12 @@ import type {
   KnowledgeScope,
 } from "../types/knowledge";
 import type { SearchResponseDTO } from "../types/search";
-import { assetStatusLabel, assetTypeLabel, scopeLabels } from "../utils/knowledgeLabels";
+import { assetStatusLabel, scopeLabels } from "../utils/knowledgeLabels";
 import { knowledgeDetailSource } from "../routing/knowledgeDetailSource";
 import "./KnowledgeListPage.css";
 
 const PAGE_SIZE = 20;
 
-const ASSET_TYPES: AssetType[] = [
-  "methodology",
-  "deliverable",
-  "case",
-  "template",
-  "insight",
-  "unclassified",
-];
 const ASSET_STATUSES: AssetStatus[] = ["active", "needs_update", "deprecated", "archived"];
 const CONFIDENTIALITY_LEVELS: ConfidentialityLevel[] = ["L1", "L2", "L3", "L4", "L5"];
 
@@ -105,9 +96,6 @@ export default function KnowledgeListPage() {
   const [keyword, setKeyword] = useState(searchParams.get("keyword") ?? "");
   const [scope, setScope] = useState<KnowledgeScope | "">(initialScope);
   const [projectId, setProjectId] = useState(searchParams.get("project_id") ?? "");
-  const [assetType, setAssetType] = useState<AssetType | "">(
-    (searchParams.get("asset_type") as AssetType | null) ?? "",
-  );
   const [assetStatus, setAssetStatus] = useState<AssetStatus | "">(
     (searchParams.get("asset_status") as AssetStatus | null) ?? "",
   );
@@ -178,7 +166,6 @@ export default function KnowledgeListPage() {
   if (validProjectId) returnQuery.set("project_id", validProjectId);
   if (directory) returnQuery.set("directory_key", directory.directory_key);
   if (keyword) returnQuery.set("keyword", keyword);
-  if (assetType) returnQuery.set("asset_type", assetType);
   if (assetStatus) returnQuery.set("asset_status", assetStatus);
   if (confidentialityLevel) returnQuery.set("confidentiality", confidentialityLevel);
   if (includeArchived) returnQuery.set("archived", "1");
@@ -306,7 +293,6 @@ export default function KnowledgeListPage() {
     if (keyword) params.keyword = keyword;
     params.scope = directory.scope;
     if (scope === "project" && validProjectId) params.projectId = validProjectId;
-    if (assetType) params.assetType = assetType;
     if (assetStatus) params.assetStatus = assetStatus;
     if (confidentialityLevel) params.confidentialityLevel = confidentialityLevel;
     if (directory) {
@@ -336,7 +322,6 @@ export default function KnowledgeListPage() {
     };
   }, [
     assetStatus,
-    assetType,
     canLoadBusinessKnowledge,
     confidentialityLevel,
     includeArchived,
@@ -490,7 +475,6 @@ export default function KnowledgeListPage() {
   const resetFilters = () => {
     setKeywordInput("");
     setKeyword("");
-    setAssetType("");
     setAssetStatus("");
     setConfidentialityLevel("");
     setIncludeArchived(false);
@@ -510,7 +494,7 @@ export default function KnowledgeListPage() {
   };
 
   const hasActiveFilters = Boolean(
-    keyword || assetType || assetStatus || confidentialityLevel || includeArchived || false,
+    keyword || assetStatus || confidentialityLevel || includeArchived || false,
   );
 
   const columns = useMemo<Column<KnowledgeCardVM>[]>(
@@ -584,11 +568,6 @@ export default function KnowledgeListPage() {
             {asset.scope === "project" && <span>{scopeLabels.project}</span>}
           </div>
         ),
-      },
-      {
-        key: "type",
-        header: "类型",
-        render: (asset) => assetTypeLabel[asset.assetType] ?? asset.assetType,
       },
       {
         key: "status",
@@ -957,25 +936,6 @@ export default function KnowledgeListPage() {
                 )}
 
                 <label className="kbl-select-field">
-                  <span className="sr-only">资产类型</span>
-                  <select
-                    aria-label="资产类型"
-                    value={assetType}
-                    onChange={(event) => {
-                      setAssetType(event.target.value as AssetType | "");
-                      setPage(1);
-                    }}
-                  >
-                    <option value="">类型：全部</option>
-                    {ASSET_TYPES.map((value) => (
-                      <option key={value} value={value}>
-                        类型：{assetTypeLabel[value]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="kbl-select-field">
                   <span className="sr-only">资产状态</span>
                   <select
                     aria-label="资产状态"
@@ -1049,7 +1009,6 @@ export default function KnowledgeListPage() {
                   </span>
                 )}
                 {keyword && <span>关键词：{keyword}</span>}
-                {assetType && <span>类型：{assetTypeLabel[assetType]}</span>}
                 {assetStatus && <span>状态：{assetStatusLabel[assetStatus]}</span>}
                 {confidentialityLevel && <span>保密：{confidentialityLevel}</span>}
                 {includeArchived && <span>包含归档</span>}
@@ -1328,12 +1287,8 @@ export default function KnowledgeListPage() {
                   <dd>{summaryDetail.projectName || "暂无"}</dd>
                 </div>
                 <div>
-                  <dt>资料类型</dt>
-                  <dd>{assetTypeLabel[summaryDetail.assetType] ?? "暂无"}</dd>
-                </div>
-                <div>
-                  <dt>目录类别</dt>
-                  <dd>{summaryDetail.categoryPath || "暂无"}</dd>
+                  <dt>正式目录</dt>
+                  <dd>{summaryDetail.directoryPath || "待治理"}</dd>
                 </div>
                 <div>
                   <dt>保密等级</dt>

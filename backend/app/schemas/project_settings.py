@@ -48,6 +48,9 @@ class ProjectSettingsOut(BaseModel):
     lifecycle_route_key: str | None = None
     lifecycle_phase_key: str | None = None
     force_review_on_ingest: bool = False
+    project_code: str | None = None
+    project_code_active: bool = False
+    naming_default_confidentiality: ConfidentialityLevel = ConfidentialityLevel.L2
     # 企微群：只回是否已绑定 + 脱敏 label，绝不回全文。
     wecom_group_bound: bool = False
     wecom_group_label: str | None = None
@@ -72,8 +75,21 @@ class ProjectSettingsUpdateRequest(BaseModel):
     lifecycle_phase_key: str | None = None
     force_review_on_ingest: bool | None = None
     wecom_group_id: str | None = None
+    project_code: str | None = None
+    project_code_active: bool | None = None
+    naming_default_confidentiality: ConfidentialityLevel | None = None
 
     _phase_validator = field_validator("lifecycle_phase_key")(_validate_project_phase)
+
+    @field_validator("project_code")
+    @classmethod
+    def validate_project_code(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().upper()
+        if not re.fullmatch(r"[A-Z][A-Z0-9-]{1,19}", normalized):
+            raise ValueError("项目代码须为 2-20 位大写字母、数字或短横线，且以字母开头")
+        return normalized
 
 
 class ProjectMemberOut(BaseModel):

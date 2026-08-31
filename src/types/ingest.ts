@@ -165,7 +165,7 @@ export interface NamingFields {
   original_naming_compliant: boolean;
   category_suggestion?: {
     suggested_category_id: string | null;
-    category_source: import("./naming").CategorySuggestionSource;
+    category_source: "ai_content" | "rule_only_option" | "needs_manual" | "manual";
     category_confidence: "high" | "medium" | "low";
     category_reason: string;
     candidate_rule_revision: number | null;

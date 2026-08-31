@@ -39,8 +39,6 @@ export default function UploadConfirmPanel({
     desensitization,
     naming,
     namingOptions,
-    namingCategoryId,
-    setNamingCategoryId,
     directoryKey,
     setDirectoryKey,
     namingFormedOn,
@@ -392,13 +390,13 @@ export default function UploadConfirmPanel({
             )}
             {targetLibrary && namingOptions?.directories?.length ? (
               <label className="upload77-field" htmlFor="upload77-directory">
-                <span>最终目录</span>
+                <span>正式目录</span>
                 <select
                   id="upload77-directory"
                   value={directoryKey}
                   onChange={(event) => setDirectoryKey(event.target.value)}
                 >
-                  <option value="">请选择标准目录</option>
+                  <option value="">请选择正式目录</option>
                   {namingOptions.directories
                     .filter((directory) => directory.directory_key !== "personal.pending")
                     .map((directory) => (
@@ -407,26 +405,11 @@ export default function UploadConfirmPanel({
                       </option>
                     ))}
                 </select>
-                <small>目录建议来自命名规则，最终选择由本次确认人决定。</small>
+                <small>正式目录决定资料归属与规范名，提交前可直接调整。</small>
               </label>
             ) : null}
             {(targetLibrary === "project" || targetLibrary === "company") && namingRequired && (
               <div className="upload77-canonical-form" aria-label="规范命名字段">
-                <label className="upload77-field" htmlFor="upload77-naming-category">
-                  <span>目录类别</span>
-                  <select
-                    id="upload77-naming-category"
-                    value={namingCategoryId}
-                    onChange={(event) => setNamingCategoryId(event.target.value)}
-                  >
-                    <option value="">请选择目录类别</option>
-                    {namingOptions?.categories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.primary} / {category.secondary}
-                      </option>
-                    ))}
-                  </select>
-                </label>
                 <label className="upload77-field" htmlFor="upload77-naming-date">
                   <span>文件形成日期</span>
                   <input

@@ -175,8 +175,6 @@ export function useUploadFlow() {
     extraction,
     naming,
     namingOptions,
-    namingCategoryId,
-    setNamingCategoryId,
     directoryKey,
     setDirectoryKey,
     namingFormedOn,
@@ -328,13 +326,10 @@ export function useUploadFlow() {
                 directory_key: selectedDirectory || undefined,
                 naming: governedNaming
                   ? {
-                      category_id: governedNaming.category_id,
+                      directory_key: selectedDirectory || governedNaming.directory_key,
                       subject: reviewedTitle || governedNaming.subject,
                       formed_on: governedNaming.formed_on,
                       version: governedNaming.version,
-                      directory_key: selectedDirectory || undefined,
-                      directory_fallback_confirmed:
-                        governedNaming.directory_fallback_confirmed || undefined,
                       applicable_to:
                         destination === "company" ? governedNaming.applicable_to : undefined,
                     }
@@ -815,8 +810,6 @@ export function useUploadFlow() {
     desensitization,
     naming,
     namingOptions,
-    namingCategoryId,
-    setNamingCategoryId,
     directoryKey,
     setDirectoryKey,
     namingFormedOn,

@@ -20,13 +20,8 @@ export default function PendingBatchActions({
     advanceTarget,
     aiReview,
     allPreviewed,
-    bulkCategoryId,
-    bulkCategoryTaskIds,
+    bulkDirectoryKey,
     bulkPersonalDirectoryKey,
-    categories,
-    categorySuggestions,
-    categoryTargetLabel,
-    classificationBusy,
     closeAndResetReview,
     closeGuardOpen,
     company,
@@ -62,17 +57,14 @@ export default function PendingBatchActions({
     requestCloseReview,
     handleDuplicateDecision,
     resetTargetReviewContext,
-    retryCategoryClassifications,
-    retryOneCategoryClassification,
     reviewFilter,
     reviewInitialCount,
     rows,
     saveAiReviewDraft,
     scheduleRowPreview,
-    selectManualCategory,
     selectedConfirmTasks,
     selectedRejectTasks,
-    setBulkCategoryId,
+    setBulkDirectoryKey,
     setBulkPersonalDirectoryKey,
     setCloseGuardOpen,
     setCompletedReviewItems,
@@ -201,7 +193,7 @@ export default function PendingBatchActions({
             targetOptionsBusy={targetOptionsBusy}
             targetOptionsError={targetOptionsError}
             bulkPersonalDirectoryKey={bulkPersonalDirectoryKey}
-            bulkCategoryId={bulkCategoryId}
+            bulkDirectoryKey={bulkDirectoryKey}
             formalDirectories={formalDirectories}
             options={options}
             onResetReview={resetTargetReviewContext}
@@ -218,7 +210,7 @@ export default function PendingBatchActions({
               setBulkPersonalDirectoryKey(value);
               setDialogError(null);
             }}
-            onCategoryChange={setBulkCategoryId}
+            onDirectoryChange={setBulkDirectoryKey}
             onRetryOptions={targetOptions.retry}
           />
         ) : targetLibrary === "personal" ? (
@@ -240,11 +232,7 @@ export default function PendingBatchActions({
             previewSummary={previewSummary}
             visibleConfirmTasks={visibleConfirmTasks}
             selectedConfirmTasks={selectedConfirmTasks}
-            categoryTargetLabel={categoryTargetLabel}
-            bulkCategoryId={bulkCategoryId}
             loading={loading}
-            classificationBusy={classificationBusy}
-            retryCategoryClassifications={retryCategoryClassifications}
             refreshPreviews={refreshPreviews}
             reviewFilter={reviewFilter}
             setReviewFilter={setReviewFilter}
@@ -264,21 +252,14 @@ export default function PendingBatchActions({
             setDeleteCandidate={setDeleteCandidate}
             deleteFeedback={deleteFeedback}
             setDeleteFeedback={setDeleteFeedback}
-            categories={categories}
-            categorySuggestions={categorySuggestions}
-            bulkCategoryTaskIds={bulkCategoryTaskIds}
             directoryLabel={directoryLabel}
-            retryOneCategoryClassification={retryOneCategoryClassification}
             updateRow={updateRow}
-            selectManualCategory={selectManualCategory}
             company={company}
             options={options}
             previewBusyByTask={previewBusyByTask}
             previewFeedback={previewFeedback}
             scheduleRowPreview={scheduleRowPreview}
             targetLibrary={targetLibrary}
-            setFallbackDirectoryTaskId={setFallbackDirectoryTaskId}
-            setFallbackDirectoryKey={setFallbackDirectoryKey}
             duplicateDecisionTaskId={duplicateDecisionTaskId}
             onDuplicateDecision={handleDuplicateDecision}
             skippedDuplicateItems={skippedDuplicateItems}

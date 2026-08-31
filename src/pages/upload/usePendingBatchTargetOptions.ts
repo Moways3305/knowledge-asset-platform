@@ -60,7 +60,7 @@ export function usePendingBatchTargetOptions({
         setError(
           targetLibrary === "personal"
             ? "个人目录暂时无法加载，请重试。"
-            : commandErrorMessage(caught, "目录类别暂时无法加载，将在下一步重试。"),
+            : commandErrorMessage(caught, "正式目录暂时无法加载，请重试。"),
         );
       })
       .finally(() => {

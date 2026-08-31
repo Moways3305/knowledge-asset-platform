@@ -185,18 +185,6 @@ describe("ProjectKnowledgePage reference workspace", () => {
       .mockResolvedValue({
         required: true,
         rule_version: 7,
-        categories: [
-          {
-            id: "category-company",
-            scope: "company",
-            primary: "公司资产",
-            secondary: "方法论",
-            prefix: "方法",
-            asset_type: "methodology",
-            default_confidentiality: "L2",
-            suggested_directory_key: "company.methodology",
-          },
-        ],
         directories: [
           {
             directory_key: "company.methodology",
@@ -306,9 +294,6 @@ describe("ProjectKnowledgePage reference workspace", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "资料区域" }), {
       target: { value: "asset" },
     });
-    fireEvent.change(screen.getByRole("combobox", { name: "资产类型" }), {
-      target: { value: "case" },
-    });
     fireEvent.change(screen.getByRole("combobox", { name: "资产状态" }), {
       target: { value: "active" },
     });
@@ -333,7 +318,6 @@ describe("ProjectKnowledgePage reference workspace", () => {
           projectId: PROJECT_A,
           keyword: "访谈",
           zone: "asset",
-          assetType: "case",
           assetStatus: "active",
           confidentialityLevel: "L2",
           updatedFrom: "2026-01-01",
@@ -384,7 +368,7 @@ describe("ProjectKnowledgePage reference workspace", () => {
     );
     renderPage();
 
-    expect((await screen.findAllByText("信息待确认")).length).toBe(4);
+    expect((await screen.findAllByText("信息待确认")).length).toBe(3);
     const visibleText = document.body.textContent ?? "";
     expect(visibleText).not.toMatch(/secret-zone|secret-type|secret-status|secret-level/);
   });
@@ -413,7 +397,9 @@ describe("ProjectKnowledgePage reference workspace", () => {
     expect(screen.getByLabelText("当前路径")).toHaveTextContent(`/project/${PROJECT_B}/knowledge`);
     const dialog = await screen.findByRole("dialog", { name: "发布到公司知识库" });
     expect(await within(dialog).findByText("公司方法论")).toBeInTheDocument();
-    expect(within(dialog).queryByRole("combobox", { name: "正式目录" })).toBeNull();
+    expect(within(dialog).getByRole("combobox", { name: "正式目录" })).toHaveValue(
+      "company.methodology",
+    );
     fireEvent.change(within(dialog).getByLabelText("适用对象"), {
       target: { value: "全公司" },
     });

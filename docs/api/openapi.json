@@ -1882,7 +1882,7 @@
         "type": "object"
       },
       "BatchNamingConfirmationFields": {
-        "additionalProperties": false,
+        "additionalProperties": true,
         "description": "Field-shaped carrier that keeps business validation item-scoped.",
         "properties": {
           "applicable_to": {
@@ -1896,12 +1896,8 @@
             ],
             "title": "Applicable To"
           },
-          "category_id": {
+          "directory_key": {
             "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
               {
                 "type": "string"
               },
@@ -1909,7 +1905,7 @@
                 "type": "null"
               }
             ],
-            "title": "Category Id"
+            "title": "Directory Key"
           },
           "formed_on": {
             "anyOf": [
@@ -2853,162 +2849,6 @@
           }
         },
         "title": "CanonicalMarkdownBackfillRequest",
-        "type": "object"
-      },
-      "CategoryClassificationBatchRequest": {
-        "properties": {
-          "retry": {
-            "default": false,
-            "title": "Retry",
-            "type": "boolean"
-          },
-          "target_project_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Target Project Id"
-          },
-          "target_scope": {
-            "$ref": "#/components/schemas/KnowledgeScope"
-          },
-          "task_ids": {
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "maxItems": 500,
-            "minItems": 1,
-            "title": "Task Ids",
-            "type": "array"
-          }
-        },
-        "required": [
-          "task_ids",
-          "target_scope"
-        ],
-        "title": "CategoryClassificationBatchRequest",
-        "type": "object"
-      },
-      "CategoryClassificationBatchResponse": {
-        "properties": {
-          "candidate_count": {
-            "title": "Candidate Count",
-            "type": "integer"
-          },
-          "candidate_rule_revision": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Candidate Rule Revision"
-          },
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/CategoryClassificationItemResponse"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "target_label": {
-            "title": "Target Label",
-            "type": "string"
-          }
-        },
-        "required": [
-          "target_label",
-          "candidate_count",
-          "items"
-        ],
-        "title": "CategoryClassificationBatchResponse",
-        "type": "object"
-      },
-      "CategoryClassificationItemResponse": {
-        "properties": {
-          "candidate_rule_revision": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Candidate Rule Revision"
-          },
-          "category_confidence": {
-            "enum": [
-              "high",
-              "medium",
-              "low"
-            ],
-            "title": "Category Confidence",
-            "type": "string"
-          },
-          "category_reason": {
-            "title": "Category Reason",
-            "type": "string"
-          },
-          "category_source": {
-            "enum": [
-              "ai_content",
-              "rule_only_option",
-              "needs_manual",
-              "manual"
-            ],
-            "title": "Category Source",
-            "type": "string"
-          },
-          "retryable": {
-            "default": false,
-            "title": "Retryable",
-            "type": "boolean"
-          },
-          "status": {
-            "enum": [
-              "classified",
-              "needs_manual",
-              "failed",
-              "unchanged"
-            ],
-            "title": "Status",
-            "type": "string"
-          },
-          "suggested_category_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Suggested Category Id"
-          },
-          "task_id": {
-            "format": "uuid",
-            "title": "Task Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "task_id",
-          "category_source",
-          "category_confidence",
-          "category_reason",
-          "status"
-        ],
-        "title": "CategoryClassificationItemResponse",
         "type": "object"
       },
       "CitationOut": {
@@ -8146,36 +7986,6 @@
         "title": "MaintainerOut",
         "type": "object"
       },
-      "ManualCategorySelectionRequest": {
-        "properties": {
-          "category_id": {
-            "format": "uuid",
-            "title": "Category Id",
-            "type": "string"
-          },
-          "target_project_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Target Project Id"
-          },
-          "target_scope": {
-            "$ref": "#/components/schemas/KnowledgeScope"
-          }
-        },
-        "required": [
-          "target_scope",
-          "category_id"
-        ],
-        "title": "ManualCategorySelectionRequest",
-        "type": "object"
-      },
       "MarkProcessedResponse": {
         "properties": {
           "event_id": {
@@ -9296,6 +9106,7 @@
         "type": "object"
       },
       "NamingConfirmationFields": {
+        "additionalProperties": true,
         "properties": {
           "applicable_to": {
             "anyOf": [
@@ -9307,16 +9118,6 @@
               }
             ],
             "title": "Applicable To"
-          },
-          "category_id": {
-            "format": "uuid",
-            "title": "Category Id",
-            "type": "string"
-          },
-          "directory_fallback_confirmed": {
-            "default": false,
-            "title": "Directory Fallback Confirmed",
-            "type": "boolean"
           },
           "directory_key": {
             "anyOf": [
@@ -9344,7 +9145,6 @@
           }
         },
         "required": [
-          "category_id",
           "subject",
           "formed_on",
           "version"
@@ -9354,8 +9154,13 @@
       },
       "NamingDraftUpdateRequest": {
         "properties": {
-          "config": {
-            "$ref": "#/components/schemas/NamingRuleConfig"
+          "directories": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Directories",
+            "type": "array"
           },
           "expected_base_version": {
             "title": "Expected Base Version",
@@ -9364,7 +9169,7 @@
         },
         "required": [
           "expected_base_version",
-          "config"
+          "directories"
         ],
         "title": "NamingDraftUpdateRequest",
         "type": "object"
@@ -9407,93 +9212,8 @@
         "title": "NamingDuplicateNotice",
         "type": "object"
       },
-      "NamingOptionItem": {
-        "properties": {
-          "asset_type": {
-            "$ref": "#/components/schemas/AssetType"
-          },
-          "default_confidentiality": {
-            "$ref": "#/components/schemas/ConfidentialityLevel"
-          },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Description"
-          },
-          "enabled": {
-            "default": true,
-            "title": "Enabled",
-            "type": "boolean"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "prefix": {
-            "title": "Prefix",
-            "type": "string"
-          },
-          "primary": {
-            "title": "Primary",
-            "type": "string"
-          },
-          "scope": {
-            "enum": [
-              "project",
-              "company"
-            ],
-            "title": "Scope",
-            "type": "string"
-          },
-          "secondary": {
-            "title": "Secondary",
-            "type": "string"
-          },
-          "sort_order": {
-            "title": "Sort Order",
-            "type": "integer"
-          },
-          "suggested_directory_key": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Suggested Directory Key"
-          }
-        },
-        "required": [
-          "id",
-          "scope",
-          "primary",
-          "secondary",
-          "prefix",
-          "asset_type",
-          "default_confidentiality",
-          "sort_order"
-        ],
-        "title": "NamingOptionItem",
-        "type": "object"
-      },
       "NamingOptionsResponse": {
         "properties": {
-          "categories": {
-            "items": {
-              "$ref": "#/components/schemas/NamingOptionItem"
-            },
-            "title": "Categories",
-            "type": "array"
-          },
           "default_confidentiality": {
             "anyOf": [
               {
@@ -13037,6 +12757,26 @@
             "title": "Name",
             "type": "string"
           },
+          "naming_default_confidentiality": {
+            "$ref": "#/components/schemas/ConfidentialityLevel",
+            "default": "L2"
+          },
+          "project_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Code"
+          },
+          "project_code_active": {
+            "default": false,
+            "title": "Project Code Active",
+            "type": "boolean"
+          },
           "project_id": {
             "format": "uuid",
             "title": "Project Id",
@@ -13112,6 +12852,38 @@
               }
             ],
             "title": "Lifecycle Route Key"
+          },
+          "naming_default_confidentiality": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConfidentialityLevel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "project_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Code"
+          },
+          "project_code_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Code Active"
           },
           "wecom_group_id": {
             "anyOf": [
@@ -27914,97 +27686,6 @@
         ]
       }
     },
-    "/api/v1/ingest/bulk-category-classification": {
-      "post": {
-        "operationId": "classify_categories_api_v1_ingest_bulk_category_classification_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-Dev-User-Id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Dev-User-Id"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Session"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_active_company_role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Active Company Role"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CategoryClassificationBatchRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CategoryClassificationBatchResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Classify Categories",
-        "tags": [
-          "naming-rules"
-        ]
-      }
-    },
     "/api/v1/ingest/bulk-confirm": {
       "post": {
         "description": "Confirm one explicit destination while preserving per-task authorization.",
@@ -29775,107 +29456,6 @@
         ]
       }
     },
-    "/api/v1/ingest/{task_id}/category-selection": {
-      "put": {
-        "operationId": "save_manual_category_api_v1_ingest__task_id__category_selection_put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "task_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Task Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Dev-User-Id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Dev-User-Id"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Session"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "kap_active_company_role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kap Active Company Role"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ManualCategorySelectionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CategoryClassificationItemResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Save Manual Category",
-        "tags": [
-          "naming-rules"
-        ]
-      }
-    },
     "/api/v1/ingest/{task_id}/confirm": {
       "post": {
         "operationId": "confirm_api_v1_ingest__task_id__confirm_post",
@@ -30545,22 +30125,6 @@
                 }
               ],
               "title": "Zone"
-            }
-          },
-          {
-            "in": "query",
-            "name": "asset_type",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "$ref": "#/components/schemas/AssetType"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Asset Type"
             }
           },
           {
@@ -35025,22 +34589,6 @@
                 }
               ],
               "title": "Zone"
-            }
-          },
-          {
-            "in": "query",
-            "name": "asset_type",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "$ref": "#/components/schemas/AssetType"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Asset Type"
             }
           },
           {
