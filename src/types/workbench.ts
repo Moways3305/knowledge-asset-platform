@@ -21,7 +21,8 @@ export type WorkbenchTaskStatus =
   | "processing"
   | "completed"
   | "partial"
-  | "failed";
+  | "failed"
+  | "duplicate_skipped";
 export type WorkbenchTaskPriority = "urgent" | "high" | "normal" | "low";
 
 export interface WorkbenchTaskItemDTO {
@@ -110,7 +111,9 @@ export interface WorkbenchProjectItemDTO {
   project_id: string;
   name: string;
   status: string;
-  project_role: string;
+  project_role: string | null;
+  access_mode: "member" | "summary_visible";
+  access_label: "可查看资料" | "摘要可见";
   lifecycle_route_key: string | null;
   lifecycle_phase_key: string | null;
 }
@@ -128,6 +131,7 @@ export interface WorkbenchRecentActivityItemDTO {
   scope: string;
   zone: string;
   asset_type: string;
+  access_mode: "member" | "summary_visible" | null;
   confidentiality_level: string;
   summary: string | null;
   project_name: string | null;

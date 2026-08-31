@@ -2,24 +2,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BookOpen, Bot, CheckSquare, Plus, RefreshCw, Send, Settings, Upload } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
-  createProject,
   fetchProjectOverview,
   fetchProjectQaModelOptions,
   fetchProjects,
   projectQa,
 } from "../api/project";
-import { fetchPeople } from "../api/admin";
 import { useAuth } from "../auth/AuthContext";
-import { ApiError } from "../api/http";
+import CreateProjectModal from "../components/CreateProjectModal";
 import LoadingError from "../components/LoadingError";
 import { ProductPage } from "../components/ProductLayout";
 import type { ProjectQaModelOptionDTO, ProjectQaResponseDTO } from "../types/agent";
-import type {
-  ProjectCreateResponseDTO,
-  ProjectListItemDTO,
-  ProjectOverviewDTO,
-} from "../types/project";
-import type { PersonDTO } from "../types/people";
+import type { ProjectListItemDTO, ProjectOverviewDTO } from "../types/project";
 import "./ProjectOverviewPage.css";
 
 const PROJECT_STATUS: Record<string, string> = {
@@ -517,14 +510,6 @@ export default function ProjectOverviewPage() {
   // 新建项目模态框状态（仅治理角色可用）。
   const canCreate = capabilities.isGovernance;
   const [createOpen, setCreateOpen] = useState(false);
-  const [createName, setCreateName] = useState("");
-  const [createClient, setCreateClient] = useState("");
-  const [createManagerId, setCreateManagerId] = useState("");
-  const [createProjectCode, setCreateProjectCode] = useState("");
-  const [createDefaultConfidentiality, setCreateDefaultConfidentiality] = useState("L2");
-  const [createCandidates, setCreateCandidates] = useState<PersonDTO[]>([]);
-  const [createBusy, setCreateBusy] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
 
   const loadProjects = useCallback(async () => {
     const request = ++listRequest.current;
@@ -546,64 +531,7 @@ export default function ProjectOverviewPage() {
     };
   }, [loadProjects]);
 
-  const openCreateModal = useCallback(async () => {
-    setCreateOpen(true);
-    setCreateName("");
-    setCreateClient("");
-    setCreateManagerId("");
-    setCreateProjectCode("");
-    setCreateDefaultConfidentiality("L2");
-    setCreateError(null);
-    try {
-      const response = await fetchPeople();
-      setCreateCandidates(response.items);
-    } catch (e) {
-      setCreateCandidates([]);
-      setCreateError(
-        e instanceof ApiError && e.status === 403
-          ? "当前身份无权加载用户列表"
-          : "用户列表加载失败，请稍后重试",
-      );
-    }
-  }, []);
-
-  const submitCreateProject = useCallback(async () => {
-    if (!createName.trim() || !createManagerId || !createProjectCode.trim()) {
-      setCreateError("请填写项目名称、项目代码并选择项目经理");
-      return;
-    }
-    setCreateBusy(true);
-    setCreateError(null);
-    try {
-      const created: ProjectCreateResponseDTO = await createProject({
-        name: createName.trim(),
-        client_name: createClient.trim() || null,
-        project_manager_user_id: createManagerId,
-        project_code: createProjectCode.trim().toUpperCase(),
-        project_code_active: true,
-        naming_default_confidentiality: createDefaultConfidentiality,
-      });
-      setCreateOpen(false);
-      await loadProjects();
-      navigate(`/project/${created.id}`);
-    } catch (e) {
-      setCreateError(
-        e instanceof ApiError && e.status === 403
-          ? "当前身份无权创建项目"
-          : "项目创建失败，请稍后重试",
-      );
-    } finally {
-      setCreateBusy(false);
-    }
-  }, [
-    createName,
-    createClient,
-    createManagerId,
-    createProjectCode,
-    createDefaultConfidentiality,
-    loadProjects,
-    navigate,
-  ]);
+  const openCreateModal = useCallback(() => setCreateOpen(true), []);
 
   if (listState.status === "loading") {
     return (
@@ -659,21 +587,12 @@ export default function ProjectOverviewPage() {
         </LoadingError>
         <CreateProjectModal
           open={createOpen}
-          name={createName}
-          client={createClient}
-          managerId={createManagerId}
-          projectCode={createProjectCode}
-          defaultConfidentiality={createDefaultConfidentiality}
-          candidates={createCandidates}
-          busy={createBusy}
-          error={createError}
-          onNameChange={setCreateName}
-          onClientChange={setCreateClient}
-          onManagerChange={setCreateManagerId}
-          onProjectCodeChange={setCreateProjectCode}
-          onDefaultConfidentialityChange={setCreateDefaultConfidentiality}
-          onSubmit={() => void submitCreateProject()}
           onClose={() => setCreateOpen(false)}
+          onCreated={async (created) => {
+            setCreateOpen(false);
+            await loadProjects();
+            navigate(`/project/${created.id}`);
+          }}
         />
       </ProductPage>
     );
@@ -713,154 +632,13 @@ export default function ProjectOverviewPage() {
       />
       <CreateProjectModal
         open={createOpen}
-        name={createName}
-        client={createClient}
-        managerId={createManagerId}
-        projectCode={createProjectCode}
-        defaultConfidentiality={createDefaultConfidentiality}
-        candidates={createCandidates}
-        busy={createBusy}
-        error={createError}
-        onNameChange={setCreateName}
-        onClientChange={setCreateClient}
-        onManagerChange={setCreateManagerId}
-        onProjectCodeChange={setCreateProjectCode}
-        onDefaultConfidentialityChange={setCreateDefaultConfidentiality}
-        onSubmit={() => void submitCreateProject()}
         onClose={() => setCreateOpen(false)}
+        onCreated={async (created) => {
+          setCreateOpen(false);
+          await loadProjects();
+          navigate(`/project/${created.id}`);
+        }}
       />
     </>
-  );
-}
-
-function CreateProjectModal({
-  open,
-  name,
-  client,
-  managerId,
-  projectCode,
-  defaultConfidentiality,
-  candidates,
-  busy,
-  error,
-  onNameChange,
-  onClientChange,
-  onManagerChange,
-  onProjectCodeChange,
-  onDefaultConfidentialityChange,
-  onSubmit,
-  onClose,
-}: {
-  open: boolean;
-  name: string;
-  client: string;
-  managerId: string;
-  projectCode: string;
-  defaultConfidentiality: string;
-  candidates: PersonDTO[];
-  busy: boolean;
-  error: string | null;
-  onNameChange: (value: string) => void;
-  onClientChange: (value: string) => void;
-  onManagerChange: (value: string) => void;
-  onProjectCodeChange: (value: string) => void;
-  onDefaultConfidentialityChange: (value: string) => void;
-  onSubmit: () => void;
-  onClose: () => void;
-}) {
-  if (!open) return null;
-  return (
-    <div className="project78-modal-overlay" role="dialog" aria-modal="true" aria-label="新建项目">
-      <div className="project78-modal">
-        <div className="project78-modal-head">
-          <h3>新建项目</h3>
-          <button
-            type="button"
-            className="project78-modal-close"
-            onClick={onClose}
-            aria-label="关闭"
-          >
-            ×
-          </button>
-        </div>
-        {error && <div className="project78-modal-error">{error}</div>}
-        <div className="project78-modal-body">
-          <label className="project78-modal-field">
-            <span>项目名称</span>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => onNameChange(e.target.value)}
-              placeholder="输入项目名称"
-              autoComplete="off"
-            />
-          </label>
-          <label className="project78-modal-field">
-            <span>客户名称（可选）</span>
-            <input
-              type="text"
-              value={client}
-              onChange={(e) => onClientChange(e.target.value)}
-              placeholder="输入客户名称"
-              autoComplete="off"
-            />
-          </label>
-          <label className="project78-modal-field">
-            <span>项目经理</span>
-            <select value={managerId} onChange={(e) => onManagerChange(e.target.value)}>
-              <option value="">请选择项目经理</option>
-              {candidates.map((person) => (
-                <option key={person.user_id} value={person.user_id}>
-                  {person.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="project78-modal-field">
-            <span>项目代码</span>
-            <input
-              type="text"
-              value={projectCode}
-              maxLength={20}
-              onChange={(e) => onProjectCodeChange(e.target.value.toUpperCase())}
-              placeholder="如 BW-2601"
-              autoComplete="off"
-            />
-            <small>创建后立即启用，作为规范命名必需项。</small>
-          </label>
-          <label className="project78-modal-field">
-            <span>默认保密级别</span>
-            <select
-              value={defaultConfidentiality}
-              onChange={(e) => onDefaultConfidentialityChange(e.target.value)}
-            >
-              {["L1", "L2", "L3", "L4", "L5"].map((level) => (
-                <option key={level} value={level}>
-                  {level}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <div className="project78-modal-actions">
-          <button
-            type="button"
-            className="product-button is-primary"
-            disabled={busy || !name.trim() || !managerId || !projectCode.trim()}
-            onClick={onSubmit}
-          >
-            {busy ? "创建中…" : "创建项目"}
-          </button>
-          <button
-            type="button"
-            className="product-button is-secondary"
-            disabled={busy}
-            onClick={onClose}
-          >
-            取消
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }

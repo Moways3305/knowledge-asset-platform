@@ -17430,6 +17430,22 @@
       },
       "WorkbenchProjectItem": {
         "properties": {
+          "access_label": {
+            "enum": [
+              "可查看资料",
+              "摘要可见"
+            ],
+            "title": "Access Label",
+            "type": "string"
+          },
+          "access_mode": {
+            "enum": [
+              "member",
+              "summary_visible"
+            ],
+            "title": "Access Mode",
+            "type": "string"
+          },
           "lifecycle_phase_key": {
             "anyOf": [
               {
@@ -17462,8 +17478,15 @@
             "type": "string"
           },
           "project_role": {
-            "title": "Project Role",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Role"
           },
           "status": {
             "title": "Status",
@@ -17474,7 +17497,8 @@
           "project_id",
           "name",
           "status",
-          "project_role"
+          "access_mode",
+          "access_label"
         ],
         "title": "WorkbenchProjectItem",
         "type": "object"
@@ -17516,6 +17540,21 @@
       },
       "WorkbenchRecentActivityItem": {
         "properties": {
+          "access_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "member",
+                  "summary_visible"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Mode"
+          },
           "asset_id": {
             "format": "uuid",
             "title": "Asset Id",

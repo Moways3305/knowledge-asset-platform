@@ -137,6 +137,7 @@ async def resolve(
             "failed": "failed",
             "processing": "processing",
             "completed": "completed",
+            "duplicate_skipped": "duplicate_skipped",
             "waiting_review": "submitted",
             "pending_confirmation": "needs_action",
         }.get(ingest_task.status, "submitted")

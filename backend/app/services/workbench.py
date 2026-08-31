@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import safe_log_exception
-from app.models.identity import Project, ProjectMember, User
+from app.models.identity import ProjectMember, User
 from app.models.ingest import IngestTask
 from app.schemas.permission import CallerContext
 from app.schemas.workbench import (
@@ -39,6 +39,7 @@ from app.services import knowledge as knowledge_service
 from app.services import knowledge_insights as insights_service
 from app.services import original_access as original_access_service
 from app.services import review as review_service
+from app.services.discoverable_projects import list_knowledge_library_projects
 
 _logger = logging.getLogger(__name__)
 _SectionT = TypeVar("_SectionT", bound=BaseModel)
@@ -397,7 +398,7 @@ async def build_task_center(
                     select(IngestTask)
                     .where(
                         IngestTask.created_by == caller.user_id,
-                        IngestTask.status == "completed",
+                        IngestTask.status.in_({"completed", "duplicate_skipped"}),
                     )
                     .order_by(IngestTask.updated_at.desc())
                     .limit(10)
@@ -418,7 +419,11 @@ async def build_task_center(
                         task_type="ingest",
                         object_name=completed_ingest_item.source_file_name.strip()
                         or "知识资产入库",
-                        status="completed",
+                        status=(
+                            "duplicate_skipped"
+                            if completed_ingest_item.status == "duplicate_skipped"
+                            else "completed"
+                        ),
                         priority="low",
                         assignee=current_name,
                         responsibility="由你发起",
@@ -426,7 +431,11 @@ async def build_task_center(
                         updated_at=updated,
                         next_action_label="查看入库结果",
                         route_key="upload",
-                        result_summary="入库已完成",
+                        result_summary=(
+                            "因内容重复已跳过"
+                            if completed_ingest_item.status == "duplicate_skipped"
+                            else "入库已完成"
+                        ),
                     )
                 )
 
@@ -617,28 +626,34 @@ async def build_projects(session: AsyncSession, caller: CallerContext) -> Workbe
     if not caller.is_business_user:
         raise HTTPException(status_code=403)
 
-    rows = (
-        await session.execute(
-            select(ProjectMember, Project)
-            .join(Project, Project.id == ProjectMember.project_id)
-            .where(
-                ProjectMember.user_id == caller.user_id,
-                ProjectMember.status == "active",
-                Project.status == "active",
+    membership_rows = (
+        (
+            await session.execute(
+                select(ProjectMember).where(
+                    ProjectMember.user_id == caller.user_id,
+                    ProjectMember.status == "active",
+                )
             )
-            .order_by(Project.name, Project.id)
         )
-    ).all()
+        .scalars()
+        .all()
+    )
+    roles_by_project = {
+        membership.project_id: membership.project_role for membership in membership_rows
+    }
+    projects = await list_knowledge_library_projects(session, caller)
     items = [
         WorkbenchProjectItem(
-            project_id=project.id,
+            project_id=project.project_id,
             name=project.name,
             status=project.status,
-            project_role=membership.project_role,
-            lifecycle_route_key=project.lifecycle_route_key,
-            lifecycle_phase_key=project.lifecycle_phase_key,
+            project_role=roles_by_project.get(project.project_id),
+            access_mode=project.access_mode,
+            access_label=project.access_label,
+            lifecycle_route_key=None,
+            lifecycle_phase_key=None,
         )
-        for membership, project in rows
+        for project in projects
     ]
     return WorkbenchProjectsSection(
         status=WorkbenchSectionStatus.available if items else WorkbenchSectionStatus.empty,
@@ -681,6 +696,13 @@ async def build_recent_activity(
             scope=item.scope,
             zone=item.zone,
             asset_type=item.asset_type,
+            access_mode=(
+                "summary_visible"
+                if item.access_info.cross_project_summary
+                else "member"
+                if item.scope == "project"
+                else None
+            ),
             confidentiality_level=item.confidentiality_level,
             summary=item.summary_text,
             project_name=item.project_name,

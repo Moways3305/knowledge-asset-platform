@@ -12,6 +12,7 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+from app.schemas.external_agent import ProjectAccessLabel, ProjectAccessMode
 from app.schemas.knowledge_insights import (
     AccessInsights,
     InsightCard,
@@ -112,7 +113,9 @@ class WorkbenchProjectItem(BaseModel):
     project_id: uuid.UUID
     name: str
     status: str
-    project_role: str
+    project_role: str | None = None
+    access_mode: ProjectAccessMode
+    access_label: ProjectAccessLabel
     lifecycle_route_key: str | None = None
     lifecycle_phase_key: str | None = None
 
@@ -130,6 +133,7 @@ class WorkbenchRecentActivityItem(BaseModel):
     scope: str
     zone: str
     asset_type: str
+    access_mode: ProjectAccessMode | None = None
     confidentiality_level: str
     summary: str | None = None
     project_name: str | None = None

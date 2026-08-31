@@ -17,7 +17,14 @@ export interface BusinessNotificationDTO {
   read_at: string | null;
   project_name: string | null;
   object_name: string;
-  task_status: "needs_action" | "submitted" | "processing" | "completed" | "partial" | "failed";
+  task_status:
+    | "needs_action"
+    | "submitted"
+    | "processing"
+    | "completed"
+    | "partial"
+    | "failed"
+    | "duplicate_skipped";
   task_group: "my_tasks" | "running_jobs" | "attention_items" | "recent_completed";
   action_required: boolean;
   next_action_label: string;

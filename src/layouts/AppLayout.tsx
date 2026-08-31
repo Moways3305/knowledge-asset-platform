@@ -148,6 +148,7 @@ const moduleTitles: Array<[prefix: string, title: string]> = [
   ["/project/", "项目空间"],
   ["/knowledge", "知识资产库"],
   ["/my/knowledge", "个人知识"],
+  ["/my/workbuddy", "WorkBuddy 接入"],
   ["/upload", "资产化确认"],
   ["/review", "升级审核"],
   ["/original-access", "原文访问"],

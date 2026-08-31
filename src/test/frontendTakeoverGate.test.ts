@@ -24,8 +24,13 @@ const routes: RouteContract[] = [
     route: "/",
     component: "HomeDashboardPage",
     guard: "public",
-    owners: ["pages/HomeDashboardPage.tsx", "workbench/WorkbenchContext.tsx"],
-    apiModules: ["workbench", "admin", "project"],
+    owners: [
+      "pages/HomeDashboardPage.tsx",
+      "workbench/WorkbenchContext.tsx",
+      "components/CreateProjectModal.tsx",
+      "components/WorkbuddyStatusPanel.tsx",
+    ],
+    apiModules: ["workbench", "admin", "http", "project", "workbuddy"],
   },
   {
     route: "/knowledge",
@@ -46,12 +51,15 @@ const routes: RouteContract[] = [
     route: "/my/knowledge",
     component: "MyKnowledgePage",
     guard: "viewMyKnowledge",
-    owners: [
-      "pages/MyKnowledgePage.tsx",
-      "hooks/useModelSelection.ts",
-      "components/WorkbuddyAccessCard.tsx",
-    ],
-    apiModules: ["auth", "bulk", "http", "knowledge", "personal", "weknoraModels", "workbuddy"],
+    owners: ["pages/MyKnowledgePage.tsx", "hooks/useModelSelection.ts"],
+    apiModules: ["auth", "bulk", "http", "knowledge", "personal", "weknoraModels"],
+  },
+  {
+    route: "/my/workbuddy",
+    component: "WorkbuddyAccessPage",
+    guard: "viewWorkbuddy",
+    owners: ["pages/WorkbuddyAccessPage.tsx", "components/WorkbuddyAccessCard.tsx"],
+    apiModules: ["http", "workbuddy"],
   },
   {
     route: "/upload",
@@ -161,7 +169,7 @@ const routes: RouteContract[] = [
     route: "/project/:id",
     component: "ProjectOverviewPage",
     guard: "viewProject",
-    owners: ["pages/ProjectOverviewPage.tsx"],
+    owners: ["pages/ProjectOverviewPage.tsx", "components/CreateProjectModal.tsx"],
     apiModules: ["admin", "http", "project"],
   },
   {
@@ -355,33 +363,10 @@ function appRouteOwnership() {
   return ownership;
 }
 
-function staticStringRecordValues(file: string, variableName: string): string[] {
-  const tree = parse(file, source(file));
-  const values: string[] = [];
-  const visit = (node: ts.Node) => {
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.name.text === variableName &&
-      node.initializer &&
-      ts.isObjectLiteralExpression(node.initializer)
-    ) {
-      for (const property of node.initializer.properties) {
-        if (ts.isPropertyAssignment(property) && ts.isStringLiteral(property.initializer)) {
-          values.push(property.initializer.text);
-        }
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(tree);
-  return values;
-}
-
 describe("frontend route takeover gate", () => {
   it("assigns every formal App route to the registered page and capability", () => {
     const actual = appRouteOwnership();
-    expect(actual.size).toBe(22);
+    expect(actual.size).toBe(23);
     expect([...actual.keys()].sort()).toEqual(routes.map((item) => item.route).sort());
     for (const contract of routes) {
       expect(actual.get(contract.route), contract.route).toEqual({
@@ -391,30 +376,11 @@ describe("frontend route takeover gate", () => {
     }
   });
 
-  it("keeps every static workbench operation target on a registered App route", () => {
-    const registeredRoutes = appRouteOwnership();
-    const operationTargets = staticStringRecordValues(
-      "pages/HomeDashboardPage.tsx",
-      "OPERATION_ROUTE",
-    );
-
-    expect(operationTargets.length).toBeGreaterThan(0);
-    for (const target of operationTargets) {
-      expect(registeredRoutes.has(target), target).toBe(true);
-    }
-  });
-
-  it("routes cross-scope KB initialization failures to the protected mapping configuration page", () => {
+  it("keeps operational health and KB initialization controls off the personal workbench", () => {
     const dashboard = source("pages/HomeDashboardPage.tsx");
-    const targetPage = source("pages/AdminWeKnoraModelsPage.tsx");
-
-    expect(dashboard).toContain('item.scope === "company"');
-    expect(dashboard).toContain('item.scope === "personal"');
-    expect(dashboard).toContain('item.scope === "project"');
-    expect(dashboard).toContain('return "/admin/weknora-models"');
-    expect(targetPage).toContain("知识库配置");
-    expect(targetPage).toContain('init_failed: "初始化异常"');
-    expect(targetPage).toContain('title="管理知识库配置"');
+    expect(dashboard).not.toContain("OPERATION_ROUTE");
+    expect(dashboard).not.toContain("kb_init_failed");
+    expect(dashboard).not.toContain("indexing");
   });
 
   it("keeps every top-level production Page reachable or explicitly exempted", () => {

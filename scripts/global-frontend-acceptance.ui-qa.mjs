@@ -22,7 +22,11 @@ const outDir = path.join(outRoot, "global-frontend-acceptance");
 const evidenceDir = path.join(outDir, "evidence");
 const suiteTimeoutMs = Number(process.env.UI_QA_SUITE_TIMEOUT_MS || 90_000);
 const suiteMaxAttempts = Number(process.env.UI_QA_SUITE_MAX_ATTEMPTS || 2);
-const suiteConcurrency = Math.max(1, Number(process.env.UI_QA_SUITE_CONCURRENCY || 4));
+// Browser suites share one preview server and a Chromium installation. Run
+// serially by default: parallel browser contexts can delay style application
+// enough to make otherwise-valid layout measurements flaky on CI runners.
+// Callers may still raise this explicitly on provisioned environments.
+const suiteConcurrency = Math.max(1, Number(process.env.UI_QA_SUITE_CONCURRENCY || 1));
 if (path.basename(outDir) !== "global-frontend-acceptance") {
   throw new Error(`Refusing to reset unexpected UI QA output path: ${outDir}`);
 }

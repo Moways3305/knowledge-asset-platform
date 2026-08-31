@@ -1,0 +1,105 @@
+.project78-modal-overlay {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(18, 26, 62, 0.48);
+  backdrop-filter: blur(4px);
+}
+.project78-modal {
+  width: min(100%, 520px);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 64px rgba(18, 26, 62, 0.24);
+}
+.project78-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+.project78-modal-head h3 {
+  margin: 0;
+  color: var(--color-text-heading);
+  font-size: 18px;
+}
+.project78-modal-close {
+  width: 34px;
+  height: 34px;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 24px;
+  line-height: 1;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.project78-modal-close:hover {
+  color: var(--color-primary);
+  background: var(--color-bg-subtle);
+}
+.project78-modal-error {
+  margin: 14px 20px 0;
+  padding: 10px 12px;
+  color: var(--color-danger);
+  font-size: 13px;
+  background: var(--color-danger-bg);
+  border: 1px solid rgba(179, 50, 47, 0.24);
+  border-radius: var(--radius-sm);
+}
+.project78-modal-body {
+  display: grid;
+  gap: 15px;
+  padding: 18px 20px;
+}
+.project78-modal-field {
+  display: grid;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+.project78-modal-field input,
+.project78-modal-field select {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  color: var(--color-text);
+  font: inherit;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+.project78-modal-field small {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+.project78-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px 20px;
+}
+@media (max-width: 480px) {
+  .project78-modal-overlay {
+    align-items: end;
+    padding: 10px;
+  }
+  .project78-modal {
+    max-height: calc(100vh - 20px);
+  }
+  .project78-modal-actions {
+    flex-direction: column;
+  }
+  .project78-modal-actions button {
+    width: 100%;
+  }
+}

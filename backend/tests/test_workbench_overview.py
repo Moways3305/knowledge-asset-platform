@@ -6,13 +6,14 @@ import uuid
 
 import pytest
 
-from app.models.identity import ProjectMember, User, UserCompanyRole
+from app.models.identity import Project, ProjectMember, User, UserCompanyRole
 from app.models.ingest import IngestTask
 from app.models.review import ReviewTask
 from app.seed.dev_seed import (
     KA_PROJECT_ALPHA_REVIEWABLE,
     KA_PROJECT_BETA_L3,
     PROJECT_ALPHA,
+    PROJECT_BETA,
     USER_ADMIN_ONLY,
     USER_BOSS,
     USER_CONSULTANT,
@@ -66,10 +67,10 @@ async def _create_business_user(
 @pytest.mark.parametrize(
     ("user_id", "expected_status", "expected_projects"),
     [
-        (USER_CONSULTANT, "available", {str(PROJECT_ALPHA)}),
-        (USER_PROJECT_MANAGER, "available", {str(PROJECT_ALPHA)}),
-        (USER_BOSS, "empty", set()),
-        (USER_DIRECTOR, "empty", set()),
+        (USER_CONSULTANT, "available", {str(PROJECT_ALPHA), str(PROJECT_BETA)}),
+        (USER_PROJECT_MANAGER, "available", {str(PROJECT_ALPHA), str(PROJECT_BETA)}),
+        (USER_BOSS, "available", {str(PROJECT_ALPHA), str(PROJECT_BETA)}),
+        (USER_DIRECTOR, "available", {str(PROJECT_ALPHA), str(PROJECT_BETA)}),
         (USER_ADMIN_ONLY, "forbidden", set()),
     ],
 )
@@ -92,7 +93,9 @@ async def test_company_and_project_role_matrix(client, user_id, expected_status,
 
 
 @pytest.mark.parametrize("project_role", ["consultant", "project_manager", "coach"])
-async def test_each_project_role_only_sees_its_active_membership(client, db_session, project_role):
+async def test_each_project_role_marks_membership_without_expanding_other_project_access(
+    client, db_session, project_role
+):
     user_id = await _create_business_user(
         db_session, project_id=PROJECT_ALPHA, project_role=project_role
     )
@@ -102,28 +105,53 @@ async def test_each_project_role_only_sees_its_active_membership(client, db_sess
     assert response.status_code == 200
     projects = response.json()["projects"]
     assert projects["status"] == "available"
-    assert projects["total"] == 1
-    assert projects["items"][0]["project_id"] == str(PROJECT_ALPHA)
-    assert projects["items"][0]["project_role"] == project_role
+    assert projects["total"] == 2
+    by_id = {item["project_id"]: item for item in projects["items"]}
+    assert by_id[str(PROJECT_ALPHA)]["project_role"] == project_role
+    assert by_id[str(PROJECT_ALPHA)]["access_mode"] == "member"
+    assert by_id[str(PROJECT_ALPHA)]["access_label"] == "可查看资料"
+    assert by_id[str(PROJECT_BETA)]["project_role"] is None
+    assert by_id[str(PROJECT_BETA)]["access_mode"] == "summary_visible"
+    assert by_id[str(PROJECT_BETA)]["access_label"] == "摘要可见"
 
 
-async def test_company_governance_roles_do_not_enumerate_project_workspaces(client):
+async def test_company_governance_roles_only_receive_summary_project_entries(client):
     for user_id in (USER_BOSS, USER_DIRECTOR):
         response = await client.get(OVERVIEW, headers=_headers(user_id))
         assert response.status_code == 200
         body = response.json()
-        assert body["projects"] == {
-            "status": "empty",
-            "error_code": None,
-            "items": [],
-            "total": 0,
-        }
+        assert body["projects"]["status"] == "available"
+        assert body["projects"]["total"] == 2
+        assert all(item["access_mode"] == "summary_visible" for item in body["projects"]["items"])
+        assert all(item["project_role"] is None for item in body["projects"]["items"])
         cross_project = [
             item for item in body["recent_activity"]["items"] if item["scope"] == "project"
         ]
         assert cross_project
         assert all(item["confidentiality_level"] != "L5" for item in cross_project)
         assert "maintainer" not in response.text
+
+
+async def test_project_projection_keeps_empty_active_projects_and_excludes_inactive_projects(
+    client, db_session
+):
+    empty_project_id = uuid.uuid4()
+    inactive_project_id = uuid.uuid4()
+    db_session.add_all(
+        [
+            Project(id=empty_project_id, name="Empty safe project", status="active"),
+            Project(id=inactive_project_id, name="Inactive hidden project", status="archived"),
+        ]
+    )
+    await db_session.commit()
+
+    response = await client.get(OVERVIEW, headers=_headers(USER_CONSULTANT))
+
+    assert response.status_code == 200
+    projects = response.json()["projects"]["items"]
+    by_id = {item["project_id"]: item for item in projects}
+    assert by_id[str(empty_project_id)]["access_mode"] == "summary_visible"
+    assert str(inactive_project_id) not in by_id
 
 
 async def test_project_member_recent_activity_includes_other_project_safe_summary(client):
@@ -133,6 +161,7 @@ async def test_project_member_recent_activity_includes_other_project_safe_summar
     recent_items = response.json()["recent_activity"]["items"]
     beta = next(item for item in recent_items if item["asset_id"] == str(KA_PROJECT_BETA_L3))
     assert beta["scope"] == "project"
+    assert beta["access_mode"] == "summary_visible"
     assert beta["confidentiality_level"] == "L3"
     assert beta["summary"].startswith("（脱敏）")
 
@@ -212,6 +241,34 @@ async def test_only_confirm_ready_ingest_is_an_actionable_todo(client, db_sessio
             "action_key": "confirm_ingest",
         }
     ]
+    assert "server-only" not in response.text
+
+
+async def test_duplicate_skipped_ingest_remains_a_distinct_recent_terminal_state(
+    client, db_session
+):
+    user_id = await _create_business_user(db_session)
+    db_session.add(
+        IngestTask(
+            source="path_b_upload",
+            source_file_ref="server-only/duplicate.txt",
+            source_file_name="duplicate.txt",
+            status="duplicate_skipped",
+            created_by=user_id,
+        )
+    )
+    await db_session.commit()
+
+    response = await client.get(OVERVIEW, headers=_headers(user_id))
+
+    assert response.status_code == 200
+    task_center = response.json()["task_center"]
+    duplicate = next(
+        item for item in task_center["recent_completed"] if item["object_name"] == "duplicate.txt"
+    )
+    assert duplicate["status"] == "duplicate_skipped"
+    assert duplicate["result_summary"] == "因内容重复已跳过"
+    assert not any(item["object_name"] == "duplicate.txt" for item in task_center["my_tasks"])
     assert "server-only" not in response.text
 
 
@@ -353,6 +410,8 @@ async def test_response_is_a_strict_safe_projection(client):
             "name",
             "status",
             "project_role",
+            "access_mode",
+            "access_label",
             "lifecycle_route_key",
             "lifecycle_phase_key",
         }
@@ -363,6 +422,7 @@ async def test_response_is_a_strict_safe_projection(client):
             "scope",
             "zone",
             "asset_type",
+            "access_mode",
             "confidentiality_level",
             "summary",
             "project_name",

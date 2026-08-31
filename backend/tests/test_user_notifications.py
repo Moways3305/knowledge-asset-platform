@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from app.models.audit import AuditEvent
 from app.models.identity import ProjectMember, User
 from app.models.indexing_job import IndexingOperationJob
+from app.models.ingest import IngestTask
 from app.models.notification import BusinessNotification
 from app.models.original_access import OriginalAccessRequest
 from app.models.review import ReviewTask
@@ -257,6 +258,43 @@ async def test_finished_operation_job_is_deduplicated_and_projects_safe_status(c
     assert body["items"][0]["task_status"] == "partial"
     assert body["items"][0]["task_group"] == "attention_items"
     assert body["items"][0]["target"]["route_key"] == "models"
+
+
+async def test_duplicate_skipped_ingest_projects_a_distinct_terminal_notification_status(
+    client, db_session
+):
+    task = IngestTask(
+        source="path_b_upload",
+        source_file_ref="server-only/duplicate-notification.txt",
+        source_file_name="duplicate-notification.txt",
+        status="duplicate_skipped",
+        created_by=USER_CONSULTANT,
+    )
+    db_session.add(task)
+    await db_session.flush()
+    db_session.add(
+        BusinessNotification(
+            recipient_user_id=USER_CONSULTANT,
+            event_type="ingest.confirmed",
+            category="ingest",
+            title="入库状态已更新",
+            summary="资料处理已结束。",
+            target_kind="ingest_task",
+            target_id=task.id,
+            project_id=None,
+            dedup_key=f"ingest.confirmed:{task.id}",
+            channel="in_app",
+            delivery_status="pending",
+        )
+    )
+    await db_session.commit()
+
+    body = (await client.get(API, headers=_headers(USER_CONSULTANT))).json()
+    assert body["total"] == 1
+    assert body["items"][0]["task_status"] == "duplicate_skipped"
+    assert body["items"][0]["task_group"] == "recent_completed"
+    assert body["items"][0]["action_required"] is False
+    assert "server-only" not in str(body)
 
 
 async def test_project_scoped_operation_notification_uses_ops_authorization_not_membership(
