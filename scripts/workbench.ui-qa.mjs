@@ -442,6 +442,18 @@ try {
           () => !new URL(window.location.href).searchParams.has("task_group"),
         );
       }
+      // Verify a tab is genuinely operable instead of relying on a
+      // font-dependent minimum width from getBoundingClientRect().
+      await page.getByRole("tab", { name: /进行中/ }).click();
+      await page
+        .locator('.workbench-tabs [role="tab"][aria-selected="true"]')
+        .filter({ hasText: "进行中" })
+        .waitFor();
+      await page.getByRole("tab", { name: /待处理/ }).click();
+      await page
+        .locator('.workbench-tabs [role="tab"][aria-selected="true"]')
+        .filter({ hasText: "待处理" })
+        .waitFor();
       const metrics = await page.evaluate(
         ({ scenarioName, viewportWidth }) => {
           const root = document.documentElement;
@@ -458,28 +470,28 @@ try {
             overflow: root.scrollWidth - root.clientWidth,
             sceneConnected: Boolean(
               shell &&
-                heading &&
-                stage &&
-                Math.abs(stage.top - heading.bottom) <= 2 &&
-                shell.top <= heading.top &&
-                shell.bottom >= stage.bottom,
+              heading &&
+              stage &&
+              Math.abs(stage.top - heading.bottom) <= 2 &&
+              shell.top <= heading.top &&
+              shell.bottom >= stage.bottom,
             ),
             stageStable:
               viewportWidth < 900 ||
               Boolean(
                 stage &&
-                  primary &&
-                  recent &&
-                  stage.height >= 600 &&
-                  primary.height >= 350 &&
-                  recent.height >= 170,
+                primary &&
+                recent &&
+                stage.height >= 600 &&
+                primary.height >= 350 &&
+                recent.height >= 170,
               ),
             unifiedContextSurface: Boolean(
               projects &&
-                (!workbuddy ||
-                  (projects.left === workbuddy.left &&
-                    projects.right === workbuddy.right &&
-                    Math.abs(projects.bottom - workbuddy.top) <= 1)),
+              (!workbuddy ||
+                (projects.left === workbuddy.left &&
+                  projects.right === workbuddy.right &&
+                  Math.abs(projects.bottom - workbuddy.top) <= 1)),
             ),
             drawerClosed: document.querySelector(".detail-drawer") === null,
             taskListFirstScreen:
@@ -487,7 +499,14 @@ try {
                 innerHeight + 1) < innerHeight,
             tabsUsable:
               tabButtons.length === 3 &&
-              tabButtons.every((item) => item.getBoundingClientRect().width >= 38),
+              tabButtons.every(
+                (item) =>
+                  item instanceof HTMLButtonElement &&
+                  !item.disabled &&
+                  item.getAttribute("aria-selected") !== null,
+              ) &&
+              document.querySelectorAll('.workbench-tabs [role="tab"][aria-selected="true"]')
+                .length === 1,
             desktopColumns:
               viewportWidth < 1024 ||
               Boolean(
