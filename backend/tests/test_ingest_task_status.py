@@ -487,6 +487,8 @@ async def test_status_response_field_whitelist(client, db_session):
         "stage",
         "status",
         "updated_at",
+        "last_progress_at",
+        "next_retry_at",
         "retryable",
         "next_action",
         "error",

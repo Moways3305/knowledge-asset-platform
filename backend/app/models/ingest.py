@@ -57,6 +57,20 @@ class IngestTask(Base):
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
     # Safe workflow marker used by the first-party status API. It never stores provider details.
     processing_stage: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # 业务级处理租约（server-only）。用于识别 OOM/SIGKILL/容器重启遗留的 processing，
+    # worker/job 标识和恢复时间绝不进入普通 API。
+    processing_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    processing_heartbeat_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    processing_attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    processing_worker_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    processing_job_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    recovery_not_before: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     target_scope: Mapped[str | None] = mapped_column(String(20), nullable=True)
     target_project_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("projects.id"), nullable=True
@@ -268,6 +282,9 @@ class IngestTaskAiResult(Base):
     # page_results 只存页码、状态、字数和置信度，不重复存储正文。
     ocr_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
     ocr_page_results: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # server-only OCR 断点正文。普通 DTO 只暴露 page_results 安全元数据；恢复时以页码
+    # 读取此字段并跳过已成功页，避免 OOM 后重复执行 Tesseract。
+    ocr_page_texts: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     ocr_confidence: Mapped[float | None] = mapped_column(nullable=True)
     ocr_attempted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

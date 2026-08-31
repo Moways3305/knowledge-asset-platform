@@ -992,9 +992,18 @@ async def list_pending(
                 error_message=t.error_message,
                 processing_stage=t.processing_stage,
                 retryable=(
-                    t.status == IngestStatus.failed.value
+                    (
+                        t.processing_stage == "processing_interrupted"
+                        or t.status == IngestStatus.failed.value
+                    )
                     and t.error_type
-                    not in {"configuration_error", "authentication_error", "model_unavailable"}
+                    not in {
+                        "configuration_error",
+                        "authentication_error",
+                        "model_unavailable",
+                        "source_file_unavailable",
+                        "ocr_resource_limit",
+                    }
                 ),
                 retry_count=t.retry_count,
                 suggested_title=display_subject,
@@ -1007,6 +1016,8 @@ async def list_pending(
                 result_asset_id=t.result_asset_id,
                 created_at=t.created_at,
                 updated_at=t.updated_at,
+                last_progress_at=t.processing_heartbeat_at or t.updated_at,
+                next_retry_at=t.recovery_not_before,
                 duplicate=await upload_duplicates.read_duplicate(
                     session,
                     caller,

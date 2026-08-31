@@ -14,11 +14,17 @@ import type { UploadFlow } from "./useUploadFlow";
 
 const PROCESSING_STAGE_LABELS: Partial<Record<IngestTaskStage, string>> = {
   upload_saved: "原件已接收",
+  processing_claimed: "任务已领取",
   text_extraction: "正在提取正文",
   ocr_queued: "OCR 等待中",
   ocr_in_progress: "正在 OCR 识别",
   ocr_failed: "OCR 识别失败",
+  ocr_too_complex: "文件过大或过于复杂",
+  ocr_complete: "OCR 已完成",
+  processing_interrupted: "处理中断，等待恢复",
+  source_unavailable: "原文件不可用，需重新上传",
   canonical_markdown_generation: "正在生成 Markdown",
+  content_generation_queued: "内容生成等待中",
   content_generation: "正在生成内容建议",
   waiting_generation_config: "等待内容生成模型配置",
   content_generation_failed: "内容生成失败",
@@ -88,6 +94,16 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
       setPendingRetryId(null);
     }
   };
+  const pendingCounts = localPendingTasks.reduce(
+    (counts, task) => {
+      if (task.processing_stage === "ocr_queued") counts.queued += 1;
+      else if (task.processing_stage === "processing_interrupted") counts.interrupted += 1;
+      else if (task.status === "failed") counts.failed += 1;
+      else if (task.status === "pending_confirmation") counts.succeeded += 1;
+      return counts;
+    },
+    { queued: 0, interrupted: 0, failed: 0, succeeded: 0 },
+  );
   const flowMeta = flowLabel(flowState);
   const canRefresh = flowState === "processing" && Boolean(processingNote);
   const hasActiveUploadQueue = localUploadQueue.some((item) =>
@@ -145,6 +161,12 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
               void handleDataTransferDrop(event.dataTransfer);
             }}
           >
+            {localPendingTasks.length > 0 && (
+              <p className="upload77-selection-reason" aria-label="入库处理状态统计">
+                排队 {pendingCounts.queued} · 中断 {pendingCounts.interrupted} · 失败{" "}
+                {pendingCounts.failed} · 已处理 {pendingCounts.succeeded}
+              </p>
+            )}
             <UploadCloud size={30} strokeWidth={1.7} aria-hidden="true" />
             <h2>{isDragging ? "松开即可逐项检查" : "拖放文件到这里"}</h2>
             <p className="dropzone-hint">
@@ -628,6 +650,15 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                                 {pendingRetryId === task.id ? "重试中…" : "重试此文件"}
                               </button>
                             )}
+                            {task.error_type === "source_file_unavailable" && (
+                              <button
+                                className="upload77-retry-link"
+                                onClick={handleReset}
+                                type="button"
+                              >
+                                重新选择原文件
+                              </button>
+                            )}
                             {pendingRetryError[task.id] && (
                               <span className="upload77-queue-error">
                                 {pendingRetryError[task.id]}
@@ -650,9 +681,14 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                                 : "建议待校正"}
                           </td>
                           <td title="最近尝试时间">
-                            {task.updated_at ? formatBeijingTime(task.updated_at) : "—"}
+                            {task.last_progress_at || task.updated_at
+                              ? formatBeijingTime(task.last_progress_at ?? task.updated_at ?? "")
+                              : "—"}
                             {Boolean(task.retry_count) && (
                               <small>第 {task.retry_count} 次恢复</small>
+                            )}
+                            {task.next_retry_at && (
+                              <small>预计 {formatBeijingTime(task.next_retry_at)} 后恢复</small>
                             )}
                           </td>
                         </tr>

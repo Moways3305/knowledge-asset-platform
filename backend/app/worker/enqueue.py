@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import get_settings
@@ -55,9 +56,45 @@ async def enqueue_ingest_processing(
             session, task_id, storage=storage, llm=llm, desensitizer=desensitizer, trace_id=trace_id
         )
     # 非 eager：推到 broker（真实 worker 自建会话/客户端执行）。
+    from app.models.ingest import IngestTask
     from app.worker.tasks.ingest import process_ingest_upload
 
-    process_ingest_upload.delay(str(task_id), trace_id)
+    task = (
+        await session.execute(select(IngestTask).where(IngestTask.id == task_id))
+    ).scalar_one_or_none()
+    settings = get_settings()
+    # PDF/image rendering is always isolated, even if a particular PDF later proves to have
+    # native text. This keeps memory-heavy format inspection away from ordinary jobs.
+    mime = (task.source_file_mime_type or "").lower() if task else ""
+    name = (task.source_file_name or "").lower() if task else ""
+    content_only_stage = bool(
+        task
+        and task.processing_stage
+        in {
+            "canonical_markdown_generation",
+            "content_generation_queued",
+            "content_generation",
+            "content_generation_failed",
+            "waiting_generation_config",
+        }
+    )
+    heavy = not content_only_stage and (
+        mime == "application/pdf"
+        or mime.startswith("image/")
+        or name.endswith((".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"))
+    )
+    queue = settings.celery_ocr_queue if heavy else settings.celery_default_queue
+    if task is not None:
+        task.status = "processing"
+        task.processing_stage = (
+            "ocr_queued"
+            if heavy
+            else task.processing_stage
+            if content_only_stage
+            else "text_extraction"
+        )
+        await session.commit()
+    process_ingest_upload.apply_async(args=[str(task_id), trace_id], queue=queue)
     return "processing"
 
 

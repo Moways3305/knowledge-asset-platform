@@ -92,6 +92,15 @@ class Settings(BaseSettings):
     celery_broker_url: str = ""
     celery_result_backend: str = ""
     celery_task_always_eager: bool = True
+    celery_default_queue: str = "default"
+    celery_ocr_queue: str = "ocr"
+
+    # 入库业务租约。worker 进程被 OOM/SIGKILL 时 Python finally 不会执行，因此由
+    # default 队列上的扫描任务按 heartbeat 判定孤儿，并做有限指数退避恢复。
+    ingest_lease_timeout_seconds: int = 900
+    ingest_recovery_scan_seconds: int = 60
+    ingest_recovery_base_delay_seconds: int = 60
+    ingest_recovery_max_attempts: int = 3
 
     # 受控本地文件存储根目录。上传的文件字节写入此处；
     # 内部存储引用（server-only）不进入任何 API 响应。生产应替换为对象存储后端。
@@ -145,6 +154,13 @@ class Settings(BaseSettings):
     ocr_command: str = "tesseract"
     ocr_languages: str = "chi_sim+eng"
     ocr_min_confidence: float = 45.0
+    ocr_render_timeout_seconds: int = 45
+    ocr_page_timeout_seconds: int = 60
+    ocr_document_timeout_seconds: int = 600
+    ocr_max_pages: int = 100
+    ocr_max_image_bytes: int = 25 * 1024 * 1024
+    ocr_max_rendered_pixels: int = 20_000_000
+    ocr_max_total_pixels: int = 100_000_000
 
     # 企业微信 OAuth 真身份 + 微盘扫描。corp_id + app_secret 配齐才启用真实集成；
     # 否则降级（OAuth 端点返回未配置，扫描走注入的 fake/Null）。**secret 绝不外泄**。

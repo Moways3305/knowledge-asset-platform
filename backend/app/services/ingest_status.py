@@ -62,6 +62,34 @@ _SAFE_ERRORS = {
         "请检查扫描清晰度后重试 OCR，或替换原文。",
     ),
     "ocr_failed": ("OCR 识别未完成，原文已保留。", "检查 OCR 服务或原文清晰度后重试此文件。"),
+    "processing_interrupted": (
+        "处理意外中断，系统已安排有限恢复。",
+        "可等待系统恢复，或使用一次“重试处理”。",
+    ),
+    "source_file_unavailable": (
+        "原文件不可用，无法继续处理。",
+        "请重新选择原文件上传；系统不会对空文件继续 OCR。",
+    ),
+    "ocr_resource_limit": (
+        "文件过大或过于复杂，OCR 已安全停止。",
+        "请拆分文件、降低扫描分辨率，或转为人工处理。",
+    ),
+    "ocr_timeout": (
+        "OCR 处理超时，已停止当前尝试。",
+        "系统会有限恢复；也可稍后使用一次“重试处理”。",
+    ),
+    "ocr_source_invalid": (
+        "PDF 或图片无法读取。",
+        "请检查文件是否损坏，并重新选择原文件。",
+    ),
+    "ocr_low_confidence": (
+        "OCR 结果置信度不足，未继续入库。",
+        "请换用更清晰的原文件，或在确认清晰度后重试处理。",
+    ),
+    "ocr_service_unavailable": (
+        "OCR 服务暂不可用。",
+        "请稍后重试；原文件已安全保留。",
+    ),
     "content_generation_unavailable": (
         "内容建议未生成，已保留原文和前置处理结果。",
         "请管理员修复内容生成模型配置，系统将从内容生成阶段恢复。",
@@ -104,6 +132,18 @@ def _index_error(code: str | None) -> IngestTaskSafeError:
         message=error_catalog.user_message(safe_code),
         recovery_hint="稍后重试；若持续失败，请联系管理员检查知识底座配置与服务状态。",
     )
+
+
+def _ocr_error(code: str | None) -> IngestTaskSafeError:
+    if code in {"ocr_page_timeout", "ocr_render_timeout", "ocr_document_timeout"}:
+        return _safe_error("ocr_timeout")
+    if code == "ocr_source_invalid":
+        return _safe_error("ocr_source_invalid")
+    if code == "ocr_low_confidence":
+        return _safe_error("ocr_low_confidence")
+    if code in {"ocr_not_configured", "ocr_disabled", "ocr_process_failed"}:
+        return _safe_error("ocr_service_unavailable")
+    return _safe_error("ocr_failed")
 
 
 async def _load_context(
@@ -206,7 +246,12 @@ def _response(ctx: _TaskContext, caller: CallerContext) -> IngestTaskStatusRespo
             if stage_value in {item.value for item in IngestTaskStage}
             else IngestTaskStage.text_extraction
         )
-        if task.error_type == "processing_error":
+        if task.processing_stage == "processing_interrupted":
+            status = IngestTaskWorkflowStatus.action_required
+            retryable = task.created_by == caller.user_id or caller.can_discover_l5
+            error = _safe_error("processing_interrupted")
+            next_action = _action("retry_processing", "ingest_task_retry", enabled=retryable)
+        elif task.error_type == "processing_error":
             stage = IngestTaskStage.failed
             status = IngestTaskWorkflowStatus.failed
             retryable = task.created_by == caller.user_id or caller.can_discover_l5
@@ -251,14 +296,35 @@ def _response(ctx: _TaskContext, caller: CallerContext) -> IngestTaskStatusRespo
             else IngestTaskStage.failed
         )
         status = IngestTaskWorkflowStatus.failed
-        if task.error_type == "processing_error":
+        if task.error_type == "source_file_unavailable":
+            error = _safe_error("source_file_unavailable")
+            next_action = _action("replace_file", "upload")
+        elif task.error_type == "ocr_resource_limit":
+            error = _safe_error("ocr_resource_limit")
+            next_action = _action("replace_file", "upload")
+        elif task.error_type in {
+            "worker_lost",
+            "broker_or_container_restart",
+            "worker_lost_recovery_exhausted",
+        }:
+            retryable = task.created_by == caller.user_id or caller.can_discover_l5
+            error = _safe_error("processing_interrupted")
+            next_action = _action("retry_processing", "ingest_task_retry", enabled=retryable)
+        elif task.error_type == "processing_error":
             retryable = task.created_by == caller.user_id or caller.can_discover_l5
             error = _safe_error("ingest_processing_failed")
             next_action = _action("retry_processing", "ingest_task_retry", enabled=retryable)
         elif task.processing_stage == "ocr_failed":
-            retryable = task.created_by == caller.user_id or caller.can_discover_l5
-            error = _safe_error("ocr_failed")
-            next_action = _action("retry_ocr", "ingest_task_retry", enabled=retryable)
+            retryable = bool(
+                task.error_type != "ocr_source_invalid"
+                and (task.created_by == caller.user_id or caller.can_discover_l5)
+            )
+            error = _ocr_error(task.error_type)
+            next_action = (
+                _action("retry_processing", "ingest_task_retry", enabled=True)
+                if retryable
+                else _action("replace_file", "upload")
+            )
         elif task.processing_stage in {
             "waiting_generation_config",
             "content_generation_failed",
@@ -327,6 +393,8 @@ def _response(ctx: _TaskContext, caller: CallerContext) -> IngestTaskStatusRespo
         stage=stage,
         status=status,
         updated_at=task.updated_at,
+        last_progress_at=task.processing_heartbeat_at or task.updated_at,
+        next_retry_at=task.recovery_not_before,
         retryable=retryable,
         next_action=next_action,
         error=error,
@@ -462,16 +530,28 @@ async def retry_task(
                     )
                 )
                 await session.commit()
-    elif (
-        task.status in {IngestStatus.failed.value, IngestStatus.processing.value}
-        and task.error_type == "processing_error"
-    ):
+    elif task.status in {
+        IngestStatus.failed.value,
+        IngestStatus.processing.value,
+    } and task.error_type in {
+        "processing_error",
+        "worker_lost",
+        "broker_or_container_restart",
+        "worker_lost_recovery_exhausted",
+    }:
         claim = await session.execute(
             update(IngestTask)
             .where(
                 IngestTask.id == task.id,
                 IngestTask.status.in_({IngestStatus.failed.value, IngestStatus.processing.value}),
-                IngestTask.error_type == "processing_error",
+                IngestTask.error_type.in_(
+                    {
+                        "processing_error",
+                        "worker_lost",
+                        "broker_or_container_restart",
+                        "worker_lost_recovery_exhausted",
+                    }
+                ),
             )
             .values(
                 status=IngestStatus.processing.value,
@@ -483,6 +563,9 @@ async def retry_task(
                 retry_count=0,
                 error_type=None,
                 error_message=None,
+                processing_worker_id=None,
+                processing_job_id=None,
+                recovery_not_before=None,
             )
         )
         await session.commit()
