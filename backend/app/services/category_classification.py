@@ -63,7 +63,10 @@ async def _candidate_context(
         target_label = f"项目知识库 / {project.name}" if project is not None else "项目知识库"
     else:
         target_label = "公司知识库"
-    return _CandidateContext(options.rule_version, target_label, options.categories)
+    # Category classification was retired in favor of explicit formal-directory
+    # selection.  Keep this legacy service fail-closed for historical callers
+    # without reintroducing the removed category field on the public contract.
+    return _CandidateContext(options.rule_version, target_label, [])
 
 
 def _stored(ai: IngestTaskAiResult | None) -> dict | None:

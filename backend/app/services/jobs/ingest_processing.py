@@ -53,7 +53,6 @@ from app.schemas.enums import (
     IngestStatus,
     KnowledgeScope,
 )
-from app.schemas.naming import NamingOptionsResponse
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 from app.services import (
@@ -61,7 +60,6 @@ from app.services import (
     content_processing,
     domain_events,
     llm_usage,
-    naming_rules,
     ocr,
 )
 from app.services.desensitization import DesensitizationEngine
@@ -158,71 +156,6 @@ async def _build_actor(session: AsyncSession, task: IngestTask) -> CallerContext
         active_company_roles=set(),
         active_project_ids=set(),
     )
-
-
-async def _generation_category_context(
-    session: AsyncSession, task: IngestTask, actor: CallerContext
-) -> dict | None:
-    contexts: list[tuple[KnowledgeScope, NamingOptionsResponse]] = []
-    if task.target_scope in {KnowledgeScope.project.value, KnowledgeScope.company.value}:
-        try:
-            scope = KnowledgeScope(task.target_scope)
-            contexts.append(
-                (scope, await naming_rules.options(session, actor, scope, task.target_project_id))
-            )
-        except Exception:  # permissions/rules fail closed without breaking content generation
-            return None
-    else:
-        if actor.active_project_ids:
-            for representative in sorted(actor.active_project_ids, key=str):
-                try:
-                    contexts.append(
-                        (
-                            KnowledgeScope.project,
-                            await naming_rules.options(
-                                session, actor, KnowledgeScope.project, representative
-                            ),
-                        )
-                    )
-                    break
-                except Exception:
-                    continue
-        if actor.can_discover_l5:
-            try:
-                contexts.append(
-                    (
-                        KnowledgeScope.company,
-                        await naming_rules.options(session, actor, KnowledgeScope.company, None),
-                    )
-                )
-            except Exception:
-                pass
-    contexts = [(scope, options) for scope, options in contexts if options.rule_version is not None]
-    if not contexts:
-        return None
-    revisions = {options.rule_version for _scope, options in contexts}
-    if len(revisions) != 1:
-        return None
-    pending_selection = task.target_scope not in {
-        KnowledgeScope.project.value,
-        KnowledgeScope.company.value,
-    }
-    return {
-        "target_scope": "pending_selection" if pending_selection else contexts[0][0].value,
-        "target_project_id": str(task.target_project_id) if task.target_project_id else None,
-        "rule_revision": revisions.pop(),
-        "candidates": [
-            {
-                "id": str(item.id),
-                "scope": scope.value,
-                "display_name": f"{item.primary} / {item.secondary}",
-                "description": (item.description or "")[:160] or None,
-            }
-            for scope, options in contexts
-            for item in options.categories
-            if item.enabled and item.scope == scope.value
-        ],
-    }
 
 
 async def _reusable_ai_draft(
@@ -764,14 +697,16 @@ async def _process_upload_task_impl(
                 task,
                 code="canonical_markdown_extraction_failed",
             )
-        category_context = await _generation_category_context(session, task, actor)
+        # Formal directories are selected explicitly at confirmation time.  Do
+        # not ask the model to infer a retired category from document content.
+        category_context: dict[str, object] | None = None
         target_scope = task.target_scope or "unscoped"
         target_project = str(task.target_project_id) if task.target_project_id else None
         generation_fingerprint = llm_usage.cache_fingerprint(
             content_hash=content_hash,
             scope=target_scope,
             project_id=target_project,
-            rule_revision=int((category_context or {}).get("rule_revision") or 0),
+            rule_revision=0,
             provider=getattr(llm, "provider", ""),
             model=getattr(llm, "model", ""),
         )

@@ -93,7 +93,7 @@ async def _ensure_initial_revisions(session: AsyncSession) -> None:
     existing = await session.scalar(select(func.count()).select_from(NamingRuleRevision))
     if existing:
         return
-    initial = NamingRuleConfig(enforced=True, directories=default_directory_config()).model_dump(
+    initial = NamingRuleConfig(enforced=True, directories=_default_directories()).model_dump(
         mode="json"
     )
     session.add_all(
