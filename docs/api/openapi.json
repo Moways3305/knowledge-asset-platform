@@ -11878,6 +11878,166 @@
         "title": "PreviewIssueResponse",
         "type": "object"
       },
+      "ProcessingTimeoutPreflight": {
+        "properties": {
+          "ocr_worker_ready": {
+            "title": "Ocr Worker Ready",
+            "type": "boolean"
+          },
+          "oom_kill_count": {
+            "title": "Oom Kill Count",
+            "type": "integer"
+          },
+          "queue_within_budget": {
+            "title": "Queue Within Budget",
+            "type": "boolean"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "redis_ready": {
+            "title": "Redis Ready",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "redis_ready",
+          "ocr_worker_ready",
+          "queue_within_budget",
+          "oom_kill_count",
+          "ready"
+        ],
+        "title": "ProcessingTimeoutPreflight",
+        "type": "object"
+      },
+      "ProcessingTimeoutRecoveryRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "dry_run": {
+            "default": true,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "expected_oom_kill_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Oom Kill Count"
+          },
+          "limit": {
+            "default": 3,
+            "maximum": 3.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "title": "ProcessingTimeoutRecoveryRequest",
+        "type": "object"
+      },
+      "ProcessingTimeoutRecoveryResponse": {
+        "properties": {
+          "candidates": {
+            "title": "Candidates",
+            "type": "integer"
+          },
+          "claimed": {
+            "title": "Claimed",
+            "type": "integer"
+          },
+          "conflicts": {
+            "title": "Conflicts",
+            "type": "integer"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "enqueued": {
+            "title": "Enqueued",
+            "type": "integer"
+          },
+          "next_batch_not_before": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Batch Not Before"
+          },
+          "preflight": {
+            "$ref": "#/components/schemas/ProcessingTimeoutPreflight"
+          },
+          "scanned": {
+            "title": "Scanned",
+            "type": "integer"
+          },
+          "selected": {
+            "title": "Selected",
+            "type": "integer"
+          },
+          "source_unavailable": {
+            "title": "Source Unavailable",
+            "type": "integer"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Reason"
+          },
+          "stopped": {
+            "title": "Stopped",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "dry_run",
+          "scanned",
+          "candidates",
+          "source_unavailable",
+          "selected",
+          "claimed",
+          "enqueued",
+          "conflicts",
+          "stopped",
+          "preflight"
+        ],
+        "title": "ProcessingTimeoutRecoveryResponse",
+        "type": "object"
+      },
       "ProjectCodeConfig": {
         "properties": {
           "client_aliases": {
@@ -18171,10 +18331,24 @@
       "WorkbuddyTokenCreatedOut": {
         "description": "生成 / 重置结果：明文 token 仅此一次返回，附可直接复制的 mcp.json 配置。",
         "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
           "mcp_config": {
             "additionalProperties": true,
             "title": "Mcp Config",
             "type": "object"
+          },
+          "mode": {
+            "default": "remote",
+            "enum": [
+              "remote",
+              "local_connector"
+            ],
+            "title": "Mode",
+            "type": "string"
           },
           "platform": {
             "enum": [
@@ -18192,7 +18366,8 @@
         "required": [
           "token",
           "mcp_config",
-          "platform"
+          "platform",
+          "expires_at"
         ],
         "title": "WorkbuddyTokenCreatedOut",
         "type": "object"
@@ -18212,7 +18387,17 @@
             ],
             "title": "Connector Path"
           },
+          "mode": {
+            "default": "remote",
+            "enum": [
+              "remote",
+              "local_connector"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
           "platform": {
+            "default": "windows",
             "enum": [
               "windows",
               "macos"
@@ -18221,9 +18406,6 @@
             "type": "string"
           }
         },
-        "required": [
-          "platform"
-        ],
         "title": "WorkbuddyTokenRegenerateIn",
         "type": "object"
       },
@@ -18241,9 +18423,30 @@
             ],
             "title": "Bound User Name"
           },
+          "connection_mode": {
+            "default": "remote",
+            "enum": [
+              "remote",
+              "local_connector"
+            ],
+            "title": "Connection Mode",
+            "type": "string"
+          },
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
           },
           "last_connected_at": {
             "anyOf": [
@@ -19228,6 +19431,199 @@
           }
         },
         "summary": "Ops Indexing Retry",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/admin/ops/ingest/processing-timeout-recovery": {
+      "post": {
+        "description": "Default-dry-run, aggregate-only recovery of at most three historical timeouts.",
+        "operationId": "ops_processing_timeout_recovery_admin_ops_ingest_processing_timeout_recovery_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProcessingTimeoutRecoveryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessingTimeoutRecoveryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ops Processing Timeout Recovery",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/admin/ops/ingest/processing-timeout-recovery/{task_id}": {
+      "post": {
+        "operationId": "ops_single_processing_timeout_recovery_admin_ops_ingest_processing_timeout_recovery__task_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Dev-User-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Dev-User-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "kap_active_company_role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kap Active Company Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProcessingTimeoutRecoveryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessingTimeoutRecoveryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ops Single Processing Timeout Recovery",
         "tags": [
           "ops"
         ]
