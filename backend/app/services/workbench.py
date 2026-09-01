@@ -40,6 +40,7 @@ from app.services import knowledge_insights as insights_service
 from app.services import original_access as original_access_service
 from app.services import review as review_service
 from app.services.discoverable_projects import list_knowledge_library_projects
+from app.services.storage import LocalFileStorage
 
 _logger = logging.getLogger(__name__)
 _SectionT = TypeVar("_SectionT", bound=BaseModel)
@@ -180,7 +181,10 @@ async def _caller_name(session: AsyncSession, caller: CallerContext) -> str:
 
 
 async def build_task_center(
-    session: AsyncSession, caller: CallerContext
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    storage: LocalFileStorage | None = None,
 ) -> WorkbenchTaskCenterSection:
     """Aggregate real task sources through their existing permission-filtered services."""
     is_ops_viewer = "admin" in caller.active_company_roles or caller.can_discover_l5
@@ -277,6 +281,7 @@ async def build_task_center(
         ingest_items = await ingest_service.list_pending(
             session,
             caller,
+            storage=storage,
             statuses={
                 "pending",
                 "processing",
@@ -319,9 +324,24 @@ async def build_task_center(
                 if actionable
                 else None,
                 next_action_label=(
-                    "修正或重试" if failed else "核对并确认" if actionable else "等待处理完成"
+                    "重试处理"
+                    if ingest_item.error_type == "processing_timeout"
+                    else "重新上传"
+                    if ingest_item.error_type == "source_file_unavailable"
+                    else "修正或重试"
+                    if failed
+                    else "核对并确认"
+                    if actionable
+                    else "等待处理完成"
                 ),
                 route_key="upload",
+                result_summary=(
+                    "处理超时，文件仍可重试"
+                    if ingest_item.error_type == "processing_timeout"
+                    else "源文件不可用，请重新上传"
+                    if ingest_item.error_type == "source_file_unavailable"
+                    else None
+                ),
             )
             (my_tasks if actionable else running_jobs).append(task)
 
@@ -717,12 +737,17 @@ async def build_recent_activity(
     )
 
 
-async def get_overview(session: AsyncSession, caller: CallerContext) -> WorkbenchOverviewResponse:
+async def get_overview(
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    storage: LocalFileStorage | None = None,
+) -> WorkbenchOverviewResponse:
     """Return all partitions even when one internal dependency fails."""
     task_center = await _load_section(
         session,
         "task_center",
-        lambda: build_task_center(session, caller),
+        lambda: build_task_center(session, caller, storage=storage),
         WorkbenchTaskCenterSection,
     )
     todos = await _load_section(

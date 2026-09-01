@@ -66,6 +66,10 @@ _SAFE_ERRORS = {
         "处理意外中断，系统已安排有限恢复。",
         "可等待系统恢复，或使用一次“重试处理”。",
     ),
+    "processing_timeout": (
+        "处理超时，文件仍可重试。",
+        "源文件已保留；可使用“重试处理”，若无法操作请联系管理员。",
+    ),
     "source_file_unavailable": (
         "原文件不可用，无法继续处理。",
         "请重新选择原文件上传；系统不会对空文件继续 OCR。",
@@ -229,7 +233,12 @@ def _generation_error(task: IngestTask) -> IngestTaskSafeError:
     )
 
 
-def _response(ctx: _TaskContext, caller: CallerContext) -> IngestTaskStatusResponse:
+def _response(
+    ctx: _TaskContext,
+    caller: CallerContext,
+    *,
+    source_available: bool | None = None,
+) -> IngestTaskStatusResponse:
     task, review, asset, version = ctx.task, ctx.review, ctx.asset, ctx.version
     stage = IngestTaskStage.upload_saved
     status = IngestTaskWorkflowStatus.processing
@@ -299,6 +308,22 @@ def _response(ctx: _TaskContext, caller: CallerContext) -> IngestTaskStatusRespo
         if task.error_type == "source_file_unavailable":
             error = _safe_error("source_file_unavailable")
             next_action = _action("replace_file", "upload")
+        elif task.error_type == "processing_timeout":
+            if source_available is False:
+                error = _safe_error("source_file_unavailable")
+                next_action = _action("replace_file", "upload")
+            else:
+                retryable = bool(
+                    task.source == "path_b_upload"
+                    and task.result_asset_id is None
+                    and (task.created_by == caller.user_id or caller.can_discover_l5)
+                )
+                error = _safe_error("processing_timeout")
+                next_action = _action(
+                    "retry_processing" if retryable else "contact_admin",
+                    "ingest_task_retry" if retryable else None,
+                    enabled=retryable,
+                )
         elif task.error_type == "ocr_resource_limit":
             error = _safe_error("ocr_resource_limit")
             next_action = _action("replace_file", "upload")
@@ -404,9 +429,17 @@ def _response(ctx: _TaskContext, caller: CallerContext) -> IngestTaskStatusRespo
 
 
 async def get_task_status(
-    session: AsyncSession, caller: CallerContext, task_id: uuid.UUID
+    session: AsyncSession,
+    caller: CallerContext,
+    task_id: uuid.UUID,
+    *,
+    storage: LocalFileStorage | None = None,
 ) -> IngestTaskStatusResponse:
-    return _response(await _load_context(session, caller, task_id), caller)
+    ctx = await _load_context(session, caller, task_id)
+    source_available = None
+    if ctx.task.error_type == "processing_timeout" and storage is not None:
+        source_available = storage.inspect(ctx.task.source_file_ref).available
+    return _response(ctx, caller, source_available=source_available)
 
 
 async def retry_task(
@@ -421,12 +454,145 @@ async def retry_task(
     trace_id: str,
 ) -> IngestTaskStatusResponse:
     ctx = await _load_context(session, caller, task_id)
-    current = _response(ctx, caller)
+    source_available = None
+    if ctx.task.error_type == "processing_timeout":
+        source_available = storage.inspect(ctx.task.source_file_ref).available
+        task = ctx.task
+        if (
+            source_available is False
+            and task.source == "path_b_upload"
+            and task.status == IngestStatus.failed.value
+            and task.result_asset_id is None
+            and (task.created_by == caller.user_id or caller.can_discover_l5)
+        ):
+            claim = await session.execute(
+                update(IngestTask)
+                .where(
+                    IngestTask.id == task.id,
+                    IngestTask.source == "path_b_upload",
+                    IngestTask.status == IngestStatus.failed.value,
+                    IngestTask.error_type == "processing_timeout",
+                    IngestTask.result_asset_id.is_(None),
+                )
+                .values(
+                    processing_stage="source_unavailable",
+                    error_type="source_file_unavailable",
+                    error_message="源文件不可用，请重新上传。",
+                )
+            )
+            if getattr(claim, "rowcount", 0) == 1:
+                await audit_service.record_event(
+                    session,
+                    caller=caller,
+                    log_type=AuditLogType.operation,
+                    action=AuditAction.ingest_timeout_recovery_rejected.value,
+                    trace_id=trace_id,
+                    target_type="ingest_task",
+                    target_id=task.id,
+                    extra={"reason": "source_file_unavailable", "scope": "single_task"},
+                    project_id=task.target_project_id,
+                )
+                await session.commit()
+            session.expire_all()
+            return await get_task_status(session, caller, task_id, storage=storage)
+    current = _response(ctx, caller, source_available=source_available)
     if not current.retryable:
         return current
 
     task = ctx.task
-    if task.status in {IngestStatus.pending_confirmation.value, IngestStatus.failed.value} and (
+    if task.status == IngestStatus.failed.value and task.error_type == "processing_timeout":
+        inspection = storage.inspect(task.source_file_ref)
+        if not inspection.available:  # defensive: the preflight above already converges this case
+            return await get_task_status(session, caller, task_id, storage=storage)
+        claim = await session.execute(
+            update(IngestTask)
+            .where(
+                IngestTask.id == task.id,
+                IngestTask.source == "path_b_upload",
+                IngestTask.status == IngestStatus.failed.value,
+                IngestTask.error_type == "processing_timeout",
+                IngestTask.result_asset_id.is_(None),
+            )
+            .values(
+                status=IngestStatus.processing.value,
+                processing_stage="text_extraction",
+                error_type=None,
+                error_message=None,
+                processing_worker_id=None,
+                processing_job_id=None,
+                recovery_not_before=None,
+                retry_count=IngestTask.retry_count + 1,
+            )
+        )
+        if getattr(claim, "rowcount", 0) != 1:
+            await session.rollback()
+            session.expire_all()
+            return await get_task_status(session, caller, task_id, storage=storage)
+        await audit_service.record_event(
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=AuditAction.ingest_timeout_recovery_confirmed.value,
+            trace_id=trace_id,
+            target_type="ingest_task",
+            target_id=task.id,
+            extra={"scope": "single_task", "source_preflight": "passed"},
+            project_id=task.target_project_id,
+        )
+        await session.commit()
+        try:
+            await enqueue_ingest_processing(
+                session,
+                task.id,
+                storage=storage,
+                llm=llm,
+                desensitizer=desensitizer,
+                trace_id=trace_id,
+            )
+        except Exception as exc:
+            safe_log_exception(
+                _logger,
+                "ingest_processing_timeout_retry_enqueue_failed",
+                exc,
+                include_summary=False,
+                task_id=str(task.id),
+            )
+            await session.execute(
+                update(IngestTask)
+                .where(IngestTask.id == task.id, IngestTask.status == IngestStatus.processing.value)
+                .values(
+                    status=IngestStatus.failed.value,
+                    processing_stage="failed",
+                    error_type="processing_timeout",
+                    error_message="恢复任务暂时无法排队。",
+                )
+            )
+            await audit_service.record_event(
+                session,
+                caller=caller,
+                log_type=AuditLogType.operation,
+                action=AuditAction.ingest_timeout_recovery_enqueue_failed.value,
+                trace_id=trace_id,
+                target_type="ingest_task",
+                target_id=task.id,
+                extra={"reason": "queue_unavailable", "scope": "single_task"},
+                project_id=task.target_project_id,
+            )
+            await session.commit()
+        else:
+            await audit_service.record_event(
+                session,
+                caller=caller,
+                log_type=AuditLogType.operation,
+                action=AuditAction.ingest_timeout_recovery_enqueued.value,
+                trace_id=trace_id,
+                target_type="ingest_task",
+                target_id=task.id,
+                extra={"scope": "single_task", "result": "enqueued"},
+                project_id=task.target_project_id,
+            )
+            await session.commit()
+    elif task.status in {IngestStatus.pending_confirmation.value, IngestStatus.failed.value} and (
         task.processing_stage
         in {
             "waiting_generation_config",
@@ -455,7 +621,7 @@ async def retry_task(
         if getattr(claim, "rowcount", 0) != 1:
             await session.rollback()
             session.expire_all()
-            return await get_task_status(session, caller, task_id)
+            return await get_task_status(session, caller, task_id, storage=storage)
         await audit_service.record_event(
             session,
             caller=caller,
@@ -571,7 +737,7 @@ async def retry_task(
         await session.commit()
         if getattr(claim, "rowcount", 0) != 1:
             session.expire_all()
-            return await get_task_status(session, caller, task_id)
+            return await get_task_status(session, caller, task_id, storage=storage)
         try:
             await enqueue_ingest_processing(
                 session,
@@ -636,7 +802,7 @@ async def retry_task(
                 storage=storage,
                 trace_id=trace_id,
             )
-    return await get_task_status(session, caller, task_id)
+    return await get_task_status(session, caller, task_id, storage=storage)
 
 
 async def resume_waiting_generation_tasks(

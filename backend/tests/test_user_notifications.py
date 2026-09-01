@@ -84,6 +84,86 @@ async def test_project_review_delivery_only_targets_active_project_manager(db_se
     assert USER_ADMIN_ONLY not in recipients
 
 
+async def test_processing_timeout_notification_uses_retryable_safe_copy(client, db_session):
+    source_ref = client._kap_storage.save(b"recoverable", original_name="timeout.txt")
+    task = IngestTask(
+        source="path_b_upload",
+        source_file_ref=source_ref,
+        source_file_name="timeout.txt",
+        status="failed",
+        error_type="processing_timeout",
+        created_by=USER_CONSULTANT,
+    )
+    db_session.add(task)
+    await db_session.flush()
+    db_session.add(
+        BusinessNotification(
+            recipient_user_id=USER_CONSULTANT,
+            event_type="ingest.failed",
+            category="ingest",
+            title="入库处理未完成",
+            summary="你提交的一项入库任务需要处理。",
+            target_kind="ingest_task",
+            target_id=task.id,
+            dedup_key=f"ingest.failed:{task.id}",
+            channel="in_app",
+            delivery_status="pending",
+        )
+    )
+    await db_session.commit()
+
+    response = await client.get(API, headers=_headers(USER_CONSULTANT))
+    item = next(
+        value
+        for value in response.json()["items"]
+        if value["target"]["resource_id"] == str(task.id)
+    )
+    assert item["failure_reason"] == "处理超时，文件仍可重试"
+    assert item["next_action_label"] == "重试处理"
+    assert item["recovery_suggestion"] == "打开上传页使用“重试处理”；若无法操作请联系管理员。"
+    assert "internal://" not in response.text
+
+
+async def test_processing_timeout_notification_requires_reupload_when_source_is_missing(
+    client, db_session
+):
+    task = IngestTask(
+        source="path_b_upload",
+        source_file_ref=f"internal://{uuid.uuid4().hex}/missing.txt",
+        source_file_name="missing.txt",
+        status="failed",
+        error_type="processing_timeout",
+        created_by=USER_CONSULTANT,
+    )
+    db_session.add(task)
+    await db_session.flush()
+    db_session.add(
+        BusinessNotification(
+            recipient_user_id=USER_CONSULTANT,
+            event_type="ingest.failed",
+            category="ingest",
+            title="入库处理未完成",
+            summary="你提交的一项入库任务需要处理。",
+            target_kind="ingest_task",
+            target_id=task.id,
+            dedup_key=f"ingest.failed:{task.id}",
+            channel="in_app",
+            delivery_status="pending",
+        )
+    )
+    await db_session.commit()
+
+    response = await client.get(API, headers=_headers(USER_CONSULTANT))
+    item = next(
+        value
+        for value in response.json()["items"]
+        if value["target"]["resource_id"] == str(task.id)
+    )
+    assert item["failure_reason"] == "源文件不可用，请重新上传"
+    assert item["next_action_label"] == "重新上传"
+    assert item["recovery_suggestion"] == "请重新选择原文件上传。"
+
+
 async def test_company_confirmation_maps_only_to_active_governance_roles(db_session):
     task = ReviewTask(
         review_type=ReviewType.project_to_company.value,

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.ingest import IngestTask, UploadSession
 from app.schemas.ingest import UploadSessionItemResponse, UploadSessionResponse
 from app.schemas.permission import CallerContext
+from app.services.storage import LocalFileStorage
 from app.services.upload_duplicates import read_duplicate
 from app.services.upload_session_state import COMPLETED_ITEM_STATES, TERMINAL_ITEM_STATES
 
@@ -34,7 +35,11 @@ def visible_processing_stage(stage: str | None) -> str | None:
 
 
 async def build_response(
-    session: AsyncSession, caller: CallerContext, value: UploadSession
+    session: AsyncSession,
+    caller: CallerContext,
+    value: UploadSession,
+    *,
+    storage: LocalFileStorage,
 ) -> UploadSessionResponse:
     visible_items = [item for item in value.items if item.status != "cancelled"]
     task_ids = [item.ingest_task_id for item in visible_items if item.ingest_task_id]
@@ -59,6 +64,9 @@ async def build_response(
             .scalars()
             .all()
         )
+    }
+    source_available = {
+        task_id: storage.inspect(task.source_file_ref).available for task_id, task in tasks.items()
     }
     duplicates = {
         task_id: await read_duplicate(
@@ -103,12 +111,31 @@ async def build_response(
                 file_size=item.file_size,
                 file_type=item.file_type,
                 status=item.status,
-                error_code=item.safe_error_code,
-                error_message=item.safe_error_message,
+                error_code=(
+                    "source_file_unavailable"
+                    if item.ingest_task_id is not None
+                    and task_facts.get(item.ingest_task_id, (None, 0, None, None))[2]
+                    == "processing_timeout"
+                    and not source_available.get(item.ingest_task_id, False)
+                    else item.safe_error_code
+                ),
+                error_message=(
+                    "源文件不可用，请重新上传"
+                    if item.ingest_task_id is not None
+                    and task_facts.get(item.ingest_task_id, (None, 0, None, None))[2]
+                    == "processing_timeout"
+                    and not source_available.get(item.ingest_task_id, False)
+                    else "处理超时，文件仍可重试"
+                    if item.ingest_task_id is not None
+                    and task_facts.get(item.ingest_task_id, (None, 0, None, None))[2]
+                    == "processing_timeout"
+                    else item.safe_error_message
+                ),
                 same_name_warning=item.same_name_warning,
                 retryable=(
                     item.status == "failed"
                     and item.ingest_task_id is not None
+                    and source_available.get(item.ingest_task_id, False)
                     and task_facts.get(item.ingest_task_id, (None, 0, None, None))[2]
                     not in {"configuration_error", "authentication_error", "model_unavailable"}
                 ),
@@ -127,7 +154,10 @@ async def build_response(
                     if item.ingest_task_id is not None
                     else None
                 ),
-                bytes_available=item.ingest_task_id is not None,
+                bytes_available=(
+                    item.ingest_task_id is not None
+                    and source_available.get(item.ingest_task_id, False)
+                ),
                 duplicate=(
                     duplicates.get(item.ingest_task_id) if item.ingest_task_id is not None else None
                 ),

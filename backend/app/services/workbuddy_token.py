@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import re
+from datetime import timedelta, timezone
 from urllib.parse import urlsplit
 
 from sqlalchemy import desc, select
@@ -26,6 +27,7 @@ from app.models.agent_registry import AgentWhitelistRule
 from app.schemas.enums import AuditAction, AuditLogType
 from app.schemas.permission import CallerContext
 from app.schemas.workbuddy import (
+    WorkbuddyConnectionMode,
     WorkbuddyPlatform,
     WorkbuddyTokenCreatedOut,
     WorkbuddyTokenStatusOut,
@@ -124,8 +126,19 @@ def _mcp_config(
     base_url: str,
     token: str,
     command: str,
+    mode: WorkbuddyConnectionMode,
 ) -> dict:
-    """可直接复制到 WorkBuddy `mcp.json` 的本地 stdio 配置。"""
+    """One-time authenticated config; public examples never include the bearer."""
+    if mode == "remote":
+        return {
+            "mcpServers": {
+                "kap": {
+                    "type": "http",
+                    "url": f"{base_url}/mcp",
+                    "headers": {"Authorization": f"Bearer {token}"},
+                }
+            }
+        }
     return {
         "mcpServers": {
             "kap": {
@@ -177,7 +190,13 @@ async def get_status(session: AsyncSession, caller: CallerContext) -> WorkbuddyT
     user = await load_user_with_roles(session, user_id=caller.user_id)
     name = user.name if user is not None else None
     rule = await _find_rule(session, caller.user_id)
-    if rule is None or not rule.enabled:
+    expires_at = rule.token_expires_at if rule is not None else None
+    expired = bool(
+        expires_at is not None
+        and (expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc))
+        <= utc_now()
+    )
+    if rule is None or not rule.enabled or expired:
         return WorkbuddyTokenStatusOut(enabled=False, bound_user_name=name)
     return WorkbuddyTokenStatusOut(
         enabled=True,
@@ -185,6 +204,10 @@ async def get_status(session: AsyncSession, caller: CallerContext) -> WorkbuddyT
         bound_user_name=name,
         last_rotated_at=rule.token_rotated_at,
         last_connected_at=rule.last_connected_at,
+        expires_at=expires_at,
+        connection_mode=(
+            "local_connector" if rule.workbuddy_connection_mode == "local_connector" else "remote"
+        ),
     )
 
 
@@ -193,16 +216,26 @@ async def regenerate(
     caller: CallerContext,
     *,
     platform: WorkbuddyPlatform,
+    mode: WorkbuddyConnectionMode = "remote",
     connector_path: str | None = None,
     trace_id: str | None,
 ) -> WorkbuddyTokenCreatedOut:
     """为当前业务用户创建或重置自助 token（绑定 caller 本人；明文一次性返回）。"""
     _require_business(caller)
     base_url = public_base_url()
-    command = _connector_command(platform, connector_path)
+    if mode == "remote" and connector_path is not None:
+        raise denied(
+            422,
+            "workbuddy_connector_path_not_allowed",
+            "远程连接模式不接受本地连接器路径",
+        )
+    command = _connector_command(platform, connector_path) if mode == "local_connector" else ""
     token = agent_registry.generate_token()
     token_hash = agent_registry.hash_token(token)
     now = utc_now()
+    expires_at = now + timedelta(
+        hours=max(1, min(get_settings().workbuddy_remote_token_ttl_hours, 24 * 30))
+    )
     rule = await _find_rule(session, caller.user_id)
     if rule is None:
         managed_rule = (
@@ -235,6 +268,8 @@ async def regenerate(
             is_self_service=True,
             bound_user_id=caller.user_id,  # 服务端强制绑定 caller，忽略任何外部输入
             token_rotated_at=now,
+            token_expires_at=expires_at,
+            workbuddy_connection_mode=mode,
         )
         session.add(rule)
     else:
@@ -244,6 +279,8 @@ async def regenerate(
         rule.max_confidentiality_level = _MAX_CONF
         rule.max_ai_access_level = _MAX_AI
         rule.token_rotated_at = now
+        rule.token_expires_at = expires_at
+        rule.workbuddy_connection_mode = mode
     # 新 token 尚未完成任何真实调用，不能继承旧 token 的连接成功状态。
     rule.last_connected_at = None
     await session.flush()
@@ -260,8 +297,10 @@ async def regenerate(
     await session.commit()
     return WorkbuddyTokenCreatedOut(
         token=token,
-        mcp_config=_mcp_config(base_url, token, command),
+        mcp_config=_mcp_config(base_url, token, command, mode),
         platform=platform,
+        mode=mode,
+        expires_at=expires_at,
     )
 
 

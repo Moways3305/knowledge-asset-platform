@@ -13,9 +13,10 @@ from app.models.ingest import (
     UploadSession,
     UploadSessionItem,
 )
-from app.schemas.enums import IngestStatus
+from app.schemas.enums import AuditAction, AuditLogType, IngestStatus
 from app.schemas.ingest import UploadSessionListResponse, UploadSessionResponse
 from app.schemas.permission import CallerContext
+from app.services import audit as audit_service
 from app.services.desensitization import DesensitizationEngine
 from app.services.llm_client import LLMClient, NullLLMClient
 from app.services.storage import LocalFileStorage
@@ -190,7 +191,12 @@ async def get_session(
             desensitizer=desensitizer,
             trace_id=trace_id,
         )
-    return await _response(session, caller, await _load_owned_session(session, caller, session_id))
+    return await _response(
+        session,
+        caller,
+        await _load_owned_session(session, caller, session_id),
+        storage=storage,
+    )
 
 
 async def list_sessions(
@@ -255,8 +261,39 @@ async def retry_item(
             )
         )
     ).scalar_one_or_none()
-    if task is None or not storage.exists(task.source_file_ref):
-        raise _denied(409, "upload_source_unavailable", "源文件不可用，请重新选择文件")
+    is_processing_timeout = bool(task and task.error_type == "processing_timeout")
+    inspection = storage.inspect(task.source_file_ref) if task is not None else None
+    if task is None or inspection is None or not inspection.available:
+        if task is not None and is_processing_timeout:
+            await session.execute(
+                update(IngestTask)
+                .where(
+                    IngestTask.id == task.id,
+                    IngestTask.status == IngestStatus.failed.value,
+                    IngestTask.error_type == "processing_timeout",
+                )
+                .values(
+                    processing_stage="source_unavailable",
+                    error_type="source_file_unavailable",
+                    error_message="源文件不可用，请重新上传。",
+                )
+            )
+            item.status = "failed"
+            item.safe_error_code = "source_file_unavailable"
+            item.safe_error_message = "源文件不可用，请重新上传"
+            await audit_service.record_event(
+                session,
+                caller=caller,
+                log_type=AuditLogType.operation,
+                action=AuditAction.ingest_timeout_recovery_rejected.value,
+                trace_id=trace_id,
+                target_type="ingest_task",
+                target_id=task.id,
+                extra={"reason": "source_file_unavailable", "scope": "upload_session"},
+                project_id=task.target_project_id,
+            )
+            await session.commit()
+        raise _denied(409, "upload_source_unavailable", "源文件不可用，请重新上传")
     if task.processing_stage == "waiting_generation_config" and isinstance(llm, NullLLMClient):
         raise _denied(
             409, "generation_model_not_configured", "内容生成模型尚未配置，本次重试未发起"
@@ -276,10 +313,24 @@ async def retry_item(
             task_id=task.id,
             owner_id=caller.user_id,
             resume_stage=resume_stage,
+            expected_error_type=("processing_timeout" if is_processing_timeout else None),
         )
     except RetryClaimConflict:
         raise _denied(409, "upload_item_not_retryable", "该文件已被处理或正在重试") from None
     try:
+        if is_processing_timeout:
+            await audit_service.record_event(
+                session,
+                caller=caller,
+                log_type=AuditLogType.operation,
+                action=AuditAction.ingest_timeout_recovery_confirmed.value,
+                trace_id=trace_id,
+                target_type="ingest_task",
+                target_id=task.id,
+                extra={"scope": "upload_session", "source_preflight": "passed"},
+                project_id=task.target_project_id,
+            )
+            await session.commit()
         result = await enqueue_ingest_processing(
             session,
             task.id,
@@ -301,6 +352,18 @@ async def retry_item(
                 )
             )
         )
+        if is_processing_timeout:
+            await audit_service.record_event(
+                session,
+                caller=caller,
+                log_type=AuditLogType.operation,
+                action=AuditAction.ingest_timeout_recovery_enqueued.value,
+                trace_id=trace_id,
+                target_type="ingest_task",
+                target_id=task.id,
+                extra={"scope": "upload_session", "result": "enqueued"},
+                project_id=task.target_project_id,
+            )
         await session.commit()
     except Exception:
         await session.rollback()
@@ -324,9 +387,26 @@ async def retry_item(
                 safe_error_message="处理任务暂时无法排队，请重试",
             )
         )
+        if is_processing_timeout:
+            await audit_service.record_event(
+                session,
+                caller=caller,
+                log_type=AuditLogType.operation,
+                action=AuditAction.ingest_timeout_recovery_enqueue_failed.value,
+                trace_id=trace_id,
+                target_type="ingest_task",
+                target_id=task.id,
+                extra={"scope": "upload_session", "reason": "queue_unavailable"},
+                project_id=task.target_project_id,
+            )
         await session.commit()
     session.expire_all()
-    return await _response(session, caller, await _load_owned_session(session, caller, session_id))
+    return await _response(
+        session,
+        caller,
+        await _load_owned_session(session, caller, session_id),
+        storage=storage,
+    )
 
 
 async def remove_item(
@@ -372,7 +452,12 @@ async def remove_item(
         else "active"
     )
     await session.commit()
-    return await _response(session, caller, await _load_owned_session(session, caller, session_id))
+    return await _response(
+        session,
+        caller,
+        await _load_owned_session(session, caller, session_id),
+        storage=storage,
+    )
 
 
 async def remove_failed_items(
@@ -410,4 +495,9 @@ async def remove_failed_items(
         else "active"
     )
     await session.commit()
-    return await _response(session, caller, await _load_owned_session(session, caller, session_id))
+    return await _response(
+        session,
+        caller,
+        await _load_owned_session(session, caller, session_id),
+        storage=storage,
+    )

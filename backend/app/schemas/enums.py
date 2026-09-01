@@ -349,6 +349,14 @@ class AuditAction(str, Enum):
     ingest_ai_extracted = "ingest.ai_extracted"
     # 用户显式请求重新生成 response_error 降级草稿，operation。
     ingest_ai_retry_requested = "ingest.ai_retry_requested"
+    ingest_timeout_recovery_dry_run = "ingest.processing_timeout_recovery_dry_run"
+    ingest_timeout_recovery_preflight_rejected = (
+        "ingest.processing_timeout_recovery_preflight_rejected"
+    )
+    ingest_timeout_recovery_rejected = "ingest.processing_timeout_recovery_rejected"
+    ingest_timeout_recovery_confirmed = "ingest.processing_timeout_recovery_confirmed"
+    ingest_timeout_recovery_enqueued = "ingest.processing_timeout_recovery_enqueued"
+    ingest_timeout_recovery_enqueue_failed = "ingest.processing_timeout_recovery_enqueue_failed"
     # 审核
     review_evidence_bound = "review.evidence_bound"
     review_created = "review.created"
@@ -383,6 +391,8 @@ class AuditAction(str, Enum):
     agent_a4_original_denied = "agent.a4_original_denied"
     agent_workbuddy_token_rotated = "agent.workbuddy_token_rotated"
     agent_workbuddy_token_revoked = "agent.workbuddy_token_revoked"
+    agent_mcp_tools_listed = "agent.mcp_tools_listed"
+    agent_mcp_tool_called = "agent.mcp_tool_called"
     # 跨模块 admin 边界
     admin_business_denied = "admin.business_denied"
     # 审计异常处理（追加事件，不改原始事实）

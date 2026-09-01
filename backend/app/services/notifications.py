@@ -47,6 +47,7 @@ from app.services import audit as audit_service
 from app.services.notification_targets import VisibleNotificationTarget
 from app.services.notification_targets import resolve as resolve_notification_target
 from app.services.permission import build_caller_context
+from app.services.storage import LocalFileStorage
 from app.services.wecom_client import WeComError
 
 MAX_DELIVERY_ATTEMPTS = 3
@@ -552,12 +553,18 @@ def _out(
         task_status=task_status,
         task_group=task_group,
         action_required=visible.action_required,
-        next_action_label=next_action_label,
-        failure_reason=row.summary if task_status in {"failed", "partial"} else None,
+        next_action_label=visible.next_action_label or next_action_label,
+        failure_reason=(
+            visible.failure_reason
+            or (row.summary if task_status in {"failed", "partial"} else None)
+        ),
         recovery_suggestion=(
-            "打开目标查看安全失败摘要并按提示恢复。"
-            if task_status in {"failed", "partial"}
-            else None
+            visible.recovery_suggestion
+            or (
+                "打开目标查看安全失败摘要并按提示恢复。"
+                if task_status in {"failed", "partial"}
+                else None
+            )
         ),
         target=visible.target,
     )
@@ -569,6 +576,7 @@ async def _visible_rows(
     *,
     category: str | None = None,
     unread_only: bool = False,
+    storage: LocalFileStorage | None = None,
 ) -> list[tuple[BusinessNotification, VisibleNotificationTarget]]:
     if not caller.is_business_user and not _is_ops_viewer(caller):
         return []
@@ -592,7 +600,7 @@ async def _visible_rows(
     )
     visible: list[tuple[BusinessNotification, VisibleNotificationTarget]] = []
     for row in rows:
-        target = await resolve_notification_target(session, caller, row)
+        target = await resolve_notification_target(session, caller, row, storage=storage)
         if target is not None:
             visible.append((row, target))
     return visible
@@ -606,8 +614,11 @@ async def list_notifications(
     page_size: int,
     category: str | None,
     unread_only: bool,
+    storage: LocalFileStorage | None = None,
 ) -> BusinessNotificationListResponse:
-    visible = await _visible_rows(session, caller, category=category, unread_only=unread_only)
+    visible = await _visible_rows(
+        session, caller, category=category, unread_only=unread_only, storage=storage
+    )
     start = (page - 1) * page_size
     selected = visible[start : start + page_size]
     project_ids = {row.project_id for row, _ in selected if row.project_id is not None}
@@ -621,7 +632,7 @@ async def list_notifications(
                 )
             ).all()
         }
-    all_visible = await _visible_rows(session, caller)
+    all_visible = await _visible_rows(session, caller, storage=storage)
     return BusinessNotificationListResponse(
         items=[
             _out(row, target, project_names.get(row.project_id) if row.project_id else None)
@@ -636,8 +647,13 @@ async def list_notifications(
     )
 
 
-async def unread_count(session: AsyncSession, caller: CallerContext) -> UnreadCountResponse:
-    visible = await _visible_rows(session, caller, unread_only=True)
+async def unread_count(
+    session: AsyncSession,
+    caller: CallerContext,
+    *,
+    storage: LocalFileStorage | None = None,
+) -> UnreadCountResponse:
+    visible = await _visible_rows(session, caller, unread_only=True, storage=storage)
     return UnreadCountResponse(unread_count=len(visible))
 
 

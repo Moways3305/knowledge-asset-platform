@@ -447,7 +447,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                                   onClick={() => retryLocalUpload(item.id)}
                                   type="button"
                                 >
-                                  重试
+                                  重试处理
                                 </button>
                               )}
                               <button
@@ -647,7 +647,7 @@ export default function UploadStepB({ flow }: { flow: UploadFlow }) {
                                 onClick={() => void retryPending(task.id)}
                                 type="button"
                               >
-                                {pendingRetryId === task.id ? "重试中…" : "重试此文件"}
+                                {pendingRetryId === task.id ? "重试中…" : "重试处理"}
                               </button>
                             )}
                             {task.error_type === "source_file_unavailable" && (

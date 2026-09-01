@@ -8,6 +8,7 @@ import {
   fetchIndexingHealth,
   fetchLLMUsage,
   fetchOpsIndexing,
+  recoverProcessingTimeouts,
   triggerIndexingReparse,
   triggerIndexingRetry,
   triggerTargetedIndexingRetry,
@@ -23,6 +24,7 @@ vi.mock("../api/admin", () => ({
   fetchIndexingHealth: vi.fn(),
   fetchLLMUsage: vi.fn(),
   fetchOpsIndexing: vi.fn(),
+  recoverProcessingTimeouts: vi.fn(),
   triggerIndexingReparse: vi.fn(),
   triggerIndexingRetry: vi.fn(),
   triggerTargetedIndexingRetry: vi.fn(),
@@ -179,6 +181,27 @@ describe("AdminIngestPage operations reference", () => {
         },
       ],
     });
+    vi.mocked(recoverProcessingTimeouts).mockResolvedValue({
+      dry_run: true,
+      scanned: 35,
+      candidates: 35,
+      source_unavailable: 0,
+      selected: 0,
+      claimed: 0,
+      enqueued: 0,
+      conflicts: 0,
+      stopped: false,
+      stop_reason: null,
+      preflight: {
+        redis_ready: true,
+        ocr_worker_ready: true,
+        queue_within_budget: true,
+        oom_kill_count: 4,
+        ready: true,
+        reason: null,
+      },
+      next_batch_not_before: null,
+    });
     vi.mocked(fetchAdminIngest).mockResolvedValue({
       items: [
         {
@@ -214,6 +237,73 @@ describe("AdminIngestPage operations reference", () => {
       success_count: 1,
       failed_count: 0,
     });
+  });
+
+  it("keeps processing-timeout recovery dry-run first and requires explicit confirmation", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(recoverProcessingTimeouts)
+      .mockResolvedValueOnce({
+        dry_run: true,
+        scanned: 35,
+        candidates: 35,
+        source_unavailable: 0,
+        selected: 0,
+        claimed: 0,
+        enqueued: 0,
+        conflicts: 0,
+        stopped: false,
+        stop_reason: null,
+        preflight: {
+          redis_ready: true,
+          ocr_worker_ready: true,
+          queue_within_budget: true,
+          oom_kill_count: 4,
+          ready: true,
+          reason: null,
+        },
+        next_batch_not_before: null,
+      })
+      .mockResolvedValueOnce({
+        dry_run: false,
+        scanned: 35,
+        candidates: 35,
+        source_unavailable: 0,
+        selected: 0,
+        claimed: 0,
+        enqueued: 0,
+        conflicts: 0,
+        stopped: true,
+        stop_reason: "batch_in_progress",
+        preflight: {
+          redis_ready: true,
+          ocr_worker_ready: true,
+          queue_within_budget: true,
+          oom_kill_count: 4,
+          ready: false,
+          reason: "batch_in_progress",
+        },
+        next_batch_not_before: "2026-09-01T08:00:15Z",
+      });
+    renderPage();
+    await openRuntimeDetails(user);
+
+    await user.click(screen.getByRole("button", { name: "检查超时任务" }));
+    expect(await screen.findByText("35", { selector: "strong" })).toBeInTheDocument();
+    expect(recoverProcessingTimeouts).toHaveBeenNthCalledWith(1);
+
+    await user.click(screen.getByRole("button", { name: "二次确认并恢复最多 3 条" }));
+    await waitFor(() =>
+      expect(recoverProcessingTimeouts).toHaveBeenNthCalledWith(2, {
+        dry_run: false,
+        confirm: true,
+        limit: 3,
+        expected_oom_kill_count: 4,
+      }),
+    );
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(await screen.findByText("恢复已停止：已有恢复批次正在执行")).toBeInTheDocument();
+    confirm.mockRestore();
   });
 
   it("renders the recovery track without the old operations tabs and only safe failure data", async () => {

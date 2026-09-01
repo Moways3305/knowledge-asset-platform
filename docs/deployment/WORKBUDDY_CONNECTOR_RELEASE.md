@@ -1,4 +1,7 @@
-# WorkBuddy Connector 发布与部署
+# WorkBuddy Connector 发布与部署（兼容模式）
+
+> 新接入默认使用 KAP 远程 HTTPS MCP。本文只维护无法直连远程端点的受管设备兼容路径；
+> 淘汰条件与回滚口径见 [`WORKBUDDY_REMOTE_MCP.md`](./WORKBUDDY_REMOTE_MCP.md)。
 
 KAP WorkBuddy Connector 是共享安装程序，不包含用户身份或凭证。个人 `KAP_AGENT_TOKEN`
 只在用户主动生成配置的那一次响应中出现，并由用户导入自己的 WorkBuddy 配置。

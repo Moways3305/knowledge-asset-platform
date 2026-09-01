@@ -36,8 +36,12 @@ def _bearer(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-async def _regen(client, platform="windows"):
-    return await client.post(REGEN_URL, headers=_dev(USER_CONSULTANT), json={"platform": platform})
+async def _regen(client, platform="windows", mode="remote"):
+    return await client.post(
+        REGEN_URL,
+        headers=_dev(USER_CONSULTANT),
+        json={"platform": platform, "mode": mode},
+    )
 
 
 async def test_get_status_none_for_business_user(client):
@@ -50,17 +54,19 @@ async def test_get_status_none_for_business_user(client):
     assert "token" not in body and "token_hash" not in body
 
 
-async def test_regenerate_returns_windows_connector_config(client):
+async def test_regenerate_returns_remote_mcp_config_by_default(client):
     response = await _regen(client)
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["token"].startswith("kgw_")
     assert body["platform"] == "windows"
+    assert body["mode"] == "remote"
+    assert body["expires_at"] is not None
     kap = body["mcp_config"]["mcpServers"]["kap"]
-    assert kap["env"]["KAP_AGENT_TOKEN"] == body["token"]
-    assert kap["env"]["KAP_BASE_URL"]
-    assert kap["command"].endswith("kap-workbuddy-connector.exe")
-    assert "python" not in json.dumps(kap).lower()
+    assert kap["type"] == "http"
+    assert kap["url"].endswith("/mcp")
+    assert kap["headers"]["Authorization"] == f"Bearer {body['token']}"
+    assert "command" not in kap and "env" not in kap
     assert "token_hash" not in response.text
 
 
@@ -83,8 +89,8 @@ async def test_public_origin_is_server_controlled_and_normalized(client):
     finally:
         settings.app_env, settings.kap_public_base_url = old_env, old_url
     assert response.status_code == 200, response.text
-    env = response.json()["mcp_config"]["mcpServers"]["kap"]["env"]
-    assert env["KAP_BASE_URL"] == "https://knowledge.example.test"
+    kap = response.json()["mcp_config"]["mcpServers"]["kap"]
+    assert kap["url"] == "https://knowledge.example.test/mcp"
     assert "attacker.invalid" not in response.text
 
 
@@ -165,13 +171,15 @@ async def test_regenerate_does_not_modify_admin_created_workbuddy_rule(client, d
 
 
 async def test_regenerate_returns_macos_connector_config(client):
-    response = await _regen(client, "macos")
+    response = await _regen(client, "macos", "local_connector")
     assert response.status_code == 200, response.text
     kap = response.json()["mcp_config"]["mcpServers"]["kap"]
     assert kap["command"] == (
         "/Applications/KAP WorkBuddy Connector.app/Contents/MacOS/kap-workbuddy-connector"
     )
     assert "python" not in json.dumps(kap).lower()
+    status = await client.get(TOKEN_URL, headers=_dev(USER_CONSULTANT))
+    assert status.json()["connection_mode"] == "local_connector"
 
 
 @pytest.mark.parametrize(
@@ -194,7 +202,7 @@ async def test_regenerate_uses_custom_connector_path_as_json_text_only(
     response = await client.post(
         REGEN_URL,
         headers=_dev(USER_CONSULTANT),
-        json={"platform": platform, "connector_path": connector_path},
+        json={"mode": "local_connector", "platform": platform, "connector_path": connector_path},
     )
     assert response.status_code == 200, response.text
     body = response.json()
@@ -208,7 +216,7 @@ async def test_custom_path_is_not_persisted_or_exposed_after_one_time_response(c
     created = await client.post(
         REGEN_URL,
         headers=_dev(USER_CONSULTANT),
-        json={"platform": "windows", "connector_path": connector_path},
+        json={"mode": "local_connector", "platform": "windows", "connector_path": connector_path},
     )
     assert created.status_code == 200, created.text
     assert created.json()["mcp_config"]["mcpServers"]["kap"]["command"] == connector_path
@@ -239,7 +247,7 @@ async def test_invalid_custom_path_fails_before_token_rotation(
     response = await client.post(
         REGEN_URL,
         headers=_dev(USER_CONSULTANT),
-        json={"platform": platform, "connector_path": connector_path},
+        json={"mode": "local_connector", "platform": platform, "connector_path": connector_path},
     )
     assert response.status_code == 422
     assert response.json()["detail"]["denied_reason"] == "workbuddy_connector_path_invalid"
@@ -265,7 +273,7 @@ async def test_windows_custom_path_rejects_every_invalid_filename_character(
     response = await client.post(
         REGEN_URL,
         headers=_dev(USER_CONSULTANT),
-        json={"platform": "windows", "connector_path": connector_path},
+        json={"mode": "local_connector", "platform": "windows", "connector_path": connector_path},
     )
     assert response.status_code == 422
     assert response.json()["detail"]["denied_reason"] == "workbuddy_connector_path_invalid"
@@ -297,7 +305,7 @@ async def test_windows_custom_path_rejects_invalid_segments(client, db_session, 
     response = await client.post(
         REGEN_URL,
         headers=_dev(USER_CONSULTANT),
-        json={"platform": "windows", "connector_path": connector_path},
+        json={"mode": "local_connector", "platform": "windows", "connector_path": connector_path},
     )
     assert response.status_code == 422
     rules = (

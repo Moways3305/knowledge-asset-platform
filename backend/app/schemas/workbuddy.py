@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 WorkbuddyPlatform = Literal["windows", "macos"]
 WorkbuddyArchitecture = Literal["x64", "arm64"]
+WorkbuddyConnectionMode = Literal["remote", "local_connector"]
 
 
 class WorkbuddyTokenStatusOut(BaseModel):
@@ -23,12 +24,15 @@ class WorkbuddyTokenStatusOut(BaseModel):
     bound_user_name: str | None = None
     last_rotated_at: datetime | None = None
     last_connected_at: datetime | None = None
+    expires_at: datetime | None = None
+    connection_mode: WorkbuddyConnectionMode = "remote"
 
 
 class WorkbuddyTokenRegenerateIn(BaseModel):
     """平台与路径只影响本次下发文本；绑定用户始终从服务端 caller 解析。"""
 
-    platform: WorkbuddyPlatform
+    mode: WorkbuddyConnectionMode = "remote"
+    platform: WorkbuddyPlatform = "windows"
     connector_path: str | None = Field(default=None, max_length=2048)
 
 
@@ -38,6 +42,8 @@ class WorkbuddyTokenCreatedOut(BaseModel):
     token: str
     mcp_config: dict
     platform: WorkbuddyPlatform
+    mode: WorkbuddyConnectionMode = "remote"
+    expires_at: datetime
 
 
 class WorkbuddyConnectorArtifactOut(BaseModel):

@@ -1,0 +1,489 @@
+"""Controlled recovery of terminal historical processing timeouts."""
+
+from __future__ import annotations
+
+import asyncio
+import uuid
+from contextlib import asynccontextmanager
+
+import pytest
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from app.db.base import Base
+from app.models.audit import AuditEvent
+from app.models.ingest import IngestTask
+from app.schemas.ingest_recovery import ProcessingTimeoutRecoveryRequest
+from app.schemas.permission import CallerContext
+from app.seed.dev_seed import USER_BOSS, USER_CONSULTANT, USER_PROJECT_MANAGER
+from app.services import processing_timeout_recovery as recovery
+from app.services.desensitization import NullDesensitizer
+from app.services.llm_client import NullLLMClient
+from app.services.storage import LocalFileStorage
+
+
+def _headers(user_id):
+    return {"X-Dev-User-Id": str(user_id)}
+
+
+async def _timeout_task(db_session, storage, *, content: bytes | None, source="path_b_upload"):
+    ref = (
+        storage.save(content, original_name="sensitive-name.pdf")
+        if content is not None
+        else f"internal://{uuid.uuid4().hex}/missing.pdf"
+    )
+    task = IngestTask(
+        source=source,
+        source_file_ref=ref,
+        source_file_name="sensitive-name.pdf",
+        source_file_mime_type="application/pdf",
+        source_file_size=999999,
+        status="failed",
+        error_type="processing_timeout",
+        error_message="server path SECRET",
+        created_by=USER_CONSULTANT,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    return task
+
+
+async def test_dry_run_is_aggregate_only_and_does_not_change_tasks(client, db_session, monkeypatch):
+    available = [
+        await _timeout_task(db_session, client._kap_storage, content=b"pdf" + bytes([index]))
+        for index in range(3)
+    ]
+    empty = await _timeout_task(db_session, client._kap_storage, content=b"")
+    missing = await _timeout_task(db_session, client._kap_storage, content=None)
+    await _timeout_task(db_session, client._kap_storage, content=b"excluded", source="path_a_wecom")
+    monkeypatch.setattr(
+        recovery,
+        "runtime_facts",
+        lambda: _async_value(recovery._RuntimeFacts(True, True, 0, 7)),
+    )
+
+    response = await client.post(
+        "/admin/ops/ingest/processing-timeout-recovery",
+        headers=_headers(USER_BOSS),
+        json={},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "dry_run": True,
+        "scanned": 5,
+        "candidates": 3,
+        "source_unavailable": 2,
+        "selected": 0,
+        "claimed": 0,
+        "enqueued": 0,
+        "conflicts": 0,
+        "stopped": False,
+        "stop_reason": None,
+        "preflight": {
+            "redis_ready": True,
+            "ocr_worker_ready": True,
+            "queue_within_budget": True,
+            "oom_kill_count": 7,
+            "ready": True,
+            "reason": None,
+        },
+        "next_batch_not_before": None,
+    }
+    assert "sensitive-name" not in response.text
+    assert "internal://" not in response.text
+    for task in [*available, empty, missing]:
+        await db_session.refresh(task)
+        assert task.status == "failed"
+        assert task.error_type == "processing_timeout"
+    event = (
+        await db_session.execute(
+            select(AuditEvent).where(
+                AuditEvent.action == "ingest.processing_timeout_recovery_dry_run"
+            )
+        )
+    ).scalar_one()
+    assert event.target_id is None
+    assert event.extra["candidates"] == 3
+    assert "sensitive-name" not in str(event.extra)
+
+
+async def test_confirmed_batch_is_limited_claimed_and_stops_the_next_batch(
+    client, db_session, monkeypatch
+):
+    available = [
+        await _timeout_task(db_session, client._kap_storage, content=b"pdf" + bytes([index]))
+        for index in range(4)
+    ]
+    empty = await _timeout_task(db_session, client._kap_storage, content=b"")
+    enqueued: list[uuid.UUID] = []
+
+    async def fake_facts():
+        return recovery._RuntimeFacts(True, True, 0, 4)
+
+    async def fake_enqueue(_session, task_id, **_kwargs):
+        enqueued.append(task_id)
+        return "processing"
+
+    monkeypatch.setattr(recovery, "runtime_facts", fake_facts)
+    monkeypatch.setattr(recovery, "enqueue_ingest_processing", fake_enqueue)
+
+    executed = await client.post(
+        "/admin/ops/ingest/processing-timeout-recovery",
+        headers=_headers(USER_BOSS),
+        json={"dry_run": False, "confirm": True, "limit": 3, "expected_oom_kill_count": 4},
+    )
+
+    assert executed.status_code == 200
+    body = executed.json()
+    assert (body["selected"], body["claimed"], body["enqueued"]) == (3, 3, 3)
+    assert body["source_unavailable"] == 1
+    assert len(enqueued) == 3
+    for task in available:
+        await db_session.refresh(task)
+    assert sum(task.status == "processing" for task in available) == 3
+    assert sum(task.status == "failed" for task in available) == 1
+    assert all(task.error_type is None for task in available if task.status == "processing")
+    await db_session.refresh(empty)
+    assert empty.error_type == "source_file_unavailable"
+    actions = set(
+        (
+            await db_session.execute(
+                select(AuditEvent.action).where(
+                    AuditEvent.action.in_(
+                        {
+                            "ingest.processing_timeout_recovery_confirmed",
+                            "ingest.processing_timeout_recovery_enqueued",
+                        }
+                    )
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert actions == {
+        "ingest.processing_timeout_recovery_confirmed",
+        "ingest.processing_timeout_recovery_enqueued",
+    }
+
+    blocked = await client.post(
+        "/admin/ops/ingest/processing-timeout-recovery",
+        headers=_headers(USER_BOSS),
+        json={"dry_run": False, "confirm": True, "limit": 3, "expected_oom_kill_count": 4},
+    )
+    assert blocked.status_code == 200
+    assert blocked.json()["stopped"] is True
+    assert blocked.json()["stop_reason"] == "batch_interval_not_elapsed"
+    assert len(enqueued) == 3
+
+
+async def test_recovery_requires_governance_or_admin(client):
+    response = await client.post(
+        "/admin/ops/ingest/processing-timeout-recovery",
+        headers=_headers(USER_PROJECT_MANAGER),
+        json={},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"]["denied_reason"] == "ingest_timeout_recovery_forbidden"
+
+
+@pytest.mark.parametrize(
+    ("facts", "expected_oom", "reason"),
+    [
+        (recovery._RuntimeFacts(False, False, 0, 2), 2, "redis_unavailable"),
+        (recovery._RuntimeFacts(True, False, 0, 2), 2, "ocr_worker_unavailable"),
+        (recovery._RuntimeFacts(True, True, 26, 2), 2, "queue_budget_exceeded"),
+        (recovery._RuntimeFacts(True, True, 0, 3), 2, "oom_kill_count_changed"),
+    ],
+)
+async def test_failed_preflight_stops_without_claim_or_enqueue(
+    client, db_session, monkeypatch, facts, expected_oom, reason
+):
+    task = await _timeout_task(db_session, client._kap_storage, content=b"available")
+    enqueue_calls = 0
+
+    async def fake_facts():
+        return facts
+
+    async def fake_enqueue(*_args, **_kwargs):
+        nonlocal enqueue_calls
+        enqueue_calls += 1
+
+    monkeypatch.setattr(recovery, "runtime_facts", fake_facts)
+    monkeypatch.setattr(recovery, "enqueue_ingest_processing", fake_enqueue)
+
+    response = await client.post(
+        "/admin/ops/ingest/processing-timeout-recovery",
+        headers=_headers(USER_BOSS),
+        json={
+            "dry_run": False,
+            "confirm": True,
+            "limit": 3,
+            "expected_oom_kill_count": expected_oom,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["stopped"] is True
+    assert response.json()["stop_reason"] == reason
+    assert enqueue_calls == 0
+    await db_session.refresh(task)
+    assert (task.status, task.error_type) == ("failed", "processing_timeout")
+    event = (
+        await db_session.execute(
+            select(AuditEvent).where(
+                AuditEvent.action == "ingest.processing_timeout_recovery_preflight_rejected"
+            )
+        )
+    ).scalar_one()
+    assert event.extra["preflight"] == reason
+
+
+async def test_single_task_dry_run_is_safe_and_does_not_expose_identifier(
+    client, db_session, monkeypatch
+):
+    task = await _timeout_task(db_session, client._kap_storage, content=b"available")
+
+    async def fake_facts():
+        return recovery._RuntimeFacts(True, True, 0, 9)
+
+    monkeypatch.setattr(recovery, "runtime_facts", fake_facts)
+    response = await client.post(
+        f"/admin/ops/ingest/processing-timeout-recovery/{task.id}",
+        headers=_headers(USER_BOSS),
+        json={},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["candidates"] == 1
+    assert str(task.id) not in response.text
+    assert "sensitive-name" not in response.text
+
+
+async def test_enqueue_failure_is_audited_and_stops_remaining_candidates(
+    client, db_session, monkeypatch
+):
+    tasks = [
+        await _timeout_task(db_session, client._kap_storage, content=b"available" + bytes([index]))
+        for index in range(2)
+    ]
+
+    async def fake_facts():
+        return recovery._RuntimeFacts(True, True, 0, 5)
+
+    async def failing_enqueue(*_args, **_kwargs):
+        raise RuntimeError("sensitive transport detail")
+
+    monkeypatch.setattr(recovery, "runtime_facts", fake_facts)
+    monkeypatch.setattr(recovery, "enqueue_ingest_processing", failing_enqueue)
+    response = await client.post(
+        "/admin/ops/ingest/processing-timeout-recovery",
+        headers=_headers(USER_BOSS),
+        json={
+            "dry_run": False,
+            "confirm": True,
+            "limit": 3,
+            "expected_oom_kill_count": 5,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["stopped"] is True
+    assert response.json()["stop_reason"] == "queue_unavailable"
+    assert (response.json()["claimed"], response.json()["enqueued"]) == (1, 0)
+    assert "sensitive transport detail" not in response.text
+    for task in tasks:
+        await db_session.refresh(task)
+    assert tasks[0].error_type == "processing_timeout"
+    assert tasks[1].status == "failed"
+    event = (
+        await db_session.execute(
+            select(AuditEvent).where(
+                AuditEvent.action == "ingest.processing_timeout_recovery_enqueue_failed"
+            )
+        )
+    ).scalar_one()
+    assert event.extra == {"reason": "queue_unavailable", "result": "not_enqueued"}
+
+
+async def test_concurrent_actual_requests_cannot_claim_more_than_one_batch(tmp_path, monkeypatch):
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'batch-lease.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    storage = LocalFileStorage(tmp_path / "batch-lease-storage")
+    async with maker() as setup_session:
+        for index in range(6):
+            setup_session.add(
+                IngestTask(
+                    source="path_b_upload",
+                    source_file_ref=storage.save(
+                        b"recoverable" + bytes([index]), original_name="candidate.pdf"
+                    ),
+                    source_file_name="candidate.pdf",
+                    source_file_mime_type="application/pdf",
+                    status="failed",
+                    error_type="processing_timeout",
+                    created_by=USER_BOSS,
+                )
+            )
+        await setup_session.commit()
+
+    caller = CallerContext(
+        user_id=USER_BOSS,
+        is_active=True,
+        active_company_roles={"admin"},
+        active_project_ids=set(),
+        active_project_roles={},
+    )
+    request = ProcessingTimeoutRecoveryRequest(
+        dry_run=False,
+        confirm=True,
+        limit=3,
+        expected_oom_kill_count=8,
+    )
+    first_enqueue_started = asyncio.Event()
+    allow_first_batch_to_finish = asyncio.Event()
+    enqueued: list[uuid.UUID] = []
+
+    async def fake_facts():
+        return recovery._RuntimeFacts(True, True, 0, 8)
+
+    async def blocked_enqueue(_session, task_id, **_kwargs):
+        enqueued.append(task_id)
+        if len(enqueued) == 1:
+            first_enqueue_started.set()
+            await asyncio.wait_for(allow_first_batch_to_finish.wait(), timeout=3)
+        return "processing"
+
+    monkeypatch.setattr(recovery, "runtime_facts", fake_facts)
+    monkeypatch.setattr(recovery, "enqueue_ingest_processing", blocked_enqueue)
+
+    async with maker() as first_session, maker() as second_session:
+        first_call = asyncio.create_task(
+            recovery.recover(
+                first_session,
+                caller,
+                request,
+                storage=storage,
+                llm=NullLLMClient(),
+                desensitizer=NullDesensitizer(),
+                trace_id="concurrent-batch-first",
+            )
+        )
+        await asyncio.wait_for(first_enqueue_started.wait(), timeout=3)
+        try:
+            second = await recovery.recover(
+                second_session,
+                caller,
+                request,
+                storage=storage,
+                llm=NullLLMClient(),
+                desensitizer=NullDesensitizer(),
+                trace_id="concurrent-batch-second",
+            )
+        finally:
+            allow_first_batch_to_finish.set()
+        first = await first_call
+
+    assert (first.claimed, first.enqueued) == (3, 3)
+    assert second.stopped is True
+    assert second.stop_reason == "batch_in_progress"
+    assert (second.claimed, second.enqueued) == (0, 0)
+    assert len(enqueued) == 3
+    async with maker() as verification_session:
+        processing_count = await verification_session.scalar(
+            select(func.count()).select_from(IngestTask).where(IngestTask.status == "processing")
+        )
+        assert processing_count == 3
+    await engine.dispose()
+
+
+async def test_lost_batch_lease_stops_before_claiming_the_next_task(
+    client, db_session, monkeypatch
+):
+    tasks = [
+        await _timeout_task(db_session, client._kap_storage, content=b"available" + bytes([index]))
+        for index in range(3)
+    ]
+    lease_lost = asyncio.Event()
+    enqueued: list[uuid.UUID] = []
+
+    @asynccontextmanager
+    async def losing_lease():
+        yield True, None, lease_lost
+
+    async def fake_facts():
+        return recovery._RuntimeFacts(True, True, 0, 12)
+
+    async def lose_after_first_enqueue(_session, task_id, **_kwargs):
+        enqueued.append(task_id)
+        lease_lost.set()
+        return "processing"
+
+    monkeypatch.setattr(recovery, "_batch_lease", losing_lease)
+    monkeypatch.setattr(recovery, "runtime_facts", fake_facts)
+    monkeypatch.setattr(recovery, "enqueue_ingest_processing", lose_after_first_enqueue)
+
+    response = await client.post(
+        "/admin/ops/ingest/processing-timeout-recovery",
+        headers=_headers(USER_BOSS),
+        json={
+            "dry_run": False,
+            "confirm": True,
+            "limit": 3,
+            "expected_oom_kill_count": 12,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["stopped"] is True
+    assert response.json()["stop_reason"] == "lease_lost"
+    assert (response.json()["claimed"], response.json()["enqueued"]) == (1, 1)
+    assert len(enqueued) == 1
+    for task in tasks:
+        await db_session.refresh(task)
+    assert sum(task.status == "processing" for task in tasks) == 1
+    assert sum(task.status == "failed" for task in tasks) == 2
+    event = (
+        await db_session.execute(
+            select(AuditEvent).where(
+                AuditEvent.action == "ingest.processing_timeout_recovery_preflight_rejected",
+                AuditEvent.extra["reason"].as_string() == "lease_lost",
+            )
+        )
+    ).scalar_one()
+    assert event.extra == {"reason": "lease_lost", "result": "stopped"}
+
+
+async def test_batch_lease_renewal_error_signals_lease_loss(monkeypatch):
+    import redis.asyncio as aioredis
+
+    settings = recovery.get_settings()
+    monkeypatch.setattr(settings, "celery_task_always_eager", False)
+    monkeypatch.setattr(recovery, "_BATCH_LEASE_RENEW_SECONDS", 0.001)
+
+    class FailingRenewRedis:
+        async def set(self, *_args, **_kwargs):
+            return True
+
+        async def eval(self, script, *_args):
+            if "expire" in script:
+                raise RuntimeError("renew transport detail")
+            return 1
+
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr(aioredis, "from_url", lambda *_args, **_kwargs: FailingRenewRedis())
+
+    async with recovery._batch_lease() as (acquired, reason, lease_lost):
+        assert acquired is True and reason is None
+        await asyncio.wait_for(lease_lost.wait(), timeout=0.5)
+
+    assert lease_lost.is_set()
+
+
+async def _async_value(value):
+    return value

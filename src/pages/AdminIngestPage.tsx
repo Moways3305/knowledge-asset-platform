@@ -16,6 +16,7 @@ import {
   fetchIndexingHealth,
   fetchLLMUsage,
   fetchOpsIndexing,
+  recoverProcessingTimeouts,
   triggerIndexingReparse,
   triggerIndexingRetry,
   triggerTargetedIndexingRetry,
@@ -36,6 +37,7 @@ import type {
   LLMUsageAggregateItemDTO,
   OpsIndexingDTO,
   OpsIndexingFailedItemDTO,
+  ProcessingTimeoutRecoveryDTO,
 } from "../types/ops";
 import { formatBeijingTime } from "../utils/time";
 import "./AdminIngestPage.css";
@@ -76,6 +78,20 @@ function ingestFailureLabel(errorType: string | null): string {
   if (errorType === "queue_unavailable") return "任务排队失败";
   if (errorType?.includes("storage")) return "临时文件处理失败";
   return "文件处理失败";
+}
+
+function timeoutRecoveryStopLabel(reason: string | null): string {
+  const labels: Record<string, string> = {
+    batch_in_progress: "已有恢复批次正在执行",
+    batch_interval_not_elapsed: "距上一批次不足 15 秒",
+    redis_unavailable: "Redis 当前不可用",
+    ocr_worker_unavailable: "OCR 工作进程当前不可用",
+    queue_budget_exceeded: "当前队列已达到安全预算",
+    oom_kill_count_changed: "检测到新的内存终止事件",
+    oom_baseline_confirmation_required: "需要重新确认内存终止计数",
+    queue_unavailable: "恢复任务暂时无法排队",
+  };
+  return reason ? (labels[reason] ?? "运行预检未通过") : "运行预检未通过";
 }
 
 const urgentSeverities = new Set(["critical", "error"]);
@@ -220,6 +236,9 @@ export default function AdminIngestPage() {
   const [targetError, setTargetError] = useState<string | null>(null);
   const [selectedJob, setSelectedJob] = useState<IndexingJobSummaryDTO | null>(null);
   const [showAllRecoveryItems, setShowAllRecoveryItems] = useState(false);
+  const [timeoutRecovery, setTimeoutRecovery] = useState<ProcessingTimeoutRecoveryDTO | null>(null);
+  const [timeoutRecoveryBusy, setTimeoutRecoveryBusy] = useState(false);
+  const [timeoutRecoveryError, setTimeoutRecoveryError] = useState<string | null>(null);
   const [recoveryListBusy, setRecoveryListBusy] = useState(false);
   const runtimeDetailsRef = useRef<HTMLDetailsElement>(null);
   const showAllRecoveryItemsRef = useRef(false);
@@ -724,6 +743,40 @@ export default function AdminIngestPage() {
     }
   };
 
+  const inspectProcessingTimeouts = async () => {
+    setTimeoutRecoveryBusy(true);
+    setTimeoutRecoveryError(null);
+    try {
+      setTimeoutRecovery(await recoverProcessingTimeouts());
+    } catch (error) {
+      setTimeoutRecoveryError(error instanceof ApiError ? error.message : "超时任务预检失败");
+    } finally {
+      setTimeoutRecoveryBusy(false);
+    }
+  };
+
+  const confirmProcessingTimeoutRecovery = async () => {
+    if (!timeoutRecovery?.preflight.ready || timeoutRecovery.candidates === 0) return;
+    if (!window.confirm("确认恢复最多 3 条已通过物理源文件与运行环境预检的超时任务？")) return;
+    setTimeoutRecoveryBusy(true);
+    setTimeoutRecoveryError(null);
+    try {
+      setTimeoutRecovery(
+        await recoverProcessingTimeouts({
+          dry_run: false,
+          confirm: true,
+          limit: 3,
+          expected_oom_kill_count: timeoutRecovery.preflight.oom_kill_count,
+        }),
+      );
+      await loadIngest();
+    } catch (error) {
+      setTimeoutRecoveryError(error instanceof ApiError ? error.message : "超时任务恢复未发起");
+    } finally {
+      setTimeoutRecoveryBusy(false);
+    }
+  };
+
   return (
     <ProductPage className="ao84-page admin-control-page">
       <PageHeader
@@ -932,6 +985,51 @@ export default function AdminIngestPage() {
                 ))}
               </div>
             )}
+            <div className="ao84-subhead">
+              <Clock3 size={16} aria-hidden="true" />
+              <strong>历史处理超时恢复</strong>
+              <span>默认仅预检；每批最多 3 条，批次间隔至少 15 秒</span>
+            </div>
+            <div className="ao84-ingest-counts" aria-live="polite">
+              <span>
+                <strong>{timeoutRecovery?.candidates ?? "—"}</strong>源文件完整候选
+              </span>
+              <span>
+                <strong>{timeoutRecovery?.source_unavailable ?? "—"}</strong>需重新上传
+              </span>
+              <span>
+                <strong>{timeoutRecovery?.preflight.ready ? "通过" : "—"}</strong>运行预检
+              </span>
+            </div>
+            {timeoutRecoveryError && <p className="is-error">{timeoutRecoveryError}</p>}
+            {timeoutRecovery?.stopped && (
+              <p className="is-error">
+                恢复已停止：{timeoutRecoveryStopLabel(timeoutRecovery.stop_reason)}
+              </p>
+            )}
+            <div className="ao84-refresh-actions">
+              <button
+                className="btn-small"
+                type="button"
+                onClick={() => void inspectProcessingTimeouts()}
+                disabled={timeoutRecoveryBusy}
+              >
+                {timeoutRecoveryBusy ? "检查中…" : "检查超时任务"}
+              </button>
+              <button
+                className="btn-small-primary"
+                type="button"
+                onClick={() => void confirmProcessingTimeoutRecovery()}
+                disabled={
+                  timeoutRecoveryBusy ||
+                  !timeoutRecovery?.dry_run ||
+                  !timeoutRecovery.preflight.ready ||
+                  timeoutRecovery.candidates === 0
+                }
+              >
+                二次确认并恢复最多 3 条
+              </button>
+            </div>
           </div>
 
           <div className="ao84-ingest-overview" aria-label="近 14 天模型用量">

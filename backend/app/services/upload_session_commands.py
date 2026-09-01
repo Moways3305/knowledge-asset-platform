@@ -23,6 +23,7 @@ async def claim_failed_item_retry(
     task_id: uuid.UUID,
     owner_id: uuid.UUID,
     resume_stage: str,
+    expected_error_type: str | None = None,
 ) -> None:
     """Atomically claim both item and task; partial claims are rolled back."""
     item_claim = await session.execute(
@@ -35,13 +36,16 @@ async def claim_failed_item_retry(
         )
         .values(status="processing", safe_error_code=None, safe_error_message=None)
     )
+    task_where = [
+        IngestTask.id == task_id,
+        IngestTask.created_by == owner_id,
+        IngestTask.status == IngestStatus.failed.value,
+    ]
+    if expected_error_type is not None:
+        task_where.append(IngestTask.error_type == expected_error_type)
     task_claim = await session.execute(
         update(IngestTask)
-        .where(
-            IngestTask.id == task_id,
-            IngestTask.created_by == owner_id,
-            IngestTask.status == IngestStatus.failed.value,
-        )
+        .where(*task_where)
         .values(
             status=IngestStatus.processing.value,
             processing_stage=resume_stage,

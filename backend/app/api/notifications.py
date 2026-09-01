@@ -19,6 +19,7 @@ from app.schemas.notification import (
 )
 from app.schemas.permission import CallerContext
 from app.services import notifications as notification_service
+from app.services.storage import LocalFileStorage, get_storage
 
 router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
 
@@ -31,6 +32,7 @@ async def list_notifications(
     unread_only: bool = Query(default=False),
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
 ) -> BusinessNotificationListResponse:
     return await notification_service.list_notifications(
         session,
@@ -39,6 +41,7 @@ async def list_notifications(
         page_size=page_size,
         category=category,
         unread_only=unread_only,
+        storage=storage,
     )
 
 
@@ -46,8 +49,9 @@ async def list_notifications(
 async def unread_count(
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
 ) -> UnreadCountResponse:
-    return await notification_service.unread_count(session, caller)
+    return await notification_service.unread_count(session, caller, storage=storage)
 
 
 @router.post("/{notification_id}/read", response_model=BusinessNotificationOut)

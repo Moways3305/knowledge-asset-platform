@@ -1,6 +1,28 @@
 ﻿// 运维面板 DTO。仅安全运维元数据：绝不含 WeKnora kb/doc id / 模型 id /
 // storage 引用 / source file 引用 / 下载 URL / token / 原文。
 
+export interface ProcessingTimeoutRecoveryDTO {
+  dry_run: boolean;
+  scanned: number;
+  candidates: number;
+  source_unavailable: number;
+  selected: number;
+  claimed: number;
+  enqueued: number;
+  conflicts: number;
+  stopped: boolean;
+  stop_reason: string | null;
+  preflight: {
+    redis_ready: boolean;
+    ocr_worker_ready: boolean;
+    queue_within_budget: boolean;
+    oom_kill_count: number;
+    ready: boolean;
+    reason: string | null;
+  };
+  next_batch_not_before: string | null;
+}
+
 export interface OpsIndexingCountsDTO {
   index_failed: number;
   indexing: number;

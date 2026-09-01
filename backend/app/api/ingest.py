@@ -872,13 +872,14 @@ async def list_pending(
     source: str | None = None,
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
 ) -> PendingIngestListResponse:
     """业务侧待确认任务列表。
 
     `?source=path_a_wecom` 拉取企微微盘扫描创建的待确认任务。
     只返回调用人本人创建的待确认任务；纯 admin → 403。
     """
-    items = await ingest_service.list_pending(session, caller, source=source)
+    items = await ingest_service.list_pending(session, caller, source=source, storage=storage)
     return PendingIngestListResponse(items=items, total=len(items))
 
 
@@ -958,8 +959,9 @@ async def get_task_status(
     task_id: uuid.UUID,
     caller: CallerContext = Depends(get_caller_context),
     session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
 ) -> IngestTaskStatusResponse:
-    return await ingest_status_service.get_task_status(session, caller, task_id)
+    return await ingest_status_service.get_task_status(session, caller, task_id, storage=storage)
 
 
 @router.post("/ingest/{task_id}/retry", response_model=IngestTaskStatusResponse)

@@ -18,6 +18,7 @@ import type {
   IndexingRetryRequestDTO,
   LLMUsageAggregateResponseDTO,
   OpsIndexingDTO,
+  ProcessingTimeoutRecoveryDTO,
 } from "../types/ops";
 import type { AuthSecurityOverviewDTO, AuthUnlockResponseDTO } from "../types/authSecurity";
 import type { SessionRevokeResponseDTO } from "../types/sessionOps";
@@ -125,6 +126,20 @@ export async function triggerTargetedIndexingRetry(
   return apiPost<IndexingJobSummaryDTO>(
     `/admin/ops/indexing/failures/${encodeURIComponent(operationTarget)}/retry`,
     {},
+  );
+}
+
+export async function recoverProcessingTimeouts(
+  body: {
+    dry_run?: boolean;
+    confirm?: boolean;
+    limit?: number;
+    expected_oom_kill_count?: number;
+  } = {},
+): Promise<ProcessingTimeoutRecoveryDTO> {
+  return apiPost<ProcessingTimeoutRecoveryDTO>(
+    `/admin/ops/ingest/processing-timeout-recovery`,
+    body,
   );
 }
 

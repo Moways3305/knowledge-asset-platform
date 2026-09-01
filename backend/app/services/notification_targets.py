@@ -20,6 +20,7 @@ from app.schemas.enums import AccessRequestStatus, CompanyRole, ProjectRole
 from app.schemas.notification import NotificationTarget
 from app.schemas.permission import AccessLayer, CallerContext
 from app.services.permission import decide
+from app.services.storage import LocalFileStorage
 
 _ROUTES = {
     "review": "reviews",
@@ -36,6 +37,9 @@ class VisibleNotificationTarget:
     target: NotificationTarget
     status: str
     action_required: bool
+    failure_reason: str | None = None
+    recovery_suggestion: str | None = None
+    next_action_label: str | None = None
 
 
 def _ops_viewer(caller: CallerContext) -> bool:
@@ -59,7 +63,11 @@ def _review_status(task: ReviewTask, can_decide: bool) -> tuple[str, bool]:
 
 
 async def resolve(
-    session: AsyncSession, caller: CallerContext, row: BusinessNotification
+    session: AsyncSession,
+    caller: CallerContext,
+    row: BusinessNotification,
+    *,
+    storage: LocalFileStorage | None = None,
 ) -> VisibleNotificationTarget | None:
     if not caller.is_active or (not caller.is_business_user and not _ops_viewer(caller)):
         return None
@@ -74,6 +82,9 @@ async def resolve(
     route_key = _ROUTES.get(row.target_kind)
     if route_key is None:
         return None
+    failure_reason = None
+    recovery_suggestion = None
+    next_action_label = None
     if row.target_kind == "review":
         review_task = await session.get(ReviewTask, row.target_id)
         if review_task is None:
@@ -132,6 +143,10 @@ async def resolve(
         ingest_task = await session.get(IngestTask, row.target_id)
         if ingest_task is None or ingest_task.created_by != caller.user_id:
             return None
+        effective_error_type = ingest_task.error_type
+        if effective_error_type == "processing_timeout" and storage is not None:
+            if not storage.inspect(ingest_task.source_file_ref).available:
+                effective_error_type = "source_file_unavailable"
         action_required = ingest_task.status == "failed"
         status = {
             "failed": "failed",
@@ -141,6 +156,27 @@ async def resolve(
             "waiting_review": "submitted",
             "pending_confirmation": "needs_action",
         }.get(ingest_task.status, "submitted")
+        failure_reason = (
+            "处理超时，文件仍可重试"
+            if effective_error_type == "processing_timeout"
+            else "源文件不可用，请重新上传"
+            if effective_error_type == "source_file_unavailable"
+            else None
+        )
+        recovery_suggestion = (
+            "打开上传页使用“重试处理”；若无法操作请联系管理员。"
+            if effective_error_type == "processing_timeout"
+            else "请重新选择原文件上传。"
+            if effective_error_type == "source_file_unavailable"
+            else None
+        )
+        next_action_label = (
+            "重试处理"
+            if effective_error_type == "processing_timeout"
+            else "重新上传"
+            if effective_error_type == "source_file_unavailable"
+            else None
+        )
     elif row.target_kind == "ops_index":
         if not _ops_viewer(caller):
             return None
@@ -176,4 +212,7 @@ async def resolve(
         target=NotificationTarget(route_key=route_key, resource_id=row.target_id),
         status=status,
         action_required=action_required,
+        failure_reason=failure_reason,
+        recovery_suggestion=recovery_suggestion,
+        next_action_label=next_action_label,
     )

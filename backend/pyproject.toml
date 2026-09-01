@@ -17,6 +17,8 @@ dependencies = [
     "httpx>=0.28",
     "celery>=5.4",
     "redis>=5.2",
+    # WorkBuddy remote MCP: official Streamable HTTP protocol implementation.
+    "mcp>=1.2.0,<2",
     # 内容生成模型 API key / API 地址 Fernet 加密落库。
     "cryptography>=44.0",
     # multipart/form-data 文件上传（本地上传通道）。
