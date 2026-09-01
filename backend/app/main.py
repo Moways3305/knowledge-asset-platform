@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from app.api import (
@@ -45,6 +47,11 @@ from app.core.config import get_settings
 from app.core.csrf import CsrfMiddleware
 from app.core.logging import configure_logging
 from app.core.trace import TraceIdMiddleware
+from app.services.workbuddy_remote_mcp import (
+    RemoteMcpOperationalGuard,
+    build_remote_mcp,
+    remote_mcp_metrics,
+)
 
 
 def create_app() -> FastAPI:
@@ -94,6 +101,28 @@ def create_app() -> FastAPI:
     app.include_router(workbench.router)
     app.include_router(weknora_admin.router)
     app.include_router(weknora_options.router)
+
+    # Mount the official stateless Streamable HTTP MCP app at the exact `/mcp` route.
+    # It is registered last so it cannot shadow first-party REST routes.
+    remote_mcp = build_remote_mcp(app)
+    remote_mcp_app = remote_mcp.streamable_http_app()
+    remote_mcp_app.add_middleware(RemoteMcpOperationalGuard, kap_app=app)
+
+    @app.get("/api/v1/health/workbuddy-mcp", include_in_schema=False)
+    async def workbuddy_remote_mcp_health() -> dict[str, int | bool]:
+        return remote_mcp_metrics.snapshot()
+
+    original_lifespan = app.router.lifespan_context
+
+    @asynccontextmanager
+    async def combined_lifespan(active_app: FastAPI):
+        async with original_lifespan(active_app):
+            async with remote_mcp_app.router.lifespan_context(remote_mcp_app):
+                yield
+
+    app.router.lifespan_context = combined_lifespan
+    app.mount("/", remote_mcp_app)
+    app.state.workbuddy_remote_mcp = remote_mcp
 
     return app
 

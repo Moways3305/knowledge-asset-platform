@@ -4,6 +4,7 @@ import { apiDelete, apiGet, apiPost, BASE_URL } from "./http";
 
 export type WorkbuddyPlatform = "windows" | "macos";
 export type WorkbuddyArchitecture = "x64" | "arm64";
+export type WorkbuddyConnectionMode = "remote" | "local_connector";
 
 // ---- 绑定状态（无 token / token_hash） ----
 export interface WorkbuddyTokenStatusVM {
@@ -11,6 +12,8 @@ export interface WorkbuddyTokenStatusVM {
   boundUserName: string | null;
   lastRotatedAt: string | null;
   lastConnectedAt: string | null;
+  expiresAt?: string | null;
+  connectionMode?: WorkbuddyConnectionMode;
 }
 
 interface WorkbuddyTokenStatusDTO {
@@ -19,12 +22,16 @@ interface WorkbuddyTokenStatusDTO {
   bound_user_name: string | null;
   last_rotated_at: string | null;
   last_connected_at: string | null;
+  expires_at: string | null;
+  connection_mode: WorkbuddyConnectionMode;
 }
 
 // ---- 生成 / 重置结果（一次性 token + 可复制 mcp.json） ----
 export interface WorkbuddyConfigVM {
   platform: WorkbuddyPlatform;
+  mode: WorkbuddyConnectionMode;
   command: string;
+  expiresAt: string;
   mcpConfigJson: string;
 }
 
@@ -32,6 +39,8 @@ interface WorkbuddyConfigDTO {
   token: string;
   mcp_config: Record<string, unknown>;
   platform: WorkbuddyPlatform;
+  mode: WorkbuddyConnectionMode;
+  expires_at: string;
 }
 
 export interface WorkbuddyConnectorArtifactVM {
@@ -75,6 +84,8 @@ export async function fetchWorkbuddyToken(): Promise<WorkbuddyTokenStatusVM> {
     boundUserName: d.bound_user_name,
     lastRotatedAt: d.last_rotated_at,
     lastConnectedAt: d.last_connected_at,
+    expiresAt: d.expires_at,
+    connectionMode: d.connection_mode,
   };
 }
 
@@ -117,10 +128,12 @@ export async function downloadWorkbuddyConnector(
 }
 
 export async function regenerateWorkbuddyToken(
-  platform: WorkbuddyPlatform,
+  mode: WorkbuddyConnectionMode = "remote",
+  platform: WorkbuddyPlatform = "windows",
   connectorPath?: string,
 ): Promise<WorkbuddyConfigVM> {
   const data = await apiPost<WorkbuddyConfigDTO>(`/api/v1/auth/workbuddy-token/regenerate`, {
+    mode,
     platform,
     connector_path: connectorPath,
   });
@@ -128,7 +141,9 @@ export async function regenerateWorkbuddyToken(
     ?.kap;
   return {
     platform: data.platform,
+    mode: data.mode,
     command: typeof kap?.command === "string" ? kap.command : "",
+    expiresAt: data.expires_at,
     mcpConfigJson: JSON.stringify(data.mcp_config, null, 2),
   };
 }

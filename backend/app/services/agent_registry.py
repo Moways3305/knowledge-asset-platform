@@ -17,7 +17,7 @@ import secrets
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.utils import utc_now
@@ -119,6 +119,10 @@ async def lookup_enabled_rule(session: AsyncSession, token: str) -> AgentWhiteli
             select(AgentWhitelistRule).where(
                 AgentWhitelistRule.token_hash == th,
                 AgentWhitelistRule.enabled.is_(True),
+                or_(
+                    AgentWhitelistRule.token_expires_at.is_(None),
+                    AgentWhitelistRule.token_expires_at > utc_now(),
+                ),
             )
         )
     ).scalar_one_or_none()

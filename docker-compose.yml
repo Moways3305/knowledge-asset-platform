@@ -272,7 +272,8 @@ services:
     environment:
       ONLYOFFICE_ORIGIN: ${ONLYOFFICE_ORIGIN:-}
     ports:
-      - "18080:8080"
+      # Only the host TLS reverse proxy may reach the production frontend hop.
+      - "127.0.0.1:18080:8080"
     # 仅在 web 网络：可反代到 backend，但访问不到 postgres/redis（隔离）。
     networks:
       - web

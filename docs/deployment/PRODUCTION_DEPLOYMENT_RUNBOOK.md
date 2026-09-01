@@ -52,6 +52,8 @@
   `/data/kap/workbuddy-connectors` 只读挂载到 `backend`；`worker`、`beat`、`frontend`、
   `postgres`、`redis` 不得访问。下载、校验、原子切换、回滚和双身份烟测见
   [`WORKBUDDY_CONNECTOR_RELEASE.md`](./WORKBUDDY_CONNECTOR_RELEASE.md)。
+- [ ] WorkBuddy 远程 MCP 默认入口为生产 HTTPS 精确路径 `/mcp`；检查短期凭证、代理限制、
+  实际客户端验证与回滚步骤见 [`WORKBUDDY_REMOTE_MCP.md`](./WORKBUDDY_REMOTE_MCP.md)。
 
 ### 1.4 外部依赖连通性（按启用情况）
 

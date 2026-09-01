@@ -199,6 +199,16 @@ class Settings(BaseSettings):
     workbuddy_connector_manifest: str = "manifest.json"
     # 是否允许分发未签名的企业内部版。所有环境默认关闭，只有显式 true 才允许。
     workbuddy_connector_allow_internal: bool = False
+    # Remote MCP is the default WorkBuddy path. The switch remains server-side for rollback.
+    workbuddy_remote_mcp_enabled: bool = True
+    workbuddy_remote_mcp_tools: str = "*"
+    workbuddy_remote_token_ttl_hours: int = 168
+    workbuddy_remote_request_max_bytes: int = 65536
+    workbuddy_remote_concurrency: int = 8
+    workbuddy_remote_timeout_seconds: float = 35.0
+    workbuddy_remote_rate_limit_per_minute: int = 60
+    # Comma-separated exact Origin values. Missing Origin is allowed for desktop clients.
+    workbuddy_remote_allowed_origins: str = ""
 
     # D1 阶段4（Small-to-Big）：子块召回后按父文件聚合，取治理文本全文给 Agent。
     # agent_parent_doc_limit：最多取几篇父文件全文（≤N，默认 3，可配）。
