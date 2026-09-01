@@ -7,7 +7,9 @@ import uuid
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.db.base import Base
 from app.main import app
 from app.models.ingest import IngestTask, IngestTaskAiResult
 from app.models.knowledge import KnowledgeAssetVersion
@@ -316,6 +318,61 @@ async def test_processing_failure_can_be_retried_without_leaking_storage(client,
     assert "SECRET-LIKE" not in retried.text
 
 
+async def test_processing_timeout_uses_physical_source_preflight(client, db_session, monkeypatch):
+    available_ref = client._kap_storage.save(b"recoverable", original_name="timeout.txt")
+    available = IngestTask(
+        source="path_b_upload",
+        source_file_ref=available_ref,
+        source_file_name="timeout.txt",
+        source_file_mime_type="text/plain",
+        source_file_size=0,
+        status="failed",
+        error_type="processing_timeout",
+        created_by=USER_CONSULTANT,
+    )
+    missing = IngestTask(
+        source="path_b_upload",
+        source_file_ref=f"internal://{uuid.uuid4().hex}/missing.txt",
+        source_file_name="missing.txt",
+        source_file_mime_type="text/plain",
+        source_file_size=999,
+        status="failed",
+        error_type="processing_timeout",
+        created_by=USER_CONSULTANT,
+    )
+    db_session.add_all([available, missing])
+    await db_session.commit()
+    calls = 0
+
+    async def fake_enqueue(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return "processing"
+
+    monkeypatch.setattr("app.services.ingest_status.enqueue_ingest_processing", fake_enqueue)
+
+    available_status = await client.get(
+        _status_url(available.id), headers=_headers(USER_CONSULTANT)
+    )
+    missing_status = await client.get(_status_url(missing.id), headers=_headers(USER_CONSULTANT))
+    assert available_status.json()["error"]["message"] == "处理超时，文件仍可重试。"
+    assert available_status.json()["retryable"] is True
+    assert available_status.json()["next_action"]["key"] == "retry_processing"
+    assert missing_status.json()["error"]["code"] == "source_file_unavailable"
+    assert missing_status.json()["retryable"] is False
+    assert missing_status.json()["next_action"]["key"] == "replace_file"
+
+    missing_retry = await client.post(_retry_url(missing.id), headers=_headers(USER_CONSULTANT))
+    assert missing_retry.json()["error"]["code"] == "source_file_unavailable"
+    await db_session.refresh(missing)
+    assert missing.error_type == "source_file_unavailable"
+
+    retried = await client.post(_retry_url(available.id), headers=_headers(USER_CONSULTANT))
+    assert retried.status_code == 200
+    assert retried.json()["status"] == "processing"
+    assert calls == 1
+
+
 async def test_processing_failure_waiting_for_retry_is_actionable(client, db_session):
     task = await _task(
         db_session,
@@ -416,6 +473,83 @@ async def test_concurrent_retry_with_independent_sessions_enqueues_once(
 
     assert enqueue_calls == 1
     assert {response.status.value for response in responses} == {"processing"}
+
+
+async def test_concurrent_processing_timeout_retry_claims_and_enqueues_once(tmp_path, monkeypatch):
+    storage = LocalFileStorage(tmp_path / "concurrent-timeout-retry")
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'concurrent.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    async with maker() as setup_session:
+        task = IngestTask(
+            source="path_b_upload",
+            source_file_ref=storage.save(b"recoverable", original_name="timeout.txt"),
+            source_file_name="timeout.txt",
+            source_file_mime_type="text/plain",
+            status="failed",
+            error_type="processing_timeout",
+            created_by=USER_CONSULTANT,
+        )
+        setup_session.add(task)
+        await setup_session.commit()
+    caller = CallerContext(
+        user_id=USER_CONSULTANT,
+        is_active=True,
+        active_company_roles={"consultant"},
+        active_project_ids={PROJECT_ALPHA},
+        active_project_roles={PROJECT_ALPHA: "consultant"},
+    )
+    loaded = 0
+    both_loaded = asyncio.Event()
+    enqueue_calls = 0
+
+    import app.services.ingest_status as status_service
+
+    original_load = status_service._load_context
+
+    async def _load_after_barrier(*args, **kwargs):
+        nonlocal loaded
+        context = await original_load(*args, **kwargs)
+        loaded += 1
+        if loaded == 2:
+            both_loaded.set()
+        await asyncio.wait_for(both_loaded.wait(), timeout=2)
+        return context
+
+    async def _fake_enqueue(*_args, **_kwargs):
+        nonlocal enqueue_calls
+        enqueue_calls += 1
+        return "processing"
+
+    monkeypatch.setattr(status_service, "_load_context", _load_after_barrier)
+    monkeypatch.setattr(status_service, "enqueue_ingest_processing", _fake_enqueue)
+
+    async with maker() as first, maker() as second:
+        responses = await asyncio.gather(
+            *[
+                retry_task(
+                    active_session,
+                    caller,
+                    task.id,
+                    storage=storage,
+                    llm=NullLLMClient(),
+                    desensitizer=NullDesensitizer(),
+                    weknora=NullWeKnoraClient(),
+                    trace_id=f"timeout-concurrent-{index}",
+                )
+                for index, active_session in enumerate((first, second))
+            ]
+        )
+
+    assert enqueue_calls == 1
+    assert {response.status.value for response in responses} <= {"failed", "processing"}
+    async with maker() as verification_session:
+        persisted = await verification_session.get(IngestTask, task.id)
+        assert persisted is not None
+        assert persisted.status == "processing"
+        assert persisted.retry_count == 1
+    await engine.dispose()
 
 
 async def test_index_failure_retry_reuses_authorized_index_contract(client, db_session):

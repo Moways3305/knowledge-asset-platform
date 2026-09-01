@@ -710,7 +710,7 @@ try {
           await page.getByText("正在生成 Markdown", { exact: true }).waitFor();
         } else if (scenario === "local-upload-failure-retry") {
           await page.getByText("上传失败", { exact: true }).first().waitFor();
-          await page.getByRole("button", { name: "重试" }).first().click();
+          await page.getByRole("button", { name: "重试处理" }).first().click();
           await page.getByText("上传失败", { exact: true }).first().waitFor({ state: "detached" });
         }
         if (scenario !== "canonical-processing") {

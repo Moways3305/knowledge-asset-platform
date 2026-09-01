@@ -101,6 +101,10 @@ class Settings(BaseSettings):
     ingest_recovery_scan_seconds: int = 60
     ingest_recovery_base_delay_seconds: int = 60
     ingest_recovery_max_attempts: int = 3
+    # Historical processing_timeout recovery is deliberately slower and separately bounded.
+    ingest_timeout_recovery_batch_size: int = 3
+    ingest_timeout_recovery_interval_seconds: int = 15
+    ingest_timeout_recovery_queue_budget: int = 25
 
     # 受控本地文件存储根目录。上传的文件字节写入此处；
     # 内部存储引用（server-only）不进入任何 API 响应。生产应替换为对象存储后端。

@@ -59,6 +59,10 @@ from app.schemas.indexing_ops import (
     IndexingReparseRequest,
     IndexingRetryRequest,
 )
+from app.schemas.ingest_recovery import (
+    ProcessingTimeoutRecoveryRequest,
+    ProcessingTimeoutRecoveryResponse,
+)
 from app.schemas.llm_usage import LLMUsageAggregateItem, LLMUsageAggregateResponse
 from app.schemas.permission import CallerContext
 from app.schemas.session_ops import (
@@ -76,13 +80,16 @@ from app.services import (
     indexing_candidates,
     indexing_health,
     llm_usage,
+    processing_timeout_recovery,
     session_revocation,
     wecom_identity,
     weknora_defaults,
 )
 from app.services import indexing_ops as indexing_ops_service
 from app.services.auth_session import SESSION_COOKIE_NAME
-from app.services.llm_client import llm_enabled
+from app.services.desensitization import DesensitizationEngine, get_desensitizer
+from app.services.generation_models import get_generation_llm_client
+from app.services.llm_client import LLMClient, NullLLMClient, llm_enabled
 from app.services.onlyoffice import onlyoffice_enabled
 from app.services.storage import LocalFileStorage, get_storage
 from app.services.wecom_client import get_wecom_oauth_client, wecom_enabled
@@ -721,6 +728,57 @@ async def ops_indexing_health(
 ) -> IndexingHealthResponse:
     _require_ops_viewer(caller)
     return await indexing_health.get_health(session, window_hours=window_hours)
+
+
+@router.post(
+    "/admin/ops/ingest/processing-timeout-recovery",
+    response_model=ProcessingTimeoutRecoveryResponse,
+)
+async def ops_processing_timeout_recovery(
+    body: ProcessingTimeoutRecoveryRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    llm: LLMClient | NullLLMClient = Depends(get_generation_llm_client),
+    desensitizer: DesensitizationEngine = Depends(get_desensitizer),
+) -> ProcessingTimeoutRecoveryResponse:
+    """Default-dry-run, aggregate-only recovery of at most three historical timeouts."""
+    return await processing_timeout_recovery.recover(
+        session,
+        caller,
+        body,
+        storage=storage,
+        llm=llm,
+        desensitizer=desensitizer,
+        trace_id=get_trace_id(request),
+    )
+
+
+@router.post(
+    "/admin/ops/ingest/processing-timeout-recovery/{task_id}",
+    response_model=ProcessingTimeoutRecoveryResponse,
+)
+async def ops_single_processing_timeout_recovery(
+    task_id: uuid.UUID,
+    body: ProcessingTimeoutRecoveryRequest,
+    request: Request,
+    caller: CallerContext = Depends(get_caller_context),
+    session: AsyncSession = Depends(get_db),
+    storage: LocalFileStorage = Depends(get_storage),
+    llm: LLMClient | NullLLMClient = Depends(get_generation_llm_client),
+    desensitizer: DesensitizationEngine = Depends(get_desensitizer),
+) -> ProcessingTimeoutRecoveryResponse:
+    return await processing_timeout_recovery.recover(
+        session,
+        caller,
+        body.model_copy(update={"limit": 1}),
+        storage=storage,
+        llm=llm,
+        desensitizer=desensitizer,
+        trace_id=get_trace_id(request),
+        task_id=task_id,
+    )
 
 
 @router.post(

@@ -64,6 +64,56 @@ async def _create_business_user(
     return user_id
 
 
+async def test_processing_timeout_workbench_copy_is_actionable(client, db_session):
+    source_ref = client._kap_storage.save(b"recoverable", original_name="timeout.txt")
+    task = IngestTask(
+        source="path_b_upload",
+        source_file_ref=source_ref,
+        source_file_name="timeout.txt",
+        status="failed",
+        error_type="processing_timeout",
+        error_message="SECRET storage path",
+        created_by=USER_CONSULTANT,
+    )
+    db_session.add(task)
+    await db_session.commit()
+
+    response = await client.get(OVERVIEW, headers=_headers(USER_CONSULTANT))
+    item = next(
+        value
+        for value in response.json()["task_center"]["my_tasks"]
+        if value["object_name"] == "timeout.txt"
+    )
+    assert item["result_summary"] == "处理超时，文件仍可重试"
+    assert item["next_action_label"] == "重试处理"
+    assert item["next_action_key"] == "retry_ingest"
+    assert "SECRET" not in response.text
+
+
+async def test_processing_timeout_workbench_requires_reupload_when_source_is_missing(
+    client, db_session
+):
+    task = IngestTask(
+        source="path_b_upload",
+        source_file_ref=f"internal://{uuid.uuid4().hex}/missing.txt",
+        source_file_name="missing-timeout.txt",
+        status="failed",
+        error_type="processing_timeout",
+        created_by=USER_CONSULTANT,
+    )
+    db_session.add(task)
+    await db_session.commit()
+
+    response = await client.get(OVERVIEW, headers=_headers(USER_CONSULTANT))
+    item = next(
+        value
+        for value in response.json()["task_center"]["my_tasks"]
+        if value["object_name"] == "missing-timeout.txt"
+    )
+    assert item["result_summary"] == "源文件不可用，请重新上传"
+    assert item["next_action_label"] == "重新上传"
+
+
 @pytest.mark.parametrize(
     ("user_id", "expected_status", "expected_projects"),
     [

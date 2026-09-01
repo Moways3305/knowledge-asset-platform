@@ -913,6 +913,7 @@ async def list_pending(
     *,
     source: str | None = None,
     statuses: set[str] | None = None,
+    storage: LocalFileStorage | None = None,
 ) -> list[PendingIngestItem]:
     """业务侧待确认任务列表。
 
@@ -953,6 +954,11 @@ async def list_pending(
     tasks = list((await session.execute(stmt)).scalars().all())
     items: list[PendingIngestItem] = []
     for t in tasks:
+        timeout_source_available = bool(
+            t.error_type != "processing_timeout"
+            or storage is None
+            or storage.inspect(t.source_file_ref).available
+        )
         ai = t.ai_result
         advice = safe_naming_advice(ai)
         suggestion_state = _suggestion_generation_state(t, ai)
@@ -988,8 +994,18 @@ async def list_pending(
                 can_batch_confirm=can_batch_confirm,
                 can_batch_reject=t.status in _DELETABLE_PENDING_STATUSES,
                 extraction_status=ai.extraction_status if ai else None,
-                error_type=t.error_type,
-                error_message=t.error_message,
+                error_type=(
+                    "source_file_unavailable"
+                    if t.error_type == "processing_timeout" and not timeout_source_available
+                    else t.error_type
+                ),
+                error_message=(
+                    "源文件不可用，请重新上传"
+                    if t.error_type == "processing_timeout" and not timeout_source_available
+                    else "处理超时，文件仍可重试"
+                    if t.error_type == "processing_timeout"
+                    else t.error_message
+                ),
                 processing_stage=t.processing_stage,
                 retryable=(
                     (
@@ -1004,6 +1020,7 @@ async def list_pending(
                         "source_file_unavailable",
                         "ocr_resource_limit",
                     }
+                    and timeout_source_available
                 ),
                 retry_count=t.retry_count,
                 suggested_title=display_subject,
@@ -1286,7 +1303,7 @@ async def list_admin_ingest(
                 extraction_status=ai.extraction_status if ai else None,
                 error_type=t.error_type,
                 error_message=(
-                    "文件处理超过安全时限且近期无活动"
+                    "处理超时，文件仍可重试"
                     if t.error_type == "processing_timeout"
                     else "文件内容无法完成处理"
                     if t.status == IngestStatus.failed.value

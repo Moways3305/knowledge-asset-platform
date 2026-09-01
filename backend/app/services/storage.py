@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
 from app.core.config import get_settings
@@ -32,6 +34,15 @@ _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._-]")
 
 class StorageError(Exception):
     """存储层错误（路径非法 / 引用不合法等）。"""
+
+
+@dataclass(frozen=True, slots=True)
+class StoredFileInspection:
+    """Server-only physical source preflight; never serialize its path or ref."""
+
+    available: bool
+    size: int | None
+    reason: str | None
 
 
 def _contains(root: Path, candidate: Path) -> bool:
@@ -97,10 +108,20 @@ class LocalFileStorage:
         return path
 
     def exists(self, ref: str) -> bool:
+        return self.inspect(ref).available
+
+    def inspect(self, ref: str) -> StoredFileInspection:
+        """Validate the physical object instead of trusting database size metadata."""
         try:
-            return self.resolve_path(ref).is_file()
-        except StorageError:
-            return False
+            path = self.resolve_path(ref)
+            info = path.stat()
+            if not stat.S_ISREG(info.st_mode):
+                return StoredFileInspection(False, None, "not_regular_file")
+            if info.st_size <= 0:
+                return StoredFileInspection(False, 0, "empty_file")
+            return StoredFileInspection(True, info.st_size, None)
+        except (StorageError, FileNotFoundError, OSError):
+            return StoredFileInspection(False, None, "missing_or_invalid")
 
     def delete(self, ref: str) -> bool:
         """删除存储引用对应的文件；成功返回 True，不存在或无效引用返回 False。"""

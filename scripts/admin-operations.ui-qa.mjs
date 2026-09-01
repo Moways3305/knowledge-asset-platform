@@ -33,6 +33,7 @@ const scenarios = [
   "health-error",
   "forbidden",
   "empty",
+  "timeout-recovery",
 ];
 
 const authMe = {
@@ -192,6 +193,9 @@ try {
       let targetPathSafe = true;
       let conflictObserved = false;
       let targetReadOnlyObserved = false;
+      let timeoutRecoveryCalls = 0;
+      let timeoutRecoveryPayloadValid = false;
+      let timeoutRecoveryScreenshot = null;
       let releaseTarget;
       await context.route("**/*", async (route) => {
         const request = route.request();
@@ -229,6 +233,38 @@ try {
           return forbidden
             ? fulfill({ detail: "SECRET denial" }, 403)
             : fulfill({ items, total: items.length });
+        }
+        if (url.pathname === "/admin/ops/ingest/processing-timeout-recovery") {
+          timeoutRecoveryCalls += 1;
+          const body = request.postDataJSON?.() ?? {};
+          const executing = body.dry_run === false;
+          timeoutRecoveryPayloadValid =
+            timeoutRecoveryPayloadValid ||
+            (executing &&
+              body.confirm === true &&
+              body.limit === 3 &&
+              body.expected_oom_kill_count === 4);
+          return fulfill({
+            dry_run: !executing,
+            scanned: 35,
+            candidates: 35,
+            source_unavailable: 0,
+            selected: executing ? 3 : 0,
+            claimed: executing ? 3 : 0,
+            enqueued: executing ? 3 : 0,
+            conflicts: 0,
+            stopped: false,
+            stop_reason: null,
+            preflight: {
+              redis_ready: true,
+              ocr_worker_ready: true,
+              queue_within_budget: true,
+              oom_kill_count: 4,
+              ready: true,
+              reason: null,
+            },
+            next_batch_not_before: executing ? "2026-09-01T08:00:15Z" : null,
+          });
         }
         if (url.pathname.endsWith("/retry") && url.pathname.includes("/failures/")) {
           targetCalls += 1;
@@ -411,6 +447,23 @@ try {
         await page.getByText("入库概览暂时无法加载。").waitFor();
       } else if (scenario === "empty") {
         await page.getByText("当前没有待恢复索引").first().waitFor();
+      } else if (scenario === "timeout-recovery") {
+        await page.getByRole("button", { name: "检查超时任务" }).click();
+        const timeoutPanel = page.getByLabel("入库运行概览");
+        await timeoutPanel.getByText("35", { exact: true }).waitFor();
+        page.once("dialog", (dialog) => dialog.accept());
+        await page.getByRole("button", { name: "二次确认并恢复最多 3 条" }).click();
+        await page.waitForFunction(() =>
+          [...document.querySelectorAll("button")].some(
+            (button) => button.textContent?.includes("二次确认并恢复最多 3 条") && button.disabled,
+          ),
+        );
+        timeoutRecoveryScreenshot = path.join(outDir, `timeout-recovery-open-${viewport.name}.png`);
+        await page.screenshot({
+          path: timeoutRecoveryScreenshot,
+          animations: "disabled",
+          fullPage: true,
+        });
       } else {
         await page.getByLabel("近 24 小时索引运维趋势").waitFor();
       }
@@ -620,6 +673,10 @@ try {
         "health-error": result.healthError,
         forbidden: result.forbidden,
         empty: result.empty,
+        "timeout-recovery":
+          timeoutRecoveryCalls === 2 &&
+          timeoutRecoveryPayloadValid &&
+          Boolean(timeoutRecoveryScreenshot),
       }[scenario];
       result.pass = Boolean(
         result.overflowX <= 2 &&
