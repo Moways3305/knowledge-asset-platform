@@ -276,7 +276,10 @@ class RemoteMcpOperationalGuard(BaseHTTPMiddleware):
         window = self._rate_windows.get(rate_key)
         if window is None:
             if len(self._rate_windows) >= _RATE_WINDOW_MAX_KEYS:
-                self._rate_windows.popitem(last=False)
+                # Never evict an active credential window: doing so would reset its
+                # counter and let a caller bypass the limit by flooding distinct keys.
+                # Unknown keys fail closed until an existing window naturally expires.
+                return False
             window = deque()
             self._rate_windows[rate_key] = window
         else:

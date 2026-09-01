@@ -38,17 +38,28 @@ def test_remote_mcp_edge_is_exact_bounded_and_loopback_only():
     assert '"127.0.0.1:18080:8080"' in compose
 
 
-def test_remote_mcp_rate_windows_are_bounded_and_expired_keys_are_removed():
+def test_remote_mcp_rate_windows_are_bounded_without_evicting_active_credentials():
     guard = RemoteMcpOperationalGuard(app, kap_app=app)
 
-    for index in range(_RATE_WINDOW_MAX_KEYS + 50):
+    assert guard._allow_rate_request("active", now=10.0, limit=1)
+    for index in range(_RATE_WINDOW_MAX_KEYS - 1):
         assert guard._allow_rate_request(f"forged-{index}", now=10.0, limit=3)
 
     assert len(guard._rate_windows) == _RATE_WINDOW_MAX_KEYS
-    assert "forged-0" not in guard._rate_windows
-    assert guard._allow_rate_request("active", now=70.1, limit=1)
-    assert list(guard._rate_windows) == ["active"]
-    assert not guard._allow_rate_request("active", now=70.2, limit=1)
+    assert "active" in guard._rate_windows
+    assert not guard._allow_rate_request("active", now=10.1, limit=1)
+
+    # New, attacker-controlled keys fail closed. They cannot evict/reset an active
+    # credential or receive a temporary counter that could later be reset.
+    assert not guard._allow_rate_request("overflow-1", now=10.1, limit=3)
+    assert not guard._allow_rate_request("overflow-2", now=10.1, limit=3)
+    assert not guard._allow_rate_request("overflow-3", now=10.1, limit=3)
+    assert not guard._allow_rate_request("overflow-4", now=10.1, limit=3)
+    assert len(guard._rate_windows) == _RATE_WINDOW_MAX_KEYS
+    assert "overflow-1" not in guard._rate_windows
+
+    assert guard._allow_rate_request("after-expiry", now=70.2, limit=1)
+    assert list(guard._rate_windows) == ["after-expiry"]
 
 
 def _dev(user_id):
