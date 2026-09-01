@@ -6144,11 +6144,17 @@
       "IngestTaskStage": {
         "enum": [
           "upload_saved",
+          "processing_claimed",
           "text_extraction",
           "ocr_queued",
           "ocr_in_progress",
           "ocr_failed",
+          "ocr_too_complex",
+          "ocr_complete",
+          "processing_interrupted",
+          "source_unavailable",
           "canonical_markdown_generation",
+          "content_generation_queued",
           "content_generation",
           "waiting_generation_config",
           "content_generation_failed",
@@ -6178,6 +6184,18 @@
               }
             ]
           },
+          "last_progress_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Progress At"
+          },
           "next_action": {
             "anyOf": [
               {
@@ -6187,6 +6205,18 @@
                 "type": "null"
               }
             ]
+          },
+          "next_retry_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Retry At"
           },
           "result_asset_id": {
             "anyOf": [
@@ -10255,6 +10285,18 @@
             "title": "Id",
             "type": "string"
           },
+          "last_progress_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Progress At"
+          },
           "naming_parsed_fields": {
             "anyOf": [
               {
@@ -10266,6 +10308,18 @@
               }
             ],
             "title": "Naming Parsed Fields"
+          },
+          "next_retry_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Retry At"
           },
           "processing_stage": {
             "anyOf": [
