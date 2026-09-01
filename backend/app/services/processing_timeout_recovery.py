@@ -9,10 +9,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from collections.abc import Awaitable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any, cast
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,6 +43,7 @@ _ENQUEUE_ACTION = AuditAction.ingest_timeout_recovery_enqueued.value
 _ENQUEUE_FAILED_ACTION = AuditAction.ingest_timeout_recovery_enqueue_failed.value
 _BATCH_LEASE_KEY = "kap:ingest:processing-timeout-recovery"
 _BATCH_LEASE_SECONDS = 120
+_BATCH_LEASE_RENEW_SECONDS = 40
 _EAGER_BATCH_LOCK = asyncio.Lock()
 _logger = logging.getLogger(__name__)
 
@@ -95,10 +98,10 @@ async def runtime_facts() -> _RuntimeFacts:
             socket_timeout=2,
         )
         try:
-            redis_ready = bool(await client.ping())
-            queued = int(await client.llen(settings.celery_default_queue)) + int(
-                await client.llen(settings.celery_ocr_queue)
-            )
+            redis_ready = bool(await cast(Awaitable[Any], client.ping()))
+            queued = int(
+                await cast(Awaitable[Any], client.llen(settings.celery_default_queue))
+            ) + int(await cast(Awaitable[Any], client.llen(settings.celery_ocr_queue)))
         finally:
             await client.aclose()
     except Exception:  # operational reason is returned as a safe enum, never raw diagnostics
@@ -162,9 +165,44 @@ async def _batch_lease():
         await client.aclose()
         yield False, "batch_in_progress"
         return
+
+    async def renew() -> None:
+        # Renew only while this owner token is still present.  A stale worker
+        # must never extend a lease acquired by a later recovery request.
+        script = (
+            "if redis.call('get', KEYS[1]) == ARGV[1] then "
+            "return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end"
+        )
+        while True:
+            try:
+                await asyncio.sleep(_BATCH_LEASE_RENEW_SECONDS)
+                renewed = await client.eval(
+                    script,
+                    1,
+                    _BATCH_LEASE_KEY,
+                    token,
+                    _BATCH_LEASE_SECONDS,
+                )
+                if not renewed:
+                    _logger.warning("processing_timeout_recovery_lease_lost")
+                    return
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # A transient Redis error is retried on the next heartbeat;
+                # the bounded TTL still provides an upper limit if Redis stays
+                # unavailable.
+                _logger.warning("processing_timeout_recovery_lease_renew_failed")
+
+    renew_task = asyncio.create_task(renew())
     try:
         yield True, None
     finally:
+        renew_task.cancel()
+        try:
+            await renew_task
+        except asyncio.CancelledError:
+            pass
         try:
             try:
                 await client.eval(
