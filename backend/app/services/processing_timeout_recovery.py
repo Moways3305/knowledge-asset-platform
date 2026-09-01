@@ -137,12 +137,13 @@ async def _batch_lease():
     """Serialize actual recovery across requests and application workers."""
     settings = get_settings()
     if settings.celery_task_always_eager:
+        lease_lost = asyncio.Event()
         if _EAGER_BATCH_LOCK.locked():
-            yield False, "batch_in_progress"
+            yield False, "batch_in_progress", lease_lost
             return
         await _EAGER_BATCH_LOCK.acquire()
         try:
-            yield True, None
+            yield True, None, lease_lost
         finally:
             _EAGER_BATCH_LOCK.release()
         return
@@ -159,12 +160,14 @@ async def _batch_lease():
         acquired = bool(await client.set(_BATCH_LEASE_KEY, token, nx=True, ex=_BATCH_LEASE_SECONDS))
     except Exception:
         await client.aclose()
-        yield False, "redis_unavailable"
+        yield False, "redis_unavailable", asyncio.Event()
         return
     if not acquired:
         await client.aclose()
-        yield False, "batch_in_progress"
+        yield False, "batch_in_progress", asyncio.Event()
         return
+
+    lease_lost = asyncio.Event()
 
     async def renew() -> None:
         # Renew only while this owner token is still present.  A stale worker
@@ -185,18 +188,18 @@ async def _batch_lease():
                 )
                 if not renewed:
                     _logger.warning("processing_timeout_recovery_lease_lost")
+                    lease_lost.set()
                     return
             except asyncio.CancelledError:
                 raise
             except Exception:
-                # A transient Redis error is retried on the next heartbeat;
-                # the bounded TTL still provides an upper limit if Redis stays
-                # unavailable.
                 _logger.warning("processing_timeout_recovery_lease_renew_failed")
+                lease_lost.set()
+                return
 
     renew_task = asyncio.create_task(renew())
     try:
-        yield True, None
+        yield True, None, lease_lost
     finally:
         renew_task.cancel()
         try:
@@ -314,6 +317,7 @@ async def _recover_once(
     trace_id: str,
     task_id: uuid.UUID | None = None,
     forced_stop_reason: str | None = None,
+    lease_lost: asyncio.Event | None = None,
 ) -> ProcessingTimeoutRecoveryResponse:
     tasks = await _candidate_tasks(session, task_id)
     available: list[IngestTask] = []
@@ -417,6 +421,8 @@ async def _recover_once(
 
     claimed = enqueued = conflicts = 0
     for task in selected:
+        if lease_lost is not None and lease_lost.is_set():
+            break
         claim = await session.execute(
             update(IngestTask)
             .where(
@@ -443,6 +449,19 @@ async def _recover_once(
             continue
         claimed += 1
         await session.commit()
+        if lease_lost is not None and lease_lost.is_set():
+            await session.execute(
+                update(IngestTask)
+                .where(IngestTask.id == task.id, IngestTask.status == IngestStatus.processing.value)
+                .values(
+                    status=IngestStatus.failed.value,
+                    processing_stage="failed",
+                    error_type="processing_timeout",
+                    error_message="恢复租约已失效，请稍后重试。",
+                )
+            )
+            await session.commit()
+            break
         try:
             await enqueue_ingest_processing(
                 session,
@@ -490,7 +509,22 @@ async def _recover_once(
         )
         await session.commit()
 
-    stopped = enqueued < claimed
+        if lease_lost is not None and lease_lost.is_set():
+            break
+
+    lost_lease = lease_lost is not None and lease_lost.is_set()
+    stopped = lost_lease or enqueued < claimed
+    if lost_lease:
+        await audit_service.record_event(
+            session,
+            caller=caller,
+            log_type=AuditLogType.operation,
+            action=_REJECTED_ACTION,
+            trace_id=trace_id,
+            target_type="ingest_task_batch",
+            extra={"reason": "lease_lost", "result": "stopped"},
+        )
+        await session.commit()
     return ProcessingTimeoutRecoveryResponse(
         dry_run=False,
         scanned=len(tasks),
@@ -501,7 +535,7 @@ async def _recover_once(
         enqueued=enqueued,
         conflicts=conflicts,
         stopped=stopped,
-        stop_reason="queue_unavailable" if stopped else None,
+        stop_reason="lease_lost" if lost_lease else "queue_unavailable" if stopped else None,
         preflight=preflight,
         next_batch_not_before=utc_now()
         + timedelta(seconds=max(15, get_settings().ingest_timeout_recovery_interval_seconds)),
@@ -532,7 +566,7 @@ async def recover(
             task_id=task_id,
         )
 
-    async with _batch_lease() as (acquired, stop_reason):
+    async with _batch_lease() as (acquired, stop_reason, lease_lost):
         return await _recover_once(
             session,
             caller,
@@ -543,4 +577,5 @@ async def recover(
             trace_id=trace_id,
             task_id=task_id,
             forced_stop_reason=None if acquired else stop_reason,
+            lease_lost=lease_lost if acquired else None,
         )

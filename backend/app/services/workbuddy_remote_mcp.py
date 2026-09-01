@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from collections import defaultdict, deque
+from collections import OrderedDict, deque
 from contextlib import asynccontextmanager
 from datetime import timezone
 from typing import Any
@@ -52,6 +52,7 @@ _TOOL_NAMES = (
     "kap_list_pending_reviews",
     "kap_list_original_access_requests",
 )
+_RATE_WINDOW_MAX_KEYS = 4096
 
 _CARD_FIELDS = (
     "asset_id",
@@ -260,7 +261,33 @@ class RemoteMcpOperationalGuard(BaseHTTPMiddleware):
         self._semaphore = __import__("asyncio").Semaphore(
             max(1, get_settings().workbuddy_remote_concurrency)
         )
-        self._rate_windows: dict[str, deque[float]] = defaultdict(deque)
+        self._rate_windows: OrderedDict[str, deque[float]] = OrderedDict()
+
+    def _allow_rate_request(self, rate_key: str, now: float, limit: int) -> bool:
+        """Apply a bounded sliding window without retaining attacker-controlled keys forever."""
+        cutoff = now - 60
+        while self._rate_windows:
+            oldest_key = next(iter(self._rate_windows))
+            oldest_window = self._rate_windows[oldest_key]
+            if oldest_window and oldest_window[-1] > cutoff:
+                break
+            self._rate_windows.popitem(last=False)
+
+        window = self._rate_windows.get(rate_key)
+        if window is None:
+            if len(self._rate_windows) >= _RATE_WINDOW_MAX_KEYS:
+                self._rate_windows.popitem(last=False)
+            window = deque()
+            self._rate_windows[rate_key] = window
+        else:
+            while window and window[0] <= cutoff:
+                window.popleft()
+
+        if len(window) >= limit:
+            return False
+        window.append(now)
+        self._rate_windows.move_to_end(rate_key)
+        return True
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         import asyncio
@@ -292,13 +319,13 @@ class RemoteMcpOperationalGuard(BaseHTTPMiddleware):
         authorization = request.headers.get("authorization", "")
         rate_key = hashlib.sha256(authorization.encode("utf-8")).hexdigest()
         now = time.monotonic()
-        window = self._rate_windows[rate_key]
-        while window and window[0] <= now - 60:
-            window.popleft()
-        if len(window) >= max(1, settings.workbuddy_remote_rate_limit_per_minute):
+        if not self._allow_rate_request(
+            rate_key,
+            now,
+            max(1, settings.workbuddy_remote_rate_limit_per_minute),
+        ):
             remote_mcp_metrics.rate_limited += 1
             return JSONResponse({"error": "rate_limited"}, status_code=429)
-        window.append(now)
 
         try:
             await asyncio.wait_for(self._semaphore.acquire(), timeout=0.01)

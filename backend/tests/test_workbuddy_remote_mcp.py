@@ -15,7 +15,11 @@ from app.db.utils import utc_now
 from app.main import app
 from app.models.agent_registry import AgentWhitelistRule
 from app.seed.dev_seed import USER_CONSULTANT
-from app.services.workbuddy_remote_mcp import _TOOL_NAMES
+from app.services.workbuddy_remote_mcp import (
+    _RATE_WINDOW_MAX_KEYS,
+    _TOOL_NAMES,
+    RemoteMcpOperationalGuard,
+)
 
 REGENERATE = "/api/v1/auth/workbuddy-token/regenerate"
 
@@ -32,6 +36,19 @@ def test_remote_mcp_edge_is_exact_bounded_and_loopback_only():
     assert "zone=workbuddy_mcp" in inner and "zone=workbuddy_mcp" in main
     assert "proxy_set_header X-Forwarded-Proto $kap_forwarded_proto;" in inner
     assert '"127.0.0.1:18080:8080"' in compose
+
+
+def test_remote_mcp_rate_windows_are_bounded_and_expired_keys_are_removed():
+    guard = RemoteMcpOperationalGuard(app, kap_app=app)
+
+    for index in range(_RATE_WINDOW_MAX_KEYS + 50):
+        assert guard._allow_rate_request(f"forged-{index}", now=10.0, limit=3)
+
+    assert len(guard._rate_windows) == _RATE_WINDOW_MAX_KEYS
+    assert "forged-0" not in guard._rate_windows
+    assert guard._allow_rate_request("active", now=70.1, limit=1)
+    assert list(guard._rate_windows) == ["active"]
+    assert not guard._allow_rate_request("active", now=70.2, limit=1)
 
 
 def _dev(user_id):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from contextlib import asynccontextmanager
 
 import pytest
 from sqlalchemy import func, select
@@ -397,6 +398,91 @@ async def test_concurrent_actual_requests_cannot_claim_more_than_one_batch(tmp_p
         )
         assert processing_count == 3
     await engine.dispose()
+
+
+async def test_lost_batch_lease_stops_before_claiming_the_next_task(
+    client, db_session, monkeypatch
+):
+    tasks = [
+        await _timeout_task(db_session, client._kap_storage, content=b"available" + bytes([index]))
+        for index in range(3)
+    ]
+    lease_lost = asyncio.Event()
+    enqueued: list[uuid.UUID] = []
+
+    @asynccontextmanager
+    async def losing_lease():
+        yield True, None, lease_lost
+
+    async def fake_facts():
+        return recovery._RuntimeFacts(True, True, 0, 12)
+
+    async def lose_after_first_enqueue(_session, task_id, **_kwargs):
+        enqueued.append(task_id)
+        lease_lost.set()
+        return "processing"
+
+    monkeypatch.setattr(recovery, "_batch_lease", losing_lease)
+    monkeypatch.setattr(recovery, "runtime_facts", fake_facts)
+    monkeypatch.setattr(recovery, "enqueue_ingest_processing", lose_after_first_enqueue)
+
+    response = await client.post(
+        "/admin/ops/ingest/processing-timeout-recovery",
+        headers=_headers(USER_BOSS),
+        json={
+            "dry_run": False,
+            "confirm": True,
+            "limit": 3,
+            "expected_oom_kill_count": 12,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["stopped"] is True
+    assert response.json()["stop_reason"] == "lease_lost"
+    assert (response.json()["claimed"], response.json()["enqueued"]) == (1, 1)
+    assert len(enqueued) == 1
+    for task in tasks:
+        await db_session.refresh(task)
+    assert sum(task.status == "processing" for task in tasks) == 1
+    assert sum(task.status == "failed" for task in tasks) == 2
+    event = (
+        await db_session.execute(
+            select(AuditEvent).where(
+                AuditEvent.action == "ingest.processing_timeout_recovery_preflight_rejected",
+                AuditEvent.extra["reason"].as_string() == "lease_lost",
+            )
+        )
+    ).scalar_one()
+    assert event.extra == {"reason": "lease_lost", "result": "stopped"}
+
+
+async def test_batch_lease_renewal_error_signals_lease_loss(monkeypatch):
+    import redis.asyncio as aioredis
+
+    settings = recovery.get_settings()
+    monkeypatch.setattr(settings, "celery_task_always_eager", False)
+    monkeypatch.setattr(recovery, "_BATCH_LEASE_RENEW_SECONDS", 0.001)
+
+    class FailingRenewRedis:
+        async def set(self, *_args, **_kwargs):
+            return True
+
+        async def eval(self, script, *_args):
+            if "expire" in script:
+                raise RuntimeError("renew transport detail")
+            return 1
+
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr(aioredis, "from_url", lambda *_args, **_kwargs: FailingRenewRedis())
+
+    async with recovery._batch_lease() as (acquired, reason, lease_lost):
+        assert acquired is True and reason is None
+        await asyncio.wait_for(lease_lost.wait(), timeout=0.5)
+
+    assert lease_lost.is_set()
 
 
 async def _async_value(value):
