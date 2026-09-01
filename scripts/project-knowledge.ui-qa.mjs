@@ -237,25 +237,14 @@ try {
           return fulfill({
             required: true,
             rule_version: 8,
-            categories: [
-              {
-                id: "category-company-safe",
-                scope: "company",
-                primary: "公司资产",
-                secondary: "方法论",
-                prefix: "方法",
-                asset_type: "methodology",
-                default_confidentiality: "L2",
-                enabled: true,
-                sort_order: 10,
-                suggested_directory_key: "company.methodology",
-              },
-            ],
             directories: [
               {
                 directory_key: "company.methodology",
                 scope: "company",
                 display_name: "02 方法论",
+                description: "模型、工具与可复用方法",
+                naming_code: "方法论",
+                default_confidentiality: "L2",
                 sort_order: 20,
                 enabled: true,
               },
@@ -475,7 +464,6 @@ try {
         if (scenario === "filters-pagination") {
           await page.getByPlaceholder("按标题或标签搜索").fill("交付");
           await page.getByLabel("资料区域").selectOption("asset");
-          await page.getByLabel("资产类型").selectOption("case");
           await page.getByLabel("资产状态").selectOption("active");
           await page.getByLabel("保密级别").selectOption("L2");
           await page.getByText("更多筛选").click();
@@ -530,10 +518,14 @@ try {
         if (["upgrade-publication", "upgrade-failure"].includes(scenario)) {
           await page.getByRole("button", { name: "发布到公司知识库" }).click();
           const dialog = page.getByRole("dialog", { name: "发布到公司知识库" });
-          await dialog.getByText("02 方法论").waitFor();
-          if ((await dialog.getByRole("combobox", { name: "正式目录" }).count()) !== 0) {
-            throw new Error("mapped publication directory must be read-only");
-          }
+          const directory = dialog.getByRole("combobox", { name: "正式目录" });
+          await directory.waitFor();
+          if ((await directory.count()) !== 1)
+            throw new Error("company publication must expose exactly one formal directory input");
+          await directory.selectOption("company.methodology");
+          await dialog.getByLabel("主题").fill("年度辅导项目知识");
+          await dialog.getByLabel("形成日期").fill("2026-08-17");
+          await dialog.getByLabel("版本").fill("V1");
           await dialog.getByLabel("适用对象").fill("全公司");
           await dialog.getByRole("button", { name: "预览目标文件名" }).click();
           await dialog.getByText(/【公司资产-方法论】/).waitFor();
@@ -632,7 +624,7 @@ try {
         filterRequestCorrect:
           capturedFilterQuery?.keyword === "交付" &&
           capturedFilterQuery?.zone === "asset" &&
-          capturedFilterQuery?.asset_type === "case" &&
+          !("asset_type" in capturedFilterQuery) &&
           capturedFilterQuery?.asset_status === "active" &&
           capturedFilterQuery?.confidentiality_level === "L2" &&
           capturedFilterQuery?.updated_from === "2026-01-01" &&
@@ -652,9 +644,13 @@ try {
         upgradePayloadValid:
           scenario !== "upgrade-publication" ||
           (upgradePayload?.confidentiality_level === "L2" &&
-            upgradePayload?.naming?.category_id === "category-company-safe" &&
             upgradePayload?.naming?.directory_key === "company.methodology" &&
-            upgradePayload?.naming?.applicable_to === "全公司"),
+            upgradePayload?.naming?.subject === "年度辅导项目知识" &&
+            upgradePayload?.naming?.formed_on === "2026-08-17" &&
+            upgradePayload?.naming?.version === "V1" &&
+            upgradePayload?.naming?.applicable_to === "全公司" &&
+            !("category_id" in (upgradePayload?.naming ?? {})) &&
+            !("asset_type" in (upgradePayload ?? {}))),
         upgradePreviewScreenshot,
         listFailureSeen,
         knowledgeCalls,

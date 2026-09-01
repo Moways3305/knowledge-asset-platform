@@ -14,6 +14,7 @@ fs.mkdirSync(outDir, { recursive: true });
 const viewports = [
   { name: "1440", width: 1440, height: 1100 },
   { name: "1024", width: 1024, height: 900 },
+  { name: "768", width: 768, height: 900 },
   { name: "390", width: 390, height: 844 },
 ];
 const scenarios = [
@@ -211,25 +212,14 @@ try {
           return fulfill({
             required: true,
             rule_version: 7,
-            categories: [
-              {
-                id: "category-project-safe",
-                scope: "project",
-                primary: "项目资料",
-                secondary: "交付成果",
-                prefix: "交付",
-                asset_type: "deliverable",
-                default_confidentiality: "L2",
-                enabled: true,
-                sort_order: 10,
-                suggested_directory_key: "project.deliverables",
-              },
-            ],
             directories: [
               {
                 directory_key: "project.deliverables",
                 scope: "project",
                 display_name: "03 交付成果",
+                description: "诊断、战略与方案",
+                naming_code: "交付成果",
+                default_confidentiality: "L2",
                 sort_order: 30,
                 enabled: true,
               },
@@ -361,10 +351,14 @@ try {
         await row.getByRole("button", { name: "提交项目" }).click();
         const dialog = page.getByRole("dialog", { name: "提交到项目" });
         await dialog.getByLabel("目标项目").selectOption(authMe.project_memberships[0].project_id);
-        await dialog.getByText("03 交付成果").waitFor();
-        if ((await dialog.getByRole("combobox", { name: "正式目录" }).count()) !== 0) {
-          throw new Error("mapped publication directory must be read-only");
-        }
+        const directory = dialog.getByRole("combobox", { name: "正式目录" });
+        await directory.waitFor();
+        if ((await directory.count()) !== 1)
+          throw new Error("project publication must expose exactly one formal directory input");
+        await directory.selectOption("project.deliverables");
+        await dialog.getByLabel("主题").fill("项目复盘方法模板");
+        await dialog.getByLabel("形成日期").fill("2026-08-17");
+        await dialog.getByLabel("版本").fill("V1");
         await dialog.getByRole("button", { name: "预览目标文件名" }).click();
         await dialog.getByText(/【KAP-2026-交付成果】/).waitFor();
         publicationScreenshot = path.join(outDir, `publication-preview-${viewport.name}.png`);
@@ -442,8 +436,11 @@ try {
           scenario !== "publication" ||
           (publicationPayload?.target_project_id === authMe.project_memberships[0].project_id &&
             publicationPayload?.naming?.directory_key === "project.deliverables" &&
-            publicationPayload?.naming?.category_id === "category-project-safe" &&
-            publicationPayload?.naming?.subject === "项目复盘方法模板"),
+            publicationPayload?.naming?.subject === "项目复盘方法模板" &&
+            publicationPayload?.naming?.formed_on === "2026-08-17" &&
+            publicationPayload?.naming?.version === "V1" &&
+            !("category_id" in (publicationPayload?.naming ?? {})) &&
+            !("asset_type" in (publicationPayload ?? {}))),
         publicationScreenshot,
       });
       result.passed =
