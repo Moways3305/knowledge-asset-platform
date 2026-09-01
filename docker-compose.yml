@@ -34,6 +34,16 @@ x-backend-env: &backend-env
   REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required (set it in ./.env)}@redis:6379/0
   # 启用真正异步（入队到 broker，由 worker 执行）。设为 true 则内联同步执行（无需 worker）。
   CELERY_TASK_ALWAYS_EAGER: "false"
+  CELERY_DEFAULT_QUEUE: default
+  CELERY_OCR_QUEUE: ocr
+  INGEST_LEASE_TIMEOUT_SECONDS: ${INGEST_LEASE_TIMEOUT_SECONDS:-900}
+  INGEST_RECOVERY_MAX_ATTEMPTS: ${INGEST_RECOVERY_MAX_ATTEMPTS:-3}
+  OCR_RENDER_TIMEOUT_SECONDS: ${OCR_RENDER_TIMEOUT_SECONDS:-45}
+  OCR_PAGE_TIMEOUT_SECONDS: ${OCR_PAGE_TIMEOUT_SECONDS:-60}
+  OCR_DOCUMENT_TIMEOUT_SECONDS: ${OCR_DOCUMENT_TIMEOUT_SECONDS:-600}
+  OCR_MAX_PAGES: ${OCR_MAX_PAGES:-100}
+  OCR_MAX_RENDERED_PIXELS: ${OCR_MAX_RENDERED_PIXELS:-20000000}
+  OCR_MAX_TOTAL_PIXELS: ${OCR_MAX_TOTAL_PIXELS:-100000000}
   # 受控上传存储根（绝对路径）。backend 写入、worker 异步读取**同一份**字节——靠
   # 下方共享命名 volume `upload_storage` 挂到此路径。生产可平替为 S3/OSS/MinIO 或共享
   # 持久卷，但 StorageBackend 边界保持 server-only（ref/路径绝不外泄）。
@@ -145,11 +155,11 @@ services:
           cpus: "1.5"
           memory: 1G
 
-  # Celery worker（入库处理 / 解析对账 / 归档扫描 / 升格推荐 / 通知下发）。
+  # 普通 Celery worker：只消费 default，不执行 PDF 渲染/Tesseract。
   worker:
     build: ./backend
     restart: unless-stopped
-    command: celery -A app.worker.celery_app.celery_app worker --loglevel=INFO
+    command: celery -A app.worker.celery_app.celery_app worker --loglevel=INFO --queues=default --hostname=default@%h --prefetch-multiplier=1
     env_file:
       - ./backend/.env
     environment: *backend-env
@@ -168,6 +178,45 @@ services:
     healthcheck:
       # inspect ping 经 broker 广播，自身 worker 回 pong 即视为健康。
       test: ["CMD-SHELL", "celery -A app.worker.celery_app.celery_app inspect ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+
+  # OCR 专用 prefork worker。2GiB 容器内默认只跑 1 个子进程、只预取 1 个任务；
+  # 每 4 份文件或子进程 RSS 超过约 700MiB 后回收，抑制 PyMuPDF/Tesseract 累计驻留。
+  # 不得改成 gevent/eventlet。提升 concurrency 前必须同步压测并调整 memory limit。
+  ocr_worker:
+    build: ./backend
+    restart: unless-stopped
+    command: >-
+      celery -A app.worker.celery_app.celery_app worker --loglevel=INFO
+      --queues=ocr --hostname=ocr@%h --pool=prefork
+      --concurrency=${OCR_WORKER_CONCURRENCY:-1}
+      --prefetch-multiplier=${OCR_WORKER_PREFETCH_MULTIPLIER:-1}
+      --max-tasks-per-child=${OCR_WORKER_MAX_TASKS_PER_CHILD:-4}
+      --max-memory-per-child=${OCR_WORKER_MAX_MEMORY_PER_CHILD_KB:-700000}
+    env_file:
+      - ./backend/.env
+    environment: *backend-env
+    volumes:
+      - upload_storage:/data/uploads
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app.celery_app inspect ping --destination=ocr@$$HOSTNAME || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -2,11 +2,9 @@
 import { ApiError } from "../../api/http";
 export { decideUploadDuplicate, fetchIngestAiResult, retryIngestTask } from "../../api/ingest";
 export {
-  classifyBatchNamingCategories,
   fetchNamingOptions,
   previewBatchIngestNaming,
   previewIngestNaming,
-  saveManualNamingCategory,
 } from "../../api/naming";
 
 export function commandErrorMessage(error: unknown, fallback: string): string {

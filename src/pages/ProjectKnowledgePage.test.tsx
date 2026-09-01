@@ -185,18 +185,6 @@ describe("ProjectKnowledgePage reference workspace", () => {
       .mockResolvedValue({
         required: true,
         rule_version: 7,
-        categories: [
-          {
-            id: "category-company",
-            scope: "company",
-            primary: "公司资产",
-            secondary: "方法论",
-            prefix: "方法",
-            asset_type: "methodology",
-            default_confidentiality: "L2",
-            suggested_directory_key: "company.methodology",
-          },
-        ],
         directories: [
           {
             directory_key: "company.methodology",
@@ -306,9 +294,6 @@ describe("ProjectKnowledgePage reference workspace", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "资料区域" }), {
       target: { value: "asset" },
     });
-    fireEvent.change(screen.getByRole("combobox", { name: "资产类型" }), {
-      target: { value: "case" },
-    });
     fireEvent.change(screen.getByRole("combobox", { name: "资产状态" }), {
       target: { value: "active" },
     });
@@ -333,7 +318,6 @@ describe("ProjectKnowledgePage reference workspace", () => {
           projectId: PROJECT_A,
           keyword: "访谈",
           zone: "asset",
-          assetType: "case",
           assetStatus: "active",
           confidentialityLevel: "L2",
           updatedFrom: "2026-01-01",
@@ -364,9 +348,10 @@ describe("ProjectKnowledgePage reference workspace", () => {
     renderPage();
     await screen.findByText("客户访谈纪要");
 
-    expect(screen.queryByRole("button", { name: "申请升格公司资产" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "发布到公司知识库" })).not.toBeInTheDocument();
+    expect(screen.getByText("仅项目经理可提交公司发布申请")).toBeInTheDocument();
     expect(screen.queryByLabelText(/更多操作/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "查看详情" }));
+    fireEvent.click(screen.getByRole("link", { name: "客户访谈纪要" }));
     expect(await screen.findByText("知识详情")).toBeInTheDocument();
   });
 
@@ -383,7 +368,7 @@ describe("ProjectKnowledgePage reference workspace", () => {
     );
     renderPage();
 
-    expect((await screen.findAllByText("信息待确认")).length).toBe(4);
+    expect((await screen.findAllByText("信息待确认")).length).toBe(3);
     const visibleText = document.body.textContent ?? "";
     expect(visibleText).not.toMatch(/secret-zone|secret-type|secret-status|secret-level/);
   });
@@ -392,25 +377,35 @@ describe("ProjectKnowledgePage reference workspace", () => {
     vi.mocked(fetchKnowledgePage).mockResolvedValue(
       page([
         card({ id: "material-1", title: "项目资料", zone: "material" }),
-        card({ id: "asset-2", title: "项目资产", zone: "asset" }),
+        card({
+          id: "asset-2",
+          title: "项目资产",
+          zone: "asset",
+          access: { ...card().access, canDelete: true },
+        }),
       ]),
     );
     renderPage(`/project/${PROJECT_B}/knowledge`);
     await screen.findByText("项目资产");
 
-    expect(screen.getByLabelText("更多操作：项目资料")).toBeInTheDocument();
+    expect(screen.getByText("资料需先完成资产化审核")).toBeInTheDocument();
+    expect(screen.queryByLabelText("更多操作：项目资料")).not.toBeInTheDocument();
     const assetDetails = screen.getByLabelText("更多操作：项目资产").closest("details")!;
     fireEvent.click(screen.getByLabelText("更多操作：项目资产"));
-    fireEvent.click(within(assetDetails).getByRole("button", { name: "申请升格公司资产" }));
-    const dialog = await screen.findByRole("dialog", { name: "升格为公司资产" });
+    expect(within(assetDetails).getByRole("menuitem", { name: "删除" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "发布到公司知识库" }));
+    expect(screen.getByLabelText("当前路径")).toHaveTextContent(`/project/${PROJECT_B}/knowledge`);
+    const dialog = await screen.findByRole("dialog", { name: "发布到公司知识库" });
     expect(await within(dialog).findByText("公司方法论")).toBeInTheDocument();
-    expect(within(dialog).queryByRole("combobox", { name: "正式目录" })).toBeNull();
+    expect(within(dialog).getByRole("combobox", { name: "正式目录" })).toHaveValue(
+      "company.methodology",
+    );
     fireEvent.change(within(dialog).getByLabelText("适用对象"), {
       target: { value: "全公司" },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "预览目标文件名" }));
     await within(dialog).findByText(/【公司资产-方法论】/);
-    fireEvent.click(within(dialog).getByRole("button", { name: "提交双角色确认" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "提交公司发布申请" }));
     await waitFor(() =>
       expect(requestCompanyUpgrade).toHaveBeenCalledWith(
         PROJECT_B,
@@ -423,8 +418,30 @@ describe("ProjectKnowledgePage reference workspace", () => {
         }),
       ),
     );
-    expect(await screen.findByText("公司资产升格申请已提交。")).toBeInTheDocument();
+    expect(await screen.findByText("已提交公司发布申请。")).toBeInTheDocument();
     expectDocumentOrder(".pk-upgrade-notice", ".pk-qa-section");
+  });
+
+  it("keeps a publish-only asset out of batch selection and makes its title keyboard reachable", async () => {
+    vi.mocked(fetchKnowledgePage).mockResolvedValue(
+      page([
+        card({
+          id: "publish-only",
+          title: "仅单项发布资产",
+          zone: "asset",
+          access: { ...card().access, canDelete: false },
+        }),
+      ]),
+    );
+    renderPage(`/project/${PROJECT_B}/knowledge`);
+
+    const titleLink = await screen.findByRole("link", { name: "仅单项发布资产" });
+    expect(titleLink).toHaveAttribute("href", "/knowledge/publish-only");
+    titleLink.focus();
+    expect(titleLink).toHaveFocus();
+    expect(screen.queryByLabelText("选择项目知识 仅单项发布资产")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("全选当前页项目知识")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "发布到公司知识库" })).toBeInTheDocument();
   });
 
   it("upgrades only active asset-zone selections while allowing all deletable project knowledge", async () => {
@@ -508,7 +525,7 @@ describe("ProjectKnowledgePage reference workspace", () => {
     expect(screen.queryByRole("button", { name: /批量升级为公司资产/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /发起资产化审核/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "批量删除（1）" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "申请升格公司资产" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "发布到公司知识库" })).toBeInTheDocument();
   });
 
   it("opens an evidence preflight without silently creating review tasks", async () => {

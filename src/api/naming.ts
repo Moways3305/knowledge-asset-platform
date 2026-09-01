@@ -2,8 +2,6 @@ import { apiGet, apiPost, apiPut } from "./http";
 import type {
   BatchNamingPreviewResponseDTO,
   BatchNamingValuesDTO,
-  CategoryClassificationBatchDTO,
-  CategoryClassificationItemDTO,
   NamingConfirmationDTO,
   NamingOptionsDTO,
   NamingPreviewDTO,
@@ -43,7 +41,7 @@ export function saveNamingRuleDraft(
 ): Promise<NamingRuleRevisionDTO> {
   return apiPut("/api/v1/admin/naming-rules/draft", {
     expected_base_version: expectedBaseVersion,
-    config,
+    directories: config.directories ?? [],
   });
 }
 
@@ -86,41 +84,12 @@ export function previewBatchIngestNaming(input: {
       task_id: item.taskId,
       confidentiality_level: item.naming.confidentiality_level,
       naming: {
-        category_id: item.naming.category_id,
+        directory_key: item.naming.directory_key,
         subject: item.naming.subject,
         formed_on: item.naming.formed_on,
         version: item.naming.version,
-        ...(item.naming.directory_key ? { directory_key: item.naming.directory_key } : {}),
-        ...(item.naming.directory_fallback_confirmed ? { directory_fallback_confirmed: true } : {}),
         ...(input.targetScope === "company" ? { applicable_to: item.naming.applicable_to } : {}),
       },
     })),
-  });
-}
-
-export function classifyBatchNamingCategories(input: {
-  taskIds: string[];
-  targetScope: "project" | "company";
-  targetProjectId?: string;
-  retry?: boolean;
-}): Promise<CategoryClassificationBatchDTO> {
-  return apiPost("/api/v1/ingest/bulk-category-classification", {
-    task_ids: input.taskIds,
-    target_scope: input.targetScope,
-    target_project_id: input.targetProjectId ?? null,
-    retry: input.retry ?? false,
-  });
-}
-
-export function saveManualNamingCategory(input: {
-  taskId: string;
-  targetScope: "project" | "company";
-  targetProjectId?: string;
-  categoryId: string;
-}): Promise<CategoryClassificationItemDTO> {
-  return apiPut(`/api/v1/ingest/${input.taskId}/category-selection`, {
-    target_scope: input.targetScope,
-    target_project_id: input.targetProjectId ?? null,
-    category_id: input.categoryId,
   });
 }

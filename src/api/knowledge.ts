@@ -115,7 +115,6 @@ export async function fetchKnowledgePage(
   if (params.scope) qs.set("scope", params.scope);
   if (params.projectId) qs.set("project_id", params.projectId);
   if (params.zone) qs.set("zone", params.zone);
-  if (params.assetType) qs.set("asset_type", params.assetType);
   if (params.assetStatus) qs.set("asset_status", params.assetStatus);
   if (params.confidentialityLevel) qs.set("confidentiality_level", params.confidentialityLevel);
   if (params.createdFrom) qs.set("created_from", params.createdFrom);

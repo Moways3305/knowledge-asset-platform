@@ -148,11 +148,17 @@ class UploadTransportFailureRequest(BaseModel):
 
 class IngestTaskStage(str, Enum):
     upload_saved = "upload_saved"
+    processing_claimed = "processing_claimed"
     text_extraction = "text_extraction"
     ocr_queued = "ocr_queued"
     ocr_in_progress = "ocr_in_progress"
     ocr_failed = "ocr_failed"
+    ocr_too_complex = "ocr_too_complex"
+    ocr_complete = "ocr_complete"
+    processing_interrupted = "processing_interrupted"
+    source_unavailable = "source_unavailable"
     canonical_markdown_generation = "canonical_markdown_generation"
+    content_generation_queued = "content_generation_queued"
     content_generation = "content_generation"
     waiting_generation_config = "waiting_generation_config"
     content_generation_failed = "content_generation_failed"
@@ -195,6 +201,8 @@ class IngestTaskStatusResponse(BaseModel):
     stage: IngestTaskStage
     status: IngestTaskWorkflowStatus
     updated_at: datetime | None
+    last_progress_at: datetime | None = None
+    next_retry_at: datetime | None = None
     retryable: bool
     next_action: IngestTaskNextAction | None = None
     error: IngestTaskSafeError | None = None
@@ -458,6 +466,8 @@ class PendingIngestItem(BaseModel):
     result_asset_id: uuid.UUID | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    last_progress_at: datetime | None = None
+    next_retry_at: datetime | None = None
     duplicate: UploadDuplicateReadModel | None = None
 
 

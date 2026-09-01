@@ -89,6 +89,10 @@ def default_directory_config() -> list[dict]:
             "scope": item.scope,
             "display_name": item.name,
             "description": item.description,
+            "naming_code": item.name.removeprefix(f"{item.name[:2]} ")
+            if item.name[:2].isdigit()
+            else item.name,
+            "default_confidentiality": "L2",
             "sort_order": item.sort_order,
             "enabled": True,
         }

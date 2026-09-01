@@ -586,3 +586,126 @@
     flex-direction: column;
   }
 }
+.naming-overview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.naming-overview > div,
+.naming-directory-governance,
+.naming-migration-panel {
+  border: 1px solid rgba(54, 61, 74, 0.12);
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow:
+    0 18px 50px rgba(55, 63, 78, 0.07),
+    inset 0 1px rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(18px) saturate(120%);
+}
+
+.naming-overview > div {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  border-radius: 16px;
+}
+
+.naming-overview span,
+.naming-project-settings label > span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.naming-scope-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.naming-scope-tabs button {
+  border: 0;
+  border-radius: 999px;
+  padding: 9px 16px;
+  background: rgba(255, 255, 255, 0.66);
+  color: var(--text-secondary);
+}
+
+.naming-scope-tabs button.is-active {
+  background: #20242d;
+  color: #fff;
+}
+
+.naming-directory-governance,
+.naming-migration-panel {
+  padding: 20px;
+  border-radius: 22px;
+}
+
+.naming-directory-governance > header,
+.naming-migration-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.naming-directory-list {
+  display: grid;
+  gap: 12px;
+}
+
+.naming-directory-list .naming-project-settings {
+  grid-template-columns: minmax(150px, 1.2fr) repeat(5, minmax(120px, 1fr));
+  align-items: end;
+}
+
+.naming-directory-list code {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.naming-migration-panel {
+  margin-top: 18px;
+}
+
+.naming-migration-list {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  margin: 12px 0;
+  overflow: auto;
+}
+
+.naming-migration-list label {
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.naming-migration-list span,
+.naming-migration-list small {
+  display: block;
+}
+
+@media (max-width: 1024px) {
+  .naming-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .naming-directory-list .naming-project-settings {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .naming-overview,
+  .naming-directory-list .naming-project-settings {
+    grid-template-columns: 1fr;
+  }
+}

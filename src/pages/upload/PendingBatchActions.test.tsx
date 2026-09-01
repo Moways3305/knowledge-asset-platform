@@ -176,7 +176,16 @@ describe("PendingBatchActions governed review", () => {
           directory_key: "project.deliverables",
           scope: "project",
           display_name: "03 项目交付成果",
+          default_confidentiality: "L4",
           sort_order: 30,
+          enabled: true,
+        },
+        {
+          directory_key: "project.key_materials",
+          scope: "project",
+          display_name: "04 关键资料",
+          default_confidentiality: "L5",
+          sort_order: 40,
           enabled: true,
         },
         {
@@ -280,35 +289,8 @@ describe("PendingBatchActions governed review", () => {
     );
   });
 
-  it("offers a scoped directory fallback only after governed preview reports a missing mapping", async () => {
-    const item = task("company-fallback");
-    namingApi.previewBatchIngestNaming
-      .mockResolvedValueOnce({
-        items: [
-          {
-            task_id: item.id,
-            submittable: false,
-            canonical_name: null,
-            fields: {},
-            notices: [],
-            error_code: "directory_required",
-            message: "该命名类别无法唯一映射目录，请人工选择",
-          },
-        ],
-      })
-      .mockResolvedValue({
-        items: [
-          {
-            task_id: item.id,
-            submittable: true,
-            canonical_name: "公司规范名.pdf",
-            fields: {},
-            notices: [],
-            error_code: null,
-            message: null,
-          },
-        ],
-      });
+  it("selects a scoped formal directory before governed preview", async () => {
+    const item = task("company-directory");
     render(<PendingBatchActions tasks={[item]} flow={flowFixture([item])} />);
 
     fireEvent.click(screen.getByRole("button", { name: /批量确认入库/ }));
@@ -316,16 +298,12 @@ describe("PendingBatchActions governed review", () => {
       target: { value: "company" },
     });
     fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
-    const applicableTo = await screen.findByLabelText("company-fallback.pdf 适用对象");
+    const applicableTo = await screen.findByLabelText("company-directory.pdf 适用对象");
     fireEvent.change(applicableTo, { target: { value: "咨询项目团队" } });
-
-    const fallback = await screen.findByRole("button", { name: "选择正式公司目录" });
-    fireEvent.click(fallback);
-    const directory = screen.getByRole("combobox", { name: "正式公司目录" });
+    const directory = screen.getByRole("combobox", { name: "company-directory.pdf 正式目录" });
     expect(directory).toHaveTextContent("03 公司方法论");
     expect(directory).not.toHaveTextContent("03 项目交付成果");
     fireEvent.change(directory, { target: { value: "company.methodology" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存并重新预览" }));
 
     await waitFor(() =>
       expect(namingApi.previewBatchIngestNaming).toHaveBeenLastCalledWith(
@@ -335,30 +313,26 @@ describe("PendingBatchActions governed review", () => {
             expect.objectContaining({
               naming: expect.objectContaining({
                 directory_key: "company.methodology",
-                directory_fallback_confirmed: true,
               }),
             }),
           ],
         }),
       ),
     );
-    expect(screen.getByLabelText("company-fallback.pdf 目录类别")).toHaveValue("deliverable");
+    expect(screen.queryByText("目录类别")).not.toBeInTheDocument();
   });
 
-  it("uses a wide review workspace and retains manual categories when AI classification fails", async () => {
-    namingApi.classifyBatchNamingCategories.mockRejectedValueOnce(new Error("model unavailable"));
-    const tasks = [task("manual-after-ai-failure")];
+  it("uses a wide review workspace without invoking category classification", async () => {
+    const tasks = [task("formal-directory")];
     render(<PendingBatchActions tasks={tasks} flow={flowFixture(tasks)} />);
 
     await openProjectReview();
 
     const workspace = topDialog();
     expect(workspace).toHaveClass("naming-review-workspace");
-    expect(workspace).toHaveTextContent("AI 目录建议暂时失败");
-    const category = within(workspace).getByLabelText("manual-after-ai-failure.pdf 目录类别");
-    expect(category).toHaveTextContent("项目资料 / 交付成果");
-    fireEvent.change(category, { target: { value: "deliverable" } });
-    expect(category).toHaveValue("deliverable");
+    const directory = within(workspace).getByLabelText("formal-directory.pdf 正式目录");
+    expect(directory).toHaveTextContent("03 项目交付成果");
+    expect(namingApi.classifyBatchNamingCategories).not.toHaveBeenCalled();
   });
 
   it("retries target category loading without losing the still-open confirmation", async () => {
@@ -380,7 +354,7 @@ describe("PendingBatchActions governed review", () => {
     expect(await screen.findByLabelText("核对状态筛选")).toBeInTheDocument();
   });
 
-  it("applies one manual category to the batch, bypasses AI classification, and permits exceptions", async () => {
+  it("applies one formal directory to the batch and permits per-row changes", async () => {
     const tasks = [task("bulk-one"), task("bulk-two")];
     render(<PendingBatchActions tasks={tasks} flow={flowFixture(tasks)} />);
 
@@ -391,22 +365,19 @@ describe("PendingBatchActions governed review", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "批量入库目标项目" }), {
       target: { value: "project-a" },
     });
-    const bulkCategory = await screen.findByRole("combobox", { name: "本批目录类别" });
-    await waitFor(() => expect(bulkCategory).toHaveTextContent("项目资料 / 交付成果"));
-    fireEvent.change(bulkCategory, { target: { value: "deliverable" } });
+    const bulkDirectory = await screen.findByRole("combobox", { name: "本批正式目录" });
+    await waitFor(() => expect(bulkDirectory).toHaveTextContent("03 项目交付成果"));
+    fireEvent.change(bulkDirectory, { target: { value: "project.deliverables" } });
     fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
 
-    expect(await screen.findAllByText("批量设置")).toHaveLength(2);
     expect(namingApi.classifyBatchNamingCategories).not.toHaveBeenCalled();
-    expect(screen.queryByRole("button", { name: "重试待分类项" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "重试此项" })).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("bulk-two.pdf 目录类别"), {
-      target: { value: "method" },
+    fireEvent.change(screen.getByLabelText("bulk-two.pdf 正式目录"), {
+      target: { value: "project.key_materials" },
     });
-    expect(screen.getByLabelText("bulk-one.pdf 目录类别")).toHaveValue("deliverable");
-    expect(screen.getByLabelText("bulk-two.pdf 目录类别")).toHaveValue("method");
-    expect(screen.getByText("人工已选择")).toBeInTheDocument();
-    expect(namingApi.classifyBatchNamingCategories).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("bulk-one.pdf 正式目录")).toHaveValue("project.deliverables");
+    expect(screen.getByLabelText("bulk-two.pdf 正式目录")).toHaveValue("project.key_materials");
+    expect(screen.getByLabelText("bulk-one.pdf 密级")).toHaveValue("L4");
+    expect(screen.getByLabelText("bulk-two.pdf 密级")).toHaveValue("L5");
   });
 
   it("loads AI extraction only on demand and retains the reviewed draft for final confirmation", async () => {

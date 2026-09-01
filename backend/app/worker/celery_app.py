@@ -34,6 +34,7 @@ def _make_celery() -> Celery:
         backend=backend,
         include=[
             "app.worker.tasks.ingest",
+            "app.worker.tasks.ingest_recovery",
             "app.worker.tasks.parse",
             "app.worker.tasks.lifecycle",
             "app.worker.tasks.upgrade",
@@ -50,6 +51,11 @@ def _make_celery() -> Celery:
         task_always_eager=s.celery_task_always_eager,
         task_eager_propagates=True,
         task_acks_late=True,
+        task_default_queue=s.celery_default_queue,
+        task_routes={
+            "ingest.process_upload": {"queue": s.celery_ocr_queue},
+            "ingest.recover_orphans": {"queue": s.celery_default_queue},
+        },
         worker_hijack_root_logger=False,
         timezone="UTC",
         enable_utc=True,
@@ -92,6 +98,11 @@ def _make_celery() -> Celery:
             "ops-indexing-health-snapshot": {
                 "task": "ops.indexing_health_snapshot",
                 "schedule": 3600.0,
+            },
+            "ingest-orphan-recovery": {
+                "task": "ingest.recover_orphans",
+                "schedule": float(max(15, s.ingest_recovery_scan_seconds)),
+                "options": {"queue": s.celery_default_queue},
             },
         },
     )

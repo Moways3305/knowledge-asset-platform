@@ -30,9 +30,9 @@ from app.schemas.naming import (
     BatchNamingPreviewRequest,
     BatchNamingPreviewResponse,
     DirectoryOptionItem,
+    FormalDirectoryConfig,
     NamingDraftUpdateRequest,
     NamingDuplicateNotice,
-    NamingOptionItem,
     NamingOptionsResponse,
     NamingPreviewRequest,
     NamingPreviewResponse,
@@ -93,7 +93,7 @@ async def _ensure_initial_revisions(session: AsyncSession) -> None:
     existing = await session.scalar(select(func.count()).select_from(NamingRuleRevision))
     if existing:
         return
-    initial = NamingRuleConfig(enforced=False, directories=default_directory_config()).model_dump(
+    initial = NamingRuleConfig(enforced=True, directories=_default_directories()).model_dump(
         mode="json"
     )
     session.add_all(
@@ -115,11 +115,15 @@ async def _ensure_initial_revisions(session: AsyncSession) -> None:
     await session.commit()
 
 
+def _default_directories() -> list[FormalDirectoryConfig]:
+    return [FormalDirectoryConfig.model_validate(item) for item in default_directory_config()]
+
+
 def _config(revision: NamingRuleRevision) -> NamingRuleConfig:
     try:
         config = NamingRuleConfig.model_validate(revision.config)
         return config.model_copy(
-            update={"directories": config.directories or default_directory_config()}
+            update={"directories": config.directories or _default_directories()}
         )
     except Exception:
         raise _denied(503, "naming_rule_unavailable", "命名规则暂时不可用") from None
@@ -144,7 +148,7 @@ def _normalized_config(config: NamingRuleConfig) -> NamingRuleConfig:
     return config.model_copy(
         update={
             "schema_version": 2,
-            "directories": config.directories or default_directory_config(),
+            "directories": config.directories or _default_directories(),
             "migration_missing_asset_type_category_ids": _missing_asset_type_ids(config),
         }
     )
@@ -190,15 +194,17 @@ async def save_draft(
         or draft.base_published_version != published.version
     ):
         raise _denied(409, "naming_rule_publish_conflict", "规则已被其他治理者更新，请刷新")
-    project_ids = {item.project_id for item in request.config.project_codes}
-    existing = set(
-        (await session.execute(select(Project.id).where(Project.id.in_(project_ids)))).scalars()
-        if project_ids
-        else []
+    current_config = _config(draft)
+    # Categories and project-code projections are historical, read-only data.
+    # The current write contract accepts formal directories only.
+    normalized_config = _normalized_config(
+        current_config.model_copy(
+            update={
+                "directories": request.directories,
+                "enforced": True,
+            }
+        )
     )
-    if existing != project_ids:
-        raise _denied(422, "naming_rule_project_invalid", "项目代码配置包含不可用项目")
-    normalized_config = _normalized_config(request.config)
     draft.config = normalized_config.model_dump(mode="json")
     draft.updated_by = caller.user_id
     await audit_service.record_event(
@@ -211,16 +217,7 @@ async def save_draft(
         target_id=draft.id,
         after={
             "version": draft.version,
-            "project_code_count": len(request.config.project_codes),
-            "project_alias_count": sum(
-                len(item.client_aliases)
-                for item in request.config.project_codes
-                if item.client_aliases_enabled
-            ),
-            "category_count": len(normalized_config.categories),
-            "asset_type_missing_count": len(
-                normalized_config.migration_missing_asset_type_category_ids
-            ),
+            "directory_count": len(normalized_config.directories),
             "enforced": normalized_config.enforced,
         },
     )
@@ -245,48 +242,6 @@ async def publish_draft(
     ):
         raise _denied(409, "naming_rule_publish_conflict", "规则已被其他治理者发布，请刷新")
     config = _normalized_config(_config(draft))
-    missing_asset_type_ids = _missing_asset_type_ids(config)
-    if missing_asset_type_ids:
-        first_missing = next(
-            item for item in config.categories if item.id == missing_asset_type_ids[0]
-        )
-        raise _denied(
-            422,
-            "naming_category_asset_type_required",
-            f"目录类别“{first_missing.primary} / {first_missing.secondary}”缺少资产分类，不能发布",
-        )
-    configured_ids = {item.project_id for item in config.project_codes}
-    projects = (
-        (
-            await session.execute(
-                select(Project).where(Project.id.in_(configured_ids)).with_for_update()
-            )
-        )
-        .scalars()
-        .all()
-        if configured_ids
-        else []
-    )
-    if {project.id for project in projects} != configured_ids:
-        raise _denied(422, "naming_rule_project_invalid", "项目代码配置包含不可用项目")
-    by_id = {project.id: project for project in projects}
-    if any(
-        item.enabled and by_id[item.project_id].status != "active" for item in config.project_codes
-    ):
-        raise _denied(422, "naming_rule_project_inactive", "停用项目不能启用项目代码")
-
-    # Clear projections first so two projects can safely exchange unique codes.
-    all_projects = (await session.execute(select(Project).with_for_update())).scalars().all()
-    for project in all_projects:
-        project.project_code = None
-        project.project_code_active = False
-    await session.flush()
-    for item in config.project_codes:
-        project = by_id[item.project_id]
-        project.project_code = item.code
-        project.project_code_active = item.enabled
-        project.naming_default_confidentiality = item.default_confidentiality.value
-
     now = datetime.now(timezone.utc)
     draft.config = config.model_dump(mode="json")
     draft.status = "published"
@@ -312,13 +267,7 @@ async def publish_draft(
         target_id=draft.id,
         after={
             "version": draft.version,
-            "project_code_count": len(config.project_codes),
-            "project_alias_count": sum(
-                len(item.client_aliases)
-                for item in config.project_codes
-                if item.client_aliases_enabled
-            ),
-            "category_count": len(config.categories),
+            "directory_count": len(config.directories),
             "enforced": config.enforced,
         },
     )
@@ -384,6 +333,24 @@ def _duplicate_notices(duplicate: UploadDuplicateReadModel) -> list[NamingDuplic
     return notices
 
 
+def _legacy_category_id(naming: object) -> uuid.UUID | None:
+    """Read a retired request field without exposing it in the current schema."""
+    extra = getattr(naming, "__pydantic_extra__", None)
+    raw = extra.get("category_id") if isinstance(extra, dict) else None
+    try:
+        return uuid.UUID(str(raw)) if raw else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _directory_naming_code(directory: dict) -> str:
+    configured = str(directory.get("naming_code") or "").strip()
+    if configured:
+        return configured
+    display_name = str(directory.get("display_name") or "正式目录").strip()
+    return re.sub(r"^\d{2}\s*", "", display_name) or display_name
+
+
 async def render(
     session: AsyncSession,
     caller: CallerContext,
@@ -407,20 +374,47 @@ async def render(
     if revision is None:
         return None
     config = _config(revision)
-    if not config.enforced:
-        return None
     naming = request.naming
     if naming is None:
         raise _denied(422, "naming_fields_required", "项目或公司入库必须填写规范命名字段")
-    category = next((item for item in config.categories if item.id == naming.category_id), None)
-    if category is None or not category.enabled or category.scope != scope:
-        raise _denied(409, "naming_category_unavailable", "目录类别已停用或不适用于目标库")
-
-    if category.asset_type is None:
-        raise _denied(
-            409,
-            "naming_asset_type_mapping_missing",
-            "该目录类别尚未配置资产分类，请联系管理员补充后重试",
+    directory_key = naming.directory_key
+    category = None
+    if directory_key:
+        directory_rule_version, directory = await validate_directory(
+            session,
+            directory_key=directory_key,
+            scope=scope,
+            project_id=request.target_project_id,
+        )
+        directory_source = "formal_directory"
+        naming_code = _directory_naming_code(directory)
+    else:
+        # Read-only compatibility for clients created before formal-directory
+        # publication.  New schemas and UIs never emit category_id.
+        legacy_category_id = _legacy_category_id(naming)
+        category = next((item for item in config.categories if item.id == legacy_category_id), None)
+        if category is None or not category.enabled or category.scope != scope:
+            raise _denied(422, "directory_required", "请选择一个已启用的正式目录")
+        directory_key = category.suggested_directory_key or legacy_directory_key(
+            {
+                "scope": scope,
+                "category_primary": category.primary,
+                "category_secondary": category.secondary,
+            }
+        )
+        if not directory_key:
+            raise _denied(422, "directory_required", "请选择一个已启用的正式目录")
+        directory_rule_version, directory = await validate_directory(
+            session,
+            directory_key=directory_key,
+            scope=scope,
+            project_id=request.target_project_id,
+        )
+        directory_source = "legacy_category_mapping"
+        naming_code = (
+            category.secondary
+            if scope == KnowledgeScope.project.value
+            else (f"{category.primary}-{category.secondary}")
         )
     project_code: str | None = None
     rendered_subject = naming.subject
@@ -441,7 +435,7 @@ async def render(
             naming.subject,
             _project_subject_aliases(project, config),
         )
-        bracket = f"{project_code}-{naming.formed_on.year}-{category.secondary}"
+        bracket = f"{project_code}-{naming.formed_on.year}-{naming_code}"
         stem = (
             f"【{bracket}】{rendered_subject}_{naming.formed_on:%Y%m%d}_"
             f"{naming.version}_{request.confidentiality_level.value}"
@@ -449,55 +443,17 @@ async def render(
     else:
         if not naming.applicable_to:
             raise _denied(422, "naming_applicable_to_required", "公司资料必须填写适用对象")
-        bracket = f"{category.primary}-{category.secondary}"
+        bracket = naming_code
         stem = (
             f"【{bracket}】{naming.subject}_{naming.applicable_to}_"
             f"{naming.formed_on:%Y%m%d}_{naming.version}_{request.confidentiality_level.value}"
         )
-    mapped_directory_key = category.suggested_directory_key or legacy_directory_key(
-        {
-            "scope": scope,
-            "category_primary": category.primary,
-            "category_secondary": category.secondary,
-        }
-    )
-    if mapped_directory_key:
-        if naming.directory_key and naming.directory_key != mapped_directory_key:
-            raise _denied(
-                409,
-                "directory_category_mismatch",
-                "正式目录由目录类别唯一确定，不能改选其他目录",
-            )
-        directory_key = mapped_directory_key
-        directory_source = "rule_suggestion"
-    else:
-        if not naming.directory_key:
-            raise _denied(422, "directory_required", "该命名类别尚未映射目录，请补选正式目录")
-        if not naming.directory_fallback_confirmed:
-            raise _denied(
-                422,
-                "directory_fallback_confirmation_required",
-                "仅在类别缺少目录映射时可人工补选正式目录",
-            )
-        directory_key = naming.directory_key
-        directory_source = "manual_fallback"
-    directory_rule_version, _directory = await validate_directory(
-        session,
-        directory_key=directory_key,
-        scope=scope,
-        project_id=request.target_project_id,
-    )
     canonical = f"{stem}{_extension(task.source_file_name)}"
     if len(canonical) > 500:
         raise _denied(422, "canonical_name_too_long", "规范名过长，请缩短主题或适用对象")
     metadata = {
         "scope": scope,
         "project_code": project_code,
-        "category_id": str(category.id),
-        "category_primary": category.primary,
-        "category_secondary": category.secondary,
-        "category_prefix": category.prefix,
-        "asset_type": category.asset_type.value,
         "subject": rendered_subject,
         "subject_deidentified": False,
         "subject_business_name_warning": subject_has_business_name,
@@ -510,8 +466,21 @@ async def render(
         "directory_key": directory_key,
         "directory_rule_version": directory_rule_version,
         "directory_source": directory_source,
+        "directory_name": directory.get("display_name"),
+        "directory_naming_code": naming_code,
         "canonical_name": canonical,
     }
+    if category is not None:
+        metadata.update(
+            {
+                "legacy_category_id": str(category.id),
+                "category_id": str(category.id),
+                "category_primary": category.primary,
+                "category_secondary": category.secondary,
+                "category_prefix": category.prefix,
+                "asset_type": category.asset_type.value if category.asset_type else "unclassified",
+            }
+        )
     notices: list[NamingDuplicateNotice] = []
     if subject_has_business_name:
         notices.append(
@@ -680,8 +649,8 @@ def _batch_validation_error(exc: ValidationError) -> tuple[str, str]:
         return "naming_formed_on_invalid", "请填写有效的文件形成日期"
     if "version" in locations:
         return "naming_version_invalid", "请填写有效版本，例如 V1 或 V1.1"
-    if "category_id" in locations:
-        return "naming_category_unavailable", "请选择有效且已启用的目录类别"
+    if "directory_key" in locations:
+        return "directory_required", "请选择有效且已启用的正式目录"
     if "subject" in locations:
         return "naming_subject_invalid", "请填写有效主题"
     if "applicable_to" in locations:
@@ -696,8 +665,9 @@ def _batch_http_error(exc: HTTPException) -> tuple[str, str]:
         return "item_unavailable", "该资料不存在或当前不可核对"
     safe_messages = {
         "naming_fields_required": "请补齐该资料的命名字段",
-        "naming_category_unavailable": "目录类别已停用或不适用于当前目标",
-        "naming_asset_type_mapping_missing": "该目录类别尚未配置资产分类，请联系管理员补充后重试",
+        "directory_required": "请选择一个已启用的正式目录",
+        "directory_unavailable": "正式目录不存在或已停用，请刷新后重新选择",
+        "directory_scope_mismatch": "所选正式目录不适用于当前目标",
         "naming_applicable_to_required": "公司库资料必须填写适用对象",
         "canonical_name_too_long": "规范名过长，请缩短主题或适用对象",
         "ingest_target_locked": "资料目标已由来源规则锁定",
@@ -807,7 +777,7 @@ async def options(
     if scope == KnowledgeScope.project:
         if project_id is None or project_id not in caller.active_project_ids:
             raise _denied(403, "project_membership_required", "需为目标项目的有效成员")
-        if config is None or not config.enforced:
+        if config is None:
             return NamingOptionsResponse(required=False, rule_version=None)
         project = await session.get(Project, project_id)
         if (
@@ -817,59 +787,27 @@ async def options(
             or not project.project_code
         ):
             raise _denied(409, "project_naming_code_unavailable", "目标项目尚未启用项目代码")
-        default_confidentiality = ConfidentialityLevel(project.naming_default_confidentiality)
+        fallback_confidentiality = ConfidentialityLevel(project.naming_default_confidentiality)
     else:
         is_project_manager = any(
             role == "project_manager" for role in caller.active_project_roles.values()
         )
         if not caller.can_discover_l5 and not is_project_manager:
             raise _denied(403, "company_confirmation_requires_governance", "公司知识需治理角色确认")
-        if config is None or not config.enforced:
+        if config is None:
             return NamingOptionsResponse(required=False, rule_version=None)
-        default_confidentiality = ConfidentialityLevel.L2
+        fallback_confidentiality = ConfidentialityLevel.L2
     assert revision is not None and config is not None
-    categories = sorted(
-        [item for item in config.categories if item.enabled and item.scope == scope.value],
-        key=lambda item: (item.sort_order, item.primary, item.secondary),
+    directories = sorted(
+        [item for item in config.directories if item.enabled and item.scope == scope.value],
+        key=lambda item: (item.sort_order, item.display_name),
     )
-    if any(item.asset_type is None for item in categories):
-        raise _denied(
-            503,
-            "naming_rule_asset_type_incomplete",
-            "已发布目录规则存在待治理的资产分类缺口，请联系治理管理员处理",
-        )
     return NamingOptionsResponse(
         required=True,
         rule_version=revision.version,
-        categories=[
-            NamingOptionItem(
-                id=item.id,
-                scope=item.scope,
-                primary=item.primary,
-                secondary=item.secondary,
-                prefix=item.prefix,
-                asset_type=item.asset_type,
-                description=item.description,
-                default_confidentiality=item.default_confidentiality,
-                enabled=item.enabled,
-                sort_order=item.sort_order,
-                suggested_directory_key=item.suggested_directory_key
-                or legacy_directory_key(
-                    {
-                        "scope": item.scope,
-                        "category_primary": item.primary,
-                        "category_secondary": item.secondary,
-                    }
-                ),
-            )
-            for item in categories
-            if item.asset_type is not None
-        ],
-        directories=[
-            DirectoryOptionItem.model_validate(item)
-            for item in config.directories
-            if item.get("enabled", True) and item.get("scope") == scope.value
-        ],
-        default_confidentiality=default_confidentiality,
-        message=None if categories else "当前目标尚未配置启用的目录类别",
+        directories=[DirectoryOptionItem.model_validate(item.model_dump()) for item in directories],
+        default_confidentiality=(
+            directories[0].default_confidentiality if directories else fallback_confidentiality
+        ),
+        message=None if directories else "当前目标尚未配置启用的正式目录",
     )

@@ -35,6 +35,8 @@ export interface DirectoryOptionDTO {
   scope: "personal" | "project" | "company";
   display_name: string;
   description?: string | null;
+  naming_code?: string | null;
+  default_confidentiality?: string | null;
   sort_order: number;
   enabled: boolean;
 }
@@ -99,37 +101,20 @@ export interface DirectoryMigrationWorkspaceDTO {
   directories: DirectoryOptionDTO[];
 }
 
-export interface NamingOptionDTO {
-  id: string;
-  scope?: NamingScope;
-  primary: string;
-  secondary: string;
-  prefix: string;
-  asset_type: NamingAssetType;
-  description?: string | null;
-  default_confidentiality: string;
-  enabled?: boolean;
-  sort_order?: number;
-  suggested_directory_key?: string | null;
-}
-
 export interface NamingOptionsDTO {
   required: boolean;
   rule_version: number | null;
-  categories: NamingOptionDTO[];
   directories: DirectoryOptionDTO[];
   default_confidentiality: string | null;
   message: string | null;
 }
 
 export interface NamingConfirmationDTO {
-  category_id: string;
+  directory_key: string;
   subject: string;
   formed_on: string;
   version: string;
   applicable_to?: string;
-  directory_key?: string;
-  directory_fallback_confirmed?: boolean;
 }
 
 export interface NamingPreviewDTO {
@@ -164,14 +149,12 @@ export interface NamingWarningNoticeDTO {
 }
 
 export interface BatchNamingValuesDTO {
-  category_id: string;
+  directory_key: string;
   subject: string;
   formed_on: string;
   version: string;
   applicable_to?: string;
   confidentiality_level: string;
-  directory_key?: string;
-  directory_fallback_confirmed?: boolean;
 }
 
 export interface BatchNamingPreviewItemDTO {
@@ -196,28 +179,4 @@ export interface BatchNamingPreviewItemDTO {
 
 export interface BatchNamingPreviewResponseDTO {
   items: BatchNamingPreviewItemDTO[];
-}
-
-export type CategorySuggestionSource =
-  | "ai_content"
-  | "rule_only_option"
-  | "needs_manual"
-  | "manual";
-
-export interface CategoryClassificationItemDTO {
-  task_id: string;
-  suggested_category_id: string | null;
-  category_source: CategorySuggestionSource;
-  category_confidence: "high" | "medium" | "low";
-  category_reason: string;
-  candidate_rule_revision: number | null;
-  status: "classified" | "needs_manual" | "failed" | "unchanged";
-  retryable: boolean;
-}
-
-export interface CategoryClassificationBatchDTO {
-  target_label: string;
-  candidate_rule_revision: number | null;
-  candidate_count: number;
-  items: CategoryClassificationItemDTO[];
 }

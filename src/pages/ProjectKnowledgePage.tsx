@@ -15,22 +15,15 @@ import {
 } from "../api/knowledge";
 import { ControlledBulkRequestError } from "../api/bulk";
 import { fetchProjectQaModelOptions, projectQa } from "../api/project";
-import {
-  preflightAssetization,
-  previewCompanyUpgrade,
-  registerAssetEvidence,
-  requestCompanyUpgrade,
-  submitAssetization,
-} from "../api/review";
+import { preflightAssetization, registerAssetEvidence, submitAssetization } from "../api/review";
 import { useAuth } from "../auth/AuthContext";
 import DataTable, { type Column } from "../components/DataTable";
 import ConfirmDialog from "../components/ConfirmDialog";
 import WizardModal from "../components/WizardModal";
-import PublicationNamingFields, {
-  createPublicationNamingValue,
-  type PublicationNamingValue,
-} from "../components/PublicationNamingFields";
 import { BulkSelectionRail, SelectionCheckbox } from "../components/BulkSelection";
+import ProjectCompanyPublicationDialog, {
+  getProjectCompanyPublicationEligibility,
+} from "../components/ProjectCompanyPublicationDialog";
 import LoadingError from "../components/LoadingError";
 import {
   EmptyState,
@@ -42,10 +35,8 @@ import {
 import StatusBadge from "../components/StatusBadge";
 import type { ProjectQaModelOptionDTO, ProjectQaResponseDTO } from "../types/agent";
 import type { AssetizationPreflightItemDTO, EvidenceInputDTO } from "../types/review";
-import type { NamingPreviewDTO } from "../types/naming";
 import type {
   AssetStatus,
-  AssetType,
   ConfidentialityLevel,
   KnowledgeCardVM,
   KnowledgePageVM,
@@ -54,12 +45,11 @@ import type {
   KnowledgeZone,
   SortDirection,
 } from "../types/knowledge";
-import { assetStatusLabel, assetTypeLabel } from "../utils/knowledgeLabels";
+import { assetStatusLabel } from "../utils/knowledgeLabels";
 import "./ProjectKnowledgePage.css";
 
 const PAGE_SIZE = 20;
 const SAFE_FALLBACK = "信息待确认";
-const ASSET_TYPES: AssetType[] = ["methodology", "deliverable", "case", "template", "insight"];
 const ASSET_STATUSES: AssetStatus[] = ["active", "needs_update", "deprecated", "archived"];
 const CONFIDENTIALITY_LEVELS: ConfidentialityLevel[] = ["L1", "L2", "L3", "L4", "L5"];
 
@@ -98,10 +88,6 @@ function safeZone(value: string): string {
   return SAFE_FALLBACK;
 }
 
-function safeType(value: string): string {
-  return assetTypeLabel[value] ?? SAFE_FALLBACK;
-}
-
 function safeStatus(value: string): string {
   return assetStatusLabel[value as AssetStatus] ?? SAFE_FALLBACK;
 }
@@ -133,11 +119,9 @@ function ProjectKnowledgeWorkspace({
   projects: Array<{ projectId: string; projectName: string; projectRole: string }>;
   onSwitch: (projectId: string) => void;
 }) {
-  const navigate = useNavigate();
   const [keywordInput, setKeywordInput] = useState("");
   const [keyword, setKeyword] = useState("");
   const [zone, setZone] = useState<KnowledgeZone | "">("");
-  const [assetType, setAssetType] = useState<AssetType | "">("");
   const [assetStatus, setAssetStatus] = useState<AssetStatus | "">("");
   const [confidentialityLevel, setConfidentialityLevel] = useState<ConfidentialityLevel | "">("");
   const [updatedFrom, setUpdatedFrom] = useState("");
@@ -165,13 +149,7 @@ function ProjectKnowledgeWorkspace({
   const [qaState, setQaState] = useState<"idle" | "loading" | "error">("idle");
   const qaRequestRef = useRef(0);
 
-  const [upgradeBusyId, setUpgradeBusyId] = useState<string | null>(null);
   const [upgradeAsset, setUpgradeAsset] = useState<KnowledgeCardVM | null>(null);
-  const [upgradeNaming, setUpgradeNaming] = useState<PublicationNamingValue>(() =>
-    createPublicationNamingValue(""),
-  );
-  const [upgradePreview, setUpgradePreview] = useState<NamingPreviewDTO | null>(null);
-  const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const [upgradeNotice, setUpgradeNotice] = useState<{
     tone: "success" | "error";
     text: string;
@@ -219,7 +197,6 @@ function ProjectKnowledgeWorkspace({
     };
     if (keyword) params.keyword = keyword;
     if (zone) params.zone = zone;
-    if (assetType) params.assetType = assetType;
     if (assetStatus) params.assetStatus = assetStatus;
     if (confidentialityLevel) params.confidentialityLevel = confidentialityLevel;
     if (updatedFrom) params.updatedFrom = updatedFrom;
@@ -251,7 +228,6 @@ function ProjectKnowledgeWorkspace({
     };
   }, [
     assetStatus,
-    assetType,
     confidentialityLevel,
     includeArchived,
     keyword,
@@ -304,7 +280,6 @@ function ProjectKnowledgeWorkspace({
   const hasActiveFilters = Boolean(
     keyword ||
     zone ||
-    assetType ||
     assetStatus ||
     confidentialityLevel ||
     updatedFrom ||
@@ -318,7 +293,6 @@ function ProjectKnowledgeWorkspace({
     setKeywordInput("");
     setKeyword("");
     setZone("");
-    setAssetType("");
     setAssetStatus("");
     setConfidentialityLevel("");
     setUpdatedFrom("");
@@ -366,33 +340,17 @@ function ProjectKnowledgeWorkspace({
 
   const openUpgrade = useCallback(
     (asset: KnowledgeCardVM) => {
-      if (project.projectRole !== "project_manager" || upgradeBusyId) return;
+      const eligibility = getProjectCompanyPublicationEligibility(
+        asset,
+        project.projectId,
+        project.projectRole,
+      );
+      if (!eligibility.eligible) return;
       setUpgradeAsset(asset);
-      setUpgradeNaming(createPublicationNamingValue(asset.title));
-      setUpgradePreview(null);
-      setUpgradeError(null);
       setUpgradeNotice(null);
     },
-    [project.projectRole, upgradeBusyId],
+    [project.projectId, project.projectRole],
   );
-
-  const submitUpgrade = async () => {
-    if (!upgradeAsset || !upgradePreview?.canonical_name || upgradeBusyId) {
-      setUpgradeError("请先预览并确认目标文件名");
-      return;
-    }
-    setUpgradeBusyId(upgradeAsset.id);
-    setUpgradeError(null);
-    try {
-      await requestCompanyUpgrade(project.projectId, upgradeAsset.id, upgradeNaming);
-      setUpgradeAsset(null);
-      setUpgradeNotice({ tone: "success", text: "公司资产升格申请已提交。" });
-    } catch {
-      setUpgradeError("升格申请提交失败，请检查目标命名后重试。");
-    } finally {
-      setUpgradeBusyId(null);
-    }
-  };
   const handleDelete = useCallback(async (assetId: string) => {
     setDeleteBusyId(assetId);
     setDeleteNotice(null);
@@ -433,7 +391,6 @@ function ProjectKnowledgeWorkspace({
           pageSize: 100,
           keyword: keyword || undefined,
           zone: zone || undefined,
-          assetType: assetType || undefined,
           assetStatus: assetStatus || undefined,
           confidentialityLevel: confidentialityLevel || undefined,
           updatedFrom: updatedFrom || undefined,
@@ -589,65 +546,72 @@ function ProjectKnowledgeWorkspace({
   const columns: Column<KnowledgeCardVM>[] = [
     {
       key: "select",
-      header: (
-        <SelectionCheckbox
-          checked={pageAllSelected}
-          indeterminate={pageIndeterminate}
-          disabled={selectablePageAssets.length === 0 || bulkDeleteBusy || bulkAssetizeBusy}
-          label="全选当前页项目知识"
-          onChange={() => {
-            if (pageAllSelected) {
-              const pageIds = new Set(selectablePageAssets.map((asset) => asset.id));
-              setSelectedAssets((current) => current.filter((asset) => !pageIds.has(asset.id)));
+      header:
+        selectablePageAssets.length > 0 ? (
+          <SelectionCheckbox
+            checked={pageAllSelected}
+            indeterminate={pageIndeterminate}
+            disabled={selectablePageAssets.length === 0 || bulkDeleteBusy || bulkAssetizeBusy}
+            label="全选当前页项目知识"
+            onChange={() => {
+              if (pageAllSelected) {
+                const pageIds = new Set(selectablePageAssets.map((asset) => asset.id));
+                setSelectedAssets((current) => current.filter((asset) => !pageIds.has(asset.id)));
+                setAllMatchingSelected(false);
+              } else {
+                setSelectedAssets((current) => [
+                  ...current.filter(
+                    (asset) => !selectablePageAssets.some((pageAsset) => pageAsset.id === asset.id),
+                  ),
+                  ...selectablePageAssets,
+                ]);
+                if (matchingSelectableAssets === null) {
+                  void loadMatchingSelectableAssets();
+                }
+              }
+            }}
+          />
+        ) : null,
+      render: (asset) =>
+        canSelectAsset(asset, project.projectRole) ? (
+          <SelectionCheckbox
+            checked={selectedAssets.some((selected) => selected.id === asset.id)}
+            disabled={bulkDeleteBusy || bulkAssetizeBusy}
+            label={`选择项目知识 ${asset.title}`}
+            onChange={() => {
               setAllMatchingSelected(false);
-            } else {
-              setSelectedAssets((current) => [
-                ...current.filter(
-                  (asset) => !selectablePageAssets.some((pageAsset) => pageAsset.id === asset.id),
-                ),
-                ...selectablePageAssets,
-              ]);
               if (matchingSelectableAssets === null) {
                 void loadMatchingSelectableAssets();
               }
-            }
-          }}
-        />
-      ),
-      render: (asset) => (
-        <SelectionCheckbox
-          checked={selectedAssets.some((selected) => selected.id === asset.id)}
-          disabled={
-            !canSelectAsset(asset, project.projectRole) || bulkDeleteBusy || bulkAssetizeBusy
-          }
-          label={`选择项目知识 ${asset.title}`}
-          onChange={() => {
-            setAllMatchingSelected(false);
-            if (matchingSelectableAssets === null) {
-              void loadMatchingSelectableAssets();
-            }
-            setSelectedAssets((current) =>
-              current.some((selected) => selected.id === asset.id)
-                ? current.filter((selected) => selected.id !== asset.id)
-                : [...current, asset],
-            );
-          }}
-        />
-      ),
+              setSelectedAssets((current) =>
+                current.some((selected) => selected.id === asset.id)
+                  ? current.filter((selected) => selected.id !== asset.id)
+                  : [...current, asset],
+              );
+            }}
+          />
+        ) : null,
     },
     {
       key: "title",
       header: "知识名称",
       className: "pk-title-cell",
       render: (asset) => (
-        <div className="pk-title">
+        <Link
+          className="pk-title"
+          to={`/knowledge/${asset.id}`}
+          state={{
+            backTo: `/project/${project.projectId}/knowledge`,
+            backLabel: "返回项目知识库",
+            source: "project",
+          }}
+        >
           <FileText size={17} aria-hidden="true" />
           <strong title={asset.title}>{asset.title}</strong>
-        </div>
+        </Link>
       ),
     },
     { key: "zone", header: "所属区域", render: (asset) => safeZone(asset.zone) },
-    { key: "type", header: "类型", render: (asset) => safeType(asset.assetType) },
     {
       key: "confidentiality",
       header: "保密级别",
@@ -678,50 +642,51 @@ function ProjectKnowledgeWorkspace({
       key: "actions",
       header: "操作",
       className: "pk-action-cell",
-      render: (asset) => (
-        <div className="pk-row-actions">
-          <button
-            className="pk-detail-link"
-            type="button"
-            onClick={() =>
-              navigate(`/knowledge/${asset.id}`, {
-                state: {
-                  backTo: `/project/${project.projectId}/knowledge`,
-                  backLabel: "返回项目知识库",
-                  source: "project",
-                },
-              })
-            }
-          >
-            查看详情
-          </button>
-          {project.projectRole === "project_manager" && (
-            <details className="pk-more-actions">
-              <summary aria-label={`更多操作：${asset.title}`} title="更多操作">
-                <MoreHorizontal size={16} aria-hidden="true" />
-              </summary>
+      render: (asset) => {
+        const publication = getProjectCompanyPublicationEligibility(
+          asset,
+          project.projectId,
+          project.projectRole,
+        );
+        const canDelete =
+          project.projectRole === "project_manager" &&
+          asset.zone === "asset" &&
+          asset.access.canDelete &&
+          asset.assetStatus !== "archived";
+        return (
+          <div className="pk-row-actions">
+            {publication.eligible ? (
               <button
+                className="pk-publish-action"
                 type="button"
-                disabled={upgradeBusyId === asset.id}
                 onClick={() => openUpgrade(asset)}
               >
-                {upgradeBusyId === asset.id ? "提交中…" : "申请升格公司资产"}
+                发布到公司知识库
               </button>
-              {asset.zone === "asset" &&
-                asset.access.canDelete &&
-                asset.assetStatus !== "archived" && (
+            ) : (
+              <span className="pk-publication-reason">{publication.reason}</span>
+            )}
+            {canDelete && (
+              <details className="pk-more-actions">
+                <summary aria-label={`更多操作：${asset.title}`} title="更多操作">
+                  <MoreHorizontal size={16} aria-hidden="true" />
+                </summary>
+                <div className="pk-more-actions-menu" role="menu">
                   <button
                     type="button"
+                    className="is-danger"
+                    role="menuitem"
                     disabled={deleteBusyId === asset.id}
                     onClick={() => setConfirmDeleteId(asset.id)}
                   >
                     {deleteBusyId === asset.id ? "删除中…" : "删除"}
                   </button>
-                )}
-            </details>
-          )}
-        </div>
-      ),
+                </div>
+              </details>
+            )}
+          </div>
+        );
+      },
     },
   ];
 
@@ -807,25 +772,6 @@ function ProjectKnowledgeWorkspace({
               <option value="">区域：全部</option>
               <option value="material">区域：资料区</option>
               <option value="asset">区域：资产区</option>
-            </select>
-          </label>
-          <label className="pk-select-field" htmlFor="pk-filter-type">
-            <span className="sr-only">资产类型</span>
-            <select
-              id="pk-filter-type"
-              aria-label="资产类型"
-              value={assetType}
-              onChange={(event) => {
-                setAssetType(event.target.value as AssetType | "");
-                setPage(1);
-              }}
-            >
-              <option value="">类型：全部</option>
-              {ASSET_TYPES.map((value) => (
-                <option key={value} value={value}>
-                  类型：{assetTypeLabel[value]}
-                </option>
-              ))}
             </select>
           </label>
           <label className="pk-select-field" htmlFor="pk-filter-status">
@@ -1126,35 +1072,15 @@ function ProjectKnowledgeWorkspace({
               }}
               onConfirm={() => void handleBulkDelete()}
             />
-            <ConfirmDialog
-              open={upgradeAsset !== null}
-              title="升格为公司资产"
-              description="目标公司资产会以独立版本发布；当前项目资产及其项目归属保持不变。"
-              confirmText="提交双角色确认"
-              busy={upgradeBusyId !== null}
-              error={upgradeError}
-              errorDescription={upgradeError ?? undefined}
-              onCancel={() => {
-                if (!upgradeBusyId) {
-                  setUpgradeAsset(null);
-                  setUpgradeError(null);
-                }
+            <ProjectCompanyPublicationDialog
+              projectId={project.projectId}
+              target={upgradeAsset}
+              onClose={() => setUpgradeAsset(null)}
+              onSubmitted={() => {
+                setUpgradeAsset(null);
+                setUpgradeNotice({ tone: "success", text: "已提交公司发布申请。" });
               }}
-              onConfirm={() => void submitUpgrade()}
-            >
-              {upgradeAsset && (
-                <PublicationNamingFields
-                  scope="company"
-                  value={upgradeNaming}
-                  disabled={upgradeBusyId !== null}
-                  onChange={setUpgradeNaming}
-                  onPreviewed={setUpgradePreview}
-                  onPreview={(value) =>
-                    previewCompanyUpgrade(project.projectId, upgradeAsset.id, value)
-                  }
-                />
-              )}
-            </ConfirmDialog>
+            />
             <WizardModal
               open={assetizationOpen}
               title="发起资产化审核"

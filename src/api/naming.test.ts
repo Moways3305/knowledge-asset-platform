@@ -46,7 +46,7 @@ describe("previewBatchIngestNaming", () => {
         {
           taskId: "11111111-1111-4111-8111-111111111111",
           naming: {
-            category_id: "33333333-3333-4333-8333-333333333333",
+            directory_key: "project.deliverables",
             subject: "财务部战略行动计划及年度工作计划",
             formed_on: "2021-01-16",
             version: "V1",
@@ -66,7 +66,7 @@ describe("previewBatchIngestNaming", () => {
           task_id: "11111111-1111-4111-8111-111111111111",
           confidentiality_level: "L2",
           naming: {
-            category_id: "33333333-3333-4333-8333-333333333333",
+            directory_key: "project.deliverables",
             subject: "财务部战略行动计划及年度工作计划",
             formed_on: "2021-01-16",
             version: "V1",

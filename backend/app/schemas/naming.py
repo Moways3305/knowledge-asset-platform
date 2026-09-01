@@ -7,7 +7,15 @@ import uuid
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 from app.schemas.enums import AssetType, ConfidentialityLevel, KnowledgeScope
 from app.schemas.upload_duplicates import UploadDuplicateReadModel
@@ -111,12 +119,61 @@ class NamingCategoryConfig(BaseModel):
         return _safe_text(value, label="类别说明", maximum=300)
 
 
+class FormalDirectoryConfig(BaseModel):
+    """Strict writable contract for one governed formal directory."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    directory_key: str
+    scope: Literal["personal", "project", "company"]
+    display_name: str
+    description: str | None = None
+    naming_code: str
+    default_confidentiality: ConfidentialityLevel
+    sort_order: StrictInt = Field(ge=0, le=10000)
+    enabled: StrictBool
+
+    @field_validator("directory_key")
+    @classmethod
+    def validate_directory_key(cls, value: str) -> str:
+        normalized = value.strip()
+        if normalized not in _DIRECTORY_SCOPES:
+            raise ValueError("目录只能使用公司统一发布的稳定 key")
+        return normalized
+
+    @field_validator("display_name")
+    @classmethod
+    def validate_display_name(cls, value: str) -> str:
+        return _safe_text(value, label="目录名称", maximum=80)
+
+    @field_validator("naming_code")
+    @classmethod
+    def validate_naming_code(cls, value: str) -> str:
+        return _safe_text(value, label="命名短码", maximum=40)
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        normalized = " ".join(value.strip().split())
+        if len(normalized) > 300 or any(ord(char) < 32 for char in normalized):
+            raise ValueError("目录说明不能超过 300 个字符且不得包含控制字符")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_scope_matches_key(self) -> FormalDirectoryConfig:
+        if self.scope != _DIRECTORY_SCOPES[self.directory_key]:
+            raise ValueError("目录 key 与适用范围不一致")
+        return self
+
+
 class NamingRuleConfig(BaseModel):
     schema_version: int = 2
     enforced: bool = True
     project_codes: list[ProjectCodeConfig] = Field(default_factory=list)
     categories: list[NamingCategoryConfig] = Field(default_factory=list)
-    directories: list[dict] = Field(default_factory=list)
+    directories: list[FormalDirectoryConfig] = Field(default_factory=list)
     migration_missing_asset_type_category_ids: list[uuid.UUID] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -130,19 +187,12 @@ class NamingRuleConfig(BaseModel):
             raise ValueError("项目代码必须唯一")
         if len(category_ids) != len(set(category_ids)):
             raise ValueError("目录类别标识不能重复")
-        directory_keys = [str(item.get("directory_key") or "") for item in self.directories]
+        directory_keys = [item.directory_key for item in self.directories]
         if any(not key for key in directory_keys) or len(directory_keys) != len(
             set(directory_keys)
         ):
             raise ValueError("目录稳定键不能为空或重复")
         valid_keys = set(directory_keys)
-        if any(key not in _DIRECTORY_SCOPES for key in directory_keys):
-            raise ValueError("目录只能使用公司统一发布的稳定 key")
-        if any(
-            item.get("scope") != _DIRECTORY_SCOPES.get(str(item.get("directory_key") or ""))
-            for item in self.directories
-        ):
-            raise ValueError("目录 key 与适用范围不一致")
         if any(
             item.suggested_directory_key and item.suggested_directory_key not in valid_keys
             for item in self.categories
@@ -168,7 +218,16 @@ class NamingRuleCenterOut(BaseModel):
 
 class NamingDraftUpdateRequest(BaseModel):
     expected_base_version: int
-    config: NamingRuleConfig
+    directories: list[FormalDirectoryConfig]
+
+    @field_validator("directories")
+    @classmethod
+    def validate_directories(
+        cls, value: list[FormalDirectoryConfig]
+    ) -> list[FormalDirectoryConfig]:
+        # Reuse the published directory invariants without accepting any of the
+        # retired category or project-code configuration as writable input.
+        return NamingRuleConfig(directories=value).directories
 
 
 class NamingPublishRequest(BaseModel):
@@ -176,13 +235,27 @@ class NamingPublishRequest(BaseModel):
 
 
 class NamingConfirmationFields(BaseModel):
-    category_id: uuid.UUID
+    # New publication contracts use one formal directory as their only
+    # membership key.  ``extra=allow`` intentionally keeps old category_id
+    # payloads readable during the compatibility window without advertising
+    # that retired field in OpenAPI or new clients.
+    model_config = ConfigDict(extra="allow")
+
+    directory_key: str | None = None
     subject: str
     formed_on: date
     version: str
     applicable_to: str | None = None
-    directory_key: str | None = None
-    directory_fallback_confirmed: bool = False
+
+    @field_validator("directory_key")
+    @classmethod
+    def validate_directory_key(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized or len(normalized) > 100:
+            raise ValueError("请选择有效的正式目录")
+        return normalized
 
     @field_validator("subject")
     @classmethod
@@ -254,9 +327,9 @@ class NamingPreviewResponse(BaseModel):
 class BatchNamingConfirmationFields(BaseModel):
     """Field-shaped carrier that keeps business validation item-scoped."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
-    category_id: uuid.UUID | str | None = None
+    directory_key: str | None = None
     subject: str | None = None
     formed_on: date | str | None = None
     version: str | None = None
@@ -332,6 +405,8 @@ class DirectoryOptionItem(BaseModel):
     scope: str
     display_name: str
     description: str | None = None
+    naming_code: str
+    default_confidentiality: ConfidentialityLevel
     sort_order: int
     enabled: bool = True
 
@@ -339,7 +414,6 @@ class DirectoryOptionItem(BaseModel):
 class NamingOptionsResponse(BaseModel):
     required: bool
     rule_version: int | None
-    categories: list[NamingOptionItem] = Field(default_factory=list)
     directories: list[DirectoryOptionItem] = Field(default_factory=list)
     default_confidentiality: ConfidentialityLevel | None = None
     message: str | None = None

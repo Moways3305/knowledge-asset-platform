@@ -35,14 +35,9 @@ def derived_confirmation_properties(
     context: ValidatedConfirmationContext,
 ) -> tuple[str, str]:
     """Return server-owned asset type and visibility for a new confirmation."""
-    if context.naming_result is not None:
-        asset_type = context.naming_result.metadata.get("asset_type")
-        if not isinstance(asset_type, str) or not asset_type:
-            raise RuntimeError("validated naming result is missing asset type mapping")
-    else:
-        # Personal/non-enforced naming has no governed category. Keep it
-        # explicitly unclassified rather than guessing a deliverable type.
-        asset_type = "unclassified"
+    # Asset type is retained only as a storage-compatibility column. Formal
+    # directory membership is authoritative for every new confirmation.
+    asset_type = "unclassified"
     visibility = {
         "personal": "confidential",
         "project": "project_only",

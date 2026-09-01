@@ -24,6 +24,7 @@ from app.schemas.enums import (
     AssetStatus,
     AuditAction,
     AuditLogType,
+    ConfidentialityLevel,
     KnowledgeScope,
     MemberStatus,
     ProjectRole,
@@ -149,6 +150,9 @@ def _settings_out(project: Project, coach_name: str | None, can_write: bool) -> 
         lifecycle_route_key=project.lifecycle_route_key,
         lifecycle_phase_key=project.lifecycle_phase_key,
         force_review_on_ingest=project.force_review_on_ingest,
+        project_code=project.project_code,
+        project_code_active=project.project_code_active,
+        naming_default_confidentiality=ConfidentialityLevel(project.naming_default_confidentiality),
         wecom_group_bound=bool(project.wecom_group_id),
         wecom_group_label=_wecom_label(project.wecom_group_id),
         updated_at=project.updated_at,
@@ -263,6 +267,40 @@ async def update_settings(
             changed_fields.append("wecom_group_id")
             before["wecom_group_bound"] = old_bound
             after["wecom_group_bound"] = new_bound
+
+    if req.project_code is not None and req.project_code != project.project_code:
+        duplicate_code = (
+            await session.execute(
+                select(Project.id).where(
+                    Project.project_code == req.project_code,
+                    Project.id != project.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if duplicate_code is not None:
+            raise _denied(422, "project_code_conflict", "项目代码已被使用")
+        before["project_code"] = project.project_code
+        project.project_code = req.project_code
+        after["project_code"] = project.project_code
+        changed_fields.append("project_code")
+    if (
+        req.project_code_active is not None
+        and req.project_code_active != project.project_code_active
+    ):
+        if req.project_code_active and not project.project_code:
+            raise _denied(422, "project_code_required", "启用项目代码前请先填写项目代码")
+        before["project_code_active"] = project.project_code_active
+        project.project_code_active = req.project_code_active
+        after["project_code_active"] = project.project_code_active
+        changed_fields.append("project_code_active")
+    if (
+        req.naming_default_confidentiality is not None
+        and req.naming_default_confidentiality.value != project.naming_default_confidentiality
+    ):
+        before["naming_default_confidentiality"] = project.naming_default_confidentiality
+        project.naming_default_confidentiality = req.naming_default_confidentiality.value
+        after["naming_default_confidentiality"] = project.naming_default_confidentiality
+        changed_fields.append("naming_default_confidentiality")
 
     if not changed_fields:
         raise _denied(422, "no_settings_change", "未提供任何可更新的设置")

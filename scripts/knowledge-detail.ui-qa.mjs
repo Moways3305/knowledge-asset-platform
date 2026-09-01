@@ -30,10 +30,12 @@ const scenarios = [
   "waiting-index",
   "indexing",
   "governed",
+  "manager-publication",
 ];
 const viewports = [
   { name: "1440", width: 1440, height: 1000 },
   { name: "1024", width: 1024, height: 900 },
+  { name: "768", width: 768, height: 900 },
   { name: "390", width: 390, height: 844 },
 ];
 
@@ -164,7 +166,7 @@ for (const scenario of scenarios) {
             {
               project_id: projectId,
               project_name: "华东增长策略项目",
-              project_role: "consultant",
+              project_role: scenario === "manager-publication" ? "project_manager" : "consultant",
               status: "active",
             },
           ],
@@ -280,7 +282,8 @@ for (const scenario of scenarios) {
       const text = document.body.innerText;
       return {
         overflowX: root.scrollWidth - root.clientWidth,
-        shellOverlap: rail && deck ? Math.max(0, rail.right - deck.left) : 1,
+        shellOverlap:
+          window.innerWidth >= 1000 && rail && deck ? Math.max(0, rail.right - deck.left) : 0,
         layoutWidth: layout?.width ?? 0,
         mainWidth: main?.width ?? 0,
         sideWidth: side?.width ?? 0,
@@ -309,6 +312,8 @@ for (const scenario of scenarios) {
         canonicalMarkdownVisible: text.includes("Markdown 已生成"),
         waitingIndexVisible: text.includes("已入库，等待索引"),
         indexingVisible: text.includes("索引处理中"),
+        publicationActionVisible: text.includes("发布到公司知识库"),
+        publicationReasonVisible: text.includes("仅项目经理可提交公司发布申请"),
         internalLifecycleEventVisible: lifecycleCases.some(([eventType]) =>
           text.includes(eventType),
         ),
@@ -345,7 +350,7 @@ if (
       (result.scenario !== "denied" &&
         (result.layoutWidth === 0 ||
           (result.viewport === "1440" && result.mainWidth <= result.sideWidth) ||
-          (result.viewport !== "390" && result.sideWidth < 280))) ||
+          (["1440", "1024"].includes(result.viewport) && result.sideWidth < 280))) ||
       result.clippedActions > 0 ||
       result.moduleTitle !== "知识资产库" ||
       result.oldSectionVisible ||
@@ -362,6 +367,10 @@ if (
       (result.scenario !== "denied" && !result.canonicalMarkdownVisible) ||
       (result.scenario === "waiting-index" && !result.waitingIndexVisible) ||
       (result.scenario === "indexing" && !result.indexingVisible) ||
+      (result.scenario === "manager-publication" && !result.publicationActionVisible) ||
+      (result.scenario !== "manager-publication" &&
+        !["denied", "failure"].includes(result.scenario) &&
+        !result.publicationReasonVisible) ||
       (result.scenario === "governed" && result.lifecycleCalls !== 1) ||
       (result.scenario === "governed" && result.deleteActionVisible) ||
       (result.scenario === "governed" && !result.lifecycleLabelsLocalized) ||

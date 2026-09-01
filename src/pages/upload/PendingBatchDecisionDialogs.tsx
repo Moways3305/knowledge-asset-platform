@@ -41,7 +41,7 @@ export default function PendingBatchDecisionDialogs(props: Props) {
       <ConfirmDialog
         open={props.fallbackDirectoryTaskId !== null}
         title={`选择正式${props.targetLibrary === "company" ? "公司" : "项目"}目录`}
-        description="目录类别和其他命名字段保持不变；这里只补充正式目录归属。"
+        description="选择后将以该正式目录重新生成规范名预览。"
         confirmText="保存并重新预览"
         confirmDisabled={
           !props.fallbackDirectoryKey ||
@@ -52,7 +52,6 @@ export default function PendingBatchDecisionDialogs(props: Props) {
           if (!props.fallbackDirectoryTaskId || !props.fallbackDirectoryKey) return;
           props.onSaveFallback(props.fallbackDirectoryTaskId, {
             directory_key: props.fallbackDirectoryKey,
-            directory_fallback_confirmed: true,
           });
           props.onCancelFallback();
         }}

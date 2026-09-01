@@ -58,7 +58,6 @@ const ingest = vi.hoisted(() => ({
 vi.mock("../../api/ingest", () => ingest);
 
 const namingApi = vi.hoisted(() => ({
-  classifyBatchNamingCategories: vi.fn(),
   fetchNamingOptions: vi.fn(),
   previewIngestNaming: vi.fn(),
 }));
@@ -280,12 +279,6 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         decision: null,
       },
     });
-    namingApi.classifyBatchNamingCategories.mockReset().mockResolvedValue({
-      target_label: "项目知识库",
-      candidate_rule_revision: null,
-      candidate_count: 0,
-      items: [],
-    });
     ingest.confirmIngest.mockReset().mockResolvedValue({
       task_id: "t1",
       status: "completed",
@@ -485,23 +478,6 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       notices: [],
       message: null,
     });
-    namingApi.classifyBatchNamingCategories.mockResolvedValue({
-      target_label: "项目知识库 / 琥崧项目",
-      candidate_rule_revision: 2,
-      candidate_count: 1,
-      items: [
-        {
-          task_id: "t1",
-          suggested_category_id: "category-coaching",
-          category_source: "rule_only_option",
-          category_confidence: "high",
-          category_reason: "当前规则只有一个启用目录类别",
-          candidate_rule_revision: 2,
-          status: "classified",
-          retryable: false,
-        },
-      ],
-    });
     const { result } = renderHook(() => useUploadFlow());
     await driveToReady(result);
 
@@ -523,7 +499,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     expect(JSON.stringify(payload)).not.toContain("琥崧");
   });
 
-  it("prefers the unique AI category suggestion and preserves a human override", async () => {
+  it("selects the first scoped formal directory", async () => {
     auth.fetchAuthMe.mockResolvedValue({
       projects: [{ projectId: "project-alpha", projectName: "Alpha 项目" }],
     });
@@ -548,20 +524,20 @@ describe("useUploadFlow model selection (PBC-38)", () => {
     namingApi.fetchNamingOptions.mockResolvedValue({
       required: true,
       rule_version: 2,
-      categories: [
+      directories: [
         {
-          id: "category-foundation",
-          primary: "项目资料",
-          secondary: "项目基础信息",
-          prefix: "项目资料-项目基础信息",
-          default_confidentiality: "L2",
+          directory_key: "project.basic_information",
+          scope: "project",
+          display_name: "01 项目基础信息",
+          sort_order: 10,
+          enabled: true,
         },
         {
-          id: "category-deliverable",
-          primary: "项目资料",
-          secondary: "交付成果",
-          prefix: "项目资料-交付成果",
-          default_confidentiality: "L2",
+          directory_key: "project.deliverables",
+          scope: "project",
+          display_name: "03 交付成果",
+          sort_order: 30,
+          enabled: true,
         },
       ],
       default_confidentiality: "L2",
@@ -575,23 +551,6 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       notices: [],
       message: null,
     });
-    namingApi.classifyBatchNamingCategories.mockResolvedValue({
-      target_label: "项目知识库 / Alpha 项目",
-      candidate_rule_revision: 2,
-      candidate_count: 2,
-      items: [
-        {
-          task_id: "t1",
-          suggested_category_id: "category-deliverable",
-          category_source: "ai_content",
-          category_confidence: "high",
-          category_reason: "AI 根据正文语义匹配当前目标的目录规则",
-          candidate_rule_revision: 2,
-          status: "classified",
-          retryable: false,
-        },
-      ],
-    });
     const { result } = renderHook(() => useUploadFlow());
     await driveToReady(result);
 
@@ -599,10 +558,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
       result.current.setTargetLibrary("project");
       result.current.setTargetProjectId("project-alpha");
     });
-    await waitFor(() => expect(result.current.namingCategoryId).toBe("category-deliverable"));
-
-    act(() => result.current.setNamingCategoryId("category-foundation"));
-    await waitFor(() => expect(result.current.namingCategoryId).toBe("category-foundation"));
+    await waitFor(() => expect(result.current.directoryKey).toBeTruthy());
   });
 
   it("confirmation 边界统一暴露已验证目标、人工字段、AI 建议和 task 身份", async () => {
@@ -1583,7 +1539,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         "project-a",
         {
           [task.id]: {
-            category_id: "category-a",
+            directory_key: "project.deliverables",
             subject: "项目复盘",
             formed_on: "2026-08-02",
             version: "V1.1",
@@ -1609,7 +1565,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
               title: "项目复盘",
               confidentiality_level: "L3",
               naming: {
-                category_id: "category-a",
+                directory_key: "project.deliverables",
                 subject: "项目复盘",
                 formed_on: "2026-08-02",
                 version: "V1.1",
@@ -1653,7 +1609,7 @@ describe("useUploadFlow model selection (PBC-38)", () => {
         "project-a",
         {
           [task.id]: {
-            category_id: "category-a",
+            directory_key: "project.deliverables",
             subject: "主表单中的不同主题",
             formed_on: "2026-08-14",
             version: "V1",

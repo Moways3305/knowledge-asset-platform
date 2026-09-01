@@ -1,11 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { Check, Trash2 } from "lucide-react";
 import type { PendingIngestItemDTO } from "../../types/ingest";
-import type {
-  BatchNamingValuesDTO,
-  CategoryClassificationItemDTO,
-  NamingOptionsDTO,
-} from "../../types/naming";
+import type { BatchNamingValuesDTO, NamingOptionsDTO } from "../../types/naming";
 import type { UploadFlow } from "./useUploadFlow";
 import type { TargetLibrary } from "./uploadConstants";
 import DuplicateComparisonPopover from "./DuplicateComparisonPopover";
@@ -32,11 +28,7 @@ type Props = {
   previewSummary: string;
   visibleConfirmTasks: PendingIngestItemDTO[];
   selectedConfirmTasks: PendingIngestItemDTO[];
-  categoryTargetLabel: string;
-  bulkCategoryId: string;
   loading: boolean;
-  classificationBusy: boolean;
-  retryCategoryClassifications: () => Promise<void>;
   refreshPreviews: () => Promise<void>;
   reviewFilter: ReviewFilter;
   setReviewFilter: Dispatch<SetStateAction<ReviewFilter>>;
@@ -56,21 +48,14 @@ type Props = {
   setDeleteCandidate: Dispatch<SetStateAction<PendingIngestItemDTO | null>>;
   deleteFeedback: Record<string, DeleteFeedback>;
   setDeleteFeedback: Dispatch<SetStateAction<Record<string, DeleteFeedback>>>;
-  categories: NamingOptionsDTO["categories"];
-  categorySuggestions: Record<string, CategoryClassificationItemDTO>;
-  bulkCategoryTaskIds: Set<string>;
   directoryLabel: (key: string) => string;
-  retryOneCategoryClassification: (taskId: string) => Promise<void>;
   updateRow: (taskId: string, patch: Partial<BatchNamingValuesDTO>) => void;
-  selectManualCategory: (taskId: string, categoryId: string) => void;
   company: boolean;
   options: NamingOptionsDTO | null;
   previewBusyByTask: Record<string, boolean>;
   previewFeedback: Record<string, string>;
   scheduleRowPreview: (taskId: string, row: BatchNamingValuesDTO) => void;
   targetLibrary: TargetLibrary;
-  setFallbackDirectoryTaskId: Dispatch<SetStateAction<string | null>>;
-  setFallbackDirectoryKey: Dispatch<SetStateAction<string>>;
   duplicateDecisionTaskId: string | null;
   skippedDuplicateItems: SkippedDuplicateItem[];
   onDuplicateDecision: (
@@ -84,11 +69,7 @@ export default function PendingBatchNamingReview(props: Props) {
     previewSummary,
     visibleConfirmTasks,
     selectedConfirmTasks,
-    categoryTargetLabel,
-    bulkCategoryId,
     loading,
-    classificationBusy,
-    retryCategoryClassifications,
     refreshPreviews,
     reviewFilter,
     setReviewFilter,
@@ -108,21 +89,14 @@ export default function PendingBatchNamingReview(props: Props) {
     setDeleteCandidate,
     deleteFeedback,
     setDeleteFeedback,
-    categories,
-    categorySuggestions,
-    bulkCategoryTaskIds,
     directoryLabel,
-    retryOneCategoryClassification,
     updateRow,
-    selectManualCategory,
     company,
     options,
     previewBusyByTask,
     previewFeedback,
     scheduleRowPreview,
     targetLibrary,
-    setFallbackDirectoryTaskId,
-    setFallbackDirectoryKey,
     duplicateDecisionTaskId,
     skippedDuplicateItems,
     onDuplicateDecision,
@@ -136,23 +110,8 @@ export default function PendingBatchNamingReview(props: Props) {
           <span className="upload77-batch-filter-summary" role="status">
             当前筛选显示 {visibleConfirmTasks.length}/{selectedConfirmTasks.length} 条
           </span>
-          {categoryTargetLabel && (
-            <span className="upload77-batch-filter-summary" role="status">
-              目录候选来自：{categoryTargetLabel}
-            </span>
-          )}
         </div>
         <div className="upload77-batch-naming-row-actions">
-          {!bulkCategoryId && (
-            <button
-              className="btn-secondary"
-              disabled={loading || classificationBusy}
-              onClick={() => void retryCategoryClassifications()}
-              type="button"
-            >
-              {classificationBusy ? "正在分类…" : "重试待分类项"}
-            </button>
-          )}
           <button
             className="btn-secondary"
             disabled={loading}
@@ -275,7 +234,6 @@ export default function PendingBatchNamingReview(props: Props) {
           const localError = rowMissing(row, company);
           const serverError = previewError(preview);
           const fieldError = localError ?? serverError;
-          const categorySuggestion = categorySuggestions[task.id];
           return (
             <article className="upload77-batch-naming-row" key={task.id}>
               <header>
@@ -376,61 +334,39 @@ export default function PendingBatchNamingReview(props: Props) {
                   )}
                 </label>
                 <label>
-                  <span>目录类别</span>
+                  <span>正式目录</span>
                   <select
-                    aria-label={`${task.source_file_name} 目录类别`}
-                    value={row.category_id}
-                    onChange={(event) => selectManualCategory(task.id, event.target.value)}
+                    aria-label={`${task.source_file_name} 正式目录`}
+                    value={row.directory_key}
+                    onChange={(event) => {
+                      const directoryKey = event.target.value;
+                      const directory = options?.directories.find(
+                        (item) => item.directory_key === directoryKey,
+                      );
+                      updateRow(task.id, {
+                        directory_key: directoryKey,
+                        confidentiality_level:
+                          directory?.default_confidentiality ||
+                          options?.default_confidentiality ||
+                          "L2",
+                      });
+                    }}
                   >
                     <option value="">请选择</option>
-                    {categories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.primary} / {category.secondary}
-                      </option>
-                    ))}
+                    {(options?.directories ?? [])
+                      .filter((directory) => directory.scope === targetLibrary)
+                      .map((directory) => (
+                        <option key={directory.directory_key} value={directory.directory_key}>
+                          {directory.display_name}
+                        </option>
+                      ))}
                   </select>
-                  {fieldError?.field === "category_id" && (
+                  {fieldError?.field === "directory_key" && (
                     <small className="upload77-batch-naming-error">{fieldError.message}</small>
                   )}
-                  {categorySuggestion?.category_source === "ai_content" &&
-                    categorySuggestion.suggested_category_id === row.category_id && (
-                      <small className="upload77-batch-naming-notice">
-                        AI 内容建议（
-                        {categorySuggestion.category_confidence === "high" ? "高" : "中"}
-                        置信度）
-                      </small>
-                    )}
-                  {categorySuggestion?.category_source === "rule_only_option" &&
-                    categorySuggestion.suggested_category_id === row.category_id && (
-                      <small className="upload77-batch-naming-notice">规则唯一选项</small>
-                    )}
-                  {categorySuggestion?.category_source === "manual" && (
-                    <small className="upload77-batch-naming-notice">
-                      {bulkCategoryTaskIds.has(task.id) ? "批量设置" : "人工已选择"}
-                    </small>
-                  )}
-                  {row.directory_key && (
-                    <small className="upload77-batch-naming-notice">
-                      正式目录：{directoryLabel(row.directory_key)}
-                    </small>
-                  )}
-                  {(!categorySuggestion ||
-                    categorySuggestion.category_source === "needs_manual") && (
-                    <small className="upload77-batch-naming-error">
-                      {categorySuggestion?.category_reason ?? "尚未按当前规则分类"}
-                      {categorySuggestion?.retryable &&
-                        !bulkCategoryId &&
-                        !bulkCategoryTaskIds.has(task.id) && (
-                          <button
-                            disabled={classificationBusy || editedTaskIds.has(task.id)}
-                            onClick={() => void retryOneCategoryClassification(task.id)}
-                            type="button"
-                          >
-                            重试此项
-                          </button>
-                        )}
-                    </small>
-                  )}
+                  <small className="upload77-batch-naming-notice">
+                    该目录将作为资产归属与规范命名的唯一依据。
+                  </small>
                 </label>
                 <label>
                   <span>文件形成日期</span>
@@ -550,18 +486,6 @@ export default function PendingBatchNamingReview(props: Props) {
               {serverError?.field === null && (
                 <div className="upload77-batch-naming-error">
                   <span>{serverError.message}</span>
-                  {preview?.error_code === "directory_required" && (
-                    <button
-                      className="btn-secondary"
-                      onClick={() => {
-                        setFallbackDirectoryTaskId(task.id);
-                        setFallbackDirectoryKey(row.directory_key ?? "");
-                      }}
-                      type="button"
-                    >
-                      选择正式{targetLibrary === "company" ? "公司" : "项目"}目录
-                    </button>
-                  )}
                 </div>
               )}
               {preview?.notices.map((notice) => (

@@ -13,6 +13,9 @@ import {
 import { ApiError } from "../api/http";
 import { useAuth } from "../auth/AuthContext";
 import AccessExplanationDrawer, { accessLabel } from "../components/AccessExplanationDrawer";
+import ProjectCompanyPublicationDialog, {
+  getProjectCompanyPublicationEligibility,
+} from "../components/ProjectCompanyPublicationDialog";
 import TaskModal from "../components/TaskModal";
 import {
   deleteKnowledgeAsset,
@@ -76,14 +79,6 @@ const assetStatusCls: Record<AssetStatus, string> = {
   archived: "asset-status-archived",
 };
 
-const assetTypeLabel: Record<string, string> = {
-  methodology: "方法论",
-  deliverable: "交付物",
-  case: "案例",
-  template: "模板",
-  insight: "洞察",
-};
-
 const indexStatusLabel: Record<string, string> = {
   indexed: "索引完成，可检索",
   indexing: "索引处理中",
@@ -114,7 +109,7 @@ function safeActionError(error: unknown, fallback: string) {
 }
 
 export default function KnowledgeDetailPage() {
-  const { capabilities } = useAuth();
+  const { authMe, capabilities } = useAuth();
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
   const navigate = useNavigate();
@@ -152,6 +147,8 @@ export default function KnowledgeDetailPage() {
   const [retryBusy, setRetryBusy] = useState(false);
   const [retryNote, setRetryNote] = useState<string | null>(null);
   const [retryErr, setRetryErr] = useState<string | null>(null);
+  const [publicationOpen, setPublicationOpen] = useState(false);
+  const [publicationNote, setPublicationNote] = useState<string | null>(null);
   const detailSource = readKnowledgeDetailSource(location.state);
   const backPath = detailSource.backTo;
   const backLabel = detailSource.backLabel;
@@ -373,6 +370,12 @@ export default function KnowledgeDetailPage() {
   const canSummary = asset.access.summary;
   const canOriginal = asset.access.original;
   const crossProjectSummary = Boolean(asset.access.crossProjectSummary);
+  const assetProject = asset.projectId
+    ? authMe?.projects.find((project) => project.projectId === asset.projectId)
+    : null;
+  const publicationEligibility = asset.projectId
+    ? getProjectCompanyPublicationEligibility(asset, asset.projectId, assetProject?.projectRole)
+    : { eligible: false, reason: "仅项目知识资产可提交公司发布申请" };
   const pendingOriginal = asset.access.existingRequestStatus === "pending";
   const hasSummaryBody = hasText(asset.detailed) || asset.keyPoints.length > 0;
   const hasOpsActions =
@@ -406,7 +409,7 @@ export default function KnowledgeDetailPage() {
     },
   ];
   const crossProjectFacts = [
-    { label: "目录类别", value: asset.directoryPath || asset.categoryPath },
+    { label: "正式目录", value: asset.directoryPath ?? "待治理" },
     { label: "规范名版本", value: asset.safeVersion },
     { label: "维护人", value: asset.maintainerName },
     {
@@ -439,9 +442,6 @@ export default function KnowledgeDetailPage() {
             <span className={`asset-status-badge ${assetStatusCls[asset.assetStatus]}`}>
               {assetStatusLabel[asset.assetStatus]}
             </span>
-            <span className="asset-type-badge">
-              {assetTypeLabel[asset.assetType] ?? asset.assetType}
-            </span>
             <span className={`confidentiality-badge confidentiality-${asset.confidentialityLevel}`}>
               {confidentialityLabelMap[asset.confidentialityLevel]}
             </span>
@@ -459,6 +459,24 @@ export default function KnowledgeDetailPage() {
         </div>
 
         <div className="kdetail-primary-action">
+          {asset.scope === "project" && (
+            <div className="kdetail-publication-action">
+              {publicationEligibility.eligible ? (
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => {
+                    setPublicationNote(null);
+                    setPublicationOpen(true);
+                  }}
+                >
+                  发布到公司知识库
+                </button>
+              ) : (
+                <span className="kdetail-action-reason">{publicationEligibility.reason}</span>
+              )}
+            </div>
+          )}
           {canOriginal ? (
             <button
               type="button"
@@ -487,14 +505,14 @@ export default function KnowledgeDetailPage() {
         </div>
       </header>
 
-      {(previewError || oaError || oaNote) && (
+      {(previewError || oaError || oaNote || publicationNote) && (
         <div
           className={
             previewError || oaError ? "kdetail-alert is-error" : "kdetail-alert is-success"
           }
           role="status"
         >
-          {previewError || oaError || oaNote}
+          {previewError || oaError || oaNote || publicationNote}
           {oaNote && asset?.access.existingRequestStatus === "pending" && (
             <Link to="/original-access?box=mine">查看申请进度</Link>
           )}
@@ -768,6 +786,18 @@ export default function KnowledgeDetailPage() {
           )}
         </aside>
       </div>
+
+      {asset.projectId && (
+        <ProjectCompanyPublicationDialog
+          projectId={asset.projectId}
+          target={publicationOpen ? asset : null}
+          onClose={() => setPublicationOpen(false)}
+          onSubmitted={() => {
+            setPublicationOpen(false);
+            setPublicationNote("已提交公司发布申请。");
+          }}
+        />
+      )}
 
       {previewOpen && previewEntry && (
         <div

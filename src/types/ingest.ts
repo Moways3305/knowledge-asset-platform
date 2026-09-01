@@ -97,11 +97,17 @@ export interface UploadSessionListDTO {
 
 export type IngestTaskStage =
   | "upload_saved"
+  | "processing_claimed"
   | "text_extraction"
   | "ocr_queued"
   | "ocr_in_progress"
   | "ocr_failed"
+  | "ocr_too_complex"
+  | "ocr_complete"
+  | "processing_interrupted"
+  | "source_unavailable"
   | "canonical_markdown_generation"
+  | "content_generation_queued"
   | "content_generation"
   | "waiting_generation_config"
   | "content_generation_failed"
@@ -140,6 +146,8 @@ export interface IngestTaskStatusDTO {
   stage: IngestTaskStage;
   status: IngestTaskWorkflowStatus;
   updated_at: string | null;
+  last_progress_at?: string | null;
+  next_retry_at?: string | null;
   retryable: boolean;
   next_action: IngestTaskNextActionDTO | null;
   error: IngestTaskSafeErrorDTO | null;
@@ -165,7 +173,7 @@ export interface NamingFields {
   original_naming_compliant: boolean;
   category_suggestion?: {
     suggested_category_id: string | null;
-    category_source: import("./naming").CategorySuggestionSource;
+    category_source: "ai_content" | "rule_only_option" | "needs_manual" | "manual";
     category_confidence: "high" | "medium" | "low";
     category_reason: string;
     candidate_rule_revision: number | null;
@@ -319,6 +327,8 @@ export interface PendingIngestItemDTO {
   processing_stage?: IngestTaskStage | null;
   retryable?: boolean;
   retry_count?: number;
+  last_progress_at?: string | null;
+  next_retry_at?: string | null;
   suggested_title: string | null;
   suggested_one_liner: string | null;
   suggested_version?: string | null;

@@ -6,8 +6,14 @@ import { initialRows, reviewState, rowMissing, suggestedVersion } from "./pendin
 const options = {
   rule_version: "rule-v1",
   default_confidentiality: "L2",
-  categories: [{ id: "category-a", primary: "制度", secondary: "通用" }],
-  directories: [],
+  directories: [
+    {
+      directory_key: "project.deliverables",
+      scope: "project",
+      display_name: "交付成果",
+      enabled: true,
+    },
+  ],
 } as unknown as NamingOptionsDTO;
 
 const task = {
@@ -31,35 +37,23 @@ const task = {
 describe("pending batch review state", () => {
   it("normalizes a suggested version and initializes only governed fields", () => {
     expect(suggestedVersion(task)).toBe("V2");
-    const rows = initialRows(task ? [task] : [], options, {
-      [task.id]: {
-        task_id: task.id,
-        status: "classified",
-        suggested_category_id: "category-a",
-        candidate_rule_revision: "rule-v1",
-      },
-    } as never);
+    const rows = initialRows(task ? [task] : [], options);
     expect(rows[task.id]).toMatchObject({
       subject: "安全主题",
       formed_on: "2026-08-01",
       version: "V2",
-      category_id: "category-a",
+      directory_key: "project.deliverables",
       confidentiality_level: "L2",
     });
   });
 
   it("keeps company rows blocked until applicable_to is supplied", () => {
-    const row = initialRows([task], options, {})[task.id];
-    expect(rowMissing(row, true)).toEqual({
-      field: "category_id",
-      message: "请选择目录类别",
-    });
-    row.category_id = "category-a";
+    const row = initialRows([task], options)[task.id];
     expect(rowMissing(row, true)?.field).toBe("applicable_to");
   });
 
   it("marks a server preview error as an exception", () => {
-    const row = initialRows([task], options, {})[task.id];
+    const row = initialRows([task], options)[task.id];
     expect(
       reviewState(
         task,
@@ -69,7 +63,6 @@ describe("pending batch review state", () => {
         undefined,
         false,
         false,
-        undefined,
       ),
     ).toBe("exception");
   });

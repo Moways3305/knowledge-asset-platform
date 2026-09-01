@@ -70,6 +70,9 @@ type SettingsDraft = {
   lifecyclePhaseKey: string;
   forceReviewOnIngest: boolean;
   wecomGroupId: string | null;
+  projectCode: string;
+  projectCodeActive: boolean;
+  namingDefaultConfidentiality: string;
 };
 
 const draftFromSettings = (settings: ProjectSettingsDTO): SettingsDraft => ({
@@ -77,6 +80,9 @@ const draftFromSettings = (settings: ProjectSettingsDTO): SettingsDraft => ({
   lifecyclePhaseKey: settings.lifecycle_phase_key ?? "",
   forceReviewOnIngest: settings.force_review_on_ingest,
   wecomGroupId: null,
+  projectCode: settings.project_code ?? "",
+  projectCodeActive: settings.project_code_active ?? false,
+  namingDefaultConfidentiality: settings.naming_default_confidentiality ?? "L2",
 });
 
 const safeError = (error: unknown, fallback: string): string => {
@@ -426,6 +432,9 @@ export default function ProjectSettingsPage() {
     (draft.lifecycleRouteKey !== (settings.lifecycle_route_key ?? "") ||
       draft.lifecyclePhaseKey !== (settings.lifecycle_phase_key ?? "") ||
       draft.forceReviewOnIngest !== settings.force_review_on_ingest ||
+      draft.projectCode !== (settings.project_code ?? "") ||
+      draft.projectCodeActive !== (settings.project_code_active ?? false) ||
+      draft.namingDefaultConfidentiality !== (settings.naming_default_confidentiality ?? "L2") ||
       draft.wecomGroupId !== null),
   );
 
@@ -447,6 +456,15 @@ export default function ProjectSettingsPage() {
     }
     if (draft.forceReviewOnIngest !== settings.force_review_on_ingest) {
       body.force_review_on_ingest = draft.forceReviewOnIngest;
+    }
+    if (draft.projectCode !== (settings.project_code ?? "")) {
+      body.project_code = draft.projectCode.trim().toUpperCase();
+    }
+    if (draft.projectCodeActive !== (settings.project_code_active ?? false)) {
+      body.project_code_active = draft.projectCodeActive;
+    }
+    if (draft.namingDefaultConfidentiality !== (settings.naming_default_confidentiality ?? "L2")) {
+      body.naming_default_confidentiality = draft.namingDefaultConfidentiality;
     }
     if (draft.wecomGroupId !== null) body.wecom_group_id = draft.wecomGroupId;
 
@@ -669,11 +687,62 @@ export default function ProjectSettingsPage() {
           <section className="ps74-section" aria-labelledby="project-policy-heading">
             <div className="ps74-section-header">
               <div>
-                <h2 id="project-policy-heading">项目入库策略与企微群绑定</h2>
+                <h2 id="project-policy-heading">项目命名、入库策略与企微群绑定</h2>
                 <p>设置只在统一保存成功后生效。</p>
               </div>
             </div>
             <div className="ps74-settings-grid">
+              <label>
+                <span>项目代码</span>
+                <input
+                  value={draft.projectCode}
+                  disabled={!canWrite || saving}
+                  maxLength={20}
+                  placeholder="例如 RAD-01"
+                  onChange={(event) =>
+                    setDraft((current) =>
+                      current
+                        ? { ...current, projectCode: event.target.value.toUpperCase() }
+                        : current,
+                    )
+                  }
+                />
+                <small>2–20 位大写字母、数字或短横线；全公司唯一。</small>
+              </label>
+              <label>
+                <span>项目默认密级</span>
+                <select
+                  value={draft.namingDefaultConfidentiality}
+                  disabled={!canWrite || saving}
+                  onChange={(event) =>
+                    setDraft((current) =>
+                      current
+                        ? { ...current, namingDefaultConfidentiality: event.target.value }
+                        : current,
+                    )
+                  }
+                >
+                  {["L1", "L2", "L3", "L4", "L5"].map((level) => (
+                    <option key={level}>{level}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="ps74-switch-row">
+                <span>
+                  <strong>启用项目代码</strong>
+                  <small>启用后，项目资料规范名使用该项目代码。</small>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={draft.projectCodeActive}
+                  disabled={!canWrite || saving || !draft.projectCode.trim()}
+                  onChange={(event) =>
+                    setDraft((current) =>
+                      current ? { ...current, projectCodeActive: event.target.checked } : current,
+                    )
+                  }
+                />
+              </label>
               <label>
                 <span>生命周期路线</span>
                 <select

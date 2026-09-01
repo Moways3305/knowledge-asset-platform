@@ -3,7 +3,6 @@ import type { UploadDuplicateDTO } from "../../types/ingest";
 import type {
   BatchNamingPreviewItemDTO,
   BatchNamingValuesDTO,
-  CategoryClassificationItemDTO,
   NamingOptionsDTO,
 } from "../../types/naming";
 
@@ -61,30 +60,33 @@ export function hasReliableAiConfidentiality(task: PendingIngestItemDTO): boolea
 export function suggestedConfidentiality(
   task: PendingIngestItemDTO,
   options: NamingOptionsDTO,
+  directoryKey?: string,
 ): string {
   if (hasReliableAiConfidentiality(task)) return task.suggested_confidentiality_level!;
-  return options.default_confidentiality || "L2";
+  return directoryDefaultConfidentiality(options, directoryKey);
 }
 
-export function initialRows(
-  tasks: PendingIngestItemDTO[],
+export function directoryDefaultConfidentiality(
   options: NamingOptionsDTO,
-  suggestions: Record<string, CategoryClassificationItemDTO>,
-): ReviewRows {
+  directoryKey?: string,
+): string {
+  return (
+    options.directories.find((directory) => directory.directory_key === directoryKey)
+      ?.default_confidentiality ||
+    options.default_confidentiality ||
+    "L2"
+  );
+}
+
+export function initialRows(tasks: PendingIngestItemDTO[], options: NamingOptionsDTO): ReviewRows {
+  const defaultDirectoryKey =
+    options.directories.find((directory) => directory.enabled)?.directory_key ?? "";
   return Object.fromEntries(
     tasks.map((task) => {
-      const suggestion = suggestions[task.id];
-      const categoryId =
-        suggestion?.status === "classified" &&
-        suggestion.suggested_category_id &&
-        suggestion.candidate_rule_revision === options.rule_version &&
-        options.categories.some((category) => category.id === suggestion.suggested_category_id)
-          ? suggestion.suggested_category_id
-          : "";
       return [
         task.id,
         {
-          category_id: categoryId,
+          directory_key: defaultDirectoryKey,
           subject: sourceSubject(task),
           formed_on:
             (task.suggested_formed_on?.match(/^\d{4}-\d{2}-\d{2}$/)
@@ -92,20 +94,20 @@ export function initialRows(
               : "") || parsedValue(task, "date"),
           version: suggestedVersion(task),
           applicable_to: "",
-          confidentiality_level: suggestedConfidentiality(task, options),
+          confidentiality_level: suggestedConfidentiality(task, options, defaultDirectoryKey),
         },
       ];
     }),
   );
 }
 
-export type NamingField = "subject" | "category_id" | "formed_on" | "version" | "applicable_to";
+export type NamingField = "subject" | "directory_key" | "formed_on" | "version" | "applicable_to";
 
 export type RowError = { field: NamingField | null; message: string };
 
 export function rowMissing(row: BatchNamingValuesDTO, company: boolean): RowError | null {
   if (!row.subject.trim()) return { field: "subject", message: "请填写主题" };
-  if (!row.category_id) return { field: "category_id", message: "请选择目录类别" };
+  if (!row.directory_key) return { field: "directory_key", message: "请选择正式目录" };
   if (!DATE_PATTERN.test(row.formed_on)) {
     return { field: "formed_on", message: "请填写文件形成日期" };
   }
@@ -122,7 +124,7 @@ export function previewError(preview: BatchNamingPreviewItemDTO | undefined): Ro
   if (!preview?.message || preview.submittable) return null;
   const fields: Partial<Record<string, NamingField>> = {
     naming_subject_invalid: "subject",
-    naming_category_unavailable: "category_id",
+    naming_directory_unavailable: "directory_key",
     naming_formed_on_invalid: "formed_on",
     naming_version_invalid: "version",
     naming_applicable_to_required: "applicable_to",
@@ -138,7 +140,6 @@ export function reviewState(
   flowError: string | undefined,
   edited: boolean,
   reviewed: boolean,
-  categorySuggestion: CategoryClassificationItemDTO | undefined,
 ): ReviewState {
   if (preview?.error_code) return "exception";
   if (flowError) return "exception";
@@ -147,7 +148,7 @@ export function reviewState(
   if (edited) return "manual";
 
   const parsed = task.naming_parsed_fields;
-  const legacyCategoryFields = new Set(["primary_category", "secondary_category"]);
+  const legacyCategoryFields = new Set(["primary_category", "secondary_category", "asset_type"]);
   const unsafeAiField = Boolean(
     parsed &&
     [...(parsed.missing_fields ?? []), ...(parsed.inferred_fields ?? [])].some(
@@ -156,15 +157,11 @@ export function reviewState(
   );
   const differsFromSafeAi =
     row.subject.trim() !== sourceSubject(task) ||
-    row.category_id !== categorySuggestion?.suggested_category_id ||
     row.formed_on !== parsedValue(task, "date") ||
     row.version.toUpperCase() !== suggestedVersion(task);
   if (
     !parsed ||
     unsafeAiField ||
-    categorySuggestion?.category_source !== "ai_content" ||
-    (categorySuggestion.category_confidence !== "high" &&
-      categorySuggestion.category_confidence !== "medium") ||
     differsFromSafeAi ||
     (task.version_source !== "source_filename" && task.version_source !== "ai_content") ||
     !hasReliableAiConfidentiality(task) ||

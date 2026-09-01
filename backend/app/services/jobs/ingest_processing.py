@@ -18,15 +18,19 @@ weknora id / api_key。
 from __future__ import annotations
 
 import hashlib
+import inspect
 import logging
 import re
+import time
 import uuid
+from datetime import timedelta
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import get_settings
 from app.core.logging import safe_log_exception
 from app.core.text_safety import (
     EXTRACTED_TEXT_MAX_CHARS,
@@ -49,7 +53,6 @@ from app.schemas.enums import (
     IngestStatus,
     KnowledgeScope,
 )
-from app.schemas.naming import NamingOptionsResponse
 from app.schemas.permission import CallerContext
 from app.services import audit as audit_service
 from app.services import (
@@ -57,7 +60,6 @@ from app.services import (
     content_processing,
     domain_events,
     llm_usage,
-    naming_rules,
     ocr,
 )
 from app.services.desensitization import DesensitizationEngine
@@ -68,6 +70,12 @@ from app.services.storage import LocalFileStorage
 from app.worker.enqueue import enqueue_outbox_delivery
 
 _logger = logging.getLogger(__name__)
+
+
+def _set_stage(task: IngestTask, stage: str) -> None:
+    """Persisted progress also renews the business lease."""
+    task.processing_stage = stage
+    task.processing_heartbeat_at = utc_now()
 
 
 async def _publish_ingest_failed(session: AsyncSession, task: IngestTask) -> None:
@@ -148,71 +156,6 @@ async def _build_actor(session: AsyncSession, task: IngestTask) -> CallerContext
         active_company_roles=set(),
         active_project_ids=set(),
     )
-
-
-async def _generation_category_context(
-    session: AsyncSession, task: IngestTask, actor: CallerContext
-) -> dict | None:
-    contexts: list[tuple[KnowledgeScope, NamingOptionsResponse]] = []
-    if task.target_scope in {KnowledgeScope.project.value, KnowledgeScope.company.value}:
-        try:
-            scope = KnowledgeScope(task.target_scope)
-            contexts.append(
-                (scope, await naming_rules.options(session, actor, scope, task.target_project_id))
-            )
-        except Exception:  # permissions/rules fail closed without breaking content generation
-            return None
-    else:
-        if actor.active_project_ids:
-            for representative in sorted(actor.active_project_ids, key=str):
-                try:
-                    contexts.append(
-                        (
-                            KnowledgeScope.project,
-                            await naming_rules.options(
-                                session, actor, KnowledgeScope.project, representative
-                            ),
-                        )
-                    )
-                    break
-                except Exception:
-                    continue
-        if actor.can_discover_l5:
-            try:
-                contexts.append(
-                    (
-                        KnowledgeScope.company,
-                        await naming_rules.options(session, actor, KnowledgeScope.company, None),
-                    )
-                )
-            except Exception:
-                pass
-    contexts = [(scope, options) for scope, options in contexts if options.rule_version is not None]
-    if not contexts:
-        return None
-    revisions = {options.rule_version for _scope, options in contexts}
-    if len(revisions) != 1:
-        return None
-    pending_selection = task.target_scope not in {
-        KnowledgeScope.project.value,
-        KnowledgeScope.company.value,
-    }
-    return {
-        "target_scope": "pending_selection" if pending_selection else contexts[0][0].value,
-        "target_project_id": str(task.target_project_id) if task.target_project_id else None,
-        "rule_revision": revisions.pop(),
-        "candidates": [
-            {
-                "id": str(item.id),
-                "scope": scope.value,
-                "display_name": f"{item.primary} / {item.secondary}",
-                "description": (item.description or "")[:160] or None,
-            }
-            for scope, options in contexts
-            for item in options.categories
-            if item.enabled and item.scope == scope.value
-        ],
-    }
 
 
 async def _reusable_ai_draft(
@@ -333,6 +276,9 @@ async def _terminalize_persistence_failure(
                 else "处理状态保存失败，任务已安全终止，请重试。"
             ),
             retry_count=IngestTask.retry_count + 1,
+            processing_heartbeat_at=utc_now(),
+            processing_worker_id=None,
+            processing_job_id=None,
         )
     )
     if model_attempted:
@@ -358,6 +304,8 @@ async def _process_upload_task_impl(
     desensitizer: DesensitizationEngine,
     trace_id: str | None,
     attempt_state: dict[str, bool],
+    worker_id: str | None,
+    job_id: str | None,
 ) -> str:
     """处理一个 upload 任务（幂等、可重跑）。返回最终 status。"""
     task = (
@@ -368,6 +316,7 @@ async def _process_upload_task_impl(
                 selectinload(IngestTask.ai_result),
                 selectinload(IngestTask.canonical_markdown),
             )
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if task is None:
@@ -384,6 +333,21 @@ async def _process_upload_task_impl(
         task.ai_result is not None or task.retry_count >= task.max_retries
     ):
         return task.status
+
+    # Claim/renew a server-only business lease before any expensive work. A duplicate broker
+    # delivery with another live job id is a no-op; stale leases are reclaimed only by the
+    # bounded recovery scanner, not by unbounded broker redelivery.
+    now = utc_now()
+    if task.processing_job_id and job_id and task.processing_job_id != job_id:
+        return task.status
+    task.processing_started_at = now
+    task.processing_heartbeat_at = now
+    task.processing_attempt += 1
+    task.processing_worker_id = worker_id
+    task.processing_job_id = job_id
+    task.recovery_not_before = None
+    _set_stage(task, "processing_claimed")
+    await session.commit()
 
     actor = await _build_actor(session, task)
 
@@ -436,7 +400,7 @@ async def _process_upload_task_impl(
                 source_kind=_ocr_source_kind(task),
             )
         else:
-            task.processing_stage = "text_extraction"
+            _set_stage(task, "text_extraction")
             await session.commit()
             file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
             extraction = extract_text(
@@ -454,22 +418,188 @@ async def _process_upload_task_impl(
             # retry can still skip native-text pages and recognize exactly the original empty pages.
             ai_result = task.ai_result
             assert ai_result is not None
-            ai_result.ocr_page_results = _ocr_page_plan(extraction)
-            task.processing_stage = "ocr_queued"
+            saved_results = {
+                int(item.get("page_number", 0)): item
+                for item in (ai_result.ocr_page_results or [])
+                if isinstance(item, dict) and item.get("page_number")
+            }
+            saved_texts = {
+                int(key): value
+                for key, value in (ai_result.ocr_page_texts or {}).items()
+                if str(key).isdigit() and isinstance(value, str)
+            }
+            plan = _ocr_page_plan(extraction)
+            for item in plan:
+                saved = saved_results.get(int(item["page_number"]))
+                if saved and saved.get("status") in {"succeeded", "skipped_text"}:
+                    item.update(saved)
+            ai_result.ocr_page_results = plan
+            _set_stage(task, "ocr_queued")
             await session.commit()
-            task.processing_stage = "ocr_in_progress"
+            _set_stage(task, "ocr_in_progress")
             await session.commit()
             if file_bytes is None:
                 file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
             try:
-                recognized = ocr.recognize(file_bytes, extraction)
+                settings = get_settings()
+                if not settings.ocr_enabled:
+                    raise ocr.OCRError("ocr_disabled", "OCR 已禁用，原文已保留。")
+                ocr.validate_document(file_bytes, extraction)
+                started = time.monotonic()
+                page_results: list[ocr.OCRPageResult] = []
+                total_rendered_pixels = sum(
+                    int(item.get("rendered_pixels") or 0) for item in saved_results.values()
+                )
+                legacy_result = None
+                # Keep injected legacy OCR engines compatible while the built-in engine uses
+                # the page API below for durable checkpoints.
+                if "completed_pages" not in inspect.signature(ocr.recognize).parameters:
+                    legacy_result = ocr.recognize(file_bytes, extraction)
+                    page_results = list(legacy_result.pages)
+                    for full_index, full_result in enumerate(page_results):
+                        source_page = extraction.pages[full_index]
+                        plan[full_index] = {
+                            "page_number": full_result.page_number,
+                            "source_status": source_page.status,
+                            "status": full_result.status,
+                            "char_count": len(full_result.text),
+                            "confidence": full_result.confidence,
+                            "rendered_pixels": full_result.rendered_pixels,
+                        }
+                        saved_texts[full_result.page_number] = full_result.text
+                    ai_result.ocr_page_results = list(plan)
+                    ai_result.ocr_page_texts = {
+                        str(number): text for number, text in saved_texts.items()
+                    }
+                    ai_result.ocr_attempted_at = utc_now()
+                    task.processing_heartbeat_at = utc_now()
+                    await session.commit()
+                page_sequence = () if legacy_result is not None else enumerate(extraction.pages)
+                for index, page in page_sequence:
+                    saved = saved_results.get(page.page_number)
+                    saved_text = saved_texts.get(page.page_number)
+                    if (
+                        saved
+                        and saved.get("status") in {"succeeded", "skipped_text"}
+                        and isinstance(saved_text, str)
+                    ):
+                        page_result = ocr.OCRPageResult(
+                            page.page_number,
+                            saved_text,
+                            str(saved["status"]),
+                            saved.get("confidence"),
+                            int(saved.get("rendered_pixels") or 0),
+                        )
+                    else:
+                        if time.monotonic() - started > settings.ocr_document_timeout_seconds:
+                            raise ocr.OCRError(
+                                "ocr_document_timeout",
+                                "整份文件 OCR 超时，系统将有限重试。",
+                                retryable=True,
+                            )
+                        single_page_extraction = ExtractionResult(
+                            text=page.text,
+                            status="ocr_required",
+                            error_type=None,
+                            error_message=None,
+                            char_count=len(page.text),
+                            pages=(page,),
+                            source_kind=extraction.source_kind,
+                        )
+                        partial = ocr.recognize(file_bytes, single_page_extraction)
+                        # Compatibility with injected/test engines that return the complete page
+                        # set in one call; the production engine returns exactly the requested page.
+                        if len(partial.pages) == len(extraction.pages):
+                            page_results = list(partial.pages)
+                            for full_index, full_result in enumerate(page_results):
+                                source_page = extraction.pages[full_index]
+                                plan[full_index] = {
+                                    "page_number": full_result.page_number,
+                                    "source_status": source_page.status,
+                                    "status": full_result.status,
+                                    "char_count": len(full_result.text),
+                                    "confidence": full_result.confidence,
+                                    "rendered_pixels": full_result.rendered_pixels,
+                                }
+                                saved_texts[full_result.page_number] = full_result.text
+                            ai_result.ocr_page_results = list(plan)
+                            ai_result.ocr_page_texts = {
+                                str(number): text for number, text in saved_texts.items()
+                            }
+                            ai_result.ocr_attempted_at = utc_now()
+                            task.processing_heartbeat_at = utc_now()
+                            await session.commit()
+                            break
+                        page_result = partial.pages[0]
+                    total_rendered_pixels += page_result.rendered_pixels
+                    if total_rendered_pixels > settings.ocr_max_total_pixels:
+                        raise ocr.OCRError(
+                            "ocr_resource_limit",
+                            "文件过大或过于复杂，请拆分文件或转为人工处理。",
+                            retryable=False,
+                        )
+                    page_results.append(page_result)
+                    # Checkpoint every page. A killed worker loses at most the current page and a
+                    # recovery skips all succeeded pages already committed here.
+                    plan[index] = {
+                        "page_number": page_result.page_number,
+                        "source_status": page.status,
+                        "status": page_result.status,
+                        "char_count": len(page_result.text),
+                        "confidence": page_result.confidence,
+                        "rendered_pixels": page_result.rendered_pixels,
+                    }
+                    saved_texts[page_result.page_number] = page_result.text
+                    ai_result.ocr_page_results = list(plan)
+                    ai_result.ocr_page_texts = {
+                        str(number): text for number, text in saved_texts.items()
+                    }
+                    ai_result.ocr_attempted_at = utc_now()
+                    task.processing_heartbeat_at = utc_now()
+                    await session.commit()
+                recognized = legacy_result or ocr.build_result(page_results)
             except ocr.OCRError as exc:
                 ai_result.ocr_status = "failed"
                 ai_result.ocr_attempted_at = utc_now()
-                task.status = IngestStatus.failed.value
-                task.processing_stage = "ocr_failed"
                 task.error_type = exc.code
                 task.error_message = str(exc)
+                task.processing_worker_id = None
+                task.processing_job_id = None
+                recovery_limit = min(task.max_retries, settings.ingest_recovery_max_attempts)
+                if exc.retryable and task.retry_count < recovery_limit:
+                    delay = min(
+                        3600,
+                        max(1, settings.ingest_recovery_base_delay_seconds) * (2**task.retry_count),
+                    )
+                    task.retry_count += 1
+                    task.status = IngestStatus.processing.value
+                    _set_stage(task, "processing_interrupted")
+                    task.recovery_not_before = utc_now() + timedelta(seconds=delay)
+                    await audit_service.record_event(
+                        session,
+                        caller=actor,
+                        log_type=AuditLogType.exception,
+                        action=AuditAction.ingest_failed.value,
+                        trace_id=trace_id,
+                        target_type="ingest_task",
+                        target_id=task.id,
+                        severity=AlertSeverity.warning,
+                        risk_level=AuditRiskLevel.high.value,
+                        extra={
+                            "failure_stage": "ocr",
+                            "error_code": exc.code,
+                            "retry_count": task.retry_count,
+                            "recovery_scheduled": True,
+                        },
+                        project_id=task.target_project_id,
+                    )
+                    await session.commit()
+                    return f"ocr_retry_scheduled:{delay}"
+                task.status = IngestStatus.failed.value
+                _set_stage(
+                    task,
+                    "ocr_too_complex" if exc.code == "ocr_resource_limit" else "ocr_failed",
+                )
                 await _publish_ingest_failed(session, task)
                 await session.commit()
                 await enqueue_outbox_delivery(session)
@@ -484,6 +614,7 @@ async def _process_upload_task_impl(
                     "status": page.status,
                     "char_count": len(page.text),
                     "confidence": page.confidence,
+                    "rendered_pixels": page.rendered_pixels,
                 }
                 for index, page in enumerate(recognized.pages)
             ]
@@ -492,9 +623,11 @@ async def _process_upload_task_impl(
             )
             if recognized.status != "succeeded":
                 task.status = IngestStatus.failed.value
-                task.processing_stage = "ocr_failed"
+                _set_stage(task, "ocr_failed")
                 task.error_type = recognized.error_type
                 task.error_message = recognized.error_message
+                task.processing_worker_id = None
+                task.processing_job_id = None
                 await _publish_ingest_failed(session, task)
                 await session.commit()
                 await enqueue_outbox_delivery(session)
@@ -509,7 +642,17 @@ async def _process_upload_task_impl(
                 char_count=len(recognized.text),
                 safety_stats=recognized.safety_stats,
             )
+            _set_stage(task, "ocr_complete")
             await session.commit()
+
+        # OCR workers release the file after extraction. Markdown and content generation
+        # continue as a new idempotent delivery on the ordinary queue.
+        if worker_id and worker_id.startswith("ocr@"):
+            _set_stage(task, "content_generation_queued")
+            task.processing_worker_id = None
+            task.processing_job_id = None
+            await session.commit()
+            return "content_generation_queued"
 
         if file_bytes is None and not task.source_file_hash:
             file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
@@ -521,7 +664,7 @@ async def _process_upload_task_impl(
             and extraction.text
             and not (markdown_derivative and markdown_derivative.status == "ready")
         ):
-            task.processing_stage = "canonical_markdown_generation"
+            _set_stage(task, "canonical_markdown_generation")
             await session.commit()
             task = (
                 await session.execute(
@@ -554,18 +697,20 @@ async def _process_upload_task_impl(
                 task,
                 code="canonical_markdown_extraction_failed",
             )
-        category_context = await _generation_category_context(session, task, actor)
+        # Formal directories are selected explicitly at confirmation time.  Do
+        # not ask the model to infer a retired category from document content.
+        category_context: dict[str, object] | None = None
         target_scope = task.target_scope or "unscoped"
         target_project = str(task.target_project_id) if task.target_project_id else None
         generation_fingerprint = llm_usage.cache_fingerprint(
             content_hash=content_hash,
             scope=target_scope,
             project_id=target_project,
-            rule_revision=int((category_context or {}).get("rule_revision") or 0),
+            rule_revision=0,
             provider=getattr(llm, "provider", ""),
             model=getattr(llm, "model", ""),
         )
-        task.processing_stage = "content_generation"
+        _set_stage(task, "content_generation")
         await session.commit()
         ai = await _reusable_ai_draft(
             session,
@@ -656,6 +801,9 @@ async def _process_upload_task_impl(
         clean_task.retry_count += 1
         clean_task.error_type = "processing_error"
         clean_task.error_message = "入库处理失败（详见审计）"  # 安全文案，无内部引用
+        clean_task.processing_heartbeat_at = utc_now()
+        clean_task.processing_worker_id = None
+        clean_task.processing_job_id = None
         exhausted = clean_task.retry_count >= clean_task.max_retries
         clean_task.status = (
             IngestStatus.failed.value if exhausted else IngestStatus.processing.value
@@ -728,6 +876,9 @@ async def _process_upload_task_impl(
         if generation_failed
         else None
     )
+    task.processing_heartbeat_at = utc_now()
+    task.processing_worker_id = None
+    task.processing_job_id = None
     if failed:
         task.error_type = (
             extraction.error_type
@@ -824,6 +975,8 @@ async def process_upload_task(
     llm: LLMClient | NullLLMClient,
     desensitizer: DesensitizationEngine,
     trace_id: str | None,
+    worker_id: str | None = None,
+    job_id: str | None = None,
 ) -> str:
     """Fail-safe wrapper also covers initial task/actor database reads."""
     attempt_state = {"model_attempted": False}
@@ -836,6 +989,8 @@ async def process_upload_task(
             desensitizer=desensitizer,
             trace_id=trace_id,
             attempt_state=attempt_state,
+            worker_id=worker_id,
+            job_id=job_id,
         )
     except SQLAlchemyError as exc:
         safe_log_exception(_logger, "ingest_database_operation_failed", exc, include_summary=False)

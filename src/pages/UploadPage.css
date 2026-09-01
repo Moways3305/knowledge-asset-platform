@@ -1084,6 +1084,57 @@
   }
 }
 
+@media (max-width: 520px) {
+  .upload77-batch-naming-scroll {
+    overflow-x: hidden;
+    padding-right: 0;
+  }
+
+  .upload77-batch-naming-row {
+    padding: 12px;
+  }
+
+  .upload77-batch-naming-row header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .upload77-batch-naming-row header strong {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .upload77-batch-naming-row-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .naming-review-workspace .task-modal-footer {
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+  }
+
+  .naming-review-workspace .task-modal-footer-spacer {
+    display: none;
+  }
+
+  .naming-review-workspace .task-modal-footer > .product-button {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .naming-review-workspace .task-modal-footer > .product-button.is-primary {
+    min-height: 44px;
+    padding-block: 8px;
+    line-height: 1.35;
+    white-space: normal;
+  }
+
+  body:has(.naming-review-workspace) .upload77-table-wrap {
+    overflow: hidden;
+  }
+}
+
 .upload77-section-head h2,
 .upload77-confirm-head h2,
 .upload77-result h2 {

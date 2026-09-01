@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { ApiError } from "../api/http";
 import type { NamingOptionsDTO, NamingPreviewDTO } from "../types/naming";
 import PublicationNamingFields, {
   createPublicationNamingValue,
@@ -14,30 +13,25 @@ import { fetchNamingOptions } from "../api/naming";
 const options: NamingOptionsDTO = {
   required: true,
   rule_version: 12,
-  categories: [
-    {
-      id: "unmapped-category",
-      scope: "project",
-      primary: "项目资料",
-      secondary: "待治理类别",
-      prefix: "项目资料-待治理类别",
-      asset_type: "deliverable",
-      default_confidentiality: "L2",
-      enabled: true,
-      sort_order: 10,
-      suggested_directory_key: null,
-    },
-  ],
   directories: [
     {
       directory_key: "project.deliverables",
       scope: "project",
       display_name: "项目交付物",
+      default_confidentiality: "L4",
       enabled: true,
       sort_order: 10,
     },
+    {
+      directory_key: "project.key_materials",
+      scope: "project",
+      display_name: "项目关键资料",
+      default_confidentiality: "L5",
+      enabled: true,
+      sort_order: 20,
+    },
   ],
-  default_confidentiality: "L2",
+  default_confidentiality: "L3",
   message: null,
 };
 
@@ -60,36 +54,32 @@ function Harness({
 }
 
 describe("PublicationNamingFields directory governance", () => {
-  it("reveals a scoped fallback only after the backend reports a missing mapping", async () => {
+  it("selects a formal directory before preview without a category fallback", async () => {
     vi.mocked(fetchNamingOptions).mockResolvedValue(options);
-    const onPreview = vi
-      .fn()
-      .mockRejectedValueOnce(new ApiError(422, "需要目录", "directory_required"))
-      .mockResolvedValueOnce({
-        required: true,
-        canonical_name: "【ALPHA-2026-待治理类别】发布主题_20260817_V1_L2.md",
-        rule_version: 12,
-        fields: { directory_key: "project.deliverables" },
-        notices: [],
-        message: null,
-      });
+    const onPreview = vi.fn().mockResolvedValue({
+      required: true,
+      canonical_name: "【ALPHA-2026-交付成果】发布主题_20260831_V1_L2.md",
+      rule_version: 12,
+      fields: { directory_key: "project.deliverables" },
+      notices: [],
+      message: null,
+    });
     render(<Harness onPreview={onPreview} />);
 
-    await screen.findByText("由目录类别规则确定");
-    expect(screen.queryByRole("combobox", { name: "正式目录（映射缺失补选）" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "预览目标文件名" }));
-    const fallback = await screen.findByRole("combobox", {
-      name: "正式目录（映射缺失补选）",
-    });
-    fireEvent.change(fallback, { target: { value: "project.deliverables" } });
+    const directory = await screen.findByRole("combobox", { name: "正式目录" });
+    expect(directory).toHaveValue("project.deliverables");
+    expect(screen.getByRole("combobox", { name: "密级" })).toHaveValue("L4");
+    fireEvent.change(directory, { target: { value: "project.key_materials" } });
+    expect(screen.getByRole("combobox", { name: "密级" })).toHaveValue("L5");
+    expect(screen.queryByText("目录类别")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "预览目标文件名" }));
 
-    await waitFor(() => expect(onPreview).toHaveBeenCalledTimes(2));
-    expect(onPreview.mock.calls[1][0].naming).toEqual(
+    await waitFor(() => expect(onPreview).toHaveBeenCalledTimes(1));
+    expect(onPreview.mock.calls[0][0].naming).toEqual(
       expect.objectContaining({
-        directory_key: "project.deliverables",
-        directory_fallback_confirmed: true,
+        directory_key: "project.key_materials",
       }),
     );
+    expect(onPreview.mock.calls[0][0].confidentiality_level).toBe("L5");
   });
 });

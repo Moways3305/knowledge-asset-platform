@@ -140,6 +140,7 @@ const crossProjectDetail: KnowledgeDetailVM = {
   projectId: null,
   maintainerName: "王顾问",
   categoryPath: "项目资料 / 项目复盘",
+  directoryPath: "项目库 / 北区增长项目 / 05 项目复盘",
   safeVersion: "V3",
   retrievalAvailable: true,
   qaAvailable: false,
@@ -360,7 +361,6 @@ describe("KnowledgeListPage reference implementation", () => {
     fireEvent.click(await screen.findByRole("button", { name: /项目库/ }));
     fireEvent.click(await screen.findByRole("button", { name: /供应链优化项目/ }));
     fireEvent.click(await screen.findByRole("button", { name: /03 交付成果/ }));
-    fireEvent.change(screen.getByLabelText("资产类型"), { target: { value: "case" } });
     fireEvent.change(screen.getByLabelText("资产状态"), { target: { value: "needs_update" } });
     fireEvent.change(screen.getByLabelText("保密等级"), { target: { value: "L3" } });
     fireEvent.click(screen.getByRole("checkbox", { name: "包含归档" }));
@@ -372,7 +372,6 @@ describe("KnowledgeListPage reference implementation", () => {
         keyword: "供应链",
         scope: "project",
         projectId: PROJECT_B,
-        assetType: "case",
         assetStatus: "needs_update",
         confidentialityLevel: "L3",
         directoryKey: "project.deliverables",
@@ -697,7 +696,7 @@ describe("KnowledgeListPage reference implementation", () => {
     expect(screen.getByText(crossProjectDetail.detailed)).toBeInTheDocument();
     expect(screen.getByText(/不授予项目空间权限/)).toBeInTheDocument();
     expect(screen.getByText("王顾问")).toBeInTheDocument();
-    expect(screen.getByText("项目资料 / 项目复盘")).toBeInTheDocument();
+    expect(screen.getByText("项目库 / 北区增长项目 / 05 项目复盘")).toBeInTheDocument();
     expect(screen.getByText("问答不可用 · 检索可用")).toBeInTheDocument();
     expect(screen.queryByText(/Markdown|WeKnora|storage_ref/)).not.toBeInTheDocument();
 
@@ -764,7 +763,9 @@ describe("KnowledgeListPage reference implementation", () => {
     fireEvent.click(
       screen.getByRole("button", { name: `查看《${crossProjectAsset.title}》安全摘要` }),
     );
-    expect(await screen.findByText(/安全摘要尚未生成/)).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: crossProjectAsset.title })).toHaveTextContent(
+      "暂无可共享摘要",
+    );
     expect(screen.getByRole("button", { name: "申请原文" })).toBeInTheDocument();
   });
 
@@ -786,13 +787,13 @@ describe("KnowledgeListPage reference implementation", () => {
     renderPage();
     await screen.findByText("暂无可复用资料");
 
-    fireEvent.change(screen.getByLabelText("资产类型"), { target: { value: "template" } });
+    fireEvent.change(screen.getByLabelText("资产状态"), { target: { value: "needs_update" } });
     expect(await screen.findByText("当前条件没有匹配资料")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "清除筛选" }));
 
     await waitFor(() =>
       expect(fetchKnowledgePage).toHaveBeenLastCalledWith(
-        expect.not.objectContaining({ assetType: expect.anything() }),
+        expect.not.objectContaining({ assetStatus: expect.anything() }),
       ),
     );
   });

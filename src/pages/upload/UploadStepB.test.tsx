@@ -5,11 +5,9 @@ import UploadStepB from "./UploadStepB";
 import type { UploadFlow } from "./useUploadFlow";
 
 const namingApi = vi.hoisted(() => ({
-  classifyBatchNamingCategories: vi.fn(),
   fetchNamingOptions: vi.fn(),
   previewIngestNaming: vi.fn(),
   previewBatchIngestNaming: vi.fn(),
-  saveManualNamingCategory: vi.fn(),
 }));
 vi.mock("../../api/naming", () => namingApi);
 
@@ -109,7 +107,6 @@ describe("UploadStepB folder drop and batch rejection", () => {
     });
     namingApi.fetchNamingOptions.mockReset();
     namingApi.previewBatchIngestNaming.mockReset();
-    namingApi.saveManualNamingCategory.mockReset().mockResolvedValue({});
     namingApi.fetchNamingOptions.mockResolvedValue({
       required: true,
       rule_version: 2,
@@ -123,6 +120,13 @@ describe("UploadStepB folder drop and batch rejection", () => {
         },
       ],
       directories: [
+        {
+          directory_key: "project.deliverables",
+          scope: "project",
+          display_name: "03 交付成果",
+          sort_order: 30,
+          enabled: true,
+        },
         {
           directory_key: "personal.learning_notes",
           scope: "personal",
@@ -148,23 +152,6 @@ describe("UploadStepB folder drop and batch rejection", () => {
       default_confidentiality: "L2",
       message: null,
     });
-    namingApi.classifyBatchNamingCategories.mockReset().mockImplementation((input) =>
-      Promise.resolve({
-        target_label: "项目知识库 / 项目 A",
-        candidate_rule_revision: 2,
-        candidate_count: 1,
-        items: input.taskIds.map((taskId: string) => ({
-          task_id: taskId,
-          suggested_category_id: "category-a",
-          category_source: "rule_only_option",
-          category_confidence: "high",
-          category_reason: "当前规则只有一个启用目录类别",
-          candidate_rule_revision: 2,
-          status: "classified",
-          retryable: false,
-        })),
-      }),
-    );
   });
   it.each([1280, 1440, 1920])(
     "keeps the isolated pending-table layout contract at %ipx",
@@ -481,7 +468,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
       "project-a",
       {
         [task.id]: {
-          category_id: "category-a",
+          directory_key: "project.deliverables",
           subject: "安全标题",
           formed_on: "2026-08-03",
           version: "V1",
@@ -540,7 +527,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
     expect(screen.getByRole("button", { name: "确认已选择的 1 项入库" })).toBeDisabled();
   });
 
-  it("uses a persisted current-rule AI category and keeps it editable", async () => {
+  it("uses a formal directory directly and keeps it editable", async () => {
     const task = {
       ...pending("ai-category", "交付成果.md"),
       target_scope: null,
@@ -563,41 +550,24 @@ describe("UploadStepB folder drop and batch rejection", () => {
     namingApi.fetchNamingOptions.mockResolvedValueOnce({
       required: true,
       rule_version: 2,
-      categories: [
+      directories: [
         {
-          id: "category-foundation",
-          primary: "项目资料",
-          secondary: "项目基础信息",
-          prefix: "项目资料-项目基础信息",
-          default_confidentiality: "L2",
+          directory_key: "project.basic_information",
+          scope: "project",
+          display_name: "01 项目基础信息",
+          sort_order: 10,
+          enabled: true,
         },
         {
-          id: "category-deliverable",
-          primary: "项目资料",
-          secondary: "交付成果",
-          prefix: "项目资料-交付成果",
-          default_confidentiality: "L2",
+          directory_key: "project.deliverables",
+          scope: "project",
+          display_name: "03 交付成果",
+          sort_order: 30,
+          enabled: true,
         },
       ],
       default_confidentiality: "L2",
       message: null,
-    });
-    namingApi.classifyBatchNamingCategories.mockResolvedValueOnce({
-      target_label: "项目知识库 / 项目 A",
-      candidate_rule_revision: 2,
-      candidate_count: 2,
-      items: [
-        {
-          task_id: task.id,
-          suggested_category_id: "category-deliverable",
-          category_source: "ai_content",
-          category_confidence: "high",
-          category_reason: "AI 根据正文语义匹配当前目标的目录规则",
-          candidate_rule_revision: 2,
-          status: "classified",
-          retryable: false,
-        },
-      ],
     });
     const flow = flowFixture({ localPendingTasks: [task], batchSelection: [task.id] });
     render(<UploadStepB flow={flow} />);
@@ -611,21 +581,18 @@ describe("UploadStepB folder drop and batch rejection", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
 
-    const category = await screen.findByRole("combobox", { name: "交付成果.md 目录类别" });
-    expect(category).toHaveValue("category-deliverable");
-    expect(screen.getByText("AI 内容建议（高置信度）")).toBeInTheDocument();
-
-    fireEvent.change(category, { target: { value: "category-foundation" } });
-    expect(category).toHaveValue("category-foundation");
-    expect(screen.getByText("人工已选择")).toBeInTheDocument();
+    const directory = await screen.findByRole("combobox", { name: "交付成果.md 正式目录" });
+    expect(directory).toHaveValue("project.basic_information");
+    fireEvent.change(directory, { target: { value: "project.deliverables" } });
+    expect(directory).toHaveValue("project.deliverables");
   });
 
-  it("keeps a missing-category item in the manual filter while it is edited", async () => {
+  it("keeps an incomplete item in the manual filter while its formal directory is visible", async () => {
     const task = {
       ...pending("manual-category", "待分类资料.md"),
       target_scope: null,
       naming_parsed_fields: {
-        date: "20260803",
+        date: "",
         version: "V1",
         missing_fields: ["secondary_category"],
         inferred_fields: [],
@@ -658,16 +625,16 @@ describe("UploadStepB folder drop and batch rejection", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
 
-    await screen.findByLabelText("待分类资料.md 目录类别");
+    await screen.findByLabelText("待分类资料.md 正式目录");
     expect(screen.getByRole("button", { name: "需人工补齐（1）" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "异常/重复（0）" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "需人工补齐（1）" }));
-    fireEvent.change(screen.getByLabelText("待分类资料.md 目录类别"), {
-      target: { value: "category-a" },
+    fireEvent.change(screen.getByLabelText("待分类资料.md 文件形成日期"), {
+      target: { value: "2026-08-03" },
     });
 
     await screen.findByText("【ALPHA-2026-交付件】安全标题_20260803_V1_L2.md");
-    expect(screen.getByLabelText("待分类资料.md 目录类别")).toBeInTheDocument();
+    expect(screen.getByLabelText("待分类资料.md 正式目录")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "需人工补齐（1）" })).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -758,7 +725,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
         "project",
         "project-a",
         expect.objectContaining({
-          category_id: "category-a",
+          directory_key: "project.deliverables",
           subject: "安全标题",
           formed_on: "2026-08-03",
           version: "V1",
@@ -801,8 +768,7 @@ describe("UploadStepB folder drop and batch rejection", () => {
       target: { value: "project-a" },
     });
     fireEvent.click(screen.getByRole("button", { name: "下一步：核对命名" }));
-    const category = await screen.findByLabelText("竞态资料.md 目录类别");
-    fireEvent.change(category, { target: { value: "category-a" } });
+    await screen.findByLabelText("竞态资料.md 正式目录");
     await waitFor(() => expect(resolvers).toHaveLength(1));
     fireEvent.change(screen.getByLabelText("竞态资料.md 主题"), {
       target: { value: "最后主题" },
