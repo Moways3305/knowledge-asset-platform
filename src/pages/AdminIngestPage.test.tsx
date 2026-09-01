@@ -269,19 +269,19 @@ describe("AdminIngestPage operations reference", () => {
         scanned: 35,
         candidates: 35,
         source_unavailable: 0,
-        selected: 3,
-        claimed: 3,
-        enqueued: 3,
+        selected: 0,
+        claimed: 0,
+        enqueued: 0,
         conflicts: 0,
-        stopped: false,
-        stop_reason: null,
+        stopped: true,
+        stop_reason: "batch_in_progress",
         preflight: {
           redis_ready: true,
           ocr_worker_ready: true,
           queue_within_budget: true,
           oom_kill_count: 4,
-          ready: true,
-          reason: null,
+          ready: false,
+          reason: "batch_in_progress",
         },
         next_batch_not_before: "2026-09-01T08:00:15Z",
       });
@@ -302,6 +302,7 @@ describe("AdminIngestPage operations reference", () => {
       }),
     );
     expect(confirm).toHaveBeenCalledOnce();
+    expect(await screen.findByText("恢复已停止：已有恢复批次正在执行")).toBeInTheDocument();
     confirm.mockRestore();
   });
 

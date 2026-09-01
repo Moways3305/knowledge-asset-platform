@@ -7,7 +7,9 @@ filenames, hashes, task identifiers and business text never leave this service.
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -37,6 +39,10 @@ _REJECTED_ACTION = AuditAction.ingest_timeout_recovery_preflight_rejected.value
 _CONFIRMED_ACTION = AuditAction.ingest_timeout_recovery_confirmed.value
 _ENQUEUE_ACTION = AuditAction.ingest_timeout_recovery_enqueued.value
 _ENQUEUE_FAILED_ACTION = AuditAction.ingest_timeout_recovery_enqueue_failed.value
+_BATCH_LEASE_KEY = "kap:ingest:processing-timeout-recovery"
+_BATCH_LEASE_SECONDS = 120
+_EAGER_BATCH_LOCK = asyncio.Lock()
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +127,57 @@ async def runtime_facts() -> _RuntimeFacts:
         queued,
         _oom_kill_count(),
     )
+
+
+@asynccontextmanager
+async def _batch_lease():
+    """Serialize actual recovery across requests and application workers."""
+    settings = get_settings()
+    if settings.celery_task_always_eager:
+        if _EAGER_BATCH_LOCK.locked():
+            yield False, "batch_in_progress"
+            return
+        await _EAGER_BATCH_LOCK.acquire()
+        try:
+            yield True, None
+        finally:
+            _EAGER_BATCH_LOCK.release()
+        return
+
+    import redis.asyncio as aioredis
+
+    client = aioredis.from_url(
+        settings.celery_broker_url or settings.redis_url,
+        socket_connect_timeout=2,
+        socket_timeout=2,
+    )
+    token = uuid.uuid4().hex
+    try:
+        acquired = bool(await client.set(_BATCH_LEASE_KEY, token, nx=True, ex=_BATCH_LEASE_SECONDS))
+    except Exception:
+        await client.aclose()
+        yield False, "redis_unavailable"
+        return
+    if not acquired:
+        await client.aclose()
+        yield False, "batch_in_progress"
+        return
+    try:
+        yield True, None
+    finally:
+        try:
+            try:
+                await client.eval(
+                    "if redis.call('get', KEYS[1]) == ARGV[1] then "
+                    "return redis.call('del', KEYS[1]) else return 0 end",
+                    1,
+                    _BATCH_LEASE_KEY,
+                    token,
+                )
+            except Exception:
+                _logger.warning("processing_timeout_recovery_lease_release_failed")
+        finally:
+            await client.aclose()
 
 
 def _preflight(
@@ -208,7 +265,7 @@ async def _mark_unavailable(session: AsyncSession, task_ids: list[uuid.UUID]) ->
     )
 
 
-async def recover(
+async def _recover_once(
     session: AsyncSession,
     caller: CallerContext,
     request: ProcessingTimeoutRecoveryRequest,
@@ -218,8 +275,8 @@ async def recover(
     desensitizer: DesensitizationEngine,
     trace_id: str,
     task_id: uuid.UUID | None = None,
+    forced_stop_reason: str | None = None,
 ) -> ProcessingTimeoutRecoveryResponse:
-    _require_operator(caller)
     tasks = await _candidate_tasks(session, task_id)
     available: list[IngestTask] = []
     unavailable: list[uuid.UUID] = []
@@ -238,6 +295,8 @@ async def recover(
         preflight = preflight.model_copy(
             update={"ready": False, "reason": "batch_interval_not_elapsed"}
         )
+    if forced_stop_reason is not None:
+        preflight = preflight.model_copy(update={"ready": False, "reason": forced_stop_reason})
 
     action = _DRY_RUN_ACTION if request.dry_run else _REJECTED_ACTION
     if request.dry_run or not preflight.ready:
@@ -409,3 +468,41 @@ async def recover(
         next_batch_not_before=utc_now()
         + timedelta(seconds=max(15, get_settings().ingest_timeout_recovery_interval_seconds)),
     )
+
+
+async def recover(
+    session: AsyncSession,
+    caller: CallerContext,
+    request: ProcessingTimeoutRecoveryRequest,
+    *,
+    storage: LocalFileStorage,
+    llm: LLMClient | NullLLMClient,
+    desensitizer: DesensitizationEngine,
+    trace_id: str,
+    task_id: uuid.UUID | None = None,
+) -> ProcessingTimeoutRecoveryResponse:
+    _require_operator(caller)
+    if request.dry_run:
+        return await _recover_once(
+            session,
+            caller,
+            request,
+            storage=storage,
+            llm=llm,
+            desensitizer=desensitizer,
+            trace_id=trace_id,
+            task_id=task_id,
+        )
+
+    async with _batch_lease() as (acquired, stop_reason):
+        return await _recover_once(
+            session,
+            caller,
+            request,
+            storage=storage,
+            llm=llm,
+            desensitizer=desensitizer,
+            trace_id=trace_id,
+            task_id=task_id,
+            forced_stop_reason=None if acquired else stop_reason,
+        )

@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.db.base import Base
 from app.models.audit import AuditEvent
 from app.models.ingest import IngestTask
+from app.schemas.ingest_recovery import ProcessingTimeoutRecoveryRequest
+from app.schemas.permission import CallerContext
 from app.seed.dev_seed import USER_BOSS, USER_CONSULTANT, USER_PROJECT_MANAGER
 from app.services import processing_timeout_recovery as recovery
+from app.services.desensitization import NullDesensitizer
+from app.services.llm_client import NullLLMClient
+from app.services.storage import LocalFileStorage
 
 
 def _headers(user_id):
@@ -296,6 +304,99 @@ async def test_enqueue_failure_is_audited_and_stops_remaining_candidates(
         )
     ).scalar_one()
     assert event.extra == {"reason": "queue_unavailable", "result": "not_enqueued"}
+
+
+async def test_concurrent_actual_requests_cannot_claim_more_than_one_batch(tmp_path, monkeypatch):
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'batch-lease.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    storage = LocalFileStorage(tmp_path / "batch-lease-storage")
+    async with maker() as setup_session:
+        for index in range(6):
+            setup_session.add(
+                IngestTask(
+                    source="path_b_upload",
+                    source_file_ref=storage.save(
+                        b"recoverable" + bytes([index]), original_name="candidate.pdf"
+                    ),
+                    source_file_name="candidate.pdf",
+                    source_file_mime_type="application/pdf",
+                    status="failed",
+                    error_type="processing_timeout",
+                    created_by=USER_BOSS,
+                )
+            )
+        await setup_session.commit()
+
+    caller = CallerContext(
+        user_id=USER_BOSS,
+        is_active=True,
+        active_company_roles={"admin"},
+        active_project_ids=set(),
+        active_project_roles={},
+    )
+    request = ProcessingTimeoutRecoveryRequest(
+        dry_run=False,
+        confirm=True,
+        limit=3,
+        expected_oom_kill_count=8,
+    )
+    first_enqueue_started = asyncio.Event()
+    allow_first_batch_to_finish = asyncio.Event()
+    enqueued: list[uuid.UUID] = []
+
+    async def fake_facts():
+        return recovery._RuntimeFacts(True, True, 0, 8)
+
+    async def blocked_enqueue(_session, task_id, **_kwargs):
+        enqueued.append(task_id)
+        if len(enqueued) == 1:
+            first_enqueue_started.set()
+            await asyncio.wait_for(allow_first_batch_to_finish.wait(), timeout=3)
+        return "processing"
+
+    monkeypatch.setattr(recovery, "runtime_facts", fake_facts)
+    monkeypatch.setattr(recovery, "enqueue_ingest_processing", blocked_enqueue)
+
+    async with maker() as first_session, maker() as second_session:
+        first_call = asyncio.create_task(
+            recovery.recover(
+                first_session,
+                caller,
+                request,
+                storage=storage,
+                llm=NullLLMClient(),
+                desensitizer=NullDesensitizer(),
+                trace_id="concurrent-batch-first",
+            )
+        )
+        await asyncio.wait_for(first_enqueue_started.wait(), timeout=3)
+        try:
+            second = await recovery.recover(
+                second_session,
+                caller,
+                request,
+                storage=storage,
+                llm=NullLLMClient(),
+                desensitizer=NullDesensitizer(),
+                trace_id="concurrent-batch-second",
+            )
+        finally:
+            allow_first_batch_to_finish.set()
+        first = await first_call
+
+    assert (first.claimed, first.enqueued) == (3, 3)
+    assert second.stopped is True
+    assert second.stop_reason == "batch_in_progress"
+    assert (second.claimed, second.enqueued) == (0, 0)
+    assert len(enqueued) == 3
+    async with maker() as verification_session:
+        processing_count = await verification_session.scalar(
+            select(func.count()).select_from(IngestTask).where(IngestTask.status == "processing")
+        )
+        assert processing_count == 3
+    await engine.dispose()
 
 
 async def _async_value(value):

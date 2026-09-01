@@ -80,6 +80,20 @@ function ingestFailureLabel(errorType: string | null): string {
   return "文件处理失败";
 }
 
+function timeoutRecoveryStopLabel(reason: string | null): string {
+  const labels: Record<string, string> = {
+    batch_in_progress: "已有恢复批次正在执行",
+    batch_interval_not_elapsed: "距上一批次不足 15 秒",
+    redis_unavailable: "Redis 当前不可用",
+    ocr_worker_unavailable: "OCR 工作进程当前不可用",
+    queue_budget_exceeded: "当前队列已达到安全预算",
+    oom_kill_count_changed: "检测到新的内存终止事件",
+    oom_baseline_confirmation_required: "需要重新确认内存终止计数",
+    queue_unavailable: "恢复任务暂时无法排队",
+  };
+  return reason ? (labels[reason] ?? "运行预检未通过") : "运行预检未通过";
+}
+
 const urgentSeverities = new Set(["critical", "error"]);
 const diagnosticLabels: Record<DiagnosticCategory, string> = {
   configuration: "配置问题",
@@ -989,7 +1003,9 @@ export default function AdminIngestPage() {
             </div>
             {timeoutRecoveryError && <p className="is-error">{timeoutRecoveryError}</p>}
             {timeoutRecovery?.stopped && (
-              <p className="is-error">恢复已停止：{timeoutRecovery.stop_reason ?? "预检未通过"}</p>
+              <p className="is-error">
+                恢复已停止：{timeoutRecoveryStopLabel(timeoutRecovery.stop_reason)}
+              </p>
             )}
             <div className="ao84-refresh-actions">
               <button
