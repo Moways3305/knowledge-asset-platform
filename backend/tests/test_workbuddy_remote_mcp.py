@@ -14,7 +14,7 @@ from sqlalchemy import select
 from app.db.utils import utc_now
 from app.main import app
 from app.models.agent_registry import AgentWhitelistRule
-from app.seed.dev_seed import USER_CONSULTANT
+from app.seed.dev_seed import KA_COMPANY_L4, USER_CONSULTANT
 from app.services.workbuddy_remote_mcp import (
     _RATE_WINDOW_MAX_KEYS,
     _TOOL_NAMES,
@@ -124,7 +124,9 @@ async def test_initialize_lists_all_tools_and_real_read_matches_gateway(client):
     )
     assert direct.status_code == knowledge.status_code == 200
     project_id = direct.json()["items"][0]["project_id"]
-    asset_id = knowledge.json()["items"][0]["asset_id"]
+    # Pick the seeded L4 asset explicitly: its summary is discoverable to a
+    # consultant while original content is intentionally permission-denied.
+    asset_id = str(KA_COMPANY_L4)
     tool_calls = {
         "kap_search_knowledge": {"query": "test"},
         "kap_list_knowledge_directories": {},
