@@ -22,6 +22,7 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
+from pydantic import AnyHttpUrl
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -423,13 +424,17 @@ class _KapTokenVerifier:
             )
 
 
-def _request_bearer(ctx: Context) -> str:
+def _request_bearer(ctx: Context | None) -> str:
     try:
+        if ctx is None:
+            raise ToolError("连接凭据无效或已过期，请重新生成配置。")
         request = ctx.request_context.request
+        if request is None:
+            raise ToolError("连接凭据无效或已过期，请重新生成配置。")
         authorization = request.headers.get("authorization")
     except Exception as exc:
         raise ToolError("连接凭据无效或已过期，请重新生成配置。") from exc
-    if not authorization:
+    if not isinstance(authorization, str) or not authorization:
         raise ToolError("连接凭据无效或已过期，请重新生成配置。")
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token.strip():
@@ -443,7 +448,7 @@ class _ToolGateway:
 
     async def request(
         self,
-        ctx: Context,
+        ctx: Context | None,
         tool_name: str,
         method: str,
         path: str,
@@ -569,8 +574,8 @@ def build_remote_mcp(kap_app: FastAPI) -> FastMCP:
         instructions="只按当前绑定用户的实时 KAP 权限读取知识；不得推断或请求越权内容。",
         token_verifier=_KapTokenVerifier(kap_app),
         auth=AuthSettings(
-            issuer_url=public_origin,
-            resource_server_url=f"{public_origin}/mcp",
+            issuer_url=AnyHttpUrl(public_origin),
+            resource_server_url=AnyHttpUrl(f"{public_origin}/mcp"),
             required_scopes=["qa"],
         ),
         streamable_http_path="/mcp",
@@ -599,7 +604,7 @@ def build_remote_mcp(kap_app: FastAPI) -> FastMCP:
             ctx: Context | None = None,
         ) -> object:
             """检索 KAP 知识，返回按当前用户权限裁剪的安全摘要卡片。"""
-            filters = {
+            filters: dict[str, Any] = {
                 key: value
                 for key, value in {
                     "tags": tags,
@@ -709,7 +714,7 @@ def build_remote_mcp(kap_app: FastAPI) -> FastMCP:
             return [_pick(item, _KNOWLEDGE_CARD_FIELDS) for item in data.get("items", [])]
 
     async def _knowledge_page(
-        ctx: Context,
+        ctx: Context | None,
         tool_name: str,
         path: str,
         *,
@@ -796,7 +801,7 @@ def build_remote_mcp(kap_app: FastAPI) -> FastMCP:
                 limit=limit,
             )
 
-    async def _summary(ctx: Context, tool_name: str, asset_id: str, suffix: str) -> dict:
+    async def _summary(ctx: Context | None, tool_name: str, asset_id: str, suffix: str) -> dict:
         data = await gateway_client.request(
             ctx,
             tool_name,
