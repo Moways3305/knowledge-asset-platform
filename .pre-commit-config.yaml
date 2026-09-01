@@ -21,6 +21,12 @@ repos:
   # 前端：eslint + prettier（local hook，复用 node_modules 内项目锁定版本）。
   - repo: local
     hooks:
+      - id: forbid-acceptance-evidence
+        name: forbid committed acceptance evidence
+        entry: python scripts/check_no_acceptance_evidence.py
+        language: system
+        files: ^docs/claude_tasks/evidence/
+        pass_filenames: true
       - id: eslint
         name: eslint (frontend)
         entry: npx eslint

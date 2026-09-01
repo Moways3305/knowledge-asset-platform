@@ -25,6 +25,9 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: backend/requirements-dev.lock
+      - name: Reject committed local acceptance evidence
+        working-directory: ${{ github.workspace }}
+        run: python scripts/check_no_acceptance_evidence.py --tracked
       - name: Install (locked deps; dev lock is constrained to the image lock)
         # requirements-dev.lock 由 requirements.lock 约束生成（见文件头命令），
         # 运行时依赖版本与生产镜像逐一相同；应用本体按 Dockerfile 同方式安装。
