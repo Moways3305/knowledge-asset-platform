@@ -30,6 +30,8 @@ Thumbs.db
 .claude_tmp/
 # UI QA 截图/产物目录（本地生成，不入库）
 .tmp-ui-qa*/
+# 验收截图和报告仅用于本地任务核验，禁止随产品代码、镜像或服务器部署流转。
+docs/claude_tasks/evidence/
 
 # python / backend
 # 本地受控文件存储（dev/test 上传字节落盘处，不入库）
