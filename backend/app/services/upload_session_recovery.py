@@ -18,7 +18,7 @@ from app.schemas.ingest import UploadSessionListResponse, UploadSessionResponse
 from app.schemas.permission import CallerContext
 from app.services.desensitization import DesensitizationEngine
 from app.services.llm_client import LLMClient, NullLLMClient
-from app.services.storage import LocalFileStorage
+from app.services.storage import LocalFileStorage, StorageError
 from app.services.upload_session_commands import RetryClaimConflict, claim_failed_item_retry
 from app.services.upload_session_projection import build_response as _response
 from app.services.upload_session_repository import _load_owned_session, expire_stale_tasks
@@ -255,7 +255,14 @@ async def retry_item(
             )
         )
     ).scalar_one_or_none()
-    if task is None or not storage.exists(task.source_file_ref):
+    try:
+        source_path = storage.resolve_path(task.source_file_ref) if task is not None else None
+        source_available = (
+            source_path is not None and source_path.is_file() and source_path.stat().st_size > 0
+        )
+    except (OSError, StorageError):
+        source_available = False
+    if not source_available:
         raise _denied(409, "upload_source_unavailable", "源文件不可用，请重新选择文件")
     if task.processing_stage == "waiting_generation_config" and isinstance(llm, NullLLMClient):
         raise _denied(

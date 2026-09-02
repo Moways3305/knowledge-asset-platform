@@ -90,3 +90,30 @@ def test_ocr_rejects_image_pixel_expansion(monkeypatch):
     with pytest.raises(ocr.OCRError) as caught:
         ocr._image_bytes(_image(), source_kind="image", page_number=1)
     assert caught.value.code == "ocr_structure_limit"
+
+
+def test_ocr_raster_timeout_kills_worker(monkeypatch):
+    class HungProcess:
+        returncode = None
+
+        def __init__(self):
+            self.killed = False
+            self.communications = 0
+
+        def communicate(self, *, input=None, timeout=None):
+            self.communications += 1
+            if self.communications == 1:
+                raise ocr.subprocess.TimeoutExpired("raster", timeout)
+            return b"", b""
+
+        def kill(self):
+            self.killed = True
+
+    process = HungProcess()
+    monkeypatch.setattr(ocr.subprocess, "Popen", lambda *args, **kwargs: process)
+
+    with pytest.raises(ocr.OCRError) as caught:
+        ocr._image_bytes(_image(), source_kind="image", page_number=1, timeout=0.1)
+
+    assert caught.value.code == "ocr_timeout"
+    assert process.killed is True

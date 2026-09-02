@@ -563,3 +563,38 @@ async def test_item_retry_atomically_claims_the_failed_row_before_enqueue(
     assert enqueue_calls == 1
     await db_session.refresh(task)
     assert task.retry_count == 1
+
+
+async def test_item_retry_treats_zero_byte_source_as_unavailable(client, db_session, monkeypatch):
+    created = await client.post(
+        "/api/v1/ingest/upload-sessions",
+        headers=_headers(USER_CONSULTANT),
+        files={"files": ("empty-on-disk.txt", b"initial body", "text/plain")},
+    )
+    assert created.status_code == 200
+    session_id = created.json()["id"]
+    item_id = created.json()["items"][0]["id"]
+    item = await db_session.get(UploadSessionItem, uuid.UUID(item_id))
+    task = await db_session.get(IngestTask, item.ingest_task_id)
+    item.status = "failed"
+    task.status = IngestStatus.failed.value
+    task.processing_stage = "text_extraction_failed"
+    client._kap_storage.resolve_path(task.source_file_ref).write_bytes(b"")
+    await db_session.commit()
+
+    enqueue_calls = 0
+
+    async def fake_enqueue(*_args, **_kwargs):
+        nonlocal enqueue_calls
+        enqueue_calls += 1
+        return IngestStatus.processing.value
+
+    monkeypatch.setattr(upload_session_recovery, "enqueue_ingest_processing", fake_enqueue)
+    retried = await client.post(
+        f"/api/v1/ingest/upload-sessions/{session_id}/items/{item_id}/retry",
+        headers=_headers(USER_CONSULTANT),
+    )
+
+    assert retried.status_code == 409
+    assert retried.json()["detail"]["denied_reason"] == "upload_source_unavailable"
+    assert enqueue_calls == 0
