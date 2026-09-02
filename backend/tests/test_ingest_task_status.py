@@ -336,6 +336,8 @@ async def test_processing_failure_waiting_for_retry_is_actionable(client, db_ses
 
 async def test_duplicate_retry_while_processing_enqueues_once(client, db_session, monkeypatch):
     task = await _task(db_session, status="failed", error_type="processing_error")
+    task.source_file_ref = client._kap_storage.save(b"retry source", original_name="retry.txt")
+    await db_session.commit()
     calls = 0
 
     async def _fake_enqueue(*_args, **_kwargs):
@@ -365,6 +367,8 @@ async def test_concurrent_retry_with_independent_sessions_enqueues_once(
         active_project_roles={PROJECT_ALPHA: "consultant"},
     )
     storage = LocalFileStorage(tmp_path / "concurrent-retry")
+    task.source_file_ref = storage.save(b"retry source", original_name="retry.txt")
+    await db_session.commit()
     loaded = 0
     both_loaded = asyncio.Event()
     enqueue_calls = 0
@@ -416,6 +420,42 @@ async def test_concurrent_retry_with_independent_sessions_enqueues_once(
 
     assert enqueue_calls == 1
     assert {response.status.value for response in responses} == {"processing"}
+
+
+async def test_ocr_retry_rejects_zero_byte_source_before_claim(client, db_session, monkeypatch):
+    ref = client._kap_storage.save(b"source", original_name="scan.pdf")
+    task = IngestTask(
+        source="path_b_upload",
+        source_file_ref=ref,
+        source_file_name="scan.pdf",
+        source_file_mime_type="application/pdf",
+        status="failed",
+        processing_stage="ocr_failed",
+        error_type="ocr_timeout",
+        retry_count=2,
+        created_by=USER_CONSULTANT,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    client._kap_storage.resolve_path(ref).write_bytes(b"")
+    enqueue_calls = 0
+
+    async def _fake_enqueue(*_args, **_kwargs):
+        nonlocal enqueue_calls
+        enqueue_calls += 1
+        return "processing"
+
+    monkeypatch.setattr("app.services.ingest_status.enqueue_ingest_processing", _fake_enqueue)
+
+    response = await client.post(_retry_url(task.id), headers=_headers(USER_CONSULTANT))
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["denied_reason"] == "ingest_source_unavailable"
+    assert enqueue_calls == 0
+    await db_session.refresh(task)
+    assert task.status == "failed"
+    assert task.processing_stage == "ocr_failed"
+    assert task.retry_count == 2
 
 
 async def test_index_failure_retry_reuses_authorized_index_contract(client, db_session):

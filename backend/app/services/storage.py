@@ -99,7 +99,15 @@ class LocalFileStorage:
     def exists(self, ref: str) -> bool:
         try:
             return self.resolve_path(ref).is_file()
-        except StorageError:
+        except (OSError, StorageError):
+            return False
+
+    def has_content(self, ref: str) -> bool:
+        """Return whether a controlled source exists and contains at least one byte."""
+        try:
+            path = self.resolve_path(ref)
+            return path.is_file() and path.stat().st_size > 0
+        except (OSError, StorageError):
             return False
 
     def delete(self, ref: str) -> bool:

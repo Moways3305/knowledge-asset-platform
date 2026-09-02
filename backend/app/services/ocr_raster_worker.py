@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import math
 import pickle
 import sys
 
@@ -37,7 +38,13 @@ def _rasterize(
         if page_number < 1 or page_number > document.page_count:
             raise _RasterError("ocr_source_invalid", "原文无法读取，OCR 未执行。")
         page = document.load_page(page_number - 1)
-        pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+        matrix = fitz.Matrix(2, 2)
+        raster_bounds = page.rect * matrix
+        estimated_width = math.ceil(raster_bounds.x1) - math.floor(raster_bounds.x0)
+        estimated_height = math.ceil(raster_bounds.y1) - math.floor(raster_bounds.y0)
+        if estimated_width * estimated_height > max_image_pixels:
+            raise _RasterError("ocr_structure_limit", "页面像素规模超过安全处理上限。")
+        pixmap = page.get_pixmap(matrix=matrix, alpha=False)
         if pixmap.width * pixmap.height > max_image_pixels:
             raise _RasterError("ocr_structure_limit", "页面像素规模超过安全处理上限。")
         return bytes(pixmap.tobytes("png"))

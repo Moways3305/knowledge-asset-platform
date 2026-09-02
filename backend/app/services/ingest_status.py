@@ -120,6 +120,16 @@ def _not_found() -> HTTPException:
     )
 
 
+def _source_unavailable() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "denied_reason": "ingest_source_unavailable",
+            "message": "源文件不可用，请重新选择文件上传",
+        },
+    )
+
+
 def _action(key: str, route_key: str | None, *, enabled: bool = True) -> IngestTaskNextAction:
     return IngestTaskNextAction(key=key, route_key=route_key, enabled=enabled)
 
@@ -401,6 +411,26 @@ async def retry_task(
         return current
 
     task = ctx.task
+    retries_ingest_processing = (
+        task.status in {IngestStatus.pending_confirmation.value, IngestStatus.failed.value}
+        and (
+            task.processing_stage
+            in {
+                "waiting_generation_config",
+                "content_generation_failed",
+                "content_result_persistence_failed",
+                "processing_state_persistence_failed",
+                "ocr_failed",
+            }
+            or _generation_response_retryable(task)
+        )
+    ) or (
+        task.status in {IngestStatus.failed.value, IngestStatus.processing.value}
+        and task.error_type in {"processing_error", "processing_abandoned", "source_read_failed"}
+    )
+    if retries_ingest_processing and not storage.has_content(task.source_file_ref):
+        raise _source_unavailable()
+
     if task.status in {IngestStatus.pending_confirmation.value, IngestStatus.failed.value} and (
         task.processing_stage
         in {
