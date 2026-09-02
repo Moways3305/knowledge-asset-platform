@@ -12,9 +12,11 @@
 
 from __future__ import annotations
 
+import io
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from PIL import Image
 from sqlalchemy import func, select
 
 from app.models.agent import (
@@ -229,7 +231,9 @@ async def test_ocr_failure_persists_mixed_pdf_page_plan_for_exact_retry(
 
 
 async def test_ocr_retry_keeps_image_route_when_mime_is_generic(client, db_session, monkeypatch):
-    ref = client._kap_storage.save(b"fake-image", original_name="scan.PNG")
+    image = io.BytesIO()
+    Image.new("RGB", (2, 2), "white").save(image, format="PNG")
+    ref = client._kap_storage.save(image.getvalue(), original_name="scan.PNG")
     task = IngestTask(
         source="path_b_upload",
         source_file_ref=ref,
@@ -268,10 +272,8 @@ async def test_ocr_retry_keeps_image_route_when_mime_is_generic(client, db_sessi
     task.error_message = None
     await db_session.commit()
 
-    assert (
-        await ingest_processing.process_upload_task(db_session, task.id, **kwargs)
-        == "pending_confirmation"
-    )
+    retried_status = await ingest_processing.process_upload_task(db_session, task.id, **kwargs)
+    assert (retried_status, source_kinds) == ("pending_confirmation", ["image", "image"])
     assert source_kinds == ["image", "image"]
 
 

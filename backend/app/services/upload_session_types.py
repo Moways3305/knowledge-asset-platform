@@ -95,12 +95,15 @@ def _aware(value: datetime) -> datetime:
 
 
 def _is_stale_processing(task: IngestTask, now: datetime) -> bool:
+    # A worker heartbeat is stronger evidence than a browser/session read.  Legacy
+    # rows without one retain the previous updated_at-based recovery behaviour.
+    activity_at = task.processing_heartbeat_at or task.updated_at
     return (
         task.source == IngestSource.path_b_upload.value
         and task.status == IngestStatus.processing.value
         and task.result_asset_id is None
         and _aware(task.created_at) <= now - PROCESSING_MAX_AGE
-        and _aware(task.updated_at) <= now - PROCESSING_ACTIVITY_GRACE
+        and _aware(activity_at) <= now - PROCESSING_ACTIVITY_GRACE
     )
 
 

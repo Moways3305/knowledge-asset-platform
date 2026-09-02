@@ -1088,7 +1088,7 @@ async def test_upload_failed_extraction_persists_and_audits_no_leak(client):
         await client.get(f"/api/v1/ingest/{task_id}/ai-result", headers=_hdr(USER_CONSULTANT))
     ).json()
     assert ai["extraction_status"] == "failed"
-    assert ai["error_type"] == "extraction_failed"
+    assert ai["error_type"] == "extraction_format_mismatch"
     assert ai["error_message"]
 
     # 审计 trace（治理视图）含 ingest.failed，且不泄露抽取内容 / 内部引用。

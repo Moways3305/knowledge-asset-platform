@@ -15,6 +15,10 @@ from __future__ import annotations
 
 import io
 import logging
+import pickle
+import subprocess
+import sys
+import zipfile
 from dataclasses import dataclass
 
 from app.core.logging import safe_log_exception
@@ -25,12 +29,39 @@ _logger = logging.getLogger(__name__)
 # 抽取草稿全文上限（防超大文本放大）；超过则截断。
 MAX_EXTRACT_CHARS = EXTRACTED_TEXT_MAX_CHARS
 
+# All parsers below consume attacker-controlled bytes.  The limits are deliberately
+# independent from the HTTP upload limit: a small ZIP can expand into a very large
+# Office document, and a valid-looking PDF can still make a parser loop forever.
+MAX_ARCHIVE_ENTRIES = 20_000
+MAX_ARCHIVE_UNCOMPRESSED_BYTES = 100 * 1024 * 1024
+MAX_ARCHIVE_COMPRESSION_RATIO = 100
+EXTRACTION_TIMEOUT_SECONDS = 45.0
+MAX_PDF_PAGES = 2_000
+MAX_PPTX_SLIDES = 1_000
+MAX_XLSX_SHEETS = 200
+MAX_XLSX_ROWS = 200_000
+MAX_XLSX_COLUMNS = 2_000
+
 # 直接按文本读取的扩展名。
 _TEXT_EXT = {"txt", "md", "markdown", "csv", "log", "text", "rst"}
 
 _DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 _PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "tif", "tiff", "bmp", "webp"}
+_KNOWN_EXTENSIONS = (
+    _TEXT_EXT
+    | _IMAGE_EXTENSIONS
+    | {
+        "pdf",
+        "doc",
+        "docx",
+        "ppt",
+        "pptx",
+        "xls",
+        "xlsx",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -63,6 +94,10 @@ def _extract_pdf(content: bytes) -> tuple[str, tuple[ExtractionPage, ...]]:
     from pypdf import PdfReader
 
     reader = PdfReader(io.BytesIO(content))
+    if len(reader.pages) > MAX_PDF_PAGES:
+        raise _ControlledExtractionError(
+            "extraction_structure_limit", "PDF 页数超过安全处理上限，请拆分后重新上传。"
+        )
     parts: list[str] = []
     pages: list[ExtractionPage] = []
     for index, page in enumerate(reader.pages, start=1):
@@ -107,6 +142,10 @@ def _extract_pptx(content: bytes) -> str:
     from pptx import Presentation
 
     presentation = Presentation(io.BytesIO(content))
+    if len(presentation.slides) > MAX_PPTX_SLIDES:
+        raise _ControlledExtractionError(
+            "extraction_structure_limit", "幻灯片数量超过安全处理上限，请拆分后重新上传。"
+        )
     slides: list[str] = []
     for index, slide in enumerate(presentation.slides, start=1):
         parts: list[str] = []
@@ -135,9 +174,20 @@ def _extract_xlsx(content: bytes) -> str:
     workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
     sheets: list[str] = []
     try:
+        if len(workbook.worksheets) > MAX_XLSX_SHEETS:
+            raise _ControlledExtractionError(
+                "extraction_structure_limit", "工作表数量超过安全处理上限，请拆分后重新上传。"
+            )
+        total_rows = 0
         for sheet in workbook.worksheets:
             rows: list[list[object]] = []
             for row in sheet.iter_rows(values_only=True):
+                total_rows += 1
+                if total_rows > MAX_XLSX_ROWS or len(row) > MAX_XLSX_COLUMNS:
+                    raise _ControlledExtractionError(
+                        "extraction_structure_limit",
+                        "表格行列规模超过安全处理上限，请拆分或精简后重新上传。",
+                    )
                 if any(cell is not None and str(cell).strip() for cell in row):
                     rows.append(list(row))
             if not rows:
@@ -160,64 +210,145 @@ def _extract_xlsx(content: bytes) -> str:
     return "\n\n".join(sheets)
 
 
-def extract_text(content: bytes, *, file_name: str | None, mime: str | None) -> ExtractionResult:
-    """按扩展名 / mime 路由抽取文本，返回结构化结果（绝不抛出到调用方）。"""
+class _ControlledExtractionError(Exception):
+    """A safe, user-actionable rejection raised before a parser sees the bytes."""
+
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        self.message = message
+        super().__init__(code)
+
+
+def _office_package_kind(content: bytes, ext: str) -> None:
+    """Validate OOXML ZIP structure and bound decompression before library parsing."""
+    if content.startswith(b"\xd0\xcf\x11\xe0"):
+        raise _ControlledExtractionError(
+            "extraction_password_protected",
+            "该 Office 文件已加密或需要密码保护；平台不会接收或请求密码，请移除保护后重新上传。",
+        )
+    if not content.startswith(b"PK\x03\x04"):
+        raise _ControlledExtractionError(
+            "extraction_format_mismatch", "文件内容与扩展名不匹配，请确认文件类型后重新上传。"
+        )
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as package:
+            infos = package.infolist()
+            if len(infos) > MAX_ARCHIVE_ENTRIES:
+                raise _ControlledExtractionError(
+                    "extraction_structure_limit",
+                    "文件内部结构过于复杂，无法安全处理，请精简后重新上传。",
+                )
+            total = sum(info.file_size for info in infos)
+            compressed = sum(info.compress_size for info in infos)
+            if total > MAX_ARCHIVE_UNCOMPRESSED_BYTES or (
+                compressed and total / compressed > MAX_ARCHIVE_COMPRESSION_RATIO
+            ):
+                raise _ControlledExtractionError(
+                    "extraction_archive_limit",
+                    "文件解压后体积异常，无法安全处理，请使用原始或精简后的文件。",
+                )
+            names = set(package.namelist())
+            if {"EncryptionInfo", "EncryptedPackage"}.intersection(names):
+                raise _ControlledExtractionError(
+                    "extraction_password_protected",
+                    "该 Office 文件已加密或需要密码保护；平台不会接收或请求密码，请移除保护后重新上传。",
+                )
+            required = {
+                "docx": "word/document.xml",
+                "pptx": "ppt/presentation.xml",
+                "xlsx": "xl/workbook.xml",
+            }[ext]
+            if "[Content_Types].xml" not in names or required not in names:
+                raise _ControlledExtractionError(
+                    "extraction_format_mismatch",
+                    "文件内容与扩展名不匹配，请确认文件类型后重新上传。",
+                )
+    except _ControlledExtractionError:
+        raise
+    except (zipfile.BadZipFile, OSError, ValueError) as exc:
+        raise _ControlledExtractionError(
+            "extraction_corrupt", "文件内容已损坏，无法安全解析，请重新导出或上传原始文件。"
+        ) from exc
+
+
+def _validate_pdf(content: bytes) -> None:
+    if not content.startswith(b"%PDF-"):
+        raise _ControlledExtractionError(
+            "extraction_format_mismatch", "文件内容与扩展名不匹配，请确认文件类型后重新上传。"
+        )
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(content))
+        if reader.is_encrypted:
+            raise _ControlledExtractionError(
+                "extraction_password_protected",
+                "该 PDF 已加密或需要密码保护；平台不会接收或请求密码，请移除保护后重新上传。",
+            )
+    except _ControlledExtractionError:
+        raise
+    except Exception as exc:  # parser-specific errors are intentionally not surfaced
+        raise _ControlledExtractionError(
+            "extraction_corrupt", "文件内容已损坏，无法安全解析，请重新导出或上传原始文件。"
+        ) from exc
+
+
+def _validate_image(content: bytes) -> None:
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(content)) as image:
+            image.verify()
+    except Exception as exc:
+        raise _ControlledExtractionError(
+            "extraction_corrupt", "图片内容已损坏或格式不正确，请重新导出后上传。"
+        ) from exc
+
+
+def _extract_unbounded(
+    content: bytes, *, file_name: str | None, mime: str | None
+) -> ExtractionResult:
+    """Parser routing executed only in the isolated child process."""
     ext = _ext(file_name)
     mime = (mime or "").lower()
     pages: tuple[ExtractionPage, ...] = ()
-    try:
-        if ext in _TEXT_EXT or mime.startswith("text/"):
-            # 非 UTF-8 稳健回退：用 replace，不因解码异常把任务打成 failed。
-            text = content.decode("utf-8", errors="replace")
-        elif ext == "pdf" or mime == "application/pdf":
-            text, pages = _extract_pdf(content)
-        elif ext == "docx" or mime == _DOCX_MIME:
-            text = _extract_docx(content)
-        elif ext == "pptx" or mime == _PPTX_MIME:
-            text = _extract_pptx(content)
-        elif ext == "xlsx" or mime == _XLSX_MIME:
-            text = _extract_xlsx(content)
-        elif ext in {"png", "jpg", "jpeg", "tif", "tiff", "bmp", "webp"} or mime.startswith(
-            "image/"
-        ):
-            return ExtractionResult(
-                text="",
-                status="ocr_required",
-                error_type=None,
-                error_message=None,
-                char_count=0,
-                pages=(ExtractionPage(1, "", "ocr_required"),),
-                source_kind="image",
-            )
-        else:
-            unsupported_message = (
-                "当前 .ppt 格式暂不支持自动提取（文件已落盘，请人工补全内容）"
-                if ext == "ppt"
-                else (
-                    "旧版 .xls 暂不支持自动提取（文件已落盘），请另存为 .xlsx 后重新上传"
-                    if ext == "xls"
-                    else f"暂不支持从 .{ext or '该类型'} 文件抽取文本（文件已落盘，请人工补全内容）"
-                )
-            )
-            return ExtractionResult(
-                text="",
-                status="unsupported",
-                error_type="extraction_unsupported",
-                error_message=unsupported_message,
-                char_count=0,
-            )
-    except Exception as exc:  # noqa: BLE001 — 损坏 / 格式不符文件：降级为 failed，不崩溃
-        safe_log_exception(
-            _logger, "extraction_failed", exc, include_summary=False, level=logging.WARNING
-        )
+    mime_fallback = not ext or ext not in _KNOWN_EXTENSIONS
+    if not content:
         return ExtractionResult(
-            text="",
-            status="failed",
-            error_type="extraction_failed",
-            error_message="文件内容无法解析（可能已损坏或与扩展名不符），请重新上传或人工补全",
-            char_count=0,
+            "", "empty", "extraction_empty", "文件为空，请选择包含内容的文件后重试。", 0
         )
-
+    if ext in _TEXT_EXT or (mime_fallback and mime.startswith("text/")):
+        if content.startswith((b"%PDF-", b"PK\x03\x04", b"\xd0\xcf\x11\xe0")):
+            raise _ControlledExtractionError(
+                "extraction_format_mismatch", "文件内容与扩展名不匹配，请确认文件类型后重新上传。"
+            )
+        text = content.decode("utf-8", errors="replace")
+    elif ext == "pdf" or (mime_fallback and mime == "application/pdf"):
+        _validate_pdf(content)
+        text, pages = _extract_pdf(content)
+    elif ext == "docx" or (mime_fallback and mime == _DOCX_MIME):
+        _office_package_kind(content, "docx")
+        text = _extract_docx(content)
+    elif ext == "pptx" or (mime_fallback and mime == _PPTX_MIME):
+        _office_package_kind(content, "pptx")
+        text = _extract_pptx(content)
+    elif ext == "xlsx" or (mime_fallback and mime == _XLSX_MIME):
+        _office_package_kind(content, "xlsx")
+        text = _extract_xlsx(content)
+    elif ext in _IMAGE_EXTENSIONS or (mime_fallback and mime.startswith("image/")):
+        _validate_image(content)
+        return ExtractionResult(
+            "", "ocr_required", None, None, 0, (ExtractionPage(1, "", "ocr_required"),), "image"
+        )
+    else:
+        unsupported_message = (
+            "当前 .ppt 格式暂不支持自动提取（文件已落盘，请人工补全内容）"
+            if ext == "ppt"
+            else "旧版 .xls 暂不支持自动提取（文件已落盘），请另存为 .xlsx 后重新上传"
+            if ext == "xls"
+            else f"暂不支持从 .{ext or '该类型'} 文件抽取文本（文件已落盘，请人工补全内容）"
+        )
+        return ExtractionResult("", "unsupported", "extraction_unsupported", unsupported_message, 0)
     safe_text = sanitize_text(text, max_chars=MAX_EXTRACT_CHARS)
     text = safe_text.value.strip()
     if pages:
@@ -229,35 +360,88 @@ def extract_text(content: bytes, *, file_name: str | None, mime: str | None) -> 
             )
             for page in pages
         )
-    if (ext == "pdf" or mime == "application/pdf") and any(
-        page.status == "ocr_required" for page in pages
-    ):
+    is_pdf = ext == "pdf" or (mime_fallback and mime == "application/pdf")
+    if is_pdf and any(page.status == "ocr_required" for page in pages):
         return ExtractionResult(
-            text=text,
-            status="ocr_required",
-            error_type=None,
-            error_message=None,
-            char_count=len(text),
-            pages=pages,
-            source_kind="pdf",
-            safety_stats=safe_text.stats,
+            text, "ocr_required", None, None, len(text), pages, "pdf", safe_text.stats
         )
     if not text:
-        # 纯图片 / 扫描件 PDF 等抽不到文本。
         return ExtractionResult(
-            text="",
-            status="empty",
-            error_type="extraction_empty",
-            error_message="未能从文件内容中抽取到文本（可能是扫描件 / 纯图片），请人工补全",
-            char_count=0,
+            "",
+            "empty",
+            "extraction_empty",
+            "未能从文件内容中抽取到文本（可能是扫描件 / 纯图片），请人工补全",
+            0,
         )
     return ExtractionResult(
-        text=text,
-        status="extracted",
-        error_type=None,
-        error_message=None,
-        char_count=len(text),
-        pages=pages if (ext == "pdf" or mime == "application/pdf") else (),
-        source_kind="pdf" if (ext == "pdf" or mime == "application/pdf") else "document",
-        safety_stats=safe_text.stats,
+        text,
+        "extracted",
+        None,
+        None,
+        len(text),
+        pages if is_pdf else (),
+        "pdf" if is_pdf else "document",
+        safe_text.stats,
     )
+
+
+def extract_text(content: bytes, *, file_name: str | None, mime: str | None) -> ExtractionResult:
+    """Parse user bytes in a killable child process with bounded package complexity."""
+    # subprocess (rather than multiprocessing) is intentional: a Celery prefork
+    # worker can itself be daemonised and is then forbidden from creating another
+    # multiprocessing child, while it may safely launch and kill a subprocess.
+    try:
+        child = subprocess.Popen(
+            [sys.executable, "-m", "app.services.extraction_worker"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            output, _ = child.communicate(
+                pickle.dumps((content, file_name, mime), protocol=pickle.HIGHEST_PROTOCOL),
+                timeout=EXTRACTION_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.communicate()
+            return ExtractionResult(
+                "",
+                "failed",
+                "extraction_timeout",
+                "文件解析超过安全时限，未处理任何密码；请精简或重新导出后重试。",
+                0,
+            )
+        try:
+            kind, payload = pickle.loads(output)
+        except (EOFError, pickle.UnpicklingError, ValueError, TypeError):
+            return ExtractionResult(
+                "",
+                "failed",
+                "extraction_failed",
+                "文件内容无法解析（可能已损坏或与扩展名不符），请重新上传或人工补全",
+                0,
+            )
+        if kind == "result":
+            return payload
+        if kind == "controlled":
+            code, message = payload
+            return ExtractionResult("", "failed", code, message, 0)
+        return ExtractionResult(
+            "",
+            "failed",
+            "extraction_failed",
+            "文件内容无法解析（可能已损坏或与扩展名不符），请重新上传或人工补全",
+            0,
+        )
+    except Exception as exc:  # subprocess startup failure is also safely terminalized
+        safe_log_exception(
+            _logger, "extraction_failed", exc, include_summary=False, level=logging.WARNING
+        )
+        return ExtractionResult(
+            text="",
+            status="failed",
+            error_type="extraction_failed",
+            error_message="文件内容无法解析（可能已损坏或与扩展名不符），请重新上传或人工补全",
+            char_count=0,
+        )

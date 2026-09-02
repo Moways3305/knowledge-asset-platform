@@ -660,15 +660,20 @@ export function useUploadIntake({
         } catch {
           // The lightweight manifest could not be confirmed; retain local byte truth below.
         }
+        // The server did not confirm a session, so this is a session-level
+        // failure—not evidence that every selected file is bad. Keep the bytes
+        // locally retryable and do not replace per-file validation results.
         updateLocalUploadQueue((current) =>
           current.map((item) =>
-            items.some((created) => created.id === item.id)
+            items.some((created) => created.id === item.id) && item.status !== "failed"
               ? {
                   ...item,
                   status: "failed",
                   error:
-                    error instanceof ApiError ? error.message : "上传会话暂时无法创建，请稍后重试",
-                  retryable: false,
+                    error instanceof ApiError
+                      ? `上传会话未创建：${error.message}`
+                      : "上传会话暂时无法创建，请检查网络后重试",
+                  retryable: true,
                 }
               : item,
           ),
@@ -680,7 +685,10 @@ export function useUploadIntake({
           rejected: prepared.length,
           waitingBatches: 0,
           batchSizes: transportBatches.map((batch) => batch.length),
-          message: "上传会话未能创建；请检查网络后重新选择文件。",
+          message:
+            error instanceof ApiError
+              ? `上传会话未能创建：${error.message}`
+              : "上传会话未能创建；请检查网络后重试。",
         });
       }
     },

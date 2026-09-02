@@ -95,6 +95,10 @@ def _make_celery() -> Celery:
                 "task": "ops.worker_heartbeat",
                 "schedule": 60.0,
             },
+            "ingest-recover-stale-uploads": {
+                "task": "ingest.recover_stale_uploads",
+                "schedule": 60.0,
+            },
             "ops-indexing-health-snapshot": {
                 "task": "ops.indexing_health_snapshot",
                 "schedule": 3600.0,

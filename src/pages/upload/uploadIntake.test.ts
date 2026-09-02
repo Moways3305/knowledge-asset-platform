@@ -34,6 +34,19 @@ describe("buildUploadTransportBatches", () => {
     expect(batches.flat().every((entry) => entry.file.size <= LOCAL_UPLOAD_MAX_BYTES)).toBe(true);
   });
 
+  it.each([10, 100, 500, 1000])("plans %s files as ordered ten-file transport batches", (count) => {
+    const batches = buildUploadTransportBatches(
+      Array.from({ length: count }, (_, index) => item(`file-${index}.txt`, 1)),
+    );
+    expect(batches.flat()).toHaveLength(count);
+    expect(batches.every((batch) => batch.length <= 10)).toBe(true);
+    expect(batches.map((batch) => batch.length)).toEqual(
+      Array.from({ length: Math.ceil(count / 10) }, (_, index) =>
+        index === Math.ceil(count / 10) - 1 && count % 10 ? count % 10 : 10,
+      ),
+    );
+  });
+
   it("allows a 20-25 MiB file only as its own request", () => {
     const large = item("large.pdf", TRANSPORT_BATCH_MAX_BYTES + 1024);
     const batches = buildUploadTransportBatches([item("a.txt", 1), large, item("b.txt", 1)]);
