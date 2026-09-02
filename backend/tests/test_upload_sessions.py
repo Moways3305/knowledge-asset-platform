@@ -28,6 +28,33 @@ def test_stable_batch_boundaries_are_unbounded_and_keep_partial_tail():
     assert stable_batch_sizes(700) == [200, 200, 200, 100]
 
 
+async def test_transport_manifest_accepts_the_protocol_maximum_of_1000_items(client):
+    session_id = uuid.uuid4()
+    manifest = [
+        {
+            "client_file_key": f"file-{index}",
+            "file_name": f"file-{index}.txt",
+            "file_size": 1,
+            "transport_batch_index": index // 10,
+        }
+        for index in range(1000)
+    ]
+    response = await client.post(
+        "/api/v1/ingest/upload-sessions/init",
+        headers=_headers(USER_CONSULTANT),
+        json={
+            "session_id": str(session_id),
+            "total_transport_batches": 100,
+            "manifest": manifest,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total_files"] == 1000
+    assert body["total_batches"] == 100
+    assert len(body["items"]) == 1000
+
+
 async def test_transport_session_is_durable_ordered_and_batch_idempotent(client, db_session):
     session_id = uuid.uuid4()
     initialized = await client.post(

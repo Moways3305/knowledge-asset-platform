@@ -34,6 +34,7 @@ def _make_celery() -> Celery:
         backend=backend,
         include=[
             "app.worker.tasks.ingest",
+            "app.worker.tasks.ingest_recovery",
             "app.worker.tasks.parse",
             "app.worker.tasks.lifecycle",
             "app.worker.tasks.upgrade",
@@ -87,6 +88,10 @@ def _make_celery() -> Celery:
             },
             "ops-worker-heartbeat": {
                 "task": "ops.worker_heartbeat",
+                "schedule": 60.0,
+            },
+            "ingest-recover-stale-uploads": {
+                "task": "ingest.recover_stale_uploads",
                 "schedule": 60.0,
             },
             "ops-indexing-health-snapshot": {

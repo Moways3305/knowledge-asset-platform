@@ -93,6 +93,13 @@ _PAGE_MARKER_RE = re.compile(r"\{\{page:(\d+)\}\}\s*\n?")
 _IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "tif", "tiff", "bmp", "webp"}
 
 
+async def _checkpoint(session: AsyncSession, task: IngestTask, stage: str) -> None:
+    """Persist worker-owned liveness; request reads never refresh this timestamp."""
+    task.processing_stage = stage
+    task.processing_heartbeat_at = utc_now()
+    await session.commit()
+
+
 def _marked_page_texts(value: str | None) -> dict[int, str]:
     """Recover native PDF page text from the persisted marked extraction body."""
     if not value:
@@ -386,6 +393,7 @@ async def _process_upload_task_impl(
         return task.status
 
     actor = await _build_actor(session, task)
+    await _checkpoint(session, task, task.processing_stage or "upload_saved")
 
     model_attempted = False
 
@@ -436,8 +444,7 @@ async def _process_upload_task_impl(
                 source_kind=_ocr_source_kind(task),
             )
         else:
-            task.processing_stage = "text_extraction"
-            await session.commit()
+            await _checkpoint(session, task, "text_extraction")
             file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
             extraction = extract_text(
                 file_bytes, file_name=task.source_file_name, mime=task.source_file_mime_type
@@ -455,10 +462,8 @@ async def _process_upload_task_impl(
             ai_result = task.ai_result
             assert ai_result is not None
             ai_result.ocr_page_results = _ocr_page_plan(extraction)
-            task.processing_stage = "ocr_queued"
-            await session.commit()
-            task.processing_stage = "ocr_in_progress"
-            await session.commit()
+            await _checkpoint(session, task, "ocr_queued")
+            await _checkpoint(session, task, "ocr_in_progress")
             if file_bytes is None:
                 file_bytes = storage.resolve_path(task.source_file_ref).read_bytes()
             try:
@@ -521,8 +526,7 @@ async def _process_upload_task_impl(
             and extraction.text
             and not (markdown_derivative and markdown_derivative.status == "ready")
         ):
-            task.processing_stage = "canonical_markdown_generation"
-            await session.commit()
+            await _checkpoint(session, task, "canonical_markdown_generation")
             task = (
                 await session.execute(
                     select(IngestTask)
@@ -565,8 +569,7 @@ async def _process_upload_task_impl(
             provider=getattr(llm, "provider", ""),
             model=getattr(llm, "model", ""),
         )
-        task.processing_stage = "content_generation"
-        await session.commit()
+        await _checkpoint(session, task, "content_generation")
         ai = await _reusable_ai_draft(
             session,
             task=task,
@@ -654,8 +657,14 @@ async def _process_upload_task_impl(
         if clean_task is None:
             return "not_found"
         clean_task.retry_count += 1
-        clean_task.error_type = "processing_error"
-        clean_task.error_message = "入库处理失败（详见审计）"  # 安全文案，无内部引用
+        clean_task.error_type = (
+            "source_read_failed" if isinstance(exc, OSError) else "processing_error"
+        )
+        clean_task.error_message = (
+            "文件读取暂时失败，请稍后重试。"
+            if clean_task.error_type == "source_read_failed"
+            else "入库处理失败（详见审计）"
+        )  # 安全文案，无内部引用
         exhausted = clean_task.retry_count >= clean_task.max_retries
         clean_task.status = (
             IngestStatus.failed.value if exhausted else IngestStatus.processing.value

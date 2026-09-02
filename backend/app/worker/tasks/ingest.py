@@ -34,7 +34,15 @@ async def _run(maker, task_id_str: str, trace_id: str | None) -> None:
         )
 
 
-@celery_app.task(name="ingest.process_upload", bind=True, max_retries=3)
+@celery_app.task(
+    name="ingest.process_upload",
+    bind=True,
+    max_retries=3,
+    soft_time_limit=120,
+    time_limit=135,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def process_ingest_upload(self, task_id_str: str, trace_id: str | None = None) -> None:
     """异步处理一个 upload 任务（worker 进程内自建 loop-local 会话/客户端）。
 

@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import io
 import subprocess
+import time
 from dataclasses import dataclass
 
 from app.core.config import get_settings
 from app.core.text_safety import EXTRACTED_TEXT_MAX_CHARS, SafetyStats, sanitize_text
 from app.services.extraction import MAX_EXTRACT_CHARS, ExtractionPage, ExtractionResult
+
+MAX_OCR_PAGES = 100
+MAX_IMAGE_PIXELS = 50_000_000
+OCR_DOCUMENT_TIMEOUT_SECONDS = 90.0
 
 
 class OCRError(RuntimeError):
@@ -41,10 +46,13 @@ def _image_bytes(content: bytes, *, source_kind: str, page_number: int) -> bytes
         if source_kind == "image":
             from PIL import Image
 
-            image = Image.open(io.BytesIO(content)).convert("RGB")
-            out = io.BytesIO()
-            image.save(out, format="PNG")
-            return out.getvalue()
+            with Image.open(io.BytesIO(content)) as source:
+                if source.width * source.height > MAX_IMAGE_PIXELS:
+                    raise OCRError("ocr_structure_limit", "图片像素规模超过安全处理上限。")
+                image = source.convert("RGB")
+                out = io.BytesIO()
+                image.save(out, format="PNG")
+                return out.getvalue()
         import fitz
 
         document = fitz.open(stream=content, filetype="pdf")
@@ -59,7 +67,7 @@ def _image_bytes(content: bytes, *, source_kind: str, page_number: int) -> bytes
         raise OCRError("ocr_source_invalid", "原文无法读取，OCR 未执行。") from exc
 
 
-def _recognize_page(image: bytes) -> tuple[str, float | None]:
+def _recognize_page(image: bytes, *, timeout: float = 60.0) -> tuple[str, float | None]:
     settings = get_settings()
     try:
         completed = subprocess.run(
@@ -67,7 +75,7 @@ def _recognize_page(image: bytes) -> tuple[str, float | None]:
             input=image,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            timeout=60,
+            timeout=max(1.0, min(60.0, timeout)),
             check=False,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
@@ -98,14 +106,21 @@ def recognize(content: bytes, extraction: ExtractionResult) -> OCRResult:
     pages: list[OCRPageResult] = []
     merged: list[str] = []
     required = extraction.pages or (ExtractionPage(1, "", "ocr_required"),)
+    if len(required) > MAX_OCR_PAGES:
+        raise OCRError("ocr_page_limit", "需要 OCR 的页数超过安全处理上限，请拆分文件后重试。")
+    deadline = time.monotonic() + OCR_DOCUMENT_TIMEOUT_SECONDS
     for page in required:
         if page.status == "extracted":
             result = OCRPageResult(page.page_number, page.text, "skipped_text", None)
         else:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise OCRError("ocr_timeout", "OCR 处理超过安全时限，请拆分文件后重试。")
             text, confidence = _recognize_page(
                 _image_bytes(
                     content, source_kind=extraction.source_kind, page_number=page.page_number
-                )
+                ),
+                timeout=remaining,
             )
             status = (
                 "succeeded"

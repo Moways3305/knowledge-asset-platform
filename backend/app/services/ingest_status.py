@@ -49,6 +49,38 @@ _SAFE_ERRORS = {
         "文件处理暂时失败。",
         "稍后重试；若持续失败，请联系管理员检查后台任务与文件存储。",
     ),
+    "processing_abandoned": (
+        "后台处理在安全时限内未恢复，已停止。",
+        "可重试此文件；若仍失败，请重新导出原文件后上传。",
+    ),
+    "source_read_failed": (
+        "原文件暂时无法读取或存储不可用。",
+        "请稍后重试；若持续失败，请重新上传原文件。",
+    ),
+    "extraction_password_protected": (
+        "文件受密码或加密保护，平台不会接收或请求密码。",
+        "请在本地移除密码保护后重新上传。",
+    ),
+    "extraction_format_mismatch": (
+        "文件内容与扩展名不匹配。",
+        "请确认文件类型和扩展名正确后重新上传。",
+    ),
+    "extraction_corrupt": (
+        "文件内容已损坏，无法安全解析。",
+        "请从原始应用重新导出文件后上传。",
+    ),
+    "extraction_archive_limit": (
+        "文件解压后的体积异常，无法安全处理。",
+        "请使用原始文件或精简后重新导出。",
+    ),
+    "extraction_structure_limit": (
+        "文件内部结构过于复杂，无法安全处理。",
+        "请精简文档、工作表或幻灯片后重试。",
+    ),
+    "extraction_timeout": (
+        "文件解析超过安全时限，已停止。",
+        "请精简或重新导出文件后重试。",
+    ),
     "file_format_unsupported": (
         "当前文件格式不支持自动提取，文件仍已保存。",
         "人工补全标题和摘要后继续，或重新上传受支持的文本、PDF、DOCX 文件。",
@@ -206,11 +238,15 @@ def _response(ctx: _TaskContext, caller: CallerContext) -> IngestTaskStatusRespo
             if stage_value in {item.value for item in IngestTaskStage}
             else IngestTaskStage.text_extraction
         )
-        if task.error_type == "processing_error":
+        if task.error_type in {"processing_error", "processing_abandoned", "source_read_failed"}:
             stage = IngestTaskStage.failed
             status = IngestTaskWorkflowStatus.failed
             retryable = task.created_by == caller.user_id or caller.can_discover_l5
-            error = _safe_error("ingest_processing_failed")
+            error = _safe_error(
+                task.error_type
+                if task.error_type in {"processing_abandoned", "source_read_failed"}
+                else "ingest_processing_failed"
+            )
             next_action = _action("retry_processing", "ingest_task_retry", enabled=retryable)
     elif task.status == IngestStatus.pending_confirmation.value:
         extraction_status = task.ai_result.extraction_status if task.ai_result else None
@@ -251,9 +287,13 @@ def _response(ctx: _TaskContext, caller: CallerContext) -> IngestTaskStatusRespo
             else IngestTaskStage.failed
         )
         status = IngestTaskWorkflowStatus.failed
-        if task.error_type == "processing_error":
+        if task.error_type in {"processing_error", "processing_abandoned", "source_read_failed"}:
             retryable = task.created_by == caller.user_id or caller.can_discover_l5
-            error = _safe_error("ingest_processing_failed")
+            error = _safe_error(
+                task.error_type
+                if task.error_type in {"processing_abandoned", "source_read_failed"}
+                else "ingest_processing_failed"
+            )
             next_action = _action("retry_processing", "ingest_task_retry", enabled=retryable)
         elif task.processing_stage == "ocr_failed":
             retryable = task.created_by == caller.user_id or caller.can_discover_l5
@@ -273,6 +313,9 @@ def _response(ctx: _TaskContext, caller: CallerContext) -> IngestTaskStatusRespo
             next_action = _action("retry_generation", "ingest_task_retry", enabled=retryable)
         elif task.error_type == "extraction_empty":
             error = _safe_error("file_text_unavailable")
+            next_action = _action("replace_file", "upload")
+        elif task.error_type in _SAFE_ERRORS:
+            error = _safe_error(task.error_type)
             next_action = _action("replace_file", "upload")
         else:
             error = _safe_error("file_parse_failed")
@@ -462,10 +505,10 @@ async def retry_task(
                     )
                 )
                 await session.commit()
-    elif (
-        task.status in {IngestStatus.failed.value, IngestStatus.processing.value}
-        and task.error_type == "processing_error"
-    ):
+    elif task.status in {
+        IngestStatus.failed.value,
+        IngestStatus.processing.value,
+    } and task.error_type in {"processing_error", "processing_abandoned", "source_read_failed"}:
         claim = await session.execute(
             update(IngestTask)
             .where(

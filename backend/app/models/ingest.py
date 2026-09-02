@@ -57,6 +57,11 @@ class IngestTask(Base):
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
     # Safe workflow marker used by the first-party status API. It never stores provider details.
     processing_stage: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # Refreshed only by the worker at controlled phase boundaries.  It is intentionally
+    # separate from updated_at so user/session reads cannot make a stuck job look alive.
+    processing_heartbeat_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
     target_scope: Mapped[str | None] = mapped_column(String(20), nullable=True)
     target_project_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("projects.id"), nullable=True
